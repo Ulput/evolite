@@ -1,0 +1,20 @@
+/target
+# Other build folders: target-linux (Docker), target-check (a second build for parallel checks).
+/target-*/
+# Test phrases and keys: never in git.
+.env*.local
+# Testnet accounts (recovery phrases, names, identity IDs) for manual and live tests.
+.test-identities/
+# Screenshots: the app takes them itself (`--screen <name> --screenshot <file>`), any time.
+/docs/screenshots/
+# Claude Code: its working copies of this repository and its notes (skills).
+/.claude/
+# Internal working notes: tasks, test plans and results, reviews, audits.
+/docs/tasks/
+/docs/tasks.md
+/docs/test-plan.md
+/docs/test-plan-questions.md
+/docs/test-sessions.md
+/docs/test-results/
+/docs/review/
+/docs/security/
