@@ -1,0 +1,80 @@
+[package]
+name = "evolite-ui"
+description = "evolite on egui: the screens. Talks to the wallet core only through evolite-api."
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "evolite"
+path = "src/main.rs"
+
+# The renderer shipped next to the app: the worker alone, no window code, Win32k off.
+[[bin]]
+name = "evolite-renderer"
+path = "src/renderer.rs"
+
+# The Windows installer and uninstaller (docs/installer.md).
+[[bin]]
+name = "evolite-setup"
+path = "src/setup/main.rs"
+
+[features]
+default = ["real", "pool"]
+# The real core (dash-spv, keys, Platform). Without it the app runs the demo core only, and its
+# tests build in seconds: `cargo test -p evolite-ui --no-default-features`.
+real = ["evolite-core/real"]
+# The shielded pool (Orchard) on the real core, screens 08–09. Its proofs are a large share of a
+# clean build: `--no-default-features --features real` leaves it out.
+pool = ["real", "evolite-core/pool"]
+# Tools for screenshots and checks, off in the release: `--screen`, `--open`, `--screenshot`,
+# `--window`, `--demo`, `EVOLITE_SHOT_PASSWORD`, the Figma presets and the demo core beside
+# the real one. `cargo run --features dev-tools -- --screen overview`.
+dev-tools = ["evolite-core/demo"]
+
+[dependencies]
+evolite-api = { path = "../evolite-api" }
+evolite-core = { path = "../evolite-core", default-features = false }
+evolite-render = { path = "../evolite-render" }
+# Same line as Dash Evo Tool (0.36), whose API is known to work with dash-spv. `accesskit`:
+# screen readers (Narrator, NVDA, VoiceOver, Orca) see the buttons and fields. `wgpu`: Direct3D 12,
+# Vulkan, Metal or OpenGL, whichever the system has, and the system's software renderer (WARP on
+# Windows, llvmpipe on Linux) where there is no graphics driver — a virtual machine, a remote
+# desktop, the basic display adapter. OpenGL alone (`glow`) refused to start there.
+eframe = { version = "0.36", default-features = false, features = ["accesskit", "default_fonts", "wgpu", "persistence", "wayland", "x11"] }
+egui = "0.36"
+egui_extras = { version = "0.36", features = ["svg"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+image = { version = "0.25", default-features = false, features = ["png"] }
+qrcode = { version = "0.14", default-features = false }
+arboard = { version = "3", default-features = false }
+sha2 = { version = "0.10", default-features = false }
+chrono = "0.4.45"
+zeroize = "1"
+ar-reshaper = "1.5"
+unicode-bidi = "0.3"
+
+[target.'cfg(windows)'.dependencies]
+# "Show animations in Windows": whether NFT animations play when set to follow the system;
+# the system language; system notifications (Shell_NotifyIconW); the phrase kept out of screen
+# captures (SetWindowDisplayAffinity); a new data folder's own access list. The installer: disks,
+# the «Installed apps» entry, the console of `--pack`, a hung evolite's process, the message box
+# of a start that failed.
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Globalization", "Win32_Security", "Win32_Security_Authorization", "Win32_Storage_FileSystem", "Win32_System_Console", "Win32_System_Diagnostics_ToolHelp", "Win32_System_LibraryLoader", "Win32_System_Registry", "Win32_System_Threading", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
+# The installer: shortcuts (IShellLinkW), the folder picker and the user's known folders.
+windows = { version = "0.62", features = ["Win32_System_Com", "Win32_UI_Shell", "Win32_UI_Shell_Common"] }
+# The window's handle from eframe (already in the tree through winit).
+raw-window-handle = "0.6"
+
+[target.'cfg(unix)'.dependencies]
+# The installer on Linux and macOS: free space of the mounted disks (statvfs, getmntinfo).
+libc = "0.2"
+
+[dev-dependencies]
+# `examples/app_icon.rs`: the app icon's PNG and ICO from its SVG (the same resvg as the renderer).
+resvg = { version = "0.45", default-features = false }
+
+[target.'cfg(windows)'.build-dependencies]
+# The executable's icon in Explorer, the taskbar and Alt+Tab (`evolite.rc`).
+embed-resource = "3"

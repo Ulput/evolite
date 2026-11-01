@@ -1,0 +1,139 @@
+# evolite and its installer on every system and architecture it ships for: build, the installer's
+# tests (the live install cycle included: a fresh runner has nothing to lose), the packed
+# installer as an artifact. A tag `v*` also publishes the installers as a GitHub release. See
+# docs/installer.md, "Systems and architectures" and "Publishing a release".
+name: build
+
+on:
+  push:
+    branches: [master]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  PROTOC_VERSION: "32.0"
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: windows-x86_64
+            runner: windows-latest
+            target: x86_64-pc-windows-msvc
+            protoc: win64
+          - name: windows-arm64
+            runner: windows-11-arm
+            target: aarch64-pc-windows-msvc
+            # No Windows ARM protoc: the x64 one runs under emulation.
+            protoc: win64
+          - name: linux-x86_64
+            runner: ubuntu-24.04
+            target: x86_64-unknown-linux-gnu
+            protoc: linux-x86_64
+          - name: linux-arm64
+            runner: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+            protoc: linux-aarch_64
+          - name: macos-arm64
+            runner: macos-15
+            target: aarch64-apple-darwin
+            protoc: osx-aarch_64
+          # Built on Apple silicon for Intel Macs: Xcode's SDK has both; tests run on arm64.
+          - name: macos-x86_64
+            runner: macos-15
+            target: x86_64-apple-darwin
+            protoc: osx-aarch_64
+            cross: true
+    defaults:
+      run:
+        shell: bash
+    steps:
+      # Platform's repository has paths over 260 characters: cargo unpacks it only with this.
+      - name: Long paths (Windows)
+        if: runner.os == 'Windows'
+        run: git config --global core.longpaths true
+
+      - uses: actions/checkout@v4
+        with:
+          path: evolite-rust
+      - name: protoc ${{ env.PROTOC_VERSION }}
+        run: |
+          curl -sSfL -o protoc.zip "https://github.com/protocolbuffers/protobuf/releases/download/v${PROTOC_VERSION}/protoc-${PROTOC_VERSION}-${{ matrix.protoc }}.zip"
+          mkdir -p tools/protoc && unzip -q protoc.zip -d tools/protoc
+          exe=protoc; [ "$RUNNER_OS" = Windows ] && exe=protoc.exe
+          echo "PROTOC=$GITHUB_WORKSPACE/tools/protoc/bin/$exe" >> "$GITHUB_ENV"
+
+      - name: System libraries (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends clang \
+            libx11-dev libxcursor-dev libxrandr-dev libxi-dev libxkbcommon-dev libwayland-dev
+      - name: Rust
+        run: |
+          rustup update stable --no-self-update
+          rustup target add ${{ matrix.target }}
+
+      - name: Build
+        working-directory: evolite-rust
+        run: cargo build --release --target ${{ matrix.target }} --bin evolite --bin evolite-renderer --bin evolite-setup
+      - name: Installer tests
+        if: ${{ !matrix.cross }}
+        working-directory: evolite-rust
+        run: cargo test --release --target ${{ matrix.target }} -p evolite-ui --bin evolite-setup -- --include-ignored
+
+      - name: Pack the installer
+        working-directory: evolite-rust/target/${{ matrix.target }}/release
+        run: |
+          if [ "$RUNNER_OS" = Windows ]; then
+            out="evolite-setup-${{ matrix.name }}.exe"
+            # A GUI-subsystem program: wait for it, its console text goes to this one.
+            pwsh -c "Start-Process -Wait -NoNewWindow ./evolite-setup.exe -ArgumentList '--pack','$out'"
+          elif [ -n "${{ matrix.cross }}" ]; then
+            # The Intel installer packs itself under Rosetta (installed on GitHub's Macs).
+            out="evolite-setup-${{ matrix.name }}"
+            arch -x86_64 ./evolite-setup --pack "$out"
+          else
+            out="evolite-setup-${{ matrix.name }}"
+            ./evolite-setup --pack "$out"
+          fi
+          ls -l evolite-setup* evolite evolite-renderer evolite.exe evolite-renderer.exe 2>/dev/null || true
+          test -s "$out" || { echo "::error::--pack wrote no $out"; exit 1; }
+          # Relative to the workspace: on Windows bash's $PWD is /c/…, which upload-artifact
+          # does not understand.
+          echo "SETUP=evolite-rust/target/${{ matrix.target }}/release/$out" >> "$GITHUB_ENV"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: evolite-setup-${{ matrix.name }}
+          path: ${{ env.SETUP }}
+          if-no-files-found: error
+
+  # A tag `v*`: the six installers, once every build has passed, as a GitHub release. A testnet
+  # demo, so a pre-release.
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: evolite-setup-*
+          path: dist
+          merge-multiple: true
+      - name: Release ${{ github.ref_name }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ls -l dist
+          (cd dist && sha256sum evolite-setup-* > SHA256SUMS)
+          gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" \
+            --title "evolite $GITHUB_REF_NAME" --prerelease \
+            --notes "evolite $GITHUB_REF_NAME, a testnet demo: the installers for Windows, Linux and macOS (x86_64 and ARM64). The installers are not code-signed: Windows SmartScreen warns about an unknown publisher, and on macOS open the installer with right-click → Open. Checksums are in SHA256SUMS."

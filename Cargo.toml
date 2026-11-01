@@ -1,0 +1,54 @@
+[workspace]
+resolver = "3"
+members = [
+    "crates/evolite-api",
+    "crates/evolite-core",
+    "crates/evolite-render",
+    "crates/evolite-ui",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+# The Platform stack Dash Evo Tool runs (dashpay/platform 575d961, v5.1-dev of 2026-10-26) and
+# the rust-dashcore it pins (aca0202). Testnet only. This replaced the earlier pin 0dcdd82 (with
+# the Dark Gravity Wave check of headers); it comes back with dashpay/platform v5.1-dev once
+# dashpay/platform#5637 lands (rust-dashcore 7329126e).
+#
+# Platform's repository has paths over 260 characters (rs-sdk's test vectors): on Windows cargo
+# unpacks it only with `git config --global core.longpaths true`. See docs/platform.md.
+[workspace.dependencies]
+dash-spv = { git = "https://github.com/dashpay/rust-dashcore", rev = "aca020263990a86a15cc1d97ae2cbf965d488db5" }
+key-wallet = { git = "https://github.com/dashpay/rust-dashcore", rev = "aca020263990a86a15cc1d97ae2cbf965d488db5" }
+key-wallet-manager = { git = "https://github.com/dashpay/rust-dashcore", rev = "aca020263990a86a15cc1d97ae2cbf965d488db5" }
+dash-sdk = { git = "https://github.com/dashpay/platform", rev = "575d961fe0c54bd7e01a3cf3823494e58c6c4fdb", default-features = false, features = ["dpns-contract", "dashpay-contract", "wallet"] }
+# dash-sdk turns its gRPC client on only in its default features.
+dapi-grpc = { git = "https://github.com/dashpay/platform", rev = "575d961fe0c54bd7e01a3cf3823494e58c6c4fdb", default-features = false, features = ["client"] }
+dpp = { git = "https://github.com/dashpay/platform", rev = "575d961fe0c54bd7e01a3cf3823494e58c6c4fdb", default-features = false, features = ["ed25519-dalek"] }
+platform-wallet = { git = "https://github.com/dashpay/platform", rev = "575d961fe0c54bd7e01a3cf3823494e58c6c4fdb" }
+platform-wallet-storage = { git = "https://github.com/dashpay/platform", rev = "575d961fe0c54bd7e01a3cf3823494e58c6c4fdb", default-features = false, features = ["sqlite"] }
+# Platform's own signer of state transitions with identity keys (Dash Evo Tool signs with it too).
+simple-signer = { git = "https://github.com/dashpay/platform", rev = "575d961fe0c54bd7e01a3cf3823494e58c6c4fdb", features = ["state-transitions"] }
+# DashPay contact crypto (DIP-15: ECDH, account references, contactInfo), as platform-wallet uses it.
+platform-encryption = { git = "https://github.com/dashpay/platform", rev = "575d961fe0c54bd7e01a3cf3823494e58c6c4fdb" }
+
+# rust-dashcore aca0202 still hashes X11 in C (rs-x11-hash): its header includes <unistd.h>,
+# which MSVC lacks and nothing uses, and its build script insists on clang. The vendored copy
+# guards the include and lets MSVC's compiler build it.
+[patch.crates-io]
+rs-x11-hash = { path = "vendor/rs-x11-hash" }
+
+[profile.dev.package.rs-x11-hash]
+# X11 without optimisation is slow enough to stall header sync in debug builds (cc follows
+# the package opt-level).
+opt-level = 3
+
+# Build speed. Full debug info for the Platform stack made `target` tens of GB and every test
+# binary slow to link; line tables keep backtraces readable in our crates, none for the rest.
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false

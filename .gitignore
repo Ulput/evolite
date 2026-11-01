@@ -18,3 +18,5 @@
 /docs/test-results/
 /docs/review/
 /docs/security/
+# Reports (reviews, audits, checks): written in Russian, kept out of git.
+/docs/code-quality.md

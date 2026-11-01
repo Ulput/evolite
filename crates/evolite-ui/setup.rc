@@ -1,0 +1,4 @@
+// evolite-setup: the app's icon (id 1) and the manifest that keeps it from asking for
+// administrator rights (RT_MANIFEST, id 1).
+1 ICON "assets/app/evolite-app.ico"
+1 24 "setup.manifest"

@@ -1,0 +1,86 @@
+[package]
+name = "evolite-core"
+description = "The evolite wallet core behind the UI. For now a mock with the Figma example data; later dash-spv, keys and Platform."
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[features]
+default = ["real"]
+# The real core: dash-spv, keys, the vault and Platform. Without it only the demo core is built,
+# in seconds instead of minutes: `cargo test -p evolite-ui --no-default-features`.
+real = [
+    "dep:dash-spv",
+    "dep:key-wallet",
+    "dep:key-wallet-manager",
+    "dep:dash-sdk",
+    "dep:dapi-grpc",
+    "dep:dpp",
+    "dep:platform-wallet",
+    "dep:platform-wallet-storage",
+    "dep:simple-signer",
+    "dep:platform-encryption",
+    "dep:rusqlite",
+    "dep:bincode",
+    "dep:ureq",
+    "dep:async-trait",
+    "dep:aes-gcm",
+    "dep:hkdf",
+    "dep:argon2",
+    "dep:getrandom",
+    "dep:zeroize",
+    "dep:serde",
+    "dep:tokio",
+]
+# The shielded pool (Orchard proofs: orchard, halo2 and friends, a large share of a clean
+# build): screens 08–09 on the real core (`real/pool.rs`).
+pool = ["real", "platform-wallet/shielded", "platform-wallet-storage/shielded"]
+# The demo core ([`Core::mock`]: the example wallet from Figma) beside the real one, for
+# screenshots and the demo; `evolite-ui`'s `dev-tools` turns it on. Built without `real` it is
+# the only core and needs no flag.
+demo = []
+
+[dependencies]
+evolite-api = { path = "../evolite-api" }
+sha2 = { version = "0.10", default-features = false }
+# NFT pictures: drawn in a sandboxed worker process, never in the app's own.
+evolite-render = { path = "../evolite-render" }
+# rust-dashcore and Platform at Dash Evo Tool's revisions: see the workspace manifest.
+dash-spv = { workspace = true, optional = true }
+key-wallet = { workspace = true, optional = true }
+# keep-finalized-transactions: without it key-wallet drops the records of chainlocked
+# transactions (only their txids stay) and expects the host to keep the history.
+key-wallet-manager = { workspace = true, features = ["keep-finalized-transactions"], optional = true }
+dash-sdk = { workspace = true, optional = true }
+dapi-grpc = { workspace = true, optional = true }
+dpp = { workspace = true, optional = true }
+platform-wallet = { workspace = true, optional = true }
+platform-wallet-storage = { workspace = true, optional = true }
+simple-signer = { workspace = true, optional = true }
+platform-encryption = { workspace = true, optional = true }
+# The wallet's history straight from platform-wallet's store (read only): the store keeps it, but
+# platform-wallet does not load it back into the wallet after a restart. Same version as the store.
+rusqlite = { version = "0.38", optional = true }
+# The store's record format: bincode (Platform's fork, its version) of key-wallet's TransactionRecord.
+bincode = { package = "grovedb-bincode", version = "=2.1.0", features = ["serde"], optional = true }
+# Profile pictures over https only (rustls), size-capped; already in the tree through Platform.
+ureq = { version = "3", optional = true }
+# key-wallet's signer traits are async_trait ones.
+async-trait = { version = "0.1", optional = true }
+# The vault: RustCrypto's audited AES-GCM and Argon2, secrets in Zeroizing.
+aes-gcm = { version = "0.10", optional = true }
+# App sign-in (key exchange): the login key's derivations and its envelope, as the apps do them.
+hkdf = { version = "0.12", optional = true }
+argon2 = { version = "0.5", optional = true }
+getrandom = { version = "0.3", optional = true }
+zeroize = { version = "1", optional = true }
+serde = { version = "1", features = ["derive"], optional = true }
+# The diagnostic journal's lines (demo and real core alike) and the core's JSON files.
+serde_json = "1"
+tokio = { version = "1", features = ["sync", "macros", "rt-multi-thread", "time", "net"], optional = true }
+# The demo stores Jembe's samples as their documents do: raw deflate.
+miniz_oxide = "0.8"
+
+[dev-dependencies]
+# Paused time for the auto-lock test.
+tokio = { version = "1", features = ["test-util"] }

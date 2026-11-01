@@ -1,0 +1,10 @@
+[package]
+name = "evolite-api"
+description = "What the evolite UI and the wallet core say to each other: commands, events and snapshots. No logic, no secrets beyond the phrase the user must see."
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+lz4_flex = { version = "0.11", default-features = false, features = ["safe-encode", "safe-decode", "std"] }
+zeroize = "1"

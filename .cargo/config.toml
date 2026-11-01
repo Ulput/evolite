@@ -1,0 +1,10 @@
+# LLVM's linker, shipped with the toolchain: much faster than link.exe on binaries that carry
+# the whole Platform stack (every test binary does).
+[target.x86_64-pc-windows-msvc]
+linker = "rust-lld.exe"
+
+# Tests always with the whole workspace: building one package (`-p`) enables other features of
+# the shared dependencies and rebuilds most of the Platform stack, and back again. A single
+# test is picked by name: `cargo t live_restart -- --ignored --nocapture`.
+[alias]
+t = "test --workspace"
