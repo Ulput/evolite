@@ -62,3 +62,8 @@ debug = "line-tables-only"
 
 [profile.dev.package."*"]
 debug = false
+# Dependencies optimised in debug builds too: unoptimised Argon2 took 6.5 s per vault open
+# (0.2 s in release) and BLS, X11 and Platform proof checks made syncs and live tests many
+# times slower. Only third-party crates are affected; the workspace's own crates keep fast
+# rebuilds.
+opt-level = 2
