@@ -296,3 +296,29 @@ fn dates_and_numbers_by_language() {
     assert_eq!(separators_in(Lang::En), (',', '.'));
     assert_eq!(separators_in(Lang::De), ('.', ','));
 }
+
+#[test]
+fn a_key_followed_by_a_full_stop_is_still_translated() {
+    let json = r#"{
+        "the link is not a picture": "по ссылке не картинка",
+        "The picture did not download: {}": "Картинка не скачалась: {}",
+        "Wrong password": "パスワードが違います",
+        "Done.": "Готово."
+    }"#;
+    let mut ru = catalog(Lang::Ru, json);
+    // "{why}." around a core's reason, inside a template too.
+    assert_eq!(
+        ru.translate("The picture did not download: the link is not a picture.")
+            .as_deref(),
+        Some("Картинка не скачалась: по ссылке не картинка.")
+    );
+    assert_eq!(ru.translate("Done.").as_deref(), Some("Готово."));
+    assert_eq!(ru.translate("Done..."), None, "only one full stop is ours");
+    assert_eq!(ru.translate("Unknown words."), None);
+    let mut ja = catalog(Lang::Ja, json);
+    assert_eq!(
+        ja.translate("Wrong password.").as_deref(),
+        Some("パスワードが違います。"),
+        "the language's own full stop"
+    );
+}

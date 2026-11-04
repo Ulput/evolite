@@ -96,12 +96,31 @@ impl Catalog {
         if let Some(seen) = self.seen.get(text) {
             return seen.clone();
         }
-        let found = self.by_template(text);
+        let found = self.by_template(text).or_else(|| self.with_full_stop(text));
         if self.seen.len() >= SEEN_MAX {
             self.seen.clear();
         }
         self.seen.insert(text.to_owned(), found.clone());
         found
+    }
+
+    /// A sentence the screens finished with a full stop after the key ("{reason}."): the key's
+    /// translation, then the stop — unless the translation ends with its own.
+    fn with_full_stop(&mut self, text: &str) -> Option<String> {
+        let bare = text.strip_suffix('.')?;
+        if bare.is_empty() || bare.ends_with('.') {
+            return None;
+        }
+        let mut found = self.translate(bare)?;
+        if !found.ends_with(['.', '。', '।', '!', '?']) {
+            // The language's own full stop, as its catalog writes it.
+            found.push(match self.lang {
+                Some(Lang::ZhHans | Lang::Ja) => '。',
+                Some(Lang::Hi) => '।',
+                _ => '.',
+            });
+        }
+        Some(found)
     }
 
     fn by_template(&mut self, text: &str) -> Option<String> {

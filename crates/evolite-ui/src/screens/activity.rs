@@ -398,11 +398,7 @@ fn card(
                 ui,
                 &p,
                 tr!("When"),
-                &format!(
-                    "{}, {}",
-                    text::date_long(act.at),
-                    text::time_of_day(act.at, now)
-                ),
+                &text::date_time(act.at, now),
                 value.clone(),
             );
             kv_row(ui, &p, tr!("Where"), text::chain(act.chain), value.clone());

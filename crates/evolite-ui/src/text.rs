@@ -89,6 +89,18 @@ pub fn time_of_day(at: Timestamp, now: DateTime<Local>) -> String {
     }
 }
 
+/// "12 October 2026, 14:32" or "12 October 2026, just now" for an operation's card: put together
+/// here, so "just now" is in the interface language like the month (a sentence of a date and a
+/// time is no catalog's key).
+pub fn date_time(at: Timestamp, now: DateTime<Local>) -> String {
+    date_time_in(crate::i18n::current(), at, now)
+}
+
+fn date_time_in(lang: crate::i18n::Lang, at: Timestamp, now: DateTime<Local>) -> String {
+    let time = time_of_day(at, now);
+    format!("{}, {}", date_long(at), crate::i18n::t_in(lang, &time))
+}
+
 /// A day header: "Today", "Yesterday", "27 October".
 pub fn day(at: Timestamp, now: DateTime<Local>) -> String {
     let t = local(at);
@@ -423,7 +435,9 @@ fn failure(why: &str) -> &'static str {
 /// "Not sent: the network did not answer in time — try again": what did not happen, then
 /// why.
 pub fn failed(what: &str, e: &CoreError) -> String {
-    format!("{what}: {}.", error_text(e))
+    // A template of its own: the catalogs translate both halves and join them as their language
+    // does ("{} : {}." in French); the plain join was a sentence no catalog knew.
+    format!(tr!("{}: {}."), what, error_text(e))
 }
 
 /// "412 MB", "1,2 GB", "640 KB": a size on disk, in binary units as Windows shows them.
@@ -480,6 +494,47 @@ pub fn signed_amount(duffs: i64) -> String {
 mod tests {
     use super::*;
     use chrono::Duration;
+
+    #[test]
+    fn a_failure_and_its_reason_are_both_in_the_interface_language() {
+        use crate::i18n::{Lang, t_in};
+        let shown = failed(
+            tr!("Not topped up"),
+            &CoreError::Failed("status 500 from the node".into()),
+        );
+        assert_eq!(
+            shown,
+            "Not topped up: the network or Platform returned an error."
+        );
+        let ru = t_in(Lang::Ru, &shown);
+        assert!(
+            ru.contains(t_in(Lang::Ru, "Not topped up").as_ref()),
+            "{ru}"
+        );
+        assert!(
+            ru.contains(t_in(Lang::Ru, "the network or Platform returned an error").as_ref()),
+            "{ru}"
+        );
+        // A reason the core wrote: one of its own catalog keys.
+        let why = CoreError::NotAvailable(
+            tr!("First finish the stopped top-up — its money is already locked").into(),
+        );
+        let shown = failed(tr!("Not topped up"), &why);
+        let ru = t_in(Lang::Ru, &shown);
+        assert!(!ru.contains("First finish"), "{ru}");
+    }
+
+    #[test]
+    fn just_now_in_a_card_is_in_the_interface_language() {
+        use crate::i18n::{Lang, t_in};
+        let now = Local::now();
+        let shown = date_time_in(Lang::Ru, now.timestamp(), now);
+        assert!(!shown.contains("just now"), "{shown}");
+        assert!(
+            shown.ends_with(t_in(Lang::Ru, "just now").as_ref()),
+            "{shown}"
+        );
+    }
 
     #[test]
     fn an_address_in_groups_and_its_lookalikes() {
