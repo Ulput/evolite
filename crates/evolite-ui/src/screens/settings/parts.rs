@@ -77,7 +77,11 @@ fn row(ui: &mut Ui, a: &mut Assets, title: &str, sub: &str, control: Control) ->
     let p = a.p;
     let mut clicked = false;
     // "Core nodes … 8 ›": the whole row opens what the chevron opens.
-    let whole_row = matches!(control, Control::Value(..));
+    let value = match &control {
+        Control::Value(value, _) => Some(*value),
+        _ => None,
+    };
+    let whole_row = value.is_some();
     let frame = egui::Frame::new()
         .inner_margin(Margin::symmetric(20, 16))
         .show(ui, |ui| {
@@ -135,12 +139,19 @@ fn row(ui: &mut Ui, a: &mut Assets, title: &str, sub: &str, control: Control) ->
                 });
             });
         });
-    if whole_row {
-        // The chevron stays the named button for screen readers; the row only widens the target.
+    if let Some(value) = value {
+        // The row is the one named button and Tab stop, "Core nodes · 8" (BUG-18): the focus
+        // ring goes round it all; the chevron inside only takes clicks.
         let resp = frame
             .response
             .interact(Sense::click())
             .on_hover_cursor(CursorIcon::PointingHand);
+        crate::components::named(
+            &resp,
+            egui::WidgetType::Button,
+            true,
+            &format!("{} · {}", crate::i18n::t(title), crate::i18n::t(value)),
+        );
         clicked |= resp.clicked();
     }
     clicked
@@ -202,14 +213,9 @@ fn draw_control(ui: &mut Ui, a: &mut Assets, title: &str, control: Control) -> b
                     );
                 })
                 .response
-                .interact(Sense::click())
+                // Clicks, but no Tab stop or name of its own: the row has them (BUG-18).
+                .interact(Sense::CLICK)
                 .on_hover_cursor(CursorIcon::PointingHand);
-            crate::components::named(
-                &resp,
-                egui::WidgetType::Button,
-                true,
-                &format!("{} · {}", crate::i18n::t(title), crate::i18n::t(value)),
-            );
             resp.clicked()
         }
         Control::Text(value, mono_value) => {
@@ -341,5 +347,46 @@ mod tests {
             click_row_at(|r| pos2(r.right() - 30.0, r.bottom() - 35.0)),
             Some(0)
         );
+    }
+
+    /// BUG-18 should: a "Core nodes … 8 ›" row is one Tab stop, named "Core nodes · 8"; the
+    /// chevron inside is not a second, nameless one.
+    #[test]
+    fn a_row_with_a_chevron_is_one_named_tab_stop() {
+        let ctx = egui::Context::default();
+        ctx.enable_accesskit();
+        crate::theme::install_fonts(&ctx, crate::i18n::Lang::En, false);
+        let mut a = Assets {
+            p: crate::theme::DARK,
+            icons: crate::icons::Icons::load(),
+            avatars: Default::default(),
+        };
+        let mut update = None;
+        for _ in 0..3 {
+            let input = RawInput {
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(800.0, 600.0))),
+                ..Default::default()
+            };
+            let mut out = ctx.run_ui(input, |ui| {
+                group(
+                    ui,
+                    &mut a,
+                    "Network",
+                    vec![("Core nodes", "8 connected", Control::Value("8", false))],
+                );
+            });
+            out.textures_delta.clear();
+            update = out.platform_output.accesskit_update.or(update);
+        }
+        let update = update.expect("an AccessKit tree");
+        let stops: Vec<Option<String>> = update
+            .nodes
+            .iter()
+            .filter(|(_, node)| node.supports_action(egui::accesskit::Action::Focus))
+            .map(|(_, node)| node.label().map(str::to_owned))
+            .collect();
+        assert_eq!(stops.len(), 1, "one Tab stop: {stops:?}");
+        let name = stops[0].as_deref().unwrap_or_default();
+        assert!(name.contains("Core nodes") && name.contains('8'), "{name}");
     }
 }
