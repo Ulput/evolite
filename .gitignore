@@ -20,3 +20,8 @@
 /docs/security/
 # Reports (reviews, audits, checks): written in Russian, kept out of git.
 /docs/code-quality.md
+# The agent team's own documents: its rules, roles, notes, analysis, architecture and design notes.
+/docs/team/
+/docs/analysis/
+/docs/architecture/
+/docs/design/
