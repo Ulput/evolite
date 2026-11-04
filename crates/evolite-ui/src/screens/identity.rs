@@ -1334,7 +1334,10 @@ fn names(ui: &mut Ui, a: &mut Assets, id: &Identity, width: f32) {
 }
 
 fn keys(ui: &mut Ui, a: &mut Assets, id: &Identity, width: f32) {
-    list_card(ui, a, width, tr!("Keys"), tr!("Details"), |ui, a| {
+    // The note is the count, as on "DPNS names": every key's details are already in its row, and
+    // a "Details" there read as a link that led nowhere.
+    let count = id.keys.len().to_string();
+    list_card(ui, a, width, tr!("Keys"), &count, |ui, a| {
         let p = a.p;
         for key in &id.keys {
             let level = text::key_level(key.level);
