@@ -23,16 +23,16 @@ macro_rules! tr {
 
 // evolite's own modules, shared as they are: languages, palette and fonts, the right-to-left
 // mirror, the logo. The installer uses part of each.
-#[allow(dead_code)]
+#[allow(dead_code, reason = "the installer uses only part of the app's module")]
 #[path = "../i18n/mod.rs"]
 mod i18n;
-#[allow(dead_code)]
+#[allow(dead_code, reason = "the installer uses only part of the app's module")]
 #[path = "../icons.rs"]
 mod icons;
-#[allow(dead_code)]
+#[allow(dead_code, reason = "the installer uses only part of the app's module")]
 #[path = "../rtl.rs"]
 mod rtl;
-#[allow(dead_code)]
+#[allow(dead_code, reason = "the installer uses only part of the app's module")]
 #[path = "../theme.rs"]
 mod theme;
 

@@ -75,10 +75,14 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends clang \
             libx11-dev libxcursor-dev libxrandr-dev libxi-dev libxkbcommon-dev libwayland-dev
+      # The toolchain pinned in rust-toolchain.toml; the target is added to that one, not to stable.
       - name: Rust
+        working-directory: evolite-rust
         run: |
-          rustup update stable --no-self-update
+          rustup --version
+          rustup toolchain install
           rustup target add ${{ matrix.target }}
+          rustc --version
 
       - name: Build
         working-directory: evolite-rust

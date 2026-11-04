@@ -1,0 +1,7 @@
+# The Rust release evolite is built, linted and tested with, here and in CI (ci.yml, build.yml):
+# a new stable release brings new clippy lints, which would turn CI red with no change of ours.
+# Moved on purpose, together with the fixes the new release asks for.
+[toolchain]
+channel = "1.99.1"
+components = ["clippy", "rustfmt"]
+profile = "minimal"

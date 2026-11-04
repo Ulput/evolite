@@ -205,7 +205,10 @@ static SOURCE: OnceLock<fn(Lang) -> Option<&'static str>> = OnceLock::new();
 
 /// The catalogs of another program: `source` gives each language's JSON (none for English).
 /// Takes effect only before the first translation; later calls are ignored.
-#[allow(dead_code)]
+#[allow(
+    dead_code,
+    reason = "only the installer (src/setup) calls it; the app has its own catalogs"
+)]
 pub fn use_catalogs(source: fn(Lang) -> Option<&'static str>) {
     let _ = SOURCE.set(source);
 }

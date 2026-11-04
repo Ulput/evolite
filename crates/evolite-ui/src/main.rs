@@ -75,7 +75,10 @@ fn main() {
     // A data folder made now is its owner's alone, wherever --data-dir puts it — before the
     // journal below or the core create anything in it. (Without the demo core, the real one is
     // the only choice.)
-    #[allow(irrefutable_let_patterns)]
+    #[allow(
+        irrefutable_let_patterns,
+        reason = "without the demo core CoreChoice has only Real"
+    )]
     if let cli::CoreChoice::Real(dir) = &launch.core {
         let _ = private_dir::create(dir);
     }

@@ -84,7 +84,10 @@ pub(crate) fn warm_up() -> Vec<std::path::PathBuf> {
         .faces()
         .filter_map(|face| match &face.source {
             fontdb::Source::File(path) => path.parent().map(ToOwned::to_owned),
-            #[allow(unreachable_patterns)]
+            #[allow(
+                unreachable_patterns,
+                reason = "fontdb has other sources with some of its features, none here"
+            )]
             _ => None,
         })
         .collect();

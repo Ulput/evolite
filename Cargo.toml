@@ -34,6 +34,16 @@ simple-signer = { git = "https://github.com/dashpay/platform", rev = "575d961fe0
 # DashPay contact crypto (DIP-15: ECDH, account references, contactInfo), as platform-wallet uses it.
 platform-encryption = { git = "https://github.com/dashpay/platform", rev = "575d961fe0c54bd7e01a3cf3823494e58c6c4fdb" }
 
+# Lints for every crate of the workspace (each has `[lints] workspace = true`). CI runs clippy
+# with `-D warnings` (.github/workflows/ci.yml): clippy's default set, no pedantic or nursery.
+# An exception is an `#[allow(clippy::…)]` on the item itself, with the reason beside it.
+[workspace.lints.rust]
+unsafe_op_in_unsafe_fn = "warn"
+unused_must_use = "deny"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+
 # rust-dashcore aca0202 still hashes X11 in C (rs-x11-hash): its header includes <unistd.h>,
 # which MSVC lacks and nothing uses, and its build script insists on clang. The vendored copy
 # guards the include and lets MSVC's compiler build it.

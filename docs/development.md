@@ -65,6 +65,44 @@ goes into git). They run on a copy of a "warm" wallet in `%TEMP%\evolite-live-wa
 phrase creates it once (about 10 minutes), and each test on a copy only catches up with new
 blocks.
 
+### What CI checks
+
+`.github/workflows/ci.yml` runs on every pull request to `dev` or `master`, on every push to them
+and by hand (`workflow_dispatch`). Each check is a command you can run here as it is; the Rust
+release is the one in `rust-toolchain.toml` (rustup picks it up), so a new stable release does not
+change what CI says. Live tests (`#[ignore]`) never run in CI.
+
+Two checks, one per system, each running its commands in this order:
+
+| Check | Commands |
+|---|---|
+| `linux` | `cargo fmt --all --check` |
+| | `cargo clippy --workspace --all-targets --locked --features evolite-ui/dev-tools -- -D warnings` |
+| | `cargo test --workspace --locked` |
+| | `cargo test --workspace --locked --features evolite-ui/dev-tools` |
+| | `cargo check -p evolite-ui --no-default-features --features dev-tools --locked` (in its own `CARGO_TARGET_DIR`: `-p` builds other features of the dependencies) |
+| `windows` | `cargo test --workspace --locked` |
+| | `cargo test --workspace --locked --features evolite-ui/dev-tools` |
+| | `cargo clippy --workspace --all-targets --locked -- -D warnings` (the code under `cfg(windows)`) |
+
+The code under `cfg(target_os = "macos")` is linted by neither.
+
+The lints are set once for the workspace (`[workspace.lints]` in `Cargo.toml`): clippy's default
+set, every warning an error in CI. When a lint is wrong for one place, allow it on that item only,
+with the reason in it:
+
+```rust
+#[allow(
+    clippy::too_many_arguments,
+    reason = "the fields of the transition as Platform defines it; a struct would only rename them"
+)]
+fn sign_transition(/* … */) {}
+```
+
+A new Rust release is taken on purpose, in a small pull request of its own: `channel` in
+`rust-toolchain.toml` (and the release in `linux-check/Dockerfile`), with the fixes its new
+lints ask for.
+
 ## Architecture
 
 Four crates in one workspace; the boundary between the interface and the wallet is the types in

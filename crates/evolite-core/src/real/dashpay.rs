@@ -5,11 +5,6 @@
 //! account references, contactInfo) is done here, from the keys derived from the phrase while
 //! the wallet is open, through its [`ContactCryptoProvider`].
 
-#![allow(
-    clippy::result_large_err,
-    reason = "PlatformWalletError is the error type ContactCryptoProvider requires"
-)]
-
 use std::collections::HashMap;
 
 use async_trait::async_trait;
@@ -26,6 +21,10 @@ use zeroize::Zeroizing;
 /// DashPay crypto from the open wallet's keys.
 pub struct SeedCrypto(pub key_wallet::Wallet);
 
+#[allow(
+    clippy::result_large_err,
+    reason = "PlatformWalletError is the error type ContactCryptoProvider requires; these helpers feed it"
+)]
 impl SeedCrypto {
     fn xprv(&self, path: &DerivationPath) -> Result<Zeroizing<[u8; 32]>, PlatformWalletError> {
         let x = self
@@ -64,6 +63,10 @@ impl SeedCrypto {
 }
 
 #[async_trait]
+#[allow(
+    clippy::result_large_err,
+    reason = "PlatformWalletError is the error type ContactCryptoProvider requires"
+)]
 impl ContactCryptoProvider for SeedCrypto {
     async fn receiving_xpub(
         &self,

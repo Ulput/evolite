@@ -1,0 +1,132 @@
+# Checks on every change to dev and master: rustfmt, clippy and the wallet's unit tests. Live
+# tests on testnet are #[ignore] and stay out: they need a phrase the runners do not have. The
+# release build and the installers are build.yml's. Every step is a command to run locally as it
+# is: docs/development.md, "What CI checks".
+#
+# One job per system, so the two feature sets share one `target` and one cache each:
+#   linux   — rustfmt, clippy with dev-tools, tests (default, dev-tools), the demo-only build;
+#   windows — tests (default, dev-tools), clippy without dev-tools (the cfg(windows) code).
+name: ci
+
+on:
+  pull_request:
+    branches: [dev, master]
+  push:
+    branches: [dev, master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# A new push to a pull request cancels its older run; pushes to dev and master always finish.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  PROTOC_VERSION: "32.0"
+  CARGO_TERM_COLOR: always
+  # CI builds each commit once: incremental state would only fill the cache.
+  CARGO_INCREMENTAL: "0"
+
+jobs:
+  linux:
+    name: linux
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        shell: bash
+        working-directory: evolite-rust
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          path: evolite-rust
+          persist-credentials: false
+      - name: protoc ${{ env.PROTOC_VERSION }}
+        working-directory: .
+        run: |
+          curl -sSfL -o protoc.zip "https://github.com/protocolbuffers/protobuf/releases/download/v${PROTOC_VERSION}/protoc-${PROTOC_VERSION}-linux-x86_64.zip"
+          mkdir -p tools/protoc && unzip -q protoc.zip -d tools/protoc
+          echo "PROTOC=$GITHUB_WORKSPACE/tools/protoc/bin/protoc" >> "$GITHUB_ENV"
+      - name: System libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends clang \
+            libx11-dev libxcursor-dev libxrandr-dev libxi-dev libxkbcommon-dev libwayland-dev
+      # The release, clippy and rustfmt pinned in rust-toolchain.toml.
+      - name: Rust
+        run: |
+          rustup --version
+          rustup toolchain install
+          rustc --version
+          cargo clippy --version
+      # Registry, git checkouts and the dependencies' builds; saved only by pushes to dev and
+      # master, read by pull requests. target-demo is not cached.
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          workspaces: evolite-rust
+          shared-key: linux
+          save-if: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/master') }}
+      - name: rustfmt
+        run: cargo fmt --all --check
+      - name: clippy (dev-tools)
+        run: cargo clippy --workspace --all-targets --locked --features evolite-ui/dev-tools -- -D warnings
+      - name: tests (default features)
+        run: cargo test --workspace --locked
+      - name: tests (dev-tools)
+        run: cargo test --workspace --locked --features evolite-ui/dev-tools
+      # The demo-only app (no Platform stack) still builds. `-p` turns on other features of the
+      # dependencies, so it gets a folder of its own and leaves the cached one alone.
+      - name: check (demo only)
+        env:
+          CARGO_TARGET_DIR: ${{ github.workspace }}/target-demo
+        run: cargo check -p evolite-ui --no-default-features --features dev-tools --locked
+
+  windows:
+    name: windows
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+        working-directory: evolite-rust
+    steps:
+      # Platform's repository has paths over 260 characters; rust-bitcoin's `*/include` folders
+      # are symbolic links, which git otherwise checks out as text files holding a path.
+      - name: Long paths and symbolic links
+        working-directory: .
+        run: |
+          git config --global core.longpaths true
+          git config --global core.symlinks true
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          path: evolite-rust
+          persist-credentials: false
+      - name: protoc ${{ env.PROTOC_VERSION }}
+        working-directory: .
+        run: |
+          curl -sSfL -o protoc.zip "https://github.com/protocolbuffers/protobuf/releases/download/v${PROTOC_VERSION}/protoc-${PROTOC_VERSION}-win64.zip"
+          mkdir -p tools/protoc && unzip -q protoc.zip -d tools/protoc
+          echo "PROTOC=$GITHUB_WORKSPACE/tools/protoc/bin/protoc.exe" >> "$GITHUB_ENV"
+      - name: Rust
+        run: |
+          rustup --version
+          rustup toolchain install
+          rustc --version
+          cargo clippy --version
+      # Registry and git only: a Windows `target` (about 7.5 GB) and the Linux cache would not fit
+      # the repository's 10 GB together. Measure in Actions → Caches; with room to spare, the
+      # dependencies' builds can come back (architect, FEAT-0001 r1).
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          workspaces: evolite-rust
+          shared-key: win
+          cache-targets: false
+          save-if: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/master') }}
+      - name: tests (default features)
+        run: cargo test --workspace --locked
+      - name: tests (dev-tools)
+        run: cargo test --workspace --locked --features evolite-ui/dev-tools
+      # clippy on Linux does not see the cfg(windows) code: the sandbox, the installer, the
+      # clipboard, notifications. Same `target` as the tests.
+      - name: clippy (Windows code)
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings

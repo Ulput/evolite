@@ -91,7 +91,6 @@ fn os_version() -> String {
 }
 
 /// The start record.
-#[allow(clippy::too_many_arguments)]
 pub fn build(
     language: &'static str,
     dark: bool,

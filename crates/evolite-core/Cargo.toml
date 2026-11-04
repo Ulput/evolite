@@ -84,3 +84,6 @@ miniz_oxide = "0.8"
 [dev-dependencies]
 # Paused time for the auto-lock test.
 tokio = { version = "1", features = ["test-util"] }
+
+[lints]
+workspace = true

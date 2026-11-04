@@ -78,3 +78,6 @@ resvg = { version = "0.45", default-features = false }
 [target.'cfg(windows)'.build-dependencies]
 # The executable's icon in Explorer, the taskbar and Alt+Tab (`evolite.rc`).
 embed-resource = "3"
+
+[lints]
+workspace = true

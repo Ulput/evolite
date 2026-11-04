@@ -9,8 +9,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       libgl1 libegl1 libgl1-mesa-dri libwayland-dev \
       fonts-dejavu-core fonts-noto-cjk \
       gcc-aarch64-linux-gnu g++-aarch64-linux-gnu libc6-dev-arm64-cross \
-    && rm -rf /var/lib/apt/lists/* \
-    && rustup target add aarch64-unknown-linux-gnu
+    && rm -rf /var/lib/apt/lists/*
+
+# The Rust release of rust-toolchain.toml (the workspace in /work follows it, not the image's
+# stable), with the ARM target for the cross build. Keep the two in step.
+RUN rustup toolchain install 1.99.1 --profile minimal -c clippy,rustfmt -t aarch64-unknown-linux-gnu
 
 # protoc 32.0, as on Windows and in Platform's CI: Debian's 3.21 is too old for
 # tenderdash-proto. The x86_64 archive is checked against its SHA-256.

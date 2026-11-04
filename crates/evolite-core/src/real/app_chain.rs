@@ -121,7 +121,10 @@ impl Chain {
     /// Publishes the answer to a sign-in on the key-exchange contract, signed with the
     /// identity's HIGH key: a new document, or ours for this app replaced (one per identity and
     /// app, a unique index).
-    #[allow(clippy::too_many_arguments)]
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "the fields of the key-exchange response document, each a separate value the caller already has"
+    )]
     pub async fn publish_login_response(
         &self,
         wallet: &PlatformWallet,
