@@ -34,6 +34,9 @@ pub(super) struct DevState {
     /// `--screen identity-unfinished`: Identity with a creation stopped after the Core lock
     /// (Figma "Screens", the Arabic frames), which the example wallet does not have.
     unfinished_preset: bool,
+    /// `--screen top-up-stopped` / `top-up-awaiting`: Identity with a cut-short top-up, to
+    /// continue or (Platform already took it) awaiting its ChainLock (BUG-7).
+    top_up_preset: Option<bool>,
     /// `--screen overview-syncing` / `send-syncing`: the screen while the sync still runs.
     syncing_preset: bool,
 }
@@ -56,6 +59,13 @@ impl DevState {
             preset_forgot: dev.preset("forgot"),
             remind_preset: dev.preset("remind"),
             unfinished_preset: dev.preset("identity-unfinished"),
+            top_up_preset: if dev.preset("top-up-stopped") {
+                Some(false)
+            } else if dev.preset("top-up-awaiting") {
+                Some(true)
+            } else {
+                None
+            },
             syncing_preset: dev.preset("overview-syncing") || dev.preset("send-syncing"),
         }
     }
@@ -134,6 +144,14 @@ impl App {
             w.unfinished_identity = Some(evolite_api::UnfinishedIdentity {
                 locked: Some(31_000_000),
                 name: None,
+            });
+        }
+        if let Some(awaiting_chain_lock) = self.dev.top_up_preset
+            && let Some(w) = self.snapshot.as_mut().and_then(|s| s.wallet.as_mut())
+        {
+            w.unfinished_top_up = Some(evolite_api::UnfinishedTopUp {
+                locked: 50_000_000,
+                awaiting_chain_lock,
             });
         }
         // `--screen overview-syncing` / `send-syncing`: in the middle of the block filters, as a

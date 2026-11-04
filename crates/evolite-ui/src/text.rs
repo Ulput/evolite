@@ -386,6 +386,18 @@ pub fn error_details(e: &CoreError) -> Option<String> {
 fn failure(why: &str) -> &'static str {
     let why = why.to_lowercase();
     let any = |words: &[&str]| words.iter().any(|w| why.contains(w));
+    // The same transition is still in the network's cache of seen ones (BUG-7): no verdict.
+    if any(&["already exists in cache", "already in mempool"]) {
+        return tr!("the network still holds the earlier attempt — try again in a few minutes");
+    }
+    // Platform took the asset lock before (code 24): the earlier attempt went through.
+    if any(&["cannot be reused", "already consumed", "already taken"]) {
+        return tr!("Platform had already taken this money on an earlier attempt");
+    }
+    // A lock made for another identity or purpose (`AssetLockFundingMismatch`).
+    if any(&["ineligible"]) {
+        return tr!("this locked money was made for another identity or purpose");
+    }
     if any(&["timeout", "timed out", "deadline"]) {
         tr!("the network did not answer in time — try again")
     } else if any(&[
@@ -564,6 +576,30 @@ mod tests {
         );
         assert_eq!(error_details(&CoreError::WrongPassword), None);
         assert_eq!(error_details(&CoreError::Failed("  ".into())), None);
+    }
+
+    /// BUG-7: the texts of platform-wallet's asset-lock errors (`error.rs` at 575d961) get
+    /// their own words, not "the network or Platform returned an error".
+    #[test]
+    fn tells_asset_lock_failures_apart() {
+        let f = |why: &str| error_text(&CoreError::Failed(why.into()));
+        assert_eq!(
+            f("SDK error: Object already exists: tx already exists in cache"),
+            tr!("the network still holds the earlier attempt — try again in a few minutes")
+        );
+        let taken = tr!("Platform had already taken this money on an earlier attempt");
+        for why in [
+            "Asset lock 0a1b…:0 cannot be reused; Platform completion is unconfirmed",
+            "Asset lock was already consumed",
+        ] {
+            assert_eq!(f(why), taken, "{why}");
+        }
+        assert_eq!(
+            f(
+                "Asset lock 0a1b…:0 is ineligible for IdentityTopUp index 2: it is IdentityTopUp index 0"
+            ),
+            tr!("this locked money was made for another identity or purpose")
+        );
     }
 
     #[test]

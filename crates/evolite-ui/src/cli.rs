@@ -211,7 +211,15 @@ fn dev_args<'a>(
         (None, Some("receive")) => Screen::Receive,
         (
             None,
-            Some("identity" | "identity-unfinished" | "edit-profile" | "top-up" | "add-name"),
+            Some(
+                "identity"
+                | "identity-unfinished"
+                | "top-up-stopped"
+                | "top-up-awaiting"
+                | "edit-profile"
+                | "top-up"
+                | "add-name",
+            ),
         ) => Screen::Identity,
         (None, Some("contacts" | "add-contact" | "contact-profile")) => Screen::Contacts,
         (None, Some("create-identity" | "creating")) => Screen::CreateIdentity,

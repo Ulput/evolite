@@ -7,11 +7,12 @@
 //! Proofs of Platform data are checked against quorum keys from this SPV client's own verified
 //! masternode list ([`SpvContextProvider`]), not a server's.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use dash_sdk::SdkBuilder;
+use dash_sdk::platform::transition::put_settings::PutSettings;
 use dash_spv::ClientConfig;
 use dpp::address_funds::PlatformAddress;
 use dpp::identity::IdentityPublicKey;
@@ -53,6 +54,10 @@ pub struct ChainPaths {
 pub struct Chain {
     manager: tokio::sync::Mutex<Option<Arc<Manager>>>,
     status: Arc<Mutex<SyncStatus>>,
+    /// What Platform said of top-up locks that the store cannot keep: "already taken" while
+    /// the lock has no ChainLock proof yet (platform-wallet then leaves its status as it was).
+    /// Until the app closes.
+    top_up_notes: Mutex<HashMap<key_wallet::dashcore::OutPoint, TopUpNote>>,
 }
 
 impl Default for Chain {
@@ -63,6 +68,7 @@ impl Default for Chain {
                 network: crate::network::name(),
                 ..Default::default()
             })),
+            top_up_notes: Mutex::new(HashMap::new()),
         }
     }
 }
@@ -143,6 +149,112 @@ pub struct Unfinished {
     pub identity_index: u32,
     /// Duffs.
     pub amount: u64,
+    /// For a top-up: Platform already said it took the lock; only its ChainLock is awaited to
+    /// confirm that. Not to be sent as new, and it does not hold back a new top-up.
+    pub awaiting_chain_lock: bool,
+}
+
+/// What Platform answered about a top-up lock, beyond what the store keeps.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TopUpNote {
+    /// The identity's credits grew: the lock is done with.
+    Credited,
+    /// "Already taken", not provable before the lock's block has a ChainLock.
+    AwaitingChainLock,
+}
+
+/// How a tracked asset lock counts as a cut-short top-up: `None` when it does not; `Some(true)`
+/// when it only awaits its ChainLock ([`Unfinished::awaiting_chain_lock`]).
+pub fn top_up_state(
+    funding: AssetLockFundingType,
+    status: &AssetLockStatus,
+    note: Option<TopUpNote>,
+) -> Option<bool> {
+    if funding != AssetLockFundingType::IdentityTopUp
+        || status.is_consumed()
+        // Found on chain, not made here; or "already taken" with its ChainLock proof kept
+        // (consumption unknown): nothing is left to send.
+        || *status == AssetLockStatus::RecoveredFromChain
+    {
+        return None;
+    }
+    match note {
+        Some(TopUpNote::Credited) => None,
+        Some(TopUpNote::AwaitingChainLock) => Some(true),
+        None => Some(false),
+    }
+}
+
+/// What "the lock is already taken" means for the person, from the identity's credits before
+/// and after (proved) and the lock's status after the answer.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AlreadyTaken {
+    /// The credits grew: the top-up went through, only its answer was lost.
+    Credited(u64),
+    /// platform-wallet proved the lock's finality by ChainLock and keeps it as "taken,
+    /// consumption unknown": nothing is left to finish.
+    Settled(u64),
+    /// No ChainLock for the lock's block yet: wait and check again.
+    AwaitChainLock,
+}
+
+pub fn already_taken(
+    before: Option<u64>,
+    after: Option<u64>,
+    status: Option<AssetLockStatus>,
+) -> AlreadyTaken {
+    if let Some(after) = after
+        && after > before.unwrap_or(0)
+    {
+        return AlreadyTaken::Credited(after);
+    }
+    match status {
+        Some(s) if s == AssetLockStatus::RecoveredFromChain || s.is_consumed() => {
+            AlreadyTaken::Settled(after.or(before).unwrap_or(0))
+        }
+        _ => AlreadyTaken::AwaitChainLock,
+    }
+}
+
+/// How many times a top-up's lock is sent again as a new transition when the network answers
+/// "already in the cache" ([`is_cached_duplicate`]).
+const SAME_TRANSITION_RETRIES: u16 = 2;
+
+/// The network has this very transition in its cache of seen ones (gRPC `AlreadyExists`, "tx
+/// already exists in cache"): it said nothing of whether Platform took it.
+pub fn is_cached_duplicate(error: &platform_wallet::PlatformWalletError) -> bool {
+    matches!(
+        error,
+        platform_wallet::PlatformWalletError::Sdk(dash_sdk::Error::AlreadyExists(_))
+    )
+}
+
+/// Platform answered "already taken" for a lock whose block has a ChainLock, and platform-wallet
+/// could not keep that as "taken, consumption unknown": its SQLite store does not attest
+/// `WALLET_RESTORE`, which that record requires (platform-wallet 575d961,
+/// `mark_asset_lock_consumption_unknown`; BUG-7, seen on testnet). The answer is otherwise lost
+/// in a generic "failed to persist state"; Core finality is proved, Platform took the lock.
+pub fn is_taken_with_chain_lock(error: &platform_wallet::PlatformWalletError) -> bool {
+    matches!(
+        error,
+        platform_wallet::PlatformWalletError::Persistence(why)
+            if why.contains("asset-lock reconciliation requires persistence capabilities")
+    )
+}
+
+/// The answer to a top-up whose lock Platform already took but that cannot be confirmed yet;
+/// the core passes it on as is (`identity_failure`).
+pub fn awaiting_chain_lock_text() -> &'static str {
+    tr!(
+        "Platform has already taken these DASH, most likely on the earlier attempt, so the credits should already be on the identity. evolite will confirm it once their block gets a ChainLock, usually within a few minutes: then press «Check again». No new money is needed"
+    )
+}
+
+/// The answer when the identity a cut-short top-up was for is not among the found ones yet.
+pub fn top_up_identity_unknown_text() -> &'static str {
+    tr!(
+        "The identity of this top-up is not found yet — wait until the search for the phrase's identities finishes"
+    )
 }
 
 /// A Core payment handed to the network.
@@ -477,6 +589,7 @@ impl Chain {
                 out_point: l.out_point,
                 identity_index: l.identity_index,
                 amount: l.amount,
+                awaiting_chain_lock: false,
             })
     }
 
@@ -611,29 +724,35 @@ impl Chain {
     }
 
     /// A top-up that did not finish: Core funds locked for an identity's credits that Platform
-    /// has not taken yet.
+    /// has not taken yet, or has taken without a proof yet ([`Unfinished::awaiting_chain_lock`]).
+    /// A lock that can still be sent comes first.
     pub async fn unfinished_top_up(&self, wallet: &PlatformWallet) -> Option<Unfinished> {
+        let notes = self
+            .top_up_notes
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
         wallet
             .asset_locks()
             .list_tracked_locks()
             .await
             .into_iter()
-            .filter(|l| {
-                l.funding_type == AssetLockFundingType::IdentityTopUp
-                    && !l.status.is_consumed()
-                    // Found on chain, not made here: whether Platform took it is unknown.
-                    && l.status != AssetLockStatus::RecoveredFromChain
+            .filter_map(|l| {
+                let awaiting =
+                    top_up_state(l.funding_type, &l.status, notes.get(&l.out_point).copied())?;
+                Some(Unfinished {
+                    out_point: l.out_point,
+                    identity_index: l.identity_index,
+                    amount: l.amount,
+                    awaiting_chain_lock: awaiting,
+                })
             })
-            .min_by_key(|l| l.identity_index)
-            .map(|l| Unfinished {
-                out_point: l.out_point,
-                identity_index: l.identity_index,
-                amount: l.amount,
-            })
+            .min_by_key(|l| (l.awaiting_chain_lock, l.identity_index))
     }
 
     /// Finishes what a cut-short [`Self::top_up_identity`] left: the tracked lock goes to
     /// Platform from whatever stage it reached, for the identity of its slot. No new lock.
+    /// For a lock Platform already took, this asks again for its ChainLock proof.
     pub async fn resume_top_up(
         &self,
         wallet: &PlatformWallet,
@@ -651,7 +770,7 @@ impl Chain {
                 lock.identity_index,
             )
             .map(|m| m.identity.id())
-            .ok_or(tr!("The identity of this top-up was not found"))?
+            .ok_or(top_up_identity_unknown_text())?
         };
         self.top_up(
             wallet,
@@ -665,7 +784,29 @@ impl Chain {
         .await
     }
 
+    /// The credits of the identity `id` as the store has them.
+    async fn stored_credits(wallet: &PlatformWallet, id: &Identifier) -> Option<u64> {
+        let state = wallet.state().await;
+        of_wallet(&state.identity_manager, wallet.wallet_id())
+            .find(|m| m.identity.id() == *id)
+            .map(|m| m.identity.balance())
+    }
+
     /// Tops up the identity `id` from `funding`; the asset lock is signed with the phrase's keys.
+    ///
+    /// "The lock is already taken" (an earlier attempt reached Platform, its answer was lost)
+    /// is not a failure to repeat: the identity is read again with a proof, and grown credits
+    /// answer `Ok`. Without a ChainLock for the lock's block that answer cannot be proved yet;
+    /// the lock is then noted as awaiting it ([`TopUpNote`]) and the answer says so.
+    ///
+    /// "This transition is already in the cache" (BUG-7, seen on testnet): the same lock sent
+    /// again makes the very same transition, byte for byte, and the network's cache of seen
+    /// transitions answers that without a verdict — on every "Continue". The lock is then sent
+    /// once more with a raised `user_fee_increase` (+1 % of the processing fee), a new
+    /// transition Platform judges: credited, or "already taken" above.
+    ///
+    /// "Already taken" once the lock's block has a ChainLock reaches here as platform-wallet's
+    /// failure to record it ([`is_taken_with_chain_lock`]): that is settled, not an error.
     async fn top_up(
         &self,
         wallet: &PlatformWallet,
@@ -673,23 +814,93 @@ impl Chain {
         id: &Identifier,
         funding: AssetLockFunding,
     ) -> Result<u64, String> {
-        wallet
-            .identity()
-            .top_up_identity_with_funding(
-                id,
-                funding,
-                &identity::AssetLockSigner(keys.clone()),
-                None,
-            )
-            .await
-            .map_err(|e| match e {
-                // Platform says the lock was taken before; platform-wallet stops tracking it.
-                platform_wallet::PlatformWalletError::AssetLockAlreadyConsumed(_) => {
-                    tr!("Platform already took these DASH: the credits should be on the identity")
-                        .into()
-                }
-                e => e.to_string(),
-            })
+        let before = Self::stored_credits(wallet, id).await;
+        let signer = identity::AssetLockSigner(keys.clone());
+        let mut funding = funding;
+        let mut fee_increase: u16 = 0;
+        let error = loop {
+            let settings = (fee_increase > 0).then(|| PutSettings {
+                user_fee_increase: Some(fee_increase),
+                ..Default::default()
+            });
+            let error = match wallet
+                .identity()
+                .top_up_identity_with_funding(id, funding.clone(), &signer, settings)
+                .await
+            {
+                Ok(balance) => return Ok(balance),
+                Err(e) => e,
+            };
+            crate::diag::platform_failed("top_up", &format!("{error:?}"));
+            if !is_cached_duplicate(&error) || fee_increase >= SAME_TRANSITION_RETRIES {
+                break error;
+            }
+            // The lock the cached transition spent: the one asked for, or the one just made.
+            let out_point = match &funding {
+                AssetLockFunding::FromExistingAssetLock { out_point, .. } => Some(*out_point),
+                _ => self.unfinished_top_up(wallet).await.map(|u| u.out_point),
+            };
+            let Some(out_point) = out_point else {
+                break error;
+            };
+            funding = AssetLockFunding::FromExistingAssetLock {
+                out_point,
+                consume_invitation_voucher: false,
+            };
+            fee_increase += 1;
+        };
+        let (out_point, chain_locked) = match error {
+            platform_wallet::PlatformWalletError::AssetLockAlreadyConsumed(out_point) => {
+                (out_point, false)
+            }
+            ref e if is_taken_with_chain_lock(e) => {
+                let out_point = match &funding {
+                    AssetLockFunding::FromExistingAssetLock { out_point, .. } => Some(*out_point),
+                    _ => self.unfinished_top_up(wallet).await.map(|u| u.out_point),
+                };
+                let Some(out_point) = out_point else {
+                    return Err(error.to_string());
+                };
+                (out_point, true)
+            }
+            _ => return Err(error.to_string()),
+        };
+        let _ = wallet.identity().refresh_identity(id).await;
+        let after = Self::stored_credits(wallet, id).await;
+        // Taken with a ChainLock proof: as settled as platform-wallet's own "recovered from
+        // chain", which its store could not record.
+        let status = if chain_locked {
+            Some(AssetLockStatus::RecoveredFromChain)
+        } else {
+            wallet
+                .asset_locks()
+                .list_tracked_locks()
+                .await
+                .into_iter()
+                .find(|l| l.out_point == out_point)
+                .map(|l| l.status)
+        };
+        let note = |n| {
+            self.top_up_notes
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .insert(out_point, n);
+        };
+        match already_taken(before, after, status) {
+            AlreadyTaken::Credited(balance) => {
+                note(TopUpNote::Credited);
+                Ok(balance)
+            }
+            AlreadyTaken::Settled(balance) => {
+                // The store still has the lock as not taken: not shown again until a restart.
+                note(TopUpNote::Credited);
+                Ok(balance)
+            }
+            AlreadyTaken::AwaitChainLock => {
+                note(TopUpNote::AwaitingChainLock);
+                Err(awaiting_chain_lock_text().into())
+            }
+        }
     }
 
     /// Registers the identity of slot `index` with its six keys, funded by `funding`.
@@ -1500,6 +1711,113 @@ mod tests {
     use super::*;
     use std::time::{Duration, Instant};
 
+    /// BUG-7: which tracked locks hold "The top-up stopped", and which only await a ChainLock.
+    #[test]
+    fn an_unfinished_top_up_is_a_lock_platform_has_not_taken() {
+        use AssetLockFundingType::{IdentityRegistration, IdentityTopUp};
+        use AssetLockStatus::*;
+        for status in [Built, Broadcast, InstantSendLocked, ChainLocked] {
+            assert_eq!(top_up_state(IdentityTopUp, &status, None), Some(false));
+        }
+        for status in [Consumed, DrainCompleted, RecoveredFromChain] {
+            assert_eq!(
+                top_up_state(IdentityTopUp, &status, None),
+                None,
+                "{status:?}"
+            );
+        }
+        assert_eq!(top_up_state(IdentityRegistration, &Built, None), None);
+        // "Already taken" without a ChainLock yet: shown as awaiting, not as to be continued.
+        assert_eq!(
+            top_up_state(
+                IdentityTopUp,
+                &InstantSendLocked,
+                Some(TopUpNote::AwaitingChainLock)
+            ),
+            Some(true)
+        );
+        assert_eq!(
+            top_up_state(IdentityTopUp, &InstantSendLocked, Some(TopUpNote::Credited)),
+            None
+        );
+        // Its ChainLock proof is kept: nothing left, whatever was noted.
+        assert_eq!(
+            top_up_state(
+                IdentityTopUp,
+                &RecoveredFromChain,
+                Some(TopUpNote::AwaitingChainLock)
+            ),
+            None
+        );
+    }
+
+    /// BUG-7 (seen on testnet): "already taken" for a ChainLocked lock arrives as platform-wallet's
+    /// failure to record it; only that failure counts as such.
+    #[test]
+    fn a_taken_lock_with_a_chain_lock_is_recognised() {
+        use platform_wallet::PlatformWalletError as E;
+        // As platform-wallet 575d961 words it with evolite's SQLite store (testnet, BUG-7).
+        let refused = E::Persistence(
+            "asset-lock reconciliation requires persistence capabilities [\"wallet_restore\"] \
+             (missing mask 0x80)"
+                .into(),
+        );
+        assert!(is_taken_with_chain_lock(&refused));
+        assert!(!is_cached_duplicate(&refused));
+        assert!(!is_taken_with_chain_lock(&E::Persistence(
+            "disk full".into()
+        )));
+    }
+
+    /// BUG-7 (seen on testnet): the same lock sent again is "already in the cache" — that alone
+    /// is sent again as a new transition; Platform's own verdicts are not.
+    #[test]
+    fn only_a_cached_duplicate_is_sent_again() {
+        use platform_wallet::PlatformWalletError as E;
+        let cached = E::Sdk(dash_sdk::Error::AlreadyExists(
+            "tx already exists in cache".into(),
+        ));
+        assert!(is_cached_duplicate(&cached));
+        assert!(!is_cached_duplicate(&E::Sdk(dash_sdk::Error::Generic(
+            "x".into()
+        ))));
+        assert!(!is_cached_duplicate(&E::AssetLockAlreadyConsumed(
+            Default::default()
+        )));
+    }
+
+    /// BUG-7: "the lock is already taken" answers by the identity's credits and the lock.
+    #[test]
+    fn an_already_taken_lock_is_judged_by_the_credits() {
+        use AssetLockStatus::*;
+        assert_eq!(
+            already_taken(Some(100), Some(50_000_100), Some(InstantSendLocked)),
+            AlreadyTaken::Credited(50_000_100)
+        );
+        assert_eq!(
+            already_taken(None, Some(7), None),
+            AlreadyTaken::Credited(7)
+        );
+        // Credited before (an earlier sync saw it), no ChainLock yet: wait, do not fail.
+        assert_eq!(
+            already_taken(Some(100), Some(100), Some(InstantSendLocked)),
+            AlreadyTaken::AwaitChainLock
+        );
+        assert_eq!(
+            already_taken(Some(100), None, Some(InstantSendLocked)),
+            AlreadyTaken::AwaitChainLock
+        );
+        // platform-wallet proved it by ChainLock: settled.
+        assert_eq!(
+            already_taken(Some(100), Some(100), Some(RecoveredFromChain)),
+            AlreadyTaken::Settled(100)
+        );
+        assert_eq!(
+            already_taken(Some(100), Some(100), Some(Consumed)),
+            AlreadyTaken::Settled(100)
+        );
+    }
+
     #[test]
     fn the_creation_steps_follow_the_lock() {
         assert_eq!(creation_step_of(None), 1);
@@ -1960,6 +2278,140 @@ mod tests {
             chain.unfinished_top_up(&wallet).await.is_none(),
             "nothing unfinished now"
         );
+        chain.stop().await;
+    }
+
+    /// BUG-7 on testnet: Platform takes a top-up's lock but the wallet never hears of it (the
+    /// answer lost), as on the customer's wallet. "Continue" must not be a generic error: it
+    /// says the ChainLock is awaited, a new top-up is not held back, and once the ChainLock
+    /// comes "Check again" settles the lock. Spends 0.001 tDASH; up to ~15 min.
+    /// `cargo test -p evolite-core live_top_up_taken -- --ignored --nocapture`
+    #[test]
+    #[ignore = "needs testnet access and a funded test phrase in .env.test.local"]
+    fn live_top_up_taken_behind_the_wallets_back() {
+        std::thread::Builder::new()
+            .stack_size(16 << 20)
+            .spawn(|| {
+                tokio::runtime::Builder::new_multi_thread()
+                    .enable_all()
+                    .thread_stack_size(8 << 20)
+                    .build()
+                    .unwrap()
+                    .block_on(top_up_taken_behind())
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+    }
+
+    async fn top_up_taken_behind() {
+        use dash_sdk::platform::transition::top_up_identity::TopUpIdentity;
+        let dir = std::env::temp_dir().join("evolite-live-top-up-taken");
+        let (chain, wallet, keys) = open_test_wallet(&dir).await;
+        chain.discover_identities(&wallet, &keys).await.unwrap();
+        let signer = identity::AssetLockSigner(keys.clone());
+        // What the store tracks, for the bug file: every top-up lock and the identities.
+        for l in wallet.asset_locks().list_tracked_locks().await {
+            println!(
+                "tracked {:?} slot {} {} duffs {:?} {}",
+                l.funding_type, l.identity_index, l.amount, l.status, l.out_point
+            );
+        }
+        {
+            let state = wallet.state().await;
+            for m in state
+                .identity_manager
+                .managed_identities()
+                .filter(|m| m.wallet_id == Some(wallet.wallet_id()))
+            {
+                println!(
+                    "identity slot {:?} credits {}",
+                    m.identity_index,
+                    m.identity.balance()
+                );
+            }
+        }
+        // Never resume a lock this test did not make: the test phrase is also a person's
+        // wallet, whose stopped top-ups are theirs to finish (BUG-7, werner555). The test's
+        // own lock is noted in its folder, so a run cut short can be picked up again.
+        let mine = dir.join("test-lock.txt");
+        let noted = std::fs::read_to_string(&mine).ok();
+        let made = if let Some(stopped) = chain.unfinished_top_up(&wallet).await {
+            assert_eq!(
+                noted.as_deref().map(str::trim),
+                Some(stopped.out_point.to_string().as_str()),
+                "an unfinished top-up not made by this test is tracked: not touching it"
+            );
+            stopped.out_point
+        } else {
+            let (index, who) = {
+                let state = wallet.state().await;
+                state
+                    .identity_manager
+                    .managed_identities()
+                    .filter(|m| m.wallet_id == Some(wallet.wallet_id()))
+                    .filter_map(|m| Some((m.identity_index?, m.identity.clone())))
+                    .min_by_key(|(index, _)| *index)
+                    .expect("the test phrase has an identity")
+            };
+            let (proof, path, out_point) = wallet
+                .asset_locks()
+                .create_funded_asset_lock_proof(
+                    100_000,
+                    0,
+                    AssetLockFundingType::IdentityTopUp,
+                    index,
+                    &signer,
+                )
+                .await
+                .expect("asset lock");
+            std::fs::write(&mine, out_point.to_string()).expect("note the test's lock");
+            // Platform takes the lock behind platform-wallet's back: its answer is "lost".
+            let sdk = chain.sdk().await.expect("sdk");
+            let credits = who
+                .top_up_identity_with_signer(&sdk, proof, &path, &signer, None)
+                .await
+                .expect("Platform took the lock");
+            println!("lock {out_point} taken by Platform behind the wallet: {credits} credits");
+            // The credits are already in the store, as after a later sync: they do not grow.
+            let _ = wallet.identity().refresh_identity(&who.id()).await;
+            out_point
+        };
+        let stopped = chain
+            .unfinished_top_up(&wallet)
+            .await
+            .expect("the wallet still sees the top-up as stopped");
+        println!("stopped: {stopped:?}");
+        assert_eq!(
+            stopped.out_point, made,
+            "only the test's own lock is resumed"
+        );
+        let started = Instant::now();
+        let mut settled = false;
+        while started.elapsed() < Duration::from_secs(15 * 60) {
+            let answer = chain.resume_top_up(&wallet, &keys).await;
+            let now = chain.unfinished_top_up(&wallet).await;
+            println!(
+                "after {}s: {answer:?}; unfinished {now:?}",
+                started.elapsed().as_secs()
+            );
+            match answer {
+                Ok(_) => {
+                    assert!(now.is_none(), "a settled lock is not shown");
+                    settled = true;
+                    break;
+                }
+                Err(text) => {
+                    assert_eq!(text, awaiting_chain_lock_text(), "not a generic error");
+                    assert!(
+                        now.is_some_and(|u| u.awaiting_chain_lock),
+                        "shown as awaiting its ChainLock, not to be continued"
+                    );
+                }
+            }
+            tokio::time::sleep(Duration::from_secs(60)).await;
+        }
+        assert!(settled, "the lock settled once its block had a ChainLock");
         chain.stop().await;
     }
 

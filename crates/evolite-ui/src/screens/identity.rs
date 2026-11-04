@@ -241,16 +241,14 @@ pub fn identity(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut IdentityS
                     profile(ui, a, state, identity, profile_w, &mut asked);
                 } else {
                     match credits(ui, a, &wallet.balances, &wallet.fees, credits_w) {
-                        Some(CreditsAction::TopUp) if top_up_blocked(wallet, state).is_none() => {
-                            open_top_up(state);
-                        }
+                        Some(CreditsAction::TopUp) => state.top_up_clicked(wallet),
                         // Send from credits: to this wallet's own Core address (it can be
                         // changed there), or to someone yet to type.
                         Some(CreditsAction::Withdraw) => {
                             cx.pay(Source::Credits, wallet.core_address.clone());
                         }
                         Some(CreditsAction::Transfer) => cx.pay(Source::Credits, String::new()),
-                        Some(CreditsAction::TopUp) | None => {}
+                        None => {}
                     }
                 }
             });
@@ -661,11 +659,25 @@ fn search_status(ui: &mut Ui, a: &mut Assets, search: &IdentitySearch) -> bool {
 
 /// Why "Top up" cannot start now, if it cannot.
 fn top_up_blocked(wallet: &Wallet, state: &IdentityState) -> Option<&'static str> {
-    if wallet.identity.is_none() {
+    top_up_blocked_by(
+        wallet.identity.is_some(),
+        wallet.unfinished_top_up,
+        state.topping_up.is_some(),
+    )
+}
+
+/// [`top_up_blocked`] on its own facts. A top-up Platform already took (only its ChainLock is
+/// awaited) does not hold a new one back.
+fn top_up_blocked_by(
+    has_identity: bool,
+    unfinished: Option<evolite_api::UnfinishedTopUp>,
+    running: bool,
+) -> Option<&'static str> {
+    if !has_identity {
         Some(tr!("Make an identity first"))
-    } else if state.topping_up.is_some() {
+    } else if running {
         Some(tr!("A top-up is already running"))
-    } else if wallet.unfinished_top_up.is_some() {
+    } else if unfinished.is_some_and(|u| !u.awaiting_chain_lock) {
         Some(tr!("First finish the stopped top-up"))
     } else {
         None
@@ -685,6 +697,22 @@ impl IdentityState {
         }
         self.top_up = Some(TopUpForm::default());
     }
+
+    /// "Top up" on the credits card: the form, or why it cannot open now — never nothing.
+    pub fn top_up_clicked(&mut self, wallet: &Wallet) {
+        self.top_up_clicked_when(top_up_blocked(wallet, self));
+    }
+
+    fn top_up_clicked_when(&mut self, blocked: Option<&'static str>) {
+        match blocked {
+            None => self.open_top_up(),
+            // A top-up running shows its own notice already.
+            Some(_) if self.topping_up.is_some() => {}
+            Some(why) => {
+                self.top_up_result = Some((0, Err(CoreError::NotAvailable(why.into()))));
+            }
+        }
+    }
 }
 
 fn dash(d: i64) -> String {
@@ -694,7 +722,11 @@ fn dash(d: i64) -> String {
 /// Why the top-up did not go through, in words.
 fn top_up_error(e: &CoreError) -> String {
     match e {
-        CoreError::NotAvailable(why) => format!("{why}."),
+        // The core's reason is a catalog key: translated before the full stop is added.
+        CoreError::NotAvailable(why) => format!(
+            "{}.",
+            crate::i18n::t_in(crate::i18n::current(), why.trim_end_matches('.'))
+        ),
         CoreError::NotSynced => {
             tr!("Wait for the sync to finish: all the wallet's coins and the masternode lists are needed.").into()
         }
@@ -747,28 +779,54 @@ fn top_up_status(
             (None, None) => {}
         }
     }
-    let Some(locked) = wallet.unfinished_top_up else {
+    let Some(unfinished) = wallet.unfinished_top_up else {
         return;
     };
     if state.topping_up.is_some() {
         return;
     }
-    notice(
-        ui,
-        a,
-        "warning",
-        p.accent,
-        &format!(
-            tr!(
-                "The top-up stopped: {} are already locked on Core. Continue — no new money is needed."
-            ),
-            dash(locked)
-        ),
-    );
-    if button(ui, a, tr!("Continue the top-up"), ButtonKind::Primary, None).clicked() {
+    let (text, action) = unfinished_top_up_text(&unfinished, state.top_up_result.as_ref());
+    notice(ui, a, "warning", p.accent, &text);
+    if button(ui, a, action, ButtonKind::Primary, None).clicked() {
         asked.push(Command::ResumeTopUp);
-        state.topping_up = Some(locked);
+        state.topping_up = Some(unfinished.locked);
         state.top_up_result = None;
+    }
+}
+
+/// The notice of a cut-short top-up and its button: one that can be continued, or one
+/// Platform already took and whose ChainLock is awaited ("Check again"). When the last answer
+/// already explains the wait, the notice does not repeat it.
+fn unfinished_top_up_text(
+    unfinished: &evolite_api::UnfinishedTopUp,
+    last: Option<&(evolite_api::Duffs, Result<(), CoreError>)>,
+) -> (String, &'static str) {
+    if unfinished.awaiting_chain_lock {
+        let explained = matches!(last, Some((_, Err(CoreError::NotAvailable(_)))));
+        let text = if explained {
+            format!(
+                tr!("{} of the top-up are awaiting the ChainLock of their block."),
+                dash(unfinished.locked)
+            )
+        } else {
+            format!(
+                tr!(
+                    "Platform has already taken the {} of the stopped top-up: the credits should be on the identity. evolite confirms it once their block gets a ChainLock, usually within a few minutes. You can top up again meanwhile."
+                ),
+                dash(unfinished.locked)
+            )
+        };
+        (text, tr!("Check again"))
+    } else {
+        (
+            format!(
+                tr!(
+                    "The top-up stopped: {} are already locked on Core. Continue — no new money is needed."
+                ),
+                dash(unfinished.locked)
+            ),
+            tr!("Continue the top-up"),
+        )
     }
 }
 
@@ -1118,7 +1176,11 @@ fn add_name_dialog(
 /// Why the name was not registered, in words.
 fn name_error(e: &CoreError) -> String {
     match e {
-        CoreError::NotAvailable(why) => format!("{why}."),
+        // The core's reason is a catalog key: translated before the full stop is added.
+        CoreError::NotAvailable(why) => format!(
+            "{}.",
+            crate::i18n::t_in(crate::i18n::current(), why.trim_end_matches('.'))
+        ),
         CoreError::NotSynced => {
             tr!("Wait for the sync to finish: the masternode lists are needed.").into()
         }
@@ -1319,8 +1381,9 @@ fn keys(ui: &mut Ui, a: &mut Assets, id: &Identity, width: f32) {
 
 #[cfg(test)]
 mod tests {
-    use super::{IdentityState, top_up_error};
+    use super::{IdentityState, top_up_blocked_by, top_up_error, unfinished_top_up_text};
     use evolite_api::CoreError;
+    use evolite_api::UnfinishedTopUp;
 
     #[test]
     fn top_up_errors_are_words_not_debug() {
@@ -1347,5 +1410,59 @@ mod tests {
         state.on_top_up_done(&Ok(()));
         assert_eq!(state.topping_up, None);
         assert_eq!(state.top_up_result, Some((100_000, Ok(()))));
+    }
+
+    fn stopped(awaiting_chain_lock: bool) -> Option<UnfinishedTopUp> {
+        Some(UnfinishedTopUp {
+            locked: 50_000_000,
+            awaiting_chain_lock,
+        })
+    }
+
+    /// BUG-7: a lock Platform already took does not block a new top-up; one to continue does.
+    #[test]
+    fn only_a_top_up_to_continue_holds_back_a_new_one() {
+        assert_eq!(top_up_blocked_by(true, None, false), None);
+        assert_eq!(top_up_blocked_by(true, stopped(true), false), None);
+        assert_eq!(
+            top_up_blocked_by(true, stopped(false), false),
+            Some(tr!("First finish the stopped top-up"))
+        );
+        assert!(top_up_blocked_by(true, None, true).is_some());
+        assert!(top_up_blocked_by(false, None, false).is_some());
+    }
+
+    /// BUG-7 (report item 31): "Top up" on the credits card says why it cannot open.
+    #[test]
+    fn a_blocked_top_up_says_why() {
+        let mut state = IdentityState::default();
+        state.top_up_clicked_when(Some(tr!("First finish the stopped top-up")));
+        assert!(state.top_up.is_none());
+        assert_eq!(
+            state.top_up_result,
+            Some((
+                0,
+                Err(CoreError::NotAvailable(
+                    tr!("First finish the stopped top-up").into()
+                ))
+            ))
+        );
+        state.top_up_clicked_when(None);
+        assert!(state.top_up.is_some());
+    }
+
+    /// BUG-7: the two kinds of a stopped top-up read and act differently.
+    #[test]
+    fn a_stopped_top_up_offers_continue_or_check_again() {
+        let (text, action) = unfinished_top_up_text(&stopped(false).unwrap(), None);
+        assert_eq!(action, tr!("Continue the top-up"));
+        assert!(text.contains("no new money"));
+        let (text, action) = unfinished_top_up_text(&stopped(true).unwrap(), None);
+        assert_eq!(action, tr!("Check again"));
+        assert!(text.contains("ChainLock") && text.contains("top up again"));
+        // The answer above already explains the wait: a short line.
+        let last = (0, Err(CoreError::NotAvailable("wait".into())));
+        let (short, _) = unfinished_top_up_text(&stopped(true).unwrap(), Some(&last));
+        assert!(short.len() < text.len());
     }
 }

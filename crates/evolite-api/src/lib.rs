@@ -292,6 +292,17 @@ pub struct UnfinishedIdentity {
     pub name: Option<String>,
 }
 
+/// A top-up of the identity that Platform has not finished in the wallet's eyes.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct UnfinishedTopUp {
+    /// Duffs locked on Core for it.
+    pub locked: Duffs,
+    /// Platform already said it took the lock (most likely an earlier attempt went through);
+    /// the wallet waits for the ChainLock of the lock's block to confirm it. `ResumeTopUp`
+    /// then only checks again, and a new top-up is not held back.
+    pub awaiting_chain_lock: bool,
+}
+
 /// One word of "Check the phrase": its number in the phrase (from 1) and the words to pick from,
 /// the right one among them.
 #[derive(Clone, PartialEq, Debug)]
@@ -589,9 +600,9 @@ pub struct Wallet {
     pub fees: Fees,
     pub phrase_words: usize,
     pub created_at: Timestamp,
-    /// Duffs locked on Core by a top-up of the identity that Platform has not taken yet.
+    /// A top-up of the identity that Platform has not taken yet, or not provably.
     /// `ResumeTopUp` finishes it.
-    pub unfinished_top_up: Option<Duffs>,
+    pub unfinished_top_up: Option<UnfinishedTopUp>,
     pub identity_search: IdentitySearch,
     /// All the wallet's identities by slot; [`Wallet::identity`] is the chosen one.
     pub identities: Vec<IdentityChoice>,

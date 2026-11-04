@@ -637,6 +637,11 @@ fn identity_failure(text: String) -> CoreError {
         CoreError::NotEnough
     } else if text == tr!("The wallet has no identity") {
         CoreError::NotAvailable(tr!("Make an identity first").into())
+    } else if text == chain::awaiting_chain_lock_text()
+        || text == chain::top_up_identity_unknown_text()
+    {
+        // Not a failure of the network: what is going on and what to do, as is.
+        CoreError::NotAvailable(text)
     } else {
         CoreError::Failed(text)
     }
@@ -828,9 +833,12 @@ impl Real {
         Ok(())
     }
 
-    /// Duffs a cut-short top-up left locked on Core, if any. Nothing while a top-up or an
+    /// What a cut-short top-up left locked on Core, if anything. Nothing while a top-up or an
     /// identity is being made: its lock exists before Platform takes it.
-    async fn unfinished_top_up(&self, wallet: &platform_wallet::PlatformWallet) -> Option<Duffs> {
+    async fn unfinished_top_up(
+        &self,
+        wallet: &platform_wallet::PlatformWallet,
+    ) -> Option<UnfinishedTopUp> {
         if self.identity_busy.load(Ordering::Relaxed)
             || !self.identities_found.load(Ordering::Relaxed)
         {
@@ -839,7 +847,19 @@ impl Real {
         self.chain
             .unfinished_top_up(wallet)
             .await
-            .map(|lock| lock.amount as Duffs)
+            .map(|lock| UnfinishedTopUp {
+                locked: lock.amount as Duffs,
+                awaiting_chain_lock: lock.awaiting_chain_lock,
+            })
+    }
+
+    /// A cut-short top-up that still has to go to Platform (not one Platform already took and
+    /// only its ChainLock is awaited): it holds back a new top-up and syncing again.
+    async fn top_up_to_finish(&self, wallet: &platform_wallet::PlatformWallet) -> bool {
+        self.chain
+            .unfinished_top_up(wallet)
+            .await
+            .is_some_and(|lock| !lock.awaiting_chain_lock)
     }
 
     /// Checks what can be checked at once and tops up the shown identity in the background
@@ -863,8 +883,9 @@ impl Real {
         if wallet.balance().total() < amount {
             return Err(CoreError::NotEnough);
         }
-        // A cut-short top-up is finished first, with the money already locked for it.
-        if self.chain.unfinished_top_up(&wallet).await.is_some() {
+        // A cut-short top-up is finished first, with the money already locked for it; one that
+        // Platform already took (awaiting its ChainLock) does not hold a new one back.
+        if self.top_up_to_finish(&wallet).await {
             return Err(CoreError::NotAvailable(
                 tr!("First finish the stopped top-up — its money is already locked").into(),
             ));
@@ -1338,7 +1359,7 @@ impl Real {
             || match self.chain.wallet(&open.id).await {
                 Some(wallet) => {
                     self.unfinished_identity(&wallet).await.is_some()
-                        || self.chain.unfinished_top_up(&wallet).await.is_some()
+                        || self.top_up_to_finish(&wallet).await
                 }
                 None => false,
             };

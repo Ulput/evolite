@@ -89,6 +89,12 @@ pub enum Record {
         op: &'static str,
         error: &'static str,
     },
+    /// A Platform operation failed: what it was and the error's kind (its type names only,
+    /// as `Sdk/Protocol`), never its text, ids or amounts.
+    Platform {
+        op: &'static str,
+        error: String,
+    },
     /// A panic: where, and its message and stack, scrubbed.
     Panic {
         location: String,
@@ -147,6 +153,9 @@ impl Record {
                 "backtrace": scrub(backtrace),
             }),
             Record::StartFailed { text } => json!({"k": "start_failed", "text": scrub(text)}),
+            Record::Platform { op, error } => {
+                json!({"k": "platform", "op": op, "error": error})
+            }
             Record::WindowReset => json!({"k": "window_reset"}),
         }
     }
@@ -176,6 +185,42 @@ pub fn io_error_kind(error: &std::io::Error) -> &'static str {
         InvalidData => "invalid_data",
         Interrupted => "interrupted",
         _ => "other",
+    }
+}
+
+/// A Platform operation of the core that failed, by the kind of its error: `debug` is the
+/// error's `{:?}` form, of which only the leading type names are kept.
+pub fn platform_failed(op: &'static str, debug: &str) {
+    record(Record::Platform {
+        op,
+        error: error_kind_of_debug(debug),
+    });
+}
+
+/// `Sdk(Protocol(ConsensusError(..)))` → `Sdk/Protocol/ConsensusError`: up to three nested
+/// variant names of a `{:?}` form, nothing of the data inside.
+pub fn error_kind_of_debug(debug: &str) -> String {
+    let mut names = Vec::new();
+    let mut rest = debug.trim_start();
+    while names.len() < 3 {
+        let name: String = rest
+            .chars()
+            .take_while(|c| c.is_ascii_alphanumeric() || *c == '_')
+            .collect();
+        if name.is_empty() || !name.starts_with(|c: char| c.is_ascii_uppercase()) {
+            break;
+        }
+        rest = &rest[name.len()..];
+        names.push(name);
+        match rest.strip_prefix('(') {
+            Some(inner) => rest = inner.trim_start(),
+            None => break,
+        }
+    }
+    if names.is_empty() {
+        "other".into()
+    } else {
+        names.join("/")
     }
 }
 
@@ -387,6 +432,29 @@ impl Writer {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_platform_error_keeps_its_type_names_only() {
+        assert_eq!(
+            error_kind_of_debug("AssetLockAlreadyConsumed(OutPoint { txid: 0a1b, vout: 0 })"),
+            "AssetLockAlreadyConsumed/OutPoint"
+        );
+        assert_eq!(
+            error_kind_of_debug("Sdk(Protocol(ConsensusError(Basic(X))))"),
+            "Sdk/Protocol/ConsensusError"
+        );
+        assert_eq!(
+            error_kind_of_debug("Sdk(Generic(\"yJ1kAddress 12 DASH\"))"),
+            "Sdk/Generic"
+        );
+        assert_eq!(error_kind_of_debug("\"text\""), "other");
+        let line = Record::Platform {
+            op: "top_up",
+            error: "Sdk/Generic".into(),
+        }
+        .line(UNIX_EPOCH);
+        assert!(line.contains(r#""k":"platform","op":"top_up","error":"Sdk/Generic""#));
+    }
 
     #[test]
     fn writes_the_time_and_typed_fields_only() {
