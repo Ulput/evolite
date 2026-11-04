@@ -359,6 +359,7 @@ pub(super) fn fees(coins: usize) -> Fees {
         // The protocol's minimum at protocol 15 (`state_transition_min_fees.credit_withdrawal`),
         // until the SDK is up ([`platform_fees`]).
         credit_withdrawal: 400_000,
+        credit_withdrawal_reserve: 400_000,
     }
 }
 
@@ -381,6 +382,7 @@ pub(super) fn platform_fees(
     fees.credit_withdrawal = journal
         .last_fee(|w| matches!(w, What::Withdrawal { .. }))
         .unwrap_or(duffs(min.credit_withdrawal));
+    fees.credit_withdrawal_reserve = duffs(min.credit_withdrawal);
     if let Some(fee) = journal.last_fee(|w| matches!(w, What::ContactRequest { .. })) {
         fees.contact_request = fee;
     }
@@ -423,6 +425,7 @@ mod tests {
         platform_fees(&mut f, v15, &journal);
         // Nothing written yet: the protocol's own numbers.
         assert_eq!(f.credit_withdrawal, 400_000);
+        assert_eq!(f.credit_withdrawal_reserve, 400_000);
         assert_eq!(f.credit_transfer, 100);
         assert_eq!(f.identity_create, 41_000, "base and six keys");
         assert_eq!(f.add_key, 6_600);

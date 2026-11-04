@@ -654,6 +654,7 @@ pub(super) fn demo_wallet(t: Timestamp) -> Wallet {
             shield_from_core: 164_140,
             pool_top_up: 114_360,
             credit_withdrawal: 400_000,
+            credit_withdrawal_reserve: 400_000,
         },
         phrase_words: 12,
         created_at: t - 17 * day,

@@ -183,6 +183,38 @@ pub fn signed_amount(duffs: i64) -> String {
     format!("{} {}", number(duffs, true), unit_name())
 }
 
+/// Typed with more digits after the decimal mark than the chosen unit has ("0.000000018" in
+/// DASH, "1.5" in duffs), and an amount without them: the line under the field says what is
+/// wrong instead of "enter an amount".
+pub fn too_precise(input: &str) -> bool {
+    if parse_amount(input).is_some() {
+        return false;
+    }
+    let d = display();
+    let decimals = d.unit.decimals() as usize;
+    let (group, decimal) = d.style.marks();
+    let marks: &[char] = if group.is_whitespace() {
+        &[',', '.']
+    } else {
+        &[decimal]
+    };
+    let text = input.trim();
+    let Some(at) = text.rfind(marks) else {
+        return false;
+    };
+    // The marks are ASCII: one byte each.
+    let fraction = &text[at + 1..];
+    if fraction.len() <= decimals || !fraction.chars().all(|c| c.is_ascii_digit()) {
+        return false;
+    }
+    let kept = if decimals == 0 {
+        &text[..at]
+    } else {
+        &text[..at + 1 + decimals]
+    };
+    parse_amount(kept).is_some()
+}
+
 /// What "Max" puts in an amount field: the chosen unit, no thousands marks.
 pub fn input_text(duffs: i64) -> String {
     let d = display();
@@ -529,6 +561,27 @@ mod tests {
         assert_eq!(short_number(50_000_000), "0,5");
         with(Unit::MilliDash, NumberStyle::CommaDot);
         assert_eq!(short_number(10_000_000), "100");
+        set_display(Display::default());
+    }
+
+    #[test]
+    fn too_many_decimals_are_told_apart_from_a_wrong_amount() {
+        with(Unit::Dash, NumberStyle::CommaDot);
+        assert!(too_precise("0.000000018"));
+        assert!(too_precise("1,234.123456789"));
+        assert!(!too_precise("0.00000001"), "a duff is fine");
+        assert!(!too_precise("abc"));
+        assert!(!too_precise("0,25"), "a wrong mark, not too precise");
+        assert!(!too_precise("0.12a456789"));
+        with(Unit::Dash, NumberStyle::SpaceComma);
+        assert!(too_precise("0,000000018"));
+        assert!(too_precise("0.000000018"));
+        with(Unit::MilliDash, NumberStyle::CommaDot);
+        assert!(too_precise("0.000001"));
+        assert!(!too_precise("0.00001"));
+        with(Unit::Duffs, NumberStyle::CommaDot);
+        assert!(too_precise("1.5"));
+        assert!(!too_precise("15"));
         set_display(Display::default());
     }
 

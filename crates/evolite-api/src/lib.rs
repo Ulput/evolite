@@ -577,6 +577,11 @@ pub struct Fees {
     pub pool_top_up: Duffs,
     /// Credits withdrawn to a Core address (the identity's credits; Platform pays out later).
     pub credit_withdrawal: Duffs,
+    /// What Platform wants on the identity's balance on top of a withdrawal's amount before it
+    /// takes one (`state_transition_min_fees.credit_withdrawal`): a check, not a price — the
+    /// withdrawal itself costs about `credit_withdrawal`, but a balance under amount + reserve
+    /// is refused, whatever the amount.
+    pub credit_withdrawal_reserve: Duffs,
 }
 
 #[derive(Clone, PartialEq, Debug)]

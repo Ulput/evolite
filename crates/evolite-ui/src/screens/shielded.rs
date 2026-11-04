@@ -994,6 +994,7 @@ mod tests {
             shield_from_core: 164_140,
             pool_top_up: 114_360,
             credit_withdrawal: 400_000,
+            credit_withdrawal_reserve: 400_000,
         }
     }
 

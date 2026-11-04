@@ -183,18 +183,149 @@ struct SourceView {
     title: &'static str,
     duffs: Duffs,
     fee: Duffs,
+    /// Credits to a Core address: what Platform checks before it takes the withdrawal.
+    withdrawal: Option<Withdrawal>,
     note_icon: &'static str,
     note: &'static str,
 }
 
-/// What credits to `to` cost: to a Core address a withdrawal (Platform pays it out later),
-/// to a name or a Platform address a transfer.
-fn credits_fee(fees: &evolite_api::Fees, to: &str) -> Duffs {
+/// The smallest withdrawal of credits to Core: Platform's own minimum, 1000 duffs
+/// (`system_limits.min_withdrawal_amount`, 1 000 000 credits), plus the Core fee of the asset
+/// unlock, 190 duffs (190 bytes at platform-wallet's 1 duff a byte), which Platform takes out of
+/// the amount since protocol 14 (platform 575d961, `rs-dpp/src/withdrawal/mod.rs`).
+const MIN_WITHDRAWAL: Duffs = 1_190;
+
+/// What Platform checks before it takes a withdrawal of credits to Core.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct Withdrawal {
+    /// What must stay on the balance on top of the amount. Platform refuses a balance under
+    /// the amount plus its minimum fee (`Fees::credit_withdrawal_reserve`, 0.004 DASH), and the
+    /// fee itself (`Fees::credit_withdrawal`, what the last one cost) comes out of the balance
+    /// too: the larger of the two.
+    reserve: Duffs,
+    /// The smallest amount.
+    min: Duffs,
+}
+
+impl Withdrawal {
+    fn of(fees: &evolite_api::Fees) -> Self {
+        Self {
+            reserve: fees.credit_withdrawal.max(fees.credit_withdrawal_reserve),
+            min: MIN_WITHDRAWAL,
+        }
+    }
+}
+
+/// What is wrong with the amount typed for a balance and its fee: the line under the field.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum AmountProblem {
+    /// Something there, but not even the fee (for a withdrawal, the reserve and the smallest
+    /// amount): nothing can be sent from it, whatever is typed. An empty balance says nothing
+    /// until an amount is typed (then "more than there is"), and neither does a fee not known
+    /// yet.
+    NoFunds,
+    /// Not an amount, or zero.
+    NotAnAmount,
+    /// More digits after the decimal mark than the unit has.
+    TooPrecise,
+    /// More than the balance.
+    MoreThanBalance,
+    /// A withdrawal under the smallest one.
+    BelowMinimum,
+    /// Within the balance, but not with the fee (for a withdrawal, the reserve) on top.
+    NoRoomForFee,
+}
+
+/// What stays on the balance on top of the amount, and the smallest amount.
+fn keep_and_min(fee: Duffs, withdrawal: Option<Withdrawal>) -> (Duffs, Duffs) {
+    match withdrawal {
+        Some(w) => (w.reserve, w.min.max(1)),
+        None => (fee, 1),
+    }
+}
+
+fn amount_problem(
+    typed: &str,
+    balance: Duffs,
+    fee: Duffs,
+    withdrawal: Option<Withdrawal>,
+) -> Option<AmountProblem> {
+    let (keep, min) = keep_and_min(fee, withdrawal);
+    if balance > 0 && keep > 0 && balance < keep.saturating_add(min) {
+        return Some(AmountProblem::NoFunds);
+    }
+    let typed = typed.trim();
+    if typed.is_empty() {
+        return None;
+    }
+    match crate::format::parse_amount(typed) {
+        None if crate::format::too_precise(typed) => Some(AmountProblem::TooPrecise),
+        None | Some(0) => Some(AmountProblem::NotAnAmount),
+        Some(d) if d > balance => Some(AmountProblem::MoreThanBalance),
+        Some(d) if d < min => Some(AmountProblem::BelowMinimum),
+        Some(d) if crate::format::left_after(balance, d, keep) < 0 => {
+            Some(AmountProblem::NoRoomForFee)
+        }
+        Some(_) => None,
+    }
+}
+
+fn amount_problem_text(
+    problem: AmountProblem,
+    fee: Duffs,
+    withdrawal: Option<Withdrawal>,
+) -> String {
+    let (keep, min) = keep_and_min(fee, withdrawal);
+    let keep = crate::format::amount(keep);
+    match (problem, withdrawal) {
+        (AmountProblem::NoFunds, Some(_)) => format!(
+            tr!("Not enough to withdraw: the balance must keep at least {} on top of the amount"),
+            keep
+        ),
+        (AmountProblem::NoFunds, None) => {
+            format!(tr!("This balance does not cover even the fee ({})"), keep)
+        }
+        (AmountProblem::NotAnAmount, _) => tr!("Enter an amount, e.g. 0.25").into(),
+        (AmountProblem::TooPrecise, _) => format!(
+            tr!("Too many digits after the decimal mark: the smallest amount is {}"),
+            crate::format::amount(1)
+        ),
+        (AmountProblem::MoreThanBalance, _) => tr!("More than there is in this balance").into(),
+        (AmountProblem::BelowMinimum, _) => format!(
+            tr!("The smallest withdrawal is {}"),
+            crate::format::amount(min)
+        ),
+        (AmountProblem::NoRoomForFee, Some(_)) => {
+            format!(
+                tr!("Not enough for the amount and the fee reserve ({})"),
+                keep
+            )
+        }
+        (AmountProblem::NoRoomForFee, None) => {
+            format!(tr!("Not enough for the amount and the fee ({})"), keep)
+        }
+    }
+}
+
+/// What "Max" puts in the field: the balance less the fee (for a withdrawal, the reserve).
+fn max_amount(balance: Duffs, fee: Duffs, withdrawal: Option<Withdrawal>) -> Duffs {
+    let (keep, _) = keep_and_min(fee, withdrawal);
+    balance.saturating_sub(keep).max(0)
+}
+
+/// Credits to `to` go to a Core address — a withdrawal, which Platform pays out later — and not
+/// to a name or a Platform address (a transfer).
+fn credits_to_core(to: &str) -> bool {
     let to = to.trim();
-    if to.is_empty() || to.starts_with('@') || to.to_ascii_lowercase().starts_with("tdash1") {
-        fees.credit_transfer
-    } else {
+    !(to.is_empty() || to.starts_with('@') || to.to_ascii_lowercase().starts_with("tdash1"))
+}
+
+/// What credits to `to` cost: a withdrawal to a Core address, else a transfer.
+fn credits_fee(fees: &evolite_api::Fees, to: &str) -> Duffs {
+    if credits_to_core(to) {
         fees.credit_withdrawal
+    } else {
+        fees.credit_transfer
     }
 }
 
@@ -207,6 +338,7 @@ fn sources(w: &Wallet, to: &str) -> [SourceView; 3] {
             title: "Core",
             duffs: w.balances.core,
             fee: w.fees.core_payment,
+            withdrawal: None,
             note_icon: "instantsend",
             note: tr!("InstantSend: the recipient sees a confirmed payment in a few seconds."),
         },
@@ -216,6 +348,7 @@ fn sources(w: &Wallet, to: &str) -> [SourceView; 3] {
             title: tr!("Credits"),
             duffs: w.balances.credits,
             fee: credits_fee(&w.fees, to),
+            withdrawal: credits_to_core(to).then(|| Withdrawal::of(&w.fees)),
             note_icon: "confirmed",
             note: tr!("A credit transfer is confirmed by a Platform proof in a couple of seconds."),
         },
@@ -225,6 +358,7 @@ fn sources(w: &Wallet, to: &str) -> [SourceView; 3] {
             title: tr!("Private pool"),
             duffs: w.balances.shielded,
             fee: super::shielded::pool_fee(&w.fees, to),
+            withdrawal: None,
             note_icon: "shield",
             note: tr!(
                 "From the pool: the amount and the recipient are not visible on the network."
@@ -296,7 +430,11 @@ pub fn send(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut SendForm, ask_
     };
     let amount = crate::format::parse_amount(&form.amount).filter(|d| *d > 0);
     let left = amount.map(|d| crate::format::left_after(source.duffs, d, source.fee));
-    let too_much = left.is_some_and(|l| l < 0);
+    // Not before the wallet knows all its coins: the core would refuse, and a balance
+    // still syncing is no basis for a payment (nor for saying it is too small).
+    let synced = crate::text::coins_known(cx.snap.sync.stage);
+    let problem = amount_problem(&form.amount, source.duffs, source.fee, source.withdrawal)
+        .filter(|p| synced || *p != AmountProblem::NoFunds);
     // A source that cannot pay at all says why, not "more than there is".
     let unavailable = match source.source {
         Source::Credits if cx.wallet().identity.is_none() => Some(tr!(
@@ -459,7 +597,11 @@ pub fn send(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut SendForm, ask_
                 let field = amount_field(ui, &p, "send-amount", &mut form.amount, true);
                 let (resp, all) = (field.response, field.all);
                 if all {
-                    form.amount = crate::format::input_text((source.duffs - source.fee).max(0));
+                    form.amount = crate::format::input_text(max_amount(
+                        source.duffs,
+                        source.fee,
+                        source.withdrawal,
+                    ));
                 }
                 if resp.changed() || all {
                     form.result = None;
@@ -468,20 +610,16 @@ pub fn send(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut SendForm, ask_
                     ui.add(
                         egui::Label::new(txt(why, 12.0, Weight::Regular, p.danger)).wrap(),
                     );
-                } else if too_much {
-                    ui.label(txt(
-                        tr!("More than there is in this balance"),
-                        12.0,
-                        Weight::Regular,
-                        p.danger,
-                    ));
-                } else if !form.amount.trim().is_empty() && amount.is_none() {
-                    ui.label(txt(
-                        tr!("Enter an amount, e.g. 0.25"),
-                        12.0,
-                        Weight::Regular,
-                        p.danger,
-                    ));
+                } else if let Some(problem) = problem {
+                    ui.add(
+                        egui::Label::new(txt(
+                            &amount_problem_text(problem, source.fee, source.withdrawal),
+                            12.0,
+                            Weight::Regular,
+                            p.danger,
+                        ))
+                        .wrap(),
+                    );
                 }
             });
             kv_row(
@@ -516,11 +654,11 @@ pub fn send(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut SendForm, ask_
             } else {
                 notice(ui, a, source.note_icon, p.accent, source.note);
             }
-            // Not before the wallet knows all its coins: the core would refuse, and a balance
-            // still syncing is no basis for a payment.
-            let synced = crate::text::coins_known(cx.snap.sync.stage);
-            let ready =
-                amount.is_some() && !too_much && unavailable.is_none() && target_known && synced;
+            let ready = amount.is_some()
+                && problem.is_none()
+                && unavailable.is_none()
+                && target_known
+                && synced;
             if form.waiting > 0 {
                 ui.add(
                     egui::Label::new(txt(
@@ -1188,6 +1326,154 @@ mod tests {
     use super::*;
 
     #[test]
+    fn the_amount_line_says_what_is_wrong() {
+        use crate::format::{Display, NumberStyle, Unit, set_display};
+        use AmountProblem::*;
+        set_display(Display {
+            unit: Unit::Dash,
+            style: NumberStyle::CommaDot,
+            ..Display::default()
+        });
+        // A payment with a fee, not a withdrawal (that one is below): 0.0018 DASH and a fee of
+        // 0.0021 DASH, nothing can go, whatever is typed.
+        for typed in ["", "0.000000018", "0.00000018", "0.001"] {
+            assert_eq!(
+                amount_problem(typed, 180_000, 210_000, None),
+                Some(NoFunds),
+                "{typed}"
+            );
+        }
+        assert_eq!(
+            amount_problem("", 210_000, 210_000, None),
+            Some(NoFunds),
+            "the fee alone"
+        );
+        // An empty balance, or a fee not known yet: no line before typing, the usual ones after.
+        assert_eq!(amount_problem("", 0, 210_000, None), None, "empty");
+        assert_eq!(
+            amount_problem("0.001", 0, 210_000, None),
+            Some(MoreThanBalance),
+            "empty, typed"
+        );
+        assert_eq!(amount_problem("", 0, 0, None), None, "empty, no fee");
+        assert_eq!(amount_problem("", 180_000, 0, None), None, "no fee yet");
+        assert_eq!(
+            amount_problem("0.001", 180_000, 0, None),
+            None,
+            "no fee yet, typed"
+        );
+        // 0.01 DASH, the same fee: the edges.
+        let (balance, fee) = (1_000_000, 210_000);
+        let cases = [
+            ("", None),
+            ("0", Some(NotAnAmount)),
+            ("abc", Some(NotAnAmount)),
+            ("0.00000001", None),
+            ("0.0079", None),
+            ("0.00790001", Some(NoRoomForFee)),
+            ("0.01", Some(NoRoomForFee)),
+            ("0.01000001", Some(MoreThanBalance)),
+            ("0.000000018", Some(TooPrecise)),
+        ];
+        for (typed, problem) in cases {
+            assert_eq!(
+                amount_problem(typed, balance, fee, None),
+                problem,
+                "{typed}"
+            );
+        }
+        assert_eq!(max_amount(balance, fee, None), 790_000);
+        assert_eq!(max_amount(100_000, fee, None), 0, "not below zero");
+        let text = amount_problem_text(NoRoomForFee, fee, None);
+        assert!(text.contains("0.0021"), "the fee is named: {text}");
+        let text = amount_problem_text(TooPrecise, fee, None);
+        assert!(
+            text.contains("0.00000001"),
+            "the smallest step is named: {text}"
+        );
+        set_display(Display::default());
+    }
+
+    /// Credits to Core: Platform refuses a balance under the amount + 0.004 DASH and an amount
+    /// under 1190 duffs, whatever the last withdrawal cost (BUG-11, review r1).
+    #[test]
+    fn a_withdrawal_keeps_the_reserve_and_the_smallest_amount() {
+        use crate::format::{Display, NumberStyle, Unit, set_display};
+        use AmountProblem::*;
+        set_display(Display {
+            unit: Unit::Dash,
+            style: NumberStyle::CommaDot,
+            ..Display::default()
+        });
+        let fees = evolite_api::Fees {
+            credit_withdrawal: 210_000,
+            credit_withdrawal_reserve: 400_000,
+            ..zero_fees()
+        };
+        let w = Withdrawal::of(&fees);
+        assert_eq!(
+            (w.reserve, w.min),
+            (400_000, 1_190),
+            "the reserve, not the price"
+        );
+        let dearer = Withdrawal::of(&evolite_api::Fees {
+            credit_withdrawal: 500_000,
+            ..fees.clone()
+        });
+        assert_eq!(
+            dearer.reserve, 500_000,
+            "a dearer last withdrawal is kept too"
+        );
+        let fee = fees.credit_withdrawal;
+        let at = |typed: &str, balance: Duffs| amount_problem(typed, balance, fee, Some(w));
+        // The customer's 0.0018 DASH: nothing can go, whatever is typed.
+        for typed in ["", "0.000000018", "0.00000018", "0.001"] {
+            assert_eq!(at(typed, 180_000), Some(NoFunds), "{typed}");
+        }
+        // An empty balance: no line before typing.
+        assert_eq!(at("", 0), None);
+        assert_eq!(at("0.001", 0), Some(MoreThanBalance));
+        // The reserve and the smallest amount, to the duff.
+        assert_eq!(at("", 400_000 + 1_189), Some(NoFunds), "reserve + 1189");
+        assert_eq!(at("", 400_000 + 1_190), None, "reserve + 1190");
+        assert_eq!(at("0.0000119", 400_000 + 1_190), None);
+        assert_eq!(max_amount(400_000 + 1_190, fee, Some(w)), 1_190);
+        // 0.01 DASH: the edges around balance − reserve (0.006).
+        let balance = 1_000_000;
+        let cases = [
+            ("", None),
+            ("0", Some(NotAnAmount)),
+            ("0.000000018", Some(TooPrecise)),
+            ("0.00000001", Some(BelowMinimum)),
+            ("0.00001189", Some(BelowMinimum)),
+            ("0.0000119", None),
+            ("0.00599999", None),
+            ("0.006", None),
+            ("0.00600001", Some(NoRoomForFee)),
+            // Within balance − price, but Platform refuses it: round 1 let it through.
+            ("0.0079", Some(NoRoomForFee)),
+            ("0.01", Some(NoRoomForFee)),
+            ("0.01000001", Some(MoreThanBalance)),
+        ];
+        for (typed, problem) in cases {
+            assert_eq!(at(typed, balance), problem, "{typed}");
+        }
+        // "Max": the balance less the reserve, which the form itself takes.
+        let max = max_amount(balance, fee, Some(w));
+        assert_eq!(max, 600_000);
+        assert_eq!(at(&crate::format::input_text(max), balance), None);
+        assert_eq!(max_amount(180_000, fee, Some(w)), 0);
+        // The lines name the reserve and the smallest amount, not the price.
+        let text = amount_problem_text(NoFunds, fee, Some(w));
+        assert!(text.contains("0.004"), "{text}");
+        let text = amount_problem_text(NoRoomForFee, fee, Some(w));
+        assert!(text.contains("0.004"), "{text}");
+        let text = amount_problem_text(BelowMinimum, fee, Some(w));
+        assert!(text.contains("0.0000119"), "{text}");
+        set_display(Display::default());
+    }
+
+    #[test]
     fn credits_to_core_cost_a_withdrawal() {
         let fees = evolite_api::Fees {
             credit_transfer: 777,
@@ -1203,6 +1489,13 @@ mod tests {
             credits_fee(&fees, " yStwA1xNxEE2kv5ZVDNGSsPach8pBApWHZ"),
             400_000
         );
+        assert!(credits_to_core(" yStwA1xNxEE2kv5ZVDNGSsPach8pBApWHZ"));
+        for to in ["", "@alice", "TDASH1qq7x4m9n2r8v5k3j6h0w4p2s8d5f7g9l3c0zq"] {
+            assert!(
+                !credits_to_core(to),
+                "{to}: a transfer, no withdrawal reserve"
+            );
+        }
     }
 
     fn zero_fees() -> evolite_api::Fees {
@@ -1226,6 +1519,7 @@ mod tests {
             shield_from_core: 0,
             pool_top_up: 0,
             credit_withdrawal: 0,
+            credit_withdrawal_reserve: 0,
         }
     }
     use evolite_api::{Chain, Proof};
