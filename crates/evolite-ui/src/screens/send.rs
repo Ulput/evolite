@@ -22,6 +22,8 @@ pub struct SendForm {
     pub source: usize,
     pub recipient: String,
     pub amount: String,
+    /// The example amount in `amount` until the person changes it (`format::fill_suggested`).
+    pub suggested: Option<i64>,
     /// The name last sent to the core for resolving, and its answer.
     pub asked: String,
     pub resolution: Option<Result<ResolvedName, CoreError>>,
@@ -55,6 +57,7 @@ impl SendForm {
         Self {
             recipient: String::new(),
             amount: String::new(),
+            suggested: None,
             ..Self::default()
         }
     }
@@ -154,7 +157,8 @@ impl Default for SendForm {
         Self {
             source: 0,
             recipient: "@alice".into(),
-            amount: "0,2500".into(),
+            amount: crate::format::input_text(25_000_000),
+            suggested: Some(25_000_000),
             asked: String::new(),
             resolution: None,
             confirming: false,
@@ -258,6 +262,7 @@ fn recipient<'a>(form: &'a SendForm) -> Recipient<'a> {
 /// `ask_password`: "a password for every payment" is on in the settings.
 pub fn send(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut SendForm, ask_password: bool) {
     let p = a.p;
+    crate::format::fill_suggested(&mut form.amount, &mut form.suggested);
     ui.spacing_mut().item_spacing.y = 24.0;
     page_header(ui, a, tr!("Send"), None, |_, _| {});
 

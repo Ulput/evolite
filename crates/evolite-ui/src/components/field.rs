@@ -174,7 +174,9 @@ pub fn amount_field(
     with_all: bool,
 ) -> AmountResponse {
     let mut all = false;
-    let response = text_field(ui, p, id, value, "0,0000", FieldKind::Amount, |ui| {
+    // The placeholder in the chosen unit and format: "0,0000", "0.0000", "0.00", "0".
+    let hint = crate::format::input_text(0);
+    let response = text_field(ui, p, id, value, &hint, FieldKind::Amount, |ui| {
         if with_all {
             all = super::mini_button(ui, p, tr!("Max")).clicked();
         } else {

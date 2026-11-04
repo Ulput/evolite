@@ -261,10 +261,11 @@ impl App {
                 unshielding: unshield,
                 unshield_to_identity: preset("unshield-identity"),
                 unshield_amount: if unshield && !real_shot {
-                    "0,3000".into()
+                    crate::format::input_text(30_000_000)
                 } else {
                     String::new()
                 },
+                unshield_suggested: (unshield && !real_shot).then_some(30_000_000),
                 address_open: preset("pool-address"),
                 ..Default::default()
             }

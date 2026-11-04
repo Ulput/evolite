@@ -15,6 +15,8 @@ use evolite_api::{Command, CoreError, NameCheck, UnfinishedIdentity};
 pub struct CreateIdentityForm {
     pub name: String,
     pub amount: String,
+    /// 0.3 DASH in `amount` until the person changes it (`format::fill_suggested`).
+    pub suggested: Option<i64>,
     /// The label last sent to the core, and its answer.
     pub asked: String,
     pub check: Option<Result<NameCheck, CoreError>>,
@@ -56,7 +58,8 @@ impl Default for CreateIdentityForm {
     fn default() -> Self {
         Self {
             name: String::new(),
-            amount: "0,3000".into(),
+            amount: crate::format::input_text(30_000_000),
+            suggested: Some(30_000_000),
             asked: String::new(),
             check: None,
             waiting: false,
@@ -72,6 +75,7 @@ fn dash(d: i64) -> String {
 
 pub fn create_identity(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut CreateIdentityForm) {
     let p = a.p;
+    crate::format::fill_suggested(&mut form.amount, &mut form.suggested);
     let wallet = cx.wallet();
     let fees = &wallet.fees;
     ui.spacing_mut().item_spacing.y = 24.0;

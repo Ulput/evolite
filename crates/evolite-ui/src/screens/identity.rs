@@ -53,12 +53,15 @@ pub struct NameForm {
 /// "Top up the identity" as typed, before it is sent.
 pub struct TopUpForm {
     pub amount: String,
+    /// 0.1 DASH in `amount` until the person changes it (`format::fill_suggested`).
+    pub suggested: Option<i64>,
 }
 
 impl Default for TopUpForm {
     fn default() -> Self {
         Self {
-            amount: "0,1000".into(),
+            amount: crate::format::input_text(10_000_000),
+            suggested: Some(10_000_000),
         }
     }
 }
@@ -843,6 +846,7 @@ fn top_up_dialog(
     let Some(form) = &mut state.top_up else {
         return;
     };
+    crate::format::fill_suggested(&mut form.amount, &mut form.suggested);
     let me = id
         .name()
         .map_or_else(|| "identity".to_string(), |n| format!("@{n}"));
@@ -880,9 +884,11 @@ fn top_up_dialog(
                 field_label(ui, &p, tr!("How much to turn into credits"));
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = 8.0;
-                    for (label, value) in [("0,1", "0,1000"), ("0,5", "0,5000"), ("1", "1,0000")] {
-                        if pill(ui, &p, label, form.amount == value).clicked() {
-                            form.amount = value.into();
+                    for duffs in [10_000_000, 50_000_000, 100_000_000] {
+                        let label = crate::format::short_number(duffs);
+                        let on = crate::format::parse_amount(&form.amount) == Some(duffs);
+                        if pill(ui, &p, &label, on).clicked() {
+                            form.amount = crate::format::input_text(duffs);
                         }
                     }
                 });

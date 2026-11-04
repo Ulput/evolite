@@ -189,6 +189,52 @@ pub fn input_text(duffs: i64) -> String {
     write(duffs, d.unit, d.style, false, false)
 }
 
+/// A pill's label: the amount in the chosen unit and format, without trailing zeros — "0.1",
+/// "0,5", "1", "100" (mDASH).
+pub fn short_number(duffs: i64) -> String {
+    let d = display();
+    let (_, decimal) = d.style.marks();
+    let text = write(duffs, d.unit, d.style, false, true);
+    if text.contains(decimal) {
+        text.trim_end_matches('0')
+            .trim_end_matches(decimal)
+            .to_string()
+    } else {
+        text
+    }
+}
+
+/// A suggested amount (an example or a default) kept in the chosen unit and format, called each
+/// frame the field is drawn. Forms are made at start-up, before the settings and the language
+/// are known, and live on while they change: text written in another format is refused by
+/// `parse_amount` ("0,1000" with "1,234.56"). While the field holds the suggestion, written in
+/// any unit and format, it is rewritten in the current one; once the person changes it (or
+/// clears it), the field is theirs and the suggestion is dropped.
+///
+/// A form starts with `text` already holding [`input_text`] of the suggestion, so that an empty
+/// field means the person cleared it.
+pub fn fill_suggested(text: &mut String, suggested: &mut Option<i64>) {
+    let Some(duffs) = *suggested else {
+        return;
+    };
+    let now = input_text(duffs);
+    if *text == now {
+        return;
+    }
+    let written_somehow = [Unit::Dash, Unit::MilliDash, Unit::Duffs]
+        .into_iter()
+        .flat_map(|unit| {
+            [NumberStyle::SpaceComma, NumberStyle::CommaDot]
+                .map(|style| write(duffs, unit, style, false, false))
+        })
+        .any(|t| t == *text);
+    if written_somehow {
+        *text = now;
+    } else {
+        *suggested = None;
+    }
+}
+
 /// "••••" in place of an amount, keeping its unit: "•••• DASH".
 pub fn mask(shown: &str) -> String {
     match shown.rsplit_once(' ') {
@@ -427,6 +473,63 @@ mod tests {
         assert_eq!(mask("12,8460 DASH"), "•••• DASH");
         assert_eq!(mask("−226 duffs"), "•••• duffs");
         assert_eq!(mask("12,8460"), "••••");
+    }
+
+    #[test]
+    fn suggested_amounts_are_written_as_the_settings_read_them() {
+        for unit in [Unit::Dash, Unit::MilliDash, Unit::Duffs] {
+            for style in [NumberStyle::SpaceComma, NumberStyle::CommaDot] {
+                with(unit, style);
+                for duffs in [10_000_000, 25_000_000, 30_000_000, 50_000_000, 100_000_000] {
+                    // As written at start-up, before the settings were known: "0,1000".
+                    let mut text = write(duffs, Unit::Dash, NumberStyle::SpaceComma, false, false);
+                    let mut suggested = Some(duffs);
+                    fill_suggested(&mut text, &mut suggested);
+                    assert_eq!(
+                        parse_amount(&text),
+                        Some(duffs),
+                        "{unit:?} {style:?} {text}"
+                    );
+                    assert_eq!(suggested, Some(duffs), "still the suggestion");
+                    let label = short_number(duffs);
+                    assert_eq!(
+                        parse_amount(&label),
+                        Some(duffs),
+                        "{unit:?} {style:?} {label}"
+                    );
+                }
+            }
+        }
+        // The settings change while the form lives: an untouched suggestion follows them.
+        with(Unit::Dash, NumberStyle::SpaceComma);
+        let (mut text, mut suggested) = (input_text(25_000_000), Some(25_000_000));
+        fill_suggested(&mut text, &mut suggested);
+        assert_eq!(text, "0,2500");
+        with(Unit::Dash, NumberStyle::CommaDot);
+        fill_suggested(&mut text, &mut suggested);
+        assert_eq!(text, "0.2500");
+        with(Unit::MilliDash, NumberStyle::CommaDot);
+        fill_suggested(&mut text, &mut suggested);
+        assert_eq!(parse_amount(&text), Some(25_000_000), "{text}");
+        // What the person typed, or an empty field, is theirs: kept, and the suggestion dropped.
+        for typed in ["0.3", ""] {
+            let (mut text, mut suggested) = (typed.to_string(), Some(25_000_000));
+            fill_suggested(&mut text, &mut suggested);
+            assert_eq!((text.as_str(), suggested), (typed, None));
+            with(Unit::Dash, NumberStyle::SpaceComma);
+            fill_suggested(&mut text, &mut suggested);
+            assert_eq!(text, typed);
+            with(Unit::MilliDash, NumberStyle::CommaDot);
+        }
+        with(Unit::Dash, NumberStyle::CommaDot);
+        assert_eq!(input_text(25_000_000), "0.2500");
+        assert_eq!(short_number(10_000_000), "0.1");
+        assert_eq!(short_number(100_000_000), "1");
+        with(Unit::Dash, NumberStyle::SpaceComma);
+        assert_eq!(short_number(50_000_000), "0,5");
+        with(Unit::MilliDash, NumberStyle::CommaDot);
+        assert_eq!(short_number(10_000_000), "100");
+        set_display(Display::default());
     }
 
     #[test]

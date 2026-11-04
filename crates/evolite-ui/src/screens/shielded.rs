@@ -65,12 +65,16 @@ pub struct PoolState {
     pub from: usize,
     pub sources_open: bool,
     pub amount: String,
+    /// 0.5 DASH in `amount` until the person changes it (`format::fill_suggested`).
+    pub suggested: Option<i64>,
     /// The core is building the proof: how far it has got.
     pub progress: Option<f32>,
     pub result: Option<Result<(), CoreError>>,
     /// "Unshield" is open.
     pub unshielding: bool,
     pub unshield_amount: String,
+    /// An example for `unshield_amount` (dev-tools presets), kept the same way.
+    pub unshield_suggested: Option<i64>,
     /// "Private address" is open.
     pub address_open: bool,
     /// "Unshield" goes into the identity's credits instead of the Platform address.
@@ -84,11 +88,13 @@ impl Default for PoolState {
             shielding: false,
             from: 0,
             sources_open: false,
-            amount: "0,5000".into(),
+            amount: crate::format::input_text(50_000_000),
+            suggested: Some(50_000_000),
             progress: None,
             result: None,
             unshielding: false,
             unshield_amount: String::new(),
+            unshield_suggested: None,
             address_open: false,
             unshield_to_identity: false,
         }
@@ -422,6 +428,7 @@ fn action(
 
 /// 09 · Shield into the private pool: where from, how much, the fee, and the proof being built.
 fn shield_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut PoolState) {
+    crate::format::fill_suggested(&mut state.amount, &mut state.suggested);
     let wallet = cx.wallet();
     let sources = shield_sources(wallet);
     let fees = &wallet.fees;
@@ -641,6 +648,7 @@ fn proof_progress(ui: &mut Ui, a: &mut Assets, fraction: f32) {
 /// "Unshield": out of the pool to the wallet's own Platform address, or into the credits of the
 /// identity the interface shows.
 fn unshield_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut PoolState) {
+    crate::format::fill_suggested(&mut state.unshield_amount, &mut state.unshield_suggested);
     let wallet = cx.wallet();
     let balance = wallet.balances.shielded;
     let identity = wallet.identity.as_ref().map(|i| {
