@@ -151,6 +151,13 @@ pub fn identity(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut IdentityS
             if button(ui, a, tr!("Add a name"), ButtonKind::Secondary, None).clicked() {
                 state.adding_name = Some(NameForm::default());
             }
+            // An identity or a name made elsewhere since the search (BUG-9). While one runs
+            // the notice below says so, a failed pass too: the core tries again by itself.
+            if wallet.identity_search == IdentitySearch::Done
+                && button(ui, a, tr!("Search again"), ButtonKind::Secondary, None).clicked()
+            {
+                asked.push(Command::FindIdentities);
+            }
         }
     });
     identity_choice(ui, a, wallet, &mut asked);
@@ -174,7 +181,7 @@ pub fn identity(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut IdentityS
             cx.go(Screen::CreateIdentity);
         }
     }
-    let search_again = search_status(ui, a, &wallet.identity_search);
+    let search_again = search_status(ui, a, &wallet.identity_search, has_identity);
     let Some(identity) = &wallet.identity else {
         let p = a.p;
         let searching = wallet.identity_search == IdentitySearch::Searching;
@@ -638,13 +645,27 @@ fn identity_choice(ui: &mut Ui, a: &mut Assets, wallet: &Wallet, asked: &mut Vec
     });
 }
 
-/// A failed search for the phrase's identities: why, and "Search again". Returns true when
-/// it was clicked.
-fn search_status(ui: &mut Ui, a: &mut Assets, search: &IdentitySearch) -> bool {
+/// While identities are shown, a search still going on (BUG-9): more of them, or their
+/// names, may come. A failed pass reads the same beside them: the core tries again by itself,
+/// and an error next to the identities it found reads as if they were wrong. Without one the
+/// empty state says it itself.
+fn searching_text(search: &IdentitySearch, has_identity: bool) -> Option<&'static str> {
+    (has_identity && *search != IdentitySearch::Done).then_some(tr!(
+        "Looking for this phrase's other identities and their names on Platform…"
+    ))
+}
+
+/// A search for the phrase's identities still going on, or, with none shown, a failed one: why,
+/// and "Search again". Returns true when that was clicked.
+fn search_status(ui: &mut Ui, a: &mut Assets, search: &IdentitySearch, has_identity: bool) -> bool {
+    let p = a.p;
+    if let Some(text) = searching_text(search, has_identity) {
+        notice(ui, a, "pending", p.muted, text);
+        return false;
+    }
     let IdentitySearch::Failed(why) = search else {
         return false;
     };
-    let p = a.p;
     notice(
         ui,
         a,
@@ -1400,10 +1421,11 @@ fn keys(ui: &mut Ui, a: &mut Assets, id: &Identity, width: f32) {
 #[cfg(test)]
 mod tests {
     use super::{
-        IdentityState, TOP_UP_SETTLED, top_up_blocked_by, top_up_done_text, top_up_error,
-        unfinished_top_up_text,
+        IdentityState, TOP_UP_SETTLED, searching_text, top_up_blocked_by, top_up_done_text,
+        top_up_error, unfinished_top_up_text,
     };
     use evolite_api::CoreError;
+    use evolite_api::IdentitySearch;
     use evolite_api::UnfinishedTopUp;
 
     #[test]
@@ -1460,6 +1482,22 @@ mod tests {
         let (full, _) = unfinished_top_up_text(&stopped(true).unwrap(), None);
         let (after, _) = unfinished_top_up_text(&stopped(true).unwrap(), Some(&last));
         assert_eq!(after, full);
+    }
+
+    /// BUG-9: with identities shown, a search still going on is visible — more of them or their
+    /// names may come; a failed pass reads the same there, not as an error (r1). Once done, or
+    /// with no identity yet, this line is not shown: the empty state tells it, failure included.
+    #[test]
+    fn a_search_still_going_on_is_visible_beside_the_identities() {
+        let failed = IdentitySearch::Failed("timeout".into());
+        assert!(searching_text(&IdentitySearch::Searching, true).is_some());
+        assert_eq!(
+            searching_text(&failed, true),
+            searching_text(&IdentitySearch::Searching, true)
+        );
+        assert_eq!(searching_text(&IdentitySearch::Searching, false), None);
+        assert_eq!(searching_text(&failed, false), None);
+        assert_eq!(searching_text(&IdentitySearch::Done, true), None);
     }
 
     #[test]

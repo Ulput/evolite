@@ -317,6 +317,9 @@ struct Real {
     /// The phrase's identities were looked up this session: until then a tracked lock may
     /// belong to an identity Platform already made, and is not shown as unfinished.
     identities_found: Arc<AtomicBool>,
+    /// That lookup was complete: every slot answered (BUG-9). Until then a lock without its
+    /// identity may belong to one in an unanswered slot.
+    identities_complete: Arc<AtomicBool>,
     /// Where that lookup stands, for the snapshot.
     identity_search: Arc<std::sync::Mutex<IdentitySearch>>,
     /// The number of the current lookup: a lookup whose number is not current stops.
@@ -571,9 +574,49 @@ async fn keep_balances_fresh(
     }
 }
 
-/// The first pause before an identity lookup is tried again, and the longest one.
-const DISCOVERY_RETRY: Duration = Duration::from_secs(30);
+/// The first pause before an identity lookup is tried again, and the longest one. Short at
+/// first: a scan with unanswered slots or names is tried again soon (BUG-9).
+const DISCOVERY_RETRY: Duration = Duration::from_secs(10);
 const DISCOVERY_RETRY_MAX: Duration = Duration::from_secs(5 * 60);
+
+/// What one pass of the identity search means for it (BUG-9).
+#[derive(Debug, PartialEq)]
+struct DiscoveryStep {
+    /// For the snapshot.
+    status: IdentitySearch,
+    /// The phrase's identities were looked up: shown with their balances kept fresh, and a
+    /// tracked top-up lock shown as unfinished.
+    found: bool,
+    /// Look again after the pause.
+    again: bool,
+}
+
+/// [`DiscoveryStep`] of a pass, `found_before` by an earlier pass of the same search. A pass
+/// with slots or names missing shows what it found and goes on searching; only a complete one
+/// is done. A failed pass is told only while no identity was found: beside identities the
+/// search just goes on.
+fn discovery_step(pass: Result<chain::Discovery, String>, found_before: bool) -> DiscoveryStep {
+    match pass {
+        Ok(pass) => DiscoveryStep {
+            status: if pass.complete {
+                IdentitySearch::Done
+            } else {
+                IdentitySearch::Searching
+            },
+            found: true,
+            again: !pass.complete,
+        },
+        Err(why) => DiscoveryStep {
+            status: if found_before {
+                IdentitySearch::Searching
+            } else {
+                IdentitySearch::Failed(why)
+            },
+            found: found_before,
+            again: true,
+        },
+    }
+}
 
 /// The fewest characters a new password may have. The screens ask for more (letters of both
 /// cases, a digit, a symbol); the core holds the floor itself, so no other way in sets a
@@ -723,6 +766,7 @@ impl Real {
             contact_accounts_for: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
             contact_accounts_busy: Arc::new(AtomicBool::new(false)),
             identities_found: Arc::new(AtomicBool::new(false)),
+            identities_complete: Arc::new(AtomicBool::new(false)),
             identity_search: Default::default(),
             discovery_run: Default::default(),
             balances_stale: Default::default(),
@@ -762,13 +806,14 @@ impl Real {
 
     /// What a cut-short "Create an identity" left, if anything: a lock without its identity, or
     /// an identity without the name this computer remembers for it. Nothing while one is being
-    /// made: its lock exists before Platform has the identity.
+    /// made: its lock exists before Platform has the identity. Nor before a complete lookup
+    /// (BUG-9): the identity may sit in a slot Platform did not answer for.
     async fn unfinished_identity(
         &self,
         wallet: &platform_wallet::PlatformWallet,
     ) -> Option<UnfinishedIdentity> {
         if self.identity_busy.load(Ordering::Relaxed)
-            || !self.identities_found.load(Ordering::Relaxed)
+            || !self.identities_complete.load(Ordering::Relaxed)
         {
             return None;
         }
@@ -2581,8 +2626,10 @@ impl Real {
 
     /// Looks for the phrase's identities in the background once proofs can be checked; what is
     /// found goes to the store and so into the next snapshot. A failed try is made again after
-    /// 30 s, then less and less often (up to 5 min), while this unlock lasts. A newer search
-    /// (`FindIdentities`) or locking stops this one, and its keys go with it.
+    /// 10 s, then less and less often (up to 5 min), while this unlock lasts; so is a pass with
+    /// slots or names missing (BUG-9), though what it found is shown and its balances kept
+    /// fresh at once. A newer search (`FindIdentities`) or locking stops this one, and its keys
+    /// go with it; a complete pass lets them go too.
     fn discover_identities(&self) {
         let Some((id, Some(keys))) = self.unlocked.as_ref().map(|o| (o.id, o.keys.clone())) else {
             return;
@@ -2592,37 +2639,53 @@ impl Real {
         let chain = self.chain.clone();
         let search = self.identity_search.clone();
         let found = self.identities_found.clone();
+        let complete = self.identities_complete.clone();
         let refresh = self.refresher();
         let stale = self.balances_stale.clone();
         found.store(false, Ordering::Relaxed);
+        complete.store(false, Ordering::Relaxed);
         set_search(&search, IdentitySearch::Searching);
         refresh();
         tokio::spawn(async move {
             let live = move || current.load(Ordering::Relaxed) == run;
             chain.until_platform_ready().await;
             let mut pause = DISCOVERY_RETRY;
+            let mut names_read = std::collections::HashSet::new();
             while live() {
                 let result = match chain.wallet(&id).await {
-                    Some(wallet) => chain.discover_identities(&wallet, &keys).await.map(|_| ()),
+                    Some(wallet) => {
+                        chain
+                            .discover_identities_again(&wallet, &keys, &mut names_read)
+                            .await
+                    }
                     None => Err(tr!("the wallet is not loaded yet").into()),
                 };
                 if !live() {
                     break;
                 }
-                match result {
-                    Ok(()) => {
-                        found.store(true, Ordering::Relaxed);
-                        set_search(&search, IdentitySearch::Done);
-                        refresh();
-                        // The keys are not needed to read balances: let them go now.
-                        drop(keys);
-                        keep_balances_fresh(chain, id, live, stale, refresh).await;
-                        return;
-                    }
-                    Err(why) => {
-                        set_search(&search, IdentitySearch::Failed(why));
-                        refresh();
-                    }
+                let was_found = found.load(Ordering::Relaxed);
+                // Every slot answered is enough for the unfinished lock (BUG-9 r2 should-1):
+                // names still missing are read on the next pass. Once answered, it stays so
+                // for this search.
+                if result.as_ref().is_ok_and(|d| d.slots_complete) {
+                    complete.store(true, Ordering::Relaxed);
+                }
+                let step = discovery_step(result, was_found);
+                set_search(&search, step.status);
+                if step.found && !was_found {
+                    found.store(true, Ordering::Relaxed);
+                    tokio::spawn(keep_balances_fresh(
+                        chain.clone(),
+                        id,
+                        live.clone(),
+                        stale.clone(),
+                        refresh.clone(),
+                    ));
+                }
+                refresh();
+                if !step.again {
+                    // The keys are not needed to read balances: let them go now.
+                    return;
                 }
                 // A second at a time, so a lock or a newer search ends the wait at once.
                 let until = tokio::time::Instant::now() + pause;
@@ -3789,6 +3852,48 @@ mod tests {
         assert_eq!(
             identity_failure(chain::top_up_settled_text().into()),
             CoreError::NotAvailable(chain::top_up_settled_text().into())
+        );
+    }
+
+    /// BUG-9 r1: a complete pass is done; one with slots or names missing shows what it found
+    /// and searches on; a failed one is told only while nothing was found.
+    #[test]
+    fn an_identity_search_is_done_only_when_complete() {
+        let pass = |complete: bool| {
+            Ok(chain::Discovery {
+                found: 1,
+                complete,
+                slots_complete: complete,
+                missing: (!complete).then(|| "slots".to_string()),
+            })
+        };
+        let step = |status, found, again| DiscoveryStep {
+            status,
+            found,
+            again,
+        };
+        // Complete.
+        assert_eq!(
+            discovery_step(pass(true), false),
+            step(IdentitySearch::Done, true, false)
+        );
+        // Unanswered slots, or names not read: found, still searching, looking again.
+        assert_eq!(
+            discovery_step(pass(false), false),
+            step(IdentitySearch::Searching, true, true)
+        );
+        assert_eq!(
+            discovery_step(pass(false), true),
+            step(IdentitySearch::Searching, true, true)
+        );
+        // Failed with nothing found yet: why; after a pass that found some: no error beside them.
+        assert_eq!(
+            discovery_step(Err("timeout".into()), false),
+            step(IdentitySearch::Failed("timeout".into()), false, true)
+        );
+        assert_eq!(
+            discovery_step(Err("timeout".into()), true),
+            step(IdentitySearch::Searching, true, true)
         );
     }
 

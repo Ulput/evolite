@@ -7,7 +7,7 @@
 //! Proofs of Platform data are checked against quorum keys from this SPV client's own verified
 //! masternode list ([`SpvContextProvider`]), not a server's.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
@@ -217,6 +217,54 @@ pub fn already_taken(
             AlreadyTaken::Settled
         }
         _ => AlreadyTaken::AwaitChainLock,
+    }
+}
+
+/// Whose DPNS names a discovery reads itself (BUG-9), of the wallet's identities `(id, named)`:
+/// platform-wallet read those of the `new` ones only, and a failed read left them nameless.
+/// Those already read in this search (`read`) are not read again on its next pass.
+fn names_to_read(
+    known: &[(Identifier, bool)],
+    new: &[Identifier],
+    read: &HashSet<Identifier>,
+) -> Vec<Identifier> {
+    known
+        .iter()
+        .filter(|(id, named)| (!new.contains(id) || !named) && !read.contains(id))
+        .map(|(id, _)| *id)
+        .collect()
+}
+
+/// What one pass of [`Chain::discover_identities`] brought (BUG-9).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Discovery {
+    /// Identities new to the store.
+    pub found: usize,
+    /// Every slot answered and every name read. Otherwise more identities or names may come,
+    /// and the caller looks again.
+    pub complete: bool,
+    /// Every slot answered, names aside: no identity of the phrase is left unknown. Enough to
+    /// choose a new slot or use a lock (BUG-9 r2 should-1); names are read on the next pass.
+    pub slots_complete: bool,
+    /// Why it is not complete, for "Could not ask Platform … ({})". `None` when complete.
+    pub missing: Option<String>,
+}
+
+/// A pass is complete only with every slot answered and every name read (BUG-9). With both
+/// missing, the unanswered slots are named: they may hide whole identities, names included.
+fn discovery_answer(found: usize, incomplete: bool, names_failed: bool) -> Discovery {
+    let missing = if incomplete {
+        Some(tr!("Platform did not answer for some of the phrase's identities").into())
+    } else if names_failed {
+        Some(tr!("the names of an identity did not load").into())
+    } else {
+        None
+    };
+    Discovery {
+        found,
+        complete: missing.is_none(),
+        slots_complete: !incomplete,
+        missing,
     }
 }
 
@@ -498,11 +546,30 @@ impl Chain {
 
     /// Looks on Platform for the identities of the phrase (slots from 0 until a gap) with their
     /// DPNS names; platform-wallet keeps what it finds in the store. Needs [`Self::platform_ready`].
+    ///
+    /// BUG-9: what it found even with slots or names missing, and whether it is
+    /// [`Discovery::complete`]; an `Err` only when the scan itself failed. platform-wallet
+    /// (575d961, `identity/network/discovery.rs`) answers `Ok` for a scan that left slots
+    /// unanswered once it saw one identity ("the caller re-scans later"), and reads the names of
+    /// new identities only, a failed read logged and dropped: the names of identities the store
+    /// already had, or whose read failed, are read here.
     pub async fn discover_identities(
         &self,
         wallet: &PlatformWallet,
         keys: &key_wallet::Wallet,
-    ) -> Result<usize, String> {
+    ) -> Result<Discovery, String> {
+        self.discover_identities_again(wallet, keys, &mut HashSet::new())
+            .await
+    }
+
+    /// [`Self::discover_identities`] as the next pass of one search: the names in `names_read`
+    /// were read on an earlier pass and are not read again; those read now are added.
+    pub async fn discover_identities_again(
+        &self,
+        wallet: &PlatformWallet,
+        keys: &key_wallet::Wallet,
+        names_read: &mut HashSet<Identifier>,
+    ) -> Result<Discovery, String> {
         let master = keys
             .derive_extended_private_key(&DerivationPath::master())
             .map_err(|e| e.to_string())?;
@@ -517,7 +584,54 @@ impl Chain {
             )
             .await
             .map_err(|e| e.to_string())?;
-        Ok(found.len())
+        let (incomplete, known) = {
+            let state = wallet.state().await;
+            let manager = &state.identity_manager;
+            let known: Vec<(Identifier, bool)> = of_wallet(manager, wallet.wallet_id())
+                .map(|m| {
+                    let named = !m.dpns_names.is_empty() || !m.contested_dpns_names.is_empty();
+                    (m.identity.id(), named)
+                })
+                .collect();
+            (
+                manager.identity_scan_is_incomplete(&wallet.wallet_id()),
+                known,
+            )
+        };
+        let new: Vec<Identifier> = found.iter().map(|i| i.id()).collect();
+        // platform-wallet named the new ones it could: those are read too.
+        names_read.extend(
+            known
+                .iter()
+                .filter(|(id, named)| *named && new.contains(id))
+                .map(|(id, _)| *id),
+        );
+        let mut names_failed = false;
+        for id in names_to_read(&known, &new, names_read) {
+            match wallet.identity().sync_dpns_names(&id).await {
+                Ok(_) => {
+                    names_read.insert(id);
+                }
+                Err(_) => names_failed = true,
+            }
+        }
+        Ok(discovery_answer(found.len(), incomplete, names_failed))
+    }
+
+    /// [`Self::discover_identities`] that is an `Err` unless every slot answered: before a slot
+    /// is chosen or a lock is used, an identity may sit in an unanswered slot. A name that did
+    /// not load does not stop either (BUG-9 r2 should-1): it changes neither.
+    async fn discover_every_identity(
+        &self,
+        wallet: &PlatformWallet,
+        keys: &key_wallet::Wallet,
+    ) -> Result<usize, String> {
+        let pass = self.discover_identities(wallet, keys).await?;
+        if pass.slots_complete {
+            Ok(pass.found)
+        } else {
+            Err(pass.missing.unwrap_or_default())
+        }
     }
 
     /// The slot a new identity takes: one past the highest of the phrase's identities. They are
@@ -527,7 +641,7 @@ impl Chain {
         wallet: &PlatformWallet,
         keys: &key_wallet::Wallet,
     ) -> Result<u32, String> {
-        self.discover_identities(wallet, keys).await?;
+        self.discover_every_identity(wallet, keys).await?;
         let state = wallet.state().await;
         let taken = of_wallet(&state.identity_manager, wallet.wallet_id())
             .filter_map(|m| m.identity_index)
@@ -635,7 +749,7 @@ impl Chain {
         label: Option<&str>,
     ) -> Result<String, String> {
         // Platform may have taken the lock before the run was cut: look first.
-        self.discover_identities(wallet, keys).await?;
+        self.discover_every_identity(wallet, keys).await?;
         let id = match self.unfinished(wallet).await {
             Some(lock) if lock.identity_index == index => {
                 self.register_identity(
@@ -1841,6 +1955,45 @@ mod tests {
         );
     }
 
+    /// BUG-9: the names of identities the store already had, and of new ones whose read
+    /// failed, are read again; a new identity platform-wallet just named is not.
+    #[test]
+    fn a_discovery_reads_the_names_platform_wallet_skipped() {
+        let (old, fresh, nameless) = (
+            Identifier::from([1u8; 32]),
+            Identifier::from([2u8; 32]),
+            Identifier::from([3u8; 32]),
+        );
+        let known = [(old, true), (fresh, true), (nameless, false)];
+        let none = HashSet::new();
+        assert_eq!(
+            names_to_read(&known, &[fresh, nameless], &none),
+            vec![old, nameless]
+        );
+        assert!(names_to_read(&[], &[], &none).is_empty());
+        // On the next pass of the same search, a name read already is not read again.
+        let read = HashSet::from([old]);
+        assert_eq!(names_to_read(&known, &[], &read), vec![fresh, nameless]);
+    }
+
+    /// BUG-9 r1: a scan with unanswered slots, or a name that did not load, still brings what it
+    /// found, but is not complete: the search goes on. Unanswered slots are named first.
+    #[test]
+    fn a_discovery_is_complete_only_with_every_slot_and_name() {
+        let done = discovery_answer(3, false, false);
+        assert_eq!((done.found, done.complete, done.missing), (3, true, None));
+        let slots = discovery_answer(2, true, false);
+        assert!(!slots.complete && slots.found == 2 && slots.missing.is_some());
+        let names = discovery_answer(0, false, true);
+        assert!(!names.complete && names.missing.is_some());
+        assert_ne!(slots.missing, names.missing);
+        // BUG-9 r2 should-1: a name that did not load leaves the slots complete (a slot can be
+        // chosen, a lock used); an unanswered slot does not.
+        assert!(done.slots_complete && names.slots_complete);
+        assert!(!slots.slots_complete && !discovery_answer(1, true, true).slots_complete);
+        assert_eq!(discovery_answer(1, true, true).missing, slots.missing);
+    }
+
     #[test]
     fn the_creation_steps_follow_the_lock() {
         assert_eq!(creation_step_of(None), 1);
@@ -2308,6 +2461,64 @@ mod tests {
             verified.is_some(),
             "the network's InstantLock verified in 2 min"
         );
+        chain.stop().await;
+    }
+
+    /// BUG-9 on testnet, read-only: one discovery brings every identity of the test phrase and
+    /// every name, on a fresh store and again on one that already has them (the second run of
+    /// the app). Proved by a direct read of each identity's names, which adds nothing.
+    /// `cargo test -p evolite-core live_discovery_brings -- --ignored --nocapture`
+    #[test]
+    #[ignore = "needs testnet access and a test phrase in .env.test.local"]
+    fn live_discovery_brings_every_identity_and_name() {
+        std::thread::Builder::new()
+            .stack_size(16 << 20)
+            .spawn(|| {
+                tokio::runtime::Builder::new_multi_thread()
+                    .enable_all()
+                    .thread_stack_size(8 << 20)
+                    .build()
+                    .unwrap()
+                    .block_on(discovery_brings_everything())
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+    }
+
+    async fn discovery_brings_everything() {
+        let dir = std::env::temp_dir().join("evolite-live-discovery");
+        let _ = std::fs::remove_dir_all(&dir);
+        let (chain, wallet, keys) = open_test_wallet(&dir).await;
+        for run in ["fresh store", "store with the identities"] {
+            let started = Instant::now();
+            let found = chain.discover_identities(&wallet, &keys).await;
+            println!("{run}: {found:?} in {}s", started.elapsed().as_secs_f32());
+            assert!(
+                found.as_ref().is_ok_and(|d| d.complete),
+                "{run}: every slot and name answered"
+            );
+            let kept: Vec<(Identifier, usize)> = {
+                let state = wallet.state().await;
+                assert!(
+                    !state
+                        .identity_manager
+                        .identity_scan_is_incomplete(&wallet.wallet_id())
+                );
+                of_wallet(&state.identity_manager, wallet.wallet_id())
+                    .map(|m| (m.identity.id(), m.dpns_names.len()))
+                    .collect()
+            };
+            assert!(!kept.is_empty(), "the test phrase has identities");
+            for (id, names) in kept {
+                let added = wallet.identity().sync_dpns_names(&id).await;
+                println!(
+                    "  {}: {names} name(s), read again: {added:?}",
+                    id.to_string(Encoding::Base58)
+                );
+                assert_eq!(added.ok(), Some(0), "{run}: no name was missing");
+            }
+        }
         chain.stop().await;
     }
 
