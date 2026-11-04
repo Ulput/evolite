@@ -557,6 +557,7 @@
   "Platform had already taken this money on an earlier attempt": "Platform bu parayı önceki denemede zaten almıştı",
   "Platform has already taken the {} of the stopped top-up: the credits should be on the identity. evolite confirms it once their block gets a ChainLock, usually within a few minutes. You can top up again meanwhile.": "Platform, yarıda kalan yüklemenin {} tutarını zaten aldı: krediler kimlikte olmalı. evolite, blokları ChainLock aldığında bunu onaylar; genellikle birkaç dakika içinde. Bu arada yeniden yükleyebilirsiniz.",
   "Platform has already taken these DASH, most likely on the earlier attempt, so the credits should already be on the identity. evolite will confirm it once their block gets a ChainLock, usually within a few minutes: then press «Check again». No new money is needed": "Platform bu DASH'i zaten aldı, büyük olasılıkla önceki denemede; yani krediler şimdiden kimlikte olmalı. evolite, blokları ChainLock aldığında bunu onaylar; genellikle birkaç dakika içinde: sonra «Tekrar kontrol et» düğmesine basın. Yeni para gerekmez",
+  "Platform says it took these DASH on an earlier attempt, so the credits are already on the identity. No new money is needed": "Platform bu DASH'leri önceki bir denemede aldığını bildiriyor, yani krediler zaten kimlikte. Yeni para gerekmez",
   "Platform: identities and names": "Platform: kimlikler ve adlar",
   "Port «{}» is not a number from 1 to 65535": "«{}» portu 1 ile 65535 arasında bir sayı değil",
   "Preparing the phrase…": "İfade hazırlanıyor…",

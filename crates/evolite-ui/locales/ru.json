@@ -557,6 +557,7 @@
   "Platform answered with a proof that this computer checked against the quorum keys.": "Platform ответила доказательством, которое этот компьютер проверил по ключам кворумов.",
   "Platform credits": "Кредиты Platform",
   "Platform fee": "Комиссия Platform",
+  "Platform says it took these DASH on an earlier attempt, so the credits are already on the identity. No new money is needed": "Platform сообщила, что приняла эти DASH при прошлой попытке, так что кредиты уже на identity. Новых денег не нужно",
   "Platform: identities and names": "Platform: identity и имена",
   "Port «{}» is not a number from 1 to 65535": "Порт «{}» — не число от 1 до 65535",
   "Preparing the phrase…": "Готовим фразу…",

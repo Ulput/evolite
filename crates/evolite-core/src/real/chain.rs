@@ -195,8 +195,9 @@ pub enum AlreadyTaken {
     /// The credits grew: the top-up went through, only its answer was lost.
     Credited(u64),
     /// platform-wallet proved the lock's finality by ChainLock and keeps it as "taken,
-    /// consumption unknown": nothing is left to finish.
-    Settled(u64),
+    /// consumption unknown": nothing is left to finish, though the credits did not grow on this
+    /// attempt ([`top_up_settled_text`]).
+    Settled,
     /// No ChainLock for the lock's block yet: wait and check again.
     AwaitChainLock,
 }
@@ -213,7 +214,7 @@ pub fn already_taken(
     }
     match status {
         Some(s) if s == AssetLockStatus::RecoveredFromChain || s.is_consumed() => {
-            AlreadyTaken::Settled(after.or(before).unwrap_or(0))
+            AlreadyTaken::Settled
         }
         _ => AlreadyTaken::AwaitChainLock,
     }
@@ -235,7 +236,8 @@ pub fn is_cached_duplicate(error: &platform_wallet::PlatformWalletError) -> bool
 /// Platform answered "already taken" for a lock whose block has a ChainLock, and platform-wallet
 /// could not keep that as "taken, consumption unknown": its SQLite store does not attest
 /// `WALLET_RESTORE`, which that record requires (platform-wallet 575d961,
-/// `mark_asset_lock_consumption_unknown`; BUG-7, seen on testnet). The answer is otherwise lost
+/// `mark_asset_lock_consumption_unknown` in `asset_lock/tracking.rs:348`, called from
+/// `identity/orchestration.rs:379`; BUG-7, seen on testnet). The answer is otherwise lost
 /// in a generic "failed to persist state"; Core finality is proved, Platform took the lock.
 pub fn is_taken_with_chain_lock(error: &platform_wallet::PlatformWalletError) -> bool {
     matches!(
@@ -250,6 +252,16 @@ pub fn is_taken_with_chain_lock(error: &platform_wallet::PlatformWalletError) ->
 pub fn awaiting_chain_lock_text() -> &'static str {
     tr!(
         "Platform has already taken these DASH, most likely on the earlier attempt, so the credits should already be on the identity. evolite will confirm it once their block gets a ChainLock, usually within a few minutes: then press «Check again». No new money is needed"
+    )
+}
+
+/// The answer to a top-up whose lock Platform proved taken on an earlier attempt: done, but the
+/// credits did not grow on this one, so the interface does not say "Credits added". The core
+/// passes it on as is (`identity_failure`); the interface shows it as done, not as an error
+/// (the same text in `evolite-ui` `screens/identity.rs`, `TOP_UP_SETTLED`).
+pub fn top_up_settled_text() -> &'static str {
+    tr!(
+        "Platform says it took these DASH on an earlier attempt, so the credits are already on the identity. No new money is needed"
     )
 }
 
@@ -815,7 +827,8 @@ impl Chain {
     /// transition Platform judges: credited, or "already taken" above.
     ///
     /// "Already taken" once the lock's block has a ChainLock reaches here as platform-wallet's
-    /// failure to record it ([`is_taken_with_chain_lock`]): that is settled, not an error.
+    /// failure to record it ([`is_taken_with_chain_lock`]): that is settled, not an error, and
+    /// answers [`top_up_settled_text`] when the credits did not grow on this attempt.
     async fn top_up(
         &self,
         wallet: &PlatformWallet,
@@ -900,10 +913,11 @@ impl Chain {
                 note(TopUpNote::Credited);
                 Ok(balance)
             }
-            AlreadyTaken::Settled(balance) => {
+            AlreadyTaken::Settled => {
                 // The store still has the lock as not taken: not shown again until a restart.
+                // Done, but not by this attempt: the answer says so instead of "Credits added".
                 note(TopUpNote::Credited);
-                Ok(balance)
+                Err(top_up_settled_text().into())
             }
             AlreadyTaken::AwaitChainLock => {
                 note(TopUpNote::AwaitingChainLock);
@@ -1819,11 +1833,11 @@ mod tests {
         // platform-wallet proved it by ChainLock: settled.
         assert_eq!(
             already_taken(Some(100), Some(100), Some(RecoveredFromChain)),
-            AlreadyTaken::Settled(100)
+            AlreadyTaken::Settled
         );
         assert_eq!(
             already_taken(Some(100), Some(100), Some(Consumed)),
-            AlreadyTaken::Settled(100)
+            AlreadyTaken::Settled
         );
     }
 
@@ -2483,7 +2497,13 @@ mod tests {
                 started.elapsed().as_secs()
             );
             match answer {
+                // Settled: credited now, or taken on an earlier attempt (no "Credits added").
                 Ok(_) => {
+                    assert!(now.is_none(), "a settled lock is not shown");
+                    settled = true;
+                    break;
+                }
+                Err(text) if text == top_up_settled_text() => {
                     assert!(now.is_none(), "a settled lock is not shown");
                     settled = true;
                     break;

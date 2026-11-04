@@ -557,6 +557,7 @@
   "Platform had already taken this money on an earlier attempt": "Platform이 이전 시도에서 이미 이 돈을 받았습니다",
   "Platform has already taken the {} of the stopped top-up: the credits should be on the identity. evolite confirms it once their block gets a ChainLock, usually within a few minutes. You can top up again meanwhile.": "Platform이 중단된 충전의 {}을(를) 이미 받았습니다: 크레딧이 신원에 있어야 합니다. 해당 블록이 ChainLock을 받으면 evolite가 확인하며, 보통 몇 분 안에 끝납니다. 그동안 다시 충전할 수 있습니다.",
   "Platform has already taken these DASH, most likely on the earlier attempt, so the credits should already be on the identity. evolite will confirm it once their block gets a ChainLock, usually within a few minutes: then press «Check again». No new money is needed": "Platform이 이 DASH를 이미 받았습니다. 아마 이전 시도에서였을 것이며, 크레딧은 이미 신원에 있어야 합니다. 해당 블록이 ChainLock을 받으면 evolite가 확인하며, 보통 몇 분 안에 끝납니다. 그때 «다시 확인»을 누르세요. 새 돈은 필요하지 않습니다",
+  "Platform says it took these DASH on an earlier attempt, so the credits are already on the identity. No new money is needed": "Platform이 이전 시도에서 이 DASH를 받았다고 알려 왔으므로 크레딧은 이미 신원에 있습니다. 새 자금은 필요하지 않습니다",
   "Platform: identities and names": "Platform: 신원과 이름",
   "Port «{}» is not a number from 1 to 65535": "포트 «{}»은(는) 1~65535 사이의 숫자가 아닙니다",
   "Preparing the phrase…": "문구 준비 중…",

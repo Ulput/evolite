@@ -557,6 +557,7 @@
   "Platform had already taken this money on an earlier attempt": "Platform đã nhận số tiền này ở lần thử trước",
   "Platform has already taken the {} of the stopped top-up: the credits should be on the identity. evolite confirms it once their block gets a ChainLock, usually within a few minutes. You can top up again meanwhile.": "Platform đã nhận {} của lần nạp bị gián đoạn: tín dụng lẽ ra đã có trên danh tính. evolite sẽ xác nhận khi khối của chúng nhận được ChainLock, thường trong vài phút. Trong lúc đó bạn có thể nạp lại.",
   "Platform has already taken these DASH, most likely on the earlier attempt, so the credits should already be on the identity. evolite will confirm it once their block gets a ChainLock, usually within a few minutes: then press «Check again». No new money is needed": "Platform đã nhận số DASH này, nhiều khả năng ở lần thử trước, nên tín dụng lẽ ra đã có trên danh tính. evolite sẽ xác nhận khi khối của chúng nhận được ChainLock, thường trong vài phút: khi đó hãy bấm «Kiểm tra lại». Không cần thêm tiền mới",
+  "Platform says it took these DASH on an earlier attempt, so the credits are already on the identity. No new money is needed": "Platform cho biết đã nhận số DASH này ở lần thử trước, nên tín dụng đã nằm trong danh tính. Không cần thêm tiền mới",
   "Platform: identities and names": "Platform: danh tính và tên",
   "Port «{}» is not a number from 1 to 65535": "Cổng «{}» không phải số từ 1 đến 65535",
   "Preparing the phrase…": "Đang chuẩn bị cụm từ…",

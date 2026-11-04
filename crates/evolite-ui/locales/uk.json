@@ -557,6 +557,7 @@
   "Platform had already taken this money on an earlier attempt": "Platform уже прийняла ці гроші під час попередньої спроби",
   "Platform has already taken the {} of the stopped top-up: the credits should be on the identity. evolite confirms it once their block gets a ChainLock, usually within a few minutes. You can top up again meanwhile.": "Platform уже прийняла {} перерваного поповнення: кредити мають бути на identity. evolite підтвердить це, щойно їхній блок отримає ChainLock, зазвичай за кілька хвилин. Тим часом можна поповнити знову.",
   "Platform has already taken these DASH, most likely on the earlier attempt, so the credits should already be on the identity. evolite will confirm it once their block gets a ChainLock, usually within a few minutes: then press «Check again». No new money is needed": "Platform уже прийняла ці DASH, найімовірніше під час попередньої спроби, тож кредити вже мають бути на identity. evolite підтвердить це, щойно їхній блок отримає ChainLock, зазвичай за кілька хвилин: тоді натисніть «Перевірити ще раз». Нові гроші не потрібні",
+  "Platform says it took these DASH on an earlier attempt, so the credits are already on the identity. No new money is needed": "Platform повідомила, що прийняла ці DASH під час попередньої спроби, тож кредити вже на identity. Нових грошей не потрібно",
   "Platform: identities and names": "Platform: identity та імена",
   "Port «{}» is not a number from 1 to 65535": "Порт «{}» — не число від 1 до 65535",
   "Preparing the phrase…": "Готуємо фразу…",

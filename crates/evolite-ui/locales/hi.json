@@ -557,6 +557,7 @@
   "Platform had already taken this money on an earlier attempt": "Platform पिछली कोशिश में यह पैसा पहले ही ले चुका है",
   "Platform has already taken the {} of the stopped top-up: the credits should be on the identity. evolite confirms it once their block gets a ChainLock, usually within a few minutes. You can top up again meanwhile.": "Platform ने रुके हुए टॉप-अप के {} पहले ही ले लिए हैं: क्रेडिट पहचान पर होने चाहिए। उनके ब्लॉक को ChainLock मिलते ही evolite इसकी पुष्टि करेगा, आमतौर पर कुछ मिनटों में। तब तक आप फिर से टॉप-अप कर सकते हैं।",
   "Platform has already taken these DASH, most likely on the earlier attempt, so the credits should already be on the identity. evolite will confirm it once their block gets a ChainLock, usually within a few minutes: then press «Check again». No new money is needed": "Platform ये DASH पहले ही ले चुका है, शायद पिछली कोशिश में, इसलिए क्रेडिट अब तक पहचान पर होने चाहिए। उनके ब्लॉक को ChainLock मिलते ही evolite इसकी पुष्टि करेगा, आमतौर पर कुछ मिनटों में: तब «फिर से जाँचें» दबाएँ। नए पैसे की ज़रूरत नहीं है",
+  "Platform says it took these DASH on an earlier attempt, so the credits are already on the identity. No new money is needed": "Platform ने बताया कि उसने ये DASH पिछले प्रयास में ले लिए थे, इसलिए क्रेडिट पहले से पहचान पर हैं। नए पैसे की ज़रूरत नहीं है",
   "Platform: identities and names": "Platform: पहचान और नाम",
   "Port «{}» is not a number from 1 to 65535": "पोर्ट «{}» 1 से 65535 के बीच की संख्या नहीं है",
   "Preparing the phrase…": "वाक्यांश तैयार हो रहा है…",

@@ -557,6 +557,7 @@
   "Platform had already taken this money on an earlier attempt": "Platform は以前の試行でこの資金をすでに受け取っています",
   "Platform has already taken the {} of the stopped top-up: the credits should be on the identity. evolite confirms it once their block gets a ChainLock, usually within a few minutes. You can top up again meanwhile.": "Platform は中断したチャージの {} をすでに受け取っています。クレジットはアイデンティティにあるはずです。そのブロックが ChainLock を得たら evolite が確認します（通常は数分以内）。その間に再度チャージすることもできます。",
   "Platform has already taken these DASH, most likely on the earlier attempt, so the credits should already be on the identity. evolite will confirm it once their block gets a ChainLock, usually within a few minutes: then press «Check again». No new money is needed": "Platform はこの DASH をすでに受け取っています（おそらく前回の試行で）。そのためクレジットはすでにアイデンティティにあるはずです。そのブロックが ChainLock を得たら evolite が確認します（通常は数分以内）。そのあと「もう一度確認」を押してください。新たな資金は必要ありません",
+  "Platform says it took these DASH on an earlier attempt, so the credits are already on the identity. No new money is needed": "Platform は以前の試行でこの DASH を受け取ったと答えました。クレジットはすでにアイデンティティにあり、新たな資金は不要です",
   "Platform: identities and names": "Platform：アイデンティティと名前",
   "Port «{}» is not a number from 1 to 65535": "ポート「{}」は 1〜65535 の数ではありません",
   "Preparing the phrase…": "フレーズを準備中…",

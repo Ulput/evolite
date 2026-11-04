@@ -557,6 +557,7 @@
   "Platform had already taken this money on an earlier attempt": "كانت Platform قد استلمت هذا المال بالفعل في محاولة سابقة",
   "Platform has already taken the {} of the stopped top-up: the credits should be on the identity. evolite confirms it once their block gets a ChainLock, usually within a few minutes. You can top up again meanwhile.": "أخذت Platform بالفعل {} من عملية الشحن المتوقفة: يُفترض أن تكون الأرصدة على الهوية. سيؤكد evolite ذلك عندما تحصل كتلتها على ChainLock، عادةً خلال بضع دقائق. يمكنك الشحن مجددًا في الأثناء.",
   "Platform has already taken these DASH, most likely on the earlier attempt, so the credits should already be on the identity. evolite will confirm it once their block gets a ChainLock, usually within a few minutes: then press «Check again». No new money is needed": "أخذت Platform هذه DASH بالفعل، على الأرجح في المحاولة السابقة، لذا يُفترض أن الأرصدة موجودة على الهوية الآن. سيؤكد evolite ذلك عندما تحصل كتلتها على ChainLock، عادةً خلال بضع دقائق: عندها اضغط «تحقق مرة أخرى». لا حاجة إلى مال جديد",
+  "Platform says it took these DASH on an earlier attempt, so the credits are already on the identity. No new money is needed": "أفادت Platform بأنها أخذت هذه الـ DASH في محاولة سابقة، لذا فالرصيد موجود بالفعل في الهوية. لا حاجة إلى أموال جديدة",
   "Platform: identities and names": "Platform: الهويات والأسماء",
   "Port «{}» is not a number from 1 to 65535": "المنفذ «{}» ليس رقمًا من 1 إلى 65535",
   "Preparing the phrase…": "جارٍ تجهيز العبارة…",

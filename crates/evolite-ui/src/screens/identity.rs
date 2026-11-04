@@ -725,11 +725,8 @@ fn dash(d: i64) -> String {
 /// Why the top-up did not go through, in words.
 fn top_up_error(e: &CoreError) -> String {
     match e {
-        // The core's reason is a catalog key: translated before the full stop is added.
-        CoreError::NotAvailable(why) => format!(
-            "{}.",
-            crate::i18n::t_in(crate::i18n::current(), why.trim_end_matches('.'))
-        ),
+        // The core's reason is a catalog key: the catalog adds the language's own full stop.
+        CoreError::NotAvailable(why) => format!("{}.", why.trim_end_matches('.')),
         CoreError::NotSynced => {
             tr!("Wait for the sync to finish: all the wallet's coins and the masternode lists are needed.").into()
         }
@@ -739,6 +736,44 @@ fn top_up_error(e: &CoreError) -> String {
             tr!("{} If the DASH are already locked, evolite shows «Continue the top-up»."),
             crate::text::failed(tr!("Not topped up"), other)
         ),
+    }
+}
+
+/// The core's answer to a top-up whose lock Platform took on an earlier attempt: the same
+/// catalog key as `top_up_settled_text` in evolite-core `real/chain.rs`.
+const TOP_UP_SETTLED: &str = tr!(
+    "Platform says it took these DASH on an earlier attempt, so the credits are already on the identity. No new money is needed"
+);
+
+/// The top-up is done: what to say. `None`: it did not go through ([`top_up_error`]). A lock
+/// taken on an earlier attempt is done too, but no credits were added by this one (BUG-7 review).
+fn top_up_done_text(duffs: evolite_api::Duffs, result: &Result<(), CoreError>) -> Option<String> {
+    match result {
+        Ok(()) => Some(format!(tr!("Credits added: +{}."), dash(duffs))),
+        Err(CoreError::NotAvailable(why)) if why == TOP_UP_SETTLED => Some(format!("{why}.")),
+        Err(_) => None,
+    }
+}
+
+/// The answer to the last top-up: done, or why not with the network's words under "Details".
+fn top_up_answer(
+    ui: &mut Ui,
+    a: &mut Assets,
+    duffs: evolite_api::Duffs,
+    result: &Result<(), CoreError>,
+) {
+    match (top_up_done_text(duffs, result), result) {
+        (Some(text), _) => {
+            let p = a.p;
+            notice(ui, a, "confirmed", p.accent, &text);
+        }
+        (None, Err(e)) => crate::components::error_notice(
+            ui,
+            a,
+            &top_up_error(e),
+            crate::text::error_details(e).as_deref(),
+        ),
+        (None, Ok(())) => {}
     }
 }
 
@@ -766,19 +801,7 @@ fn top_up_status(
                     dash(*duffs)
                 ),
             ),
-            (None, Some((duffs, Ok(())))) => notice(
-                ui,
-                a,
-                "confirmed",
-                p.accent,
-                &format!(tr!("Credits added: +{}."), dash(*duffs)),
-            ),
-            (None, Some((_, Err(e)))) => crate::components::error_notice(
-                ui,
-                a,
-                &top_up_error(e),
-                crate::text::error_details(e).as_deref(),
-            ),
+            (None, Some((duffs, result))) => top_up_answer(ui, a, *duffs, result),
             (None, None) => {}
         }
     }
@@ -805,7 +828,8 @@ fn unfinished_top_up_text(
     last: Option<&(evolite_api::Duffs, Result<(), CoreError>)>,
 ) -> (String, &'static str) {
     if unfinished.awaiting_chain_lock {
-        let explained = matches!(last, Some((_, Err(CoreError::NotAvailable(_)))));
+        let explained =
+            matches!(last, Some((_, Err(CoreError::NotAvailable(why)))) if why != TOP_UP_SETTLED);
         let text = if explained {
             format!(
                 tr!("{} of the top-up are awaiting the ChainLock of their block."),
@@ -953,19 +977,7 @@ fn top_up_dialog(
                         "Topping up: locking DASH on Core, waiting for InstantSend, Platform adds the credits — usually under a minute. You can close the window."
                     ),
                 ),
-                (None, Some((duffs, Ok(())))) => notice(
-                    ui,
-                    a,
-                    "confirmed",
-                    p.accent,
-                    &format!(tr!("Credits added: +{}."), dash(*duffs)),
-                ),
-                (None, Some((_, Err(e)))) => crate::components::error_notice(
-                    ui,
-                    a,
-                    &top_up_error(e),
-                    crate::text::error_details(e).as_deref(),
-                ),
+                (None, Some((duffs, result))) => top_up_answer(ui, a, *duffs, result),
                 (None, None) => {}
             }
             let mut close = false;
@@ -1182,11 +1194,8 @@ fn add_name_dialog(
 /// Why the name was not registered, in words.
 fn name_error(e: &CoreError) -> String {
     match e {
-        // The core's reason is a catalog key: translated before the full stop is added.
-        CoreError::NotAvailable(why) => format!(
-            "{}.",
-            crate::i18n::t_in(crate::i18n::current(), why.trim_end_matches('.'))
-        ),
+        // The core's reason is a catalog key: the catalog adds the language's own full stop.
+        CoreError::NotAvailable(why) => format!("{}.", why.trim_end_matches('.')),
         CoreError::NotSynced => {
             tr!("Wait for the sync to finish: the masternode lists are needed.").into()
         }
@@ -1390,7 +1399,10 @@ fn keys(ui: &mut Ui, a: &mut Assets, id: &Identity, width: f32) {
 
 #[cfg(test)]
 mod tests {
-    use super::{IdentityState, top_up_blocked_by, top_up_error, unfinished_top_up_text};
+    use super::{
+        IdentityState, TOP_UP_SETTLED, top_up_blocked_by, top_up_done_text, top_up_error,
+        unfinished_top_up_text,
+    };
     use evolite_api::CoreError;
     use evolite_api::UnfinishedTopUp;
 
@@ -1408,6 +1420,46 @@ mod tests {
             assert!(!text.contains("NotAvailable") && !text.contains("WrongPassword"));
             assert!(text.ends_with('.') || text.ends_with('»'), "{text}");
         }
+    }
+
+    /// BUG-7 review: the core's reason gets one full stop, the language's own, from the
+    /// catalog (BUG-15) — not a Latin one after a translation that already ends with its own.
+    #[test]
+    fn a_core_reason_gets_one_full_stop() {
+        use crate::i18n::{Lang, t_in};
+        let key = tr!("Make an identity first");
+        let text = top_up_error(&CoreError::NotAvailable(format!("{key}.")));
+        assert_eq!(text, format!("{key}."));
+        let ru = t_in(Lang::Ru, key);
+        assert_ne!(ru, key, "ru has the key");
+        assert_eq!(t_in(Lang::Ru, &text), format!("{ru}."));
+    }
+
+    /// BUG-7 review: a lock Platform took on an earlier attempt is done, but does not read
+    /// "Credits added"; any other answer is not done.
+    #[test]
+    fn a_settled_top_up_does_not_say_credits_added() {
+        let added = top_up_done_text(50_000_000, &Ok(())).unwrap();
+        assert!(added.starts_with("Credits added"), "{added}");
+        let settled = top_up_done_text(
+            50_000_000,
+            &Err(CoreError::NotAvailable(TOP_UP_SETTLED.into())),
+        )
+        .unwrap();
+        assert!(
+            !settled.contains("Credits added") && settled.ends_with('.'),
+            "{settled}"
+        );
+        assert_eq!(
+            top_up_done_text(0, &Err(CoreError::NotAvailable("wait".into()))),
+            None
+        );
+        assert_eq!(top_up_done_text(0, &Err(CoreError::NotEnough)), None);
+        // And it does not cut the stopped top-up's notice short as if it explained a wait.
+        let last = (0, Err(CoreError::NotAvailable(TOP_UP_SETTLED.into())));
+        let (full, _) = unfinished_top_up_text(&stopped(true).unwrap(), None);
+        let (after, _) = unfinished_top_up_text(&stopped(true).unwrap(), Some(&last));
+        assert_eq!(after, full);
     }
 
     #[test]

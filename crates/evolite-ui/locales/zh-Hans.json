@@ -557,6 +557,7 @@
   "Platform had already taken this money on an earlier attempt": "Platform 在之前的尝试中已收下这笔钱",
   "Platform has already taken the {} of the stopped top-up: the credits should be on the identity. evolite confirms it once their block gets a ChainLock, usually within a few minutes. You can top up again meanwhile.": "Platform 已收下中断的充值中的 {}：积分应已到身份上。待其区块获得 ChainLock 后，evolite 会确认，通常需要几分钟。期间你可以再次充值。",
   "Platform has already taken these DASH, most likely on the earlier attempt, so the credits should already be on the identity. evolite will confirm it once their block gets a ChainLock, usually within a few minutes: then press «Check again». No new money is needed": "Platform 已收下这些 DASH，很可能是在之前的尝试中，所以积分应该已经到身份上了。待其区块获得 ChainLock 后，evolite 会确认，通常需要几分钟：届时请点「再次检查」。无需再付新的钱",
+  "Platform says it took these DASH on an earlier attempt, so the credits are already on the identity. No new money is needed": "Platform 表示已在之前的尝试中收下这些 DASH，因此积分已在身份上。无需再付新的款项",
   "Platform: identities and names": "Platform：身份与名称",
   "Port «{}» is not a number from 1 to 65535": "端口“{}”不是 1 到 65535 之间的数字",
   "Preparing the phrase…": "正在准备助记词…",

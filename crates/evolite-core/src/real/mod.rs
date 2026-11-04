@@ -639,6 +639,7 @@ fn identity_failure(text: String) -> CoreError {
         CoreError::NotAvailable(tr!("Make an identity first").into())
     } else if text == chain::awaiting_chain_lock_text()
         || text == chain::top_up_identity_unknown_text()
+        || text == chain::top_up_settled_text()
     {
         // Not a failure of the network: what is going on and what to do, as is.
         CoreError::NotAvailable(text)
@@ -3783,6 +3784,11 @@ mod tests {
         assert_eq!(
             identity_failure("timeout".into()),
             CoreError::Failed("timeout".into())
+        );
+        // BUG-7 review: a lock taken on an earlier attempt is done, said as is (not "failed").
+        assert_eq!(
+            identity_failure(chain::top_up_settled_text().into()),
+            CoreError::NotAvailable(chain::top_up_settled_text().into())
         );
     }
 

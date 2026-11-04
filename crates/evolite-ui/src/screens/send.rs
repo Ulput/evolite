@@ -193,6 +193,8 @@ struct SourceView {
 /// (`system_limits.min_withdrawal_amount`, 1 000 000 credits), plus the Core fee of the asset
 /// unlock, 190 duffs (190 bytes at platform-wallet's 1 duff a byte), which Platform takes out of
 /// the amount since protocol 14 (platform 575d961, `rs-dpp/src/withdrawal/mod.rs`).
+/// It assumes `core_fee_per_byte = 1` (platform-wallet `withdrawal.rs:104`): should evolite pass
+/// its own rate, count the minimum with `min_withdrawal_amount_with_core_fee` instead.
 const MIN_WITHDRAWAL: Duffs = 1_190;
 
 /// What Platform checks before it takes a withdrawal of credits to Core.
