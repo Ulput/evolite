@@ -322,3 +322,29 @@ fn a_key_followed_by_a_full_stop_is_still_translated() {
         "the language's own full stop"
     );
 }
+
+#[test]
+fn a_name_inside_arabic_keeps_its_at_sign_in_front() {
+    // "Send 0.25 DASH to @alice" (the script check's line): bidi gave the neutral "@" the
+    // paragraph's direction and drew "alice@".
+    let shown = visual("إرسال ٠٫٢٥ داش إلى @alice");
+    assert!(shown.contains("@alice"), "{shown:?}");
+    assert!(!shown.contains("alice@"), "{shown:?}");
+    // A full stop after the name stays with the sentence; two names, a hyphen inside one.
+    let shown = visual("استُلم من @satoshi و @jam-bo.");
+    assert!(
+        shown.contains("@satoshi") && shown.contains("@jam-bo"),
+        "{shown:?}"
+    );
+    assert!(
+        !shown.contains(['\u{2068}', '\u{2069}']),
+        "no isolate is drawn: {shown:?}"
+    );
+    // Already isolated by `own`, and an e-mail-like "a@b" in Latin text: left alone.
+    assert_eq!(isolate_names(&own("@alice")), own("@alice"));
+    assert_eq!(
+        visual("Send to @alice"),
+        "Send to @alice",
+        "no Arabic, untouched"
+    );
+}

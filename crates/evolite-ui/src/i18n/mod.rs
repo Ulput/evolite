@@ -297,6 +297,42 @@ pub(crate) fn is_rtl_char(c: char) -> bool {
     is_arabic(c) || matches!(c, '\u{FB50}'..='\u{FDFF}' | '\u{FE70}'..='\u{FEFF}')
 }
 
+/// Each `@name` in `line` (a DPNS name: Latin letters, digits, `-`, `_`, `.` inside) as one
+/// left-to-right isolate, as [`own`] marks a person's words: in right-to-left text the bidi
+/// algorithm would otherwise give the neutral `@` the paragraph's direction and draw
+/// "alice@". Names already inside an isolate are left as they are.
+fn isolate_names(line: &str) -> Cow<'_, str> {
+    if !line.contains('@') {
+        return Cow::Borrowed(line);
+    }
+    let name_char = |c: char| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.');
+    let chars: Vec<char> = line.chars().collect();
+    let mut out = String::with_capacity(line.len() + 8);
+    let mut i = 0;
+    while i < chars.len() {
+        let c = chars[i];
+        let isolated = i > 0 && chars[i - 1] == OWN_START;
+        if c == '@' && !isolated && chars.get(i + 1).is_some_and(|n| n.is_ascii_alphanumeric()) {
+            let mut end = i + 1;
+            while end < chars.len() && name_char(chars[end]) {
+                end += 1;
+            }
+            // A full stop or a hyphen at the end belongs to the sentence, not the name.
+            while matches!(chars[end - 1], '.' | '-' | '_') {
+                end -= 1;
+            }
+            out.push(OWN_START);
+            out.extend(&chars[i..end]);
+            out.push(OWN_END);
+            i = end;
+        } else {
+            out.push(c);
+            i += 1;
+        }
+    }
+    Cow::Owned(out)
+}
+
 /// Arabic as egui can draw it: the letters in their joined forms (egui does not shape), and
 /// each line reordered from logical to visual order by the Unicode bidi algorithm — so an
 /// Arabic sentence reads right to left with numbers, addresses and `@names` inside it still
@@ -322,7 +358,7 @@ pub fn visual(text: &str) -> Cow<'_, str> {
     let out = text
         .split('\n')
         .map(|line| {
-            let shaped = ar_reshaper::reshape_line(line);
+            let shaped = ar_reshaper::reshape_line(isolate_names(line));
             let info = unicode_bidi::BidiInfo::new(&shaped, level);
             // A bracket or quote inside right-to-left text is drawn as its mirror image (bidi
             // rule L4), or "(Argon2)" would read ")Argon2("; mirrors are of one bidi class, so
@@ -345,6 +381,9 @@ pub fn visual(text: &str) -> Cow<'_, str> {
         })
         .collect::<Vec<_>>()
         .join("\n");
+    // The isolates have done their work in the reordering: none is drawn (egui has no glyph
+    // for them), whoever draws the result.
+    let out = out.replace([OWN_START, OWN_END], "");
     SEEN.with(|s| {
         let mut s = s.borrow_mut();
         if s.len() > 5_000 {
