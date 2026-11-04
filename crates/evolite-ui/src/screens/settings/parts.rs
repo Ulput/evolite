@@ -71,13 +71,20 @@ pub(super) fn group(
 }
 
 /// One row: title 14 SemiBold and a wrapped 12 px line, the control on the right.
-/// Returns true when its button or value was clicked.
+/// Returns true when its button or value was clicked — for a value with a chevron, a click
+/// anywhere on the row.
 fn row(ui: &mut Ui, a: &mut Assets, title: &str, sub: &str, control: Control) -> bool {
     let p = a.p;
     let mut clicked = false;
-    egui::Frame::new()
+    // "Core nodes … 8 ›": the whole row opens what the chevron opens.
+    let whole_row = matches!(control, Control::Value(..));
+    let frame = egui::Frame::new()
         .inner_margin(Margin::symmetric(20, 16))
         .show(ui, |ui| {
+            if whole_row {
+                // The row's words are part of it: selectable labels would take their clicks.
+                ui.style_mut().interaction.selectable_labels = false;
+            }
             ui.set_width(ui.available_width());
             // Several buttons in a narrow window go under the text, not squeeze it.
             if matches!(control, Control::Buttons(..))
@@ -128,6 +135,14 @@ fn row(ui: &mut Ui, a: &mut Assets, title: &str, sub: &str, control: Control) ->
                 });
             });
         });
+    if whole_row {
+        // The chevron stays the named button for screen readers; the row only widens the target.
+        let resp = frame
+            .response
+            .interact(Sense::click())
+            .on_hover_cursor(CursorIcon::PointingHand);
+        clicked |= resp.clicked();
+    }
     clicked
 }
 
@@ -256,5 +271,75 @@ fn draw_control(ui: &mut Ui, a: &mut Assets, title: &str, control: Control) -> b
             );
             resp.on_hover_cursor(CursorIcon::PointingHand).clicked()
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use egui::{Event, PointerButton, Pos2, RawInput, Rect, pos2};
+
+    /// One group with a "Core nodes … 8 ›" row; presses and lets go at `at(row rect)`; which row
+    /// the group reports clicked.
+    fn click_row_at(at: impl Fn(Rect) -> Pos2) -> Option<usize> {
+        let ctx = egui::Context::default();
+        // The app's fonts; they take effect from the next frame, so the first one draws nothing.
+        crate::theme::install_fonts(&ctx, crate::i18n::Lang::En, false);
+        let mut a = Assets {
+            p: crate::theme::DARK,
+            icons: crate::icons::Icons::load(),
+            avatars: Default::default(),
+        };
+        let mut clicked = None;
+        let mut area = Rect::NOTHING;
+        let press = |pos, pressed| Event::PointerButton {
+            pos,
+            button: PointerButton::Primary,
+            pressed,
+            modifiers: Default::default(),
+        };
+        for frame in 0..6 {
+            let pos = at(area);
+            let events = match frame {
+                0 | 1 => vec![],
+                2 | 3 => vec![Event::PointerMoved(pos)],
+                4 => vec![press(pos, true)],
+                _ => vec![press(pos, false)],
+            };
+            let input = RawInput {
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(800.0, 600.0))),
+                events,
+                ..Default::default()
+            };
+            let mut out = ctx.run_ui(input, |ui| {
+                if frame == 0 {
+                    return;
+                }
+                let top = ui.cursor().top();
+                let got = group(
+                    ui,
+                    &mut a,
+                    "Network",
+                    vec![("Core nodes", "8 connected", Control::Value("8", false))],
+                );
+                area = Rect::from_x_y_ranges(ui.max_rect().x_range(), top..=ui.cursor().top());
+                clicked = clicked.or(got);
+            });
+            out.textures_delta.clear();
+        }
+        clicked
+    }
+
+    #[test]
+    fn a_row_with_a_chevron_opens_from_its_words_too() {
+        // Near the left edge, on the title's words; and near the right edge, on the chevron.
+        assert_eq!(
+            click_row_at(|r| pos2(r.left() + 40.0, r.bottom() - 40.0)),
+            Some(0)
+        );
+        assert_eq!(
+            click_row_at(|r| pos2(r.right() - 30.0, r.bottom() - 35.0)),
+            Some(0)
+        );
     }
 }
