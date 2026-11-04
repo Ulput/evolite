@@ -3568,9 +3568,7 @@ pub fn run(
                 match inbox.try_recv() {
                     Ok(command) => {
                         let (event, changed) = core.handle(command).await;
-                        if let Some(event) = event {
-                            let _ = out.send(event);
-                        }
+                        answer(&out, &*wake, event);
                         if changed {
                             core.dirty.store(true, Ordering::Relaxed);
                         }
@@ -3642,9 +3640,47 @@ pub fn run(
     });
 }
 
+/// After a command: its answer, if any, goes to the interface, which is woken either way. An
+/// answer without a new snapshot ("Wrong password") would otherwise wait for the next mouse move
+/// to be drawn; and a command may have sent its answer itself, from inside `handle`.
+fn answer(out: &Sender<Event>, wake: &(dyn Fn() + Send + Sync), event: Option<Event>) {
+    if let Some(event) = event {
+        let _ = out.send(event);
+    }
+    wake();
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_answer_without_a_new_snapshot_still_wakes_the_interface() {
+        let (out, events) = std::sync::mpsc::channel();
+        let woken = std::sync::atomic::AtomicUsize::new(0);
+        let wake = || {
+            woken.fetch_add(1, Ordering::Relaxed);
+        };
+        answer(
+            &out,
+            &wake,
+            Some(Event::Done {
+                what: "unlock",
+                result: Err(CoreError::WrongPassword),
+            }),
+        );
+        assert!(matches!(
+            events.try_recv(),
+            Ok(Event::Done {
+                what: "unlock",
+                result: Err(CoreError::WrongPassword)
+            })
+        ));
+        assert_eq!(woken.load(Ordering::Relaxed), 1);
+        // A command answered from inside `handle`, or by a snapshot later: woken all the same.
+        answer(&out, &wake, None);
+        assert_eq!(woken.load(Ordering::Relaxed), 2);
+    }
 
     const PHRASE: &str = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
 
