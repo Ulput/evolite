@@ -129,6 +129,8 @@ pub fn text_action(ui: &mut Ui, a: &mut Assets, icon: &str, label: &str) -> Resp
     let resp = ui
         .horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 6.0;
+            // The words are part of the action: a selectable label would take their clicks.
+            ui.style_mut().interaction.selectable_labels = false;
             ui.add(a.icons.icon(icon, p.muted, &p, 16.0));
             ui.label(txt(label, 13.0, Weight::Medium, p.muted));
         })
@@ -136,4 +138,61 @@ pub fn text_action(ui: &mut Ui, a: &mut Assets, icon: &str, label: &str) -> Resp
         .interact(Sense::click());
     named(&resp, egui::WidgetType::Button, true, label);
     resp.on_hover_cursor(CursorIcon::PointingHand)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use egui::{Event, PointerButton, RawInput};
+
+    /// Presses and lets go at `x` (from the action's left edge) over a few frames; whether the
+    /// action took the click.
+    fn click_text_action_at(x: f32) -> bool {
+        let ctx = egui::Context::default();
+        // The app's fonts; they take effect from the next frame, so the first one draws nothing.
+        crate::theme::install_fonts(&ctx, crate::i18n::Lang::En, false);
+        let mut a = Assets {
+            p: crate::theme::DARK,
+            icons: crate::icons::Icons::load(),
+            avatars: Default::default(),
+        };
+        let mut clicked = false;
+        let mut rect = Rect::NOTHING;
+        let press = |pos, pressed| Event::PointerButton {
+            pos,
+            button: PointerButton::Primary,
+            pressed,
+            modifiers: Default::default(),
+        };
+        for frame in 0..6 {
+            let at = pos2(rect.left() + x, rect.center().y);
+            let events = match frame {
+                0 | 1 => vec![],
+                2 | 3 => vec![Event::PointerMoved(at)],
+                4 => vec![press(at, true)],
+                _ => vec![press(at, false)],
+            };
+            let input = RawInput {
+                screen_rect: Some(Rect::from_min_size(pos2(0.0, 0.0), vec2(800.0, 600.0))),
+                events,
+                ..Default::default()
+            };
+            let mut out = ctx.run_ui(input, |ui| {
+                if frame == 0 {
+                    return;
+                }
+                let resp = text_action(ui, &mut a, "chevron-left", "Back to “Main”");
+                rect = resp.rect;
+                clicked |= resp.clicked();
+            });
+            out.textures_delta.clear();
+        }
+        clicked
+    }
+
+    #[test]
+    fn a_text_action_answers_a_click_on_its_words_too() {
+        assert!(click_text_action_at(8.0), "on the icon");
+        assert!(click_text_action_at(60.0), "on the words");
+    }
 }
