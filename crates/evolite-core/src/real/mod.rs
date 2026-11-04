@@ -1649,7 +1649,8 @@ impl Real {
                     .map(|r| {
                         let txid = r.txid.to_string();
                         let seen = self.mempool.first_seen(&txid, now, tip);
-                        (txid, activity(r, seen))
+                        let verified = self.chain.instant_lock_verified(&r.txid);
+                        (txid, activity(r, seen, verified))
                     })
                     .collect();
                 let paid_at: HashMap<String, Timestamp> =

@@ -150,10 +150,14 @@ pub(super) fn settle(history: &mut [Activity], chainlocked: Option<u32>) {
     }
 }
 
-fn proof(context: &TransactionContext) -> Proof {
+/// How final a transaction is. dash-spv puts it in `InstantSend` on any InstantLock a peer sends,
+/// verified or not (R-1): only a lock whose signature was verified (`instant_verified`) makes
+/// it InstantSend here; otherwise it is still in the mempool.
+pub(super) fn proof(context: &TransactionContext, instant_verified: bool) -> Proof {
     match context {
         TransactionContext::Mempool => Proof::Mempool,
-        TransactionContext::InstantSend(_) => Proof::InstantLock,
+        TransactionContext::InstantSend(_) if instant_verified => Proof::InstantLock,
+        TransactionContext::InstantSend(_) => Proof::Mempool,
         TransactionContext::InBlock(_) => Proof::InBlock,
         TransactionContext::InChainLockedBlock(_) => Proof::ChainLock,
     }
@@ -193,7 +197,12 @@ fn kind_of(
     }
 }
 
-pub(super) fn activity(record: &TransactionRecord, seen: Timestamp) -> Activity {
+/// `instant_verified`: the InstantLock of the transaction was verified ([`proof`]).
+pub(super) fn activity(
+    record: &TransactionRecord,
+    seen: Timestamp,
+    instant_verified: bool,
+) -> Activity {
     let sent_to = record
         .output_details
         .iter()
@@ -224,7 +233,7 @@ pub(super) fn activity(record: &TransactionRecord, seen: Timestamp) -> Activity 
         chain,
         at,
         amount: record.net_amount,
-        proof: proof(&record.context),
+        proof: proof(&record.context, instant_verified),
         txid: Some(txid),
         // Only what this wallet paid: an incoming payment's fee is the sender's. An asset lock is
         // always this wallet's, whatever its net says (see `Real::wallet` on locks for the pool).
@@ -415,6 +424,15 @@ mod tests {
     use super::super::sync::{Phase, Stage};
     use super::*;
 
+    /// R-1 / BUG-26: dash-spv's "InstantSend" is InstantSend here only with a verified lock.
+    #[test]
+    fn an_instant_lock_counts_only_when_verified() {
+        let locked = TransactionContext::InstantSend(Default::default());
+        assert_eq!(proof(&locked, true), Proof::InstantLock);
+        assert_eq!(proof(&locked, false), Proof::Mempool);
+        assert_eq!(proof(&TransactionContext::Mempool, true), Proof::Mempool);
+    }
+
     #[test]
     fn platform_fees_follow_the_protocol_and_the_last_write() {
         let dir = std::env::temp_dir().join(format!("evolite-fees-{}", std::process::id()));
@@ -537,7 +555,7 @@ mod tests {
         );
         let mut records = vec![payment, funding];
         attribute_late_inputs(&mut records);
-        let line = activity(&records[0], 0);
+        let line = activity(&records[0], 0, true);
         assert_eq!(line.amount, -100_226, "what left the wallet");
         assert_eq!(line.fee, Some(226));
         assert!(
@@ -546,7 +564,7 @@ mod tests {
             line.kind
         );
         // The coin's own line is as it was.
-        assert_eq!(activity(&records[1], 0).amount, 998_000);
+        assert_eq!(activity(&records[1], 0, true).amount, 998_000);
 
         let contact = Contact {
             identity_id: "Jonas111".into(),

@@ -7,11 +7,13 @@
 //! the wallets platform-wallet holds. Validation is always `ValidationMode::Full` (the dash-spv
 //! default) and must stay that way.
 
+use std::collections::{HashSet, VecDeque};
 use std::sync::{Arc, Mutex};
 
 use dash_spv::EventHandler;
 use dash_spv::network::NetworkEvent;
-use dash_spv::sync::{ProgressPercentage, SyncProgress, SyncState};
+use dash_spv::sync::{ProgressPercentage, SyncEvent, SyncProgress, SyncState};
+use key_wallet::dashcore::Txid;
 use platform_wallet::events::PlatformEventHandler;
 use serde::Serialize;
 
@@ -106,11 +108,53 @@ impl SyncStatus {
     }
 }
 
+/// Transactions whose InstantLock dash-spv verified (its BLS signature against the cycle's
+/// quorum), by txid. dash-spv marks a transaction InstantSend on any lock a peer sends, verified
+/// or not (R-1); evolite trusts only these. The newest [`VerifiedLocks::CAP`] are kept: locks of
+/// the whole network's mempool pass through here, and a transaction in a block no longer needs
+/// its lock. Until the app closes.
+#[derive(Clone, Default)]
+pub struct VerifiedLocks(Arc<Mutex<VerifiedSet>>);
+
+#[derive(Default)]
+struct VerifiedSet {
+    set: HashSet<Txid>,
+    order: VecDeque<Txid>,
+}
+
+impl VerifiedLocks {
+    pub const CAP: usize = 20_000;
+
+    pub fn contains(&self, txid: &Txid) -> bool {
+        self.0
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .set
+            .contains(txid)
+    }
+
+    /// Notes `txid`; false when it was noted already.
+    fn insert(&self, txid: Txid) -> bool {
+        let mut locks = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        if !locks.set.insert(txid) {
+            return false;
+        }
+        locks.order.push_back(txid);
+        while locks.order.len() > Self::CAP {
+            if let Some(old) = locks.order.pop_front() {
+                locks.set.remove(&old);
+            }
+        }
+        true
+    }
+}
+
 /// Keeps the latest status and tells the core about every change.
 #[derive(Clone)]
 pub struct Reporter {
     status: Arc<Mutex<SyncStatus>>,
     publish: Arc<dyn Fn(&SyncStatus) + Send + Sync>,
+    instant_locks: VerifiedLocks,
 }
 
 impl Reporter {
@@ -118,7 +162,17 @@ impl Reporter {
         status: Arc<Mutex<SyncStatus>>,
         publish: Arc<dyn Fn(&SyncStatus) + Send + Sync>,
     ) -> Self {
-        Self { status, publish }
+        Self {
+            status,
+            publish,
+            instant_locks: VerifiedLocks::default(),
+        }
+    }
+
+    /// Verified InstantLocks go to `locks` (shared with the chain, which outlives a client).
+    pub fn with_instant_locks(mut self, locks: VerifiedLocks) -> Self {
+        self.instant_locks = locks;
+        self
     }
 
     pub fn update(&self, change: impl FnOnce(&mut SyncStatus)) {
@@ -132,6 +186,20 @@ impl Reporter {
 }
 
 impl EventHandler for Reporter {
+    fn on_sync_event(&self, event: &SyncEvent) {
+        // Sent on the first check and again when a pending lock is verified later
+        // (`validate_pending`); an unverified one is not trusted (R-1, BUG-26).
+        if let SyncEvent::InstantLockReceived {
+            instant_lock,
+            validated: true,
+        } = event
+            && self.instant_locks.insert(instant_lock.txid)
+        {
+            // The history shows it as InstantSend from now on.
+            self.update(|_| {});
+        }
+    }
+
     fn on_progress(&self, progress: &SyncProgress) {
         self.update(|s| s.apply_progress(progress));
     }
@@ -226,6 +294,63 @@ mod tests {
         let json = serde_json::to_value(SyncStatus::default()).unwrap();
         assert_eq!(json["phase"], "stopped");
         assert!(json.get("chainlockHeight").is_some());
+    }
+
+    /// R-1 / BUG-26: only an InstantLock whose signature dash-spv verified counts.
+    #[test]
+    fn only_a_verified_instant_lock_counts() {
+        use key_wallet::dashcore::InstantLock;
+        use key_wallet::dashcore::hashes::Hash;
+        let published = Arc::new(Mutex::new(0));
+        let count = published.clone();
+        let locks = VerifiedLocks::default();
+        let reporter = Reporter::new(
+            Arc::new(Mutex::new(SyncStatus::default())),
+            Arc::new(move |_: &SyncStatus| *count.lock().unwrap() += 1),
+        )
+        .with_instant_locks(locks.clone());
+        let lock = InstantLock {
+            txid: Txid::from_byte_array([7; 32]),
+            ..Default::default()
+        };
+        reporter.on_sync_event(&SyncEvent::InstantLockReceived {
+            instant_lock: lock.clone(),
+            validated: false,
+        });
+        assert!(
+            !locks.contains(&lock.txid),
+            "a lock not verified is not trusted"
+        );
+        assert_eq!(*published.lock().unwrap(), 0);
+        reporter.on_sync_event(&SyncEvent::InstantLockReceived {
+            instant_lock: lock.clone(),
+            validated: true,
+        });
+        assert!(locks.contains(&lock.txid));
+        assert_eq!(*published.lock().unwrap(), 1, "the snapshot is made again");
+        // The same lock again (verified once more from the pending queue): nothing new.
+        reporter.on_sync_event(&SyncEvent::InstantLockReceived {
+            instant_lock: lock.clone(),
+            validated: true,
+        });
+        assert_eq!(*published.lock().unwrap(), 1);
+    }
+
+    /// The network's mempool passes through: only the newest locks are kept.
+    #[test]
+    fn verified_locks_keep_the_newest() {
+        use key_wallet::dashcore::hashes::Hash;
+        let locks = VerifiedLocks::default();
+        let txid = |n: usize| {
+            let mut bytes = [0u8; 32];
+            bytes[..8].copy_from_slice(&(n as u64).to_le_bytes());
+            Txid::from_byte_array(bytes)
+        };
+        for n in 0..=VerifiedLocks::CAP {
+            assert!(locks.insert(txid(n)));
+        }
+        assert!(!locks.contains(&txid(0)), "the oldest went");
+        assert!(locks.contains(&txid(1)) && locks.contains(&txid(VerifiedLocks::CAP)));
     }
 
     #[test]

@@ -36,7 +36,7 @@ use platform_wallet_storage::sqlite::{SqlitePersister, SqlitePersisterConfig};
 use simple_signer::signer::SimpleSigner;
 
 use super::provider::{NotYet, SpvContextProvider};
-use super::sync::{Phase, Reporter, SyncStatus};
+use super::sync::{Phase, Reporter, SyncStatus, VerifiedLocks};
 use super::{dashpay, identity, nfts};
 
 type Manager = PlatformWalletManager<SqlitePersister>;
@@ -58,6 +58,8 @@ pub struct Chain {
     /// the lock has no ChainLock proof yet (platform-wallet then leaves its status as it was).
     /// Until the app closes.
     top_up_notes: Mutex<HashMap<key_wallet::dashcore::OutPoint, TopUpNote>>,
+    /// Transactions whose InstantLock was verified (R-1): the rest are not shown as InstantSend.
+    instant_locks: VerifiedLocks,
 }
 
 impl Default for Chain {
@@ -69,6 +71,7 @@ impl Default for Chain {
                 ..Default::default()
             })),
             top_up_notes: Mutex::new(HashMap::new()),
+            instant_locks: VerifiedLocks::default(),
         }
     }
 }
@@ -266,6 +269,11 @@ pub struct Paid {
 }
 
 impl Chain {
+    /// Whether the InstantLock of `txid` was verified in this run (R-1, BUG-26).
+    pub fn instant_lock_verified(&self, txid: &key_wallet::dashcore::Txid) -> bool {
+        self.instant_locks.contains(txid)
+    }
+
     pub fn status(&self) -> SyncStatus {
         self.status
             .lock()
@@ -284,7 +292,8 @@ impl Chain {
         if slot.is_some() {
             return Ok(());
         }
-        let reporter = Reporter::new(self.status.clone(), publish);
+        let reporter = Reporter::new(self.status.clone(), publish)
+            .with_instant_locks(self.instant_locks.clone());
         reporter.update(|s| {
             s.phase = Phase::Starting;
             s.error = None;
@@ -2207,6 +2216,84 @@ mod tests {
                 platform as i128 - store as i128
             );
         }
+        chain.stop().await;
+    }
+
+    /// R-1 / BUG-26 on testnet: the wallet pays itself and receives the payment's InstantLock
+    /// from the network. dash-spv marks the transaction InstantSend; evolite counts it so only
+    /// once the lock's signature was verified. Prints when each happened. Only the fee is spent.
+    /// `cargo test -p evolite-core live_instant_lock_verified -- --ignored --nocapture`
+    #[test]
+    #[ignore = "needs testnet access and a funded test phrase in .env.test.local"]
+    fn live_instant_lock_verified_before_it_counts() {
+        std::thread::Builder::new()
+            .stack_size(16 << 20)
+            .spawn(|| {
+                tokio::runtime::Builder::new_multi_thread()
+                    .enable_all()
+                    .thread_stack_size(8 << 20)
+                    .build()
+                    .unwrap()
+                    .block_on(instant_lock_verified())
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+    }
+
+    async fn instant_lock_verified() {
+        use key_wallet::transaction_checking::TransactionContext;
+        use key_wallet::wallet::managed_wallet_info::wallet_info_interface::WalletInfoInterface;
+        let dir = std::env::temp_dir().join("evolite-live-instant-lock");
+        let (chain, wallet, keys) = open_test_wallet(&dir).await;
+        let to: Address = wallet
+            .core()
+            .next_receive_address_for_account(0)
+            .await
+            .expect("an address");
+        let paid = chain.pay(&wallet, &keys, &to, 10_000).await.expect("paid");
+        println!("paid {} relayed {}", paid.txid, paid.relayed);
+        let txid: key_wallet::dashcore::Txid = paid.txid.parse().unwrap();
+        let started = Instant::now();
+        let (mut marked, mut verified) = (None, None);
+        while started.elapsed() < Duration::from_secs(120) && verified.is_none() {
+            let context = {
+                let state = wallet.state().await;
+                state
+                    .core_wallet
+                    .transaction_history()
+                    .iter()
+                    .find(|r| r.txid == txid)
+                    .map(|r| r.context.clone())
+            };
+            let is_marked = matches!(context, Some(TransactionContext::InstantSend(_)));
+            let is_verified = chain.instant_lock_verified(&txid);
+            if is_marked && marked.is_none() {
+                marked = Some(started.elapsed());
+                println!("{:?}: dash-spv marked it InstantSend", started.elapsed());
+            }
+            if is_verified {
+                verified = Some(started.elapsed());
+                println!("{:?}: its lock verified", started.elapsed());
+            }
+            // What the history shows at this moment.
+            if let Some(context) = &context
+                && is_marked
+                && !is_verified
+            {
+                let shown = super::super::convert::proof(context, is_verified);
+                assert_eq!(
+                    shown,
+                    evolite_api::Proof::Mempool,
+                    "not InstantSend unverified"
+                );
+            }
+            tokio::time::sleep(Duration::from_millis(250)).await;
+        }
+        assert!(
+            verified.is_some(),
+            "the network's InstantLock verified in 2 min"
+        );
         chain.stop().await;
     }
 
