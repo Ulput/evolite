@@ -245,7 +245,7 @@ fn wallet_choice(
 ) -> egui::Response {
     let p = a.p;
     let (row, resp) = ui.allocate_exact_size(vec2(width, 56.0), Sense::click());
-    crate::components::named_choice(&resp, egui::WidgetType::RadioButton, on, &w.name);
+    crate::components::named_choice(&resp, egui::WidgetType::RadioButton, on, &shown_name(w));
     ui.painter().rect(
         row,
         CornerRadius::same(12),
@@ -267,7 +267,7 @@ fn wallet_choice(
         ui,
         pos2(x, row.top() + 11.0),
         Align2::LEFT_TOP,
-        &w.name,
+        &shown_name(w),
         sans(14.0, Weight::SemiBold),
         p.text,
     );
@@ -290,4 +290,34 @@ fn wallet_choice(
         );
     }
     resp.on_hover_cursor(CursorIcon::PointingHand)
+}
+
+/// A wallet's name as its owner wrote it: never taken for a word of the interface, even when it
+/// is one ("Main", "Savings"), and kept in its own direction inside right-to-left text.
+fn shown_name(w: &WalletEntry) -> String {
+    crate::i18n::own(&w.name)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::i18n::Lang;
+
+    #[test]
+    fn a_wallet_name_that_is_also_a_word_of_the_interface_stays_as_written() {
+        let main = WalletEntry {
+            id: "w1".into(),
+            name: "Main".into(),
+            color: 0,
+            origin: evolite_api::WalletOrigin::Created,
+            created_at: 0,
+            last_opened: None,
+            open: true,
+        };
+        // "Main" is a key of the catalogs: the plain name would be translated.
+        assert_ne!(crate::i18n::t_in(Lang::Ru, "Main"), "Main");
+        let shown = shown_name(&main);
+        assert_eq!(crate::i18n::t_in(Lang::Ru, &shown), shown.as_str());
+        assert!(shown.contains("Main"));
+    }
 }
