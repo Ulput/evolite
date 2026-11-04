@@ -694,7 +694,7 @@
   "The app sign-in contract was not found on the network": "Uygulama girişi sözleşmesi ağda bulunamadı",
   "The app {} asks for a key for {}. Make sure the code matches the code on its screen.": "{0} uygulaması {1} için bir anahtar istiyor. Kodun, uygulamanın ekranındaki kodla eşleştiğinden emin olun.",
   "The asset lock is confirmed by InstantSend in seconds; if not, we wait for a ChainLock.": "Asset lock'u InstantSend saniyeler içinde onaylar; olmazsa bir ChainLock bekleriz.",
-  "The balance appears after the sync": "Bakiye eşitlemeden sonra görünecek",
+  "The balance may be incomplete until the sync finishes": "Eşitleme bitene kadar bakiye eksik olabilir",
   "The beat every jam starts with. A gift for evolite's launch.": "Her jam'in başladığı ritim. evolite'in çıkışı için bir hediye.",
   "The channel is encrypted (ECDH, session key)": "Kanal şifreli (ECDH, oturum anahtarı)",
   "The check has ended: start it again": "Kontrol bitti: yeniden başlatın",

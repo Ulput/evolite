@@ -694,7 +694,7 @@
   "The app sign-in contract was not found on the network": "Kontrak masuk aplikasi tidak ditemukan di jaringan",
   "The app {} asks for a key for {}. Make sure the code matches the code on its screen.": "Aplikasi {} meminta kunci untuk {}. Pastikan kodenya sama dengan kode di layarnya.",
   "The asset lock is confirmed by InstantSend in seconds; if not, we wait for a ChainLock.": "InstantSend mengonfirmasi asset lock dalam hitungan detik; jika tidak, kami menunggu ChainLock.",
-  "The balance appears after the sync": "Saldo muncul setelah sinkronisasi",
+  "The balance may be incomplete until the sync finishes": "Saldo mungkin belum lengkap sampai sinkronisasi selesai",
   "The beat every jam starts with. A gift for evolite's launch.": "Ketukan yang mengawali setiap jam. Hadiah peluncuran evolite.",
   "The channel is encrypted (ECDH, session key)": "Saluran dienkripsi (ECDH, kunci sesi)",
   "The check has ended: start it again": "Pemeriksaan sudah selesai: mulai lagi",

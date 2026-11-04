@@ -694,7 +694,7 @@
   "The app sign-in contract was not found on the network": "앱 로그인 컨트랙트를 네트워크에서 찾지 못했습니다",
   "The app {} asks for a key for {}. Make sure the code matches the code on its screen.": "앱 {0}이(가) {1}용 키를 요청합니다. 코드가 앱 화면의 코드와 일치하는지 확인하세요.",
   "The asset lock is confirmed by InstantSend in seconds; if not, we wait for a ChainLock.": "자산 잠금은 InstantSend로 몇 초 만에 확인됩니다. 그렇지 않으면 ChainLock을 기다립니다.",
-  "The balance appears after the sync": "잔액은 동기화 후에 표시됩니다",
+  "The balance may be incomplete until the sync finishes": "동기화가 끝날 때까지 잔액이 완전하지 않을 수 있습니다",
   "The beat every jam starts with. A gift for evolite's launch.": "모든 jam이 시작되는 비트. evolite 출시 기념 선물.",
   "The channel is encrypted (ECDH, session key)": "채널은 암호화되어 있습니다(ECDH, 세션 키)",
   "The check has ended: start it again": "확인이 끝났습니다: 다시 시작하세요",

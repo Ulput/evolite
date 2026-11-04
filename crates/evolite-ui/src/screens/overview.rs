@@ -61,10 +61,11 @@ pub fn overview(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx) {
             // While the sync runs the wallet does not know all its coins: nothing is final.
             if !synced {
                 chip(ui, a, "pending", tr!("Syncing"), false).on_hover_text(
-                    crate::i18n::t(tr!("The balance appears after the sync")).into_owned(),
+                    crate::i18n::t(tr!("The balance may be incomplete until the sync finishes"))
+                        .into_owned(),
                 );
                 ui.label(txt(
-                    tr!("The balance appears after the sync"),
+                    tr!("The balance may be incomplete until the sync finishes"),
                     13.0,
                     Weight::Regular,
                     p.muted,

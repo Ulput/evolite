@@ -694,7 +694,7 @@
   "The app sign-in contract was not found on the network": "网络上未找到应用登录合约",
   "The app {} asks for a key for {}. Make sure the code matches the code on its screen.": "应用 {} 请求一个用于 {} 的密钥。请确认验证码与其屏幕上的一致。",
   "The asset lock is confirmed by InstantSend in seconds; if not, we wait for a ChainLock.": "资产锁定由 InstantSend 在几秒内确认；否则等待 ChainLock。",
-  "The balance appears after the sync": "同步完成后显示余额",
+  "The balance may be incomplete until the sync finishes": "同步完成前，余额可能不完整",
   "The beat every jam starts with. A gift for evolite's launch.": "每首 jam 开头的节拍。evolite 发布的礼物。",
   "The channel is encrypted (ECDH, session key)": "通道已加密（ECDH，会话密钥）",
   "The check has ended: start it again": "检查已结束：请重新开始",

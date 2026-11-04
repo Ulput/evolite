@@ -694,7 +694,7 @@
   "The app sign-in contract was not found on the network",
   "The app {} asks for a key for {}. Make sure the code matches the code on its screen.",
   "The asset lock is confirmed by InstantSend in seconds; if not, we wait for a ChainLock.",
-  "The balance appears after the sync",
+  "The balance may be incomplete until the sync finishes",
   "The beat every jam starts with. A gift for evolite's launch.",
   "The channel is encrypted (ECDH, session key)",
   "The check has ended: start it again",

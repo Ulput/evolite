@@ -694,7 +694,7 @@
   "The app sign-in contract was not found on the network": "ऐप साइन-इन कॉन्ट्रैक्ट नेटवर्क पर नहीं मिला",
   "The app {} asks for a key for {}. Make sure the code matches the code on its screen.": "ऐप {0} को {1} के लिए कुंजी चाहिए। सुनिश्चित करें कि कोड उसकी स्क्रीन के कोड से मेल खाता है।",
   "The asset lock is confirmed by InstantSend in seconds; if not, we wait for a ChainLock.": "एसेट लॉक की पुष्टि InstantSend कुछ सेकंड में करता है; नहीं तो हम ChainLock का इंतज़ार करते हैं।",
-  "The balance appears after the sync": "बैलेंस सिंक के बाद दिखेगा",
+  "The balance may be incomplete until the sync finishes": "सिंक पूरा होने तक बैलेंस अधूरा हो सकता है",
   "The beat every jam starts with. A gift for evolite's launch.": "वह ताल जिससे हर जैम शुरू होता है। evolite के लॉन्च का उपहार।",
   "The channel is encrypted (ECDH, session key)": "चैनल एन्क्रिप्टेड है (ECDH, सत्र कुंजी)",
   "The check has ended: start it again": "जाँच समाप्त हो गई: इसे फिर शुरू करें",

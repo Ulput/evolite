@@ -694,7 +694,7 @@
   "The app sign-in contract was not found on the network": "Không tìm thấy hợp đồng đăng nhập ứng dụng trên mạng",
   "The app {} asks for a key for {}. Make sure the code matches the code on its screen.": "Ứng dụng {} yêu cầu khóa cho {}. Hãy chắc chắn mã khớp với mã trên màn hình của nó.",
   "The asset lock is confirmed by InstantSend in seconds; if not, we wait for a ChainLock.": "InstantSend xác nhận asset lock trong vài giây; nếu không, chúng tôi chờ ChainLock.",
-  "The balance appears after the sync": "Số dư sẽ hiện sau khi đồng bộ",
+  "The balance may be incomplete until the sync finishes": "Số dư có thể chưa đầy đủ cho đến khi đồng bộ xong",
   "The beat every jam starts with. A gift for evolite's launch.": "Nhịp trống mở đầu mọi bản jam. Quà mừng ra mắt evolite.",
   "The channel is encrypted (ECDH, session key)": "Kênh được mã hóa (ECDH, khóa phiên)",
   "The check has ended: start it again": "Phiên kiểm tra đã kết thúc: hãy bắt đầu lại",

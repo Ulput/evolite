@@ -694,7 +694,7 @@
   "The app sign-in contract was not found on the network": "Контракт входа в приложения не найден в сети",
   "The app {} asks for a key for {}. Make sure the code matches the code on its screen.": "Приложение {} просит ключ для {}. Убедитесь, что код совпадает с кодом на его экране.",
   "The asset lock is confirmed by InstantSend in seconds; if not, we wait for a ChainLock.": "Asset lock подтвердится InstantSend за секунды; если нет — дождёмся ChainLock.",
-  "The balance appears after the sync": "Баланс появится после синхронизации",
+  "The balance may be incomplete until the sync finishes": "Баланс может быть неполным, пока идёт синхронизация",
   "The beat every jam starts with. A gift for evolite's launch.": "Ритм, с которого начинается любой джем. Подарено на запуск evolite.",
   "The channel is encrypted (ECDH, session key)": "Канал зашифрован (ECDH, ключ сеанса)",
   "The check has ended: start it again": "Проверка закончилась: начните её заново",

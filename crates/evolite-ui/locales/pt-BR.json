@@ -694,7 +694,7 @@
   "The app sign-in contract was not found on the network": "O contrato de entrada em apps não foi encontrado na rede",
   "The app {} asks for a key for {}. Make sure the code matches the code on its screen.": "O app {} pede uma chave para {}. Confira se o código bate com o da tela dele.",
   "The asset lock is confirmed by InstantSend in seconds; if not, we wait for a ChainLock.": "O InstantSend confirma o asset lock em segundos; se não, esperamos um ChainLock.",
-  "The balance appears after the sync": "O saldo aparece depois da sincronização",
+  "The balance may be incomplete until the sync finishes": "O saldo pode estar incompleto até o fim da sincronização",
   "The beat every jam starts with. A gift for evolite's launch.": "A batida com que começa toda jam. Um presente pelo lançamento do evolite.",
   "The channel is encrypted (ECDH, session key)": "O canal é cifrado (ECDH, chave de sessão)",
   "The check has ended: start it again": "A verificação terminou: comece de novo",
