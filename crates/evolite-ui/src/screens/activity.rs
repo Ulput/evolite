@@ -442,13 +442,21 @@ fn card(
                     mono_block(ui, &p, "txid", txid, None);
                     ui.add_space(4.0);
                     ui.horizontal(|ui| {
-                        ui.spacing_mut().item_spacing.x = 10.0;
+                        // Two outlined buttons with a gap: a ghost one beside an outlined one read as
+                        // one control.
+                        ui.spacing_mut().item_spacing.x = 12.0;
                         if button(ui, a, tr!("Copy txid"), ButtonKind::Secondary, None).clicked() {
                             crate::clipboard::copy(ui.ctx(), txid.clone());
                         }
-                        if button(ui, a, tr!("Open in the explorer"), ButtonKind::Ghost, None)
-                            .on_hover_text(crate::i18n::t(&explorer(txid)).into_owned())
-                            .clicked()
+                        if button(
+                            ui,
+                            a,
+                            tr!("Open in the explorer"),
+                            ButtonKind::Secondary,
+                            None,
+                        )
+                        .on_hover_text(crate::i18n::t(&explorer(txid)).into_owned())
+                        .clicked()
                         {
                             // egui's open_url does nothing without eframe's `links`.
                             crate::links::open(&explorer(txid));
