@@ -528,6 +528,18 @@ fn shield_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut PoolStat
                 &format!("≈ {}", crate::format::amount(cost.fee)),
                 value.clone(),
             );
+            // From Core the asset lock is a Core transaction with its own fee: a line of its own,
+            // so "Platform fee" is the amount less what arrives in the pool. A stopped shield's lock
+            // is already paid for.
+            if cost.core_fee > 0 && resume.is_none() {
+                kv_row(
+                    ui,
+                    &p,
+                    tr!("Core fee"),
+                    &format!("≈ {}", crate::format::amount(cost.core_fee)),
+                    value.clone(),
+                );
+            }
             let left_label = match source {
                 ShieldSource::Credits => tr!("Left in credits"),
                 ShieldSource::PlatformAddress => tr!("Left at the address"),
@@ -880,8 +892,10 @@ fn notes(n: u32) -> String {
 /// What a shield from one source costs and how much it can move.
 #[derive(Debug, PartialEq)]
 struct ShieldCost {
-    /// Every fee of the move together.
+    /// Platform's fee: the line "Platform fee".
     fee: Duffs,
+    /// Core's fee for the asset lock, paid on top (from Core only): the line "Core fee".
+    core_fee: Duffs,
     min: Duffs,
     max: Duffs,
 }
@@ -894,16 +908,19 @@ fn shield_cost(fees: &Fees, source: ShieldSource, balance: Duffs) -> ShieldCost 
     match source {
         ShieldSource::Credits => ShieldCost {
             fee: fees.shield,
+            core_fee: 0,
             min: 1,
             max: (balance - fees.shield).max(0),
         },
         ShieldSource::PlatformAddress => ShieldCost {
             fee: fees.shield_from_address,
+            core_fee: 0,
             min: 1,
             max: (balance - fees.shield_reserve).max(0),
         },
         ShieldSource::Core => ShieldCost {
-            fee: fees.shield_from_core + fees.core_payment,
+            fee: fees.shield_from_core,
+            core_fee: fees.core_payment,
             min: fees.shield_from_core + 1,
             max: (balance - fees.core_payment).max(0),
         },
@@ -1003,6 +1020,7 @@ mod tests {
         // From credits: everything but the fee, and the rest is exact.
         let cost = shield_cost(&f, ShieldSource::Credits, 1_000_000);
         assert_eq!((cost.fee, cost.max), (f.shield, 1_000_000 - f.shield));
+        assert_eq!(cost.core_fee, 0);
         assert_eq!(
             shield_preview(&f, ShieldSource::Credits, 1_000_000, 300_000),
             Some((1_000_000 - 300_000 - f.shield, 300_000))
@@ -1019,7 +1037,11 @@ mod tests {
     fn a_shield_from_core_pays_platform_out_of_the_lock() {
         let f = fees();
         let cost = shield_cost(&f, ShieldSource::Core, 1_000_000);
-        assert_eq!(cost.fee, f.shield_from_core + f.core_payment);
+        // Two fees, two lines: Platform's out of the lock, Core's on top of it.
+        assert_eq!(
+            (cost.fee, cost.core_fee),
+            (f.shield_from_core, f.core_payment)
+        );
         assert_eq!(cost.max, 1_000_000 - f.core_payment);
         // 0.003 DASH locked: Core pays it and its fee, the pool gets it less Platform's fee.
         assert_eq!(
@@ -1029,6 +1051,9 @@ mod tests {
                 300_000 - f.shield_from_core
             ))
         );
+        // "Platform fee" is exactly the amount less what arrives in the pool.
+        let (_, arrives) = shield_preview(&f, ShieldSource::Core, 1_000_000, 300_000).unwrap();
+        assert_eq!(300_000 - arrives, cost.fee);
         // A lock no bigger than Platform's fee would bring nothing.
         assert_eq!(
             shield_preview(&f, ShieldSource::Core, 1_000_000, f.shield_from_core),
