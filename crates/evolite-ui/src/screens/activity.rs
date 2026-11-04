@@ -53,11 +53,16 @@ fn matches_query(act: &Activity, q: &str, book: &[SavedAddress]) -> bool {
         | ActivityKind::TopUp { identity: who } => who.as_str(),
         _ => "",
     };
+    // The payment's Core address too: a payment in names no one, only our own address it came
+    // to, and a payment to a contact shows the @name with the address beside it. And the whole
+    // txid, as the card shows it.
     let shown = format!(
-        "{} {} {}",
+        "{} {} {} {} {}",
         text::activity_title_in(act, book),
         crate::format::number(act.amount, true),
-        counterparty
+        counterparty,
+        act.address.as_deref().unwrap_or_default(),
+        act.txid.as_deref().unwrap_or_default()
     )
     .replace('\u{a0}', " ")
     .to_lowercase();
@@ -545,6 +550,34 @@ mod tests {
         assert!(!matches_query(&act, "deadbeef", &[]));
         assert!(!matches_query(&act, "@bob", &[]));
         assert!(matches_query(&sent("@bob", -1), "@bob", &[]));
+    }
+
+    /// An address finds the payments it is in: our own address of a payment in, the address
+    /// behind a contact's @name, a payment out whose recipient has no name.
+    #[test]
+    fn finds_payments_by_their_core_address() {
+        let ours = "yMXp7gU4uQ4mVQ4V1V3H6cPCXxWfNrsW3d";
+        let theirs = "yTFDD75uEcLgEGN8QYPKKvVE69jqf6vMw2";
+        // The screen lowercases what is typed.
+        let q = |s: &str| s.to_lowercase();
+        let mut received = sent("", 50_000_000);
+        received.kind = ActivityKind::Received { from: None };
+        received.address = Some(ours.into());
+        assert!(matches_query(&received, &q(ours), &[]));
+        assert!(
+            matches_query(&received, &q("4uQ4mVQ4V1"), &[]),
+            "a part of it"
+        );
+        assert!(!matches_query(&received, &q(theirs), &[]));
+        let mut to_contact = sent("@bob", -1);
+        to_contact.address = Some(theirs.into());
+        assert!(matches_query(&to_contact, &q(theirs), &[]));
+        let mut unnamed = sent("", -1);
+        unnamed.address = Some(theirs.into());
+        assert!(matches_query(&unnamed, &q(theirs), &[]));
+        let mut with_txid = sent("", -1);
+        with_txid.txid = Some("ab".repeat(32));
+        assert!(matches_query(&with_txid, &"ab".repeat(32), &[]));
     }
 }
 
