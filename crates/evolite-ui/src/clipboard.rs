@@ -87,6 +87,38 @@ pub fn copy(ctx: &egui::Context, text: String) {
     ctx.data_mut(|d| d.insert_temp(copy_id(), Some(copied)));
 }
 
+/// How long "Copied" stands in place of the control that copied, in seconds.
+pub const COPIED_FOR: f64 = 1.5;
+
+/// The control that copied last (`what`) and when, by egui's clock.
+fn answered_id() -> egui::Id {
+    egui::Id::new("evolite-copied-answer")
+}
+
+/// [`copy`], and "Copied" on the control `what` for [`COPIED_FOR`] (see [`just_copied`]).
+pub fn copy_answered(ctx: &egui::Context, text: String, what: egui::Id) {
+    copy(ctx, text);
+    let now = ctx.input(|i| i.time);
+    ctx.data_mut(|d| d.insert_temp(answered_id(), Some((what, now))));
+}
+
+/// Whether the control `what` copied less than [`COPIED_FOR`] ago: it then says "Copied". Asks
+/// for the frame that takes the word away.
+pub fn just_copied(ctx: &egui::Context, what: egui::Id) -> bool {
+    let Some((last, at)) = ctx.data(|d| {
+        d.get_temp::<Option<(egui::Id, f64)>>(answered_id())
+            .flatten()
+    }) else {
+        return false;
+    };
+    let left = COPIED_FOR - (ctx.input(|i| i.time) - at);
+    let shown = last == what && left > 0.0;
+    if shown {
+        ctx.request_repaint_after(std::time::Duration::from_secs_f64(left));
+    }
+    shown
+}
+
 /// When the secret on the clipboard was copied, while the app still has to wipe it.
 pub fn copied_at(ctx: &egui::Context) -> Option<Instant> {
     ctx.data(|d| d.get_temp::<Option<Copied>>(id()).flatten())

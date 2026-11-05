@@ -25,6 +25,8 @@ pub struct App {
     /// The last snapshot from the core; `None` until the first one arrives.
     snapshot: Option<Snapshot>,
     screen: Screen,
+    /// The screen of the wallet drawn last: when it differs from `screen`, the person left it.
+    drawn: Screen,
     filter: usize,
     query: String,
     send: screens::send::SendForm,
@@ -183,6 +185,7 @@ impl App {
             unlock: Default::default(),
             snapshot: None,
             screen: launch.screen,
+            drawn: launch.screen,
             filter: 0,
             query: String::new(),
             send,
@@ -984,6 +987,13 @@ impl eframe::App for App {
                     bottom: 28,
                 }))
                 .show(ui, |ui| {
+                    // Left a screen: what it forgets on leaving (BUG-39 №10).
+                    if self.drawn != self.screen {
+                        if self.drawn == Screen::Receive {
+                            self.receive.leave();
+                        }
+                        self.drawn = self.screen;
+                    }
                     // `--screen remind` (dev-tools): the reminder whatever the dates say.
                     #[cfg(feature = "dev-tools")]
                     let remind = self.dev.remind_preset;

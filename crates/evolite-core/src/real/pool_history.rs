@@ -53,8 +53,10 @@ impl PoolHistory {
         let mut shown: Vec<Activity> = operations
             .into_iter()
             .map(|op| match all.get(&op.id) {
-                // The scan lost what the operation moved: the kept line, with the scan's proof.
-                Some(kept) if poor(&op) => Activity {
+                // The scan lost what the operation moved, or took the wallet's own shield for a
+                // note that came in (after a restart it cannot tell them apart, and gives no
+                // time): the kept line, with the scan's proof.
+                Some(kept) if poor(&op) || own_shield(kept, &op) => Activity {
                     proof: op.proof,
                     block: op.block.or(kept.block),
                     ..kept.to_activity()
@@ -91,6 +93,12 @@ impl PoolHistory {
             .map(|s| (s.id, s))
             .collect()
     }
+}
+
+/// The wallet's own shield, kept as made, that the scan now gives as a note received: the
+/// same outputs, so the same id (BUG-37). The kept kind and time stay.
+fn own_shield(kept: &Saved, op: &Activity) -> bool {
+    matches!(kept.kind, Kind::Shielded { .. }) && op.kind == ActivityKind::PoolReceived
 }
 
 /// A line the scan could not fill: nothing moved and no fee known.
@@ -188,6 +196,39 @@ mod tests {
         let shield = op(3, ActivityKind::Shielded { from: None }, 300_000, None);
         PoolHistory::new(path.clone()).merge(vec![shield.clone()]);
         assert_eq!(PoolHistory::new(path).merge(Vec::new()), vec![shield]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// BUG-37 r1 must 2: after a restart the scan gives the wallet's own shield as a note that
+    /// came in, with no time. It is still the shield made then (same id), kept so in the file,
+    /// and not counted again as money received.
+    #[test]
+    fn the_own_shield_stays_a_shield_over_a_restart() {
+        let dir =
+            std::env::temp_dir().join(format!("evolite-pool-history-own-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let path = dir.join("pool-history.json");
+        let shield = op(
+            4,
+            ActivityKind::Shielded { from: None },
+            300_000,
+            Some(2_000),
+        );
+        PoolHistory::new(path.clone()).merge(vec![shield.clone()]);
+        let scanned = Activity {
+            at: 0,
+            fee: None,
+            block: Some(9),
+            ..op(4, ActivityKind::PoolReceived, 300_000, None)
+        };
+        let again = PoolHistory::new(path.clone());
+        let expected = Activity {
+            block: Some(9),
+            ..shield.clone()
+        };
+        assert_eq!(again.merge(vec![scanned.clone()]), vec![expected.clone()]);
+        // And the file was not overwritten: the next start still knows it.
+        assert_eq!(PoolHistory::new(path).merge(vec![scanned]), vec![expected]);
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

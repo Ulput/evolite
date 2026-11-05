@@ -232,9 +232,23 @@ pub fn shielded(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut PoolState
                 tr!("visible only to you"),
                 |ui, a| {
                     ui.add_space(-2.0);
+                    // An empty card says so (BUG-39 №12).
+                    if wallet.pool.operations.is_empty() {
+                        ui.add_space(14.0);
+                        ui.horizontal(|ui| {
+                            ui.add_space(16.0);
+                            ui.label(txt(
+                                tr!("No operations in the pool yet"),
+                                14.0,
+                                Weight::Regular,
+                                a.p.muted,
+                            ));
+                        });
+                        ui.add_space(14.0);
+                    }
                     for op in &wallet.pool.operations {
                         // A note found by reading the pool has no time of its own.
-                        let detail = if op.at > 0 {
+                        let detail = if text::known(op.at) {
                             format!(
                                 "{} · {}",
                                 text::day(op.at, now),
@@ -869,8 +883,15 @@ fn address_dialog(ui: &mut Ui, a: &mut Assets, state: &mut PoolState, address: &
             );
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 ui.spacing_mut().item_spacing.x = 10.0;
-                if button(ui, a, tr!("Copy"), ButtonKind::Primary, None).clicked() {
-                    ui.ctx().copy_text(address.to_owned());
+                // Copied like any address (wiped later), with "Copied" for a moment (BUG-39 №1).
+                let copy_id = egui::Id::new("pool-address-copy");
+                let label = if crate::clipboard::just_copied(ui.ctx(), copy_id) {
+                    tr!("Copied")
+                } else {
+                    tr!("Copy")
+                };
+                if button(ui, a, label, ButtonKind::Primary, None).clicked() {
+                    crate::clipboard::copy_answered(ui.ctx(), address.to_owned(), copy_id);
                 }
                 if button(ui, a, tr!("Close"), ButtonKind::Ghost, None).clicked() {
                     close = true;

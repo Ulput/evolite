@@ -123,12 +123,11 @@ fn tx_row_sensed(ui: &mut Ui, a: &mut Assets, row: &TxRow, sense: Sense) -> egui
     }
 
     let tx = boxr.right() + 14.0;
-    let title = ui.painter().layout(
-        crate::i18n::t(row.title).into_owned(),
-        sans(14.0, Weight::SemiBold),
+    let title = ui.painter().layout_job(title_job(
+        &crate::i18n::t(row.title),
         p.text,
         text_right - 14.0 - tx,
-    );
+    ));
     ui.painter().galley(pos2(tx, cy - 17.0), title, p.text);
     paint_text(
         ui,
@@ -139,6 +138,62 @@ fn tx_row_sensed(ui: &mut Ui, a: &mut Assets, row: &TxRow, sense: Sense) -> egui
         p.muted,
     );
     resp
+}
+
+/// An operation's title as drawn: Inter, with the Dash addresses, short ids and txids in it
+/// in mono ("amounts, addresses, txid and hashes — monospaced", design review summary №10).
+fn title_job(title: &str, color: Color32, width: f32) -> egui::text::LayoutJob {
+    let mut job = egui::text::LayoutJob::default();
+    job.wrap.max_width = width;
+    let words = egui::TextFormat::simple(sans(14.0, Weight::SemiBold), color);
+    let code = egui::TextFormat::simple(mono(14.0, Weight::Medium), color);
+    for (part, is_code) in code_spans(title) {
+        let format = if is_code { &code } else { &words };
+        job.append(part, 0.0, format.clone());
+    }
+    job
+}
+
+/// `text` cut into runs of words and of codes (see [`looks_like_code`]), in order; together
+/// they are `text` again.
+fn code_spans(text: &str) -> Vec<(&str, bool)> {
+    let mut out: Vec<(&str, bool)> = Vec::new();
+    // Where the words not yet pushed start.
+    let mut start = 0;
+    // Words are cut at spaces; a code leaves its punctuation outside ("yXk3…Mw2a," → code, ",").
+    let mut i = 0;
+    loop {
+        let end = text[i..].find(' ').map_or(text.len(), |n| i + n);
+        let word = &text[i..end];
+        let lead = word.len() - word.trim_start_matches(['(', '«', '"']).len();
+        let core = word[lead..].trim_end_matches([',', '.', ':', ';', ')', '»', '"']);
+        if looks_like_code(core) {
+            let at = i + lead;
+            if at > start {
+                out.push((&text[start..at], false));
+            }
+            out.push((core, true));
+            start = at + core.len();
+        }
+        if end >= text.len() {
+            break;
+        }
+        i = end + 1;
+    }
+    if start < text.len() {
+        out.push((&text[start..], false));
+    }
+    out
+}
+
+/// A Dash address or txid (26+ letters and digits), or one shortened with "…" ("yXk3…Mw2a",
+/// an identity's "6G7V…Qck"); not an @name or a word.
+fn looks_like_code(word: &str) -> bool {
+    let alnum = |s: &str| !s.is_empty() && s.chars().all(|c| c.is_ascii_alphanumeric());
+    match word.split_once('…') {
+        Some((head, tail)) => alnum(head) && alnum(tail),
+        None => word.len() >= 26 && alnum(word) && word.chars().any(|c| c.is_ascii_digit()),
+    }
 }
 
 /// An amount as a label. With "Hide amounts" it reads "•••• DASH" until the pointer
@@ -283,4 +338,39 @@ pub fn paint_letter_box(ui: &Ui, p: &Palette, rect: Rect, name: &str) {
         sans((rect.width() * 0.41).round(), Weight::Bold),
         p.text,
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{code_spans, looks_like_code};
+
+    /// Summary №10: in a row's title the address (whole or short), the short id and the txid are
+    /// set apart for mono; the words and @names are not.
+    #[test]
+    fn addresses_in_a_title_are_set_apart_for_mono() {
+        assert!(looks_like_code("yXk3…Mw2a"));
+        assert!(looks_like_code("6G7V…Qck"));
+        assert!(looks_like_code("yTFDD75uEcLgEGN8QYPKKvVE69jqf6vMw2"));
+        assert!(!looks_like_code("@bob"));
+        assert!(!looks_like_code("Transfer"));
+        assert!(!looks_like_code("…"));
+        assert_eq!(
+            code_spans("Sent yXk3…Mw2a"),
+            vec![("Sent ", false), ("yXk3…Mw2a", true)]
+        );
+        assert_eq!(
+            code_spans("Перевод кредитов (yXk3…Mw2a), готово"),
+            vec![
+                ("Перевод кредитов (", false),
+                ("yXk3…Mw2a", true),
+                ("), готово", false)
+            ]
+        );
+        assert_eq!(
+            code_spans("Received from @bob"),
+            vec![("Received from @bob", false)]
+        );
+        assert_eq!(code_spans("yXk3…Mw2a"), vec![("yXk3…Mw2a", true)]);
+        assert_eq!(code_spans(""), Vec::<(&str, bool)>::new());
+    }
 }

@@ -100,7 +100,7 @@ pub fn activity(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, filter: &mut usize, q
         );
     });
     if export {
-        let csv = csv_export::taxbit(&wallet.activity);
+        let csv = csv_export::taxbit(&wallet.activity, &csv_export::Own::of(wallet));
         let lines = csv.lines().count().saturating_sub(1);
         let day = Local::now().format("%Y-%m-%d").to_string();
         let saved = csv_export::downloads()
@@ -124,6 +124,13 @@ pub fn activity(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, filter: &mut usize, q
                     path.display()
                 ),
             );
+            // A move between own balances is no income or expense (BUG-37, rule 6).
+            ui.label(txt(
+                tr!("Transfers between your own balances are written as their fee only"),
+                12.0,
+                Weight::Regular,
+                p.muted,
+            ));
             if button(ui, a, tr!("Show in folder"), ButtonKind::Ghost, None).clicked() {
                 // Explorer and Finder select the file; Linux file managers open its folder.
                 let mut command = if cfg!(windows) {
@@ -398,15 +405,17 @@ fn card(
                     status_chip(ui, a, act.proof);
                 });
             });
+            // Mono is for amounts, addresses and hashes; the date and the chain are words.
+            let words = sans(13.0, Weight::Medium);
             let value = mono(13.0, Weight::Medium);
             kv_row(
                 ui,
                 &p,
                 tr!("When"),
                 &text::date_time(act.at, now),
-                value.clone(),
+                words.clone(),
             );
-            kv_row(ui, &p, tr!("Where"), text::chain(act.chain), value.clone());
+            kv_row(ui, &p, tr!("Where"), text::chain(act.chain), words);
             if let Some(fee) = act.fee {
                 kv_row(
                     ui,
@@ -445,8 +454,15 @@ fn card(
                         // Two outlined buttons with a gap: a ghost one beside an outlined one read as
                         // one control.
                         ui.spacing_mut().item_spacing.x = 12.0;
-                        if button(ui, a, tr!("Copy txid"), ButtonKind::Secondary, None).clicked() {
-                            crate::clipboard::copy(ui.ctx(), txid.clone());
+                        // "Copied" in its place for a moment, as on "Receive" (BUG-39 №1).
+                        let copy_id = egui::Id::new("copy-txid").with(act.id);
+                        let label = if crate::clipboard::just_copied(ui.ctx(), copy_id) {
+                            tr!("Copied")
+                        } else {
+                            tr!("Copy txid")
+                        };
+                        if button(ui, a, label, ButtonKind::Secondary, None).clicked() {
+                            crate::clipboard::copy_answered(ui.ctx(), txid.clone(), copy_id);
                         }
                         if button(
                             ui,

@@ -66,8 +66,17 @@ pub fn date_long(at: Timestamp) -> String {
     date(local(at), &MONTHS, true)
 }
 
-/// "just now", "today, 14:32", "yesterday", "27 Oct".
+/// Whether an operation has a time of its own. A note found by reading the shielded pool has
+/// none (`at = 0`): that is said in words, never shown as 1 January 1970 (BUG-47).
+pub fn known(at: Timestamp) -> bool {
+    at > 0
+}
+
+/// "just now", "today, 14:32", "yesterday", "27 Oct"; "time unknown" without a time.
 pub fn when(at: Timestamp, now: DateTime<Local>) -> String {
+    if !known(at) {
+        return tr!("time unknown").into();
+    }
     let t = local(at);
     if (now - t).num_seconds() < 60 {
         return tr!("just now").into();
@@ -79,8 +88,11 @@ pub fn when(at: Timestamp, now: DateTime<Local>) -> String {
     }
 }
 
-/// In a list grouped by day: "just now" or the time.
+/// In a list grouped by day: "just now" or the time; "time unknown" without one.
 pub fn time_of_day(at: Timestamp, now: DateTime<Local>) -> String {
+    if !known(at) {
+        return tr!("time unknown").into();
+    }
     let t = local(at);
     if (now - t).num_seconds() < 60 {
         tr!("just now").into()
@@ -97,12 +109,18 @@ pub fn date_time(at: Timestamp, now: DateTime<Local>) -> String {
 }
 
 fn date_time_in(lang: crate::i18n::Lang, at: Timestamp, now: DateTime<Local>) -> String {
+    if !known(at) {
+        return crate::i18n::t_in(lang, tr!("unknown")).into_owned();
+    }
     let time = time_of_day(at, now);
     format!("{}, {}", date_long(at), crate::i18n::t_in(lang, &time))
 }
 
-/// A day header: "Today", "Yesterday", "27 October".
+/// A day header: "Today", "Yesterday", "27 October"; "No date" over operations without a time.
 pub fn day(at: Timestamp, now: DateTime<Local>) -> String {
+    if !known(at) {
+        return tr!("No date").into();
+    }
     let t = local(at);
     match days_between(t, now) {
         0 => tr!("Today").into(),
@@ -534,6 +552,24 @@ mod tests {
             shown.ends_with(t_in(Lang::Ru, "just now").as_ref()),
             "{shown}"
         );
+    }
+
+    /// BUG-47: an operation without a time (a note found in the pool, `at = 0`) is said to have
+    /// none — in the row, the card and the day header — never 1 January 1970.
+    #[test]
+    fn no_time_is_said_in_words_not_as_1970() {
+        use crate::i18n::{Lang, t_in};
+        let now = Local::now();
+        assert_eq!(when(0, now), "time unknown");
+        assert_eq!(time_of_day(0, now), "time unknown");
+        assert_eq!(day(0, now), "No date");
+        assert_eq!(date_time_in(Lang::En, 0, now), "unknown");
+        let ru = date_time_in(Lang::Ru, 0, now);
+        assert_eq!(ru, t_in(Lang::Ru, "unknown"));
+        assert!(!ru.contains("1970") && ru != "unknown", "{ru}");
+        // A time of its own is still shown as before.
+        assert_eq!(day(now.timestamp(), now), "Today");
+        assert!(!when(now.timestamp() - 3600 * 24 * 40, now).contains("unknown"));
     }
 
     #[test]

@@ -86,8 +86,19 @@ fn targets(w: &Wallet, network: Network) -> Vec<Target> {
 pub struct ReceiveForm {
     pub target: usize,
     pub amount: String,
-    /// Which button copied last, to say "Copied" on it.
-    pub copied: Option<&'static str>,
+}
+
+impl ReceiveForm {
+    /// The person left the screen (App calls it): coming back, "Request an amount" starts
+    /// empty — what was typed (a mistake too) does not wait there (BUG-39 №10).
+    pub fn leave(&mut self) {
+        self.amount.clear();
+    }
+}
+
+/// The control that copies `what` on "Receive": it says "Copied" for a moment after a click.
+fn copy_id(what: &str) -> egui::Id {
+    egui::Id::new("receive-copy").with(what)
 }
 
 /// BIP21: `dash:<address>?amount=0.25`, the amount with a dot and without trailing zeros.
@@ -120,7 +131,6 @@ pub fn receive(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut ReceiveForm
         for (i, t) in all.iter().enumerate() {
             if option_card(ui, a, t.icon, &t.title, "", i == form.target).clicked() {
                 form.target = i;
-                form.copied = None;
             }
         }
     });
@@ -157,36 +167,38 @@ pub fn receive(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut ReceiveForm
                 } else {
                     tr!("Copy address")
                 };
-                let copied = form.copied;
-                let label = |name: &'static str| {
-                    if copied == Some(name) {
+                // "Copied" for a moment on the button that copied (what it copies is its id:
+                // another target or amount is a fresh button).
+                let ctx = ui.ctx().clone();
+                let label = |name: &'static str, what: &str| {
+                    if crate::clipboard::just_copied(&ctx, copy_id(what)) {
                         tr!("Copied")
                     } else {
                         name
                     }
                 };
-                if button(ui, a, label(copy), ButtonKind::Secondary, None).clicked() {
-                    crate::clipboard::copy(ui.ctx(), t.value.clone());
-                    form.copied = Some(copy);
+                if button(ui, a, label(copy, &t.value), ButtonKind::Secondary, None).clicked() {
+                    crate::clipboard::copy_answered(ui.ctx(), t.value.clone(), copy_id(&t.value));
                 }
                 if t.uri
-                    && button(ui, a, label(tr!("dash: link")), ButtonKind::Secondary, None)
-                        .on_hover_text(crate::i18n::t(&uri).into_owned())
-                        .clicked()
+                    && button(
+                        ui,
+                        a,
+                        label(tr!("dash: link"), &uri),
+                        ButtonKind::Secondary,
+                        None,
+                    )
+                    .on_hover_text(crate::i18n::t(&uri).into_owned())
+                    .clicked()
                 {
-                    crate::clipboard::copy(ui.ctx(), uri.clone());
-                    form.copied = Some(tr!("dash: link"));
+                    crate::clipboard::copy_answered(ui.ctx(), uri.clone(), copy_id(&uri));
                 }
             });
             if t.uri {
                 ui.vertical(|ui| {
                     ui.spacing_mut().item_spacing.y = 6.0;
                     field_label(ui, &p, tr!("Request an amount (optional)"));
-                    let resp =
-                        amount_field(ui, &p, "receive-amount", &mut form.amount, false).response;
-                    if resp.changed() {
-                        form.copied = None;
-                    }
+                    amount_field(ui, &p, "receive-amount", &mut form.amount, false);
                     if !form.amount.trim().is_empty() && amount.is_none() {
                         ui.label(txt(
                             tr!("Enter an amount, e.g. 0.25"),
@@ -231,17 +243,23 @@ pub fn receive(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut ReceiveForm
                     } else {
                         amount
                     };
+                    // A click copies it: "Copied" stands in the line under it for a moment.
+                    let detail = if crate::clipboard::just_copied(ui.ctx(), copy_id(&old.address)) {
+                        tr!("Copied").to_string()
+                    } else {
+                        format!(
+                            "{} · {}",
+                            crate::text::plural(old.payments, tr!("payment"), tr!("payments")),
+                            crate::text::when(old.last, now)
+                        )
+                    };
                     let row = tx_row_clickable(
                         ui,
                         a,
                         &TxRow {
                             icon: "receive",
                             title: &short_address(&old.address),
-                            detail: &format!(
-                                "{} · {}",
-                                crate::text::plural(old.payments, tr!("payment"), tr!("payments")),
-                                crate::text::when(old.last, now)
-                            ),
+                            detail: &detail,
                             proof: None,
                             amount: &shown,
                         },
@@ -252,7 +270,11 @@ pub fn receive(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut ReceiveForm
                         )
                         .clicked()
                     {
-                        crate::clipboard::copy(ui.ctx(), old.address.clone());
+                        crate::clipboard::copy_answered(
+                            ui.ctx(),
+                            old.address.clone(),
+                            copy_id(&old.address),
+                        );
                     }
                 }
             },
