@@ -3,9 +3,9 @@
 
 use super::{Screen, txt};
 use crate::components::{
-    Assets, ButtonKind, FieldKind, amount_field, avatar, button, button_enabled, card, chip,
-    dialog, divider, field_label, inner, kv_row, list_card, notice, page_header, pill, text_field,
-    two_columns,
+    Assets, ButtonKind, FieldKind, SpendPassword, amount_field, avatar, button, button_enabled,
+    card, chip, dialog, divider, field_label, inner, kv_row, list_card, notice, page_header, pill,
+    text_field, two_columns,
 };
 use crate::context::Ctx;
 use crate::text::{self, group_thousands, short_id};
@@ -13,7 +13,7 @@ use crate::theme::{Weight, mono, sans};
 use egui::{Align, Align2, CornerRadius, CursorIcon, Layout, Margin, Rect, Sense, Ui, pos2, vec2};
 use evolite_api::{
     Balances, Command, CoreError, Fees, Identity, IdentitySearch, NameCheck, Profile, Source,
-    Wallet,
+    Spend, Wallet,
 };
 
 /// 1 duff = 1000 credits on Platform.
@@ -36,6 +36,10 @@ pub struct IdentityState {
     pub top_up_result: Option<(i64, Result<(), CoreError>)>,
     /// "Add a name" is open.
     pub adding_name: Option<NameForm>,
+    /// "Password for every payment" in "Top up the identity" (BUG-42).
+    pub top_up_password: SpendPassword,
+    /// The same for "Continue the top-up" on the screen itself.
+    pub resume_password: SpendPassword,
 }
 
 /// "Add a name" as typed: the label, the core's check of it, and the registration's answer.
@@ -48,6 +52,8 @@ pub struct NameForm {
     /// Sent to the core, no answer yet.
     pub waiting: bool,
     pub result: Option<Result<(), CoreError>>,
+    /// "Password for every payment": the name is paid from the credits.
+    pub password: SpendPassword,
 }
 
 /// "Top up the identity" as typed, before it is sent.
@@ -75,6 +81,8 @@ pub struct ProfileForm {
     /// Sent to the core, no answer yet.
     pub waiting: bool,
     pub result: Option<Result<(), CoreError>>,
+    /// "Password for every payment": writing the profile costs credits.
+    pub password: SpendPassword,
 }
 
 impl ProfileForm {
@@ -104,19 +112,41 @@ impl IdentityState {
     pub fn on_name_done(&mut self, result: &Result<(), CoreError>) {
         if let Some(form) = &mut self.adding_name {
             form.waiting = false;
-            form.result = Some(result.clone());
+            form.password.on_answer(result);
+            // A wrong password is said under its field; the name can be registered again.
+            if !form.password.is_wrong() {
+                form.result = Some(result.clone());
+            }
         }
     }
 
     /// The core's answer to `TopUpIdentity` or `ResumeTopUp`.
     pub fn on_top_up_done(&mut self, result: &Result<(), CoreError>) {
         let duffs = self.topping_up.take().unwrap_or(0);
-        self.top_up_result = Some((duffs, result.clone()));
+        self.top_up_password.settle(Some(result));
+        self.resume_password.settle(Some(result));
+        // A wrong password is said under its field, not as a failed top-up.
+        if !matches!(result, Err(CoreError::WrongPassword)) {
+            self.top_up_result = Some((duffs, result.clone()));
+        }
+    }
+
+    /// The wallet locked: what was typed for a spend goes.
+    pub fn on_lock(&mut self) {
+        self.top_up_password.forget();
+        self.resume_password.forget();
+        if let Some(form) = &mut self.adding_name {
+            form.password.forget();
+        }
+        if let Some(form) = &mut self.editing {
+            form.password.forget();
+        }
     }
 
     pub fn on_profile_saved(&mut self, result: &Result<(), CoreError>) {
         if let Some(form) = &mut self.editing {
             form.waiting = false;
+            form.password.on_answer(result);
             if result.is_ok() {
                 self.editing = None;
             } else {
@@ -271,7 +301,15 @@ pub fn identity(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut IdentityS
             });
         });
     if state.editing.is_some() {
-        edit_profile(ui, a, state, identity, wallet.fees.profile, &mut asked);
+        edit_profile(
+            ui,
+            a,
+            state,
+            identity,
+            wallet.fees.profile,
+            wallet.password_each_send,
+            &mut asked,
+        );
     }
     if state.top_up.is_some() {
         top_up_dialog(ui, a, state, wallet, identity, &mut asked);
@@ -425,6 +463,7 @@ fn edit_profile(
     state: &mut IdentityState,
     id: &Identity,
     fee: i64,
+    ask: bool,
     asked: &mut Vec<Command>,
 ) {
     let Some(form) = &mut state.editing else {
@@ -562,7 +601,9 @@ fn edit_profile(
                     p.danger,
                 ));
             }
-            if let Some(Err(e)) = &form.result {
+            if let Some(Err(e)) = &form.result
+                && !form.password.is_wrong()
+            {
                 notice(
                     ui,
                     a,
@@ -571,6 +612,8 @@ fn edit_profile(
                     &super::contacts::contact_error(e),
                 );
             }
+            let entered = form.password.field(ui, &p, "profile-password", ask);
+            let ready = url_ok && !form.waiting && form.password.ready(ask);
             let mut close = false;
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 ui.spacing_mut().item_spacing.x = 10.0;
@@ -579,15 +622,8 @@ fn edit_profile(
                 } else {
                     tr!("Save")
                 };
-                if button_enabled(
-                    ui,
-                    a,
-                    label,
-                    ButtonKind::Primary,
-                    None,
-                    url_ok && !form.waiting,
-                )
-                .clicked()
+                if button_enabled(ui, a, label, ButtonKind::Primary, None, ready).clicked()
+                    || (entered && ready)
                 {
                     save = true;
                 }
@@ -600,11 +636,12 @@ fn edit_profile(
     );
     if save {
         let url = form.avatar_url.trim();
-        asked.push(Command::SaveProfile {
+        let op = Spend::SaveProfile {
             display: form.display.trim().to_owned(),
             about: form.about.trim().to_owned(),
             avatar_url: (!url.is_empty()).then(|| url.to_owned()),
-        });
+        };
+        asked.push(form.password.command(op, ask));
         form.waiting = true;
         form.result = None;
     } else if close && !form.waiting {
@@ -834,8 +871,16 @@ fn top_up_status(
     }
     let (text, action) = unfinished_top_up_text(&unfinished, state.top_up_result.as_ref());
     notice(ui, a, "warning", p.accent, &text);
-    if button(ui, a, action, ButtonKind::Primary, None).clicked() {
-        asked.push(Command::ResumeTopUp);
+    // Continuing spends the lock already made: "password for every payment" asks too.
+    let ask = wallet.password_each_send;
+    let entered = state
+        .resume_password
+        .field(ui, &p, "resume-top-up-password", ask);
+    let ready = state.resume_password.ready(ask);
+    if button_enabled(ui, a, action, ButtonKind::Primary, None, ready).clicked()
+        || (entered && ready)
+    {
+        asked.push(state.resume_password.command(Spend::ResumeTopUp, ask));
         state.topping_up = Some(unfinished.locked);
         state.top_up_result = None;
     }
@@ -1001,6 +1046,8 @@ fn top_up_dialog(
                 (None, Some((duffs, result))) => top_up_answer(ui, a, *duffs, result),
                 (None, None) => {}
             }
+            let ask = wallet.password_each_send && running.is_none();
+            let entered = state.top_up_password.field(ui, &p, "top-up-password", ask);
             let mut close = false;
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 ui.spacing_mut().item_spacing.x = 10.0;
@@ -1009,8 +1056,13 @@ fn top_up_dialog(
                     (None, Some(d)) => format!(tr!("Top up by {}"), dash(d)),
                     (None, None) => tr!("Top up").to_string(),
                 };
-                let ready = running.is_none() && amount.is_some() && !too_much;
-                if button_enabled(ui, a, &label, ButtonKind::Primary, None, ready).clicked() {
+                let ready = running.is_none()
+                    && amount.is_some()
+                    && !too_much
+                    && state.top_up_password.ready(ask);
+                if button_enabled(ui, a, &label, ButtonKind::Primary, None, ready).clicked()
+                    || (entered && ready)
+                {
                     send = amount;
                 }
                 if button(ui, a, tr!("Close"), ButtonKind::Ghost, None).clicked() {
@@ -1021,11 +1073,17 @@ fn top_up_dialog(
         },
     );
     if let Some(amount) = send {
-        asked.push(Command::TopUpIdentity { amount });
+        let ask = wallet.password_each_send;
+        asked.push(
+            state
+                .top_up_password
+                .command(Spend::TopUpIdentity { amount }, ask),
+        );
         state.topping_up = Some(amount);
         state.top_up_result = None;
     } else if close {
         state.top_up = None;
+        state.top_up_password.forget();
     }
 }
 
@@ -1179,19 +1237,24 @@ fn add_name_dialog(
                 ),
                 None => {}
             }
+            let ask = wallet.password_each_send && form.result.is_none();
+            let entered = form.password.field(ui, &p, "add-name-password", ask);
             let mut close = false;
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 ui.spacing_mut().item_spacing.x = 10.0;
                 let ready = matches!(check, Some(Ok(NameCheck::Available)))
                     && !short
                     && !form.waiting
-                    && form.result.is_none();
+                    && form.result.is_none()
+                    && form.password.ready(ask);
                 let label = if form.waiting {
                     tr!("Writing…")
                 } else {
                     tr!("Register")
                 };
-                if button_enabled(ui, a, label, ButtonKind::Primary, None, ready).clicked() {
+                if button_enabled(ui, a, label, ButtonKind::Primary, None, ready).clicked()
+                    || (entered && ready)
+                {
                     register = true;
                 }
                 if button(ui, a, tr!("Close"), ButtonKind::Ghost, None).clicked() {
@@ -1202,9 +1265,10 @@ fn add_name_dialog(
         },
     );
     if register {
-        asked.push(Command::AddName {
+        let op = Spend::AddName {
             name: form.asked.clone(),
-        });
+        };
+        asked.push(form.password.command(op, wallet.password_each_send));
         form.waiting = true;
         form.result = None;
     } else if close && !form.waiting {

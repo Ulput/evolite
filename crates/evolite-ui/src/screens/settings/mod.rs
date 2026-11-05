@@ -101,6 +101,8 @@ pub struct SettingsState {
     pub check: Option<PhraseCheckForm>,
     /// "Sync again" is open.
     pub resync: Option<resync::ResyncForm>,
+    /// "Password for every payment" being turned off: the password it needs (BUG-42).
+    pub each_off: Option<crate::components::SpendPassword>,
     /// The interface language the person chose; `None`: the system's.
     pub lang: Option<crate::i18n::Lang>,
     /// The list of languages is open.
@@ -183,7 +185,7 @@ pub struct PasswordChange {
 const LOCK_AFTER_SECS: [Option<u64>; 4] = [Some(5 * 60), Some(15 * 60), Some(60 * 60), None];
 
 /// Every switch in Settings, by key: the saved file is read against this list only.
-const TOGGLES: [&str; 12] = [
+const TOGGLES: [&str; 11] = [
     "clipboard",
     "fiat-rate",
     "hide-amounts",
@@ -193,7 +195,6 @@ const TOGGLES: [&str; 12] = [
     "notify-incoming",
     "notify-locks",
     "own-node",
-    "password-each-send",
     "proxy",
     "remind-check",
 ];
@@ -202,7 +203,6 @@ impl SettingsState {
     /// `section`: which section opens (the phrase dialog opens over Backup).
     pub fn new(dark: bool, section: Section, phrase: bool) -> Self {
         let on = [
-            "password-each-send",
             "new-address",
             "clipboard",
             "notify-incoming",
@@ -237,6 +237,7 @@ impl SettingsState {
             visits: Default::default(),
             check: None,
             resync: None,
+            each_off: None,
             lang: None,
             lang_picker: false,
             phrase_checked: None,
@@ -326,14 +327,6 @@ impl SettingsState {
         self.toggles.get("nft-ask-unknown").copied().unwrap_or(true)
     }
 
-    /// "Password for every payment".
-    pub fn password_each_send(&self) -> bool {
-        self.toggles
-            .get("password-each-send")
-            .copied()
-            .unwrap_or(false)
-    }
-
     /// What the core is told for `Command::AutoLock`.
     pub fn auto_lock_secs(&self) -> Option<u64> {
         LOCK_AFTER_SECS[self.lock_after]
@@ -406,6 +399,17 @@ impl SettingsState {
     pub fn on_revealed(&mut self, result: Result<Phrase, CoreError>) {
         self.revealed_at = result.is_ok().then(Instant::now);
         self.revealed = Some(result);
+    }
+
+    /// The core's answer to `SetPasswordEachSend`: done closes the password step, a wrong
+    /// password stays in it to be corrected.
+    pub fn on_password_each_send(&mut self, result: &Result<(), CoreError>) {
+        if let Some(form) = &mut self.each_off {
+            form.on_answer(result);
+            if !form.is_wrong() {
+                self.each_off = None;
+            }
+        }
     }
 
     pub fn on_password_changed(&mut self, result: &Result<(), CoreError>) {
@@ -503,6 +507,7 @@ impl SettingsState {
         self.hide_phrase_unless_shown(false);
         // The deletion form may hold the password.
         self.delete = None;
+        self.each_off = None;
         self.close_check_unless_shown(false);
         if let Some(mut change) = self.change.take() {
             change.old.zeroize();
@@ -674,7 +679,7 @@ mod tests {
         chosen.theme = ThemeChoice::Light;
         chosen.lock_after = 0;
         chosen.nft_motion = 2;
-        *chosen.toggle("password-each-send") = true;
+        *chosen.toggle("clipboard") = false;
         *chosen.toggle("nft-ask-unknown") = false;
         let trusted: std::collections::HashSet<String> = ["neon-forge".to_owned()].into();
         let saved = chosen.prefs(&trusted);
@@ -684,7 +689,7 @@ mod tests {
         next.apply(&saved, &mut next_trusted);
         assert!(next.theme == ThemeChoice::Light);
         assert_eq!(next.auto_lock_secs(), Some(5 * 60));
-        assert!(next.password_each_send() && !next.ask_unknown_issuers());
+        assert!(!next.is_on("clipboard") && !next.ask_unknown_issuers());
         assert!(!next.nft_animations(true));
         assert!(next_trusted.contains("neon-forge"));
     }
@@ -859,14 +864,14 @@ mod forget_wallet_tests {
         state.unit = 2;
         state.set("hide-amounts", true);
         state.lock_after = 0;
-        state.set("password-each-send", false);
+        state.set("new-address", false);
         state.phrase_checked = Some(1_793_404_800);
         state.reset_wallet();
         assert!(state.theme == ThemeChoice::Light);
         assert_eq!(state.unit, 2);
         assert!(state.is_on("hide-amounts"));
         assert_eq!(state.lock_after, 1);
-        assert!(state.password_each_send());
+        assert!(state.is_on("new-address"));
         assert_eq!(state.phrase_checked, None);
     }
 }

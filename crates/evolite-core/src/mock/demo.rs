@@ -440,6 +440,9 @@ pub(super) fn demo_wallet(t: Timestamp) -> Wallet {
         contacts: demo_contacts(t),
         unfinished_identity: None,
         unfinished_top_up: None,
+        // Off in the demo, as the setting was before the core kept it: its screens stay one
+        // click (Settings → Security turns it on).
+        password_each_send: false,
         identity_search: IdentitySearch::Done,
         // Two identities, so the Identity screen shows its choice.
         address_book: vec![

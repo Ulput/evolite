@@ -12,6 +12,7 @@ mod notice;
 mod page;
 mod progress;
 mod rows;
+mod spend_password;
 
 pub use avatar::*;
 pub use button::*;
@@ -24,6 +25,7 @@ pub use notice::*;
 pub use page::*;
 pub use progress::*;
 pub use rows::*;
+pub use spend_password::*;
 
 /// What the component files share; a glob import keeps their headers short.
 mod prelude {

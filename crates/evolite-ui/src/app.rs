@@ -556,6 +556,10 @@ impl App {
                     result,
                 } => self.settings.on_password_changed(result),
                 Event::Done {
+                    what: "password-each-send",
+                    result,
+                } => self.settings.on_password_each_send(result),
+                Event::Done {
                     what: "wallet",
                     result,
                 } => {
@@ -837,6 +841,14 @@ impl eframe::App for App {
         if keys_gone(self.vault, snapshot.vault) {
             self.send.on_lock();
             self.settings.forget_secrets();
+            // And what was typed for a spend (BUG-42).
+            self.identity.on_lock();
+            self.contacts.on_lock();
+            self.pool.password.forget();
+            self.create_identity.password.forget();
+            self.requests.password.forget();
+            #[cfg(demo_core)]
+            self.collection.password.forget();
         }
         // A deleted wallet: the new core over the folder knows none of the settings.
         let deleted = snapshot.vault == VaultState::NoWallet
@@ -1022,13 +1034,7 @@ impl eframe::App for App {
                         Screen::Activity => {
                             screens::activity(ui, a, &mut cx, &mut self.filter, &mut self.query)
                         }
-                        Screen::Send => screens::send::send(
-                            ui,
-                            a,
-                            &mut cx,
-                            &mut self.send,
-                            self.settings.password_each_send(),
-                        ),
+                        Screen::Send => screens::send::send(ui, a, &mut cx, &mut self.send),
                         Screen::Receive => {
                             screens::receive::receive(ui, a, &mut cx, &mut self.receive)
                         }

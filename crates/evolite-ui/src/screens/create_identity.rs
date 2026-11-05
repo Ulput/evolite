@@ -3,14 +3,15 @@
 
 use super::txt;
 use crate::components::{
-    Assets, ButtonKind, FieldKind, StepState, amount_field, button, button_enabled, card, divider,
-    field_label, inner, kv_row, notice, numbered_step_at, page_header, text_field,
+    Assets, ButtonKind, FieldKind, SpendPassword, StepState, amount_field, button, button_enabled,
+    card, divider, field_label, inner, kv_row, notice, numbered_step_at, page_header,
+    password_asked, text_field,
 };
 use crate::context::Ctx;
 use crate::text::name_problem;
 use crate::theme::{Weight, mono};
 use egui::{Align, Layout, Margin, Ui};
-use evolite_api::{Command, CoreError, NameCheck, UnfinishedIdentity};
+use evolite_api::{Command, CoreError, NameCheck, Spend, UnfinishedIdentity};
 
 pub struct CreateIdentityForm {
     pub name: String,
@@ -25,13 +26,19 @@ pub struct CreateIdentityForm {
     pub result: Option<Result<(), CoreError>>,
     /// The step the core is on (1–4, "What happens"), from its progress.
     pub step: Option<usize>,
+    /// "Password for every payment": creating and continuing lock Core DASH (BUG-42).
+    pub password: SpendPassword,
 }
 
 impl CreateIdentityForm {
     pub fn on_done(&mut self, result: &Result<(), CoreError>) {
         self.waiting = false;
         self.step = None;
-        self.result = Some(result.clone());
+        self.password.on_answer(result);
+        // A wrong password is said under its field: nothing was locked.
+        if !self.password.is_wrong() {
+            self.result = Some(result.clone());
+        }
     }
 
     /// The core's progress: `fraction` is the step it is on out of four.
@@ -65,6 +72,7 @@ impl Default for CreateIdentityForm {
             waiting: false,
             result: None,
             step: None,
+            password: SpendPassword::default(),
         }
     }
 }
@@ -226,20 +234,28 @@ pub fn create_identity(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut Cre
                 p.accent,
                 tr!("The asset lock is confirmed by InstantSend in seconds; if not, we wait for a ChainLock."),
             );
-            let ready = name_ok && total.is_some() && !too_much && !form.waiting;
+            let ask = password_asked(cx.snap) && !form.waiting;
+            let entered = form.password.field(ui, &p, "create-identity-password", ask);
+            let ready = name_ok
+                && total.is_some()
+                && !too_much
+                && !form.waiting
+                && form.password.ready(ask);
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = 10.0;
                 let label = match total {
                     Some(t) => format!(tr!("Create for {}"), dash(t)),
                     None => tr!("Create").into(),
                 };
-                if button_enabled(ui, a, &label, ButtonKind::Primary, None, ready).clicked()
+                if (button_enabled(ui, a, &label, ButtonKind::Primary, None, ready).clicked()
+                    || (entered && ready))
                     && let Some(top_up) = top_up
                 {
-                    cx.send(Command::CreateIdentity {
+                    let op = Spend::CreateIdentity {
                         name: form.asked.clone(),
                         top_up,
-                    });
+                    };
+                    cx.send(form.password.command(op, ask));
                     form.result = None;
                     form.waiting = true;
                 }
@@ -381,9 +397,14 @@ fn resume_card(
                 tr!("Continuing: confirmation, identity and name — about a minute. Do not close evolite."),
             );
         }
+        let ask = password_asked(cx.snap) && !form.waiting;
+        let entered = form.password.field(ui, &p, "resume-identity-password", ask);
+        let ready = !form.waiting && form.password.ready(ask);
         let label = if form.waiting { tr!("Continuing…") } else { tr!("Continue") };
-        if button_enabled(ui, a, label, ButtonKind::Primary, None, !form.waiting).clicked() {
-            cx.send(Command::ResumeIdentity);
+        if button_enabled(ui, a, label, ButtonKind::Primary, None, ready).clicked()
+            || (entered && ready)
+        {
+            cx.send(form.password.command(Spend::ResumeIdentity, ask));
             form.result = None;
             form.waiting = true;
         }

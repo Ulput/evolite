@@ -143,7 +143,7 @@ mod tests {
             lock_after: Some(0),
             unit: Some(2),
             nft_motion: Some(2),
-            toggles: [("password-each-send".to_owned(), true)].into(),
+            toggles: [("new-address".to_owned(), true)].into(),
             trusted_issuers: ["neon-forge".to_owned()].into(),
             identity: Some("H5ttoybh42z3HukXBjA4Sb7qudXvRAfziTREdhPposwB".into()),
             lang: Some("en".into()),
@@ -174,7 +174,7 @@ mod tests {
             lock_after: Some(0),
             toggles: [
                 ("hide-amounts".to_owned(), true),
-                ("password-each-send".to_owned(), true),
+                ("new-address".to_owned(), true),
             ]
             .into(),
             trusted_issuers: ["neon-forge".to_owned()].into(),
@@ -193,10 +193,7 @@ mod tests {
         assert!(app.identity.is_none() && app.phrase_checked.is_none());
         assert!(app.lock_after.is_none() && app.trusted_issuers.is_empty());
         assert_eq!(wallet.lock_after, Some(0));
-        assert_eq!(
-            wallet.toggles,
-            [("password-each-send".to_owned(), true)].into()
-        );
+        assert_eq!(wallet.toggles, [("new-address".to_owned(), true)].into());
         assert!(wallet.theme.is_none() && wallet.lang.is_none() && wallet.unit.is_none());
         assert_eq!(wallet.phrase_checked, Some(1_793_404_800));
     }

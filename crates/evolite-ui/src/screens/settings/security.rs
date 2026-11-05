@@ -25,7 +25,10 @@ pub(super) fn security(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut Se
             "The keys are kept on this computer, encrypted with your password."
         )),
     );
-    let mut each = *state.toggle("password-each-send");
+    // The core keeps "password for every payment" for the wallet (BUG-42): the switch shows
+    // its answer, and turning it off asks for the password first.
+    let was_each = crate::components::password_asked(cx.snap);
+    let mut each = was_each;
     let mut lock_after = state.lock_after;
     let lock_note = [
         tr!("After 5 minutes without activity"),
@@ -72,7 +75,17 @@ pub(super) fn security(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut Se
     {
         cx.send(Command::Lock);
     }
-    *state.toggle("password-each-send") = each;
+    if each != was_each {
+        if each {
+            cx.send(Command::SetPasswordEachSend {
+                on: true,
+                password: None,
+            });
+        } else {
+            state.each_off = Some(Default::default());
+        }
+    }
+    each_off_dialog(ui, a, cx, state);
     let mut hide = *state.toggle("hide-amounts");
     let mut fresh = *state.toggle("new-address");
     let mut clip = *state.toggle("clipboard");
@@ -238,5 +251,58 @@ pub(super) fn password_dialog(
         change.old.zeroize();
         change.new.zeroize();
         change.repeat.zeroize();
+    }
+}
+
+/// Turning "password for every payment" off: the wallet password first, checked by the core
+/// (anyone at the unlocked computer could switch it off and spend otherwise).
+fn each_off_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut SettingsState) {
+    let Some(form) = &mut state.each_off else {
+        return;
+    };
+    let p = a.p;
+    let mut turn_off = false;
+    let closed = dialog(
+        ui,
+        a,
+        "password-each-send-off",
+        "lock",
+        tr!("Payments without the password"),
+        440.0,
+        |ui, a| {
+            ui.spacing_mut().item_spacing.y = 14.0;
+            ui.label(txt(
+                tr!(
+                    "While the wallet is unlocked, anyone at this computer could then send its money. Enter the wallet password to turn the check off."
+                ),
+                14.0,
+                Weight::Regular,
+                p.text,
+            ));
+            let entered = form.field(ui, &p, "password-each-send-off", true);
+            let ready = form.ready(true);
+            let mut close = false;
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                ui.spacing_mut().item_spacing.x = 10.0;
+                if button_enabled(ui, a, tr!("Turn off"), ButtonKind::Primary, None, ready)
+                    .clicked()
+                    || (entered && ready)
+                {
+                    turn_off = true;
+                }
+                if button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked() {
+                    close = true;
+                }
+            });
+            close
+        },
+    );
+    if turn_off {
+        cx.send(Command::SetPasswordEachSend {
+            on: false,
+            password: form.password(true),
+        });
+    } else if closed {
+        state.each_off = None;
     }
 }

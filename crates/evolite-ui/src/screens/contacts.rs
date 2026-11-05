@@ -5,7 +5,7 @@
 
 use super::txt;
 use crate::components::{
-    Assets, ButtonKind, FieldKind, avatar, button, button_enabled, card, dialog,
+    Assets, ButtonKind, FieldKind, SpendPassword, avatar, button, button_enabled, card, dialog,
     dialog_with_header, field_label, inner, kv_row, notice, page_header, text_field,
 };
 use crate::context::Ctx;
@@ -15,7 +15,7 @@ use chrono::{DateTime, Local};
 use egui::{Align, Align2, Layout, Margin, Rect, Sense, Ui, pos2, vec2};
 use evolite_api::{
     Activity, ActivityKind, Command, Contact, ContactState, CoreError, Profile, ResolvedName,
-    Wallet,
+    Spend, Wallet,
 };
 
 const HOW: [(&str, &str, &str); 3] = [
@@ -51,6 +51,12 @@ pub struct ContactsState {
     pub result: Option<Result<(), CoreError>>,
     /// "Send" on a contact: the Send screen opens with this recipient.
     pub pay: Option<String>,
+    /// "Password for every payment" for a request or an answer: both cost credits (BUG-42).
+    pub password: SpendPassword,
+    /// "Accept" on a request with the password asked: the identity whose request waits for it.
+    pub accepting: Option<String>,
+    /// This frame: whether the wallet asks for its password for every spend.
+    ask: bool,
 }
 
 #[derive(Default)]
@@ -69,10 +75,18 @@ impl ContactsState {
             return;
         }
         self.waiting = false;
+        self.password.settle(Some(result));
         if result.is_ok() {
             self.adding = None;
+            self.accepting = None;
         }
         self.result = Some(result.clone());
+    }
+
+    /// The wallet locked: a password typed for a request goes.
+    pub fn on_lock(&mut self) {
+        self.password.forget();
+        self.accepting = None;
     }
 
     pub fn on_resolved(&mut self, name: &str, result: &Result<ResolvedName, CoreError>) {
@@ -141,6 +155,7 @@ fn when_line(c: &Contact, now: DateTime<Local>) -> (&'static str, String) {
 
 pub fn contacts(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut ContactsState) {
     let p = a.p;
+    state.ask = crate::components::password_asked(cx.snap);
     let wallet = cx.wallet();
     let now = cx.now;
     let mut asked: Vec<Command> = Vec::new();
@@ -261,6 +276,7 @@ pub fn contacts(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut ContactsS
     if state.adding.is_some() {
         add_contact(ui, a, cx, wallet, state, &mut asked);
     }
+    accept_dialog(ui, a, wallet, state, &mut asked);
     if let Some(id) = state.profile.clone() {
         match wallet.contacts.iter().find(|c| c.identity_id == id) {
             Some(contact) => {
@@ -406,10 +422,19 @@ fn row(
         if button_enabled(&mut child, a, label, *kind, Some(*w), enabled).clicked() {
             clicked_button = true;
             match *label {
+                // With "password for every payment" the answer asks for it first.
+                tr!("Accept") if state.ask => {
+                    state.password.forget();
+                    state.accepting = Some(c.identity_id.clone());
+                    state.result = None;
+                }
                 tr!("Accept") => {
-                    asked.push(Command::AcceptContact {
-                        identity_id: c.identity_id.clone(),
-                    });
+                    asked.push(state.password.command(
+                        Spend::AcceptContact {
+                            identity_id: c.identity_id.clone(),
+                        },
+                        false,
+                    ));
                     state.waiting = true;
                     state.result = None;
                 }
@@ -612,6 +637,9 @@ fn add_contact(
     let fee = wallet.fees.contact_request;
     let waiting = state.waiting;
     let result = state.result.clone();
+    // The request costs credits: "password for every payment" asks for it here.
+    let ask = crate::components::password_asked(cx.snap);
+    let password = &mut state.password;
     let mut send = false;
     let close = dialog(
         ui,
@@ -721,7 +749,9 @@ fn add_contact(
                     who = who
                 ),
             );
-            if let Some(Err(e)) = &result {
+            if let Some(Err(e)) = &result
+                && !password.is_wrong()
+            {
                 crate::components::error_notice(
                     ui,
                     a,
@@ -729,6 +759,8 @@ fn add_contact(
                     crate::text::error_details(e).as_deref(),
                 );
             }
+            let entered = password.field(ui, &p, "add-contact-password", ask);
+            let ready = ready && !waiting && password.ready(ask);
             let mut close = false;
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 ui.spacing_mut().item_spacing.x = 10.0;
@@ -737,8 +769,8 @@ fn add_contact(
                 } else {
                     tr!("Send the request")
                 };
-                if button_enabled(ui, a, label, ButtonKind::Primary, None, ready && !waiting)
-                    .clicked()
+                if button_enabled(ui, a, label, ButtonKind::Primary, None, ready).clicked()
+                    || (entered && ready)
                 {
                     send = true;
                 }
@@ -750,11 +782,103 @@ fn add_contact(
         },
     );
     if send {
-        cx.send(Command::AddContact { name: typed });
+        cx.send(
+            state
+                .password
+                .command(Spend::AddContact { name: typed }, ask),
+        );
         state.waiting = true;
         state.result = None;
     } else if close && !waiting {
         state.adding = None;
+        state.password.forget();
+    }
+}
+
+/// "Accept" with "password for every payment" on: the answer costs credits, so the password
+/// comes first, in a dialog of its own (the request row has no room for it).
+fn accept_dialog(
+    ui: &mut Ui,
+    a: &mut Assets,
+    wallet: &Wallet,
+    state: &mut ContactsState,
+    asked: &mut Vec<Command>,
+) {
+    let Some(id) = state.accepting.clone() else {
+        return;
+    };
+    let Some(contact) = wallet.contacts.iter().find(|c| c.identity_id == id) else {
+        state.accepting = None;
+        return;
+    };
+    let p = a.p;
+    let who = shown_name(contact);
+    let waiting = state.waiting;
+    let mut accept = false;
+    let closed = dialog(
+        ui,
+        a,
+        "accept-contact",
+        "contacts",
+        tr!("Accept the request"),
+        440.0,
+        |ui, a| {
+            ui.spacing_mut().item_spacing.y = 14.0;
+            ui.label(txt(
+                &format!(
+                    tr!("{who} becomes a contact: you can pay each other. The answer costs ≈ {fee} of the identity's credits."),
+                    who = crate::i18n::own(&who),
+                    fee = crate::format::amount(wallet.fees.contact_request)
+                ),
+                14.0,
+                Weight::Regular,
+                p.text,
+            ));
+            if let Some(Err(e)) = &state.result
+                && !state.password.is_wrong()
+            {
+                crate::components::error_notice(
+                    ui,
+                    a,
+                    &contact_error(e),
+                    crate::text::error_details(e).as_deref(),
+                );
+            }
+            let entered = state
+                .password
+                .field(ui, &p, "accept-contact-password", true);
+            let ready = !waiting && state.password.ready(true);
+            let mut close = false;
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                ui.spacing_mut().item_spacing.x = 10.0;
+                let label = if waiting {
+                    tr!("Sending…")
+                } else {
+                    tr!("Accept")
+                };
+                if button_enabled(ui, a, label, ButtonKind::Primary, None, ready).clicked()
+                    || (entered && ready)
+                {
+                    accept = true;
+                }
+                if button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked() {
+                    close = true;
+                }
+            });
+            close
+        },
+    );
+    if accept {
+        asked.push(
+            state
+                .password
+                .command(Spend::AcceptContact { identity_id: id }, true),
+        );
+        state.waiting = true;
+        state.result = None;
+    } else if closed && !waiting {
+        state.accepting = None;
+        state.password.forget();
     }
 }
 

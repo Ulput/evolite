@@ -26,6 +26,10 @@ mod mock;
 /// The password the demo core refuses (the UI tests' "Wrong password").
 #[cfg(any(feature = "demo", not(feature = "real"), test))]
 pub use mock::WRONG_PASSWORD as DEMO_WRONG_PASSWORD;
+/// A spend without the password while "password for every send" is on (the screen did not
+/// ask): the same refusal from the demo and the real core.
+pub(crate) const PASSWORD_NEEDED: &str =
+    tr!("This wallet asks for the password for every send — enter it and try again");
 pub mod network;
 #[cfg(feature = "real")]
 mod phrase_check;
@@ -180,7 +184,7 @@ pub(crate) fn test_name(key: &str) -> String {
 #[cfg(all(test, feature = "real"))]
 mod tests {
     use super::*;
-    use evolite_api::{Password, SyncStage, VaultState};
+    use evolite_api::{Password, Spend, SyncStage, VaultState};
     use std::time::{Duration, Instant};
 
     fn wait_for<T>(core: &Core, minutes: u64, mut found: impl FnMut(&Event) -> Option<T>) -> T {
@@ -212,6 +216,14 @@ mod tests {
 
     /// The password of the warm copy of the test wallet.
     const WARM_PASSWORD: &str = "evolite live tests";
+
+    /// A spend with the warm wallet's password: "password for every send" is on by default.
+    fn spend(op: Spend) -> Command {
+        Command::Spend {
+            op,
+            password: Some(Password::new(WARM_PASSWORD.into())),
+        }
+    }
 
     /// The test wallet, synced and open, in `%TEMP%\<name>`: a copy of `evolite-live-warm`.
     /// Restoring the phrase scans the whole chain (about 12 minutes); the warm copy is made
@@ -755,13 +767,11 @@ mod tests {
         );
         assert!(wallet.balances.core > 20_000, "the test wallet needs coins");
 
-        core.send(Command::Send {
+        core.send(spend(Spend::Send {
             from: evolite_api::Source::Core,
             to: wallet.core_address.clone(),
             amount: 10_000,
-            // "Password for every payment": the vault is opened again before signing.
-            password: Some(Password::new(WARM_PASSWORD.into())),
-        });
+        }));
         let sent = wait_for(&core, 3, |e| match e {
             Event::Sent(r) => Some(r.clone()),
             _ => None,
@@ -810,10 +820,10 @@ mod tests {
         let label = format!("evolite-{}", stamp % 100_000_000 + 22_222_222);
         assert!(!dpns::is_contested(&label));
         let started = Instant::now();
-        core.send(Command::CreateIdentity {
+        core.send(spend(Spend::CreateIdentity {
             name: label.clone(),
             top_up: 300_000,
-        });
+        }));
         let created = wait_for(&core, 15, |e| match e {
             Event::Done {
                 what: "identity",
@@ -896,9 +906,9 @@ mod tests {
         });
         println!("as B, A is {:?}", from_a.state);
         if from_a.state == ContactState::Incoming {
-            core.send(Command::AcceptContact {
+            core.send(spend(Spend::AcceptContact {
                 identity_id: a.clone(),
-            });
+            }));
             let accepted = wait_for(&core, 5, |e| match e {
                 Event::Done {
                     what: "contact",
@@ -947,12 +957,11 @@ mod tests {
         })
         .expect("the address the payment goes to");
         println!("preview: {to} -> {address}");
-        core.send(Command::Send {
+        core.send(spend(Spend::Send {
             from: evolite_api::Source::Core,
             to,
             amount: 10_000,
-            password: Some(Password::new(WARM_PASSWORD.into())),
-        });
+        }));
         let sent = wait_for(&core, 3, |e| match e {
             Event::Sent(r) => Some(r.clone()),
             _ => None,
@@ -1015,12 +1024,11 @@ mod tests {
             });
             let first = preview(&core, &to);
             println!("{to}: paying {first}");
-            core.send(Command::Send {
+            core.send(spend(Spend::Send {
                 from: evolite_api::Source::Core,
                 to: to.clone(),
                 amount: 10_000,
-                password: Some(Password::new(WARM_PASSWORD.into())),
-            });
+            }));
             let sent = wait_for(&core, 3, |e| match e {
                 Event::Sent(r) => Some(r.clone()),
                 _ => None,
@@ -1171,7 +1179,7 @@ mod tests {
             ready.balances.credits, ready.balances.core
         );
         let started = Instant::now();
-        core.send(Command::TopUpIdentity { amount });
+        core.send(spend(Spend::TopUpIdentity { amount }));
         let done = wait_for(&core, 15, |e| match e {
             Event::Done {
                 what: "top-up",
@@ -1232,12 +1240,11 @@ mod tests {
 
         let second = format!("@{}", test_name("EVOLITE_TEST_NAME_2"));
         for to in [ready.platform_address.clone(), second] {
-            core.send(Command::Send {
+            core.send(spend(Spend::Send {
                 from: evolite_api::Source::Credits,
                 to: to.clone(),
                 amount: 10_000,
-                password: None,
-            });
+            }));
             let sent = wait_for(&core, 3, |e| match e {
                 Event::Sent(r) => Some(r.clone()),
                 _ => None,
@@ -1276,11 +1283,11 @@ mod tests {
         );
 
         let display = "evolite probe";
-        core.send(Command::SaveProfile {
+        core.send(spend(Spend::SaveProfile {
             display: display.into(),
             about: "Profile from an evolite live test".into(),
             avatar_url: Some("https://github.com/dashpay.png?size=96".into()),
-        });
+        }));
         let saved = wait_for(&core, 5, |e| match e {
             Event::Done {
                 what: "profile",
@@ -1303,9 +1310,9 @@ mod tests {
         });
         println!("profile in the snapshot: {profile:?}");
 
-        core.send(Command::AddContact {
+        core.send(spend(Spend::AddContact {
             name: format!("@{}", test_name("EVOLITE_TEST_NAME_2")),
-        });
+        }));
         let sent = wait_for(&core, 5, |e| match e {
             Event::Done {
                 what: "contact",
@@ -1857,10 +1864,10 @@ mod tests {
             result.unwrap_or_else(|e| panic!("{what} failed: {e:?}"));
         };
         move_and_wait(
-            Command::Shield {
+            spend(Spend::Shield {
                 from: evolite_api::ShieldSource::Credits,
                 amount: 1_000_000,
-            },
+            }),
             "shield",
         );
         let shielded = wait_for(&core, 15, |e| match e {
@@ -1872,7 +1879,7 @@ mod tests {
         });
         println!("in the pool now: {shielded} duffs");
 
-        move_and_wait(Command::Unshield { amount: 500_000 }, "unshield");
+        move_and_wait(spend(Spend::Unshield { amount: 500_000 }), "unshield");
         let left = wait_for(&core, 15, |e| match e {
             Event::Snapshot(s) => {
                 let w = s.wallet.as_ref()?;
@@ -1917,10 +1924,10 @@ mod tests {
         assert!(on_address > 400_000, "the Platform address needs credits");
         let before = ready.balances.shielded;
         let started = Instant::now();
-        core.send(Command::Shield {
+        core.send(spend(Spend::Shield {
             from: evolite_api::ShieldSource::PlatformAddress,
             amount: 300_000,
-        });
+        }));
         let result = wait_for(&core, 15, |e| match e {
             Event::Done {
                 what: "shield",
@@ -1971,12 +1978,11 @@ mod tests {
         );
         assert!(ready.balances.shielded > 500_000, "the pool needs funds");
         let started = Instant::now();
-        core.send(Command::Send {
+        core.send(spend(Spend::Send {
             from: evolite_api::Source::Pool,
             to: ready.core_address.clone(),
             amount: 300_000,
-            password: None,
-        });
+        }));
         let sent = wait_for(&core, 15, |e| match e {
             Event::Sent(r) => Some(r.clone()),
             _ => None,
@@ -2060,10 +2066,10 @@ mod tests {
             })
         };
         step(
-            Command::Shield {
+            spend(Spend::Shield {
                 from: evolite_api::ShieldSource::Credits,
                 amount: 300_000,
-            },
+            }),
             "shield",
         );
         let shielded = pool_after(ready.balances.shielded);
@@ -2071,7 +2077,7 @@ mod tests {
             "pool after shield: {shielded} (+{})",
             shielded - ready.balances.shielded
         );
-        step(Command::Unshield { amount: 100_000 }, "unshield");
+        step(spend(Spend::Unshield { amount: 100_000 }), "unshield");
         let left = pool_after(shielded);
         let charged = shielded - left - 100_000;
         println!(
@@ -2133,10 +2139,10 @@ mod tests {
             })
         };
         step(
-            Command::Shield {
+            spend(Spend::Shield {
                 from: evolite_api::ShieldSource::Core,
                 amount: 400_000,
-            },
+            }),
             "shield",
         );
         let after_shield = pool_after(ready.balances.shielded);
@@ -2149,7 +2155,10 @@ mod tests {
         assert_eq!(arrived, 400_000 - fees.shield_from_core);
         assert!(after_shield.pool.unfinished_shield.is_none());
 
-        step(Command::TopUpFromPool { amount: 100_000 }, "pool-top-up");
+        step(
+            spend(Spend::TopUpFromPool { amount: 100_000 }),
+            "pool-top-up",
+        );
         let after_top_up = pool_after(after_shield.balances.shielded);
         let taken = after_shield.balances.shielded - after_top_up.balances.shielded;
         println!(
@@ -2259,13 +2268,16 @@ mod tests {
         };
         println!("pool {} duffs", ready.balances.shielded);
         step(
-            Command::Shield {
+            spend(Spend::Shield {
                 from: evolite_api::ShieldSource::Core,
                 amount: 300_000,
-            },
+            }),
             "shield",
         );
-        step(Command::TopUpFromPool { amount: 100_000 }, "pool-top-up");
+        step(
+            spend(Spend::TopUpFromPool { amount: 100_000 }),
+            "pool-top-up",
+        );
         let top_up = |w: &evolite_api::Wallet| {
             w.pool
                 .operations

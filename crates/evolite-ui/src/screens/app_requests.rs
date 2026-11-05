@@ -4,15 +4,15 @@
 
 use super::txt;
 use crate::components::{
-    Assets, ButtonKind, FieldKind, Mark, button, button_enabled, check_line, chip, dialog, divider,
-    error_notice, field_label, kv_row, notice, paint_letter_box, select_row, text_action,
-    text_field,
+    Assets, ButtonKind, FieldKind, Mark, SpendPassword, button, button_enabled, check_line, chip,
+    dialog, divider, error_notice, field_label, kv_row, notice, paint_letter_box, password_asked,
+    select_row, text_action, text_field,
 };
 use crate::context::Ctx;
 use crate::text::{self, key_level, short_address};
 use crate::theme::{Weight, mono, sans};
 use egui::{Align, Align2, CornerRadius, Layout, Margin, Rect, Sense, Stroke, Ui, pos2, vec2};
-use evolite_api::{AppRequest, AppRequestKind, Command, CoreError};
+use evolite_api::{AppRequest, AppRequestKind, Command, CoreError, Spend};
 
 #[derive(Default)]
 pub struct AppRequests {
@@ -29,6 +29,9 @@ pub struct AppRequests {
     pub disconnecting: Option<(String, String)>,
     pub disconnect_waiting: bool,
     pub disconnect_result: Option<Result<(), CoreError>>,
+    /// "Password for every payment" before "Allow" / "Sign": the app spends the identity's
+    /// credits or adds a key to it (BUG-42).
+    pub password: SpendPassword,
 }
 
 impl AppRequests {
@@ -66,6 +69,7 @@ impl AppRequests {
     }
 
     pub fn on_answer(&mut self, result: Result<(), CoreError>) {
+        self.password.on_answer(&result);
         if result.is_ok() {
             // Declined (or done): the request is over.
             self.open = None;
@@ -92,7 +96,12 @@ pub fn show(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut AppRequests) 
         AppRequestKind::Sign { .. } => ("sign", tr!("Sign the operation"), 502.0),
         AppRequestKind::KeyExchange { .. } => ("key", tr!("Sign in by code"), 502.0),
     };
-    let mut answer = None;
+    let ask = password_asked(cx.snap);
+    let mut answer = Answer {
+        pick: None,
+        password: &mut state.password,
+        ask,
+    };
     let closed = dialog(ui, a, "app-request", icon, title, width, |ui, a| {
         let p = a.p;
         match &request.kind {
@@ -107,7 +116,12 @@ pub fn show(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut AppRequests) 
             ),
             AppRequestKind::KeyExchange { .. } => key_exchange(ui, a, &request, &mut answer),
         }
-        match &state.result {
+        // A wrong password is said under its field: the app got nothing.
+        match state
+            .result
+            .as_ref()
+            .filter(|_| !answer.password.is_wrong())
+        {
             Some(Err(CoreError::NotAvailable(why))) => notice(
                 ui,
                 a,
@@ -125,39 +139,58 @@ pub fn show(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut AppRequests) 
         }
         false
     });
-    if let Some(approve) = answer {
-        cx.send(Command::AnswerApp {
-            id: request.id,
-            approve,
-        });
+    let pick = answer.pick;
+    if pick == Some(true) {
+        cx.send(
+            state
+                .password
+                .command(Spend::ApproveApp { id: request.id }, ask),
+        );
+        state.result = None;
+    }
+    if pick == Some(false) {
+        cx.send(Command::DeclineApp { id: request.id });
         state.result = None;
     }
     if closed {
         // Closing is declining: the app hears "no".
-        cx.send(Command::AnswerApp {
-            id: request.id,
-            approve: false,
-        });
+        cx.send(Command::DeclineApp { id: request.id });
         state.open = None;
         state.result = None;
+        state.password.forget();
     }
 }
 
-/// Two buttons on the right: decline (ghost) and the primary answer.
-fn answers(ui: &mut Ui, a: &mut Assets, no: &str, yes: &str, answer: &mut Option<bool>) {
+/// The person's answer to a request, and "password for every payment" before a yes.
+struct Answer<'a> {
+    pick: Option<bool>,
+    password: &'a mut SpendPassword,
+    ask: bool,
+}
+
+/// Two buttons on the right: decline (ghost) and the primary answer; above them the wallet
+/// password when every spend asks for it.
+fn answers(ui: &mut Ui, a: &mut Assets, no: &str, yes: &str, answer: &mut Answer<'_>) {
+    let p = a.p;
+    let entered = answer
+        .password
+        .field(ui, &p, "app-request-password", answer.ask);
+    let ready = answer.password.ready(answer.ask);
     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
         ui.spacing_mut().item_spacing.x = 10.0;
-        if button(ui, a, yes, ButtonKind::Primary, None).clicked() {
-            *answer = Some(true);
+        if button_enabled(ui, a, yes, ButtonKind::Primary, None, ready).clicked()
+            || (entered && ready)
+        {
+            answer.pick = Some(true);
         }
         if button(ui, a, no, ButtonKind::Ghost, None).clicked() {
-            *answer = Some(false);
+            answer.pick = Some(false);
         }
     });
 }
 
 /// 11 · Signing in to an app (App Connect).
-fn connect(ui: &mut Ui, a: &mut Assets, r: &AppRequest, answer: &mut Option<bool>) {
+fn connect(ui: &mut Ui, a: &mut Assets, r: &AppRequest, answer: &mut Answer<'_>) {
     let p = a.p;
     let AppRequestKind::Connect {
         contract_id,
@@ -271,7 +304,7 @@ fn sign(
     r: &AppRequest,
     showing_bytes: bool,
     show_bytes: &mut bool,
-    answer: &mut Option<bool>,
+    answer: &mut Answer<'_>,
 ) {
     let p = a.p;
     let AppRequestKind::Sign {
@@ -393,7 +426,7 @@ fn sign(
 }
 
 /// 13 · Sign in by code (`dash-kx:`): the same code on both screens.
-fn key_exchange(ui: &mut Ui, a: &mut Assets, r: &AppRequest, answer: &mut Option<bool>) {
+fn key_exchange(ui: &mut Ui, a: &mut Assets, r: &AppRequest, answer: &mut Answer<'_>) {
     let p = a.p;
     let AppRequestKind::KeyExchange {
         identity,

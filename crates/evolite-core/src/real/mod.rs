@@ -30,6 +30,7 @@ mod pool;
 mod pool_history;
 mod provider;
 mod rates;
+mod security;
 mod sync;
 mod vault;
 mod wallets;
@@ -268,6 +269,9 @@ struct Real {
     switch_opened: Option<(vault::VaultFile, Zeroizing<String>)>,
     /// While a wallet is being added: the one to go back to on "Cancel".
     adding_from: Option<String>,
+    /// "Password for every send" of this core's wallet ([`security`]): every [`Spend`] passes
+    /// [`Real::spend_gate`] first.
+    password_each_send: bool,
     chain: Arc<Chain>,
     /// The chain's start off the loop ([`Real::start_chain`]); it answers whether the wallet's
     /// folder was clear of a deleted wallet's files (else [`Real::leftovers`]).
@@ -748,6 +752,7 @@ impl Real {
         ));
         let pool_history = pool_history::PoolHistory::new(paths.pool_history.clone());
         let paths_apps = paths.connected_apps.clone();
+        let password_each_send = security::load(&paths.root, &wallet);
         Self {
             wallet,
             index,
@@ -755,6 +760,7 @@ impl Real {
             switch_to: None,
             switch_opened: None,
             adding_from: None,
+            password_each_send,
             starting: None,
             start_tried: false,
             last_start: tokio::time::Instant::now(),
@@ -1929,6 +1935,7 @@ impl Real {
         );
         history.sort_by_key(|a| std::cmp::Reverse(a.at));
         Wallet {
+            password_each_send: self.password_each_send,
             balances: Balances {
                 core: balance as Duffs,
                 core_addresses: addresses as u32,
@@ -2096,23 +2103,14 @@ impl Real {
 
     /// Signs a Core payment and hands it to the network in the background: the network's answer
     /// takes up to a minute and the loop must go on sending snapshots. Never resent: a payment
-    /// with no answer may still go through. `password`: "password for every payment" is on, and
-    /// nothing is signed until it opens the vault.
-    async fn send(
-        &mut self,
-        from: Source,
-        to: &str,
-        amount: Duffs,
-        password: Option<&Password>,
-    ) -> Result<(), CoreError> {
+    /// with no answer may still go through. "Password for every send" is checked before, by
+    /// [`Real::spend_gate`].
+    async fn send(&mut self, from: Source, to: &str, amount: Duffs) -> Result<(), CoreError> {
         let open = self
             .unlocked
             .as_ref()
             .ok_or(CoreError::NotAvailable(tr!("The wallet is locked").into()))?;
         let id = open.id;
-        if let Some(password) = password {
-            self.open_vault(password).await?;
-        }
         match from {
             Source::Core => {}
             Source::Credits => return self.send_credits(id, to, amount),
@@ -3049,6 +3047,164 @@ impl Real {
         Ok(())
     }
 
+    /// "Password for every send" (BUG-42, R-27), before anything of a spend is checked, locked
+    /// or signed: when the wallet asks for it, no password is a refusal and a wrong one is
+    /// [`CoreError::WrongPassword`]. The attempt counter and the pauses are FEAT-0004's, here.
+    async fn spend_gate(&self, password: Option<&Password>) -> Result<(), CoreError> {
+        if !self.password_each_send {
+            return Ok(());
+        }
+        match password {
+            None => Err(CoreError::NotAvailable(crate::PASSWORD_NEEDED.into())),
+            Some(password) => self.open_vault(password).await.map(|_| ()),
+        }
+    }
+
+    /// Settings → Security → "Password for every send": on at once; off only with the
+    /// wallet's password, which [`Real::spend_gate`] would ask anyway.
+    async fn set_password_each_send(
+        &mut self,
+        on: bool,
+        password: Option<&Password>,
+    ) -> Result<(), CoreError> {
+        if self.unlocked.is_none() {
+            return Err(CoreError::NotAvailable(tr!("The wallet is locked").into()));
+        }
+        if !on {
+            let password = password.ok_or(CoreError::WrongPassword)?;
+            self.open_vault(password).await?;
+        }
+        security::save(&self.paths.root, &self.wallet, on).map_err(|e| {
+            CoreError::NotAvailable(format!(tr!("The setting was not saved: {e}"), e = e))
+        })?;
+        self.password_each_send = on;
+        Ok(())
+    }
+
+    /// A spend past [`Real::spend_gate`], answered as each operation always was.
+    async fn spend(&mut self, op: Spend) -> (Option<Event>, bool) {
+        let event = match op {
+            Spend::Send { from, to, amount } => match self.send(from, &to, amount).await {
+                // The answer comes from the broadcast task.
+                Ok(()) => return (None, true),
+                Err(e) => Event::Sent(Err(e)),
+            },
+            Spend::CreateIdentity { name, top_up } => {
+                match self.create_identity(&name, top_up).await {
+                    // The answer comes from the background task.
+                    Ok(()) => return (None, true),
+                    Err(e) => Event::Done {
+                        what: "identity",
+                        result: Err(e),
+                    },
+                }
+            }
+            Spend::ResumeIdentity => match self.resume_identity() {
+                Ok(()) => return (None, true),
+                Err(e) => Event::Done {
+                    what: "identity",
+                    result: Err(e),
+                },
+            },
+            Spend::Shield { from, amount } => match self.shield(from, amount) {
+                Ok(()) => Event::Progress {
+                    what: "shield",
+                    fraction: 0.0,
+                },
+                Err(e) => Event::Done {
+                    what: "shield",
+                    result: Err(e),
+                },
+            },
+            Spend::GiftNft { .. } => Event::Done {
+                what: "gift",
+                result: Err(CoreError::NotAvailable(NO_GIFTS.into())),
+            },
+            Spend::AddContact { name } => match self.add_contact(&name) {
+                Ok(()) => return (None, false),
+                Err(e) => Event::Done {
+                    what: "contact",
+                    result: Err(e),
+                },
+            },
+            Spend::AcceptContact { identity_id } => {
+                match self.contact_job(&identity_id, ContactJob::Accept) {
+                    Ok(()) => return (None, false),
+                    Err(e) => Event::Done {
+                        what: "contact",
+                        result: Err(e),
+                    },
+                }
+            }
+            Spend::SaveProfile {
+                display,
+                about,
+                avatar_url,
+            } => match self.save_profile(display, about, avatar_url) {
+                Ok(()) => return (None, false),
+                Err(e) => Event::Done {
+                    what: "profile",
+                    result: Err(e),
+                },
+            },
+            Spend::TopUpIdentity { amount } => match self.top_up_identity(amount).await {
+                // The answer comes from the background task.
+                Ok(()) => return (None, true),
+                Err(e) => Event::Done {
+                    what: "top-up",
+                    result: Err(e),
+                },
+            },
+            Spend::ResumeTopUp => match self.resume_top_up() {
+                Ok(()) => return (None, true),
+                Err(e) => Event::Done {
+                    what: "top-up",
+                    result: Err(e),
+                },
+            },
+            Spend::Unshield { amount } => match self.unshield(amount) {
+                Ok(()) => Event::Progress {
+                    what: "unshield",
+                    fraction: 0.0,
+                },
+                Err(e) => Event::Done {
+                    what: "unshield",
+                    result: Err(e),
+                },
+            },
+            Spend::TopUpFromPool { amount } => match self.top_up_from_pool(amount) {
+                Ok(()) => Event::Progress {
+                    what: "pool-top-up",
+                    fraction: 0.0,
+                },
+                Err(e) => Event::Done {
+                    what: "pool-top-up",
+                    result: Err(e),
+                },
+            },
+            Spend::AddName { name } => match self.add_name(&name) {
+                Ok(()) => return (None, true),
+                Err(e) => Event::Done {
+                    what: "name",
+                    result: Err(e),
+                },
+            },
+            Spend::ApproveApp { id } => match self.answer_app(id, true) {
+                // The answer comes from the background task.
+                Ok(true) => return (None, true),
+                Ok(false) => Event::Done {
+                    what: "app",
+                    result: Ok(()),
+                },
+                Err(e) => Event::Done {
+                    what: "app",
+                    result: Err(e),
+                },
+            },
+        };
+        (Some(event), true)
+    }
+
     async fn handle(&mut self, command: Command) -> (Option<Event>, bool) {
         let event = match command {
             Command::NewPhrase { words } => {
@@ -3171,16 +3327,6 @@ impl Real {
                 });
                 Event::PhraseRevealed(result)
             }
-            Command::Send {
-                from,
-                to,
-                amount,
-                password,
-            } => match self.send(from, &to, amount, password.as_ref()).await {
-                // The answer comes from the broadcast task.
-                Ok(()) => return (None, true),
-                Err(e) => Event::Sent(Err(e)),
-            },
             Command::ResolveName { name } => match dpns::label(&name) {
                 Err(e) => Event::NameResolved {
                     name,
@@ -3287,37 +3433,6 @@ impl Real {
                 Ok(()) => return (None, false),
                 Err(e) => Event::AppRequest(Err(e)),
             },
-            Command::CreateIdentity { name, top_up } => {
-                match self.create_identity(&name, top_up).await {
-                    // The answer comes from the background task.
-                    Ok(()) => return (None, true),
-                    Err(e) => Event::Done {
-                        what: "identity",
-                        result: Err(e),
-                    },
-                }
-            }
-            Command::ResumeIdentity => match self.resume_identity() {
-                Ok(()) => return (None, true),
-                Err(e) => Event::Done {
-                    what: "identity",
-                    result: Err(e),
-                },
-            },
-            Command::Shield { from, amount } => match self.shield(from, amount) {
-                Ok(()) => Event::Progress {
-                    what: "shield",
-                    fraction: 0.0,
-                },
-                Err(e) => Event::Done {
-                    what: "shield",
-                    result: Err(e),
-                },
-            },
-            Command::GiftNft { .. } => Event::Done {
-                what: "gift",
-                result: Err(CoreError::NotAvailable(NO_GIFTS.into())),
-            },
             // NFT pictures as their documents store them (packed), or profile pictures: a
             // plain image file, never packed.
             Command::DrawArt { art, side, urgent } => {
@@ -3340,22 +3455,6 @@ impl Real {
                     },
                 }
             }
-            Command::AddContact { name } => match self.add_contact(&name) {
-                Ok(()) => return (None, false),
-                Err(e) => Event::Done {
-                    what: "contact",
-                    result: Err(e),
-                },
-            },
-            Command::AcceptContact { identity_id } => {
-                match self.contact_job(&identity_id, ContactJob::Accept) {
-                    Ok(()) => return (None, false),
-                    Err(e) => Event::Done {
-                        what: "contact",
-                        result: Err(e),
-                    },
-                }
-            }
             Command::HideRequest { identity_id } => {
                 match self.contact_job(&identity_id, ContactJob::Hide) {
                     Ok(()) => return (None, false),
@@ -3365,17 +3464,6 @@ impl Real {
                     },
                 }
             }
-            Command::SaveProfile {
-                display,
-                about,
-                avatar_url,
-            } => match self.save_profile(display, about, avatar_url) {
-                Ok(()) => return (None, false),
-                Err(e) => Event::Done {
-                    what: "profile",
-                    result: Err(e),
-                },
-            },
             Command::PreviewPayment { to } => match self.preview_payment(to.clone()) {
                 Ok(()) => return (None, false),
                 Err(e) => Event::PaymentPreview { to, result: Err(e) },
@@ -3389,30 +3477,26 @@ impl Real {
                     result: Err(e),
                 },
             },
-            Command::AnswerApp { id, approve } => match self.answer_app(id, approve) {
-                // Approved: the answer comes from the background task.
-                Ok(true) => return (None, true),
-                Ok(false) => Event::Done {
+            // Every spend passes the one gate first (R-27): refused, it is answered as the
+            // operation's own failure, and nothing of it was checked, locked or signed.
+            Command::Spend { op, password } => {
+                if let Err(why) = self.spend_gate(password.as_ref()).await {
+                    return (Some(op.refused(why)), true);
+                }
+                return self.spend(op).await;
+            }
+            Command::SetPasswordEachSend { on, password } => Event::Done {
+                what: "password-each-send",
+                result: self.set_password_each_send(on, password.as_ref()).await,
+            },
+            // Turning a request down spends nothing: no password.
+            Command::DeclineApp { id } => match self.answer_app(id, false) {
+                Ok(_) => Event::Done {
                     what: "app",
                     result: Ok(()),
                 },
                 Err(e) => Event::Done {
                     what: "app",
-                    result: Err(e),
-                },
-            },
-            Command::TopUpIdentity { amount } => match self.top_up_identity(amount).await {
-                // The answer comes from the background task.
-                Ok(()) => return (None, true),
-                Err(e) => Event::Done {
-                    what: "top-up",
-                    result: Err(e),
-                },
-            },
-            Command::ResumeTopUp => match self.resume_top_up() {
-                Ok(()) => return (None, true),
-                Err(e) => Event::Done {
-                    what: "top-up",
                     result: Err(e),
                 },
             },
@@ -3445,26 +3529,6 @@ impl Real {
                     result,
                 }
             }
-            Command::Unshield { amount } => match self.unshield(amount) {
-                Ok(()) => Event::Progress {
-                    what: "unshield",
-                    fraction: 0.0,
-                },
-                Err(e) => Event::Done {
-                    what: "unshield",
-                    result: Err(e),
-                },
-            },
-            Command::TopUpFromPool { amount } => match self.top_up_from_pool(amount) {
-                Ok(()) => Event::Progress {
-                    what: "pool-top-up",
-                    fraction: 0.0,
-                },
-                Err(e) => Event::Done {
-                    what: "pool-top-up",
-                    result: Err(e),
-                },
-            },
             Command::FindIdentities => {
                 self.discover_identities();
                 return (None, true);
@@ -3599,13 +3663,6 @@ impl Real {
                     result,
                 }
             }
-            Command::AddName { name } => match self.add_name(&name) {
-                Ok(()) => return (None, true),
-                Err(e) => Event::Done {
-                    what: "name",
-                    result: Err(e),
-                },
-            },
         };
         (Some(event), true)
     }
@@ -4517,9 +4574,9 @@ mod tests {
         assert_eq!(file.kdf, KdfParams::default());
     }
 
-    #[tokio::test]
-    async fn a_wrong_password_signs_nothing() {
-        let mut core = core_with_vault("send", "right");
+    /// The core of `core_with_vault` with its wallet open (no keys: nothing can be signed).
+    fn opened(name: &str, password: &str) -> Real {
+        let mut core = core_with_vault(name, password);
         let meta = core.saved.clone().unwrap();
         core.unlocked = Some(Unlocked {
             id: [0; 32],
@@ -4527,18 +4584,145 @@ mod tests {
             keys: None,
             seed: None,
         });
-        let to = "yMrDQWqicXKL8xdJg23oYVVqKNtm5AwvXQ";
+        core
+    }
+
+    /// Events compared by what they say (`Event` has no `PartialEq`).
+    fn debug(event: &Option<Event>) -> String {
+        format!("{event:?}")
+    }
+
+    /// Every spend there is (R-27 AC-T1).
+    fn every_spend() -> Vec<Spend> {
+        vec![
+            Spend::Send {
+                from: Source::Core,
+                to: "yMrDQWqicXKL8xdJg23oYVVqKNtm5AwvXQ".into(),
+                amount: 10_000,
+            },
+            Spend::TopUpIdentity { amount: 10_000 },
+            Spend::ResumeTopUp,
+            Spend::CreateIdentity {
+                name: "satoshi-test".into(),
+                top_up: 10_000,
+            },
+            Spend::ResumeIdentity,
+            Spend::AddName {
+                name: "satoshi-test".into(),
+            },
+            Spend::Shield {
+                from: ShieldSource::Core,
+                amount: 10_000,
+            },
+            Spend::Unshield { amount: 10_000 },
+            Spend::TopUpFromPool { amount: 10_000 },
+            Spend::AddContact {
+                name: "alice".into(),
+            },
+            Spend::AcceptContact {
+                identity_id: "F5teLR3Vq4JjzQA7jgdGjZQvJbKpMubbu5dsC4MJd1Eh".into(),
+            },
+            Spend::SaveProfile {
+                display: "A".into(),
+                about: String::new(),
+                avatar_url: None,
+            },
+            Spend::ApproveApp { id: 7 },
+            Spend::GiftNft {
+                id: "nft".into(),
+                to: "@alice".into(),
+            },
+        ]
+    }
+
+    /// BUG-42, R-27 AC-T1: with "password for every send" on, no spend goes without the
+    /// password, and none with a wrong one; each is answered as its own failure, and the core
+    /// went no further than the gate (no lock, no broadcast: the answer is the gate's).
+    #[tokio::test]
+    async fn with_the_setting_on_no_spend_goes_without_the_right_password() {
+        let mut core = opened("gate", "right");
+        assert!(core.password_each_send, "on by default");
+        for op in every_spend() {
+            let none = Command::Spend {
+                op: op.clone(),
+                password: None,
+            };
+            let (event, _) = core.handle(none).await;
+            assert_eq!(
+                debug(&event),
+                debug(&Some(op.refused(CoreError::NotAvailable(
+                    crate::PASSWORD_NEEDED.into()
+                )))),
+                "{} without the password",
+                op.what()
+            );
+            let wrong = Command::Spend {
+                op: op.clone(),
+                password: Some(pw("wrong")),
+            };
+            let (event, _) = core.handle(wrong).await;
+            assert_eq!(
+                debug(&event),
+                debug(&Some(op.refused(CoreError::WrongPassword))),
+                "{} with a wrong password",
+                op.what()
+            );
+        }
+        // The right one gets past the gate, to the payment's own checks: not synced.
+        let right = Command::Spend {
+            op: every_spend().remove(0),
+            password: Some(pw("right")),
+        };
         assert_eq!(
-            core.send(Source::Core, to, 10_000, Some(&pw("wrong")))
-                .await,
-            Err(CoreError::WrongPassword)
+            debug(&core.handle(right).await.0),
+            debug(&Some(Event::Sent(Err(CoreError::NotSynced))))
         );
-        // The right one gets past the check, to the next one: the wallet is not synced.
+    }
+
+    /// R-27 AC-T2: off only with the wallet's password; then a spend needs none, and the
+    /// choice is kept for the next core of this wallet.
+    #[tokio::test]
+    async fn the_setting_goes_off_only_with_the_password() {
+        let mut core = opened("each-off", "right");
+        let off = |password: Option<&str>| Command::SetPasswordEachSend {
+            on: false,
+            password: password.map(pw),
+        };
+        for password in [None, Some("wrong")] {
+            assert!(matches!(
+                core.handle(off(password)).await.0,
+                Some(Event::Done {
+                    what: "password-each-send",
+                    result: Err(CoreError::WrongPassword)
+                })
+            ));
+            assert!(core.password_each_send);
+        }
+        let (event, _) = core.handle(off(Some("right"))).await;
+        assert!(matches!(
+            event,
+            Some(Event::Done {
+                what: "password-each-send",
+                result: Ok(())
+            })
+        ));
+        assert!(!core.password_each_send);
+        assert!(!security::load(&core.paths.root, &core.wallet), "kept");
+        let send = Command::Spend {
+            op: every_spend().remove(0),
+            password: None,
+        };
         assert_eq!(
-            core.send(Source::Core, to, 10_000, Some(&pw("right")))
-                .await,
-            Err(CoreError::NotSynced)
+            debug(&core.handle(send).await.0),
+            debug(&Some(Event::Sent(Err(CoreError::NotSynced))))
         );
+        // On again at once, without the password.
+        let on = Command::SetPasswordEachSend {
+            on: true,
+            password: None,
+        };
+        core.handle(on).await;
+        assert!(core.password_each_send && security::load(&core.paths.root, &core.wallet));
     }
 
     #[test]
@@ -4581,25 +4765,25 @@ mod tests {
         let testnet = address(crate::network::dash());
         assert!(testnet.starts_with("tdash1"), "{testnet}");
         assert_eq!(
-            core.send(Source::Credits, &mainnet, 1_000, None).await,
+            core.send(Source::Credits, &mainnet, 1_000).await,
             Err(CoreError::BadAddress)
         );
         assert_eq!(
-            core.send(Source::Credits, "@a_b", 1_000, None).await,
+            core.send(Source::Credits, "@a_b", 1_000).await,
             Err(CoreError::BadName)
         );
         assert_eq!(
-            core.send(Source::Credits, &testnet, 0, None).await,
+            core.send(Source::Credits, &testnet, 0).await,
             Err(CoreError::BadAmount)
         );
         // A good payee gets as far as the network: proofs cannot be checked yet.
         assert_eq!(
-            core.send(Source::Credits, &testnet, 1_000, None).await,
+            core.send(Source::Credits, &testnet, 1_000).await,
             Err(CoreError::NotSynced)
         );
         // From Core a Platform address is refused with the reason, not as a bad address.
         assert!(matches!(
-            core.send(Source::Core, &testnet, 1_000, None).await,
+            core.send(Source::Core, &testnet, 1_000).await,
             Err(CoreError::NotAvailable(_))
         ));
     }
@@ -4660,7 +4844,7 @@ mod tests {
             last_payment: None,
         }];
         assert!(matches!(
-            core.send(Source::Core, "@bob", 1_000, None).await,
+            core.send(Source::Core, "@bob", 1_000).await,
             Err(CoreError::NotAvailable(_))
         ));
         // A contact without a name is paid by its identity id, not taken for an address.
@@ -4670,7 +4854,6 @@ mod tests {
                 Source::Core,
                 "F5teLR3Vq4JjzQA7jgdGjZQvJbKpMubbu5dsC4MJd1Eh",
                 1_000,
-                None
             )
             .await,
             Err(CoreError::NotAvailable(_))
@@ -4764,7 +4947,13 @@ mod tests {
             Some(Event::AppRequest(Err(CoreError::NotAvailable(_))))
         ));
         // Declining is always answered; approving a request never shown is refused.
-        let answer = |id, approve| Command::AnswerApp { id, approve };
+        let answer = |id, approve| match approve {
+            true => Command::Spend {
+                op: Spend::ApproveApp { id },
+                password: Some(pw("pw")),
+            },
+            false => Command::DeclineApp { id },
+        };
         let (event, _) = core.handle(answer(7, false)).await;
         assert!(matches!(
             event,

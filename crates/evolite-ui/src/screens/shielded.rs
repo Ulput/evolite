@@ -3,9 +3,9 @@
 
 use super::txt;
 use crate::components::{
-    Assets, ButtonKind, TxRow, amount_field, button, button_enabled, card, dialog, error_notice,
-    field_label, inner, kv_row, list_card, notice, page_header, progress_bar, segmented_with_off,
-    select_row, tx_row,
+    Assets, ButtonKind, SpendPassword, TxRow, amount_field, button, button_enabled, card, dialog,
+    error_notice, field_label, inner, kv_row, list_card, notice, page_header, password_asked,
+    progress_bar, segmented_with_off, select_row, tx_row,
 };
 use crate::context::Ctx;
 use crate::text;
@@ -14,7 +14,7 @@ use egui::{
     Align, Align2, CornerRadius, CursorIcon, Layout, Margin, Rect, Sense, Stroke, StrokeKind, Ui,
     pos2, vec2,
 };
-use evolite_api::{Command, CoreError, Duffs, Fees, Pool, ShieldSource, Source, Wallet};
+use evolite_api::{CoreError, Duffs, Fees, Pool, ShieldSource, Source, Spend, Wallet};
 
 /// (icon, title, line under it).
 const ACTIONS: [(&str, &str, &str); 4] = [
@@ -79,6 +79,8 @@ pub struct PoolState {
     pub address_open: bool,
     /// "Unshield" goes into the identity's credits instead of the Platform address.
     pub unshield_to_identity: bool,
+    /// "Password for every payment" in "Shield" and "Unshield" (one move at a time; BUG-42).
+    pub password: SpendPassword,
 }
 
 impl Default for PoolState {
@@ -97,6 +99,7 @@ impl Default for PoolState {
             unshield_suggested: None,
             address_open: false,
             unshield_to_identity: false,
+            password: SpendPassword::default(),
         }
     }
 }
@@ -576,7 +579,10 @@ fn shield_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut PoolStat
             if let Some(fraction) = state.progress {
                 proof_progress(ui, a, fraction);
             }
-            match &state.result {
+            // A wrong password is said under its field, not as a failed move.
+            state.password.settle(state.result.as_ref());
+            let shown = state.result.as_ref().filter(|_| !state.password.is_wrong());
+            match shown {
                 Some(Err(CoreError::NotAvailable(why))) => notice(
                     ui,
                     a,
@@ -599,21 +605,25 @@ fn shield_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut PoolStat
                 ),
                 None => {}
             }
+            let ask = password_asked(cx.snap) && !busy;
+            let entered = state.password.field(ui, &p, "shield-password", ask);
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 ui.spacing_mut().item_spacing.x = 10.0;
-                let ready = !busy && preview.is_some();
+                let ready = !busy && preview.is_some() && state.password.ready(ask);
                 let label = match (busy, resume) {
                     (true, _) => tr!("Shielding…"),
                     (false, Some(_)) => tr!("Continue"),
                     (false, None) => tr!("Shield"),
                 };
-                if button_enabled(ui, a, label, ButtonKind::Primary, None, ready).clicked()
+                if (button_enabled(ui, a, label, ButtonKind::Primary, None, ready).clicked()
+                    || (entered && ready))
                     && let Some(amount) = amount
                 {
-                    cx.send(Command::Shield {
+                    let op = Spend::Shield {
                         from: *source,
                         amount,
-                    });
+                    };
+                    cx.send(state.password.command(op, ask));
                     state.progress = Some(0.0);
                     state.result = None;
                 }
@@ -628,6 +638,7 @@ fn shield_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut PoolStat
         state.shielding = false;
         state.sources_open = false;
         state.result = None;
+        state.password.forget();
     }
 }
 
@@ -780,7 +791,10 @@ fn unshield_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut PoolSt
             if let Some(fraction) = state.progress {
                 proof_progress(ui, a, fraction);
             }
-            match &state.result {
+            // A wrong password is said under its field, not as a failed move.
+            state.password.settle(state.result.as_ref());
+            let shown = state.result.as_ref().filter(|_| !state.password.is_wrong());
+            match shown {
                 Some(Err(CoreError::NotAvailable(why))) => notice(
                     ui,
                     a,
@@ -807,22 +821,26 @@ fn unshield_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut PoolSt
                 ),
                 None => {}
             }
+            let ask = password_asked(cx.snap) && !busy;
+            let entered = state.password.field(ui, &p, "unshield-password", ask);
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 ui.spacing_mut().item_spacing.x = 10.0;
-                let ready = !busy && left.is_some_and(|l| l >= 0);
+                let ready = !busy && left.is_some_and(|l| l >= 0) && state.password.ready(ask);
                 let label = if busy {
                     tr!("Unshielding…")
                 } else {
                     tr!("Unshield")
                 };
-                if button_enabled(ui, a, label, ButtonKind::Primary, None, ready).clicked()
+                if (button_enabled(ui, a, label, ButtonKind::Primary, None, ready).clicked()
+                    || (entered && ready))
                     && let Some(amount) = amount
                 {
-                    cx.send(if to_identity {
-                        Command::TopUpFromPool { amount }
+                    let op = if to_identity {
+                        Spend::TopUpFromPool { amount }
                     } else {
-                        Command::Unshield { amount }
-                    });
+                        Spend::Unshield { amount }
+                    };
+                    cx.send(state.password.command(op, ask));
                     state.progress = Some(0.0);
                     state.result = None;
                 }
@@ -836,6 +854,7 @@ fn unshield_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut PoolSt
     if closed {
         state.unshielding = false;
         state.result = None;
+        state.password.forget();
     }
 }
 

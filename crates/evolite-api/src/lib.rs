@@ -613,6 +613,10 @@ pub struct Wallet {
     pub identities: Vec<IdentityChoice>,
     /// Core addresses the person named, to pay again (not DashPay contacts), by name.
     pub address_book: Vec<SavedAddress>,
+    /// "Password for every send" (Settings → Security), kept by the core for this wallet: on,
+    /// every [`Command::Spend`] needs the password; off only by [`Command::SetPasswordEachSend`]
+    /// with the password.
+    pub password_each_send: bool,
 }
 
 /// A Core address in the address book, with the name the person gave it.
@@ -880,11 +884,20 @@ pub enum Command {
     ResolveName {
         name: String,
     },
-    Send {
-        from: Source,
-        to: String,
-        amount: Duffs,
-        /// With "password for every payment": checked against the vault before signing.
+    /// Anything that spends the wallet's money or credits, behind one password gate: with
+    /// [`Wallet::password_each_send`] on, `password` is checked against the vault before any
+    /// other check, lock of funds or signing (a wrong or missing one: [`CoreError::WrongPassword`]
+    /// in the operation's own answer, see [`Spend::refused`]). Each operation is answered as it
+    /// always was ([`Spend::what`]).
+    Spend {
+        op: Spend,
+        password: Option<Password>,
+    },
+    /// Settings → Security → "Password for every send". Turning it off needs the password
+    /// (else anyone at the unlocked computer could switch it off and spend); turning it on does
+    /// not. Answered with `Done { what: "password-each-send" }`.
+    SetPasswordEachSend {
+        on: bool,
         password: Option<Password>,
     },
     /// Forget a connected app. Answered with `Done { what: "disconnect" }`.
@@ -895,31 +908,15 @@ pub enum Command {
     CheckName {
         label: String,
     },
-    /// Lock DASH on Core, create the identity and register the name.
-    CreateIdentity {
-        name: String,
-        top_up: Duffs,
-    },
-    /// Finish [`Wallet::unfinished_identity`] from where it stopped, without locking more.
-    /// Answered with `Done { what: "identity" }`.
-    ResumeIdentity,
-    /// Move credits into the pool; the core builds the proof and reports [`Event::Progress`].
-    Shield {
-        from: ShieldSource,
-        amount: Duffs,
-    },
     /// A link or QR text from an app (`dash-key:`, `dash-st:`, key exchange). Answered with
     /// [`Event::AppRequest`] or an error.
     OpenAppLink {
         text: String,
     },
-    AnswerApp {
+    /// Turn down an app's request (approving it is [`Spend::ApproveApp`]). Answered with
+    /// `Done { what: "app" }`.
+    DeclineApp {
         id: u64,
-        approve: bool,
-    },
-    GiftNft {
-        id: String,
-        to: String,
     },
     /// Draw a picture (`Nft::art`) `side` pixels across, by the sandboxed renderer. Answered
     /// with [`Event::Art`]: the first frame at once, then the animation. `urgent`: it is on
@@ -936,26 +933,10 @@ pub enum Command {
         password: Password,
         wallet: Option<String>,
     },
-    /// Send a DashPay contact request to `name` (a DPNS name). Answered with
-    /// `Done { what: "contact" }`.
-    AddContact {
-        name: String,
-    },
-    /// Answer an incoming request with ours: the contact is made. `Done { what: "contact" }`.
-    AcceptContact {
-        identity_id: String,
-    },
     /// Stop showing requests from this identity (kept on this computer only).
     /// `Done { what: "contact" }`.
     HideRequest {
         identity_id: String,
-    },
-    /// Write the identity's DashPay profile. `avatar_url`: https, the core downloads the
-    /// picture to put its hash in the profile. `Done { what: "profile" }`.
-    SaveProfile {
-        display: String,
-        about: String,
-        avatar_url: Option<String>,
     },
     /// Where a Core payment to `to` will go, for the last look before signing: the address
     /// itself, or for a DashPay contact (`@name`) the next address of its key. Answered with
@@ -963,22 +944,9 @@ pub enum Command {
     PreviewPayment {
         to: String,
     },
-    /// Lock `amount` duffs on Core and add them to the shown identity's credits.
-    /// `Done { what: "top-up" }`.
-    TopUpIdentity {
-        amount: Duffs,
-    },
-    /// Finish [`Wallet::unfinished_top_up`] with the lock already made, without locking more.
-    /// `Done { what: "top-up" }`.
-    ResumeTopUp,
     /// Look for the phrase's identities on Platform again, now. The answer is in
     /// [`Wallet::identity_search`].
     FindIdentities,
-    /// Register one more DPNS name for the shown identity, paid from its credits.
-    /// `Done { what: "name" }`.
-    AddName {
-        name: String,
-    },
     /// Act as this identity (base58) from now on: the Identity screen, credits, contacts,
     /// profile, top-ups and names follow it.
     ChooseIdentity {
@@ -1033,18 +1001,6 @@ pub enum Command {
     ReceiveAddress {
         fresh: bool,
     },
-    /// Take `amount` out of the pool to the wallet's own Platform address; the amount becomes
-    /// visible on the network. Answered with `Done { what: "unshield" }`, [`Event::Progress`]
-    /// while the proof is built.
-    Unshield {
-        amount: Duffs,
-    },
-    /// Take `amount` out of the pool into the credits of the identity the interface shows; the
-    /// identity gets `amount`, the fee comes from the pool on top. Answered with
-    /// `Done { what: "pool-top-up" }`, [`Event::Progress`] while the proof is built.
-    TopUpFromPool {
-        amount: Duffs,
-    },
     /// Lock this wallet and open another one of this computer. With `password` (Figma 28,
     /// 29) it is checked against that wallet first: a wrong one changes nothing, the right one
     /// opens it at once; answered with `Done { what: "switch" }`. Without, its unlock screen
@@ -1064,6 +1020,93 @@ pub enum Command {
         name: String,
         color: u8,
     },
+}
+
+/// Everything that spends: Core DASH, credits or the pool. Only through [`Command::Spend`], so
+/// no spend can go past the password gate (BUG-42, R-27).
+#[derive(Debug, Clone, PartialEq)]
+pub enum Spend {
+    /// Pay `amount` to `to` (an address, `@name` or a contact) from `from`. Answered with
+    /// [`Event::Sent`].
+    Send {
+        from: Source,
+        to: String,
+        amount: Duffs,
+    },
+    /// Lock `amount` duffs on Core and add them to the shown identity's credits.
+    /// `Done { what: "top-up" }`.
+    TopUpIdentity { amount: Duffs },
+    /// Finish [`Wallet::unfinished_top_up`] with the lock already made, without locking more.
+    /// `Done { what: "top-up" }`.
+    ResumeTopUp,
+    /// Lock DASH on Core, create the identity and register the name.
+    /// `Done { what: "identity" }`.
+    CreateIdentity { name: String, top_up: Duffs },
+    /// Finish [`Wallet::unfinished_identity`] from where it stopped, without locking more.
+    /// `Done { what: "identity" }`.
+    ResumeIdentity,
+    /// Register one more DPNS name for the shown identity, paid from its credits.
+    /// `Done { what: "name" }`.
+    AddName { name: String },
+    /// Move credits into the pool; the core builds the proof and reports [`Event::Progress`],
+    /// then `Done { what: "shield" }`.
+    Shield { from: ShieldSource, amount: Duffs },
+    /// Take `amount` out of the pool to the wallet's own Platform address; the amount becomes
+    /// visible on the network. Answered with `Done { what: "unshield" }`, [`Event::Progress`]
+    /// while the proof is built.
+    Unshield { amount: Duffs },
+    /// Take `amount` out of the pool into the credits of the identity the interface shows; the
+    /// identity gets `amount`, the fee comes from the pool on top. Answered with
+    /// `Done { what: "pool-top-up" }`, [`Event::Progress`] while the proof is built.
+    TopUpFromPool { amount: Duffs },
+    /// Send a DashPay contact request to `name` (a DPNS name). Answered with
+    /// `Done { what: "contact" }`.
+    AddContact { name: String },
+    /// Answer an incoming request with ours: the contact is made. `Done { what: "contact" }`.
+    AcceptContact { identity_id: String },
+    /// Write the identity's DashPay profile. `avatar_url`: https, the core downloads the
+    /// picture to put its hash in the profile. `Done { what: "profile" }`.
+    SaveProfile {
+        display: String,
+        about: String,
+        avatar_url: Option<String>,
+    },
+    /// Do what an app asked ([`Event::AppRequest`]): sign its document or add its key.
+    /// `Done { what: "app" }`.
+    ApproveApp { id: u64 },
+    /// Give an NFT to `to`. `Done { what: "gift" }`.
+    GiftNft { id: String, to: String },
+}
+
+impl Spend {
+    /// The `what` of the operation's `Done` (or `"send"` for [`Event::Sent`]).
+    pub fn what(&self) -> &'static str {
+        match self {
+            Spend::Send { .. } => "send",
+            Spend::TopUpIdentity { .. } | Spend::ResumeTopUp => "top-up",
+            Spend::CreateIdentity { .. } | Spend::ResumeIdentity => "identity",
+            Spend::AddName { .. } => "name",
+            Spend::Shield { .. } => "shield",
+            Spend::Unshield { .. } => "unshield",
+            Spend::TopUpFromPool { .. } => "pool-top-up",
+            Spend::AddContact { .. } | Spend::AcceptContact { .. } => "contact",
+            Spend::SaveProfile { .. } => "profile",
+            Spend::ApproveApp { .. } => "app",
+            Spend::GiftNft { .. } => "gift",
+        }
+    }
+
+    /// The answer when the operation does not happen at all (the gate, a wallet that is not
+    /// there): the event its screen already waits for.
+    pub fn refused(&self, why: CoreError) -> Event {
+        match self {
+            Spend::Send { .. } => Event::Sent(Err(why)),
+            _ => Event::Done {
+                what: self.what(),
+                result: Err(why),
+            },
+        }
+    }
 }
 
 #[derive(Clone, PartialEq, Debug)]

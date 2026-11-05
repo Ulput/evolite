@@ -3,7 +3,7 @@
 //! command's contents (amounts, addresses, names, passwords), never an answer's.
 
 use super::Record;
-use evolite_api::{Command, CoreError, Event, SyncStage, VaultState};
+use evolite_api::{Command, CoreError, Event, Spend, SyncStage, VaultState};
 
 /// A command by name only.
 pub fn command(command: &Command) -> Record {
@@ -17,26 +17,17 @@ pub fn command(command: &Command) -> Record {
         Command::Touch => "touch",
         Command::ChangePassword { .. } => "change_password",
         Command::ResolveName { .. } => "resolve_name",
-        Command::Send { .. } => "send",
+        Command::Spend { op, .. } => spend(op),
+        Command::SetPasswordEachSend { .. } => "set_password_each_send",
         Command::DisconnectApp { .. } => "disconnect_app",
         Command::CheckName { .. } => "check_name",
-        Command::CreateIdentity { .. } => "create_identity",
-        Command::ResumeIdentity => "resume_identity",
-        Command::Shield { .. } => "shield",
         Command::OpenAppLink { .. } => "open_app_link",
-        Command::AnswerApp { .. } => "answer_app",
-        Command::GiftNft { .. } => "gift_nft",
+        Command::DeclineApp { .. } => "decline_app",
         Command::DrawArt { .. } => "draw_art",
         Command::RevealPhrase { .. } => "reveal_phrase",
-        Command::AddContact { .. } => "add_contact",
-        Command::AcceptContact { .. } => "accept_contact",
         Command::HideRequest { .. } => "hide_request",
-        Command::SaveProfile { .. } => "save_profile",
         Command::PreviewPayment { .. } => "preview_payment",
-        Command::TopUpIdentity { .. } => "top_up_identity",
-        Command::ResumeTopUp => "resume_top_up",
         Command::FindIdentities => "find_identities",
-        Command::AddName { .. } => "add_name",
         Command::ChooseIdentity { .. } => "choose_identity",
         Command::DeleteWallet { .. } => "delete_wallet",
         Command::AskPhraseCheck { .. } => "ask_phrase_check",
@@ -47,8 +38,6 @@ pub fn command(command: &Command) -> Record {
         Command::CoreNode { .. } => "core_node",
         Command::FiatRate { .. } => "fiat_rate",
         Command::ReceiveAddress { .. } => "receive_address",
-        Command::Unshield { .. } => "unshield",
-        Command::TopUpFromPool { .. } => "top_up_from_pool",
         // Which wallet, and its name, stay off the journal.
         Command::SwitchWallet { .. } => "switch_wallet",
         Command::AddWallet => "add_wallet",
@@ -56,6 +45,27 @@ pub fn command(command: &Command) -> Record {
         Command::RenameWallet { .. } => "rename_wallet",
     };
     Record::Command { name }
+}
+
+/// A spend by the name its command had before the password gate (R-27), so old and new
+/// journals read alike.
+fn spend(op: &Spend) -> &'static str {
+    match op {
+        Spend::Send { .. } => "send",
+        Spend::TopUpIdentity { .. } => "top_up_identity",
+        Spend::ResumeTopUp => "resume_top_up",
+        Spend::CreateIdentity { .. } => "create_identity",
+        Spend::ResumeIdentity => "resume_identity",
+        Spend::AddName { .. } => "add_name",
+        Spend::Shield { .. } => "shield",
+        Spend::Unshield { .. } => "unshield",
+        Spend::TopUpFromPool { .. } => "top_up_from_pool",
+        Spend::AddContact { .. } => "add_contact",
+        Spend::AcceptContact { .. } => "accept_contact",
+        Spend::SaveProfile { .. } => "save_profile",
+        Spend::ApproveApp { .. } => "approve_app",
+        Spend::GiftNft { .. } => "gift_nft",
+    }
 }
 
 /// The kind of an error, without its text.
@@ -188,10 +198,12 @@ mod tests {
 
     #[test]
     fn a_command_is_its_name_and_nothing_of_what_it_carries() {
-        let record = command(&Command::Send {
-            from: Source::Core,
-            to: "yMrDQWqicXKL8xdJg23oYVVqKNtm5AwvXQ".into(),
-            amount: 25_000_000,
+        let record = command(&Command::Spend {
+            op: Spend::Send {
+                from: Source::Core,
+                to: "yMrDQWqicXKL8xdJg23oYVVqKNtm5AwvXQ".into(),
+                amount: 25_000_000,
+            },
             password: Some(Password::new("hunter2".into())),
         });
         assert_eq!(record, Record::Command { name: "send" });

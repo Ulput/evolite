@@ -14,7 +14,7 @@ use crate::theme::{Weight, mono, sans};
 use egui::{Align, Layout, Margin, Stroke, Ui, vec2};
 use evolite_api::{
     Activity, ActivityKind, Command, ContactState, CoreError, Duffs, Password, ResolvedName,
-    SavedAddress, SentPayment, Source, Timestamp, Wallet,
+    SavedAddress, SentPayment, Source, Spend, Timestamp, Wallet,
 };
 use zeroize::{Zeroize, Zeroizing};
 
@@ -51,6 +51,8 @@ pub struct SendForm {
     /// "Add to contacts" from here went to the core, no answer yet; then its answer.
     pub contact_waiting: bool,
     pub contact_result: Option<Result<(), CoreError>>,
+    /// "Password for every payment" for that request: it spends credits too (BUG-42).
+    pub contact_password: crate::components::SpendPassword,
     /// The recipient whose Core address the core was asked for (the last look before
     /// signing), and its answer: the address the payment will go to.
     pub previewed: String,
@@ -101,6 +103,7 @@ impl SendForm {
     pub fn on_lock(&mut self) {
         self.password.zeroize();
         self.signed.zeroize();
+        self.contact_password.forget();
         self.replace(SendForm::empty());
     }
 
@@ -110,6 +113,7 @@ impl SendForm {
         }
         self.contact_waiting = false;
         self.contact_result = Some(result.clone());
+        self.contact_password.on_answer(result);
         if result.is_ok() {
             // Asked again: the answer now says where the name stands among the contacts.
             self.asked.clear();
@@ -202,6 +206,7 @@ impl Default for SendForm {
             password: Zeroizing::default(),
             contact_waiting: false,
             contact_result: None,
+            contact_password: Default::default(),
             previewed: String::new(),
             preview: None,
         }
@@ -480,8 +485,9 @@ fn own_of(now: &[&str], activity: &[Activity], to: &str) -> bool {
             }))
 }
 
-/// `ask_password`: "a password for every payment" is on in the settings.
-pub fn send(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut SendForm, ask_password: bool) {
+pub fn send(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut SendForm) {
+    // "A password for every payment": the core keeps it for the wallet (BUG-42).
+    let ask_password = crate::components::password_asked(cx.snap);
     let p = a.p;
     crate::format::fill_suggested(&mut form.amount, &mut form.suggested);
     ui.spacing_mut().item_spacing.y = 24.0;
@@ -677,22 +683,33 @@ pub fn send(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut SendForm, ask_
                     ),
                 };
                 notice(ui, a, "contacts", p.accent, &text);
-                if let Some(Err(e)) = &form.contact_result {
+                if let Some(Err(e)) = &form.contact_result
+                    && !form.contact_password.is_wrong()
+                {
                     crate::components::error_notice(ui, a, &super::contacts::contact_error(e), crate::text::error_details(e).as_deref());
                 }
+                // The request costs credits: "password for every payment" asks here too.
+                let ask = action.is_some()
+                    && name.contact != Some(ContactState::Incoming)
+                    && crate::components::password_asked(cx.snap);
+                let entered = form.contact_password.field(ui, &p, "send-contact-password", ask);
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = 10.0;
                     if let Some(action) = action {
                         let label = if form.contact_waiting { tr!("Sending…").to_string() } else { action };
-                        if button_enabled(ui, a, &label, ButtonKind::Primary, None, !form.contact_waiting)
-                            .clicked()
+                        let ready = !form.contact_waiting && form.contact_password.ready(ask);
+                        if button_enabled(ui, a, &label, ButtonKind::Primary, None, ready)
+                            .clicked() || (entered && ready)
                         {
                             if name.contact == Some(ContactState::Incoming) {
                                 open_contacts = true;
                             } else {
-                                asked.push(Command::AddContact {
-                                    name: format!("@{}", name.name),
-                                });
+                                asked.push(form.contact_password.command(
+                                    Spend::AddContact {
+                                        name: format!("@{}", name.name),
+                                    },
+                                    ask,
+                                ));
                                 form.contact_waiting = true;
                                 form.contact_result = None;
                             }
@@ -1334,10 +1351,12 @@ fn confirm(
     if send_now {
         form.sent_to = to.clone();
         // The password goes to the core and is wiped here at once.
-        cx.send(Command::Send {
-            from: source.source,
-            to,
-            amount,
+        cx.send(Command::Spend {
+            op: Spend::Send {
+                from: source.source,
+                to,
+                amount,
+            },
             password: ask_password.then(|| Password::new(form.password.to_string())),
         });
         form.waiting += 1;

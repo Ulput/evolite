@@ -10,7 +10,9 @@ use crate::components::{
     Assets, ButtonKind, button, card, chip, divider, inner, kv_row, page_header, pill,
 };
 #[cfg(demo_core)]
-use crate::components::{FieldKind, button_enabled, dialog, field_label, text_field};
+use crate::components::{
+    FieldKind, button_enabled, dialog, field_label, password_asked, text_field,
+};
 use crate::context::Ctx;
 use crate::text;
 use crate::theme::{Weight, mono, sans};
@@ -18,6 +20,8 @@ use egui::{
     Align, Align2, CornerRadius, CursorIcon, Layout, Margin, Rect, Sense, Stroke, StrokeKind, Ui,
     pos2, vec2,
 };
+#[cfg(demo_core)]
+use evolite_api::Spend;
 use evolite_api::{Command, CoreError, Duffs, Nft, NftOrigin, NftsStatus};
 use std::collections::HashSet;
 
@@ -52,6 +56,9 @@ pub struct CollectionState {
     pub gifting: bool,
     #[cfg(demo_core)]
     pub recipient: String,
+    /// "Password for every payment": the transfer costs credits (BUG-42).
+    #[cfg(demo_core)]
+    pub password: crate::components::SpendPassword,
     /// The core's answer to the last "Give".
     pub result: Option<Result<(), CoreError>>,
     /// The pictures, drawn by the core at the size of the cards.
@@ -593,21 +600,28 @@ fn gift_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut Collection
             &format!("≈ {}", crate::format::amount(fee)),
             mono(13.0, Weight::Medium),
         );
+        let ask = password_asked(cx.snap);
+        state.password.settle(state.result.as_ref());
+        let entered = state.password.field(ui, &p, "gift-password", ask);
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
             ui.spacing_mut().item_spacing.x = 10.0;
-            let ready = !state.recipient.trim().is_empty() && error.is_none();
-            if button_enabled(ui, a, tr!("Give"), ButtonKind::Primary, None, ready).clicked() {
-                cx.send(Command::GiftNft {
+            let ready =
+                !state.recipient.trim().is_empty() && error.is_none() && state.password.ready(ask);
+            if button_enabled(ui, a, tr!("Give"), ButtonKind::Primary, None, ready).clicked()
+                || (entered && ready)
+            {
+                let op = Spend::GiftNft {
                     id: nft.id.clone(),
                     to: state.recipient.trim().to_string(),
-                });
+                };
+                cx.send(state.password.command(op, ask));
                 state.result = None;
             }
             if button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked() {
                 close = true;
             }
         });
-        match &state.result {
+        match state.result.as_ref().filter(|_| !state.password.is_wrong()) {
             Some(Ok(())) => {
                 crate::components::notice(ui, a, "confirmed", p.accent, tr!("NFT transferred."))
             }
@@ -632,6 +646,7 @@ fn gift_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut Collection
         state.gifting = false;
         state.recipient.clear();
         state.result = None;
+        state.password.forget();
     }
 }
 

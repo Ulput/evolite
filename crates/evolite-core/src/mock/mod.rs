@@ -11,10 +11,16 @@ use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender};
 use std::time::{Duration, Instant};
 
 const NO_WALLET: &str = tr!("Prototype: there is no wallet behind the screens");
+use crate::PASSWORD_NEEDED;
 
 /// The one password the demo's unlock refuses, so the UI tests can see "Wrong password"
 /// (BUG-16); any other opens the example wallet.
 pub const WRONG_PASSWORD: &str = "wrong";
+
+/// A password the demo takes as wrong for a spend: empty, or [`WRONG_PASSWORD`].
+fn refused(password: &Password) -> bool {
+    password.expose().is_empty() || password.expose() == WRONG_PASSWORD
+}
 
 /// The demo's "Check the phrase": word number, choices, the right one's place.
 const DEMO_CHECK: [(usize, [&str; 3], usize); 4] = [
@@ -124,14 +130,6 @@ impl Mock {
                 let result = answers::resolve(&name, contacts);
                 Event::NameResolved { name, result }
             }
-            Command::AddContact { .. } | Command::AcceptContact { .. } => Event::Done {
-                what: "contact",
-                result: Err(CoreError::NotAvailable(NO_WALLET.into())),
-            },
-            Command::SaveProfile { .. } => Event::Done {
-                what: "profile",
-                result: Err(CoreError::NotAvailable(NO_WALLET.into())),
-            },
             // Hiding is a choice kept on this computer: the mock can do it.
             Command::HideRequest { identity_id } => {
                 if let Some(wallet) = &mut self.snapshot.wallet {
@@ -145,7 +143,6 @@ impl Mock {
                     result: Ok(()),
                 }
             }
-            Command::Send { .. } => Event::Sent(Err(CoreError::NotAvailable(NO_WALLET.into()))),
             Command::PreviewPayment { to } => {
                 let contacts = self
                     .snapshot
@@ -194,10 +191,6 @@ impl Mock {
                     result: Ok(()),
                 }
             }
-            Command::GiftNft { .. } => Event::Done {
-                what: "gift",
-                result: Err(CoreError::NotAvailable(NO_WALLET.into())),
-            },
             Command::DrawArt { art, side, urgent } => {
                 match (self.gallery.get(&art), &self.artist) {
                     (Some(stored), Some(artist)) => {
@@ -232,22 +225,6 @@ impl Mock {
                 result: check_name(&label),
                 label,
             },
-            Command::CreateIdentity { .. } => Event::Done {
-                what: "identity",
-                result: Err(CoreError::NotAvailable(NO_WALLET.into())),
-            },
-            Command::ResumeIdentity => Event::Done {
-                what: "identity",
-                result: Err(CoreError::NotAvailable(NO_WALLET.into())),
-            },
-            Command::TopUpIdentity { .. } | Command::ResumeTopUp => Event::Done {
-                what: "top-up",
-                result: Err(CoreError::NotAvailable(NO_WALLET.into())),
-            },
-            Command::AddName { .. } => Event::Done {
-                what: "name",
-                result: Err(CoreError::NotAvailable(NO_WALLET.into())),
-            },
             // The demo identity is always found.
             Command::FindIdentities => return changed,
             // The demo has one identity behind both choices.
@@ -266,40 +243,6 @@ impl Mock {
                     tr!("This is the mockup's example: there is nothing to sync").into(),
                 )),
             },
-            Command::Shield { amount, .. } => {
-                if amount <= 0 {
-                    Event::Done {
-                        what: "shield",
-                        result: Err(CoreError::BadAmount),
-                    }
-                } else {
-                    self.shield_started = Some(Instant::now());
-                    Event::Progress {
-                        what: "shield",
-                        fraction: 0.0,
-                    }
-                }
-            }
-            Command::Unshield { amount } => Event::Done {
-                what: "unshield",
-                result: if amount <= 0 {
-                    Err(CoreError::BadAmount)
-                } else {
-                    Err(CoreError::NotAvailable(
-                        tr!("This is the mockup's example: there is nothing to unshield").into(),
-                    ))
-                },
-            },
-            Command::TopUpFromPool { amount } => Event::Done {
-                what: "pool-top-up",
-                result: if amount <= 0 {
-                    Err(CoreError::BadAmount)
-                } else {
-                    Err(CoreError::NotAvailable(
-                        tr!("This is the mockup's example: there is nothing to top up with").into(),
-                    ))
-                },
-            },
             Command::OpenAppLink { text } => {
                 self.next_request += 1;
                 let request = match &self.snapshot.wallet {
@@ -308,19 +251,39 @@ impl Mock {
                 };
                 Event::AppRequest(request)
             }
-            Command::AnswerApp { approve, .. } => Event::Done {
+            Command::DeclineApp { .. } => Event::Done {
                 what: "app",
-                result: if approve {
-                    Err(CoreError::NotAvailable(NO_WALLET.into()))
-                } else {
-                    Ok(())
-                },
+                result: Ok(()),
             },
+            // The same gate as the real core's, in memory: the demo wallets take any password
+            // but an empty one and [`WRONG_PASSWORD`].
+            Command::Spend { op, password } => match self.spend_gate(password.as_ref()) {
+                Err(why) => op.refused(why),
+                Ok(()) => self.spend(op),
+            },
+            Command::SetPasswordEachSend { on, password } => {
+                let result = match &mut self.snapshot.wallet {
+                    None => Err(CoreError::NotAvailable(NO_WALLET.into())),
+                    Some(_) if !on && password.as_ref().is_none_or(refused) => {
+                        Err(CoreError::WrongPassword)
+                    }
+                    Some(wallet) => {
+                        changed = wallet.password_each_send != on;
+                        wallet.password_each_send = on;
+                        Ok(())
+                    }
+                };
+                Event::Done {
+                    what: "password-each-send",
+                    result,
+                }
+            }
             // The demo wallets have no password: any opens them, but for [`WRONG_PASSWORD`].
             Command::Unlock { password } if password.expose() == WRONG_PASSWORD => Event::Done {
                 what: "unlock",
                 result: Err(CoreError::WrongPassword),
             },
+            // The demo wallets have no password: any other opens them.
             Command::Unlock { .. } => {
                 changed = self.snapshot.vault != VaultState::Unlocked;
                 self.snapshot.vault = VaultState::Unlocked;
@@ -481,6 +444,53 @@ impl Mock {
         };
         let _ = out.send(event);
         changed
+    }
+
+    /// Before anything of a spend: with "password for every send" on, a password (any but an
+    /// empty one, as the demo's unlock); without one the spend is refused.
+    fn spend_gate(&self, password: Option<&Password>) -> Result<(), CoreError> {
+        let Some(wallet) = &self.snapshot.wallet else {
+            return Err(CoreError::NotAvailable(NO_WALLET.into()));
+        };
+        if !wallet.password_each_send {
+            return Ok(());
+        }
+        match password {
+            None => Err(CoreError::NotAvailable(PASSWORD_NEEDED.into())),
+            Some(p) if refused(p) => Err(CoreError::WrongPassword),
+            Some(_) => Ok(()),
+        }
+    }
+
+    /// A spend past the gate: the demo has no wallet behind it, so each says so plainly (the
+    /// staged proof for "Hide in the pool" first).
+    fn spend(&mut self, op: Spend) -> Event {
+        let bad_amount = match &op {
+            Spend::Shield { amount, .. }
+            | Spend::Unshield { amount }
+            | Spend::TopUpFromPool { amount } => *amount <= 0,
+            _ => false,
+        };
+        if bad_amount {
+            return op.refused(CoreError::BadAmount);
+        }
+        let why = match op {
+            Spend::Shield { .. } => {
+                self.shield_started = Some(Instant::now());
+                return Event::Progress {
+                    what: "shield",
+                    fraction: 0.0,
+                };
+            }
+            Spend::Unshield { .. } => {
+                tr!("This is the mockup's example: there is nothing to unshield")
+            }
+            Spend::TopUpFromPool { .. } => {
+                tr!("This is the mockup's example: there is nothing to top up with")
+            }
+            _ => NO_WALLET,
+        };
+        op.refused(CoreError::NotAvailable(why.into()))
     }
 
     fn tick(&mut self, out: &Sender<Event>) -> bool {
@@ -664,10 +674,12 @@ mod tests {
     fn never_pretends_to_send() {
         let (mut m, tx, rx) = mock();
         m.handle(
-            Command::Send {
-                from: Source::Core,
-                to: "@alice".into(),
-                amount: 1,
+            Command::Spend {
+                op: Spend::Send {
+                    from: Source::Core,
+                    to: "@alice".into(),
+                    amount: 1,
+                },
                 password: None,
             },
             &tx,
@@ -676,6 +688,164 @@ mod tests {
             rx.recv().unwrap(),
             Event::Sent(Err(CoreError::NotAvailable(_)))
         ));
+    }
+
+    /// One of each spend (R-27 AC-T1).
+    fn every_spend() -> Vec<Spend> {
+        vec![
+            Spend::Send {
+                from: Source::Core,
+                to: "@alice".into(),
+                amount: 1,
+            },
+            Spend::TopUpIdentity { amount: 1 },
+            Spend::ResumeTopUp,
+            Spend::CreateIdentity {
+                name: "alice".into(),
+                top_up: 1,
+            },
+            Spend::ResumeIdentity,
+            Spend::AddName {
+                name: "alice".into(),
+            },
+            Spend::Shield {
+                from: ShieldSource::Credits,
+                amount: 1,
+            },
+            Spend::Unshield { amount: 1 },
+            Spend::TopUpFromPool { amount: 1 },
+            Spend::AddContact {
+                name: "alice".into(),
+            },
+            Spend::AcceptContact {
+                identity_id: "x".into(),
+            },
+            Spend::SaveProfile {
+                display: String::new(),
+                about: String::new(),
+                avatar_url: None,
+            },
+            Spend::ApproveApp { id: 1 },
+            Spend::GiftNft {
+                id: "x".into(),
+                to: "@alice".into(),
+            },
+        ]
+    }
+
+    fn refusal(event: Event) -> (&'static str, CoreError) {
+        match event {
+            Event::Sent(Err(e)) => ("send", e),
+            Event::Done {
+                what,
+                result: Err(e),
+            } => (what, e),
+            other => panic!("not a refusal: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn with_a_password_for_every_send_no_spend_goes_without_it() {
+        let (mut m, tx, rx) = mock();
+        m.snapshot.wallet = Some(demo_wallet(now()));
+        m.snapshot.wallet.as_mut().unwrap().password_each_send = true;
+        let before = m.snapshot.clone();
+        for op in every_spend() {
+            let what = op.what();
+            m.handle(
+                Command::Spend {
+                    op: op.clone(),
+                    password: None,
+                },
+                &tx,
+            );
+            assert_eq!(
+                refusal(rx.recv().unwrap()),
+                (what, CoreError::NotAvailable(PASSWORD_NEEDED.into())),
+                "{op:?}"
+            );
+            m.handle(
+                Command::Spend {
+                    op: op.clone(),
+                    password: Some(Password::new(String::new())),
+                },
+                &tx,
+            );
+            assert_eq!(
+                refusal(rx.recv().unwrap()),
+                (what, CoreError::WrongPassword),
+                "{op:?}"
+            );
+        }
+        // Nothing started: no proof under way, the wallet as it was.
+        assert!(m.shield_started.is_none());
+        assert_eq!(m.snapshot, before);
+        // With the password, the spend goes on to the demo's own answer.
+        m.handle(
+            Command::Spend {
+                op: Spend::Shield {
+                    from: ShieldSource::Credits,
+                    amount: 1,
+                },
+                password: Some(Password::new("any".into())),
+            },
+            &tx,
+        );
+        assert!(matches!(rx.recv().unwrap(), Event::Progress { .. }));
+    }
+
+    #[test]
+    fn without_the_setting_a_spend_needs_no_password() {
+        let (mut m, tx, rx) = mock();
+        m.snapshot.wallet = Some(demo_wallet(now()));
+        for op in every_spend() {
+            m.handle(Command::Spend { op, password: None }, &tx);
+            let event = rx.recv().unwrap();
+            if let Event::Sent(Err(e)) | Event::Done { result: Err(e), .. } = &event {
+                assert!(
+                    !matches!(e, CoreError::WrongPassword)
+                        && *e != CoreError::NotAvailable(PASSWORD_NEEDED.into()),
+                    "{event:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn the_setting_goes_off_only_with_the_password() {
+        let (mut m, tx, rx) = mock();
+        m.snapshot.wallet = Some(demo_wallet(now()));
+        let on = |m: &Mock| m.snapshot.wallet.as_ref().unwrap().password_each_send;
+        m.handle(
+            Command::SetPasswordEachSend {
+                on: true,
+                password: None,
+            },
+            &tx,
+        );
+        assert!(matches!(rx.recv().unwrap(), Event::Done { result: Ok(()), .. }) && on(&m));
+        for password in [None, Some(Password::new(String::new()))] {
+            m.handle(
+                Command::SetPasswordEachSend {
+                    on: false,
+                    password,
+                },
+                &tx,
+            );
+            assert_eq!(
+                refusal(rx.recv().unwrap()),
+                ("password-each-send", CoreError::WrongPassword)
+            );
+            assert!(on(&m));
+        }
+        m.handle(
+            Command::SetPasswordEachSend {
+                on: false,
+                password: Some(Password::new("any".into())),
+            },
+            &tx,
+        );
+        assert!(matches!(rx.recv().unwrap(), Event::Done { result: Ok(()), .. }) && !on(&m));
     }
 
     #[test]
