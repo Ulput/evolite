@@ -12,6 +12,7 @@ mod history;
 mod login;
 mod onboarding;
 mod send;
+mod settings_apps;
 mod tab_sweep;
 
 use super::App;

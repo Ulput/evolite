@@ -28,8 +28,15 @@ pub fn normalize(input: &str) -> Result<String, String> {
             tr!("Enter the node's address: an IP or a name, with a port if you like").into(),
         );
     }
-    if s.contains("://") || s.contains('/') || s.chars().any(char::is_whitespace) {
+    if s.contains("://") || s.contains('/') {
         return Err(tr!("A node address is needed, e.g. 192.168.1.10, not a link").into());
+    }
+    // Words are not a link: "not a node" is told what an address looks like (BUG-39 №11).
+    if s.chars().any(char::is_whitespace) {
+        return Err(tr!(
+            "A node address is one word without spaces, e.g. 192.168.1.10 or node.example.org"
+        )
+        .into());
     }
     // An IPv6 address alone, without brackets and port.
     if s.parse::<std::net::Ipv6Addr>().is_ok() {
@@ -133,6 +140,18 @@ mod tests {
         ] {
             assert!(normalize(bad).is_err(), "{bad}");
         }
+    }
+
+    /// BUG-39 №11: only a link is called a link.
+    #[test]
+    fn words_are_not_called_a_link() {
+        let words = normalize("not a node").unwrap_err();
+        assert!(!words.contains("link"), "{words}");
+        assert!(
+            normalize("https://node.example.org")
+                .unwrap_err()
+                .contains("link")
+        );
     }
 
     #[tokio::test]

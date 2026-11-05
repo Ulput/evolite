@@ -3,8 +3,8 @@
 use super::parts::{Control, group, heading};
 use super::{NodeForm, SettingsState};
 use crate::components::{
-    Assets, ButtonKind, FieldKind, button, button_enabled, dialog, field_label, kv_row, notice,
-    segmented, text_field,
+    Assets, ButtonKind, FieldKind, button, button_enabled, dialog, field_label, notice, segmented,
+    text_field,
 };
 use crate::context::Ctx;
 use crate::screens::txt;
@@ -107,7 +107,6 @@ pub(super) fn network(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut Set
                 tr!("Quorums' BLS signatures are always verified. This cannot be turned off."),
                 Control::Locked,
             ),
-            (tr!("Own node"), &own_line, Control::Toggle(&mut own)),
             (
                 tr!("Proxy (SOCKS5)"),
                 tr!(
@@ -115,6 +114,8 @@ pub(super) fn network(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut Set
                 ),
                 Control::Text(tr!("unavailable"), false),
             ),
+            // Last, so that its address field opens right under it (BUG-39 №11).
+            (tr!("Own node"), &own_line, Control::Toggle(&mut own)),
         ],
     );
     if own && !was_on {
@@ -295,13 +296,7 @@ pub fn nodes_dialog(ui: &mut Ui, a: &mut Assets, cx: &Ctx, tab: &mut super::Node
                             }
                             _ => role(node.role).to_owned(),
                         };
-                        kv_row(
-                            ui,
-                            &p,
-                            &node.address,
-                            &state,
-                            crate::theme::mono(12.0, Weight::Regular),
-                        );
+                        node_row(ui, &p, &node.address, &state);
                         ui.add_space(6.0);
                     }
                 });
@@ -313,6 +308,29 @@ pub fn nodes_dialog(ui: &mut Ui, a: &mut Assets, cx: &Ctx, tab: &mut super::Node
             close
         },
     )
+}
+
+/// A node of the list: its address (IP:port) in Mono on the left, what it is in Inter on the
+/// right — the design system's rule, numbers in Mono and words in Inter (designer review №9).
+fn node_row(ui: &mut Ui, p: &crate::theme::Palette, address: &str, state: &str) {
+    use egui::{Align2, Sense, vec2};
+    let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), 16.0), Sense::hover());
+    crate::components::paint_text(
+        ui,
+        rect.left_center(),
+        Align2::LEFT_CENTER,
+        address,
+        crate::theme::mono(12.0, Weight::Regular),
+        p.muted,
+    );
+    crate::components::paint_text(
+        ui,
+        rect.right_center(),
+        Align2::RIGHT_CENTER,
+        state,
+        crate::theme::sans(13.0, Weight::Regular),
+        p.text,
+    );
 }
 
 /// What a node is, as the masternode list says.

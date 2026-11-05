@@ -119,13 +119,24 @@ pub fn apps(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, requests: &mut AppRequest
             ui.spacing_mut().item_spacing.y = 0.0;
             if wallet.apps.is_empty() {
                 ui.add_space(32.0);
+                // With the next step (designer review №17): the app's link is the way in.
                 ui.vertical_centered(|ui| {
+                    ui.spacing_mut().item_spacing.y = 12.0;
                     ui.label(txt(
                         tr!("No connected apps"),
                         14.0,
                         Weight::Regular,
                         p.muted,
-                    ))
+                    ));
+                    ui.label(txt(
+                        tr!("To connect one, paste the link the app shows."),
+                        13.0,
+                        Weight::Regular,
+                        p.muted,
+                    ));
+                    if button(ui, a, tr!("Paste a link"), ButtonKind::Secondary, None).clicked() {
+                        requests.pasting = true;
+                    }
                 });
                 ui.add_space(32.0);
             }
@@ -156,7 +167,12 @@ pub fn apps(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, requests: &mut AppRequest
         let w = (total - 16.0 * (per_row - 1) as f32) / per_row as f32;
         ui.vertical(|ui| {
             ui.spacing_mut().item_spacing.y = 16.0;
-            for chunk in WAYS.chunks(per_row) {
+            for (row, chunk) in WAYS.chunks(per_row).enumerate() {
+                // The cards of a row are as tall as the tallest one (designer review №17): its
+                // content's height from the last frame is the others' minimum.
+                let tallest_id = ui.id().with(("ways-tallest", row, per_row));
+                let tallest = ui.data(|d| d.get_temp::<f32>(tallest_id)).unwrap_or(0.0);
+                let mut measured: f32 = 0.0;
                 ui.horizontal_top(|ui| {
                     ui.spacing_mut().item_spacing.x = 16.0;
                     for (icon, title, text) in chunk {
@@ -165,7 +181,8 @@ pub fn apps(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, requests: &mut AppRequest
                             EXAMPLES[WAYS.iter().position(|w| w.1 == *title).unwrap_or(0)];
                         card(&p, Margin::same(18)).show(ui, |ui| {
                             ui.set_width(inner(w, 18));
-                            ui.vertical(|ui| {
+                            ui.set_min_height(tallest);
+                            let content = ui.vertical(|ui| {
                             ui.spacing_mut().item_spacing.y = 8.0;
                             ui.horizontal(|ui| {
                                 ui.spacing_mut().item_spacing.x = 8.0;
@@ -195,9 +212,14 @@ pub fn apps(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, requests: &mut AppRequest
                                 });
                             }
                             });
+                            measured = measured.max(content.response.rect.height());
                         });
                     }
                 });
+                if (measured - tallest).abs() > 0.5 {
+                    ui.data_mut(|d| d.insert_temp(tallest_id, measured));
+                    ui.ctx().request_repaint();
+                }
             }
         });
     });
