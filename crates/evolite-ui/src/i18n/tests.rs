@@ -324,6 +324,36 @@ fn a_key_followed_by_a_full_stop_is_still_translated() {
 }
 
 #[test]
+fn a_reason_with_a_colon_and_a_full_stop_is_translated_whole() {
+    // BUG-35: "{}: {}." fitted the reason by its colon, kept both halves English and won over
+    // the key itself with the full stop after it.
+    let reason =
+        "This is not a Dash address: a typo or an extra character — the checksum does not match";
+    let stops: &[char] = &['.', '。', '।'];
+    let stopped = format!("{reason}.");
+    for lang in Lang::ALL {
+        let Some(json) = lang.catalog_json() else {
+            continue;
+        };
+        let mut c = catalog(lang, json);
+        let shown = c.translate(&stopped).unwrap_or_default();
+        let bare = c.translate(reason).expect("the reason is in the catalog");
+        assert_eq!(
+            shown.trim_end_matches(stops),
+            bare.trim_end_matches(stops),
+            "{lang:?}"
+        );
+    }
+    // A template still takes words it has no translation for when nothing else does.
+    let mut ru = catalog(Lang::Ru, r#"{ "{}: {}.": "{}: {}." }"#);
+    assert_eq!(
+        ru.translate("Not saved: some words from a library nobody translated.")
+            .as_deref(),
+        Some("Not saved: some words from a library nobody translated.")
+    );
+}
+
+#[test]
 fn a_name_inside_arabic_keeps_its_at_sign_in_front() {
     // "Send 0.25 DASH to @alice" (the script check's line): bidi gave the neutral "@" the
     // paragraph's direction and drew "alice@".

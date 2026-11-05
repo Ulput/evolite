@@ -834,6 +834,7 @@
   "This build of evolite has no private pool": "У цій збірці evolite немає приватного пулу",
   "This identity's MASTER key is not from your phrase": "Ключ MASTER цієї identity не з вашої фрази",
   "This identity's MASTER key is not from your phrase: you cannot sign in to apps as it from here": "Ключ MASTER цієї identity не з вашої фрази: входити в застосунки від її імені звідси не можна",
+  "This is an address of this wallet: the money stays yours, only the fee goes.": "Це адреса цього гаманця: гроші залишаться у вас, піде лише комісія.",
   "This is not a Dash address: a typo or an extra character — the checksum does not match": "Це не адреса Dash: друкарська помилка або зайвий знак — контрольна сума не сходиться",
   "This is not a Dash app request": "Це не запит застосунку Dash",
   "This is not a Dash mainnet address: check it.": "Це не адреса Dash mainnet: перевірте її.",

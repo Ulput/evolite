@@ -834,6 +834,7 @@
   "This build of evolite has no private pool": "evolite के इस बिल्ड में निजी पूल नहीं है",
   "This identity's MASTER key is not from your phrase": "इस पहचान की MASTER कुंजी आपके वाक्यांश से नहीं है",
   "This identity's MASTER key is not from your phrase: you cannot sign in to apps as it from here": "इस पहचान की MASTER कुंजी आपके वाक्यांश से नहीं है: यहाँ से इसके नाम पर ऐप में साइन इन नहीं हो सकता",
+  "This is an address of this wallet: the money stays yours, only the fee goes.": "यह इसी वॉलेट का पता है: पैसा आपका ही रहेगा, केवल शुल्क जाएगा।",
   "This is not a Dash address: a typo or an extra character — the checksum does not match": "यह Dash पता नहीं है: टाइपिंग की ग़लती या एक अतिरिक्त अक्षर — चेकसम मेल नहीं खाता",
   "This is not a Dash app request": "यह Dash ऐप का अनुरोध नहीं है",
   "This is not a Dash mainnet address: check it.": "यह Dash mainnet पता नहीं है: इसे जाँचें।",

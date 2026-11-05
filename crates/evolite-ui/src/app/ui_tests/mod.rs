@@ -8,6 +8,7 @@
 //! answer is not in the tree.
 
 mod bugs;
+mod send;
 mod tab_sweep;
 
 use super::App;

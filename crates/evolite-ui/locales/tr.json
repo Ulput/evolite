@@ -834,6 +834,7 @@
   "This build of evolite has no private pool": "evolite'in bu derlemesinde gizli havuz yok",
   "This identity's MASTER key is not from your phrase": "Bu kimliğin MASTER anahtarı sizin ifadenizden değil",
   "This identity's MASTER key is not from your phrase: you cannot sign in to apps as it from here": "Bu kimliğin MASTER anahtarı sizin ifadenizden değil: buradan onun adına uygulamalara giriş yapılamaz",
+  "This is an address of this wallet: the money stays yours, only the fee goes.": "Bu, bu cüzdanın bir adresi: para sizde kalır, yalnızca ücret gider.",
   "This is not a Dash address: a typo or an extra character — the checksum does not match": "Bu bir Dash adresi değil: yazım hatası veya fazla karakter — sağlama toplamı tutmuyor",
   "This is not a Dash app request": "Bu bir Dash uygulaması isteği değil",
   "This is not a Dash mainnet address: check it.": "Bu bir Dash mainnet adresi değil: kontrol edin.",

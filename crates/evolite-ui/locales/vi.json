@@ -834,6 +834,7 @@
   "This build of evolite has no private pool": "Bản dựng evolite này không có pool riêng tư",
   "This identity's MASTER key is not from your phrase": "Khóa MASTER của danh tính này không từ cụm từ của bạn",
   "This identity's MASTER key is not from your phrase: you cannot sign in to apps as it from here": "Khóa MASTER của danh tính này không từ cụm từ của bạn: không thể đăng nhập ứng dụng bằng nó từ đây",
+  "This is an address of this wallet: the money stays yours, only the fee goes.": "Đây là địa chỉ của ví này: tiền vẫn là của bạn, chỉ mất phí.",
   "This is not a Dash address: a typo or an extra character — the checksum does not match": "Đây không phải địa chỉ Dash: lỗi gõ hoặc thừa ký tự — tổng kiểm không khớp",
   "This is not a Dash app request": "Đây không phải yêu cầu từ ứng dụng Dash",
   "This is not a Dash mainnet address: check it.": "Đây không phải địa chỉ Dash mainnet: hãy kiểm tra.",

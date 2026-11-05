@@ -834,6 +834,7 @@
   "This build of evolite has no private pool": "이 evolite 빌드에는 비공개 풀이 없습니다",
   "This identity's MASTER key is not from your phrase": "이 신원의 MASTER 키는 내 문구에서 나온 것이 아닙니다",
   "This identity's MASTER key is not from your phrase: you cannot sign in to apps as it from here": "이 신원의 MASTER 키는 내 문구의 것이 아닙니다: 여기서 그 이름으로 앱에 로그인할 수 없습니다",
+  "This is an address of this wallet: the money stays yours, only the fee goes.": "이 지갑의 주소입니다: 돈은 그대로 내 것이고 수수료만 나갑니다.",
   "This is not a Dash address: a typo or an extra character — the checksum does not match": "Dash 주소가 아닙니다: 오타 또는 남는 문자 — 체크섬이 맞지 않습니다",
   "This is not a Dash app request": "Dash 앱의 요청이 아닙니다",
   "This is not a Dash mainnet address: check it.": "Dash 메인넷 주소가 아닙니다: 확인하세요.",

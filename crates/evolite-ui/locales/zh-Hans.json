@@ -834,6 +834,7 @@
   "This build of evolite has no private pool": "此版本的 evolite 不含私密池",
   "This identity's MASTER key is not from your phrase": "此身份的 MASTER 密钥不来自你的助记词",
   "This identity's MASTER key is not from your phrase: you cannot sign in to apps as it from here": "此身份的 MASTER 密钥不来自你的助记词：无法在这里以它的身份登录应用",
+  "This is an address of this wallet: the money stays yours, only the fee goes.": "这是本钱包的地址：钱仍归你，只会扣除手续费。",
   "This is not a Dash address: a typo or an extra character — the checksum does not match": "这不是 Dash 地址：有错字或多余字符——校验和不符",
   "This is not a Dash app request": "这不是 Dash 应用的请求",
   "This is not a Dash mainnet address: check it.": "这不是 Dash 主网地址：请检查。",

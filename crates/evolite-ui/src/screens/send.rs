@@ -24,6 +24,9 @@ pub struct SendForm {
     pub amount: String,
     /// The example amount in `amount` until the person changes it (`format::fill_suggested`).
     pub suggested: Option<i64>,
+    /// "Max" put the amount there and the person has not changed it since: it follows the
+    /// source (and its fee) chosen after it, instead of staying the last source's (BUG-39 №6).
+    pub max: bool,
     /// The name last sent to the core for resolving, and its answer.
     pub asked: String,
     pub resolution: Option<Result<ResolvedName, CoreError>>,
@@ -35,6 +38,9 @@ pub struct SendForm {
     /// The amount as typed for the last payment signed: cleared from the form at once, put back
     /// if the core refuses it.
     pub signed: String,
+    /// The recipient of the last payment signed: its answer clears "To" while it still holds
+    /// it (BUG-39 №7), and says which kind of payment the answer is about.
+    pub sent_to: String,
     /// The name being typed for the recipient's address, to keep it in the address book.
     pub naming: Option<String>,
     /// The address book's answer to the last save or removal, when it refused.
@@ -77,18 +83,25 @@ impl SendForm {
     }
 
     /// `next` in place of this form. Payments still with the network stay counted: the form
-    /// goes on saying that their answer is coming.
+    /// goes on saying that their answer is coming (and about which kind of payment).
     pub fn replace(&mut self, next: SendForm) {
         let waiting = self.waiting;
-        *self = SendForm { waiting, ..next };
+        let sent_to = std::mem::take(&mut self.sent_to);
+        *self = SendForm {
+            waiting,
+            sent_to,
+            ..next
+        };
     }
 
-    /// The wallet locked: a payment waiting for its last look is not signed after the next
-    /// unlock with what was on screen before — the confirmation closes and its password goes.
-    /// One already with the network keeps waiting for its answer.
+    /// The wallet locked: what was typed and shown goes with it (BUG-39 №7) — the recipient,
+    /// the amount, the last answer; a payment waiting for its last look is not signed after the
+    /// next unlock with what was on screen before. One already with the network keeps waiting
+    /// for its answer.
     pub fn on_lock(&mut self) {
-        self.confirming = false;
         self.password.zeroize();
+        self.signed.zeroize();
+        self.replace(SendForm::empty());
     }
 
     pub fn on_contact_done(&mut self, result: &Result<(), CoreError>) {
@@ -108,6 +121,14 @@ impl SendForm {
         if result.is_err() && self.amount.is_empty() {
             self.amount = std::mem::take(&mut self.signed);
         }
+        // Gone: "To" is cleared for the next payment, unless the person already typed another.
+        if result.is_ok() && self.recipient.trim() == self.sent_to.trim() {
+            self.recipient.clear();
+            self.naming = None;
+            self.book_error = None;
+            self.max = false;
+            self.signed.clear();
+        }
         self.result = Some(result.clone());
     }
 
@@ -118,6 +139,15 @@ impl SendForm {
                 self.book_error = None;
             }
             Err(e) => self.book_error = Some(e.clone()),
+        }
+    }
+
+    /// "Max" taken and not changed since: the amount is what the balance chosen now can send
+    /// (`balance`, `fee`, `withdrawal` of the source on screen).
+    fn follow_max(&mut self, balance: Duffs, fee: Duffs, withdrawal: Option<Withdrawal>) {
+        if self.max {
+            self.amount = crate::format::input_text(max_amount(balance, fee, withdrawal));
+            self.suggested = None;
         }
     }
 
@@ -159,11 +189,13 @@ impl Default for SendForm {
             recipient: "@alice".into(),
             amount: crate::format::input_text(25_000_000),
             suggested: Some(25_000_000),
+            max: false,
             asked: String::new(),
             resolution: None,
             confirming: false,
             waiting: 0,
             signed: String::new(),
+            sent_to: String::new(),
             naming: None,
             book_error: None,
             result: None,
@@ -395,6 +427,59 @@ fn recipient<'a>(form: &'a SendForm) -> Recipient<'a> {
     }
 }
 
+/// Whether `to` is written like a Core address (Base58, 25–36 characters) or a Platform one
+/// (`tdash1…`/`dash1…`): only the core says it really is one, this keeps a stray `q` out of the
+/// summary.
+fn looks_like_address(to: &str) -> bool {
+    let to = to.trim();
+    let lower = to.to_ascii_lowercase();
+    if lower.starts_with("tdash1") || lower.starts_with("dash1") {
+        return to.len() >= 40 && to.chars().all(|c| c.is_ascii_alphanumeric());
+    }
+    (25..=36).contains(&to.chars().count())
+        && to
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() && !matches!(c, '0' | 'O' | 'I' | 'l'))
+}
+
+/// "To" in the summary: "—" until the recipient is one (`known`: a resolved name, an address
+/// the core took), then the name, or the address as `yNBw…Reb4` — never a whole line running
+/// over the label (BUG-32).
+fn summary_recipient(typed: &str, known: bool) -> String {
+    const NAME_SHOWN: usize = 24;
+    let typed = typed.trim();
+    if !known || typed.is_empty() {
+        return "—".into();
+    }
+    if typed.starts_with('@') {
+        if typed.chars().count() <= NAME_SHOWN {
+            return typed.into();
+        }
+        let head: String = typed.chars().take(NAME_SHOWN - 1).collect();
+        return format!("{head}…");
+    }
+    short_address(typed)
+}
+
+/// Whether `to` is an address of this wallet: the one to receive on now, its Platform address,
+/// or one that received before.
+fn own_address(w: &Wallet, to: &str) -> bool {
+    own_of(&[&w.core_address, &w.platform_address], &w.activity, to)
+}
+
+/// [`own_address`] from the receive addresses `now` and the history.
+fn own_of(now: &[&str], activity: &[Activity], to: &str) -> bool {
+    let to = to.trim();
+    !to.is_empty()
+        && (now.contains(&to)
+            || activity.iter().any(|act| {
+                matches!(
+                    act.kind,
+                    ActivityKind::Received { .. } | ActivityKind::PlatformReceived
+                ) && act.address.as_deref() == Some(to)
+            }))
+}
+
 /// `ask_password`: "a password for every payment" is on in the settings.
 pub fn send(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut SendForm, ask_password: bool) {
     let p = a.p;
@@ -414,6 +499,7 @@ pub fn send(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut SendForm, ask_
 
     let all = sources(cx.wallet(), &typed);
     let source = &all[form.source];
+    form.follow_max(source.duffs, source.fee, source.withdrawal);
     // An address for Core is checked as it is typed, so a typo shows before the password.
     let typed_address =
         source.source == Source::Core && !typed.is_empty() && !typed.starts_with('@');
@@ -423,9 +509,10 @@ pub fn send(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut SendForm, ask_
         form.preview = None;
     }
     let address_problem = match &form.preview {
-        // Nothing was being sent yet: the reason alone.
+        // Nothing was being sent yet: the reason alone (the catalogs translate it with the full
+        // stop after it, BUG-35).
         Some(Err(CoreError::NotAvailable(why))) if typed_address && form.previewed == typed => {
-            Some(format!("{why}."))
+            Some(format!("{}.", why.trim_end_matches('.')))
         }
         Some(Err(e)) if typed_address && form.previewed == typed => Some(send_error(e)),
         _ => None,
@@ -496,6 +583,19 @@ pub fn send(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut SendForm, ask_
     let book = cx.wallet().address_book.clone();
     let address_ok =
         typed_address && form.previewed == typed && matches!(&form.preview, Some(Ok(_)));
+    // The summary names the recipient only once it is one (BUG-39 №5), short (BUG-32).
+    let known = match &to {
+        Recipient::Name(_) => true,
+        Recipient::Address => {
+            looks_like_address(&typed) && (source.source != Source::Core || address_ok)
+        }
+        _ => false,
+    };
+    let summary_to = summary_recipient(&typed, known);
+    // Nothing to keep in the address book: it is this wallet's own (BUG-39 №9).
+    let own = own_address(cx.wallet(), &typed);
+    // The kind of the last payment signed, for its answer: "To" may be cleared or new by then.
+    let sent_to = form.sent_to.trim().to_string();
     let mut draw_form = |ui: &mut Ui, a: &mut Assets| {
         card(&p, Margin::same(24)).show(ui, |ui| {
             ui.set_width(form_w - 50.0);
@@ -547,7 +647,18 @@ pub fn send(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut SendForm, ask_
                 ui.add(egui::Label::new(txt(why, 12.0, Weight::Regular, p.danger)).wrap());
             }
             if all[form.source].source == Source::Core {
-                address_book(ui, a, form, &book, address_ok, &mut asked);
+                if own && address_ok {
+                    ui.add(
+                        egui::Label::new(txt(
+                            tr!("This is an address of this wallet: the money stays yours, only the fee goes."),
+                            12.0,
+                            Weight::Regular,
+                            p.muted,
+                        ))
+                        .wrap(),
+                    );
+                }
+                address_book(ui, a, form, &book, address_ok && !own, &mut asked);
             }
             if let (true, Some(name)) = (not_contact, &resolved_name) {
                 let who = name.display.clone().unwrap_or_else(|| format!("@{}", name.name));
@@ -598,12 +709,12 @@ pub fn send(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut SendForm, ask_
                 field_label(ui, &p, tr!("Amount"));
                 let field = amount_field(ui, &p, "send-amount", &mut form.amount, true);
                 let (resp, all) = (field.response, field.all);
+                if resp.changed() && !all {
+                    form.max = false;
+                }
                 if all {
-                    form.amount = crate::format::input_text(max_amount(
-                        source.duffs,
-                        source.fee,
-                        source.withdrawal,
-                    ));
+                    form.max = true;
+                    form.follow_max(source.duffs, source.fee, source.withdrawal);
                 }
                 if resp.changed() || all {
                     form.result = None;
@@ -672,6 +783,21 @@ pub fn send(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut SendForm, ask_
                     .wrap(),
                 );
             }
+            // A grey button says nothing by itself: what is still missing — under the buttons,
+            // wrapped, so a long reason does not widen the form past the window (BUG-36).
+            let missing = if ready {
+                None
+            } else if !synced {
+                Some(crate::text::WAIT_FOR_SYNC)
+            } else if form.recipient.trim().is_empty() {
+                Some(tr!("Enter whom to pay"))
+            } else if form.amount.trim().is_empty() {
+                Some(tr!("Enter the amount"))
+            } else if checking {
+                Some(tr!("Checking the recipient…"))
+            } else {
+                None
+            };
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = 10.0;
                 let label = tr!("Check and send");
@@ -691,24 +817,10 @@ pub fn send(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut SendForm, ask_
                 if button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked() {
                     form.replace(SendForm::empty());
                 }
-                // A grey button says nothing by itself: what is still missing.
-                let missing = if ready {
-                    None
-                } else if !synced {
-                    Some(crate::text::WAIT_FOR_SYNC)
-                } else if form.recipient.trim().is_empty() {
-                    Some(tr!("Enter whom to pay"))
-                } else if form.amount.trim().is_empty() {
-                    Some(tr!("Enter the amount"))
-                } else if checking {
-                    Some(tr!("Checking the recipient…"))
-                } else {
-                    None
-                };
-                if let Some(missing) = missing {
-                    ui.label(txt(missing, 12.0, Weight::Regular, p.muted));
-                }
             });
+            if let Some(missing) = missing {
+                ui.add(egui::Label::new(txt(missing, 12.0, Weight::Regular, p.muted)).wrap());
+            }
             match &form.result {
                 // No clear answer from the network: the payment may have gone.
                 Some(Ok(sent)) if !sent.relayed => notice(
@@ -727,7 +839,7 @@ pub fn send(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut SendForm, ask_
                 ),
                 // Credits: Platform proves the transition, there is no Core transaction.
                 Some(Ok(sent)) if sent.txid.is_empty() && source.source == Source::Pool => {
-                    let withdrawal = !recipient_label.starts_with("tdash1");
+                    let withdrawal = !sent_to.starts_with("tdash1");
                     notice(
                         ui,
                         a,
@@ -741,8 +853,8 @@ pub fn send(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut SendForm, ask_
                     )
                 }
                 Some(Ok(sent)) if sent.txid.is_empty() => {
-                    let withdrawal = !recipient_label.starts_with('@')
-                        && !recipient_label.starts_with("tdash1");
+                    let withdrawal = !sent_to.starts_with('@')
+                        && !sent_to.starts_with("tdash1");
                     notice(
                         ui,
                         a,
@@ -787,11 +899,7 @@ pub fn send(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut SendForm, ask_
                 ui,
                 &p,
                 tr!("To"),
-                if recipient_label.is_empty() {
-                    "—"
-                } else {
-                    &recipient_label
-                },
+                &summary_to,
                 sans(13.0, Weight::Medium),
             );
             // Nothing is paid until the name is a contact.
@@ -1224,6 +1332,7 @@ fn confirm(
         },
     );
     if send_now {
+        form.sent_to = to.clone();
         // The password goes to the core and is wiped here at once.
         cx.send(Command::Send {
             from: source.source,
@@ -1641,5 +1750,135 @@ mod tests {
         assert_eq!((form.recipient.as_str(), form.amount.as_str()), ("yX", ""));
         form.on_sent(&Err(CoreError::NotEnough));
         assert_eq!(form.waiting, 0);
+    }
+
+    const ADDRESS: &str = "yNBw8AS5PhKdSm6ytP3uAVEsx5PjCiReb4";
+
+    /// BUG-32, BUG-39 №5: the summary's "To" is "—" until the recipient is one, and short.
+    #[test]
+    fn the_summary_names_only_a_recipient_and_briefly() {
+        assert_eq!(summary_recipient("", true), "—");
+        assert_eq!(summary_recipient("q", false), "—", "not a recipient");
+        assert_eq!(summary_recipient(ADDRESS, true), "yNBw…Reb4");
+        assert_eq!(summary_recipient(" @alice ", true), "@alice");
+        let long = format!("@{}", "a".repeat(40));
+        let shown = summary_recipient(&long, true);
+        assert_eq!(shown.chars().count(), 24);
+        assert!(shown.ends_with('…'));
+
+        assert!(looks_like_address(ADDRESS));
+        assert!(looks_like_address(
+            "tdash1kq0ufhcm3cyzpt8y2nxhsffj4sjwjq3h7ckhfmqczhlkxwj9f9v8ycpdtyl"
+        ));
+        for junk in [
+            "q",
+            "yNotAnAddress123",
+            "yNBw8AS5PhKdSm6ytP3uAVEsx5PjCiRe0",
+            "y N B w",
+        ] {
+            assert!(!looks_like_address(junk), "{junk}");
+        }
+    }
+
+    /// BUG-39 №9: an address of this wallet is not offered for the address book.
+    #[test]
+    fn knows_the_wallets_own_addresses() {
+        let mut came = paid("", 1, 100);
+        came.kind = ActivityKind::Received { from: None };
+        came.address = Some("yOld".into());
+        let mut went = paid("yTheirs", 1, -100);
+        went.address = Some("yTheirs".into());
+        let history = [came, went];
+        assert!(own_of(&["yNow", "tdash1me"], &history, " yNow "));
+        assert!(own_of(&["yNow", "tdash1me"], &history, "tdash1me"));
+        assert!(
+            own_of(&["yNow"], &history, "yOld"),
+            "one that received before"
+        );
+        assert!(!own_of(&["yNow"], &history, "yTheirs"), "a payee");
+        assert!(!own_of(&["", "yNow"], &history, ""), "nothing typed");
+    }
+
+    /// BUG-39 №6: "Max" follows the source chosen after it; a typed amount stays.
+    #[test]
+    fn max_follows_the_source_until_the_amount_is_typed() {
+        let mut form = SendForm {
+            max: true,
+            ..SendForm::empty()
+        };
+        form.follow_max(100_000_000, 1_000, None);
+        assert_eq!(form.amount, crate::format::input_text(99_999_000));
+        // Credits now: another balance and fee.
+        form.follow_max(50_000_000, 2_000, None);
+        assert_eq!(form.amount, crate::format::input_text(49_998_000));
+        form.max = false;
+        form.amount = "0.1".into();
+        form.follow_max(100_000_000, 1_000, None);
+        assert_eq!(form.amount, "0.1");
+    }
+
+    fn taken() -> Result<SentPayment, CoreError> {
+        Ok(SentPayment {
+            txid: "aa".into(),
+            amount: 1,
+            fee: 1,
+            relayed: true,
+        })
+    }
+
+    /// BUG-39 №7: a payment taken clears "To", unless another recipient is typed by then; a
+    /// refused one keeps it.
+    #[test]
+    fn a_payment_taken_clears_the_recipient() {
+        let mut form = SendForm {
+            recipient: ADDRESS.into(),
+            sent_to: ADDRESS.into(),
+            waiting: 1,
+            max: true,
+            ..SendForm::empty()
+        };
+        form.on_sent(&Err(CoreError::NotEnough));
+        assert_eq!(form.recipient, ADDRESS, "refused: the person may try again");
+        form.waiting = 1;
+        form.on_sent(&taken());
+        assert!(form.recipient.is_empty() && !form.max);
+        assert!(
+            matches!(form.result, Some(Ok(_))),
+            "the answer is still shown"
+        );
+
+        let mut next = SendForm {
+            recipient: "@bob".into(),
+            sent_to: ADDRESS.into(),
+            waiting: 1,
+            ..SendForm::empty()
+        };
+        next.on_sent(&taken());
+        assert_eq!(next.recipient, "@bob", "the next payment typed meanwhile");
+    }
+
+    /// BUG-39 №7: a lock clears the form — what was typed and the last answer — and keeps
+    /// awaiting a payment with the network.
+    #[test]
+    fn a_lock_clears_the_form() {
+        let mut form = SendForm {
+            source: 1,
+            recipient: ADDRESS.into(),
+            amount: "0,1".into(),
+            max: true,
+            signed: "0,2".into(),
+            sent_to: ADDRESS.into(),
+            waiting: 1,
+            result: Some(taken()),
+            naming: Some("rent".into()),
+            ..SendForm::default()
+        };
+        form.on_lock();
+        assert!(form.recipient.is_empty() && form.amount.is_empty() && form.signed.is_empty());
+        assert!(form.result.is_none() && form.naming.is_none() && !form.max);
+        assert_eq!((form.source, form.waiting), (0, 1));
+        // The answer of the payment with the network gives no amount back after the lock.
+        form.on_sent(&Err(CoreError::NotEnough));
+        assert!(form.amount.is_empty());
     }
 }

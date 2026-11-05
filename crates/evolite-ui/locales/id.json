@@ -834,6 +834,7 @@
   "This build of evolite has no private pool": "Build evolite ini tidak punya pool privat",
   "This identity's MASTER key is not from your phrase": "Kunci MASTER identitas ini bukan dari frasa Anda",
   "This identity's MASTER key is not from your phrase: you cannot sign in to apps as it from here": "Kunci MASTER identitas ini bukan dari frasa Anda: dari sini tidak bisa masuk ke aplikasi atas namanya",
+  "This is an address of this wallet: the money stays yours, only the fee goes.": "Ini alamat dompet ini: uangnya tetap milik Anda, hanya biayanya yang terpakai.",
   "This is not a Dash address: a typo or an extra character — the checksum does not match": "Ini bukan alamat Dash: salah ketik atau ada karakter lebih — checksum tidak cocok",
   "This is not a Dash app request": "Ini bukan permintaan aplikasi Dash",
   "This is not a Dash mainnet address: check it.": "Ini bukan alamat Dash mainnet: periksa lagi.",

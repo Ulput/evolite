@@ -834,6 +834,7 @@
   "This build of evolite has no private pool": "Esta compilación de evolite no tiene pool privado",
   "This identity's MASTER key is not from your phrase": "La clave MASTER de esta identidad no es de tu frase",
   "This identity's MASTER key is not from your phrase: you cannot sign in to apps as it from here": "La clave MASTER de esta identidad no es de tu frase: desde aquí no se puede iniciar sesión en apps con ella",
+  "This is an address of this wallet: the money stays yours, only the fee goes.": "Esta es una dirección de esta cartera: el dinero sigue siendo tuyo, solo se va la comisión.",
   "This is not a Dash address: a typo or an extra character — the checksum does not match": "Esta no es una dirección Dash: una errata o un carácter de más — la suma de control no coincide",
   "This is not a Dash app request": "Esta no es una solicitud de una app de Dash",
   "This is not a Dash mainnet address: check it.": "Esta no es una dirección de Dash mainnet: compruébala.",

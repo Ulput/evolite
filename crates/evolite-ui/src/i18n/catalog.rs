@@ -96,7 +96,12 @@ impl Catalog {
         if let Some(seen) = self.seen.get(text) {
             return seen.clone();
         }
-        let found = self.by_template(text).or_else(|| self.with_full_stop(text));
+        // A whole sentence the screens ended with a full stop goes before a template that only
+        // half fits: "{}: {}." would keep a core reason with a colon in it English (BUG-35).
+        let found = self
+            .by_template(text, false)
+            .or_else(|| self.with_full_stop(text))
+            .or_else(|| self.by_template(text, true));
         if self.seen.len() >= SEEN_MAX {
             self.seen.clear();
         }
@@ -123,7 +128,8 @@ impl Catalog {
         Some(found)
     }
 
-    fn by_template(&mut self, text: &str) -> Option<String> {
+    /// `loose`: a template whose places keep a sentence untranslated will do too.
+    fn by_template(&mut self, text: &str, loose: bool) -> Option<String> {
         let lang = self.lang?;
         // The most specific template whose places hold no untranslated sentence: a name or a
         // label may stay as it is, but text that only looks like "{} of {}" is left to the next
@@ -169,7 +175,7 @@ impl Catalog {
         let (out, captures) = found.or_else(|| {
             self.by_pieces(text)
                 .map(|t| (Out::Text("{}".into()), vec![t]))
-                .or(fallback)
+                .or(fallback.filter(|_| loose))
         })?;
         let pattern = match out {
             Out::Text(text) => text,
