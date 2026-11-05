@@ -339,6 +339,9 @@ pub(super) fn fee_rate() -> FeeRate {
     FeeRate::normal()
 }
 
+/// A contact request on testnet, 2026-11-05: 0.00102028 DASH (manual run M-7), rounded up.
+const CONTACT_REQUEST: Duffs = 105_000;
+
 /// `core_payment`: the fee of a payment spending every coin (with change) — the most a
 /// payment from this wallet can cost, so "Max" always leaves room for it. Platform fees are the
 /// published costs.
@@ -347,14 +350,21 @@ pub(super) fn fees(coins: usize) -> Fees {
         core_payment: fee_rate().calculate_fee(estimate_tx_size(coins.max(1), 1, true)) as Duffs,
         credit_transfer: 2_000,
         nft_transfer: 30_000,
-        document_write: 20_000,
+        // Documents are metered by Platform; until this data folder has paid for one of a kind
+        // ([`platform_fees`] then takes what it really cost), what testnet charged
+        // ([`tests::the_first_writes_are_priced_near_what_platform_charges`], BUG-54). A typical
+        // write ("≈ N operations" on the credits tile, an app's request) is a contact request.
+        document_write: CONTACT_REQUEST,
         identity_create: 2_000,
+        // Also what an identity's asset lock adds for its name (`create_identity`): kept until
+        // that takes the name's estimate and the identity's cost from one place (BUG-54).
         name_regular: 1_000_000,
         name_contested: 20_000_000,
         add_key: 10_000,
-        // Measured on testnet would be better; a contact request and a profile are one document each.
-        contact_request: 10_000,
-        profile: 15_000,
+        contact_request: CONTACT_REQUEST,
+        // Not measured yet: one document like a contact request, with fewer indexes — this is
+        // the upper side.
+        profile: CONTACT_REQUEST,
         // The pool: Platform's own formulas at the SDK's protocol version ([`super::pool::fees`]),
         // set in the snapshot; these are the same formulas at protocol 15, until the SDK is up.
         pool_transfer: 114_140,
@@ -431,6 +441,38 @@ mod tests {
         assert_eq!(proof(&locked, true), Proof::InstantLock);
         assert_eq!(proof(&locked, false), Proof::Mempool);
         assert_eq!(proof(&TransactionContext::Mempool, true), Proof::Mempool);
+    }
+
+    /// BUG-54: before the first write of a kind, the estimate is within 30 % of what testnet
+    /// charged (2026-11-05, manual run M-7) — a contact request was promised at a tenth of it —
+    /// and the credits tile counts typical writes at that price.
+    #[test]
+    fn the_first_writes_are_priced_near_what_platform_charges() {
+        let charged: Duffs = 102_028;
+        let dir = std::env::temp_dir().join(format!("evolite-first-fees-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let journal = super::super::journal::Journal::new(dir.join("platform-history.json"));
+        let mut f = fees(0);
+        platform_fees(
+            &mut f,
+            dpp::version::PlatformVersion::get(15).unwrap(),
+            &journal,
+        );
+        let near = |estimate: Duffs| (estimate - charged).abs() * 10 <= charged * 3;
+        assert!(
+            near(f.contact_request),
+            "contact request ≈ {}",
+            f.contact_request
+        );
+        assert!(
+            near(f.document_write),
+            "a typical write ≈ {}",
+            f.document_write
+        );
+        assert!(near(f.profile), "profile ≈ {}", f.profile);
+        // werner555's 0.00449927 DASH of credits: about four contact requests, not 22.
+        assert_eq!(449_927 / f.document_write, 4);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
