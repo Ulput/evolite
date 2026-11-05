@@ -14,6 +14,20 @@ use chrono::{DateTime, Local};
 use egui::{Align2, Margin, Rect, Sense, Ui, pos2, vec2};
 use evolite_api::ConnectedApp;
 
+/// Extra frames in a row a moving card height may ask for (architect's review of branch A).
+const MAX_EXTRA_FRAMES: u8 = 3;
+
+/// The last frame's tallest card, how many frames in a row it has moved, and this frame's
+/// measure: the new count and whether to draw once more.
+fn settle(tallest: f32, tries: u8, measured: f32) -> (u8, bool) {
+    if (measured - tallest).abs() > 0.5 {
+        let tries = tries.saturating_add(1);
+        (tries, tries <= MAX_EXTRA_FRAMES)
+    } else {
+        (0, false)
+    }
+}
+
 /// An example link for each way, so the dialogs can be seen without a real app (the demo).
 #[cfg(demo_core)]
 const EXAMPLES: [&str; 3] = [
@@ -169,9 +183,13 @@ pub fn apps(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, requests: &mut AppRequest
             ui.spacing_mut().item_spacing.y = 16.0;
             for (row, chunk) in WAYS.chunks(per_row).enumerate() {
                 // The cards of a row are as tall as the tallest one (designer review №17): its
-                // content's height from the last frame is the others' minimum.
+                // content's height from the last frame is the others' minimum. A change asks
+                // for at most a few extra frames in a row, so a height that keeps moving (text
+                // that wraps differently at each width) cannot keep the app drawing.
                 let tallest_id = ui.id().with(("ways-tallest", row, per_row));
-                let tallest = ui.data(|d| d.get_temp::<f32>(tallest_id)).unwrap_or(0.0);
+                let (tallest, tries) = ui
+                    .data(|d| d.get_temp::<(f32, u8)>(tallest_id))
+                    .unwrap_or((0.0, 0));
                 let mut measured: f32 = 0.0;
                 ui.horizontal_top(|ui| {
                     ui.spacing_mut().item_spacing.x = 16.0;
@@ -216,8 +234,9 @@ pub fn apps(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, requests: &mut AppRequest
                         });
                     }
                 });
-                if (measured - tallest).abs() > 0.5 {
-                    ui.data_mut(|d| d.insert_temp(tallest_id, measured));
+                let (tries, again) = settle(tallest, tries, measured);
+                ui.data_mut(|d| d.insert_temp(tallest_id, (measured, tries)));
+                if again {
                     ui.ctx().request_repaint();
                 }
             }
@@ -353,5 +372,20 @@ mod tests {
         requests.disconnect_waiting = true;
         requests.on_disconnected(Ok(()));
         assert!(requests.disconnecting.is_none());
+    }
+
+    /// A height that keeps moving asks for a few frames, then waits for the next natural one;
+    /// a settled height asks for none and starts the count again.
+    #[test]
+    fn a_moving_card_height_asks_for_a_few_frames_only() {
+        let (mut tries, mut asked) = (0, 0);
+        for frame in 0..10 {
+            let (t, again) = settle(100.0 + frame as f32, tries, 101.0 + frame as f32);
+            tries = t;
+            asked += usize::from(again);
+        }
+        assert_eq!(asked, usize::from(MAX_EXTRA_FRAMES));
+        assert_eq!(settle(120.0, tries, 120.2), (0, false));
+        assert_eq!(settle(120.0, 0, 140.0), (1, true));
     }
 }

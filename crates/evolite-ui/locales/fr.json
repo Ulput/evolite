@@ -267,6 +267,7 @@
   "Djembe": "Djembé",
   "Do not write your recovery phrase, password or keys here: nobody asks for them, and the report does not need them.": "N’écrivez ici ni la phrase de récupération, ni le mot de passe, ni les clés : personne ne les demande et le rapport n’en a pas besoin.",
   "Done": "Terminé",
+  "Done: the app got your answer.": "C'est fait : l'application a reçu votre réponse.",
   "Drawing…": "Dessin…",
   "Each payment goes to a new address from the contact's key: the network cannot see that one person is being paid.": "Chaque paiement va à une nouvelle adresse issue de la clé du contact : le réseau ne voit pas qu'on paie la même personne.",
   "Each wallet has its own recovery phrase, password and history. One is open: the others do not sync until you open them.": "Chaque portefeuille a sa propre phrase de récupération, son mot de passe et son historique. Un seul est ouvert : les autres ne se synchronisent pas tant que vous ne les ouvrez pas.",

@@ -267,6 +267,7 @@
   "Djembe": "ジャンベ",
   "Do not write your recovery phrase, password or keys here: nobody asks for them, and the report does not need them.": "ここに復元フレーズ、パスワード、鍵を書かないでください。誰も求めませんし、レポートにも不要です。",
   "Done": "完了",
+  "Done: the app got your answer.": "完了：アプリがあなたの回答を受け取りました。",
   "Drawing…": "描画中…",
   "Each payment goes to a new address from the contact's key: the network cannot see that one person is being paid.": "支払いのたびに連絡先の鍵からの新しいアドレスへ送られます：ネットワークからは同じ人への支払いだとわかりません。",
   "Each wallet has its own recovery phrase, password and history. One is open: the others do not sync until you open them.": "ウォレットごとに復元フレーズ、パスワード、履歴があります。開けるのは 1 つだけで、ほかは開くまで同期しません。",

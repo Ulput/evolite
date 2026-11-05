@@ -267,6 +267,7 @@
   "Djembe": "Cembe",
   "Do not write your recovery phrase, password or keys here: nobody asks for them, and the report does not need them.": "Kurtarma ifadesini, parolayı ve anahtarları buraya yazmayın: kimse bunları istemez ve raporda gerekmez.",
   "Done": "Tamam",
+  "Done: the app got your answer.": "Tamam: uygulama yanıtınızı aldı.",
   "Drawing…": "Çiziliyor…",
   "Each payment goes to a new address from the contact's key: the network cannot see that one person is being paid.": "Her ödeme kişinin anahtarından yeni bir adrese gider: ağ, aynı kişiye ödendiğini göremez.",
   "Each wallet has its own recovery phrase, password and history. One is open: the others do not sync until you open them.": "Her cüzdanın kendi kurtarma ifadesi, parolası ve geçmişi vardır. Biri açıktır: diğerleri siz açana kadar eşitlenmez.",

@@ -267,6 +267,7 @@
   "Djembe": "جيمبي",
   "Do not write your recovery phrase, password or keys here: nobody asks for them, and the report does not need them.": "لا تكتب هنا عبارة الاسترداد أو كلمة المرور أو المفاتيح: لا أحد يطلبها، ولا يحتاجها التقرير.",
   "Done": "تم",
+  "Done: the app got your answer.": "تم: تلقّى التطبيق إجابتك.",
   "Drawing…": "جارٍ الرسم…",
   "Each payment goes to a new address from the contact's key: the network cannot see that one person is being paid.": "كل دفعة تذهب إلى عنوان جديد من مفتاح جهة الاتصال: لا ترى الشبكة أن الدفع لشخص واحد.",
   "Each wallet has its own recovery phrase, password and history. One is open: the others do not sync until you open them.": "لكل محفظة عبارة استرداد وكلمة مرور وسجل خاص بها. تُفتح واحدة فقط: لا تتزامن الأخرى حتى تفتحها.",

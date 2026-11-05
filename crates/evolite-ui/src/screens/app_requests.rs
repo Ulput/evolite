@@ -32,6 +32,35 @@ pub struct AppRequests {
     /// "Password for every payment" before "Allow" / "Sign": the app spends the identity's
     /// credits or adds a key to it (BUG-42).
     pub password: SpendPassword,
+    /// Where the person's yes to [`Self::open`] is (BUG-30).
+    pub consent: Consent,
+}
+
+/// The person's yes to a request ("Allow sign-in", "Sign", "The code matches"). The core takes
+/// the request away at the first answer, so after a yes there is nothing left to answer: a
+/// second yes would come back "out of date" and a "no" would not stop what is under way (BUG-30).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Consent {
+    /// Not answered: both buttons work.
+    #[default]
+    Asking,
+    /// The yes went to the core; the network has not answered yet.
+    Sending,
+    /// The app got the answer.
+    Sent,
+    /// The yes did not go through ([`AppRequests::result`] says why); the request is over. A
+    /// wrong wallet password is not this: the core refused it before touching the request, so
+    /// the dialog asks again (BUG-42).
+    Failed,
+}
+
+/// What a click in the request dialog asks for.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Pick {
+    Yes,
+    No,
+    /// "Close" once the yes is answered, or ✕ / Esc.
+    Close,
 }
 
 impl AppRequests {
@@ -45,6 +74,7 @@ impl AppRequests {
                 self.link_error = None;
                 self.result = None;
                 self.show_bytes = false;
+                self.consent = Consent::Asking;
             }
             // The link window shows why; a link from "Show an example" opens it for that.
             Err(e) => {
@@ -70,11 +100,58 @@ impl AppRequests {
 
     pub fn on_answer(&mut self, result: Result<(), CoreError>) {
         self.password.on_answer(&result);
-        if result.is_ok() {
-            // Declined (or done): the request is over.
+        if self.consent == Consent::Sending && result == Err(CoreError::WrongPassword) {
+            // The core's gate refused the password before the request was touched: it is
+            // still held, so the person retypes and says yes again. The line under the field
+            // says what happened (BUG-42).
+            self.consent = Consent::Asking;
+            self.result = Some(result);
+        } else if self.consent == Consent::Sending {
+            // The yes is answered: the dialog says how it went and offers only "Close".
+            self.consent = if result.is_ok() {
+                Consent::Sent
+            } else {
+                Consent::Failed
+            };
+            self.result = result.err().map(Err);
+        } else if result.is_ok() {
+            // Declined: the request is over.
             self.open = None;
         } else {
             self.result = Some(result);
+        }
+    }
+
+    /// The person's click on the open request, and the command it sends to the core. After a
+    /// yes nothing goes to the core again; closing while it is sent keeps the dialog (BUG-30).
+    /// `ask`: the wallet wants its password for every spend, and a yes is one (BUG-42).
+    pub fn pick(&mut self, pick: Pick, ask: bool) -> Option<Command> {
+        let id = self.open.as_ref()?.id;
+        match (self.consent, pick) {
+            (Consent::Asking, Pick::Yes) => {
+                self.consent = Consent::Sending;
+                self.result = None;
+                Some(self.password.command(Spend::ApproveApp { id }, ask))
+            }
+            (Consent::Asking, Pick::No) => {
+                self.result = None;
+                Some(Command::DeclineApp { id })
+            }
+            // Closing is declining: the app hears "no".
+            (Consent::Asking, Pick::Close) => {
+                self.open = None;
+                self.result = None;
+                self.password.forget();
+                Some(Command::DeclineApp { id })
+            }
+            (Consent::Sent | Consent::Failed, Pick::Close) => {
+                self.open = None;
+                self.result = None;
+                self.consent = Consent::Asking;
+                self.password.forget();
+                None
+            }
+            (Consent::Sending, _) | (Consent::Sent | Consent::Failed, _) => None,
         }
     }
 }
@@ -99,6 +176,7 @@ pub fn show(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut AppRequests) 
     let ask = password_asked(cx.snap);
     let mut answer = Answer {
         pick: None,
+        consent: state.consent,
         password: &mut state.password,
         ask,
     };
@@ -115,6 +193,15 @@ pub fn show(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut AppRequests) 
                 &mut answer,
             ),
             AppRequestKind::KeyExchange { .. } => key_exchange(ui, a, &request, &mut answer),
+        }
+        if state.consent == Consent::Sent {
+            notice(
+                ui,
+                a,
+                "confirmed",
+                p.accent,
+                tr!("Done: the app got your answer."),
+            );
         }
         // A wrong password is said under its field: the app got nothing.
         match state
@@ -139,52 +226,57 @@ pub fn show(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut AppRequests) 
         }
         false
     });
-    let pick = answer.pick;
-    if pick == Some(true) {
-        cx.send(
-            state
-                .password
-                .command(Spend::ApproveApp { id: request.id }, ask),
-        );
-        state.result = None;
-    }
-    if pick == Some(false) {
-        cx.send(Command::DeclineApp { id: request.id });
-        state.result = None;
-    }
-    if closed {
-        // Closing is declining: the app hears "no".
-        cx.send(Command::DeclineApp { id: request.id });
-        state.open = None;
-        state.result = None;
-        state.password.forget();
+    let pick = if closed {
+        Some(Pick::Close)
+    } else {
+        answer.pick
+    };
+    if let Some(command) = pick.and_then(|pick| state.pick(pick, ask)) {
+        cx.send(command);
     }
 }
 
-/// The person's answer to a request, and "password for every payment" before a yes.
+/// The person's click in the dialog, where the yes already is, and "password for every
+/// payment" before a yes.
 struct Answer<'a> {
-    pick: Option<bool>,
+    pick: Option<Pick>,
+    consent: Consent,
     password: &'a mut SpendPassword,
     ask: bool,
 }
 
 /// Two buttons on the right: decline (ghost) and the primary answer; above them the wallet
-/// password when every spend asks for it.
+/// password when every spend asks for it. While the yes is sent both are off and the primary
+/// one says so; once it is answered only "Close" is left.
 fn answers(ui: &mut Ui, a: &mut Assets, no: &str, yes: &str, answer: &mut Answer<'_>) {
     let p = a.p;
-    let entered = answer
-        .password
-        .field(ui, &p, "app-request-password", answer.ask);
+    let entered = answer.consent == Consent::Asking
+        && answer
+            .password
+            .field(ui, &p, "app-request-password", answer.ask);
     let ready = answer.password.ready(answer.ask);
     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
         ui.spacing_mut().item_spacing.x = 10.0;
-        if button_enabled(ui, a, yes, ButtonKind::Primary, None, ready).clicked()
-            || (entered && ready)
-        {
-            answer.pick = Some(true);
-        }
-        if button(ui, a, no, ButtonKind::Ghost, None).clicked() {
-            answer.pick = Some(false);
+        match answer.consent {
+            Consent::Asking => {
+                if button_enabled(ui, a, yes, ButtonKind::Primary, None, ready).clicked()
+                    || (entered && ready)
+                {
+                    answer.pick = Some(Pick::Yes);
+                }
+                if button(ui, a, no, ButtonKind::Ghost, None).clicked() {
+                    answer.pick = Some(Pick::No);
+                }
+            }
+            Consent::Sending => {
+                button_enabled(ui, a, tr!("Sending…"), ButtonKind::Primary, None, false);
+                button_enabled(ui, a, no, ButtonKind::Ghost, None, false);
+            }
+            Consent::Sent | Consent::Failed => {
+                if button(ui, a, tr!("Close"), ButtonKind::Primary, None).clicked() {
+                    answer.pick = Some(Pick::Close);
+                }
+            }
         }
     });
 }
@@ -652,5 +744,121 @@ fn paste_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut AppReques
         state.pasting = false;
         state.link.clear();
         state.link_error = None;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use evolite_api::KeyLevel;
+
+    fn asked(id: u64) -> AppRequests {
+        let mut state = AppRequests::default();
+        state.on_request(Ok(AppRequest {
+            id,
+            app: "yappr".into(),
+            kind: AppRequestKind::Connect {
+                contract_id: "c".into(),
+                contract_found: true,
+                identity: "@me".into(),
+                key_id: 3,
+                level: KeyLevel::High,
+                contract_name: "yappr".into(),
+                cost: 0,
+            },
+        }));
+        state
+    }
+
+    fn out_of_date() -> CoreError {
+        CoreError::NotAvailable("The request is out of date: open the app's link again".into())
+    }
+
+    fn is_yes(command: Option<Command>, want: u64) -> bool {
+        matches!(
+            command,
+            Some(Command::Spend {
+                op: Spend::ApproveApp { id },
+                ..
+            }) if id == want
+        )
+    }
+
+    fn is_no(command: Option<Command>, want: u64) -> bool {
+        matches!(command, Some(Command::DeclineApp { id }) if id == want)
+    }
+
+    /// BUG-30: after a yes, neither a second yes nor "Decline" nor ✕ goes to the core, and the
+    /// dialog stays until the network answers.
+    #[test]
+    fn after_a_yes_nothing_more_goes_to_the_core() {
+        let mut state = asked(7);
+        assert!(is_yes(state.pick(Pick::Yes, false), 7));
+        assert_eq!(state.consent, Consent::Sending);
+        for pick in [Pick::Yes, Pick::No, Pick::Close] {
+            assert!(state.pick(pick, false).is_none(), "{pick:?} while sent");
+        }
+        assert!(state.open.is_some(), "the dialog waits for the network");
+    }
+
+    /// BUG-30: the network's yes is shown as done, with "Close" only; closing sends nothing.
+    #[test]
+    fn a_yes_that_went_through_is_shown_as_done() {
+        let mut state = asked(7);
+        state.pick(Pick::Yes, false);
+        state.on_answer(Ok(()));
+        assert_eq!(state.consent, Consent::Sent);
+        assert!(state.open.is_some(), "the dialog says it is done");
+        assert!(state.pick(Pick::No, false).is_none());
+        assert!(state.pick(Pick::Close, false).is_none());
+        assert!(state.open.is_none());
+    }
+
+    /// BUG-30: a yes that failed says why and is over: no second try, closing sends no "no".
+    #[test]
+    fn a_failed_yes_says_why_and_is_over() {
+        let mut state = asked(7);
+        state.pick(Pick::Yes, false);
+        state.on_answer(Err(out_of_date()));
+        assert_eq!(state.consent, Consent::Failed);
+        assert_eq!(state.result, Some(Err(out_of_date())));
+        assert!(state.pick(Pick::Yes, false).is_none());
+        assert!(state.pick(Pick::Close, false).is_none());
+        assert!(state.open.is_none());
+        assert_eq!(state.result, None);
+    }
+
+    /// BUG-30 with BUG-42: a wrong wallet password on "Allow" ends nothing. The core's gate
+    /// refused it before the request was touched, so the dialog asks again: the line under the
+    /// field says why, and the next yes goes to the core with the retyped password.
+    #[test]
+    fn a_wrong_password_on_yes_asks_again() {
+        let mut state = asked(7);
+        assert!(is_yes(state.pick(Pick::Yes, true), 7));
+        state.on_answer(Err(CoreError::WrongPassword));
+        assert_eq!(state.consent, Consent::Asking, "the request is still held");
+        assert!(state.open.is_some());
+        assert!(state.password.is_wrong(), "said under the field");
+        assert_eq!(state.result, Some(Err(CoreError::WrongPassword)));
+        assert!(is_yes(state.pick(Pick::Yes, true), 7), "a second try goes");
+        assert_eq!(state.consent, Consent::Sending);
+        state.on_answer(Ok(()));
+        assert_eq!(state.consent, Consent::Sent);
+        assert!(!state.password.is_wrong());
+    }
+
+    /// Before any yes, "Decline" and ✕ still say "no" to the app; a new request asks again.
+    #[test]
+    fn before_a_yes_declining_still_says_no() {
+        let mut state = asked(7);
+        assert!(is_no(state.pick(Pick::No, false), 7));
+        state.on_answer(Ok(()));
+        assert!(state.open.is_none(), "declined: the request is over");
+        let mut state = asked(8);
+        state.pick(Pick::Yes, false);
+        state.on_answer(Ok(()));
+        state.on_request(asked(9).open.ok_or_else(out_of_date));
+        assert_eq!(state.consent, Consent::Asking, "a new request asks again");
+        assert!(is_no(state.pick(Pick::Close, false), 9));
     }
 }

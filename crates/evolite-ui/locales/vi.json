@@ -267,6 +267,7 @@
   "Djembe": "Trống djembe",
   "Do not write your recovery phrase, password or keys here: nobody asks for them, and the report does not need them.": "Đừng viết cụm từ khôi phục, mật khẩu hay khóa vào đây: không ai yêu cầu chúng và báo cáo cũng không cần.",
   "Done": "Xong",
+  "Done: the app got your answer.": "Xong: ứng dụng đã nhận câu trả lời của bạn.",
   "Drawing…": "Đang vẽ…",
   "Each payment goes to a new address from the contact's key: the network cannot see that one person is being paid.": "Mỗi khoản thanh toán đến một địa chỉ mới từ khóa của liên hệ: mạng không thấy rằng đang trả cho cùng một người.",
   "Each wallet has its own recovery phrase, password and history. One is open: the others do not sync until you open them.": "Mỗi ví có cụm từ khôi phục, mật khẩu và lịch sử riêng. Chỉ một ví mở: các ví khác không đồng bộ cho đến khi bạn mở chúng.",

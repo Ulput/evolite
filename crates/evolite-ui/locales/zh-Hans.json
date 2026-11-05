@@ -267,6 +267,7 @@
   "Djembe": "金贝鼓",
   "Do not write your recovery phrase, password or keys here: nobody asks for them, and the report does not need them.": "请勿在此填写恢复助记词、密码或密钥：没有人会索要它们，报告也不需要。",
   "Done": "完成",
+  "Done: the app got your answer.": "完成：应用已收到你的答复。",
   "Drawing…": "正在绘制…",
   "Each payment goes to a new address from the contact's key: the network cannot see that one person is being paid.": "每笔付款都发往来自联系人密钥的新地址：网络看不出付给的是同一个人。",
   "Each wallet has its own recovery phrase, password and history. One is open: the others do not sync until you open them.": "每个钱包都有自己的恢复助记词、密码和记录。同一时间只打开一个：其他钱包在您打开之前不会同步。",

@@ -267,6 +267,7 @@
   "Djembe": "Джембе",
   "Do not write your recovery phrase, password or keys here: nobody asks for them, and the report does not need them.": "Не пишіть сюди фразу відновлення, пароль і ключі: їх ніхто не просить, і у звіті вони не потрібні.",
   "Done": "Готово",
+  "Done: the app got your answer.": "Готово: застосунок отримав вашу відповідь.",
   "Drawing…": "Малюємо…",
   "Each payment goes to a new address from the contact's key: the network cannot see that one person is being paid.": "Кожен платіж іде на нову адресу з ключа контакту: мережа не бачить, що платять одній людині.",
   "Each wallet has its own recovery phrase, password and history. One is open: the others do not sync until you open them.": "Кожен гаманець має свою фразу відновлення, свій пароль і свою історію. Відкритий один: інші не синхронізуються, доки ви їх не відкриєте.",

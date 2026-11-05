@@ -51,6 +51,9 @@ pub(super) fn notifications(ui: &mut Ui, a: &mut Assets, state: &mut SettingsSta
     *state.toggle("notify-apps") = apps;
 }
 
+/// Where «Source code · GitHub» leads (customer, 2026-11-05).
+pub(super) const SOURCE_CODE: &str = "https://github.com/Ulput/evolite";
+
 pub(super) fn about(ui: &mut Ui, a: &mut Assets, state: &mut SettingsState) {
     let p = a.p;
     heading(
@@ -144,8 +147,13 @@ pub(super) fn about(ui: &mut Ui, a: &mut Assets, state: &mut SettingsState) {
             ),
         ],
     );
-    if clicked == Some(1) {
-        state.report = Some(Default::default());
+    match clicked {
+        // The browser, as the explorer link opens it (BUG-28).
+        Some(0) => {
+            crate::links::open(SOURCE_CODE);
+        }
+        Some(1) => state.report = Some(Default::default()),
+        _ => {}
     }
     let note = state.journal_note.clone().unwrap_or_else(|| {
         tr!("What the wallet did: sync stages, commands and their outcome, errors. No phrase, keys, addresses, amounts or names; kept for 7 days").to_string()
