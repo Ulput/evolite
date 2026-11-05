@@ -146,7 +146,7 @@ pub(super) fn appearance(
 /// "Interface language": the fifteen languages by their own names, the current one marked; a
 /// choice applies at once and is kept in `settings.json`.
 pub(super) fn lang_dialog(ui: &mut Ui, a: &mut Assets, state: &mut SettingsState) {
-    use crate::i18n::{self, Lang};
+    use crate::i18n;
     let p = a.p;
     let now = i18n::current();
     crate::theme::want_name_fonts();
@@ -160,7 +160,7 @@ pub(super) fn lang_dialog(ui: &mut Ui, a: &mut Assets, state: &mut SettingsState
         |ui, a| {
             let mut close = false;
             ui.spacing_mut().item_spacing.y = 2.0;
-            for lang in Lang::ALL {
+            for lang in picker_order() {
                 let on = lang == now;
                 let (rect, resp) =
                     ui.allocate_exact_size(vec2(ui.available_width(), 36.0), Sense::click());
@@ -301,4 +301,93 @@ fn theme_card(
         if on { p.text } else { p.muted },
     );
     resp.on_hover_cursor(CursorIcon::PointingHand)
+}
+
+/// The foot of the welcome and unlock screens (Figma 28, 01): the network, then the language
+/// and the theme, each a link — before the password is typed (BUG-53). The language opens the
+/// same "Interface language" as Settings; the theme switches between dark and light. Both are
+/// the app's, not a wallet's: they are written to `settings.json` with no wallet open.
+pub(crate) fn language_and_theme(
+    ui: &mut Ui,
+    a: &mut Assets,
+    network: evolite_api::Network,
+    state: &mut SettingsState,
+) {
+    let p = a.p;
+    let lang = crate::i18n::own(crate::i18n::current().native());
+    let theme = if p.dark {
+        tr!("dark theme")
+    } else {
+        tr!("light theme")
+    };
+    let font = sans(13.0, Weight::Regular);
+    let w = crate::components::text_width(ui, &lang, font.clone())
+        + crate::components::text_width(ui, " · ", font.clone())
+        + crate::components::text_width(ui, theme, font)
+        + 12.0
+        + 90.0;
+    ui.horizontal(|ui| {
+        ui.add_space(((ui.available_width() - w) / 2.0).max(0.0));
+        ui.spacing_mut().item_spacing.x = 0.0;
+        crate::components::network_chip(ui, a, network);
+        ui.add_space(12.0);
+        if foot_link(ui, &p, &lang).clicked() {
+            state.lang_picker = true;
+        }
+        ui.label(crate::screens::txt(" · ", 13.0, Weight::Regular, p.muted));
+        if foot_link(ui, &p, theme).clicked() {
+            state.theme = if p.dark {
+                ThemeChoice::Light
+            } else {
+                ThemeChoice::Dark
+            };
+        }
+    });
+    if state.lang_picker {
+        lang_dialog(ui, a, state);
+    }
+}
+
+/// A muted word of the foot that can be clicked: underlined under the pointer, a link for
+/// screen readers.
+fn foot_link(ui: &mut Ui, p: &Palette, text: &str) -> Response {
+    let resp = ui
+        .add(
+            egui::Label::new(crate::screens::txt(text, 13.0, Weight::Regular, p.muted))
+                .sense(Sense::click()),
+        )
+        .on_hover_cursor(CursorIcon::PointingHand);
+    if resp.hovered() {
+        let r = resp.rect;
+        ui.painter()
+            .hline(r.x_range(), r.bottom() - 1.0, Stroke::new(1.0, p.muted));
+    }
+    crate::components::named(&resp, egui::WidgetType::Link, true, text);
+    resp
+}
+
+/// The languages in the picker: alphabetically by their own names (designer review №21), so
+/// the list has one order whatever the interface language.
+fn picker_order() -> Vec<crate::i18n::Lang> {
+    let mut langs = crate::i18n::Lang::ALL.to_vec();
+    langs.sort_by_key(|l| l.native().to_lowercase());
+    langs
+}
+
+#[cfg(test)]
+mod foot_tests {
+    use super::*;
+
+    #[test]
+    fn the_picker_lists_every_language_once_by_its_own_name() {
+        let order = picker_order();
+        assert_eq!(order.len(), crate::i18n::Lang::ALL.len());
+        let names: Vec<String> = order.iter().map(|l| l.native().to_lowercase()).collect();
+        let mut sorted = names.clone();
+        sorted.sort();
+        assert_eq!(names, sorted);
+        for lang in crate::i18n::Lang::ALL {
+            assert_eq!(order.iter().filter(|l| **l == lang).count(), 1);
+        }
+    }
 }

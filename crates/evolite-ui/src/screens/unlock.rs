@@ -23,6 +23,9 @@ pub struct UnlockForm {
     /// The password is with the core; the answer comes as `Done { what: "unlock" }` (or
     /// `"switch"` for another wallet chosen).
     pub waiting: bool,
+    /// When the password went (`ui.input` time): "Opening… N s" counts while the core works
+    /// (designer review №30).
+    pub waiting_since: Option<f64>,
     pub error: Option<String>,
     /// "Forgot the password?": the deletion without the password; or, asked from Settings →
     /// Wallets for this wallet, with its password.
@@ -34,6 +37,7 @@ pub struct UnlockForm {
 impl UnlockForm {
     pub fn on_answer(&mut self, result: &Result<(), CoreError>) {
         self.waiting = false;
+        self.waiting_since = None;
         self.error = match result {
             Ok(()) => None,
             Err(CoreError::WrongPassword) => Some(tr!("Wrong password").into()),
@@ -46,7 +50,13 @@ impl UnlockForm {
     }
 }
 
-pub fn unlock(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut UnlockForm) {
+pub fn unlock(
+    ui: &mut Ui,
+    a: &mut Assets,
+    cx: &mut Ctx,
+    form: &mut UnlockForm,
+    settings: &mut super::settings::SettingsState,
+) {
     let p = a.p;
     let snap = cx.snap;
     let several = snap.wallets.len() > 1;
@@ -54,7 +64,7 @@ pub fn unlock(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut UnlockForm) 
     let height = if several {
         390.0 + 64.0 * snap.wallets.len() as f32
     } else {
-        400.0
+        440.0
     };
     // The wallet the password is for: the one chosen, else the one the core has open.
     let chosen = form
@@ -131,12 +141,12 @@ pub fn unlock(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut UnlockForm) 
                 ui.add_space(6.0);
                 let ready = !form.password.is_empty() && !form.waiting;
                 let label = match (form.waiting, several) {
-                    (true, _) => tr!("Opening…"),
-                    (false, true) => tr!("Open"),
-                    (false, false) => tr!("Open the wallet"),
+                    (true, _) => opening_label(ui, form.waiting_since),
+                    (false, true) => tr!("Open").to_owned(),
+                    (false, false) => tr!("Open the wallet").to_owned(),
                 };
                 let clicked =
-                    button_enabled(ui, a, label, ButtonKind::Primary, Some(column), ready)
+                    button_enabled(ui, a, &label, ButtonKind::Primary, Some(column), ready)
                         .clicked();
                 if ready && (clicked || entered) {
                     // The password goes to the core and is wiped here at once.
@@ -152,6 +162,7 @@ pub fn unlock(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut UnlockForm) 
                     });
                     form.password.zeroize();
                     form.waiting = true;
+                    form.waiting_since = Some(ui.input(|i| i.time));
                 }
             },
         );
@@ -200,23 +211,6 @@ pub fn unlock(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut UnlockForm) 
                     cx.wallets(WalletRequest::Add(None));
                 }
             });
-            // Figma 28's foot, as on the welcome screen: the network, the language and theme.
-            ui.add_space(24.0);
-            let lang = crate::i18n::own(crate::i18n::current().native());
-            let foot = if p.dark {
-                format!(tr!("{} · dark theme"), lang)
-            } else {
-                format!(tr!("{} · light theme"), lang)
-            };
-            ui.horizontal(|ui| {
-                let w = crate::components::text_width(ui, &foot, sans(13.0, Weight::Regular))
-                    + 12.0
-                    + 90.0;
-                ui.add_space(((ui.available_width() - w) / 2.0).max(0.0));
-                ui.spacing_mut().item_spacing.x = 12.0;
-                crate::components::network_chip(ui, a, cx.snap.network);
-                ui.label(txt(&foot, 13.0, Weight::Regular, p.muted));
-            });
         } else if ui
             .add(link(tr!("Forgot the password? · Another wallet"), p.text))
             .on_hover_cursor(CursorIcon::PointingHand)
@@ -224,6 +218,10 @@ pub fn unlock(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut UnlockForm) 
         {
             form.forgot = Some(DeleteForm::forgot());
         }
+        // Figma 28's foot, as on the welcome screen: the network, the language and the theme,
+        // which can be changed before the password (BUG-53) — with one wallet too.
+        ui.add_space(24.0);
+        super::settings::language_and_theme(ui, a, cx.snap.network, settings);
     });
     super::welcome::dash_evolution_logo(ui, a, content.response.rect.bottom());
     // The wallet is locked: what it holds is not shown, nor what may be unfinished.
@@ -319,5 +317,44 @@ mod tests {
         let shown = shown_name(&main);
         assert_eq!(crate::i18n::t_in(Lang::Ru, &shown), shown.as_str());
         assert!(shown.contains("Main"));
+    }
+}
+
+/// "Opening…" with the seconds since the password went, so a slow start shows it is alive;
+/// the first second is plain "Opening…".
+fn opening_label(ui: &Ui, since: Option<f64>) -> String {
+    let secs = since.map_or(0.0, |t| ui.input(|i| i.time) - t).max(0.0) as u64;
+    ui.ctx()
+        .request_repaint_after(std::time::Duration::from_millis(500));
+    opening_text(secs)
+}
+
+fn opening_text(secs: u64) -> String {
+    if secs < 1 {
+        tr!("Opening…").to_owned()
+    } else {
+        format!(tr!("Opening… {} s"), secs)
+    }
+}
+
+#[cfg(test)]
+mod opening_tests {
+    use super::*;
+
+    #[test]
+    fn opening_counts_the_seconds_after_the_first() {
+        assert_eq!(opening_text(0), "Opening…");
+        assert_eq!(opening_text(12), "Opening… 12 s");
+    }
+
+    #[test]
+    fn an_answer_stops_the_count() {
+        let mut form = UnlockForm {
+            waiting: true,
+            waiting_since: Some(3.0),
+            ..Default::default()
+        };
+        form.on_answer(&Err(CoreError::WrongPassword));
+        assert!(!form.waiting && form.waiting_since.is_none());
     }
 }

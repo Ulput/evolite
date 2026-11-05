@@ -889,13 +889,19 @@ impl eframe::App for App {
             egui::CentralPanel::default()
                 .frame(Frame::new().fill(p.bg))
                 .show(ui, |ui| {
-                    screens::unlock::unlock(ui, &mut self.a, &mut cx, &mut self.unlock);
+                    screens::unlock::unlock(
+                        ui,
+                        &mut self.a,
+                        &mut cx,
+                        &mut self.unlock,
+                        &mut self.settings,
+                    );
                 });
         } else if matches!(self.screen, Screen::Welcome) {
             egui::CentralPanel::default()
                 .frame(Frame::new().fill(p.bg))
                 .show(ui, |ui| {
-                    screens::welcome(ui, &mut self.a, &mut cx);
+                    screens::welcome(ui, &mut self.a, &mut cx, &mut self.settings);
                 });
         } else if self.probe_open() {
             // `--screen probe` (dev-tools): no sidebar, there may be no wallet.

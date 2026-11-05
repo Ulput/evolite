@@ -1,23 +1,31 @@
 //! 01 · Welcome: the logo, the motto and the three ways in.
 
 use super::{Screen, txt};
-use crate::components::{Assets, ButtonKind, button, network_chip};
+use crate::components::{Assets, ButtonKind, button};
 use crate::context::Ctx;
 use crate::icons::Logo;
 use crate::theme::Weight;
 use egui::{Align, Layout, Ui, vec2};
 
 /// 01 · Welcome: everything centred, column 440, gap 28.
-pub fn welcome(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx) {
+pub fn welcome(
+    ui: &mut Ui,
+    a: &mut Assets,
+    cx: &mut Ctx,
+    settings: &mut super::settings::SettingsState,
+) {
     let p = a.p;
     let column = 440.0;
     let content_h = 536.0;
     ui.add_space(((ui.available_height() - content_h) / 2.0).max(24.0));
     let content = ui.vertical_centered(|ui| {
         ui.spacing_mut().item_spacing.y = 28.0;
-        ui.add(a.icons.logo(Logo::Stacked, &p, 119.0));
-        //, Figma 31: another wallet beside the ones here.
+        // Figma 31: another wallet beside the ones here. Its top bar has the logo and the
+        // network already (`App`), so neither is repeated here (designer review №23).
         let adding = cx.snap.adding_wallet;
+        if !adding {
+            ui.add(a.icons.logo(Logo::Stacked, &p, 119.0));
+        }
         let (title, lead) = if adding {
             let names: Vec<String> = cx
                 .snap
@@ -63,21 +71,13 @@ pub fn welcome(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx) {
             }
         }
         ui.add_space(40.0);
-        // The language this screen is in, by its own name: "Russian" was written here whatever
-        // the language.
-        let lang = crate::i18n::own(crate::i18n::current().native());
-        let footer = if adding {
-            format!(tr!("Wallets on this computer: {}"), cx.snap.wallets.len())
-        } else if p.dark {
-            format!(tr!("{} · dark theme"), lang)
-        } else {
-            format!(tr!("{} · light theme"), lang)
-        };
-        ui.allocate_ui_with_layout(vec2(320.0, 25.0), Layout::left_to_right(Align::Center), |ui| {
-            ui.spacing_mut().item_spacing.x = 12.0;
-            network_chip(ui, a, cx.snap.network);
+        if adding {
+            let footer = format!(tr!("Wallets on this computer: {}"), cx.snap.wallets.len());
             ui.label(txt(&footer, 13.0, Weight::Regular, p.muted));
-        });
+        } else {
+            // The language and the theme can be changed here, before any wallet (BUG-53).
+            super::settings::language_and_theme(ui, a, cx.snap.network, settings);
+        }
     });
     dash_evolution_logo(ui, a, content.response.rect.bottom());
 }
