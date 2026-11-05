@@ -33,9 +33,10 @@ pub enum WalletRequest {
     Add(Option<crate::screens::onboarding::Flow>),
     /// "Manage wallets": Settings → Wallets.
     Manage,
-    /// "Delete" on a wallet that is not open: it is opened (its unlock screen) with the
-    /// deletion asking its own password — or none (`forgot`, "Forgot the password?").
-    DeleteOther { id: String, forgot: bool },
+    /// "Forgot the password?" for a wallet that is not open: it is opened (its unlock screen)
+    /// with the deletion asking no password. Settings deletes another wallet in place, by its
+    /// own password (R-28).
+    ForgotOther(String),
     /// Another wallet chosen (the menu, Settings): "Open "…"" asks its password over the
     /// screen (Figma 29).
     Open(String),

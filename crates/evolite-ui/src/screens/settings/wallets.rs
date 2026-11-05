@@ -348,14 +348,12 @@ fn more_menu(
         state.wallet_more = None;
     }
     if delete {
-        if w.open {
-            state.delete = Some(crate::screens::delete_wallet::DeleteForm::default());
+        // Another wallet goes right here by its own password; the open one stays open (R-28).
+        state.delete = Some(if w.open {
+            crate::screens::delete_wallet::DeleteForm::default()
         } else {
-            cx.wallets(WalletRequest::DeleteOther {
-                id: w.id.clone(),
-                forgot: false,
-            });
-        }
+            crate::screens::delete_wallet::DeleteForm::other(w.id.clone(), w.name.clone())
+        });
         state.wallet_more = None;
     }
 }

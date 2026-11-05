@@ -195,10 +195,7 @@ pub fn unlock(
                 {
                     // The deletion is the open wallet's: another one chosen opens first.
                     match chosen.filter(|w| !w.open) {
-                        Some(w) => cx.wallets(WalletRequest::DeleteOther {
-                            id: w.id.clone(),
-                            forgot: true,
-                        }),
+                        Some(w) => cx.wallets(WalletRequest::ForgotOther(w.id.clone())),
                         None => form.forgot = Some(DeleteForm::forgot()),
                     }
                 }

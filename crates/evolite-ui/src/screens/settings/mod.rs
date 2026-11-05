@@ -571,15 +571,12 @@ pub fn settings(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut SettingsS
         password_dialog(ui, a, cx, state);
     }
     if let Some(form) = &mut state.delete {
-        let unfinished = wallet.unfinished_identity.is_some() || wallet.unfinished_top_up.is_some();
-        if crate::screens::delete_wallet::delete_dialog(
-            ui,
-            a,
-            cx,
-            form,
-            Some(wallet.balances.total()),
-            unfinished,
-        ) {
+        // Another wallet's balance and unfinished work are not known here: its store stays shut.
+        let own = form.other.is_none();
+        let unfinished =
+            own && (wallet.unfinished_identity.is_some() || wallet.unfinished_top_up.is_some());
+        let balance = own.then(|| wallet.balances.total());
+        if crate::screens::delete_wallet::delete_dialog(ui, a, cx, form, balance, unfinished) {
             state.delete = None;
         }
     }

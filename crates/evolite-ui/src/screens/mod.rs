@@ -15,7 +15,7 @@ pub mod settings;
 pub mod shielded;
 pub mod unlock;
 
-mod activity;
+pub mod activity;
 mod elsewhere;
 mod overview;
 #[cfg(feature = "dev-tools")]

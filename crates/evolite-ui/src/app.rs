@@ -19,6 +19,18 @@ use egui::{Frame, Margin, Panel, Stroke};
 use evolite_api::{Command, Event, Snapshot, VaultState};
 use evolite_core::Core;
 
+/// What "Switching…" waits for (BUG-39 №15).
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum WalletBusy {
+    /// "Add wallet": the core making room for the new one.
+    Adding,
+    /// "‹ Back to "…"": the core going back to the wallet the adding started from.
+    Back,
+}
+
+/// "Switching…" goes after this long even with no answer: never a spinner for good.
+const WALLET_BUSY_FOR: std::time::Duration = std::time::Duration::from_secs(60);
+
 pub struct App {
     a: Assets,
     pub core: Core,
@@ -71,9 +83,14 @@ pub struct App {
     /// "Add wallet" asked: the onboarding to open (none: the welcome screen) once the
     /// core has made room for the new wallet.
     adding: Option<Option<screens::onboarding::Flow>>,
-    /// "Delete" on a wallet that was not open: its deletion opens over its unlock screen
-    /// (`true`: "Forgot the password?", without the password).
-    delete_other: Option<(String, bool)>,
+    /// "Forgot the password?" for a wallet that was not open: its deletion, without the
+    /// password, opens over its unlock screen.
+    forgot_other: Option<String>,
+    /// "Add wallet" or "‹ Back to "…"" clicked and the core has not answered yet: "Switching…"
+    /// shows at once (BUG-39 №15), for [`WALLET_BUSY_FOR`] at most.
+    wallet_busy: Option<(std::time::Instant, WalletBusy)>,
+    /// The open wallet the screens' state belongs to: another one clears it (BUG-45).
+    screens_wallet: Option<String>,
     /// "Open "…"" over the screen (Figma 29), while open.
     switching: Option<screens::switch_wallet::SwitchForm>,
     /// While a wallet is being added: the name of the one "‹ Back to "…"" goes back to.
@@ -214,7 +231,9 @@ impl App {
             wallet_menu: false,
             visits: Visits::default(),
             adding: None,
-            delete_other: None,
+            forgot_other: None,
+            wallet_busy: None,
+            screens_wallet: None,
             switching: None,
             adding_back: None,
             named: Default::default(),
@@ -422,6 +441,30 @@ impl App {
         self.saved_prefs = Default::default();
     }
 
+    /// BUG-45: what the screens hold of one wallet — a top-up's "Credits added", the saved
+    /// CSV, answers, forms half typed — is not shown in the next one. Only when another wallet
+    /// opens: "Add wallet" then "Back to" the same one keeps it.
+    fn follow_wallet_screens(&mut self, ctx: &egui::Context, snapshot: &Snapshot) {
+        let Some(open) = snapshot.wallets.iter().find(|w| w.open) else {
+            return;
+        };
+        if self.screens_wallet.as_deref() == Some(open.id.as_str()) {
+            return;
+        }
+        if self.screens_wallet.replace(open.id.clone()).is_none() {
+            return;
+        }
+        self.send.on_lock();
+        self.receive = Default::default();
+        self.identity = Default::default();
+        self.contacts = Default::default();
+        self.pool = Default::default();
+        self.requests = Default::default();
+        self.create_identity = Default::default();
+        self.collection.forget_wallet();
+        screens::activity::forget(ctx);
+    }
+
     /// Any input means the person is here: the core's auto-lock starts again. Told at most
     /// every few seconds, not every frame.
     fn touch(&mut self, ctx: &egui::Context) {
@@ -452,6 +495,7 @@ impl App {
             match &event {
                 Event::Snapshot(snapshot) => {
                     self.follow_open_wallet(snapshot);
+                    self.follow_wallet_screens(ctx, snapshot);
                     self.name_unnamed(snapshot);
                     self.notify_changes(ctx, snapshot);
                     self.snapshot = Some((**snapshot).clone());
@@ -544,6 +588,20 @@ impl App {
                         self.settings.forget_wallet();
                         self.chosen_identity = None;
                         self.collection.trusted.clear();
+                    }
+                }
+                // Another wallet is gone (R-28): only its dialog closes, the open one stays.
+                Event::Done {
+                    what: "delete-other",
+                    result,
+                } => {
+                    if self
+                        .settings
+                        .delete
+                        .as_mut()
+                        .is_some_and(|form| form.on_done(result))
+                    {
+                        self.settings.delete = None;
                     }
                 }
                 Event::PhraseRevealed(result) => self.settings.on_revealed(result.clone()),
@@ -680,6 +738,62 @@ impl<T: PartialEq + Copy> Visits<T> {
 /// open straight to no wallet, never through "locked").
 fn keys_gone(before: Option<VaultState>, now: VaultState) -> bool {
     before == Some(VaultState::Unlocked) && now != VaultState::Unlocked
+}
+
+/// Whether "Switching…" still waits: "Add wallet" until the app has taken the core's answer
+/// (`adding` gone), "Back to" until the core has stopped adding — and never past
+/// [`WALLET_BUSY_FOR`].
+fn wallet_still_busy(
+    busy: WalletBusy,
+    since: std::time::Instant,
+    adding: bool,
+    core_adding: bool,
+) -> bool {
+    since.elapsed() < WALLET_BUSY_FOR
+        && match busy {
+            WalletBusy::Adding => adding,
+            WalletBusy::Back => core_adding,
+        }
+}
+
+/// "Switching…" with a spinner at the top of whatever is on screen, from the click on "Add
+/// wallet" or "Back to" until the core has answered (BUG-39 №15): its answer takes seconds.
+fn wallet_busy_indicator(
+    ui: &mut egui::Ui,
+    p: &theme::Palette,
+    busy: &mut Option<(std::time::Instant, WalletBusy)>,
+    adding: bool,
+    core_adding: bool,
+) {
+    let Some((since, what)) = *busy else {
+        return;
+    };
+    if !wallet_still_busy(what, since, adding, core_adding) {
+        *busy = None;
+        return;
+    }
+    let width = ui.ctx().content_rect().width();
+    egui::Area::new(egui::Id::new("wallet-busy"))
+        .order(egui::Order::Foreground)
+        .pivot(egui::Align2::CENTER_TOP)
+        .fixed_pos(egui::pos2(width / 2.0, 64.0))
+        .show(ui.ctx(), |ui| {
+            Frame::new()
+                .fill(p.surface)
+                .stroke(Stroke::new(1.0, p.line))
+                .corner_radius(egui::CornerRadius::same(18))
+                .inner_margin(Margin::symmetric(14, 8))
+                .show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.spacing_mut().item_spacing.x = 8.0;
+                        ui.add(egui::Spinner::new().size(14.0).color(p.muted));
+                        ui.label(txt(tr!("Switching…"), 13.0, theme::Weight::Medium, p.text));
+                    });
+                });
+        });
+    // The spinner turns, and the answer is looked for, while nothing else moves.
+    ui.ctx()
+        .request_repaint_after(std::time::Duration::from_millis(100));
 }
 
 /// evolite starts again with the same arguments and this window closes; the new one waits
@@ -824,18 +938,14 @@ impl eframe::App for App {
             self.onboarding = None;
             self.screen = flow.map_or(Screen::Welcome, Screen::Onboarding);
         }
-        // "Delete" on a wallet that was not open: it is open now, at its unlock screen; the
-        // deletion asks its own password.
-        if let Some((id, forgot)) = &self.delete_other
+        // "Forgot the password?" for a wallet that was not open: it is open now, at its unlock
+        // screen, and the deletion asks no password.
+        if let Some(id) = &self.forgot_other
             && snapshot.vault == VaultState::Locked
             && snapshot.wallets.iter().any(|w| w.open && &w.id == id)
         {
-            self.unlock.forgot = Some(if *forgot {
-                screens::delete_wallet::DeleteForm::forgot()
-            } else {
-                screens::delete_wallet::DeleteForm::default()
-            });
-            self.delete_other = None;
+            self.unlock.forgot = Some(screens::delete_wallet::DeleteForm::forgot());
+            self.forgot_other = None;
         }
         // A lock (by the button, the timer or the core) takes what was typed or shown with it.
         if keys_gone(self.vault, snapshot.vault) {
@@ -1087,16 +1197,20 @@ impl eframe::App for App {
                 Some(name) => format!(tr!("Back to “{name}”"), name = crate::i18n::own(name)),
                 None => tr!("Go back").to_owned(),
             };
+            // Clicked once: "Switching…" stands in its place until the core is back.
+            let going_back = matches!(self.wallet_busy, Some((_, WalletBusy::Back)));
             egui::Area::new(egui::Id::new("cancel-adding"))
                 .order(egui::Order::Foreground)
                 .fixed_pos(egui::pos2(32.0, 22.0))
                 .show(ui.ctx(), |ui| {
-                    if crate::components::text_action(ui, &mut self.a, "chevron-left", &label)
-                        .clicked()
+                    if !going_back
+                        && crate::components::text_action(ui, &mut self.a, "chevron-left", &label)
+                            .clicked()
                     {
                         commands.push(Command::CancelAddWallet);
                         self.onboarding = None;
                         go = Some(Screen::Welcome);
+                        self.wallet_busy = Some((std::time::Instant::now(), WalletBusy::Back));
                     }
                 });
             // The rest of Figma 31's top bar: the logo in the middle, the network on the right.
@@ -1115,6 +1229,13 @@ impl eframe::App for App {
                     crate::components::network_chip(ui, &mut self.a, snapshot.network);
                 });
         }
+        wallet_busy_indicator(
+            ui,
+            &p,
+            &mut self.wallet_busy,
+            self.adding.is_some(),
+            snapshot.adding_wallet,
+        );
 
         for command in commands {
             self.core.send(command);
@@ -1123,6 +1244,7 @@ impl eframe::App for App {
             Some(crate::context::WalletRequest::Add(flow)) => {
                 self.core.send(Command::AddWallet);
                 self.adding = Some(flow);
+                self.wallet_busy = Some((std::time::Instant::now(), WalletBusy::Adding));
                 self.adding_back = snapshot
                     .wallets
                     .iter()
@@ -1133,12 +1255,12 @@ impl eframe::App for App {
                 self.settings.section = Section::Wallets;
                 go = Some(Screen::Settings);
             }
-            Some(crate::context::WalletRequest::DeleteOther { id, forgot }) => {
+            Some(crate::context::WalletRequest::ForgotOther(id)) => {
                 self.core.send(Command::SwitchWallet {
                     id: id.clone(),
                     password: None,
                 });
-                self.delete_other = Some((id, forgot));
+                self.forgot_other = Some(id);
             }
             Some(crate::context::WalletRequest::Open(id)) => {
                 self.switching = Some(screens::switch_wallet::SwitchForm::new(id));

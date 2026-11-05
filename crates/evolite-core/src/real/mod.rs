@@ -328,6 +328,8 @@ struct Real {
     nfts: nfts::Nfts,
     /// The sandboxed renderer; `None` in tests.
     artist: Option<crate::art::Artist>,
+    /// Where each wallet's picture cache is (`<base>/<id>`): another wallet's deleted with it.
+    art_base: Option<PathBuf>,
     /// DPNS names of contacts by identity (base58), asked for once each.
     names: Arc<std::sync::Mutex<HashMap<String, Option<String>>>>,
     /// Asked or being asked; one that failed leaves after [`NAME_RETRY`], to be asked again.
@@ -795,6 +797,7 @@ impl Real {
             avatars: Default::default(),
             nfts: Default::default(),
             artist: None,
+            art_base: None,
             names: Default::default(),
             names_asked: Default::default(),
             contacts: Vec::new(),
@@ -1436,6 +1439,46 @@ impl Real {
                 e = e
             ))),
         }
+    }
+
+    /// Removes another wallet of this computer (its "…" in Settings; R-28, BUG-44), by its
+    /// own password — none is refused. Its store is never opened here: only its files go,
+    /// the vault first (after it the folder is a leftover that [`clear_other_leftovers`] and
+    /// the index's loading take), then the folder (best effort), its record and its pictures.
+    /// The open wallet stays as it is: not locked, its chain not stopped.
+    async fn delete_other(
+        &mut self,
+        id: &str,
+        password: Option<&Password>,
+    ) -> Result<(), CoreError> {
+        let password = password.ok_or(CoreError::WrongPassword)?;
+        if self.switch_to.as_deref() == Some(id) || self.adding_from.as_deref() == Some(id) {
+            return Err(CoreError::NotAvailable(
+                tr!("This wallet cannot be deleted now").into(),
+            ));
+        }
+        self.open_wallet_vault(id, password).await?;
+        let folder = wallets::wallet_dir(&self.paths.root, id);
+        match std::fs::remove_file(folder.join("wallet.json")) {
+            Ok(()) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => {
+                return Err(CoreError::Failed(format!(
+                    tr!("The wallet was not deleted: {e}"),
+                    e = e
+                )));
+            }
+        }
+        let _ = std::fs::remove_dir_all(&folder);
+        self.index.wallets.retain(|r| r.id != id);
+        if self.index.last.as_deref() == Some(id) {
+            self.index.last = None;
+        }
+        self.save_index();
+        if let Some(base) = &self.art_base {
+            let _ = std::fs::remove_dir_all(base.join(id));
+        }
+        Ok(())
     }
 
     /// "Sync again": leaves a mark for [`resync_on_start`]; the app starts
@@ -3576,10 +3619,19 @@ impl Real {
                 }
                 return (None, true);
             }
-            Command::DeleteWallet { password } => Event::Done {
-                what: "delete",
-                result: self.delete_wallet(password.as_ref()).await,
-            },
+            Command::DeleteWallet { password, wallet } => {
+                match wallet.filter(|id| *id != self.wallet) {
+                    // Another wallet: not "delete", which the app takes for the open one gone.
+                    Some(id) => Event::Done {
+                        what: "delete-other",
+                        result: self.delete_other(&id, password.as_ref()).await,
+                    },
+                    None => Event::Done {
+                        what: "delete",
+                        result: self.delete_wallet(password.as_ref()).await,
+                    },
+                }
+            }
             Command::Resync => Event::Done {
                 what: "resync",
                 result: self.ask_resync().await,
@@ -3835,6 +3887,7 @@ pub fn run(
             worker: art.worker.clone(),
             off: art.off,
         };
+        core.art_base = art_base.clone();
         // Profile pictures are drawn by the sandboxed renderer, never in this process.
         core.artist = Some(crate::art::Artist::start(
             out.clone(),
@@ -3907,6 +3960,7 @@ pub fn run(
                             let wallet = next.unwrap_or_else(|| opening_wallet(&data_dir));
                             core = Real::new(data_dir.clone(), wallet, out.clone(), wake.clone());
                             core.birth_hint = tip;
+                            core.art_base = art_base.clone();
                             // Back at the wallet the adding started from: adding is over.
                             core.adding_from = adding_from.filter(|from| *from != core.wallet);
                             core.artist = Some(crate::art::Artist::start(
@@ -4448,6 +4502,72 @@ mod tests {
         assert!(adding.snapshot().await.adding_wallet);
         adding.handle(Command::CancelAddWallet).await;
         assert_eq!(adding.switch_to.as_deref(), Some("bbbb0002"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// R-28 (BUG-44): another wallet goes by its own password, files only; the open one stays
+    /// unlocked and no new core is asked for.
+    #[tokio::test]
+    async fn deletes_another_wallet_by_its_password_and_keeps_the_open_one() {
+        let dir = fresh_dir("delete-other");
+        seal_wallet(&dir, "aaaa0001");
+        seal_wallet(&dir, "bbbb0002");
+        let art = dir.join("art");
+        std::fs::create_dir_all(art.join("bbbb0002")).unwrap();
+        std::fs::create_dir_all(art.join("aaaa0001")).unwrap();
+        let mut core = core_at(&dir, "aaaa0001");
+        core.art_base = Some(art.clone());
+        assert_eq!(core.unlock(&pw("pw")).await, Ok(()));
+        let other = wallets::wallet_dir(&dir, "bbbb0002");
+        std::fs::write(other.join("platform-wallet.db"), b"store").unwrap();
+        let delete = |password: Option<&str>, wallet: &str| Command::DeleteWallet {
+            password: password.map(pw),
+            wallet: Some(wallet.into()),
+        };
+        let answer = |event: Option<Event>| match event {
+            Some(Event::Done { what, result }) => (what, result),
+            other => panic!("{other:?}"),
+        };
+        let untouched = |core: &Real| {
+            assert!(core.unlocked.is_some(), "the open wallet stays unlocked");
+            assert!(!core.restart && core.switch_to.is_none(), "no new core");
+        };
+
+        // A wrong password, or none: nothing goes.
+        for password in [Some("wrong"), None] {
+            let (event, _) = core.handle(delete(password, "bbbb0002")).await;
+            assert_eq!(
+                answer(event),
+                ("delete-other", Err(CoreError::WrongPassword))
+            );
+            assert!(other.join("wallet.json").exists());
+            untouched(&core);
+        }
+        // Its own password: its folder, record and pictures go; the open one's stay.
+        let (event, changed) = core.handle(delete(Some("pw"), "bbbb0002")).await;
+        assert_eq!(answer(event), ("delete-other", Ok(())));
+        assert!(changed, "the list of wallets is sent again");
+        assert!(!other.exists());
+        assert!(!art.join("bbbb0002").exists() && art.join("aaaa0001").exists());
+        let ids: Vec<String> = wallets::load(&dir)
+            .wallets
+            .into_iter()
+            .map(|r| r.id)
+            .collect();
+        assert_eq!(ids, ["aaaa0001"]);
+        assert_eq!(core.wallet_entries().len(), 1);
+        assert!(core.paths.vault.exists());
+        untouched(&core);
+        // Not there any more.
+        let (event, _) = core.handle(delete(Some("pw"), "bbbb0002")).await;
+        assert!(matches!(
+            answer(event),
+            ("delete-other", Err(CoreError::NotAvailable(_)))
+        ));
+        // The open one's id is the open one's deletion, as before.
+        let (event, _) = core.handle(delete(Some("wrong"), "aaaa0001")).await;
+        assert_eq!(answer(event), ("delete", Err(CoreError::WrongPassword)));
+        untouched(&core);
         let _ = std::fs::remove_dir_all(&dir);
     }
 

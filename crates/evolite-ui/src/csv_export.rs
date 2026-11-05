@@ -90,9 +90,9 @@ fn line(a: &Activity, own: &Own) -> Option<Line> {
         // shield made in the pool. Its fee is on the first half.
         ActivityKind::Received { from: Some(from) } if from == WITHDRAWAL_PAYOUT => return None,
         ActivityKind::Shielded { from: None } if a.amount >= 0 => return None,
-        ActivityKind::SelfTransfer | ActivityKind::TopUp { .. } | ActivityKind::Shielded { .. } => {
-            true
-        }
+        ActivityKind::SelfTransfer { .. }
+        | ActivityKind::TopUp { .. }
+        | ActivityKind::Shielded { .. } => true,
         ActivityKind::Withdrawal { to } | ActivityKind::CreditTransfer { to } => own.is(to),
         ActivityKind::Sent { to } => own.is(to),
         _ => false,
@@ -102,7 +102,7 @@ fn line(a: &Activity, own: &Own) -> Option<Line> {
         // its amount is the fee; otherwise nothing known was spent.
         let fee = match a.fee {
             Some(fee) if fee > 0 => fee,
-            _ if matches!(a.kind, ActivityKind::SelfTransfer) => -a.amount,
+            _ if matches!(a.kind, ActivityKind::SelfTransfer { .. }) => -a.amount,
             _ => 0,
         };
         return (fee > 0).then_some(Line::Expense(fee));
@@ -295,8 +295,11 @@ mod tests {
                 226,
             ),
             // To own addresses, the fee known and not.
-            with_fee(act(K::SelfTransfer, Chain::Core, 120, -226, "cc"), 226),
-            act(K::SelfTransfer, Chain::Core, 130, -300, "c2"),
+            with_fee(
+                act(K::SelfTransfer { moved: 0 }, Chain::Core, 120, -226, "cc"),
+                226,
+            ),
+            act(K::SelfTransfer { moved: 0 }, Chain::Core, 130, -300, "c2"),
             // A top-up of 0.01 of its own identity.
             with_fee(
                 act(

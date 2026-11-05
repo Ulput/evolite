@@ -121,8 +121,12 @@ impl IdentityState {
     }
 
     /// The core's answer to `TopUpIdentity` or `ResumeTopUp`.
+    /// Only for a top-up this state sent: the answer of a wallet left meanwhile is not this
+    /// one's (BUG-45).
     pub fn on_top_up_done(&mut self, result: &Result<(), CoreError>) {
-        let duffs = self.topping_up.take().unwrap_or(0);
+        let Some(duffs) = self.topping_up.take() else {
+            return;
+        };
         self.top_up_password.settle(Some(result));
         self.resume_password.settle(Some(result));
         // A wrong password is said under its field, not as a failed top-up.

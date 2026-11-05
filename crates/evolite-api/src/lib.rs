@@ -62,8 +62,12 @@ pub enum ActivityKind {
     Sent {
         to: String,
     },
-    /// Between the wallet's own addresses (or CoinJoin): only the fee leaves.
-    SelfTransfer,
+    /// Between the wallet's own addresses (or CoinJoin): only the fee leaves. `moved`: what
+    /// came to the receiving address in [`Activity::address`] ("Receive" lists it, BUG-33); 0
+    /// when not known.
+    SelfTransfer {
+        moved: Duffs,
+    },
     /// Platform address received DASH.
     PlatformReceived,
     TopUp {
@@ -956,8 +960,12 @@ pub enum Command {
     /// to them (the money stays on the network, back with the phrase). `password`: checked
     /// first, from Settings; `None` from "Forgot the password?", where it is not known. Answered with
     /// `Done { what: "delete" }`; the core then starts again with no wallet.
+    /// `wallet`: another wallet of this computer (its "…" in Settings), by its own password,
+    /// which is then required; the open one stays as it is. Answered with
+    /// `Done { what: "delete-other" }` (R-28). `None` or the open one's id: the open one.
     DeleteWallet {
         password: Option<Password>,
+        wallet: Option<String>,
     },
     /// "Check the phrase": open the vault with the password and ask a few words of the
     /// phrase by number. Answered with [`Event::PhraseCheck`]; the phrase stays in the core.

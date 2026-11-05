@@ -73,13 +73,28 @@ fn matches_query(act: &Activity, q: &str, book: &[SavedAddress]) -> bool {
     shown.contains(q) || txid
 }
 
+/// Where the last export's answer is kept: the file written (and how many lines), or why not.
+fn saved_id() -> egui::Id {
+    egui::Id::new("csv-export")
+}
+
+/// The last export's answer, when another wallet opens: its file is not this one's (BUG-45).
+pub fn forget(ctx: &egui::Context) {
+    ctx.data_mut(|d| d.remove::<Result<(std::path::PathBuf, usize), String>>(saved_id()));
+}
+
+/// The last export's answer still shown, if any.
+#[cfg(all(test, feature = "dev-tools"))]
+pub fn saved(ctx: &egui::Context) -> Option<Result<(std::path::PathBuf, usize), String>> {
+    ctx.data(|d| d.get_temp(saved_id()))
+}
+
 /// 05 · History: filter chips, search, operations grouped by day.
 pub fn activity(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, filter: &mut usize, query: &mut String) {
     let p = a.p;
     let wallet = cx.wallet();
     ui.spacing_mut().item_spacing.y = 18.0;
-    // The last export's answer: the file written (and how many lines), or why not.
-    let saved_id = egui::Id::new("csv-export");
+    let saved_id = saved_id();
     let mut export = false;
     page_header(ui, a, tr!("History"), None, |ui, a| {
         let resp = button_enabled(

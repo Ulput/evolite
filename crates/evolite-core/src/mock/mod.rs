@@ -229,6 +229,21 @@ impl Mock {
             Command::FindIdentities => return changed,
             // The demo has one identity behind both choices.
             Command::ChooseIdentity { .. } => return changed,
+            // Another demo wallet goes from the list by its own password (R-28); the open one
+            // stays as it is.
+            Command::DeleteWallet {
+                password,
+                wallet: Some(id),
+            } if self.snapshot.wallets.iter().any(|w| w.id == id && !w.open) => Event::Done {
+                what: "delete-other",
+                result: if password.is_none_or(|p| p.expose().is_empty()) {
+                    Err(CoreError::WrongPassword)
+                } else {
+                    self.snapshot.wallets.retain(|w| w.id != id);
+                    changed = true;
+                    Ok(())
+                },
+            },
             // The example wallet is not on this computer to delete.
             Command::DeleteWallet { .. } => Event::Done {
                 what: "delete",

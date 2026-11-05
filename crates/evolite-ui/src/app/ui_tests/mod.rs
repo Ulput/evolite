@@ -16,6 +16,7 @@ mod send;
 mod settings_apps;
 mod spend;
 mod tab_sweep;
+mod wallets;
 
 use super::App;
 use crate::cli::Launch;

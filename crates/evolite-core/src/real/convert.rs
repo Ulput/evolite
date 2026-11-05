@@ -192,7 +192,7 @@ fn kind_of(
             Chain::Core,
         ),
         (_, TransactionDirection::Internal | TransactionDirection::CoinJoin) => {
-            (ActivityKind::SelfTransfer, Chain::Core)
+            (ActivityKind::SelfTransfer { moved: 0 }, Chain::Core)
         }
     }
 }
@@ -209,18 +209,25 @@ pub(super) fn activity(
         .find(|o| o.role == OutputRole::Sent)
         .and_then(|o| o.address.as_ref())
         .map(|a| a.to_string());
-    // Paid out: the payee's address; received: our own address it came to ("Receive" lists them).
-    let address = if record.direction == TransactionDirection::Incoming {
-        record
-            .output_details
-            .iter()
-            .find(|o| o.role == OutputRole::Received)
-            .and_then(|o| o.address.as_ref())
-            .map(|a| a.to_string())
-    } else {
-        sent_to.clone()
+    // Our own receiving address the payment came to, and what came there.
+    let received = record
+        .output_details
+        .iter()
+        .find(|o| o.role == OutputRole::Received)
+        .and_then(|o| Some((o.address.as_ref()?.to_string(), o.value)));
+    let (mut kind, chain) = kind_of(record.direction, record.transaction_type, sent_to.clone());
+    // Paid out: the payee's address; received — from someone else or from one of our own
+    // addresses (BUG-33) — our own address it came to: "Receive" lists them.
+    let address = match &mut kind {
+        ActivityKind::SelfTransfer { moved } => received.map(|(address, value)| {
+            *moved = value as Duffs;
+            address
+        }),
+        _ if record.direction == TransactionDirection::Incoming => {
+            received.map(|(address, _)| address)
+        }
+        _ => sent_to,
     };
-    let (kind, chain) = kind_of(record.direction, record.transaction_type, sent_to);
     // In a block: the block's time; in the mempool: when we saw it.
     let at = record
         .context
@@ -913,7 +920,62 @@ mod kind_tests {
                 None
             )
             .0,
-            ActivityKind::SelfTransfer
+            ActivityKind::SelfTransfer { moved: 0 }
         );
+    }
+
+    /// BUG-33: a payment to one of our own receiving addresses names that address and what
+    /// came there, so "Receive" lists it with the others.
+    #[test]
+    fn a_transfer_to_our_own_address_names_it_and_what_came() {
+        use key_wallet::dashcore::address::Payload;
+        use key_wallet::dashcore::hashes::Hash;
+        use key_wallet::dashcore::{PubkeyHash, Transaction};
+        use key_wallet::managed_account::transaction_record::OutputDetail;
+
+        let address = |n: u8| {
+            Address::new(
+                key_wallet::Network::Testnet,
+                Payload::PubkeyHash(PubkeyHash::from_byte_array([n; 20])),
+            )
+        };
+        let (ours, change) = (address(7), address(8));
+        let detail = |index, role, at: &Address, value| OutputDetail {
+            index,
+            role,
+            address: Some(at.clone()),
+            value,
+        };
+        let mut record = TransactionRecord::new(
+            Transaction {
+                version: 2,
+                lock_time: 0,
+                input: Vec::new(),
+                output: Vec::new(),
+                special_transaction_payload: None,
+            },
+            key_wallet::account::AccountType::Standard {
+                index: 0,
+                standard_account_type: key_wallet::account::StandardAccountType::BIP44Account,
+            },
+            TransactionContext::Mempool,
+            TransactionType::Standard,
+            TransactionDirection::Internal,
+            Vec::new(),
+            vec![
+                detail(0, OutputRole::Received, &ours, 100_000),
+                detail(1, OutputRole::Change, &change, 897_774),
+            ],
+            -226,
+        );
+        record.fee = Some(226);
+        let line = activity(&record, 0, true);
+        assert_eq!(line.kind, ActivityKind::SelfTransfer { moved: 100_000 });
+        assert_eq!(
+            line.address,
+            Some(ours.to_string()),
+            "not the change address"
+        );
+        assert_eq!((line.amount, line.fee), (-226, Some(226)));
     }
 }

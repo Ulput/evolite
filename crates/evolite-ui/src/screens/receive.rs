@@ -295,26 +295,30 @@ pub(crate) struct PastAddress {
 }
 
 /// Our Core addresses that received payments, newest first, without `current` (shown above).
+/// A transfer between our own addresses counts for the address it came to (BUG-33).
 pub(crate) fn past_addresses(history: &[Activity], current: &str) -> Vec<PastAddress> {
     let mut out: Vec<PastAddress> = Vec::new();
     for act in history {
-        let (ActivityKind::Received { .. }, Chain::Core, Some(address)) =
-            (&act.kind, act.chain, &act.address)
-        else {
+        let (Chain::Core, Some(address)) = (act.chain, &act.address) else {
             continue;
         };
-        if address == current || act.amount <= 0 {
+        let amount = match act.kind {
+            ActivityKind::Received { .. } => act.amount,
+            ActivityKind::SelfTransfer { moved } => moved,
+            _ => continue,
+        };
+        if address == current || amount <= 0 {
             continue;
         }
         match out.iter_mut().find(|p| &p.address == address) {
             Some(p) => {
-                p.received += act.amount;
+                p.received += amount;
                 p.payments += 1;
                 p.last = p.last.max(act.at);
             }
             None => out.push(PastAddress {
                 address: address.clone(),
-                received: act.amount,
+                received: amount,
                 payments: 1,
                 last: act.at,
             }),
@@ -430,5 +434,38 @@ mod tests {
                 },
             ]
         );
+    }
+
+    /// BUG-33: 0.001 sent to our own address A — A is an earlier address with that payment.
+    #[test]
+    fn an_address_paid_from_the_wallet_itself_is_an_earlier_address() {
+        let history = [Activity {
+            id: 1,
+            kind: ActivityKind::SelfTransfer { moved: 100_000 },
+            chain: Chain::Core,
+            at: 80,
+            amount: -226,
+            proof: Proof::InstantLock,
+            txid: None,
+            fee: Some(226),
+            block: None,
+            address: Some("yA".into()),
+        }];
+        assert_eq!(
+            past_addresses(&history, "yNow"),
+            [PastAddress {
+                address: "yA".into(),
+                received: 100_000,
+                payments: 1,
+                last: 80
+            }]
+        );
+        // A shielded transfer to our own private address names no Core address.
+        let pool = Activity {
+            kind: ActivityKind::SelfTransfer { moved: 0 },
+            address: None,
+            ..history[0].clone()
+        };
+        assert!(past_addresses(&[pool], "yNow").is_empty());
     }
 }

@@ -75,6 +75,17 @@ pub struct CollectionState {
 const TRUSTED: [&str; 1] = ["jembe"];
 
 impl CollectionState {
+    /// Another wallet opens: the gift dialog, its answer and the pictures asked for go; the
+    /// drawn pictures and the settings stay (BUG-45).
+    pub fn forget_wallet(&mut self) {
+        self.selected = 0;
+        self.gifting = false;
+        #[cfg(demo_core)]
+        self.recipient.clear();
+        self.result = None;
+        self.shown.clear();
+    }
+
     /// The picture of `nft` is not drawn until the person asks: an issuer nobody trusted may
     /// send anything, and drawing it is the first thing that could go wrong.
     pub fn waits_for_consent(&self, nft: &Nft) -> bool {

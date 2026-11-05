@@ -411,7 +411,10 @@ mod tests {
             })
         };
         let deleted = |core: &Core, password: Option<Password>| {
-            core.send(Command::DeleteWallet { password });
+            core.send(Command::DeleteWallet {
+                password,
+                wallet: None,
+            });
             wait_for(core, 2, |e| match e {
                 Event::Done {
                     what: "delete",

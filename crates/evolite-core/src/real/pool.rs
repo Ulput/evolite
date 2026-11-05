@@ -511,9 +511,10 @@ mod imp {
             }
             (_, ShieldedDirection::In) => (ActivityKind::PoolReceived, duffs),
             // To our own private address: only the fee leaves.
-            (_, ShieldedDirection::SelfTransfer) => {
-                (ActivityKind::SelfTransfer, -fee.unwrap_or_default())
-            }
+            (_, ShieldedDirection::SelfTransfer) => (
+                ActivityKind::SelfTransfer { moved: 0 },
+                -fee.unwrap_or_default(),
+            ),
             (_, ShieldedDirection::Out) => (ActivityKind::PoolSent, -(duffs + fee.unwrap_or(0))),
         };
         let mut id = [0u8; 8];

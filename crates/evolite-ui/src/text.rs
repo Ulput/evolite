@@ -252,7 +252,7 @@ pub fn activity_title(a: &Activity) -> String {
         ActivityKind::Received { from: None } => tr!("Received").into(),
         ActivityKind::Sent { to } if to.is_empty() => tr!("Sent").into(),
         ActivityKind::Sent { to } => format!(tr!("Sent {}"), short_address(to)),
-        ActivityKind::SelfTransfer => tr!("Transfer between own addresses").into(),
+        ActivityKind::SelfTransfer { .. } => tr!("Transfer between own addresses").into(),
         ActivityKind::PlatformReceived => tr!("Received at the Platform address").into(),
         // An asset lock seen on Core: which identity or address it funds, Core does not say.
         ActivityKind::TopUp { identity } if identity.is_empty() => {
@@ -291,7 +291,7 @@ pub fn activity_icon(a: &Activity) -> &'static str {
         | ActivityKind::PoolReceived => "receive",
         ActivityKind::Sent { .. } | ActivityKind::PoolSent => "send",
         ActivityKind::TopUp { .. } => "top-up",
-        ActivityKind::SelfTransfer => "transfer",
+        ActivityKind::SelfTransfer { .. } => "transfer",
         ActivityKind::AppSignIn { .. } => "app-connect",
         ActivityKind::CreditTransfer { .. } => "transfer",
         ActivityKind::Shielded { .. } => "shield",

@@ -29,6 +29,9 @@ fn typed_word(typed: &str) -> bool {
 pub struct DeleteForm {
     /// "Forgot the password?": no password, no balance.
     pub forgot: bool,
+    /// Another wallet of this computer (its id and name), deleted by its own password from
+    /// Settings while the open one stays open (R-28, BUG-44); `None`: the open one.
+    pub other: Option<(String, String)>,
     has_phrase: bool,
     password: Zeroizing<String>,
     word: String,
@@ -40,6 +43,14 @@ impl DeleteForm {
     pub fn forgot() -> Self {
         Self {
             forgot: true,
+            ..Self::default()
+        }
+    }
+
+    /// The deletion of another wallet (`id`, `name`), asking that wallet's own password.
+    pub fn other(id: String, name: String) -> Self {
+        Self {
+            other: Some((id, name)),
             ..Self::default()
         }
     }
@@ -119,7 +130,14 @@ pub fn delete_dialog(
         if !form.forgot {
             ui.vertical(|ui| {
                 ui.spacing_mut().item_spacing.y = 6.0;
-                field_label(ui, &p, tr!("Password"));
+                match &form.other {
+                    Some((_, name)) => field_label(
+                        ui,
+                        &p,
+                        &format!(tr!("Password of “{}”"), crate::i18n::own(name)),
+                    ),
+                    None => field_label(ui, &p, tr!("Password")),
+                }
                 if text_field(
                     ui,
                     &p,
@@ -175,7 +193,10 @@ pub fn delete_dialog(
                 // The password goes to the core and is wiped here at once.
                 let password = (!form.forgot).then(|| Password::new(form.password.to_string()));
                 form.password.zeroize();
-                cx.send(Command::DeleteWallet { password });
+                cx.send(Command::DeleteWallet {
+                    password,
+                    wallet: form.other.as_ref().map(|(id, _)| id.clone()),
+                });
                 form.waiting = true;
                 form.result = None;
             }
