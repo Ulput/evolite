@@ -96,8 +96,8 @@ fn tx_row_sensed(ui: &mut Ui, a: &mut Assets, row: &TxRow, sense: Sense) -> egui
     paint_icon_box(ui, a, boxr, 10, row.icon, 18.0, p.ink);
 
     let amount_right = rect.right() - 16.0;
-    // "Hide amounts": the row under the pointer shows its amount.
-    let hidden = crate::format::display().hide && !ui.rect_contains_pointer(rect);
+    // "Hide amounts": "••••" under the pointer too (FEAT-0007: no reveal on hover).
+    let hidden = crate::format::display().hide;
     let masked = hidden.then(|| crate::format::mask(row.amount));
     paint_text(
         ui,
@@ -196,34 +196,19 @@ fn looks_like_code(word: &str) -> bool {
     }
 }
 
-/// An amount as a label. With "Hide amounts" it reads "•••• DASH" until the pointer
-/// is over it; whether it was is kept from the last frame.
+/// An amount as a label. With "Hide amounts" it reads "•••• DASH", under the pointer too:
+/// only the eye ([`amount_toggle`]) or Settings show it again (FEAT-0007).
 pub fn amount_label(ui: &mut Ui, shown: &str, font: FontId, color: Color32) -> Response {
-    if !crate::format::display().hide {
-        return ui.label(
-            egui::RichText::new(crate::i18n::t(shown))
-                .font(font)
-                .color(color),
-        );
-    }
-    let id = ui.next_auto_id().with("amount-shown");
-    let revealed = ui.data(|d| d.get_temp::<bool>(id)).unwrap_or(false);
-    let text = if revealed {
-        shown.to_owned()
-    } else {
+    let text = if crate::format::display().hide {
         crate::format::mask(shown)
+    } else {
+        shown.to_owned()
     };
-    let resp = ui.label(
+    ui.label(
         egui::RichText::new(crate::i18n::t(&text))
             .font(font)
             .color(color),
-    );
-    let over = resp.contains_pointer();
-    if over != revealed {
-        ui.data_mut(|d| d.insert_temp(id, over));
-        ui.ctx().request_repaint();
-    }
-    resp
+    )
 }
 
 /// card/balance: icon 18 + title 13 Medium, amount 24 mono, detail 12.

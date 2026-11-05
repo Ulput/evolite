@@ -140,6 +140,80 @@ pub fn text_action(ui: &mut Ui, a: &mut Assets, icon: &str, label: &str) -> Resp
     resp.on_hover_cursor(CursorIcon::PointingHand)
 }
 
+/// What [`amount_toggle`] asks of the app: «Hide amounts» switched over (FEAT-0007).
+const AMOUNTS_FLIP: &str = "amounts-flip";
+
+/// amount-toggle (FEAT-0007): the «eye» beside a screen's main amount. It shows the action —
+/// «Hide the amounts» while they are seen, «Show the amounts» while hidden — and a click, Enter
+/// or Space switches the one «Hide amounts» of Settings → Security, for the whole app (the app
+/// takes it with [`take_amounts_flip`]). `compact`: the icon alone, 28 × 28, its words in the
+/// tooltip (the wallet menu, «Earlier addresses»); else icon 16 + 12 Medium, padding 8 × 6.
+pub fn amount_toggle(ui: &mut Ui, a: &mut Assets, compact: bool) -> Response {
+    let p = a.p;
+    let hidden = crate::format::display().hide;
+    let (icon, label) = if hidden {
+        ("eye", tr!("Show the amounts"))
+    } else {
+        ("eye-off", tr!("Hide the amounts"))
+    };
+    let font = sans(12.0, Weight::Medium);
+    let size = if compact {
+        vec2(28.0, 28.0)
+    } else {
+        vec2(
+            8.0 + 16.0 + 6.0 + text_width(ui, label, font.clone()) + 8.0,
+            28.0,
+        )
+    };
+    let (rect, resp) = ui.allocate_exact_size(size, Sense::click());
+    named(&resp, egui::WidgetType::Button, true, label);
+    let over = resp.hovered() || resp.has_focus();
+    let color = if over { p.text } else { p.muted };
+    if over {
+        ui.painter()
+            .rect_filled(rect, CornerRadius::same(8), p.raised);
+    }
+    let icon_left = if compact {
+        rect.center().x - 8.0
+    } else {
+        rect.left() + 8.0
+    };
+    let icon_rect = Rect::from_min_size(pos2(icon_left, rect.center().y - 8.0), vec2(16.0, 16.0));
+    a.icons.icon(icon, color, &p, 16.0).paint_at(ui, icon_rect);
+    if !compact {
+        paint_text(
+            ui,
+            pos2(icon_rect.right() + 6.0, rect.center().y),
+            Align2::LEFT_CENTER,
+            label,
+            font,
+            color,
+        );
+    }
+    // The icon alone says its words on hover and on Tab focus.
+    let resp = if compact {
+        let words = crate::i18n::t(label).into_owned();
+        if resp.has_focus() && !resp.hovered() {
+            resp.show_tooltip_text(words.clone());
+        }
+        resp.on_hover_text(words)
+    } else {
+        resp
+    };
+    if resp.clicked() {
+        ui.ctx()
+            .data_mut(|d| d.insert_temp(egui::Id::new(AMOUNTS_FLIP), true));
+        ui.ctx().request_repaint();
+    }
+    resp.on_hover_cursor(CursorIcon::PointingHand)
+}
+
+/// Whether an [`amount_toggle`] was pressed since the last call; the app switches the setting.
+pub fn take_amounts_flip(ctx: &egui::Context) -> bool {
+    ctx.data_mut(|d| d.remove_temp::<bool>(egui::Id::new(AMOUNTS_FLIP)))
+        .unwrap_or(false)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

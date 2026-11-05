@@ -313,6 +313,12 @@ impl SettingsState {
         self.toggles.entry(key).or_insert(false)
     }
 
+    /// The eye beside an amount (FEAT-0007): «Hide amounts» of Security, switched over.
+    pub fn flip_hide_amounts(&mut self) {
+        let hide = self.toggle("hide-amounts");
+        *hide = !*hide;
+    }
+
     /// Whether NFT pictures move, with what the system says (`system_on`).
     pub fn nft_animations(&self, system_on: bool) -> bool {
         match self.nft_motion {

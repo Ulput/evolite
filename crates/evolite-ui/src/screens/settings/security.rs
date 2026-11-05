@@ -96,7 +96,9 @@ pub(super) fn security(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut Se
         vec![
             (
                 tr!("Hide amounts"),
-                tr!("Balances and history show •••• until you hover over them"),
+                tr!(
+                    "Balances and history show ••••. The eye button next to an amount switches this too."
+                ),
                 Control::Toggle(&mut hide),
             ),
             (

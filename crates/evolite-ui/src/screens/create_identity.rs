@@ -218,7 +218,7 @@ pub fn create_identity(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut Cre
                 }
             });
             let value = mono(13.0, Weight::Medium);
-            kv_row(ui, &p, tr!("From the Core wallet"), &dash(wallet.balances.core), value.clone());
+            kv_row(ui, &p, tr!("From the Core wallet"), &crate::format::balance(wallet.balances.core), value.clone());
             kv_row(ui, &p, tr!("Name registration"), &dash(name_fee), value.clone());
             kv_row(
                 ui,

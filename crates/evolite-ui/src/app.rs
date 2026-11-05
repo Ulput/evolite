@@ -833,7 +833,11 @@ impl eframe::App for App {
             self.fonts = fonts;
             ui.ctx().request_repaint();
         }
-        // What the last frame changed in Settings goes to disk now.
+        // The eye beside an amount (FEAT-0007) switches Settings' «Hide amounts»; what the last
+        // frame changed in Settings goes to disk now.
+        if crate::components::take_amounts_flip(ui.ctx()) {
+            self.settings.flip_hide_amounts();
+        }
         self.save_prefs();
         self.take_events(ui.ctx());
         // Settings → Collection: whether NFT pictures move, and whether a stranger's picture waits

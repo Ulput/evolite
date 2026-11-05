@@ -606,11 +606,18 @@ pub fn send(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut SendForm) {
         card(&p, Margin::same(24)).show(ui, |ui| {
             ui.set_width(form_w - 50.0);
             ui.spacing_mut().item_spacing.y = 18.0;
-            field_label(ui, &p, tr!("From"));
+            // «From» and, on its right, the app's one «Hide amounts» (FEAT-0007): the balances
+            // of the sources and «Left» hide, the amount typed and the fee do not.
+            ui.horizontal(|ui| {
+                field_label(ui, &p, tr!("From"));
+                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                    crate::components::amount_toggle(ui, a, false);
+                });
+            });
             ui.horizontal_wrapped(|ui| {
                 ui.spacing_mut().item_spacing = vec2(8.0, 8.0);
                 for (i, s) in all.iter().enumerate() {
-                    let detail = crate::format::amount(s.duffs);
+                    let detail = crate::format::balance(s.duffs);
                     if option_card(ui, a, s.icon, s.title, &detail, i == form.source).clicked() {
                         form.source = i;
                         form.result = None;
@@ -927,7 +934,13 @@ pub fn send(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut SendForm) {
             };
             kv_row(ui, &p, tr!("Amount"), &dash(amount), value.clone());
             kv_row(ui, &p, tr!("Fee"), &dash(fee), value.clone());
-            kv_row(ui, &p, tr!("Left"), &dash(left), value);
+            kv_row(
+                ui,
+                &p,
+                tr!("Left"),
+                &left.map_or("—".into(), crate::format::balance),
+                value,
+            );
             divider(ui, &p);
             ui.add(
                 egui::Label::new(
@@ -1176,7 +1189,11 @@ fn confirm(
                 ui,
                 &p,
                 tr!("From"),
-                &format!("{} · {}", source.title, dash(source.duffs)),
+                &format!(
+                    "{} · {}",
+                    source.title,
+                    crate::format::balance(source.duffs)
+                ),
                 sans(13.0, Weight::Medium),
             );
             ui.vertical(|ui| {

@@ -3,8 +3,8 @@
 
 use super::txt;
 use crate::components::{
-    Assets, ButtonKind, TxRow, amount_field, button, field_label, list_card, notice, option_card,
-    page_header, tx_row_clickable,
+    Assets, ButtonKind, TxRow, amount_field, button, field_label, notice, option_card, page_header,
+    tx_row_clickable,
 };
 use crate::context::Ctx;
 use crate::format::DUFFS_PER_DASH;
@@ -228,21 +228,19 @@ pub fn receive(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut ReceiveForm
     if !past.is_empty() {
         let now = cx.now;
         let width = ui.available_width();
-        list_card(
+        crate::components::list_card_with(
             ui,
             a,
             width,
-            tr!("Earlier addresses"),
-            tr!("still receive payments"),
+            (tr!("Earlier addresses"), tr!("still receive payments")),
+            // The app's one «Hide amounts», as an icon (FEAT-0007).
+            |ui, a| {
+                crate::components::amount_toggle(ui, a, true);
+            },
             |ui, a| {
                 ui.add_space(-2.0);
                 for old in past.iter().take(PAST_SHOWN) {
-                    let amount = crate::format::amount(old.received);
-                    let shown = if crate::format::display().hide {
-                        crate::format::mask(&amount)
-                    } else {
-                        amount
-                    };
+                    let shown = crate::format::balance(old.received);
                     // A click copies it: "Copied" stands in the line under it for a moment.
                     let detail = if crate::clipboard::just_copied(ui.ctx(), copy_id(&old.address)) {
                         tr!("Copied").to_string()

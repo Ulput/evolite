@@ -39,8 +39,13 @@ pub fn overview(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx) {
     });
     ui.vertical(|ui| {
         ui.spacing_mut().item_spacing.y = 6.0;
-        ui.label(txt(tr!("Total"), 13.0, Weight::Medium, p.muted));
-        let total = amount_label(
+        // «Total» and the eye that hides every amount of the app (FEAT-0007).
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 10.0;
+            ui.label(txt(tr!("Total"), 13.0, Weight::Medium, p.muted));
+            crate::components::amount_toggle(ui, a, false);
+        });
+        amount_label(
             ui,
             &crate::format::amount(b.total()),
             mono(44.0, Weight::Medium),
@@ -48,8 +53,7 @@ pub fn overview(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx) {
         );
         // "Fiat rate": the mainnet price, hidden with the amount.
         if let Some(fiat) = crate::format::fiat(b.total()) {
-            let shown = !crate::format::display().hide || total.contains_pointer();
-            let line = if shown {
+            let line = if !crate::format::display().hide {
                 format!(tr!("{fiat} · at the mainnet rate"), fiat = fiat)
             } else {
                 "••••".into()

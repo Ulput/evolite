@@ -102,7 +102,7 @@ pub fn delete_dialog(
                 ui.label(txt(tr!("Balance"), 13.0, Weight::Regular, p.muted));
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                     ui.label(
-                        egui::RichText::new(crate::format::amount(balance))
+                        egui::RichText::new(crate::format::balance(balance))
                             .font(crate::theme::mono(13.0, Weight::Medium))
                             .color(p.text),
                     );

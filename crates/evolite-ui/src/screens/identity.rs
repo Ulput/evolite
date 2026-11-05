@@ -246,7 +246,7 @@ pub fn identity(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut IdentityS
             &format!(
                 tr!("At least ≈ {} is needed (name and creation) plus any amount for credits; Core has {} now."),
                 dash(least),
-                dash(wallet.balances.core)
+                crate::format::balance(wallet.balances.core)
             ),
             13.0,
             Weight::Regular,
@@ -836,6 +836,16 @@ impl IdentityState {
     }
 }
 
+/// How many document writes `duffs` of credits pay for, «••••» while amounts are hidden: the
+/// number gives the balance away (FEAT-0007, AC-D3).
+fn operations(duffs: i64, fees: &Fees) -> String {
+    if crate::format::display().hide {
+        "••••".to_string()
+    } else {
+        group_thousands(duffs / fees.document_write.max(1))
+    }
+}
+
 fn dash(d: i64) -> String {
     crate::format::amount(d)
 }
@@ -1063,7 +1073,7 @@ fn top_up_dialog(
                 ui,
                 &p,
                 tr!("From the Core wallet"),
-                &dash(core),
+                &crate::format::balance(core),
                 value.clone(),
             );
             kv_row(
@@ -1079,8 +1089,8 @@ fn top_up_dialog(
                 tr!("On the identity after"),
                 &format!(
                     tr!("{} · ≈ {} operations"),
-                    dash(after),
-                    group_thousands(after / fees.document_write.max(1))
+                    crate::format::balance(after),
+                    operations(after, fees)
                 ),
                 value,
             );
@@ -1379,6 +1389,10 @@ fn credits(
             ui.spacing_mut().item_spacing.x = 8.0;
             ui.add(a.icons.icon("credits", p.muted, &p, 18.0));
             ui.label(txt(tr!("Platform credits"), 13.0, Weight::Medium, p.muted));
+            // The app's one «Hide amounts» (FEAT-0007).
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                crate::components::amount_toggle(ui, a, false);
+            });
         });
         crate::components::amount_label(
             ui,
@@ -1386,11 +1400,17 @@ fn credits(
             mono(28.0, Weight::Medium),
             p.text,
         );
+        // The credits and the operations they pay for give the balance away: hidden with it.
+        let credits = if crate::format::display().hide {
+            "••••".to_string()
+        } else {
+            group_thousands(duffs * CREDITS_PER_DUFF)
+        };
+        let operations = operations(duffs, fees);
         ui.label(
             egui::RichText::new(crate::i18n::t(&format!(
                 tr!("{} credits\n≈ {} operations"),
-                group_thousands(duffs * CREDITS_PER_DUFF),
-                group_thousands(duffs / fees.document_write.max(1))
+                credits, operations
             )))
             .font(mono(12.0, Weight::Regular))
             .color(p.muted),

@@ -13,7 +13,14 @@ pub fn card(p: &Palette, margin: Margin) -> Frame {
 
 /// A label on the left and a value on the right: 13 px, the value Medium (mono for amounts).
 pub fn kv_row(ui: &mut Ui, p: &Palette, label: &str, value: &str, value_font: FontId) {
-    let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), 16.0), Sense::hover());
+    let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 16.0), Sense::hover());
+    // Painted words say nothing to a screen reader: the row reads «label: value».
+    let spoken = format!(
+        "{}: {}",
+        crate::i18n::spoken(label),
+        crate::i18n::spoken(value)
+    );
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, &spoken));
     paint_text(
         ui,
         rect.left_center(),
@@ -97,6 +104,19 @@ pub fn list_card(
     note: &str,
     rows: impl FnOnce(&mut Ui, &mut Assets),
 ) {
+    list_card_with(ui, a, width, (title, note), |_, _| {}, rows);
+}
+
+/// [`list_card`] with something more at the right end of its title row, after the note
+/// (`right`, drawn right to left): the eye of «Earlier addresses» (FEAT-0007).
+pub fn list_card_with(
+    ui: &mut Ui,
+    a: &mut Assets,
+    width: f32,
+    (title, note): (&str, &str),
+    right: impl FnOnce(&mut Ui, &mut Assets),
+    rows: impl FnOnce(&mut Ui, &mut Assets),
+) {
     let p = a.p;
     card(&p, Margin::same(20)).show(ui, |ui| {
         ui.set_width(inner(width, 20));
@@ -104,6 +124,7 @@ pub fn list_card(
         ui.horizontal(|ui| {
             ui.label(txt(title, 15.0, Weight::SemiBold, p.text));
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                right(ui, a);
                 ui.label(txt(note, 13.0, Weight::Medium, p.muted));
             });
         });

@@ -20,7 +20,7 @@ use evolite_api::{CoreError, Duffs, Fees, Pool, ShieldSource, Source, Spend, Wal
 const ACTIONS: [(&str, &str, &str); 4] = [
     (
         "shield",
-        // Not "Hide": "Hide the amount" on the same screen only hides digits.
+        // Not "Hide": "Hide the amounts" on the same screen only hides digits.
         tr!("Shield"),
         tr!("from Core, an identity or a Platform address"),
     ),
@@ -60,7 +60,6 @@ const HOW: [(&str, &str); 3] = [
 
 #[derive(Default)]
 pub struct PoolState {
-    pub hide_amount: bool,
     /// 09 · "Shield into the private pool" is open.
     pub shielding: bool,
     pub from: usize,
@@ -164,7 +163,7 @@ pub fn shielded(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut PoolState
             crate::components::two_columns(ui, "balance-how", wide, |ui, first, extra| {
                 if first {
                     let pool = (wallet.balances.shielded, &wallet.pool);
-                    balance(ui, a, state, pool, now, half, extra);
+                    balance(ui, a, pool, now, half, extra);
                 } else {
                     how(ui, a, half, extra);
                 }
@@ -236,9 +235,8 @@ pub fn shielded(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut PoolState
                         } else {
                             tr!("found in the pool · time unknown").to_string()
                         };
-                        let amount = if state.hide_amount {
-                            "•••• DASH".to_string()
-                        } else if op.amount == 0 {
+                        // «Hide amounts» masks it in `tx_row`.
+                        let amount = if op.amount == 0 {
                             // Found by reading the pool: what left is not known.
                             "—".to_string()
                         } else {
@@ -276,7 +274,6 @@ pub fn shielded(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut PoolState
 fn balance(
     ui: &mut Ui,
     a: &mut Assets,
-    state: &mut PoolState,
     (duffs, pool): (i64, &Pool),
     now: chrono::DateTime<chrono::Local>,
     width: f32,
@@ -290,32 +287,12 @@ fn balance(
             ui.spacing_mut().item_spacing.x = 8.0;
             ui.add(a.icons.icon("shielded", p.muted, &p, 18.0));
             ui.label(txt(tr!("In the pool"), 13.0, Weight::Medium, p.muted));
+            // The app's one «Hide amounts», not a switch of this card's own (FEAT-0007).
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                let (icon, label) = if state.hide_amount {
-                    ("eye", tr!("Show the amount"))
-                } else {
-                    ("eye-off", tr!("Hide the amount"))
-                };
-                let resp = ui
-                    .horizontal(|ui| {
-                        ui.spacing_mut().item_spacing.x = 6.0;
-                        ui.label(txt(label, 12.0, Weight::Medium, p.muted));
-                        ui.add(a.icons.icon(icon, p.muted, &p, 16.0));
-                    })
-                    .response
-                    .interact(Sense::click())
-                    .on_hover_cursor(CursorIcon::PointingHand);
-                crate::components::named(&resp, egui::WidgetType::Button, true, label);
-                if resp.clicked() {
-                    state.hide_amount = !state.hide_amount;
-                }
+                crate::components::amount_toggle(ui, a, false);
             });
         });
-        let amount = if state.hide_amount {
-            "••••••".to_string()
-        } else {
-            crate::format::amount(duffs)
-        };
+        let amount = crate::format::amount(duffs);
         crate::components::amount_label(ui, &amount, mono(36.0, Weight::Medium), p.text);
         ui.label(
             egui::RichText::new(crate::i18n::t(&pool_line(pool, now)))
@@ -442,13 +419,13 @@ fn shield_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut PoolStat
             ui.vertical(|ui| {
                 ui.spacing_mut().item_spacing.y = 8.0;
                 field_label(ui, &p, tr!("From"));
-                let value = crate::format::amount(*balance);
+                let value = crate::format::balance(*balance);
                 if select_row(ui, a, icon, title, Some(&value)).clicked() && !busy {
                     state.sources_open = !state.sources_open;
                 }
                 if state.sources_open {
                     for (i, (_, icon, title, balance)) in sources.iter().enumerate() {
-                        let value = crate::format::amount(*balance);
+                        let value = crate::format::balance(*balance);
                         if i != state.from && select_row(ui, a, icon, title, Some(&value)).clicked()
                         {
                             state.from = i;
@@ -543,8 +520,8 @@ fn shield_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut PoolStat
             // Platform meters a shield from addresses, and Core's fee depends on the coins: an
             // estimate there; from credits the rest is exact.
             let left_text = preview.map_or("—".to_string(), |(left, _)| match source {
-                ShieldSource::Credits => crate::format::amount(left),
-                _ => format!("≈ {}", crate::format::amount(left)),
+                ShieldSource::Credits => crate::format::balance(left),
+                _ => format!("≈ {}", crate::format::balance(left)),
             });
             kv_row(ui, &p, left_label, &left_text, value.clone());
             // From Core Platform's fee comes out of the lock: less reaches the pool.
@@ -743,7 +720,7 @@ fn unshield_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut PoolSt
             );
             let left_text = left
                 .filter(|l| *l >= 0)
-                .map_or("—".to_string(), crate::format::amount);
+                .map_or("—".to_string(), crate::format::balance);
             kv_row(
                 ui,
                 &p,

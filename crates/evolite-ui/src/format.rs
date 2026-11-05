@@ -101,7 +101,7 @@ pub struct Rate {
 pub struct Display {
     pub unit: Unit,
     pub style: NumberStyle,
-    /// "Hide amounts": balances and the history show "••••" until the pointer is over them.
+    /// "Hide amounts": balances and the history show "••••" (the eye beside an amount switches it).
     pub hide: bool,
     /// "Fiat rate", when it is on and the core has a price.
     pub rate: Option<Rate>,
@@ -176,6 +176,13 @@ pub fn number(duffs: i64, signed: bool) -> String {
 /// An amount with its unit, as screens show it: "12,8460 DASH", "12 846,00 mDASH".
 pub fn amount(duffs: i64) -> String {
     format!("{} {}", number(duffs, false), unit_name())
+}
+
+/// A balance as [`amount`], or "•••• DASH" with "Hide amounts" (FEAT-0007): what a person has,
+/// not what they typed or pay as a fee.
+pub fn balance(duffs: i64) -> String {
+    let shown = amount(duffs);
+    if display().hide { mask(&shown) } else { shown }
 }
 
 /// "+0,2500 DASH", "−1,0000 DASH".

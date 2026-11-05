@@ -488,7 +488,13 @@ fn sign(
         &format!("≈ {}", dash(*cost)),
         value.clone(),
     );
-    kv_row(ui, &p, tr!("Credits after"), &dash(*credits_after), value);
+    kv_row(
+        ui,
+        &p,
+        tr!("Credits after"),
+        &crate::format::balance(*credits_after),
+        value,
+    );
     notice(
         ui,
         a,

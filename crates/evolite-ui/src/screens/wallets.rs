@@ -52,7 +52,7 @@ pub fn menu_line(w: &WalletEntry, snap: &Snapshot, now: DateTime<Local>) -> Stri
         match &snap.wallet {
             Some(wallet) => format!(
                 tr!("open · {}"),
-                crate::format::amount(wallet.balances.total())
+                crate::format::balance(wallet.balances.total())
             ),
             None => tr!("open").into(),
         }
@@ -227,15 +227,23 @@ fn wallet_menu(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, anchor: Rect, menu: &m
                 .show(ui, |ui| {
                     ui.set_width(302.0);
                     ui.spacing_mut().item_spacing.y = 2.0;
-                    let (head, _) = ui.allocate_exact_size(vec2(302.0, 25.0), Sense::hover());
+                    let (head, _) = ui.allocate_exact_size(vec2(302.0, 28.0), Sense::hover());
                     crate::components::paint_text(
                         ui,
-                        pos2(head.left() + 10.0, head.top() + 6.0),
-                        Align2::LEFT_TOP,
+                        pos2(head.left() + 10.0, head.center().y),
+                        Align2::LEFT_CENTER,
                         tr!("WALLETS ON THIS COMPUTER"),
                         sans(11.0, Weight::SemiBold),
                         p.muted,
                     );
+                    // The app's one «Hide amounts», as an icon with its words in the tooltip
+                    // (FEAT-0007): the open wallet's line below says its balance.
+                    let eye = Rect::from_min_size(
+                        pos2(head.right() - 4.0 - 28.0, head.top()),
+                        vec2(28.0, 28.0),
+                    );
+                    let mut eye_ui = ui.new_child(egui::UiBuilder::new().max_rect(eye));
+                    crate::components::amount_toggle(&mut eye_ui, a, true);
                     for w in &snap.wallets {
                         let (row, resp) = ui.allocate_exact_size(vec2(302.0, 47.0), Sense::click());
                         let own = crate::i18n::own(&w.name);

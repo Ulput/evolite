@@ -362,7 +362,7 @@ pub(super) fn found(ui: &mut Ui, a: &mut Assets, o: &mut Onboarding) {
         o.step = Step::Restore;
         return;
     };
-    let dash = |d: i64| crate::format::amount(d);
+    let dash = |d: i64| crate::format::balance(d);
     // Core balances come with the wallet's own sync: the real core says so instead of a 0.
     let (core_line, core_value) = if scan.core_known {
         (
@@ -412,6 +412,11 @@ pub(super) fn found(ui: &mut Ui, a: &mut Assets, o: &mut Onboarding) {
             false,
         ));
     }
+    // A person knows the wallet by its balances: hidden by the setting, the eye shows them
+    // (FEAT-0007, the designer's decision for the found wallet).
+    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+        crate::components::amount_toggle(ui, a, false);
+    });
     card(&p, Margin::ZERO).show(ui, |ui| {
         ui.set_width(inner(width, 0));
         ui.spacing_mut().item_spacing.y = 0.0;
