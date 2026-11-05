@@ -68,6 +68,8 @@ fn network() -> &'static str {
 }
 /// After a failed start (offline at launch, say) the client is tried again this often.
 const RETRY_START: Duration = Duration::from_secs(30);
+/// How long unlocking waits for a chain that did not start to start (BUG-8).
+const START_WAIT: Duration = Duration::from_secs(15);
 /// A contact's DPNS name that could not be read is asked again after this long.
 const NAME_RETRY: Duration = Duration::from_secs(30);
 
@@ -2588,6 +2590,27 @@ impl Real {
         Ok(())
     }
 
+    /// The chain is running, or is started now. Its start at the core's own start can fail
+    /// while the core before it still lets go of the store and the SPV files (back from "Add a
+    /// wallet", BUG-8); the main loop tries again only every [`RETRY_START`], and the wallet
+    /// could not be opened until then. Here it is tried at once, a few times for up to
+    /// [`START_WAIT`]; a failure says why. Not over a deleted wallet's leftovers.
+    async fn chain_started(&self) -> Result<(), CoreError> {
+        if self.leftovers {
+            return Err(CoreError::NotAvailable(LEFTOVERS.into()));
+        }
+        let deadline = tokio::time::Instant::now() + START_WAIT;
+        loop {
+            match self.chain.start(&self.paths.chain, self.publisher()).await {
+                Ok(()) => return Ok(()),
+                Err(e) if tokio::time::Instant::now() >= deadline => {
+                    return Err(CoreError::Failed(e));
+                }
+                Err(_) => tokio::time::sleep(Duration::from_millis(500)).await,
+            }
+        }
+    }
+
     /// Opens the vault and restarts sync with the wallet's keys.
     async fn unlock(&mut self, password: &Password) -> Result<(), CoreError> {
         let (file, phrase) = self.open_vault(password).await?;
@@ -2599,6 +2622,7 @@ impl Real {
             )));
         }
         self.last_touch = tokio::time::Instant::now();
+        self.chain_started().await?;
         let (id, _) = self
             .chain
             .open_wallet(&phrase, meta.birth_height)
@@ -3910,6 +3934,21 @@ mod tests {
             *core.identity_search.lock().unwrap(),
             IdentitySearch::Searching
         );
+    }
+
+    /// BUG-8: unlocking starts the chain itself, but never over a deleted wallet's files —
+    /// the right password then says why, and the wallet stays locked.
+    #[tokio::test]
+    async fn unlocking_over_leftovers_says_restart() {
+        let mut core = core_with_vault("unlock-leftovers", "pw");
+        core.leftovers = true;
+        assert_eq!(
+            core.unlock(&pw("pw")).await,
+            Err(CoreError::NotAvailable(LEFTOVERS.into()))
+        );
+        assert!(core.unlocked.is_none());
+        // A wrong password is still said first.
+        assert_eq!(core.unlock(&pw("no")).await, Err(CoreError::WrongPassword));
     }
 
     /// The wallet folder the tests use.

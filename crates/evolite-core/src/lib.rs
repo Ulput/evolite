@@ -262,6 +262,98 @@ mod tests {
         Ok(())
     }
 
+    /// BUG-8 on testnet: "Add a wallet", then back to the wallet open before ("Cancel"), and
+    /// its password opens it again — the chain of the wallet comes back. Spends nothing.
+    /// `cargo test -p evolite-core live_cancel_adding -- --ignored --nocapture`
+    #[test]
+    #[ignore = "needs testnet access and the test phrase in .env.test.local"]
+    fn live_cancel_adding_a_wallet_opens_the_old_one() {
+        let core = warm_wallet("evolite-live-cancel-adding");
+        // Synced to the end, as in the report: the Platform and DashPay syncs hold the store too.
+        wait_for(&core, 20, |e| match e {
+            Event::Snapshot(s)
+                if s.vault == VaultState::Unlocked
+                    && s.wallet.is_some()
+                    && s.sync.stage == SyncStage::Done =>
+            {
+                Some(())
+            }
+            _ => None,
+        });
+        // And a little longer, for the background syncs to run a pass.
+        std::thread::sleep(Duration::from_secs(30));
+        // Each change of (vault, adding) with its time: how long each switch of cores takes.
+        let mut seen = None;
+        let mut shown = |e: &Event, since: Instant| {
+            if let Event::Snapshot(s) = e
+                && seen != Some((s.vault, s.adding_wallet))
+            {
+                seen = Some((s.vault, s.adding_wallet));
+                println!(
+                    "{} ms: {:?}, adding {}, sync {:?} {:?}",
+                    since.elapsed().as_millis(),
+                    s.vault,
+                    s.adding_wallet,
+                    s.sync.stage,
+                    s.sync.error
+                );
+            }
+        };
+        let added = Instant::now();
+        core.send(Command::AddWallet);
+        wait_for(&core, 5, |e| {
+            shown(e, added);
+            match e {
+                Event::Snapshot(s) if s.adding_wallet && s.vault == VaultState::NoWallet => {
+                    Some(())
+                }
+                _ => None,
+            }
+        });
+        let started = Instant::now();
+        core.send(Command::CancelAddWallet);
+        wait_for(&core, 5, |e| {
+            shown(e, started);
+            match e {
+                Event::Snapshot(s) if !s.adding_wallet && s.vault == VaultState::Locked => Some(()),
+                _ => None,
+            }
+        });
+        println!(
+            "back at the old wallet in {} ms",
+            started.elapsed().as_millis()
+        );
+        // At once, as a person types the password right away.
+        core.send(Command::Unlock {
+            password: Password::new(WARM_PASSWORD.into()),
+        });
+        let result = wait_for(&core, 5, |e| match e {
+            Event::Done {
+                what: "unlock",
+                result,
+            } => Some(result.clone()),
+            Event::Snapshot(s) if s.sync.error.is_some() => {
+                println!("sync error: {:?}", s.sync.error);
+                None
+            }
+            _ => None,
+        });
+        println!(
+            "unlock after {} ms: {result:?}",
+            started.elapsed().as_millis()
+        );
+        assert_eq!(result, Ok(()), "the old wallet opens");
+        let synced = wait_for(&core, 10, |e| match e {
+            Event::Snapshot(s)
+                if s.vault == VaultState::Unlocked && s.sync.stage == SyncStage::Done =>
+            {
+                Some(s.wallet.as_ref().map_or(0, |w| w.activity.len()))
+            }
+            _ => None,
+        });
+        assert!(synced > 0, "its history is back");
+    }
+
     /// Deleting the wallet from this computer, on testnet with a new empty wallet: a wrong
     /// password deletes nothing, the right one deletes the vault at once and the core comes back
     /// with no wallet; a new wallet goes into a folder of its own, and "Forgot the password?"
