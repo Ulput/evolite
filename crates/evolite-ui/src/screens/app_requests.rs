@@ -14,6 +14,9 @@ use crate::theme::{Weight, mono, sans};
 use egui::{Align, Align2, CornerRadius, Layout, Margin, Rect, Sense, Stroke, Ui, pos2, vec2};
 use evolite_api::{AppRequest, AppRequestKind, Command, CoreError, Spend};
 
+/// The height of a row of buttons (`components::button`).
+const BUTTON_HEIGHT: f32 = 41.0;
+
 #[derive(Default)]
 pub struct AppRequests {
     /// The request the core decoded and the user has not answered yet.
@@ -255,7 +258,12 @@ fn answers(ui: &mut Ui, a: &mut Assets, no: &str, yes: &str, answer: &mut Answer
             .password
             .field(ui, &p, "app-request-password", answer.ask);
     let ready = answer.password.ready(answer.ask);
-    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+    // One row as high as its buttons (as in `delete_wallet.rs`). `with_layout` takes all the
+    // height left and centres the buttons in it; the notice under them then pushes the dialog
+    // past the window, and with its top kept (BUG-39 №3) it grew by that notice every frame,
+    // «Close» running away from the pointer.
+    let row = vec2(ui.available_width(), BUTTON_HEIGHT);
+    ui.allocate_ui_with_layout(row, Layout::right_to_left(Align::Center), |ui| {
         ui.spacing_mut().item_spacing.x = 10.0;
         match answer.consent {
             Consent::Asking => {
