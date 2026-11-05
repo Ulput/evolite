@@ -36,7 +36,7 @@ const HOW: [(&str, &str, &str); 3] = [
     (
         "identity",
         tr!("Profile"),
-        tr!("The name, «About» and avatar are public; evolite shows them next to the @name."),
+        tr!("The name, “About” and avatar are public; evolite shows them next to the @name."),
     ),
 ];
 
@@ -553,7 +553,7 @@ fn profile_dialog(
                 p.accent,
                 &format!(
                     tr!(
-                        "The name and «About» are {}'s own words: Platform confirms only the @name. The avatar is a picture by link: evolite checks its fingerprint from the profile and draws it in a separate process with no access to keys."
+                        "The name and “About” are {}'s own words: Platform confirms only the @name. The avatar is a picture by link: evolite checks its fingerprint from the profile and draws it in a separate process with no access to keys."
                     ),
                     c.handle()
                 ),
@@ -587,7 +587,7 @@ pub fn about_block(ui: &mut Ui, a: &mut Assets, profile: &Profile) {
     let p = a.p;
     let Some(about) = profile.about.as_deref().filter(|s| !s.trim().is_empty()) else {
         ui.label(txt(
-            tr!("A profile without «About»"),
+            tr!("A profile without “About”"),
             13.0,
             Weight::Regular,
             p.muted,
@@ -693,7 +693,7 @@ fn add_contact(
                             "info",
                             p.muted,
                             tr!(
-                                "This person already sent you a request: accept it in the «Requests» list."
+                                "This person already sent you a request: accept it in the “Requests” list."
                             ),
                         ),
                         (false, None) => ready = true,

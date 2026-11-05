@@ -312,7 +312,7 @@ pub fn is_taken_with_chain_lock(error: &platform_wallet::PlatformWalletError) ->
 /// the core passes it on as is (`identity_failure`).
 pub fn awaiting_chain_lock_text() -> &'static str {
     tr!(
-        "Platform has already taken these DASH, most likely on the earlier attempt, so the credits should already be on the identity. evolite will confirm it once their block gets a ChainLock, usually within a few minutes: then press «Check again». No new money is needed"
+        "Platform has already taken these DASH, most likely on the earlier attempt, so the credits should already be on the identity. evolite will confirm it once their block gets a ChainLock, usually within a few minutes: then press “Check again”. No new money is needed"
     )
 }
 

@@ -119,7 +119,7 @@ pub fn activity(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, filter: &mut usize, q
         let lines = csv.lines().count().saturating_sub(1);
         let day = Local::now().format("%Y-%m-%d").to_string();
         let saved = csv_export::downloads()
-            .ok_or_else(|| tr!("the «Downloads» folder was not found").to_string())
+            .ok_or_else(|| tr!("the “Downloads” folder was not found").to_string())
             .and_then(|dir| csv_export::save(&dir, &csv, &day).map_err(|e| e.to_string()))
             .map(|path| (path, lines));
         ui.data_mut(|d| d.insert_temp(saved_id, saved));
@@ -227,7 +227,7 @@ pub fn activity(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, filter: &mut usize, q
                 ui.add_space(40.0);
                 // Nothing at all is not "nothing found".
                 let empty = if wallet.activity.is_empty() {
-                    tr!("No operations yet. Receive DASH on the «Receive» screen.")
+                    tr!("No operations yet. Receive DASH on the “Receive” screen.")
                 } else {
                     tr!("Nothing found")
                 };
@@ -455,7 +455,7 @@ fn card(
                 // An address the person named says so.
                 let note = note.or_else(|| {
                     text::book_label(act, book)
-                        .map(|l| format!(tr!("«{l}» · from the address book"), l = l))
+                        .map(|l| format!(tr!("“{l}” · from the address book"), l = l))
                 });
                 mono_block(ui, &p, label, &who, note.as_deref());
             }

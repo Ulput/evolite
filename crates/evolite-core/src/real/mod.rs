@@ -1228,7 +1228,7 @@ impl Real {
     ) -> Result<(), CoreError> {
         if display.chars().count() > 25 || about.chars().count() > 140 {
             return Err(CoreError::NotAvailable(
-                tr!("Name up to 25 characters, «About» up to 140").into(),
+                tr!("Name up to 25 characters, “About” up to 140").into(),
             ));
         }
         if avatar_url
@@ -2088,7 +2088,7 @@ impl Real {
             ))
         } else if PlatformAddress::from_bech32m_string(to.trim()).is_ok() {
             Err(CoreError::NotAvailable(
-                tr!("We do not send from Core to a Platform address yet (an asset lock is needed). Send from «Credits»").into(),
+                tr!("We do not send from Core to a Platform address yet (an asset lock is needed). Send from “Credits”").into(),
             ))
         } else {
             Ok(CorePayee::Address(

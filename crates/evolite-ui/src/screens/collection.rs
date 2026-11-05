@@ -574,7 +574,7 @@ fn gift_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut Collection
         return;
     };
     let fee = wallet.fees.nft_transfer;
-    let title = format!(tr!("Give «{}»"), crate::i18n::own(&nft.name));
+    let title = format!(tr!("Give “{}”"), crate::i18n::own(&nft.name));
     let closed = dialog(ui, a, "gift-dialog", "nft", &title, 464.0, |ui, a| {
         let mut close = false;
         let name = state

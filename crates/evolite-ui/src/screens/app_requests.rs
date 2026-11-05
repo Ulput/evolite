@@ -159,6 +159,36 @@ impl AppRequests {
     }
 }
 
+/// The app as the core names it: its owner's `@name` from Platform, or the app's own word in
+/// «…» (`real/app_jobs.rs`). The word and whether it is the app's own.
+fn app_word(app: &str) -> (&str, bool) {
+    match app.strip_prefix('«').and_then(|w| w.strip_suffix('»')) {
+        Some(word) => (word, true),
+        None => (app, false),
+    }
+}
+
+/// The app for the person: its own word in the quotes of the interface language (BUG-52;
+/// «…» stays the core's marker).
+pub fn app_label(app: &str) -> String {
+    match app_word(app) {
+        (word, true) => quote(word),
+        (name, false) => name.to_owned(),
+    }
+}
+
+/// A word in the quotes of the interface language. Translated here: it goes into other
+/// sentences as a value.
+fn quote(word: &str) -> String {
+    crate::i18n::t(&format!(tr!("“{}”"), word)).into_owned()
+}
+
+/// The contract's name from the link, for a sentence: in the quotes of [`app_label`], with
+/// control and invisible characters escaped as Debug does, so they show (BUG-52 r2 should 3).
+fn quoted_name(name: &str) -> String {
+    quote(&name.escape_debug().to_string())
+}
+
 fn dash(d: i64) -> String {
     crate::format::amount(d)
 }
@@ -314,10 +344,10 @@ fn connect(ui: &mut Ui, a: &mut Assets, r: &AppRequest, answer: &mut Answer<'_>)
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = 14.0;
                 let (logo, _) = ui.allocate_exact_size(vec2(40.0, 40.0), Sense::hover());
-                paint_letter_box(ui, &p, logo, &r.app);
+                paint_letter_box(ui, &p, logo, app_word(&r.app).0);
                 ui.vertical(|ui| {
                     ui.spacing_mut().item_spacing.y = 2.0;
-                    ui.label(txt(&r.app, 15.0, Weight::SemiBold, p.text));
+                    ui.label(txt(&app_label(&r.app), 15.0, Weight::SemiBold, p.text));
                     ui.label(
                         egui::RichText::new(crate::i18n::t(&format!(
                             tr!("contract {}"),
@@ -348,7 +378,7 @@ fn connect(ui: &mut Ui, a: &mut Assets, r: &AppRequest, answer: &mut Answer<'_>)
         select_row(ui, a, "identity", identity, None);
     });
     // The name is the contract owner's `@name` from Platform; in quotes it is the app's own word.
-    if r.app.starts_with('«') {
+    if app_word(&r.app).1 {
         notice(
             ui,
             a,
@@ -356,9 +386,9 @@ fn connect(ui: &mut Ui, a: &mut Assets, r: &AppRequest, answer: &mut Answer<'_>)
             p.danger,
             &format!(
                 tr!(
-                    "The name {contract_name:?} is the app's own word; Platform does not confirm it. Allow only if you started the sign-in yourself."
+                    "The name {contract_name} is the app's own word; Platform does not confirm it. Allow only if you started the sign-in yourself."
                 ),
-                contract_name = contract_name
+                contract_name = quoted_name(contract_name)
             ),
         );
     }
@@ -426,9 +456,9 @@ fn sign(
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 10.0;
         let (logo, _) = ui.allocate_exact_size(vec2(24.0, 24.0), Sense::hover());
-        paint_letter_box(ui, &p, logo, &r.app);
+        paint_letter_box(ui, &p, logo, app_word(&r.app).0);
         ui.label(txt(
-            &format!(tr!("{} asks you to sign one operation"), r.app),
+            &format!(tr!("{} asks you to sign one operation"), app_label(&r.app)),
             14.0,
             Weight::Medium,
             p.text,
@@ -874,5 +904,31 @@ mod tests {
         state.on_request(asked(9).open.ok_or_else(out_of_date));
         assert_eq!(state.consent, Consent::Asking, "a new request asks again");
         assert!(is_no(state.pick(Pick::Close, false), 9));
+    }
+
+    /// BUG-52, review should: the app's own word, which the core marks «…», is quoted as the
+    /// interface language quotes; an `@name` from Platform is shown as it is.
+    #[test]
+    fn an_apps_own_word_is_quoted_in_the_interface_language() {
+        use crate::i18n::{Lang, set};
+        set(Lang::En);
+        assert_eq!(app_label("«yappr»"), "“yappr”");
+        assert_eq!(app_label("@yappr"), "@yappr");
+        set(Lang::Ru);
+        assert_eq!(app_label("«yappr»"), "«yappr»");
+        set(Lang::En);
+    }
+
+    /// BUG-52 r2 should 3: the contract's name in the warning takes the same quotes as the
+    /// app's label and keeps Debug's escaping, so a line break or a direction mark shows.
+    #[test]
+    fn the_contract_name_in_the_warning_is_quoted_and_escaped() {
+        use crate::i18n::{Lang, set};
+        set(Lang::En);
+        assert_eq!(quoted_name("yappr"), "“yappr”");
+        assert_eq!(quoted_name("a\nb\u{202e}"), "“a\\nb\\u{202e}”");
+        set(Lang::De);
+        assert_eq!(quoted_name("yappr"), "„yappr“");
+        set(Lang::En);
     }
 }

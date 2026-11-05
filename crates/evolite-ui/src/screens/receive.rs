@@ -44,7 +44,7 @@ fn targets(w: &Wallet, network: Network) -> Vec<Target> {
             name: false,
             note_icon: "pending",
             note: tr!(
-                "Waiting for the payment. With InstantSend it is confirmed in seconds and appears in «History»."
+                "Waiting for the payment. With InstantSend it is confirmed in seconds and appears in “History”."
             ),
             footer: tr!(
                 "After each payment evolite shows a new address — it is more private. Old addresses keep working."

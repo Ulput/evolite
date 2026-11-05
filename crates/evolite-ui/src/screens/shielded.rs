@@ -459,7 +459,7 @@ fn shield_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut PoolStat
                     p.accent,
                     &format!(
                         tr!(
-                            "A stopped shielding: {} are already locked on Core. «Continue» takes it to the pool — no new money is locked."
+                            "A stopped shielding: {} are already locked on Core. “Continue” takes it to the pool — no new money is locked."
                         ),
                         crate::format::amount(locked)
                     ),

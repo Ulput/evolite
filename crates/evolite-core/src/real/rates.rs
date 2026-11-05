@@ -30,7 +30,7 @@ pub fn price_in(answer: &[u8], currency: &str) -> Result<i64, String> {
         })?;
     decimal(price).ok_or_else(|| {
         format!(
-            tr!("the service sent an unreadable rate «{price}»"),
+            tr!("the service sent an unreadable rate “{price}”"),
             price = price
         )
     })

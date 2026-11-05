@@ -52,7 +52,7 @@ pub fn normalize(input: &str) -> Result<String, String> {
             Ok(p) if p > 0 => p,
             _ => {
                 return Err(format!(
-                    tr!("Port «{p}» is not a number from 1 to 65535"),
+                    tr!("Port “{p}” is not a number from 1 to 65535"),
                     p = p
                 ));
             }

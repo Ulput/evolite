@@ -378,3 +378,13 @@ fn a_name_inside_arabic_keeps_its_at_sign_in_front() {
         "no Arabic, untouched"
     );
 }
+
+/// BUG-52: the English text (the keys) quotes with “…”, as English does; «…» is for the
+/// languages that use it, in their catalogs.
+#[test]
+fn english_quotes_with_curly_quotes() {
+    let keys: Vec<String> =
+        serde_json::from_str(include_str!("../../locales/_keys.json")).expect("the key list");
+    let guillemets: Vec<&String> = keys.iter().filter(|k| k.contains(['«', '»'])).collect();
+    assert!(guillemets.is_empty(), "«…» in English: {guillemets:#?}");
+}

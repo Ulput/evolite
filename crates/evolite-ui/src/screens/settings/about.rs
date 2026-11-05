@@ -13,7 +13,7 @@ pub(super) fn notifications(ui: &mut Ui, a: &mut Assets, state: &mut SettingsSta
         tr!("Notifications"),
         Some(if crate::notify::SUPPORTED {
             tr!(
-                "Windows notifications while evolite is open but not in front. Amounts are hidden if «Hide amounts» is on."
+                "Windows notifications while evolite is open but not in front. Amounts are hidden if “Hide amounts” is on."
             )
         } else {
             tr!(

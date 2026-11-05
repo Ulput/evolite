@@ -181,7 +181,7 @@ pub(super) fn app_request(id: u64, text: &str, wallet: &Wallet) -> Result<AppReq
             level: KeyLevel::High,
             fields: vec![(
                 "text".into(),
-                tr!("«The first jam from evolite. Signed on a computer, checked by light.»").into(),
+                tr!("“The first jam from evolite. Signed on a computer, checked by light.”").into(),
             )],
             cost: 4_000,
             credits_after: wallet.balances.credits - 4_000,

@@ -80,12 +80,12 @@ pub(super) fn appearance(
             tr!("Number format"),
             style_note,
             Control::Segmented(
-                &[tr!("As in the language"), "1 234,56", "1,234.56"],
+                &[tr!("Language default"), "1 234,56", "1,234.56"],
                 &mut style,
             ),
         ),
         (
-            tr!("Amount unit"),
+            tr!("Unit"),
             unit_note,
             Control::Segmented(&["DASH", "mDASH", "duffs"], &mut unit),
         ),

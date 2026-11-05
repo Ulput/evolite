@@ -639,8 +639,9 @@ impl App {
                         && self.settings.is_on("notify-apps")
                         && !ctx.input(|i| i.focused)
                     {
-                        self.notifier
-                            .show(&crate::notify::app_request(&request.app));
+                        self.notifier.show(&crate::notify::app_request(
+                            &crate::screens::app_requests::app_label(&request.app),
+                        ));
                     }
                     self.requests.on_request(request.clone());
                 }

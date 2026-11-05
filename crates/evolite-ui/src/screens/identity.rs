@@ -444,7 +444,7 @@ fn profile(
             Some(profile) => super::contacts::about_block(ui, a, profile),
             None => {
                 ui.label(txt(
-                    tr!("No DashPay profile yet: your contacts will see the name, «About» and avatar."),
+                    tr!("No DashPay profile yet: your contacts will see the name, “About” and avatar."),
                     13.0,
                     Weight::Regular,
                     p.muted,
@@ -617,7 +617,7 @@ fn edit_profile(
                 "eye",
                 p.muted,
                 tr!(
-                    "Anyone who knows your @name sees the name, «About» and avatar. The picture stays at its link: evolite has no servers of its own."
+                    "Anyone who knows your @name sees the name, “About” and avatar. The picture stays at its link: evolite has no servers of its own."
                 ),
             );
             let url = form.avatar_url.trim();
@@ -861,7 +861,7 @@ fn top_up_error(e: &CoreError) -> String {
         CoreError::NotEnough => tr!("Not enough DASH on Core: the amount and the fee are needed.").into(),
         CoreError::BadAmount => tr!("The amount must be more than zero.").into(),
         other => format!(
-            tr!("{} If the DASH are already locked, evolite shows «Continue the top-up»."),
+            tr!("{} If the DASH are already locked, evolite shows “Continue the top-up”."),
             crate::text::failed(tr!("Not topped up"), other)
         ),
     }

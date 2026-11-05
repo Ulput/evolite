@@ -33,7 +33,7 @@ pub fn probe(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx) {
             tr!("Hindi"),
             "भेजें — पुष्टि हो गई",
             tr!(
-                "«ष्टि» and «र्ई» should form ligatures, with vowel signs above and below the letters."
+                "“ष्टि” and “र्ई” should form ligatures, with vowel signs above and below the letters."
             ),
         ),
         (

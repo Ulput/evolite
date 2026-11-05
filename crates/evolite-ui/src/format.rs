@@ -9,7 +9,7 @@ use std::cell::Cell;
 
 pub const DUFFS_PER_DASH: i64 = 100_000_000;
 
-/// The unit amounts are shown and typed in (Settings → "Amount unit").
+/// The unit amounts are shown and typed in (Settings → "Unit").
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum Unit {
     #[default]

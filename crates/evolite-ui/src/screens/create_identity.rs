@@ -324,7 +324,7 @@ pub fn create_identity(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut Cre
             ui.add(
                 egui::Label::new(
                     txt(
-                        tr!("If the connection drops after step 1, the money is not lost: evolite shows «Continue» here and finishes from the same place."),
+                        tr!("If the connection drops after step 1, the money is not lost: evolite shows “Continue” here and finishes from the same place."),
                         12.0,
                         Weight::Regular,
                         p.muted,

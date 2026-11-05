@@ -165,8 +165,8 @@ fn code_spans(text: &str) -> Vec<(&str, bool)> {
     loop {
         let end = text[i..].find(' ').map_or(text.len(), |n| i + n);
         let word = &text[i..end];
-        let lead = word.len() - word.trim_start_matches(['(', '«', '"']).len();
-        let core = word[lead..].trim_end_matches([',', '.', ':', ';', ')', '»', '"']);
+        let lead = word.len() - word.trim_start_matches(['(', '«', '“', '"']).len();
+        let core = word[lead..].trim_end_matches([',', '.', ':', ';', ')', '»', '”', '"']);
         if looks_like_code(core) {
             let at = i + lead;
             if at > start {

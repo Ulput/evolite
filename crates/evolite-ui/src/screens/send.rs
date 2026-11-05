@@ -533,7 +533,7 @@ pub fn send(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut SendForm) {
     // A source that cannot pay at all says why, not "more than there is".
     let unavailable = match source.source {
         Source::Credits if cx.wallet().identity.is_none() => Some(tr!(
-            "Only an identity has credits, and the wallet has none yet: make one on the «Identity» screen."
+            "Only an identity has credits, and the wallet has none yet: make one on the “Identity” screen."
         )),
         Source::Pool if cx.wallet().pool.address.is_none() => Some(tr!(
             "The private pool connects after syncing with Platform — usually a minute."
@@ -677,7 +677,7 @@ pub fn send(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut SendForm) {
                 let who = name.display.clone().unwrap_or_else(|| format!("@{}", name.name));
                 let (text, action) = match name.contact {
                     Some(ContactState::Outgoing) => (
-                        format!(tr!("{who} already has your contact request. When {who} answers, you can pay from here. Credits can go to @{} right away: choose «Credits»."), name.name, who = who),
+                        format!(tr!("{who} already has your contact request. When {who} answers, you can pay from here. Credits can go to @{} right away: choose “Credits”."), name.name, who = who),
                         None,
                     ),
                     Some(ContactState::Incoming) => (
@@ -685,7 +685,7 @@ pub fn send(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut SendForm) {
                         Some(tr!("Open contacts").to_string()),
                     ),
                     _ => (
-                        format!(tr!("A payment from Core to an @name goes to addresses from the key the person sends in answer to a contact request. Send {who} a request — once they answer, you can pay from here. Credits can go to @{} right away: choose «Credits»."), name.name, who = who),
+                        format!(tr!("A payment from Core to an @name goes to addresses from the key the person sends in answer to a contact request. Send {who} a request — once they answer, you can pay from here. Credits can go to @{} right away: choose “Credits”."), name.name, who = who),
                         Some(format!(tr!("Add to contacts · ≈ {}"), crate::format::amount(contact_fee))),
                     ),
                 };
@@ -799,7 +799,7 @@ pub fn send(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut SendForm) {
             if form.waiting > 0 {
                 ui.add(
                     egui::Label::new(txt(
-                        tr!("The payment awaits the network's answer: it is in the history as «Sending», and the answer will come. The form is free for the next one."),
+                        tr!("The payment awaits the network's answer: it is in the history as “Sending”, and the answer will come. The form is free for the next one."),
                         12.0,
                         Weight::Regular,
                         p.muted,
@@ -853,7 +853,7 @@ pub fn send(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut SendForm) {
                     "pending",
                     p.muted,
                     &format!(
-                        tr!("The payment was handed to the nodes, but the network has not confirmed it yet. Do not send it again: it may go through. In the history it is «Sending».{}"),
+                        tr!("The payment was handed to the nodes, but the network has not confirmed it yet. Do not send it again: it may go through. In the history it is “Sending”.{}"),
                         if sent.txid.is_empty() {
                             String::new()
                         } else {
@@ -1049,7 +1049,7 @@ fn address_book(
                 ui.spacing_mut().item_spacing.x = 12.0;
                 ui.label(txt(
                     &format!(
-                        tr!("«{}» · from the address book"),
+                        tr!("“{}” · from the address book"),
                         crate::i18n::own(&e.label)
                     ),
                     12.0,

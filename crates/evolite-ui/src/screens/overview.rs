@@ -210,7 +210,7 @@ pub fn overview(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx) {
         ui.add_space(2.0);
         if wallet.activity.is_empty() {
             ui.label(txt(
-                tr!("No operations yet. Receive DASH on the «Receive» screen."),
+                tr!("No operations yet. Receive DASH on the “Receive” screen."),
                 14.0,
                 Weight::Regular,
                 p.muted,

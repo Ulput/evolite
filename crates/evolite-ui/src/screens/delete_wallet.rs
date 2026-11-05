@@ -155,7 +155,7 @@ pub fn delete_dialog(
         }
         ui.vertical(|ui| {
             ui.spacing_mut().item_spacing.y = 6.0;
-            field_label(ui, &p, tr!("Type «delete»"));
+            field_label(ui, &p, tr!("Type “delete”"));
             text_field(
                 ui,
                 &p,
