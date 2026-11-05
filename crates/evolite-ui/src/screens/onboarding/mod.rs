@@ -21,7 +21,7 @@ use crate::context::Ctx;
 use crate::icons::Logo;
 use crate::theme::{Palette, Weight, mono, sans};
 use egui::{Align, Align2, CornerRadius, CursorIcon, Layout, Rect, Sense, Ui, pos2, vec2};
-use evolite_api::{Command, DashPayScan, Event, Phrase, VaultState};
+use evolite_api::{Command, CoreError, DashPayScan, Event, Phrase, VaultState};
 use zeroize::Zeroizing;
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum Flow {
@@ -183,6 +183,10 @@ impl Onboarding {
                         self.scan = scan.clone();
                         self.next();
                     }
+                    // The core's own reason, e.g. "This wallet is already on this computer —
+                    // “Main”": the phrase is right, and "did not fit" would send the person to
+                    // check good words (BUG-27).
+                    Err(CoreError::NotAvailable(why)) => self.error = Some(why.clone()),
                     Err(_) => {
                         self.error = Some(
                             tr!("The phrase did not fit: check the words and their order").into(),
@@ -376,4 +380,41 @@ fn actions(
         });
     });
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// BUG-27: a phrase whose wallet is already here is a right phrase — the core's reason is
+    /// said, with the wallet's name, not "the phrase did not fit".
+    #[test]
+    fn a_phrase_already_on_this_computer_says_so() {
+        for flow in [Flow::Restore, Flow::DashPay] {
+            let mut o = Onboarding::new(flow);
+            o.waiting = true;
+            let why = "This wallet is already on this computer — “Kestrel”".to_string();
+            o.on_event(&Event::PhraseAccepted(Err(CoreError::NotAvailable(
+                why.clone(),
+            ))));
+            assert_eq!(o.error.as_deref(), Some(why.as_str()));
+            crate::i18n::set(crate::i18n::Lang::Ru);
+            assert_eq!(
+                crate::i18n::t(&why),
+                "Этот кошелёк уже есть на компьютере — «Kestrel»"
+            );
+            crate::i18n::set(crate::i18n::Lang::En);
+        }
+    }
+
+    #[test]
+    fn a_wrong_phrase_still_says_it_did_not_fit() {
+        let mut o = Onboarding::new(Flow::Restore);
+        o.waiting = true;
+        o.on_event(&Event::PhraseAccepted(Err(CoreError::BadPhrase)));
+        assert_eq!(
+            o.error.as_deref(),
+            Some("The phrase did not fit: check the words and their order")
+        );
+    }
 }

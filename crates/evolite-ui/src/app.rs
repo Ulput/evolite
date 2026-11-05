@@ -1073,9 +1073,10 @@ impl eframe::App for App {
         }
         let wallet_request = cx.take_wallets();
         // "‹ Back to "…"" while a wallet is being added (Figma 31): back to the one it
-        // started from.
-        if snapshot.adding_wallet && matches!(self.screen, Screen::Welcome | Screen::Onboarding(_))
-        {
+        // started from. Only over Welcome: the onboarding has its own top bar, whose "‹ Back"
+        // goes a step back (to Welcome from the first step), and the two were drawn on each
+        // other (BUG-43).
+        if snapshot.adding_wallet && matches!(self.screen, Screen::Welcome) {
             let label = match &self.adding_back {
                 Some(name) => format!(tr!("Back to “{name}”"), name = crate::i18n::own(name)),
                 None => tr!("Go back").to_owned(),

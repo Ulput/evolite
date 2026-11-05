@@ -10,6 +10,7 @@
 mod bugs;
 mod history;
 mod login;
+mod onboarding;
 mod send;
 mod tab_sweep;
 

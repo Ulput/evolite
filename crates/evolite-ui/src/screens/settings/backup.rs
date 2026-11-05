@@ -51,7 +51,9 @@ pub(super) fn backup(ui: &mut Ui, a: &mut Assets, state: &mut SettingsState, wal
             (
                 tr!("Check the phrase"),
                 &checked_line,
-                Control::Button(tr!("Check"), ButtonKind::Ghost),
+                // The same kind as "Show" beside it: two actions of one card look alike
+                // (designer review №18).
+                Control::Button(tr!("Check"), ButtonKind::Secondary),
             ),
             (
                 tr!("Remind me to check"),
@@ -310,7 +312,7 @@ pub(super) fn check_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mu
 /// 17 · Show the phrase: a warning, the wallet password, "Show for 60 seconds".
 pub(super) fn phrase_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut SettingsState) {
     let p = a.p;
-    if state.revealed.is_some() {
+    if words_shown(state) {
         crate::capture::keep_out();
     }
     // "For 60 seconds": then the phrase is gone from the screen and from memory here.
@@ -429,5 +431,28 @@ pub(super) fn phrase_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &m
         state.revealed = None;
         state.revealed_at = None;
         state.password.zeroize();
+    }
+}
+
+/// The words of the phrase are on screen: only then is the window kept out of captures. A
+/// wrong password leaves an answer, not the phrase — the window stays in a screen share, so the
+/// other side sees the error too (BUG-38).
+fn words_shown(state: &SettingsState) -> bool {
+    matches!(state.revealed, Some(Ok(_)))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use evolite_api::Phrase;
+
+    #[test]
+    fn only_the_words_keep_the_window_out_of_captures() {
+        let mut state = SettingsState::new(true, super::super::Section::Backup, false);
+        assert!(!words_shown(&state));
+        state.on_revealed(Err(CoreError::WrongPassword));
+        assert!(!words_shown(&state), "a wrong password shows no words");
+        state.on_revealed(Ok(Phrase::new(vec!["abandon".into(); 12])));
+        assert!(words_shown(&state));
     }
 }
