@@ -890,4 +890,26 @@ mod tests {
         state.on_done(&Ok(()));
         assert!(state.adding.is_none() && state.result == Some(Ok(())));
     }
+
+    #[test]
+    fn a_picture_that_did_not_download_is_said_whole_in_every_language() {
+        // BUG-15 (reopened): the core's reason has its own colon ("…: PNG, JPEG, …"), and
+        // "{}: {}." took the whole sentence by that colon, leaving the reason English.
+        use crate::i18n::{Lang, t_in};
+        let reasons = [
+            "the link is not a picture: PNG, JPEG, GIF, WebP or SVG is needed",
+            "the picture is over 1 MB",
+            "an address on this computer or the local network — such links are not opened",
+        ];
+        for reason in reasons {
+            let why = format!(tr!("The picture did not download: {e}"), e = reason);
+            let shown = contact_error(&CoreError::NotAvailable(why));
+            for lang in Lang::ALL.into_iter().filter(|l| *l != Lang::En) {
+                let t = t_in(lang, &shown);
+                for english in ["did not download", reason] {
+                    assert!(!t.contains(english), "{lang:?}: {t}");
+                }
+            }
+        }
+    }
 }
