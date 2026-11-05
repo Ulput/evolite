@@ -60,6 +60,11 @@ opt-level = 3
 [profile.dev]
 debug = "line-tables-only"
 
+# Test binaries without debug info (customer, 2026-11-05): each one links the whole Platform
+# stack and there are dozens per build dir; a failing test still prints its message and file:line.
+[profile.test]
+debug = false
+
 [profile.dev.package."*"]
 debug = false
 # Dependencies optimised in debug builds too: unoptimised Argon2 took 6.5 s per vault open
