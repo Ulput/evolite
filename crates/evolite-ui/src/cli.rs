@@ -166,6 +166,32 @@ impl Launch {
     }
 }
 
+/// Every `--screen` preset (`dev_args` here; `app/dev.rs`, `apply_presets`): the Tab sweep goes
+/// through them all, and a test checks that no preset named in the code is missing here.
+/// (Only the tests read it.)
+#[cfg(all(test, feature = "dev-tools"))]
+#[rustfmt::skip]
+pub const PRESETS: &[&str] = &[
+    "create", "verify", "password", "restore", "dashpay", "sync", "sync-nodes",
+    "overview", "hidden", "units", "remind", "wallet-menu", "wallet-switch", "overview-syncing",
+    "activity", "activity-card",
+    "send", "send-confirm", "send-contact", "send-book", "send-syncing",
+    "receive",
+    "identity", "identity-unfinished", "top-up-stopped", "top-up-awaiting", "edit-profile",
+    "top-up", "add-name",
+    "contacts", "add-contact", "contact-profile",
+    "create-identity", "creating",
+    "shielded", "shield", "shield-core", "unshield", "unshield-identity", "pool-address",
+    "apps", "connect", "sign", "exchange",
+    "collection", "gift",
+    "probe",
+    "settings", "phrase", "check-phrase", "appearance", "appearance-rate", "change-password",
+    "security", "backup", "notifications", "own-node", "nodes", "nodes-dapi", "about",
+    "about-end", "report", "report-letter", "delete", "resync", "language", "wallets",
+    "wallet-rename", "wallet-more",
+    "welcome", "elsewhere", "forgot", "wallet-unlock", "wallet-add",
+];
+
 /// `--screen`, `--open`, `--demo`, `--screenshot` and `--window`: the core (the demo for a
 /// screen, unless `--open` asks for the real wallet), the screen and its preset.
 #[cfg(feature = "dev-tools")]
@@ -267,6 +293,52 @@ fn dev_args<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A preset named in `dev_args` or `apply_presets` is in [`PRESETS`], which the Tab sweep
+    /// goes through: a new one cannot drop out of it unseen.
+    #[cfg(feature = "dev-tools")]
+    #[test]
+    fn every_preset_in_the_code_is_listed() {
+        // Quoted names in the body of `dev_args`, and `preset("…")` in `app/dev.rs`.
+        let quoted = |text: &str| -> Vec<String> {
+            text.split('"')
+                .skip(1)
+                .step_by(2)
+                .filter(|s| {
+                    !s.is_empty()
+                        && s.starts_with(|c: char| c.is_ascii_lowercase())
+                        && s.chars()
+                            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+                })
+                .map(str::to_owned)
+                .collect()
+        };
+        let cli = include_str!("cli.rs");
+        let body = &cli[cli.find("fn dev_args").unwrap()..];
+        let body = &body[..body.find("\n#[cfg(test)]").unwrap()];
+        let mut named = quoted(body);
+        let dev = include_str!("app/dev.rs");
+        for piece in dev.split("preset(\"").skip(1) {
+            named.push(piece.split('"').next().unwrap_or_default().to_owned());
+        }
+        let missing: Vec<&String> = named
+            .iter()
+            .filter(|n| !PRESETS.contains(&n.as_str()))
+            .collect();
+        assert!(missing.is_empty(), "not in PRESETS: {missing:?}");
+        // And back: a name left in PRESETS after its preset went would open another screen
+        // ("welcome" is the screen of any name not matched: `_ => Screen::Welcome`).
+        let gone: Vec<&&str> = PRESETS
+            .iter()
+            .filter(|p| **p != "welcome")
+            .filter(|p| !body.contains(&format!("\"{p}\"")) && !dev.contains(&format!("\"{p}\"")))
+            .collect();
+        assert!(gone.is_empty(), "in PRESETS, not in the code: {gone:?}");
+        let mut sorted = PRESETS.to_vec();
+        sorted.sort_unstable();
+        sorted.dedup();
+        assert_eq!(sorted.len(), PRESETS.len(), "a preset listed twice");
+    }
 
     fn launch(args: &str) -> Launch {
         let args: Vec<String> = std::iter::once("evolite")

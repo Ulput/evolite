@@ -74,6 +74,10 @@ libc = "0.2"
 [dev-dependencies]
 # `examples/app_icon.rs`: the app icon's PNG and ICO from its SVG (the same resvg as the renderer).
 resvg = { version = "0.45", default-features = false }
+# Headless UI tests: the app or a widget runs frame by frame with simulated clicks and keys, its
+# widgets found through AccessKit (docs/architecture/kittest.md). No image snapshots: neither the
+# `snapshot` nor the `wgpu` feature.
+egui_kittest = { version = "0.36.2", default-features = false, features = ["eframe"] }
 
 [target.'cfg(windows)'.build-dependencies]
 # The executable's icon in Explorer, the taskbar and Alt+Tab (`evolite.rc`).

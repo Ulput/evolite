@@ -23,6 +23,9 @@ pub mod diag;
 mod dpns;
 #[cfg(any(feature = "demo", not(feature = "real"), test))]
 mod mock;
+/// The password the demo core refuses (the UI tests' "Wrong password").
+#[cfg(any(feature = "demo", not(feature = "real"), test))]
+pub use mock::WRONG_PASSWORD as DEMO_WRONG_PASSWORD;
 pub mod network;
 #[cfg(feature = "real")]
 mod phrase_check;
@@ -42,6 +45,22 @@ pub struct ArtOptions {
     /// The renderer process; `None`: `evolite-renderer` next to the app (Win32k off), or the
     /// app itself with `--render-worker`.
     pub worker: Option<evolite_render::Settings>,
+    /// No pictures at all: no renderer process and nothing kept, `worker` and `cache` aside
+    /// ([`Self::off`]).
+    pub off: bool,
+}
+
+impl ArtOptions {
+    /// Pictures are not drawn: no renderer process is started and nothing is written to the
+    /// disk. For the UI tests: their executable is not the app (it would be started as the
+    /// renderer), and they must not write to the user's folder.
+    pub fn off() -> Self {
+        Self {
+            cache: None,
+            worker: None,
+            off: true,
+        }
+    }
 }
 
 /// The UI's end of the core: send commands, drain events.

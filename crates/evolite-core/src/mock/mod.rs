@@ -12,6 +12,10 @@ use std::time::{Duration, Instant};
 
 const NO_WALLET: &str = tr!("Prototype: there is no wallet behind the screens");
 
+/// The one password the demo's unlock refuses, so the UI tests can see "Wrong password"
+/// (BUG-16); any other opens the example wallet.
+pub const WRONG_PASSWORD: &str = "wrong";
+
 /// The demo's "Check the phrase": word number, choices, the right one's place.
 const DEMO_CHECK: [(usize, [&str; 3], usize); 4] = [
     (2, ["canvas", "cactus", "camera"], 0),
@@ -312,7 +316,11 @@ impl Mock {
                     Ok(())
                 },
             },
-            // The demo wallets have no password: any opens them.
+            // The demo wallets have no password: any opens them, but for [`WRONG_PASSWORD`].
+            Command::Unlock { password } if password.expose() == WRONG_PASSWORD => Event::Done {
+                what: "unlock",
+                result: Err(CoreError::WrongPassword),
+            },
             Command::Unlock { .. } => {
                 changed = self.snapshot.vault != VaultState::Unlocked;
                 self.snapshot.vault = VaultState::Unlocked;
@@ -583,6 +591,33 @@ mod tests {
             adding_from: None,
         };
         (m, tx, rx)
+    }
+
+    #[test]
+    fn the_demo_unlock_refuses_only_its_wrong_password() {
+        let (mut m, tx, rx) = mock();
+        m.snapshot.vault = VaultState::Locked;
+        let unlock = |password: &str| Command::Unlock {
+            password: Password::new(password.into()),
+        };
+        m.handle(unlock(WRONG_PASSWORD), &tx);
+        assert!(matches!(
+            rx.recv().unwrap(),
+            Event::Done {
+                what: "unlock",
+                result: Err(CoreError::WrongPassword)
+            }
+        ));
+        assert_eq!(m.snapshot.vault, VaultState::Locked);
+        m.handle(unlock("anything else"), &tx);
+        assert!(matches!(
+            rx.recv().unwrap(),
+            Event::Done {
+                what: "unlock",
+                result: Ok(())
+            }
+        ));
+        assert_eq!(m.snapshot.vault, VaultState::Unlocked);
     }
 
     #[test]

@@ -3,6 +3,10 @@
 
 #[cfg(feature = "dev-tools")]
 mod dev;
+// The whole app on the demo core, driven by simulated clicks and keys (egui_kittest). It
+// opens screens by their `--screen` presets, which exist only with `dev-tools`.
+#[cfg(all(test, demo_core, feature = "dev-tools"))]
+mod ui_tests;
 
 use crate::cli::{CoreChoice, Launch};
 use crate::components::{Assets, txt};
@@ -89,6 +93,20 @@ pub struct App {
 
 impl App {
     pub fn new(cc: &eframe::CreationContext<'_>, launch: Launch) -> Self {
+        let art = evolite_core::ArtOptions {
+            cache: Some(crate::cli::cache_for(&launch.core)),
+            ..Default::default()
+        };
+        Self::with_art(cc, launch, art)
+    }
+
+    /// [`Self::new`] with NFT pictures drawn and kept as `art` says; the UI tests pass
+    /// [`evolite_core::ArtOptions::off`].
+    pub(crate) fn with_art(
+        cc: &eframe::CreationContext<'_>,
+        launch: Launch,
+        art: evolite_core::ArtOptions,
+    ) -> Self {
         #[cfg(feature = "dev-tools")]
         let mut launch = launch;
         egui_extras::install_image_loaders(&cc.egui_ctx);
@@ -124,10 +142,6 @@ impl App {
         let data_dir = match &launch.core {
             CoreChoice::Real(dir) if !demo => Some(dir.clone()),
             _ => None,
-        };
-        let art = evolite_core::ArtOptions {
-            cache: Some(crate::cli::cache_for(&launch.core)),
-            worker: None,
         };
         let core = match launch.core {
             // The demo on mainnet only for screenshots of how mainnet looks; it has no wallet.

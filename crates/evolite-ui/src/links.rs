@@ -2,9 +2,15 @@
 //! `mailto:`. egui's own `open_url` needs eframe's `links` feature and another crate; this is
 //! the one call the app makes, through what is already here.
 
-/// Opens `url` with the system's handler; false when nothing opened it.
+/// Opens `url` with the system's handler; false when nothing opened it. In tests nothing opens
+/// (no browser on the desktop QA may be working at): the link is kept for [`opened`].
 pub fn open(url: &str) -> bool {
-    #[cfg(windows)]
+    #[cfg(test)]
+    {
+        OPENED.with(|o| o.borrow_mut().push(url.to_owned()));
+        true
+    }
+    #[cfg(all(windows, not(test)))]
     {
         use windows_sys::Win32::UI::Shell::ShellExecuteW;
         use windows_sys::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
@@ -24,7 +30,7 @@ pub fn open(url: &str) -> bool {
         // Above 32: started.
         code > 32
     }
-    #[cfg(not(windows))]
+    #[cfg(all(not(windows), not(test)))]
     {
         let program = if cfg!(target_os = "macos") {
             "open"
@@ -33,4 +39,16 @@ pub fn open(url: &str) -> bool {
         };
         std::process::Command::new(program).arg(url).spawn().is_ok()
     }
+}
+
+#[cfg(test)]
+thread_local! {
+    static OPENED: std::cell::RefCell<Vec<String>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// The links a test opened on its thread, in order.
+#[cfg(test)]
+#[allow(dead_code)] // for the tests that click a link
+pub fn opened() -> Vec<String> {
+    OPENED.with(|o| o.borrow().clone())
 }

@@ -181,11 +181,27 @@ pub fn system() -> Lang {
 }
 
 /// English (the source) until the person's or the system's language is set.
+#[cfg(not(test))]
 static CURRENT: AtomicU8 = AtomicU8::new(1);
+
+// One language per test thread: an app test (kittest, `--lang ru`) switches its own and no
+// other test running beside it reads that one instead of English. The app draws on the thread
+// that runs it, as egui_kittest does.
+#[cfg(test)]
+thread_local! {
+    static CURRENT: AtomicU8 = const { AtomicU8::new(1) };
+}
+
+fn load() -> u8 {
+    #[cfg(not(test))]
+    return CURRENT.load(Ordering::Relaxed);
+    #[cfg(test)]
+    return CURRENT.with(|c| c.load(Ordering::Relaxed));
+}
 
 /// The language the interface is in now.
 pub fn current() -> Lang {
-    Lang::ALL[CURRENT.load(Ordering::Relaxed) as usize % Lang::ALL.len()]
+    Lang::ALL[load() as usize % Lang::ALL.len()]
 }
 
 /// Whether the interface reads right to left (Arabic): the menu goes to the right and page
@@ -196,7 +212,10 @@ pub fn rtl() -> bool {
 
 /// Switches the interface language; screens follow on the next frame.
 pub fn set(lang: Lang) {
+    #[cfg(not(test))]
     CURRENT.store(lang.index(), Ordering::Relaxed);
+    #[cfg(test)]
+    CURRENT.with(|c| c.store(lang.index(), Ordering::Relaxed));
 }
 
 /// Where the catalogs come from: the app's own unless another program built on these modules

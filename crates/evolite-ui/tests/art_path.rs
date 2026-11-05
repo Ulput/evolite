@@ -21,6 +21,7 @@ fn core(cache: &Path) -> Core {
                 env!("CARGO_BIN_EXE_evolite").into(),
                 vec![worker::FLAG.into()],
             )),
+            off: false,
         },
         || {},
     )

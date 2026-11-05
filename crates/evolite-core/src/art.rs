@@ -59,7 +59,16 @@ impl Artist {
         std::thread::Builder::new()
             .name("evolite-art".into())
             .spawn(move || {
-                let settings = options.worker.or_else(|| Settings::bundled().ok());
+                // `ArtOptions::off`: no renderer, every picture fails as with a stopped one; and
+                // nothing kept on the disk, whatever `cache` says.
+                let (settings, cache) = if options.off {
+                    (None, None)
+                } else {
+                    (
+                        options.worker.or_else(|| Settings::bundled().ok()),
+                        options.cache,
+                    )
+                };
                 let mut renderer = settings.map(Renderer::new);
                 // Started with the wallet, not with the first picture: by the time the
                 // collection is opened, the worker has its sandbox and fonts ready.
@@ -68,7 +77,7 @@ impl Artist {
                 }
                 let mut studio = Studio {
                     renderer,
-                    cache: options.cache.map(DiskCache::new),
+                    cache: cache.map(DiskCache::new),
                     out,
                     wake,
                 };

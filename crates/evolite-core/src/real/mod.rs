@@ -3605,6 +3605,7 @@ pub fn run(
         let art_for = |wallet: &str| crate::ArtOptions {
             cache: art_base.as_ref().map(|base| base.join(wallet)),
             worker: art.worker.clone(),
+            off: art.off,
         };
         // Profile pictures are drawn by the sandboxed renderer, never in this process.
         core.artist = Some(crate::art::Artist::start(

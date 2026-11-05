@@ -51,14 +51,14 @@ pub fn copy_secret(ctx: &egui::Context, text: Zeroizing<String>) -> bool {
     remember(ctx, &text, put)
 }
 
-#[cfg(windows)]
+#[cfg(all(windows, not(test)))]
 fn put_secret(_ctx: &egui::Context, text: &str) -> bool {
     arboard::Clipboard::new().is_ok_and(|board| System(board).put_secret(text))
 }
 
 /// Elsewhere egui's clipboard keeps the text while the app runs (an arboard one would
 /// lose it on Linux when dropped); there is no history to keep it out of.
-#[cfg(not(windows))]
+#[cfg(any(not(windows), test))]
 fn put_secret(ctx: &egui::Context, text: &str) -> bool {
     ctx.copy_text(text.to_owned());
     true
@@ -103,8 +103,8 @@ pub fn tick(ctx: &egui::Context) {
             ctx.data_mut(|d| d.remove_temp::<Option<Copied>>(copy_id()));
         } else if copy.at.elapsed() >= KEEP {
             ctx.data_mut(|d| d.remove_temp::<Option<Copied>>(copy_id()));
-            if let Ok(board) = arboard::Clipboard::new() {
-                wipe_if_still(copy.hash, &mut System(board), false);
+            if let Some(mut board) = system_board() {
+                wipe_if_still(copy.hash, &mut board, false);
             }
         } else {
             ctx.request_repaint_after(Duration::from_secs(1));
@@ -127,19 +127,28 @@ pub fn wipe_now(ctx: &egui::Context) {
     let copy = ctx.data_mut(|d| d.remove_temp::<Option<Copied>>(copy_id()).flatten());
     if let Some(copy) = copy
         && WIPE_COPIES.with(Cell::get)
-        && let Ok(board) = arboard::Clipboard::new()
+        && let Some(mut board) = system_board()
     {
-        wipe_if_still(copy.hash, &mut System(board), false);
+        wipe_if_still(copy.hash, &mut board, false);
     }
 }
 
 fn wipe_secret(ctx: &egui::Context) {
     let copied = ctx.data_mut(|d| d.remove_temp::<Option<Copied>>(id()).flatten());
     if let Some(copied) = copied
-        && let Ok(board) = arboard::Clipboard::new()
+        && let Some(mut board) = system_board()
     {
-        wipe_if_still(copied.hash, &mut System(board), true);
+        wipe_if_still(copied.hash, &mut board, true);
     }
+}
+
+/// The system clipboard to wipe; none in tests, which must not touch the desktop they run on
+/// (QA may be working at it): what they copy stays in egui (`ctx.copy_text`).
+fn system_board() -> Option<System> {
+    #[cfg(test)]
+    return None;
+    #[cfg(not(test))]
+    return arboard::Clipboard::new().ok().map(System);
 }
 
 /// The system clipboard, as [`wipe_if_still`] needs it.
@@ -148,9 +157,11 @@ trait Board {
     fn clear(&mut self);
 }
 
+// Never made in tests (`system_board`).
+#[cfg_attr(test, allow(dead_code))]
 struct System(arboard::Clipboard);
 
-#[cfg(windows)]
+#[cfg(all(windows, not(test)))]
 impl System {
     fn put_secret(&mut self, text: &str) -> bool {
         use arboard::SetExtWindows;
