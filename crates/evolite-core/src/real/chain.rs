@@ -9,6 +9,7 @@
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use dash_sdk::SdkBuilder;
@@ -42,6 +43,7 @@ use super::{dashpay, identity, nfts};
 type Manager = PlatformWalletManager<SqlitePersister>;
 
 /// Where the chain side keeps its files.
+#[derive(Clone)]
 pub struct ChainPaths {
     /// dash-spv's headers, filters and masternode lists.
     pub spv: PathBuf,
@@ -53,6 +55,14 @@ pub struct ChainPaths {
 
 pub struct Chain {
     manager: tokio::sync::Mutex<Option<Arc<Manager>>>,
+    /// Held while [`Chain::start`] builds the manager, and by [`Chain::stop`]: one start at a
+    /// time, and a stop waits for a start under way. [`Chain::manager`] waits for neither
+    /// (BUG-24: every command stood in line for the whole start).
+    starting: tokio::sync::Mutex<()>,
+    /// A manager is in `manager`: read without waiting for its lock.
+    running: AtomicBool,
+    /// Its core has been replaced: a start not yet made is not made.
+    retired: AtomicBool,
     status: Arc<Mutex<SyncStatus>>,
     /// What Platform said of top-up locks that the store cannot keep: "already taken" while
     /// the lock has no ChainLock proof yet (platform-wallet then leaves its status as it was).
@@ -66,6 +76,9 @@ impl Default for Chain {
     fn default() -> Self {
         Self {
             manager: tokio::sync::Mutex::new(None),
+            starting: tokio::sync::Mutex::new(()),
+            running: AtomicBool::new(false),
+            retired: AtomicBool::new(false),
             status: Arc::new(Mutex::new(SyncStatus {
                 network: crate::network::name(),
                 ..Default::default()
@@ -348,8 +361,8 @@ impl Chain {
         paths: &ChainPaths,
         publish: Arc<dyn Fn(&SyncStatus) + Send + Sync>,
     ) -> Result<(), String> {
-        let mut slot = self.manager.lock().await;
-        if slot.is_some() {
+        let _one = self.starting.lock().await;
+        if self.running() {
             return Ok(());
         }
         let reporter = Reporter::new(self.status.clone(), publish)
@@ -411,7 +424,8 @@ impl Chain {
         .await;
         match result {
             Ok(manager) => {
-                *slot = Some(manager);
+                *self.manager.lock().await = Some(manager);
+                self.running.store(true, Ordering::Relaxed);
                 Ok(())
             }
             Err(error) => {
@@ -421,6 +435,31 @@ impl Chain {
                 });
                 Err(error)
             }
+        }
+    }
+
+    /// Started: the store is open and the SPV client runs.
+    pub fn running(&self) -> bool {
+        self.running.load(Ordering::Relaxed)
+    }
+
+    /// Its core is replaced by another: a start of this chain still waiting in line is not
+    /// made (the next chain's start waits behind it).
+    pub fn retire(&self) {
+        self.retired.store(true, Ordering::Relaxed);
+    }
+
+    pub fn retired(&self) -> bool {
+        self.retired.load(Ordering::Relaxed)
+    }
+
+    /// A start is coming (off the core's loop): the status says so at once, and no longer
+    /// the error of a try before.
+    pub fn mark_starting(&self) {
+        let mut s = self.status.lock().unwrap_or_else(|e| e.into_inner());
+        if !self.running() {
+            s.phase = Phase::Starting;
+            s.error = None;
         }
     }
 
@@ -1760,16 +1799,21 @@ impl Chain {
     /// Stops the SPV client and the sync workers; the store and the SPV data stay for the next
     /// start.
     pub async fn stop(&self) {
-        if let Some(manager) = self.manager.lock().await.take() {
-            // The wallets go first: the sync workers share the manager's map of them and
-            // outlive the manager, and a wallet in it keeps the store open — a deleted wallet's
-            // files stayed held until the app quit.
+        let _one = self.starting.lock().await;
+        let manager = self.manager.lock().await.take();
+        self.running.store(false, Ordering::Relaxed);
+        if let Some(manager) = manager {
+            // Everything first, in order: SPV, then the sync workers (Platform addresses,
+            // DashPay) that block on this runtime and would panic if it went away under them.
+            // Their passes are sealed then: none reads a wallet while it is removed below
+            // (R-29: a pass running during the removal panicked "wallet exists in guard").
+            let _ = manager.shutdown().await;
+            // Then the wallets: the sync workers share the manager's map of them and outlive
+            // the manager, and a wallet in it keeps the store open — a deleted wallet's files
+            // stayed held until the app quit.
             for id in manager.wallet_ids().await {
                 let _ = manager.remove_wallet(&id).await;
             }
-            // Everything, in order: SPV, then the sync workers (Platform addresses, DashPay)
-            // that block on this runtime and would panic if it went away under them.
-            let _ = manager.shutdown().await;
         }
     }
 }

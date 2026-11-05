@@ -68,13 +68,17 @@ fn network() -> &'static str {
 }
 /// After a failed start (offline at launch, say) the client is tried again this often.
 const RETRY_START: Duration = Duration::from_secs(30);
-/// How long unlocking waits for a chain that did not start to start (BUG-8).
-const START_WAIT: Duration = Duration::from_secs(15);
+/// How long making a wallet waits for a chain start under way: the new wallet's birth height
+/// is the tip of the stored headers, and without them it would be scanned from the genesis.
+const START_WAIT: Duration = Duration::from_secs(60);
+/// How long a chain start that failed right after the chain before it stopped is tried again.
+const START_AGAIN: Duration = Duration::from_secs(15);
 /// A contact's DPNS name that could not be read is asked again after this long.
 const NAME_RETRY: Duration = Duration::from_secs(30);
 
 /// Where the core keeps its files, per network: the SPV storage, platform-wallet's store and
 /// the vault.
+#[derive(Clone)]
 pub struct Paths {
     /// The data folder itself: "Disk space" counts all of it.
     pub root: PathBuf,
@@ -234,6 +238,10 @@ async fn loaded(
     chain: &Chain,
     id: &WalletId,
 ) -> Result<Arc<platform_wallet::PlatformWallet>, CoreError> {
+    // Still starting (F3): the wallet is open, its sync not yet — "wait for the sync".
+    if !chain.running() {
+        return Err(CoreError::NotSynced);
+    }
     chain
         .wallet(id)
         .await
@@ -255,11 +263,27 @@ struct Real {
     /// The wallet to open next, asked by `SwitchWallet` (or a new one by `AddWallet`): the loop
     /// then makes a new core over it, as after a deletion.
     switch_to: Option<String>,
-    /// The password `SwitchWallet` checked against `switch_to`: the new core opens it with it.
-    switch_password: Option<Password>,
+    /// The vault of `switch_to` as `SwitchWallet` opened it with its password: the new core
+    /// takes it as it is, without a second Argon2 (F2, BUG-24). Gone with this core.
+    switch_opened: Option<(vault::VaultFile, Zeroizing<String>)>,
     /// While a wallet is being added: the one to go back to on "Cancel".
     adding_from: Option<String>,
     chain: Arc<Chain>,
+    /// The chain's start off the loop ([`Real::start_chain`]); it answers whether the wallet's
+    /// folder was clear of a deleted wallet's files (else [`Real::leftovers`]).
+    starting: Option<tokio::task::JoinHandle<bool>>,
+    /// A start was tried over a clear folder (the loop then retries a failed one).
+    start_tried: bool,
+    /// When the last start was asked.
+    last_start: tokio::time::Instant,
+    /// The phrase of the open wallet until platform-wallet has it: unlocking does not wait for
+    /// the chain (F3, BUG-24); [`Real::attach_wallet`] opens it there once the chain runs.
+    attach: Option<Zeroizing<String>>,
+    /// When opening it there failed last: tried again after [`RETRY_START`].
+    attach_failed: Option<tokio::time::Instant>,
+    /// The headers' tip the core before this one saw: a wallet made here before this chain has
+    /// headers is born there.
+    birth_hint: Option<u32>,
     /// For answers that come after a wait (the network's answer to a payment).
     out: Sender<Event>,
     /// Set by the sync callback; the loop then sends a fresh snapshot.
@@ -729,8 +753,14 @@ impl Real {
             index,
             pending_origin: wallets::Origin::Created,
             switch_to: None,
-            switch_password: None,
+            switch_opened: None,
             adding_from: None,
+            starting: None,
+            start_tried: false,
+            last_start: tokio::time::Instant::now(),
+            attach: None,
+            attach_failed: None,
+            birth_hint: None,
             journal,
             contact_paid,
             hidden,
@@ -1369,11 +1399,11 @@ impl Real {
     }
 
     /// Removes the wallet from this computer: with `password` it is checked first; then
-    /// the keys go, the chain lets go of the store and the vault is deleted — without it the
-    /// wallet cannot be opened again. The rest of the wallet's folder (store, names, journal,
-    /// contacts' addresses) goes once nothing holds it: the loop makes the core anew and
-    /// [`clear_leftovers`] removes it before a store opens. Headers and filters (`spv`) stay:
-    /// they hold nothing of the wallet.
+    /// the keys go and the vault is deleted — without it the wallet cannot be opened again. The
+    /// rest of the wallet's folder (store, names, journal, contacts' addresses) goes once
+    /// nothing holds it: the loop makes the core anew, stops this chain off the loop and
+    /// [`clear_other_leftovers`] removes it before the next chain starts. Headers and filters
+    /// (`spv`) stay: they hold nothing of the wallet.
     async fn delete_wallet(&mut self, password: Option<&Password>) -> Result<(), CoreError> {
         if self.saved.is_none() {
             return Err(CoreError::NotAvailable(NO_VAULT.into()));
@@ -1382,12 +1412,19 @@ impl Real {
             self.open_vault(password).await?;
         }
         self.lock().await?;
-        self.chain.stop().await;
-        // The store is closed now: whatever happens next, the core starts again.
+        // Whatever happens next, the core starts again: the loop stops this chain off the
+        // loop (seconds, while a sync pass ends) and the next core shows its wallet — or the
+        // onboarding — at once (F4, BUG-21).
         self.restart = true;
         match std::fs::remove_file(&self.paths.vault) {
-            Ok(()) => Ok(()),
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Ok(()) => {
+                self.saved = None;
+                Ok(())
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                self.saved = None;
+                Ok(())
+            }
             Err(e) => Err(CoreError::Failed(format!(
                 tr!("The wallet was not deleted: {e}"),
                 e = e
@@ -1435,6 +1472,7 @@ impl Real {
             .unwrap_or_else(|e| e.into_inner())
             .clear();
         self.unlocked = None;
+        self.attach = None;
         self.receive_address = None;
         Ok(())
     }
@@ -2590,23 +2628,111 @@ impl Real {
         Ok(())
     }
 
-    /// The chain is running, or is started now. Its start at the core's own start can fail
-    /// while the core before it still lets go of the store and the SPV files (back from "Add a
-    /// wallet", BUG-8); the main loop tries again only every [`RETRY_START`], and the wallet
-    /// could not be opened until then. Here it is tried at once, a few times for up to
-    /// [`START_WAIT`]; a failure says why. Not over a deleted wallet's leftovers.
-    async fn chain_started(&self) -> Result<(), CoreError> {
-        if self.leftovers {
-            return Err(CoreError::NotAvailable(LEFTOVERS.into()));
+    /// Starts this core's chain off the loop (F3, BUG-24): first `old` — the chain of the core
+    /// before — is stopped, after the start before it (`prev`) has ended, since both use the
+    /// same SPV files; then what deleted wallets left is removed (`others`: the other wallets'
+    /// folders too), and the chain starts over a clear folder. The loop meanwhile takes commands
+    /// and sends snapshots; a start of the core's own that failed is tried again by the loop
+    /// (BUG-8 waited for it inside the unlock).
+    fn start_chain(
+        &mut self,
+        old: Option<Arc<Chain>>,
+        prev: Option<tokio::task::JoinHandle<bool>>,
+        others: bool,
+    ) {
+        self.chain.mark_starting();
+        self.last_start = tokio::time::Instant::now();
+        let (chain, paths, wallet) = (self.chain.clone(), self.paths.clone(), self.wallet.clone());
+        let publish = self.publisher();
+        let refresh = self.refresher();
+        self.starting = Some(tokio::spawn(async move {
+            if let Some(prev) = prev {
+                let _ = prev.await;
+            }
+            if let Some(old) = old {
+                old.stop().await;
+            }
+            if others {
+                clear_other_leftovers(&paths.root, &wallet);
+            }
+            let clear = clear_leftovers(&paths).await;
+            // The SPV files may still be let go by the stopped chain's last tasks (BUG-8): a
+            // failed start is tried again at once for a while, then by the loop.
+            let deadline = tokio::time::Instant::now() + START_AGAIN;
+            while clear
+                && !chain.retired()
+                && chain.start(&paths.chain, publish.clone()).await.is_err()
+                && tokio::time::Instant::now() < deadline
+            {
+                tokio::time::sleep(Duration::from_millis(500)).await;
+            }
+            refresh();
+            clear
+        }));
+    }
+
+    /// The start under way has ended: what it found is taken (true then).
+    async fn start_ended(&mut self) -> bool {
+        if !self.starting.as_ref().is_some_and(|t| t.is_finished()) {
+            return false;
         }
-        let deadline = tokio::time::Instant::now() + START_WAIT;
-        loop {
-            match self.chain.start(&self.paths.chain, self.publisher()).await {
-                Ok(()) => return Ok(()),
-                Err(e) if tokio::time::Instant::now() >= deadline => {
-                    return Err(CoreError::Failed(e));
-                }
-                Err(_) => tokio::time::sleep(Duration::from_millis(500)).await,
+        if let Some(task) = self.starting.take() {
+            self.start_tried = task.await.unwrap_or(false);
+            self.leftovers = !self.start_tried;
+        }
+        true
+    }
+
+    /// Waits up to `wait` for a start under way, and takes what it found.
+    async fn start_settled(&mut self, wait: Duration) {
+        let Some(task) = self.starting.as_mut() else {
+            return;
+        };
+        // A handle that has answered must not be polled again: its answer is taken here.
+        if let Ok(answer) = tokio::time::timeout(wait, task).await {
+            self.starting = None;
+            self.start_tried = answer.unwrap_or(false);
+            self.leftovers = !self.start_tried;
+        }
+    }
+
+    /// No start under way and the last one failed (offline at launch, say, or a deleted
+    /// wallet's files still held): tried again every [`RETRY_START`].
+    fn retry_start(&mut self) {
+        let failed = !self.start_tried || self.chain.status().phase == Phase::Error;
+        if self.starting.is_none()
+            && !self.chain.running()
+            && failed
+            && self.last_start.elapsed() >= RETRY_START
+        {
+            self.start_chain(None, None, false);
+        }
+    }
+
+    /// The open wallet into platform-wallet once the chain runs: the one saved in the store,
+    /// so its balance and history are there at once, or a new watch-only entry.
+    async fn attach_wallet(&mut self) -> Result<(), String> {
+        if !self.chain.running()
+            || self
+                .attach_failed
+                .is_some_and(|at| at.elapsed() < RETRY_START)
+        {
+            return Ok(());
+        }
+        let (Some(phrase), Some(open)) = (self.attach.as_ref(), self.unlocked.as_ref()) else {
+            return Ok(());
+        };
+        match self.chain.open_wallet(phrase, open.meta.birth_height).await {
+            Ok(_) => {
+                self.attach = None;
+                self.attach_failed = None;
+                self.history_read = None;
+                self.dirty.store(true, Ordering::Relaxed);
+                Ok(())
+            }
+            Err(e) => {
+                self.attach_failed = Some(tokio::time::Instant::now());
+                Err(e)
             }
         }
     }
@@ -2614,6 +2740,17 @@ impl Real {
     /// Opens the vault and restarts sync with the wallet's keys.
     async fn unlock(&mut self, password: &Password) -> Result<(), CoreError> {
         let (file, phrase) = self.open_vault(password).await?;
+        self.unlock_opened(file, phrase).await
+    }
+
+    /// Unlocks with a vault already opened by its password (one Argon2 per switch, F2). The
+    /// wallet is open at once; platform-wallet gets it when the chain runs (F3), so a password
+    /// typed while the chain starts no longer waits for the start.
+    async fn unlock_opened(
+        &mut self,
+        file: vault::VaultFile,
+        phrase: Zeroizing<String>,
+    ) -> Result<(), CoreError> {
         let meta = file.meta;
         if meta.network != network() {
             return Err(CoreError::NotAvailable(format!(
@@ -2621,20 +2758,27 @@ impl Real {
                 meta.network
             )));
         }
+        // Never over a deleted wallet's files (BUG-8): no store opens over them.
+        if self.leftovers {
+            return Err(CoreError::NotAvailable(LEFTOVERS.into()));
+        }
         self.last_touch = tokio::time::Instant::now();
-        self.chain_started().await?;
-        let (id, _) = self
-            .chain
-            .open_wallet(&phrase, meta.birth_height)
-            .await
-            .map_err(CoreError::Failed)?;
         let keys = keys_of(&phrase)?;
+        // The id platform-wallet gives the wallet: from the same root key.
+        let id = keys.compute_wallet_id();
         self.unlocked = Some(Unlocked {
             id,
             meta,
             keys: Some(keys),
             seed: Some(seed_of(&phrase)?),
         });
+        self.attach = Some(phrase);
+        self.attach_failed = None;
+        if let Err(e) = self.attach_wallet().await {
+            // The chain runs and refused the wallet: as before, it stays locked.
+            self.lock().await?;
+            return Err(CoreError::Failed(e));
+        }
         self.receive_address = None;
         // History from before this run: the store has it, the wallet in memory does not.
         self.history_read = None;
@@ -2821,11 +2965,31 @@ impl Real {
             ));
         }
         let (phrase, restored) = self.pending.clone().ok_or(CoreError::BadPhrase)?;
+        // A new wallet is born at the tip of the headers: this chain's, or the one the wallet
+        // before saw ("Add a wallet"). The chain may still be starting (the onboarding no
+        // longer waits for it, F3); with neither known, its start is waited for — without
+        // headers the wallet would be scanned from the genesis.
         let birth_height = if restored {
             0
         } else {
-            self.chain.status().headers.map_or(0, |h| h.height)
+            let known = |core: &Self| {
+                core.chain
+                    .status()
+                    .headers
+                    .map(|h| h.height)
+                    .max(core.birth_hint)
+            };
+            match known(self) {
+                Some(height) => height,
+                None => {
+                    self.start_settled(START_WAIT).await;
+                    known(self).unwrap_or(0)
+                }
+            }
         };
+        if self.leftovers {
+            return Err(CoreError::NotAvailable(LEFTOVERS.into()));
+        }
         let keys = keys_of(&phrase)?;
         let meta = VaultMeta {
             network: network().into(),
@@ -2861,22 +3025,25 @@ impl Real {
         self.index.last = Some(self.wallet.clone());
         self.save_index();
         self.adding_from = None;
-        let (id, _) = self
-            .chain
-            .open_wallet(&phrase, birth_height)
-            .await
-            .map_err(|e| {
-                // The vault is "Locked" now: the interface goes to the unlock screen.
-                CoreError::NotAvailable(format!(
-                    tr!("The wallet is saved, but the sync did not start ({e}). Sign in with your password — evolite starts it again")
-                , e = e))
-            })?;
+        let id = keys.compute_wallet_id();
         self.unlocked = Some(Unlocked {
             id,
             meta,
             keys: Some(keys),
             seed: Some(seed_of(&phrase)?),
         });
+        self.attach = Some(phrase);
+        self.attach_failed = None;
+        if let Err(e) = self.attach_wallet().await {
+            // The vault is "Locked" now: the interface goes to the unlock screen.
+            self.lock().await?;
+            return Err(CoreError::NotAvailable(format!(
+                tr!(
+                    "The wallet is saved, but the sync did not start ({e}). Sign in with your password — evolite starts it again"
+                ),
+                e = e
+            )));
+        }
         self.receive_address = None;
         self.discover_identities();
         Ok(())
@@ -3370,23 +3537,27 @@ impl Real {
                         _ => (None, false),
                     };
                 }
-                if let Some(password) = &password {
-                    // The other wallet's password first: a wrong one changes nothing here.
-                    if let Err(e) = self.open_wallet_vault(&id, password).await {
-                        return (
-                            Some(Event::Done {
-                                what: "switch",
-                                result: Err(e),
-                            }),
-                            false,
-                        );
-                    }
-                }
+                // The other wallet's password first: a wrong one changes nothing here.
+                let opened = match &password {
+                    Some(password) => match self.open_wallet_vault(&id, password).await {
+                        Ok(opened) => Some(opened),
+                        Err(e) => {
+                            return (
+                                Some(Event::Done {
+                                    what: "switch",
+                                    result: Err(e),
+                                }),
+                                false,
+                            );
+                        }
+                    },
+                    None => None,
+                };
                 self.index.last = Some(id.clone());
                 self.save_index();
                 self.switch_to = Some(id);
-                // The new core opens it with this password (the loop answers "switch").
-                self.switch_password = password;
+                // The new core opens it as opened here (the loop answers "switch").
+                self.switch_opened = opened;
                 return (None, true);
             }
             Command::AddWallet => {
@@ -3619,34 +3790,26 @@ pub fn run(
         // resync asked last run to start over. A resync that cannot clear (a file held by
         // something else) is not lost: the mark stays and it is tried at the next start.
         let _ = resync_on_start(&core.paths);
-        let mut started = clear_leftovers(&core.paths).await;
-        core.leftovers = !started;
         // The window needs no SPV client to ask for the password: it gets what is known now.
         // Starting the client opens the stored headers and filters — 12 s in a release build
-        // with a synced store, half a minute in a debug one — and the window said only
-        // "Connecting to the wallet core…" all that time.
+        // with a synced store, half a minute in a debug one — and runs off the loop, so the
+        // password typed meanwhile opens the wallet at once (F3, BUG-24).
         let snapshot = core.snapshot().await;
         let _ = out.send(Event::Snapshot(Box::new(snapshot)));
         wake();
-        if started {
-            let _ = core.chain.start(&core.paths.chain, core.publisher()).await;
-        }
-        let mut last_start = tokio::time::Instant::now();
+        core.start_chain(None, None, false);
         loop {
-            if !started && last_start.elapsed() >= RETRY_START {
-                last_start = tokio::time::Instant::now();
-                started = clear_leftovers(&core.paths).await;
-                core.leftovers = !started;
-                if started {
-                    let _ = core.chain.start(&core.paths.chain, core.publisher()).await;
-                }
+            if core.start_ended().await {
+                core.dirty.store(true, Ordering::Relaxed);
             }
-            if started
-                && core.chain.status().phase == Phase::Error
-                && last_start.elapsed() >= RETRY_START
+            core.retry_start();
+            // The open wallet into platform-wallet once the chain runs (a failure is tried
+            // again later; the sync status says what is wrong with the chain itself). The
+            // identity lookup begun at the unlock starts again on the loaded wallet, without
+            // its pause after "the wallet is not loaded yet".
+            if core.attach.is_some() && core.attach_wallet().await.is_ok() && core.attach.is_none()
             {
-                last_start = tokio::time::Instant::now();
-                let _ = core.chain.start(&core.paths.chain, core.publisher()).await;
+                core.discover_identities();
             }
             // Platform address balances come with proofs: from the masternode lists on.
             if core.chain.platform_ready() {
@@ -3664,23 +3827,29 @@ pub fn run(
                         }
                         if core.restart || core.switch_to.is_some() {
                             // A deleted wallet, or another one asked for: this one is
-                            // locked (its keys gone with this core), its chain stopped and its
-                            // store let go; a new core opens the next wallet, as at start.
+                            // locked (its keys gone with this core); a new core opens the next
+                            // wallet, as at start, and is shown at once. This one's chain is
+                            // stopped and its store let go off the loop, before the new chain
+                            // starts (F3, BUG-21/22/24): that took 11–18 s here.
                             let deleted = core.restart.then(|| core.wallet.clone());
                             let next = core.switch_to.take();
-                            let switch_password = core.switch_password.take();
+                            let opened = core.switch_opened.take();
                             // "Cancel" while adding goes back to this one.
                             let adding_from = core.adding_from.take();
                             let _ = core.lock().await;
-                            core.chain.stop().await;
                             // A deleted wallet's pictures go too.
                             if let (Some(base), Some(id)) = (&art_base, &deleted) {
                                 let _ = std::fs::remove_dir_all(base.join(id));
                             }
                             drop(core.artist.take());
+                            let (old, prev) = (core.chain.clone(), core.starting.take());
+                            // A start of this chain still waiting in line is not made: the
+                            // next core's start follows it (switching on before one ended).
+                            old.retire();
+                            let tip = old.status().headers.map(|h| h.height).max(core.birth_hint);
                             let wallet = next.unwrap_or_else(|| opening_wallet(&data_dir));
-                            clear_other_leftovers(&data_dir, &wallet);
                             core = Real::new(data_dir.clone(), wallet, out.clone(), wake.clone());
+                            core.birth_hint = tip;
                             // Back at the wallet the adding started from: adding is over.
                             core.adding_from = adding_from.filter(|from| *from != core.wallet);
                             core.artist = Some(crate::art::Artist::start(
@@ -3688,25 +3857,27 @@ pub fn run(
                                 wake.clone(),
                                 art_for(&core.wallet),
                             ));
-                            started = clear_leftovers(&core.paths).await;
-                            core.leftovers = !started;
-                            if started {
-                                let _ = core.chain.start(&core.paths.chain, core.publisher()).await;
-                            }
-                            last_start = tokio::time::Instant::now();
-                            // Figma 29: the password checked before the switch opens it now.
-                            if let Some(password) = switch_password {
-                                let result = core.unlock(&password).await;
+                            core.start_chain(Some(old), prev, true);
+                            // Figma 29: the vault opened before the switch opens the wallet now
+                            // (no second Argon2, F2).
+                            if let Some((file, phrase)) = opened {
+                                let result = core.unlock_opened(file, phrase).await;
                                 let _ = out.send(Event::Done {
                                     what: "switch",
                                     result,
                                 });
                             }
-                            core.dirty.store(true, Ordering::Relaxed);
+                            core.dirty.store(false, Ordering::Relaxed);
+                            let snapshot = core.snapshot().await;
+                            let _ = out.send(Event::Snapshot(Box::new(snapshot)));
+                            wake();
                         }
                     }
                     Err(std::sync::mpsc::TryRecvError::Empty) => break,
                     Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                        if let Some(task) = core.starting.take() {
+                            let _ = task.await;
+                        }
                         core.chain.stop().await;
                         return;
                     }
@@ -3952,6 +4123,80 @@ mod tests {
         assert_eq!(core.unlock(&pw("no")).await, Err(CoreError::WrongPassword));
     }
 
+    /// F3 (BUG-24): the password opens the wallet while the chain is still starting; the
+    /// wallet goes into platform-wallet once it runs, and until then a payment or a Platform
+    /// action is "wait for the sync", not an error. Locking forgets the phrase kept for that.
+    #[tokio::test]
+    async fn unlocking_does_not_wait_for_the_chain() {
+        let mut core = core_with_vault("unlock-no-chain", "pw");
+        assert!(!core.chain.running());
+        assert_eq!(core.unlock(&pw("pw")).await, Ok(()));
+        let id = core.unlocked.as_ref().map(|o| o.id).unwrap();
+        assert_eq!(id, chain::wallet_id_of(PHRASE).unwrap());
+        assert!(core.attach.is_some(), "opened in platform-wallet later");
+        assert_eq!(core.snapshot().await.vault, VaultState::Unlocked);
+        assert_eq!(
+            loaded(&core.chain, &id).await.err(),
+            Some(CoreError::NotSynced)
+        );
+        core.lock().await.unwrap();
+        assert!(core.attach.is_none() && core.unlocked.is_none());
+    }
+
+    /// "Add a wallet" → "Create": the new wallet is born at the tip the wallet before saw, and
+    /// is made while this core's chain still starts; platform-wallet gets it later.
+    #[tokio::test]
+    async fn a_wallet_is_made_while_the_chain_starts() {
+        let dir = fresh_dir("create-starting");
+        let mut core = core_at(&dir, "cccc0003");
+        core.pending = Some((Zeroizing::new(PHRASE.into()), false));
+        core.birth_hint = Some(777);
+        core.starting = Some(tokio::spawn(std::future::pending::<bool>()));
+        let made =
+            tokio::time::timeout(Duration::from_secs(20), core.create(&pw("Second-wallet-7")))
+                .await;
+        assert_eq!(
+            made.ok(),
+            Some(Ok(())),
+            "made without waiting for the start"
+        );
+        assert_eq!(core.saved.as_ref().map(|m| m.birth_height), Some(777));
+        assert!(core.unlocked.is_some() && core.attach.is_some());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Making a wallet waits for the chain's start and takes its answer once: the loop then
+    /// never polls the finished start again (that panicked the core thread).
+    #[tokio::test]
+    async fn a_settled_start_is_taken_once() {
+        let mut core = core_with_vault("start-settled", "pw");
+        core.starting = Some(tokio::spawn(async { false }));
+        core.start_settled(Duration::from_secs(5)).await;
+        assert!(core.starting.is_none() && core.leftovers && !core.start_tried);
+        assert!(!core.start_ended().await);
+        core.start_settled(Duration::from_secs(5)).await;
+        // A start that does not end in time is left to the loop.
+        core.starting = Some(tokio::spawn(std::future::pending::<bool>()));
+        core.start_settled(Duration::from_millis(10)).await;
+        assert!(core.starting.is_some());
+        assert!(!core.start_ended().await);
+    }
+
+    /// F4 (BUG-21): deleting forgets the vault at once — the next snapshot says "no wallet"
+    /// without waiting for the chain to stop (the loop stops it off the loop, F3).
+    #[tokio::test]
+    async fn deleting_says_no_wallet_at_once() {
+        let mut core = core_with_vault("delete-at-once", "pw");
+        assert_eq!(
+            core.delete_wallet(Some(&pw("no"))).await,
+            Err(CoreError::WrongPassword)
+        );
+        assert!(core.saved.is_some() && !core.restart);
+        assert_eq!(core.delete_wallet(Some(&pw("pw"))).await, Ok(()));
+        assert!(core.restart && !core.paths.vault.exists());
+        assert_eq!(core.snapshot().await.vault, VaultState::NoWallet);
+    }
+
     /// The wallet folder the tests use.
     const TEST_WALLET: &str = "0000beef";
 
@@ -4122,7 +4367,7 @@ mod tests {
             "the new core answers once it has opened it"
         );
         assert_eq!(core.switch_to.as_deref(), Some("bbbb0002"));
-        assert!(core.switch_password.is_some());
+        assert!(core.switch_opened.is_some());
         // The other wallet's phrase by its own password (its "…" → "Show the phrase").
         let (event, _) = core
             .handle(Command::RevealPhrase {
