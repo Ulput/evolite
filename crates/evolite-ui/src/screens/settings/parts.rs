@@ -142,9 +142,14 @@ fn row(ui: &mut Ui, a: &mut Assets, title: &str, sub: &str, control: Control) ->
     if let Some(value) = value {
         // The row is the one named button and Tab stop, "Core nodes · 8" (BUG-18): the focus
         // ring goes round it all; the chevron inside only takes clicks.
-        let resp = frame
-            .response
-            .interact(Sense::click())
+        // Its own id: the frame's Ui is registered again with its hover-only sense under the
+        // frame's id, and egui then takes the focus from that id — Tab never stopped here.
+        let resp = ui
+            .interact(
+                frame.response.rect,
+                frame.response.id.with("row"),
+                Sense::click(),
+            )
             .on_hover_cursor(CursorIcon::PointingHand);
         crate::components::named(
             &resp,
