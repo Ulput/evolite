@@ -708,6 +708,16 @@ fn add_contact(
                         if typo { p.danger } else { p.muted },
                     ));
                 }
+                // One or two letters are not asked about: say why "Send" stays off, as the Send
+                // screen does for `@ab` (BUG-39 №4).
+                _ if (1..3).contains(&typed.trim_start_matches('@').len()) => {
+                    ui.label(txt(
+                        tr!("This is not a Dash name: 3–63 letters, digits and hyphens"),
+                        12.0,
+                        Weight::Regular,
+                        p.danger,
+                    ));
+                }
                 _ if typed.trim_start_matches('@').len() >= 3 => {
                     ui.label(txt(
                         tr!("Checking the name in DPNS…"),

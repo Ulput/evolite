@@ -8,6 +8,7 @@
 //! answer is not in the tree.
 
 mod bugs;
+mod dialogs;
 mod history;
 mod login;
 mod onboarding;

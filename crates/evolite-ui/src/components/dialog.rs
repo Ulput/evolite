@@ -40,7 +40,15 @@ pub fn dialog_with_header(
     body: impl FnOnce(&mut Ui, &mut Assets) -> bool,
 ) -> bool {
     let p = a.p;
-    let modal = egui::Modal::new(egui::Id::new(id))
+    let id = egui::Id::new(id);
+    let ctx = ui.ctx().clone();
+    let place = Place::of(&ctx, id);
+    let mut modal = egui::Modal::new(id);
+    if let Some(top) = place.top {
+        modal =
+            modal.area(egui::Modal::default_area(id).anchor(Align2::CENTER_TOP, vec2(0.0, top)));
+    }
+    let modal = modal
         .frame(
             Frame::new()
                 .fill(p.surface)
@@ -69,5 +77,49 @@ pub fn dialog_with_header(
         });
         body(ui, a) || close
     });
+    place.keep(&ctx, id, response.response.rect);
     response.inner || response.should_close()
+}
+
+/// Where an open dialog stands. It opens in the middle of the window; from its second frame its
+/// top stays put and it grows or shrinks downwards, so a line of error or a hint that comes and
+/// goes does not move the field under the pointer (BUG-39 №3). A new opening or another window
+/// size centres it again.
+#[derive(Clone, Copy, Debug)]
+struct Place {
+    /// The top, from the window's top, once it is kept.
+    top: Option<f32>,
+    /// Frames it has been shown in a row.
+    frames: u8,
+    /// The window it was placed in.
+    window: Rect,
+    /// The pass it was last shown in.
+    pass: u64,
+}
+
+impl Place {
+    /// The dialog's place this frame: as last frame if it was open then, in the same window.
+    fn of(ctx: &egui::Context, id: egui::Id) -> Self {
+        let pass = ctx.cumulative_pass_nr();
+        let window = ctx.content_rect();
+        ctx.data(|d| d.get_temp::<Place>(id.with("place")))
+            .filter(|p| p.pass + 1 >= pass && p.window == window)
+            .unwrap_or(Place {
+                top: None,
+                frames: 0,
+                window,
+                pass,
+            })
+    }
+
+    /// Remembers where the dialog was drawn; its top is kept from the second frame on (the
+    /// first one only measures it).
+    fn keep(mut self, ctx: &egui::Context, id: egui::Id, drawn: Rect) {
+        self.frames = self.frames.saturating_add(1);
+        if self.top.is_none() && self.frames >= 2 {
+            self.top = Some(drawn.top() - self.window.top());
+        }
+        self.pass = ctx.cumulative_pass_nr();
+        ctx.data_mut(|d| d.insert_temp(id.with("place"), self));
+    }
 }

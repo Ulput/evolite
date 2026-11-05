@@ -375,18 +375,25 @@ fn profile(
                     } else {
                         short_id(&id.id)
                     };
-                    let resp = ui
+                    // The words do not take the click for selecting text, and the row senses
+                    // it under its own id, so a click on the ID copies as one on the icon
+                    // does (BUG-39 №2).
+                    let row = ui
                         .horizontal(|ui| {
                             ui.spacing_mut().item_spacing.x = 6.0;
-                            ui.label(
-                                egui::RichText::new(crate::i18n::t(&label))
-                                    .font(mono(13.0, Weight::Regular))
-                                    .color(p.muted),
+                            ui.add(
+                                egui::Label::new(
+                                    egui::RichText::new(crate::i18n::t(&label))
+                                        .font(mono(13.0, Weight::Regular))
+                                        .color(p.muted),
+                                )
+                                .selectable(false),
                             );
                             ui.add(a.icons.icon("copy", p.muted, &p, 14.0));
                         })
-                        .response
-                        .interact(Sense::click())
+                        .response;
+                    let resp = ui
+                        .interact(row.rect, ui.id().with("copy-identity-id"), Sense::click())
                         .on_hover_cursor(CursorIcon::PointingHand)
                         .on_hover_text(crate::i18n::t(&id.id).into_owned());
                     crate::components::named(
