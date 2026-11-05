@@ -4,7 +4,7 @@
 use super::txt;
 use crate::components::{
     Assets, ButtonKind, SpendPassword, TxRow, amount_field, button, button_enabled, card, dialog,
-    error_notice, field_label, inner, kv_row, list_card, notice, page_header, password_asked,
+    error_notice, field_label, grow, inner, kv_row, list_card, notice, page_header, password_asked,
     progress_bar, segmented_with_off, select_row, tx_row,
 };
 use crate::context::Ctx;
@@ -58,6 +58,7 @@ const HOW: [(&str, &str); 3] = [
     ),
 ];
 
+#[derive(Default)]
 pub struct PoolState {
     pub hide_amount: bool,
     /// 09 · "Shield into the private pool" is open.
@@ -65,7 +66,9 @@ pub struct PoolState {
     pub from: usize,
     pub sources_open: bool,
     pub amount: String,
-    /// 0.5 DASH in `amount` until the person changes it (`format::fill_suggested`).
+    /// Empty when the dialog opens, «Max» beside it (design review №27: a 0.5 put in for the
+    /// person opened the dialog with «More than there is» already on); an example only in the
+    /// dev-tools presets, kept in the chosen format (`format::fill_suggested`).
     pub suggested: Option<i64>,
     /// The core is building the proof: how far it has got.
     pub progress: Option<f32>,
@@ -81,27 +84,6 @@ pub struct PoolState {
     pub unshield_to_identity: bool,
     /// "Password for every payment" in "Shield" and "Unshield" (one move at a time; BUG-42).
     pub password: SpendPassword,
-}
-
-impl Default for PoolState {
-    fn default() -> Self {
-        Self {
-            hide_amount: false,
-            shielding: false,
-            from: 0,
-            sources_open: false,
-            amount: crate::format::input_text(50_000_000),
-            suggested: Some(50_000_000),
-            progress: None,
-            result: None,
-            unshielding: false,
-            unshield_amount: String::new(),
-            unshield_suggested: None,
-            address_open: false,
-            unshield_to_identity: false,
-            password: SpendPassword::default(),
-        }
-    }
 }
 
 /// Where funds can be shielded from: the identity's credits, the Platform address or Core.
@@ -176,27 +158,21 @@ pub fn shielded(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut PoolState
             ui.spacing_mut().item_spacing.y = 22.0;
             let total = ui.available_width();
             let wide = total >= 760.0;
-            let how_w = if wide { 380.0 } else { total };
-            let balance_w = if wide { total - how_w - 20.0 } else { total };
-            crate::components::two_columns(ui, wide, |ui, first| {
+            // One grid for the cards and the actions: halves with a gap of 20, the actions in
+            // the same columns (design review 2026-11-05 №7).
+            let half = if wide { (total - 20.0) / 2.0 } else { total };
+            crate::components::two_columns(ui, "balance-how", wide, |ui, first, extra| {
                 if first {
-                    balance(
-                        ui,
-                        a,
-                        state,
-                        wallet.balances.shielded,
-                        &wallet.pool,
-                        now,
-                        balance_w,
-                    );
+                    let pool = (wallet.balances.shielded, &wallet.pool);
+                    balance(ui, a, state, pool, now, half, extra);
                 } else {
-                    how(ui, a, how_w);
+                    how(ui, a, half, extra);
                 }
             });
 
-            // Four actions in a row, or two by two when narrow.
+            // Four actions in a row, or two by two when narrow; four split the halves in two.
             let per_row = if total >= 900.0 { 4 } else { 2 };
-            let w = (total - 12.0 * (per_row - 1) as f32) / per_row as f32;
+            let w = (total - 20.0 * (per_row - 1) as f32) / per_row as f32;
             // One height for all: the tallest line under a title decides (one or two lines).
             let h = ACTIONS
                 .iter()
@@ -206,7 +182,7 @@ pub fn shielded(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut PoolState
                 ui.spacing_mut().item_spacing.y = 12.0;
                 for chunk in ACTIONS.chunks(per_row) {
                     ui.horizontal(|ui| {
-                        ui.spacing_mut().item_spacing.x = 12.0;
+                        ui.spacing_mut().item_spacing.x = 20.0;
                         for (icon, title, sub) in chunk {
                             let resp = action(ui, a, icon, title, sub, vec2(w, h), connected);
                             if !connected {
@@ -301,10 +277,10 @@ fn balance(
     ui: &mut Ui,
     a: &mut Assets,
     state: &mut PoolState,
-    duffs: i64,
-    pool: &Pool,
+    (duffs, pool): (i64, &Pool),
     now: chrono::DateTime<chrono::Local>,
     width: f32,
+    extra: f32,
 ) {
     let p = a.p;
     card(&p, Margin::same(24)).show(ui, |ui| {
@@ -346,10 +322,11 @@ fn balance(
                 .font(mono(12.0, Weight::Regular))
                 .color(p.muted),
         );
+        grow(ui, extra);
     });
 }
 
-fn how(ui: &mut Ui, a: &mut Assets, width: f32) {
+fn how(ui: &mut Ui, a: &mut Assets, width: f32, extra: f32) {
     let p = a.p;
     card(&p, Margin::same(24)).show(ui, |ui| {
         ui.set_width(inner(width, 24));
@@ -367,6 +344,7 @@ fn how(ui: &mut Ui, a: &mut Assets, width: f32) {
                 );
             });
         }
+        grow(ui, extra);
     });
 }
 

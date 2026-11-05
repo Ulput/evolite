@@ -4,8 +4,8 @@
 use super::{Screen, txt};
 use crate::components::{
     Assets, ButtonKind, FieldKind, SpendPassword, amount_field, avatar, button, button_enabled,
-    card, chip, dialog, divider, field_label, inner, kv_row, list_card, notice, page_header, pill,
-    text_field, two_columns,
+    card, chip, dialog, divider, field_label, grow, inner, kv_row, list_card, notice, page_header,
+    pill, text_action, text_field, two_columns,
 };
 use crate::context::Ctx;
 use crate::text::{self, group_thousands, short_id};
@@ -95,6 +95,19 @@ impl ProfileForm {
             avatar_url: profile.avatar_url.unwrap_or_default(),
             ..Default::default()
         }
+    }
+
+    /// Whether anything differs from what the profile says now (spaces at the ends aside):
+    /// writing the same again would only cost credits (design review №16).
+    pub fn changes(&self, profile: Option<&Profile>) -> bool {
+        let now = Self::from(profile);
+        [
+            (&self.display, &now.display),
+            (&self.about, &now.about),
+            (&self.avatar_url, &now.avatar_url),
+        ]
+        .iter()
+        .any(|(typed, saved)| typed.trim() != saved.trim())
     }
 }
 
@@ -270,21 +283,16 @@ pub fn identity(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut IdentityS
         .show(ui, |ui| {
             ui.spacing_mut().item_spacing.y = 20.0;
             let total = ui.available_width();
-            // Two rows of two cards; below 760 px of content everything goes in one column.
+            // Two rows of two cards on one grid, halves with a gap of 20 (design review
+            // 2026-11-05 №7); below 760 px of content everything goes in one column.
             let wide = total >= 760.0;
-            let credits_w = if wide { 340.0 } else { total };
-            let profile_w = if wide {
-                total - credits_w - 20.0
-            } else {
-                total
-            };
             let half = if wide { (total - 20.0) / 2.0 } else { total };
 
-            two_columns(ui, wide, |ui, first| {
+            two_columns(ui, "profile-credits", wide, |ui, first, extra| {
                 if first {
-                    profile(ui, a, state, identity, profile_w, &mut asked);
+                    profile(ui, a, state, identity, half, extra, &mut asked);
                 } else {
-                    match credits(ui, a, &wallet.balances, &wallet.fees, credits_w) {
+                    match credits(ui, a, &wallet.balances, &wallet.fees, half, extra) {
                         Some(CreditsAction::TopUp) => state.top_up_clicked(wallet),
                         // Send from credits: to this wallet's own Core address (it can be
                         // changed there), or to someone yet to type.
@@ -296,11 +304,11 @@ pub fn identity(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut IdentityS
                     }
                 }
             });
-            two_columns(ui, wide, |ui, first| {
+            two_columns(ui, "names-keys", wide, |ui, first, extra| {
                 if first {
-                    names(ui, a, identity, half);
+                    names(ui, a, identity, half, extra);
                 } else {
-                    keys(ui, a, identity, half);
+                    keys(ui, a, identity, half, extra);
                 }
             });
         });
@@ -332,6 +340,7 @@ fn profile(
     state: &mut IdentityState,
     id: &Identity,
     width: f32,
+    extra: f32,
     asked: &mut Vec<Command>,
 ) {
     let p = a.p;
@@ -340,20 +349,38 @@ fn profile(
     card(&p, Margin::same(24)).show(ui, |ui| {
         ui.set_width(inner(width, 24));
         ui.spacing_mut().item_spacing.y = 14.0;
+        // A text action in the card's top right corner, on its right margin (design review
+        // №15); the name below gets the whole width beside the picture.
+        ui.horizontal(|ui| {
+            let label = if id.profile.is_some() {
+                tr!("Edit profile")
+            } else {
+                tr!("Create a profile")
+            };
+            // Icon 16 + gap 6 + the words, as `text_action` draws them.
+            let w = 22.0 + crate::components::text_width(ui, label, sans(13.0, Weight::Medium));
+            ui.add_space((ui.available_width() - w).max(0.0));
+            if text_action(ui, a, "edit", label).clicked() {
+                state.editing = Some(ProfileForm::from(id.profile.as_ref()));
+            }
+        });
+        ui.add_space(-8.0);
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 16.0;
             let (face, _) = ui.allocate_exact_size(vec2(72.0, 72.0), Sense::hover());
             let label = display.clone().or_else(|| name.clone()).unwrap_or_default();
             let picture = id.profile.as_ref().and_then(|pr| pr.avatar.as_deref());
             avatar(ui, a, face, &id.id, &label, picture, &mut |c| asked.push(c));
-            let edit_w = 170.0;
             ui.allocate_ui_with_layout(
-                vec2((ui.available_width() - edit_w - 16.0).max(120.0), 72.0),
+                vec2(ui.available_width(), 72.0),
                 Layout::top_down(Align::Min),
                 |ui| {
                     ui.spacing_mut().item_spacing.y = 4.0;
-                    ui.horizontal(|ui| {
-                        ui.spacing_mut().item_spacing.x = 10.0;
+                    // A long name wraps inside the card instead of widening it past the
+                    // window (BUG-46); «Name verified» goes on the next row when it is short
+                    // of room.
+                    ui.horizontal_wrapped(|ui| {
+                        ui.spacing_mut().item_spacing = vec2(10.0, 4.0);
                         match &name {
                             Some(name) => {
                                 ui.label(txt(name, 22.0, Weight::Bold, p.text));
@@ -412,16 +439,6 @@ fn profile(
                     }
                 },
             );
-            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                let label = if id.profile.is_some() {
-                    tr!("Edit profile")
-                } else {
-                    tr!("Create a profile")
-                };
-                if button(ui, a, label, ButtonKind::Ghost, None).clicked() {
-                    state.editing = Some(ProfileForm::from(id.profile.as_ref()));
-                }
-            });
         });
         match &id.profile {
             Some(profile) => super::contacts::about_block(ui, a, profile),
@@ -453,6 +470,7 @@ fn profile(
             mono(13.0, Weight::Medium),
         );
         kv_row(ui, &p, tr!("Source"), &id.key_source, value);
+        grow(ui, extra);
     });
 }
 
@@ -626,6 +644,7 @@ fn edit_profile(
             let entered = form.password.field(ui, &p, "profile-password", ask);
             let ready = url_ok && !form.waiting && form.password.ready(ask);
             let mut close = false;
+            let changed = form.changes(id.profile.as_ref());
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 ui.spacing_mut().item_spacing.x = 10.0;
                 let label = if form.waiting {
@@ -633,13 +652,23 @@ fn edit_profile(
                 } else {
                     tr!("Save")
                 };
-                if button_enabled(ui, a, label, ButtonKind::Primary, None, ready).clicked()
-                    || (entered && ready)
+                if button_enabled(ui, a, label, ButtonKind::Primary, None, ready && changed)
+                    .clicked()
+                    || (entered && ready && changed)
                 {
                     save = true;
                 }
                 if button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked() {
                     close = true;
+                }
+                // Why «Save» is off: a write costs credits, the same profile again buys nothing.
+                if !changed && !form.waiting {
+                    ui.label(txt(
+                        tr!("Nothing has changed yet"),
+                        12.0,
+                        Weight::Regular,
+                        p.muted,
+                    ));
                 }
             });
             close
@@ -668,29 +697,49 @@ fn identity_choice(ui: &mut Ui, a: &mut Assets, wallet: &Wallet, asked: &mut Vec
     }
     let p = a.p;
     let shown = wallet.identity.as_ref().map(|i| i.id.as_str());
-    // Rows as tall as a pill, everything centred in them; many identities wrap onto
-    // more rows instead of pushing the page past the window.
-    ui.horizontal_wrapped(|ui| {
-        ui.set_max_width(ui.available_width());
-        ui.spacing_mut().item_spacing = vec2(8.0, 8.0);
-        ui.label(txt(tr!("Work as"), 13.0, Weight::Medium, p.muted));
-        for choice in &wallet.identities {
-            let label = choice
-                .name
-                .as_ref()
-                .map_or_else(|| short_id(&choice.id), |n| format!("@{n}"));
-            let on = shown == Some(choice.id.as_str());
-            if pill(ui, &p, &label, on)
-                .on_hover_text(crate::i18n::t(&choice.id).into_owned())
-                .clicked()
-                && !on
-            {
-                asked.push(Command::ChooseIdentity {
-                    id: choice.id.clone(),
-                });
-            }
-        }
+    // «Work as» in the middle of the first row of pills; many identities wrap onto more rows
+    // instead of pushing the page past the window, each row from under the first pill (design
+    // review №14).
+    ui.horizontal_top(|ui| {
+        ui.spacing_mut().item_spacing.x = 8.0;
+        let font = sans(13.0, Weight::Medium);
+        let label_w = crate::components::text_width(ui, tr!("Work as"), font);
+        ui.allocate_ui_with_layout(
+            vec2(label_w, 33.0),
+            Layout::left_to_right(Align::Center),
+            |ui| ui.label(txt(tr!("Work as"), 13.0, Weight::Medium, p.muted)),
+        );
+        ui.horizontal_wrapped(|ui| {
+            ui.spacing_mut().item_spacing = vec2(8.0, 8.0);
+            pills(ui, &p, wallet, shown, asked);
+        });
     });
+}
+
+/// The pills of [`identity_choice`]: one per identity, the shown one on.
+fn pills(
+    ui: &mut Ui,
+    p: &crate::theme::Palette,
+    wallet: &Wallet,
+    shown: Option<&str>,
+    asked: &mut Vec<Command>,
+) {
+    for choice in &wallet.identities {
+        let label = choice
+            .name
+            .as_ref()
+            .map_or_else(|| short_id(&choice.id), |n| format!("@{n}"));
+        let on = shown == Some(choice.id.as_str());
+        if pill(ui, p, &label, on)
+            .on_hover_text(crate::i18n::t(&choice.id).into_owned())
+            .clicked()
+            && !on
+        {
+            asked.push(Command::ChooseIdentity {
+                id: choice.id.clone(),
+            });
+        }
+    }
 }
 
 /// While identities are shown, a search still going on (BUG-9): more of them, or their
@@ -1318,6 +1367,7 @@ fn credits(
     balances: &Balances,
     fees: &Fees,
     width: f32,
+    extra: f32,
 ) -> Option<CreditsAction> {
     let duffs = balances.credits;
     let p = a.p;
@@ -1365,6 +1415,7 @@ fn credits(
                 }
             }
         });
+        grow(ui, extra);
     });
     clicked
 }
@@ -1389,7 +1440,7 @@ fn tile(ui: &mut Ui, a: &mut Assets, icon: &str, label: &str, width: f32) -> egu
     resp.on_hover_cursor(CursorIcon::PointingHand)
 }
 
-fn names(ui: &mut Ui, a: &mut Assets, id: &Identity, width: f32) {
+fn names(ui: &mut Ui, a: &mut Assets, id: &Identity, width: f32, extra: f32) {
     list_card(
         ui,
         a,
@@ -1434,11 +1485,12 @@ fn names(ui: &mut Ui, a: &mut Assets, id: &Identity, width: f32) {
                 });
                 ui.add_space(12.0);
             }
+            grow(ui, extra);
         },
     );
 }
 
-fn keys(ui: &mut Ui, a: &mut Assets, id: &Identity, width: f32) {
+fn keys(ui: &mut Ui, a: &mut Assets, id: &Identity, width: f32, extra: f32) {
     // The note is the count, as on "DPNS names": every key's details are already in its row, and
     // a "Details" there read as a link that led nowhere.
     let count = id.keys.len().to_string();
@@ -1490,6 +1542,7 @@ fn keys(ui: &mut Ui, a: &mut Assets, id: &Identity, width: f32) {
                 p.muted,
             );
         }
+        grow(ui, extra);
     });
 }
 
@@ -1638,5 +1691,27 @@ mod tests {
         let last = (0, Err(CoreError::NotAvailable("wait".into())));
         let (short, _) = unfinished_top_up_text(&stopped(true).unwrap(), Some(&last));
         assert!(short.len() < text.len());
+    }
+
+    /// Design review №16: «Save» waits for a change — a write costs credits.
+    #[test]
+    fn an_unchanged_profile_has_nothing_to_save() {
+        use super::ProfileForm;
+        use evolite_api::Profile;
+        let saved = Profile {
+            display: Some("Satoshi".into()),
+            ..Default::default()
+        };
+        let mut form = ProfileForm::from(Some(&saved));
+        assert!(!form.changes(Some(&saved)));
+        form.display.push(' ');
+        assert!(
+            !form.changes(Some(&saved)),
+            "spaces at the end are not a change"
+        );
+        form.about = "Dash".into();
+        assert!(form.changes(Some(&saved)));
+        // No profile yet: empty fields write nothing new.
+        assert!(!ProfileForm::from(None).changes(None));
     }
 }

@@ -10,6 +10,7 @@
 mod bugs;
 mod dialogs;
 mod history;
+mod identity_pool;
 mod login;
 mod onboarding;
 mod send;

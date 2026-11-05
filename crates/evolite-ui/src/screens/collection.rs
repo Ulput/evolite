@@ -300,10 +300,13 @@ fn nft_card(
 ) -> (egui::Response, bool) {
     let p = a.p;
     let art = width - 20.0;
-    let (rect, resp) =
-        ui.allocate_exact_size(vec2(width, 10.0 + art + 10.0 + 38.0 + 14.0), Sense::click());
+    // Room for two rows of the name (design review №24), the edition under them.
+    let (rect, resp) = ui.allocate_exact_size(
+        vec2(width, 10.0 + art + 10.0 + 2.0 * NAME_ROW + 17.0 + 14.0),
+        Sense::click(),
+    );
     crate::components::named_choice(&resp, egui::WidgetType::Button, selected, &nft.name);
-    let resp = resp.on_hover_text(nft.name.clone());
+    let resp = resp.on_hover_text(crate::i18n::t(&nft.name).into_owned());
     let stroke = if selected {
         Stroke::new(1.5, p.ink)
     } else if resp.hovered() {
@@ -344,15 +347,11 @@ fn nft_card(
     let x = rect.left() + 14.0;
     let y = art_rect.bottom() + 10.0;
     let painter = ui.painter();
-    // A long name ends in "…" inside the card; the whole of it is in the details.
-    let mut name = egui::text::LayoutJob::single_section(
-        crate::i18n::t(&nft.name).into_owned(),
-        egui::TextFormat::simple(sans(15.0, Weight::SemiBold), p.text),
-    );
-    name.wrap = egui::text::TextWrapping::truncate_at_width(rect.width() - 28.0);
-    painter.galley(pos2(x, y), painter.layout_job(name), p.text);
+    let name = painter.layout_job(tile_name(&nft.name, rect.width() - 28.0, p.text));
+    let edition_y = y + name.size().y + 2.0;
+    painter.galley(pos2(x, y), name, p.text);
     let edition = painter.text(
-        pos2(x, y + 21.0),
+        pos2(x, edition_y),
         Align2::LEFT_TOP,
         crate::i18n::t(&edition(nft)),
         mono(12.0, Weight::Medium),
@@ -375,11 +374,30 @@ fn nft_card(
     job.wrap = egui::text::TextWrapping::truncate_at_width(room);
     let origin = painter.layout_job(job);
     painter.galley(
-        pos2(rect.right() - 14.0 - origin.size().x, y + 21.0),
+        pos2(rect.right() - 14.0 - origin.size().x, edition_y),
         origin,
         p.muted,
     );
     (resp.on_hover_cursor(CursorIcon::PointingHand), show)
+}
+
+/// One row of a tile's name, 15 SemiBold.
+const NAME_ROW: f32 = 20.0;
+
+/// A tile's name: two rows at most, then «…» (design review №24: one row cut «Кольцо с
+/// брилли…»); the whole of it is also on hover and in the details.
+fn tile_name(name: &str, width: f32, color: egui::Color32) -> egui::text::LayoutJob {
+    let mut job = egui::text::LayoutJob::single_section(
+        crate::i18n::t(name).into_owned(),
+        egui::TextFormat::simple(sans(15.0, Weight::SemiBold), color),
+    );
+    job.wrap = egui::text::TextWrapping {
+        max_width: width,
+        max_rows: 2,
+        break_anywhere: false,
+        overflow_character: Some('…'),
+    };
+    job
 }
 
 /// The selected NFT. Returns true when "Give" was clicked.
@@ -664,6 +682,32 @@ fn gift_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut Collection
 #[cfg(test)]
 mod tests {
     use super::is_dash_name;
+
+    /// Design review №24: «Кольцо с бриллиантом» in the narrowest tile (160 px) is whole on two
+    /// rows; one row, as before, cut it.
+    #[test]
+    fn a_tiles_name_takes_two_rows_before_it_is_cut() {
+        let ctx = egui::Context::default();
+        crate::theme::install_fonts(&ctx, crate::i18n::Lang::Ru, false);
+        let name = "Кольцо с бриллиантом";
+        let (mut two, mut one) = (None, None);
+        for _ in 0..2 {
+            let mut out = ctx.run_ui(egui::RawInput::default(), |ui| {
+                let color = egui::Color32::WHITE;
+                let job = super::tile_name(name, 160.0 - 28.0, color);
+                let mut cut = job.clone();
+                cut.wrap = egui::text::TextWrapping::truncate_at_width(160.0 - 28.0);
+                two = Some(ui.painter().layout_job(job));
+                one = Some(ui.painter().layout_job(cut));
+            });
+            out.textures_delta.clear();
+        }
+        let (two, one) = (two.unwrap(), one.unwrap());
+        assert!(one.elided, "one row cuts it");
+        assert!(!two.elided, "two rows hold it");
+        assert_eq!(two.rows.len(), 2);
+        assert!(two.size().y <= 2.0 * super::NAME_ROW, "{}", two.size().y);
+    }
 
     #[test]
     fn a_strangers_picture_waits_until_asked_for() {

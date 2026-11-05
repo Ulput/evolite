@@ -44,16 +44,47 @@ pub fn inner(width: f32, margin: i8) -> f32 {
 }
 
 /// Two cards side by side (gap 20; `first` tells which one), or one under the other.
-pub fn two_columns(ui: &mut Ui, wide: bool, mut cell: impl FnMut(&mut Ui, bool)) {
-    if wide {
-        ui.horizontal_top(|ui| {
-            ui.spacing_mut().item_spacing.x = 20.0;
-            ui.vertical(|ui| cell(ui, true));
-            ui.vertical(|ui| cell(ui, false));
-        });
-    } else {
-        cell(ui, true);
-        cell(ui, false);
+///
+/// Side by side they are one height (design-system §4): the shorter card grows to the taller
+/// one's height, measured the frame before. The cell gets how much its card is short, `extra`,
+/// and puts it at the end of the card's content with [`grow`]; one under the other it is 0.
+/// Returns the two columns' rectangles (nothing when one is under the other).
+pub fn two_columns(
+    ui: &mut Ui,
+    id: &str,
+    wide: bool,
+    mut cell: impl FnMut(&mut Ui, bool, f32),
+) -> [Rect; 2] {
+    if !wide {
+        cell(ui, true, 0.0);
+        cell(ui, false, 0.0);
+        return [Rect::NOTHING; 2];
+    }
+    let id = ui.id().with(id).with("two-columns");
+    // Each card's own height, without what it grew by.
+    let natural: [f32; 2] = ui.data(|d| d.get_temp(id)).unwrap_or_default();
+    let tallest = natural[0].max(natural[1]);
+    let extra = natural.map(|h| (tallest - h).max(0.0));
+    let mut rects = [Rect::NOTHING; 2];
+    ui.horizontal_top(|ui| {
+        ui.spacing_mut().item_spacing.x = 20.0;
+        for (i, first) in [true, false].into_iter().enumerate() {
+            rects[i] = ui.vertical(|ui| cell(ui, first, extra[i])).response.rect;
+        }
+    });
+    let now = [0, 1].map(|i| rects[i].height() - extra[i]);
+    if (0..2).any(|i| (now[i] - natural[i]).abs() > 0.5) {
+        ui.data_mut(|d| d.insert_temp(id, now));
+        ui.ctx().request_repaint();
+    }
+    rects
+}
+
+/// Makes a card's content `extra` taller (see [`two_columns`]); called last inside the card.
+pub fn grow(ui: &mut Ui, extra: f32) {
+    if extra > 0.0 {
+        let h = ui.min_rect().height() + extra;
+        ui.set_min_height(h);
     }
 }
 
@@ -79,4 +110,38 @@ pub fn list_card(
         ui.add_space(10.0);
         rows(ui, a);
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Design review 2026-11-05 №7: two cards of a row side by side are one height, the shorter
+    /// one grown to the taller; one under the other nothing grows.
+    #[test]
+    fn two_cards_side_by_side_are_one_height() {
+        let ctx = egui::Context::default();
+        let p = crate::theme::DARK;
+        let mut rects = [Rect::NOTHING; 2];
+        for _ in 0..4 {
+            let mut out = ctx.run_ui(egui::RawInput::default(), |ui| {
+                rects = two_columns(ui, "test", true, |ui, first, extra| {
+                    card(&p, Margin::same(24)).show(ui, |ui| {
+                        ui.set_width(200.0);
+                        let tall = if first { 40.0 } else { 120.0 };
+                        ui.allocate_exact_size(vec2(200.0, tall), Sense::hover());
+                        grow(ui, extra);
+                    });
+                });
+            });
+            out.textures_delta.clear();
+        }
+        assert_eq!(rects[0].height(), rects[1].height(), "{rects:?}");
+        assert_eq!(
+            rects[1].height(),
+            120.0 + 2.0 * 24.0 + 2.0,
+            "the taller one keeps its own"
+        );
+        assert_eq!(rects[0].left() + 250.0 + 20.0, rects[1].left(), "gap 20");
+    }
 }

@@ -16,6 +16,11 @@ const KNOWN: &[&str] = &[
     "restore: focus lost after «24 words»",
     "dashpay: focus lost after «Back»",
     "sync: focus lost after «1 hour»",
+    // «Edit profile» is a `text_action` (№15), which loses the focus until BUG-40.
+    "identity: focus lost after «@satoshi-lab»",
+    "identity-unfinished: focus lost after «Continue creating»",
+    "top-up-stopped: focus lost after «Continue the top-up»",
+    "top-up-awaiting: focus lost after «Check again»",
     "shielded: focus lost after «Unshield»",
     "apps: focus lost after «Disconnect»",
     "sign: focus lost after «the start»",

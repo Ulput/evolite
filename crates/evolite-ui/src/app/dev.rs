@@ -258,6 +258,13 @@ impl App {
                 // the identity destination; `--open shield` is the empty dialog over the real core.
                 shielding: preset("shield-core") || preset("shield"),
                 from: if preset("shield-core") { 2 } else { 0 },
+                // An example amount only in `--screen shield-core`: the dialog opens empty.
+                amount: if preset("shield-core") && !real_shot {
+                    crate::format::input_text(50_000_000)
+                } else {
+                    String::new()
+                },
+                suggested: (preset("shield-core") && !real_shot).then_some(50_000_000),
                 unshielding: unshield,
                 unshield_to_identity: preset("unshield-identity"),
                 unshield_amount: if unshield && !real_shot {

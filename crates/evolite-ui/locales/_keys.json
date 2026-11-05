@@ -493,6 +493,7 @@
   "Not yet: dash-spv connects to Core nodes only directly, so only part of the traffic would go through a proxy — the IP would still be visible",
   "Nothing found",
   "Nothing happens, the button becomes active again.",
+  "Nothing has changed yet",
   "Nothing to export in the demo: the export takes the real history",
   "Nothing to withdraw: an identity with credits is needed",
   "Nothing with this filter",
