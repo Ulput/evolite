@@ -763,6 +763,7 @@
   "The password opens the phrase encrypted on this computer.": "Пароль открывает фразу, зашифрованную на этом компьютере.",
   "The passwords do not match": "Пароли не совпадают",
   "The payment awaits the network's answer: it is in the history as «Sending», and the answer will come. The form is free for the next one.": "Платёж ждёт ответа сети: он уже в истории как «Отправляется», ответ придёт сам. Форма свободна для следующего.",
+  "The payment goes out and shows in History": "Платёж уйдёт и появится в Истории",
   "The payment is in a block; the block is not ChainLocked yet.": "Платёж в блоке; ChainLock для блока ещё нет.",
   "The payment review window.": "Окно проверки платежа.",
   "The payment was handed to the network; its answer is awaited.": "Платёж передан в сеть, ждём её ответа.",

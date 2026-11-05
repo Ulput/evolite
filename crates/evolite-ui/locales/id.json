@@ -763,6 +763,7 @@
   "The password opens the phrase encrypted on this computer.": "Kata sandi membuka frasa yang terenkripsi di komputer ini.",
   "The passwords do not match": "Kata sandi tidak sama",
   "The payment awaits the network's answer: it is in the history as «Sending», and the answer will come. The form is free for the next one.": "Pembayaran menunggu jawaban jaringan: tercatat di riwayat sebagai «Sedang dikirim», dan jawabannya akan datang. Formulir bisa dipakai untuk yang berikutnya.",
+  "The payment goes out and shows in History": "Pembayaran terkirim dan muncul di Riwayat",
   "The payment is in a block; the block is not ChainLocked yet.": "Pembayaran ada di dalam blok; blok itu belum memiliki ChainLock.",
   "The payment review window.": "Jendela pemeriksaan pembayaran.",
   "The payment was handed to the network; its answer is awaited.": "Pembayaran sudah diserahkan ke jaringan; menunggu jawabannya.",

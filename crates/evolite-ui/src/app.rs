@@ -63,6 +63,9 @@ pub struct App {
     prefs_wallet: Option<String>,
     /// the wallet menu under the switcher is open.
     wallet_menu: bool,
+    /// Which visit of the screen this is: its widgets, and so its scroll position, live under
+    /// this number (BUG-48).
+    visits: Visits<Screen>,
     /// "Add wallet" asked: the onboarding to open (none: the welcome screen) once the
     /// core has made room for the new wallet.
     adding: Option<Option<screens::onboarding::Flow>>,
@@ -206,6 +209,7 @@ impl App {
             read_prefs: Default::default(),
             prefs_wallet: None,
             wallet_menu: false,
+            visits: Visits::default(),
             adding: None,
             delete_other: None,
             switching: None,
@@ -640,6 +644,31 @@ impl App {
     }
 }
 
+/// Counts the visits of a place (a screen, a settings section): a new number each time the
+/// place shown changes, the same while it stays. A scroll area under that number opens at the
+/// top on every visit and keeps its place while the person stays (BUG-48).
+pub(crate) struct Visits<T> {
+    shown: Option<T>,
+    n: u32,
+}
+
+impl<T> Default for Visits<T> {
+    fn default() -> Self {
+        Self { shown: None, n: 0 }
+    }
+}
+
+impl<T: PartialEq + Copy> Visits<T> {
+    /// The visit `now` is in: a new one when the last call showed another place.
+    pub(crate) fn of(&mut self, now: T) -> u32 {
+        if self.shown != Some(now) {
+            self.shown = Some(now);
+            self.n = self.n.wrapping_add(1);
+        }
+        self.n
+    }
+}
+
 /// The open wallet's keys went since the last snapshot: locked, or deleted (a deletion goes from
 /// open straight to no wallet, never through "locked").
 fn keys_gone(before: Option<VaultState>, now: VaultState) -> bool {
@@ -955,7 +984,11 @@ impl eframe::App for App {
                     #[cfg(not(feature = "dev-tools"))]
                     let remind = false;
                     let a = &mut self.a;
-                    match self.screen {
+                    // Each visit of a screen gets ids of its own: it opens at the top, not
+                    // where the last screen was scrolled to (all share one scroll area id
+                    // otherwise), and keeps its place while it stays (BUG-48).
+                    let visit = self.visits.of(self.screen);
+                    ui.push_id(("screen", visit), |ui| match self.screen {
                         Screen::Overview => {
                             egui::ScrollArea::vertical()
                                 .auto_shrink(false)
@@ -1009,7 +1042,7 @@ impl eframe::App for App {
                         Screen::Welcome | Screen::Unlock | Screen::Onboarding(_) => {}
                         #[cfg(feature = "dev-tools")]
                         Screen::Probe => {}
-                    }
+                    });
                 });
         }
         // "Open "…"" over whatever is on screen (Figma 29).
@@ -1150,5 +1183,56 @@ mod tests {
         assert!(!keys_gone(Some(Unlocked), Unlocked));
         assert!(!keys_gone(Some(Locked), NoWallet));
         assert!(!keys_gone(None, Locked));
+    }
+
+    /// BUG-48: History scrolled down, then Identity → Identity's scroll area is a new one
+    /// (opens at the top); staying on a screen keeps it; coming back is a new visit again.
+    #[test]
+    fn every_visit_of_a_screen_scrolls_on_its_own() {
+        let mut visits = Visits::default();
+        let history = visits.of(Screen::Activity);
+        assert_eq!(
+            visits.of(Screen::Activity),
+            history,
+            "staying keeps the place"
+        );
+        let identity = visits.of(Screen::Identity);
+        assert_ne!(identity, history);
+        assert_eq!(visits.of(Screen::Identity), identity);
+        let back = visits.of(Screen::Activity);
+        assert_ne!(back, history, "coming back opens at the top");
+        assert_ne!(back, identity);
+    }
+
+    /// BUG-48, end to end in egui: two places under different visits keep separate scroll
+    /// offsets, though the scroll areas themselves have no id of their own.
+    #[test]
+    fn a_scrolled_screen_does_not_scroll_the_next_one() {
+        let ctx = egui::Context::default();
+        let offset = |visit: u32, scroll_to: Option<f32>| {
+            let mut seen = 0.0;
+            let mut out = ctx.run_ui(egui::RawInput::default(), |ui| {
+                ui.push_id(("screen", visit), |ui| {
+                    let mut area = egui::ScrollArea::vertical().max_height(100.0);
+                    if let Some(y) = scroll_to {
+                        area = area.vertical_scroll_offset(y);
+                    }
+                    seen = area
+                        .show(ui, |ui| ui.allocate_space(egui::vec2(10.0, 1000.0)))
+                        .state
+                        .offset
+                        .y;
+                });
+            });
+            out.textures_delta.clear();
+            seen
+        };
+        assert_eq!(offset(1, Some(500.0)), 500.0);
+        assert_eq!(
+            offset(1, None),
+            500.0,
+            "the scrolled screen keeps its place"
+        );
+        assert_eq!(offset(2, None), 0.0, "the next screen opens at the top");
     }
 }

@@ -446,7 +446,77 @@ pub fn apply_visuals(ctx: &egui::Context, p: &Palette) {
     v.widgets.active.bg_stroke.color = p.ink;
     // The keyboard focus ring (`focus`) takes the accent from here.
     v.hyperlink_color = p.accent;
-    ctx.set_visuals(v);
-    // A thin bar always shows: content below the window's edge is not a secret.
-    ctx.all_styles_mut(|s| s.spacing.scroll = egui::style::ScrollStyle::thin());
+    // Field hints: egui paints them in this colour whatever the hint's own (BUG-50); without it,
+    // the text colour at 60 %, darker than the field labels.
+    v.weak_text_color = Some(p.muted);
+    // The scroll bar's handle (BUG-49): a quiet line, lighter under the pointer and while dragged.
+    // `bg_fill` is also the fill of every built-in egui widget (checkbox, radio, slider, combo
+    // box; a framed `Button` takes `weak_bg_fill`). evolite draws its own and uses only
+    // `Button::frame(false)`, which paints no fill; a built-in widget added later gets these.
+    v.widgets.inactive.bg_fill = p.field_line;
+    v.widgets.hovered.bg_fill = p.muted;
+    v.widgets.active.bg_fill = p.text;
+    // Both of egui's styles, and ours chosen: egui picks a style by the system's theme, and ours
+    // may be the other one (dark evolite on a light Windows got egui's light defaults: a white
+    // scroll bar, dark text in History's search; BUG-31, BUG-49).
+    ctx.set_visuals_of(egui::Theme::Dark, v.clone());
+    ctx.set_visuals_of(egui::Theme::Light, v);
+    ctx.set_theme(if p.dark {
+        egui::Theme::Dark
+    } else {
+        egui::Theme::Light
+    });
+    ctx.all_styles_mut(|s| s.spacing.scroll = scroll_style());
+}
+
+/// A thin bar always shows: content below the window's edge is not a secret. No track until the
+/// pointer is on the bar, and 8 px between the content and the resting bar (BUG-49).
+pub fn scroll_style() -> egui::style::ScrollStyle {
+    egui::style::ScrollStyle {
+        floating_allocated_width: 10.0,
+        dormant_background_opacity: 0.0,
+        active_background_opacity: 0.0,
+        ..egui::style::ScrollStyle::thin()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// BUG-31, 49, 50: dark evolite on a light system. egui's active style is ours whatever
+    /// the system says: text in our colour, hints `muted`, the scroll bar `field_line`.
+    #[test]
+    fn our_theme_wins_over_the_systems() {
+        for (p, system) in [(DARK, egui::Theme::Light), (LIGHT, egui::Theme::Dark)] {
+            let ctx = egui::Context::default();
+            // As at the app's start: egui follows the system (unknown before the first frame).
+            apply_visuals(&ctx, &p);
+            // A frame, as the app has: the system's theme arrives with the input.
+            let input = egui::RawInput {
+                system_theme: Some(system),
+                ..Default::default()
+            };
+            ctx.run_ui(input, |_| {}).textures_delta.clear();
+            let v = ctx.global_style().visuals.clone();
+            assert_eq!(v.dark_mode, p.dark);
+            assert_eq!(v.text_color(), p.text, "typed text (History's search)");
+            assert_eq!(v.weak_text_color(), p.muted, "field hints");
+            assert_eq!(
+                v.widgets.inactive.bg_fill, p.field_line,
+                "scroll bar at rest"
+            );
+            assert_eq!(
+                v.widgets.hovered.bg_fill, p.muted,
+                "scroll bar under the pointer"
+            );
+            assert_eq!(v.extreme_bg_color, p.raised);
+            let scroll = ctx.global_style().spacing.scroll;
+            assert_eq!(scroll.dormant_background_opacity, 0.0, "no white track");
+            assert!(
+                scroll.floating_allocated_width - scroll.floating_width >= 8.0,
+                "8 px between the content and the bar"
+            );
+        }
+    }
 }

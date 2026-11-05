@@ -763,6 +763,7 @@
   "The password opens the phrase encrypted on this computer.": "Parola, bu bilgisayarda şifrelenmiş ifadeyi açar.",
   "The passwords do not match": "Parolalar eşleşmiyor",
   "The payment awaits the network's answer: it is in the history as «Sending», and the answer will come. The form is free for the next one.": "Ödeme ağın yanıtını bekliyor: geçmişte «Gönderiliyor» olarak duruyor ve yanıt gelecek. Form bir sonraki için boş.",
+  "The payment goes out and shows in History": "Ödeme gider ve Geçmiş'te görünür",
   "The payment is in a block; the block is not ChainLocked yet.": "Ödeme bir blokta; bloğun henüz ChainLock'u yok.",
   "The payment review window.": "Ödeme kontrol penceresi.",
   "The payment was handed to the network; its answer is awaited.": "Ödeme ağa iletildi; yanıtı bekleniyor.",

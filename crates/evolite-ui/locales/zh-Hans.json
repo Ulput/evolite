@@ -763,6 +763,7 @@
   "The password opens the phrase encrypted on this computer.": "密码用于打开本机加密的助记词。",
   "The passwords do not match": "两次密码不一致",
   "The payment awaits the network's answer: it is in the history as «Sending», and the answer will come. The form is free for the next one.": "付款正在等待网络响应：它在历史中显示为“发送中”，响应会到来。表单已可用于下一笔。",
+  "The payment goes out and shows in History": "付款发出，并显示在历史中",
   "The payment is in a block; the block is not ChainLocked yet.": "付款已在区块中；该区块尚无 ChainLock。",
   "The payment review window.": "付款确认窗口。",
   "The payment was handed to the network; its answer is awaited.": "付款已交给网络，正在等待回应。",

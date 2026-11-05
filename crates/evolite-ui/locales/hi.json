@@ -763,6 +763,7 @@
   "The password opens the phrase encrypted on this computer.": "पासवर्ड इस कंप्यूटर पर एन्क्रिप्ट वाक्यांश खोलता है।",
   "The passwords do not match": "पासवर्ड मेल नहीं खाते",
   "The payment awaits the network's answer: it is in the history as «Sending», and the answer will come. The form is free for the next one.": "भुगतान नेटवर्क के जवाब का इंतज़ार कर रहा है: इतिहास में यह «भेजा जा रहा है» के रूप में है, और जवाब आएगा। फ़ॉर्म अगले भुगतान के लिए ख़ाली है।",
+  "The payment goes out and shows in History": "भुगतान चला जाएगा और इतिहास में दिखेगा",
   "The payment is in a block; the block is not ChainLocked yet.": "भुगतान एक ब्लॉक में है; उस ब्लॉक पर अभी ChainLock नहीं है।",
   "The payment review window.": "भुगतान जाँच विंडो।",
   "The payment was handed to the network; its answer is awaited.": "भुगतान नेटवर्क को सौंप दिया गया है; उसके जवाब की प्रतीक्षा है।",

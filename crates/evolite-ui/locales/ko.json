@@ -763,6 +763,7 @@
   "The password opens the phrase encrypted on this computer.": "비밀번호는 이 컴퓨터에 암호화된 문구를 엽니다.",
   "The passwords do not match": "비밀번호가 일치하지 않습니다",
   "The payment awaits the network's answer: it is in the history as «Sending», and the answer will come. The form is free for the next one.": "결제가 네트워크의 응답을 기다립니다: 내역에 «보내는 중»으로 있으며, 응답이 올 것입니다. 양식은 다음 결제에 쓸 수 있습니다.",
+  "The payment goes out and shows in History": "결제가 전송되고 내역에 표시됨",
   "The payment is in a block; the block is not ChainLocked yet.": "결제가 블록에 들어갔지만 그 블록에는 아직 ChainLock이 없습니다.",
   "The payment review window.": "결제 확인 창.",
   "The payment was handed to the network; its answer is awaited.": "결제를 네트워크에 넘겼습니다. 응답을 기다리는 중입니다.",

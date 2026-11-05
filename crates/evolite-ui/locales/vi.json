@@ -763,6 +763,7 @@
   "The password opens the phrase encrypted on this computer.": "Mật khẩu mở cụm từ được mã hóa trên máy tính này.",
   "The passwords do not match": "Mật khẩu không khớp",
   "The payment awaits the network's answer: it is in the history as «Sending», and the answer will come. The form is free for the next one.": "Khoản thanh toán đang chờ mạng trả lời: nó nằm trong lịch sử với trạng thái «Đang gửi», và câu trả lời sẽ đến. Biểu mẫu đã sẵn sàng cho lần tiếp theo.",
+  "The payment goes out and shows in History": "Khoản thanh toán được gửi đi và hiện trong Lịch sử",
   "The payment is in a block; the block is not ChainLocked yet.": "Khoản thanh toán đã vào một khối; khối đó chưa có ChainLock.",
   "The payment review window.": "Cửa sổ kiểm tra thanh toán.",
   "The payment was handed to the network; its answer is awaited.": "Khoản thanh toán đã được giao cho mạng; đang chờ phản hồi.",

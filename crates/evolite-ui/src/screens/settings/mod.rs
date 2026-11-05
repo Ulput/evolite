@@ -56,7 +56,11 @@ const SECTIONS: [(Section, &str, &str); 7] = [
     (Section::Network, "peers", tr!("Network and nodes")),
     (Section::Security, "lock", tr!("Security")),
     (Section::Backup, "seed", tr!("Backup")),
-    (Section::Appearance, "theme-dark", tr!("Appearance")),
+    (
+        Section::Appearance,
+        "theme-dark",
+        tr!("Appearance and language"),
+    ),
     (Section::Notifications, "bell", tr!("Notifications")),
     (Section::About, "info", tr!("About")),
 ];
@@ -102,6 +106,9 @@ pub struct SettingsState {
     pub lang_picker: bool,
     /// `--screen about-end`: the section kept scrolled to its end (this far), for screenshots.
     pub scroll_to_end: Option<f32>,
+    /// Which visit of a section this is: the right column scrolls under it, so a section opens
+    /// at the top, not where the last one was scrolled to (BUG-48).
+    visits: crate::app::Visits<Section>,
     /// When the phrase check last went right; kept between runs.
     pub phrase_checked: Option<Timestamp>,
     /// "Report a problem" is open.
@@ -226,6 +233,7 @@ impl SettingsState {
             change: None,
             delete: None,
             scroll_to_end: None,
+            visits: Default::default(),
             check: None,
             resync: None,
             lang: None,
@@ -522,7 +530,10 @@ pub fn settings(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut SettingsS
             }
         });
         ui.vertical(|ui| {
-            let mut scroll = egui::ScrollArea::vertical().auto_shrink(false);
+            let visit = state.visits.of(state.section);
+            let mut scroll = egui::ScrollArea::vertical()
+                .id_salt(("settings-section", visit))
+                .auto_shrink(false);
             if let Some(end) = state.scroll_to_end {
                 scroll = scroll.vertical_scroll_offset(end);
             }
@@ -630,6 +641,19 @@ mod tests {
         state.phrase_dialog = true;
         state.password = Zeroizing::new("password".into());
         state.on_revealed(Ok(Phrase::new(vec!["abandon".into(); 12])));
+    }
+
+    /// BUG-48: About scrolled down, then Network → Network's column is a new scroll area.
+    /// Design review 2026-11-05 No. 19: the list says what the section's title says.
+    #[test]
+    fn every_section_opens_at_its_top_under_its_own_name() {
+        let mut state = SettingsState::new(true, Section::About, false);
+        let about = state.visits.of(state.section);
+        assert_eq!(state.visits.of(Section::About), about);
+        state.section = Section::Network;
+        assert_ne!(state.visits.of(state.section), about);
+        let (_, _, label) = SECTIONS[4];
+        assert_eq!(label, "Appearance and language");
     }
 
     #[test]

@@ -353,7 +353,7 @@ fn fields_step(ui: &mut Ui, a: &mut Assets, form: &mut ReportForm, room: f32) ->
                     text_area(ui, &p, "report-steps", &mut form.steps, tr!("Steps in order: opened “Send”, pasted an address…"), 2);
                 });
                 field(ui, tr!("What you expected"), &mut |ui| {
-                    text_area(ui, &p, "report-expected", &mut form.expected, "", 1);
+                    text_area(ui, &p, "report-expected", &mut form.expected, tr!("The payment goes out and shows in History"), 1);
                 });
                 field(ui, tr!("What happened instead"), &mut |ui| {
                     text_area(ui, &p, "report-actual", &mut form.actual, tr!("The error text, if there was one"), 2);

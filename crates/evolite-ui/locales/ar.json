@@ -763,6 +763,7 @@
   "The password opens the phrase encrypted on this computer.": "تفتح كلمة المرور العبارة المشفرة على هذا الكمبيوتر.",
   "The passwords do not match": "كلمتا المرور غير متطابقتين",
   "The payment awaits the network's answer: it is in the history as «Sending», and the answer will come. The form is free for the next one.": "الدفعة بانتظار رد الشبكة: هي في السجل بحالة «قيد الإرسال»، وسيأتي الرد. النموذج متاح للدفعة التالية.",
+  "The payment goes out and shows in History": "ستُرسل الدفعة وتظهر في السجل",
   "The payment is in a block; the block is not ChainLocked yet.": "الدفعة في كتلة؛ لم يصدر ChainLock لهذه الكتلة بعد.",
   "The payment review window.": "نافذة مراجعة الدفعة.",
   "The payment was handed to the network; its answer is awaited.": "سُلّمت الدفعة إلى الشبكة؛ بانتظار ردّها.",

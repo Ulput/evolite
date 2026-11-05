@@ -763,6 +763,7 @@
   "The password opens the phrase encrypted on this computer.": "A senha abre a frase cifrada neste computador.",
   "The passwords do not match": "As senhas não coincidem",
   "The payment awaits the network's answer: it is in the history as «Sending», and the answer will come. The form is free for the next one.": "O pagamento aguarda a resposta da rede: está no histórico como «Enviando», e a resposta virá. O formulário está livre para o próximo.",
+  "The payment goes out and shows in History": "O pagamento sai e aparece no Histórico",
   "The payment is in a block; the block is not ChainLocked yet.": "O pagamento está num bloco; o bloco ainda não tem ChainLock.",
   "The payment review window.": "A janela de revisão do pagamento.",
   "The payment was handed to the network; its answer is awaited.": "O pagamento foi entregue à rede; aguardando a resposta dela.",

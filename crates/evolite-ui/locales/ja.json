@@ -763,6 +763,7 @@
   "The password opens the phrase encrypted on this computer.": "パスワードは、このコンピューターで暗号化されたフレーズを開きます。",
   "The passwords do not match": "パスワードが一致しません",
   "The payment awaits the network's answer: it is in the history as «Sending», and the answer will come. The form is free for the next one.": "支払いはネットワークの応答待ちです：履歴には「送信中」として表示され、応答は届きます。フォームは次の支払いに使えます。",
+  "The payment goes out and shows in History": "支払いが送信され、履歴に表示される",
   "The payment is in a block; the block is not ChainLocked yet.": "支払いはブロックに入りましたが、そのブロックにはまだ ChainLock がありません。",
   "The payment review window.": "支払いの確認画面。",
   "The payment was handed to the network; its answer is awaited.": "支払いをネットワークに渡しました。応答を待っています。",

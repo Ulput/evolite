@@ -86,7 +86,7 @@ pub fn toggle(ui: &mut Ui, p: &Palette, on: bool, label: &str) -> Response {
     let (track, stroke, knob, x) = if on {
         (p.ink, p.ink, p.on_ink, rect.right() - 11.0)
     } else {
-        (p.raised, p.line, p.muted, rect.left() + 11.0)
+        (p.raised, p.field_line, p.muted, rect.left() + 11.0)
     };
     ui.painter().rect(
         rect,
