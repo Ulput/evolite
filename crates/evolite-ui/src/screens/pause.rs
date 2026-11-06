@@ -23,11 +23,14 @@ pub fn until(w: &WalletEntry, refused: Option<Timestamp>) -> Option<Timestamp> {
 /// The end a form counts down to, cut down as the core cuts it (R-31 item 4, AC-T3): a
 /// wall clock set back while the screen is open makes the pause no longer than its step from
 /// then, and the cut end stays put instead of moving on with the clock. A new end from the
-/// core (another snapshot, a refusal) starts afresh.
+/// core (another snapshot, a refusal) starts afresh, and so does a new count of wrong
+/// passwords: a refusal may come a frame before the snapshot with its count (review r3 should 1).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Cut {
     /// The core's end the cut was made from.
     from: Option<Timestamp>,
+    /// The wrong passwords in a row it was cut for.
+    tries: u32,
     end: Option<Timestamp>,
 }
 
@@ -40,9 +43,10 @@ impl Cut {
         wrong_tries: u32,
         now: Timestamp,
     ) -> Option<Timestamp> {
-        if core != self.from {
+        if core != self.from || wrong_tries != self.tries {
             *self = Self {
                 from: core,
+                tries: wrong_tries,
                 end: core,
             };
         }
@@ -356,5 +360,22 @@ mod tests {
         let next = Some(back + 400 + 600);
         assert_eq!(cut.end(next, 9, back + 400), next);
         assert_eq!(cut.end(None, 0, back + 400), None, "no pause");
+    }
+
+    /// Review r3 should 1: the 5th refusal comes a frame before its snapshot, whose count is
+    /// still 4 (no step): the end is cut to now. The next frame brings the count, the same end:
+    /// the pause is the core's again, not over.
+    #[test]
+    fn a_new_count_of_wrong_passwords_cuts_afresh() {
+        const NOW: Timestamp = 1_800_000_000;
+        let mut cut = Cut::default();
+        let core = Some(NOW + 30);
+        assert_eq!(cut.end(core, 4, NOW), Some(NOW), "an old count: no step");
+        assert_eq!(cut.end(core, 5, NOW), Some(NOW + 30), "the count came");
+        assert_eq!(
+            left(cut.end(core, 5, NOW + 1), NOW + 1),
+            Some(29),
+            "and counts down"
+        );
     }
 }
