@@ -418,7 +418,7 @@ fn checkbox(
     label: &str,
     sub: Option<&str>,
 ) {
-    let resp = ui
+    let row = ui
         .horizontal_top(|ui| {
             ui.spacing_mut().item_spacing.x = 10.0;
             let (rect, _) = ui.allocate_exact_size(vec2(18.0, 18.0), Sense::hover());
@@ -452,8 +452,8 @@ fn checkbox(
                 }
             });
         })
-        .response
-        .interact(Sense::click());
+        .response;
+    let resp = crate::a11y::row_click(ui, &row, "checkbox");
     resp.widget_info(|| {
         egui::WidgetInfo::selected(egui::WidgetType::Checkbox, true, *on, i18n::t(label))
     });

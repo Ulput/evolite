@@ -78,7 +78,11 @@ fn after_a_yes_only_close_is_left() {
             kit.query_by_role_and_label(Role::Button, no).is_none(),
             "{preset}: no «{no}» after the yes"
         );
-        button(&kit, "Close").click();
+        // The «Close» under the answer; the dialog's × is «Close» too (BUG-41), first in the tree.
+        kit.query_all_by_role_and_label(Role::Button, "Close")
+            .last()
+            .expect("«Close»")
+            .click();
         kit.run_steps(2);
         assert!(kit.state().requests.open.is_none(), "{preset}: closed");
     }

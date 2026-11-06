@@ -177,9 +177,11 @@ pub fn segmented_with_off(
 /// Checkbox 20 px with a label: ink box with a tick when on.
 pub fn checkbox(ui: &mut Ui, a: &mut Assets, on: &mut bool, label: &str) {
     let p = a.p;
-    let resp = ui
+    let row = ui
         .horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 12.0;
+            // The words are part of the checkbox: a selectable label would take their clicks.
+            ui.style_mut().interaction.selectable_labels = false;
             let (rect, _) = ui.allocate_exact_size(vec2(20.0, 20.0), Sense::hover());
             if *on {
                 ui.painter().rect_filled(rect, CornerRadius::same(6), p.ink);
@@ -197,8 +199,9 @@ pub fn checkbox(ui: &mut Ui, a: &mut Assets, on: &mut bool, label: &str) {
             }
             ui.label(txt(label, 14.0, Weight::Regular, p.text));
         })
-        .response
-        .interact(Sense::click());
+        .response;
+    // On top of the box and the words: a click on either ticks it.
+    let resp = crate::a11y::row_click(ui, &row, "checkbox");
     named_choice(&resp, egui::WidgetType::Checkbox, *on, label);
     let resp = resp.on_hover_cursor(CursorIcon::PointingHand);
     if resp.clicked() {

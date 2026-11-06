@@ -9,6 +9,8 @@ pub fn field_label(ui: &mut Ui, p: &Palette, text: &str) {
             .font(sans(12.0, Weight::Medium))
             .color(p.muted),
     );
+    // It is also the field's name for a screen reader (BUG-41).
+    crate::a11y::name_next_field(ui, text);
 }
 
 #[derive(Clone, Copy)]
@@ -140,7 +142,7 @@ pub fn text_area(
         .inner_margin(Margin::symmetric(14, 12))
         .show(ui, |ui| {
             ui.set_width(ui.available_width());
-            ui.add(
+            let resp = ui.add(
                 egui::TextEdit::multiline(value)
                     .id(id)
                     .hint_text(
@@ -153,7 +155,9 @@ pub fn text_area(
                     .frame(Frame::NONE)
                     .desired_rows(rows)
                     .desired_width(f32::INFINITY),
-            )
+            );
+            crate::a11y::take_field_name(ui, &resp);
+            resp
         })
         .inner
 }

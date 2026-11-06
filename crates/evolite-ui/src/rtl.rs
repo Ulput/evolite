@@ -58,6 +58,8 @@ pub fn text_edit(ui: &mut Ui, edit: egui::TextEdit<'_>) -> egui::Response {
     let text = Rect::from_min_size(out.galley_pos, out.galley.size());
     // The cursor is a little wider and taller than the line it stands in.
     keep(ui.ctx(), text.expand2(vec2(3.0, 4.0)));
+    // Its label above is its name for a screen reader (BUG-41).
+    crate::a11y::take_field_name(ui, &out.response.response);
     out.response.response
 }
 

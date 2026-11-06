@@ -66,11 +66,12 @@ pub fn dialog_with_header(
             header(ui, a);
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 let img = a.icons.icon("close", p.muted, &p, 20.0);
-                if ui
+                let cross = ui
                     .add(egui::Button::image(img).frame(false))
-                    .on_hover_text(crate::i18n::t(tr!("Close")).into_owned())
-                    .clicked()
-                {
+                    .on_hover_text(crate::i18n::t(tr!("Close")).into_owned());
+                // A picture alone says nothing to a screen reader (BUG-41).
+                named(&cross, egui::WidgetType::Button, true, tr!("Close"));
+                if cross.clicked() {
                     close = true;
                 }
             });

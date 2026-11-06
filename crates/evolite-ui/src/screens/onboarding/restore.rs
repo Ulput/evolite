@@ -109,6 +109,10 @@ pub(super) fn restore(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, o: &mut Onboard
                                         .font(mono(12.0, Weight::Regular))
                                         .color(p.muted),
                                 );
+                                crate::a11y::name_next_field(
+                                    ui,
+                                    &format!(tr!("Word no. {}"), i + 1),
+                                );
                                 crate::rtl::text_edit(
                                     ui,
                                     egui::TextEdit::singleline(&mut o.restore_words[i])

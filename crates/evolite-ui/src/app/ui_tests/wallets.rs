@@ -70,9 +70,9 @@ fn another_wallet_is_deleted_in_place_and_the_open_one_stays() {
 
     type_into(&mut kit, Role::PasswordInput, 0, "savings-password");
     type_into(&mut kit, Role::TextInput, 0, "delete");
-    // On its box: a click on its words does not tick it in kittest (the label takes it).
+    // On its box (its words tick it too since BUG-40: `focus::the_words_of_a_checkbox_tick_it`).
     let rect = kit
-        .get_by_label("The phrase is written down and checked")
+        .get_by_role_and_label(Role::CheckBox, "The phrase is written down and checked")
         .rect();
     click_at(&mut kit, egui::pos2(rect.left() + 10.0, rect.center().y));
     let words: Vec<String> = kit
@@ -221,7 +221,7 @@ fn switching_shows_from_back_to_until_the_core_is_back() {
             && kit.state().screen == Screen::Welcome
     });
     kit.run_steps(2);
-    kit.get_by_label("Back to “Main”").click();
+    button(&kit, "Back to “Main”").click();
     kit.run_steps(1);
     assert!(
         matches!(kit.state().wallet_busy, Some((_, WalletBusy::Back))),

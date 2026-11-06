@@ -10,6 +10,7 @@
 mod amounts;
 mod bugs;
 mod dialogs;
+mod focus;
 mod history;
 mod identity_pool;
 mod login;
@@ -89,12 +90,19 @@ pub(super) fn has_text(kit: &Kit, text: &str) -> bool {
 }
 
 /// A click on the words of the widget named `name`, not on its centre or its icon: the label
-/// inside it (BUG-17, BUG-18).
+/// inside it (BUG-17, BUG-18). A row clicked through `a11y::row_click` (BUG-40) has its words
+/// beside it in the tree, not inside: then they are the label that says the same.
 pub(super) fn click_words_of(kit: &mut Kit, name: &str) {
-    let node = kit.get_by_label(name);
-    let label = node
-        .children_recursive()
-        .find(|n| n.accesskit_node().role() == Role::Label)
+    let is_label = |n: &egui_kittest::Node<'_>| n.accesskit_node().role() == Role::Label;
+    let label = kit
+        .query_all_by_label(name)
+        .find_map(|node| {
+            if is_label(&node) {
+                Some(node)
+            } else {
+                node.children_recursive().find(is_label)
+            }
+        })
         .unwrap_or_else(|| panic!("«{name}» has no words of its own"));
     label.click();
     kit.run_steps(2);

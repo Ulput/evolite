@@ -4,41 +4,15 @@
 use super::*;
 use crate::cli::PRESETS;
 
-/// What the sweep found on 2026-11-05, to be filed by QA and fixed one by one: `preset: problem`.
-/// A fixed one must leave this list (the test says so), a new one must not join it.
-///
-/// The focus is lost where a widget takes its clicks through `ui.horizontal(..).response
-/// .interact(..)`, under the id of its own `Ui` — egui takes the focus back from that id, as it
-/// did from the settings rows (BUG-18 r3): `components::text_action`, `controls.rs` checkbox
-/// (not proven one by one).
-const KNOWN: &[&str] = &[
-    "create: focus lost after «24 words»",
-    "restore: focus lost after «24 words»",
-    "dashpay: focus lost after «Back»",
-    "sync: focus lost after «1 hour»",
-    // «Edit profile» is a `text_action` (№15), which loses the focus until BUG-40.
-    "identity: focus lost after «@satoshi-lab»",
-    "identity-unfinished: focus lost after «Continue creating»",
-    "top-up-stopped: focus lost after «Continue the top-up»",
-    "top-up-awaiting: focus lost after «Check again»",
-    "apps: focus lost after «Disconnect»",
-    "sign: focus lost after «the start»",
-    "report: focus lost after «Every time»",
-    "delete: focus lost after «the start»",
-    "forgot: focus lost after «the start»",
-    "wallet-add: focus lost after «Import from DashPay»",
-];
+/// Known problems not fixed yet, `preset: problem`. A fixed one must leave this list (the test
+/// says so), a new one must not join it. Empty since BUG-40 and BUG-41: the 15 screens that lost
+/// the focus (rows that took their clicks through `ui.horizontal(..).response.interact(..)`,
+/// now `a11y::row_click`) and the nameless fields and dialog crosses.
+const KNOWN: &[&str] = &[];
 
-/// Nameless stops found on many screens at once, one cause each (filed as one bug each):
-/// every text field (`components::text_field`: its label above is not its AccessKit name), and
-/// a dialog's × (`components::dialog`: an image button without a name), the first stop of
-/// every dialog.
-const KNOWN_EVERYWHERE: &[&str] = &[
-    "a nameless Tab stop (TextInput)",
-    "a nameless Tab stop (PasswordInput)",
-    "a nameless Tab stop (MultilineTextInput)",
-    "a nameless Tab stop (Button) after «the start»",
-];
+/// Problems found on many screens at once, one cause each (one bug each): «a nameless Tab
+/// stop (TextInput)». Empty since BUG-41.
+const KNOWN_EVERYWHERE: &[&str] = &[];
 
 /// A problem without its place: «sync: focus lost» (the place moves on screens that change).
 fn kind(problem: &str) -> &str {
@@ -53,9 +27,38 @@ fn known(problem: &str) -> bool {
 /// At most this many presses of Tab per screen: enough to come round on every preset.
 const PRESSES: usize = 70;
 
-/// What goes wrong with Tab on one screen: each kind once, at its first place.
+/// Where the app is: the screen, the onboarding step, the wallet's state and the dialog on top.
+/// The demo core moves some screens on by itself (the sync ends and the wallet opens), and a
+/// focus lost there is not Tab's.
+fn place(kit: &Kit) -> String {
+    let app = kit.state();
+    format!(
+        "{:?} {:?} {:?} {:?}",
+        app.screen,
+        app.onboarding.as_ref().map(|o| o.step),
+        app.vault,
+        kit.ctx.memory(|m| m.top_modal_layer()),
+    )
+}
+
+/// What goes wrong with Tab on one screen: each kind once, at its first place. The round stops
+/// where the screen goes on by itself (see [`place`]).
 fn sweep(preset: &str) -> Vec<String> {
     let (_turn, mut kit) = demo_app(preset, "en");
+    // An app's request is the demo core's answer to the preset's link, a moment after the
+    // start: the round waits for its dialog (it once came in the middle of «exchange»).
+    // The sync screen comes after the wallet is made: the demo core opens it a moment later.
+    if matches!(preset, "sync" | "sync-nodes") {
+        wait_for(&mut kit, "the wallet made", |kit| {
+            kit.state().vault == Some(evolite_api::VaultState::Unlocked)
+        });
+    }
+    if matches!(preset, "connect" | "sign" | "exchange") {
+        wait_for(&mut kit, "the app's request", |kit| {
+            kit.ctx.memory(|m| m.top_modal_layer()).is_some()
+        });
+    }
+    let start = place(&kit);
     let mut found: Vec<String> = Vec::new();
     let mut note = |problem: String| {
         let kind = problem
@@ -71,6 +74,13 @@ fn sweep(preset: &str) -> Vec<String> {
     let mut last = String::from("the start");
     for press in 0..PRESSES {
         tab(&mut kit, false);
+        if place(&kit) != start {
+            println!(
+                "  ({preset}: went on by itself after «{last}»: {start} → {})",
+                place(&kit)
+            );
+            break;
+        }
         let id = kit.ctx.memory(|m| m.focused());
         // The focused node's role, when the tree has one.
         let role = kit

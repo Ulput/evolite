@@ -148,7 +148,7 @@ pub fn mini_button(ui: &mut Ui, p: &Palette, label: &str) -> Response {
 /// A text action with a 16 px icon: "Hide", "Copy for 60 s", "About the nodes".
 pub fn text_action(ui: &mut Ui, a: &mut Assets, icon: &str, label: &str) -> Response {
     let p = a.p;
-    let resp = ui
+    let row = ui
         .horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 6.0;
             // The words are part of the action: a selectable label would take their clicks.
@@ -156,8 +156,8 @@ pub fn text_action(ui: &mut Ui, a: &mut Assets, icon: &str, label: &str) -> Resp
             ui.add(a.icons.icon(icon, p.muted, &p, 16.0));
             ui.label(txt(label, 13.0, Weight::Medium, p.muted));
         })
-        .response
-        .interact(Sense::click());
+        .response;
+    let resp = crate::a11y::row_click(ui, &row, "text-action");
     named(&resp, egui::WidgetType::Button, true, label);
     resp.on_hover_cursor(CursorIcon::PointingHand)
 }

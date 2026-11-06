@@ -145,14 +145,11 @@ fn edit_profile_stands_in_the_cards_corner() {
     let (_turn, kit) = demo_app("identity", "en");
     let name = profile_name(&kit);
     let credits = words(&kit, "Platform credits").rect().left() - TITLE_AFTER_ICON;
-    let action = kit
-        .query_by_label("Edit profile")
-        .or_else(|| kit.query_by_label("Create a profile"))
-        .expect("the profile's action");
-    let words = action
-        .children_recursive()
-        .find(|n| n.accesskit_node().role() == Role::Label)
-        .expect("the action's words")
+    // The words stand beside the action's own click area (`a11y::row_click`, BUG-40).
+    let words = kit
+        .query_by_role_and_label(Role::Label, "Edit profile")
+        .or_else(|| kit.query_by_role_and_label(Role::Label, "Create a profile"))
+        .expect("the profile action's words")
         .rect();
     // The profile card ends 20 before the credits card; its words end 24 + 1 inside it.
     eprintln!("words {words:?}, name {name:?}, credits card from {credits}");
@@ -165,12 +162,15 @@ fn edit_profile_stands_in_the_cards_corner() {
 #[test]
 fn an_unchanged_profile_is_not_saved() {
     let (_turn, mut kit) = demo_app("identity", "en");
-    let action = if kit.query_by_label("Edit profile").is_some() {
+    let action = if kit
+        .query_by_role_and_label(Role::Button, "Edit profile")
+        .is_some()
+    {
         "Edit profile"
     } else {
         "Create a profile"
     };
-    kit.get_by_label(action).click();
+    button(&kit, action).click();
     kit.run_steps(3);
     let save = |kit: &Kit| !button(kit, "Save").accesskit_node().is_disabled();
     assert!(!save(&kit), "«Save» with nothing changed");

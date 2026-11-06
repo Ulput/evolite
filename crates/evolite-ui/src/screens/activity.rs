@@ -197,6 +197,8 @@ pub fn activity(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, filter: &mut usize, q
                 .corner_radius(10)
                 .inner_margin(Margin::symmetric(14, 11))
                 .show(ui, |ui| {
+                    // No label above: what it is for is its name (BUG-41).
+                    crate::a11y::name_next_field(ui, tr!("Search by address, name, amount"));
                     crate::rtl::text_edit(
                         ui,
                         egui::TextEdit::singleline(query)

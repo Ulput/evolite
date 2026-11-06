@@ -28,6 +28,7 @@ fn is_demo(snap: &evolite_api::Snapshot) -> bool {
     cfg!(demo_core) && snap.demo
 }
 
+mod a11y;
 mod app;
 mod art;
 mod capture;
