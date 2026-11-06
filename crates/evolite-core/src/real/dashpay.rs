@@ -337,7 +337,8 @@ pub fn contacts_of(
 
 /// Where `to` stands among `managed`'s contacts in platform-wallet's state at this moment —
 /// what a new contact request is checked against (BUG-13), not a snapshot of whichever
-/// identity was shown when it was made. A hidden contact counts as made.
+/// identity was shown when it was made. Hiding is not looked at: a hidden contact made is
+/// still among the established ones, and a hidden request to us is `Incoming` — ours may go.
 pub fn standing(managed: &ManagedIdentity, to: &Identifier) -> Option<ContactState> {
     let dashpay = managed.dashpay();
     standing_of(

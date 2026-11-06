@@ -155,6 +155,16 @@ fn in_slot(
     of_wallet(identities, wallet).find(|m| m.identity_index == Some(slot))
 }
 
+/// Of the wallet's identities `(slot, id, item)`, identity `id` with its slot — whichever one is
+/// shown now.
+fn with_id<T>(
+    mut mine: impl Iterator<Item = (u32, Identifier, T)>,
+    id: &Identifier,
+) -> Option<(u32, T)> {
+    mine.find(|(_, found, _)| found == id)
+        .map(|(slot, _, item)| (slot, item))
+}
+
 /// Of the wallet's identities `(slot, item)`, the one it works as ([`shown_slot`]), with its
 /// slot.
 fn shown_of<T>(wallet: WalletId, mine: impl Iterator<Item = (u32, T)>) -> Option<(u32, T)> {
@@ -1249,6 +1259,41 @@ impl Chain {
         Ok((identity, signer))
     }
 
+    /// The wallet's identity `id` with a signer of its keys: a write checked as one identity is
+    /// signed as that one, even when "Act as" moved on in between (BUG-13 r1 should 1).
+    pub(super) async fn identity_as(
+        wallet: &PlatformWallet,
+        keys: &key_wallet::Wallet,
+        id: &Identifier,
+    ) -> Result<(dpp::identity::Identity, SimpleSigner), String> {
+        let (index, identity) = {
+            let state = wallet.state().await;
+            let mine = of_wallet(&state.identity_manager, wallet.wallet_id())
+                .filter_map(|m| Some((m.identity_index?, m.identity.id(), m.identity.clone())));
+            with_id(mine, id).ok_or(tr!("The wallet has no identity"))?
+        };
+        let mut signer = SimpleSigner::default();
+        signer.add_identity_public_keys(identity::found_identity_keys(keys, index, &identity));
+        Ok((identity, signer))
+    }
+
+    /// The credits of the wallet's identity `id`, as [`Self::first_identity_credits`] reads the
+    /// shown one's.
+    pub async fn identity_credits(
+        &self,
+        wallet: &PlatformWallet,
+        id: &Identifier,
+        fresh: bool,
+    ) -> Option<u64> {
+        if fresh {
+            let _ = wallet.identity().refresh_identity(id).await;
+        }
+        let state = wallet.state().await;
+        let mine = of_wallet(&state.identity_manager, wallet.wallet_id())
+            .filter_map(|m| Some((m.identity_index?, m.identity.id(), m.identity.balance())));
+        with_id(mine, id).map(|(_, balance)| balance)
+    }
+
     /// The shown identity's credits (the one [`Self::first_identity`] signs as): as the store
     /// has them, or with `fresh` read from Platform first (after a write, to see what it cost).
     /// `None` without an identity.
@@ -1527,14 +1572,16 @@ impl Chain {
     }
 
     /// Sends our DashPay contact request to `to`: an encrypted key to pay us with, signed by
-    /// the first identity's keys.
+    /// the keys of `from` — the identity [`Self::contact_standing`] checked it as, not whichever
+    /// is shown by now (BUG-13 r1 should 1).
     pub async fn add_contact(
         &self,
         wallet: &PlatformWallet,
         keys: &key_wallet::Wallet,
+        from: &Identifier,
         to: Identifier,
     ) -> Result<(), String> {
-        let (from, signer) = Self::first_identity(wallet, keys).await?;
+        let (from, signer) = Self::identity_as(wallet, keys, from).await?;
         let crypto = dashpay::SeedCrypto(keys.clone());
         wallet
             .identity()
@@ -2065,6 +2112,31 @@ mod tests {
                 r.output_details.len()
             );
         }
+    }
+
+    /// BUG-13 r1 should 1: "Act as" moves on between the check of a request and its signing —
+    /// the shown identity changes, the one checked does not.
+    #[test]
+    fn the_identity_checked_is_the_one_that_signs() {
+        let wallet: WalletId = [0x13; 32];
+        let (a, b) = (Identifier::from([1u8; 32]), Identifier::from([2u8; 32]));
+        let mine = || [(0, a, "a"), (1, b, "b")].into_iter();
+        choose_identity(wallet, 0);
+        let (_, checked) = shown_of(wallet, mine().map(|(s, id, _)| (s, id))).unwrap();
+        assert_eq!(checked, a);
+        choose_identity(wallet, 1);
+        assert_eq!(
+            shown_of(wallet, mine().map(|(s, _, n)| (s, n))),
+            Some((1, "b")),
+            "shown now"
+        );
+        assert_eq!(
+            with_id(mine(), &checked),
+            Some((0, "a")),
+            "signs as checked"
+        );
+        let other = Identifier::from([3u8; 32]);
+        assert_eq!(with_id(mine(), &other), None, "gone from the wallet");
     }
 
     /// BUG-7: which tracked locks hold "The top-up stopped", and which only await a ChainLock.

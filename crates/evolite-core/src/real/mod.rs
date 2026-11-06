@@ -1224,9 +1224,11 @@ impl Real {
                 if let Some(why) = repeat_request(standing, &label) {
                     return Err(CoreError::NotAvailable(why));
                 }
-                let before = chain.first_identity_credits(&wallet, false).await;
+                // Checked, signed, paid and keyed as that one identity, whatever "Act as"
+                // shows meanwhile (BUG-13 r1 should 1).
+                let before = chain.identity_credits(&wallet, &from, false).await;
                 chain
-                    .add_contact(&wallet, &keys, to)
+                    .add_contact(&wallet, &keys, &from, to)
                     .await
                     .map_err(dashpay_failure)?;
                 // Keyed as the read of Platform keys it (BUG-58): one line, not two.
@@ -1235,7 +1237,7 @@ impl Real {
                     &to,
                     &label,
                     now(),
-                    spent_credits(before, chain.first_identity_credits(&wallet, true).await)
+                    spent_credits(before, chain.identity_credits(&wallet, &from, true).await)
                         .unwrap_or(0),
                 ));
                 Ok(())
