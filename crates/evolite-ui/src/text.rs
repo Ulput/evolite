@@ -279,6 +279,7 @@ pub fn activity_title(a: &Activity) -> String {
         ActivityKind::ContactRequest {
             to,
             accepting: true,
+            ..
         } => format!(tr!("You accepted the request from {to}"), to = to),
         ActivityKind::ContactRequest { to, .. } => {
             format!(tr!("Contact request to {to}"), to = to)
@@ -322,12 +323,16 @@ pub fn activity_status(a: &Activity) -> Option<&'static str> {
     })
 }
 
-/// The identity of ours a request to us came to, when the wallet has several: "for @name".
+/// The identity of ours a request to us came to, when the wallet has several: "for @name";
+/// the one ours went from: "from @name" (BUG-69).
 pub fn activity_for(a: &Activity) -> Option<String> {
     match &a.kind {
         ActivityKind::ContactRequestIn {
             ours: Some(ours), ..
         } => Some(format!(tr!("for {name}"), name = ours)),
+        ActivityKind::ContactRequest {
+            ours: Some(ours), ..
+        } => Some(format!(tr!("from {name}"), name = ours)),
         _ => None,
     }
 }

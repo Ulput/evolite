@@ -387,6 +387,46 @@ fn shown_name(b58: &str, names: &std::collections::HashMap<String, Option<String
     }
 }
 
+/// BUG-69: a contact request's line names both sides as well as the wallet knows them now, not
+/// as they were named when Platform was read: the other side by `named` (an identity of ours
+/// with its name, or a contact's `@name`), taken from the line's key (`cr:<ours>:<to>`,
+/// `cri:<from>:<ours>`) — a request read before the name was known showed a short id for good —
+/// and, when the wallet has `several` identities, the one of ours it went from or came to.
+pub fn name_request_sides(
+    kind: &mut evolite_api::ActivityKind,
+    entry: &Entry,
+    several: bool,
+    named: impl Fn(&str) -> Option<String>,
+) {
+    use evolite_api::ActivityKind;
+    let other = entry.key.as_deref().and_then(|key| {
+        if let Some(rest) = key.strip_prefix("cri:") {
+            rest.split(':').next()
+        } else {
+            key.strip_prefix("cr:")?.split(':').nth(1)
+        }
+    });
+    let ours_named = || {
+        if several {
+            entry.identity.as_deref().and_then(&named)
+        } else {
+            None
+        }
+    };
+    match kind {
+        ActivityKind::ContactRequest { to: who, ours, .. }
+        | ActivityKind::ContactRequestIn {
+            from: who, ours, ..
+        } => {
+            if let Some(name) = other.and_then(&named) {
+                *who = name;
+            }
+            *ours = ours_named();
+        }
+        _ => {}
+    }
+}
+
 /// The key of our contact request to `to` sent as `me`: `cr:<ours>:<to>`. The entry written
 /// when it is sent here has it at once (BUG-13), so the read of Platform finds that line by key
 /// and never adds a second one, however `to` is named by then.
@@ -583,7 +623,8 @@ mod tests {
             line(out_we),
             evolite_api::ActivityKind::ContactRequest {
                 to: "@we".into(),
-                accepting: true
+                accepting: true,
+                ours: None,
             }
         );
         assert!(matches!(
@@ -594,6 +635,67 @@ mod tests {
             }
         ));
         assert_eq!(super::super::journal::activity(w).amount, 0);
+    }
+
+    /// BUG-69: a request read from Platform before a name was known (a short id for good)
+    /// names both sides as the wallet knows them now; the identity of ours only when the
+    /// wallet has several; a side no one has named keeps what the line had.
+    #[test]
+    fn a_request_names_both_sides_as_known_now() {
+        use evolite_api::ActivityKind;
+        let (a, b, c) = (
+            Identifier::from([1u8; 32]),
+            Identifier::from([2u8; 32]),
+            Identifier::from([3u8; 32]),
+        );
+        let b58 = |id: &Identifier| id.to_string(Encoding::Base58);
+        let none = std::collections::HashMap::new();
+        let named = |id: &str| {
+            [(b58(&a), "@evolite"), (b58(&b), "@werner555")]
+                .into_iter()
+                .find(|(k, _)| k == id)
+                .map(|(_, v)| v.to_owned())
+        };
+        // Ours to our other identity, read when neither was named.
+        let read = Requests {
+            sent: vec![(b, 1_000_000)],
+            incoming: vec![],
+            both: vec![],
+        }
+        .entries(&a, &none);
+        let line = |entry: &Entry, several: bool| {
+            let mut kind = super::super::journal::activity(entry).kind;
+            name_request_sides(&mut kind, entry, several, named);
+            kind
+        };
+        assert_eq!(
+            line(&read[0], true),
+            ActivityKind::ContactRequest {
+                to: "@werner555".into(),
+                accepting: false,
+                ours: Some("@evolite".into()),
+            }
+        );
+        let ActivityKind::ContactRequest { to, ours, .. } = line(&read[0], false) else {
+            panic!("a request")
+        };
+        assert_eq!(
+            (to.as_str(), ours),
+            ("@werner555", None),
+            "one identity: no sender"
+        );
+        // Theirs to us from someone not named: as it was.
+        let theirs = Requests {
+            sent: vec![],
+            incoming: vec![(c, 2_000_000, false)],
+            both: vec![],
+        }
+        .entries(&b, &none);
+        let ActivityKind::ContactRequestIn { from, ours, .. } = line(&theirs[0], true) else {
+            panic!("a request to us")
+        };
+        assert_eq!(from, shown_name(&b58(&c), &none));
+        assert_eq!(ours.as_deref(), Some("@werner555"));
     }
 
     /// BUG-13 with BUG-58: a request between two identities of one wallet, sent here, is one

@@ -2046,25 +2046,32 @@ impl Real {
                     .unwrap_or_else(|e| e.into_inner())
                     .apply(records);
                 // And what the wallet did on Platform, which Core does not see.
-                // A request to us says which identity of ours it came to when there are
-                // several (BUG-58); one hidden here before a resync stays hidden.
-                let ours: std::collections::HashMap<&str, String> = if identities.len() > 1 {
-                    identities
-                        .iter()
-                        .filter_map(|c| Some((c.id.as_str(), format!("@{}", c.name.as_ref()?))))
-                        .collect()
-                } else {
-                    Default::default()
+                // A request names both sides as the wallet knows them now: our identities by
+                // their names, contacts by theirs (BUG-69), and which identity of ours it
+                // went from or came to when there are several (BUG-58); one hidden here
+                // before a resync stays hidden.
+                let own: std::collections::HashMap<&str, String> = identities
+                    .iter()
+                    .filter_map(|c| Some((c.id.as_str(), format!("@{}", c.name.as_ref()?))))
+                    .collect();
+                let named = |id: &str| {
+                    own.get(id).cloned().or_else(|| {
+                        names
+                            .get(id)
+                            .cloned()
+                            .flatten()
+                            .map(|label| format!("@{label}"))
+                    })
                 };
                 history.extend(self.journal.entries().iter().map(|entry| {
                     let mut line = journal::activity(entry);
-                    if let ActivityKind::ContactRequestIn {
-                        ours: to_ours,
-                        state,
-                        ..
-                    } = &mut line.kind
-                    {
-                        *to_ours = entry.identity.as_deref().and_then(|i| ours.get(i).cloned());
+                    platform_history::name_request_sides(
+                        &mut line.kind,
+                        entry,
+                        identities.len() > 1,
+                        named,
+                    );
+                    if let ActivityKind::ContactRequestIn { state, .. } = &mut line.kind {
                         let from = entry
                             .key
                             .as_deref()

@@ -385,6 +385,7 @@ pub fn activity(entry: &Entry) -> Activity {
         What::ContactRequest { to } => ActivityKind::ContactRequest {
             to: to.clone(),
             accepting: entry.reply == Some(Reply::Accepted),
+            ours: None,
         },
         What::Profile => ActivityKind::ProfileSaved,
         What::Name { label } => ActivityKind::NameRegistered {

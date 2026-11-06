@@ -91,10 +91,12 @@ pub enum ActivityKind {
         status: Option<WithdrawalState>,
     },
     /// Our DashPay contact request (to a name or a short id). `accepting`: it answered theirs,
-    /// which came first ("You accepted the request from …", BUG-58).
+    /// which came first ("You accepted the request from …", BUG-58). `ours`: the `@name` of
+    /// the identity it went from when the wallet has more than one (BUG-69).
     ContactRequest {
         to: String,
         accepting: bool,
+        ours: Option<String>,
     },
     /// A DashPay contact request to us, one line per sender and identity of ours (BUG-58):
     /// `from` as `ContactRequest::to`; `ours`: the `@name` it came to when the wallet has

@@ -212,6 +212,16 @@ fn requests_to_us_and_withdrawals_say_how_they_stand() {
                 ActivityKind::ContactRequest {
                     to: "@erin".into(),
                     accepting: true,
+                    ours: None,
+                },
+                -1_000,
+            ),
+            platform_op(
+                0x5858_0005,
+                ActivityKind::ContactRequest {
+                    to: "@frank".into(),
+                    accepting: false,
+                    ours: Some("@satoshi".into()),
                 },
                 -1_000,
             ),
@@ -233,6 +243,9 @@ fn requests_to_us_and_withdrawals_say_how_they_stand() {
     assert!(says(&kit, "Your request was accepted: @dave"));
     assert!(says(&kit, " · You are contacts now"));
     assert!(says(&kit, "You accepted the request from @erin"));
+    // BUG-69: ours says which identity of ours it went from.
+    assert!(says(&kit, "Contact request to @frank"));
+    assert!(says(&kit, " · from @satoshi"), "who sent it");
     assert!(says(&kit, " · Paid out"), "the withdrawal's status");
     crate::screens::open_card(&kit.ctx, waiting);
     with_ops(&mut kit, &[]);
