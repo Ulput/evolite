@@ -299,3 +299,49 @@ fn deleting_says_what_comes_back_and_what_does_not() {
         );
     }
 }
+
+/// BUG-72: «Receive» scrolls, as the other screens do (BUG-48). In a low window «Earlier
+/// addresses» goes on under the bottom edge; the wheel brings the card's end into the window.
+#[test]
+fn receive_scrolls_to_the_end_of_earlier_addresses() {
+    const HIGH: f32 = 520.0;
+    let (_turn, mut kit) = demo_app("receive", "en");
+    kit.set_size(egui::vec2(1024.0, HIGH));
+    kit.run_steps(3);
+    assert!(has_text(&kit, "Earlier addresses"), "the demo has some");
+    // The lowest thing drawn on the screen, right of the menu: the card's last row.
+    let lowest = |kit: &Kit| {
+        kit.query_all_by(|n| matches!(n.role(), Role::Button | Role::Label))
+            .filter(|n| n.rect().left() > 300.0)
+            .map(|n| n.rect().bottom())
+            .fold(f32::MIN, f32::max)
+    };
+    let before = lowest(&kit);
+    assert!(before > HIGH, "the card goes on under the edge: {before}");
+    let title = words(&kit, "Earlier addresses").rect();
+    assert!(
+        title.top() > HIGH - 20.0,
+        "the card starts at the edge: {title:?}"
+    );
+    // The pointer over the screen, right of the menu (the card itself is under the edge).
+    kit.hover_at(egui::pos2(600.0, HIGH / 2.0));
+    for _ in 0..4 {
+        kit.event(egui::Event::MouseWheel {
+            unit: egui::MouseWheelUnit::Point,
+            delta: egui::vec2(0.0, -400.0),
+            phase: egui::TouchPhase::Move,
+            modifiers: Default::default(),
+        });
+        kit.run_steps(4);
+    }
+    let after = lowest(&kit);
+    let moved = words(&kit, "Earlier addresses").rect();
+    assert!(
+        moved.bottom() < HIGH,
+        "the title came up: {title:?} → {moved:?}"
+    );
+    assert!(
+        after <= HIGH,
+        "the card's end is in the window after the wheel: {before} → {after}"
+    );
+}

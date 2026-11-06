@@ -126,158 +126,176 @@ pub fn receive(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut ReceiveForm
     form.target = form.target.min(all.len() - 1);
     ui.spacing_mut().item_spacing.y = 24.0;
     page_header(ui, a, tr!("Receive"), None, |_, _| {});
-    ui.horizontal(|ui| {
-        ui.spacing_mut().item_spacing.x = 8.0;
-        for (i, t) in all.iter().enumerate() {
-            if option_card(ui, a, t.icon, &t.title, "", i == form.target).clicked() {
-                form.target = i;
-            }
-        }
-    });
-
-    let t = &all[form.target];
-    let amount = crate::format::parse_amount(&form.amount).filter(|d| *d > 0);
-    let uri = payment_uri(&t.value, amount);
-    let qr_payload = if t.uri {
-        uri.as_str()
-    } else {
-        t.value.as_str()
-    };
-
-    ui.horizontal_top(|ui| {
-        ui.spacing_mut().item_spacing.x = 32.0;
-        qr_card(ui, &p, qr_payload);
-        ui.vertical(|ui| {
-            ui.set_width(ui.available_width());
-            ui.spacing_mut().item_spacing.y = 16.0;
-            ui.label(txt(&t.label, 13.0, Weight::Medium, p.muted));
-            ui.add(
-                egui::Label::new(
-                    egui::RichText::new(crate::i18n::t(&t.value))
-                        .font(mono(20.0, Weight::Medium))
-                        .color(p.text)
-                        .line_height(Some(28.0)),
-                )
-                .wrap(),
-            );
+    // Its own scroll, as the other screens have (BUG-48): «Earlier addresses» goes on under
+    // the bottom edge at 1024×768 (BUG-72).
+    egui::ScrollArea::vertical()
+        .auto_shrink(false)
+        .show(ui, |ui| {
+            ui.spacing_mut().item_spacing.y = 24.0;
             ui.horizontal(|ui| {
-                ui.spacing_mut().item_spacing.x = 10.0;
-                let copy = if t.name {
-                    tr!("Copy name")
-                } else {
-                    tr!("Copy address")
-                };
-                // "Copied" for a moment on the button that copied (what it copies is its id:
-                // another target or amount is a fresh button).
-                let ctx = ui.ctx().clone();
-                let label = |name: &'static str, what: &str| {
-                    if crate::clipboard::just_copied(&ctx, copy_id(what)) {
-                        tr!("Copied")
-                    } else {
-                        name
+                ui.spacing_mut().item_spacing.x = 8.0;
+                for (i, t) in all.iter().enumerate() {
+                    if option_card(ui, a, t.icon, &t.title, "", i == form.target).clicked() {
+                        form.target = i;
                     }
-                };
-                if button(ui, a, label(copy, &t.value), ButtonKind::Secondary, None).clicked() {
-                    crate::clipboard::copy_answered(ui.ctx(), t.value.clone(), copy_id(&t.value));
-                }
-                if t.uri
-                    && button(
-                        ui,
-                        a,
-                        label(tr!("dash: link"), &uri),
-                        ButtonKind::Secondary,
-                        None,
-                    )
-                    .on_hover_text(crate::i18n::t(&uri).into_owned())
-                    .clicked()
-                {
-                    crate::clipboard::copy_answered(ui.ctx(), uri.clone(), copy_id(&uri));
                 }
             });
-            if t.uri {
-                ui.vertical(|ui| {
-                    ui.spacing_mut().item_spacing.y = 6.0;
-                    field_label(ui, &p, tr!("Request an amount (optional)"));
-                    amount_field(ui, &p, "receive-amount", &mut form.amount, false);
-                    if !form.amount.trim().is_empty() && amount.is_none() {
-                        ui.label(txt(
-                            tr!("Enter an amount, e.g. 0.25"),
-                            12.0,
-                            Weight::Regular,
-                            p.danger,
-                        ));
-                    }
-                });
-            }
-            notice(ui, a, t.note_icon, p.muted, t.note);
-            ui.add(
-                egui::Label::new(
-                    txt(t.footer, 12.0, Weight::Regular, p.muted).line_height(Some(18.0)),
-                )
-                .wrap(),
-            );
-        });
-    });
 
-    // "Old addresses keep working": here they are, with what each received.
-    let past = if t.uri {
-        past_addresses(&cx.wallet().activity, &t.value)
-    } else {
-        Vec::new()
-    };
-    if !past.is_empty() {
-        let now = cx.now;
-        let width = ui.available_width();
-        crate::components::list_card_with(
-            ui,
-            a,
-            width,
-            (tr!("Earlier addresses"), tr!("still receive payments")),
-            // The app's one «Hide amounts», as an icon (FEAT-0007).
-            |ui, a| {
-                crate::components::amount_toggle(ui, a, true);
-            },
-            |ui, a| {
-                ui.add_space(-2.0);
-                for old in past.iter().take(PAST_SHOWN) {
-                    let shown = crate::format::balance(old.received);
-                    // A click copies it: "Copied" stands in the line under it for a moment.
-                    let detail = if crate::clipboard::just_copied(ui.ctx(), copy_id(&old.address)) {
-                        tr!("Copied").to_string()
-                    } else {
-                        format!(
-                            "{} · {}",
-                            crate::text::plural(old.payments, tr!("payment"), tr!("payments")),
-                            crate::text::when(old.last, now)
+            let t = &all[form.target];
+            let amount = crate::format::parse_amount(&form.amount).filter(|d| *d > 0);
+            let uri = payment_uri(&t.value, amount);
+            let qr_payload = if t.uri {
+                uri.as_str()
+            } else {
+                t.value.as_str()
+            };
+
+            ui.horizontal_top(|ui| {
+                ui.spacing_mut().item_spacing.x = 32.0;
+                qr_card(ui, &p, qr_payload);
+                ui.vertical(|ui| {
+                    ui.set_width(ui.available_width());
+                    ui.spacing_mut().item_spacing.y = 16.0;
+                    ui.label(txt(&t.label, 13.0, Weight::Medium, p.muted));
+                    ui.add(
+                        egui::Label::new(
+                            egui::RichText::new(crate::i18n::t(&t.value))
+                                .font(mono(20.0, Weight::Medium))
+                                .color(p.text)
+                                .line_height(Some(28.0)),
                         )
-                    };
-                    let row = tx_row_clickable(
-                        ui,
-                        a,
-                        &TxRow {
-                            icon: "receive",
-                            title: &short_address(&old.address),
-                            detail: &detail,
-                            proof: None,
-                            amount: &shown,
-                        },
+                        .wrap(),
                     );
-                    if row
-                        .on_hover_text(
-                            crate::i18n::t(tr!("Click to copy the address")).into_owned(),
-                        )
-                        .clicked()
-                    {
-                        crate::clipboard::copy_answered(
-                            ui.ctx(),
-                            old.address.clone(),
-                            copy_id(&old.address),
-                        );
+                    ui.horizontal(|ui| {
+                        ui.spacing_mut().item_spacing.x = 10.0;
+                        let copy = if t.name {
+                            tr!("Copy name")
+                        } else {
+                            tr!("Copy address")
+                        };
+                        // "Copied" for a moment on the button that copied (what it copies is its id:
+                        // another target or amount is a fresh button).
+                        let ctx = ui.ctx().clone();
+                        let label = |name: &'static str, what: &str| {
+                            if crate::clipboard::just_copied(&ctx, copy_id(what)) {
+                                tr!("Copied")
+                            } else {
+                                name
+                            }
+                        };
+                        if button(ui, a, label(copy, &t.value), ButtonKind::Secondary, None)
+                            .clicked()
+                        {
+                            crate::clipboard::copy_answered(
+                                ui.ctx(),
+                                t.value.clone(),
+                                copy_id(&t.value),
+                            );
+                        }
+                        if t.uri
+                            && button(
+                                ui,
+                                a,
+                                label(tr!("dash: link"), &uri),
+                                ButtonKind::Secondary,
+                                None,
+                            )
+                            .on_hover_text(crate::i18n::t(&uri).into_owned())
+                            .clicked()
+                        {
+                            crate::clipboard::copy_answered(ui.ctx(), uri.clone(), copy_id(&uri));
+                        }
+                    });
+                    if t.uri {
+                        ui.vertical(|ui| {
+                            ui.spacing_mut().item_spacing.y = 6.0;
+                            field_label(ui, &p, tr!("Request an amount (optional)"));
+                            amount_field(ui, &p, "receive-amount", &mut form.amount, false);
+                            if !form.amount.trim().is_empty() && amount.is_none() {
+                                ui.label(txt(
+                                    tr!("Enter an amount, e.g. 0.25"),
+                                    12.0,
+                                    Weight::Regular,
+                                    p.danger,
+                                ));
+                            }
+                        });
                     }
-                }
-            },
-        );
-    }
+                    notice(ui, a, t.note_icon, p.muted, t.note);
+                    ui.add(
+                        egui::Label::new(
+                            txt(t.footer, 12.0, Weight::Regular, p.muted).line_height(Some(18.0)),
+                        )
+                        .wrap(),
+                    );
+                });
+            });
+
+            // "Old addresses keep working": here they are, with what each received.
+            let past = if t.uri {
+                past_addresses(&cx.wallet().activity, &t.value)
+            } else {
+                Vec::new()
+            };
+            if !past.is_empty() {
+                let now = cx.now;
+                let width = ui.available_width();
+                crate::components::list_card_with(
+                    ui,
+                    a,
+                    width,
+                    (tr!("Earlier addresses"), tr!("still receive payments")),
+                    // The app's one «Hide amounts», as an icon (FEAT-0007).
+                    |ui, a| {
+                        crate::components::amount_toggle(ui, a, true);
+                    },
+                    |ui, a| {
+                        ui.add_space(-2.0);
+                        for old in past.iter().take(PAST_SHOWN) {
+                            let shown = crate::format::balance(old.received);
+                            // A click copies it: "Copied" stands in the line under it for a moment.
+                            let detail =
+                                if crate::clipboard::just_copied(ui.ctx(), copy_id(&old.address)) {
+                                    tr!("Copied").to_string()
+                                } else {
+                                    format!(
+                                        "{} · {}",
+                                        crate::text::plural(
+                                            old.payments,
+                                            tr!("payment"),
+                                            tr!("payments")
+                                        ),
+                                        crate::text::when(old.last, now)
+                                    )
+                                };
+                            let row = tx_row_clickable(
+                                ui,
+                                a,
+                                &TxRow {
+                                    icon: "receive",
+                                    title: &short_address(&old.address),
+                                    detail: &detail,
+                                    proof: None,
+                                    amount: &shown,
+                                },
+                            );
+                            if row
+                                .on_hover_text(
+                                    crate::i18n::t(tr!("Click to copy the address")).into_owned(),
+                                )
+                                .clicked()
+                            {
+                                crate::clipboard::copy_answered(
+                                    ui.ctx(),
+                                    old.address.clone(),
+                                    copy_id(&old.address),
+                                );
+                            }
+                        }
+                    },
+                );
+            }
+        });
 }
 
 /// How many earlier addresses "Receive" lists: the latest ones.
