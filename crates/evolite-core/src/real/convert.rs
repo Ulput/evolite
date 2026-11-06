@@ -349,12 +349,30 @@ pub(super) fn fee_rate() -> FeeRate {
 /// A contact request on testnet, 2026-11-05: 0.00102028 DASH (manual run M-7), rounded up.
 const CONTACT_REQUEST: Duffs = 105_000;
 
+/// The wallet's coins (`values`, in duffs) as [`Fees::core_coins`]: largest first, each with
+/// the fee of a payment spending it and every larger one — what platform-wallet's selection
+/// (key-wallet `BranchAndBound`, which accumulates the largest coins when no change-free set
+/// fits) pays for an amount those coins cover (BUG-55).
+pub(super) fn core_coins(mut values: Vec<u64>) -> Vec<CoreCoin> {
+    values.sort_unstable_by(|a, b| b.cmp(a));
+    values
+        .into_iter()
+        .enumerate()
+        .map(|(n, value)| CoreCoin {
+            value: value as Duffs,
+            fee: fee_rate().calculate_fee(estimate_tx_size(n + 1, 1, true)) as Duffs,
+        })
+        .collect()
+}
+
 /// `core_payment`: the fee of a payment spending every coin (with change) — the most a
 /// payment from this wallet can cost, so "Max" always leaves room for it. Platform fees are the
 /// published costs.
 pub(super) fn fees(coins: usize) -> Fees {
     Fees {
         core_payment: fee_rate().calculate_fee(estimate_tx_size(coins.max(1), 1, true)) as Duffs,
+        // The coins themselves: [`core_coins`], once the wallet's are read.
+        core_coins: Vec::new(),
         credit_transfer: 2_000,
         nft_transfer: 30_000,
         // Documents are metered by Platform; until this data folder has paid for one of a kind
@@ -752,6 +770,33 @@ mod tests {
         assert!((200..400).contains(&one), "one coin: {one} duffs");
         assert!(fees(10).core_payment > one);
         assert_eq!(fees(0).core_payment, one);
+    }
+
+    /// BUG-55: a small payment from a wallet of many coins costs one coin's fee, "Max" what
+    /// spending them all costs — not the same figure for both.
+    #[test]
+    fn a_payment_costs_the_coins_it_takes_not_every_coin() {
+        let values = vec![5_000_000, 391_000_000, 100_000, 200_000];
+        let mut f = fees(values.len());
+        f.core_coins = core_coins(values);
+        let largest: Vec<_> = f.core_coins.iter().map(|c| c.value).collect();
+        assert_eq!(largest, [391_000_000, 5_000_000, 200_000, 100_000]);
+        assert_eq!(f.core_coins[0].fee, fees(1).core_payment);
+        assert_eq!(
+            f.core_coins[3].fee, f.core_payment,
+            "every coin: core_payment"
+        );
+        assert_eq!(f.core_payment_for(100_000), fees(1).core_payment);
+        assert_eq!(
+            f.core_payment_for(0),
+            fees(1).core_payment,
+            "nothing typed: one coin"
+        );
+        let all = 391_000_000 + 5_000_000 + 200_000 + 100_000 - f.core_payment;
+        assert_eq!(f.core_payment_for(all), f.core_payment);
+        // Just over the largest coin: two.
+        assert_eq!(f.core_payment_for(391_000_000), fees(2).core_payment);
+        assert!(fees(2).core_payment > fees(1).core_payment);
     }
 
     #[test]

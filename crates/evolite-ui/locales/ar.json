@@ -1188,6 +1188,14 @@
     "many": "قبل {} يوم",
     "other": "قبل {} يوم"
   },
+  "{} identity|{} identities": {
+    "zero": "{} هوية",
+    "one": "{} هوية",
+    "two": "{} هوية",
+    "few": "{} هويات",
+    "many": "{} هوية",
+    "other": "{} هوية"
+  },
   "{} in Platform credits": "{} في أرصدة Platform",
   "{} min": "{} د",
   "{} nodes": "{} عقدة",

@@ -1178,6 +1178,9 @@
     "many": "{} 天前",
     "other": "{} 天前"
   },
+  "{} identity|{} identities": {
+    "other": "{} 个身份"
+  },
   "{} in Platform credits": "Platform 积分中的 {}",
   "{} min": "{} 分钟",
   "{} nodes": "{} 个节点",

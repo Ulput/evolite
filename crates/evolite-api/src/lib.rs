@@ -124,14 +124,21 @@ pub struct Activity {
 pub struct Balances {
     pub core: Duffs,
     pub core_addresses: u32,
+    /// The credits of the identity the person works as: what Send, a top-up or a withdrawal
+    /// spend.
     pub credits: Duffs,
+    /// The credits of every identity of the wallet, the one worked as among them (BUG-56): what
+    /// the wallet holds on Platform in identities.
+    pub all_credits: Duffs,
     pub platform_address: Duffs,
     pub shielded: Duffs,
 }
 
 impl Balances {
+    /// Everything the wallet holds: Core, every identity's credits, the Platform address and
+    /// the pool. Choosing another identity does not change it.
     pub fn total(&self) -> Duffs {
-        self.core + self.credits + self.platform_address + self.shielded
+        self.core + self.all_credits + self.platform_address + self.shielded
     }
 }
 
@@ -543,8 +550,12 @@ impl fmt::Debug for Picture {
 
 #[derive(Clone, PartialEq, Debug)]
 pub struct Fees {
-    /// A typical Core payment (1 input, 2 outputs).
+    /// A Core payment spending every coin of the wallet (with change): the most one can cost,
+    /// what "Max" leaves for the fee. For a given amount: [`Fees::core_payment_for`].
     pub core_payment: Duffs,
+    /// The wallet's spendable Core coins, largest first, each with the fee of a payment (with
+    /// change) spending it and every coin before it (BUG-55). Empty when not known.
+    pub core_coins: Vec<CoreCoin>,
     pub credit_transfer: Duffs,
     /// A private transfer inside the pool (to a private address). The pool's fees are
     /// Platform's own formulas for a bundle of two Orchard actions; spending more than two
@@ -586,6 +597,31 @@ pub struct Fees {
     /// withdrawal itself costs about `credit_withdrawal`, but a balance under amount + reserve
     /// is refused, whatever the amount.
     pub credit_withdrawal_reserve: Duffs,
+}
+
+/// A Core coin as coin selection sees it ([`Fees::core_coins`]).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct CoreCoin {
+    pub value: Duffs,
+    /// The fee of a payment spending this coin and every larger one.
+    pub fee: Duffs,
+}
+
+impl Fees {
+    /// The fee of a Core payment of `amount` (0: nothing typed yet — the cheapest payment, from
+    /// one coin). As the wallet chooses the coins when no set fits without change: the largest
+    /// first, until they cover the amount and their own fee. Not that many coins: what spending
+    /// them all costs.
+    pub fn core_payment_for(&self, amount: Duffs) -> Duffs {
+        let mut held: Duffs = 0;
+        for coin in &self.core_coins {
+            held = held.saturating_add(coin.value);
+            if held >= amount.saturating_add(coin.fee) {
+                return coin.fee;
+            }
+        }
+        self.core_coins.last().map_or(self.core_payment, |c| c.fee)
+    }
 }
 
 #[derive(Clone, PartialEq, Debug)]
@@ -1207,6 +1243,43 @@ pub enum Event {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// BUG-55: the fee of a Core payment is of the coins it takes; with no coins known, the
+    /// fee of spending them all.
+    #[test]
+    fn a_core_payment_costs_the_coins_it_takes() {
+        let coin = |value, fee| CoreCoin { value, fee };
+        let mut fees = Fees {
+            core_payment: 522,
+            core_coins: Vec::new(),
+            credit_transfer: 0,
+            pool_transfer: 0,
+            nft_transfer: 0,
+            document_write: 0,
+            shield: 0,
+            identity_create: 0,
+            name_regular: 0,
+            name_contested: 0,
+            add_key: 0,
+            contact_request: 0,
+            profile: 0,
+            shield_from_address: 0,
+            shield_reserve: 0,
+            unshield: 0,
+            pool_withdrawal: 0,
+            shield_from_core: 0,
+            pool_top_up: 0,
+            credit_withdrawal: 0,
+            credit_withdrawal_reserve: 0,
+        };
+        assert_eq!(fees.core_payment_for(1_000), 522, "no coins known");
+        fees.core_coins = vec![coin(1_000, 226), coin(500, 374), coin(300, 522)];
+        assert_eq!(fees.core_payment_for(0), 226);
+        assert_eq!(fees.core_payment_for(774), 226, "the coin and its fee");
+        assert_eq!(fees.core_payment_for(775), 374);
+        assert_eq!(fees.core_payment_for(1_278), 522);
+        assert_eq!(fees.core_payment_for(9_999), 522, "more than there is");
+    }
 
     #[test]
     fn secrets_do_not_print() {

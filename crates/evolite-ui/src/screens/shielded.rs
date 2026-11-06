@@ -968,6 +968,7 @@ mod tests {
     fn fees() -> Fees {
         Fees {
             core_payment: 226,
+            core_coins: Vec::new(),
             credit_transfer: 2_000,
             pool_transfer: 114_140,
             nft_transfer: 30_000,

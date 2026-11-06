@@ -1178,6 +1178,9 @@
     "many": "{} 日前",
     "other": "{} 日前"
   },
+  "{} identity|{} identities": {
+    "other": "{} 件のアイデンティティ"
+  },
   "{} in Platform credits": "Platform クレジットの {}",
   "{} min": "{}分",
   "{} nodes": "{} ノード",

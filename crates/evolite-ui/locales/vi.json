@@ -1178,6 +1178,9 @@
     "many": "{} ngày trước",
     "other": "{} ngày trước"
   },
+  "{} identity|{} identities": {
+    "other": "{} danh tính"
+  },
   "{} in Platform credits": "{} dưới dạng tín dụng Platform",
   "{} min": "{} phút",
   "{} nodes": "{} nút",

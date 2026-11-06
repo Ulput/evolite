@@ -1184,6 +1184,12 @@
     "many": "{} дн. тому",
     "other": "{} дн. тому"
   },
+  "{} identity|{} identities": {
+    "one": "{} identity",
+    "few": "{} identity",
+    "many": "{} identity",
+    "other": "{} identity"
+  },
   "{} in Platform credits": "{} у кредитах Platform",
   "{} min": "{} хв",
   "{} nodes": "{} вузлів",

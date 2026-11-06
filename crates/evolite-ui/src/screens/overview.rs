@@ -95,23 +95,33 @@ pub fn overview(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx) {
             ui.label(txt(&line, 13.0, Weight::Regular, p.muted));
         });
     });
-    let credits_title = wallet.identity.as_ref().and_then(|i| i.name()).map_or_else(
-        || tr!("Credits").to_string(),
-        |n| format!(tr!("Credits · @{n}"), n = n),
-    );
+    // The credits of every identity of the wallet, as «Total» counts them (BUG-56); the one
+    // worked as has its own on Identity.
+    let several = wallet.identities.len() > 1;
+    let credits_title = match wallet.identity.as_ref().and_then(|i| i.name()) {
+        Some(n) if !several => format!(tr!("Credits · @{n}"), n = n),
+        _ => tr!("Credits").to_string(),
+    };
     let unit = crate::format::unit_name();
     let addresses = format!(
         "{unit} · {}",
         text::plural(b.core_addresses, tr!("address"), tr!("addresses"))
     );
+    let credits_line = if several {
+        format!(
+            "{unit} · {}",
+            text::plural(
+                wallet.identities.len() as u32,
+                tr!("identity"),
+                tr!("identities")
+            )
+        )
+    } else {
+        format!(tr!("{unit} in Platform credits"), unit = unit)
+    };
     let cards: [(&str, &str, i64, &str); 4] = [
         ("core", "Core", b.core, &addresses),
-        (
-            "credits",
-            &credits_title,
-            b.credits,
-            &format!(tr!("{unit} in Platform credits"), unit = unit),
-        ),
+        ("credits", &credits_title, b.all_credits, &credits_line),
         (
             "platform-address",
             tr!("Platform address"),

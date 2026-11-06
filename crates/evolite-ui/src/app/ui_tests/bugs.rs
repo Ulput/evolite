@@ -218,3 +218,74 @@ fn suggested_amounts_are_taken_in_english_and_arabic() {
         });
     }
 }
+
+/// BUG-55: from Core the fee is of the coins the amount takes. The demo wallet holds 5, 3 and
+/// 0.412 DASH: 0.25 takes one coin (226 duffs), «Max» all three (522) — not one figure for both.
+#[test]
+fn a_core_payment_costs_the_coins_it_takes() {
+    let (_turn, mut kit) = demo_app("send", "en");
+    let fee = |kit: &Kit| {
+        kit.query_all_by(|n| n.value().is_some_and(|v| v.starts_with("Fee: ")))
+            .filter_map(|n| n.accesskit_node().value().map(|v| v.to_string()))
+            .next()
+            .unwrap_or_default()
+    };
+    kit.state_mut().send.max = false;
+    kit.state_mut().send.amount = "0.25".into();
+    kit.run_steps(3);
+    assert_eq!(fee(&kit), "Fee: 0.00000226 DASH", "one coin");
+    assert!(has_text(&kit, "Network fee: 0.00000226 DASH"));
+    let left = 841_200_000 - 25_000_000 - 226;
+    assert!(has_text(
+        &kit,
+        &format!("Left: {}", crate::format::amount(left))
+    ));
+    // Over the largest coin: two.
+    kit.state_mut().send.amount = "6".into();
+    kit.run_steps(3);
+    assert_eq!(fee(&kit), "Fee: 0.00000374 DASH", "two coins");
+    button(&kit, "Max").click();
+    kit.run_steps(3);
+    assert_eq!(fee(&kit), "Fee: 0.00000522 DASH", "«Max»: every coin");
+    assert_eq!(kit.state().send.amount, "8.41199478");
+}
+
+/// Sets the open wallet's credits: `shown` of the identity worked as, `all` of every one. Again
+/// for a few frames: a snapshot of the demo core in between would put its own back.
+fn with_credits(kit: &mut Kit, shown: i64, all: i64) {
+    for _ in 0..3 {
+        let wallet = kit
+            .state_mut()
+            .snapshot
+            .as_mut()
+            .and_then(|s| s.wallet.as_mut())
+            .expect("a wallet");
+        wallet.balances.credits = shown;
+        wallet.balances.all_credits = all;
+        kit.run_steps(1);
+    }
+}
+
+/// BUG-56 (the customer's decision): «Total» and the «Credits» card count every identity's
+/// credits, «2 identities» under it; working as another identity does not change them.
+#[test]
+fn the_total_counts_every_identitys_credits() {
+    let (_turn, mut kit) = demo_app("overview", "en");
+    // @satoshi 1.2, @satoshi-lab 0.3.
+    with_credits(&mut kit, 120_000_000, 150_000_000);
+    let total = crate::format::amount(841_200_000 + 150_000_000 + 73_400_000 + 250_000_000);
+    assert!(has_text(&kit, &total), "«Total» with both: {total}");
+    assert!(
+        has_text(&kit, &crate::format::number(150_000_000, false)),
+        "the card (its number, the unit is under it)"
+    );
+    assert!(has_text(&kit, "DASH · 2 identities"));
+    assert!(
+        !has_text(&kit, "Credits · @satoshi"),
+        "not one identity's card"
+    );
+    // Working as @satoshi-lab: the same money.
+    with_credits(&mut kit, 30_000_000, 150_000_000);
+    assert!(has_text(&kit, &total), "«Total» stays");
+    assert!(has_text(&kit, &crate::format::number(150_000_000, false)));
+}

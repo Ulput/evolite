@@ -1743,6 +1743,10 @@ impl Real {
         let mut unfinished = None;
         let mut unfinished_top_up = None;
         let mut identities = Vec::new();
+        // Every identity's credits, the one worked as among them (BUG-56), and the coins'
+        // values for the fee of a payment (BUG-55).
+        let mut all_credits: Duffs = 0;
+        let mut coin_values = Vec::new();
         let (balance, (coins, addresses), mut history, shown, platform) = match self
             .chain
             .wallet(&id)
@@ -1845,6 +1849,10 @@ impl Real {
                     })
                     .collect();
                 identities.sort_by_key(|c| c.slot);
+                all_credits = mine
+                    .iter()
+                    .map(|m| identity::credits_as_duffs(m.identity.balance()))
+                    .sum();
                 let slot = chain::shown_slot(id, mine.iter().filter_map(|m| m.identity_index));
                 // The identity the person works as (the first one until they choose).
                 let first = mine.iter().copied().find(|m| m.identity_index == slot);
@@ -1894,6 +1902,7 @@ impl Real {
                         let utxos = state.core_wallet.utxos();
                         let holding: std::collections::HashSet<_> =
                             utxos.iter().map(|u| u.address.clone()).collect();
+                        coin_values = utxos.iter().map(|u| u.value()).collect();
                         (utxos.len(), holding.len())
                     },
                     history,
@@ -1925,6 +1934,7 @@ impl Real {
         });
         // The pool's fees from Platform's formulas at the protocol version the SDK speaks.
         let mut fees = fees(coins);
+        fees.core_coins = convert::core_coins(coin_values);
         if let Ok(sdk) = self.chain.sdk().await {
             pool::set_fees(&mut fees, sdk.version());
             platform_fees(&mut fees, sdk.version(), &self.journal);
@@ -2011,6 +2021,7 @@ impl Real {
                 core: balance as Duffs,
                 core_addresses: addresses as u32,
                 credits,
+                all_credits,
                 platform_address: identity::credits_as_duffs(platform_credits),
                 shielded: pool
                     .as_ref()

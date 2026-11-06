@@ -1178,6 +1178,9 @@
     "many": "{}일 전",
     "other": "{}일 전"
   },
+  "{} identity|{} identities": {
+    "other": "신원 {}개"
+  },
   "{} in Platform credits": "Platform 크레딧의 {}",
   "{} min": "{}분",
   "{} nodes": "노드 {}개",

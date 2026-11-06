@@ -1182,6 +1182,11 @@
     "many": "il y a {} jours",
     "other": "il y a {} jours"
   },
+  "{} identity|{} identities": {
+    "one": "{} identité",
+    "many": "{} identités",
+    "other": "{} identités"
+  },
   "{} in Platform credits": "{} en crédits Platform",
   "{} min": "{} min",
   "{} nodes": "{} nœuds",

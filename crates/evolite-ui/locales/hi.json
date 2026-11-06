@@ -1180,6 +1180,10 @@
     "many": "{} दिन पहले",
     "other": "{} दिन पहले"
   },
+  "{} identity|{} identities": {
+    "one": "{} पहचान",
+    "other": "{} पहचानें"
+  },
   "{} in Platform credits": "Platform क्रेडिट में {}",
   "{} min": "{} मि.",
   "{} nodes": "{} नोड",

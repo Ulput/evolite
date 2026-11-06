@@ -1180,6 +1180,10 @@
     "many": "{} gün önce",
     "other": "{} gün önce"
   },
+  "{} identity|{} identities": {
+    "one": "{} kimlik",
+    "other": "{} kimlik"
+  },
   "{} in Platform credits": "Platform kredisi olarak {}",
   "{} min": "{} dk",
   "{} nodes": "{} düğüm",

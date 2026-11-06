@@ -1178,6 +1178,9 @@
     "many": "{} hari lalu",
     "other": "{} hari lalu"
   },
+  "{} identity|{} identities": {
+    "other": "{} identitas"
+  },
   "{} in Platform credits": "{} dalam kredit Platform",
   "{} min": "{} mnt",
   "{} nodes": "{} node",

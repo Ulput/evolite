@@ -1180,6 +1180,10 @@
     "many": "vor {} Tagen",
     "other": "vor {} Tagen"
   },
+  "{} identity|{} identities": {
+    "one": "{} Identität",
+    "other": "{} Identitäten"
+  },
   "{} in Platform credits": "{} in Platform-Credits",
   "{} min": "{} Min.",
   "{} nodes": "{} Knoten",

@@ -219,7 +219,10 @@ struct SourceView {
     icon: &'static str,
     title: &'static str,
     duffs: Duffs,
+    /// The fee of the amount typed (BUG-55: from Core, of the coins it takes).
     fee: Duffs,
+    /// The fee "Max" leaves room for: from Core, spending every coin.
+    max_fee: Duffs,
     /// Credits to a Core address: what Platform checks before it takes the withdrawal.
     withdrawal: Option<Withdrawal>,
     note_icon: &'static str,
@@ -368,15 +371,19 @@ fn credits_fee(fees: &evolite_api::Fees, to: &str) -> Duffs {
     }
 }
 
-/// `to`: the recipient typed, which decides what a payment from credits or the pool costs.
-fn sources(w: &Wallet, to: &str) -> [SourceView; 3] {
+/// `to`: the recipient typed, which decides what a payment from credits or the pool costs;
+/// `amount`: the amount typed (0: none yet), which decides what a payment from Core costs.
+fn sources(w: &Wallet, to: &str, amount: Duffs) -> [SourceView; 3] {
+    let credits = credits_fee(&w.fees, to);
+    let pool = super::shielded::pool_fee(&w.fees, to);
     [
         SourceView {
             source: Source::Core,
             icon: "core",
             title: "Core",
             duffs: w.balances.core,
-            fee: w.fees.core_payment,
+            fee: w.fees.core_payment_for(amount),
+            max_fee: w.fees.core_payment,
             withdrawal: None,
             note_icon: "instantsend",
             note: tr!("InstantSend: the recipient sees a confirmed payment in a few seconds."),
@@ -386,7 +393,8 @@ fn sources(w: &Wallet, to: &str) -> [SourceView; 3] {
             icon: "credits",
             title: tr!("Credits"),
             duffs: w.balances.credits,
-            fee: credits_fee(&w.fees, to),
+            fee: credits,
+            max_fee: credits,
             withdrawal: credits_to_core(to).then(|| Withdrawal::of(&w.fees)),
             note_icon: "confirmed",
             note: tr!("A credit transfer is confirmed by a Platform proof in a couple of seconds."),
@@ -396,7 +404,8 @@ fn sources(w: &Wallet, to: &str) -> [SourceView; 3] {
             icon: "shielded",
             title: tr!("Private pool"),
             duffs: w.balances.shielded,
-            fee: super::shielded::pool_fee(&w.fees, to),
+            fee: pool,
+            max_fee: pool,
             withdrawal: None,
             note_icon: "shield",
             note: tr!(
@@ -503,9 +512,15 @@ pub fn send(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut SendForm) {
         form.resolution = None;
     }
 
-    let all = sources(cx.wallet(), &typed);
+    // The fee from Core is of the coins the amount takes: "Max" spends them all (BUG-55).
+    let for_fee = if form.max {
+        Duffs::MAX
+    } else {
+        crate::format::parse_amount(&form.amount).unwrap_or(0)
+    };
+    let all = sources(cx.wallet(), &typed, for_fee);
     let source = &all[form.source];
-    form.follow_max(source.duffs, source.fee, source.withdrawal);
+    form.follow_max(source.duffs, source.max_fee, source.withdrawal);
     // An address for Core is checked as it is typed, so a typo shows before the password.
     let typed_address =
         source.source == Source::Core && !typed.is_empty() && !typed.starts_with('@');
@@ -738,7 +753,7 @@ pub fn send(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut SendForm) {
                 }
                 if all {
                     form.max = true;
-                    form.follow_max(source.duffs, source.fee, source.withdrawal);
+                    form.follow_max(source.duffs, source.max_fee, source.withdrawal);
                 }
                 if resp.changed() || all {
                     form.result = None;
@@ -1141,7 +1156,7 @@ fn confirm(
     ask_password: bool,
 ) {
     let p = a.p;
-    let all = sources(cx.wallet(), form.recipient.trim());
+    let all = sources(cx.wallet(), form.recipient.trim(), amount);
     let source = &all[form.source];
     let to = form.recipient.trim().to_string();
     let from_core = source.source == Source::Core;
@@ -1647,6 +1662,7 @@ mod tests {
     fn zero_fees() -> evolite_api::Fees {
         evolite_api::Fees {
             core_payment: 0,
+            core_coins: Vec::new(),
             credit_transfer: 0,
             pool_transfer: 0,
             nft_transfer: 0,

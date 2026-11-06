@@ -1183,6 +1183,11 @@
     "few": "{} дня назад",
     "many": "{} дней назад"
   },
+  "{} identity|{} identities": {
+    "one": "{} identity",
+    "few": "{} identity",
+    "many": "{} identity"
+  },
   "{} in Platform credits": "{} в кредитах Platform",
   "{} min": "{} мин",
   "{} nodes": "{} узлов",

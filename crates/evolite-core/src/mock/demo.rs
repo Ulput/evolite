@@ -219,6 +219,8 @@ pub(super) fn demo_wallet(t: Timestamp) -> Wallet {
             core: 841_200_000,
             core_addresses: 3,
             credits: 120_000_000,
+            // @satoshi-lab has no credits in the demo.
+            all_credits: 120_000_000,
             platform_address: 73_400_000,
             shielded: 250_000_000,
         },
@@ -639,7 +641,22 @@ pub(super) fn demo_wallet(t: Timestamp) -> Wallet {
         ],
         nfts_status: NftsStatus::Ready,
         fees: Fees {
-            core_payment: 226,
+            core_payment: 522,
+            // The Core balance in three coins (BUG-55): a payment costs the coins it takes.
+            core_coins: vec![
+                CoreCoin {
+                    value: 500_000_000,
+                    fee: 226,
+                },
+                CoreCoin {
+                    value: 300_000_000,
+                    fee: 374,
+                },
+                CoreCoin {
+                    value: 41_200_000,
+                    fee: 522,
+                },
+            ],
             credit_transfer: 2_000,
             pool_transfer: 114_140,
             nft_transfer: 30_000,
