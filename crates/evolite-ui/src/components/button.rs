@@ -466,4 +466,75 @@ mod tests {
         assert!(click_text_action_at(8.0), "on the icon");
         assert!(click_text_action_at(60.0), "on the words");
     }
+
+    /// A dialog that spends, its primary turned on late (the payment's address on its way).
+    struct Late {
+        a: Assets,
+        on: bool,
+        pressed: u32,
+        fonts: bool,
+    }
+
+    /// Review r3 of b′: the wait for a fresh Enter counts from when the late primary took the
+    /// focus, not from the opening — an Enter right after it turns on presses nothing, one the
+    /// wait later presses it.
+    #[test]
+    fn a_late_primary_waits_from_when_it_turns_on() {
+        let state = Late {
+            a: Assets {
+                p: crate::theme::DARK,
+                icons: crate::icons::Icons::load(),
+                avatars: Default::default(),
+            },
+            on: false,
+            pressed: 0,
+            fonts: false,
+        };
+        let mut kit = egui_kittest::Harness::builder()
+            .with_size(vec2(800.0, 600.0))
+            .build_ui_state(
+                |ui, s: &mut Late| {
+                    // The app's fonts; they take effect from the next frame, which opens the
+                    // dialog.
+                    if !s.fonts {
+                        crate::theme::install_fonts(ui.ctx(), crate::i18n::Lang::En, false);
+                        s.fonts = true;
+                        return;
+                    }
+                    let on = s.on;
+                    let mut pressed = false;
+                    dialog(ui, &mut s.a, "late", "send", "Late", 400.0, |ui, a| {
+                        button_row_spend(ui, |ui| {
+                            button(ui, a, "Cancel", ButtonKind::Ghost, None);
+                            pressed = button_enabled(ui, a, "Sign", ButtonKind::Primary, None, on)
+                                .clicked();
+                        });
+                        false
+                    });
+                    s.pressed += u32::from(pressed);
+                },
+                state,
+            );
+        let wait = crate::a11y::SPEND_KEYS_AFTER + std::time::Duration::from_millis(100);
+        kit.run_steps(3);
+        // Longer than the wait since the opening; only then the primary turns on.
+        std::thread::sleep(wait);
+        kit.state_mut().on = true;
+        kit.run_steps(3);
+        kit.key_press(egui::Key::Enter);
+        kit.run_steps(2);
+        assert_eq!(
+            kit.state().pressed,
+            0,
+            "Enter right after it turned on pressed it"
+        );
+        std::thread::sleep(wait);
+        kit.key_press(egui::Key::Enter);
+        kit.run_steps(2);
+        assert_eq!(
+            kit.state().pressed,
+            1,
+            "a fresh Enter the wait later presses it"
+        );
+    }
 }

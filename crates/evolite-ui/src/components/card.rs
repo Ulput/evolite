@@ -115,6 +115,8 @@ impl RowCell {
 
     /// `frame.show(ui, add)`; in a row, the background waits for the row's height.
     pub fn card<R>(&mut self, ui: &mut Ui, frame: Frame, add: impl FnOnce(&mut Ui) -> R) -> R {
+        // One card per cell: a second would leave the first one's background unpainted.
+        debug_assert!(self.card.is_none(), "a cell of two_columns draws one card");
         if !self.in_row {
             return frame.show(ui, add).inner;
         }

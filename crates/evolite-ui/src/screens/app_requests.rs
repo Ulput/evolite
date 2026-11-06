@@ -299,10 +299,9 @@ fn answers(
             .password
             .field(ui, &p, "app-request-password", answer.ask);
     let ready = answer.password.ready(answer.ask);
-    // A sign-in (and an operation to sign) is asked by the site, not by the person: Enter must
-    // not allow it (the designer,
-    // 2026-11-06, rule b′): the focus starts on «Decline» and «Allow sign-in» goes only by
-    // a click or Tab and Enter on it.
+    // A sign-in, or an operation to sign, is asked by the site, not by the person: Enter must
+    // not allow it (the designer, 2026-11-06, rule b′). The focus starts on «Decline», and
+    // «Allow sign-in» or «Sign» goes only by a click, or by Tab and Enter on it.
     crate::components::button_row_destructive_if(ui, asked_by_the_app, |ui| match answer.consent {
         Consent::Asking => {
             if button(ui, a, no, ButtonKind::Ghost, None).clicked() {
