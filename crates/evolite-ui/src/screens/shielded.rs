@@ -3,9 +3,9 @@
 
 use super::txt;
 use crate::components::{
-    Assets, ButtonKind, SpendPassword, TxRow, amount_field, button, button_enabled, button_row,
-    card, dialog, error_notice, field_label, grow, inner, kv_row, list_card, notice, page_header,
-    password_asked, progress_bar, segmented_with_off, select_row, tx_row,
+    Assets, ButtonKind, RowCell, SpendPassword, TxRow, amount_field, button, button_enabled,
+    button_row, card, dialog, error_notice, field_label, inner, kv_row, list_card, notice,
+    page_header, password_asked, progress_bar, segmented_with_off, select_row, tx_row,
 };
 use crate::context::Ctx;
 use crate::text;
@@ -160,12 +160,12 @@ pub fn shielded(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut PoolState
             // One grid for the cards and the actions: halves with a gap of 20, the actions in
             // the same columns (design review 2026-11-05 №7).
             let half = if wide { (total - 20.0) / 2.0 } else { total };
-            crate::components::two_columns(ui, "balance-how", wide, |ui, first, extra| {
+            crate::components::two_columns(ui, wide, |ui, first, cell| {
                 if first {
                     let pool = (wallet.balances.shielded, &wallet.pool);
-                    balance(ui, a, pool, now, half, extra);
+                    balance(ui, a, pool, now, half, cell);
                 } else {
-                    how(ui, a, half, extra);
+                    how(ui, a, half, cell);
                 }
             });
 
@@ -277,10 +277,10 @@ fn balance(
     (duffs, pool): (i64, &Pool),
     now: chrono::DateTime<chrono::Local>,
     width: f32,
-    extra: f32,
+    cell: &mut RowCell,
 ) {
     let p = a.p;
-    card(&p, Margin::same(24)).show(ui, |ui| {
+    cell.card(ui, card(&p, Margin::same(24)), |ui| {
         ui.set_width(inner(width, 24));
         ui.spacing_mut().item_spacing.y = 10.0;
         ui.horizontal(|ui| {
@@ -299,13 +299,12 @@ fn balance(
                 .font(mono(12.0, Weight::Regular))
                 .color(p.muted),
         );
-        grow(ui, extra);
     });
 }
 
-fn how(ui: &mut Ui, a: &mut Assets, width: f32, extra: f32) {
+fn how(ui: &mut Ui, a: &mut Assets, width: f32, cell: &mut RowCell) {
     let p = a.p;
-    card(&p, Margin::same(24)).show(ui, |ui| {
+    cell.card(ui, card(&p, Margin::same(24)), |ui| {
         ui.set_width(inner(width, 24));
         ui.spacing_mut().item_spacing.y = 12.0;
         ui.label(txt(tr!("How it works"), 15.0, Weight::SemiBold, p.text));
@@ -321,7 +320,6 @@ fn how(ui: &mut Ui, a: &mut Assets, width: f32, extra: f32) {
                 );
             });
         }
-        grow(ui, extra);
     });
 }
 

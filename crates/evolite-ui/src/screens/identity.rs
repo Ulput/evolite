@@ -3,9 +3,9 @@
 
 use super::{Screen, txt};
 use crate::components::{
-    Assets, ButtonKind, FieldKind, SpendPassword, amount_field, avatar, button, button_enabled,
-    button_row, card, chip, dialog, divider, field_label, grow, inner, kv_row, list_card, notice,
-    page_header, pill, text_action, text_field, two_columns,
+    Assets, ButtonKind, FieldKind, RowCell, SpendPassword, amount_field, avatar, button,
+    button_enabled, button_row, card, chip, dialog, divider, field_label, inner, kv_row,
+    list_card_in, notice, page_header, pill, text_action, text_field, two_columns,
 };
 use crate::context::Ctx;
 use crate::text::{self, group_thousands, short_id};
@@ -288,11 +288,11 @@ pub fn identity(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut IdentityS
             let wide = total >= 760.0;
             let half = if wide { (total - 20.0) / 2.0 } else { total };
 
-            two_columns(ui, "profile-credits", wide, |ui, first, extra| {
+            two_columns(ui, wide, |ui, first, cell| {
                 if first {
-                    profile(ui, a, state, identity, half, extra, &mut asked);
+                    profile(ui, a, state, identity, half, cell, &mut asked);
                 } else {
-                    match credits(ui, a, &wallet.balances, &wallet.fees, half, extra) {
+                    match credits(ui, a, &wallet.balances, &wallet.fees, half, cell) {
                         Some(CreditsAction::TopUp) => state.top_up_clicked(wallet),
                         // Send from credits: to this wallet's own Core address (it can be
                         // changed there), or to someone yet to type.
@@ -304,11 +304,11 @@ pub fn identity(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut IdentityS
                     }
                 }
             });
-            two_columns(ui, "names-keys", wide, |ui, first, extra| {
+            two_columns(ui, wide, |ui, first, cell| {
                 if first {
-                    names(ui, a, identity, half, extra);
+                    names(ui, a, identity, half, cell);
                 } else {
-                    keys(ui, a, identity, half, extra);
+                    keys(ui, a, identity, half, cell);
                 }
             });
         });
@@ -340,13 +340,13 @@ fn profile(
     state: &mut IdentityState,
     id: &Identity,
     width: f32,
-    extra: f32,
+    cell: &mut RowCell,
     asked: &mut Vec<Command>,
 ) {
     let p = a.p;
     let name = id.name().map(|n| format!("@{n}"));
     let display = id.profile.as_ref().and_then(|pr| pr.display.clone());
-    card(&p, Margin::same(24)).show(ui, |ui| {
+    cell.card(ui, card(&p, Margin::same(24)), |ui| {
         ui.set_width(inner(width, 24));
         ui.spacing_mut().item_spacing.y = 14.0;
         // A text action in the card's top right corner, on its right margin (design review
@@ -470,7 +470,6 @@ fn profile(
             mono(13.0, Weight::Medium),
         );
         kv_row(ui, &p, tr!("Source"), &id.key_source, value);
-        grow(ui, extra);
     });
 }
 
@@ -1374,12 +1373,12 @@ fn credits(
     balances: &Balances,
     fees: &Fees,
     width: f32,
-    extra: f32,
+    cell: &mut RowCell,
 ) -> Option<CreditsAction> {
     let duffs = balances.credits;
     let p = a.p;
     let mut clicked = None;
-    card(&p, Margin::same(24)).show(ui, |ui| {
+    cell.card(ui, card(&p, Margin::same(24)), |ui| {
         ui.set_width(inner(width, 24));
         ui.spacing_mut().item_spacing.y = 12.0;
         ui.horizontal(|ui| {
@@ -1432,7 +1431,6 @@ fn credits(
                 }
             }
         });
-        grow(ui, extra);
     });
     clicked
 }
@@ -1457,13 +1455,13 @@ fn tile(ui: &mut Ui, a: &mut Assets, icon: &str, label: &str, width: f32) -> egu
     resp.on_hover_cursor(CursorIcon::PointingHand)
 }
 
-fn names(ui: &mut Ui, a: &mut Assets, id: &Identity, width: f32, extra: f32) {
-    list_card(
+fn names(ui: &mut Ui, a: &mut Assets, id: &Identity, width: f32, cell: &mut RowCell) {
+    list_card_in(
         ui,
         a,
+        cell,
         width,
-        tr!("DPNS names"),
-        &id.names.len().to_string(),
+        (tr!("DPNS names"), &id.names.len().to_string()),
         |ui, a| {
             let p = a.p;
             for n in &id.names {
@@ -1502,16 +1500,15 @@ fn names(ui: &mut Ui, a: &mut Assets, id: &Identity, width: f32, extra: f32) {
                 });
                 ui.add_space(12.0);
             }
-            grow(ui, extra);
         },
     );
 }
 
-fn keys(ui: &mut Ui, a: &mut Assets, id: &Identity, width: f32, extra: f32) {
+fn keys(ui: &mut Ui, a: &mut Assets, id: &Identity, width: f32, cell: &mut RowCell) {
     // The note is the count, as on "DPNS names": every key's details are already in its row, and
     // a "Details" there read as a link that led nowhere.
     let count = id.keys.len().to_string();
-    list_card(ui, a, width, tr!("Keys"), &count, |ui, a| {
+    list_card_in(ui, a, cell, width, (tr!("Keys"), &count), |ui, a| {
         let p = a.p;
         for key in &id.keys {
             let level = text::key_level(key.level);
@@ -1559,7 +1556,6 @@ fn keys(ui: &mut Ui, a: &mut Assets, id: &Identity, width: f32, extra: f32) {
                 p.muted,
             );
         }
-        grow(ui, extra);
     });
 }
 

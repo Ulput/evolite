@@ -6,6 +6,7 @@
 
 use super::*;
 use crate::i18n::{Lang, spoken, t_in};
+use crate::screens::Screen;
 use evolite_api::{IdentityChoice, Wallet};
 
 const WINDOW: f32 = 1024.0;
@@ -216,4 +217,78 @@ fn shielding_opens_empty_and_without_an_error() {
         kit.query_by_label("Max").is_some(),
         "«Max» beside the field"
     );
+}
+
+/// The cards painted in the last frame: filled rectangles with the card's radius
+/// (`components::card`; a card in a row also lays out an unpainted frame of its own).
+fn card_backgrounds(kit: &Kit) -> Vec<egui::Rect> {
+    fn walk(shape: &egui::Shape, found: &mut Vec<egui::Rect>) {
+        match shape {
+            egui::Shape::Rect(r)
+                if r.corner_radius == egui::CornerRadius::same(16)
+                    && r.fill != egui::Color32::TRANSPARENT =>
+            {
+                found.push(r.rect);
+            }
+            egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, found)),
+            _ => {}
+        }
+    }
+    let mut found = Vec::new();
+    for clipped in &kit.output().shapes {
+        walk(&clipped.shape, &mut found);
+    }
+    found
+}
+
+/// BUG-62: the cards of a row are one height from the very first frame of the screen, and stay
+/// so — frame after frame nothing under the first row moves. Before, the heights were measured
+/// the frame before: the first frame showed a short card, and the two cards of a row took turns
+/// growing every frame (`grow` grew a card by about its own height more than asked), so the
+/// tiles of Identity and the pool flickered.
+#[test]
+fn the_cards_stand_still_frame_after_frame() {
+    for (screen, under) in [
+        (Screen::Identity, "DPNS names"),
+        (Screen::Shielded, "Private address"),
+    ] {
+        let (_turn, mut kit) = demo_app("overview", "en");
+        kit.run_steps(2);
+        kit.state_mut().screen = screen;
+        let mut tops = Vec::new();
+        for frame in 0..8 {
+            kit.run_steps(1);
+            let top = kit
+                .query_all_by(|n| {
+                    n.value().as_deref() == Some(under) || n.label().as_deref() == Some(under)
+                })
+                .next()
+                .unwrap_or_else(|| panic!("{screen:?}, frame {frame}: no «{under}»"))
+                .rect()
+                .top();
+            tops.push(top);
+            // Every row of two cards side by side: one height.
+            let cards = card_backgrounds(&kit);
+            let mut rows = 0;
+            for (i, a) in cards.iter().enumerate() {
+                for b in &cards[i + 1..] {
+                    if (a.top() - b.top()).abs() < 0.5 && a.left() != b.left() {
+                        rows += 1;
+                        assert!(
+                            (a.height() - b.height()).abs() < 0.5,
+                            "{screen:?}, frame {frame}: the cards of a row differ: {a:?}, {b:?}"
+                        );
+                    }
+                }
+            }
+            assert!(
+                rows >= 1,
+                "{screen:?}, frame {frame}: no row of two in {cards:?}"
+            );
+        }
+        assert!(
+            tops.windows(2).all(|w| (w[0] - w[1]).abs() < 0.5),
+            "{screen:?}: «{under}» under the first row moves: {tops:?}"
+        );
+    }
 }
