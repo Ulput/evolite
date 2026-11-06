@@ -2035,6 +2035,36 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// BUG-64, reads only: what a copy of a store holds for each Core transaction (its
+    /// context and amount). `EVOLITE_B64_STORE=<platform-wallet.db>`, `EVOLITE_B64_WALLET=<hex id>`.
+    #[test]
+    #[ignore = "reads a store copy named by EVOLITE_B64_STORE"]
+    fn store_contexts() {
+        let store = std::env::var("EVOLITE_B64_STORE").expect("EVOLITE_B64_STORE");
+        let wallet = std::env::var("EVOLITE_B64_WALLET").expect("EVOLITE_B64_WALLET");
+        let mut id = [0u8; 32];
+        for (i, b) in id.iter_mut().enumerate() {
+            *b = u8::from_str_radix(&wallet[2 * i..2 * i + 2], 16).unwrap();
+        }
+        for r in stored_history(std::path::Path::new(&store), &id).unwrap() {
+            let context = match &r.context {
+                key_wallet::transaction_checking::TransactionContext::InstantSend(_) => {
+                    "InstantSend".to_owned()
+                }
+                c => format!("{c:?}"),
+            };
+            println!(
+                "{} {context} {:?} {:?} net {} ins {} outs {}",
+                r.txid,
+                r.transaction_type,
+                r.direction,
+                r.net_amount,
+                r.input_details.len(),
+                r.output_details.len()
+            );
+        }
+    }
+
     /// BUG-7: which tracked locks hold "The top-up stopped", and which only await a ChainLock.
     #[test]
     fn an_unfinished_top_up_is_a_lock_platform_has_not_taken() {

@@ -23,6 +23,7 @@ mod identity;
 mod journal;
 mod json_file;
 mod mempool;
+mod mined;
 mod nfts;
 mod node;
 mod outgoing;
@@ -107,6 +108,8 @@ pub struct Paths {
     pub address_book: PathBuf,
     /// When payments out of a block were first seen ([`mempool::MempoolSeen`]).
     pub mempool: PathBuf,
+    /// The block each Core transaction was seen in ([`mined::Mined`]).
+    pub mined: PathBuf,
     /// The shielded pool's note store and commitment tree ([`pool`]).
     pub pool: PathBuf,
     /// Apps signed in as an identity ([`connected_apps::ConnectedApps`]).
@@ -139,6 +142,7 @@ impl Paths {
             resync: wallets.join("resync-on-start"),
             address_book: wallets.join("address-book.json"),
             mempool: wallets.join("mempool-seen.json"),
+            mined: wallets.join("mined.json"),
             pool: wallets.join("shielded-pool.db"),
             connected_apps: wallets.join("connected-apps.json"),
         }
@@ -345,6 +349,10 @@ struct Real {
     nodes: Option<(tokio::time::Instant, Vec<NodeInfo>, Vec<NodeInfo>)>,
     /// When payments still out of a block were first seen, kept between runs.
     mempool: mempool::MempoolSeen,
+    /// The block each Core transaction was seen in, for one the wallet took out of it (BUG-64).
+    mined: mined::Mined,
+    /// The lowest height the filters were asked to be scanned again from in this run (BUG-64).
+    rescanned_from: Option<u32>,
     /// Lock after this long without a `Touch`; `None`: only when the app closes.
     auto_lock: Option<Duration>,
     last_touch: tokio::time::Instant,
@@ -792,6 +800,7 @@ impl Real {
         };
         let journal = Arc::new(journal::Journal::new(paths.journal.clone()));
         let mempool = mempool::MempoolSeen::new(paths.mempool.clone());
+        let mined = mined::Mined::new(paths.mined.clone());
         let contact_paid = Arc::new(contact_addresses::ContactAddresses::new(
             paths.contact_addresses.clone(),
         ));
@@ -866,6 +875,8 @@ impl Real {
             phrase_check: None,
             stored_history: Vec::new(),
             history_read: None,
+            mined,
+            rescanned_from: None,
             outgoing: Default::default(),
             platform_sending: Default::default(),
             previews: Default::default(),
@@ -877,6 +888,31 @@ impl Real {
 
     fn pending_names(&self) -> pending::PendingNames {
         pending::PendingNames::new(self.paths.pending_names.clone())
+    }
+
+    /// Asks the wallet to scan its compact filters again from `from` (BUG-64): a block it
+    /// took a transaction out of is matched and applied again, and the store gets it. Once
+    /// the sync is done, and only below the lowest height asked in this run, so it never
+    /// repeats itself; the journal says why (`lost_block` or `stale`). Whether it was asked.
+    async fn rescan_from(&mut self, id: WalletId, from: u32, why: &'static str) -> bool {
+        if self.chain.status().phase != sync::Phase::Synced
+            || self.rescanned_from.is_some_and(|asked| asked <= from)
+        {
+            return false;
+        }
+        let Ok(manager) = self.chain.manager().await else {
+            return false;
+        };
+        self.rescanned_from = Some(from);
+        crate::diag::record(crate::diag::Record::Answer {
+            what: "rescan",
+            outcome: why,
+        });
+        matches!(
+            tokio::task::spawn_blocking(move || manager.spv_rescan_filters_blocking(&id, from))
+                .await,
+            Ok(true)
+        )
     }
 
     /// Reads the wallet's history from the store again when the wallet in memory has new
@@ -1853,6 +1889,7 @@ impl Real {
     async fn wallet(&mut self, id: WalletId, meta: VaultMeta) -> Wallet {
         let mut unfinished = None;
         let mut unfinished_top_up = None;
+        let mut lost_block = None;
         let mut identities = Vec::new();
         // Every identity's credits, the one worked as among them (BUG-56), and the coins'
         // values for the fee of a payment (BUG-55).
@@ -1922,6 +1959,11 @@ impl Real {
                 // input back from our own outputs.
                 let mut all: Vec<_> = self.stored_history.iter().chain(fresh).cloned().collect();
                 convert::attribute_late_inputs(&mut all);
+                // One the wallet took back out of its block is shown in it, and the filters are
+                // scanned again from there so the wallet and the store get it back (BUG-64).
+                lost_block = self
+                    .mined
+                    .recall(&mut all, self.chain.status().chainlock_height);
                 let records: Vec<(String, Activity)> = all
                     .iter()
                     .map(|r| {
@@ -2161,6 +2203,17 @@ impl Real {
             &mut history,
             self.chain.status().headers.map_or(0, |h| h.height),
         );
+        // A payment long out of a block may have lost its block before this file knew it
+        // (BUG-64): the filters are scanned again from the wallet's birth to find it — once for
+        // each such payment, also across restarts (review r1 should 1).
+        if let Some(from) = lost_block.map(|h| h.saturating_sub(1)) {
+            self.rescan_from(id, from, "lost_block").await;
+        } else {
+            let stale = self.mempool.not_rescanned(&history);
+            if !stale.is_empty() && self.rescan_from(id, meta.birth_height, "stale").await {
+                self.mempool.rescanned(&stale);
+            }
+        }
         history.sort_by_key(|a| std::cmp::Reverse(a.at));
         Wallet {
             password_each_send: self.password_each_send,

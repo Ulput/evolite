@@ -287,8 +287,19 @@ mod tests {
             let target = to.join(entry.file_name());
             if entry.file_type()?.is_dir() {
                 copy_dir(&entry.path(), &target)?;
+            } else if entry.file_name() == "evolite.lock" {
+                // The one-window lock of an app open on the folder: held, and not data.
             } else {
-                std::fs::copy(entry.path(), target)?;
+                match std::fs::copy(entry.path(), &target) {
+                    // Part of it locked by an app open on the folder (SQLite's `-shm`, which a
+                    // reader rebuilds from the log): left out.
+                    Err(e) if e.raw_os_error() == Some(33) => {
+                        println!("not copied (locked): {}", entry.path().display())
+                    }
+                    other => {
+                        other?;
+                    }
+                }
             }
         }
         Ok(())
@@ -905,6 +916,208 @@ mod tests {
         assert!(shown < Duration::from_secs(2), "shown after {shown:?}");
         assert_eq!(new.len(), 1, "one line: {new:?}");
         assert!(new[0].txid.is_some());
+    }
+
+    /// BUG-64 on testnet, reads only: once synced, the test wallet's history has no Core line
+    /// without a block that is in fact long mined (the customer's: received 2026-10-26, block
+    /// 1 579 644, shown as "Pending" today). Prints every line still without a block.
+    /// `cargo test -p evolite-core live_nothing_old_waits -- --ignored --nocapture`
+    #[test]
+    #[ignore = "needs testnet access and the test phrase in .env.test.local"]
+    fn live_nothing_old_waits() {
+        use evolite_api::Proof;
+        const OLD: &str = "0666a44a69e6fff9f67384b2791e3509572a72e0035af84703aad2355d67f919";
+        // `EVOLITE_B64_QA=1`: on a copy of the QA data folder instead (its werner555 wallet,
+        // «Кошелёк 2», where the customer saw it), opened with the QA password from its file.
+        let qa = std::env::var("EVOLITE_B64_QA").is_ok();
+        let password = if qa {
+            // A worktree has no `.test-identities`: then the main checkout's.
+            let here = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../.test-identities/qa-evolite-password.txt");
+            let main = std::path::Path::new(r"E:\reps\evolite-rust\.test-identities")
+                .join("qa-evolite-password.txt");
+            std::fs::read_to_string(&here)
+                .or_else(|_| std::fs::read_to_string(&main))
+                .expect("the QA password file")
+                .trim()
+                .to_owned()
+        } else {
+            WARM_PASSWORD.to_owned()
+        };
+        let core = if qa {
+            let dir = std::env::temp_dir().join("evolite-live-b64-qa");
+            let _ = std::fs::remove_dir_all(&dir);
+            copy_dir(std::path::Path::new(r"E:\reps\qa-data"), &dir).expect("a copy of qa-data");
+            let core = Core::real(dir, ArtOptions::default(), || {});
+            core.send(Command::Unlock {
+                password: Password::new(password.clone()),
+            });
+            let wallets = wait_for(&core, 5, |e| match e {
+                Event::Done {
+                    what: "unlock",
+                    result,
+                } => Some(result.clone()),
+                _ => None,
+            });
+            println!("QA copy unlocked: {wallets:?}");
+            let target = wait_for(&core, 2, |e| match e {
+                Event::Snapshot(s) => s
+                    .wallets
+                    .iter()
+                    .find(|w| w.name == "Кошелёк 2")
+                    .map(|w| (w.id.clone(), w.open)),
+                _ => None,
+            });
+            if !target.1 {
+                core.send(Command::SwitchWallet {
+                    id: target.0,
+                    password: Some(Password::new(password.clone())),
+                });
+            }
+            core
+        } else {
+            warm_wallet("evolite-live-nothing-old-waits")
+        };
+        // Prints the stage, Core balance, the lines without a block and the old payment each
+        // time they change, for `secs`; the last of them.
+        let watch = |label: &str, secs: u64| {
+            let started = Instant::now();
+            let mut last = None;
+            while started.elapsed() < Duration::from_secs(secs) {
+                for event in core.events() {
+                    let Event::Snapshot(s) = event else { continue };
+                    let Some(w) = &s.wallet else { continue };
+                    let waiting: Vec<_> = w
+                        .activity
+                        .iter()
+                        .filter(|a| {
+                            a.chain != evolite_api::Chain::Platform
+                                && a.block.is_none()
+                                && a.proof != Proof::Proved
+                        })
+                        .map(|a| {
+                            let txid = a.txid.clone().unwrap_or_default();
+                            (txid, format!("{:?}", a.kind), a.proof, a.at)
+                        })
+                        .collect();
+                    let old = w
+                        .activity
+                        .iter()
+                        .find(|a| a.txid.as_deref() == Some(OLD))
+                        .map(|a| (a.proof, a.block, a.at));
+                    let mined = w.activity.iter().filter(|a| a.block.is_some()).count();
+                    let now = (s.sync.stage, w.balances.core, waiting, old);
+                    if last.as_ref() != Some(&now) {
+                        println!(
+                            "{label} {} s: headers {} filters {} tip {} mined {mined}/{} {now:?}",
+                            started.elapsed().as_secs(),
+                            s.sync.headers_height,
+                            s.sync.filters_height,
+                            s.sync.tip_height,
+                            w.activity.len()
+                        );
+                        last = Some(now);
+                    }
+                }
+                std::thread::sleep(Duration::from_millis(500));
+            }
+            last.expect("snapshots")
+        };
+        let (stage, _, waiting, old) = watch("open", if qa { 240 } else { 90 });
+        // The QA copy may hold the customer's broken store: then it goes on to the restart.
+        let first_ok = stage == SyncStage::Done
+            && old.is_none_or(|(_, block, _)| block.is_some())
+            && waiting.is_empty();
+        println!("open: {stage:?} old {old:?} waiting {waiting:?}");
+        assert!(qa || first_ok, "after opening");
+        // The customer's way (BUG-64): "Add a wallet", back, the password again — a new chain
+        // on the same store in the same process.
+        core.send(Command::AddWallet);
+        std::thread::sleep(Duration::from_secs(3));
+        core.send(Command::CancelAddWallet);
+        std::thread::sleep(Duration::from_secs(3));
+        core.send(Command::Unlock {
+            password: Password::new(password.clone()),
+        });
+        let (stage, _, waiting, old) = watch("again", 4 * 60);
+        assert_eq!(stage, SyncStage::Done);
+        assert!(
+            old.is_none_or(|(_, block, _)| block.is_some()),
+            "the old payment waits: {old:?}"
+        );
+        assert!(waiting.is_empty(), "lines without a block: {waiting:?}");
+    }
+
+    /// BUG-64 on testnet: a payment to the wallet's own address is "Confirmed" by its InstantLock
+    /// in seconds, and stays at least that after the app is opened again on the same folder —
+    /// then "In a block" and "Final" as the chain goes on. Prints each change of its status.
+    /// Only the fee is spent (~226 duffs).
+    /// `cargo test -p evolite-core live_instant_payment_stays -- --ignored --nocapture`
+    #[test]
+    #[ignore = "needs testnet access and a funded test phrase in .env.test.local"]
+    fn live_instant_payment_stays_confirmed_after_a_restart() {
+        use evolite_api::Proof;
+        let name = "evolite-live-instant-restart";
+        let core = warm_wallet(name);
+        let wallet = wait_for(&core, 60, |e| match e {
+            Event::Snapshot(s) if s.sync.stage == SyncStage::Done => s.wallet.clone(),
+            _ => None,
+        });
+        assert!(wallet.balances.core > 20_000, "the test wallet needs coins");
+        let to = wallet.core_address.clone();
+        let (_, new) = watch_send(&core, &wallet, evolite_api::Source::Core, to, 10_000, 30);
+        let txid = new
+            .iter()
+            .find_map(|a| a.txid.clone())
+            .expect("the payment's line");
+        // Its status as each snapshot shows it, printed when it changes, until `done` says so.
+        let follow = |core: &Core, label: &str, secs: u64, done: &dyn Fn(Proof) -> bool| {
+            let started = Instant::now();
+            let mut last = None;
+            while started.elapsed() < Duration::from_secs(secs) {
+                for event in core.events() {
+                    if let Event::Snapshot(s) = event {
+                        let Some(a) = s.wallet.as_ref().and_then(|w| {
+                            w.activity.iter().find(|a| a.txid.as_ref() == Some(&txid))
+                        }) else {
+                            continue;
+                        };
+                        let now = (
+                            a.proof,
+                            a.block,
+                            s.sync.stage,
+                            s.sync.tip_height,
+                            s.sync.chainlocked,
+                        );
+                        if last != Some(now) {
+                            println!("{label} {} s: {now:?}", started.elapsed().as_secs());
+                            last = Some(now);
+                        }
+                    }
+                }
+                if last.is_some_and(|(p, ..)| done(p)) {
+                    return last.map(|(p, ..)| p);
+                }
+                std::thread::sleep(Duration::from_millis(200));
+            }
+            last.map(|(p, ..)| p)
+        };
+        let first = follow(&core, "run 1", 60, &|p| {
+            p != Proof::Mempool && p != Proof::Sending
+        });
+        println!("run 1: {first:?}");
+        drop(core);
+        std::thread::sleep(Duration::from_secs(10));
+
+        // The same folder opened again, as the app is the next day.
+        let dir = std::env::temp_dir().join(name);
+        let core = Core::real(dir, ArtOptions::default(), || {});
+        core.send(Command::Unlock {
+            password: Password::new(WARM_PASSWORD.into()),
+        });
+        let again = follow(&core, "run 2", 9 * 60, &|p| p == Proof::ChainLock);
+        assert_eq!(first, Some(Proof::InstantLock), "confirmed in run 1");
+        assert_eq!(again, Some(Proof::ChainLock), "final in run 2");
     }
 
     /// BUG-12 on testnet, credits: 0.0001 DASH of the identity's credits to the wallet's own
