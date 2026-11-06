@@ -5,13 +5,14 @@
 use super::parts::{Control, group, heading};
 use super::{PasswordChange, SettingsState};
 use crate::components::{
-    Assets, ButtonKind, FieldKind, button, button_enabled, dialog, field_label, notice, text_field,
+    Assets, ButtonKind, FieldKind, button, button_enabled, button_row, dialog, field_label, notice,
+    text_field,
 };
 use crate::context::Ctx;
 use crate::screens::onboarding::{missing, missing_line, strength};
 use crate::screens::txt;
 use crate::theme::Weight;
-use egui::{Align, Layout, Ui};
+use egui::Ui;
 use evolite_api::{Command, CoreError, Password};
 use zeroize::Zeroize;
 
@@ -166,7 +167,7 @@ pub(super) fn password_dialog(
                         "Password changed. The phrase is the same — your paper copy is still right."
                     ),
                 );
-                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                button_row(ui, |ui| {
                     if button(ui, a, tr!("Done"), ButtonKind::Primary, None).clicked() {
                         close = true;
                     }
@@ -219,8 +220,7 @@ pub(super) fn password_dialog(
             if let Some(line) = answer {
                 ui.label(txt(&line, 12.0, Weight::Regular, p.danger));
             }
-            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                ui.spacing_mut().item_spacing.x = 10.0;
+            button_row(ui, |ui| {
                 let ready = !change.old.is_empty()
                     && missing(&change.new).is_empty()
                     && change.new == change.repeat
@@ -284,8 +284,7 @@ fn each_off_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut Settin
             let entered = form.field(ui, &p, "password-each-send-off", true);
             let ready = form.ready(true);
             let mut close = false;
-            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                ui.spacing_mut().item_spacing.x = 10.0;
+            button_row(ui, |ui| {
                 if button_enabled(ui, a, tr!("Turn off"), ButtonKind::Primary, None, ready)
                     .clicked()
                     || (entered && ready)

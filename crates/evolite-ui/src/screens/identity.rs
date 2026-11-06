@@ -4,8 +4,8 @@
 use super::{Screen, txt};
 use crate::components::{
     Assets, ButtonKind, FieldKind, SpendPassword, amount_field, avatar, button, button_enabled,
-    card, chip, dialog, divider, field_label, grow, inner, kv_row, list_card, notice, page_header,
-    pill, text_action, text_field, two_columns,
+    button_row, card, chip, dialog, divider, field_label, grow, inner, kv_row, list_card, notice,
+    page_header, pill, text_action, text_field, two_columns,
 };
 use crate::context::Ctx;
 use crate::text::{self, group_thousands, short_id};
@@ -645,8 +645,7 @@ fn edit_profile(
             let ready = url_ok && !form.waiting && form.password.ready(ask);
             let mut close = false;
             let changed = form.changes(id.profile.as_ref());
-            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                ui.spacing_mut().item_spacing.x = 10.0;
+            button_row(ui, |ui| {
                 let label = if form.waiting {
                     tr!("Saving…")
                 } else {
@@ -1119,8 +1118,7 @@ fn top_up_dialog(
             let ask = wallet.password_each_send && running.is_none();
             let entered = state.top_up_password.field(ui, &p, "top-up-password", ask);
             let mut close = false;
-            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                ui.spacing_mut().item_spacing.x = 10.0;
+            button_row(ui, |ui| {
                 let label = match (running, amount) {
                     (Some(_), _) => tr!("Topping up…").to_string(),
                     (None, Some(d)) => format!(tr!("Top up by {}"), dash(d)),
@@ -1135,7 +1133,7 @@ fn top_up_dialog(
                 {
                     send = amount;
                 }
-                if button(ui, a, tr!("Close"), ButtonKind::Ghost, None).clicked() {
+                if button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked() {
                     close = true;
                 }
             });
@@ -1310,8 +1308,7 @@ fn add_name_dialog(
             let ask = wallet.password_each_send && form.result.is_none();
             let entered = form.password.field(ui, &p, "add-name-password", ask);
             let mut close = false;
-            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                ui.spacing_mut().item_spacing.x = 10.0;
+            button_row(ui, |ui| {
                 let ready = matches!(check, Some(Ok(NameCheck::Available)))
                     && !short
                     && !form.waiting
@@ -1327,7 +1324,7 @@ fn add_name_dialog(
                 {
                     register = true;
                 }
-                if button(ui, a, tr!("Close"), ButtonKind::Ghost, None).clicked() {
+                if button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked() {
                     close = true;
                 }
             });

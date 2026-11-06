@@ -4,13 +4,13 @@
 
 use super::txt;
 use crate::components::{
-    Assets, ButtonKind, FieldKind, button, button_enabled, dialog_with_header, field_label, notice,
-    paint_wallet_dot, text_field,
+    Assets, ButtonKind, FieldKind, button, button_enabled, button_row, dialog_with_header,
+    field_label, notice, paint_wallet_dot, text_field,
 };
 use crate::context::Ctx;
 use crate::i18n::own;
 use crate::theme::Weight;
-use egui::{Align, Layout, Rect, Sense, Ui, vec2};
+use egui::{Rect, Sense, Ui, vec2};
 use evolite_api::{Command, CoreError, Password};
 use zeroize::{Zeroize, Zeroizing};
 
@@ -131,8 +131,7 @@ pub fn switch_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut Switc
                 );
                 ui.add_space(10.0);
                 let ready = !form.password.is_empty() && !form.waiting;
-                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    ui.spacing_mut().item_spacing.x = 10.0;
+                button_row(ui, |ui| {
                     let label = if form.waiting { tr!("Opening…") } else { tr!("Open") };
                     let open =
                         button_enabled(ui, a, label, ButtonKind::Primary, None, ready).clicked();

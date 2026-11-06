@@ -5,8 +5,8 @@
 
 use super::txt;
 use crate::components::{
-    Assets, ButtonKind, FieldKind, SpendPassword, avatar, button, button_enabled, card, dialog,
-    dialog_with_header, field_label, inner, kv_row, notice, page_header, text_field,
+    Assets, ButtonKind, FieldKind, SpendPassword, avatar, button, button_enabled, button_row, card,
+    dialog, dialog_with_header, field_label, inner, kv_row, notice, page_header, text_field,
 };
 use crate::context::Ctx;
 use crate::text::{self, name_problem, plural, short_id};
@@ -559,8 +559,7 @@ fn profile_dialog(
                 ),
             );
             let mut close = false;
-            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                ui.spacing_mut().item_spacing.x = 10.0;
+            button_row(ui, |ui| {
                 if c.state == ContactState::Established
                     && button(ui, a, tr!("Send"), ButtonKind::Primary, None).clicked()
                 {
@@ -772,8 +771,7 @@ fn add_contact(
             let entered = password.field(ui, &p, "add-contact-password", ask);
             let ready = ready && !waiting && password.ready(ask);
             let mut close = false;
-            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                ui.spacing_mut().item_spacing.x = 10.0;
+            button_row(ui, |ui| {
                 let label = if waiting {
                     tr!("Sending…")
                 } else {
@@ -859,8 +857,7 @@ fn accept_dialog(
                 .field(ui, &p, "accept-contact-password", true);
             let ready = !waiting && state.password.ready(true);
             let mut close = false;
-            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                ui.spacing_mut().item_spacing.x = 10.0;
+            button_row(ui, |ui| {
                 let label = if waiting {
                     tr!("Sending…")
                 } else {

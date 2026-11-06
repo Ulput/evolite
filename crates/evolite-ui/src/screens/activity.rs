@@ -2,8 +2,9 @@
 
 use super::txt;
 use crate::components::{
-    Assets, ButtonKind, TxRow, button, button_enabled, dialog_with_header, field_label, kv_row,
-    notice, page_header, paint_icon_box, pill, section_label, status_chip, tx_row_clickable,
+    Assets, ButtonKind, TxRow, button, button_enabled, button_row, dialog_with_header, field_label,
+    kv_row, notice, page_header, paint_icon_box, pill, section_label, status_chip,
+    tx_row_clickable,
 };
 use crate::context::Ctx;
 use crate::csv_export;
@@ -504,7 +505,8 @@ fn card(
                     ),
                 );
             }
-            ui.horizontal(|ui| {
+            // The action on the right, «Close» on its left: as in every dialog (designer review №8).
+            button_row(ui, |ui| {
                 if let Some(repeat) = &repeat
                     && button(ui, a, tr!("Send again"), ButtonKind::Secondary, None)
                         .on_hover_text(
@@ -515,11 +517,9 @@ fn card(
                     paid_again = Some(repeat.clone());
                     close = true;
                 }
-                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    if button(ui, a, tr!("Close"), ButtonKind::Ghost, None).clicked() {
-                        close = true;
-                    }
-                });
+                if button(ui, a, tr!("Close"), ButtonKind::Ghost, None).clicked() {
+                    close = true;
+                }
             });
             close
         },

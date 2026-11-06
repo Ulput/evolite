@@ -4,8 +4,8 @@ use super::parts::{Control, group, heading};
 use super::txt;
 use super::{PhraseCheckForm, SettingsState};
 use crate::components::{
-    Assets, ButtonKind, FieldKind, button, button_enabled, dialog, field_label, notice, pill,
-    text_field,
+    Assets, ButtonKind, FieldKind, button, button_enabled, button_row, dialog, field_label, notice,
+    pill, text_field,
 };
 use crate::context::Ctx;
 use crate::text;
@@ -143,7 +143,7 @@ pub(super) fn check_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mu
                             "All correct: the phrase is written down right. Keep the record where it is."
                         ),
                     );
-                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                    button_row(ui, |ui| {
                         close = button(ui, a, tr!("Done"), ButtonKind::Primary, None).clicked();
                     });
                 }
@@ -158,12 +158,11 @@ pub(super) fn check_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mu
                             number = number
                         ),
                     );
-                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                        ui.spacing_mut().item_spacing.x = 10.0;
+                    button_row(ui, |ui| {
                         if button(ui, a, tr!("Try again"), ButtonKind::Primary, None).clicked() {
                             form.verdict = None;
                         }
-                        close = button(ui, a, tr!("Close"), ButtonKind::Ghost, None).clicked();
+                        close = button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked();
                     });
                 }
                 (None, Some(questions)) => {
@@ -199,8 +198,7 @@ pub(super) fn check_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mu
                             }
                         });
                     }
-                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                        ui.spacing_mut().item_spacing.x = 10.0;
+                    button_row(ui, |ui| {
                         let all = form.picks.iter().all(Option::is_some);
                         let label = if form.waiting {
                             tr!("Checking…")
@@ -268,8 +266,7 @@ pub(super) fn check_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mu
                             ui.label(txt(&line, 12.0, Weight::Regular, p.danger));
                         }
                     });
-                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                        ui.spacing_mut().item_spacing.x = 10.0;
+                    button_row(ui, |ui| {
                         let label = if form.waiting {
                             tr!("Opening…")
                         } else {
@@ -397,8 +394,7 @@ pub(super) fn phrase_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &m
                     ));
                 }
             });
-            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                ui.spacing_mut().item_spacing.x = 10.0;
+            button_row(ui, |ui| {
                 let ready = !state.password.is_empty();
                 if button_enabled(
                     ui,

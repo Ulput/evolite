@@ -5,19 +5,17 @@
 
 use super::txt;
 use crate::components::{
-    Assets, ButtonKind, FieldKind, button, button_enabled, checkbox, dialog, field_label, notice,
-    text_field,
+    Assets, ButtonKind, FieldKind, button, button_enabled, button_row, checkbox, dialog,
+    field_label, notice, text_field,
 };
 use crate::context::Ctx;
 use crate::theme::Weight;
-use egui::{Align, Layout, Ui, vec2};
+use egui::{Align, Layout, Ui};
 use evolite_api::{Command, CoreError, Duffs, Password};
 use zeroize::{Zeroize, Zeroizing};
 
 /// The word typed to confirm.
 const WORD: &str = tr!("delete");
-/// The height of a row of buttons (`components::button`).
-const BUTTON_HEIGHT: f32 = 41.0;
 
 /// The word as typed: in Russian or in the interface language (the hint shows the latter).
 fn typed_word(typed: &str) -> bool {
@@ -177,13 +175,7 @@ pub fn delete_dialog(
         if let Some(error) = error {
             ui.add(egui::Label::new(txt(&error, 12.0, Weight::Regular, p.danger)).wrap());
         }
-        // One row as high as its buttons. `with_layout` would centre them in all the height
-        // left, and the dialog remembers its size: when the body gets shorter (the error gone,
-        // «Forgot the password?» after Settings' deletion) the buttons stayed down, under an
-        // empty space (BUG-39 №13).
-        let row = vec2(ui.available_width(), BUTTON_HEIGHT);
-        ui.allocate_ui_with_layout(row, Layout::right_to_left(Align::Center), |ui| {
-            ui.spacing_mut().item_spacing.x = 10.0;
+        button_row(ui, |ui| {
             let label = if form.waiting {
                 tr!("Deleting…")
             } else {

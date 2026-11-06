@@ -5,15 +5,13 @@ use super::SettingsState;
 use super::parts::heading;
 use super::txt;
 use crate::components::{
-    Assets, ButtonKind, FieldKind, button, button_enabled, card, dialog_with_header, field_label,
-    inner, notice, paint_text, paint_wallet_dot, section_label, text_field,
+    Assets, ButtonKind, FieldKind, button, button_enabled, button_row, card, dialog_with_header,
+    field_label, inner, notice, paint_text, paint_wallet_dot, section_label, text_field,
 };
 use crate::context::{Ctx, WalletRequest};
 use crate::screens::onboarding::Flow;
 use crate::theme::{Weight, sans};
-use egui::{
-    Align, Align2, CornerRadius, CursorIcon, Layout, Margin, Rect, Sense, Stroke, Ui, pos2, vec2,
-};
+use egui::{Align2, CornerRadius, CursorIcon, Margin, Rect, Sense, Stroke, Ui, pos2, vec2};
 use evolite_api::{Command, CoreError};
 
 /// A wallet's name: what the core takes.
@@ -468,8 +466,7 @@ pub(super) fn rename_dialog(
             );
             ui.add_space(10.0);
             let ready = (1..=NAME_MAX).contains(&len) && !form.waiting;
-            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                ui.spacing_mut().item_spacing.x = 10.0;
+            button_row(ui, |ui| {
                 let save =
                     button_enabled(ui, a, tr!("Save"), ButtonKind::Primary, None, ready).clicked();
                 if button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked() {

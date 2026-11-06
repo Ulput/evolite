@@ -11,6 +11,28 @@ pub enum ButtonKind {
     Danger,
 }
 
+/// The height of a [`button`], and so of a row of them.
+pub const BUTTON_HEIGHT: f32 = 41.0;
+
+/// A dialog's row of buttons: on the right, as high as its buttons. `add` draws them right to
+/// left, so the primary one goes first and the secondary («Cancel» when the dialog acts, «Close»
+/// when it only shows) on its left: one order in every dialog (designer review №8). A fixed
+/// height, not `with_layout`: that one takes all the height left and centres the buttons in
+/// it, and a dialog keeps its size and its top (BUG-39 №3, №13), so whatever comes under the
+/// row would grow the dialog every frame.
+pub fn button_row<R>(ui: &mut Ui, add: impl FnOnce(&mut Ui) -> R) -> R {
+    let row = vec2(ui.available_width(), BUTTON_HEIGHT);
+    ui.allocate_ui_with_layout(
+        row,
+        egui::Layout::right_to_left(egui::Align::Center),
+        |ui| {
+            ui.spacing_mut().item_spacing.x = 10.0;
+            add(ui)
+        },
+    )
+    .inner
+}
+
 /// button/primary · secondary · ghost: 14 SemiBold, padding 11 × 18, radius 10.
 pub fn button(
     ui: &mut Ui,
@@ -39,7 +61,7 @@ pub fn button_enabled(
     } else {
         Sense::hover()
     };
-    let (rect, resp) = ui.allocate_exact_size(vec2(w, 41.0), sense);
+    let (rect, resp) = ui.allocate_exact_size(vec2(w, BUTTON_HEIGHT), sense);
     named(&resp, egui::WidgetType::Button, enabled, label);
     let hovered = enabled && resp.hovered();
     let (fill, stroke, color) = match kind {

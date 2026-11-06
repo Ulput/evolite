@@ -3,8 +3,8 @@
 use super::parts::{Control, group, heading};
 use super::{NodeForm, SettingsState};
 use crate::components::{
-    Assets, ButtonKind, FieldKind, button, button_enabled, dialog, field_label, notice, segmented,
-    text_field,
+    Assets, ButtonKind, FieldKind, button, button_enabled, button_row, dialog, field_label, notice,
+    segmented, text_field,
 };
 use crate::context::Ctx;
 use crate::screens::txt;
@@ -300,8 +300,8 @@ pub fn nodes_dialog(ui: &mut Ui, a: &mut Assets, cx: &Ctx, tab: &mut super::Node
                         ui.add_space(6.0);
                     }
                 });
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if button(ui, a, tr!("Close"), ButtonKind::Secondary, None).clicked() {
+            button_row(ui, |ui| {
+                if button(ui, a, tr!("Close"), ButtonKind::Ghost, None).clicked() {
                     close = true;
                 }
             });

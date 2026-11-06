@@ -2,12 +2,12 @@
 //! and that evolite starts again for it. The core clears at the next start, before anything
 //! opens; the app then starts itself again.
 
-use crate::components::{Assets, ButtonKind, button, button_enabled, dialog, kv_row};
+use crate::components::{Assets, ButtonKind, button, button_enabled, button_row, dialog, kv_row};
 use crate::context::Ctx;
 use crate::screens::txt;
 use crate::text;
 use crate::theme::{Weight, sans};
-use egui::{Align, Layout, Ui};
+use egui::Ui;
 use evolite_api::{Command, CoreError};
 
 #[derive(Default)]
@@ -80,8 +80,7 @@ pub(super) fn resync_dialog(
                     .wrap(),
                 );
             }
-            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                ui.spacing_mut().item_spacing.x = 10.0;
+            button_row(ui, |ui| {
                 let label = if form.waiting {
                     tr!("Preparing…")
                 } else {

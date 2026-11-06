@@ -138,3 +138,70 @@ fn a_two_letter_contact_name_says_why() {
             .is_disabled()
     );
 }
+
+/// Designer review №8 (branch D2): one order in every dialog — the secondary button («Cancel»
+/// when the dialog acts, «Close» when it only shows) on the left, the actions on its right, in
+/// one row as high as a button that settles and stays put.
+#[test]
+fn every_dialog_puts_the_secondary_button_on_the_left() {
+    for (preset, secondary) in [
+        ("send-confirm", "Cancel"),
+        ("report", "Cancel"),
+        ("report-letter", "Back"),
+        ("top-up", "Cancel"),
+        ("add-name", "Cancel"),
+        ("edit-profile", "Cancel"),
+        ("add-contact", "Cancel"),
+        ("shield", "Cancel"),
+        ("unshield", "Cancel"),
+        ("pool-address", "Close"),
+        ("wallet-switch", "Cancel"),
+        ("resync", "Cancel"),
+        ("wallet-rename", "Cancel"),
+        ("change-password", "Cancel"),
+        ("phrase", "Cancel"),
+        ("delete", "Cancel"),
+        ("connect", "Decline"),
+    ] {
+        let (_turn, mut kit) = demo_app(preset, "en");
+        wait_for(&mut kit, preset, |kit| {
+            kit.query_all_by_role_and_label(Role::Button, secondary)
+                .next()
+                .is_some()
+        });
+        // The dialog's own: drawn over the page, so last (a page may have its «Cancel» too).
+        let last = |kit: &Kit| {
+            kit.query_all_by_role_and_label(Role::Button, secondary)
+                .last()
+                .map(|b| b.rect())
+                .expect("the secondary button")
+        };
+        // The row settles (the demo core's answers may still lengthen the body) and then stays:
+        // a row that takes all the height left would grow the dialog every frame.
+        let mut left = last(&kit);
+        let mut same = 0;
+        for _ in 0..40 {
+            kit.step();
+            let now = last(&kit);
+            same = if now == left { same + 1 } else { 0 };
+            left = now;
+            if same == 4 {
+                break;
+            }
+        }
+        assert_eq!(same, 4, "{preset}: the row of buttons does not settle");
+        assert_eq!(left.height(), 41.0, "{preset}: «{secondary}» is a button");
+        let row: Vec<_> = kit
+            .query_all_by_role(Role::Button)
+            .map(|b| b.rect())
+            .filter(|r| (r.center().y - left.center().y).abs() < 1.0 && *r != left)
+            .collect();
+        assert!(!row.is_empty(), "{preset}: an action beside «{secondary}»");
+        for r in &row {
+            assert!(
+                r.left() >= left.right(),
+                "{preset}: an action at {r:?} left of «{secondary}» at {left:?}"
+            );
+        }
+    }
+}

@@ -5,8 +5,8 @@
 
 use super::txt;
 use crate::components::{
-    Assets, ButtonKind, FieldKind, button, button_enabled, checkbox, dialog, field_label, notice,
-    segmented, text_area, text_field,
+    Assets, ButtonKind, FieldKind, button, button_enabled, button_row, checkbox, dialog,
+    field_label, notice, segmented, text_area, text_field,
 };
 use crate::context::Ctx;
 use crate::theme::{Weight, mono};
@@ -369,8 +369,7 @@ fn fields_step(ui: &mut Ui, a: &mut Assets, form: &mut ReportForm, room: f32) ->
             });
     let phrase = phrase_notice(ui, a, form);
     let ready = !form.summary.trim().is_empty() && !phrase;
-    ui.horizontal(|ui| {
-        ui.spacing_mut().item_spacing.x = 10.0;
+    button_row(ui, |ui| {
         if button_enabled(
             ui,
             a,
@@ -444,13 +443,19 @@ fn letter_step(
         None => {}
     }
     let ready = !form.summary.trim().is_empty() && !phrase;
-    ui.horizontal(|ui| {
-        ui.spacing_mut().item_spacing.x = 10.0;
-        if button_enabled(ui, a, tr!("Open in email"), ButtonKind::Primary, None, ready).clicked()
+    button_row(ui, |ui| {
+        if button_enabled(
+            ui,
+            a,
+            tr!("Open in email"),
+            ButtonKind::Primary,
+            None,
+            ready,
+        )
+        .clicked()
         {
             form.done = Some(open(&mailto(&subject, &body)).map(|()| {
-                tr!("The email is open in your mail app: check it and press “Send”.")
-                    .to_string()
+                tr!("The email is open in your mail app: check it and press “Send”.").to_string()
             }));
         }
         if button_enabled(

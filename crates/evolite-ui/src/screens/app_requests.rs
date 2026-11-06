@@ -4,18 +4,15 @@
 
 use super::txt;
 use crate::components::{
-    Assets, ButtonKind, FieldKind, Mark, SpendPassword, button, button_enabled, check_line, chip,
-    dialog, divider, error_notice, field_label, kv_row, notice, paint_letter_box, password_asked,
-    select_row, text_action, text_field,
+    Assets, BUTTON_HEIGHT, ButtonKind, FieldKind, Mark, SpendPassword, button, button_enabled,
+    button_row, check_line, chip, dialog, divider, error_notice, field_label, kv_row, notice,
+    paint_letter_box, password_asked, select_row, text_action, text_field,
 };
 use crate::context::Ctx;
 use crate::text::{self, key_level, short_address};
 use crate::theme::{Weight, mono, sans};
 use egui::{Align, Align2, CornerRadius, Layout, Margin, Rect, Sense, Stroke, Ui, pos2, vec2};
 use evolite_api::{AppRequest, AppRequestKind, Command, CoreError, Spend};
-
-/// The height of a row of buttons (`components::button`).
-const BUTTON_HEIGHT: f32 = 41.0;
 
 #[derive(Default)]
 pub struct AppRequests {
@@ -288,32 +285,24 @@ fn answers(ui: &mut Ui, a: &mut Assets, no: &str, yes: &str, answer: &mut Answer
             .password
             .field(ui, &p, "app-request-password", answer.ask);
     let ready = answer.password.ready(answer.ask);
-    // One row as high as its buttons (as in `delete_wallet.rs`). `with_layout` takes all the
-    // height left and centres the buttons in it; the notice under them then pushes the dialog
-    // past the window, and with its top kept (BUG-39 №3) it grew by that notice every frame,
-    // «Close» running away from the pointer.
-    let row = vec2(ui.available_width(), BUTTON_HEIGHT);
-    ui.allocate_ui_with_layout(row, Layout::right_to_left(Align::Center), |ui| {
-        ui.spacing_mut().item_spacing.x = 10.0;
-        match answer.consent {
-            Consent::Asking => {
-                if button_enabled(ui, a, yes, ButtonKind::Primary, None, ready).clicked()
-                    || (entered && ready)
-                {
-                    answer.pick = Some(Pick::Yes);
-                }
-                if button(ui, a, no, ButtonKind::Ghost, None).clicked() {
-                    answer.pick = Some(Pick::No);
-                }
+    button_row(ui, |ui| match answer.consent {
+        Consent::Asking => {
+            if button_enabled(ui, a, yes, ButtonKind::Primary, None, ready).clicked()
+                || (entered && ready)
+            {
+                answer.pick = Some(Pick::Yes);
             }
-            Consent::Sending => {
-                button_enabled(ui, a, tr!("Sending…"), ButtonKind::Primary, None, false);
-                button_enabled(ui, a, no, ButtonKind::Ghost, None, false);
+            if button(ui, a, no, ButtonKind::Ghost, None).clicked() {
+                answer.pick = Some(Pick::No);
             }
-            Consent::Sent | Consent::Failed => {
-                if button(ui, a, tr!("Close"), ButtonKind::Primary, None).clicked() {
-                    answer.pick = Some(Pick::Close);
-                }
+        }
+        Consent::Sending => {
+            button_enabled(ui, a, tr!("Sending…"), ButtonKind::Primary, None, false);
+            button_enabled(ui, a, no, ButtonKind::Ghost, None, false);
+        }
+        Consent::Sent | Consent::Failed => {
+            if button(ui, a, tr!("Close"), ButtonKind::Primary, None).clicked() {
+                answer.pick = Some(Pick::Close);
             }
         }
     });
@@ -543,7 +532,7 @@ fn sign(
         ),
     );
     ui.allocate_ui_with_layout(
-        vec2(ui.available_width(), 41.0),
+        vec2(ui.available_width(), BUTTON_HEIGHT),
         Layout::left_to_right(Align::Center),
         |ui| {
             let label = if showing_bytes {
@@ -691,8 +680,7 @@ pub fn disconnect_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut 
                     text::error_details(e).as_deref(),
                 );
             }
-            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                ui.spacing_mut().item_spacing.x = 10.0;
+            button_row(ui, |ui| {
                 let label = if state.disconnect_waiting {
                     tr!("Disconnecting…")
                 } else {
@@ -769,8 +757,7 @@ fn paste_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut AppReques
                 p.muted,
                 tr!("evolite decodes the link itself and shows exactly what the app asks for."),
             );
-            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                ui.spacing_mut().item_spacing.x = 10.0;
+            button_row(ui, |ui| {
                 let ready = !state.link.trim().is_empty();
                 if button_enabled(ui, a, tr!("Open"), ButtonKind::Primary, None, ready).clicked() {
                     cx.send(Command::OpenAppLink {

@@ -3,9 +3,9 @@
 
 use super::txt;
 use crate::components::{
-    Assets, ButtonKind, SpendPassword, TxRow, amount_field, button, button_enabled, card, dialog,
-    error_notice, field_label, grow, inner, kv_row, list_card, notice, page_header, password_asked,
-    progress_bar, segmented_with_off, select_row, tx_row,
+    Assets, ButtonKind, SpendPassword, TxRow, amount_field, button, button_enabled, button_row,
+    card, dialog, error_notice, field_label, grow, inner, kv_row, list_card, notice, page_header,
+    password_asked, progress_bar, segmented_with_off, select_row, tx_row,
 };
 use crate::context::Ctx;
 use crate::text;
@@ -562,8 +562,7 @@ fn shield_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut PoolStat
             }
             let ask = password_asked(cx.snap) && !busy;
             let entered = state.password.field(ui, &p, "shield-password", ask);
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                ui.spacing_mut().item_spacing.x = 10.0;
+            button_row(ui, |ui| {
                 let ready = !busy && preview.is_some() && state.password.ready(ask);
                 let label = match (busy, resume) {
                     (true, _) => tr!("Shielding…"),
@@ -778,8 +777,7 @@ fn unshield_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut PoolSt
             }
             let ask = password_asked(cx.snap) && !busy;
             let entered = state.password.field(ui, &p, "unshield-password", ask);
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                ui.spacing_mut().item_spacing.x = 10.0;
+            button_row(ui, |ui| {
                 let ready = !busy && left.is_some_and(|l| l >= 0) && state.password.ready(ask);
                 let label = if busy {
                     tr!("Unshielding…")
@@ -855,8 +853,7 @@ fn address_dialog(ui: &mut Ui, a: &mut Assets, state: &mut PoolState, address: &
                     "Transfers to this address go straight into the pool: only you see the amount and the sender."
                 ),
             );
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                ui.spacing_mut().item_spacing.x = 10.0;
+            button_row(ui, |ui| {
                 // Copied like any address (wiped later), with "Copied" for a moment (BUG-39 №1).
                 let copy_id = egui::Id::new("pool-address-copy");
                 let label = if crate::clipboard::just_copied(ui.ctx(), copy_id) {

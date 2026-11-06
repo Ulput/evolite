@@ -632,8 +632,7 @@ fn gift_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut Collection
         let ask = password_asked(cx.snap);
         state.password.settle(state.result.as_ref());
         let entered = state.password.field(ui, &p, "gift-password", ask);
-        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-            ui.spacing_mut().item_spacing.x = 10.0;
+        crate::components::button_row(ui, |ui| {
             let ready =
                 !state.recipient.trim().is_empty() && error.is_none() && state.password.ready(ask);
             if button_enabled(ui, a, tr!("Give"), ButtonKind::Primary, None, ready).clicked()

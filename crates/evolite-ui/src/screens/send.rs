@@ -5,8 +5,8 @@
 
 use super::txt;
 use crate::components::{
-    Assets, ButtonKind, FieldKind, amount_field, button, button_enabled, card, dialog, divider,
-    field_label, kv_row, notice, option_card, page_header, pill, text_field,
+    Assets, ButtonKind, FieldKind, amount_field, button, button_enabled, button_row, card, dialog,
+    divider, field_label, kv_row, notice, option_card, page_header, pill, text_field,
 };
 use crate::context::Ctx;
 use crate::text::{name_problem, short_address};
@@ -1341,8 +1341,7 @@ fn confirm(
                 });
             }
             let mut close = false;
-            ui.horizontal(|ui| {
-                ui.spacing_mut().item_spacing.x = 10.0;
+            button_row(ui, |ui| {
                 let ready = (!ask_password || !form.password.is_empty())
                     && (!from_core || address.is_some());
                 let clicked = button_enabled(
