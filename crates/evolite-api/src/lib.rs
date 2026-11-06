@@ -84,13 +84,25 @@ pub enum ActivityKind {
     },
     PoolReceived,
     PoolSent,
-    /// Credits withdrawn to a Core address (paid out by Platform later).
+    /// Credits withdrawn to a Core address (paid out by Platform later). `status`: how far its
+    /// document on Platform got, once read from there (BUG-58); `None` before.
     Withdrawal {
         to: String,
+        status: Option<WithdrawalState>,
     },
-    /// Our DashPay contact request (to a name or a short id); accepting theirs is one too.
+    /// Our DashPay contact request (to a name or a short id). `accepting`: it answered theirs,
+    /// which came first ("You accepted the request from …", BUG-58).
     ContactRequest {
         to: String,
+        accepting: bool,
+    },
+    /// A DashPay contact request to us, one line per sender and identity of ours (BUG-58):
+    /// `from` as `ContactRequest::to`; `ours`: the `@name` it came to when the wallet has
+    /// more than one identity. Costs nothing: amount 0, no fee.
+    ContactRequestIn {
+        from: String,
+        ours: Option<String>,
+        state: RequestState,
     },
     /// The identity's DashPay profile written.
     ProfileSaved,
@@ -100,11 +112,38 @@ pub enum ActivityKind {
     },
 }
 
+/// A withdrawal document's `status` (the Withdrawals system contract).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum WithdrawalState {
+    Queued,
+    Pooled,
+    Broadcasted,
+    /// Paid out on Core.
+    Complete,
+    Expired,
+}
+
+/// Where a contact request to us stands, as DashPay says it.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum RequestState {
+    /// Not answered.
+    Waiting,
+    /// We answered it with ours.
+    Accepted,
+    /// It answered ours, sent before: we are contacts.
+    TheyAccepted,
+    /// Hidden by us (`HideRequest`).
+    Hidden,
+}
+
 #[derive(Clone, PartialEq, Debug)]
 pub struct Activity {
     pub id: u64,
     pub kind: ActivityKind,
     pub chain: Chain,
+    /// Unix seconds; 0 when the operation has no known time (a note found in the pool by its
+    /// scan): shown as "time unknown", never as 1970, and listed after the dated ones in the
+    /// core's order (BUG-47, BUG-58).
     pub at: Timestamp,
     /// Positive comes in, negative goes out (fees included).
     pub amount: Duffs,

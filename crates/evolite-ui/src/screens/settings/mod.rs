@@ -15,7 +15,7 @@ mod wallets;
 use about::{about, notifications};
 use appearance::appearance;
 pub(crate) use appearance::language_and_theme;
-pub use backup::check_reminder;
+pub use backup::{KEPT_HERE, KEPT_HERE_TEXT, check_reminder};
 use backup::{backup, check_dialog, phrase_dialog};
 use network::network;
 pub use network::nodes_dialog;

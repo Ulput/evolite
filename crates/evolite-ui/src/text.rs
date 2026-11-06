@@ -4,8 +4,8 @@
 
 use chrono::{DateTime, Datelike, Local, TimeZone};
 use evolite_api::{
-    Activity, ActivityKind, Chain, CoreError, KeyLevel, KeyPurpose, Proof, SavedAddress, SyncStage,
-    Timestamp,
+    Activity, ActivityKind, Chain, CoreError, KeyLevel, KeyPurpose, Proof, RequestState,
+    SavedAddress, SyncStage, Timestamp, WithdrawalState,
 };
 
 const MONTHS: [&str; 12] = [
@@ -273,14 +273,62 @@ pub fn activity_title(a: &Activity) -> String {
         ActivityKind::Shielded { from: None } => tr!("Shielded into the private pool").into(),
         ActivityKind::PoolReceived => tr!("Received privately").into(),
         ActivityKind::PoolSent => tr!("Sent privately").into(),
-        ActivityKind::Withdrawal { to } => {
+        ActivityKind::Withdrawal { to, .. } => {
             format!(tr!("Credit withdrawal to {}"), short_address(to))
         }
-        ActivityKind::ContactRequest { to } => format!(tr!("Contact request to {to}"), to = to),
+        ActivityKind::ContactRequest {
+            to,
+            accepting: true,
+        } => format!(tr!("You accepted the request from {to}"), to = to),
+        ActivityKind::ContactRequest { to, .. } => {
+            format!(tr!("Contact request to {to}"), to = to)
+        }
+        // Theirs, answering ours: the request it answered is the line before (BUG-58).
+        ActivityKind::ContactRequestIn {
+            from,
+            state: RequestState::TheyAccepted,
+            ..
+        } => format!(tr!("Your request was accepted: {from}"), from = from),
+        ActivityKind::ContactRequestIn { from, .. } => {
+            format!(tr!("Contact request from {from}"), from = from)
+        }
         ActivityKind::ProfileSaved => tr!("DashPay profile written").into(),
         ActivityKind::NameRegistered { label } => {
             format!(tr!("The name @{label} is registered"), label = label)
         }
+    }
+}
+
+/// How a withdrawal or a contact request to us stands, for its row and card (BUG-58); `None`
+/// for other operations and before Platform was read.
+pub fn activity_status(a: &Activity) -> Option<&'static str> {
+    Some(match &a.kind {
+        ActivityKind::Withdrawal {
+            status: Some(status),
+            ..
+        } => match status {
+            WithdrawalState::Queued | WithdrawalState::Pooled => tr!("In the queue"),
+            WithdrawalState::Broadcasted => tr!("Being paid out"),
+            WithdrawalState::Complete => tr!("Paid out"),
+            WithdrawalState::Expired => tr!("Expired"),
+        },
+        ActivityKind::ContactRequestIn { state, .. } => match state {
+            RequestState::Waiting => tr!("Waiting for an answer"),
+            RequestState::Accepted => tr!("Accepted"),
+            RequestState::TheyAccepted => tr!("You are contacts now"),
+            RequestState::Hidden => tr!("Hidden"),
+        },
+        _ => return None,
+    })
+}
+
+/// The identity of ours a request to us came to, when the wallet has several: "for @name".
+pub fn activity_for(a: &Activity) -> Option<String> {
+    match &a.kind {
+        ActivityKind::ContactRequestIn {
+            ours: Some(ours), ..
+        } => Some(format!(tr!("for {name}"), name = ours)),
+        _ => None,
     }
 }
 
@@ -296,7 +344,7 @@ pub fn activity_icon(a: &Activity) -> &'static str {
         ActivityKind::CreditTransfer { .. } => "transfer",
         ActivityKind::Shielded { .. } => "shield",
         ActivityKind::Withdrawal { .. } => "send",
-        ActivityKind::ContactRequest { .. } => "contacts",
+        ActivityKind::ContactRequest { .. } | ActivityKind::ContactRequestIn { .. } => "contacts",
         ActivityKind::ProfileSaved => "identity",
         ActivityKind::NameRegistered { .. } => "identity",
     }

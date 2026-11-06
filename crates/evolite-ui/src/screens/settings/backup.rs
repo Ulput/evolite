@@ -18,6 +18,16 @@ use zeroize::Zeroize;
 /// How long a revealed phrase stays on screen.
 const SHOWN_FOR: Duration = Duration::from_secs(60);
 
+/// The note under "Recovery phrase" (BUG-58): what the phrase brings back, and what stays on
+/// this computer only (also in "Delete the wallet from the computer").
+const WHAT_COMES_BACK: &str = tr!("What the phrase brings back");
+const COMES_BACK: &str = tr!(
+    "Core money, credits and the private pool, identities and names, DashPay contacts and profile, and the history of operations: evolite reads it all again from the network."
+);
+pub const KEPT_HERE: &str = tr!("Kept only on this computer");
+pub const KEPT_HERE_TEXT: &str =
+    tr!("Payment notes, the address book and settings. The phrase does not bring them back.");
+
 pub(super) fn backup(ui: &mut Ui, a: &mut Assets, state: &mut SettingsState, wallet: &Wallet) {
     let phrase_line = format!(
         tr!("{} words · made {}"),
@@ -63,6 +73,16 @@ pub(super) fn backup(ui: &mut Ui, a: &mut Assets, state: &mut SettingsState, wal
         ],
     );
     *state.toggle("remind-check") = remind;
+    // What a restore brings back and what it does not (BUG-58, the designer's text; the one
+    // without tax categories until FEAT-0012).
+    ui.add_space(12.0);
+    crate::components::notice_parts(
+        ui,
+        a,
+        "info",
+        p.muted,
+        &[(WHAT_COMES_BACK, COMES_BACK), (KEPT_HERE, KEPT_HERE_TEXT)],
+    );
     match clicked {
         Some(0) => state.phrase_dialog = true,
         Some(1) => state.check = Some(PhraseCheckForm::default()),

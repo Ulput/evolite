@@ -52,6 +52,21 @@ pub(super) fn resync_dialog(
             .wrap(),
         );
             let value = sans(13.0, Weight::Medium);
+            // What is read again and what stays (BUG-58, decision B: Platform too).
+            kv_row(
+                ui,
+                &p,
+                tr!("Read again"),
+                tr!("Core and Platform: coins, names, contacts, profile, withdrawals, pool"),
+                value.clone(),
+            );
+            kv_row(
+                ui,
+                &p,
+                tr!("Stays as it is"),
+                tr!("notes, the address book, settings: nothing is erased"),
+                value.clone(),
+            );
             kv_row(ui, &p, tr!("Takes"), tr!("10–20 minutes"), value.clone());
             kv_row(
                 ui,

@@ -126,6 +126,7 @@ mod imp {
     use platform_wallet::wallet::shielded::{
         CachedOrchardProver, ShieldedActivityEntry, ShieldedActivityKind, ShieldedActivityStatus,
         ShieldedDirection, ShieldedLocalBalanceState, ShieldedStore, SubwalletId,
+        sort_activity_for_display,
     };
     use std::sync::Arc;
 
@@ -207,7 +208,7 @@ mod imp {
                     .shielded_sync()
                     .last_sync_unix_seconds()
                     .map(|s| s as i64),
-                operations: entries.iter().filter_map(operation).collect(),
+                operations: operations(entries),
             })
         }
 
@@ -495,6 +496,15 @@ mod imp {
         Ok(signer)
     }
 
+    /// The rows newest first, as platform-wallet orders them for display: notes found by the
+    /// scan have no time (`created_at_ms` 0, "time unknown") and come after the dated rows, in
+    /// chain order by `min_note_position` — the same on every device (BUG-58, R-33 p. 8). The
+    /// history's sort by time keeps that order among them.
+    pub(super) fn operations(mut entries: Vec<ShieldedActivityEntry>) -> Vec<Activity> {
+        sort_activity_for_display(&mut entries);
+        entries.iter().filter_map(operation).collect()
+    }
+
     /// One history row as the screen shows it; failed and abandoned moves are left out.
     fn operation(entry: &ShieldedActivityEntry) -> Option<Activity> {
         let proof = match entry.status {
@@ -531,6 +541,57 @@ mod imp {
             block: entry.block_height.map(|h| h as u32),
             address: None,
         })
+    }
+}
+
+#[cfg(all(test, feature = "pool"))]
+mod display_order_tests {
+    use super::imp::operations;
+    use platform_wallet::wallet::shielded::{
+        ShieldedActivityEntry, ShieldedActivityKind, ShieldedActivityStatus, ShieldedDirection,
+    };
+
+    fn found(n: u8, position: Option<u64>) -> ShieldedActivityEntry {
+        ShieldedActivityEntry {
+            id: [n; 32],
+            kind: ShieldedActivityKind::Received,
+            direction: ShieldedDirection::In,
+            amount: 1_000_000 * u64::from(n),
+            fee: None,
+            counterparty: None,
+            memo: None,
+            block_height: None,
+            status: ShieldedActivityStatus::Confirmed,
+            created_at_ms: 0,
+            min_note_position: position,
+            note_cmxs: Vec::new(),
+            spent_nullifiers: Vec::new(),
+        }
+    }
+
+    /// BUG-58: notes the scan found have no time: "time unknown" (0, not 1970), after the
+    /// dated rows, later in the chain first, the history's sort by time keeping that order.
+    #[test]
+    fn undated_notes_come_last_in_chain_order() {
+        let dated = ShieldedActivityEntry {
+            created_at_ms: 1_700_000_000_000,
+            ..found(9, None)
+        };
+        let rows = operations(vec![
+            found(1, Some(10)),
+            found(2, None),
+            dated,
+            found(3, Some(30)),
+        ]);
+        let mut history = rows.clone();
+        history.sort_by_key(|a| std::cmp::Reverse(a.at));
+        // Credits shown as duffs (1 000 credits each).
+        let amounts: Vec<_> = history.iter().map(|a| (a.at, a.amount)).collect();
+        assert_eq!(
+            amounts,
+            vec![(1_700_000_000, 9_000), (0, 3_000), (0, 1_000), (0, 2_000)]
+        );
+        assert_eq!(rows, history);
     }
 }
 

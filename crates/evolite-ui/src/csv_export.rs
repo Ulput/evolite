@@ -93,7 +93,7 @@ fn line(a: &Activity, own: &Own) -> Option<Line> {
         ActivityKind::SelfTransfer { .. }
         | ActivityKind::TopUp { .. }
         | ActivityKind::Shielded { .. } => true,
-        ActivityKind::Withdrawal { to } | ActivityKind::CreditTransfer { to } => own.is(to),
+        ActivityKind::Withdrawal { to, .. } | ActivityKind::CreditTransfer { to } => own.is(to),
         ActivityKind::Sent { to } => own.is(to),
         _ => false,
     };
@@ -349,7 +349,10 @@ mod tests {
             // 0.01 of credits withdrawn to own Core, and its payout.
             with_fee(
                 act(
-                    K::Withdrawal { to: "yOwn".into() },
+                    K::Withdrawal {
+                        to: "yOwn".into(),
+                        status: None,
+                    },
                     Chain::Platform,
                     170,
                     -1_215_053,

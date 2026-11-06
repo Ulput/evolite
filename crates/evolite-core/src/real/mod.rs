@@ -27,6 +27,7 @@ mod nfts;
 mod node;
 mod outgoing;
 mod pending;
+mod platform_history;
 mod pool;
 mod pool_history;
 mod provider;
@@ -90,6 +91,8 @@ pub struct Paths {
     pub pending_names: PathBuf,
     /// What the wallet did on Platform ([`journal::Journal`]).
     pub journal: PathBuf,
+    /// How far Platform was read back into the journal ([`platform_history::Marks`]).
+    pub platform_sync: PathBuf,
     /// Addresses of contacts' keys already paid ([`contact_addresses::ContactAddresses`]).
     pub contact_addresses: PathBuf,
     /// Senders whose contact requests were hidden ([`hidden_requests::HiddenRequests`]).
@@ -127,6 +130,7 @@ impl Paths {
             vault: wallets.join("wallet.json"),
             pending_names: wallets.join("pending-names.json"),
             journal: wallets.join("platform-history.json"),
+            platform_sync: wallets.join("platform-sync.json"),
             contact_addresses: wallets.join("contact-addresses.json"),
             hidden_requests: wallets.join("hidden-requests.json"),
             pool_history: wallets.join("pool-history.json"),
@@ -162,6 +166,8 @@ pub fn resync_on_start(paths: &Paths) -> std::io::Result<bool> {
         file.push(suffix);
         gone(std::fs::remove_file(file))?;
     }
+    // Platform is read back from the start; what the journal holds stays (BUG-58).
+    gone(std::fs::remove_file(&paths.platform_sync))?;
     std::fs::remove_file(&paths.resync)?;
     Ok(true)
 }
@@ -383,6 +389,10 @@ struct Real {
     outgoing: Arc<std::sync::Mutex<outgoing::Outgoing>>,
     /// What the wallet did on Platform, for the history.
     journal: Arc<journal::Journal>,
+    /// A pass reading Platform back into the journal is running (one at a time).
+    history_busy: Arc<AtomicBool>,
+    /// When the next pass is due; `None`: as soon as the identities are known.
+    history_next: Option<std::time::Instant>,
     /// Addresses of contacts' keys already paid: never paid again, after a restart too.
     contact_paid: Arc<contact_addresses::ContactAddresses>,
     /// Senders whose requests were hidden: still hidden after a resync.
@@ -621,6 +631,17 @@ async fn keep_balances_fresh(
     }
 }
 
+/// The fee a Core payment of `amount` is shown with while it is sent: as the coins it takes
+/// make it (the same estimate as the Send screen's, `Fees::core_payment_for`), not as spending
+/// every coin of the wallet would (BUG-55 review, should 2).
+fn payment_fee(coin_values: Vec<u64>, amount: Duffs) -> Duffs {
+    let mut estimate = fees(coin_values.len());
+    estimate.core_coins = convert::core_coins(coin_values);
+    estimate.core_payment_for(amount)
+}
+
+/// How often Platform is read back into the journal while a wallet is open (R-33).
+const HISTORY_EVERY: Duration = Duration::from_secs(10 * 60);
 /// The first pause before an identity lookup is tried again, and the longest one. Short at
 /// first: a scan with unanswered slots or names is tried again soon (BUG-9).
 const DISCOVERY_RETRY: Duration = Duration::from_secs(10);
@@ -788,6 +809,8 @@ impl Real {
             attach_failed: None,
             birth_hint: None,
             journal,
+            history_busy: Arc::new(AtomicBool::new(false)),
+            history_next: None,
             contact_paid,
             hidden,
             pool_history,
@@ -1062,6 +1085,7 @@ impl Real {
                         },
                         spent: spent_credits(before, after).unwrap_or(0),
                         moved: 0,
+                        ..Default::default()
                     });
                     Ok::<(), String>(())
                 }
@@ -1165,6 +1189,7 @@ impl Real {
                     spent: spent_credits(before, chain.first_identity_credits(&wallet, true).await)
                         .unwrap_or(0),
                     moved: 0,
+                    ..Default::default()
                 });
                 Ok(())
             }
@@ -1211,6 +1236,7 @@ impl Real {
                             what: journal::What::ContactRequest { to: who },
                             spent: spent_credits(before, after).unwrap_or(0),
                             moved: 0,
+                            ..Default::default()
                         });
                         Ok(())
                     }
@@ -1291,6 +1317,7 @@ impl Real {
                     what: journal::What::Profile,
                     spent: spent_credits(before, after).unwrap_or(0),
                     moved: 0,
+                    ..Default::default()
                 });
                 Ok(())
             }
@@ -1302,6 +1329,75 @@ impl Real {
             }
         });
         Ok(())
+    }
+
+    /// Reads Platform back into the journal off the loop (BUG-58, R-33): first once the
+    /// wallet's identities are known and proofs can be checked, then every [`HISTORY_EVERY`];
+    /// at once again after a new identity lookup. One pass at a time. Its result is kept only
+    /// for the wallet and the unlock it was started for. A failed pass (the network, or a
+    /// journal that cannot be written) leaves the marks where they were and is tried again
+    /// [`HISTORY_EVERY`] later.
+    fn read_platform_history(&mut self) {
+        let Some(id) = self.unlocked.as_ref().map(|o| o.id) else {
+            self.history_next = None;
+            return;
+        };
+        if !self.identities_complete.load(Ordering::Relaxed) {
+            // A lookup is running: the pass after it comes at once.
+            self.history_next = None;
+            return;
+        }
+        if !self.chain.platform_ready()
+            || self.history_busy.load(Ordering::Relaxed)
+            || self
+                .history_next
+                .is_some_and(|due| std::time::Instant::now() < due)
+        {
+            return;
+        }
+        self.history_next = Some(std::time::Instant::now() + HISTORY_EVERY);
+        self.history_busy.store(true, Ordering::Relaxed);
+        let busy = self.history_busy.clone();
+        let run = self.discovery_run.load(Ordering::Relaxed);
+        let current = self.discovery_run.clone();
+        let chain = self.chain.clone();
+        let journal = self.journal.clone();
+        let marks_path = self.paths.platform_sync.clone();
+        let names = self.names.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        let refresh = self.refresher();
+        tokio::spawn(async move {
+            // Lowered on every way out, a panic in the read too.
+            struct Done(Arc<AtomicBool>);
+            impl Drop for Done {
+                fn drop(&mut self) {
+                    self.0.store(false, Ordering::Relaxed);
+                }
+            }
+            let _done = Done(busy);
+            let Some(wallet) = chain.wallet(&id).await else {
+                return;
+            };
+            let marks = platform_history::Marks::load(&marks_path);
+            match platform_history::read(&chain, &wallet, id, &marks, &names).await {
+                // A lock (or a new lookup) since the start: this answer is for no one.
+                Ok(_) if current.load(Ordering::Relaxed) != run => {}
+                Ok((entries, next)) => {
+                    // The entries first, then the marks: a crash between them reads again,
+                    // and the keys drop the repeat. Not kept (the file's failure is in the
+                    // journal already): the marks stay where they were, the next pass reads
+                    // the same again.
+                    if let Ok(changed) = journal.merge_network(entries) {
+                        if changed {
+                            refresh();
+                        }
+                        if next != marks {
+                            let _ = next.save(&marks_path);
+                        }
+                    }
+                }
+                Err(e) => crate::diag::platform_failed("platform_history", &e),
+            }
+        });
     }
 
     /// Something arrived in the background: the next pass sends a fresh snapshot.
@@ -1888,13 +1984,38 @@ impl Real {
                     .unwrap_or_else(|e| e.into_inner())
                     .apply(records);
                 // And what the wallet did on Platform, which Core does not see.
-                history.extend(
-                    self.journal
-                        .entries()
+                // A request to us says which identity of ours it came to when there are
+                // several (BUG-58); one hidden here before a resync stays hidden.
+                let ours: std::collections::HashMap<&str, String> = if identities.len() > 1 {
+                    identities
                         .iter()
-                        .enumerate()
-                        .map(|(n, e)| journal::activity(e, n)),
-                );
+                        .filter_map(|c| Some((c.id.as_str(), format!("@{}", c.name.as_ref()?))))
+                        .collect()
+                } else {
+                    Default::default()
+                };
+                history.extend(self.journal.entries().iter().map(|entry| {
+                    let mut line = journal::activity(entry);
+                    if let ActivityKind::ContactRequestIn {
+                        ours: to_ours,
+                        state,
+                        ..
+                    } = &mut line.kind
+                    {
+                        *to_ours = entry.identity.as_deref().and_then(|i| ours.get(i).cloned());
+                        let from = entry
+                            .key
+                            .as_deref()
+                            .and_then(|k| k.strip_prefix("cri:"))
+                            .and_then(|k| k.split(':').next());
+                        if *state == evolite_api::RequestState::Waiting
+                            && from.is_some_and(|f| self.hidden.contains(f))
+                        {
+                            *state = evolite_api::RequestState::Hidden;
+                        }
+                    }
+                    line
+                }));
                 (
                     wallet.balance().total(),
                     {
@@ -2228,13 +2349,22 @@ impl Real {
             .as_ref()
             .and_then(|open| open.keys.clone())
             .ok_or(CoreError::NotAvailable(tr!("The keys are not open").into()))?;
-        // In the history from now on, as "sending", until the wallet sees it.
-        let coins = wallet.state().await.core_wallet.utxos().len();
+        // In the history from now on, as "sending", until the wallet sees it; its fee as the
+        // payment's own coins make it (BUG-55 review, should 2).
+        let values: Vec<u64> = wallet
+            .state()
+            .await
+            .core_wallet
+            .utxos()
+            .iter()
+            .map(|u| u.value())
+            .collect();
+        let fee = payment_fee(values, amount as Duffs);
         let key = self
             .outgoing
             .lock()
             .unwrap_or_else(|e| e.into_inner())
-            .start(to, amount as Duffs, fees(coins).core_payment, now());
+            .start(to, amount as Duffs, fee, now());
         let outgoing = self.outgoing.clone();
         let contact_paid = self.contact_paid.clone();
         let chain = self.chain.clone();
@@ -2501,6 +2631,7 @@ impl Real {
                             .filter(|s| *s > moved)
                             .unwrap_or(moved),
                         moved,
+                        ..Default::default()
                     });
                 }
                 Ok(())
@@ -2692,6 +2823,7 @@ impl Real {
                     what,
                     spent: spent_credits(before, after).unwrap_or(amount),
                     moved: amount,
+                    ..Default::default()
                 });
                 Ok::<(), CoreError>(())
             }
@@ -4008,6 +4140,7 @@ pub fn run(
                 core.chain.start_platform_sync().await;
                 core.connect_pool();
                 core.build_contact_accounts();
+                core.read_platform_history();
             }
             loop {
                 match inbox.try_recv() {
@@ -4106,6 +4239,16 @@ fn answer(out: &Sender<Event>, wake: &(dyn Fn() + Send + Sync), event: Option<Ev
 
 #[cfg(test)]
 mod tests {
+    /// BUG-55 review, should 2: a small payment from a wallet of many coins is shown with the
+    /// fee of the one coin it takes, as the Send screen estimated it.
+    #[test]
+    fn a_sending_payment_is_shown_with_the_fee_of_its_own_coins() {
+        let many = vec![100_000_000_u64; 30];
+        let one = super::payment_fee(vec![100_000_000], 1_000_000);
+        assert_eq!(super::payment_fee(many.clone(), 1_000_000), one);
+        assert!(one < super::fees(many.len()).core_payment);
+    }
+
     use super::*;
 
     #[test]
@@ -4150,6 +4293,7 @@ mod tests {
         for file in [
             &paths.vault,
             &paths.journal,
+            &paths.platform_sync,
             &paths.contact_addresses,
             &paths.chain.store,
             &store_wal,
@@ -4166,6 +4310,8 @@ mod tests {
         assert!(resync_on_start(&paths).unwrap());
         assert!(!paths.chain.spv.exists() && !paths.chain.store.exists() && !store_wal.exists());
         assert!(paths.vault.exists() && paths.journal.exists() && paths.contact_addresses.exists());
+        // BUG-58: Platform is read back from the start; the journal stays.
+        assert!(!paths.platform_sync.exists());
         assert!(!paths.resync.exists(), "once");
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -4464,6 +4610,7 @@ mod tests {
                 p.vault.clone(),
                 p.pending_names.clone(),
                 p.journal.clone(),
+                p.platform_sync.clone(),
                 p.contact_addresses.clone(),
                 p.hidden_requests.clone(),
                 p.pool_history.clone(),

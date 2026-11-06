@@ -27,6 +27,55 @@ pub fn notice(ui: &mut Ui, a: &mut Assets, icon: &str, icon_color: Color32, text
         });
 }
 
+/// [`notice()`] in parts, each under a small heading (13 SemiBold): what the phrase brings back
+/// and what it does not, say (BUG-58).
+pub fn notice_parts(
+    ui: &mut Ui,
+    a: &mut Assets,
+    icon: &str,
+    icon_color: Color32,
+    parts: &[(&str, &str)],
+) {
+    let p = a.p;
+    Frame::new()
+        .fill(p.raised)
+        .corner_radius(CornerRadius::same(10))
+        .inner_margin(Margin::symmetric(12, 10))
+        .show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            ui.horizontal_top(|ui| {
+                ui.spacing_mut().item_spacing.x = 10.0;
+                ui.add(a.icons.icon(icon, icon_color, &p, 18.0));
+                ui.vertical(|ui| {
+                    ui.spacing_mut().item_spacing.y = 2.0;
+                    for (i, (heading, text)) in parts.iter().enumerate() {
+                        if i > 0 {
+                            ui.add_space(8.0);
+                        }
+                        ui.add(
+                            egui::Label::new(
+                                egui::RichText::new(crate::i18n::t(heading))
+                                    .font(sans(13.0, Weight::SemiBold))
+                                    .color(p.text)
+                                    .line_height(Some(18.0)),
+                            )
+                            .wrap(),
+                        );
+                        ui.add(
+                            egui::Label::new(
+                                egui::RichText::new(crate::i18n::t(text))
+                                    .font(sans(13.0, Weight::Regular))
+                                    .color(p.text)
+                                    .line_height(Some(18.0)),
+                            )
+                            .wrap(),
+                        );
+                    }
+                });
+            });
+        });
+}
+
 /// [`notice()`] for an error: the line in words, and when the network or a library said more,
 /// "Details" under it with their words on hover (a click copies them, for a bug report).
 pub fn error_notice(ui: &mut Ui, a: &mut Assets, text: &str, details: Option<&str>) {

@@ -525,12 +525,14 @@ mod tests {
             what: super::super::journal::What::Name { label: "a".into() },
             spent: 123_456,
             moved: 0,
+            ..Default::default()
         });
         journal.add(super::super::journal::Entry {
             at: 2,
             what: super::super::journal::What::Credits { to: "@b".into() },
             spent: 10_777,
             moved: 10_000,
+            ..Default::default()
         });
         platform_fees(&mut f, v15, &journal);
         assert_eq!((f.name_regular, f.credit_transfer), (123_456, 777));

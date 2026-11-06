@@ -119,6 +119,17 @@ pub fn delete_dialog(
                 ),
             );
         }
+        // What the phrase does not bring back, read before deleting rather than after (BUG-58).
+        crate::components::notice_parts(
+            ui,
+            a,
+            "info",
+            p.muted,
+            &[(
+                crate::screens::settings::KEPT_HERE,
+                crate::screens::settings::KEPT_HERE_TEXT,
+            )],
+        );
         let has = if form.forgot {
             tr!("I have this wallet's recovery phrase")
         } else {

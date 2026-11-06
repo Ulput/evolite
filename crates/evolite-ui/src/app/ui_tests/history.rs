@@ -142,3 +142,117 @@ fn an_empty_pool_says_it_has_no_operations() {
     }
     assert!(has_text(&kit, "No operations in the pool yet"));
 }
+
+/// Puts `ops` into the wallet the app shows, as [`with_undated`] does.
+fn with_ops(kit: &mut Kit, ops: &[Activity]) {
+    for _ in 0..3 {
+        let wallet = kit
+            .state_mut()
+            .snapshot
+            .as_mut()
+            .and_then(|s| s.wallet.as_mut())
+            .expect("a wallet");
+        for op in ops {
+            if !wallet.activity.iter().any(|a| a.id == op.id) {
+                wallet.activity.insert(0, op.clone());
+            }
+        }
+        kit.run_steps(1);
+    }
+}
+
+fn platform_op(id: u64, kind: ActivityKind, amount: i64) -> Activity {
+    Activity {
+        id,
+        kind,
+        chain: Chain::Platform,
+        at: chrono::Utc::now().timestamp() - 3_600,
+        amount,
+        proof: Proof::Proved,
+        txid: None,
+        fee: None,
+        block: None,
+        address: None,
+    }
+}
+
+/// BUG-58 part 2: a contact request to us is a line of the History with how it stands and the
+/// identity of ours it came to; its card opens Contacts, where it is answered. Ours that
+/// answered theirs says so, and a withdrawal says how far it got.
+#[test]
+fn requests_to_us_and_withdrawals_say_how_they_stand() {
+    use evolite_api::{RequestState, WithdrawalState};
+    let (_turn, mut kit) = demo_app("activity", "en");
+    // Identity operations: a short list, all of it on screen.
+    kit.state_mut().filter = 4;
+    let waiting = 0x5858_0001;
+    with_ops(
+        &mut kit,
+        &[
+            platform_op(
+                waiting,
+                ActivityKind::ContactRequestIn {
+                    from: "@carol".into(),
+                    ours: Some("@satoshi".into()),
+                    state: RequestState::Waiting,
+                },
+                0,
+            ),
+            platform_op(
+                0x5858_0002,
+                ActivityKind::ContactRequestIn {
+                    from: "@dave".into(),
+                    ours: None,
+                    state: RequestState::TheyAccepted,
+                },
+                0,
+            ),
+            platform_op(
+                0x5858_0003,
+                ActivityKind::ContactRequest {
+                    to: "@erin".into(),
+                    accepting: true,
+                },
+                -1_000,
+            ),
+            platform_op(
+                0x5858_0004,
+                ActivityKind::Withdrawal {
+                    to: "yWithdrawalAddress1234567890".into(),
+                    status: Some(WithdrawalState::Complete),
+                },
+                -5_000_000,
+            ),
+        ],
+    );
+    assert!(says(&kit, "Contact request from @carol"), "the request");
+    assert!(
+        says(&kit, " · for @satoshi · Waiting for an answer"),
+        "who it came to, how it stands"
+    );
+    assert!(says(&kit, "Your request was accepted: @dave"));
+    assert!(says(&kit, " · You are contacts now"));
+    assert!(says(&kit, "You accepted the request from @erin"));
+    assert!(says(&kit, " · Paid out"), "the withdrawal's status");
+    crate::screens::open_card(&kit.ctx, waiting);
+    with_ops(&mut kit, &[]);
+    assert!(
+        says(&kit, "Status: Waiting for an answer"),
+        "the card's status"
+    );
+    button(&kit, "Open in Contacts").click();
+    kit.run_steps(3);
+    assert_eq!(kit.state().screen, Screen::Contacts);
+}
+
+/// BUG-58: «Backup» says what the phrase brings back and what stays on this computer only.
+#[test]
+fn backup_says_what_the_phrase_brings_back() {
+    let (_turn, kit) = demo_app("backup", "en");
+    assert!(has_text(&kit, "What the phrase brings back"));
+    assert!(has_text(&kit, "Kept only on this computer"));
+    assert!(has_text(
+        &kit,
+        "Payment notes, the address book and settings. The phrase does not bring them back."
+    ));
+}

@@ -30,6 +30,7 @@ fn matches_filter(filter: usize, act: &Activity) -> bool {
                 | ActivityKind::CreditTransfer { .. }
                 | ActivityKind::Withdrawal { .. }
                 | ActivityKind::ContactRequest { .. }
+                | ActivityKind::ContactRequestIn { .. }
                 | ActivityKind::ProfileSaved
                 | ActivityKind::NameRegistered { .. }
         ),
@@ -49,8 +50,9 @@ fn matches_query(act: &Activity, q: &str, book: &[SavedAddress]) -> bool {
         | ActivityKind::Shielded { from: Some(who) }
         | ActivityKind::Sent { to: who }
         | ActivityKind::CreditTransfer { to: who }
-        | ActivityKind::Withdrawal { to: who }
-        | ActivityKind::ContactRequest { to: who }
+        | ActivityKind::Withdrawal { to: who, .. }
+        | ActivityKind::ContactRequest { to: who, .. }
+        | ActivityKind::ContactRequestIn { from: who, .. }
         | ActivityKind::TopUp { identity: who } => who.as_str(),
         _ => "",
     };
@@ -248,11 +250,23 @@ pub fn activity(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, filter: &mut usize, q
                     });
                     ui.add_space(4.0);
                 }
-                let detail = format!(
+                let mut detail = format!(
                     "{} · {}",
                     text::chain(act.chain),
                     text::time_of_day(act.at, cx.now)
                 );
+                // How a withdrawal or a request to us stands, and which identity of ours it
+                // came to (BUG-58).
+                for part in [
+                    text::activity_for(act),
+                    text::activity_status(act).map(str::to_owned),
+                ]
+                .into_iter()
+                .flatten()
+                {
+                    detail.push_str(" · ");
+                    detail.push_str(crate::i18n::t(&part).as_ref());
+                }
                 let row = tx_row_clickable(
                     ui,
                     a,
@@ -278,9 +292,13 @@ pub fn card_window(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx) {
     let wallet = cx.wallet();
     let open = ui.data(|d| d.get_temp::<u64>(card_id()));
     if let Some(act) = open.and_then(|id| wallet.activity.iter().find(|a| a.id == id)) {
-        let (closed, again) = card(ui, a, act, cx.now, &wallet.address_book);
+        let (closed, again, contacts) = card(ui, a, act, cx.now, &wallet.address_book);
         if closed {
             ui.data_mut(|d| d.remove::<u64>(card_id()));
+        }
+        // "Open in Contacts": accepting is there, with the password (BUG-42, BUG-58).
+        if contacts {
+            cx.go(crate::screens::Screen::Contacts);
         }
         // "Send again": the Send screen with the same recipient and amount.
         if let Some((to, amount)) = again {
@@ -329,8 +347,13 @@ fn counterparty(act: &Activity) -> Option<(&'static str, String, Option<String>)
             None => None,
         },
         ActivityKind::CreditTransfer { to }
-        | ActivityKind::Withdrawal { to }
-        | ActivityKind::ContactRequest { to } => Some((tr!("To"), to.clone(), None)),
+        | ActivityKind::Withdrawal { to, .. }
+        | ActivityKind::ContactRequest { to, .. } => Some((tr!("To"), to.clone(), None)),
+        ActivityKind::ContactRequestIn { from, ours, .. } => Some((
+            tr!("Sender"),
+            from.clone(),
+            ours.as_ref().map(|o| format!(tr!("for {name}"), name = o)),
+        )),
         // An asset lock: the identity it registered or tops up, when the core knows it.
         ActivityKind::TopUp { identity } if !identity.is_empty() => {
             Some((tr!("To"), identity.clone(), None))
@@ -373,17 +396,26 @@ fn mono_block(
 }
 
 /// 24 · Operation details: what and where, how much and its status, when, the fee and the block,
-/// with whom, and the txid to copy or look up; "Send again" for a payment out. Whether it
-/// closed, and the payment to make again when asked.
+/// with whom, and the txid to copy or look up; "Send again" for a payment out, "Open in
+/// Contacts" for a request to us not answered. Whether it closed, the payment to make again
+/// when asked, and whether Contacts were asked for.
 fn card(
     ui: &mut Ui,
     a: &mut Assets,
     act: &Activity,
     now: DateTime<Local>,
     book: &[SavedAddress],
-) -> (bool, Option<(String, Duffs)>) {
+) -> (bool, Option<(String, Duffs)>, bool) {
     let repeat = again(act);
     let mut paid_again = None;
+    let mut to_contacts = false;
+    let answer_there = matches!(
+        act.kind,
+        ActivityKind::ContactRequestIn {
+            state: evolite_api::RequestState::Waiting,
+            ..
+        }
+    );
     let closed = dialog_with_header(
         ui,
         a,
@@ -433,7 +465,10 @@ fn card(
                 &text::date_time(act.at, now),
                 words.clone(),
             );
-            kv_row(ui, &p, tr!("Where"), text::chain(act.chain), words);
+            kv_row(ui, &p, tr!("Where"), text::chain(act.chain), words.clone());
+            if let Some(status) = text::activity_status(act) {
+                kv_row(ui, &p, tr!("Status"), status, words);
+            }
             if let Some(fee) = act.fee {
                 kv_row(
                     ui,
@@ -509,6 +544,12 @@ fn card(
             }
             // The action on the right, «Close» on its left: as in every dialog (designer review №8).
             button_row(ui, |ui| {
+                if answer_there
+                    && button(ui, a, tr!("Open in Contacts"), ButtonKind::Secondary, None).clicked()
+                {
+                    to_contacts = true;
+                    close = true;
+                }
                 if let Some(repeat) = &repeat
                     && button(ui, a, tr!("Send again"), ButtonKind::Secondary, None)
                         .on_hover_text(
@@ -526,7 +567,7 @@ fn card(
             close
         },
     );
-    (closed, paid_again)
+    (closed, paid_again, to_contacts)
 }
 
 /// What "Send again" pays: a Core payment out, to its @name or address, the amount
