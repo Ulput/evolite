@@ -28,6 +28,7 @@ mod node;
 mod outgoing;
 mod pending;
 mod platform_history;
+mod platform_sending;
 mod pool;
 mod pool_history;
 mod provider;
@@ -387,6 +388,8 @@ struct Real {
     history_read: Option<(usize, tokio::time::Instant)>,
     /// Core payments of this run: who they went to, and those the history does not show yet.
     outgoing: Arc<std::sync::Mutex<outgoing::Outgoing>>,
+    /// Sends on Platform of this run (credits, the pool) until the history has their lines.
+    platform_sending: Arc<std::sync::Mutex<platform_sending::PlatformSending>>,
     /// What the wallet did on Platform, for the history.
     journal: Arc<journal::Journal>,
     /// A pass reading Platform back into the journal is running (one at a time).
@@ -859,6 +862,7 @@ impl Real {
             stored_history: Vec::new(),
             history_read: None,
             outgoing: Default::default(),
+            platform_sending: Default::default(),
             previews: Default::default(),
             apps: Arc::new(connected_apps::ConnectedApps::new(paths_apps)),
             app_requests: Default::default(),
@@ -1914,7 +1918,12 @@ impl Real {
                     .iter()
                     .map(|r| {
                         let txid = r.txid.to_string();
-                        let seen = self.mempool.first_seen(&txid, now, tip);
+                        // A block gives its own time: only what is out of one is kept (each
+                        // new one is a write of the file).
+                        let seen = match r.context.block_info() {
+                            Some(_) => now,
+                            None => self.mempool.first_seen(&txid, now, tip),
+                        };
                         let verified = self.chain.instant_lock_verified(&r.txid);
                         (txid, activity(r, seen, verified))
                     })
@@ -2068,6 +2077,12 @@ impl Real {
         if let Some(pool) = &pool {
             history.extend(pool.operations.iter().cloned());
         }
+        // Sends on Platform shown from "Sign" until their own lines are here (BUG-12).
+        let mut history = self
+            .platform_sending
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .apply(history, now());
         if let Some(wallet) = self.chain.wallet(&id).await {
             let pool_locks = self.chain.pool_locks(&wallet).await;
             for act in history.iter_mut() {
@@ -2727,6 +2742,14 @@ impl Real {
         };
         let (id, _, seed) = self.pool_move()?;
         let chain = self.chain.clone();
+        // In the history from now on, as "being sent", until the pool's store has its line:
+        // the proof takes tens of seconds before Platform is even asked (BUG-12).
+        let sending = self.platform_sending.clone();
+        let key = sending.lock().unwrap_or_else(|e| e.into_inner()).start(
+            ActivityKind::PoolSent,
+            amount,
+            now(),
+        );
         self.pool_job(
             "send",
             async move {
@@ -2744,6 +2767,12 @@ impl Real {
                 })
             },
             move |result| {
+                // "No answer" may still be taken: shown until the pool has it, or a while.
+                sending.lock().unwrap_or_else(|e| e.into_inner()).answered(
+                    key,
+                    result.is_ok(),
+                    now(),
+                );
                 Event::Sent(result.map(|relayed| SentPayment {
                     txid: String::new(),
                     amount,
@@ -2800,6 +2829,13 @@ impl Real {
         let chain = self.chain.clone();
         let dirty = self.dirty.clone();
         let journal = self.journal.clone();
+        // In the history from now on, as "being sent", until the journal has its line (BUG-12).
+        let sending = self.platform_sending.clone();
+        let key = sending.lock().unwrap_or_else(|e| e.into_inner()).start(
+            platform_sending::credits_line(&what),
+            amount,
+            now(),
+        );
         self.answer_later(async move {
             let result = async {
                 let wallet = loaded(&chain, &id).await?;
@@ -2837,6 +2873,10 @@ impl Real {
                 fee: 0,
                 relayed: true,
             });
+            sending
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .answered(key, result.is_ok(), now());
             dirty.store(true, Ordering::Relaxed);
             Event::Sent(result)
         });

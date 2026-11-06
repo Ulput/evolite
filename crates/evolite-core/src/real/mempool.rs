@@ -58,13 +58,15 @@ impl MempoolSeen {
     }
 
     /// Marks what has waited out of a block for [`STALE_AFTER`] blocks, and forgets what is
-    /// in a block by now.
+    /// in a block by now. An InstantSend payment is out of a block too until a block takes it:
+    /// its time stays when it was seen (BUG-12: forgotten at its lock, it was "now" again at
+    /// every snapshot and stood above newer payments).
     pub fn mark_stale(&self, history: &mut [Activity], tip: u32) {
         let mut guard = self.seen.lock().unwrap_or_else(|e| e.into_inner());
         let seen = guard.get_or_insert_with(|| self.load());
         let waiting: std::collections::HashSet<&str> = history
             .iter()
-            .filter(|a| a.proof == Proof::Mempool)
+            .filter(|a| a.block.is_none())
             .filter_map(|a| a.txid.as_deref())
             .collect();
         let before = seen.len();
@@ -127,8 +129,39 @@ mod tests {
         assert_eq!(h[1].proof, Proof::InstantLock, "only what waits");
         // In a block by now: forgotten.
         let mut h = vec![waiting("aa", Proof::ChainLock)];
+        h[0].block = Some(650);
         again.mark_stale(&mut h, 700);
         assert_eq!(MempoolSeen::new(path).first_seen("aa", 5, 1), 5);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// BUG-12: an InstantSend payment out of a block keeps the time it was first seen, also
+    /// after a restart; once in a block it is forgotten.
+    #[test]
+    fn an_instant_payment_keeps_its_time_until_a_block() {
+        let dir = std::env::temp_dir().join(format!("evolite-mempool-is-{}", std::process::id()));
+        let path = dir.join("mempool-seen.json");
+        let _ = std::fs::remove_dir_all(&dir);
+        let seen = MempoolSeen::new(path.clone());
+        assert_eq!(seen.first_seen("is", 1_000, 500), 1_000);
+        let mut h = vec![waiting("is", Proof::InstantLock)];
+        seen.mark_stale(&mut h, 501);
+        assert_eq!(seen.first_seen("is", 1_030, 501), 1_000, "not now");
+        seen.mark_stale(&mut h, 502);
+        assert_eq!(
+            MempoolSeen::new(path.clone()).first_seen("is", 1_060, 502),
+            1_000,
+            "after a restart too"
+        );
+        assert_eq!(h[0].proof, Proof::InstantLock, "never marked stale");
+        h[0].block = Some(503);
+        h[0].proof = Proof::ChainLock;
+        seen.mark_stale(&mut h, 503);
+        assert_eq!(
+            MempoolSeen::new(path).first_seen("is", 9, 1),
+            9,
+            "forgotten"
+        );
         let _ = std::fs::remove_dir_all(dir);
     }
 }

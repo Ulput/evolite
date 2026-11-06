@@ -789,6 +789,160 @@ mod tests {
         assert!(sent.fee > 0 && sent.fee <= wallet.fees.core_payment);
     }
 
+    /// What a send did to the history (Overview's recent operations and the History are the same
+    /// list), snapshot by snapshot for `secs`: when its line first showed among the top 5, and
+    /// the new lines of the last snapshot. A Core payment's line also keeps the time it was
+    /// first seen until a block takes it (BUG-12: an InstantSend payment was "now" again at
+    /// every snapshot).
+    fn watch_send(
+        core: &Core,
+        wallet: &evolite_api::Wallet,
+        from: evolite_api::Source,
+        to: String,
+        amount: evolite_api::Duffs,
+        secs: u64,
+    ) -> (Duration, Vec<evolite_api::Activity>) {
+        let before: Vec<u64> = wallet.activity.iter().map(|a| a.id).collect();
+        let started = Instant::now();
+        core.send(spend(Spend::Send { from, to, amount }));
+        let mut first_shown = None;
+        let mut sent = None;
+        let mut last_new = Vec::new();
+        let mut seen_at: std::collections::HashMap<String, i64> = Default::default();
+        while started.elapsed() < Duration::from_secs(secs) {
+            for event in core.events() {
+                match event {
+                    Event::Sent(r) => {
+                        println!("{} ms: sent {r:?}", started.elapsed().as_millis());
+                        sent = Some(r.expect("signed and taken"));
+                    }
+                    Event::Snapshot(s) => {
+                        let Some(w) = &s.wallet else { continue };
+                        let new: Vec<_> = w
+                            .activity
+                            .iter()
+                            .filter(|a| !before.contains(&a.id))
+                            .cloned()
+                            .collect();
+                        let brief: Vec<_> = new
+                            .iter()
+                            .map(|a| (a.id, a.proof, a.at, a.amount, a.block))
+                            .collect();
+                        let was: Vec<_> = last_new
+                            .iter()
+                            .map(|a: &evolite_api::Activity| {
+                                (a.id, a.proof, a.at, a.amount, a.block)
+                            })
+                            .collect();
+                        if brief != was {
+                            println!("{} ms: new {brief:?}", started.elapsed().as_millis());
+                        }
+                        // This run's "being sent" line has the time of signing; the wallet's own
+                        // line, the time it was seen.
+                        for a in new
+                            .iter()
+                            .filter(|a| a.block.is_none() && a.proof != evolite_api::Proof::Sending)
+                        {
+                            if let Some(txid) = &a.txid {
+                                let at = *seen_at.entry(txid.clone()).or_insert(a.at);
+                                assert_eq!(a.at, at, "the time it was seen stays: {a:?}");
+                            }
+                        }
+                        if first_shown.is_none()
+                            && w.activity.iter().take(5).any(|a| !before.contains(&a.id))
+                        {
+                            first_shown = Some(started.elapsed());
+                        }
+                        last_new = new;
+                    }
+                    _ => {}
+                }
+            }
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        sent.expect("an answer to Send");
+        let shown = first_shown.expect("the send never showed in the recent operations");
+        println!("first shown after {shown:?}");
+        (shown, last_new)
+    }
+
+    /// BUG-12 on testnet, Core: a payment to the wallet's own address is in the history at once
+    /// ("Being sent" from the snapshot right after "Sign", then with its txid), once, and keeps
+    /// its time. Only the fee is spent (~226 duffs).
+    /// `cargo test -p evolite-core live_payment_shows -- --ignored --nocapture`
+    #[test]
+    #[ignore = "needs testnet access and a funded test phrase in .env.test.local"]
+    fn live_payment_shows_in_the_history_at_once() {
+        let core = warm_wallet("evolite-live-send-history");
+        let wallet = wait_for(&core, 60, |e| match e {
+            Event::Snapshot(s) if s.sync.stage == SyncStage::Done => s.wallet.clone(),
+            _ => None,
+        });
+        assert!(wallet.balances.core > 20_000, "the test wallet needs coins");
+        let to = wallet.core_address.clone();
+        let (shown, new) = watch_send(&core, &wallet, evolite_api::Source::Core, to, 10_000, 90);
+        assert!(shown < Duration::from_secs(2), "shown after {shown:?}");
+        assert_eq!(new.len(), 1, "one line: {new:?}");
+        assert!(new[0].txid.is_some());
+    }
+
+    /// BUG-12 on testnet, credits: 0.0001 DASH of the identity's credits to the wallet's own
+    /// Platform address show as "Being sent" at once, then as the one line Platform proved.
+    /// Spends Platform's fee (the amount stays the wallet's).
+    /// `cargo test -p evolite-core live_credits_show -- --ignored --nocapture`
+    #[test]
+    #[ignore = "needs testnet access and a funded test phrase in .env.test.local"]
+    fn live_credits_show_in_the_history_at_once() {
+        let core = warm_wallet("evolite-live-credits-history");
+        let wallet = wait_for(&core, 60, |e| match e {
+            Event::Snapshot(s) => {
+                let w = s.wallet.as_ref()?;
+                (s.sync.stage == SyncStage::Done
+                    && w.identity.is_some()
+                    && w.platform_address.starts_with("tdash1"))
+                .then(|| w.clone())
+            }
+            _ => None,
+        });
+        assert!(
+            wallet.balances.credits > 30_000,
+            "the identity needs credits"
+        );
+        let to = wallet.platform_address.clone();
+        let (shown, new) = watch_send(&core, &wallet, evolite_api::Source::Credits, to, 10_000, 60);
+        assert!(shown < Duration::from_secs(2), "shown after {shown:?}");
+        assert_eq!(new.len(), 1, "one line: {new:?}");
+        assert_eq!(new[0].proof, evolite_api::Proof::Proved);
+    }
+
+    /// BUG-12 on testnet, the pool: 0.001 DASH from the pool to the wallet's own private address
+    /// shows as "Being sent" at once (the proof takes tens of seconds before Platform is asked),
+    /// then as the pool's one line. Spends the pool's fee (the amount stays in the pool).
+    /// `cargo test -p evolite-core --features pool live_pool_send_shows -- --ignored --nocapture`
+    #[cfg(feature = "pool")]
+    #[test]
+    #[ignore = "needs testnet access and a funded test phrase in .env.test.local"]
+    fn live_pool_send_shows_in_the_history_at_once() {
+        let core = warm_wallet("evolite-live-pool-history");
+        let wallet = wait_for(&core, 30, |e| match e {
+            Event::Snapshot(s) => {
+                let w = s.wallet.as_ref()?;
+                (s.sync.stage == SyncStage::Done
+                    && w.pool.address.is_some()
+                    && w.pool.checked_at.is_some())
+                .then(|| w.clone())
+            }
+            _ => None,
+        });
+        assert!(wallet.balances.shielded > 1_000_000, "the pool needs funds");
+        let to = wallet.pool.address.clone().unwrap_or_default();
+        let (shown, new) = watch_send(&core, &wallet, evolite_api::Source::Pool, to, 100_000, 240);
+        assert!(shown < Duration::from_secs(2), "shown after {shown:?}");
+        assert_eq!(new.len(), 1, "one line: {new:?}");
+        let ours = u64::MAX - (1 << 33)..u64::MAX - (1 << 32);
+        assert!(!ours.contains(&new[0].id), "the pool's own line: {new:?}");
+    }
+
     /// Identities on testnet: the test phrase's identities are found after a restore, and a new
     /// one is made from Core funds (asset lock of 0.003 DASH plus the name's fee) with a fresh
     /// DPNS name that then resolves. Spends about 0.013 tDASH.
