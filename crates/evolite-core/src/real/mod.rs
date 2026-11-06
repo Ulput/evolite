@@ -353,6 +353,8 @@ struct Real {
     mined: mined::Mined,
     /// The lowest height the filters were asked to be scanned again from in this run (BUG-64).
     rescanned_from: Option<u32>,
+    /// A rescan asked in this run and not finished yet (review r2 should 1).
+    rescan_owed: Option<OwedRescan>,
     /// Lock after this long without a `Touch`; `None`: only when the app closes.
     auto_lock: Option<Duration>,
     last_touch: tokio::time::Instant,
@@ -665,6 +667,50 @@ const HISTORY_EVERY: Duration = Duration::from_secs(10 * 60);
 const DISCOVERY_RETRY: Duration = Duration::from_secs(10);
 const DISCOVERY_RETRY_MAX: Duration = Duration::from_secs(5 * 60);
 
+/// A rescan asked in this run and not finished yet (BUG-64 review r2 should 1). platform-wallet
+/// rewinds the wallet's filter height in memory only, and the climb back is the rescan; what it
+/// is for is noted on disk only once the wallet is back at `up_to`, where it stood when asked —
+/// a run closed before that asks again at the next start.
+#[derive(Debug, PartialEq)]
+struct OwedRescan {
+    wallet: WalletId,
+    up_to: u32,
+    /// Lines of `mempool-seen.json` and of `mined.json` it is for.
+    stale: Vec<String>,
+    lost: Vec<String>,
+}
+
+impl OwedRescan {
+    /// One more rescan asked for `wallet` at height `synced`. One owed for another wallet is
+    /// dropped: it is asked again in a later run.
+    fn add(
+        owed: &mut Option<Self>,
+        wallet: WalletId,
+        synced: u32,
+        stale: Vec<String>,
+        lost: Vec<String>,
+    ) {
+        let o = match owed {
+            Some(o) if o.wallet == wallet => o,
+            _ => owed.insert(Self {
+                wallet,
+                up_to: synced,
+                stale: Vec::new(),
+                lost: Vec::new(),
+            }),
+        };
+        o.up_to = o.up_to.max(synced);
+        o.stale.extend(stale);
+        o.lost.extend(lost);
+    }
+
+    /// The owed rescan, taken, when `wallet`'s filters are at `synced` and that is where it
+    /// was asked from or above.
+    fn finished(owed: &mut Option<Self>, wallet: &WalletId, synced: u32) -> Option<Self> {
+        owed.take_if(|o| o.wallet == *wallet && synced >= o.up_to)
+    }
+}
+
 /// What one pass of the identity search means for it (BUG-9).
 #[derive(Debug, PartialEq)]
 struct DiscoveryStep {
@@ -877,6 +923,7 @@ impl Real {
             history_read: None,
             mined,
             rescanned_from: None,
+            rescan_owed: None,
             outgoing: Default::default(),
             platform_sending: Default::default(),
             previews: Default::default(),
@@ -893,26 +940,39 @@ impl Real {
     /// Asks the wallet to scan its compact filters again from `from` (BUG-64): a block it
     /// took a transaction out of is matched and applied again, and the store gets it. Once
     /// the sync is done, and only below the lowest height asked in this run, so it never
-    /// repeats itself; the journal says why (`lost_block` or `stale`). Whether it was asked.
-    async fn rescan_from(&mut self, id: WalletId, from: u32, why: &'static str) -> bool {
+    /// repeats itself; the journal says why (`lost_block` or `stale`). What it is for — the
+    /// `stale` lines of the mempool file, the `lost` ones of `mined.json` — is owed until the
+    /// wallet's filters are back at `synced`, where they stand now ([`OwedRescan`]).
+    async fn rescan_from(
+        &mut self,
+        id: WalletId,
+        from: u32,
+        why: &'static str,
+        synced: u32,
+        stale: Vec<String>,
+        lost: Vec<String>,
+    ) {
         if self.chain.status().phase != sync::Phase::Synced
             || self.rescanned_from.is_some_and(|asked| asked <= from)
         {
-            return false;
+            return;
         }
         let Ok(manager) = self.chain.manager().await else {
-            return false;
+            return;
         };
         self.rescanned_from = Some(from);
         crate::diag::record(crate::diag::Record::Answer {
             what: "rescan",
             outcome: why,
         });
-        matches!(
+        let asked = matches!(
             tokio::task::spawn_blocking(move || manager.spv_rescan_filters_blocking(&id, from))
                 .await,
             Ok(true)
-        )
+        );
+        if asked {
+            OwedRescan::add(&mut self.rescan_owed, id, synced, stale, lost);
+        }
     }
 
     /// Reads the wallet's history from the store again when the wallet in memory has new
@@ -1892,6 +1952,8 @@ impl Real {
         let mut unfinished = None;
         let mut unfinished_top_up = None;
         let mut lost_block = None;
+        // How far the wallet's filters are: back where a rescan was asked, it has finished.
+        let mut synced = 0;
         let mut identities = Vec::new();
         // Every identity's credits, the one worked as among them (BUG-56), and the coins'
         // values for the fee of a payment (BUG-55).
@@ -1934,6 +1996,7 @@ impl Real {
                 };
                 self.refresh_stored_history(id, live_count).await;
                 let state = wallet.state().await;
+                synced = state.core_wallet.synced_height();
                 let now = now();
                 let tip = self.chain.status().headers.map_or(0, |h| h.height);
                 // The store's records first: one per transaction, as platform-wallet folds the
@@ -2209,13 +2272,24 @@ impl Real {
         );
         // A payment long out of a block may have lost its block before this file knew it
         // (BUG-64): the filters are scanned again from the wallet's birth to find it — once for
-        // each such payment, also across restarts (review r1 should 1).
-        if let Some(from) = lost_block.map(|h| h.saturating_sub(1)) {
-            self.rescan_from(id, from, "lost_block").await;
+        // each such payment, also across restarts (review r1 should 1). Noted as done only when
+        // the rescan has run to its end (review r2 should 1), and a lost block is noted too
+        // (should 2): one cut short is asked again at the next start, one finished never again.
+        if let Some(done) = OwedRescan::finished(&mut self.rescan_owed, &id, synced) {
+            self.mempool.rescanned(&done.stale);
+            self.mined.rescanned(&done.lost);
+        }
+        if let Some(lost) = lost_block {
+            let from = lost.from.saturating_sub(1);
+            let why = "lost_block";
+            self.rescan_from(id, from, why, synced, Vec::new(), lost.txids)
+                .await;
         } else {
             let stale = self.mempool.not_rescanned(&history);
-            if !stale.is_empty() && self.rescan_from(id, meta.birth_height, "stale").await {
-                self.mempool.rescanned(&stale);
+            if !stale.is_empty() {
+                let from = meta.birth_height;
+                self.rescan_from(id, from, "stale", synced, stale, Vec::new())
+                    .await;
             }
         }
         history.sort_by_key(|a| std::cmp::Reverse(a.at));
@@ -4452,6 +4526,34 @@ mod tests {
     }
 
     use super::*;
+
+    /// BUG-64 review r2 should 1: a rescan is finished only once the wallet's filters are back
+    /// where they stood when it was asked — not while they climb, not for another wallet; a
+    /// second one asked meanwhile adds what it is for; a wallet switch drops what was owed.
+    #[test]
+    fn a_rescan_is_noted_only_when_it_has_run_to_its_end() {
+        let (a, b): (WalletId, WalletId) = ([0xa; 32], [0xb; 32]);
+        let mut owed = None;
+        let s = |t: &str| vec![t.to_owned()];
+        OwedRescan::add(&mut owed, a, 1_600_000, s("stale"), Vec::new());
+        // Rewound to the birth and climbing.
+        assert_eq!(OwedRescan::finished(&mut owed, &a, 1_400_000), None);
+        assert_eq!(
+            OwedRescan::finished(&mut owed, &b, 1_700_000),
+            None,
+            "another wallet"
+        );
+        OwedRescan::add(&mut owed, a, 1_600_002, Vec::new(), s("lost"));
+        assert_eq!(OwedRescan::finished(&mut owed, &a, 1_600_001), None);
+        let done = OwedRescan::finished(&mut owed, &a, 1_600_002).expect("back at the tip");
+        assert_eq!((done.stale, done.lost), (s("stale"), s("lost")));
+        assert!(owed.is_none(), "noted once");
+        // Asked for a, then for b: a's is dropped (asked again in a later run).
+        OwedRescan::add(&mut owed, a, 10, s("x"), Vec::new());
+        OwedRescan::add(&mut owed, b, 20, s("y"), Vec::new());
+        let done = OwedRescan::finished(&mut owed, &b, 20).expect("b's");
+        assert_eq!(done.stale, s("y"));
+    }
 
     /// BUG-13: each DashPay pass makes the snapshot again, once.
     #[test]

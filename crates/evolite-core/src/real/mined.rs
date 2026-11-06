@@ -23,6 +23,18 @@ struct Block {
     height: u32,
     hash: String,
     time: u32,
+    /// A rescan for the record out of this block ran to its end (BUG-64 review r2 should 2):
+    /// not asked again for it, across restarts too, until the record is in a block again.
+    #[serde(default)]
+    rescanned: bool,
+}
+
+/// What [`Mined::recall`] put back into its block with no finished rescan for it yet: the
+/// filters are to be scanned again from below `from`, then [`Mined::rescanned`] notes `txids`.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Lost {
+    pub from: u32,
+    pub txids: Vec<String>,
 }
 
 pub struct Mined {
@@ -47,18 +59,18 @@ impl Mined {
 
     /// Notes the block of every record in a final one — chain-locked, or at or below
     /// `chainlocked`, the verified ChainLock's height — and puts a record that came back without
-    /// a block into the final block it was seen in. Returns the lowest height put back: the
-    /// filters are to be scanned again from below it. A final block the file does not know yet
-    /// for its record is written down (one write).
+    /// a block into the final block it was seen in. Returns what was put back and not rescanned
+    /// for yet ([`Lost`]): the filters are to be scanned again from below its lowest height. A
+    /// final block the file does not know yet for its record is written down (one write).
     pub fn recall(
         &self,
         records: &mut [TransactionRecord],
         chainlocked: Option<u32>,
-    ) -> Option<u32> {
+    ) -> Option<Lost> {
         let mut guard = self.blocks.lock().unwrap_or_else(|e| e.into_inner());
         let blocks = guard.get_or_insert_with(|| self.load());
         let mut changed = false;
-        let mut lowest: Option<u32> = None;
+        let mut lost: Option<Lost> = None;
         for r in records.iter_mut() {
             let txid = r.txid.to_string();
             match r.context.block_info() {
@@ -68,10 +80,12 @@ impl Mined {
                     if !is_final {
                         continue;
                     }
+                    // In its block again: a later loss is rescanned for once more.
                     let block = Block {
                         height: info.height(),
                         hash: info.block_hash().to_string(),
                         time: info.timestamp(),
+                        rescanned: false,
                     };
                     if blocks.get(&txid) != Some(&block) {
                         blocks.insert(txid, block);
@@ -86,14 +100,40 @@ impl Mined {
                     r.context = TransactionContext::InChainLockedBlock(BlockInfo::new(
                         b.height, hash, b.time,
                     ));
-                    lowest = Some(lowest.map_or(b.height, |l| l.min(b.height)));
+                    if b.rescanned {
+                        continue;
+                    }
+                    let l = lost.get_or_insert(Lost {
+                        from: b.height,
+                        txids: Vec::new(),
+                    });
+                    l.from = l.from.min(b.height);
+                    l.txids.push(txid);
                 }
             }
         }
         if changed {
             let _ = super::json_file::save(&self.path, blocks);
         }
-        lowest
+        lost
+    }
+
+    /// Notes that a rescan for `txids` ([`Lost::txids`]) ran to its end (kept in the file).
+    pub fn rescanned(&self, txids: &[String]) {
+        let mut guard = self.blocks.lock().unwrap_or_else(|e| e.into_inner());
+        let blocks = guard.get_or_insert_with(|| self.load());
+        let mut changed = false;
+        for t in txids {
+            if let Some(b) = blocks.get_mut(t)
+                && !b.rescanned
+            {
+                b.rescanned = true;
+                changed = true;
+            }
+        }
+        if changed {
+            let _ = super::json_file::save(&self.path, blocks);
+        }
     }
 }
 
@@ -152,7 +192,10 @@ mod tests {
             record(2, block(1_580_000)),
             record(3, TransactionContext::Mempool),
         ];
-        assert_eq!(again.recall(&mut after, None), Some(1_579_644));
+        assert_eq!(
+            again.recall(&mut after, None).map(|l| l.from),
+            Some(1_579_644)
+        );
         assert_eq!(after[0].context, seen[0].context);
         assert_eq!(
             after[0].context.block_info().map(|b| b.timestamp()),
@@ -194,7 +237,9 @@ mod tests {
             record(2, TransactionContext::Mempool),
         ];
         assert_eq!(
-            Mined::new(path).recall(&mut lost, Some(1_600_000)),
+            Mined::new(path)
+                .recall(&mut lost, Some(1_600_000))
+                .map(|l| l.from),
             Some(1_600_000)
         );
         assert_eq!(
@@ -213,6 +258,48 @@ mod tests {
         none.recall(&mut unknown, None);
         let mut back = vec![record(3, TransactionContext::Mempool)];
         assert_eq!(none.recall(&mut back, None), None);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// Review r2 should 2: a record whose rescan ran to its end is still shown in its block but
+    /// asks for no rescan again — across restarts too — until it is in a block again; one lost
+    /// after that asks once more. Two lost: one rescan from the lower, both noted.
+    #[test]
+    fn a_finished_rescan_is_not_asked_again() {
+        let dir = std::env::temp_dir().join(format!("evolite-mined-once-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let path = dir.join("mined.json");
+        Mined::new(path.clone()).recall(
+            &mut [record(1, block(1_500_010)), record(2, block(1_500_000))],
+            None,
+        );
+        let gone = || {
+            vec![
+                record(1, TransactionContext::Mempool),
+                record(2, TransactionContext::Mempool),
+            ]
+        };
+        let mined = Mined::new(path.clone());
+        let lost = mined.recall(&mut gone(), None).expect("both lost");
+        assert_eq!(lost.from, 1_500_000, "from the lower");
+        assert_eq!(lost.txids.len(), 2);
+        mined.rescanned(&lost.txids);
+        let again = Mined::new(path.clone());
+        let mut after = gone();
+        assert_eq!(again.recall(&mut after, None), None, "not asked again");
+        assert!(
+            after.iter().all(|r| r.context.is_chain_locked()),
+            "still in its block"
+        );
+        // Back in its block, then lost once more: one rescan again.
+        again.recall(&mut [record(1, block(1_500_010))], None);
+        let lost = Mined::new(path)
+            .recall(&mut gone(), None)
+            .expect("lost again");
+        assert_eq!(
+            lost.txids,
+            vec![record(1, block(1_500_010)).txid.to_string()]
+        );
         let _ = std::fs::remove_dir_all(dir);
     }
 }

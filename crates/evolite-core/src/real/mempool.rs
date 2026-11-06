@@ -17,7 +17,8 @@ pub const STALE_AFTER: u32 = 12;
 struct Seen {
     at: Timestamp,
     height: u32,
-    /// Its staleness asked for a rescan already (BUG-64 review r1 should 1): never again.
+    /// A rescan for its staleness ran to its end (BUG-64 review r1 should 1, r2 should 1):
+    /// never again. One cut short (the app closed mid-way) is asked for at the next start.
     #[serde(default)]
     rescanned: bool,
 }
@@ -108,7 +109,7 @@ impl MempoolSeen {
     }
 
     /// The stale lines of `history` ([`Self::mark_stale`]) no rescan was asked for yet
-    /// (BUG-64 review r1 should 1): each asks for one only once, across restarts too.
+    /// (BUG-64 review r1 should 1): each one finished only once, across restarts too.
     pub fn not_rescanned(&self, history: &[Activity]) -> Vec<String> {
         let mut guard = self.seen.lock().unwrap_or_else(|e| e.into_inner());
         let seen = guard.get_or_insert_with(|| self.load());
@@ -121,7 +122,8 @@ impl MempoolSeen {
             .collect()
     }
 
-    /// Notes that a rescan was asked for `txids` (kept in the file).
+    /// Notes that a rescan for `txids` ran to its end (kept in the file): not when it was asked,
+    /// or one cut short by closing the app would never be asked again (review r2 should 1).
     pub fn rescanned(&self, txids: &[String]) {
         let mut guard = self.seen.lock().unwrap_or_else(|e| e.into_inner());
         let seen = guard.get_or_insert_with(|| self.load());
