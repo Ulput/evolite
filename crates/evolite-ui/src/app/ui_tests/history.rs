@@ -250,9 +250,52 @@ fn requests_to_us_and_withdrawals_say_how_they_stand() {
 fn backup_says_what_the_phrase_brings_back() {
     let (_turn, kit) = demo_app("backup", "en");
     assert!(has_text(&kit, "What the phrase brings back"));
-    assert!(has_text(&kit, "Kept only on this computer"));
+    assert!(has_text(&kit, crate::screens::settings::KEPT_HERE));
+    // The designer's corrected text (BUG-58.md «1a»): no longer «the history of operations».
     assert!(has_text(
         &kit,
-        "Payment notes, the address book and settings. The phrase does not bring them back."
+        "Core money, credits and the private pool; identities and names; DashPay contacts and profile. evolite reads again from the network the history of Core payments, names, contact requests, the profile, withdrawals and the pool."
     ));
+    assert!(has_text(&kit, crate::screens::settings::KEPT_HERE_TEXT));
+}
+
+/// BUG-58 «1a»: «Delete the wallet from the computer» says, before deleting, what stays on the
+/// network and what is lost with this computer's copy. The designer (2026-11-06): the line on
+/// what stays is the first one, instead of the old intro that said nearly the same; in «Forgot
+/// the password?» it comes after the line about the password.
+#[test]
+fn deleting_says_what_comes_back_and_what_does_not() {
+    const PASSWORD: &str = "The password cannot be recovered: it encrypts the phrase on this computer. Delete the wallet from here and restore it — or another one — from the phrase.";
+    use crate::screens::settings::{KEPT_HERE, KEPT_HERE_TEXT, STAYS_ON_NETWORK};
+    for (preset, lines) in [
+        ("delete", &[STAYS_ON_NETWORK, KEPT_HERE, KEPT_HERE_TEXT][..]),
+        (
+            "forgot",
+            &[PASSWORD, STAYS_ON_NETWORK, KEPT_HERE, KEPT_HERE_TEXT][..],
+        ),
+    ] {
+        let (_turn, kit) = demo_app(preset, "ru");
+        let mut above = f32::MIN;
+        for key in lines {
+            let shown = crate::i18n::t(key).into_owned();
+            assert_ne!(shown, *key, "«{key}» is in Russian");
+            let top = kit
+                .query_all_by(|n| {
+                    n.value().as_deref() == Some(shown.as_str())
+                        || n.label().as_deref() == Some(shown.as_str())
+                })
+                .next()
+                .unwrap_or_else(|| panic!("{preset}: «{shown}» in the dialog"))
+                .rect()
+                .top();
+            assert!(top > above, "{preset}: «{shown}» below the line before it");
+            above = top;
+        }
+        let old = "The money, identities and names stay on the network. Only the recovery phrase brings them back.";
+        assert!(!has_text(&kit, old), "{preset}: the old intro is gone");
+        assert!(
+            !has_text(&kit, &crate::i18n::t(old)),
+            "{preset}: the old intro is gone"
+        );
+    }
 }

@@ -86,14 +86,19 @@ pub fn delete_dialog(
     };
     let closed = dialog(ui, a, "delete-wallet", "trash", title, 470.0, |ui, a| {
         let mut close = false;
-        let lead = if form.forgot {
-            tr!(
-                "The password cannot be recovered: it encrypts the phrase on this computer. Delete the wallet from here and restore it — or another one — from the phrase."
-            )
+        // What the phrase brings back, read before deleting rather than after (BUG-58): the
+        // first line, or the second after the password's in «Forgot the password?» (designer,
+        // 2026-11-06).
+        let stays = crate::screens::settings::STAYS_ON_NETWORK;
+        let lines: &[&str] = if form.forgot {
+            &[
+                tr!(
+                    "The password cannot be recovered: it encrypts the phrase on this computer. Delete the wallet from here and restore it — or another one — from the phrase."
+                ),
+                stays,
+            ]
         } else {
-            tr!(
-                "The money, identities and names stay on the network. Only the recovery phrase brings them back."
-            )
+            &[stays]
         };
         if let Some(balance) = balance.filter(|_| !form.forgot) {
             ui.horizontal(|ui| {
@@ -107,7 +112,9 @@ pub fn delete_dialog(
                 });
             });
         }
-        ui.add(egui::Label::new(txt(lead, 13.0, Weight::Regular, p.text)).wrap());
+        for line in lines {
+            ui.add(egui::Label::new(txt(line, 13.0, Weight::Regular, p.text)).wrap());
+        }
         if unfinished {
             notice(
                 ui,
@@ -119,7 +126,7 @@ pub fn delete_dialog(
                 ),
             );
         }
-        // What the phrase does not bring back, read before deleting rather than after (BUG-58).
+        // And what it does not (BUG-58).
         crate::components::notice_parts(
             ui,
             a,

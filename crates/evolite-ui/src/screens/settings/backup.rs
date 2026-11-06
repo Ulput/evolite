@@ -19,14 +19,20 @@ use zeroize::Zeroize;
 const SHOWN_FOR: Duration = Duration::from_secs(60);
 
 /// The note under "Recovery phrase" (BUG-58): what the phrase brings back, and what stays on
-/// this computer only (also in "Delete the wallet from the computer").
+/// this computer only (also in "Delete the wallet from the computer"). The designer's text of
+/// 2026-11-06 (BUG-58.md, «1a»), as it stands until FEAT-0012 (tax categories) and FEAT-0015
+/// (Platform address operations) are in: without them, each its own key when they come.
 const WHAT_COMES_BACK: &str = tr!("What the phrase brings back");
 const COMES_BACK: &str = tr!(
-    "Core money, credits and the private pool, identities and names, DashPay contacts and profile, and the history of operations: evolite reads it all again from the network."
+    "Core money, credits and the private pool; identities and names; DashPay contacts and profile. evolite reads again from the network the history of Core payments, names, contact requests, the profile, withdrawals and the pool."
 );
 pub const KEPT_HERE: &str = tr!("Kept only on this computer");
-pub const KEPT_HERE_TEXT: &str =
-    tr!("Payment notes, the address book and settings. The phrase does not bring them back.");
+pub const KEPT_HERE_TEXT: &str = tr!(
+    "Payment notes, the address book and settings, as well as records of credit transfers, app sign-ins and exact Platform fees. The phrase does not bring them back."
+);
+/// Before [`KEPT_HERE`] in "Delete the wallet from the computer": what does come back.
+pub const STAYS_ON_NETWORK: &str =
+    tr!("Money, identities, names and contacts stay on the network: the phrase brings them back.");
 
 pub(super) fn backup(ui: &mut Ui, a: &mut Assets, state: &mut SettingsState, wallet: &Wallet) {
     let phrase_line = format!(
