@@ -1910,7 +1910,7 @@ mod tests {
                         "  {} s: {:?} {:.0} %, headers {}/{}, filters {}, peers {}, chainlocked {}, error {:?}",
                         started.elapsed().as_secs(),
                         s.sync.stage,
-                        s.sync.progress * 100.0,
+                        s.sync.progress.unwrap_or(0.0) * 100.0,
                         s.sync.headers_height,
                         s.sync.tip_height,
                         s.sync.filters_height,
@@ -2661,7 +2661,10 @@ mod tests {
         wait_for(&core, 10, |e| match e {
             Event::Snapshot(s) => (!matches!(
                 s.sync.stage,
-                SyncStage::Connecting | SyncStage::Headers | SyncStage::Masternodes
+                SyncStage::Connecting
+                    | SyncStage::Headers
+                    | SyncStage::Masternodes
+                    | SyncStage::Quorums
             ))
             .then_some(()),
             _ => None,

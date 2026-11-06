@@ -417,6 +417,7 @@ impl Chain {
         reporter.update(|s| {
             s.phase = Phase::Starting;
             s.error = None;
+            s.begin_run();
         });
         let result = async {
             // "Own node": that node alone, or no sync at all — never DNS seeds instead.
@@ -1971,6 +1972,40 @@ pub fn creation_step_of(status: Option<&AssetLockStatus>) -> usize {
 mod tests {
     use super::*;
     use std::time::{Duration, Instant};
+
+    /// BUG-60, the chain started again (a failed start, a switch, a lock): the stages count
+    /// from where the new client begins, not from where the last one left them.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_start_again_counts_from_where_it_begins() {
+        let dir = std::env::temp_dir().join(format!("evolite-again-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        // A folder where the store should be: the store does not open, the start fails.
+        std::fs::create_dir_all(dir.join("platform-wallet.db")).unwrap();
+        let paths = ChainPaths {
+            spv: dir.join("spv"),
+            store: dir.join("platform-wallet.db"),
+            core_node: dir.join("core-node.txt"),
+        };
+        let chain = Chain::default();
+        {
+            let mut s = chain.status.lock().unwrap();
+            s.headers_from = Some(1_585_857);
+            s.filters_from = Some(1_585_832);
+            s.lists_answered = true;
+        }
+        assert!(
+            chain
+                .start(&paths, Arc::new(|_: &SyncStatus| {}))
+                .await
+                .is_err()
+        );
+        let s = chain.status();
+        assert_eq!(s.phase, Phase::Error);
+        assert_eq!((s.headers_from, s.filters_from), (None, None));
+        assert!(!s.lists_answered);
+        assert!(!chain.store_open() && !chain.running());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     /// BUG-7: which tracked locks hold "The top-up stopped", and which only await a ChainLock.
     #[test]

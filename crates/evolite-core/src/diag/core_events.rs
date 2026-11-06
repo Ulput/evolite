@@ -141,6 +141,7 @@ fn stage_name(stage: SyncStage) -> &'static str {
         SyncStage::Connecting => "connecting",
         SyncStage::Headers => "headers",
         SyncStage::Masternodes => "masternodes",
+        SyncStage::Quorums => "quorums",
         SyncStage::Filters => "filters",
         SyncStage::Transactions => "transactions",
         SyncStage::Platform => "platform",

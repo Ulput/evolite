@@ -186,7 +186,11 @@ pub enum SyncStage {
     /// Looking for peers.
     Connecting,
     Headers,
+    /// The masternode lists: dash-spv asked a node for them (QRInfo) and waits for the answer.
     Masternodes,
+    /// The answer is in: dash-spv checks the quorums it brought (their BLS signatures, and the
+    /// lists of the blocks they were made at, fetched one by one). The last part of the lists.
+    Quorums,
     Filters,
     Transactions,
     Platform,
@@ -197,8 +201,9 @@ pub enum SyncStage {
 #[derive(Clone, PartialEq, Debug)]
 pub struct SyncInfo {
     pub stage: SyncStage,
-    /// 0..=1 within the stage.
-    pub progress: f32,
+    /// 0..=1 within the stage, counted from where this run began it. `None`: the stage has
+    /// nothing to count (looking for nodes, waiting for a node's answer, checking quorums).
+    pub progress: Option<f32>,
     pub tip_height: u32,
     /// Block headers checked so far.
     pub headers_height: u32,

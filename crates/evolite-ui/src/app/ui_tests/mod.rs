@@ -19,6 +19,7 @@ mod pause;
 mod send;
 mod settings_apps;
 mod spend;
+mod sync;
 mod tab_sweep;
 mod wallets;
 

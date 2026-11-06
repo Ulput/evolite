@@ -23,25 +23,59 @@ pub(super) fn coins_known(s: &SyncStatus, wallet: bool) -> bool {
 pub(super) fn sync_info(s: &SyncStatus, wallet: bool) -> SyncInfo {
     let headers = s.headers;
     let tip = headers.map_or(0, |h| h.target);
-    let ratio = |height: u32, target: u32| height as f32 / target.max(1) as f32;
+    // The part of `from..to` done at `at`: the work of this run, not the height. A warm folder
+    // is near the tip from the start, and height / tip said «100 %» while there were hundreds
+    // of blocks to go (BUG-60). Nothing between the two: nothing to count.
+    let span = |from: u32, at: u32, to: u32| {
+        (to > from).then(|| at.saturating_sub(from) as f32 / (to - from) as f32)
+    };
     let (stage, progress) = match (headers, s.masternodes, s.filters) {
-        // Nothing heard from the network yet (or it failed before that).
-        (None, _, _) => (SyncStage::Connecting, 0.0),
-        (Some(h), _, _) if !h.done => (SyncStage::Headers, ratio(h.height, h.target)),
-        (_, Some(m), _) if !m.done => (SyncStage::Masternodes, ratio(m.height, m.target)),
-        // Half for filters downloaded, half for batches done: the done height alone stood
-        // at 28 % for minutes while a restored wallet's blocks came, then jumped to the end.
-        (_, _, Some(f)) if wallet && !f.done => (
-            SyncStage::Filters,
-            (ratio(s.filters_stored.max(f.height), f.target) + ratio(f.height, f.target)) / 2.0,
+        // Nothing heard from the network yet (or it failed before that); the client may
+        // still be reading what it saved.
+        (None, _, _) => (SyncStage::Connecting, None),
+        // dash-spv's own count: the joined-up tip and the segments downloaded past it.
+        (Some(h), _, _) if !h.done => (
+            SyncStage::Headers,
+            span(
+                s.headers_from.unwrap_or(0).min(h.height),
+                h.height + s.headers_buffered,
+                h.target,
+            ),
         ),
-        (_, _, None) if wallet => (SyncStage::Filters, 0.0),
-        _ if s.chainlock_height.is_none() => (SyncStage::ChainLock, 1.0),
-        _ => (SyncStage::Done, 1.0),
+        // The list height moves only when the lists are done: no count, only the step
+        // (BUG-61).
+        (_, Some(m), _) if !m.done => (
+            if s.lists_answered {
+                SyncStage::Quorums
+            } else {
+                SyncStage::Masternodes
+            },
+            None,
+        ),
+        // A third each for the filter headers, the filters downloaded and the batches done:
+        // the done height alone stood at 28 % for minutes while a restored wallet's blocks
+        // came, then jumped to the end.
+        (_, _, Some(f)) if wallet && !f.done => {
+            let from = s.filters_from.unwrap_or(0).min(f.height);
+            let stored = s.filters_stored.max(f.height);
+            let parts = [s.filter_headers.max(stored), stored, f.height];
+            (
+                SyncStage::Filters,
+                parts
+                    .iter()
+                    .map(|&at| span(from, at, f.target))
+                    .sum::<Option<f32>>()
+                    .map(|sum| sum / parts.len() as f32),
+            )
+        }
+        (_, _, None) if wallet => (SyncStage::Filters, None),
+        // Waits for the network's next ChainLock: nothing to count.
+        _ if s.chainlock_height.is_none() => (SyncStage::ChainLock, None),
+        _ => (SyncStage::Done, Some(1.0)),
     };
     SyncInfo {
         stage,
-        progress: progress.clamp(0.0, 1.0),
+        progress: progress.map(|p| p.clamp(0.0, 1.0)),
         tip_height: tip,
         headers_height: headers.map_or(0, |h| h.height),
         filters_height: s.filters.map_or(0, |f| f.height),
@@ -813,7 +847,7 @@ mod tests {
         });
         let info = sync_info(&s, false);
         assert_eq!(info.stage, SyncStage::Headers);
-        assert!((info.progress - 0.5).abs() < 1e-6);
+        assert_eq!(info.progress, Some(0.5));
         s.headers = Some(Stage {
             height: 1000,
             target: 1000,
@@ -916,19 +950,118 @@ mod tests {
             done: false,
         });
         s.filters_stored = 447_000;
-        let waiting = sync_info(&s, true).progress;
+        let waiting = sync_info(&s, true).progress.unwrap();
         s.filters_stored = 1_400_000;
         let info = sync_info(&s, true);
         assert_eq!(info.stage, SyncStage::Filters);
-        // 28 % before, 58 % now: half of the stage is the download, and it moved.
-        assert!(
-            info.progress > waiting + 0.25,
-            "{} vs {waiting}",
-            info.progress
-        );
-        assert!(info.progress < 1.0, "not done until the batches are");
+        // 28 % before, 68 % now: two thirds of the stage are the download, and it moved.
+        let now = info.progress.unwrap();
+        assert!(now > waiting + 0.25, "{now} vs {waiting}");
+        assert!(now < 1.0, "not done until the batches are");
         // What is done stays what the history shows.
         assert_eq!(info.filters_height, 447_000);
+    }
+
+    /// The journal of 2026-11-06: a warm folder, 637 headers and 662 filters behind. The
+    /// percent is of this run's work, not of the height (BUG-60).
+    fn warm_start() -> SyncStatus {
+        let mut s = SyncStatus {
+            phase: Phase::Syncing,
+            headers: Some(Stage {
+                height: 1_585_857,
+                target: 1_586_494,
+                done: false,
+            }),
+            ..Default::default()
+        };
+        s.headers_from = Some(1_585_857);
+        s
+    }
+
+    #[test]
+    fn headers_count_from_where_this_run_began() {
+        let mut s = warm_start();
+        assert_eq!(sync_info(&s, true).progress, Some(0.0));
+        // Segments downloaded side by side: the tip has not moved yet, they count.
+        s.headers_buffered = 300;
+        let info = sync_info(&s, true);
+        assert_eq!(info.stage, SyncStage::Headers);
+        let part = info.progress.unwrap();
+        assert!((part - 300.0 / 637.0).abs() < 1e-3, "{part}");
+        // The headers a node sent are all joined up.
+        s.headers_buffered = 0;
+        s.headers = Some(Stage {
+            height: 1_586_494,
+            target: 1_586_494,
+            done: false,
+        });
+        assert_eq!(sync_info(&s, true).progress, Some(1.0));
+        // At the tip from the start, the nodes not yet heard: no count, not «100 %».
+        s.headers_from = Some(1_586_494);
+        let info = sync_info(&s, true);
+        assert_eq!(info.stage, SyncStage::Headers);
+        assert_eq!(info.progress, None);
+    }
+
+    #[test]
+    fn masternode_lists_are_a_step_without_a_count() {
+        let mut s = warm_start();
+        s.headers = Some(Stage {
+            height: 1_586_494,
+            target: 1_586_494,
+            done: true,
+        });
+        // The saved lists, near the tip: height / tip is 99.9 %, and they are not done.
+        s.masternodes = Some(Stage {
+            height: 1_585_800,
+            target: 1_586_494,
+            done: false,
+        });
+        let info = sync_info(&s, true);
+        assert_eq!(info.stage, SyncStage::Masternodes);
+        assert_eq!(info.progress, None);
+        // A node answered: its quorums are checked (BUG-61).
+        s.lists_answered = true;
+        let info = sync_info(&s, true);
+        assert_eq!(info.stage, SyncStage::Quorums);
+        assert_eq!(info.progress, None);
+        // The lists done, the filters 662 behind: they count from where they were.
+        s.masternodes = Some(Stage {
+            height: 1_586_494,
+            target: 1_586_494,
+            done: true,
+        });
+        s.filters = Some(Stage {
+            height: 1_585_832,
+            target: 1_586_494,
+            done: false,
+        });
+        s.filters_stored = 1_585_832;
+        s.filter_headers = 1_586_494;
+        s.filters_from = Some(1_585_832);
+        let info = sync_info(&s, true);
+        assert_eq!(info.stage, SyncStage::Filters);
+        let part = info.progress.unwrap();
+        assert!(
+            (part - 1.0 / 3.0).abs() < 1e-3,
+            "the filter headers only: {part}"
+        );
+    }
+
+    #[test]
+    fn a_stage_with_nothing_to_count_has_no_percent() {
+        assert_eq!(sync_info(&SyncStatus::default(), false).progress, None);
+        let mut s = at_tip();
+        s.chainlock_height = None;
+        let info = sync_info(&s, false);
+        assert_eq!(info.stage, SyncStage::ChainLock);
+        assert_eq!(info.progress, None);
+        assert_eq!(
+            sync_info(&at_tip(), true).progress,
+            None,
+            "filters not heard yet"
+        );
+        assert_eq!(sync_info(&at_tip(), false).progress, Some(1.0));
     }
 }
 

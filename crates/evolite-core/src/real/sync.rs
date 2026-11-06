@@ -54,6 +54,20 @@ pub struct SyncStatus {
     /// with a match waits for its blocks, and dash-spv commits batches only in order, so the
     /// committed height stands still for minutes while filters keep coming, then jumps.
     pub filters_stored: u32,
+    /// How far the filter headers are, which the filters follow.
+    pub filter_headers: u32,
+    /// Headers downloaded past `headers.height`: dash-spv fetches segments side by side and
+    /// moves its tip only when they join up, so the tip alone stands and jumps.
+    pub headers_buffered: u32,
+    /// Where this run began, for the progress of each stage: the headers' tip at the first
+    /// report, the lowest height the filters were done to (lower again on a rescan). Without
+    /// them a warm folder, all of it near the tip, said «100 %» from the start (BUG-60).
+    pub headers_from: Option<u32>,
+    pub filters_from: Option<u32>,
+    /// A node answered this run's request for the masternode lists (QRInfo): dash-spv checks
+    /// their quorums now. Its list height moves only at the very end, so this is all there is
+    /// to tell the two apart (BUG-61).
+    pub lists_answered: bool,
     /// Height of the best ChainLock whose BLS signature was verified (this run or, restored
     /// from storage, an earlier one). The counters below cover this run only.
     pub chainlock_height: Option<u32>,
@@ -81,6 +95,8 @@ impl SyncStatus {
                 target: h.target_height().max(h.tip_height()),
                 done: h.state() == SyncState::Synced,
             });
+            self.headers_buffered = h.buffered();
+            self.headers_from.get_or_insert(h.tip_height());
         }
         if let Ok(m) = progress.masternodes() {
             self.masternodes = Some(Stage {
@@ -88,6 +104,12 @@ impl SyncStatus {
                 target: m.target_height().max(m.current_height()),
                 done: m.state() == SyncState::Synced,
             });
+            // The counters start at nought with each client: a diff applied or a cycle of
+            // quorums verified means the QRInfo answer came.
+            self.lists_answered = m.diffs_processed() > 0 || m.validated_cycles() > 0;
+        }
+        if let Ok(f) = progress.filter_headers() {
+            self.filter_headers = f.current_height();
         }
         if let Ok(f) = progress.filters() {
             let target = self.headers.map_or(0, |h| h.target);
@@ -97,6 +119,8 @@ impl SyncStatus {
                 done: f.state() == SyncState::Synced,
             });
             self.filters_stored = f.stored_height().max(f.committed_height());
+            let from = self.filters_from.get_or_insert(f.committed_height());
+            *from = (*from).min(f.committed_height());
         }
         if let Ok(c) = progress.chainlocks() {
             let height = c.best_validated_height();
@@ -105,6 +129,14 @@ impl SyncStatus {
             self.chainlocks_invalid = c.invalid();
         }
         self.percent = (progress.percentage() * 100.0).clamp(0.0, 100.0);
+    }
+
+    /// A new client is coming: its stages begin where it finds them, not where the last one
+    /// left them.
+    pub fn begin_run(&mut self) {
+        self.headers_from = None;
+        self.filters_from = None;
+        self.lists_answered = false;
     }
 }
 
@@ -278,6 +310,51 @@ mod tests {
         assert_eq!(status.chainlock_height, Some(1_299_990));
         assert_eq!(status.chainlocks_valid, 3);
         assert!(status.percent > 0.0 && status.percent < 100.0);
+    }
+
+    /// BUG-60/61: where this run began each stage, and whether a node answered for the lists.
+    #[test]
+    fn remembers_where_the_run_began() {
+        use dash_spv::sync::FiltersProgress;
+        let report = |tip: u32, buffered: u32, committed: u32, diffs: u32| {
+            let mut headers = BlockHeadersProgress::default();
+            headers.update_target_height(1_586_494);
+            headers.update_tip_height(tip);
+            headers.update_buffered(buffered);
+            let mut masternodes = MasternodesProgress::default();
+            masternodes.update_current_height(1_585_800);
+            masternodes.update_target_height(1_586_494);
+            masternodes.add_diffs_processed(diffs);
+            let mut filters = FiltersProgress::default();
+            filters.update_committed_height(committed);
+            filters.update_stored_height(committed);
+            let mut progress = SyncProgress::default();
+            progress.update_headers(headers);
+            progress.update_masternodes(masternodes);
+            progress.update_filters(filters);
+            progress
+        };
+        let mut status = SyncStatus::default();
+        status.apply_progress(&report(1_585_857, 0, 1_585_832, 0));
+        assert!(!status.lists_answered);
+        status.apply_progress(&report(1_586_000, 200, 1_586_100, 1));
+        assert_eq!(
+            status.headers_from,
+            Some(1_585_857),
+            "the first report's tip"
+        );
+        assert_eq!(status.headers_buffered, 200);
+        assert_eq!(status.filters_from, Some(1_585_832));
+        assert!(status.lists_answered, "a diff came after the QRInfo answer");
+        // A rescan takes the filters back: they count from there.
+        status.apply_progress(&report(1_586_000, 0, 1_500_000, 1));
+        assert_eq!(status.filters_from, Some(1_500_000));
+        // The next client begins afresh.
+        status.begin_run();
+        status.apply_progress(&report(1_586_494, 0, 1_586_494, 0));
+        assert_eq!(status.headers_from, Some(1_586_494));
+        assert_eq!(status.filters_from, Some(1_586_494));
+        assert!(!status.lists_answered);
     }
 
     #[test]

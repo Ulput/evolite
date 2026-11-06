@@ -214,7 +214,7 @@ impl App {
             && let Some(s) = self.snapshot.as_mut()
         {
             s.sync.stage = evolite_api::SyncStage::Filters;
-            s.sync.progress = 0.58;
+            s.sync.progress = Some(0.58);
             s.sync.chainlocked = false;
         }
         if let Some(pp) = &self.dev.pause_preset

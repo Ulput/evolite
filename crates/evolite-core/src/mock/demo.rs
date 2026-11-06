@@ -109,7 +109,7 @@ fn demo_dapi() -> Vec<NodeInfo> {
 pub(super) fn synced() -> SyncInfo {
     SyncInfo {
         stage: SyncStage::Done,
-        progress: 1.0,
+        progress: Some(1.0),
         tip_height: TIP,
         headers_height: TIP,
         filters_height: TIP,
@@ -699,10 +699,11 @@ pub(super) fn staged_sync(elapsed: f32) -> SyncInfo {
     };
     SyncInfo {
         stage,
-        progress: if stage == SyncStage::Filters {
-            filters
-        } else {
-            1.0
+        // As the real core: the steps after the filters have nothing to count.
+        progress: match stage {
+            SyncStage::Filters => Some(filters),
+            SyncStage::Done => Some(1.0),
+            _ => None,
         },
         tip_height: TIP,
         headers_height: TIP,

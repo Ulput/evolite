@@ -136,11 +136,7 @@ pub fn sidebar(
         )
     } else {
         (
-            format!(
-                "{} · {} %",
-                text::sync_stage(status.stage),
-                (status.progress * 100.0).round()
-            ),
+            text::sync_title(status),
             match (&status.error, status.minutes_left) {
                 (Some(_), _) => tr!("the sync stopped").to_string(),
                 (None, Some(m)) => format!(tr!("about {} min left"), m.max(1)),
@@ -148,12 +144,12 @@ pub fn sidebar(
             },
         )
     };
-    // In the rail or a low window part of it is not drawn: all of it on hover and for the
-    // screen reader.
+    // All of it for the screen reader (the words are painted); in the rail or a low window
+    // part of it is not drawn: all of it on hover too.
+    let both = format!("{} · {}", crate::i18n::t(&title), crate::i18n::t(&detail));
+    let resp = ui.interact(sync, ui.id().with("sync-card"), egui::Sense::hover());
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, &both));
     if rail || compact {
-        let both = format!("{} · {}", crate::i18n::t(&title), crate::i18n::t(&detail));
-        let resp = ui.interact(sync, ui.id().with("sync-card"), egui::Sense::hover());
-        resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, &both));
         resp.on_hover_text(both);
     }
     if !rail {

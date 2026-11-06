@@ -14,7 +14,10 @@ use evolite_api::{SyncInfo, SyncStage};
 pub(super) fn sync(ui: &mut Ui, a: &mut Assets, sync: &SyncInfo, demo: bool) -> Option<Outcome> {
     let p = a.p;
     let order = |stage: SyncStage| match stage {
-        SyncStage::Connecting | SyncStage::Headers | SyncStage::Masternodes => 0,
+        SyncStage::Connecting
+        | SyncStage::Headers
+        | SyncStage::Masternodes
+        | SyncStage::Quorums => 0,
         SyncStage::Filters => 1,
         SyncStage::Transactions => 2,
         SyncStage::Platform => 3,
@@ -42,8 +45,7 @@ pub(super) fn sync(ui: &mut Ui, a: &mut Assets, sync: &SyncInfo, demo: bool) -> 
     #[cfg(not(demo_core))]
     let _ = demo;
     let width = ui.available_width();
-    let percent = sync.progress;
-    let stage = crate::text::sync_stage(sync.stage);
+    let title = crate::text::sync_title(sync);
     let filtering = sync.stage == SyncStage::Filters;
     card(&p, Margin::symmetric(32, 28)).show(ui, |ui| {
         ui.set_width(inner(width, 32));
@@ -55,13 +57,14 @@ pub(super) fn sync(ui: &mut Ui, a: &mut Assets, sync: &SyncInfo, demo: bool) -> 
                 .paint_at(ui, mark);
             ui.vertical(|ui| {
                 ui.spacing_mut().item_spacing.y = 10.0;
-                ui.label(txt(
-                    &format!("{stage} · {} %", (percent * 100.0).round() as i32),
-                    15.0,
-                    Weight::SemiBold,
-                    p.text,
-                ));
-                progress_bar(ui, &p, percent);
+                ui.label(txt(&title, 15.0, Weight::SemiBold, p.text));
+                match sync.progress {
+                    Some(part) => progress_bar(ui, &p, part),
+                    // Nothing to count: no bar standing at 0 or full, the same room kept.
+                    None => {
+                        ui.allocate_exact_size(vec2(ui.available_width(), 4.0), Sense::hover());
+                    }
+                }
                 ui.label(
                     egui::RichText::new(crate::i18n::t(&if filtering {
                         match sync.minutes_left {

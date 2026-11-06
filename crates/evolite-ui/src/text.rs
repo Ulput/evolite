@@ -538,12 +538,24 @@ pub fn coins_known(stage: SyncStage) -> bool {
 pub const WAIT_FOR_SYNC: &str =
     tr!("Wait for the sync to finish: the wallet does not know all its coins yet.");
 
+/// The running stage and, when the core can count it, how far it is: «Block headers · 47 %»,
+/// or just «Masternode lists» — a stage with nothing to count says no number, neither 0 nor
+/// 100 % (BUG-60, BUG-61).
+pub fn sync_title(sync: &evolite_api::SyncInfo) -> String {
+    let stage = sync_stage(sync.stage);
+    match sync.progress {
+        Some(part) => format!("{stage} · {} %", (part * 100.0).round() as i32),
+        None => stage.to_owned(),
+    }
+}
+
 /// What a sync stage is called on screen.
 pub fn sync_stage(stage: SyncStage) -> &'static str {
     match stage {
         SyncStage::Connecting => tr!("Looking for network nodes"),
         SyncStage::Headers => tr!("Block headers"),
         SyncStage::Masternodes => tr!("Masternode lists"),
+        SyncStage::Quorums => tr!("Checking masternode quorums"),
         SyncStage::Filters => tr!("Block filters"),
         SyncStage::Transactions => tr!("Your transactions"),
         SyncStage::Platform => tr!("Platform: identities and names"),
