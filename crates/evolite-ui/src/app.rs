@@ -626,8 +626,11 @@ impl App {
                         .rename
                         .as_mut()
                         .is_some_and(|form| form.on_done(result))
+                        && let Some(form) = self.settings.rename.take()
+                        && let Some(snapshot) = self.snapshot.as_mut()
                     {
-                        self.settings.rename = None;
+                        // Saved: shown now, not with the core's next snapshot (BUG-23).
+                        form.show_saved(&mut snapshot.wallets);
                     }
                 }
                 Event::Done {

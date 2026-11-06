@@ -2964,10 +2964,12 @@ impl Real {
         }
     }
 
-    /// The open wallet into platform-wallet once the chain runs: the one saved in the store,
-    /// so its balance and history are there at once, or a new watch-only entry.
+    /// The open wallet into platform-wallet once the store is open: the one saved there, so
+    /// its identities, balance and history are shown at once, before the SPV client has
+    /// started (BUG-25), or a new watch-only entry. The phrase is kept until the client runs:
+    /// a client that does not start lets its store go, and the wallet goes into the next one.
     async fn attach_wallet(&mut self) -> Result<(), String> {
-        if !self.chain.running()
+        if !self.chain.store_open()
             || self
                 .attach_failed
                 .is_some_and(|at| at.elapsed() < RETRY_START)
@@ -2977,9 +2979,17 @@ impl Real {
         let (Some(phrase), Some(open)) = (self.attach.as_ref(), self.unlocked.as_ref()) else {
             return Ok(());
         };
+        // Read before the wallet is opened: once it runs, the client syncs this manager's.
+        let running = self.chain.running();
+        if !running && self.chain.wallet(&open.id).await.is_some() {
+            // In already; the client is still starting.
+            return Ok(());
+        }
         match self.chain.open_wallet(phrase, open.meta.birth_height).await {
             Ok(_) => {
-                self.attach = None;
+                if running {
+                    self.attach = None;
+                }
                 self.attach_failed = None;
                 self.history_read = None;
                 self.dirty.store(true, Ordering::Relaxed);
@@ -4170,8 +4180,9 @@ pub fn run(
                 core.dirty.store(true, Ordering::Relaxed);
             }
             core.retry_start();
-            // The open wallet into platform-wallet once the chain runs (a failure is tried
-            // again later; the sync status says what is wrong with the chain itself). The
+            // The open wallet into platform-wallet as soon as the store is open, settled there
+            // once the chain runs (BUG-25; a failure is tried again later, and the sync status
+            // says what is wrong with the chain itself). The
             // identity lookup begun at the unlock starts again on the loaded wallet, without
             // its pause after "the wallet is not loaded yet".
             if core.attach.is_some() && core.attach_wallet().await.is_ok() && core.attach.is_none()
@@ -4523,6 +4534,50 @@ mod tests {
         );
         core.lock().await.unwrap();
         assert!(core.attach.is_none() && core.unlocked.is_none());
+    }
+
+    /// BUG-25: the open wallet goes into platform-wallet as soon as the store is open, so what
+    /// the store has (identities, balance, history) is shown while the SPV client still starts;
+    /// the phrase is kept until the client runs, and a payment still waits for the sync.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn the_store_is_read_before_the_chain_runs() {
+        let mut core = core_with_vault("attach-store", "pw");
+        assert_eq!(core.unlock(&pw("pw")).await, Ok(()));
+        let id = core.unlocked.as_ref().map(|o| o.id).unwrap();
+        core.chain
+            .open_store_only(&core.paths.chain)
+            .await
+            .expect("the store opens");
+        assert!(core.chain.store_open() && !core.chain.running());
+        assert_eq!(core.attach_wallet().await, Ok(()));
+        assert!(core.chain.wallet(&id).await.is_some(), "before the client");
+        assert!(core.attach.is_some(), "settled once the client runs");
+        assert_eq!(
+            loaded(&core.chain, &id).await.err(),
+            Some(CoreError::NotSynced)
+        );
+        // Again while the client starts: nothing new to open, nothing to redraw.
+        core.dirty.store(false, Ordering::Relaxed);
+        assert_eq!(core.attach_wallet().await, Ok(()));
+        assert!(!core.dirty.load(Ordering::Relaxed));
+        // The client did not start (r1): the store goes with its wallets, and the next try
+        // opens it again with the wallet put in anew.
+        let first = core.chain.manager().await.expect("the manager");
+        core.chain.let_store_go().await;
+        assert!(!core.chain.store_open() && core.chain.wallet(&id).await.is_none());
+        assert!(
+            first.wallet_ids().await.is_empty(),
+            "torn down, not only dropped"
+        );
+        drop(first);
+        core.chain
+            .open_store_only(&core.paths.chain)
+            .await
+            .expect("the store opens again");
+        assert_eq!(core.attach_wallet().await, Ok(()));
+        assert!(core.chain.wallet(&id).await.is_some());
+        core.chain.stop().await;
+        assert!(!core.chain.store_open());
     }
 
     /// "Add a wallet" → "Create": the new wallet is born at the tip the wallet before saw, and

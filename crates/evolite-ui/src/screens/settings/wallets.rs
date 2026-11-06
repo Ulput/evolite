@@ -40,6 +40,15 @@ impl RenameForm {
             }
         }
     }
+
+    /// The saved name and colour in `wallets` at once (BUG-23): the core has them when it says
+    /// so, and the list need not wait for its next snapshot.
+    pub fn show_saved(&self, wallets: &mut [evolite_api::WalletEntry]) {
+        if let Some(w) = wallets.iter_mut().find(|w| w.id == self.id) {
+            w.name = self.name.trim().to_owned();
+            w.color = self.color;
+        }
+    }
 }
 
 pub(super) fn wallets(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut SettingsState) {
@@ -495,3 +504,42 @@ const COLOR_NAMES: [&str; 6] = [
     tr!("Purple"),
     tr!("Grey"),
 ];
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use evolite_api::{WalletEntry, WalletOrigin};
+
+    fn entry(id: &str, name: &str, color: u8) -> WalletEntry {
+        WalletEntry {
+            id: id.into(),
+            name: name.into(),
+            color,
+            origin: WalletOrigin::Created,
+            created_at: 0,
+            last_opened: None,
+            open: false,
+            wrong_tries: 0,
+            wait_until: None,
+        }
+    }
+
+    /// BUG-23: a saved name is in the list as soon as the core says so, before its next
+    /// snapshot; the other wallets are left as they are.
+    #[test]
+    fn a_saved_name_shows_before_the_next_snapshot() {
+        let mut wallets = vec![entry("a", "Main", 0), entry("b", "Savings", 1)];
+        let mut form = RenameForm {
+            id: "b".into(),
+            name: "  Holiday ".into(),
+            color: 4,
+            waiting: true,
+            error: None,
+        };
+        assert!(form.on_done(&Ok(())));
+        form.show_saved(&mut wallets);
+        assert_eq!(wallets[1].name, "Holiday");
+        assert_eq!(wallets[1].color, 4);
+        assert_eq!((wallets[0].name.as_str(), wallets[0].color), ("Main", 0));
+    }
+}

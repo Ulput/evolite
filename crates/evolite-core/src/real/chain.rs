@@ -59,8 +59,12 @@ pub struct Chain {
     /// time, and a stop waits for a start under way. [`Chain::manager`] waits for neither
     /// (BUG-24: every command stood in line for the whole start).
     starting: tokio::sync::Mutex<()>,
-    /// A manager is in `manager`: read without waiting for its lock.
+    /// The SPV client runs (the manager in `manager` syncs): read without waiting for its lock.
     running: AtomicBool,
+    /// The store is open and its wallets are loaded: a manager is in `manager`, maybe before
+    /// its SPV client starts (BUG-25: that took 12 s in a release build and half a minute or
+    /// more in a debug one, and the wallet's identities, balance and history waited for it).
+    store_open: AtomicBool,
     /// Its core has been replaced: a start not yet made is not made.
     retired: AtomicBool,
     status: Arc<Mutex<SyncStatus>>,
@@ -78,6 +82,7 @@ impl Default for Chain {
             manager: tokio::sync::Mutex::new(None),
             starting: tokio::sync::Mutex::new(()),
             running: AtomicBool::new(false),
+            store_open: AtomicBool::new(false),
             retired: AtomicBool::new(false),
             status: Arc::new(Mutex::new(SyncStatus {
                 network: crate::network::name(),
@@ -354,6 +359,48 @@ impl Chain {
             .clone()
     }
 
+    /// Opens the store at `store` and restores the wallets saved there, before the SPV client
+    /// starts: the manager is in [`Self::manager`] from then on.
+    async fn open_store(
+        &self,
+        store: &std::path::Path,
+        handler: Arc<dyn PlatformEventHandler>,
+    ) -> Result<Arc<Manager>, String> {
+        // The context provider needs the manager's SPV client, the manager needs the SDK:
+        // the SDK is built with a placeholder and gets ours once the manager exists.
+        let sdk = match crate::network::current() {
+            evolite_api::Network::Testnet => SdkBuilder::new_testnet(),
+            evolite_api::Network::Mainnet => SdkBuilder::new_mainnet(),
+        }
+        .with_context_provider(NotYet)
+        .build()
+        .map_err(|e| e.to_string())?;
+        if let Some(dir) = store.parent() {
+            std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+        }
+        let persister = SqlitePersister::open(SqlitePersisterConfig::new(store.to_path_buf()))
+            .map_err(|e| e.to_string())?;
+        let manager = Arc::new(PlatformWalletManager::new(
+            Arc::new(sdk),
+            Arc::new(persister),
+            handler,
+        ));
+        manager.sdk().set_context_provider(SpvContextProvider::new(
+            manager.spv_arc(),
+            self.status.clone(),
+        ));
+        manager
+            .load_from_persistor()
+            .await
+            .map_err(|e| e.to_string())?;
+        // What the store has is shown at once: the SPV client opens the stored headers and
+        // filters next, which takes far longer (BUG-25). What needs the client waits for
+        // [`Self::running`]; what needs proofs, for the masternode lists.
+        *self.manager.lock().await = Some(manager.clone());
+        self.store_open.store(true, Ordering::Relaxed);
+        Ok(manager)
+    }
+
     /// Opens the store, restores the wallets saved there and starts the SPV client; does
     /// nothing when already running. A failure is in the status and can be retried.
     pub async fn start(
@@ -379,34 +426,8 @@ impl Chain {
                 Some(address) => Some(super::node::resolve(address).await?),
                 None => None,
             };
-            // The context provider needs the manager's SPV client, the manager needs the SDK:
-            // the SDK is built with a placeholder and gets ours once the manager exists.
-            let sdk = match crate::network::current() {
-                evolite_api::Network::Testnet => SdkBuilder::new_testnet(),
-                evolite_api::Network::Mainnet => SdkBuilder::new_mainnet(),
-            }
-            .with_context_provider(NotYet)
-            .build()
-            .map_err(|e| e.to_string())?;
-            if let Some(dir) = paths.store.parent() {
-                std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
-            }
-            let persister = SqlitePersister::open(SqlitePersisterConfig::new(paths.store.clone()))
-                .map_err(|e| e.to_string())?;
             let handler: Arc<dyn PlatformEventHandler> = Arc::new(reporter.clone());
-            let manager = Arc::new(PlatformWalletManager::new(
-                Arc::new(sdk),
-                Arc::new(persister),
-                handler,
-            ));
-            manager.sdk().set_context_provider(SpvContextProvider::new(
-                manager.spv_arc(),
-                self.status.clone(),
-            ));
-            manager
-                .load_from_persistor()
-                .await
-                .map_err(|e| e.to_string())?;
+            let manager = self.open_store(&paths.store, handler).await?;
             let mut config = ClientConfig::new(crate::network::dash())
                 .with_storage_path(paths.spv.clone())
                 .with_user_agent(format!("/evolite:{}/", env!("CARGO_PKG_VERSION")));
@@ -429,6 +450,7 @@ impl Chain {
                 Ok(())
             }
             Err(error) => {
+                self.let_store_go().await;
                 reporter.update(|s| {
                     s.phase = Phase::Error;
                     s.error = Some(error.clone());
@@ -441,6 +463,32 @@ impl Chain {
     /// Started: the store is open and the SPV client runs.
     pub fn running(&self) -> bool {
         self.running.load(Ordering::Relaxed)
+    }
+
+    /// The store is open and its wallets loaded, the SPV client maybe still starting: what the
+    /// store has (identities, balances, history) can be read.
+    pub fn store_open(&self) -> bool {
+        self.store_open.load(Ordering::Relaxed)
+    }
+
+    /// A store opened for a client that did not start is let go as a stop lets it go,
+    /// wallets and all: the next try opens it anew (one persister per file), and the open
+    /// wallet goes into that one (BUG-25 r1).
+    pub(super) async fn let_store_go(&self) {
+        if self.store_open.swap(false, Ordering::Relaxed)
+            && let Some(manager) = self.manager.lock().await.take()
+        {
+            tear_down(&manager).await;
+        }
+    }
+
+    /// The first half of [`Self::start`] alone: the store at `paths` open, no SPV client.
+    #[cfg(test)]
+    pub(super) async fn open_store_only(&self, paths: &ChainPaths) -> Result<(), String> {
+        let reporter = Reporter::new(self.status.clone(), Arc::new(|_: &SyncStatus| {}));
+        self.open_store(&paths.store, Arc::new(reporter))
+            .await
+            .map(|_| ())
     }
 
     /// Its core is replaced by another: a start of this chain still waiting in line is not
@@ -1802,19 +1850,26 @@ impl Chain {
         let _one = self.starting.lock().await;
         let manager = self.manager.lock().await.take();
         self.running.store(false, Ordering::Relaxed);
+        self.store_open.store(false, Ordering::Relaxed);
         if let Some(manager) = manager {
-            // Everything first, in order: SPV, then the sync workers (Platform addresses,
-            // DashPay) that block on this runtime and would panic if it went away under them.
-            // Their passes are sealed then: none reads a wallet while it is removed below
-            // (R-29: a pass running during the removal panicked "wallet exists in guard").
-            let _ = manager.shutdown().await;
-            // Then the wallets: the sync workers share the manager's map of them and outlive
-            // the manager, and a wallet in it keeps the store open — a deleted wallet's files
-            // stayed held until the app quit.
-            for id in manager.wallet_ids().await {
-                let _ = manager.remove_wallet(&id).await;
-            }
+            tear_down(&manager).await;
         }
+    }
+}
+
+/// Lets a manager go with everything it holds: its SPV client and sync workers, then its
+/// wallets, so its store is closed when the last handle drops.
+async fn tear_down(manager: &Manager) {
+    // Everything first, in order: SPV, then the sync workers (Platform addresses, DashPay)
+    // that block on this runtime and would panic if it went away under them. Their passes
+    // are sealed then: none reads a wallet while it is removed below (R-29: a pass running
+    // during the removal panicked "wallet exists in guard").
+    let _ = manager.shutdown().await;
+    // Then the wallets: the sync workers share the manager's map of them and outlive the
+    // manager, and a wallet in it keeps the store open — a deleted wallet's files stayed held
+    // until the app quit.
+    for id in manager.wallet_ids().await {
+        let _ = manager.remove_wallet(&id).await;
     }
 }
 
