@@ -366,6 +366,8 @@ impl Chain {
         store: &std::path::Path,
         handler: Arc<dyn PlatformEventHandler>,
     ) -> Result<Arc<Manager>, String> {
+        // One persister per file (BUG-65 r1): an open store is taken, never opened again.
+        debug_assert!(!self.store_open(), "the store is open already");
         // The context provider needs the manager's SPV client, the manager needs the SDK:
         // the SDK is built with a placeholder and gets ours once the manager exists.
         let sdk = match crate::network::current() {

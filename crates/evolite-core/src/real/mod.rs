@@ -2996,7 +2996,17 @@ impl Real {
             if others {
                 clear_other_leftovers(&paths.root, &wallet);
             }
-            let clear = clear_leftovers(&paths).await;
+            // A replaced chain starts nothing: the next core's start clears its folder after
+            // stopping it. A store opened ahead holds the folder: a wallet deleted meanwhile
+            // cannot be removed under it (that was tried for 10 s, holding up the next start,
+            // BUG-65 r1) — it is not started either, and the next start clears it.
+            let clear = if chain.retired() {
+                false
+            } else if chain.store_open() {
+                paths.vault.exists()
+            } else {
+                clear_leftovers(&paths).await
+            };
             // The SPV files may still be let go by the stopped chain's last tasks (BUG-8): a
             // failed start is tried again at once for a while, then by the loop.
             let deadline = tokio::time::Instant::now() + START_AGAIN;
@@ -4135,6 +4145,18 @@ async fn clear_leftovers(paths: &Paths) -> bool {
     false
 }
 
+/// When the next core may open its store ahead of its SPV client ([`Real::start_chain`],
+/// BUG-65): only when the core before had another wallet. The same wallet again (a restart
+/// after a delete that failed, say) waits for the chain before to let its store go: one
+/// store is never open twice.
+fn open_ahead_after(
+    from: &str,
+    to: &str,
+    before: Option<watch::Receiver<bool>>,
+) -> Option<watch::Receiver<bool>> {
+    before.filter(|_| from != to)
+}
+
 /// The wallet to open: the one open last (or the first) of the index, else a new folder for
 /// the onboarding — it becomes a wallet once its vault is written there.
 fn opening_wallet(data_dir: &std::path::Path) -> String {
@@ -4331,8 +4353,7 @@ pub fn run(
                                 wake.clone(),
                                 art_for(&core.wallet),
                             ));
-                            // Its store opens ahead only when `old` holds another one (BUG-65).
-                            let before = before.filter(|_| from != core.wallet);
+                            let before = open_ahead_after(&from, &core.wallet, before);
                             core.start_chain(Some(old), prev, before, true);
                             // Figma 29: the vault opened before the switch opens the wallet now
                             // (no second Argon2, F2).
@@ -5044,6 +5065,90 @@ mod tests {
                 .is_ok()
         );
         assert!(!back.chain.store_open());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// BUG-65 r1: the loop lets the next core open its store ahead only when the core before
+    /// had another wallet — the same one again (a restart after a delete that failed) would
+    /// open its store a second time.
+    #[test]
+    fn only_another_wallet_opens_its_store_ahead() {
+        let said = || {
+            let (stopped, before) = watch::channel(true);
+            (stopped, Some(before))
+        };
+        let (_a, before) = said();
+        assert!(open_ahead_after("aaaa0001", "bbbb0002", before).is_some());
+        let (_b, before) = said();
+        assert!(open_ahead_after("bbbb0002", "bbbb0002", before).is_none());
+        assert!(open_ahead_after("aaaa0001", "bbbb0002", None).is_none());
+    }
+
+    /// A start whose store was opened ahead, after an adding start that ends when `release`
+    /// is sent; the store is open when this returns.
+    async fn opened_ahead(dir: &std::path::Path) -> (Real, Real, tokio::sync::oneshot::Sender<()>) {
+        seal_wallet(dir, "bbbb0002");
+        let adding = core_at(dir, "cccc0003");
+        adding.chain.retire();
+        let (release, held) = tokio::sync::oneshot::channel::<()>();
+        let adding_start = tokio::spawn(async move {
+            let _ = held.await;
+            false
+        });
+        let (said, before) = watch::channel(false);
+        let _ = said.send(true);
+        let mut back = core_at(dir, "bbbb0002");
+        back.start_chain(
+            Some(adding.chain.clone()),
+            Some(adding_start),
+            Some(before),
+            true,
+        );
+        let opened = async {
+            while !back.chain.store_open() {
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        };
+        assert!(
+            tokio::time::timeout(Duration::from_secs(20), opened)
+                .await
+                .is_ok()
+        );
+        (adding, back, release)
+    }
+
+    /// BUG-65 r1: the wallet whose store was opened ahead is deleted before its SPV client's
+    /// turn, and its core replaced: the start ends at once — no 10 s of trying to remove a
+    /// folder its own store holds, which held up the next wallet's start — starting nothing.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_wallet_deleted_while_its_store_waits_holds_up_nothing() {
+        let dir = fresh_dir("deleted-in-the-window");
+        let (_adding, mut back, release) = opened_ahead(&dir).await;
+        // Deleted: the vault goes at once (F4); the loop replaces the core.
+        std::fs::remove_file(&back.paths.vault).expect("the vault");
+        back.chain.retire();
+        let _ = release.send(());
+        let started = back.starting.take().unwrap();
+        let ended = tokio::time::timeout(Duration::from_secs(5), started).await;
+        assert_eq!(ended.ok().map(|r| r.ok()), Some(Some(false)), "at once");
+        assert!(!back.chain.running());
+        back.chain.stop().await;
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The same before the core is replaced: a deleted wallet's store opened ahead is not
+    /// cleared under itself, and no SPV client starts for it.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_deleted_wallets_open_store_is_not_cleared_under_it() {
+        let dir = fresh_dir("deleted-not-retired");
+        let (_adding, mut back, release) = opened_ahead(&dir).await;
+        std::fs::remove_file(&back.paths.vault).expect("the vault");
+        let _ = release.send(());
+        let started = back.starting.take().unwrap();
+        let ended = tokio::time::timeout(Duration::from_secs(5), started).await;
+        assert_eq!(ended.ok().map(|r| r.ok()), Some(Some(false)), "at once");
+        assert!(!back.chain.running(), "no client for a deleted wallet");
+        back.chain.stop().await;
         let _ = std::fs::remove_dir_all(&dir);
     }
 
