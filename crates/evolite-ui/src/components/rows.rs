@@ -77,6 +77,11 @@ pub fn tx_row_clickable(ui: &mut Ui, a: &mut Assets, row: &TxRow) -> egui::Respo
 fn tx_row_sensed(ui: &mut Ui, a: &mut Assets, row: &TxRow, sense: Sense) -> egui::Response {
     let p = a.p;
     let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 54.0), sense);
+    // "Hide amounts": "••••" under the pointer too (FEAT-0007: no reveal on hover), and for a
+    // screen reader, which reads the row's name.
+    let hidden = crate::format::display().hide;
+    let masked = hidden.then(|| crate::format::mask(row.amount));
+    let amount = masked.as_deref().unwrap_or(row.amount);
     named(
         &resp,
         if sense.senses_click() {
@@ -85,7 +90,7 @@ fn tx_row_sensed(ui: &mut Ui, a: &mut Assets, row: &TxRow, sense: Sense) -> egui
             egui::WidgetType::Label
         },
         true,
-        &format!("{} · {} · {}", row.title, row.amount, row.detail),
+        &format!("{} · {} · {}", row.title, amount, row.detail),
     );
     if resp.hovered() {
         ui.painter()
@@ -96,14 +101,11 @@ fn tx_row_sensed(ui: &mut Ui, a: &mut Assets, row: &TxRow, sense: Sense) -> egui
     paint_icon_box(ui, a, boxr, 10, row.icon, 18.0, p.ink);
 
     let amount_right = rect.right() - 16.0;
-    // "Hide amounts": "••••" under the pointer too (FEAT-0007: no reveal on hover).
-    let hidden = crate::format::display().hide;
-    let masked = hidden.then(|| crate::format::mask(row.amount));
     paint_text(
         ui,
         pos2(amount_right, cy),
         Align2::RIGHT_CENTER,
-        masked.as_deref().unwrap_or(row.amount),
+        amount,
         mono(14.0, Weight::Medium),
         p.text,
     );
