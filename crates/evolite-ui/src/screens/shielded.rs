@@ -563,6 +563,9 @@ fn shield_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut PoolStat
             let ask = password_asked(cx.snap) && !busy;
             let entered = state.password.field(ui, &p, "shield-password", ask);
             button_row(ui, |ui| {
+                if button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked() {
+                    close = true;
+                }
                 let ready = !busy && preview.is_some() && state.password.ready(ask);
                 let label = match (busy, resume) {
                     (true, _) => tr!("Shielding…"),
@@ -580,9 +583,6 @@ fn shield_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut PoolStat
                     cx.send(state.password.command(op, ask));
                     state.progress = Some(0.0);
                     state.result = None;
-                }
-                if button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked() {
-                    close = true;
                 }
             });
             close
@@ -778,6 +778,9 @@ fn unshield_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut PoolSt
             let ask = password_asked(cx.snap) && !busy;
             let entered = state.password.field(ui, &p, "unshield-password", ask);
             button_row(ui, |ui| {
+                if button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked() {
+                    close = true;
+                }
                 let ready = !busy && left.is_some_and(|l| l >= 0) && state.password.ready(ask);
                 let label = if busy {
                     tr!("Unshielding…")
@@ -796,9 +799,6 @@ fn unshield_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut PoolSt
                     cx.send(state.password.command(op, ask));
                     state.progress = Some(0.0);
                     state.result = None;
-                }
-                if button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked() {
-                    close = true;
                 }
             });
             close
@@ -854,6 +854,9 @@ fn address_dialog(ui: &mut Ui, a: &mut Assets, state: &mut PoolState, address: &
                 ),
             );
             button_row(ui, |ui| {
+                if button(ui, a, tr!("Close"), ButtonKind::Ghost, None).clicked() {
+                    close = true;
+                }
                 // Copied like any address (wiped later), with "Copied" for a moment (BUG-39 №1).
                 let copy_id = egui::Id::new("pool-address-copy");
                 let label = if crate::clipboard::just_copied(ui.ctx(), copy_id) {
@@ -863,9 +866,6 @@ fn address_dialog(ui: &mut Ui, a: &mut Assets, state: &mut PoolState, address: &
                 };
                 if button(ui, a, label, ButtonKind::Primary, None).clicked() {
                     crate::clipboard::copy_answered(ui.ctx(), address.to_owned(), copy_id);
-                }
-                if button(ui, a, tr!("Close"), ButtonKind::Ghost, None).clicked() {
-                    close = true;
                 }
             });
             close

@@ -187,6 +187,9 @@ pub fn delete_dialog(
             ui.add(egui::Label::new(txt(&error, 12.0, Weight::Regular, p.danger)).wrap());
         }
         button_row(ui, |ui| {
+            if button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked() {
+                close = true;
+            }
             let label = if form.waiting {
                 tr!("Deleting…")
             } else {
@@ -202,9 +205,6 @@ pub fn delete_dialog(
                 });
                 form.waiting = true;
                 form.result = None;
-            }
-            if button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked() {
-                close = true;
             }
         });
         close

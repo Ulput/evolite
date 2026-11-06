@@ -1301,7 +1301,7 @@ impl eframe::App for App {
             }
             self.screen = screen;
         }
-        // Settings → Appearance picks the theme; "As in the system" follows the OS.
+        // Settings → Appearance picks the theme; "Match the system" follows the OS.
         let dark = match self.settings.theme {
             ThemeChoice::Dark => true,
             ThemeChoice::Light => false,

@@ -633,6 +633,9 @@ fn gift_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut Collection
         state.password.settle(state.result.as_ref());
         let entered = state.password.field(ui, &p, "gift-password", ask);
         crate::components::button_row(ui, |ui| {
+            if button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked() {
+                close = true;
+            }
             let ready =
                 !state.recipient.trim().is_empty() && error.is_none() && state.password.ready(ask);
             if button_enabled(ui, a, tr!("Give"), ButtonKind::Primary, None, ready).clicked()
@@ -644,9 +647,6 @@ fn gift_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut Collection
                 };
                 cx.send(state.password.command(op, ask));
                 state.result = None;
-            }
-            if button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked() {
-                close = true;
             }
         });
         match state.result.as_ref().filter(|_| !state.password.is_wrong()) {

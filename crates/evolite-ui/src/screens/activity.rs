@@ -544,6 +544,9 @@ fn card(
             }
             // The action on the right, «Close» on its left: as in every dialog (designer review №8).
             button_row(ui, |ui| {
+                if button(ui, a, tr!("Close"), ButtonKind::Ghost, None).clicked() {
+                    close = true;
+                }
                 if answer_there
                     && button(ui, a, tr!("Open in Contacts"), ButtonKind::Secondary, None).clicked()
                 {
@@ -558,9 +561,6 @@ fn card(
                         .clicked()
                 {
                     paid_again = Some(repeat.clone());
-                    close = true;
-                }
-                if button(ui, a, tr!("Close"), ButtonKind::Ghost, None).clicked() {
                     close = true;
                 }
             });

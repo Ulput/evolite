@@ -1357,6 +1357,9 @@ fn confirm(
             }
             let mut close = false;
             button_row(ui, |ui| {
+                if button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked() {
+                    close = true;
+                }
                 let ready = (!ask_password || !form.password.is_empty())
                     && (!from_core || address.is_some());
                 let clicked = button_enabled(
@@ -1370,9 +1373,6 @@ fn confirm(
                 .clicked();
                 if ready && (clicked || entered) {
                     send_now = true;
-                    close = true;
-                }
-                if button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked() {
                     close = true;
                 }
             });

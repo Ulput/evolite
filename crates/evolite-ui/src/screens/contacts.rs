@@ -560,13 +560,13 @@ fn profile_dialog(
             );
             let mut close = false;
             button_row(ui, |ui| {
+                if button(ui, a, tr!("Close"), ButtonKind::Ghost, None).clicked() {
+                    close = true;
+                }
                 if c.state == ContactState::Established
                     && button(ui, a, tr!("Send"), ButtonKind::Primary, None).clicked()
                 {
                     pay = true;
-                    close = true;
-                }
-                if button(ui, a, tr!("Close"), ButtonKind::Ghost, None).clicked() {
                     close = true;
                 }
             });
@@ -772,6 +772,9 @@ fn add_contact(
             let ready = ready && !waiting && password.ready(ask);
             let mut close = false;
             button_row(ui, |ui| {
+                if button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked() {
+                    close = true;
+                }
                 let label = if waiting {
                     tr!("Sending…")
                 } else {
@@ -781,9 +784,6 @@ fn add_contact(
                     || (entered && ready)
                 {
                     send = true;
-                }
-                if button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked() {
-                    close = true;
                 }
             });
             close
@@ -858,6 +858,9 @@ fn accept_dialog(
             let ready = !waiting && state.password.ready(true);
             let mut close = false;
             button_row(ui, |ui| {
+                if button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked() {
+                    close = true;
+                }
                 let label = if waiting {
                     tr!("Sending…")
                 } else {
@@ -867,9 +870,6 @@ fn accept_dialog(
                     || (entered && ready)
                 {
                     accept = true;
-                }
-                if button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked() {
-                    close = true;
                 }
             });
             close

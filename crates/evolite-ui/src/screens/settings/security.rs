@@ -221,6 +221,9 @@ pub(super) fn password_dialog(
                 ui.label(txt(&line, 12.0, Weight::Regular, p.danger));
             }
             button_row(ui, |ui| {
+                if button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked() {
+                    close = true;
+                }
                 let ready = !change.old.is_empty()
                     && missing(&change.new).is_empty()
                     && change.new == change.repeat
@@ -241,9 +244,6 @@ pub(super) fn password_dialog(
                     change.new.zeroize();
                     change.repeat.zeroize();
                     change.waiting = true;
-                }
-                if button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked() {
-                    close = true;
                 }
             });
             close
@@ -285,14 +285,14 @@ fn each_off_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut Settin
             let ready = form.ready(true);
             let mut close = false;
             button_row(ui, |ui| {
+                if button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked() {
+                    close = true;
+                }
                 if button_enabled(ui, a, tr!("Turn off"), ButtonKind::Primary, None, ready)
                     .clicked()
                     || (entered && ready)
                 {
                     turn_off = true;
-                }
-                if button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked() {
-                    close = true;
                 }
             });
             close

@@ -163,15 +163,15 @@ pub fn switch_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut Switc
                 ui.add_space(10.0);
                 let ready = !form.password.is_empty() && !form.waiting && paused.is_none();
                 button_row(ui, |ui| {
+                    if button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked() {
+                        close = true;
+                    }
                     let label = if form.waiting { tr!("Opening…") } else { tr!("Open") };
                     let mut open = button_enabled(ui, a, label, ButtonKind::Primary, None, ready);
                     if let Some(secs) = paused {
                         open = pause::explain(ui, open, secs);
                     }
                     let open = open.clicked();
-                    if button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked() {
-                        close = true;
-                    }
                     if ready && (open || entered) {
                         // The password goes to the core and is wiped here at once.
                         cx.send(Command::SwitchWallet {

@@ -467,11 +467,11 @@ pub(super) fn rename_dialog(
             ui.add_space(10.0);
             let ready = (1..=NAME_MAX).contains(&len) && !form.waiting;
             button_row(ui, |ui| {
-                let save =
-                    button_enabled(ui, a, tr!("Save"), ButtonKind::Primary, None, ready).clicked();
                 if button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked() {
                     close = true;
                 }
+                let save =
+                    button_enabled(ui, a, tr!("Save"), ButtonKind::Primary, None, ready).clicked();
                 if ready && (save || entered) {
                     cx.send(Command::RenameWallet {
                         id: form.id.clone(),

@@ -24,7 +24,7 @@ pub(super) fn appearance(
         for (choice, label) in [
             (ThemeChoice::Dark, tr!("Dark")),
             (ThemeChoice::Light, tr!("Light")),
-            (ThemeChoice::System, tr!("As in the system")),
+            (ThemeChoice::System, tr!("Match the system")),
         ] {
             if theme_card(ui, a, choice, label, state.theme == choice, w).clicked() {
                 state.theme = choice;
@@ -43,7 +43,7 @@ pub(super) fn appearance(
     let (g, d) = crate::i18n::separators();
     let by_language = format!(
         "{}: 1{g}234{d}5678",
-        crate::i18n::t(tr!("As in the interface language"))
+        crate::i18n::t(tr!("Interface language default"))
     );
     let style_note = [
         by_language.as_str(),
@@ -113,9 +113,9 @@ pub(super) fn appearance(
     *state.toggle("fiat-rate") = rate;
 
     let system = if crate::motion::system_animations() {
-        tr!("As in the system: animation is on now")
+        tr!("Match the system: animation is on now")
     } else {
-        tr!("As in the system: animation is off now")
+        tr!("Match the system: animation is off now")
     };
     let mut motion = state.nft_motion;
     let mut ask = *state.toggle("nft-ask-unknown");
@@ -128,7 +128,7 @@ pub(super) fn appearance(
                 tr!("NFT animation"),
                 system,
                 Control::Segmented(
-                    &[tr!("As in the system"), tr!("On"), tr!("Off")],
+                    &[tr!("Match the system"), tr!("On"), tr!("Off")],
                     &mut motion,
                 ),
             ),

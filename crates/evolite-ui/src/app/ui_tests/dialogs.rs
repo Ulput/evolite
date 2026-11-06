@@ -205,3 +205,101 @@ fn every_dialog_puts_the_secondary_button_on_the_left() {
         }
     }
 }
+
+/// The designer, 2026-11-06 (b): Tab goes along a dialog's row of buttons as it is read — from
+/// the secondary to the action next to it, on its right, and on its left in Arabic, where the
+/// row is mirrored — not from the primary back to the secondary (WCAG 2.4.3).
+///
+/// Failed on dev 50c5bd4: the row was drawn right to left, so Tab came to the primary first
+/// and from «Cancel» left the row.
+#[test]
+fn tab_goes_along_the_row_of_buttons_as_it_is_read() {
+    let mut checked = Vec::new();
+    for (lang, preset, secondary) in [
+        ("en", "report-letter", "Back"),
+        ("en", "pool-address", "Close"),
+        ("en", "resync", "Cancel"),
+        ("en", "connect", "Decline"),
+        ("en", "add-contact", "Cancel"),
+        ("en", "top-up", "Cancel"),
+        ("en", "shield", "Cancel"),
+        ("en", "wallet-rename", "Cancel"),
+        ("en", "report", "Cancel"),
+        ("ar", "pool-address", "Close"),
+        ("ar", "resync", "Cancel"),
+        ("ar", "report-letter", "Back"),
+    ] {
+        let (_turn, mut kit) = demo_app(preset, lang);
+        let secondary = crate::i18n::spoken(secondary);
+        let what = format!("{preset} {lang}: «{secondary}»");
+        wait_for(&mut kit, &what, |kit| {
+            kit.query_all_by_role_and_label(Role::Button, &secondary)
+                .next()
+                .is_some()
+        });
+        kit.run_steps(4);
+        // The dialog's own, drawn over the page: the last one.
+        let at = kit
+            .query_all_by_role_and_label(Role::Button, &secondary)
+            .last()
+            .map(|b| b.rect())
+            .expect("the secondary button");
+        // The action read next: the nearest enabled button of the row on the reading side.
+        let rtl = lang == "ar";
+        let next = kit
+            .query_all_by_role(Role::Button)
+            .filter(|b| !b.accesskit_node().is_disabled())
+            .map(|b| b.rect())
+            .filter(|r| (r.center().y - at.center().y).abs() < 1.0 && *r != at)
+            .filter(|r| {
+                if rtl {
+                    r.right() <= at.left()
+                } else {
+                    r.left() >= at.right()
+                }
+            })
+            .min_by(|a, b| {
+                let d = |r: &egui::Rect| (r.center().x - at.center().x).abs();
+                d(a).total_cmp(&d(b))
+            });
+        let Some(next) = next else {
+            continue;
+        };
+        let focus = |kit: &Kit| kit.query_by(|n| n.is_focused()).map(|n| n.rect());
+        for _ in 0..80 {
+            if focus(&kit) == Some(at) {
+                break;
+            }
+            tab(&mut kit, false);
+        }
+        assert_eq!(focus(&kit), Some(at), "{what}: Tab never came to it");
+        tab(&mut kit, false);
+        assert_eq!(
+            focus(&kit),
+            Some(next),
+            "{what}: Tab went to «{}», not to the action read after it",
+            focused(&kit).unwrap_or_default()
+        );
+        // And Shift+Tab goes back.
+        tab(&mut kit, true);
+        assert_eq!(focus(&kit), Some(at), "{what}: Shift+Tab did not come back");
+        checked.push(format!("{preset} {lang}"));
+    }
+    assert!(
+        checked.len() >= 6 && checked.iter().any(|c| c.ends_with(" ar")),
+        "too few rows with an enabled action to check: {checked:?}"
+    );
+}
+
+/// The designer, 2026-11-06 (b): with the row in reading order, Enter in a field still answers
+/// with the primary button, not with «Cancel» drawn before it.
+#[test]
+fn enter_in_a_field_still_takes_the_primary_button() {
+    let (_turn, mut kit) = rename_field("Savings");
+    enter(&mut kit);
+    let rename = kit.state().settings.rename.as_ref();
+    assert!(
+        rename.is_none_or(|f| f.waiting),
+        "Enter did not save the name"
+    );
+}

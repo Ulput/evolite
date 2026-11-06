@@ -38,6 +38,33 @@ fn contract_bytes(app: &App) -> Result<[u8; 32], CoreError> {
         .map_err(|e| CoreError::Failed(e.to_string()))
 }
 
+/// A request evolite no longer has, or one shown for another identity than it would answer as.
+fn out_of_date() -> CoreError {
+    CoreError::NotAvailable(tr!("The request is out of date: open the app's link again").into())
+}
+
+impl AppJob {
+    /// The identity (base58) the request was shown for: «Sign in as», or the app's own.
+    fn shown_for(&self) -> String {
+        match self {
+            AppJob::SignIn { identity, .. } => base58(identity),
+            AppJob::AddKeys { app } => app.identity.clone(),
+        }
+    }
+
+    /// BUG-29 (the architect's hardening): «Allow» answers as the identity the request showed.
+    /// The request is shown with «Work as» as it was then and answered with «Work as» as it is
+    /// now (`sign_in_identity`); if it was changed in between, the request is out of date
+    /// rather than answered by an identity the person did not see.
+    fn still_for(&self, me: &[u8; 32]) -> Result<(), CoreError> {
+        if self.shown_for() == base58(me) {
+            Ok(())
+        } else {
+            Err(out_of_date())
+        }
+    }
+}
+
 /// The apps signed in as `identity` (base58), as the screens show them.
 pub(super) fn shown_apps(apps: &[App], identity: Option<&str>) -> Vec<ConnectedApp> {
     apps.iter()
@@ -115,6 +142,7 @@ impl Real {
                             AppJob::SignIn {
                                 request,
                                 name: name.clone(),
+                                identity: who.id_bytes(),
                             },
                         );
                         Ok(AppRequest {
@@ -215,9 +243,7 @@ impl Real {
         if !approve {
             return Ok(false);
         }
-        let job = job.ok_or(CoreError::NotAvailable(
-            tr!("The request is out of date: open the app's link again").into(),
-        ))?;
+        let job = job.ok_or_else(out_of_date)?;
         let (wallet_id, keys) = self.dashpay_ready()?;
         let (chain, apps, refresh) = (self.chain.clone(), self.apps.clone(), self.refresher());
         self.answer_later(async move {
@@ -228,12 +254,13 @@ impl Real {
                     .await
                     .map_err(CoreError::NotAvailable)?;
                 let me = who.id_bytes();
+                job.still_for(&me)?;
                 let keys_of = |contract: &[u8; 32], generation| {
                     let login = app_connect::login_key(&who.master, &me, contract, generation);
                     AppKeys::of(&login, &me)
                 };
                 match job {
-                    AppJob::SignIn { request, name } => {
+                    AppJob::SignIn { request, name, .. } => {
                         let contract = request.contract_id;
                         let generation =
                             app_connect::current_generation(|g| keys_of(&contract, g), &who.keys);
@@ -390,5 +417,38 @@ mod tests {
             "keys not added yet"
         );
         assert!(shown_apps(&apps, None).is_empty());
+    }
+
+    /// BUG-29: «Work as» changed between the request and «Allow» — the request is out of date,
+    /// not answered by the other identity; unchanged, it goes on.
+    #[test]
+    fn a_request_is_answered_only_as_the_identity_it_showed() {
+        let (shown, other) = ([1u8; 32], [2u8; 32]);
+        let sign_in = AppJob::SignIn {
+            request: app_connect::KeyRequest {
+                app_ephemeral: [2; 33],
+                contract_id: [3; 32],
+                label: "yappr".into(),
+            },
+            name: "@yappr".into(),
+            identity: shown,
+        };
+        let add_keys = AppJob::AddKeys {
+            app: App {
+                contract: base58(&[3; 32]),
+                name: "@yappr".into(),
+                identity: base58(&shown),
+                generation: 0,
+                keys: None,
+                last_used: 5,
+            },
+        };
+        for job in [sign_in, add_keys] {
+            assert!(job.still_for(&shown).is_ok());
+            match job.still_for(&other) {
+                Err(CoreError::NotAvailable(why)) => assert!(why.contains("out of date"), "{why}"),
+                _ => panic!("answered as another identity than shown"),
+            }
+        }
     }
 }

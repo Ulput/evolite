@@ -646,6 +646,18 @@ fn edit_profile(
             let mut close = false;
             let changed = form.changes(id.profile.as_ref());
             button_row(ui, |ui| {
+                // Why «Save» is off: a write costs credits, the same profile again buys nothing.
+                if !changed && !form.waiting {
+                    ui.label(txt(
+                        tr!("Nothing has changed yet"),
+                        12.0,
+                        Weight::Regular,
+                        p.muted,
+                    ));
+                }
+                if button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked() {
+                    close = true;
+                }
                 let label = if form.waiting {
                     tr!("Saving…")
                 } else {
@@ -656,18 +668,6 @@ fn edit_profile(
                     || (entered && ready && changed)
                 {
                     save = true;
-                }
-                if button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked() {
-                    close = true;
-                }
-                // Why «Save» is off: a write costs credits, the same profile again buys nothing.
-                if !changed && !form.waiting {
-                    ui.label(txt(
-                        tr!("Nothing has changed yet"),
-                        12.0,
-                        Weight::Regular,
-                        p.muted,
-                    ));
                 }
             });
             close
@@ -1119,6 +1119,9 @@ fn top_up_dialog(
             let entered = state.top_up_password.field(ui, &p, "top-up-password", ask);
             let mut close = false;
             button_row(ui, |ui| {
+                if button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked() {
+                    close = true;
+                }
                 let label = match (running, amount) {
                     (Some(_), _) => tr!("Topping up…").to_string(),
                     (None, Some(d)) => format!(tr!("Top up by {}"), dash(d)),
@@ -1132,9 +1135,6 @@ fn top_up_dialog(
                     || (entered && ready)
                 {
                     send = amount;
-                }
-                if button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked() {
-                    close = true;
                 }
             });
             close
@@ -1309,6 +1309,9 @@ fn add_name_dialog(
             let entered = form.password.field(ui, &p, "add-name-password", ask);
             let mut close = false;
             button_row(ui, |ui| {
+                if button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked() {
+                    close = true;
+                }
                 let ready = matches!(check, Some(Ok(NameCheck::Available)))
                     && !short
                     && !form.waiting
@@ -1323,9 +1326,6 @@ fn add_name_dialog(
                     || (entered && ready)
                 {
                     register = true;
-                }
-                if button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked() {
-                    close = true;
                 }
             });
             close

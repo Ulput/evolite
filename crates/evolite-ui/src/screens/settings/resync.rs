@@ -96,6 +96,9 @@ pub(super) fn resync_dialog(
                 );
             }
             button_row(ui, |ui| {
+                if button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked() {
+                    close = true;
+                }
                 let label = if form.waiting {
                     tr!("Preparing…")
                 } else {
@@ -106,9 +109,6 @@ pub(super) fn resync_dialog(
                     cx.send(Command::Resync);
                     form.waiting = true;
                     form.error = None;
-                }
-                if button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked() {
-                    close = true;
                 }
             });
             close

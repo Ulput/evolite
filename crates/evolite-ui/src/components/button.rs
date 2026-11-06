@@ -14,23 +14,38 @@ pub enum ButtonKind {
 /// The height of a [`button`], and so of a row of them.
 pub const BUTTON_HEIGHT: f32 = 41.0;
 
-/// A dialog's row of buttons: on the right, as high as its buttons. `add` draws them right to
-/// left, so the primary one goes first and the secondary («Cancel» when the dialog acts, «Close»
-/// when it only shows) on its left: one order in every dialog (designer review №8). A fixed
-/// height, not `with_layout`: that one takes all the height left and centres the buttons in
-/// it, and a dialog keeps its size and its top (BUG-39 №3, №13), so whatever comes under the
-/// row would grow the dialog every frame.
+/// A dialog's row of buttons: on the right, as high as its buttons. `add` draws them left to
+/// right, in the order they are read: the secondary first («Cancel» when the dialog acts,
+/// «Close» when it only shows), the primary last, at the right end — one order in every dialog
+/// (designer review №8). Tab goes the same way, Cancel → primary (the designer, 2026-11-06:
+/// egui's Tab follows the order widgets are drawn in), and in Arabic the mirrored frame turns
+/// both over together. Enter takes the primary from a field, as before.
+///
+/// Right-aligned but drawn left to right: the row starts its width before its right edge, the
+/// width the buttons took last frame; the first frame, or one whose buttons changed width, is
+/// drawn again before it is shown (as `egui::Grid` does). A fixed height, not `with_layout`:
+/// that one takes all the height left and centres the buttons in it, and a dialog keeps its
+/// size and its top (BUG-39 №3, №13), so whatever comes under the row would grow the dialog
+/// every frame.
 pub fn button_row<R>(ui: &mut Ui, add: impl FnOnce(&mut Ui) -> R) -> R {
-    let row = vec2(ui.available_width(), BUTTON_HEIGHT);
-    ui.allocate_ui_with_layout(
-        row,
-        egui::Layout::right_to_left(egui::Align::Center),
-        |ui| {
-            ui.spacing_mut().item_spacing.x = 10.0;
-            add(ui)
-        },
-    )
-    .inner
+    let id = ui.auto_id_with("button-row");
+    let (_, row) = ui.allocate_space(vec2(ui.available_width(), BUTTON_HEIGHT));
+    let width = ui.data(|d| d.get_temp::<f32>(id));
+    let left = row.right() - width.unwrap_or(row.width());
+    let mut buttons = ui.new_child(
+        egui::UiBuilder::new()
+            .max_rect(Rect::from_min_max(pos2(left, row.top()), row.max))
+            .layout(Layout::left_to_right(Align::Center)),
+    );
+    buttons.spacing_mut().item_spacing.x = 10.0;
+    let inner = add(&mut buttons);
+    let now = buttons.min_rect().width();
+    if width.is_none_or(|w| (w - now).abs() > 0.5) {
+        ui.data_mut(|d| d.insert_temp(id, now));
+        ui.ctx()
+            .request_discard("a row of buttons changed its width");
+    }
+    inner
 }
 
 /// button/primary · secondary · ghost: 14 SemiBold, padding 11 × 18, radius 10.

@@ -417,8 +417,11 @@ enum AppJob {
     SignIn {
         request: app_connect::KeyRequest,
         name: String,
+        /// The identity the request showed in «Sign in as» (BUG-29).
+        identity: [u8; 32],
     },
-    /// `dash-st:`: add the keys of the sign-in to this app (contract, generation).
+    /// `dash-st:`: add the keys of the sign-in to this app (contract, generation); the app's
+    /// `identity` is the one the request was shown for.
     AddKeys { app: connected_apps::App },
 }
 

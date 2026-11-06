@@ -267,9 +267,13 @@ fn the_core_balance_without_an_identity_hides() {
 #[test]
 fn the_found_wallet_has_its_eye() {
     let (_turn, mut kit) = demo_app("dashpay", "en");
+    // The demo core finds the wallet in its own time: the eye comes with it.
+    wait_for(&mut kit, "the eye", |kit| buttons(kit, HIDE) > 0);
     assert_eq!(buttons(&kit, HIDE), 1, "one eye");
     button(&kit, HIDE).click();
-    kit.run_steps(3);
+    wait_for(&mut kit, "the amounts hidden", |kit| {
+        hidden(kit) && buttons(kit, SHOW) > 0
+    });
     assert!(hidden(&kit), "the eye hides");
     assert_eq!(buttons(&kit, SHOW), 1, "and says «Show»");
 }

@@ -179,10 +179,10 @@ pub(super) fn check_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mu
                         ),
                     );
                     button_row(ui, |ui| {
+                        close = button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked();
                         if button(ui, a, tr!("Try again"), ButtonKind::Primary, None).clicked() {
                             form.verdict = None;
                         }
-                        close = button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked();
                     });
                 }
                 (None, Some(questions)) => {
@@ -219,6 +219,7 @@ pub(super) fn check_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mu
                         });
                     }
                     button_row(ui, |ui| {
+                        close = button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked();
                         let all = form.picks.iter().all(Option::is_some);
                         let label = if form.waiting {
                             tr!("Checking…")
@@ -245,7 +246,6 @@ pub(super) fn check_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mu
                                     .collect::<Vec<_>>(),
                             );
                         }
-                        close = button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked();
                     });
                 }
                 (None, None) => {
@@ -287,6 +287,7 @@ pub(super) fn check_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mu
                         }
                     });
                     button_row(ui, |ui| {
+                        close = button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked();
                         let label = if form.waiting {
                             tr!("Opening…")
                         } else {
@@ -301,7 +302,6 @@ pub(super) fn check_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mu
                             !form.password.is_empty() && !form.waiting,
                         )
                         .clicked();
-                        close = button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked();
                     });
                 }
             }
@@ -415,6 +415,9 @@ pub(super) fn phrase_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &m
                 }
             });
             button_row(ui, |ui| {
+                if button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked() {
+                    close = true;
+                }
                 let ready = !state.password.is_empty();
                 if button_enabled(
                     ui,
@@ -432,9 +435,6 @@ pub(super) fn phrase_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &m
                     });
                     state.revealed = None;
                     state.revealed_at = None;
-                }
-                if button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked() {
-                    close = true;
                 }
             });
             close

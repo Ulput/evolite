@@ -370,6 +370,9 @@ fn fields_step(ui: &mut Ui, a: &mut Assets, form: &mut ReportForm, room: f32) ->
     let phrase = phrase_notice(ui, a, form);
     let ready = !form.summary.trim().is_empty() && !phrase;
     button_row(ui, |ui| {
+        if button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked() {
+            close = true;
+        }
         if button_enabled(
             ui,
             a,
@@ -382,9 +385,6 @@ fn fields_step(ui: &mut Ui, a: &mut Assets, form: &mut ReportForm, room: f32) ->
         {
             form.letter = true;
             form.done = None;
-        }
-        if button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked() {
-            close = true;
         }
     });
     close
@@ -444,19 +444,9 @@ fn letter_step(
     }
     let ready = !form.summary.trim().is_empty() && !phrase;
     button_row(ui, |ui| {
-        if button_enabled(
-            ui,
-            a,
-            tr!("Open in email"),
-            ButtonKind::Primary,
-            None,
-            ready,
-        )
-        .clicked()
-        {
-            form.done = Some(open(&mailto(&subject, &body)).map(|()| {
-                tr!("The email is open in your mail app: check it and press “Send”.").to_string()
-            }));
+        if button(ui, a, tr!("Back"), ButtonKind::Ghost, None).clicked() {
+            form.letter = false;
+            form.done = None;
         }
         if button_enabled(
             ui,
@@ -488,9 +478,19 @@ fn letter_step(
                 },
             );
         }
-        if button(ui, a, tr!("Back"), ButtonKind::Ghost, None).clicked() {
-            form.letter = false;
-            form.done = None;
+        if button_enabled(
+            ui,
+            a,
+            tr!("Open in email"),
+            ButtonKind::Primary,
+            None,
+            ready,
+        )
+        .clicked()
+        {
+            form.done = Some(open(&mailto(&subject, &body)).map(|()| {
+                tr!("The email is open in your mail app: check it and press “Send”.").to_string()
+            }));
         }
     });
     false

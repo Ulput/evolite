@@ -6,7 +6,7 @@ use super::txt;
 use crate::components::{
     Assets, BUTTON_HEIGHT, ButtonKind, FieldKind, Mark, SpendPassword, button, button_enabled,
     button_row, check_line, chip, dialog, divider, error_notice, field_label, kv_row, notice,
-    paint_letter_box, password_asked, select_row, text_action, text_field,
+    paint_letter_box, password_asked, text_action, text_field,
 };
 use crate::context::Ctx;
 use crate::text::{self, key_level, short_address};
@@ -204,6 +204,12 @@ pub fn show(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut AppRequests) 
         AppRequestKind::KeyExchange { .. } => ("key", tr!("Sign in by code"), 502.0),
     };
     let ask = password_asked(cx.snap);
+    // «Sign in as» is the identity of «Work as»: with more than one, say where it is chosen.
+    let many = cx
+        .snap
+        .wallet
+        .as_ref()
+        .is_some_and(|w| w.identities.len() > 1);
     let mut answer = Answer {
         pick: None,
         consent: state.consent,
@@ -213,7 +219,7 @@ pub fn show(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut AppRequests) 
     let closed = dialog(ui, a, "app-request", icon, title, width, |ui, a| {
         let p = a.p;
         match &request.kind {
-            AppRequestKind::Connect { .. } => connect(ui, a, &request, &mut answer),
+            AppRequestKind::Connect { .. } => connect(ui, a, &request, many, &mut answer),
             AppRequestKind::Sign { .. } => sign(
                 ui,
                 a,
@@ -287,18 +293,18 @@ fn answers(ui: &mut Ui, a: &mut Assets, no: &str, yes: &str, answer: &mut Answer
     let ready = answer.password.ready(answer.ask);
     button_row(ui, |ui| match answer.consent {
         Consent::Asking => {
+            if button(ui, a, no, ButtonKind::Ghost, None).clicked() {
+                answer.pick = Some(Pick::No);
+            }
             if button_enabled(ui, a, yes, ButtonKind::Primary, None, ready).clicked()
                 || (entered && ready)
             {
                 answer.pick = Some(Pick::Yes);
             }
-            if button(ui, a, no, ButtonKind::Ghost, None).clicked() {
-                answer.pick = Some(Pick::No);
-            }
         }
         Consent::Sending => {
-            button_enabled(ui, a, tr!("Sending…"), ButtonKind::Primary, None, false);
             button_enabled(ui, a, no, ButtonKind::Ghost, None, false);
+            button_enabled(ui, a, tr!("Sending…"), ButtonKind::Primary, None, false);
         }
         Consent::Sent | Consent::Failed => {
             if button(ui, a, tr!("Close"), ButtonKind::Primary, None).clicked() {
@@ -309,7 +315,7 @@ fn answers(ui: &mut Ui, a: &mut Assets, no: &str, yes: &str, answer: &mut Answer
 }
 
 /// 11 · Signing in to an app (App Connect).
-fn connect(ui: &mut Ui, a: &mut Assets, r: &AppRequest, answer: &mut Answer<'_>) {
+fn connect(ui: &mut Ui, a: &mut Assets, r: &AppRequest, many: bool, answer: &mut Answer<'_>) {
     let p = a.p;
     let AppRequestKind::Connect {
         contract_id,
@@ -361,10 +367,27 @@ fn connect(ui: &mut Ui, a: &mut Assets, r: &AppRequest, answer: &mut Answer<'_>)
                 });
             });
         });
+    // Plain text, not a list (BUG-29, the designer 2026-11-06): the core signs in as the identity
+    // of «Work as», and this row says which one — there is nothing to pick here.
     ui.vertical(|ui| {
-        ui.spacing_mut().item_spacing.y = 8.0;
-        field_label(ui, &p, tr!("Sign in as"));
-        select_row(ui, a, "identity", identity, None);
+        ui.spacing_mut().item_spacing.y = 6.0;
+        let font = if identity.starts_with('@') {
+            sans(13.0, Weight::SemiBold)
+        } else {
+            mono(12.0, Weight::Regular)
+        };
+        kv_row(ui, &p, tr!("Sign in as"), identity, font);
+        if many {
+            ui.add(
+                egui::Label::new(txt(
+                    tr!("Sign-in uses the identity from “Work as”. You can change it on the Identity screen."),
+                    12.0,
+                    Weight::Regular,
+                    p.muted,
+                ))
+                .wrap(),
+            );
+        }
     });
     // The name is the contract owner's `@name` from Platform; in quotes it is the app's own word.
     if app_word(&r.app).1 {
@@ -681,6 +704,9 @@ pub fn disconnect_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut 
                 );
             }
             button_row(ui, |ui| {
+                if button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked() {
+                    close = true;
+                }
                 let label = if state.disconnect_waiting {
                     tr!("Disconnecting…")
                 } else {
@@ -699,9 +725,6 @@ pub fn disconnect_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut 
                     cx.send(Command::DisconnectApp { id: id.clone() });
                     state.disconnect_waiting = true;
                     state.disconnect_result = None;
-                }
-                if button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked() {
-                    close = true;
                 }
             });
             close
@@ -758,14 +781,14 @@ fn paste_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut AppReques
                 tr!("evolite decodes the link itself and shows exactly what the app asks for."),
             );
             button_row(ui, |ui| {
+                if button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked() {
+                    close = true;
+                }
                 let ready = !state.link.trim().is_empty();
                 if button_enabled(ui, a, tr!("Open"), ButtonKind::Primary, None, ready).clicked() {
                     cx.send(Command::OpenAppLink {
                         text: state.link.clone(),
                     });
-                }
-                if button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked() {
-                    close = true;
                 }
             });
             close
