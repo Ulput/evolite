@@ -397,6 +397,8 @@ mod tests {
             created_at: 0,
             last_opened: None,
             open: false,
+            wrong_tries: 0,
+            wait_until: None,
         };
         let mut wallets = vec![entry("a", ""), entry("b", "Savings")];
         show_default_names(&mut wallets);

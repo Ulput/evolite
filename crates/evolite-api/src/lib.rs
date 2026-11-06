@@ -665,6 +665,12 @@ pub struct WalletEntry {
     pub last_opened: Option<Timestamp>,
     /// The wallet this window works with (unlocked or waiting for its password).
     pub open: bool,
+    /// Wrong passwords in a row for this wallet, on its unlock screen and in "Open "…""
+    /// (FEAT-0002); 0 after a right one. The interface warns before the pause by it.
+    pub wrong_tries: u32,
+    /// Until when the core refuses this wallet's password without checking it (FEAT-0002):
+    /// absolute, so the interface counts down by its own clock. `None`: no pause now.
+    pub wait_until: Option<Timestamp>,
 }
 
 impl WalletEntry {
@@ -867,7 +873,9 @@ pub enum Command {
     CreateWallet {
         password: Password,
     },
-    /// Open the saved wallet with its password. Answered with `Done { what: "unlock" }`.
+    /// Open the saved wallet with its password. Answered with `Done { what: "unlock" }`;
+    /// after too many wrong passwords in a row, for a while with [`CoreError::TooManyTries`],
+    /// the password not checked (FEAT-0002).
     Unlock {
         password: Password,
     },
@@ -1012,7 +1020,8 @@ pub enum Command {
     /// Lock this wallet and open another one of this computer. With `password` (Figma 28,
     /// 29) it is checked against that wallet first: a wrong one changes nothing, the right one
     /// opens it at once; answered with `Done { what: "switch" }`. Without, its unlock screen
-    /// comes next and only the snapshots answer.
+    /// comes next and only the snapshots answer. Wrong passwords count for that wallet as on
+    /// its unlock screen, so it may be answered with [`CoreError::TooManyTries`] (FEAT-0002).
     SwitchWallet {
         id: String,
         password: Option<Password>,
@@ -1137,6 +1146,11 @@ pub enum CoreError {
     Failed(String),
     /// Not an app request the wallet knows.
     BadLink,
+    /// Too many wrong passwords in a row: the next one is taken after `until` (Unix seconds);
+    /// this one was not checked (FEAT-0002).
+    TooManyTries {
+        until: Timestamp,
+    },
 }
 
 #[derive(Debug)]

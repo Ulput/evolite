@@ -18,6 +18,7 @@ macro_rules! tr {
 
 mod art;
 mod art_cache;
+pub mod attempts;
 pub mod bip39;
 pub mod diag;
 mod dpns;

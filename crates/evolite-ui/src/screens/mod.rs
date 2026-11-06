@@ -9,6 +9,7 @@ pub mod create_identity;
 pub mod delete_wallet;
 pub mod identity;
 pub mod onboarding;
+pub mod pause;
 pub mod receive;
 pub mod send;
 pub mod settings;

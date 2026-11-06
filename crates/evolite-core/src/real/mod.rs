@@ -11,6 +11,7 @@ mod address_book;
 mod app_chain;
 mod app_connect;
 mod app_jobs;
+mod attempts;
 mod avatars;
 mod chain;
 mod connected_apps;
@@ -199,6 +200,13 @@ fn now() -> Timestamp {
         .map_or(0, |d| d.as_secs() as Timestamp)
 }
 
+/// The wall clock in Unix seconds, as the wrong-password count keeps it (FEAT-0002).
+fn wall_secs() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs())
+}
+
 /// The first address of the wallet's receive chain (BIP44 account 0, external, index 0).
 fn first_receive_address(
     wallet: &key_wallet::wallet::managed_wallet_info::ManagedWalletInfo,
@@ -259,6 +267,13 @@ struct Real {
     wallet: String,
     /// The wallets of this computer (the index, checked against the folders when read).
     index: wallets::Index,
+    /// Their wrong passwords in a row, for `Unlock` and `SwitchWallet` only (FEAT-0002).
+    ///
+    /// Read from the files with each new `Real`, so a switch of wallets starts it afresh: the
+    /// monotonic clock of the last wrong passwords (R-31, a recommendation, not an AC) is lost
+    /// then, and a clock set forward after a switch ends a pause early, as after a restart
+    /// (review r1, should 2). The counts and ends on the disk stay.
+    attempts: attempts::Attempts,
     /// How the pending phrase came (new, typed, from DashPay): kept in the index on create.
     pending_origin: wallets::Origin,
     /// The wallet to open next, asked by `SwitchWallet` (or a new one by `AddWallet`): the loop
@@ -755,9 +770,12 @@ impl Real {
         let pool_history = pool_history::PoolHistory::new(paths.pool_history.clone());
         let paths_apps = paths.connected_apps.clone();
         let password_each_send = security::load(&paths.root, &wallet);
+        let attempts =
+            attempts::Attempts::read(&paths.root, index.wallets.iter().map(|r| r.id.as_str()));
         Self {
             wallet,
             index,
+            attempts,
             pending_origin: wallets::Origin::Created,
             switch_to: None,
             switch_opened: None,
@@ -1425,13 +1443,17 @@ impl Real {
         // loop (seconds, while a sync pass ends) and the next core shows its wallet — or the
         // onboarding — at once (F4, BUG-21).
         self.restart = true;
-        match std::fs::remove_file(&self.paths.vault) {
+        let removed = match std::fs::remove_file(&self.paths.vault) {
+            Ok(()) => Ok(()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(e) => Err(e),
+        };
+        match removed {
             Ok(()) => {
                 self.saved = None;
-                Ok(())
-            }
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-                self.saved = None;
+                // Its wrong passwords go with it: the same phrase restored starts afresh.
+                let id = self.wallet.clone();
+                self.attempts.forget(&id);
                 Ok(())
             }
             Err(e) => Err(CoreError::Failed(format!(
@@ -1469,6 +1491,7 @@ impl Real {
                 )));
             }
         }
+        self.attempts.forget(id);
         let _ = std::fs::remove_dir_all(&folder);
         self.index.wallets.retain(|r| r.id != id);
         if self.index.last.as_deref() == Some(id) {
@@ -1617,7 +1640,7 @@ impl Real {
     }
 
     /// The wallets of this computer for the switcher, this core's marked open.
-    fn wallet_entries(&self) -> Vec<WalletEntry> {
+    fn wallet_entries(&mut self) -> Vec<WalletEntry> {
         self.index
             .wallets
             .iter()
@@ -1633,6 +1656,11 @@ impl Real {
                 created_at: r.created_at,
                 last_opened: r.last_opened,
                 open: r.id == self.wallet,
+                wrong_tries: self.attempts.failures(&r.id),
+                wait_until: self
+                    .attempts
+                    .check(&r.id, wall_secs())
+                    .map(|t| t as Timestamp),
             })
             .collect()
     }
@@ -2778,6 +2806,31 @@ impl Real {
         }
     }
 
+    /// [`Self::unlock`] with this wallet's wrong passwords counted (FEAT-0002): in a pause it
+    /// is refused before the vault is touched; else the try is written down as wrong before
+    /// Argon2, then cleared by a right password or taken back by an error of another kind.
+    async fn unlock_counted(&mut self, password: &Password) -> Result<(), CoreError> {
+        let id = self.wallet.clone();
+        let before = self.attempts.begin(&id, wall_secs()).map_err(too_many)?;
+        let result = self.unlock(password).await;
+        self.attempts.record(&id, before, counted(&result));
+        result
+    }
+
+    /// [`Self::open_wallet_vault`] for "Open "…"" (`SwitchWallet` with the password), counted
+    /// as [`Self::unlock_counted`] for wallet `id`. The other callers of the vault (deleting
+    /// another wallet, a payment's password) do not count: FEAT-0004 (R-31).
+    async fn open_other_counted(
+        &mut self,
+        id: &str,
+        password: &Password,
+    ) -> Result<(vault::VaultFile, Zeroizing<String>), CoreError> {
+        let before = self.attempts.begin(id, wall_secs()).map_err(too_many)?;
+        let result = self.open_wallet_vault(id, password).await;
+        self.attempts.record(id, before, counted(&result));
+        result
+    }
+
     /// Opens the vault and restarts sync with the wallet's keys.
     async fn unlock(&mut self, password: &Password) -> Result<(), CoreError> {
         let (file, phrase) = self.open_vault(password).await?;
@@ -3311,7 +3364,7 @@ impl Real {
             },
             Command::Unlock { password } => Event::Done {
                 what: "unlock",
-                result: self.unlock(&password).await,
+                result: self.unlock_counted(&password).await,
             },
             Command::Lock => Event::Done {
                 what: "lock",
@@ -3646,16 +3699,17 @@ impl Real {
                         Some(password) if self.unlocked.is_none() => (
                             Some(Event::Done {
                                 what: "switch",
-                                result: self.unlock(&password).await,
+                                result: self.unlock_counted(&password).await,
                             }),
                             true,
                         ),
                         _ => (None, false),
                     };
                 }
-                // The other wallet's password first: a wrong one changes nothing here.
+                // The other wallet's password first: a wrong one changes nothing here but its
+                // count, which the next snapshot shows (FEAT-0002).
                 let opened = match &password {
-                    Some(password) => match self.open_wallet_vault(&id, password).await {
+                    Some(password) => match self.open_other_counted(&id, password).await {
                         Ok(opened) => Some(opened),
                         Err(e) => {
                             return (
@@ -3663,7 +3717,7 @@ impl Real {
                                     what: "switch",
                                     result: Err(e),
                                 }),
-                                false,
+                                true,
                             );
                         }
                     },
@@ -3735,6 +3789,23 @@ async fn open_vault_at(
         .map_err(|_| CoreError::NotAvailable(tr!("The vault did not open").into()))?
         .map_err(vault_error)?;
     Ok((file, phrase))
+}
+
+/// The answer while a pause lasts (FEAT-0002).
+fn too_many(until: u64) -> CoreError {
+    CoreError::TooManyTries {
+        until: Timestamp::try_from(until).unwrap_or(Timestamp::MAX),
+    }
+}
+
+/// How a counted password check ended: only `WrongPassword` is the password's fault (UC-7).
+fn counted<T>(result: &Result<T, CoreError>) -> crate::attempts::Outcome {
+    use crate::attempts::Outcome;
+    match result {
+        Ok(_) => Outcome::Right,
+        Err(CoreError::WrongPassword) => Outcome::Wrong,
+        Err(_) => Outcome::Other,
+    }
 }
 
 fn vault_error(e: VaultError) -> CoreError {
@@ -4568,6 +4639,126 @@ mod tests {
         let (event, _) = core.handle(delete(Some("wrong"), "aaaa0001")).await;
         assert_eq!(answer(event), ("delete", Err(CoreError::WrongPassword)));
         untouched(&core);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    fn entry(core: &mut Real, id: &str) -> WalletEntry {
+        core.wallet_entries()
+            .into_iter()
+            .find(|w| w.id == id)
+            .expect("the wallet is listed")
+    }
+
+    fn answer_of(event: Option<Event>) -> (&'static str, Result<(), CoreError>) {
+        match event {
+            Some(Event::Done { what, result }) => (what, result),
+            other => panic!("{other:?}"),
+        }
+    }
+
+    /// FEAT-0002 (AC-A2, AC-A5, AC-A10, AC-T2): the 5th wrong password in a row starts a pause
+    /// of 30 s; in it even the right password is refused without the vault being read, and a
+    /// new core over the folder (a restart) is in the same pause.
+    #[tokio::test]
+    async fn the_fifth_wrong_password_pauses_the_unlock_even_after_a_restart() {
+        let dir = fresh_dir("unlock-pause");
+        seal_wallet(&dir, "aaaa0001");
+        seal_wallet(&dir, "bbbb0002");
+        let mut core = core_at(&dir, "aaaa0001");
+        let unlock = |p: &str| Command::Unlock { password: pw(p) };
+        for n in 1..=5 {
+            let (event, changed) = core.handle(unlock("no")).await;
+            assert_eq!(
+                answer_of(event),
+                ("unlock", Err(CoreError::WrongPassword)),
+                "try {n}"
+            );
+            assert!(changed, "the count goes out with the next snapshot");
+            assert_eq!(entry(&mut core, "aaaa0001").wrong_tries, n);
+            assert_eq!(entry(&mut core, "aaaa0001").wait_until.is_some(), n == 5);
+        }
+        let until = entry(&mut core, "aaaa0001").wait_until.unwrap();
+        assert!((29..=31).contains(&(until - now())), "{}", until - now());
+        // The vault is not even read: without it the answer is still the pause.
+        let vault = wallets::wallet_dir(&dir, "aaaa0001").join("wallet.json");
+        let sealed = std::fs::read(&vault).unwrap();
+        std::fs::remove_file(&vault).unwrap();
+        let (event, _) = core.handle(unlock("pw")).await;
+        assert_eq!(
+            answer_of(event),
+            ("unlock", Err(CoreError::TooManyTries { until }))
+        );
+        std::fs::write(&vault, sealed).unwrap();
+        assert!(core.unlocked.is_none());
+        assert_eq!(
+            entry(&mut core, "aaaa0001").wrong_tries,
+            5,
+            "a refusal is no try"
+        );
+        // The other wallet has no pause.
+        let other = entry(&mut core, "bbbb0002");
+        assert_eq!((other.wrong_tries, other.wait_until), (0, None));
+        // A restart: the same pause.
+        let mut again = core_at(&dir, "aaaa0001");
+        assert_eq!(entry(&mut again, "aaaa0001").wait_until, Some(until));
+        assert_eq!(entry(&mut again, "aaaa0001").wrong_tries, 5);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// FEAT-0002 (AC-A4, AC-A6, AC-A7, AC-A8, AC-A9): errors that are not the password do not
+    /// count, the right one clears the count, "Open "…"" counts for the wallet it opens, and a
+    /// deleted wallet's count goes with it.
+    #[tokio::test]
+    async fn only_wrong_passwords_count_each_for_its_own_wallet() {
+        let dir = fresh_dir("unlock-count");
+        seal_wallet(&dir, "aaaa0001");
+        seal_wallet(&dir, "bbbb0002");
+        let mut core = core_at(&dir, "aaaa0001");
+        let unlock = |p: &str| Command::Unlock { password: pw(p) };
+        for _ in 0..2 {
+            core.handle(unlock("no")).await;
+        }
+        // The right password over a deleted wallet's files: an error, but not the password's.
+        core.leftovers = true;
+        let (event, _) = core.handle(unlock("pw")).await;
+        assert!(matches!(
+            answer_of(event),
+            ("unlock", Err(CoreError::NotAvailable(_)))
+        ));
+        assert_eq!(entry(&mut core, "aaaa0001").wrong_tries, 2);
+        core.leftovers = false;
+        let (event, _) = core.handle(unlock("pw")).await;
+        assert_eq!(answer_of(event), ("unlock", Ok(())));
+        assert_eq!(entry(&mut core, "aaaa0001").wrong_tries, 0);
+        assert_eq!(
+            attempts::Attempts::read(&dir, ["aaaa0001"]).failures("aaaa0001"),
+            0
+        );
+        // "Open "Savings"" with a wrong password: Savings counts, the open wallet does not.
+        let switch = |p: &str| Command::SwitchWallet {
+            id: "bbbb0002".into(),
+            password: Some(pw(p)),
+        };
+        let (event, changed) = core.handle(switch("no")).await;
+        assert_eq!(answer_of(event), ("switch", Err(CoreError::WrongPassword)));
+        assert!(changed);
+        assert_eq!(entry(&mut core, "bbbb0002").wrong_tries, 1);
+        assert_eq!(entry(&mut core, "aaaa0001").wrong_tries, 0);
+        assert!(core.unlocked.is_some(), "the open wallet stays open");
+        // Savings deleted: nothing of its count is left.
+        let (event, _) = core
+            .handle(Command::DeleteWallet {
+                password: Some(pw("pw")),
+                wallet: Some("bbbb0002".into()),
+            })
+            .await;
+        assert_eq!(answer_of(event), ("delete-other", Ok(())));
+        assert_eq!(core.attempts.failures("bbbb0002"), 0);
+        assert!(
+            !wallets::wallet_dir(&dir, "bbbb0002")
+                .join(attempts::FILE)
+                .exists()
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 

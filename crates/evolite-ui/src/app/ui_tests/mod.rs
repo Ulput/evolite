@@ -15,6 +15,7 @@ mod history;
 mod identity_pool;
 mod login;
 mod onboarding;
+mod pause;
 mod send;
 mod settings_apps;
 mod spend;

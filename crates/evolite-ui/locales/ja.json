@@ -152,6 +152,7 @@
   "Check": "確認",
   "Check again": "もう一度確認",
   "Check and send": "確認して送る",
+  "Check the keyboard layout and Caps Lock.": "キーボードの配列と Caps Lock を確認してください。",
   "Check the payment": "支払いを確認",
   "Check the phrase": "フレーズを確認",
   "Checked {}": "確認済み {}",
@@ -267,6 +268,7 @@
   "Done": "完了",
   "Done: the app got your answer.": "完了：アプリがあなたの回答を受け取りました。",
   "Drawing…": "描画中…",
+  "Each new wrong password makes the pause longer. Nothing is deleted.": "間違えるたびに一時停止が長くなります。何も削除されません。",
   "Each payment goes to a new address from the contact's key: the network cannot see that one person is being paid.": "支払いのたびに連絡先の鍵からの新しいアドレスへ送られます：ネットワークからは同じ人への支払いだとわかりません。",
   "Each wallet has its own recovery phrase, password and history. One is open: the others do not sync until you open them.": "ウォレットごとに復元フレーズ、パスワード、履歴があります。開けるのは 1 つだけで、ほかは開くまで同期しません。",
   "Earlier addresses": "以前のアドレス",
@@ -872,6 +874,7 @@
   "To: {}\nSubject: {}\n\n{}": "宛先: {}\n件名: {}\n\n{}",
   "Today": "今日",
   "Too many digits after the decimal mark: the smallest amount is {}": "小数点以下の桁数が多すぎます：最小の金額は {} です",
+  "Too many wrong passwords": "間違ったパスワードが多すぎます",
   "Too short": "短すぎます",
   "Top up": "チャージ",
   "Top up by {}": "{} をチャージ",
@@ -980,6 +983,8 @@
   "Yesterday": "昨日",
   "You can open the wallet now: the balance appears once your transactions are verified. Sending becomes available after a ChainLock.": "ウォレットを開けます：取引が検証されると残高が表示されます。送金は ChainLock の後に可能になります。",
   "You can pay once {} answers. The request carries a key for paying you, encrypted for the recipient; evolite notices the answer by itself while syncing.": "{} が応答すれば支払えます。リクエストにはあなたへの支払い用の鍵が受取人向けに暗号化されて入っています。応答は同期中に evolite が自動で検知します。",
+  "You can try again in {}.": "{}後に再試行できます。",
+  "You can try again. If the password is wrong again, the next pause is {}.": "再試行できます。もう一度間違えると、次の一時停止は{}です。",
   "You have no NFTs yet": "NFT はまだありません",
   "Your Core address · {}": "あなたの Core アドレス · {}",
   "Your Platform address · {}": "あなたの Platform アドレス · {}",
@@ -1079,6 +1084,7 @@
   "on close": "終了時",
   "open": "開いています",
   "open · {}": "開いています · {}",
+  "pause {}": "一時停止 {}",
   "platform-wallet and dash-sdk: answers come with GroveDB proofs, checked with quorum keys from our own masternode list": "platform-wallet と dash-sdk：応答には GroveDB の証明が付き、自前のマスターノードリストのクォーラム鍵で検証されます",
   "profile": "プロフィール",
   "quorums verified": "クォーラム検証済み",
@@ -1131,6 +1137,7 @@
   "to an evolite private address": "evolite のプライベートアドレスへ",
   "to receive into the pool": "プールで受け取るため",
   "today, {}": "今日 {}",
+  "too many wrong passwords": "間違ったパスワードが多すぎます",
   "unavailable": "利用不可",
   "unavailable until it ends": "終了まで利用できません",
   "unknown": "不明",
@@ -1159,6 +1166,9 @@
   "{} are locked at the top-up address": "{} がチャージ用アドレスでロックされています",
   "{} are locked on Core for identity {}, but Platform has not made it yet. evolite continues from the same place: no new money is needed.": "アイデンティティ {1} のために {0} が Core でロックされていますが、Platform はまだ作成していません。evolite は同じところから続行します：新たな資金は不要です。",
   "{} asks you to sign one operation": "{} が 1 件の操作への署名を求めています",
+  "{} attempt left before a pause.|{} attempts left before a pause.": {
+    "other": "一時停止まであと{}回です。"
+  },
   "{} becomes a contact: you can pay each other. The answer costs ≈ {} of the identity's credits.": "{} が連絡先になります。互いに支払えるようになります。返信にはアイデンティティのクレジットから ≈ {} かかります。",
   "{} contacts · DIP-15": "連絡先 {} 件 · DIP-15",
   "{} credits\n≈ {} operations": "{} クレジット\n≈ {} 回の操作",
@@ -1169,6 +1179,7 @@
     "other": "{} 日前"
   },
   "{} in Platform credits": "Platform クレジットの {}",
+  "{} min": "{}分",
   "{} nodes": "{} ノード",
   "{} note|{} notes": {
     "other": "{} 件の記録"
@@ -1185,6 +1196,7 @@
   "{} payment|{} payments": {
     "other": "{} 件の支払い"
   },
+  "{} s": "{}秒",
   "{} sent you a contact request: accept it, and you can pay from here.": "{} から連絡先リクエストが届きました：承認すると、ここから支払えます。",
   "{} will no longer be able to sign in as {}": "{} は {} としてログインできなくなります",
   "{} words · made {}": "{} 語 · 作成 {}",

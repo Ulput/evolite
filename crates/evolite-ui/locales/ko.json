@@ -152,6 +152,7 @@
   "Check": "확인",
   "Check again": "다시 확인",
   "Check and send": "확인하고 보내기",
+  "Check the keyboard layout and Caps Lock.": "키보드 레이아웃과 Caps Lock을 확인하세요.",
   "Check the payment": "결제 확인",
   "Check the phrase": "문구 확인",
   "Checked {}": "{} 확인됨",
@@ -267,6 +268,7 @@
   "Done": "완료",
   "Done: the app got your answer.": "완료: 앱이 응답을 받았습니다.",
   "Drawing…": "그리는 중…",
+  "Each new wrong password makes the pause longer. Nothing is deleted.": "비밀번호가 틀릴 때마다 일시 정지가 길어집니다. 아무것도 삭제되지 않습니다.",
   "Each payment goes to a new address from the contact's key: the network cannot see that one person is being paid.": "결제마다 연락처 키에서 만든 새 주소로 갑니다: 네트워크는 같은 사람에게 결제하는지 알 수 없습니다.",
   "Each wallet has its own recovery phrase, password and history. One is open: the others do not sync until you open them.": "지갑마다 복구 구문, 비밀번호, 기록이 따로 있습니다. 하나만 열려 있고, 나머지는 열 때까지 동기화하지 않습니다.",
   "Earlier addresses": "이전 주소",
@@ -872,6 +874,7 @@
   "To: {}\nSubject: {}\n\n{}": "받는 사람: {}\n제목: {}\n\n{}",
   "Today": "오늘",
   "Too many digits after the decimal mark: the smallest amount is {}": "소수점 이하 자리가 너무 많습니다: 최소 금액은 {}입니다",
+  "Too many wrong passwords": "잘못된 비밀번호가 너무 많습니다",
   "Too short": "너무 짧음",
   "Top up": "충전",
   "Top up by {}": "{} 충전하기",
@@ -980,6 +983,8 @@
   "Yesterday": "어제",
   "You can open the wallet now: the balance appears once your transactions are verified. Sending becomes available after a ChainLock.": "지금 지갑을 열 수 있습니다: 거래가 검증되면 잔액이 표시됩니다. 보내기는 ChainLock 이후에 가능합니다.",
   "You can pay once {} answers. The request carries a key for paying you, encrypted for the recipient; evolite notices the answer by itself while syncing.": "{}님이 응답하면 결제할 수 있습니다. 요청에는 나에게 결제하기 위한 키가 받는 사람용으로 암호화되어 들어 있으며, evolite가 동기화 중에 응답을 스스로 알아챕니다.",
+  "You can try again in {}.": "{} 후에 다시 시도할 수 있습니다.",
+  "You can try again. If the password is wrong again, the next pause is {}.": "다시 시도할 수 있습니다. 비밀번호가 또 틀리면 다음 일시 정지는 {}입니다.",
   "You have no NFTs yet": "아직 NFT가 없습니다",
   "Your Core address · {}": "내 Core 주소 · {}",
   "Your Platform address · {}": "내 Platform 주소 · {}",
@@ -1079,6 +1084,7 @@
   "on close": "닫을 때",
   "open": "열림",
   "open · {}": "열림 · {}",
+  "pause {}": "일시 정지 {}",
   "platform-wallet and dash-sdk: answers come with GroveDB proofs, checked with quorum keys from our own masternode list": "platform-wallet과 dash-sdk: 응답은 GroveDB 증명과 함께 오며, 우리 자체 마스터노드 목록의 쿼럼 키로 검증됩니다",
   "profile": "프로필",
   "quorums verified": "쿼럼 확인됨",
@@ -1131,6 +1137,7 @@
   "to an evolite private address": "evolite 비공개 주소로",
   "to receive into the pool": "풀로 받기 위해",
   "today, {}": "오늘 {}",
+  "too many wrong passwords": "잘못된 비밀번호가 너무 많습니다",
   "unavailable": "사용할 수 없음",
   "unavailable until it ends": "끝날 때까지 사용할 수 없음",
   "unknown": "알 수 없음",
@@ -1159,6 +1166,9 @@
   "{} are locked at the top-up address": "{}이(가) 충전 주소에 잠겨 있습니다",
   "{} are locked on Core for identity {}, but Platform has not made it yet. evolite continues from the same place: no new money is needed.": "신원 {1}을(를) 위해 {0}이(가) Core에 잠겨 있지만 Platform이 아직 만들지 않았습니다. evolite가 같은 지점에서 이어 갑니다: 새 돈은 필요 없습니다.",
   "{} asks you to sign one operation": "{}이(가) 작업 하나에 서명을 요청합니다",
+  "{} attempt left before a pause.|{} attempts left before a pause.": {
+    "other": "일시 정지까지 {}번 남았습니다."
+  },
   "{} becomes a contact: you can pay each other. The answer costs ≈ {} of the identity's credits.": "{} 님이 연락처가 됩니다: 서로 결제할 수 있습니다. 응답에는 신원 크레딧 ≈ {}이(가) 듭니다.",
   "{} contacts · DIP-15": "연락처 {}명 · DIP-15",
   "{} credits\n≈ {} operations": "크레딧 {}\n≈ {}회 작업",
@@ -1169,6 +1179,7 @@
     "other": "{}일 전"
   },
   "{} in Platform credits": "Platform 크레딧의 {}",
+  "{} min": "{}분",
   "{} nodes": "노드 {}개",
   "{} note|{} notes": {
     "other": "기록 {}개"
@@ -1185,6 +1196,7 @@
   "{} payment|{} payments": {
     "other": "결제 {}건"
   },
+  "{} s": "{}초",
   "{} sent you a contact request: accept it, and you can pay from here.": "{}님이 연락처 요청을 보냈습니다: 수락하면 여기서 결제할 수 있습니다.",
   "{} will no longer be able to sign in as {}": "{}은(는) 더 이상 {}(으)로 로그인할 수 없습니다",
   "{} words · made {}": "{}단어 · {} 생성",

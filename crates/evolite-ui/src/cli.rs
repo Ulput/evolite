@@ -190,6 +190,8 @@ pub const PRESETS: &[&str] = &[
     "about-end", "report", "report-letter", "delete", "resync", "language", "wallets",
     "wallet-rename", "wallet-more",
     "welcome", "elsewhere", "forgot", "wallet-unlock", "wallet-add",
+    "unlock", "unlock-warn", "unlock-wait", "unlock-wait-end", "wallet-unlock-wait",
+    "wallet-switch-wait",
 ];
 
 /// `--screen`, `--open`, `--demo`, `--screenshot` and `--window`: the core (the demo for a
@@ -227,7 +229,7 @@ fn dev_args<'a>(
             None,
             Some(
                 "overview" | "hidden" | "units" | "remind" | "wallet-menu" | "wallet-switch"
-                | "overview-syncing",
+                | "wallet-switch-wait" | "overview-syncing",
             ),
         ) => Screen::Overview,
         (None, Some("activity" | "activity-card")) => Screen::Activity,

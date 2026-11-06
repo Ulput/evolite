@@ -1014,6 +1014,11 @@ impl eframe::App for App {
             }
         }
         let mut cx = Ctx::new(snapshot, &mut commands, &mut go);
+        // A countdown preset (FEAT-0002) shows the time it names.
+        #[cfg(feature = "dev-tools")]
+        if let Some(now) = self.dev.frozen_now {
+            cx.now = now;
+        }
 
         if self.screen == Screen::Unlock {
             egui::CentralPanel::default()

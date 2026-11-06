@@ -152,6 +152,7 @@
   "Check": "Periksa",
   "Check again": "Periksa lagi",
   "Check and send": "Periksa dan kirim",
+  "Check the keyboard layout and Caps Lock.": "Periksa tata letak keyboard dan Caps Lock.",
   "Check the payment": "Periksa pembayaran",
   "Check the phrase": "Periksa frasa",
   "Checked {}": "Diperiksa {}",
@@ -267,6 +268,7 @@
   "Done": "Selesai",
   "Done: the app got your answer.": "Selesai: aplikasi sudah menerima jawaban Anda.",
   "Drawing…": "Menggambar…",
+  "Each new wrong password makes the pause longer. Nothing is deleted.": "Setiap kata sandi salah berikutnya memperpanjang jeda. Tidak ada yang dihapus.",
   "Each payment goes to a new address from the contact's key: the network cannot see that one person is being paid.": "Setiap pembayaran ke alamat baru dari kunci kontak: jaringan tidak bisa melihat bahwa satu orang yang dibayar.",
   "Each wallet has its own recovery phrase, password and history. One is open: the others do not sync until you open them.": "Setiap dompet punya frasa pemulihan, kata sandi, dan riwayat sendiri. Satu yang terbuka: yang lain tidak sinkron sampai Anda membukanya.",
   "Earlier addresses": "Alamat sebelumnya",
@@ -872,6 +874,7 @@
   "To: {}\nSubject: {}\n\n{}": "Kepada: {}\nSubjek: {}\n\n{}",
   "Today": "Hari ini",
   "Too many digits after the decimal mark: the smallest amount is {}": "Terlalu banyak angka desimal: jumlah terkecil adalah {}",
+  "Too many wrong passwords": "Terlalu banyak kata sandi salah",
   "Too short": "Terlalu pendek",
   "Top up": "Isi ulang",
   "Top up by {}": "Isi ulang sebesar {}",
@@ -980,6 +983,8 @@
   "Yesterday": "Kemarin",
   "You can open the wallet now: the balance appears once your transactions are verified. Sending becomes available after a ChainLock.": "Anda sudah bisa membuka dompet: saldo muncul setelah transaksi Anda diverifikasi. Pengiriman tersedia setelah ChainLock.",
   "You can pay once {} answers. The request carries a key for paying you, encrypted for the recipient; evolite notices the answer by itself while syncing.": "Anda bisa membayar setelah {} menjawab. Permintaan membawa kunci untuk membayar Anda, dienkripsi untuk penerima; evolite mendeteksi jawabannya sendiri saat sinkronisasi.",
+  "You can try again in {}.": "Anda dapat mencoba lagi dalam {}.",
+  "You can try again. If the password is wrong again, the next pause is {}.": "Anda dapat mencoba lagi. Jika kata sandi salah lagi, jeda berikutnya {}.",
   "You have no NFTs yet": "Anda belum punya NFT",
   "Your Core address · {}": "Alamat Core Anda · {}",
   "Your Platform address · {}": "Alamat Platform Anda · {}",
@@ -1079,6 +1084,7 @@
   "on close": "saat ditutup",
   "open": "terbuka",
   "open · {}": "terbuka · {}",
+  "pause {}": "jeda {}",
   "platform-wallet and dash-sdk: answers come with GroveDB proofs, checked with quorum keys from our own masternode list": "platform-wallet dan dash-sdk: jawaban datang dengan bukti GroveDB, diperiksa dengan kunci kuorum dari daftar masternode kami sendiri",
   "profile": "profil",
   "quorums verified": "kuorum diverifikasi",
@@ -1131,6 +1137,7 @@
   "to an evolite private address": "ke alamat privat evolite",
   "to receive into the pool": "untuk menerima ke pool",
   "today, {}": "hari ini, {}",
+  "too many wrong passwords": "terlalu banyak kata sandi salah",
   "unavailable": "tidak tersedia",
   "unavailable until it ends": "tidak tersedia sampai selesai",
   "unknown": "tidak diketahui",
@@ -1159,6 +1166,9 @@
   "{} are locked at the top-up address": "{} terkunci di alamat isi ulang",
   "{} are locked on Core for identity {}, but Platform has not made it yet. evolite continues from the same place: no new money is needed.": "{} terkunci di Core untuk identitas {}, tetapi Platform belum membuatnya. evolite melanjutkan dari titik yang sama: tidak perlu uang baru.",
   "{} asks you to sign one operation": "{} meminta Anda menandatangani satu operasi",
+  "{} attempt left before a pause.|{} attempts left before a pause.": {
+    "other": "Tersisa {} percobaan sebelum jeda."
+  },
   "{} becomes a contact: you can pay each other. The answer costs ≈ {} of the identity's credits.": "{} menjadi kontak: kalian bisa saling membayar. Jawaban ini memakan ≈ {} dari kredit identitas.",
   "{} contacts · DIP-15": "{} kontak · DIP-15",
   "{} credits\n≈ {} operations": "{} kredit\n≈ {} operasi",
@@ -1169,6 +1179,7 @@
     "other": "{} hari lalu"
   },
   "{} in Platform credits": "{} dalam kredit Platform",
+  "{} min": "{} mnt",
   "{} nodes": "{} node",
   "{} note|{} notes": {
     "other": "{} catatan"
@@ -1185,6 +1196,7 @@
   "{} payment|{} payments": {
     "other": "{} pembayaran"
   },
+  "{} s": "{} dtk",
   "{} sent you a contact request: accept it, and you can pay from here.": "{} mengirim permintaan kontak kepada Anda: terima, lalu Anda bisa membayar dari sini.",
   "{} will no longer be able to sign in as {}": "{} tidak bisa lagi masuk sebagai {}",
   "{} words · made {}": "{} kata · dibuat {}",

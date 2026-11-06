@@ -152,6 +152,7 @@
   "Check": "检查",
   "Check again": "再次检查",
   "Check and send": "检查并发送",
+  "Check the keyboard layout and Caps Lock.": "请检查键盘布局和 Caps Lock。",
   "Check the payment": "检查付款",
   "Check the phrase": "检查助记词",
   "Checked {}": "已检查 {}",
@@ -267,6 +268,7 @@
   "Done": "完成",
   "Done: the app got your answer.": "完成：应用已收到你的答复。",
   "Drawing…": "正在绘制…",
+  "Each new wrong password makes the pause longer. Nothing is deleted.": "每次输错密码都会延长暂停时间。不会删除任何内容。",
   "Each payment goes to a new address from the contact's key: the network cannot see that one person is being paid.": "每笔付款都发往来自联系人密钥的新地址：网络看不出付给的是同一个人。",
   "Each wallet has its own recovery phrase, password and history. One is open: the others do not sync until you open them.": "每个钱包都有自己的恢复助记词、密码和记录。同一时间只打开一个：其他钱包在您打开之前不会同步。",
   "Earlier addresses": "以前的地址",
@@ -872,6 +874,7 @@
   "To: {}\nSubject: {}\n\n{}": "收件人：{}\n主题：{}\n\n{}",
   "Today": "今天",
   "Too many digits after the decimal mark: the smallest amount is {}": "小数位数过多：最小金额为 {}",
+  "Too many wrong passwords": "密码错误次数过多",
   "Too short": "太短",
   "Top up": "充值",
   "Top up by {}": "充值 {}",
@@ -980,6 +983,8 @@
   "Yesterday": "昨天",
   "You can open the wallet now: the balance appears once your transactions are verified. Sending becomes available after a ChainLock.": "现在就可以打开钱包：交易验证后余额就会显示。ChainLock 之后即可发送。",
   "You can pay once {} answers. The request carries a key for paying you, encrypted for the recipient; evolite notices the answer by itself while syncing.": "{} 回复后你就可以付款。请求中带有向你付款的密钥，已为收款人加密；同步时 evolite 会自动发现回复。",
+  "You can try again in {}.": "{} 后可以重试。",
+  "You can try again. If the password is wrong again, the next pause is {}.": "现在可以重试。如果密码再次错误，下次暂停 {}。",
   "You have no NFTs yet": "你还没有 NFT",
   "Your Core address · {}": "你的 Core 地址 · {}",
   "Your Platform address · {}": "你的 Platform 地址 · {}",
@@ -1079,6 +1084,7 @@
   "on close": "关闭时",
   "open": "已打开",
   "open · {}": "已打开 · {}",
+  "pause {}": "暂停 {}",
   "platform-wallet and dash-sdk: answers come with GroveDB proofs, checked with quorum keys from our own masternode list": "platform-wallet 和 dash-sdk：响应附带 GroveDB 证明，用我们自己的主节点列表中的仲裁密钥验证",
   "profile": "资料",
   "quorums verified": "仲裁已验证",
@@ -1131,6 +1137,7 @@
   "to an evolite private address": "到 evolite 私密地址",
   "to receive into the pool": "用于接收到池",
   "today, {}": "今天 {}",
+  "too many wrong passwords": "密码错误次数过多",
   "unavailable": "不可用",
   "unavailable until it ends": "结束前不可用",
   "unknown": "未知",
@@ -1159,6 +1166,9 @@
   "{} are locked at the top-up address": "{} 已锁定在充值地址",
   "{} are locked on Core for identity {}, but Platform has not made it yet. evolite continues from the same place: no new money is needed.": "{} 已在 Core 上为身份 {} 锁定，但 Platform 尚未创建它。evolite 会从同一位置继续：无需新的资金。",
   "{} asks you to sign one operation": "{} 请求你签署一项操作",
+  "{} attempt left before a pause.|{} attempts left before a pause.": {
+    "other": "距离暂停还剩 {} 次尝试。"
+  },
   "{} becomes a contact: you can pay each other. The answer costs ≈ {} of the identity's credits.": "{} 将成为联系人：你们可以互相付款。回复将花费身份的 ≈ {} 积分。",
   "{} contacts · DIP-15": "{} 个联系人 · DIP-15",
   "{} credits\n≈ {} operations": "{} 积分\n≈ {} 次操作",
@@ -1169,6 +1179,7 @@
     "other": "{} 天前"
   },
   "{} in Platform credits": "Platform 积分中的 {}",
+  "{} min": "{} 分钟",
   "{} nodes": "{} 个节点",
   "{} note|{} notes": {
     "other": "{} 条记录"
@@ -1185,6 +1196,7 @@
   "{} payment|{} payments": {
     "other": "{} 笔付款"
   },
+  "{} s": "{} 秒",
   "{} sent you a contact request: accept it, and you can pay from here.": "{} 向你发送了联系人请求：接受后即可在此付款。",
   "{} will no longer be able to sign in as {}": "{} 将无法再以 {} 的身份登录",
   "{} words · made {}": "{} 个词 · 创建于 {}",

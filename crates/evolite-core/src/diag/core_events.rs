@@ -82,6 +82,7 @@ pub fn error_kind(error: &CoreError) -> &'static str {
         CoreError::NotSynced => "not_synced",
         CoreError::Failed(_) => "failed",
         CoreError::BadLink => "bad_link",
+        CoreError::TooManyTries { .. } => "too_many_tries",
     }
 }
 

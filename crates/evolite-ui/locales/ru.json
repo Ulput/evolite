@@ -151,6 +151,7 @@
   "Changes without changing the phrase. The old password is needed.": "Меняется без смены фразы. Старый пароль понадобится.",
   "Check": "Проверить",
   "Check and send": "Проверить и отправить",
+  "Check the keyboard layout and Caps Lock.": "Проверьте раскладку клавиатуры и Caps Lock.",
   "Check the payment": "Проверьте платёж",
   "Check the phrase": "Проверить фразу",
   "Checked {}": "Проверено {}",
@@ -267,6 +268,7 @@
   "Done": "Готово",
   "Done: the app got your answer.": "Готово: приложение получило ваш ответ.",
   "Drawing…": "Рисуем…",
+  "Each new wrong password makes the pause longer. Nothing is deleted.": "Каждый следующий неверный пароль удлиняет паузу. Ничего не удаляется.",
   "Each payment goes to a new address from the contact's key: the network cannot see that one person is being paid.": "Каждый платёж — на новый адрес из ключа контакта: в сети не видно, что платят одному человеку.",
   "Each wallet has its own recovery phrase, password and history. One is open: the others do not sync until you open them.": "У каждого кошелька своя фраза восстановления, свой пароль и своя история. Открыт один: остальные не синхронизируются, пока вы их не откроете.",
   "Earlier addresses": "Прошлые адреса",
@@ -872,6 +874,7 @@
   "To: {}\nSubject: {}\n\n{}": "Кому: {}\nТема: {}\n\n{}",
   "Today": "Сегодня",
   "Too many digits after the decimal mark: the smallest amount is {}": "Слишком много знаков после запятой: наименьшая сумма — {}",
+  "Too many wrong passwords": "Слишком много неверных паролей",
   "Too short": "Слишком короткий",
   "Top up": "Пополнить",
   "Top up by {}": "Пополнить на {}",
@@ -980,6 +983,8 @@
   "Yesterday": "Вчера",
   "You can open the wallet now: the balance appears once your transactions are verified. Sending becomes available after a ChainLock.": "Можно уже открыть кошелёк: баланс появится, когда будут проверены ваши транзакции. Отправка станет доступна после ChainLock.",
   "You can pay once {} answers. The request carries a key for paying you, encrypted for the recipient; evolite notices the answer by itself while syncing.": "Платить можно, когда {} ответит. В запросе — ключ для платежей вам, зашифрованный для получателя; ответ evolite заметит сам при синхронизации.",
+  "You can try again in {}.": "Попробовать снова можно через {}.",
+  "You can try again. If the password is wrong again, the next pause is {}.": "Можно пробовать снова. Если пароль снова окажется неверным, следующая пауза — {}.",
   "You have no NFTs yet": "У вас пока нет NFT",
   "Your Core address · {}": "Ваш адрес Core · {}",
   "Your Platform address · {}": "Ваш адрес Platform · {}",
@@ -1079,6 +1084,7 @@
   "on close": "при закрытии",
   "open": "открыт",
   "open · {}": "открыт · {}",
+  "pause {}": "пауза {}",
   "platform-wallet and dash-sdk: answers come with GroveDB proofs, checked with quorum keys from our own masternode list": "platform-wallet и dash-sdk: ответы — с доказательствами GroveDB по ключам кворумов из своего списка мастернод",
   "profile": "профиль",
   "quorums verified": "кворумы проверены",
@@ -1130,6 +1136,7 @@
   "to an evolite private address": "на приватный адрес evolite",
   "to receive into the pool": "для приёма в пул",
   "today, {}": "сегодня, {}",
+  "too many wrong passwords": "слишком много неверных паролей",
   "unavailable": "недоступно",
   "unavailable until it ends": "недоступна до окончания",
   "unknown": "неизвестно",
@@ -1163,6 +1170,12 @@
   "{} are locked at the top-up address": "{} блокируются на адресе пополнения",
   "{} are locked on Core for identity {}, but Platform has not made it yet. evolite continues from the same place: no new money is needed.": "{} заблокированы на Core для identity {}, но Platform её ещё не создала. evolite продолжит с того же места: новых денег не нужно.",
   "{} asks you to sign one operation": "{} просит подписать одну операцию",
+  "{} attempt left before a pause.|{} attempts left before a pause.": {
+    "one": "Осталась {} попытка до паузы.",
+    "few": "Осталось {} попытки до паузы.",
+    "many": "Осталось {} попыток до паузы.",
+    "other": "Осталось {} попытки до паузы."
+  },
   "{} contacts · DIP-15": "{} контактов · DIP-15",
   "{} credits\n≈ {} operations": "{} кредитов\n≈ {} операций",
   "{} day ago|{} days ago": {
@@ -1171,6 +1184,7 @@
     "many": "{} дней назад"
   },
   "{} in Platform credits": "{} в кредитах Platform",
+  "{} min": "{} мин",
   "{} nodes": "{} узлов",
   "{} note|{} notes": {
     "one": "{} запись",
@@ -1192,6 +1206,7 @@
     "few": "{} платежа",
     "many": "{} платежей"
   },
+  "{} s": "{} с",
   "{} sent you a contact request: accept it, and you can pay from here.": "{} прислал(а) вам запрос в контакты: примите его, и платить можно будет отсюда же.",
   "{} will no longer be able to sign in as {}": "{} больше не сможет входить от имени {}",
   "{} words · made {}": "{} слов · создана {}",

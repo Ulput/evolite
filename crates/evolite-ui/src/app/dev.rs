@@ -39,7 +39,57 @@ pub(super) struct DevState {
     top_up_preset: Option<bool>,
     /// `--screen overview-syncing` / `send-syncing`: the screen while the sync still runs.
     syncing_preset: bool,
+    /// The unlock presets of FEAT-0002: the wallets' wrong passwords as the core would send them.
+    pause_preset: Option<PausePreset>,
+    /// The clock the screens read, stopped at the start: a countdown in a screenshot shows
+    /// the time its preset names (designer, Q-D5).
+    pub(super) frozen_now: Option<chrono::DateTime<chrono::Local>>,
 }
+
+/// `--screen unlock`, `unlock-warn`, `unlock-wait`, `unlock-wait-end` (one wallet),
+/// `wallet-unlock-wait` and `wallet-switch-wait` (the demo's three, "Savings" in a pause).
+struct PausePreset {
+    /// «Welcome back»: only the open wallet is listed.
+    one_wallet: bool,
+    /// The wallet in the state below; `None`: the open one.
+    wallet: Option<&'static str>,
+    /// Wrong passwords in a row, and the seconds of the pause left; `None`: the demo core's own.
+    tries: Option<(u32, Option<i64>)>,
+}
+
+impl PausePreset {
+    fn of(dev: &DevLaunch) -> Option<Self> {
+        let one = |tries| {
+            Some(Self {
+                one_wallet: true,
+                wallet: None,
+                tries,
+            })
+        };
+        let savings = Some(Self {
+            one_wallet: false,
+            wallet: Some(DEMO_OTHER),
+            // The 8th wrong password: a pause of 5 min, 4:12 of it left (mockups 3 and 4).
+            tries: Some((8, Some(252))),
+        });
+        if dev.preset("unlock") {
+            one(None)
+        } else if dev.preset("unlock-warn") {
+            one(Some((4, None)))
+        } else if dev.preset("unlock-wait") {
+            one(Some((6, Some(45))))
+        } else if dev.preset("unlock-wait-end") {
+            one(Some((5, None)))
+        } else if dev.preset("wallet-unlock-wait") || dev.preset("wallet-switch-wait") {
+            savings
+        } else {
+            None
+        }
+    }
+}
+
+/// The demo's second wallet ("Savings").
+const DEMO_OTHER: &str = "5e6f7a8b";
 
 impl DevState {
     pub(super) fn new(dev: &DevLaunch, screen: Screen) -> Self {
@@ -67,6 +117,10 @@ impl DevState {
                 None
             },
             syncing_preset: dev.preset("overview-syncing") || dev.preset("send-syncing"),
+            frozen_now: PausePreset::of(dev)
+                .filter(|p| p.tries.is_some())
+                .map(|_| chrono::Local::now()),
+            pause_preset: PausePreset::of(dev),
         }
     }
 }
@@ -162,6 +216,27 @@ impl App {
             s.sync.stage = evolite_api::SyncStage::Filters;
             s.sync.progress = 0.58;
             s.sync.chainlocked = false;
+        }
+        if let Some(pp) = &self.dev.pause_preset
+            && let Some(s) = self.snapshot.as_mut()
+        {
+            if pp.one_wallet {
+                s.wallets.retain(|w| w.open);
+            }
+            let now = self
+                .dev
+                .frozen_now
+                .unwrap_or_else(chrono::Local::now)
+                .timestamp();
+            if let Some((wrong, left)) = pp.tries
+                && let Some(w) = s
+                    .wallets
+                    .iter_mut()
+                    .find(|w| pp.wallet.map_or(w.open, |id| w.id == id))
+            {
+                w.wrong_tries = wrong;
+                w.wait_until = left.map(|left| now + left);
+            }
         }
         self.open_real_preset(ctx);
     }
@@ -348,7 +423,23 @@ impl App {
         // For screenshots of the demo's three wallets (Figma 28–32): the unlock screen's
         // choice (the same forced screen as `forgot`, without its dialog), "Open "…"", the
         // name and colour, the onboarding of another wallet, a wallet's "…".
-        let demo_other = "5e6f7a8b";
+        let demo_other = DEMO_OTHER;
+        // FEAT-0002: the unlock screen of one wallet or three; the typing kept in a pause.
+        if self.dev.pause_preset.is_some() && !preset("wallet-switch-wait") {
+            self.dev.preset_forgot = true;
+        }
+        if preset("unlock-wait") || preset("unlock-wait-end") {
+            self.unlock.password = zeroize::Zeroizing::new("main-wallet-26".into());
+        }
+        if preset("unlock-warn") {
+            self.unlock.error = Some(tr!("Wrong password").into());
+        }
+        if preset("wallet-unlock-wait") {
+            self.unlock.chosen = Some(demo_other.into());
+        }
+        if preset("wallet-switch-wait") {
+            self.switching = Some(screens::switch_wallet::SwitchForm::new(demo_other.into()));
+        }
         if preset("wallet-unlock") {
             self.dev.preset_forgot = true;
             self.unlock.password = zeroize::Zeroizing::new("main-wallet-26".into());

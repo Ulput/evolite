@@ -36,6 +36,8 @@ pub(super) fn demo_wallets(t: Timestamp) -> Vec<WalletEntry> {
         created_at,
         last_opened,
         open: false,
+        wrong_tries: 0,
+        wait_until: None,
     };
     let mut wallets = vec![
         entry(

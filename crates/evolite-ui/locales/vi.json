@@ -152,6 +152,7 @@
   "Check": "Kiểm tra",
   "Check again": "Kiểm tra lại",
   "Check and send": "Kiểm tra và gửi",
+  "Check the keyboard layout and Caps Lock.": "Hãy kiểm tra bố cục bàn phím và Caps Lock.",
   "Check the payment": "Kiểm tra khoản thanh toán",
   "Check the phrase": "Kiểm tra cụm từ",
   "Checked {}": "Đã kiểm tra {}",
@@ -267,6 +268,7 @@
   "Done": "Xong",
   "Done: the app got your answer.": "Xong: ứng dụng đã nhận câu trả lời của bạn.",
   "Drawing…": "Đang vẽ…",
+  "Each new wrong password makes the pause longer. Nothing is deleted.": "Mỗi lần sai mật khẩu tiếp theo sẽ kéo dài thời gian tạm dừng. Không có gì bị xóa.",
   "Each payment goes to a new address from the contact's key: the network cannot see that one person is being paid.": "Mỗi khoản thanh toán đến một địa chỉ mới từ khóa của liên hệ: mạng không thấy rằng đang trả cho cùng một người.",
   "Each wallet has its own recovery phrase, password and history. One is open: the others do not sync until you open them.": "Mỗi ví có cụm từ khôi phục, mật khẩu và lịch sử riêng. Chỉ một ví mở: các ví khác không đồng bộ cho đến khi bạn mở chúng.",
   "Earlier addresses": "Địa chỉ trước đây",
@@ -872,6 +874,7 @@
   "To: {}\nSubject: {}\n\n{}": "Đến: {}\nChủ đề: {}\n\n{}",
   "Today": "Hôm nay",
   "Too many digits after the decimal mark: the smallest amount is {}": "Quá nhiều chữ số thập phân: số tiền nhỏ nhất là {}",
+  "Too many wrong passwords": "Quá nhiều lần sai mật khẩu",
   "Too short": "Quá ngắn",
   "Top up": "Nạp",
   "Top up by {}": "Nạp {}",
@@ -980,6 +983,8 @@
   "Yesterday": "Hôm qua",
   "You can open the wallet now: the balance appears once your transactions are verified. Sending becomes available after a ChainLock.": "Bạn có thể mở ví ngay: số dư hiện ra khi giao dịch của bạn được xác minh. Gửi tiền khả dụng sau một ChainLock.",
   "You can pay once {} answers. The request carries a key for paying you, encrypted for the recipient; evolite notices the answer by itself while syncing.": "Bạn có thể thanh toán khi {} trả lời. Yêu cầu mang theo khóa để thanh toán cho bạn, được mã hóa cho người nhận; evolite tự nhận ra câu trả lời khi đồng bộ.",
+  "You can try again in {}.": "Bạn có thể thử lại sau {}.",
+  "You can try again. If the password is wrong again, the next pause is {}.": "Bạn có thể thử lại. Nếu mật khẩu lại sai, lần tạm dừng tiếp theo là {}.",
   "You have no NFTs yet": "Bạn chưa có NFT nào",
   "Your Core address · {}": "Địa chỉ Core của bạn · {}",
   "Your Platform address · {}": "Địa chỉ Platform của bạn · {}",
@@ -1079,6 +1084,7 @@
   "on close": "khi đóng",
   "open": "đang mở",
   "open · {}": "đang mở · {}",
+  "pause {}": "tạm dừng {}",
   "platform-wallet and dash-sdk: answers come with GroveDB proofs, checked with quorum keys from our own masternode list": "platform-wallet và dash-sdk: câu trả lời đi kèm bằng chứng GroveDB, được kiểm tra bằng khóa quorum từ danh sách masternode của chính chúng tôi",
   "profile": "hồ sơ",
   "quorums verified": "đã xác minh quorum",
@@ -1131,6 +1137,7 @@
   "to an evolite private address": "tới một địa chỉ riêng tư evolite",
   "to receive into the pool": "để nhận vào pool",
   "today, {}": "hôm nay, {}",
+  "too many wrong passwords": "quá nhiều lần sai mật khẩu",
   "unavailable": "không khả dụng",
   "unavailable until it ends": "không khả dụng cho đến khi kết thúc",
   "unknown": "không rõ",
@@ -1159,6 +1166,9 @@
   "{} are locked at the top-up address": "{} đang bị khóa ở địa chỉ nạp",
   "{} are locked on Core for identity {}, but Platform has not made it yet. evolite continues from the same place: no new money is needed.": "{} đang bị khóa trên Core cho danh tính {}, nhưng Platform chưa tạo nó. evolite tiếp tục từ đúng chỗ đó: không cần thêm tiền.",
   "{} asks you to sign one operation": "{} yêu cầu bạn ký một thao tác",
+  "{} attempt left before a pause.|{} attempts left before a pause.": {
+    "other": "Còn {} lần thử trước khi tạm dừng."
+  },
   "{} becomes a contact: you can pay each other. The answer costs ≈ {} of the identity's credits.": "{} trở thành liên hệ: hai bên có thể thanh toán cho nhau. Câu trả lời tốn ≈ {} tín dụng của danh tính.",
   "{} contacts · DIP-15": "{} liên hệ · DIP-15",
   "{} credits\n≈ {} operations": "{} tín dụng\n≈ {} thao tác",
@@ -1169,6 +1179,7 @@
     "other": "{} ngày trước"
   },
   "{} in Platform credits": "{} dưới dạng tín dụng Platform",
+  "{} min": "{} phút",
   "{} nodes": "{} nút",
   "{} note|{} notes": {
     "other": "{} bản ghi"
@@ -1185,6 +1196,7 @@
   "{} payment|{} payments": {
     "other": "{} khoản thanh toán"
   },
+  "{} s": "{} giây",
   "{} sent you a contact request: accept it, and you can pay from here.": "{} đã gửi cho bạn yêu cầu liên hệ: hãy chấp nhận, rồi bạn có thể thanh toán từ đây.",
   "{} will no longer be able to sign in as {}": "{} sẽ không thể đăng nhập với tư cách {} nữa",
   "{} words · made {}": "{} từ · tạo {}",

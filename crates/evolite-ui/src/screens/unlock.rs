@@ -3,6 +3,7 @@
 //! Figma 28): "Which wallet to open?" — the wallets to choose from, the chosen one's password.
 
 use super::delete_wallet::{DeleteForm, delete_dialog};
+use super::pause;
 use super::txt;
 use crate::components::{
     Assets, ButtonKind, FieldKind, button_enabled, field_label, paint_text, paint_wallet_dot,
@@ -14,7 +15,7 @@ use crate::theme::{Weight, sans};
 use egui::{
     Align2, CornerRadius, CursorIcon, Key, Rect, Sense, Stroke, StrokeKind, Ui, pos2, vec2,
 };
-use evolite_api::{Command, CoreError, Password, WalletEntry};
+use evolite_api::{Command, CoreError, Password, Timestamp, WalletEntry};
 use zeroize::{Zeroize, Zeroizing};
 
 #[derive(Default)]
@@ -32,14 +33,25 @@ pub struct UnlockForm {
     pub forgot: Option<DeleteForm>,
     /// the wallet chosen in the list; none: the one the core has open.
     pub chosen: Option<String>,
+    /// The core refused the chosen wallet's password unchecked: its pause ends then, whatever
+    /// the snapshot says so far (FEAT-0002).
+    pub refused: Option<Timestamp>,
+    /// The end counted down to, cut down if the clock is set back meanwhile (AC-T3).
+    pub cut: pause::Cut,
 }
 
 impl UnlockForm {
     pub fn on_answer(&mut self, result: &Result<(), CoreError>) {
         self.waiting = false;
         self.waiting_since = None;
+        self.refused = match result {
+            Err(CoreError::TooManyTries { until }) => Some(*until),
+            _ => None,
+        };
         self.error = match result {
             Ok(()) => None,
+            // The pause's plate says it.
+            Err(CoreError::TooManyTries { .. }) => None,
             Err(CoreError::WrongPassword) => Some(tr!("Wrong password").into()),
             Err(CoreError::NotAvailable(why)) => Some(why.clone()),
             Err(e @ CoreError::Failed(_)) => {
@@ -73,6 +85,19 @@ pub fn unlock(
         .and_then(|id| snap.wallets.iter().find(|w| &w.id == id))
         .or_else(|| snap.wallets.iter().find(|w| w.open));
     let chosen_id = chosen.map(|w| w.id.clone());
+    // Its pause after too many wrong passwords (FEAT-0002): the core's, counted down here.
+    let pause_end = form.cut.end(
+        chosen.and_then(|w| pause::until(w, form.refused)),
+        chosen.map_or(0, |w| w.wrong_tries),
+        cx.now.timestamp(),
+    );
+    let paused = pause::left(pause_end, cx.now.timestamp());
+    let wrong_tries = chosen.map_or(0, |w| w.wrong_tries);
+    let height = height + if paused.is_some() { 96.0 } else { 0.0 };
+    // The plate replaces "Wrong password", which does not come back when the pause ends (AC-D5).
+    if paused.is_some() {
+        form.error = None;
+    }
     ui.add_space(((ui.available_height() - height) / 2.0).max(24.0));
     let content = ui.vertical_centered(|ui| {
         ui.spacing_mut().item_spacing.y = 24.0;
@@ -93,6 +118,7 @@ pub fn unlock(
                         form.chosen = Some(w.id.clone());
                         form.password.zeroize();
                         form.error = None;
+                        form.refused = None;
                     }
                 }
             });
@@ -135,19 +161,24 @@ pub fn unlock(
                     field.request_focus();
                 }
                 let entered = field.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter));
-                if let Some(error) = &form.error {
-                    ui.label(txt(error, 12.0, Weight::Regular, p.danger));
+                pause_lines(ui, a, form.error.as_deref(), wrong_tries, paused, pause_end);
+                if paused.is_some() {
+                    pause::tick(ui, cx.now);
                 }
                 ui.add_space(6.0);
-                let ready = !form.password.is_empty() && !form.waiting;
+                // In a pause the typing stays, but nothing goes (FR-3).
+                let ready = !form.password.is_empty() && !form.waiting && paused.is_none();
                 let label = match (form.waiting, several) {
                     (true, _) => opening_label(ui, form.waiting_since),
                     (false, true) => tr!("Open").to_owned(),
                     (false, false) => tr!("Open the wallet").to_owned(),
                 };
-                let clicked =
-                    button_enabled(ui, a, &label, ButtonKind::Primary, Some(column), ready)
-                        .clicked();
+                let mut button =
+                    button_enabled(ui, a, &label, ButtonKind::Primary, Some(column), ready);
+                if let Some(secs) = paused {
+                    button = pause::explain(ui, button, secs);
+                }
+                let clicked = button.clicked();
                 if ready && (clicked || entered) {
                     // The password goes to the core and is wiped here at once.
                     let password = Password::new(form.password.to_string());
@@ -229,6 +260,32 @@ pub fn unlock(
     }
 }
 
+/// Under the password field (FEAT-0002): in a pause its plate alone; else the red error, the
+/// warning after the 3rd and 4th wrong password, and after a pause what the next one costs.
+/// Shared with "Open "…"".
+pub(super) fn pause_lines(
+    ui: &mut Ui,
+    a: &mut Assets,
+    error: Option<&str>,
+    wrong_tries: u32,
+    paused: Option<u64>,
+    pause_end: Option<Timestamp>,
+) {
+    if let Some(secs) = paused {
+        pause::plate(ui, a, secs, pause_end.unwrap_or_default());
+        return;
+    }
+    if let Some(error) = error {
+        ui.label(txt(error, 12.0, Weight::Regular, a.p.danger));
+    }
+    if let Some(warning) = pause::warning(wrong_tries) {
+        pause::warning_line(ui, a, &warning);
+    }
+    if let Some(after) = pause::after(wrong_tries) {
+        pause::after_line(ui, a, &after);
+    }
+}
+
 /// One wallet to choose (Figma 28): its circle, name and last time in, ticked when chosen.
 fn wallet_choice(
     ui: &mut Ui,
@@ -270,14 +327,43 @@ fn wallet_choice(
         Some(at) => format!(tr!("last opened {}"), crate::text::when(at, now)),
         None => String::new(),
     };
-    paint_text(
+    let small = sans(12.0, Weight::Regular);
+    let said = paint_text(
         ui,
         pos2(x, row.top() + 31.0),
         Align2::LEFT_TOP,
         &line,
-        sans(12.0, Weight::Regular),
+        small.clone(),
         p.muted,
     );
+    // "… · pause 4:12" (FEAT-0002), the pause in the text colour.
+    let paused = pause::left(w.wait_until, now.timestamp());
+    if let Some(secs) = paused {
+        let dot = if line.is_empty() { "" } else { " · " };
+        let dot = paint_text(
+            ui,
+            pos2(said.right(), row.top() + 31.0),
+            Align2::LEFT_TOP,
+            dot,
+            small.clone(),
+            p.muted,
+        );
+        paint_text(
+            ui,
+            pos2(dot.right(), row.top() + 31.0),
+            Align2::LEFT_TOP,
+            &pause::row_text(secs),
+            small,
+            p.text,
+        );
+        pause::tick(ui, now);
+        if !on {
+            a.icons.icon("pending", p.muted, &p, 16.0).paint_at(
+                ui,
+                Rect::from_center_size(pos2(row.right() - 24.0, row.center().y), vec2(16.0, 16.0)),
+            );
+        }
+    }
     if on {
         a.icons.icon("check", p.accent, &p, 16.0).paint_at(
             ui,
@@ -308,6 +394,8 @@ mod tests {
             created_at: 0,
             last_opened: None,
             open: true,
+            wrong_tries: 0,
+            wait_until: None,
         };
         // "Main" is a key of the catalogs: the plain name would be translated.
         assert_ne!(crate::i18n::t_in(Lang::Ru, "Main"), "Main");
@@ -353,5 +441,24 @@ mod opening_tests {
         };
         form.on_answer(&Err(CoreError::WrongPassword));
         assert!(!form.waiting && form.waiting_since.is_none());
+    }
+
+    /// FEAT-0002: a refusal in a pause is no "Wrong password": its end is kept for the plate
+    /// until the snapshot has it.
+    #[test]
+    fn a_refusal_in_a_pause_keeps_its_end_and_no_error() {
+        let mut form = UnlockForm {
+            waiting: true,
+            ..Default::default()
+        };
+        form.on_answer(&Err(CoreError::TooManyTries {
+            until: 1_800_000_030,
+        }));
+        assert_eq!(
+            (form.refused, form.error.as_deref()),
+            (Some(1_800_000_030), None)
+        );
+        form.on_answer(&Ok(()));
+        assert_eq!(form.refused, None);
     }
 }

@@ -2,7 +2,7 @@
 //! Settings, by its own password, over the screen. The open one is locked only when the
 //! password is right (the core checks it first).
 
-use super::txt;
+use super::{pause, txt};
 use crate::components::{
     Assets, ButtonKind, FieldKind, button, button_enabled, button_row, dialog_with_header,
     field_label, notice, paint_wallet_dot, text_field,
@@ -21,6 +21,10 @@ pub struct SwitchForm {
     pub password: Zeroizing<String>,
     pub waiting: bool,
     pub error: Option<String>,
+    /// The core refused the password unchecked: the wallet's pause ends then (FEAT-0002).
+    pub refused: Option<evolite_api::Timestamp>,
+    /// The end counted down to, cut down if the clock is set back meanwhile (AC-T3).
+    pub cut: pause::Cut,
 }
 
 impl SwitchForm {
@@ -38,6 +42,12 @@ impl SwitchForm {
             Ok(()) => true,
             Err(CoreError::WrongPassword) => {
                 self.error = Some(tr!("Wrong password").into());
+                false
+            }
+            // The pause's plate says it.
+            Err(CoreError::TooManyTries { until }) => {
+                self.error = None;
+                self.refused = Some(*until);
                 false
             }
             Err(e) => {
@@ -118,23 +128,47 @@ pub fn switch_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut Switc
                     field.request_focus();
                 }
                 let entered = field.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
-                if let Some(error) = &form.error {
-                    ui.label(txt(error, 12.0, Weight::Regular, p.danger));
+                // The wallet's pause (FEAT-0002): its plate in place of the catching-up note.
+                let pause_end = form.cut.end(
+                    pause::until(target, form.refused),
+                    target.wrong_tries,
+                    cx.now.timestamp(),
+                );
+                let paused = pause::left(pause_end, cx.now.timestamp());
+                if paused.is_some() {
+                    form.error = None;
                 }
-                ui.add_space(10.0);
-                notice(
+                super::unlock::pause_lines(
                     ui,
                     a,
-                    "pending",
-                    p.muted,
-                    tr!("After opening, about a minute to catch up: new blocks since it was last open."),
+                    form.error.as_deref(),
+                    target.wrong_tries,
+                    None,
+                    None,
                 );
                 ui.add_space(10.0);
-                let ready = !form.password.is_empty() && !form.waiting;
+                match paused {
+                    Some(secs) => {
+                        pause::plate(ui, a, secs, pause_end.unwrap_or_default());
+                        pause::tick(ui, cx.now);
+                    }
+                    None => notice(
+                        ui,
+                        a,
+                        "pending",
+                        p.muted,
+                        tr!("After opening, about a minute to catch up: new blocks since it was last open."),
+                    ),
+                }
+                ui.add_space(10.0);
+                let ready = !form.password.is_empty() && !form.waiting && paused.is_none();
                 button_row(ui, |ui| {
                     let label = if form.waiting { tr!("Opening…") } else { tr!("Open") };
-                    let open =
-                        button_enabled(ui, a, label, ButtonKind::Primary, None, ready).clicked();
+                    let mut open = button_enabled(ui, a, label, ButtonKind::Primary, None, ready);
+                    if let Some(secs) = paused {
+                        open = pause::explain(ui, open, secs);
+                    }
+                    let open = open.clicked();
                     if button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked() {
                         close = true;
                     }

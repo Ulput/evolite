@@ -51,6 +51,8 @@ struct Mock {
     artist: Option<Artist>,
     /// The wallet open before "Add wallet", for "Cancel".
     adding_from: Option<String>,
+    /// Wrong passwords of the demo wallets, in memory (FEAT-0002).
+    tries: crate::attempts::Ledger,
 }
 
 impl Mock {
@@ -105,6 +107,8 @@ impl Mock {
                             created_at: now(),
                             last_opened: Some(now()),
                             open: true,
+                            wrong_tries: 0,
+                            wait_until: None,
                         });
                         self.snapshot.adding_wallet = false;
                         self.adding_from = None;
@@ -240,6 +244,7 @@ impl Mock {
                     Err(CoreError::WrongPassword)
                 } else {
                     self.snapshot.wallets.retain(|w| w.id != id);
+                    self.tries.forget(&id);
                     changed = true;
                     Ok(())
                 },
@@ -293,48 +298,56 @@ impl Mock {
                     result,
                 }
             }
-            // The demo wallets have no password: any opens them, but for [`WRONG_PASSWORD`].
-            Command::Unlock { password } if password.expose() == WRONG_PASSWORD => Event::Done {
-                what: "unlock",
-                result: Err(CoreError::WrongPassword),
-            },
-            // The demo wallets have no password: any other opens them.
-            Command::Unlock { .. } => {
-                changed = self.snapshot.vault != VaultState::Unlocked;
-                self.snapshot.vault = VaultState::Unlocked;
-                if self.snapshot.wallet.is_none() {
-                    self.snapshot.wallet = Some(demo_wallet(now()));
+            // The demo wallets have no password: any opens them, but an empty one and
+            // [`WRONG_PASSWORD`]; wrong ones count as in the real core (FEAT-0002).
+            Command::Unlock { password } => {
+                let id = self
+                    .snapshot
+                    .wallets
+                    .iter()
+                    .find(|w| w.open)
+                    .map(|w| w.id.clone())
+                    .unwrap_or_default();
+                let result = self.check_password(&id, &password);
+                if result.is_ok() {
+                    self.snapshot.vault = VaultState::Unlocked;
+                    if self.snapshot.wallet.is_none() {
+                        self.snapshot.wallet = Some(demo_wallet(now()));
+                    }
                 }
+                changed = true;
                 Event::Done {
                     what: "unlock",
-                    result: Ok(()),
+                    result,
                 }
             }
             // Another demo wallet opens at its unlock screen, as the real core's does (locked,
             // nothing of it shown); the same example is behind each.
-            // With a password (Figma 28, 29) it opens at once; an empty one is wrong.
+            // With a password (Figma 28, 29) it opens at once, checked as by `Unlock`.
             Command::SwitchWallet { id, password } => {
                 if !self.snapshot.wallets.iter().any(|w| w.id == id) {
                     return changed;
                 }
-                if password.as_ref().is_some_and(|p| p.expose().is_empty()) {
-                    Event::Done {
-                        what: "switch",
-                        result: Err(CoreError::WrongPassword),
-                    }
-                } else {
-                    for w in &mut self.snapshot.wallets {
-                        w.open = w.id == id;
-                    }
-                    changed = true;
-                    if password.is_some() {
-                        self.snapshot.vault = VaultState::Unlocked;
-                        self.snapshot.wallet = Some(demo_wallet(now()));
+                changed = true;
+                match password {
+                    Some(password) => {
+                        let result = self.check_password(&id, &password);
+                        if result.is_ok() {
+                            for w in &mut self.snapshot.wallets {
+                                w.open = w.id == id;
+                            }
+                            self.snapshot.vault = VaultState::Unlocked;
+                            self.snapshot.wallet = Some(demo_wallet(now()));
+                        }
                         Event::Done {
                             what: "switch",
-                            result: Ok(()),
+                            result,
                         }
-                    } else {
+                    }
+                    None => {
+                        for w in &mut self.snapshot.wallets {
+                            w.open = w.id == id;
+                        }
                         self.snapshot.vault = VaultState::Locked;
                         self.snapshot.wallet = None;
                         return true;
@@ -508,6 +521,40 @@ impl Mock {
         op.refused(CoreError::NotAvailable(why.into()))
     }
 
+    /// A demo wallet's password checked as the real core checks one (FEAT-0002): refused
+    /// unchecked in a pause; empty and [`WRONG_PASSWORD`] are wrong and counted, in memory only.
+    fn check_password(&mut self, id: &str, password: &Password) -> Result<(), CoreError> {
+        use crate::attempts::Outcome;
+        let (wall, at) = (now().max(0) as u64, Instant::now());
+        let result = match self.tries.begin(id, wall, at) {
+            Err(until) => Err(CoreError::TooManyTries {
+                until: Timestamp::try_from(until).unwrap_or(Timestamp::MAX),
+            }),
+            Ok(before) => {
+                let wrong = refused(password);
+                let outcome = if wrong {
+                    Outcome::Wrong
+                } else {
+                    Outcome::Right
+                };
+                self.tries.end(id, before, outcome, at);
+                if wrong {
+                    Err(CoreError::WrongPassword)
+                } else {
+                    Ok(())
+                }
+            }
+        };
+        for w in &mut self.snapshot.wallets {
+            w.wrong_tries = self.tries.get(&w.id).failures;
+            w.wait_until = self
+                .tries
+                .until(&w.id, wall, at)
+                .map(|t| Timestamp::try_from(t).unwrap_or(Timestamp::MAX));
+        }
+        result
+    }
+
     fn tick(&mut self, out: &Sender<Event>) -> bool {
         // The proof for "Hide in the pool": about six seconds, then the honest "no wallet".
         if let Some(started) = self.shield_started {
@@ -563,6 +610,7 @@ pub fn run(
         gallery: demo_art(),
         artist: Some(Artist::start(out.clone(), wake.clone(), art)),
         adding_from: None,
+        tries: Default::default(),
     };
     let send_snapshot = |mock: &Mock| {
         let _ = out.send(Event::Snapshot(Box::new(mock.snapshot.clone())));
@@ -614,6 +662,7 @@ mod tests {
             gallery: demo_art(),
             artist: None,
             adding_from: None,
+            tries: Default::default(),
         };
         (m, tx, rx)
     }
@@ -643,6 +692,75 @@ mod tests {
             }
         ));
         assert_eq!(m.snapshot.vault, VaultState::Unlocked);
+    }
+
+    fn done(rx: &Receiver<Event>) -> (&'static str, Result<(), CoreError>) {
+        match rx.recv().unwrap() {
+            Event::Done { what, result } => (what, result),
+            other => panic!("{other:?}"),
+        }
+    }
+
+    /// FEAT-0002 (FR-9, AC-A12): the demo counts as the real core — an empty password is wrong
+    /// too, the 5th starts a pause of 30 s in which even a right one is refused, each wallet
+    /// apart; a right one clears the count, a deletion forgets it.
+    #[test]
+    fn the_demo_pauses_after_five_wrong_passwords_per_wallet() {
+        let (mut m, tx, rx) = mock();
+        m.snapshot.vault = VaultState::Locked;
+        let unlock = |password: &str| Command::Unlock {
+            password: Password::new(password.into()),
+        };
+        let main = |m: &Mock| m.snapshot.wallets[0].clone();
+        for (n, password) in ["", WRONG_PASSWORD, "", "", ""].into_iter().enumerate() {
+            assert!(
+                m.handle(unlock(password), &tx),
+                "the count is in the snapshot"
+            );
+            assert_eq!(done(&rx), ("unlock", Err(CoreError::WrongPassword)));
+            assert_eq!(main(&m).wrong_tries, n as u32 + 1);
+        }
+        let until = main(&m).wait_until.expect("a pause");
+        assert!((29..=31).contains(&(until - now())));
+        m.handle(unlock("right"), &tx);
+        assert_eq!(
+            done(&rx),
+            ("unlock", Err(CoreError::TooManyTries { until }))
+        );
+        assert_eq!(m.snapshot.vault, VaultState::Locked);
+        // "Savings" by its own password: no pause there, and a wrong one counts for it alone.
+        let savings = m.snapshot.wallets[1].id.clone();
+        m.handle(
+            Command::SwitchWallet {
+                id: savings.clone(),
+                password: Some(Password::new(String::new())),
+            },
+            &tx,
+        );
+        assert_eq!(done(&rx), ("switch", Err(CoreError::WrongPassword)));
+        assert_eq!(m.snapshot.wallets[1].wrong_tries, 1);
+        assert_eq!(main(&m).wrong_tries, 5);
+        // The pause over (as the core's clock sees it), a right password clears the count.
+        m.tries.forget(&main(&m).id);
+        m.tries.set(
+            &main(&m).id,
+            crate::attempts::Tries {
+                failures: 5,
+                wait_until: None,
+            },
+        );
+        m.handle(unlock("right"), &tx);
+        assert_eq!(done(&rx), ("unlock", Ok(())));
+        assert_eq!((main(&m).wrong_tries, main(&m).wait_until), (0, None));
+        m.handle(
+            Command::DeleteWallet {
+                password: Some(Password::new("pw".into())),
+                wallet: Some(savings.clone()),
+            },
+            &tx,
+        );
+        assert_eq!(done(&rx), ("delete-other", Ok(())));
+        assert_eq!(m.tries.get(&savings).failures, 0);
     }
 
     #[test]
