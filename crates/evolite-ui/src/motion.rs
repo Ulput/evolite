@@ -19,3 +19,19 @@ pub fn system_animations() -> bool {
 pub fn system_animations() -> bool {
     true
 }
+
+fn system_id() -> egui::Id {
+    egui::Id::new("evolite-system-animations")
+}
+
+/// The app keeps what the system said last ([`system_animations`], read every few seconds) for
+/// what draws this frame.
+pub fn set_system_on(ctx: &egui::Context, on: bool) {
+    ctx.data_mut(|d| d.insert_temp(system_id(), on));
+}
+
+/// Whether the system lets things move, as the app read it last; yes until it is read.
+pub fn system_on(ctx: &egui::Context) -> bool {
+    ctx.data(|d| d.get_temp::<bool>(system_id()))
+        .unwrap_or(true)
+}

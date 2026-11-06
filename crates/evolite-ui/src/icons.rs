@@ -10,6 +10,10 @@ use std::sync::Arc;
 const ICONS_JSON: &str = include_str!("../assets/icons/icons.json");
 const MARK_SVG: &str = include_str!("../assets/icons/evolite-mark.svg");
 const WORDMARK_SVG: &str = include_str!("../assets/icons/evolite-wordmark.svg");
+/// The rail's sync mark (BUG-75): «e», bar and the block's home at 22 %, the moving block drawn
+/// over it; the dim one has «e» and bar at 55 %, for the system's animations off.
+const SYNC_BASE_SVG: &str = include_str!("../assets/icons/sync/evolite-sync-base.svg");
+const SYNC_BASE_DIM_SVG: &str = include_str!("../assets/icons/sync/evolite-sync-base-dim.svg");
 /// The Dash Evolution lockup as the Dash brand guidelines give it
 /// (https://www.dash.org/brand-guidelines/): "Transparent White Full" for the dark theme,
 /// "Transparent Black Full" for the light one. Used as it is, never recoloured.
@@ -137,6 +141,23 @@ impl Icons {
         let (uri, bytes) = self.bytes(key.into(), || svg.to_owned());
         Image::from_bytes(uri, bytes)
             .fit_to_exact_size(egui::vec2(height * DASH_EVOLUTION_ASPECT, height))
+    }
+
+    /// The rail's sync mark under its moving block (BUG-75): «e» and bar, at 55 % with `dim`
+    /// (the system's animations off), and the block's home at 22 %. The full logo is
+    /// [`Self::sync_mark`] at stage 3.
+    pub fn sync_base(&mut self, dim: bool, p: &Palette, size: f32) -> Image<'static> {
+        let ink = p.ink_hex();
+        let accent = p.brand_hex();
+        let svg = if dim {
+            SYNC_BASE_DIM_SVG
+        } else {
+            SYNC_BASE_SVG
+        };
+        let (uri, bytes) = self.bytes(format!("sync-base-{dim}-{ink}-{accent}"), || {
+            svg.replace(INK, &ink).replace(ACCENT, &accent)
+        });
+        Image::from_bytes(uri, bytes).fit_to_exact_size(Vec2::splat(size))
     }
 
     /// The sync mark: bowl, bar and block light up as sync goes; the rest at 22 %.

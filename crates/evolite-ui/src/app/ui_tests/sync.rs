@@ -1,7 +1,8 @@
 //! BUG-60, BUG-61: what the sync says while it runs — a number only for a stage the core can
 //! count, and a name for the step after the masternode lists.
 
-use super::{Kit, demo_app, has_text};
+use super::{Kit, demo_app, has_text, tab_to};
+use crate::screens::sidebar::RailMark;
 use egui_kittest::kittest::{NodeT, Queryable};
 use evolite_api::SyncStage;
 
@@ -51,6 +52,7 @@ fn card(kit: &Kit) -> String {
 #[test]
 fn the_sync_card_gives_a_percent_only_for_what_is_counted() {
     let (_turn, mut kit) = demo_app("overview", "en");
+    full_menu(&mut kit);
     for (stage, progress, said) in [
         (
             SyncStage::Headers,
@@ -77,6 +79,7 @@ fn the_sync_card_gives_a_percent_only_for_what_is_counted() {
 #[test]
 fn after_the_masternode_lists_the_card_names_the_quorum_check() {
     let (_turn, mut kit) = demo_app("overview", "ru");
+    full_menu(&mut kit);
     shows(
         &mut kit,
         SyncStage::Quorums,
@@ -115,4 +118,178 @@ fn the_first_sync_gives_a_percent_only_for_what_is_counted() {
         "the filters at 25 %",
         |k| has_text(k, "Block filters · 25 %"),
     );
+}
+
+/// A window wide enough for the full menu: the card with its words (the rail has the mark
+/// alone, BUG-75).
+fn full_menu(kit: &mut Kit) {
+    kit.set_size(egui::vec2(1280.0, 800.0));
+    kit.run_steps(2);
+}
+
+/// What the rail's mark showed in the last frame and whether it asked for a frame soon.
+fn rail_mark(kit: &Kit) -> (RailMark, bool) {
+    crate::screens::sidebar::rail_mark_shown(&kit.ctx).expect("the rail's mark")
+}
+
+/// The system's animations on or off, as the app read them (for the next 3 s).
+fn system_motion(kit: &mut Kit, on: bool) {
+    kit.state_mut().system_motion = Some((std::time::Instant::now(), on));
+}
+
+/// What the rail's sync status says to a screen reader.
+fn rail_status(kit: &Kit) -> String {
+    kit.query_all_by_role(egui::accesskit::Role::Status)
+        .next()
+        .and_then(|n| n.accesskit_node().value())
+        .unwrap_or_else(|| panic!("no sync status in the rail"))
+}
+
+/// BUG-75 AC-D1, AC-D2, AC-D5: in the rail (1024 wide) the block moves while sync goes and asks
+/// for frames; the reader hears «Sync · stage · percent · …»; once done the full logo, still,
+/// with no more frames.
+#[test]
+fn the_rail_mark_moves_while_it_syncs_and_stands_full_when_done() {
+    let (_turn, mut kit) = demo_app("overview", "en");
+    system_motion(&mut kit, true);
+    let moving = |k: &Kit| {
+        matches!(
+            rail_mark(k),
+            (
+                RailMark::Block {
+                    dim: false,
+                    stopped: false,
+                    ..
+                },
+                true
+            )
+        )
+    };
+    shows(
+        &mut kit,
+        SyncStage::Filters,
+        Some(0.64),
+        "the block moving",
+        moving,
+    );
+    assert_eq!(
+        rail_status(&kit),
+        "Sync · Block filters · 64 % · 3 Core nodes"
+    );
+    // A frame of the harness is 0.25 s of the app's time.
+    let before = rail_mark(&kit).0;
+    shows(
+        &mut kit,
+        SyncStage::Filters,
+        Some(0.64),
+        "the block moved on",
+        |k| moving(k) && rail_mark(k).0 != before,
+    );
+    // Done: the block goes home in 400 ms, then the full logo and no frames.
+    shows(&mut kit, SyncStage::Done, Some(1.0), "done", |_| true);
+    assert!(
+        matches!(rail_mark(&kit), (RailMark::Block { dim: false, .. }, true)),
+        "on its way home first: {:?}",
+        rail_mark(&kit)
+    );
+    let mut frames = 0;
+    while rail_mark(&kit) != (RailMark::Done, false) {
+        frames += 1;
+        assert!(frames <= 3, "not done in 400 ms: {:?}", rail_mark(&kit));
+        shows(&mut kit, SyncStage::Done, Some(1.0), "done", |_| true);
+    }
+    // Still from now on: no more frames asked for.
+    shows(&mut kit, SyncStage::Done, Some(1.0), "done", |_| true);
+    assert_eq!(rail_mark(&kit), (RailMark::Done, false));
+    assert!(
+        rail_status(&kit).starts_with("Synced · block "),
+        "{}",
+        rail_status(&kit)
+    );
+}
+
+/// BUG-75 AC-D4: the system's animations off — nothing moves and no frames are asked for: «e»
+/// at 55 % and the block by the stage's percent; at the end the full logo at once.
+#[test]
+fn with_the_systems_animations_off_the_rail_mark_stands_still() {
+    let (_turn, mut kit) = demo_app("overview", "en");
+    system_motion(&mut kit, false);
+    let still = (
+        RailMark::Block {
+            dim: true,
+            x: crate::screens::sidebar::block_still(Some(0.64)),
+            alpha: 1.0,
+            stopped: false,
+        },
+        false,
+    );
+    shows(
+        &mut kit,
+        SyncStage::Filters,
+        Some(0.64),
+        "still at 60 %",
+        |k| rail_mark(k) == still,
+    );
+    shows(&mut kit, SyncStage::Done, Some(1.0), "done at once", |k| {
+        rail_mark(k) == (RailMark::Done, false)
+    });
+}
+
+/// BUG-75 AC-D3: a stop — the danger block halfway, still; the reader hears why.
+#[test]
+fn a_stopped_sync_shows_in_the_rail() {
+    let (_turn, mut kit) = demo_app("overview", "en");
+    system_motion(&mut kit, true);
+    for _ in 0..50 {
+        let sync = &mut kit.state_mut().snapshot.as_mut().expect("a snapshot").sync;
+        sync.stage = SyncStage::Filters;
+        sync.error = Some("No Core nodes answer".into());
+        kit.run_steps(1);
+        if matches!(
+            rail_mark(&kit),
+            (RailMark::Block { stopped: true, .. }, false)
+        ) {
+            break;
+        }
+    }
+    assert!(matches!(
+        rail_mark(&kit),
+        (RailMark::Block { stopped: true, .. }, false)
+    ));
+    assert_eq!(
+        rail_status(&kit),
+        "The sync stopped · No Core nodes answer · resync in Settings → Network and nodes"
+    );
+}
+
+/// BUG-75 AC-D6: the full menu is as it was — the card with its words, no mark of the rail.
+#[test]
+fn the_full_menu_keeps_its_sync_card() {
+    let (_turn, mut kit) = demo_app("overview", "en");
+    full_menu(&mut kit);
+    kit.ctx
+        .data_mut(|d| d.remove::<(RailMark, bool)>(egui::Id::new("evolite-rail-mark")));
+    shows(&mut kit, SyncStage::Filters, Some(0.25), "the card", |k| {
+        card(k) == "Block filters · 25 % · 3 Core nodes"
+    });
+    assert!(
+        crate::screens::sidebar::rail_mark_shown(&kit.ctx).is_none(),
+        "no rail mark in the full menu"
+    );
+    assert_eq!(
+        kit.query_all_by_role(egui::accesskit::Role::Status).count(),
+        0,
+        "the card is a label, as before"
+    );
+}
+
+/// BUG-75 AC-D5: the rail's mark is a Tab stop, and the keyboard's focus shows its words as
+/// the pointer does.
+#[test]
+fn the_keyboard_on_the_rail_mark_shows_its_words() {
+    let (_turn, mut kit) = demo_app("overview", "en");
+    assert!(!has_text(&kit, "Synced"), "no words before the focus comes");
+    tab_to(&mut kit, "Synced · block ");
+    kit.run_steps(2);
+    assert!(has_text(&kit, "Synced"), "the tooltip's first line");
 }

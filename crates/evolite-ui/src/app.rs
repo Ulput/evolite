@@ -854,6 +854,8 @@ impl eframe::App for App {
             self.system_motion = Some((now, crate::motion::system_animations()));
         }
         let system_on = self.system_motion.is_none_or(|(_, on)| on);
+        // The rail's sync mark moves only when the system lets it (BUG-75).
+        crate::motion::set_system_on(ui.ctx(), system_on);
         self.collection.art.still = !self.settings.nft_animations(system_on);
         self.a.avatars.still = self.collection.art.still;
         self.collection.ask_unknown = self.settings.ask_unknown_issuers();
