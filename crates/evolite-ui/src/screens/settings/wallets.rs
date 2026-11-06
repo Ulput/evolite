@@ -422,7 +422,6 @@ pub(super) fn rename_dialog(
                 form.error = None;
             }
             let len = form.name.trim().chars().count();
-            let entered = field.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
             if let Some(error) = &form.error {
                 ui.label(txt(error, 12.0, Weight::Regular, p.danger));
             } else if len > NAME_MAX {
@@ -481,7 +480,7 @@ pub(super) fn rename_dialog(
                 }
                 let save =
                     button_enabled(ui, a, tr!("Save"), ButtonKind::Primary, None, ready).clicked();
-                if ready && (save || entered) {
+                if ready && save {
                     cx.send(Command::RenameWallet {
                         id: form.id.clone(),
                         name: form.name.trim().to_owned(),

@@ -562,7 +562,7 @@ fn shield_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut PoolStat
             }
             let ask = password_asked(cx.snap) && !busy;
             let entered = state.password.field(ui, &p, "shield-password", ask);
-            button_row(ui, |ui| {
+            crate::components::button_row_spend(ui, |ui| {
                 if button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked() {
                     close = true;
                 }
@@ -777,7 +777,7 @@ fn unshield_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut PoolSt
             }
             let ask = password_asked(cx.snap) && !busy;
             let entered = state.password.field(ui, &p, "unshield-password", ask);
-            button_row(ui, |ui| {
+            crate::components::button_row_spend(ui, |ui| {
                 if button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked() {
                     close = true;
                 }

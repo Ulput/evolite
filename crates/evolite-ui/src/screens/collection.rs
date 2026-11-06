@@ -633,7 +633,7 @@ fn gift_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut Collection
         let ask = password_asked(cx.snap);
         state.password.settle(state.result.as_ref());
         let entered = state.password.field(ui, &p, "gift-password", ask);
-        crate::components::button_row(ui, |ui| {
+        crate::components::button_row_spend(ui, |ui| {
             if button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked() {
                 close = true;
             }

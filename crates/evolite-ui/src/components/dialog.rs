@@ -5,6 +5,12 @@ use super::prelude::*;
 
 /// Shows the dialog and runs `body`, which returns true to close it. Returns true when the
 /// dialog should close (by the body, the cross, Escape or a click outside).
+///
+/// The keyboard (the designer's rule b′, 2026-11-06): when it opens, the focus is in its first
+/// field; without fields, on the primary button of its [`super::button_row`], or on «Cancel»
+/// with its ring shown when the dialog's action cannot be undone (a Danger button, or a
+/// [`super::button_row_destructive`]). Enter in a field presses the primary; in a destructive
+/// dialog it never presses anything and goes on to the next field.
 pub fn dialog(
     ui: &mut Ui,
     a: &mut Assets,
@@ -76,7 +82,13 @@ pub fn dialog_with_header(
                 }
             });
         });
-        body(ui, a) || close
+        // Where the focus starts and what Enter does (the designer's rule b′): the first field
+        // takes the focus when the dialog opens, else its row of buttons places it
+        // ([`super::button_row`]).
+        let outer = crate::a11y::dialog_begin(ui.ctx(), id);
+        let done = body(ui, a);
+        crate::a11y::dialog_end(ui.ctx(), outer);
+        done || close
     });
     place.keep(&ctx, id, response.response.rect);
     response.inner || response.should_close()

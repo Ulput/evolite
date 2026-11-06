@@ -19,7 +19,19 @@ pub const BUTTON_HEIGHT: f32 = 41.0;
 /// «Close» when it only shows), the primary last, at the right end — one order in every dialog
 /// (designer review №8). Tab goes the same way, Cancel → primary (the designer, 2026-11-06:
 /// egui's Tab follows the order widgets are drawn in), and in Arabic the mirrored frame turns
-/// both over together. Enter takes the primary from a field, as before.
+/// both over together.
+///
+/// The keyboard of its dialog (the designer's rule b′, 2026-11-06), for every dialog in one
+/// place: when the dialog opens and no field took the focus, the focus is on the primary, so
+/// Enter confirms; Enter in a field of the dialog presses the primary too. A row with a Danger
+/// button, or a [`button_row_destructive`], is one whose action cannot be undone: the focus
+/// starts on its first button («Cancel») with the ring shown, so Enter closes, and Enter in a
+/// field never presses anything — only a click, or Tab to the action and Enter or Space on it.
+///
+/// Dialogs that cost something and have a field to type in («Send request» to a contact,
+/// «Register» a name, «Accept» with a password, «Save» the profile) are ordinary rows on
+/// purpose, not [`button_row_spend`]: Enter in a field after typing is a deliberate act (rule
+/// b′), and they open with the fields empty and the primary off, so a double Enter does nothing.
 ///
 /// Right-aligned but drawn left to right: the row starts its width before its right edge, the
 /// width the buttons took last frame; the first frame, or one whose buttons changed width, is
@@ -28,6 +40,152 @@ pub const BUTTON_HEIGHT: f32 = 41.0;
 /// size and its top (BUG-39 №3, №13), so whatever comes under the row would grow the dialog
 /// every frame.
 pub fn button_row<R>(ui: &mut Ui, add: impl FnOnce(&mut Ui) -> R) -> R {
+    row_of_buttons(ui, Row::Ordinary, add)
+}
+
+/// [`button_row`] of a dialog whose action cannot be undone although its button is not red
+/// (disconnect an app, sync again), or one asked for by someone else (an app's sign-in): the
+/// focus starts on «Cancel» («Decline») and Enter in a field presses nothing. A row with a
+/// Danger button is one without being marked.
+pub fn button_row_destructive<R>(ui: &mut Ui, add: impl FnOnce(&mut Ui) -> R) -> R {
+    row_of_buttons(ui, Row::Destructive, add)
+}
+
+/// [`button_row_destructive`] when `destructive`, else [`button_row`].
+pub fn button_row_destructive_if<R>(
+    ui: &mut Ui,
+    destructive: bool,
+    add: impl FnOnce(&mut Ui) -> R,
+) -> R {
+    let kind = if destructive {
+        Row::Destructive
+    } else {
+        Row::Ordinary
+    };
+    row_of_buttons(ui, kind, add)
+}
+
+/// [`button_row`] of a dialog that spends, opened by the person («Check the payment», a top-up,
+/// the pool, an NFT gift; the designer, 2026-11-06): not «Cancel» first — that teaches Tab and
+/// Enter without looking just the same. The focus is on the primary with its ring shown at
+/// once, so it is seen what Enter does; but Enter or Space presses it only as a fresh press
+/// [`crate::a11y::SPEND_KEYS_AFTER`] or more after the dialog opened: neither the key's
+/// auto-repeat nor a press begun before it opened, so a double Enter sends nothing. A click
+/// needs no wait.
+pub fn button_row_spend<R>(ui: &mut Ui, add: impl FnOnce(&mut Ui) -> R) -> R {
+    row_of_buttons(ui, Row::Spend, add)
+}
+
+/// What a row of buttons is for (the keyboard of its dialog).
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
+enum Row {
+    #[default]
+    Ordinary,
+    Destructive,
+    Spend,
+}
+
+/// What a row of buttons learns of its buttons as they are drawn ([`row_button`]).
+#[derive(Clone, Copy, Default)]
+struct RowKeys {
+    /// What it was marked as.
+    kind: Row,
+    /// Its action cannot be undone: marked so, or its dialog's row was so last frame.
+    destructive: bool,
+    /// A Danger button is in it.
+    danger: bool,
+    /// Its first enabled secondary button («Cancel», «Close»).
+    cancel: Option<egui::Id>,
+    /// Its last enabled primary button.
+    primary: Option<egui::Id>,
+}
+
+fn row_keys_id() -> egui::Id {
+    egui::Id::new("evolite-button-row-keys")
+}
+
+/// A button of kind `kind` with the id `id` is about to be drawn: a row it is in remembers it,
+/// and the primary of an ordinary dialog takes the focus when Enter was pressed in a field —
+/// egui then clicks the focused button for the Enter of this frame. The primary of a dialog
+/// that spends takes Enter and Space only when fresh ([`crate::a11y::spend_key_fresh`]).
+fn row_button(ui: &Ui, id: egui::Id, kind: ButtonKind, enabled: bool) {
+    let ctx = ui.ctx();
+    let Some(mut row) = ctx.data(|d| d.get_temp::<RowKeys>(row_keys_id())) else {
+        return;
+    };
+    match kind {
+        ButtonKind::Danger => row.danger = true,
+        ButtonKind::Primary if enabled => {
+            row.primary = Some(id);
+            if !row.destructive && crate::a11y::dialog_submit(ctx) {
+                ctx.memory_mut(|m| m.request_focus(id));
+            }
+            if row.kind == Row::Spend
+                && ctx.memory(|m| m.has_focus(id))
+                && crate::a11y::confirm_key_pressed(ctx)
+                && !crate::a11y::spend_key_fresh(ctx)
+            {
+                crate::a11y::swallow_confirm_keys(ctx);
+            }
+        }
+        ButtonKind::Secondary | ButtonKind::Ghost if enabled && row.cancel.is_none() => {
+            row.cancel = Some(id);
+        }
+        _ => {}
+    }
+    ctx.data_mut(|d| d.insert_temp(row_keys_id(), row));
+}
+
+fn row_of_buttons<R>(ui: &mut Ui, kind: Row, add: impl FnOnce(&mut Ui) -> R) -> R {
+    let ctx = ui.ctx().clone();
+    let marked = kind == Row::Destructive;
+    let destructive = marked || crate::a11y::dialog_is_destructive(&ctx);
+    let outer = ctx.data_mut(|d| {
+        let outer = d.get_temp::<RowKeys>(row_keys_id());
+        d.insert_temp(
+            row_keys_id(),
+            RowKeys {
+                kind,
+                destructive,
+                ..RowKeys::default()
+            },
+        );
+        outer
+    });
+    let inner = row_layout(ui, add);
+    let row = ctx.data_mut(|d| {
+        let row = d.remove_temp::<RowKeys>(row_keys_id());
+        if let Some(outer) = outer {
+            d.insert_temp(row_keys_id(), outer);
+        }
+        row
+    });
+    if let Some(row) = row {
+        let destructive = marked || row.danger;
+        crate::a11y::dialog_destructive(&ctx, destructive);
+        // A primary still disabled (the payment's address on its way) takes the focus once it
+        // is enabled.
+        let first = if destructive { row.cancel } else { row.primary };
+        if let Some(id) = first
+            && crate::a11y::dialog_place(&ctx)
+        {
+            ctx.memory_mut(|m| m.request_focus(id));
+            // The wait for a fresh Enter counts from when the primary took the focus, not from
+            // the opening: enabled late, it was not seen before (review r2, should 1).
+            if kind == Row::Spend {
+                crate::a11y::dialog_restart_clock(&ctx);
+            }
+            // Seen at once, without a Tab: what Enter will do. An ordinary dialog shows it only
+            // when the keyboard moved last (`focus::FocusRing`).
+            if destructive || kind == Row::Spend {
+                crate::focus::show_ring(&ctx);
+            }
+        }
+    }
+    inner
+}
+
+fn row_layout<R>(ui: &mut Ui, add: impl FnOnce(&mut Ui) -> R) -> R {
     let id = ui.auto_id_with("button-row");
     let (_, row) = ui.allocate_space(vec2(ui.available_width(), BUTTON_HEIGHT));
     let width = ui.data(|d| d.get_temp::<f32>(id));
@@ -76,6 +234,8 @@ pub fn button_enabled(
     } else {
         Sense::hover()
     };
+    // The id the button gets, for its row's keyboard before egui reads the keys for it.
+    row_button(ui, ui.next_auto_id(), kind, enabled);
     let (rect, resp) = ui.allocate_exact_size(vec2(w, BUTTON_HEIGHT), sense);
     named(&resp, egui::WidgetType::Button, enabled, label);
     let hovered = enabled && resp.hovered();

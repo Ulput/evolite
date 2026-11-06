@@ -127,7 +127,6 @@ pub fn switch_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut Switc
                 if !form.waiting && !field.has_focus() && form.password.is_empty() {
                     field.request_focus();
                 }
-                let entered = field.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
                 // The wallet's pause (FEAT-0002): its plate in place of the catching-up note.
                 let pause_end = form.cut.end(
                     pause::until(target, form.refused),
@@ -172,7 +171,7 @@ pub fn switch_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut Switc
                         open = pause::explain(ui, open, secs);
                     }
                     let open = open.clicked();
-                    if ready && (open || entered) {
+                    if ready && open {
                         // The password goes to the core and is wiped here at once.
                         cx.send(Command::SwitchWallet {
                             id: form.id.clone(),

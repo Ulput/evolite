@@ -2,7 +2,9 @@
 //! and that evolite starts again for it. The core clears at the next start, before anything
 //! opens; the app then starts itself again.
 
-use crate::components::{Assets, ButtonKind, button, button_enabled, button_row, dialog, kv_row};
+use crate::components::{
+    Assets, ButtonKind, button, button_enabled, button_row_destructive, dialog, kv_row,
+};
 use crate::context::Ctx;
 use crate::screens::txt;
 use crate::text;
@@ -95,7 +97,8 @@ pub(super) fn resync_dialog(
                     .wrap(),
                 );
             }
-            button_row(ui, |ui| {
+            // It restarts the app and takes 10–20 minutes: «Cancel» first (the designer's rule b′).
+            button_row_destructive(ui, |ui| {
                 if button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked() {
                     close = true;
                 }

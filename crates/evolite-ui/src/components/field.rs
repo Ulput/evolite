@@ -157,6 +157,7 @@ pub fn text_area(
                     .desired_width(f32::INFINITY),
             );
             crate::a11y::take_field_name(ui, &resp);
+            crate::a11y::field_drawn(ui, &resp);
             resp
         })
         .inner

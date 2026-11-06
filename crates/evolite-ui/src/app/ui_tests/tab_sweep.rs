@@ -58,6 +58,17 @@ fn sweep(preset: &str) -> Vec<String> {
             kit.ctx.memory(|m| m.top_modal_layer()).is_some()
         });
     }
+    // «Check the phrase» opens asking the core for the words: the password field goes when
+    // they come, and a round standing on it then loses the focus (review r2, should 3).
+    if preset == "check-phrase" {
+        wait_for(&mut kit, "the words asked", |kit| {
+            kit.state()
+                .settings
+                .check
+                .as_ref()
+                .is_some_and(|c| c.questions.is_some())
+        });
+    }
     let start = place(&kit);
     let mut found: Vec<String> = Vec::new();
     let mut note = |problem: String| {

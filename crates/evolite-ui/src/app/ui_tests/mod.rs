@@ -9,6 +9,7 @@
 
 mod amounts;
 mod bugs;
+mod dialog_keys;
 mod dialogs;
 mod focus;
 mod history;

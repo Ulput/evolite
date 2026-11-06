@@ -1118,7 +1118,7 @@ fn top_up_dialog(
             let ask = wallet.password_each_send && running.is_none();
             let entered = state.top_up_password.field(ui, &p, "top-up-password", ask);
             let mut close = false;
-            button_row(ui, |ui| {
+            crate::components::button_row_spend(ui, |ui| {
                 if button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked() {
                     close = true;
                 }

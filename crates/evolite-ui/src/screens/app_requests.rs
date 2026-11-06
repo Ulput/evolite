@@ -284,14 +284,26 @@ struct Answer<'a> {
 /// Two buttons on the right: decline (ghost) and the primary answer; above them the wallet
 /// password when every spend asks for it. While the yes is sent both are off and the primary
 /// one says so; once it is answered only "Close" is left.
-fn answers(ui: &mut Ui, a: &mut Assets, no: &str, yes: &str, answer: &mut Answer<'_>) {
+/// `asked_by_the_app`: the app asks for something the person did not start (a sign-in).
+fn answers(
+    ui: &mut Ui,
+    a: &mut Assets,
+    no: &str,
+    yes: &str,
+    asked_by_the_app: bool,
+    answer: &mut Answer<'_>,
+) {
     let p = a.p;
     let entered = answer.consent == Consent::Asking
         && answer
             .password
             .field(ui, &p, "app-request-password", answer.ask);
     let ready = answer.password.ready(answer.ask);
-    button_row(ui, |ui| match answer.consent {
+    // A sign-in (and an operation to sign) is asked by the site, not by the person: Enter must
+    // not allow it (the designer,
+    // 2026-11-06, rule b′): the focus starts on «Decline» and «Allow sign-in» goes only by
+    // a click or Tab and Enter on it.
+    crate::components::button_row_destructive_if(ui, asked_by_the_app, |ui| match answer.consent {
         Consent::Asking => {
             if button(ui, a, no, ButtonKind::Ghost, None).clicked() {
                 answer.pick = Some(Pick::No);
@@ -436,7 +448,7 @@ fn connect(ui: &mut Ui, a: &mut Assets, r: &AppRequest, many: bool, answer: &mut
         &format!("≈ {}", dash(*cost)),
         mono(13.0, Weight::Medium),
     );
-    answers(ui, a, tr!("Decline"), tr!("Allow sign-in"), answer);
+    answers(ui, a, tr!("Decline"), tr!("Allow sign-in"), true, answer);
 }
 
 /// 12 · Sign the operation: what the core decoded, not what the app says.
@@ -567,7 +579,10 @@ fn sign(
                 *show_bytes = !showing_bytes;
             }
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                answers(ui, a, tr!("Decline"), tr!("Sign"), answer);
+                // Asked by the app, and it spends the identity's credits: Enter must not
+                // sign it, as it must not allow a sign-in (rule b′, review r2): the focus
+                // starts on «Decline», «Sign» goes by a click or Tab and Enter on it.
+                answers(ui, a, tr!("Decline"), tr!("Sign"), true, answer);
             });
         },
     );
@@ -654,6 +669,8 @@ fn key_exchange(ui: &mut Ui, a: &mut Assets, r: &AppRequest, answer: &mut Answer
         a,
         tr!("The code does not match"),
         tr!("The code matches"),
+        // Asked by the app as the sign-in is: «Someone else is trying to get the key».
+        true,
         answer,
     );
 }
@@ -703,7 +720,8 @@ pub fn disconnect_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut 
                     text::error_details(e).as_deref(),
                 );
             }
-            button_row(ui, |ui| {
+            // The keys cannot be turned back on: «Cancel» first (the designer's rule b′).
+            crate::components::button_row_destructive(ui, |ui| {
                 if button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked() {
                     close = true;
                 }

@@ -5,8 +5,8 @@
 
 use super::txt;
 use crate::components::{
-    Assets, ButtonKind, FieldKind, amount_field, button, button_enabled, button_row, card, dialog,
-    divider, field_label, kv_row, notice, option_card, page_header, pill, text_field,
+    Assets, ButtonKind, FieldKind, amount_field, button, button_enabled, card, dialog, divider,
+    field_label, kv_row, notice, option_card, page_header, pill, text_field,
 };
 use crate::context::Ctx;
 use crate::text::{name_problem, short_address};
@@ -1336,14 +1336,13 @@ fn confirm(
                     ),
                 );
             }
-            // Enter in the password field signs, as the button does (only from the field: a
-            // stray Enter elsewhere sends nothing).
-            let mut entered = false;
+            // Enter in the password field signs, as the button does: the row presses its
+            // primary (`components::button_row`).
             if ask_password {
                 ui.vertical(|ui| {
                     ui.spacing_mut().item_spacing.y = 6.0;
                     field_label(ui, &p, tr!("Wallet password"));
-                    let field = text_field(
+                    text_field(
                         ui,
                         &p,
                         "send-password",
@@ -1352,11 +1351,10 @@ fn confirm(
                         FieldKind::Password,
                         |_| {},
                     );
-                    entered = field.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
                 });
             }
             let mut close = false;
-            button_row(ui, |ui| {
+            crate::components::button_row_spend(ui, |ui| {
                 if button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked() {
                     close = true;
                 }
@@ -1371,7 +1369,7 @@ fn confirm(
                     ready,
                 )
                 .clicked();
-                if ready && (clicked || entered) {
+                if ready && clicked {
                     send_now = true;
                     close = true;
                 }

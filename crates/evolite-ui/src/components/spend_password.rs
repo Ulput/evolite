@@ -28,7 +28,9 @@ pub struct SpendPassword {
 
 impl SpendPassword {
     /// The field under its label, when asked; `true` when Enter was pressed in it (the step's
-    /// main button, as in "Check the payment"). `id`: unique on the screen.
+    /// main button, as in "Check the payment"). In a dialog it is never `true`: the dialog's
+    /// row of buttons presses its primary itself ([`super::button_row`]). `id`: unique on the
+    /// screen.
     pub fn field(&mut self, ui: &mut Ui, p: &Palette, id: &str, asked: bool) -> bool {
         if !asked {
             return false;
@@ -41,7 +43,9 @@ impl SpendPassword {
             if field.changed() {
                 self.wrong = false;
             }
-            entered = field.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+            entered = !crate::a11y::in_dialog(ui.ctx())
+                && field.lost_focus()
+                && ui.input(|i| i.key_pressed(egui::Key::Enter));
             if self.wrong {
                 ui.label(
                     egui::RichText::new(crate::i18n::t(wrong_text(self.what)))
