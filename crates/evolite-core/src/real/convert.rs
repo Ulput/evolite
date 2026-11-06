@@ -56,16 +56,19 @@ pub(super) fn sync_info(s: &SyncStatus, wallet: bool) -> SyncInfo {
         // the done height alone stood at 28 % for minutes while a restored wallet's blocks
         // came, then jumped to the end.
         (_, _, Some(f)) if wallet && !f.done => {
-            let from = s.filters_from.unwrap_or(0).min(f.height);
+            // No start known yet (the first report of a new or restored wallet): no count.
+            let from = s.filters_from.map(|from| from.min(f.height));
             let stored = s.filters_stored.max(f.height);
             let parts = [s.filter_headers.max(stored), stored, f.height];
             (
                 SyncStage::Filters,
-                parts
-                    .iter()
-                    .map(|&at| span(from, at, f.target))
-                    .sum::<Option<f32>>()
-                    .map(|sum| sum / parts.len() as f32),
+                from.and_then(|from| {
+                    parts
+                        .iter()
+                        .map(|&at| span(from, at, f.target))
+                        .sum::<Option<f32>>()
+                        .map(|sum| sum / parts.len() as f32)
+                }),
             )
         }
         (_, _, None) if wallet => (SyncStage::Filters, None),
@@ -950,6 +953,8 @@ mod tests {
             done: false,
         });
         s.filters_stored = 447_000;
+        // Restored with birth 0: this run began at the first batch.
+        s.filters_from = Some(1);
         let waiting = sync_info(&s, true).progress.unwrap();
         s.filters_stored = 1_400_000;
         let info = sync_info(&s, true);

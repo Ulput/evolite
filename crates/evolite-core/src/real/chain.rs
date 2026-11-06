@@ -401,8 +401,8 @@ impl Chain {
         Ok(manager)
     }
 
-    /// Opens the store, restores the wallets saved there and starts the SPV client; does
-    /// nothing when already running. A failure is in the status and can be retried.
+    /// Opens the store (unless [`Self::open`] did) and starts the SPV client; does nothing when
+    /// already running. A failure is in the status and can be retried; it lets the store go.
     pub async fn start(
         &self,
         paths: &ChainPaths,
@@ -428,7 +428,18 @@ impl Chain {
                 None => None,
             };
             let handler: Arc<dyn PlatformEventHandler> = Arc::new(reporter.clone());
-            let manager = self.open_store(&paths.store, handler).await?;
+            // A store opened ahead (BUG-65) is this wallet's: its handler reports to the same
+            // status as `reporter` would.
+            let opened = self
+                .manager
+                .lock()
+                .await
+                .clone()
+                .filter(|_| self.store_open());
+            let manager = match opened {
+                Some(manager) => manager,
+                None => self.open_store(&paths.store, handler).await?,
+            };
             let mut config = ClientConfig::new(crate::network::dash())
                 .with_storage_path(paths.spv.clone())
                 .with_user_agent(format!("/evolite:{}/", env!("CARGO_PKG_VERSION")));
@@ -483,13 +494,30 @@ impl Chain {
         }
     }
 
-    /// The first half of [`Self::start`] alone: the store at `paths` open, no SPV client.
-    #[cfg(test)]
-    pub(super) async fn open_store_only(&self, paths: &ChainPaths) -> Result<(), String> {
-        let reporter = Reporter::new(self.status.clone(), Arc::new(|_: &SyncStatus| {}));
+    /// The store at `paths` opened alone, ahead of the SPV client (BUG-65): what it has is read
+    /// at once while the client still waits for the chain before it to let the shared SPV files
+    /// go. [`Self::start`] then takes this store. Nothing when open, running or retired; a
+    /// failure leaves the opening to [`Self::start`].
+    pub async fn open(
+        &self,
+        paths: &ChainPaths,
+        publish: Arc<dyn Fn(&SyncStatus) + Send + Sync>,
+    ) -> Result<(), String> {
+        let _one = self.starting.lock().await;
+        if self.running() || self.store_open() || self.retired() {
+            return Ok(());
+        }
+        let reporter = Reporter::new(self.status.clone(), publish)
+            .with_instant_locks(self.instant_locks.clone());
         self.open_store(&paths.store, Arc::new(reporter))
             .await
             .map(|_| ())
+    }
+
+    /// The first half of [`Self::start`] alone: the store at `paths` open, no SPV client.
+    #[cfg(test)]
+    pub(super) async fn open_store_only(&self, paths: &ChainPaths) -> Result<(), String> {
+        self.open(paths, Arc::new(|_: &SyncStatus| {})).await
     }
 
     /// Its core is replaced by another: a start of this chain still waiting in line is not

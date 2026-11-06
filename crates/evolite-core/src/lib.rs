@@ -375,6 +375,27 @@ mod tests {
             started.elapsed().as_millis()
         );
         assert_eq!(result, Ok(()), "the old wallet opens");
+        // BUG-65: what the store has is shown at once, not after the adding chain's start
+        // (≈50 s) and its stop.
+        let unlocked = Instant::now();
+        let history = wait_for(&core, 5, |e| match e {
+            Event::Snapshot(s)
+                if s.vault == VaultState::Unlocked
+                    && s.wallet.as_ref().is_some_and(|w| !w.activity.is_empty()) =>
+            {
+                Some(s.sync.stage)
+            }
+            _ => None,
+        });
+        let after = unlocked.elapsed();
+        println!(
+            "history after the password in {} ms (sync {history:?})",
+            after.as_millis()
+        );
+        assert!(
+            after < Duration::from_secs(15),
+            "the store is read at once: {after:?}"
+        );
         let synced = wait_for(&core, 10, |e| match e {
             Event::Snapshot(s)
                 if s.vault == VaultState::Unlocked && s.sync.stage == SyncStage::Done =>

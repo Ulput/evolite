@@ -49,6 +49,7 @@ use evolite_api::*;
 use key_wallet::mnemonic::{Language, Mnemonic};
 use key_wallet::wallet::managed_wallet_info::wallet_info_interface::WalletInfoInterface;
 use key_wallet_manager::WalletId;
+use tokio::sync::watch;
 use zeroize::Zeroizing;
 
 use crate::dpns;
@@ -298,6 +299,9 @@ struct Real {
     /// The chain's start off the loop ([`Real::start_chain`]); it answers whether the wallet's
     /// folder was clear of a deleted wallet's files (else [`Real::leftovers`]).
     starting: Option<tokio::task::JoinHandle<bool>>,
+    /// Turns true once every chain before this core's has let its store go: the next core's
+    /// start may open its own store then (BUG-65, [`Real::start_chain`]).
+    stopped: Option<watch::Receiver<bool>>,
     /// A start was tried over a clear folder (the loop then retries a failed one).
     start_tried: bool,
     /// When the last start was asked.
@@ -809,6 +813,7 @@ impl Real {
             adding_from: None,
             password_each_send,
             starting: None,
+            stopped: None,
             start_tried: false,
             last_start: tokio::time::Instant::now(),
             attach: None,
@@ -2892,10 +2897,17 @@ impl Real {
     /// folders too), and the chain starts over a clear folder. The loop meanwhile takes commands
     /// and sends snapshots; a start of the core's own that failed is tried again by the loop
     /// (BUG-8 waited for it inside the unlock).
+    ///
+    /// The store is this wallet's own (only the SPV files are shared): once every chain before
+    /// `old` has let its store go (`before`, said by the start of `old`), it is opened while
+    /// `prev` still runs, so what it has is shown at once (BUG-65: going back from "Add a
+    /// wallet" waited for the adding chain's whole start, ≈50 s, with nothing to show). The loop
+    /// passes `before` only when `old` is another wallet's chain: no store is open twice.
     fn start_chain(
         &mut self,
         old: Option<Arc<Chain>>,
         prev: Option<tokio::task::JoinHandle<bool>>,
+        before: Option<watch::Receiver<bool>>,
         others: bool,
     ) {
         self.chain.mark_starting();
@@ -2903,13 +2915,31 @@ impl Real {
         let (chain, paths, wallet) = (self.chain.clone(), self.paths.clone(), self.wallet.clone());
         let publish = self.publisher();
         let refresh = self.refresher();
+        let (stopped, after) = watch::channel(false);
+        self.stopped = Some(after);
+        // A saved wallet's folder is no deleted one's leftovers: nothing removes it below.
+        let ahead = before.filter(|_| paths.vault.exists());
         self.starting = Some(tokio::spawn(async move {
-            if let Some(prev) = prev {
-                let _ = prev.await;
-            }
-            if let Some(old) = old {
-                old.stop().await;
-            }
+            let open_ahead = async {
+                if let Some(mut before) = ahead
+                    && before.wait_for(|stopped| *stopped).await.is_ok()
+                    && chain.open(&paths.chain, publish.clone()).await.is_ok()
+                    && chain.store_open()
+                {
+                    refresh();
+                }
+            };
+            let stop_old = async {
+                if let Some(prev) = prev {
+                    let _ = prev.await;
+                }
+                if let Some(old) = old {
+                    old.stop().await;
+                }
+            };
+            tokio::join!(open_ahead, stop_old);
+            // Every chain before this one has let its store go: the next one may open its own.
+            let _ = stopped.send(true);
             if others {
                 clear_other_leftovers(&paths.root, &wallet);
             }
@@ -2963,7 +2993,7 @@ impl Real {
             && failed
             && self.last_start.elapsed() >= RETRY_START
         {
-            self.start_chain(None, None, false);
+            self.start_chain(None, None, None, false);
         }
     }
 
@@ -4177,7 +4207,7 @@ pub fn run(
         let snapshot = core.snapshot().await;
         let _ = out.send(Event::Snapshot(Box::new(snapshot)));
         wake();
-        core.start_chain(None, None, false);
+        core.start_chain(None, None, None, false);
         // When the last DashPay pass the snapshot knows of finished.
         let mut dashpay_pass = None;
         loop {
@@ -4232,6 +4262,7 @@ pub fn run(
                             }
                             drop(core.artist.take());
                             let (old, prev) = (core.chain.clone(), core.starting.take());
+                            let (from, before) = (core.wallet.clone(), core.stopped.take());
                             // A start of this chain still waiting in line is not made: the
                             // next core's start follows it (switching on before one ended).
                             old.retire();
@@ -4247,7 +4278,9 @@ pub fn run(
                                 wake.clone(),
                                 art_for(&core.wallet),
                             ));
-                            core.start_chain(Some(old), prev, true);
+                            // Its store opens ahead only when `old` holds another one (BUG-65).
+                            let before = before.filter(|_| from != core.wallet);
+                            core.start_chain(Some(old), prev, before, true);
                             // Figma 29: the vault opened before the switch opens the wallet now
                             // (no second Argon2, F2).
                             if let Some((file, phrase)) = opened {
@@ -4863,6 +4896,101 @@ mod tests {
         assert!(adding.snapshot().await.adding_wallet);
         adding.handle(Command::CancelAddWallet).await;
         assert_eq!(adding.switch_to.as_deref(), Some("bbbb0002"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// BUG-65: "Add a wallet" → "Back": the wallet gone back to opens its own store while the
+    /// adding chain's start (its SPV client, ≈50 s) still runs, so after the password its
+    /// identities, balance and history are there at once — not only once that start and its
+    /// stop have ended. The SPV client still waits for them (the SPV files are shared).
+    #[tokio::test(flavor = "multi_thread")]
+    async fn going_back_from_adding_reads_the_store_at_once() {
+        let dir = fresh_dir("back-from-adding");
+        seal_wallet(&dir, "bbbb0002");
+        // The adding core: a new folder with no vault, its chain's start still under way.
+        let adding = core_at(&dir, "cccc0003");
+        let (release, held) = tokio::sync::oneshot::channel::<()>();
+        let adding_start = tokio::spawn(async move {
+            let _ = held.await;
+            false
+        });
+        // The chain before the adding one has stopped: its start said so.
+        let (said, before) = watch::channel(false);
+        let _ = said.send(true);
+        adding.chain.retire();
+
+        let mut back = core_at(&dir, "bbbb0002");
+        back.start_chain(
+            Some(adding.chain.clone()),
+            Some(adding_start),
+            Some(before),
+            true,
+        );
+        let opened = async {
+            while !back.chain.store_open() {
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        };
+        assert!(
+            tokio::time::timeout(Duration::from_secs(20), opened)
+                .await
+                .is_ok(),
+            "the store opens while the adding chain still starts"
+        );
+        assert!(!back.chain.running(), "the SPV client waits");
+        assert!(!back.starting.as_ref().unwrap().is_finished());
+        // The password now: the wallet is read from the store before the client runs.
+        assert_eq!(back.unlock(&pw("pw")).await, Ok(()));
+        let id = back.unlocked.as_ref().map(|o| o.id).unwrap();
+        assert!(back.chain.wallet(&id).await.is_some(), "at once");
+        // The next core's store may open once this one's start has stopped the adding chain.
+        let mut next = back.stopped.clone().unwrap();
+        assert!(!*next.borrow());
+        // No SPV client in a test: this chain is replaced before its turn comes.
+        back.chain.retire();
+        let _ = release.send(());
+        let started = back.starting.take().unwrap();
+        assert!(
+            tokio::time::timeout(Duration::from_secs(20), started)
+                .await
+                .is_ok()
+        );
+        assert!(next.wait_for(|s| *s).await.is_ok());
+        assert!(!back.chain.running());
+        back.chain.stop().await;
+        assert!(!back.chain.store_open());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// BUG-65, the other way: without word that the chains before have let their stores go —
+    /// the core before had the same wallet, say — the store waits for the start before.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_store_held_before_is_not_opened_ahead() {
+        let dir = fresh_dir("back-same-wallet");
+        seal_wallet(&dir, "bbbb0002");
+        let before = core_at(&dir, "bbbb0002");
+        before.chain.retire();
+        let (release, held) = tokio::sync::oneshot::channel::<()>();
+        let start_before = tokio::spawn(async move {
+            let _ = held.await;
+            false
+        });
+        let mut back = core_at(&dir, "bbbb0002");
+        back.start_chain(Some(before.chain.clone()), Some(start_before), None, false);
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        assert!(
+            !back.chain.store_open(),
+            "not while the one before may hold it"
+        );
+        back.chain.retire();
+        let _ = release.send(());
+        let started = back.starting.take().unwrap();
+        assert!(
+            tokio::time::timeout(Duration::from_secs(20), started)
+                .await
+                .is_ok()
+        );
+        assert!(!back.chain.store_open());
         let _ = std::fs::remove_dir_all(&dir);
     }
 

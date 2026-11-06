@@ -119,8 +119,13 @@ impl SyncStatus {
                 done: f.state() == SyncState::Synced,
             });
             self.filters_stored = f.stored_height().max(f.committed_height());
-            let from = self.filters_from.get_or_insert(f.committed_height());
-            *from = (*from).min(f.committed_height());
+            // A new or restored wallet's first report says 0 (dash-spv begins at the wallet's
+            // synced height, 0 for it, and only then at the birth − 1): no start yet, or the
+            // filters counted from the genesis said ~90 % at once (BUG-60 r1, should 1).
+            if f.committed_height() > 0 {
+                let from = self.filters_from.get_or_insert(f.committed_height());
+                *from = (*from).min(f.committed_height());
+            }
         }
         if let Ok(c) = progress.chainlocks() {
             let height = c.best_validated_height();
@@ -355,6 +360,42 @@ mod tests {
         assert_eq!(status.headers_from, Some(1_586_494));
         assert_eq!(status.filters_from, Some(1_586_494));
         assert!(!status.lists_answered);
+    }
+
+    /// BUG-60 r1 (should 1): a new or restored wallet's filters begin at its synced height, 0,
+    /// and only then at the birth − 1 — the start is the birth, not the genesis.
+    #[test]
+    fn a_restored_wallet_counts_its_filters_from_the_birth() {
+        use dash_spv::sync::FiltersProgress;
+        let report = |committed: u32| {
+            let mut headers = BlockHeadersProgress::default();
+            headers.update_target_height(1_586_494);
+            headers.update_tip_height(1_586_494);
+            headers.set_state(SyncState::Synced);
+            let mut filters = FiltersProgress::default();
+            filters.update_committed_height(committed);
+            filters.update_stored_height(committed);
+            let mut progress = SyncProgress::default();
+            progress.update_headers(headers);
+            progress.update_filters(filters);
+            progress
+        };
+        let birth = 1_400_000;
+        let mut status = SyncStatus::default();
+        status.apply_progress(&report(0));
+        assert_eq!(status.filters_from, None, "0 is no start");
+        let shown = super::super::convert::sync_info(&status, true);
+        assert_eq!(shown.stage, evolite_api::SyncStage::Filters);
+        assert_eq!(shown.progress, None, "no count before the start is known");
+        status.apply_progress(&report(birth - 1));
+        assert_eq!(status.filters_from, Some(birth - 1));
+        status.apply_progress(&report(birth + 93_247));
+        assert_eq!(status.filters_from, Some(birth - 1));
+        let part = super::super::convert::sync_info(&status, true)
+            .progress
+            .expect("counted");
+        // A half of the way from the birth, not 94 % of the height.
+        assert!((part - 0.5).abs() < 0.01, "{part}");
     }
 
     #[test]
