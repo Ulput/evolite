@@ -267,7 +267,8 @@ fn empty(ui: &mut Ui, a: &mut Assets, status: &NftsStatus) {
             tr!("NFTs belong to an identity"),
             tr!("Make an identity — Jembe gifts will come to it.").into(),
         ),
-        NftsStatus::Failed(why) => (tr!("Could not load the NFTs"), why.clone()),
+        // The core asks again by itself (BUG-10): the reason and that, not an endless wait.
+        NftsStatus::Failed(why) => (tr!("Could not load the NFTs"), failed_detail(why)),
         NftsStatus::Ready => (
             tr!("You have no NFTs yet"),
             tr!("Jembe gifts appear here as soon as someone sends them to your identity.").into(),
@@ -678,9 +679,33 @@ fn gift_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut Collection
     }
 }
 
+/// Under "Could not load the NFTs": the core's reason and that it asks again. One template:
+/// the catalog translates the reason in its place and ends the sentence as its language does.
+fn failed_detail(why: &str) -> String {
+    format!(
+        tr!("{}. evolite asks Dash Platform again every minute."),
+        why.trim_end_matches('.')
+    )
+}
+
 #[cfg(test)]
 mod tests {
-    use super::is_dash_name;
+    use super::{failed_detail, is_dash_name};
+
+    /// BUG-10: a failed list says why and that it is asked again.
+    #[test]
+    fn a_failed_list_says_why_and_that_it_comes_again() {
+        let text = failed_detail("Dash Platform did not answer within a minute");
+        assert!(text.contains("did not answer"), "{text}");
+        assert!(text.contains("again every minute"), "{text}");
+        // Both halves in the language, the stop as its catalog writes it (BUG-15).
+        let ru = crate::i18n::t_in(crate::i18n::Lang::Ru, &text);
+        assert_eq!(
+            ru,
+            "Dash Platform не ответила за минуту. evolite спрашивает Dash Platform снова каждую минуту."
+        );
+        assert_eq!(failed_detail("No answer."), failed_detail("No answer"));
+    }
 
     /// Design review №24: «Кольцо с бриллиантом» in the narrowest tile (160 px) is whole on two
     /// rows; one row, as before, cut it.

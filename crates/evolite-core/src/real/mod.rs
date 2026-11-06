@@ -1433,7 +1433,11 @@ impl Real {
             let owner = owner.clone();
             tokio::spawn(async move {
                 let result = match Identifier::from_string(&owner, Encoding::Base58) {
-                    Ok(id) => chain.jembe_gifts(id, &known).await,
+                    Ok(id) => {
+                        tokio::time::timeout(nfts::ASK_TIMEOUT, chain.jembe_gifts(id, &known))
+                            .await
+                            .unwrap_or_else(|_| Err(nfts::no_answer().into()))
+                    }
                     Err(e) => Err(e.to_string()),
                 };
                 nfts.found(&owner, &name, result);

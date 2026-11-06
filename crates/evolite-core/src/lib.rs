@@ -1415,6 +1415,34 @@ mod tests {
         assert!(after >= before + 10_000, "{before} -> {after}");
     }
 
+    /// BUG-10 on testnet: the Collection of the identity the wallet shows comes out of
+    /// "Loading" — the list, or a failure with its reason — within the time an ask may take.
+    /// Reads only.
+    /// `cargo test -p evolite-core live_collection_loads -- --ignored --nocapture`
+    #[test]
+    #[ignore = "needs testnet access and the test phrase in .env.test.local"]
+    fn live_collection_loads_or_says_why() {
+        let core = warm_wallet("evolite-live-collection");
+        let started = Instant::now();
+        let (nfts, status) = wait_for(&core, 5, |e| match e {
+            Event::Snapshot(s) => {
+                let w = s.wallet.as_ref()?;
+                (w.identity.is_some() && w.nfts_status != evolite_api::NftsStatus::Loading)
+                    .then(|| (w.nfts.len(), w.nfts_status.clone()))
+            }
+            _ => None,
+        });
+        println!(
+            "after {} s: {status:?}, {nfts} NFTs",
+            started.elapsed().as_secs()
+        );
+        assert!(
+            started.elapsed() < Duration::from_secs(4 * 60),
+            "out of Loading only after {:?}",
+            started.elapsed()
+        );
+    }
+
     /// DashPay on testnet: the first identity writes its profile (with a picture by https) and
     /// sends a contact request to `EVOLITE_TEST_NAME_2`, an identity of the same phrase made by
     /// `live_identity_found_and_created`; the profile, its picture and the request show in the

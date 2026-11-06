@@ -22,9 +22,20 @@ const CONTRACT_NAME: &str = "jembe-nft";
 const ISSUER: &str = "jembe";
 /// How often the list is asked for again while the wallet is open.
 const REFRESH: Duration = Duration::from_secs(60);
+/// How long an ask may take: Platform that does not answer is a failure to show with its
+/// reason, never an endless "Loading" (BUG-10); the list is asked for again after [`REFRESH`].
+pub const ASK_TIMEOUT: Duration = Duration::from_secs(60);
+/// An ask still "running" this long after it started is taken as lost (its task ended
+/// without an answer): the next snapshot asks again.
+const ASK_LOST: Duration = Duration::from_secs(90);
 /// A model's picture is at most 3 072 bytes packed (the contract); unpacked, it stays far
 /// under this. A "bomb" stops here.
 const MAX_UNPACKED: usize = 1 << 20;
+
+/// Why the list did not come: Platform gave no answer within [`ASK_TIMEOUT`].
+pub fn no_answer() -> &'static str {
+    tr!("Dash Platform did not answer within a minute")
+}
 
 /// A `giftModel` document, as far as it is read.
 #[derive(Clone, Debug, PartialEq)]
@@ -152,7 +163,17 @@ impl Nfts {
                 ..State::default()
             };
         }
-        let due = !state.running && state.asked.is_none_or(|at| at.elapsed() >= REFRESH);
+        let due = match state.asked {
+            None => true,
+            Some(at) if state.running => {
+                let lost = at.elapsed() >= ASK_LOST;
+                if lost && matches!(state.status, NftsStatus::Loading) {
+                    state.status = NftsStatus::Failed(no_answer().into());
+                }
+                lost
+            }
+            Some(at) => at.elapsed() >= REFRESH,
+        };
         if due {
             state.running = true;
             state.asked = Some(Instant::now());
@@ -206,6 +227,40 @@ impl Nfts {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// BUG-10: an ask that never answers does not leave the Collection on "Loading" for good.
+    #[test]
+    fn a_lost_ask_fails_and_is_asked_again() {
+        let nfts = Nfts::default();
+        let owner = "owner";
+        assert!(nfts.due(owner), "the first ask");
+        assert!(!nfts.due(owner), "not twice while it runs");
+        assert_eq!(nfts.shown(Some(owner)).1, NftsStatus::Loading);
+        // Its task ended without an answer, long enough ago.
+        let past = |d: Duration| Instant::now().checked_sub(d).unwrap();
+        nfts.state().asked = Some(past(ASK_LOST - Duration::from_secs(1)));
+        assert!(!nfts.due(owner), "still within its time");
+        nfts.state().asked = Some(past(ASK_LOST));
+        assert!(nfts.due(owner), "lost: asked again");
+        assert_eq!(
+            nfts.shown(Some(owner)).1,
+            NftsStatus::Failed(no_answer().into()),
+            "and said so"
+        );
+        // The new ask answers: an empty list is "no NFTs yet", not loading.
+        nfts.found(owner, "@o", Ok((Vec::new(), Vec::new())));
+        assert_eq!(nfts.shown(Some(owner)), (Vec::new(), NftsStatus::Ready));
+        assert!(!nfts.due(owner), "the next ask after REFRESH");
+        // A timed-out ask is a failure with its reason, asked again after REFRESH.
+        nfts.state().asked = Some(past(REFRESH));
+        assert!(nfts.due(owner));
+        nfts.found(owner, "@o", Err(no_answer().into()));
+        assert_eq!(
+            nfts.shown(Some(owner)).1,
+            NftsStatus::Failed(no_answer().into())
+        );
+        assert!(!nfts.due(owner));
+    }
 
     fn model(svg: &[u8]) -> ModelDoc {
         ModelDoc {

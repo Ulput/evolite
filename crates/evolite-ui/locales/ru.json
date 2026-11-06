@@ -1182,6 +1182,8 @@
   "{} already has your contact request. When {} answers, you can pay from here. Credits can go to @{} right away: choose “Credits”.": "Ваш запрос в контакты уже у {}. Когда {} ответит, платить можно будет отсюда же. Кредиты на @{} можно перевести сразу: выберите «Кредиты».",
   "{} becomes a contact: you can pay each other. The answer costs ≈ {} of the identity's credits.": "{} станет контактом: вы сможете платить друг другу. Ответ стоит ≈ {} из кредитов identity.",
   "{} of the top-up are awaiting the ChainLock of their block.": "{} пополнения ждут ChainLock своего блока.",
+  "Dash Platform did not answer within a minute": "Dash Platform не ответила за минуту",
+  "{}. evolite asks Dash Platform again every minute.": "{}. evolite спрашивает Dash Platform снова каждую минуту.",
   "{}\n\nClick to copy": "{}\n\nЩелчок — скопировать",
   "{} Core nodes": "{} узлов Core",
   "{} addresses with history · BIP44": "{} адреса с историей · BIP44",
