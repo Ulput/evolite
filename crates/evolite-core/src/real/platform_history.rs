@@ -387,6 +387,40 @@ fn shown_name(b58: &str, names: &std::collections::HashMap<String, Option<String
     }
 }
 
+/// The key of our contact request to `to` sent as `me`: `cr:<ours>:<to>`. The entry written
+/// when it is sent here has it at once (BUG-13), so the read of Platform finds that line by key
+/// and never adds a second one, however `to` is named by then.
+pub fn request_key(me: &Identifier, to: &Identifier) -> String {
+    format!(
+        "cr:{}:{}",
+        me.to_string(Encoding::Base58),
+        to.to_string(Encoding::Base58)
+    )
+}
+
+/// The entry for our contact request to `@label` (`to`) sent here as `me` at `at`; `spent`: what
+/// it cost in duffs. Keyed ([`request_key`]) and with its identity, as the read of Platform has
+/// it: that read matches it by key and keeps its cost; a request to us from `me` (another
+/// identity of ours, `cri:<me>:<to>`) stays a line of its own.
+pub fn sent_request(
+    me: &Identifier,
+    to: &Identifier,
+    label: &str,
+    at: Timestamp,
+    spent: evolite_api::Duffs,
+) -> Entry {
+    Entry {
+        at,
+        what: What::ContactRequest {
+            to: format!("@{label}"),
+        },
+        spent,
+        identity: Some(me.to_string(Encoding::Base58)),
+        key: Some(request_key(me, to)),
+        ..Default::default()
+    }
+}
+
 /// A contact request we sent (or our answer to theirs), as platform-wallet holds it. Keyed by the
 /// pair, ours and theirs (`cr:<ours>:<to>`), without the account reference: a rotated key is no
 /// new request, and every one to them is the same line, at the first one's time (`journal::merge`).
@@ -399,7 +433,7 @@ fn contact_request(
     names: &std::collections::HashMap<String, Option<String>>,
 ) -> Entry {
     let to_b58 = to.to_string(Encoding::Base58);
-    let key = format!("cr:{}:{to_b58}", me.to_string(Encoding::Base58));
+    let key = request_key(me, to);
     // Named as the request written here names it.
     let shown = shown_name(&to_b58, names);
     network(
@@ -560,5 +594,80 @@ mod tests {
             }
         ));
         assert_eq!(super::super::journal::activity(w).amount, 0);
+    }
+
+    /// BUG-13 with BUG-58: a request between two identities of one wallet, sent here, is one
+    /// line for the sender (its cost kept) and one for the receiver, however the read of
+    /// Platform names them — then four once the other answers, never a repeat of one.
+    #[test]
+    fn a_request_between_our_identities_is_one_line_each_way() {
+        use super::super::journal::merge;
+        let (a, b) = (Identifier::from([1u8; 32]), Identifier::from([2u8; 32]));
+        let b58 = |id: &Identifier| id.to_string(Encoding::Base58);
+        // Not named yet: the read names them by their ids, the line written here by `@b`.
+        let names = std::collections::HashMap::new();
+        let mut local = vec![sent_request(&a, &b, "b", 1_000, 50)];
+        let read = |of_a: Requests, of_b: Requests| {
+            let mut out = of_a.entries(&a, &names);
+            out.extend(of_b.entries(&b, &names));
+            out
+        };
+        let sent = || {
+            read(
+                Requests {
+                    sent: vec![(b, 1_000_400)],
+                    incoming: vec![],
+                    both: vec![],
+                },
+                Requests {
+                    sent: vec![],
+                    incoming: vec![(a, 1_000_400, false)],
+                    both: vec![],
+                },
+            )
+        };
+        assert!(merge(&mut local, sent()));
+        assert_eq!(local.len(), 2, "{local:?}");
+        let ours = &local[0];
+        assert_eq!(
+            (ours.key.clone(), ours.spent, ours.source, ours.theirs),
+            (
+                Some(format!("cr:{}:{}", b58(&a), b58(&b))),
+                50,
+                Source::Here,
+                false
+            )
+        );
+        assert_eq!(ours.what, What::ContactRequest { to: "@b".into() });
+        let theirs = &local[1];
+        assert_eq!(
+            (theirs.key.clone(), theirs.theirs, theirs.reply),
+            (
+                Some(format!("cri:{}:{}", b58(&a), b58(&b))),
+                true,
+                Some(Reply::Waiting)
+            )
+        );
+        assert!(!merge(&mut local, sent()), "read again: nothing new");
+        // @b answers: its own request back, and each side's line says so.
+        let answered = read(
+            Requests {
+                sent: vec![],
+                incoming: vec![],
+                both: vec![(b, 1_000_400, 2_000_000)],
+            },
+            Requests {
+                sent: vec![],
+                incoming: vec![],
+                both: vec![(a, 2_000_000, 1_000_400)],
+            },
+        );
+        assert!(merge(&mut local, answered));
+        assert_eq!(local.len(), 4, "{local:?}");
+        assert_eq!(
+            (local[0].spent, local[0].reply),
+            (50, Some(Reply::TheyAccepted))
+        );
+        assert_eq!(local[1].reply, Some(Reply::Accepted));
     }
 }

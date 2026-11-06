@@ -1496,6 +1496,162 @@ mod tests {
         println!("contact in the snapshot: {contact:?}");
     }
 
+    /// BUG-13 on testnet: a contact request between two named identities of the test phrase
+    /// with none between them. As A it is sent, and B is "sent" in the snapshot at once; as B,
+    /// shown straight after, A's request comes with no other action (each DashPay pass makes the
+    /// snapshot again); back as A — "Act as" empties the snapshot's contacts — the same request
+    /// again is refused and costs nothing. One request: about 0.001 DASH of A's credits.
+    /// `cargo test -p evolite-core live_request_between_own -- --ignored --nocapture`
+    #[test]
+    #[ignore = "needs testnet access and a funded test phrase in .env.test.local; spends credits"]
+    fn live_request_between_own_identities_is_seen() {
+        use evolite_api::{ContactState, CoreError, IdentitySearch};
+        let core = warm_wallet("evolite-live-own-request");
+        let wallet = wait_for(&core, 60, |e| match e {
+            Event::Snapshot(s) => {
+                let w = s.wallet.as_ref()?;
+                (s.sync.stage == SyncStage::Done
+                    && w.identity_search == IdentitySearch::Done
+                    && w.identities.len() >= 2)
+                    .then(|| w.clone())
+            }
+            _ => None,
+        });
+        // A DashPay pass or two first: what Platform has, not only the store.
+        let _ = watch_last(&core, 45);
+        // Each named identity as worked as: its credits and everyone it has a request with.
+        struct Seen {
+            id: String,
+            name: String,
+            credits: i64,
+            ties: Vec<String>,
+        }
+        let shown = |core: &Core, id: &str| {
+            core.send(Command::ChooseIdentity { id: id.to_owned() });
+            wait_for(core, 3, |e| match e {
+                Event::Snapshot(s) => {
+                    let w = s.wallet.as_ref()?;
+                    (w.identity.as_ref()?.id == id).then(|| {
+                        (
+                            w.balances.credits,
+                            w.contacts.iter().map(|c| c.identity_id.clone()).collect(),
+                        )
+                    })
+                }
+                _ => None,
+            })
+        };
+        let mut seen = Vec::new();
+        for choice in &wallet.identities {
+            let Some(name) = choice.name.clone() else {
+                continue;
+            };
+            let (credits, ties): (i64, Vec<String>) = shown(&core, &choice.id);
+            println!("@{name}: {credits} credits, {} contacts", ties.len());
+            seen.push(Seen {
+                id: choice.id.clone(),
+                name,
+                credits,
+                ties,
+            });
+        }
+        let a = seen
+            .iter()
+            .max_by_key(|s| s.credits)
+            .expect("a named identity");
+        assert!(
+            a.credits >= 120_000,
+            "@{} has {} credits: a request costs about 102 000",
+            a.name,
+            a.credits
+        );
+        let b = seen
+            .iter()
+            .find(|s| s.id != a.id && !a.ties.contains(&s.id) && !s.ties.contains(&a.id))
+            .expect("two named identities with no request between them");
+        println!("A @{} ({} credits) -> B @{}", a.name, a.credits, b.name);
+
+        // As A: the request, and B "sent" in the snapshot right after its answer.
+        let (before, _) = shown(&core, &a.id);
+        core.send(spend(Spend::AddContact {
+            name: format!("@{}", b.name),
+        }));
+        let started = Instant::now();
+        let sent = wait_for(&core, 5, |e| match e {
+            Event::Done {
+                what: "contact",
+                result,
+            } => Some(result.clone()),
+            _ => None,
+        });
+        println!("request: {sent:?} after {} s", started.elapsed().as_secs());
+        sent.expect("request sent");
+        let after = wait_for(&core, 1, |e| match e {
+            Event::Snapshot(s) => {
+                let w = s.wallet.as_ref()?;
+                (w.identity.as_ref()?.id == a.id
+                    && w.contacts
+                        .iter()
+                        .any(|c| c.identity_id == b.id && c.state == ContactState::Outgoing))
+                .then_some(w.balances.credits)
+            }
+            _ => None,
+        });
+        println!(
+            "as A, B is sent after {} s; A's credits {before} -> {after} (spent {})",
+            started.elapsed().as_secs(),
+            before - after
+        );
+
+        // As B at once: A's request comes by itself, without another command.
+        core.send(Command::ChooseIdentity { id: b.id.clone() });
+        let switched = Instant::now();
+        let mut first = None;
+        wait_for(&core, 3, |e| match e {
+            Event::Snapshot(s) => {
+                let w = s.wallet.as_ref()?;
+                if w.identity.as_ref()?.id != b.id {
+                    return None;
+                }
+                let incoming = w
+                    .contacts
+                    .iter()
+                    .any(|c| c.identity_id == a.id && c.state == ContactState::Incoming);
+                first.get_or_insert(incoming);
+                incoming.then_some(())
+            }
+            _ => None,
+        });
+        println!(
+            "as B, A's request after {} s (in B's first snapshot: {first:?})",
+            switched.elapsed().as_secs()
+        );
+
+        // Back as A, the request again at once: refused by what platform-wallet has, free.
+        core.send(Command::ChooseIdentity { id: a.id.clone() });
+        core.send(spend(Spend::AddContact {
+            name: format!("@{}", b.name),
+        }));
+        let again = wait_for(&core, 5, |e| match e {
+            Event::Done {
+                what: "contact",
+                result,
+            } => Some(result.clone()),
+            _ => None,
+        });
+        println!("again: {again:?}");
+        assert!(
+            matches!(again, Err(CoreError::NotAvailable(_))),
+            "{again:?}"
+        );
+        let last = watch_last(&core, 20)
+            .and_then(|s| s.wallet)
+            .filter(|w| w.identity.as_ref().is_some_and(|i| i.id == a.id))
+            .map(|w| w.balances.credits);
+        println!("A's credits at the end: {last:?}");
+        assert_eq!(last, Some(after), "the refused repeat spent nothing");
+    }
+
     /// What a run of the app saw once synced: written by the first run of
     /// `live_restart_keeps_history`, compared by the second.
     #[derive(serde::Serialize, serde::Deserialize, Debug)]

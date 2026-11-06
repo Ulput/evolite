@@ -335,6 +335,31 @@ pub fn contacts_of(
     out
 }
 
+/// Where `to` stands among `managed`'s contacts in platform-wallet's state at this moment —
+/// what a new contact request is checked against (BUG-13), not a snapshot of whichever
+/// identity was shown when it was made. A hidden contact counts as made.
+pub fn standing(managed: &ManagedIdentity, to: &Identifier) -> Option<ContactState> {
+    let dashpay = managed.dashpay();
+    standing_of(
+        dashpay.established_contacts().contains_key(to),
+        dashpay.sent_contact_requests().contains_key(to),
+        dashpay.incoming_contact_requests().contains_key(to),
+    )
+}
+
+/// The contact made, else our request sent, else theirs; `None`: no request either way.
+fn standing_of(established: bool, sent: bool, incoming: bool) -> Option<ContactState> {
+    if established {
+        Some(ContactState::Established)
+    } else if sent {
+        Some(ContactState::Outgoing)
+    } else if incoming {
+        Some(ContactState::Incoming)
+    } else {
+        None
+    }
+}
+
 /// A `profile` document of the DashPay contract, as platform-wallet reads one.
 pub fn profile_from_document(doc: &dpp::document::Document) -> DashPayProfile {
     use dpp::document::DocumentV0Getters;
@@ -362,6 +387,21 @@ pub fn profile_from_document(doc: &dpp::document::Document) -> DashPayProfile {
 mod tests {
     use super::*;
     use evolite_api::{Chain, Proof};
+
+    /// BUG-13: a request is held back by what platform-wallet has for the sending identity.
+    #[test]
+    fn a_contact_stands_by_the_strongest_tie() {
+        assert_eq!(
+            standing_of(true, true, true),
+            Some(ContactState::Established)
+        );
+        assert_eq!(standing_of(false, true, true), Some(ContactState::Outgoing));
+        assert_eq!(
+            standing_of(false, false, true),
+            Some(ContactState::Incoming)
+        );
+        assert_eq!(standing_of(false, false, false), None);
+    }
 
     fn op(kind: ActivityKind) -> Activity {
         Activity {

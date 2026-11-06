@@ -1165,11 +1165,6 @@ impl Real {
         let chain = self.chain.clone();
         let refresh = self.refresher();
         let journal = self.journal.clone();
-        let states: HashMap<String, ContactState> = self
-            .contacts
-            .iter()
-            .map(|c| (c.identity_id.clone(), c.state))
-            .collect();
         self.answer_later(async move {
             let result = async {
                 let wallet = loaded(&chain, &id).await?;
@@ -1178,26 +1173,30 @@ impl Real {
                     Ok(None) => return Err(CoreError::NameNotFound),
                     Err(e) => return Err(CoreError::Failed(e)),
                 };
-                if let Some(why) = repeat_request(states.get(&to).copied(), &label) {
-                    return Err(CoreError::NotAvailable(why));
-                }
                 let to = Identifier::from_string(&to, Encoding::Base58)
                     .map_err(|e| CoreError::Failed(e.to_string()))?;
+                // By platform-wallet's state of the identity the request goes from, now: the
+                // snapshot may be of the one shown before "Act as", and a repeat is paid (BUG-13).
+                let (from, standing) = Chain::contact_standing(&wallet, &to)
+                    .await
+                    .map_err(CoreError::Failed)?;
+                if let Some(why) = repeat_request(standing, &label) {
+                    return Err(CoreError::NotAvailable(why));
+                }
                 let before = chain.first_identity_credits(&wallet, false).await;
                 chain
                     .add_contact(&wallet, &keys, to)
                     .await
                     .map_err(dashpay_failure)?;
-                journal.add(journal::Entry {
-                    at: now(),
-                    what: journal::What::ContactRequest {
-                        to: format!("@{label}"),
-                    },
-                    spent: spent_credits(before, chain.first_identity_credits(&wallet, true).await)
+                // Keyed as the read of Platform keys it (BUG-58): one line, not two.
+                journal.add(platform_history::sent_request(
+                    &from,
+                    &to,
+                    &label,
+                    now(),
+                    spent_credits(before, chain.first_identity_credits(&wallet, true).await)
                         .unwrap_or(0),
-                    moved: 0,
-                    ..Default::default()
-                });
+                ));
                 Ok(())
             }
             .await;
@@ -4175,6 +4174,8 @@ pub fn run(
         let _ = out.send(Event::Snapshot(Box::new(snapshot)));
         wake();
         core.start_chain(None, None, false);
+        // When the last DashPay pass the snapshot knows of finished.
+        let mut dashpay_pass = None;
         loop {
             if core.start_ended().await {
                 core.dirty.store(true, Ordering::Relaxed);
@@ -4195,6 +4196,11 @@ pub fn run(
                 core.connect_pool();
                 core.build_contact_accounts();
                 core.read_platform_history();
+                // A DashPay pass brings requests and contacts without any other event: the
+                // snapshot is made again after each one (BUG-13).
+                if new_pass(&mut dashpay_pass, core.chain.dashpay_synced_at().await) {
+                    core.dirty.store(true, Ordering::Relaxed);
+                }
             }
             loop {
                 match inbox.try_recv() {
@@ -4291,6 +4297,15 @@ fn answer(out: &Sender<Event>, wake: &(dyn Fn() + Send + Sync), event: Option<Ev
     wake();
 }
 
+/// Whether a sync pass finished since `last` (and notes it): `at` is when the latest did.
+fn new_pass(last: &mut Option<u64>, at: Option<u64>) -> bool {
+    if at.is_none() || at == *last {
+        return false;
+    }
+    *last = at;
+    true
+}
+
 #[cfg(test)]
 mod tests {
     /// BUG-55 review, should 2: a small payment from a wallet of many coins is shown with the
@@ -4304,6 +4319,21 @@ mod tests {
     }
 
     use super::*;
+
+    /// BUG-13: each DashPay pass makes the snapshot again, once.
+    #[test]
+    fn a_new_dashpay_pass_is_noticed_once() {
+        let mut last = None;
+        assert!(!new_pass(&mut last, None), "no pass yet");
+        assert!(new_pass(&mut last, Some(100)));
+        assert!(!new_pass(&mut last, Some(100)), "the same pass");
+        assert!(new_pass(&mut last, Some(115)));
+        assert!(
+            !new_pass(&mut last, None),
+            "a chain gone keeps what was seen"
+        );
+        assert_eq!(last, Some(115));
+    }
 
     #[test]
     fn an_answer_without_a_new_snapshot_still_wakes_the_interface() {

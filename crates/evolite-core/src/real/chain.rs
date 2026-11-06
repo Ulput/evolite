@@ -1470,6 +1470,31 @@ impl Chain {
         Ok(names.into_iter().next().map(|n| n.label))
     }
 
+    /// Where `to` stands among the contacts of the identity a request goes from (the shown one,
+    /// as [`Self::add_contact`] signs), read from platform-wallet now: the last snapshot may
+    /// still be of the identity shown before "Act as" (BUG-13). With the identity it goes from.
+    pub async fn contact_standing(
+        wallet: &PlatformWallet,
+        to: &Identifier,
+    ) -> Result<(Identifier, Option<evolite_api::ContactState>), String> {
+        let state = wallet.state().await;
+        let mine = of_wallet(&state.identity_manager, wallet.wallet_id())
+            .filter_map(|m| Some((m.identity_index?, m)));
+        let (_, managed) =
+            shown_of(wallet.wallet_id(), mine).ok_or(tr!("The wallet has no identity"))?;
+        Ok((managed.identity.id(), dashpay::standing(managed, to)))
+    }
+
+    /// When platform-wallet's DashPay sync last finished a pass (unix seconds); `None` before
+    /// the first one or without a chain. A new pass may have brought requests (BUG-13).
+    pub async fn dashpay_synced_at(&self) -> Option<u64> {
+        self.manager()
+            .await
+            .ok()?
+            .dashpay_sync_arc()
+            .last_sync_unix_seconds()
+    }
+
     /// Sends our DashPay contact request to `to`: an encrypted key to pay us with, signed by
     /// the first identity's keys.
     pub async fn add_contact(
