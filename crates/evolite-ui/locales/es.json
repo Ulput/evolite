@@ -116,6 +116,7 @@
   "Ask before showing": "Preguntar antes de mostrar",
   "Asking rates.ctx.com for the rate…": "Pidiendo el tipo a rates.ctx.com…",
   "Asset lock on Core": "Asset lock en Core",
+  "At least {} — Dash Platform takes no smaller asset lock": "Al menos {}: Dash Platform no acepta un asset lock menor",
   "At least ≈ {} is needed (name and creation) plus any amount for credits; Core has {} now.": "Hace falta al menos ≈ {} (nombre y creación) más cualquier importe para créditos; ahora hay {} en Core.",
   "At most {}: a reserve for the fee stays at the address": "Como máximo {}: queda una reserva para la comisión en la dirección",
   "Attach system details: version, OS, network, sync": "Adjuntar datos del sistema: versión, SO, red, sincronización",

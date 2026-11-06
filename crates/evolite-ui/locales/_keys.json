@@ -115,6 +115,7 @@
   "Ask before showing",
   "Asking rates.ctx.com for the rate…",
   "Asset lock on Core",
+  "At least {} — Dash Platform takes no smaller asset lock",
   "At least ≈ {} is needed (name and creation) plus any amount for credits; Core has {} now.",
   "At most {}: a reserve for the fee stays at the address",
   "Attach system details: version, OS, network, sync",

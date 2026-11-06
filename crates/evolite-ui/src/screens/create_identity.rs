@@ -113,11 +113,19 @@ pub fn create_identity(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut Cre
     // explained at once and not offered, so the price shown is always a regular name's.
     let name_fee = fees.name_regular;
     let top_up = crate::format::parse_amount(&form.amount).filter(|d| *d > 0);
+    // What the asset lock takes — the credits, the name and the creation, as the core locks
+    // them (BUG-54) — and the Core fee of the lock's transaction on top, as for a top-up.
     let total = top_up.map(|t| {
         t.saturating_add(name_fee)
             .saturating_add(fees.identity_create)
     });
-    let too_much = total.is_some_and(|t| t > wallet.balances.core);
+    let core_fee = fees.core_payment;
+    let too_much =
+        total.is_some_and(|t| crate::format::left_after(wallet.balances.core, t, core_fee) < 0);
+    // Platform takes no asset lock below its minimum, and the DASH in one it refuses stay
+    // locked (BUG-54 review r1 must): the credits asked for are at least what makes it up.
+    let least = (fees.identity_lock_min - name_fee - fees.identity_create).max(1);
+    let too_little = top_up.is_some_and(|t| t < least);
     let name_ok = matches!(check, Some(Ok(NameCheck::Available)));
 
     let total_w = ui.available_width();
@@ -205,12 +213,23 @@ pub fn create_identity(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut Cre
                 field_label(ui, &p, tr!("How much to turn into credits"));
                 let field = amount_field(ui, &p, "identity-amount", &mut form.amount, true);
                 if field.all {
-                    let all = (wallet.balances.core - name_fee - fees.identity_create).max(0);
+                    let all = (wallet.balances.core - name_fee - fees.identity_create - core_fee)
+                        .max(0);
                     form.amount = crate::format::input_text(all);
                 }
                 if too_much {
                     ui.label(txt(
                         tr!("More than there is on Core"),
+                        12.0,
+                        Weight::Regular,
+                        p.danger,
+                    ));
+                } else if too_little {
+                    ui.label(txt(
+                        &format!(
+                            tr!("At least {} — Dash Platform takes no smaller asset lock"),
+                            dash(least)
+                        ),
                         12.0,
                         Weight::Regular,
                         p.danger,
@@ -239,6 +258,7 @@ pub fn create_identity(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut Cre
             let ready = name_ok
                 && total.is_some()
                 && !too_much
+                && !too_little
                 && !form.waiting
                 && form.password.ready(ask);
             ui.horizontal(|ui| {
@@ -281,7 +301,7 @@ pub fn create_identity(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut Cre
         });
     };
 
-    let locked = top_up.map_or(0, |t| t + name_fee);
+    let locked = total.unwrap_or(0);
     let draw_steps = |ui: &mut Ui, a: &mut Assets| {
         card(&p, Margin::same(24)).show(ui, |ui| {
             ui.set_width(inner(if side { steps_w } else { total_w }, 24));

@@ -116,6 +116,7 @@
   "Ask before showing": "السؤال قبل العرض",
   "Asking rates.ctx.com for the rate…": "جارٍ طلب السعر من rates.ctx.com…",
   "Asset lock on Core": "قفل أصول على Core",
+  "At least {} — Dash Platform takes no smaller asset lock": "{} على الأقل — لا تقبل Dash Platform قفل أصول أصغر",
   "At least ≈ {} is needed (name and creation) plus any amount for credits; Core has {} now.": "يلزم على الأقل ≈ {} (الاسم والإنشاء) مع أي مبلغ للأرصدة؛ على Core الآن {}.",
   "At most {}: a reserve for the fee stays at the address": "بحد أقصى {}: يبقى على العنوان احتياطي للرسوم",
   "Attach system details: version, OS, network, sync": "إرفاق معلومات النظام: الإصدار ونظام التشغيل والشبكة والمزامنة",

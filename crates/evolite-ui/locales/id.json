@@ -116,6 +116,7 @@
   "Ask before showing": "Tanya sebelum menampilkan",
   "Asking rates.ctx.com for the rate…": "Menanyakan kurs ke rates.ctx.com…",
   "Asset lock on Core": "Asset lock di Core",
+  "At least {} — Dash Platform takes no smaller asset lock": "Minimal {} — Dash Platform tidak menerima asset lock yang lebih kecil",
   "At least ≈ {} is needed (name and creation) plus any amount for credits; Core has {} now.": "Perlu setidaknya ≈ {} (nama dan pembuatan) ditambah berapa pun untuk kredit; di Core sekarang ada {}.",
   "At most {}: a reserve for the fee stays at the address": "Paling banyak {}: cadangan untuk biaya tetap di alamat",
   "Attach system details: version, OS, network, sync": "Lampirkan info sistem: versi, OS, jaringan, sinkronisasi",

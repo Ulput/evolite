@@ -116,6 +116,7 @@
   "Ask before showing": "Hỏi trước khi hiển thị",
   "Asking rates.ctx.com for the rate…": "Đang hỏi tỷ giá từ rates.ctx.com…",
   "Asset lock on Core": "Asset lock trên Core",
+  "At least {} — Dash Platform takes no smaller asset lock": "Ít nhất {} — Dash Platform không nhận asset lock nhỏ hơn",
   "At least ≈ {} is needed (name and creation) plus any amount for credits; Core has {} now.": "Cần ít nhất ≈ {} (tên và tạo) cộng với số tiền bất kỳ cho tín dụng; hiện trên Core có {}.",
   "At most {}: a reserve for the fee stays at the address": "Tối đa {}: địa chỉ giữ lại một khoản dự phòng cho phí",
   "Attach system details: version, OS, network, sync": "Đính kèm thông tin hệ thống: phiên bản, hệ điều hành, mạng, đồng bộ",

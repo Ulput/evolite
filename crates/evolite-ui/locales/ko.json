@@ -116,6 +116,7 @@
   "Ask before showing": "표시 전에 묻기",
   "Asking rates.ctx.com for the rate…": "rates.ctx.com에 환율을 묻는 중…",
   "Asset lock on Core": "Core의 자산 잠금",
+  "At least {} — Dash Platform takes no smaller asset lock": "최소 {} — Dash Platform은 더 작은 asset lock을 받지 않습니다",
   "At least ≈ {} is needed (name and creation) plus any amount for credits; Core has {} now.": "최소 ≈ {}(이름과 생성)에 크레딧용 금액을 더해야 합니다. 지금 Core에는 {}이(가) 있습니다.",
   "At most {}: a reserve for the fee stays at the address": "최대 {}: 주소에 수수료용 여유분이 남습니다",
   "Attach system details: version, OS, network, sync": "시스템 정보 첨부: 버전, OS, 네트워크, 동기화",

@@ -2124,13 +2124,8 @@ impl Real {
             p.operations = self.pool_history.merge(std::mem::take(&mut p.operations));
             p
         });
-        // The pool's fees from Platform's formulas at the protocol version the SDK speaks.
-        let mut fees = fees(coins);
+        let mut fees = self.fees_now(coins).await;
         fees.core_coins = convert::core_coins(coin_values);
-        if let Ok(sdk) = self.chain.sdk().await {
-            pool::set_fees(&mut fees, sdk.version());
-            platform_fees(&mut fees, sdk.version(), &self.journal);
-        }
         // The pool's own operations are in the history too (only the owner sees them), and a
         // Core asset lock made for the pool says so instead of "Transfer to Platform".
         if let Some(pool) = &pool {
@@ -3260,9 +3255,23 @@ impl Real {
         });
     }
 
+    /// The fees the snapshot shows for a wallet of `coins` coins (without
+    /// [`Fees::core_coins`]): the pool's and Platform's at the protocol version the SDK speaks,
+    /// and what this data folder last really paid for each kind of write. One place, so what a
+    /// form promises is what the core charges (BUG-54).
+    async fn fees_now(&self, coins: usize) -> Fees {
+        let mut fees = fees(coins);
+        if let Ok(sdk) = self.chain.sdk().await {
+            pool::set_fees(&mut fees, sdk.version());
+            platform_fees(&mut fees, sdk.version(), &self.journal);
+        }
+        fees
+    }
+
     /// Checks what can be checked at once and starts the identity in the background: the name
-    /// check, the asset lock (`top_up` plus the name's fee), the identity and its name take a
-    /// minute or more. The answer is `Done { what: "identity" }`.
+    /// check, the asset lock ([`convert::identity_lock`]: `top_up`, the name and the
+    /// creation), the identity and its name take a minute or more. The answer is
+    /// `Done { what: "identity" }`.
     async fn create_identity(&mut self, name: &str, top_up: Duffs) -> Result<(), CoreError> {
         let open = self
             .unlocked
@@ -3276,7 +3285,11 @@ impl Real {
             ));
         }
         let top_up = positive_duffs(top_up)?;
-        let amount = top_up + fees(0).name_regular as u64;
+        // The name and the identity's creation at the fees the form showed (BUG-54).
+        // Below Platform's least lock it would be refused and its DASH stay locked: not made
+        // (review r1 must; the form says how much at least).
+        let amount =
+            convert::identity_lock(top_up, &self.fees_now(0).await).ok_or(CoreError::BadAmount)?;
         let status = self.chain.status();
         if !coins_known(&status, true)
             || status.phase == Phase::Error

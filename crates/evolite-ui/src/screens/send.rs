@@ -1667,6 +1667,7 @@ mod tests {
             document_write: 0,
             shield: 0,
             identity_create: 0,
+            identity_lock_min: 0,
             name_regular: 0,
             name_contested: 0,
             add_key: 0,

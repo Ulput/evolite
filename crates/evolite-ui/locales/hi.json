@@ -116,6 +116,7 @@
   "Ask before showing": "दिखाने से पहले पूछें",
   "Asking rates.ctx.com for the rate…": "rates.ctx.com से दर पूछी जा रही है…",
   "Asset lock on Core": "Core पर एसेट लॉक",
+  "At least {} — Dash Platform takes no smaller asset lock": "कम से कम {} — Dash Platform इससे छोटा asset lock नहीं लेता",
   "At least ≈ {} is needed (name and creation) plus any amount for credits; Core has {} now.": "कम से कम ≈ {} (नाम और निर्माण) और क्रेडिट के लिए कोई भी राशि चाहिए; अभी Core पर {} हैं।",
   "At most {}: a reserve for the fee stays at the address": "अधिकतम {}: पते पर शुल्क के लिए कुछ राशि बची रहती है",
   "Attach system details: version, OS, network, sync": "सिस्टम विवरण संलग्न करें: संस्करण, OS, नेटवर्क, सिंक",

@@ -614,6 +614,9 @@ pub struct Fees {
     pub shield: Duffs,
     /// Registering a new identity from an asset lock.
     pub identity_create: Duffs,
+    /// The least an identity's asset lock may hold: Platform rejects a smaller one (since
+    /// protocol 3, `calculate_min_required_fee` of the creation, six keys), and its DASH stay locked.
+    pub identity_lock_min: Duffs,
     /// A DPNS name: a regular one, and a contested one (goes to a masternode vote).
     pub name_regular: Duffs,
     pub name_contested: Duffs,
@@ -1304,6 +1307,7 @@ mod tests {
             document_write: 0,
             shield: 0,
             identity_create: 0,
+            identity_lock_min: 0,
             name_regular: 0,
             name_contested: 0,
             add_key: 0,

@@ -116,6 +116,7 @@
   "Ask before showing": "Спрашивать перед показом",
   "Asking rates.ctx.com for the rate…": "Спрашиваем курс у rates.ctx.com…",
   "Asset lock on Core": "Asset lock в Core",
+  "At least {} — Dash Platform takes no smaller asset lock": "Не меньше {} — меньший asset lock Dash Platform не примет",
   "At least ≈ {} is needed (name and creation) plus any amount for credits; Core has {} now.": "Нужно не меньше ≈ {} (имя и создание) и сколько угодно на кредиты; на Core сейчас {}.",
   "At most {}: a reserve for the fee stays at the address": "Не больше {}: на адресе остаётся запас на комиссию",
   "Attach system details: version, OS, network, sync": "Приложить сведения о системе: версия, ОС, сеть, синхронизация",

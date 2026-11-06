@@ -116,6 +116,7 @@
   "Ask before showing": "表示前に確認",
   "Asking rates.ctx.com for the rate…": "rates.ctx.com にレートを問い合わせ中…",
   "Asset lock on Core": "Core 上のアセットロック",
+  "At least {} — Dash Platform takes no smaller asset lock": "{} 以上 — Dash Platform はこれより小さい asset lock を受け付けません",
   "At least ≈ {} is needed (name and creation) plus any amount for credits; Core has {} now.": "最低 ≈ {}（名前と作成）とクレジット用の任意の額が必要です。現在 Core には {} あります。",
   "At most {}: a reserve for the fee stays at the address": "最大 {}：手数料用の余裕をアドレスに残します",
   "Attach system details: version, OS, network, sync": "システム情報を添付：バージョン、OS、ネットワーク、同期",

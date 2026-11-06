@@ -116,6 +116,7 @@
   "Ask before showing": "Göstermeden önce sor",
   "Asking rates.ctx.com for the rate…": "rates.ctx.com'dan kur isteniyor…",
   "Asset lock on Core": "Core'da asset lock",
+  "At least {} — Dash Platform takes no smaller asset lock": "En az {} — Dash Platform daha küçük bir asset lock kabul etmez",
   "At least ≈ {} is needed (name and creation) plus any amount for credits; Core has {} now.": "En az ≈ {} (ad ve oluşturma) artı krediler için istediğiniz tutar gerekir; şu an Core'da {} var.",
   "At most {}: a reserve for the fee stays at the address": "En fazla {}: adreste ücret için bir pay kalır",
   "Attach system details: version, OS, network, sync": "Sistem bilgilerini ekle: sürüm, işletim sistemi, ağ, eşitleme",
