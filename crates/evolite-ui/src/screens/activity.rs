@@ -100,22 +100,33 @@ pub fn activity(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, filter: &mut usize, q
     let saved_id = saved_id();
     let mut export = false;
     page_header(ui, a, tr!("History"), None, |ui, a| {
-        let resp = button_enabled(
-            ui,
-            a,
-            tr!("Export CSV"),
-            ButtonKind::Secondary,
-            None,
-            !crate::is_demo(cx.snap),
-        );
-        export = resp.clicked();
-        #[cfg(demo_core)]
-        resp.on_disabled_hover_text(
-            crate::i18n::t(tr!(
-                "Nothing to export in the demo: the export takes the real history"
-            ))
-            .into_owned(),
-        );
+        // «Hide the amounts» before «Export CSV» (BUG-73), and so in the Tab order too: the two
+        // are laid out left to right in the place they take at the right end.
+        let gap = 10.0;
+        let width = crate::components::amount_toggle_width(ui, false)
+            + gap
+            + crate::components::button_width(ui, tr!("Export CSV"));
+        let size = egui::vec2(width, ui.available_height());
+        ui.allocate_ui_with_layout(size, Layout::left_to_right(Align::Center), |ui| {
+            ui.spacing_mut().item_spacing.x = gap;
+            crate::components::amount_toggle(ui, a, false);
+            let resp = button_enabled(
+                ui,
+                a,
+                tr!("Export CSV"),
+                ButtonKind::Secondary,
+                None,
+                !crate::is_demo(cx.snap),
+            );
+            export = resp.clicked();
+            #[cfg(demo_core)]
+            resp.on_disabled_hover_text(
+                crate::i18n::t(tr!(
+                    "Nothing to export in the demo: the export takes the real history"
+                ))
+                .into_owned(),
+            );
+        });
     });
     if export {
         let csv = csv_export::taxbit(&wallet.activity, &csv_export::Own::of(wallet));
@@ -457,6 +468,10 @@ fn card(
                     mono(28.0, Weight::Medium),
                     p.text,
                 );
+                // The app's one «Hide amounts», as an icon right after the sum (BUG-73): a
+                // click hides the list under the card too.
+                ui.add_space(8.0 - ui.spacing().item_spacing.x);
+                crate::components::amount_toggle(ui, a, true);
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                     status_chip(ui, a, act.proof);
                 });

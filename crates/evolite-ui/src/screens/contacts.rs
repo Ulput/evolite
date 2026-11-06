@@ -531,14 +531,21 @@ fn profile_dialog(
                     ),
                     None => count,
                 };
-                kv_row(ui, &p, tr!("Payments"), &payments, value.clone());
-                // The latest of them, as the history names them.
-                for act in paid(activity, &c.handle()).take(5) {
+                // The latest of them, as the history names them — and hides them (BUG-73):
+                // the app's one «Hide amounts» beside «Payments» when there are some.
+                let handle = c.handle();
+                let latest: Vec<_> = paid(activity, &handle).take(5).collect();
+                if latest.is_empty() {
+                    kv_row(ui, &p, tr!("Payments"), &payments, value.clone());
+                } else {
+                    crate::components::kv_row_eye(ui, a, tr!("Payments"), &payments, value.clone());
+                }
+                for act in latest {
                     kv_row(
                         ui,
                         &p,
                         &text::when(act.at, now),
-                        &text::signed_amount(act.amount),
+                        &crate::format::signed_balance(act.amount),
                         mono(12.0, Weight::Regular),
                     );
                 }

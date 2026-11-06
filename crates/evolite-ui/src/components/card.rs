@@ -39,6 +39,24 @@ pub fn kv_row(ui: &mut Ui, p: &Palette, label: &str, value: &str, value_font: Fo
     );
 }
 
+/// [`kv_row`] with the icon of [`amount_toggle`] right after the label (BUG-73: «Payments» of
+/// a contact, «From the Core wallet» in a dialog): 28 high, the value on the right.
+pub fn kv_row_eye(ui: &mut Ui, a: &mut Assets, label: &str, value: &str, value_font: FontId) {
+    let p = a.p;
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = 4.0;
+        ui.label(txt(label, 13.0, Weight::Regular, p.muted));
+        amount_toggle(ui, a, true);
+        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+            ui.label(
+                egui::RichText::new(crate::i18n::t(value))
+                    .font(value_font)
+                    .color(p.text),
+            );
+        });
+    });
+}
+
 /// A horizontal 1 px line across the available width.
 pub fn divider(ui: &mut Ui, p: &Palette) {
     let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), 1.0), Sense::hover());

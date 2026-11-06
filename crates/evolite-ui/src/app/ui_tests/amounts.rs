@@ -40,17 +40,25 @@ fn total(kit: &Kit) -> String {
 /// amounts», the next shows them again.
 #[test]
 fn one_eye_per_screen_switches_the_whole_app() {
-    for preset in [
-        "overview",
-        "shielded",
-        "identity",
-        "send",
-        "receive",
-        "wallet-menu",
+    // How many eyes: a menu or a dialog over a screen has its own and the screen's (BUG-73:
+    // History, the operation's card, a contact's payments, the dialogs that take from a
+    // balance).
+    for (preset, eyes) in [
+        ("overview", 1),
+        ("shielded", 1),
+        ("identity", 1),
+        ("send", 1),
+        ("receive", 1),
+        ("wallet-menu", 2),
+        ("activity", 1),
+        ("activity-card", 2),
+        ("contact-profile", 1),
+        ("create-identity", 1),
+        ("top-up", 2),
+        ("shield", 2),
+        ("unshield", 2),
     ] {
         let (_turn, mut kit) = demo_app(preset, "en");
-        // The wallet menu opens over Overview: its own eye and the screen's.
-        let eyes = if preset == "wallet-menu" { 2 } else { 1 };
         assert!(!hidden(&kit), "{preset}: shown at first");
         assert_eq!(buttons(&kit, HIDE), eyes, "{preset}: one eye");
         // The last one: the menu's, over the screen.
@@ -400,4 +408,84 @@ fn max_puts_the_real_amount_in_the_field_with_the_amounts_hidden() {
     );
     assert_eq!(amount, shown, "the same amount as with the amounts seen");
     assert_eq!(left, ["Left: •••• DASH"], "«Left» is hidden");
+}
+
+/// BUG-73: a contact's latest payments hide with the rest — before they were written straight
+/// from the history, «Hide amounts» or not.
+#[test]
+fn a_contacts_payments_hide_too() {
+    let (_turn, mut kit) = demo_app("contact-profile", "en");
+    let sums: Vec<String> = {
+        let wallet = kit
+            .state()
+            .snapshot
+            .as_ref()
+            .and_then(|s| s.wallet.as_ref())
+            .expect("the demo wallet");
+        wallet
+            .activity
+            .iter()
+            .map(|act| crate::text::signed_amount(act.amount))
+            .collect()
+    };
+    let seen = |kit: &Kit| {
+        kit.query_all_by(|n| {
+            let said = n.label().or(n.value()).unwrap_or_default();
+            sums.iter().any(|s| said.ends_with(&format!(": {s}")))
+        })
+        .count()
+    };
+    assert!(seen(&kit) > 0, "the profile lists some payments");
+    last_button(&kit, HIDE).click();
+    kit.run_steps(3);
+    assert!(hidden(&kit));
+    assert_eq!(seen(&kit), 0, "no payment's sum is left");
+    assert!(
+        kit.query_all_by(|n| {
+            n.label()
+                .or(n.value())
+                .is_some_and(|l| l.ends_with(": •••• DASH"))
+        })
+        .next()
+        .is_some(),
+        "the payments read «•••• DASH»"
+    );
+}
+
+/// BUG-73: History's eye stands in the header before «Export CSV», and Tab comes to it first.
+#[test]
+fn historys_eye_comes_before_the_export() {
+    let (_turn, kit) = demo_app("activity", "en");
+    let order: Vec<_> = kit
+        .query_all_by_role(Role::Button)
+        .filter_map(|n| {
+            let name = n.accesskit_node().label()?;
+            [HIDE, "Export CSV"]
+                .contains(&name.as_str())
+                .then(|| (name, n.rect()))
+        })
+        .collect();
+    assert_eq!(
+        order.iter().map(|(n, _)| n.as_str()).collect::<Vec<_>>(),
+        [HIDE, "Export CSV"],
+        "the eye first: {order:?}"
+    );
+    assert!(
+        order[0].1.right() < order[1].1.left(),
+        "to its left: {order:?}"
+    );
+    assert!(
+        (order[0].1.center().y - order[1].1.center().y).abs() < 1.0,
+        "on one line: {order:?}"
+    );
+}
+
+/// BUG-73, AC-D3: the eye on an operation's card hides the card's sum and the list under it.
+#[test]
+fn the_cards_eye_hides_the_list_too() {
+    let (_turn, mut kit) = demo_app("activity-card", "en");
+    last_button(&kit, HIDE).click();
+    kit.run_steps(3);
+    assert!(hidden(&kit), "one setting");
+    assert_eq!(buttons(&kit, SHOW), 2, "the card's eye and History's");
 }

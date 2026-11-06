@@ -217,6 +217,11 @@ pub fn button(
     button_enabled(ui, a, label, kind, width, true)
 }
 
+/// How wide [`button`] draws `label` when no width is given.
+pub fn button_width(ui: &Ui, label: &str) -> f32 {
+    text_width(ui, label, sans(14.0, Weight::SemiBold)) + 36.0
+}
+
 /// A button that can be disabled: dimmed, no hover, no clicks.
 pub fn button_enabled(
     ui: &mut Ui,
@@ -228,7 +233,7 @@ pub fn button_enabled(
 ) -> Response {
     let p = a.p;
     let font = sans(14.0, Weight::SemiBold);
-    let w = width.unwrap_or_else(|| text_width(ui, label, font.clone()) + 36.0);
+    let w = width.unwrap_or_else(|| button_width(ui, label));
     let sense = if enabled {
         Sense::click()
     } else {
@@ -345,6 +350,7 @@ const AMOUNTS_FLIP: &str = "amounts-flip";
 /// or Space switches the one «Hide amounts» of Settings → Security, for the whole app (the app
 /// takes it with [`take_amounts_flip`]). `compact`: the icon alone, 28 × 28, its words in the
 /// tooltip (the wallet menu, «Earlier addresses»); else icon 16 + 12 Medium, padding 8 × 6.
+/// One per screen or dialog where balances or sums of payments are seen (BUG-73).
 pub fn amount_toggle(ui: &mut Ui, a: &mut Assets, compact: bool) -> Response {
     let p = a.p;
     let hidden = crate::format::display().hide;
@@ -354,14 +360,7 @@ pub fn amount_toggle(ui: &mut Ui, a: &mut Assets, compact: bool) -> Response {
         ("eye-off", tr!("Hide the amounts"))
     };
     let font = sans(12.0, Weight::Medium);
-    let size = if compact {
-        vec2(28.0, 28.0)
-    } else {
-        vec2(
-            8.0 + 16.0 + 6.0 + text_width(ui, label, font.clone()) + 8.0,
-            28.0,
-        )
-    };
+    let size = vec2(amount_toggle_width(ui, compact), 28.0);
     let (rect, resp) = ui.allocate_exact_size(size, Sense::click());
     named(&resp, egui::WidgetType::Button, true, label);
     let over = resp.hovered() || resp.has_focus();
@@ -403,6 +402,19 @@ pub fn amount_toggle(ui: &mut Ui, a: &mut Assets, compact: bool) -> Response {
         ui.ctx().request_repaint();
     }
     resp.on_hover_cursor(CursorIcon::PointingHand)
+}
+
+/// How wide [`amount_toggle`] is now (its words change with the setting).
+pub fn amount_toggle_width(ui: &Ui, compact: bool) -> f32 {
+    if compact {
+        return 28.0;
+    }
+    let label = if crate::format::display().hide {
+        tr!("Show the amounts")
+    } else {
+        tr!("Hide the amounts")
+    };
+    8.0 + 16.0 + 6.0 + text_width(ui, label, sans(12.0, Weight::Medium)) + 8.0
 }
 
 /// Whether an [`amount_toggle`] was pressed since the last call; the app switches the setting.

@@ -416,7 +416,11 @@ fn shield_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut PoolStat
             let (source, icon, title, balance) = &sources[state.from.min(sources.len() - 1)];
             ui.vertical(|ui| {
                 ui.spacing_mut().item_spacing.y = 8.0;
-                field_label(ui, &p, tr!("From"));
+                ui.horizontal(|ui| {
+                    field_label(ui, &p, tr!("From"));
+                    // The app's one «Hide amounts», at the sources (BUG-73).
+                    crate::components::amount_toggle(ui, a, true);
+                });
                 let value = crate::format::balance(*balance);
                 if select_row(ui, a, icon, title, Some(&value)).clicked() && !busy {
                     state.sources_open = !state.sources_open;
@@ -718,9 +722,10 @@ fn unshield_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut PoolSt
             let left_text = left
                 .filter(|l| *l >= 0)
                 .map_or("—".to_string(), crate::format::balance);
-            kv_row(
+            // The app's one «Hide amounts», at the one balance shown (BUG-73).
+            crate::components::kv_row_eye(
                 ui,
-                &p,
+                a,
                 tr!("Left in the pool"),
                 &left_text,
                 mono(13.0, Weight::Medium),

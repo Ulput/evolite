@@ -274,6 +274,13 @@ pub fn fill_suggested(text: &mut String, suggested: &mut Option<i64>) {
     }
 }
 
+/// A sum of a payment as shown, or [`mask`]ed while "Hide amounts" is on (BUG-73: the payments
+/// of a contact).
+pub fn signed_balance(duffs: i64) -> String {
+    let shown = signed_amount(duffs);
+    if display().hide { mask(&shown) } else { shown }
+}
+
 /// "••••" in place of an amount, keeping its unit: "•••• DASH".
 pub fn mask(shown: &str) -> String {
     match shown.rsplit_once(' ') {

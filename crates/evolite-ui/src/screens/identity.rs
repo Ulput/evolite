@@ -1067,9 +1067,9 @@ fn top_up_dialog(
             }
             let after = wallet.balances.credits.saturating_add(amount.unwrap_or(0));
             let value = mono(13.0, Weight::Medium);
-            kv_row(
+            crate::components::kv_row_eye(
                 ui,
-                &p,
+                a,
                 tr!("From the Core wallet"),
                 &crate::format::balance(core),
                 value.clone(),
