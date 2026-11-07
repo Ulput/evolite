@@ -243,12 +243,124 @@ fn kind_of(
     }
 }
 
+/// What a transaction did to the wallet, each input and each output once: our outputs (received,
+/// change) less the coins of ours it spent, by their index in the transaction. platform-wallet
+/// folds a transaction's records from every account it touches and adds up their nets; a coin
+/// two accounts hold (a contact's coin also in account 0, BUG-77 U1) was then subtracted twice —
+/// a transfer to an own address showed −0,05153778 for a fee of 0,00003778 (BUG-85). The
+/// details are already one per index (the fold keeps the first); key-wallet's own net is this
+/// same sum per account (`recompute_net_and_direction`). A record with no input of ours (a
+/// payment in) keeps its net: nothing of it can be counted twice.
+pub(super) fn net_once(record: &TransactionRecord) -> i64 {
+    use std::collections::BTreeMap;
+    let spent: BTreeMap<u32, u64> = record
+        .input_details
+        .iter()
+        .map(|d| (d.index, d.value))
+        .collect();
+    let owned: BTreeMap<u32, u64> = record
+        .output_details
+        .iter()
+        .filter(|o| matches!(o.role, OutputRole::Received | OutputRole::Change))
+        .map(|o| (o.index, o.value))
+        .collect();
+    if spent.is_empty() {
+        return record.net_amount;
+    }
+    owned.values().sum::<u64>() as i64 - spent.values().sum::<u64>() as i64
+}
+
+/// This run's records (one per account a transaction touches) as one per transaction. The base
+/// is the first record with inputs (the spending account's), else the first. An asset lock stays
+/// that record alone (its other account's details are of the lock's payload). Any other
+/// transaction gets every account's inputs and outputs, once by index — an output one account
+/// owns and another sees as `Sent` stays owned — and its net, direction and fee from them
+/// (key-wallet's rules). Picking one account's record left a transfer to an own address that
+/// spent a contact's coin as the contact account's view: the coin out, nothing back (BUG-85).
+pub(super) fn one_per_transaction<'a>(
+    records: impl IntoIterator<Item = &'a TransactionRecord>,
+) -> Vec<TransactionRecord> {
+    let mut groups: Vec<Vec<&TransactionRecord>> = Vec::new();
+    for r in records {
+        match groups.iter_mut().find(|g| g[0].txid == r.txid) {
+            Some(g) => g.push(r),
+            None => groups.push(vec![r]),
+        }
+    }
+    groups
+        .into_iter()
+        .map(|group| {
+            let base = group
+                .iter()
+                .find(|r| !r.input_details.is_empty())
+                .unwrap_or(&group[0]);
+            let mut merged = (*base).clone();
+            if group.len() == 1 || merged.transaction_type == TransactionType::AssetLock {
+                return merged;
+            }
+            for r in &group {
+                for d in &r.input_details {
+                    if !merged.input_details.iter().any(|m| m.index == d.index) {
+                        merged.input_details.push(d.clone());
+                    }
+                }
+                for d in &r.output_details {
+                    let owned = matches!(d.role, OutputRole::Received | OutputRole::Change);
+                    match merged
+                        .output_details
+                        .iter_mut()
+                        .find(|m| m.index == d.index)
+                    {
+                        Some(m)
+                            if owned
+                                && !matches!(m.role, OutputRole::Received | OutputRole::Change) =>
+                        {
+                            *m = d.clone()
+                        }
+                        Some(_) => {}
+                        None => merged.output_details.push(d.clone()),
+                    }
+                }
+            }
+            merged.input_details.sort_by_key(|d| d.index);
+            merged.output_details.sort_by_key(|d| d.index);
+            merged.net_amount = net_once(&merged);
+            let sent = merged
+                .output_details
+                .iter()
+                .any(|d| d.role == OutputRole::Sent);
+            let ours = merged
+                .output_details
+                .iter()
+                .any(|d| matches!(d.role, OutputRole::Received | OutputRole::Change));
+            let inputs = !merged.input_details.is_empty();
+            merged.direction = if merged.transaction_type == TransactionType::CoinJoin {
+                TransactionDirection::CoinJoin
+            } else if !sent && inputs && ours {
+                TransactionDirection::Internal
+            } else if inputs {
+                TransactionDirection::Outgoing
+            } else {
+                TransactionDirection::Incoming
+            };
+            // Every input ours: the fee is what they held over what the outputs carry.
+            if merged.input_details.len() == merged.transaction.input.len() {
+                let spent: u64 = merged.input_details.iter().map(|d| d.value).sum();
+                let out: u64 = merged.transaction.output.iter().map(|o| o.value).sum();
+                merged.fee = spent.checked_sub(out).or(merged.fee);
+            }
+            merged
+        })
+        .collect()
+}
+
 /// `instant_verified`: the InstantLock of the transaction was verified ([`proof`]).
 pub(super) fn activity(
     record: &TransactionRecord,
     seen: Timestamp,
     instant_verified: bool,
 ) -> Activity {
+    let net = net_once(record);
     let sent_to = record
         .output_details
         .iter()
@@ -285,12 +397,12 @@ pub(super) fn activity(
         kind,
         chain,
         at,
-        amount: record.net_amount,
+        amount: net,
         proof: proof(&record.context, instant_verified),
         txid: Some(txid),
         // Only what this wallet paid: an incoming payment's fee is the sender's. An asset lock is
         // always this wallet's, whatever its net says (see `Real::wallet` on locks for the pool).
-        fee: (record.net_amount < 0 || record.transaction_type == TransactionType::AssetLock)
+        fee: (net < 0 || record.transaction_type == TransactionType::AssetLock)
             .then_some(record.fee)
             .flatten()
             .map(|f| f as Duffs),
@@ -1401,5 +1513,108 @@ mod kind_tests {
             "not the change address"
         );
         assert_eq!((line.amount, line.fee), (-226, Some(226)));
+    }
+
+    /// BUG-85, werner555's transfer of «All» to its own address: a contact's coin (0,0515) that
+    /// account 0 also holds (BUG-77 U1) is spent with the rest; only the fee 0,00003778 left.
+    /// Account 0's view: both coins in, all back; the contact account's: its coin in, nothing
+    /// back. (A) The store's fold adds the two nets: −0,05153778. (B) This run's records, the
+    /// contact account's first: it was picked alone — the coin out, nothing back.
+    #[test]
+    fn a_coin_two_accounts_hold_is_spent_once_in_the_history() {
+        use key_wallet::dashcore::address::Payload;
+        use key_wallet::dashcore::hashes::Hash;
+        use key_wallet::dashcore::{OutPoint, PubkeyHash, Transaction, TxIn, TxOut, Txid};
+        use key_wallet::managed_account::transaction_record::{InputDetail, OutputDetail};
+
+        const OWN: u64 = 381_424_464;
+        const CONTACT: u64 = 5_150_000;
+        const FEE: u64 = 3_778;
+        let address = |n: u8| {
+            Address::new(
+                key_wallet::Network::Testnet,
+                Payload::PubkeyHash(PubkeyHash::from_byte_array([n; 20])),
+            )
+        };
+        let (mine, theirs) = (address(7), address(9));
+        let back = OWN + CONTACT - FEE;
+        let tx = Transaction {
+            version: 2,
+            lock_time: 0,
+            input: [1u8, 2]
+                .iter()
+                .map(|n| TxIn {
+                    previous_output: OutPoint::new(Txid::from_byte_array([*n; 32]), 0),
+                    ..TxIn::default()
+                })
+                .collect(),
+            output: vec![TxOut {
+                value: back,
+                script_pubkey: mine.script_pubkey(),
+            }],
+            special_transaction_payload: None,
+        };
+        let input = |index, value, at: &Address| InputDetail {
+            index,
+            value,
+            address: at.clone(),
+        };
+        let output = |role| OutputDetail {
+            index: 0,
+            role,
+            address: Some(mine.clone()),
+            value: back,
+        };
+        let account = |index| key_wallet::account::AccountType::Standard {
+            index,
+            standard_account_type: key_wallet::account::StandardAccountType::BIP44Account,
+        };
+        let mut zero = TransactionRecord::new(
+            tx.clone(),
+            account(0),
+            TransactionContext::Mempool,
+            TransactionType::Standard,
+            TransactionDirection::Internal,
+            vec![input(0, OWN, &mine), input(1, CONTACT, &theirs)],
+            vec![output(OutputRole::Received)],
+            -(FEE as i64),
+        );
+        zero.fee = Some(FEE);
+        let mut contact = TransactionRecord::new(
+            tx,
+            account(1),
+            TransactionContext::Mempool,
+            TransactionType::Standard,
+            TransactionDirection::Outgoing,
+            vec![input(1, CONTACT, &theirs)],
+            vec![output(OutputRole::Sent)],
+            -(CONTACT as i64),
+        );
+        contact.fee = Some(FEE);
+        let fee_only = |line: Activity| {
+            assert_eq!(
+                line.kind,
+                ActivityKind::SelfTransfer {
+                    moved: back as Duffs
+                }
+            );
+            assert_eq!(
+                (line.amount, line.fee),
+                (-(FEE as Duffs), Some(FEE as Duffs))
+            );
+        };
+        // (A) platform-wallet's fold: details once by index, the nets added.
+        let mut folded = zero.clone();
+        folded.net_amount = -((CONTACT + FEE) as i64);
+        assert_eq!(folded.net_amount, -5_153_778);
+        fee_only(activity(&folded, 0, true));
+        // (B) this run's records, the contact account's first.
+        let one = one_per_transaction([&contact, &zero]);
+        assert_eq!(one.len(), 1);
+        assert_eq!(one[0].direction, TransactionDirection::Internal);
+        fee_only(activity(&one[0], 0, true));
+        // A payment out of the contact's coin alone stays what it was.
+        let alone = one_per_transaction([&contact]);
+        assert_eq!(activity(&alone[0], 0, true).amount, -(CONTACT as Duffs));
     }
 }

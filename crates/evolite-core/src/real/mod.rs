@@ -2071,28 +2071,20 @@ impl Real {
                 let tip = self.chain.status().headers.map_or(0, |h| h.height);
                 // The store's records first: one per transaction, as platform-wallet folds the
                 // accounts it touches. Then this run's records the store has not got yet, one
-                // per transaction too (the spending account's), so an asset lock — which
-                // touches two accounts — is one line, not two.
+                // per transaction too, each input and output once over the accounts (BUG-85), so
+                // an asset lock — which touches two accounts — is one line, not two.
                 let stored_ids: std::collections::HashSet<_> =
                     self.stored_history.iter().map(|r| r.txid).collect();
-                let mut fresh: Vec<
-                    &key_wallet::managed_account::transaction_record::TransactionRecord,
-                > = Vec::new();
-                for r in state.core_wallet.transaction_history() {
-                    if stored_ids.contains(&r.txid) {
-                        continue;
-                    }
-                    match fresh.iter_mut().find(|f| f.txid == r.txid) {
-                        Some(f) if f.input_details.is_empty() && !r.input_details.is_empty() => {
-                            *f = r
-                        }
-                        Some(_) => {}
-                        None => fresh.push(r),
-                    }
-                }
+                let fresh = convert::one_per_transaction(
+                    state
+                        .core_wallet
+                        .transaction_history()
+                        .into_iter()
+                        .filter(|r| !stored_ids.contains(&r.txid)),
+                );
                 // A spend recorded before the coin it spends (a restore's rescan) gets its
                 // input back from our own outputs.
-                let mut all: Vec<_> = self.stored_history.iter().chain(fresh).cloned().collect();
+                let mut all: Vec<_> = self.stored_history.iter().cloned().chain(fresh).collect();
                 convert::attribute_late_inputs(&mut all);
                 let locks: Vec<_> = all
                     .iter()
