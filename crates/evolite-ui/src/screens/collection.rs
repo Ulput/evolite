@@ -7,7 +7,7 @@
 use super::txt;
 use crate::art::ArtCache;
 use crate::components::{
-    Assets, ButtonKind, button, card, chip, divider, inner, kv_row, page_header, pill,
+    Assets, ButtonKind, GridSpec, button, card, chip, divider, inner, kv_row, page_header, pill,
 };
 #[cfg(demo_core)]
 use crate::components::{
@@ -15,7 +15,7 @@ use crate::components::{
 };
 use crate::context::Ctx;
 use crate::text;
-use crate::theme::{Weight, mono, sans};
+use crate::theme::{NFT_MIN_W, Weight, mono, sans};
 use egui::{
     Align, Align2, CornerRadius, CursorIcon, Layout, Margin, Rect, Sense, Stroke, StrokeKind, Ui,
     pos2, vec2,
@@ -187,30 +187,31 @@ pub fn collection(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut Collect
                     });
                 });
             } else {
-                // As many columns of at least 160 px as fit.
-                let cols = (((grid_w + 16.0) / (160.0 + 16.0)).floor() as usize).clamp(1, 6);
-                let card_w = (grid_w - 16.0 * (cols - 1) as f32) / cols as f32;
-                for chunk in shown.chunks(cols) {
-                    ui.horizontal_top(|ui| {
-                        ui.spacing_mut().item_spacing.x = 16.0;
-                        for &i in chunk {
-                            let (card, show) = nft_card(
-                                ui,
-                                a,
-                                &mut state.art,
-                                &mut asked,
-                                &nfts[i],
-                                (i == state.selected, asks[i]),
-                                card_w,
-                            );
-                            if show {
-                                state.shown.insert(nfts[i].id.clone());
-                            } else if card.clicked() {
-                                state.selected = i;
-                            }
-                        }
-                    });
-                }
+                // As many columns of at least an NFT card (195) as fit, up to 6 (responsive
+                // spec R4). The cards are of one size: nothing to paint at the row's height.
+                let spec = GridSpec {
+                    min_w: NFT_MIN_W,
+                    gap: vec2(16.0, 16.0),
+                    max_cols: 6,
+                    even: false,
+                };
+                crate::components::grid(ui, shown.len(), spec, |ui, k, card_w, _| {
+                    let i = shown[k];
+                    let (card, show) = nft_card(
+                        ui,
+                        a,
+                        &mut state.art,
+                        &mut asked,
+                        &nfts[i],
+                        (i == state.selected, asks[i]),
+                        card_w,
+                    );
+                    if show {
+                        state.shown.insert(nfts[i].id.clone());
+                    } else if card.clicked() {
+                        state.selected = i;
+                    }
+                });
             }
             crate::components::notice(
                 ui,

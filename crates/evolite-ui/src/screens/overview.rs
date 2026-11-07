@@ -2,12 +2,13 @@
 
 use super::{Screen, txt};
 use crate::components::{
-    Assets, ButtonKind, CardAmount, TxRow, amount_label, balance_card, button, button_enabled,
-    chip, page_header, status_chip, tx_row_clickable,
+    Assets, ButtonKind, CardAmount, GridSpec, TxRow, amount_label, balance_card_in, button,
+    button_enabled, chip, grid, grid_layout, page_header, status_chip, tile_amount_font,
+    tx_row_clickable,
 };
 use crate::context::Ctx;
 use crate::text::{self};
-use crate::theme::{Weight, mono};
+use crate::theme::{TILE_MIN_W, Weight, mono};
 use egui::{Align, Layout, Ui, vec2};
 use evolite_api::{Duffs, Proof, Source, Timestamp};
 
@@ -165,20 +166,28 @@ pub fn overview(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx) {
         ),
         ("shielded", tr!("Private pool"), pool, &pool_detail),
     ];
-    // Four cards in a row when there is room (≥ 896 px of content), otherwise two.
-    let width = ui.available_width();
-    let per_row = if width >= 896.0 { 4 } else { 2 };
-    let card_w = (width - 16.0 * (per_row - 1) as f32) / per_row as f32;
-    ui.vertical(|ui| {
-        ui.spacing_mut().item_spacing.y = 16.0;
-        for row in cards.chunks(per_row) {
-            ui.horizontal(|ui| {
-                ui.spacing_mut().item_spacing.x = 16.0;
-                for (icon, title, amount, detail) in row {
-                    balance_card(ui, a, icon, title, *amount, detail, card_w);
-                }
-            });
-        }
+    // Four cards in a row while each is at least a tile wide, else two by two, else one under
+    // another (responsive spec R4); a row's cards are one height in the first frame.
+    let spec = GridSpec {
+        min_w: TILE_MIN_W,
+        gap: vec2(16.0, 16.0),
+        max_cols: 4,
+        even: true,
+    };
+    // One amount size for each row, 24 or 20, decided before the row is drawn (the designer,
+    // 2026-11-07): the cells as `grid` lays them out in this very width.
+    let (cols, cell_w) = grid_layout(ui.available_width(), cards.len(), spec);
+    let fonts: Vec<egui::FontId> = cards
+        .chunks(cols)
+        .map(|row| {
+            let amounts: Vec<CardAmount> = row.iter().map(|c| c.2).collect();
+            tile_amount_font(ui, &amounts, cell_w)
+        })
+        .collect();
+    grid(ui, cards.len(), spec, |ui, i, w, cell| {
+        let (icon, title, amount, detail) = &cards[i];
+        let font = fonts[i / cols].clone();
+        balance_card_in(ui, a, cell, (icon, title), (*amount, font), detail, w);
     });
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 10.0;

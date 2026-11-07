@@ -345,20 +345,29 @@ impl CardAmount {
             Self::Earlier(_) | Self::Unknown => p.muted,
         }
     }
+
+    /// A tile's amount without its unit, «—» while not known: what the tile shows before «Hide
+    /// amounts» masks it.
+    pub fn shown(self) -> String {
+        self.known()
+            .map_or_else(|| "—".to_owned(), |d| crate::format::number(d, false))
+    }
 }
 
-/// card/balance: icon 18 + title 13 Medium, amount 24 mono, detail 12.
-pub fn balance_card(
+/// card/balance: icon 18 + title 13 Medium, amount in `font` (24 mono, or 20: one size for the
+/// whole row, [`tile_amount_font`]), detail 12. A cell of [`grid`]: one height with the others
+/// of its row.
+pub fn balance_card_in(
     ui: &mut Ui,
     a: &mut Assets,
-    icon: &str,
-    title: &str,
-    amount: CardAmount,
+    cell: &mut RowCell,
+    (icon, title): (&str, &str),
+    (amount, font): (CardAmount, FontId),
     detail: &str,
     width: f32,
 ) {
     let p = a.p;
-    card(
+    let frame = card(
         &p,
         Margin {
             left: 20,
@@ -366,11 +375,32 @@ pub fn balance_card(
             top: 18,
             bottom: 18,
         },
-    )
-    .show(ui, |ui| {
-        ui.set_width(width - 42.0);
-        ui.vertical(|ui| balance_card_body(ui, a, icon, title, amount, detail));
+    );
+    cell.card(ui, frame, |ui| {
+        ui.set_width(width - TILE_INSIDE);
+        ui.vertical(|ui| balance_card_body(ui, a, icon, title, (amount, font), detail));
     });
+}
+
+/// A tile's margins (20 each side) and its border: what its width leaves for the amount.
+const TILE_INSIDE: f32 = 42.0;
+
+/// The amounts of one row of tiles, each `width` wide ([`balance_card_in`]): 24 when every one
+/// of them fits at 24, else one step smaller (20) for all of them. An amount is never cut nor
+/// wrapped, and the amounts of a row are never of two sizes (responsive spec, «Длинный текст»;
+/// the designer, 2026-11-07). Measured as shown, not as the mask of «Hide amounts»: hiding them
+/// does not change the size.
+pub fn tile_amount_font(ui: &Ui, row: &[CardAmount], width: f32) -> FontId {
+    let big = mono(24.0, Weight::Medium);
+    let room = width - TILE_INSIDE;
+    let fits = row
+        .iter()
+        .all(|a| super::text_width(ui, &a.shown(), big.clone()) <= room);
+    if fits {
+        big
+    } else {
+        mono(20.0, Weight::Medium)
+    }
 }
 
 fn balance_card_body(
@@ -378,7 +408,7 @@ fn balance_card_body(
     a: &mut Assets,
     icon: &str,
     title: &str,
-    amount: CardAmount,
+    (amount, font): (CardAmount, FontId),
     detail: &str,
 ) {
     let p = a.p;
@@ -393,12 +423,7 @@ fn balance_card_body(
                     .color(p.muted),
             );
         });
-        let (shown, color) = match amount {
-            CardAmount::Now(duffs) => (crate::format::number(duffs, false), p.text),
-            CardAmount::Earlier(duffs) => (crate::format::number(duffs, false), p.muted),
-            CardAmount::Unknown => ("—".to_owned(), p.muted),
-        };
-        amount_label(ui, &shown, mono(24.0, Weight::Medium), color);
+        amount_label(ui, &amount.shown(), font, amount.color(&p));
         ui.label(
             egui::RichText::new(crate::i18n::t(detail))
                 .font(sans(12.0, Weight::Regular))

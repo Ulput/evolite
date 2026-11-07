@@ -3,13 +3,14 @@
 
 use super::txt;
 use crate::components::{
-    Assets, ButtonKind, CardAmount, RowCell, SpendPassword, TxRow, amount_field, button,
-    button_enabled, button_row, card, dialog, error_notice, field_label, inner, kv_row, list_card,
-    notice, page_header, password_asked, progress_bar, segmented_with_off, select_row, tx_row,
+    Assets, ButtonKind, CardAmount, GridSpec, RowCell, SpendPassword, TxRow, amount_field, button,
+    button_enabled, button_row, card, dialog, error_notice, field_label, grid, grid_layout, inner,
+    kv_row, list_card, notice, page_header, password_asked, progress_bar, segmented_with_off,
+    select_row, tx_row,
 };
 use crate::context::Ctx;
 use crate::text;
-use crate::theme::{Weight, mono, sans};
+use crate::theme::{TILE_MIN_W, Weight, mono, sans};
 use egui::{
     Align, Align2, CornerRadius, CursorIcon, Layout, Margin, Rect, Sense, Stroke, StrokeKind, Ui,
     pos2, vec2,
@@ -169,36 +170,36 @@ pub fn shielded(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut PoolState
                 }
             });
 
-            // Four actions in a row, or two by two when narrow; four split the halves in two.
-            let per_row = if total >= 900.0 { 4 } else { 2 };
-            let w = (total - 20.0 * (per_row - 1) as f32) / per_row as f32;
+            // Four actions in a row while each is at least a tile wide, else two by two, else
+            // one under another (responsive spec R4). The gap is the halves' 20: four split
+            // the halves in two, two stand in them.
+            let spec = GridSpec {
+                min_w: TILE_MIN_W,
+                gap: vec2(20.0, 12.0),
+                max_cols: 4,
+                even: true,
+            };
+            let (_, w) = grid_layout(total, ACTIONS.len(), spec);
             // One height for all: the tallest line under a title decides (one or two lines).
             let h = ACTIONS
                 .iter()
                 .map(|(_, _, sub)| action_height(ui, sub, w))
                 .fold(62.0, f32::max);
-            ui.vertical(|ui| {
-                ui.spacing_mut().item_spacing.y = 12.0;
-                for chunk in ACTIONS.chunks(per_row) {
-                    ui.horizontal(|ui| {
-                        ui.spacing_mut().item_spacing.x = 20.0;
-                        for (icon, title, sub) in chunk {
-                            let resp = action(ui, a, icon, title, sub, vec2(w, h), connected);
-                            if !connected {
-                                resp.on_hover_text(crate::i18n::t(POOL_CONNECTING).into_owned());
-                                continue;
-                            }
-                            if !resp.clicked() {
-                                continue;
-                            }
-                            match *icon {
-                                "shield" => state.shielding = true,
-                                "send" => cx.pay(Source::Pool, String::new()),
-                                "receive" => state.address_open = true,
-                                _ => state.unshielding = true,
-                            }
-                        }
-                    });
+            grid(ui, ACTIONS.len(), spec, |ui, i, w, _| {
+                let (icon, title, sub) = ACTIONS[i];
+                let resp = action(ui, a, icon, title, sub, vec2(w, h), connected);
+                if !connected {
+                    resp.on_hover_text(crate::i18n::t(POOL_CONNECTING).into_owned());
+                    return;
+                }
+                if !resp.clicked() {
+                    return;
+                }
+                match icon {
+                    "shield" => state.shielding = true,
+                    "send" => cx.pay(Source::Pool, String::new()),
+                    "receive" => state.address_open = true,
+                    _ => state.unshielding = true,
                 }
             });
 

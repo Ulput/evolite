@@ -338,7 +338,9 @@ mod tests {
         let path = dir.join("mempool-seen.json");
         let _ = std::fs::remove_dir_all(&dir);
         let seen = MempoolSeen::new(path.clone());
-        let now = super::super::now();
+        // «This run» a second after it began, not at the clock: a VM clock stepping back after
+        // `new` made it «an earlier run» (once on dev, 2026-11-07).
+        let now = seen.started + 1;
         seen.first_seen("earlier", 1_000, 500);
         // Seen a minute before this run, one block short of stale.
         seen.first_seen("pending", seen.started - 60, 501);
@@ -367,9 +369,16 @@ mod tests {
             all,
             "owed for another"
         );
-        // Another run: still left out until a rescan has run to its end.
-        let again = MempoolSeen::new(path.clone());
-        assert_eq!(kept(&again, &h, &[], false), without);
+        // Another run, an hour later: both stale lines are of an earlier run now, left out until a
+        // rescan has run to its end. Its start is set, not read from the clock: when the clock
+        // ticked a second between `now` above and here, «this run» became an earlier run and the
+        // test failed (once on dev, 2026-11-07).
+        let again = MempoolSeen {
+            started: seen.started + 3_600,
+            ..MempoolSeen::new(path.clone())
+        };
+        let pending = vec!["pending".to_owned()];
+        assert_eq!(kept(&again, &h, &[], false), pending, "another run");
         again.rescanned(&["earlier".to_owned(), "this run".to_owned()]);
         assert_eq!(kept(&again, &h, &[], false), all, "shown as not confirmed");
         let _ = std::fs::remove_dir_all(dir);

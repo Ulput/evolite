@@ -114,26 +114,103 @@ pub fn two_columns(
         }
         return [Rect::NOTHING; 2];
     }
-    let mut cells = [RowCell::in_row(), RowCell::in_row()];
-    let mut rects = [Rect::NOTHING; 2];
-    ui.horizontal_top(|ui| {
-        ui.spacing_mut().item_spacing.x = 20.0;
-        for (i, first) in [true, false].into_iter().enumerate() {
-            rects[i] = ui
-                .vertical(|ui| cell(ui, first, &mut cells[i]))
-                .response
-                .rect;
-        }
-    });
-    let bottom = rects[0].bottom().max(rects[1].bottom());
-    for (rect, cell) in rects.iter_mut().zip(&cells) {
-        rect.max.y = bottom;
-        cell.paint(ui, bottom);
-    }
-    rects
+    let rects = cards_row(ui, 0..2, 20.0, |ui, i, c| cell(ui, i == 0, c));
+    [rects[0], rects[1]]
 }
 
-/// One cell of [`two_columns`]: draws the cell's card, so that the row can paint its
+/// What [`grid`] lays out: cells of at least `min_w` (a minimum of the responsive spec,
+/// `theme.rs`), `gap` between them across and down.
+#[derive(Clone, Copy, Debug)]
+pub struct GridSpec {
+    pub min_w: f32,
+    pub gap: egui::Vec2,
+    /// At most this many columns, however wide.
+    pub max_cols: usize,
+    /// Only a count of columns that divides the cells: four tiles stand 4, 2 by 2 or one
+    /// under another, never 3 and 1.
+    pub even: bool,
+}
+
+/// How many columns of [`GridSpec`] `spec` hold `n` cells in `width`.
+pub fn grid_columns(width: f32, n: usize, spec: GridSpec) -> usize {
+    let most = n.min(spec.max_cols).max(1);
+    let fit = (((width + spec.gap.x) / (spec.min_w + spec.gap.x)).floor() as usize).clamp(1, most);
+    if spec.even {
+        (1..=fit).rev().find(|c| n.is_multiple_of(*c)).unwrap_or(1)
+    } else {
+        fit
+    }
+}
+
+/// The columns of [`grid_columns`] and the width of each cell in `width`: what [`grid`] lays out
+/// in that width, for a screen that measures its cells before drawing them (one amount size for
+/// a row of Overview's tiles, one height for the pool's actions).
+pub fn grid_layout(width: f32, n: usize, spec: GridSpec) -> (usize, f32) {
+    let cols = grid_columns(width, n, spec);
+    let cell_w = ((width - spec.gap.x * (cols - 1) as f32) / cols as f32).max(0.0);
+    (cols, cell_w)
+}
+
+/// `n` cells in as many columns of at least `spec.min_w` as fit the available width
+/// ([`grid_layout`]), all of one width (`cell` is told it, with the cell's index). The cards of
+/// a row are one height in the very frame they are drawn, as in [`two_columns`]: each cell draws
+/// its card with [`RowCell::card`], and the backgrounds are painted last, at the tallest one's
+/// height (the responsive spec, R4). Returns the number of columns.
+pub fn grid(
+    ui: &mut Ui,
+    n: usize,
+    spec: GridSpec,
+    mut cell: impl FnMut(&mut Ui, usize, f32, &mut RowCell),
+) -> usize {
+    let (cols, cell_w) = grid_layout(ui.available_width(), n, spec);
+    ui.vertical(|ui| {
+        ui.spacing_mut().item_spacing.y = spec.gap.y;
+        for start in (0..n).step_by(cols) {
+            let end = (start + cols).min(n);
+            if cols == 1 {
+                cell(ui, start, cell_w, &mut RowCell::alone());
+            } else {
+                cards_row(ui, start..end, spec.gap.x, |ui, i, c| {
+                    cell(ui, i, cell_w, c)
+                });
+            }
+        }
+    });
+    cols
+}
+
+/// One row of cards side by side, `gap` apart, one height: each cell's background painted
+/// last, down to the row's bottom. The rectangles of the cells, all of the row's height.
+fn cards_row(
+    ui: &mut Ui,
+    cells: std::ops::Range<usize>,
+    gap: f32,
+    mut cell: impl FnMut(&mut Ui, usize, &mut RowCell),
+) -> Vec<Rect> {
+    let mut drawn: Vec<(Rect, RowCell)> = Vec::with_capacity(cells.len());
+    ui.horizontal_top(|ui| {
+        ui.spacing_mut().item_spacing.x = gap;
+        for i in cells {
+            let mut c = RowCell::in_row();
+            let rect = ui.vertical(|ui| cell(ui, i, &mut c)).response.rect;
+            drawn.push((rect, c));
+        }
+    });
+    let bottom = drawn
+        .iter()
+        .map(|(r, _)| r.bottom())
+        .fold(f32::NEG_INFINITY, f32::max);
+    drawn
+        .into_iter()
+        .map(|(mut rect, c)| {
+            rect.max.y = bottom;
+            c.paint(ui, bottom);
+            rect
+        })
+        .collect()
+}
+
+/// One cell of [`two_columns`] or of [`grid`]: draws the cell's card, so that the row can paint its
 /// background at the row's height.
 pub struct RowCell {
     in_row: bool,
@@ -159,7 +236,7 @@ impl RowCell {
     /// `frame.show(ui, add)`; in a row, the background waits for the row's height.
     pub fn card<R>(&mut self, ui: &mut Ui, frame: Frame, add: impl FnOnce(&mut Ui) -> R) -> R {
         // One card per cell: a second would leave the first one's background unpainted.
-        debug_assert!(self.card.is_none(), "a cell of two_columns draws one card");
+        debug_assert!(self.card.is_none(), "a cell of a row draws one card");
         if !self.in_row {
             return frame.show(ui, add).inner;
         }
@@ -331,5 +408,93 @@ mod tests {
         let painted = row(&ctx, false).1;
         let heights: Vec<f32> = painted.iter().map(|r| r.height()).collect();
         assert_eq!(heights, [TALL - 40.0, TALL], "{painted:?}");
+    }
+
+    const TILES: GridSpec = GridSpec {
+        min_w: 200.0,
+        gap: egui::Vec2::new(16.0, 16.0),
+        max_cols: 4,
+        even: true,
+    };
+
+    /// Responsive spec R4: as many columns of the least width as fit, at most the cells or
+    /// `max_cols`; four tiles stand 4, 2 by 2 or one under another, never 3 and 1.
+    #[test]
+    fn a_grid_takes_as_many_columns_as_fit() {
+        assert_eq!(grid_columns(848.0, 4, TILES), 4, "4 x 200 + 3 x 16");
+        assert_eq!(grid_columns(847.0, 4, TILES), 2, "3 fit: not 3 and 1");
+        assert_eq!(grid_columns(416.0, 4, TILES), 2);
+        assert_eq!(grid_columns(415.0, 4, TILES), 1);
+        assert_eq!(grid_columns(5000.0, 4, TILES), 4, "max_cols");
+        assert_eq!(grid_columns(10.0, 4, TILES), 1, "one at the least");
+        let apps = GridSpec {
+            min_w: 240.0,
+            even: false,
+            max_cols: 3,
+            ..TILES
+        };
+        assert_eq!(grid_columns(752.0, 3, apps), 3);
+        assert_eq!(grid_columns(751.0, 3, apps), 2, "2 and 1 is fine here");
+        assert_eq!(grid_columns(495.0, 3, apps), 1);
+        assert_eq!(grid_columns(5000.0, 5, apps), 3, "no more than max_cols");
+        // NFT cards of 195 (the designer): three in Collection's 618 at 1280 (628 less the scroll bar).
+        let nfts = GridSpec {
+            min_w: crate::theme::NFT_MIN_W,
+            max_cols: 6,
+            even: false,
+            ..TILES
+        };
+        assert_eq!(grid_columns(618.0, 5, nfts), 3, "3 x 195 + 2 x 16 = 617");
+        assert_eq!(grid_columns(616.0, 5, nfts), 2);
+        assert_eq!(
+            grid_columns(5000.0, 2, nfts),
+            2,
+            "no more columns than cells"
+        );
+        assert_eq!(grid_columns(5000.0, 0, nfts), 1);
+    }
+
+    /// Responsive spec R4: the cards of each row of a grid are one height, the row's tallest,
+    /// in the very first frame; another row keeps its own.
+    #[test]
+    fn the_cards_of_a_grid_row_are_one_height_in_the_first_frame() {
+        let p = crate::theme::DARK;
+        let ctx = egui::Context::default();
+        let (mut cols, mut widths) = (0, Vec::new());
+        let mut out = ctx.run_ui(egui::RawInput::default(), |ui| {
+            ui.allocate_ui(vec2(700.0, 4000.0), |ui| {
+                let spec = GridSpec {
+                    even: false,
+                    ..TILES
+                };
+                cols = grid(ui, 5, spec, |ui, i, w, cell| {
+                    widths.push(w);
+                    cell.card(ui, card(&p, Margin::same(24)), |ui| {
+                        ui.set_width(inner(w, 24));
+                        ui.spacing_mut().item_spacing.y = 10.0;
+                        for _ in 0..=i {
+                            ui.allocate_exact_size(vec2(10.0, 30.0), Sense::hover());
+                        }
+                    });
+                });
+            });
+        });
+        out.textures_delta.clear();
+        assert_eq!(cols, 3, "3 x 200 + 2 x 16 in 700");
+        assert!(
+            widths
+                .iter()
+                .all(|w| (w - (700.0 - 32.0) / 3.0).abs() < 0.01),
+            "{widths:?}"
+        );
+        let painted = backgrounds(&out, p.surface);
+        assert_eq!(painted.len(), 5, "{painted:?}");
+        let tall = |rows: f32| rows * 30.0 + (rows - 1.0) * 10.0 + 2.0 * 24.0 + 2.0;
+        let heights: Vec<f32> = painted.iter().map(|r| r.height()).collect();
+        assert_eq!(
+            heights,
+            [tall(3.0), tall(3.0), tall(3.0), tall(5.0), tall(5.0)]
+        );
+        assert_eq!(painted[3].top(), painted[0].bottom() + 16.0, "gap 16 down");
     }
 }

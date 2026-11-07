@@ -98,14 +98,20 @@ fn identity_cards_stand_on_one_grid() {
 }
 
 /// №7: one grid on the pool — «In the pool» and «How it works» are halves, and the actions
-/// under them, two in a row at 1024 px, stand in the same two columns.
+/// under them stand in the same two columns: at 1024 px four in a row (responsive spec R4: each
+/// at least a tile wide), the first and the third at the halves' left edges.
 #[test]
 fn pool_cards_stand_on_one_grid() {
     let (_turn, kit) = demo_app("shielded", "en");
     let balance = words(&kit, "In the pool").rect().left() - TITLE_AFTER_ICON;
     let how = words(&kit, "How it works").rect().left() - PLAIN_TITLE;
-    let first = button(&kit, "Private address").rect().left();
-    let second = button(&kit, "Send privately").rect().left();
+    let first = button(&kit, "Shield").rect().left();
+    let second = button(&kit, "Private address").rect().left();
+    let send = button(&kit, "Send privately").rect();
+    assert!(
+        (send.top() - button(&kit, "Shield").rect().top()).abs() < 0.5,
+        "four in a row"
+    );
     eprintln!("balance {balance}, how {how}, actions {first} and {second}");
     close(balance, first, "the first column");
     close(how, second, "the second column");
@@ -377,4 +383,173 @@ fn a_new_identity_asks_for_at_least_what_platform_takes() {
         (false, true),
         "the least is enough: no hint, «Create» on"
     );
+}
+
+/// Responsive spec R4: the cards of every row of a grid — Overview's tiles, the explanations of
+/// Apps, the pool's two cards — are one height in the very first frame of the screen, at the
+/// four widths of the spec, left to right and mirrored (`ar`); and Overview's four tiles stand
+/// 4 in a row or 2 by 2, never 3 and 1.
+#[test]
+fn grid_rows_are_one_height_in_the_first_frame_at_every_width() {
+    for lang in ["en", "ar"] {
+        for width in [800.0, 1024.0, 1280.0, 1600.0] {
+            for screen in [Screen::Overview, Screen::Apps, Screen::Shielded] {
+                let (_turn, mut kit) = demo_app("overview", lang);
+                kit.set_size(egui::vec2(width, 900.0));
+                kit.run_steps(2);
+                kit.state_mut().screen = screen;
+                kit.run_steps(1);
+                let cards = card_backgrounds(&kit);
+                let mut in_rows = std::collections::BTreeMap::<i32, usize>::new();
+                for (i, a) in cards.iter().enumerate() {
+                    for b in &cards[i + 1..] {
+                        if (a.top() - b.top()).abs() < 0.5 && a.left() != b.left() {
+                            assert!(
+                                (a.height() - b.height()).abs() < 0.5,
+                                "{screen:?} {lang} {width}: the cards of a row differ: {a:?}, {b:?}"
+                            );
+                        }
+                    }
+                    *in_rows.entry(a.top().round() as i32).or_default() += 1;
+                }
+                let most = in_rows.values().copied().max().unwrap_or(0);
+                // The pool's two cards stand side by side only in two columns (760 and up).
+                let two = screen != Screen::Shielded || width >= 1024.0;
+                assert!(
+                    !two || most >= 2,
+                    "{screen:?} {lang} {width}: no row in {cards:?}"
+                );
+                if screen == Screen::Overview {
+                    assert!(
+                        in_rows.values().all(|n| [1, 2, 4].contains(n)),
+                        "{lang} {width}: tiles in rows of {in_rows:?}"
+                    );
+                }
+            }
+        }
+    }
+}
+
+/// Responsive spec, «Длинный текст»: a tile's amount is never cut nor wrapped — in the 1024 px
+/// window Overview's four tiles stand in a row (R4), and 234.56789012 DASH, too wide at 24,
+/// is one step smaller: one line, inside its tile.
+#[test]
+fn a_wide_amount_takes_a_smaller_font_in_its_tile() {
+    let (_turn, mut kit) = demo_app("overview", "en");
+    let duffs = 23_456_789_012;
+    with_wallet(&mut kit, |w| w.balances.core = duffs);
+    let shown = crate::format::number(duffs, false);
+    let amount = kit
+        .query_all(By::new().role(Role::Label).value(&shown))
+        .map(|n| n.rect())
+        .min_by(|a, b| a.top().total_cmp(&b.top()))
+        .unwrap_or_else(|| panic!("«{shown}» on Overview"));
+    let tiles = card_backgrounds(&kit);
+    let tile = tiles
+        .iter()
+        .find(|t| t.contains(amount.center()))
+        .unwrap_or_else(|| panic!("«{shown}» {amount:?} in a tile of {tiles:?}"));
+    let in_row = tiles
+        .iter()
+        .filter(|t| (t.top() - tile.top()).abs() < 0.5)
+        .count();
+    assert_eq!(in_row, 4, "four tiles in a row at 1024: {tiles:?}");
+    assert!(amount.height() < 30.0, "one line: {amount:?}");
+    assert!(
+        amount.right() <= tile.right() - 20.0,
+        "inside: {amount:?} in {tile:?}"
+    );
+}
+
+/// The amounts of Overview's tiles as drawn, left to right: in each tile of the row the tallest
+/// label inside it (the title is 13, the detail 12). `core` puts that balance into the wallet.
+fn tile_amounts(core: i64) -> Vec<egui::Rect> {
+    let (_turn, mut kit) = demo_app("overview", "en");
+    with_wallet(&mut kit, |w| w.balances.core = core);
+    let shown = crate::format::number(core, false);
+    let amount = kit
+        .query_all(By::new().role(Role::Label).value(&shown))
+        .map(|n| n.rect())
+        .min_by(|a, b| a.top().total_cmp(&b.top()))
+        .unwrap_or_else(|| panic!("«{shown}» on Overview"));
+    let tiles = card_backgrounds(&kit);
+    let core_tile = *tiles
+        .iter()
+        .find(|t| t.contains(amount.center()))
+        .unwrap_or_else(|| panic!("«{shown}» {amount:?} in a tile of {tiles:?}"));
+    let mut row: Vec<egui::Rect> = tiles
+        .into_iter()
+        .filter(|t| (t.top() - core_tile.top()).abs() < 0.5)
+        .collect();
+    row.sort_by(|a, b| a.left().total_cmp(&b.left()));
+    assert_eq!(row.len(), 4, "four tiles in a row at 1024: {row:?}");
+    row.iter()
+        .map(|tile| {
+            kit.query_all(By::new().role(Role::Label))
+                .map(|n| n.rect())
+                .filter(|r| tile.contains_rect(*r))
+                .max_by(|a, b| a.height().total_cmp(&b.height()))
+                .unwrap_or_else(|| panic!("no words in {tile:?}"))
+        })
+        .collect()
+}
+
+/// The designer, 2026-11-07 (responsive spec, under the table of section 1): the amounts of a
+/// row of tiles are of one size — 24, or 20 for all of them when one does not fit at 24, never
+/// 20 in one tile and 24 beside it. In the 1024 px window 234.56789012 DASH of Core makes the
+/// short credits, address and pool amounts 20 too; with short amounts only, all are 24.
+#[test]
+fn a_row_of_tiles_has_one_amount_size() {
+    let short = tile_amounts(12_345_678);
+    let wide = tile_amounts(23_456_789_012);
+    for (what, row) in [("short", &short), ("wide", &wide)] {
+        assert!(
+            row.iter()
+                .all(|r| (r.height() - row[0].height()).abs() < 0.5),
+            "{what}: the amounts of a row differ in size: {row:?}"
+        );
+    }
+    assert!(
+        wide[0].height() + 2.0 < short[0].height(),
+        "a wide amount makes the row smaller ({wide:?}), short ones stay 24 ({short:?})"
+    );
+}
+
+/// Responsive spec R4 and the designer, 2026-11-07: Collection's NFT cards (195 at the least,
+/// gap 16) stand as many in a row as fit beside the details panel (300 + 24) — left to right and
+/// mirrored (`ar`). At 800 the panel goes under the grid: 644 - 10 (the scroll bar) holds 3; at
+/// 1024 868 - 324 - 10 = 534 holds 2; at 1600 938 holds 4. At 1280 the grid is 952 - 324 - 10 =
+/// 618 (the scroll bar of a list taller than the window takes its 10): 3 x 195 + 2 x 16 = 617
+/// fit, so 3 (the designer, after R4 r2).
+#[test]
+fn the_collection_takes_as_many_columns_as_fit_at_every_width() {
+    for lang in ["en", "ar"] {
+        for (width, cols) in [(800.0, 3), (1024.0, 2), (1280.0, 3), (1600.0, 4)] {
+            let (_turn, mut kit) = demo_app("collection", lang);
+            kit.set_size(egui::vec2(width, 900.0));
+            kit.run_steps(2);
+            let names: Vec<String> = kit
+                .state()
+                .snapshot
+                .as_ref()
+                .and_then(|s| s.wallet.as_ref())
+                .map(|w| w.nfts.iter().map(|n| spoken(&n.name)).collect())
+                .unwrap_or_default();
+            assert!(names.len() > 4, "{lang} {width}: the demo NFTs: {names:?}");
+            let cards: Vec<egui::Rect> = names.iter().map(|n| button(&kit, n).rect()).collect();
+            let first = cards.iter().map(|r| r.top()).fold(f32::MAX, f32::min);
+            let in_row = cards
+                .iter()
+                .filter(|r| (r.top() - first).abs() < 0.5)
+                .count();
+            let row: Vec<_> = cards
+                .iter()
+                .filter(|r| (r.top() - first).abs() < 0.5)
+                .collect();
+            let grid = row.iter().map(|r| r.right()).fold(f32::MIN, f32::max)
+                - row.iter().map(|r| r.left()).fold(f32::MAX, f32::min);
+            eprintln!("{lang} {width}: {in_row} columns in {grid}");
+            assert_eq!(in_row, cols, "{lang} {width}: the first row of {cards:?}");
+        }
+    }
 }
