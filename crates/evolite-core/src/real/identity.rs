@@ -228,6 +228,164 @@ pub fn lock_for(
         .map(|(slot, _)| LockFor::TopUp(*slot))
 }
 
+/// [`LockFor`] of each asset lock in `locks` (txid, transaction): by the wallet's accounts,
+/// else by the top-up addresses of the found identities' `slots` (`top_ups`, derived from
+/// `keys` as needed) — a wallet restored from the phrase has no top-up account at all.
+pub fn lock_fors(
+    accounts: &key_wallet::managed_account::managed_account_collection::ManagedAccountCollection,
+    top_ups: &mut TopUpScripts,
+    wallet: key_wallet_manager::WalletId,
+    keys: Option<&key_wallet::Wallet>,
+    slots: impl IntoIterator<Item = u32>,
+    locks: &[(String, &key_wallet::dashcore::Transaction)],
+) -> std::collections::HashMap<String, LockFor> {
+    let mut known = std::collections::HashMap::new();
+    let mut unpaid = Vec::new();
+    for (txid, tx) in locks {
+        match lock_for(accounts, tx) {
+            Some(what) => {
+                known.insert(txid.clone(), what);
+            }
+            None => unpaid.push((txid, *tx)),
+        }
+    }
+    if unpaid.is_empty() {
+        return known;
+    }
+    let txs: Vec<_> = unpaid.iter().map(|(_, tx)| *tx).collect();
+    top_ups.cover(wallet, keys, slots, &txs);
+    for (txid, tx) in unpaid {
+        if let Some(what) = top_ups.lock_for(tx) {
+            known.insert(txid.clone(), what);
+        }
+    }
+    known
+}
+
+/// The first top-up addresses derived of a slot, and how many more past the last one a lock
+/// paid (key-wallet's gap for the funding accounts).
+const TOP_UP_GAP: usize = key_wallet::gap_limit::DEFAULT_SPECIAL_GAP_LIMIT as usize;
+/// Never more addresses of one slot than key-wallet's own most.
+const TOP_UP_MOST: usize = key_wallet::gap_limit::MAX_GAP_LIMIT as usize;
+
+/// The DIP-9 top-up addresses (`IdentityTopUp { registration_index: slot }`) of the wallet's
+/// identity slots, as scripts, derived from the open keys (BUG-57 follow-up). platform-wallet
+/// makes that account only when it builds a top-up, and a restore from the phrase has none,
+/// so [`lock_for`] cannot tell a restored top-up from another lock. Only public data is kept
+/// (the account xpub and its addresses); nothing is written to the wallet or the store.
+#[derive(Default)]
+pub struct TopUpScripts {
+    wallet: Option<key_wallet_manager::WalletId>,
+    slots: std::collections::BTreeMap<
+        u32,
+        (
+            key_wallet::bip32::ExtendedPubKey,
+            Vec<key_wallet::dashcore::ScriptBuf>,
+        ),
+    >,
+}
+
+impl TopUpScripts {
+    /// Makes the scripts of `slots` cover `locks`: the first [`TOP_UP_GAP`] of a slot new to
+    /// the cache, and more while a lock pays one of a slot's last [`TOP_UP_GAP`]. Another
+    /// wallet starts afresh. Without `keys` (none open) a new slot waits for them; the scripts
+    /// already derived still extend, from the xpub.
+    pub fn cover(
+        &mut self,
+        wallet: key_wallet_manager::WalletId,
+        keys: Option<&key_wallet::Wallet>,
+        slots: impl IntoIterator<Item = u32>,
+        locks: &[&key_wallet::dashcore::Transaction],
+    ) {
+        if self.wallet != Some(wallet) {
+            self.slots.clear();
+            self.wallet = Some(wallet);
+        }
+        let paid: Vec<&key_wallet::dashcore::ScriptBuf> = locks
+            .iter()
+            .filter_map(|tx| credit_outputs(tx))
+            .flatten()
+            .map(|out| &out.script_pubkey)
+            .collect();
+        for slot in slots {
+            use std::collections::btree_map::Entry;
+            let (xpub, scripts) = match self.slots.entry(slot) {
+                Entry::Occupied(known) => known.into_mut(),
+                Entry::Vacant(new) => {
+                    let Some(xpub) = keys.and_then(|keys| top_up_xpub(keys, slot)) else {
+                        continue;
+                    };
+                    new.insert((xpub, Vec::new()))
+                }
+            };
+            loop {
+                let used = scripts.iter().rposition(|s| paid.contains(&s));
+                let want = used
+                    .map_or(TOP_UP_GAP, |i| i + 1 + TOP_UP_GAP)
+                    .min(TOP_UP_MOST);
+                if scripts.len() >= want {
+                    break;
+                }
+                let before = scripts.len();
+                scripts.extend((before..want).map_while(|i| top_up_script(xpub, i as u32)));
+                if scripts.len() == before {
+                    break;
+                }
+            }
+        }
+    }
+
+    /// The slot whose top-up address the lock `tx`'s credit output pays.
+    pub fn lock_for(&self, tx: &key_wallet::dashcore::Transaction) -> Option<LockFor> {
+        let outs = credit_outputs(tx)?;
+        self.slots
+            .iter()
+            .find(|(_, (_, scripts))| outs.iter().any(|o| scripts.contains(&o.script_pubkey)))
+            .map(|(slot, _)| LockFor::TopUp(*slot))
+    }
+
+    /// How many scripts of `slot` are derived (tests).
+    #[cfg(test)]
+    pub fn derived(&self, slot: u32) -> usize {
+        self.slots.get(&slot).map_or(0, |(_, s)| s.len())
+    }
+}
+
+/// The credit outputs of an asset lock; `None` for another transaction.
+fn credit_outputs(
+    tx: &key_wallet::dashcore::Transaction,
+) -> Option<&[key_wallet::dashcore::TxOut]> {
+    use key_wallet::dashcore::blockdata::transaction::special_transaction::TransactionPayload;
+    match &tx.special_transaction_payload {
+        Some(TransactionPayload::AssetLockPayloadType(lock)) => Some(&lock.credit_outputs),
+        _ => None,
+    }
+}
+
+/// The xpub of slot `slot`'s top-up account (its path is hardened, so it takes the private
+/// key, which is dropped here).
+fn top_up_xpub(keys: &key_wallet::Wallet, slot: u32) -> Option<key_wallet::bip32::ExtendedPubKey> {
+    let path = key_wallet::account::AccountType::IdentityTopUp {
+        registration_index: slot,
+    }
+    .derivation_path(crate::network::dash())
+    .ok()?;
+    let xprv = keys.derive_extended_private_key(&path).ok()?;
+    Some(key_wallet::bip32::ExtendedPubKey::from_priv(&xprv))
+}
+
+/// The P2PKH script of the top-up address `index` of an account (`xpub/index`, as key-wallet's
+/// pool of a funding account derives it).
+fn top_up_script(
+    xpub: &key_wallet::bip32::ExtendedPubKey,
+    index: u32,
+) -> Option<key_wallet::dashcore::ScriptBuf> {
+    let child = key_wallet::bip32::ChildNumber::from_normal_idx(index).ok()?;
+    let key = xpub.derive_pub(&[child]).ok()?;
+    let key = key_wallet::dashcore::PublicKey::new(key.public_key);
+    Some(key_wallet::dashcore::Address::p2pkh(&key, crate::network::dash()).script_pubkey())
+}
+
 /// What platform-wallet tracks of an asset lock: its funding, its slot and whether Platform
 /// consumed it.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -535,5 +693,161 @@ mod tests {
         });
         assert_eq!(found_identity_keys(&keys, 2, &identity).len(), KEYS.len());
         assert!(found_identity_keys(&keys, 1, &identity).is_empty());
+    }
+
+    /// An asset lock paying `to` (its one credit output).
+    fn lock_to(to: key_wallet::dashcore::ScriptBuf) -> key_wallet::dashcore::Transaction {
+        use key_wallet::dashcore::blockdata::transaction::special_transaction::TransactionPayload;
+        use key_wallet::dashcore::blockdata::transaction::special_transaction::asset_lock::AssetLockPayload;
+        key_wallet::dashcore::Transaction {
+            version: 3,
+            lock_time: 0,
+            input: vec![],
+            output: vec![],
+            special_transaction_payload: Some(TransactionPayload::AssetLockPayloadType(
+                AssetLockPayload {
+                    version: 1,
+                    credit_outputs: vec![key_wallet::dashcore::TxOut {
+                        value: 50_000_000,
+                        script_pubkey: to,
+                    }],
+                },
+            )),
+        }
+    }
+
+    /// BUG-57 follow-up: a wallet restored from the phrase has no top-up account (platform-wallet
+    /// makes one only to build a top-up), yet its past top-ups get their identity — by the
+    /// top-up addresses of the found identities' slots, the very ones platform-wallet pays —
+    /// and stay `Unknown` until the store says Platform took them.
+    #[test]
+    fn a_restored_top_up_gets_its_identity_by_its_slots_addresses() {
+        use evolite_api::{Credits, IdentityChoice};
+        use key_wallet::account::AccountType;
+        use key_wallet::wallet::managed_wallet_info::ManagedWalletInfo;
+        let keys = super::super::keys_of(PHRASE).unwrap();
+        let restored = ManagedWalletInfo::from_wallet(&keys, 0);
+        assert!(
+            restored.accounts.identity_topup.is_empty(),
+            "a restore has none"
+        );
+        // Where platform-wallet's top-ups went: the accounts it adds to build them.
+        let mut built = super::super::keys_of(PHRASE).unwrap();
+        for slot in [0, 2] {
+            built
+                .add_account(
+                    AccountType::IdentityTopUp {
+                        registration_index: slot,
+                    },
+                    None,
+                )
+                .unwrap();
+        }
+        let built = ManagedWalletInfo::from_wallet(&built, 0);
+        let paid_to = |slot: u32| -> Vec<key_wallet::dashcore::ScriptBuf> {
+            use key_wallet::managed_account::managed_account_trait::ManagedAccountTrait;
+            built.accounts.identity_topup[&slot]
+                .managed_account_type()
+                .address_pools()[0]
+                .addresses
+                .values()
+                .map(|a| a.address.script_pubkey())
+                .collect()
+        };
+        let (two, zero) = (paid_to(2), paid_to(0));
+        assert!(two.len() >= TOP_UP_GAP);
+        let xpub = top_up_xpub(&keys, 2).unwrap();
+        for (i, script) in two.iter().enumerate() {
+            assert_eq!(
+                top_up_script(&xpub, i as u32).as_ref(),
+                Some(script),
+                "address {i}"
+            );
+        }
+        let (a, b, c, d) = (
+            lock_to(two[0].clone()),
+            lock_to(two[3].clone()),
+            lock_to(zero[1].clone()),
+            lock_to(key_wallet::dashcore::ScriptBuf::new()),
+        );
+        let txid = |n: u8| format!("{n:02x}").repeat(32);
+        let locks = [(txid(1), &a), (txid(2), &b), (txid(3), &c), (txid(4), &d)];
+        let mut top_ups = TopUpScripts::default();
+        let found = lock_fors(
+            &restored.accounts,
+            &mut top_ups,
+            [7; 32],
+            Some(&keys),
+            [0, 2],
+            &locks,
+        );
+        assert_eq!(found.get(&txid(1)), Some(&LockFor::TopUp(2)));
+        assert_eq!(found.get(&txid(2)), Some(&LockFor::TopUp(2)));
+        assert_eq!(found.get(&txid(3)), Some(&LockFor::TopUp(0)));
+        assert_eq!(found.get(&txid(4)), None, "another lock stays unnamed");
+        // The History line: whose top-up it is; credits only by the store's consumed row.
+        let mine = [
+            IdentityChoice {
+                id: "Alice111111111111111111111111111111111111111".into(),
+                name: Some("alice".into()),
+                slot: 0,
+            },
+            IdentityChoice {
+                id: "Bob1111111111111111111111111111111111111111".into(),
+                name: Some("bob".into()),
+                slot: 2,
+            },
+        ];
+        let line =
+            |t: &str, consumed| lock_line(t, found.get(t).copied(), None, consumed, false, &mine);
+        assert_eq!(
+            line(&txid(1), false),
+            ("@bob".into(), false, Credits::Unknown)
+        );
+        assert_eq!(line(&txid(1), true), ("@bob".into(), false, Credits::Added));
+        assert_eq!(
+            line(&txid(3), false),
+            ("@alice".into(), false, Credits::Unknown)
+        );
+        assert_eq!(
+            line(&txid(4), true),
+            (String::new(), false, Credits::Unknown)
+        );
+        // Locked again (no keys): what was derived still names them.
+        let again = lock_fors(
+            &restored.accounts,
+            &mut top_ups,
+            [7; 32],
+            None,
+            [0, 2],
+            &locks,
+        );
+        assert_eq!(again, found);
+    }
+
+    /// The addresses of a slot go on while top-ups use them: the first gap, then a gap past the
+    /// last one paid; past that, nothing; a new slot waits for the keys; another wallet starts
+    /// afresh.
+    #[test]
+    fn top_up_addresses_go_on_past_the_last_one_paid() {
+        let keys = super::super::keys_of(PHRASE).unwrap();
+        let xpub = top_up_xpub(&keys, 1).unwrap();
+        let at = |i: u32| lock_to(top_up_script(&xpub, i).unwrap());
+        let mut t = TopUpScripts::default();
+        t.cover([1; 32], Some(&keys), [1], &[]);
+        assert_eq!(t.derived(1), TOP_UP_GAP);
+        assert_eq!(t.lock_for(&at(TOP_UP_GAP as u32)), None, "not derived yet");
+        let gap = TOP_UP_GAP as u32;
+        // Each top-up within the gap of the one before; without keys, from the xpub.
+        let chain = [at(gap - 1), at(2 * gap - 1), at(3 * gap - 1)];
+        t.cover([1; 32], None, [1], &chain.iter().collect::<Vec<_>>());
+        assert_eq!(t.derived(1), 4 * TOP_UP_GAP);
+        assert_eq!(t.lock_for(&chain[2]), Some(LockFor::TopUp(1)));
+        assert_eq!(t.lock_for(&at(8 * gap)), None, "past the gap");
+        t.cover([1; 32], None, [3], &[]);
+        assert_eq!(t.derived(3), 0, "a new slot needs the keys");
+        t.cover([2; 32], Some(&keys), [1], &[]);
+        assert_eq!(t.derived(1), TOP_UP_GAP, "another wallet starts afresh");
+        assert_eq!(t.lock_for(&chain[2]), None);
     }
 }

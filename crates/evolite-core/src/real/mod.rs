@@ -451,6 +451,9 @@ struct Real {
     stored_history: Vec<key_wallet::managed_account::transaction_record::TransactionRecord>,
     /// The asset locks the store keeps as consumed (BUG-57 r1), read with the history.
     consumed_locks: std::collections::HashSet<String>,
+    /// The top-up addresses of the identities' slots, derived from the keys, for the locks a
+    /// restore left without a top-up account (BUG-57 follow-up).
+    top_ups: identity::TopUpScripts,
     history_read: Option<(usize, tokio::time::Instant)>,
     /// Core payments of this run: who they went to, and those the history does not show yet.
     outgoing: Arc<std::sync::Mutex<outgoing::Outgoing>>,
@@ -975,6 +978,7 @@ impl Real {
             phrase_check: None,
             stored_history: Vec::new(),
             consumed_locks: std::collections::HashSet::new(),
+            top_ups: Default::default(),
             history_read: None,
             mined,
             core_balance,
@@ -2090,17 +2094,26 @@ impl Real {
                 // input back from our own outputs.
                 let mut all: Vec<_> = self.stored_history.iter().chain(fresh).cloned().collect();
                 convert::attribute_late_inputs(&mut all);
-                lock_fors = all
+                let locks: Vec<_> = all
                     .iter()
                     .filter(|r| {
                         r.transaction_type
                             == key_wallet::transaction_checking::transaction_router::TransactionType::AssetLock
                     })
-                    .filter_map(|r| {
-                        let what = identity::lock_for(&state.core_wallet.accounts, &r.transaction)?;
-                        Some((r.txid.to_string(), what))
-                    })
+                    .map(|r| (r.txid.to_string(), &r.transaction))
                     .collect();
+                lock_fors = identity::lock_fors(
+                    &state.core_wallet.accounts,
+                    &mut self.top_ups,
+                    id,
+                    self.unlocked.as_ref().and_then(|o| o.keys.as_ref()),
+                    state
+                        .identity_manager
+                        .managed_identities()
+                        .filter(|m| m.wallet_id == Some(id))
+                        .filter_map(|m| m.identity_index),
+                    &locks,
+                );
                 // One the wallet took back out of its block is shown in it, and the filters are
                 // scanned again from there so the wallet and the store get it back (BUG-64).
                 lost_block = self

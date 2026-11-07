@@ -1711,6 +1711,21 @@ mod tests {
         let core = warm_wallet("evolite-live-locks");
         let (first, waits) = lines(&core);
         summary(&first);
+        // A restore has no top-up account: the top-ups get their identity by the slots'
+        // addresses (BUG-57 follow-up); the 0.5 DASH one Platform never took is not «added».
+        // The 1 DASH lock 90150dc2 pays the top-up account bound to no identity (DIP-9
+        // `IdentityTopUpNotBoundToIdentity`): no address names it.
+        assert!(
+            first
+                .iter()
+                .filter(|x| !x.2 && !x.0.starts_with("90150dc2"))
+                .all(|x| x.1),
+            "every top-up names its identity: {first:?}"
+        );
+        if let Some(half) = first.iter().find(|x| x.0.starts_with("40df656d")) {
+            assert!(half.1 && !half.2, "the 0.5 DASH top-up is named: {half:?}");
+            assert_ne!(half.3, Credits::Added, "and not taken by Platform");
+        }
         assert!(
             first.iter().any(|x| x.1 && x.2 && x.3 == Credits::Added),
             "an identity made by this phrase is its creation, named and added"
