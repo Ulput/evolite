@@ -5,8 +5,9 @@
 
 use super::txt;
 use crate::components::{
-    Assets, ButtonKind, FieldKind, amount_field, button, button_enabled, card, dialog, divider,
-    field_label, kv_row, notice, option_card_at_least, page_header, pill, text_field,
+    Assets, ButtonKind, CardColumn, FieldKind, amount_field, button, button_enabled, card, dialog,
+    divider, field_label, kv_row, notice, option_card_in, option_card_width, page_header, pill,
+    text_field,
 };
 use crate::context::Ctx;
 use crate::text::{name_problem, short_address};
@@ -431,6 +432,43 @@ fn source_detail(
     }
 }
 
+/// The width of each of `n` equal columns of «From» in `width` (8 px between them): all `n`
+/// in one row when each holds `least`, otherwise fewer per row (BUG-81), one under another at
+/// the least.
+fn from_columns(width: f32, n: usize, least: f32) -> f32 {
+    let column = |k: usize| ((width - 8.0 * (k as f32 - 1.0)) / k as f32).floor();
+    (1..=n.max(1))
+        .rev()
+        .map(column)
+        .find(|&c| c >= least)
+        .unwrap_or_else(|| column(1))
+}
+
+/// What a «From» card needs: the width of its words alone and with its icon
+/// ([`option_card_width`]).
+#[derive(Clone, Copy, Debug)]
+struct CardWidths {
+    words: f32,
+    with_icon: f32,
+}
+
+/// The column each «From» card stands in, in `width`: equal columns that hold the widest words
+/// ([`from_columns`]), and the icons on every card or on none (the designer, BUG-81 r2) — on
+/// all when the column holds the widest card with its icon. The columns are equal, so one
+/// answer for the panel is one for each row, two plus one included.
+fn from_layout(width: f32, cards: &[CardWidths]) -> Vec<CardColumn> {
+    let widest = |f: fn(&CardWidths) -> f32| cards.iter().map(f).fold(0.0, f32::max);
+    let column = from_columns(width, cards.len(), widest(|c| c.words));
+    let icon = column >= widest(|c| c.with_icon);
+    cards
+        .iter()
+        .map(|_| CardColumn {
+            width: column,
+            icon,
+        })
+        .collect()
+}
+
 enum Recipient<'a> {
     Empty,
     /// Waiting for the core to resolve the name.
@@ -656,16 +694,27 @@ pub fn send(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut SendForm) {
             ui.horizontal_wrapped(|ui| {
                 ui.spacing_mut().item_spacing = vec2(8.0, 8.0);
                 // Equal columns in one row (the designer's summary №25), a long Core balance
-                // too (BUG-67).
-                let n = all.len().max(1) as f32;
-                let column = ((ui.available_width() - 8.0 * (n - 1.0)) / n).floor();
-                for (i, s) in all.iter().enumerate() {
-                    let detail = source_detail(s, core_as_of, core_as_of_line.as_deref());
+                // too (BUG-67); every card whole inside the panel, its words with the padding
+                // (BUG-81): as many columns as hold the widest words, without icons if need be.
+                let details: Vec<String> = all
+                    .iter()
+                    .map(|s| source_detail(s, core_as_of, core_as_of_line.as_deref()))
+                    .collect();
+                let widths: Vec<CardWidths> = all
+                    .iter()
+                    .zip(&details)
+                    .map(|(s, d)| CardWidths {
+                        words: option_card_width(ui, s.title, d, false),
+                        with_icon: option_card_width(ui, s.title, d, true),
+                    })
+                    .collect();
+                let columns = from_layout(ui.available_width(), &widths);
+                for (i, ((s, detail), column)) in
+                    all.iter().zip(&details).zip(columns).enumerate()
+                {
                     let selected = i == form.source;
-                    if option_card_at_least(
-                        ui, a, s.icon, s.title, &detail, selected, column,
-                    )
-                    .clicked()
+                    if option_card_in(ui, a, s.icon, s.title, detail, selected, column)
+                        .clicked()
                     {
                         form.source = i;
                         form.result = None;
@@ -1516,6 +1565,52 @@ fn resolved(ui: &mut Ui, a: &mut Assets, c: &ResolvedName, from: Source, asked: 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// BUG-81: three columns while each holds the widest words, then two, then one; a column
+    /// and the 8 px between them never take more than the panel.
+    #[test]
+    fn the_sources_take_as_many_columns_as_hold_their_words() {
+        assert_eq!(from_columns(474.0, 3, 141.0), 152.0);
+        assert_eq!(from_columns(474.0, 3, 152.0), 152.0);
+        assert_eq!(from_columns(474.0, 3, 153.0), 233.0);
+        assert_eq!(from_columns(474.0, 3, 234.0), 474.0);
+        assert_eq!(from_columns(474.0, 3, 600.0), 474.0);
+        assert_eq!(from_columns(474.0, 0, 10.0), 474.0);
+        for least in [100.0, 152.5, 200.0, 300.0] {
+            let c = from_columns(474.0, 3, least);
+            let per_row = ((474.0 + 8.0) / (c + 8.0)).floor().min(3.0);
+            assert!(per_row * c + 8.0 * (per_row - 1.0) <= 474.0, "{least}: {c}");
+        }
+    }
+
+    /// BUG-81 r2 (the designer): a row shows icons on all its cards or on none. At a 152 px
+    /// column the Credits card holds its icon (150.4) and Core does not (157): none get one;
+    /// a wider panel gives them to all; two plus one is decided once too.
+    #[test]
+    fn every_row_of_sources_shows_icons_on_all_cards_or_on_none() {
+        let card = |words: f32, with_icon: f32| CardWidths { words, with_icon };
+        let mixed = [card(129.0, 157.0), card(122.4, 150.4), card(122.4, 150.4)];
+        let icons = |width: f32, cards: &[CardWidths]| -> Vec<bool> {
+            from_layout(width, cards).iter().map(|c| c.icon).collect()
+        };
+        assert!(from_layout(474.0, &mixed).iter().all(|c| c.width == 152.0));
+        assert_eq!(icons(474.0, &mixed), [false, false, false]);
+        // Wide enough for the widest with its icon: on all.
+        assert_eq!(icons(490.0, &mixed), [true, true, true]);
+        // Two in the first row, one under them: the same column, the same answer.
+        let wide = [card(160.0, 240.0), card(120.0, 148.0), card(120.0, 148.0)];
+        assert!(from_layout(474.0, &wide).iter().all(|c| c.width == 233.0));
+        assert_eq!(icons(474.0, &wide), [false, false, false]);
+        for width in [300.0, 400.0, 474.0, 480.0, 520.0, 700.0] {
+            for cards in [&mixed[..], &wide[..], &mixed[..2]] {
+                let row = icons(width, cards);
+                assert!(
+                    row.iter().all(|&i| i == row[0]),
+                    "{width}: a mixed row {row:?}"
+                );
+            }
+        }
+    }
 
     /// BUG-77: the Core source says how sure its balance is — the last checked one and when, or
     /// only «not known yet» (no 0 as if checked); the other sources are as they were.

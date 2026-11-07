@@ -168,3 +168,111 @@ fn the_sources_stay_in_one_row_of_equal_columns() {
         );
     }
 }
+
+/// BUG-81: every source of «From» lies whole inside the form's panel — between «From» on the
+/// left and «Hide the amounts» on the right — in equal columns, at about 1024 (the rail; 1000
+/// is the panel the QA window had) and wider (the menu), in Russian and English. With the
+/// bug's balances they stay in one row and the words keep the padding on the right; with
+/// thousands of DASH and a Core balance «as of» yesterday they take fewer columns. Before the
+/// fix a card widened past its column: at 1000 «Приватный пул» left the row, with long
+/// balances the columns were unequal.
+#[test]
+fn every_source_lies_inside_the_from_panel() {
+    // (Core, credits, pool, Core checked a day ago): the bug's wallet, then long balances.
+    let sets: [(i64, i64, i64, bool); 2] = [
+        (391_724_464, 436_140, 48_885_860, false),
+        (1_234_567_890_123, 987_654_321_098, 876_543_210_987, true),
+    ];
+    for lang in ["ru", "en"] {
+        let (_turn, mut kit) = demo_app("send", lang);
+        let names = ["Core", "Credits", "Private pool"].map(crate::i18n::spoken);
+        let from = crate::i18n::spoken("From");
+        let hide = crate::i18n::spoken("Hide the amounts");
+        for (core, credits, pool, as_of) in sets {
+            for (w, h, one_row) in [
+                (1000.0, 768.0, true),
+                (1024.0, 768.0, true),
+                (1024.0, 480.0, true),
+                // The menu opens: three columns of the bug's words do not fit until about 1160.
+                (1100.0, 768.0, false),
+                (1280.0, 800.0, true),
+                (1440.0, 900.0, true),
+                (1920.0, 1080.0, true),
+            ] {
+                kit.set_size(egui::vec2(w, h));
+                for _ in 0..5 {
+                    if let Some(wl) = kit
+                        .state_mut()
+                        .snapshot
+                        .as_mut()
+                        .and_then(|s| s.wallet.as_mut())
+                    {
+                        wl.balances.core = core;
+                        wl.balances.core_as_of = as_of.then(|| {
+                            evolite_api::CoreAsOf::Checked(chrono::Utc::now().timestamp() - 86_400)
+                        });
+                        wl.balances.credits = credits;
+                        wl.balances.shielded = pool;
+                    }
+                    kit.run_steps(1);
+                }
+                let at = format!("{lang} {w}×{h} {core}");
+                let left = words(&kit, &from).rect().left();
+                let right = button(&kit, &hide).rect().right();
+                let cards: Vec<_> = kit
+                    .query_all_by_role(Role::RadioButton)
+                    .filter(|n| {
+                        n.accesskit_node()
+                            .label()
+                            .is_some_and(|l| names.contains(&l))
+                    })
+                    .map(|n| n.rect())
+                    .collect();
+                assert_eq!(cards.len(), 3, "{at}: {names:?}: {cards:?}");
+                for r in &cards {
+                    assert!(
+                        r.left() >= left - 0.5 && r.right() <= right + 0.5,
+                        "{at}: a card {r:?} outside the panel {left}..{right}: {cards:?}"
+                    );
+                }
+                let width = cards[0].width();
+                assert!(
+                    cards.iter().all(|r| (r.width() - width).abs() < 0.5),
+                    "{at}: equal columns: {cards:?}"
+                );
+                if !as_of {
+                    let top = cards[0].top();
+                    assert!(
+                        !one_row || cards.iter().all(|r| (r.top() - top).abs() < 0.5),
+                        "{at}: one row: {cards:?}"
+                    );
+                    // The widest words with 14 px on the left and 16 on the right.
+                    let mut widest = 0.0f32;
+                    for (text, font) in names
+                        .iter()
+                        .map(|n| {
+                            (
+                                n.clone(),
+                                crate::theme::sans(13.0, crate::theme::Weight::SemiBold),
+                            )
+                        })
+                        .chain([core, credits, pool].map(|d| {
+                            (
+                                crate::format::balance(d),
+                                crate::theme::mono(11.0, crate::theme::Weight::Regular),
+                            )
+                        }))
+                    {
+                        widest = widest.max(kit.ctx.fonts_mut(|f| {
+                            f.layout_no_wrap(text, font, egui::Color32::WHITE).size().x
+                        }));
+                    }
+                    assert!(
+                        width >= 14.0 + widest + 16.0 - 0.5,
+                        "{at}: words {widest} in a card {width} wide"
+                    );
+                }
+            }
+        }
+    }
+}

@@ -13,36 +13,74 @@ pub fn option_card(
     detail: &str,
     selected: bool,
 ) -> Response {
-    option_card_at_least(ui, a, icon, title, detail, selected, 0.0)
+    option_card_in(
+        ui,
+        a,
+        icon,
+        title,
+        detail,
+        selected,
+        CardColumn {
+            width: 0.0,
+            icon: true,
+        },
+    )
 }
 
-/// [`option_card`] `width` wide (a row of cards in equal columns, BUG-67): its words may take
-/// most of the padding on the right, and it widens only when they need more; 0: as wide as its
-/// words.
-pub fn option_card_at_least(
+/// The padding of an option card left of its icon and right of its words.
+const CARD_LEFT: f32 = 14.0;
+const CARD_RIGHT: f32 = 16.0;
+/// The icon and the gap after it.
+const CARD_ICON: f32 = 18.0 + 10.0;
+
+/// How wide an [`option_card`] must be to hold its words with the full padding on the right:
+/// with its icon, or without it (the least a column may be, [`option_card_in`]).
+pub fn option_card_width(ui: &Ui, title: &str, detail: &str, with_icon: bool) -> f32 {
+    let words = text_width(ui, title, sans(13.0, Weight::SemiBold)).max(text_width(
+        ui,
+        detail,
+        mono(11.0, Weight::Regular),
+    ));
+    CARD_LEFT + if with_icon { CARD_ICON } else { 0.0 } + words + CARD_RIGHT
+}
+
+/// The column an [`option_card_in`] stands in: its width, and whether the row's cards show their
+/// icons — one answer for the whole row.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct CardColumn {
+    pub width: f32,
+    pub icon: bool,
+}
+
+/// [`option_card`] in a column `width` wide (a row of cards in equal columns, BUG-67): the
+/// words keep the full padding on the right (BUG-81). `icon` is decided for the whole row
+/// by the caller (the designer, BUG-81: icons on every card of a row or on none), never card by
+/// card. Never narrower than its words: the caller picks columns that hold them
+/// (`option_card_width(.., false)`). 0: as wide as its icon and words.
+pub fn option_card_in(
     ui: &mut Ui,
     a: &mut Assets,
     icon: &str,
     title: &str,
     detail: &str,
     selected: bool,
-    width: f32,
+    column: CardColumn,
 ) -> Response {
+    let CardColumn {
+        width,
+        icon: with_icon,
+    } = column;
     let p = a.p;
     let title_font = sans(13.0, Weight::SemiBold);
     let detail_font = mono(11.0, Weight::Regular);
-    let text_w =
-        text_width(ui, title, title_font.clone()).max(text_width(ui, detail, detail_font.clone()));
+    let full = option_card_width(ui, title, detail, true);
+    let width = if width > 0.0 {
+        width.max(option_card_width(ui, title, detail, false))
+    } else {
+        full
+    };
     let (rect, resp) = ui.allocate_exact_size(
-        vec2(
-            // In a column the words may take 12 of the 16 px on the right before it widens.
-            if width > 0.0 {
-                width.max(14.0 + 18.0 + 10.0 + text_w + 4.0)
-            } else {
-                14.0 + 18.0 + 10.0 + text_w + 16.0
-            },
-            if detail.is_empty() { 38.0 } else { 52.0 },
-        ),
+        vec2(width, if detail.is_empty() { 38.0 } else { 52.0 }),
         Sense::click(),
     );
     named_choice(&resp, egui::WidgetType::RadioButton, selected, title);
@@ -62,12 +100,12 @@ pub fn option_card_at_least(
         StrokeKind::Inside,
     );
     let color = if selected { p.text } else { p.muted };
-    let icon_rect = Rect::from_min_size(
-        pos2(rect.left() + 14.0, rect.center().y - 9.0),
-        vec2(18.0, 18.0),
-    );
-    a.icons.icon(icon, color, &p, 18.0).paint_at(ui, icon_rect);
-    let x = icon_rect.right() + 10.0;
+    let mut x = rect.left() + CARD_LEFT;
+    if with_icon {
+        let icon_rect = Rect::from_min_size(pos2(x, rect.center().y - 9.0), vec2(18.0, 18.0));
+        a.icons.icon(icon, color, &p, 18.0).paint_at(ui, icon_rect);
+        x += CARD_ICON;
+    }
     if detail.is_empty() {
         paint_text(
             ui,
