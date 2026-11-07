@@ -40,7 +40,9 @@ use super::provider::{NotYet, SpvContextProvider};
 use super::sync::{Phase, Reporter, SyncStatus, VerifiedLocks};
 use super::{dashpay, identity, nfts};
 
-type Manager = PlatformWalletManager<SqlitePersister>;
+/// The SQLite store with the DashPay backfill record and the spent-coin claims it does not keep
+/// (BUG-77, [`super::store`]).
+type Manager = PlatformWalletManager<super::store::Store<SqlitePersister>>;
 
 /// Where the chain side keeps its files.
 #[derive(Clone)]
@@ -406,8 +408,13 @@ impl Chain {
         if let Some(dir) = store.parent() {
             std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
         }
-        let persister = SqlitePersister::open(SqlitePersisterConfig::new(store.to_path_buf()))
-            .map_err(|e| e.to_string())?;
+        // The record and the claims are read in `load_from_persistor` below: before the SPV
+        // client starts (BUG-77).
+        let persister = super::store::Store::new(
+            SqlitePersister::open(SqlitePersisterConfig::new(store.to_path_buf()))
+                .map_err(|e| e.to_string())?,
+            store.to_path_buf(),
+        );
         let manager = Arc::new(PlatformWalletManager::new(
             Arc::new(sdk),
             Arc::new(persister),

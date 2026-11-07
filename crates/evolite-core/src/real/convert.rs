@@ -13,14 +13,18 @@ use key_wallet::wallet::managed_wallet_info::fee::{FeeRate, estimate_tx_size};
 use super::sync::SyncStatus;
 
 /// The wallet's coins are known: headers at the tip and, for an open wallet, its filters too —
-/// done up to the headers' tip in this run ([`SyncStatus::filters_at_tip`]), not only "done",
-/// which dash-spv says right after a start against the last run's height (BUG-77 r1 must).
+/// once done up to the headers' tip in this run ([`SyncStatus::filters_at_tip`]), not only
+/// "done", which dash-spv says right after a start against the last run's height (BUG-77 r1
+/// must), and not below that height since. Once latched, dash-spv's "done" is not asked again:
+/// it puts the filters back to syncing for a moment on each new block, and the balance dimmed
+/// at every block (BUG-77 r2 should 1). The latch goes when the headers are not done (all peers
+/// lost) and on a rewind ([`SyncStatus::latch_filters_at_tip`]).
 /// Until the first filter report after a restart there is none, and that is "not yet".
 pub(super) fn coins_known(s: &SyncStatus, wallet: bool) -> bool {
     s.headers.is_some_and(|h| h.done)
         && (!wallet
             || s.filters
-                .is_some_and(|f| f.done && s.filters_at_tip.is_some_and(|at| f.height >= at)))
+                .is_some_and(|f| s.filters_at_tip.is_some_and(|at| f.height >= at)))
 }
 
 /// What dash-spv reports, in the terms of the screens. `wallet`: a wallet is open, so its
@@ -1281,14 +1285,87 @@ mod tests {
         assert!(coins_known(&s, true), "no flicker on a new block");
         filters_done_at(&mut s, 1001);
         assert!(coins_known(&s, true));
+        // Then dash-spv puts the filters back to syncing for a moment, as on every block (r2
+        // should 1: the tile dimmed and the stage said «Filters» at each one).
+        s.headers = Some(Stage {
+            height: 1002,
+            target: 1002,
+            done: true,
+        });
+        s.filters = Some(Stage {
+            height: 1001,
+            target: 1002,
+            done: false,
+        });
+        s.latch_filters_at_tip();
+        assert!(
+            coins_known(&s, true),
+            "no flicker while the new filters come"
+        );
+        assert_eq!(sync_info(&s, true).stage, SyncStage::Done);
+        filters_done_at(&mut s, 1002);
         // A rewind (DashPay's backfill, BUG-64's rescan): the filters below where they were.
         filters_done_at(&mut s, 900);
         assert!(!coins_known(&s, true));
         // A new client on the same status: the next run proves it again.
-        filters_done_at(&mut s, 1001);
+        filters_done_at(&mut s, 1002);
         assert!(coins_known(&s, true));
         s.begin_run();
         assert!(!coins_known(&s, true));
+    }
+
+    /// r2 should 2: the latch goes with a rewind. Meanwhile the headers went on two blocks; the
+    /// filters climbing back to the old latch are not at the tip, and the two blocks above it
+    /// were not scanned yet.
+    #[test]
+    fn after_a_rewind_the_filters_have_to_reach_the_new_tip() {
+        let mut s = at_tip();
+        filters_done_at(&mut s, 1000);
+        assert!(coins_known(&s, true));
+        filters_done_at(&mut s, 900);
+        s.headers = Some(Stage {
+            height: 1002,
+            target: 1002,
+            done: true,
+        });
+        filters_done_at(&mut s, 1000);
+        assert!(
+            !coins_known(&s, true),
+            "the old latch at 1000, the tip at 1002"
+        );
+        assert_eq!(sync_info(&s, true).stage, SyncStage::Filters);
+        filters_done_at(&mut s, 1002);
+        assert!(coins_known(&s, true));
+    }
+
+    /// All peers lost: dash-spv's headers wait for connections again. Back, the headers reach a
+    /// tip the filters have not: not known until the filters reach it, though they are past the
+    /// latch of before.
+    #[test]
+    fn with_the_peers_lost_the_latch_goes() {
+        let mut s = at_tip();
+        filters_done_at(&mut s, 1000);
+        s.headers = Some(Stage {
+            height: 1000,
+            target: 1000,
+            done: false,
+        });
+        s.latch_filters_at_tip();
+        assert!(!coins_known(&s, true));
+        s.headers = Some(Stage {
+            height: 1005,
+            target: 1005,
+            done: true,
+        });
+        s.filters = Some(Stage {
+            height: 1001,
+            target: 1005,
+            done: false,
+        });
+        s.latch_filters_at_tip();
+        assert!(!coins_known(&s, true), "filters at 1001 of 1005");
+        filters_done_at(&mut s, 1005);
+        assert!(coins_known(&s, true));
     }
 
     #[test]

@@ -1153,6 +1153,152 @@ mod tests {
         );
     }
 
+    /// BUG-77 workarounds on a copy of the QA data folder (werner555, «Кошелёк 2»; nothing is
+    /// spent), in two runs of the test — two starts of the app on the same folder. The first
+    /// run copies qa-data and syncs: the DashPay backfill rewinds the filters once and its record
+    /// goes to `backfill.json`. The second run opens the folder again and must not rewind: no
+    /// `Filters` stage below the height the filters were done to, the record taken back
+    /// (journal `kept`), spent coins claimed, the 7 DIP-15 coins still there (balance as in the
+    /// first run). Prints the time to «Done» and to the last «Done» of each run.
+    /// `EVOLITE_B77_PLAIN=1`: the store without the workarounds, for the timing before.
+    /// `cargo test -p evolite-core live_a_start_again -- --ignored --nocapture` (twice)
+    #[test]
+    #[ignore = "needs testnet access and the QA data folder"]
+    fn live_a_start_again_rewinds_no_filters() {
+        let here = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../.test-identities/qa-evolite-password.txt");
+        let main = std::path::Path::new(r"E:\reps\evolite-rust\.test-identities")
+            .join("qa-evolite-password.txt");
+        let password = std::fs::read_to_string(&here)
+            .or_else(|_| std::fs::read_to_string(&main))
+            .expect("the QA password file")
+            .trim()
+            .to_owned();
+        let dir = std::env::temp_dir().join("evolite-live-b77w-qa");
+        let first = dir.join("first-run.json");
+        let again = first.exists();
+        if !again {
+            let _ = std::fs::remove_dir_all(&dir);
+            copy_dir(std::path::Path::new(r"E:\reps\qa-data"), &dir).expect("a copy of qa-data");
+        }
+        crate::diag::init(&dir.join("logs-b77w"));
+        let started = Instant::now();
+        let core = Core::real(dir.clone(), ArtOptions::default(), || {});
+        core.send(Command::Unlock {
+            password: Password::new(password.clone()),
+        });
+        let target = wait_for(&core, 5, |e| match e {
+            Event::Snapshot(s) if s.vault == VaultState::Unlocked => s
+                .wallets
+                .iter()
+                .find(|w| w.name == "Кошелёк 2")
+                .map(|w| (w.id.clone(), w.open)),
+            _ => None,
+        });
+        if !target.1 {
+            core.send(Command::SwitchWallet {
+                id: target.0,
+                password: Some(Password::new(password.clone())),
+            });
+        }
+        // (stage, filters) changes; the first and last «Done»; the lowest filters after a Done.
+        let mut last = None;
+        let mut first_done = None;
+        let mut last_done = None;
+        let mut done_at = 0;
+        let mut dropped_to = None::<u32>;
+        let mut core_balance = 0;
+        while started.elapsed() < Duration::from_secs(6 * 60) {
+            for event in core.events() {
+                let Event::Snapshot(s) = event else { continue };
+                if !s.wallets.iter().any(|w| w.open && w.name == "Кошелёк 2") {
+                    continue;
+                }
+                let Some(w) = &s.wallet else { continue };
+                let secs = started.elapsed().as_secs();
+                let now = (s.sync.stage, s.sync.filters_height);
+                if last != Some(now) {
+                    println!(
+                        "{} {secs} s: {:?} filters {} tip {} core {} {:?}",
+                        if again { "again" } else { "first" },
+                        s.sync.stage,
+                        s.sync.filters_height,
+                        s.sync.tip_height,
+                        w.balances.core,
+                        w.balances.core_as_of
+                    );
+                    last = Some(now);
+                }
+                if s.sync.stage == SyncStage::Done {
+                    first_done.get_or_insert(secs);
+                    last_done = Some(secs);
+                    done_at = done_at.max(s.sync.filters_height);
+                    core_balance = w.balances.core;
+                } else if first_done.is_some()
+                    && s.sync.filters_height > 0
+                    && s.sync.filters_height + 100 < done_at
+                {
+                    dropped_to = Some(
+                        dropped_to.map_or(s.sync.filters_height, |d| d.min(s.sync.filters_height)),
+                    );
+                }
+            }
+            std::thread::sleep(Duration::from_millis(300));
+        }
+        let journal: String = crate::diag::files()
+            .iter()
+            .filter_map(|f| std::fs::read_to_string(f).ok())
+            .collect();
+        let lines = |k: &str| -> Vec<String> {
+            journal
+                .lines()
+                .filter(|l| l.contains(&format!("\"k\":\"{k}\"")))
+                .map(str::to_owned)
+                .collect()
+        };
+        println!(
+            "{}: first Done {first_done:?} s, last Done {last_done:?} s, filters dropped to {dropped_to:?}, core {core_balance}",
+            if again { "again" } else { "first" }
+        );
+        println!("journal backfill: {:?}", lines("backfill"));
+        println!("journal spent_claims: {:?}", lines("spent_claims"));
+        fn named(dir: &std::path::Path, name: &str, found: &mut Vec<std::path::PathBuf>) {
+            for entry in std::fs::read_dir(dir).into_iter().flatten().flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    named(&path, name, found);
+                } else if path.file_name().is_some_and(|n| n == name) {
+                    found.push(path);
+                }
+            }
+        }
+        let mut records = Vec::new();
+        named(&dir.join("wallets"), "backfill.json", &mut records);
+        for path in &records {
+            println!(
+                "{}: {:?}",
+                path.display(),
+                std::fs::read_to_string(path).ok()
+            );
+        }
+        assert!(last_done.is_some(), "synced");
+        if !again {
+            std::fs::write(&first, core_balance.to_string()).unwrap();
+            println!("run the test again for the second start");
+            return;
+        }
+        let before: i64 = std::fs::read_to_string(&first).unwrap().parse().unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(core_balance, before, "the same coins, the DIP-15 ones too");
+        if std::env::var_os("EVOLITE_B77_PLAIN").is_none() {
+            assert!(
+                lines("backfill").iter().any(|l| l.contains("\"kept\"")),
+                "the record taken back"
+            );
+            assert_eq!(dropped_to, None, "no pass over the filters from lower down");
+        }
+    }
+
     /// BUG-64 on testnet: a payment to the wallet's own address is "Confirmed" by its InstantLock
     /// in seconds, and stays at least that after the app is opened again on the same folder —
     /// then "In a block" and "Final" as the chain goes on. Prints each change of its status.

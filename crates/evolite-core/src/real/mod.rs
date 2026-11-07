@@ -36,6 +36,7 @@ mod pool_history;
 mod provider;
 mod rates;
 mod security;
+mod store;
 mod sync;
 mod vault;
 mod wallets;
@@ -178,6 +179,11 @@ pub fn resync_on_start(paths: &Paths) -> std::io::Result<bool> {
     }
     // Platform is read back from the start; what the journal holds stays (BUG-58).
     gone(std::fs::remove_file(&paths.platform_sync))?;
+    // The DashPay backfill record vouches for a scan that is gone with the store (BUG-77); the
+    // spent-coin claims are read from the store itself and go with it.
+    gone(std::fs::remove_file(store::backfill_file(
+        &paths.chain.store,
+    )))?;
     std::fs::remove_file(&paths.resync)?;
     Ok(true)
 }
@@ -2029,6 +2035,10 @@ impl Real {
         // values for the fee of a payment (BUG-55).
         let mut all_credits: Duffs = 0;
         let mut coin_values = Vec::new();
+        // Known before the coins are counted, and still after: a count made while a rewound pass
+        // was below the tip, checked only once it had reached it, showed 4,82 as checked for a
+        // moment (live, BUG-77 workarounds).
+        let known_before = coins_known(&self.chain.status(), true);
         let (balance, (coins, addresses), mut history, shown, platform) = match self
             .chain
             .wallet(&id)
@@ -2415,7 +2425,7 @@ impl Real {
         // rewound pass, a rescan) the last checked one with its time, or none (BUG-77).
         let (core, core_as_of) = self.core_balance.shown(
             balance.unwrap_or(0),
-            balance.is_some() && coins_known(&self.chain.status(), true),
+            balance.is_some() && known_before && coins_known(&self.chain.status(), true),
             now(),
         );
         Wallet {
@@ -4907,6 +4917,7 @@ mod tests {
         std::fs::create_dir_all(&wallets).unwrap();
         std::fs::create_dir_all(paths.chain.spv.join("headers")).unwrap();
         let store_wal = wallets.join("platform-wallet.db-wal");
+        let backfill = store::backfill_file(&paths.chain.store);
         for file in [
             &paths.vault,
             &paths.journal,
@@ -4914,6 +4925,7 @@ mod tests {
             &paths.contact_addresses,
             &paths.chain.store,
             &store_wal,
+            &backfill,
         ] {
             std::fs::write(file, b"x").unwrap();
         }
@@ -4929,6 +4941,15 @@ mod tests {
         assert!(paths.vault.exists() && paths.journal.exists() && paths.contact_addresses.exists());
         // BUG-58: Platform is read back from the start; the journal stays.
         assert!(!paths.platform_sync.exists());
+        // BUG-77: both marks go — the backfill record, and the spent coins with the store.
+        assert!(
+            !backfill.exists(),
+            "the backfill record vouches for a scan that is gone"
+        );
+        assert_eq!(
+            store::spent_claims(&paths.chain.store, &[0; 32]),
+            store::Claims::default()
+        );
         assert!(!paths.resync.exists(), "once");
         let _ = std::fs::remove_dir_all(&dir);
     }

@@ -68,7 +68,10 @@ pub struct SyncStatus {
     /// gone again when they go below it (a rewind). dash-spv says the filters are done against
     /// the filter headers it has: right after a start that is the height of the last run, with
     /// the headers already at the network's tip — the coins then are the last run's (BUG-77 r1
-    /// must). A new block (headers one ahead for a few seconds) keeps it: no flicker.
+    /// must). A new block keeps it — the headers one ahead for a few seconds, then the filters
+    /// syncing again for a moment (dash-spv's `handle_new_filter_headers`): no flicker. It goes
+    /// when the headers are not done (all peers lost: dash-spv waits for connections again) and
+    /// on a rewind; after either, the filters have to reach the headers' tip again.
     pub filters_at_tip: Option<u32>,
     /// A node answered this run's request for the masternode lists (QRInfo): dash-spv checks
     /// their quorums now. Its list height moves only at the very end, so this is all there is
@@ -144,12 +147,14 @@ impl SyncStatus {
     }
 
     /// Moves [`Self::filters_at_tip`]: up when the filters are done to the headers' tip, away
-    /// when they go below it (a rewind).
+    /// when the headers are not done or the filters go below it (a rewind: the headers may go
+    /// on meanwhile, and the old height is then no longer the tip).
     pub fn latch_filters_at_tip(&mut self) {
         match (self.headers, self.filters) {
             (Some(h), Some(f)) if h.done && f.done && f.height >= h.height => {
                 self.filters_at_tip = Some(f.height);
             }
+            (Some(h), _) if !h.done => self.filters_at_tip = None,
             (_, Some(f)) if self.filters_at_tip.is_some_and(|at| f.height < at) => {
                 self.filters_at_tip = None;
             }

@@ -108,6 +108,19 @@ pub enum Record {
     /// The last run ended without closing its window (a crash, a reset): the saved window
     /// size and placement were dropped, so a maximized window does not open again at once.
     WindowReset,
+    /// What the load did with a wallet's saved DashPay backfill record (BUG-77): `kept`, `none`
+    /// or `rejected_*` and why, and how many contacts the record taken back covers.
+    Backfill {
+        outcome: &'static str,
+        contacts: u32,
+    },
+    /// The store's spent coins claimed at the load (BUG-77): claimed, spent but with no spender
+    /// in a block (not claimed), and claimed but still among the wallet's coins.
+    SpentClaims {
+        claimed: u32,
+        not_in_block: u32,
+        still_held: u32,
+    },
 }
 
 impl Record {
@@ -157,6 +170,17 @@ impl Record {
                 json!({"k": "platform", "op": op, "error": error})
             }
             Record::WindowReset => json!({"k": "window_reset"}),
+            Record::Backfill { outcome, contacts } => {
+                json!({"k": "backfill", "outcome": outcome, "contacts": contacts})
+            }
+            Record::SpentClaims {
+                claimed,
+                not_in_block,
+                still_held,
+            } => json!({
+                "k": "spent_claims", "claimed": claimed, "notInBlock": not_in_block,
+                "stillHeld": still_held,
+            }),
         }
     }
 
