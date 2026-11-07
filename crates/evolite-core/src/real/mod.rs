@@ -84,6 +84,16 @@ const START_AGAIN: Duration = Duration::from_secs(15);
 /// A contact's DPNS name that could not be read is asked again after this long.
 const NAME_RETRY: Duration = Duration::from_secs(30);
 
+/// A Platform read that failed, as the UI is told: "wait for the sync" when it was not made
+/// because the masternode lists are not in yet ([`Chain::ready`]).
+fn read_failure(e: String) -> CoreError {
+    if e == chain::NOT_READY {
+        CoreError::NotSynced
+    } else {
+        CoreError::Failed(e)
+    }
+}
+
 /// Where the core keeps its files, per network: the SPV storage, platform-wallet's store and
 /// the vault.
 #[derive(Clone)]
@@ -1346,7 +1356,7 @@ impl Real {
                 let to = match chain.resolve_name(&label).await {
                     Ok(Some(to)) => to,
                     Ok(None) => return Err(CoreError::NameNotFound),
-                    Err(e) => return Err(CoreError::Failed(e)),
+                    Err(e) => return Err(read_failure(e)),
                 };
                 let to = Identifier::from_string(&to, Encoding::Base58)
                     .map_err(|e| CoreError::Failed(e.to_string()))?;
@@ -1627,7 +1637,14 @@ impl Real {
     /// Asks Platform for the DPNS names of contacts not asked about yet. An ask that failed (no
     /// proofs yet, the network) is asked again half a minute later: without its name a contact
     /// cannot be paid or found by name.
+    ///
+    /// Nothing before the masternode lists are in (BUG-78): the read would fail its proof and
+    /// get DAPI nodes banned, every half minute for each contact. None is marked asked, so the
+    /// snapshot that comes once they are in (the sync status changes) asks them all.
     fn ask_names(&mut self, ids: Vec<String>) {
+        if !self.chain.platform_ready() {
+            return;
+        }
         for id in ids {
             if !self
                 .names_asked
@@ -3117,7 +3134,7 @@ impl Real {
                                 .map_err(|e| CoreError::Failed(e.to_string()))?,
                         ),
                         Ok(None) => return Err(CoreError::NameNotFound),
-                        Err(e) => return Err(CoreError::Failed(e)),
+                        Err(e) => return Err(read_failure(e)),
                     },
                 };
                 chain
@@ -5613,6 +5630,120 @@ mod tests {
 
     fn count(n: &std::sync::atomic::AtomicUsize) -> usize {
         n.load(Ordering::Relaxed)
+    }
+
+    /// The masternode lists in, as dash-spv reports them once they are.
+    fn lists_in(chain: &Chain) {
+        chain.set_status(|s| {
+            s.masternodes = Some(sync::Stage {
+                height: 1_000,
+                target: 1_000,
+                done: true,
+            })
+        });
+    }
+
+    /// Waits up to five seconds for `n` to reach `want` (a spawned ask).
+    async fn counted(n: &std::sync::atomic::AtomicUsize, want: usize) -> usize {
+        for _ in 0..50 {
+            if count(n) >= want {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+        count(n)
+    }
+
+    fn some_identity() -> String {
+        Identifier::from([7; 32]).to_string(Encoding::Base58)
+    }
+
+    /// BUG-78: no Platform read leaves before the masternode lists are in — not even with
+    /// the lists under way — and it is not counted as made; once they are, it goes out.
+    #[tokio::test]
+    async fn no_platform_read_goes_out_before_the_lists() {
+        let chain = Chain::default();
+        let id = Identifier::from([7; 32]);
+        assert_eq!(chain.ready(), Err(chain::NOT_READY.to_owned()));
+        chain.set_status(|s| {
+            s.masternodes = Some(sync::Stage {
+                height: 10,
+                target: 1_000,
+                done: false,
+            })
+        });
+        assert_eq!(chain.name_of(id).await, Err(chain::NOT_READY.into()));
+        assert_eq!(
+            chain.resolve_name("dash").await,
+            Err(chain::NOT_READY.into())
+        );
+        assert_eq!(
+            chain.profile_of(id).await.err(),
+            Some(chain::NOT_READY.into())
+        );
+        assert_eq!(
+            chain.jembe_gifts(id, &[]).await.err(),
+            Some(chain::NOT_READY.into())
+        );
+        assert_eq!(count(&chain.proof_reads), 0, "nothing went out");
+        lists_in(&chain);
+        assert_eq!(chain.ready(), Ok(()));
+        // Past the guard: here it stops at the missing SDK, in the app it asks the network.
+        assert_eq!(
+            chain.name_of(id).await,
+            Err("the chain is not started".into())
+        );
+        assert_eq!(count(&chain.proof_reads), 2);
+    }
+
+    /// BUG-78 (a): contacts read from the store before the lists are in are not asked for
+    /// their names, nor marked asked; the first snapshot after the lists asks them.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn contact_names_wait_for_the_lists_and_then_are_asked() {
+        let mut core = core_with_vault("b78-names", "pw");
+        let id = some_identity();
+        core.ask_names(vec![id.clone()]);
+        core.ask_names(vec![id.clone()]);
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        assert!(core.names_asked.lock().unwrap().is_empty(), "none marked");
+        assert_eq!(count(&core.chain.proof_reads), 0, "none asked");
+        lists_in(&core.chain);
+        core.ask_names(vec![id.clone()]);
+        assert!(core.names_asked.lock().unwrap().contains(&id));
+        assert_eq!(counted(&core.chain.proof_reads, 1).await, 1, "asked once");
+        // Being asked: the next snapshot does not ask it again.
+        core.ask_names(vec![id]);
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        assert_eq!(count(&core.chain.proof_reads), 1);
+    }
+
+    /// BUG-78 next to BUG-76: after "Add a wallet" → "Back" the wallet's core asks names
+    /// through the parked chain it took over, once that chain has its lists.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn after_going_back_from_adding_names_wait_for_the_parked_chains_lists() {
+        let dir = fresh_dir("b78-back");
+        let (chain, mut adding) = adding_from_open_store(&dir).await;
+        let mut back = core_at(&dir, "bbbb0002");
+        hand_on_chain(&mut adding, &mut back, false);
+        assert!(Arc::ptr_eq(&back.chain, &chain));
+        let id = some_identity();
+        back.ask_names(vec![id.clone()]);
+        assert!(back.names_asked.lock().unwrap().is_empty());
+        lists_in(&chain);
+        back.ask_names(vec![id]);
+        assert_eq!(counted(&chain.proof_reads, 1).await, 1);
+        back.chain.stop().await;
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// BUG-78: a read not made for want of the lists is "wait for the sync" to the UI.
+    #[test]
+    fn a_read_not_made_yet_is_wait_for_the_sync() {
+        assert_eq!(read_failure(chain::NOT_READY.into()), CoreError::NotSynced);
+        assert_eq!(
+            read_failure("no answer".into()),
+            CoreError::Failed("no answer".into())
+        );
     }
 
     /// A chain's start under way, ending when the sender is used (or dropped).

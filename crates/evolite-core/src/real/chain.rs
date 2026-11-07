@@ -76,6 +76,9 @@ pub struct Chain {
     top_up_notes: Mutex<HashMap<key_wallet::dashcore::OutPoint, TopUpNote>>,
     /// Transactions whose InstantLock was verified (R-1): the rest are not shown as InstantSend.
     instant_locks: VerifiedLocks,
+    /// Platform reads past [`Self::ready`]: the ones that would go to the network (BUG-78).
+    #[cfg(test)]
+    pub(super) proof_reads: std::sync::atomic::AtomicUsize,
     /// Starts asked ([`Self::mark_starting`]) and stops made: which path restarts the chain
     /// (BUG-76).
     #[cfg(test)]
@@ -102,6 +105,8 @@ impl Default for Chain {
             })),
             top_up_notes: Mutex::new(HashMap::new()),
             instant_locks: VerifiedLocks::default(),
+            #[cfg(test)]
+            proof_reads: Default::default(),
             #[cfg(test)]
             starts: Default::default(),
             #[cfg(test)]
@@ -317,6 +322,11 @@ fn discovery_answer(found: usize, incomplete: bool, names_failed: bool) -> Disco
 /// How many times a top-up's lock is sent again as a new transition when the network answers
 /// "already in the cache" ([`is_cached_duplicate`]).
 const SAME_TRANSITION_RETRIES: u16 = 2;
+
+/// Why a Platform read was not made ([`Chain::ready`]). Not shown as it is: a caller that
+/// answers the UI says [`evolite_api::CoreError::NotSynced`] for it.
+pub const NOT_READY: &str =
+    "the masternode lists are not in yet: Platform's proofs cannot be checked";
 
 /// The network has this very transition in its cache of seen ones (gRPC `AlreadyExists`, "tx
 /// already exists in cache"): it said nothing of whether Platform took it.
@@ -676,6 +686,20 @@ impl Chain {
         self.status().masternodes.is_some_and(|m| m.done)
     }
 
+    /// A read of Platform data may go out: [`Self::platform_ready`], else [`NOT_READY`] without
+    /// asking anyone. Before the masternode lists are in, our provider has no quorum key, the
+    /// proof fails, and the SDK bans the node it asked and the next ones it retries on — on
+    /// every start, 15–20 DAPI nodes (BUG-78). Every proved read here starts with it, so a
+    /// caller that forgets [`Self::until_platform_ready`] costs nothing.
+    pub fn ready(&self) -> Result<(), String> {
+        if !self.platform_ready() {
+            return Err(NOT_READY.to_owned());
+        }
+        #[cfg(test)]
+        self.proof_reads.fetch_add(1, Ordering::Relaxed);
+        Ok(())
+    }
+
     /// Returns once [`Self::platform_ready`].
     pub async fn until_platform_ready(&self) {
         while !self.platform_ready() {
@@ -694,6 +718,7 @@ impl Chain {
 
     /// The identity that owns this DPNS label (proved), in base58.
     pub async fn resolve_name(&self, label: &str) -> Result<Option<String>, String> {
+        self.ready()?;
         Ok(self
             .sdk()
             .await?
@@ -1361,6 +1386,7 @@ impl Chain {
         &self,
         id: Identifier,
     ) -> Result<Option<platform_wallet::DashPayProfile>, String> {
+        self.ready()?;
         let sdk = self.sdk().await?;
         let contract = Arc::new(
             dpp::system_data_contracts::load_system_data_contract(
@@ -1391,6 +1417,7 @@ impl Chain {
         use dpp::document::{Document, DocumentV0Getters};
         use dpp::platform_value::Value;
 
+        self.ready()?;
         let sdk = self.sdk().await?;
         let id =
             Identifier::from_string(nfts::CONTRACT, Encoding::Base58).map_err(|e| e.to_string())?;
@@ -1493,6 +1520,7 @@ impl Chain {
         use dash_sdk::platform::types::identity::PublicKeyHash;
         use dash_sdk::platform::{Fetch, FetchMany};
         use dpp::identity::accessors::IdentityGettersV0;
+        self.ready()?;
         let sdk = self.sdk().await?;
         let mut identity = None;
         for slot in 0..5 {
@@ -1579,6 +1607,7 @@ impl Chain {
 
     /// The DPNS name of an identity, if it has one (proved).
     pub async fn name_of(&self, id: Identifier) -> Result<Option<String>, String> {
+        self.ready()?;
         let names = self
             .sdk()
             .await?
