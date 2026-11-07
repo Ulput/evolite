@@ -594,3 +594,127 @@ fn history_seen_and_scrolled_opens_at_the_new_payment() {
     with_new_payment(&mut kit);
     history_opens_on_the_new_payment(&mut kit);
 }
+
+/// Scrolls History's list with the wheel over it, `times` steps of 400 points down.
+fn wheel_down(kit: &mut Kit, times: usize) {
+    kit.hover_at(egui::pos2(600.0, 440.0));
+    for _ in 0..times {
+        kit.event(egui::Event::MouseWheel {
+            unit: egui::MouseWheelUnit::Point,
+            delta: egui::vec2(0.0, -400.0),
+            phase: egui::TouchPhase::Move,
+            modifiers: Default::default(),
+        });
+        kit.run_steps(4);
+    }
+}
+
+/// The answer of «Export CSV» comes, as the button puts it (the demo does not export).
+fn csv_saved(kit: &mut Kit) {
+    let saved: Result<(std::path::PathBuf, usize), String> =
+        Ok(("transaction-history-2026-11-07.csv".into(), 31));
+    kit.ctx
+        .data_mut(|d| d.insert_temp(egui::Id::new("csv-export"), saved));
+    kit.run_steps(3);
+}
+
+/// The list starts from its top under the search: the first day's name, then its first row,
+/// both below the filters; `first` is that row.
+fn list_from_its_top(kit: &Kit, first: &str, at: &str) {
+    let filters = kit
+        .query_all_by_role(Role::TextInput)
+        .map(|n| n.rect().bottom())
+        .fold(0.0, f32::max);
+    let rows = history_rows(kit);
+    let (name, row) = rows.first().expect("rows in History");
+    assert_eq!(name, first, "{at}: the first row");
+    assert!(
+        row.top() > filters,
+        "{at}: the first row «{name}» under the filters: {} ≤ {filters}",
+        row.top()
+    );
+    let when = kit
+        .state()
+        .snapshot
+        .as_ref()
+        .and_then(|s| s.wallet.as_ref())
+        .and_then(|w| w.activity.first())
+        .map(|a| a.at)
+        .expect("an operation");
+    let day = crate::i18n::t(&crate::text::day(when, chrono::Local::now())).to_uppercase();
+    let label = words(kit, &day).rect();
+    assert!(
+        label.top() > filters && label.bottom() <= row.top(),
+        "{at}: «{day}» {label:?} between the filters {filters} and the first row {row:?}"
+    );
+}
+
+/// BUG-83: «Export CSV» → the answer's banner above the list, and the list starts from its
+/// top under it: the first day and its first row, below the filters — whether the list was at
+/// its start or scrolled down (1024 × 480: the list goes on under the bottom edge), in Russian
+/// as found and in English. Before the fix a scrolled list stayed scrolled, its first rows
+/// hidden above, under the filters. The real-wallet case (at the start, 1 of 1) is not
+/// reproduced on the demo.
+#[test]
+fn after_the_csv_export_the_list_starts_from_its_top() {
+    for lang in ["ru", "en"] {
+        for scrolled in [false, true] {
+            let (_turn, mut kit) = demo_app("activity", lang);
+            kit.set_size(egui::vec2(1024.0, 480.0));
+            kit.run_steps(3);
+            let first = history_rows(&kit).first().expect("rows").0.clone();
+            let at = format!("{lang}, scrolled {scrolled}");
+            list_from_its_top(&kit, &first, &format!("{at}, before"));
+            if scrolled {
+                wheel_down(&mut kit, 2);
+                let top = history_rows(&kit).first().map(|(_, r)| r.top());
+                let search = kit
+                    .query_all_by_role(Role::TextInput)
+                    .map(|n| n.rect().bottom())
+                    .fold(0.0, f32::max);
+                assert!(
+                    top.is_some_and(|t| t < search),
+                    "{at}: the wheel scrolled the list: {top:?}"
+                );
+            }
+            csv_saved(&mut kit);
+            assert!(
+                crate::screens::activity::saved(&kit.ctx).is_some(),
+                "{at}: the banner"
+            );
+            list_from_its_top(&kit, &first, &format!("{at}, after"));
+        }
+    }
+}
+
+/// BUG-83, the neighbour: the list goes to its top once, when the banner comes — with the
+/// banner on, the wheel still scrolls it and it stays where it was scrolled to.
+#[test]
+fn with_the_csv_banner_on_the_list_still_scrolls() {
+    let (_turn, mut kit) = demo_app("activity", "en");
+    kit.set_size(egui::vec2(1024.0, 480.0));
+    kit.run_steps(3);
+    csv_saved(&mut kit);
+    let before = history_rows(&kit)
+        .first()
+        .map(|(_, r)| r.top())
+        .expect("rows");
+    wheel_down(&mut kit, 2);
+    let after = history_rows(&kit)
+        .first()
+        .map(|(_, r)| r.top())
+        .expect("rows");
+    assert!(
+        after < before - 100.0,
+        "the wheel scrolled: {before} → {after}"
+    );
+    kit.run_steps(10);
+    let later = history_rows(&kit)
+        .first()
+        .map(|(_, r)| r.top())
+        .expect("rows");
+    assert!(
+        (later - after).abs() < 0.5,
+        "it stays scrolled: {after} → {later}"
+    );
+}

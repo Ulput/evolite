@@ -40,14 +40,16 @@ pub const STAYS_ON_NETWORK: &str =
 /// never a "made" one. `origin`: from the wallet list; not found there, as before.
 fn phrase_line(words: usize, at: Timestamp, origin: Option<WalletOrigin>) -> String {
     let date = text::date_long(at);
+    // «24 слова», not «24 слов»: the number of words takes its own plural form (CLDR).
+    let words = text::plural(words as u32, tr!("word"), tr!("words"));
     match origin {
         Some(WalletOrigin::Restored) => {
-            format!(tr!("{} words · restored on this computer {}"), words, date)
+            format!(tr!("{} · restored on this computer {}"), words, date)
         }
         Some(WalletOrigin::DashPay) => {
-            format!(tr!("{} words · imported from DashPay {}"), words, date)
+            format!(tr!("{} · imported from DashPay {}"), words, date)
         }
-        Some(WalletOrigin::Created) | None => format!(tr!("{} words · made {}"), words, date),
+        Some(WalletOrigin::Created) | None => format!(tr!("{} · made {}"), words, date),
     }
 }
 
@@ -517,6 +519,31 @@ mod tests {
             phrase_line(12, at, None),
             made,
             "not in the list: as before"
+        );
+    }
+
+    /// The number of words takes its plural form: «12 слов», «24 слова» in Russian, «12 слів»,
+    /// «24 слова» in Ukrainian (it was «24 слов»), with the rest of the line translated.
+    #[test]
+    fn the_number_of_words_takes_its_plural_form() {
+        use crate::i18n::{Lang, t_in};
+        let at = 1_793_000_000;
+        for (lang, made, twelve, twenty_four) in [
+            (Lang::Ru, "создана", "12 слов", "24 слова"),
+            (Lang::Uk, "створено", "12 слів", "24 слова"),
+        ] {
+            for (n, words) in [(12, twelve), (24, twenty_four)] {
+                let english = phrase_line(n, at, Some(WalletOrigin::Created));
+                let line = t_in(lang, &english);
+                assert!(
+                    line.starts_with(&format!("{words} · {made} ")),
+                    "{lang:?} {n}: «{line}»"
+                );
+            }
+        }
+        assert!(
+            t_in(Lang::Ru, &phrase_line(24, at, Some(WalletOrigin::Restored)))
+                .starts_with("24 слова · восстановлена на этом компьютере ")
         );
     }
 }

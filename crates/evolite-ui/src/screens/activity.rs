@@ -140,6 +140,13 @@ pub fn activity(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, filter: &mut usize, q
     }
     let saved: Option<Result<(std::path::PathBuf, usize), String>> =
         ui.data(|d| d.get_temp(saved_id));
+    // The export's answer has just appeared (or a new one came) above the list: the list
+    // starts again from its top, the first day and its first row right under the banner
+    // (BUG-83).
+    let shown_id = saved_id.with("shown");
+    let banner_new =
+        export || saved.is_some() && !ui.data(|d| d.get_temp(shown_id).unwrap_or(false));
+    ui.data_mut(|d| d.insert_temp(shown_id, saved.is_some()));
     match saved {
         Some(Ok((path, lines))) => {
             notice(
@@ -235,66 +242,68 @@ pub fn activity(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, filter: &mut usize, q
         .filter(|act| matches_filter(*filter, act))
         .filter(|act| matches_query(act, &q, &wallet.address_book))
         .collect();
-    egui::ScrollArea::vertical()
-        .auto_shrink(false)
-        .show(ui, |ui| {
-            ui.spacing_mut().item_spacing.y = 2.0;
-            if shown.is_empty() {
-                ui.add_space(40.0);
-                // Nothing at all is not "nothing found".
-                let empty = if wallet.activity.is_empty() {
-                    tr!("No operations yet. Receive DASH on the “Receive” screen.")
-                } else {
-                    tr!("Nothing found")
-                };
-                ui.vertical_centered(|ui| ui.label(txt(empty, 14.0, Weight::Regular, p.muted)));
+    let mut list = egui::ScrollArea::vertical().auto_shrink(false);
+    if banner_new {
+        list = list.vertical_scroll_offset(0.0);
+    }
+    list.show(ui, |ui| {
+        ui.spacing_mut().item_spacing.y = 2.0;
+        if shown.is_empty() {
+            ui.add_space(40.0);
+            // Nothing at all is not "nothing found".
+            let empty = if wallet.activity.is_empty() {
+                tr!("No operations yet. Receive DASH on the “Receive” screen.")
+            } else {
+                tr!("Nothing found")
+            };
+            ui.vertical_centered(|ui| ui.label(txt(empty, 14.0, Weight::Regular, p.muted)));
+        }
+        let mut day = String::new();
+        for act in shown {
+            let this_day = text::day(act.at, cx.now);
+            if this_day != day {
+                day = this_day;
+                ui.add_space(10.0);
+                ui.horizontal(|ui| {
+                    ui.add_space(16.0);
+                    section_label(ui, &p, &day);
+                });
+                ui.add_space(4.0);
             }
-            let mut day = String::new();
-            for act in shown {
-                let this_day = text::day(act.at, cx.now);
-                if this_day != day {
-                    day = this_day;
-                    ui.add_space(10.0);
-                    ui.horizontal(|ui| {
-                        ui.add_space(16.0);
-                        section_label(ui, &p, &day);
-                    });
-                    ui.add_space(4.0);
-                }
-                let mut detail = format!(
-                    "{} · {}",
-                    text::chain(act.chain),
-                    text::time_of_day(act.at, cx.now)
-                );
-                // How a withdrawal or a request to us stands, and which identity of ours it
-                // came to (BUG-58).
-                for part in [
-                    text::activity_for(act),
-                    text::activity_status(act).map(str::to_owned),
-                ]
-                .into_iter()
-                .flatten()
-                {
-                    detail.push_str(" · ");
-                    detail.push_str(crate::i18n::t(&part).as_ref());
-                }
-                let row = tx_row_clickable(
-                    ui,
-                    a,
-                    &TxRow {
-                        icon: text::activity_icon(act),
-                        title: &text::activity_title_in(act, &wallet.address_book),
-                        detail: &detail,
-                        proof: Some(act.proof),
-                        amount: &text::signed_amount(act.amount),
-                        alert: text::activity_alert(act),
-                    },
-                );
-                if row.clicked() {
-                    open_card(ui.ctx(), act.id);
-                }
+            let mut detail = format!(
+                "{} · {}",
+                text::chain(act.chain),
+                text::time_of_day(act.at, cx.now)
+            );
+            // How a withdrawal or a request to us stands, and which identity of ours it
+            // came to (BUG-58).
+            for part in [
+                text::activity_for(act),
+                text::activity_status(act).map(str::to_owned),
+            ]
+            .into_iter()
+            .flatten()
+            {
+                detail.push_str(" · ");
+                detail.push_str(crate::i18n::t(&part).as_ref());
             }
-        });
+            let row = tx_row_clickable(
+                ui,
+                a,
+                &TxRow {
+                    icon: text::activity_icon(act),
+                    title: &text::activity_title_in(act, &wallet.address_book),
+                    detail: &detail,
+                    proof: Some(act.proof),
+                    amount: &text::signed_amount(act.amount),
+                    alert: text::activity_alert(act),
+                },
+            );
+            if row.clicked() {
+                open_card(ui.ctx(), act.id);
+            }
+        }
+    });
     card_window(ui, a, cx);
 }
 

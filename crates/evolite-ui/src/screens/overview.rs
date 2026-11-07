@@ -24,7 +24,9 @@ pub fn overview(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx) {
     // The private pool not read in this run yet (BUG-66): «Total» counts it as its tile shows
     // it. One line under «Total» says what it does not know yet, Core's and the pool's together.
     let pool = pool_amount(b.shielded, wallet.pool.checked_at);
-    let total_line = total_line(as_of.as_deref(), unknown, pool);
+    // A real core built without the pool never reads it (review r1, should 1); the demo does.
+    let pool_read = cfg!(feature = "pool") || crate::is_demo(cx.snap);
+    let total_line = total_line(as_of.as_deref(), unknown, pool, pool_read);
     let total_color = if total_line.is_some() {
         p.muted
     } else {
@@ -309,8 +311,16 @@ fn pool_amount(shielded: Duffs, checked_at: Option<Timestamp>) -> CardAmount {
 /// The one line under «Total» (BUG-77, BUG-66): what it does not know yet, or nothing. `core`:
 /// Core's line ([`text::core_as_of`]), `core_unknown` when it is «Not known yet» — then «Total»
 /// is «—» and that line alone says why, whatever the pool. Otherwise Core's time and the pool
-/// not read yet go into one line.
-fn total_line(core: Option<&str>, core_unknown: bool, pool: CardAmount) -> Option<String> {
+/// not read yet go into one line. A build without the pool (`pool_built` false: a developer's
+/// build) never reads it: the pool is left out of the line and does not dim «Total» (review
+/// batch-2026-11-07 r1, should 1).
+fn total_line(
+    core: Option<&str>,
+    core_unknown: bool,
+    pool: CardAmount,
+    pool_built: bool,
+) -> Option<String> {
+    let pool = if pool_built { pool } else { CardAmount::Now(0) };
     if core_unknown {
         return core.map(str::to_owned);
     }
@@ -356,30 +366,52 @@ mod tests {
         let unknown = CardAmount::Unknown;
         let stored = CardAmount::Earlier(1);
         let read = CardAmount::Now(1);
-        assert_eq!(total_line(None, false, read), None);
+        assert_eq!(total_line(None, false, read, true), None);
         assert_eq!(
-            total_line(Some("as of 20:07"), false, read).as_deref(),
+            total_line(Some("as of 20:07"), false, read, true).as_deref(),
             Some("as of 20:07")
         );
         assert_eq!(
-            total_line(None, false, unknown).as_deref(),
+            total_line(None, false, unknown, true).as_deref(),
             Some("Not counting the private pool: it is still being read")
         );
         assert_eq!(
-            total_line(None, false, stored).as_deref(),
+            total_line(None, false, stored, true).as_deref(),
             Some("The private pool in it is not checked yet")
         );
         assert_eq!(
-            total_line(Some("as of 20:07"), false, unknown).as_deref(),
+            total_line(Some("as of 20:07"), false, unknown, true).as_deref(),
             Some("as of 20:07 · not counting the private pool: it is still being read")
         );
         assert_eq!(
-            total_line(Some("as of 20:07"), false, stored).as_deref(),
+            total_line(Some("as of 20:07"), false, stored, true).as_deref(),
             Some("as of 20:07 · the private pool in it is not checked yet")
         );
         for pool in [unknown, stored, read] {
             assert_eq!(
-                total_line(Some("Not known yet"), true, pool).as_deref(),
+                total_line(Some("Not known yet"), true, pool, true).as_deref(),
+                Some("Not known yet")
+            );
+        }
+    }
+
+    /// Review batch-2026-11-07 r1, should 1: a build without the pool never reads it — the
+    /// line under «Total» leaves the pool out (none at all, or Core's alone), so «Total» is not
+    /// dimmed for it; Core not known yet is still said.
+    #[test]
+    fn without_the_pool_built_total_does_not_wait_for_it() {
+        for pool in [
+            CardAmount::Unknown,
+            CardAmount::Earlier(1),
+            CardAmount::Now(1),
+        ] {
+            assert_eq!(total_line(None, false, pool, false), None);
+            assert_eq!(
+                total_line(Some("as of 20:07"), false, pool, false).as_deref(),
+                Some("as of 20:07")
+            );
+            assert_eq!(
+                total_line(Some("Not known yet"), true, pool, false).as_deref(),
                 Some("Not known yet")
             );
         }
