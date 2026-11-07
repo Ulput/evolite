@@ -74,6 +74,12 @@ pub struct Chain {
     top_up_notes: Mutex<HashMap<key_wallet::dashcore::OutPoint, TopUpNote>>,
     /// Transactions whose InstantLock was verified (R-1): the rest are not shown as InstantSend.
     instant_locks: VerifiedLocks,
+    /// Starts asked ([`Self::mark_starting`]) and stops made: which path restarts the chain
+    /// (BUG-76).
+    #[cfg(test)]
+    pub(super) starts: std::sync::atomic::AtomicUsize,
+    #[cfg(test)]
+    pub(super) stops: std::sync::atomic::AtomicUsize,
 }
 
 impl Default for Chain {
@@ -90,6 +96,10 @@ impl Default for Chain {
             })),
             top_up_notes: Mutex::new(HashMap::new()),
             instant_locks: VerifiedLocks::default(),
+            #[cfg(test)]
+            starts: Default::default(),
+            #[cfg(test)]
+            stops: Default::default(),
         }
     }
 }
@@ -545,6 +555,8 @@ impl Chain {
     /// A start is coming (off the core's loop): the status says so at once, and no longer
     /// the error of a try before.
     pub fn mark_starting(&self) {
+        #[cfg(test)]
+        self.starts.fetch_add(1, Ordering::Relaxed);
         let mut s = self.status.lock().unwrap_or_else(|e| e.into_inner());
         if !self.running() {
             s.phase = Phase::Starting;
@@ -1960,6 +1972,8 @@ impl Chain {
     /// start.
     pub async fn stop(&self) {
         let _one = self.starting.lock().await;
+        #[cfg(test)]
+        self.stops.fetch_add(1, Ordering::Relaxed);
         let manager = self.manager.lock().await.take();
         self.running.store(false, Ordering::Relaxed);
         self.store_open.store(false, Ordering::Relaxed);

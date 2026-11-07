@@ -273,6 +273,32 @@ fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
+/// The chain of the wallet a wallet is being added from, kept running while the onboarding
+/// lasts (BUG-76): watch-only, its keys gone with its core's lock. "Back" gives it to the next
+/// core of that wallet as it is — no stop, no second start of the SPV client (each start reads
+/// the stored headers, filters and masternode lists again: 14–55 s in a debug build). Any other
+/// way out of the onboarding stops it first ([`Real::start_after`]). The onboarding starts no
+/// chain of its own until its wallet is written: the SPV files are shared, and two clients
+/// cannot hold them.
+///
+/// With it goes what describes this chain rather than its core: its start under way and what
+/// it found, the flag its sync callbacks raise, how far it was asked to rescan (BUG-64), and
+/// what was set up in its manager (the pool, contacts' accounts).
+struct Parked {
+    wallet: String,
+    chain: Arc<Chain>,
+    starting: Option<tokio::task::JoinHandle<bool>>,
+    stopped: Option<watch::Receiver<bool>>,
+    start_tried: bool,
+    leftovers: bool,
+    last_start: tokio::time::Instant,
+    dirty: Arc<AtomicBool>,
+    rescanned_from: Option<u32>,
+    pool_wallet: Arc<std::sync::Mutex<Option<WalletId>>>,
+    contact_accounts_for: Arc<std::sync::atomic::AtomicUsize>,
+    contact_accounts_busy: Arc<AtomicBool>,
+}
+
 struct Real {
     paths: Paths,
     /// This core's wallet: its folder in `wallets/<network>/`.
@@ -296,6 +322,8 @@ struct Real {
     switch_opened: Option<(vault::VaultFile, Zeroizing<String>)>,
     /// While a wallet is being added: the one to go back to on "Cancel".
     adding_from: Option<String>,
+    /// While a wallet is being added: that one's chain, still running (BUG-76).
+    parked: Option<Parked>,
     /// "Password for every send" of this core's wallet ([`security`]): every [`Spend`] passes
     /// [`Real::spend_gate`] first.
     password_each_send: bool,
@@ -868,6 +896,7 @@ impl Real {
             switch_to: None,
             switch_opened: None,
             adding_from: None,
+            parked: None,
             password_each_send,
             starting: None,
             stopped: None,
@@ -3190,12 +3219,91 @@ impl Real {
     /// wallet's files still held): tried again every [`RETRY_START`].
     fn retry_start(&mut self) {
         let failed = !self.start_tried || self.chain.status().phase == Phase::Error;
-        if self.starting.is_none()
+        // An onboarding over a parked chain starts its own once its wallet is written.
+        if self.parked.is_none()
+            && self.starting.is_none()
             && !self.chain.running()
             && failed
             && self.last_start.elapsed() >= RETRY_START
         {
             self.start_chain(None, None, None, false);
+        }
+    }
+
+    /// The chain that reaches the network now: during an onboarding over a parked chain,
+    /// that one (headers for a new wallet's birth, Platform for a DashPay import); else this
+    /// core's own.
+    fn network_chain(&self) -> &Arc<Chain> {
+        self.parked.as_ref().map_or(&self.chain, |p| &p.chain)
+    }
+
+    /// "Add a wallet": this core's chain and what goes with it, for the onboarding to keep
+    /// running ([`Parked`]). Its keys are gone already (the loop locks the core first).
+    fn park(&mut self) -> Parked {
+        Parked {
+            wallet: self.wallet.clone(),
+            chain: std::mem::take(&mut self.chain),
+            starting: self.starting.take(),
+            stopped: self.stopped.take(),
+            start_tried: self.start_tried,
+            leftovers: self.leftovers,
+            last_start: self.last_start,
+            dirty: self.dirty.clone(),
+            rescanned_from: self.rescanned_from,
+            pool_wallet: self.pool_wallet.clone(),
+            contact_accounts_for: self.contact_accounts_for.clone(),
+            contact_accounts_busy: self.contact_accounts_busy.clone(),
+        }
+    }
+
+    /// "Back" (or the same wallet chosen again): the parked chain is this core's, running as
+    /// it was — nothing stopped, nothing started, the store open all along (BUG-76).
+    fn take_over(&mut self, parked: Parked) {
+        debug_assert_eq!(parked.wallet, self.wallet);
+        self.chain = parked.chain;
+        self.starting = parked.starting;
+        self.stopped = parked.stopped;
+        self.start_tried = parked.start_tried;
+        self.leftovers = parked.leftovers;
+        self.last_start = parked.last_start;
+        self.dirty = parked.dirty;
+        self.dirty.store(true, Ordering::Relaxed);
+        // Not asked again from the birth: the same run of the same chain (BUG-64).
+        self.rescanned_from = parked.rescanned_from;
+        self.pool_wallet = parked.pool_wallet;
+        self.contact_accounts_for = parked.contact_accounts_for;
+        self.contact_accounts_busy = parked.contact_accounts_busy;
+    }
+
+    /// Any other way out of the onboarding: the parked chain is stopped — its SPV client shut
+    /// down, then its wallets removed (R-29) — and only then does this core's own start, as
+    /// after a switch (BUG-25/65). `ahead`: this core's store may open while the parked chain
+    /// stops, once the chains before it have let theirs go (another wallet's, never the
+    /// parked one's).
+    fn start_after(&mut self, parked: Parked, ahead: bool) {
+        // A start of the parked chain still waiting in line is not made.
+        parked.chain.retire();
+        let before = if ahead {
+            open_ahead_after(&parked.wallet, &self.wallet, parked.stopped)
+        } else {
+            None
+        };
+        self.start_chain(Some(parked.chain), parked.starting, before, true);
+    }
+
+    /// The app closes: every chain of this core stops — its own and a parked one — after any
+    /// start under way.
+    async fn shut_down(&mut self) {
+        if let Some(task) = self.starting.take() {
+            let _ = task.await;
+        }
+        self.chain.stop().await;
+        if let Some(parked) = self.parked.take() {
+            parked.chain.retire();
+            if let Some(task) = parked.starting {
+                let _ = task.await;
+            }
+            parked.chain.stop().await;
         }
     }
 
@@ -3516,7 +3624,7 @@ impl Real {
             0
         } else {
             let known = |core: &Self| {
-                core.chain
+                core.network_chain()
                     .status()
                     .headers
                     .map(|h| h.height)
@@ -3524,6 +3632,21 @@ impl Real {
             };
             match known(self) {
                 Some(height) => height,
+                None if self.parked.is_some() => {
+                    // The parked chain's start, still under way, brings them (BUG-76).
+                    let deadline = tokio::time::Instant::now() + START_WAIT;
+                    while known(self).is_none()
+                        && tokio::time::Instant::now() < deadline
+                        && self
+                            .parked
+                            .as_ref()
+                            .and_then(|p| p.starting.as_ref())
+                            .is_some_and(|start| !start.is_finished())
+                    {
+                        tokio::time::sleep(Duration::from_millis(250)).await;
+                    }
+                    known(self).unwrap_or(0)
+                }
                 None => {
                     self.start_settled(START_WAIT).await;
                     known(self).unwrap_or(0)
@@ -3568,6 +3691,11 @@ impl Real {
         self.index.last = Some(self.wallet.clone());
         self.save_index();
         self.adding_from = None;
+        // Added over a parked chain: that one stops, then this wallet's own starts (BUG-76).
+        // Nothing to open ahead: a new wallet's store has nothing to show yet.
+        if let Some(parked) = self.parked.take() {
+            self.start_after(parked, false);
+        }
         let id = keys.compute_wallet_id();
         self.unlocked = Some(Unlocked {
             id,
@@ -3792,7 +3920,7 @@ impl Real {
                     // before the wallet is made, for O5. Its keys are dropped after the scan.
                     let keys = keys_of(&text);
                     self.pending = Some((text, true));
-                    let chain = self.chain.clone();
+                    let chain = self.network_chain().clone();
                     self.answer_later(async move {
                         let found = match keys {
                             Ok(keys) => scan_dashpay(&chain, &keys).await,
@@ -4314,6 +4442,44 @@ fn open_ahead_after(
     before.filter(|_| from != to)
 }
 
+/// The replaced core's chain, for the core replacing it (`new`, made by the loop; `old` is
+/// locked): with the tip it saw, a new wallet's birth.
+/// - `adding` ("Add a wallet" asked in `old`): parked in the onboarding, running (BUG-76);
+/// - an onboarding over a parked chain, back to that chain's wallet: `new` takes it as it is;
+///   to any other wallet: it stops first, then `new` starts its own (its store opened ahead
+///   when the chains before have let theirs go). The onboarding's own chain never started;
+/// - else, as before: `old`'s chain stops off the loop, then `new`'s starts (BUG-21/22/24),
+///   its store opened ahead only for another wallet (BUG-65).
+fn hand_on_chain(old: &mut Real, new: &mut Real, adding: bool) {
+    new.birth_hint = old
+        .network_chain()
+        .status()
+        .headers
+        .map(|h| h.height)
+        .max(old.birth_hint);
+    if adding {
+        new.parked = Some(old.park());
+        return;
+    }
+    if let Some(parked) = old.parked.take() {
+        old.chain.retire();
+        if parked.wallet == new.wallet {
+            new.take_over(parked);
+            // The onboarding's empty folder, which a start would have cleared.
+            clear_other_leftovers(&new.paths.root, &new.wallet);
+        } else {
+            new.start_after(parked, true);
+        }
+        return;
+    }
+    let (chain, prev) = (old.chain.clone(), old.starting.take());
+    // A start of this chain still waiting in line is not made: the next core's start follows
+    // it (switching on before one ended).
+    chain.retire();
+    let before = open_ahead_after(&old.wallet, &new.wallet, old.stopped.take());
+    new.start_chain(Some(chain), prev, before, true);
+}
+
 /// The wallet to open: the one open last (or the first) of the index, else a new folder for
 /// the onboarding — it becomes a wallet once its vault is written there.
 fn opening_wallet(data_dir: &std::path::Path) -> String {
@@ -4481,27 +4647,26 @@ pub fn run(
                             // locked (its keys gone with this core); a new core opens the next
                             // wallet, as at start, and is shown at once. This one's chain is
                             // stopped and its store let go off the loop, before the new chain
-                            // starts (F3, BUG-21/22/24): that took 11–18 s here.
+                            // starts (F3, BUG-21/22/24): that took 11–18 s here. "Add a
+                            // wallet" parks it instead, and "Back" takes it on (BUG-76,
+                            // [`hand_on_chain`]).
                             let deleted = core.restart.then(|| core.wallet.clone());
                             let next = core.switch_to.take();
                             let opened = core.switch_opened.take();
                             // "Cancel" while adding goes back to this one.
                             let adding_from = core.adding_from.take();
+                            // "Add a wallet" asked here: this chain is parked (BUG-76).
+                            let adding =
+                                !core.restart && adding_from.as_deref() == Some(&*core.wallet);
                             let _ = core.lock().await;
                             // A deleted wallet's pictures go too.
                             if let (Some(base), Some(id)) = (&art_base, &deleted) {
                                 let _ = std::fs::remove_dir_all(base.join(id));
                             }
                             drop(core.artist.take());
-                            let (old, prev) = (core.chain.clone(), core.starting.take());
-                            let (from, before) = (core.wallet.clone(), core.stopped.take());
-                            // A start of this chain still waiting in line is not made: the
-                            // next core's start follows it (switching on before one ended).
-                            old.retire();
-                            let tip = old.status().headers.map(|h| h.height).max(core.birth_hint);
                             let wallet = next.unwrap_or_else(|| opening_wallet(&data_dir));
+                            let mut old = core;
                             core = Real::new(data_dir.clone(), wallet, out.clone(), wake.clone());
-                            core.birth_hint = tip;
                             core.art_base = art_base.clone();
                             // Back at the wallet the adding started from: adding is over.
                             core.adding_from = adding_from.filter(|from| *from != core.wallet);
@@ -4510,8 +4675,8 @@ pub fn run(
                                 wake.clone(),
                                 art_for(&core.wallet),
                             ));
-                            let before = open_ahead_after(&from, &core.wallet, before);
-                            core.start_chain(Some(old), prev, before, true);
+                            hand_on_chain(&mut old, &mut core, adding);
+                            drop(old);
                             // Figma 29: the vault opened before the switch opens the wallet now
                             // (no second Argon2, F2).
                             if let Some((file, phrase)) = opened {
@@ -4529,10 +4694,7 @@ pub fn run(
                     }
                     Err(std::sync::mpsc::TryRecvError::Empty) => break,
                     Err(std::sync::mpsc::TryRecvError::Disconnected) => {
-                        if let Some(task) = core.starting.take() {
-                            let _ = task.await;
-                        }
-                        core.chain.stop().await;
+                        core.shut_down().await;
                         return;
                     }
                 }
@@ -5334,6 +5496,176 @@ mod tests {
         assert_eq!(ended.ok().map(|r| r.ok()), Some(Some(false)), "at once");
         assert!(!back.chain.running(), "no client for a deleted wallet");
         back.chain.stop().await;
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The core of wallet "bbbb0002" with its store open, as after its unlock (no SPV client
+    /// in a test), and the onboarding that "Add a wallet" makes from it: its chain parked.
+    async fn adding_from_open_store(dir: &std::path::Path) -> (Arc<Chain>, Real) {
+        seal_wallet(dir, "bbbb0002");
+        let mut from = core_at(dir, "bbbb0002");
+        from.chain
+            .open_store_only(&from.paths.chain)
+            .await
+            .expect("the store opens");
+        from.rescanned_from = Some(1_234);
+        let chain = from.chain.clone();
+        let mut adding = core_at(dir, "cccc0003");
+        hand_on_chain(&mut from, &mut adding, true);
+        (chain, adding)
+    }
+
+    fn count(n: &std::sync::atomic::AtomicUsize) -> usize {
+        n.load(Ordering::Relaxed)
+    }
+
+    /// A chain's start under way, ending when the sender is used (or dropped).
+    fn held_start() -> (
+        tokio::sync::oneshot::Sender<()>,
+        tokio::task::JoinHandle<bool>,
+    ) {
+        let (release, held) = tokio::sync::oneshot::channel::<()>();
+        let start = tokio::spawn(async move {
+            let _ = held.await;
+            true
+        });
+        (release, start)
+    }
+
+    /// BUG-76: "Add a wallet" → "Back" keeps the wallet's chain — not stopped, not started
+    /// again, its store open throughout — and how far it was rescanned (BUG-64). The
+    /// onboarding meanwhile starts no chain of its own, not even when a retry would be due.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn going_back_from_adding_keeps_the_chain_running() {
+        let dir = fresh_dir("b76-back");
+        let (chain, mut adding) = adding_from_open_store(&dir).await;
+        assert!(adding.parked.is_some());
+        assert!(!Arc::ptr_eq(&adding.chain, &chain));
+        assert!(adding.starting.is_none(), "the onboarding starts nothing");
+        // A retry is due by the clock: still nothing (were it made, it would only count).
+        adding.chain.retire();
+        adding.last_start = tokio::time::Instant::now() - RETRY_START * 2;
+        adding.retry_start();
+        assert_eq!(count(&adding.chain.starts), 0, "no start while adding");
+        assert!(chain.store_open() && !chain.retired());
+
+        let mut back = core_at(&dir, "bbbb0002");
+        hand_on_chain(&mut adding, &mut back, false);
+        assert!(Arc::ptr_eq(&back.chain, &chain), "the same chain");
+        assert_eq!((count(&chain.starts), count(&chain.stops)), (0, 0));
+        assert!(chain.store_open() && !chain.retired());
+        assert_eq!(back.rescanned_from, Some(1_234));
+        assert!(back.parked.is_none() && back.starting.is_none());
+        // The password: the wallet is in that store at once.
+        assert_eq!(back.unlock(&pw("pw")).await, Ok(()));
+        let id = back.unlocked.as_ref().map(|o| o.id).unwrap();
+        assert!(back.chain.wallet(&id).await.is_some());
+        back.chain.stop().await;
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// BUG-76: "Add a wallet" → "Create": the parked chain stops (its start under way ends
+    /// first) before the new wallet's chain starts, and the next core is told only then.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_wallet_made_while_adding_stops_the_parked_chain_first() {
+        let dir = fresh_dir("b76-create");
+        let (chain, mut adding) = adding_from_open_store(&dir).await;
+        let (release, start) = held_start();
+        adding.parked.as_mut().unwrap().starting = Some(start);
+        adding.pending = Some((Zeroizing::new(PHRASE.into()), false));
+        adding.birth_hint = Some(777);
+        assert_eq!(adding.create(&pw("Second-wallet-7")).await, Ok(()));
+        // No SPV client in a test: the new chain is retired before its turn comes.
+        adding.chain.retire();
+        assert!(adding.parked.is_none());
+        assert!(chain.retired(), "a start of it waiting in line is not made");
+        assert_eq!(count(&adding.chain.starts), 1, "its own start is asked");
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        assert!(chain.store_open(), "the start before is waited for");
+        let mut next = adding.stopped.clone().unwrap();
+        assert!(!*next.borrow());
+        let _ = release.send(());
+        let started = adding.starting.take().unwrap();
+        assert!(
+            tokio::time::timeout(Duration::from_secs(20), started)
+                .await
+                .is_ok()
+        );
+        assert_eq!(count(&chain.stops), 1, "the parked chain is stopped");
+        assert!(!chain.store_open());
+        assert!(next.wait_for(|s| *s).await.is_ok());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// BUG-76: from the onboarding to a third wallet (not "Back"): the parked chain stops
+    /// before that wallet's start, as after a switch.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn another_wallet_after_adding_stops_the_parked_chain() {
+        let dir = fresh_dir("b76-third");
+        let (chain, mut adding) = adding_from_open_store(&dir).await;
+        let (release, start) = held_start();
+        adding.parked.as_mut().unwrap().starting = Some(start);
+        seal_wallet(&dir, "aaaa0001");
+        let mut third = core_at(&dir, "aaaa0001");
+        hand_on_chain(&mut adding, &mut third, false);
+        // No SPV client in a test: the new chain is retired before its turn comes.
+        third.chain.retire();
+        let _ = release.send(());
+        assert!(!Arc::ptr_eq(&third.chain, &chain));
+        let started = third.starting.take().unwrap();
+        assert!(
+            tokio::time::timeout(Duration::from_secs(20), started)
+                .await
+                .is_ok()
+        );
+        assert_eq!(count(&chain.stops), 1);
+        assert!(!chain.store_open() && chain.retired());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// BUG-76: the app closes during the onboarding: the parked chain stops with the core's
+    /// own, its store let go.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn quitting_while_adding_stops_both_chains() {
+        let dir = fresh_dir("b76-quit");
+        let (chain, mut adding) = adding_from_open_store(&dir).await;
+        let own = adding.chain.clone();
+        adding.shut_down().await;
+        assert_eq!((count(&own.stops), count(&chain.stops)), (1, 1));
+        assert!(!chain.store_open() && adding.parked.is_none());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// BUG-76, the paths that park nothing keep their order: a switch stops the chain before
+    /// the next wallet's start (BUG-21/22/24), and opens that store ahead only for another
+    /// wallet (BUG-65).
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_switch_still_stops_the_chain_before() {
+        let dir = fresh_dir("b76-switch");
+        seal_wallet(&dir, "aaaa0001");
+        seal_wallet(&dir, "bbbb0002");
+        let mut from = core_at(&dir, "bbbb0002");
+        from.chain
+            .open_store_only(&from.paths.chain)
+            .await
+            .expect("the store opens");
+        let chain = from.chain.clone();
+        let (release, start) = held_start();
+        from.starting = Some(start);
+        let mut to = core_at(&dir, "aaaa0001");
+        hand_on_chain(&mut from, &mut to, false);
+        to.chain.retire();
+        let _ = release.send(());
+        assert!(to.parked.is_none() && chain.retired());
+        let started = to.starting.take().unwrap();
+        assert!(
+            tokio::time::timeout(Duration::from_secs(20), started)
+                .await
+                .is_ok()
+        );
+        assert_eq!(count(&chain.stops), 1);
+        assert!(!chain.store_open());
+        assert_eq!(count(&to.chain.starts), 1);
         let _ = std::fs::remove_dir_all(&dir);
     }
 
