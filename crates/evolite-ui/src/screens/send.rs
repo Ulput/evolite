@@ -58,6 +58,13 @@ pub struct SendForm {
     /// signing), and its answer: the address the payment will go to.
     pub previewed: String,
     pub preview: Option<Result<String, CoreError>>,
+    /// "Note · only for you" (FEAT-0003): kept with the payment on this computer, never sent.
+    pub note: String,
+    /// The last change was cut to what a note holds: N4 shows until the next change.
+    pub note_cut: bool,
+    /// The note of the last payment signed: cleared from the form with the amount, put back
+    /// if the core refuses the payment (AC-A3).
+    pub signed_note: String,
 }
 
 impl SendForm {
@@ -104,6 +111,9 @@ impl SendForm {
     pub fn on_lock(&mut self) {
         self.password.zeroize();
         self.signed.zeroize();
+        // The note is the person's too: not left in memory after a lock (AC-T6).
+        self.note.zeroize();
+        self.signed_note.zeroize();
         self.contact_password.forget();
         self.replace(SendForm::empty());
     }
@@ -125,6 +135,13 @@ impl SendForm {
         self.waiting = self.waiting.saturating_sub(1);
         if result.is_err() && self.amount.is_empty() {
             self.amount = std::mem::take(&mut self.signed);
+        }
+        // Not sent: the note was kept nowhere, the form has it again (AC-A3). Sent: the core
+        // keeps it with the payment.
+        if result.is_err() && self.note.is_empty() {
+            self.note = std::mem::take(&mut self.signed_note);
+        } else {
+            self.signed_note.zeroize();
         }
         // Gone: "To" is cleared for the next payment, unless the person already typed another.
         if result.is_ok() && self.recipient.trim() == self.sent_to.trim() {
@@ -156,12 +173,168 @@ impl SendForm {
         }
     }
 
+    /// The note field changed to `typed`: cleaned and cut to what a note holds (140 characters
+    /// as a person sees them, 1024 bytes); a cut says so until the next change (AC-D1, Q-D5).
+    pub fn type_note(&mut self, typed: &str) {
+        let (fit, cut) = evolite_core::note_text::fit(typed);
+        self.note = fit;
+        self.note_cut = cut;
+    }
+
+    /// The note to send with the payment: trimmed, none when empty.
+    fn note_to_send(&self) -> Option<String> {
+        Some(self.note.trim().to_owned()).filter(|n| !n.is_empty())
+    }
+
     /// Where a payment goes, asked for the last look or while an address is typed.
     pub fn on_preview(&mut self, to: &str, result: &Result<String, CoreError>) {
         if to == self.previewed {
             self.preview = Some(result.clone());
         }
     }
+}
+
+/// N3 under the note field (FEAT-0003, FR-8).
+pub const NOTE_PRIVACY: &str = tr!(
+    "Kept only on this computer, encrypted with the history. It never goes to the network and the recipient does not see it. Restoring from the recovery phrase does not bring it back."
+);
+
+/// "N / 140": the characters of a note as a person sees them; numbers only, no words, and no
+/// thousands to group (AC-T10).
+pub fn note_counter(note: &str) -> String {
+    format!(
+        "{} / {}",
+        evolite_core::note_text::graphemes(note),
+        evolite_api::NOTE_MAX_GRAPHEMES
+    )
+}
+
+/// "Note · only for you" (Figma 03, AC-D1): optional, up to 140 characters with the counter
+/// on the right (red at the limit), cut with N4 when more was pasted, and the privacy line.
+fn note_field(ui: &mut Ui, a: &mut Assets, form: &mut SendForm) {
+    let p = a.p;
+    ui.vertical(|ui| {
+        ui.spacing_mut().item_spacing.y = 6.0;
+        let counter = note_counter(&form.note);
+        let full =
+            evolite_core::note_text::graphemes(&form.note) >= evolite_api::NOTE_MAX_GRAPHEMES;
+        ui.horizontal(|ui| {
+            field_label(ui, &p, tr!("Note · only for you"));
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                ui.label(
+                    egui::RichText::new(&counter)
+                        .font(mono(12.0, Weight::Regular))
+                        .color(if full { p.danger } else { p.muted }),
+                );
+            });
+        });
+        crate::a11y::name_next_field(ui, tr!("Note · only for you"));
+        let mut typed = form.note.clone();
+        let resp = crate::components::text_area(
+            ui,
+            &p,
+            "send-note",
+            &mut typed,
+            tr!("What the payment is for"),
+            1,
+        );
+        if resp.changed() {
+            form.type_note(&typed);
+            form.result = None;
+        }
+        if form.note_cut {
+            // N4; the number comes first in the key (`plural`), the language puts it where it
+            // goes.
+            let most = evolite_api::NOTE_MAX_GRAPHEMES as u32;
+            let cut = crate::text::plural(
+                most,
+                tr!("character is all a note holds: the rest was cut off."),
+                tr!("characters is all a note holds: the rest was cut off."),
+            );
+            ui.add(egui::Label::new(txt(&cut, 12.0, Weight::Regular, p.danger)).wrap());
+        }
+        ui.horizontal_top(|ui| {
+            ui.spacing_mut().item_spacing.x = 6.0;
+            ui.add(a.icons.icon("lock", p.muted, &p, 14.0));
+            ui.add(egui::Label::new(txt(NOTE_PRIVACY, 12.0, Weight::Regular, p.muted)).wrap());
+        });
+    });
+}
+
+/// «Note» in the summary (AC-D1, Figma 08): the last row, the note in one line cut with «…», in
+/// its own direction.
+fn summary_note_row(ui: &mut Ui, p: &crate::theme::Palette, note: &str) {
+    let (rect, resp) =
+        ui.allocate_exact_size(vec2(ui.available_width(), 16.0), egui::Sense::hover());
+    // Painted words say nothing to a screen reader: the row reads «Note: …», as `kv_row`.
+    let spoken = format!("{}: {}", crate::i18n::spoken(tr!("Note")), note);
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, &spoken));
+    let label = crate::components::paint_text(
+        ui,
+        rect.left_center(),
+        egui::Align2::LEFT_CENTER,
+        tr!("Note"),
+        sans(13.0, Weight::Regular),
+        p.muted,
+    );
+    let room = rect.right() - label.right() - 16.0;
+    if room <= 0.0 {
+        return;
+    }
+    let mut job = egui::text::LayoutJob::single_section(
+        crate::i18n::t(&crate::i18n::own(note)).into_owned(),
+        egui::TextFormat::simple(sans(13.0, Weight::Medium), p.text),
+    );
+    job.wrap = egui::text::TextWrapping {
+        max_width: room,
+        max_rows: 1,
+        break_anywhere: true,
+        overflow_character: Some('…'),
+    };
+    let galley = ui.painter().layout_job(job);
+    let at = egui::pos2(
+        rect.right() - galley.size().x,
+        rect.center().y - galley.size().y / 2.0,
+    );
+    ui.painter().galley(at, galley, p.text);
+}
+
+/// The note in «Check the payment» (AC-D2): `raised`, r12, after the total and before «A
+/// payment cannot be undone.»; its heading with the `document` icon, the note in the person's
+/// own direction, and N15.
+fn confirm_note(ui: &mut Ui, a: &mut Assets, note: &str) {
+    let p = a.p;
+    egui::Frame::new()
+        .fill(p.raised)
+        .corner_radius(egui::CornerRadius::same(12))
+        .inner_margin(Margin::symmetric(14, 12))
+        .show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            ui.spacing_mut().item_spacing.y = 6.0;
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = 6.0;
+                ui.add(a.icons.icon("document", p.muted, &p, 14.0));
+                ui.label(txt(
+                    tr!("Note · only for you"),
+                    12.0,
+                    Weight::Medium,
+                    p.muted,
+                ));
+            });
+            ui.add(
+                egui::Label::new(txt(&crate::i18n::own(note), 14.0, Weight::Regular, p.text))
+                    .wrap(),
+            );
+            ui.add(
+                egui::Label::new(txt(
+                    tr!("Saved to the payment on this computer; it does not go to the network."),
+                    12.0,
+                    Weight::Regular,
+                    p.muted,
+                ))
+                .wrap(),
+            );
+        });
 }
 
 /// Why the core did not send, in words.
@@ -210,6 +383,9 @@ impl Default for SendForm {
             contact_password: Default::default(),
             previewed: String::new(),
             preview: None,
+            note: String::new(),
+            note_cut: false,
+            signed_note: String::new(),
         }
     }
 }
@@ -675,6 +851,8 @@ pub fn send(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut SendForm) {
         _ => false,
     };
     let summary_to = summary_recipient(&typed, known);
+    // The note, last in the summary (AC-D1); as it was when the frame began.
+    let summary_note = form.note_to_send();
     // Nothing to keep in the address book: it is this wallet's own (BUG-39 №9).
     let own = own_address(cx.wallet(), &typed);
     // The kind of the last payment signed, for its answer: "To" may be cleared or new by then.
@@ -851,6 +1029,7 @@ pub fn send(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut SendForm) {
                     );
                 }
             });
+            note_field(ui, a, form);
             kv_row(
                 ui,
                 &p,
@@ -1033,6 +1212,9 @@ pub fn send(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut SendForm) {
                 &left.map_or("—".into(), crate::format::balance),
                 value,
             );
+            if let Some(note) = &summary_note {
+                summary_note_row(ui, &p, note);
+            }
             divider(ui, &p);
             ui.add(
                 egui::Label::new(
@@ -1392,6 +1574,9 @@ fn confirm(
                 &dash(amount.saturating_add(source.fee)),
                 value,
             );
+            if let Some(note) = form.note_to_send() {
+                confirm_note(ui, a, &note);
+            }
             ui.label(txt(
                 tr!("A payment cannot be undone."),
                 12.0,
@@ -1460,12 +1645,16 @@ fn confirm(
                 from: source.source,
                 to,
                 amount,
+                note: form.note_to_send().map(evolite_api::NoteText),
             },
             password: ask_password.then(|| Password::new(form.password.to_string())),
         });
         form.waiting += 1;
         // Not twice by a second click: the amount leaves the form with the payment.
         form.signed = std::mem::take(&mut form.amount);
+        // And its note, which is this payment's only.
+        form.signed_note = std::mem::take(&mut form.note);
+        form.note_cut = false;
     }
     if closed {
         form.confirming = false;
@@ -1603,6 +1792,46 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// FEAT-0003 (AC-A1, AC-D1): a note is cut to 140 characters as a person sees them, and
+    /// says so until the next change; a family emoji is one character.
+    #[test]
+    fn a_note_longer_than_it_holds_is_cut_and_says_so() {
+        let mut form = SendForm::empty();
+        form.type_note(&"ж".repeat(150));
+        assert_eq!(evolite_core::note_text::graphemes(&form.note), 140);
+        assert!(form.note_cut);
+        form.type_note("За дизайн 👨‍👩‍👧‍👦\u{202E}");
+        assert_eq!(form.note, "За дизайн 👨‍👩‍👧‍👦");
+        assert!(!form.note_cut, "gone at the next change");
+        assert_eq!(form.note_to_send().as_deref(), Some("За дизайн 👨‍👩‍👧‍👦"));
+        form.type_note("   ");
+        assert_eq!(form.note_to_send(), None);
+    }
+
+    /// FEAT-0003 (AC-A3): the note leaves the form with the payment; a refusal puts it back
+    /// (nothing was kept), a payment taken keeps it with the core, and a lock wipes it.
+    #[test]
+    fn a_refused_payment_gives_the_note_back_and_a_lock_wipes_it() {
+        let mut form = SendForm::empty();
+        form.type_note("rent");
+        form.signed_note = std::mem::take(&mut form.note);
+        form.waiting = 1;
+        form.on_sent(&Err(CoreError::NotEnough));
+        assert_eq!(form.note, "rent");
+        form.signed_note = std::mem::take(&mut form.note);
+        form.waiting = 1;
+        form.on_sent(&Ok(SentPayment {
+            txid: "aa".into(),
+            amount: 1,
+            fee: 1,
+            relayed: true,
+        }));
+        assert!(form.note.is_empty() && form.signed_note.is_empty());
+        form.type_note("typed, not sent");
+        form.on_lock();
+        assert!(form.note.is_empty() && form.signed_note.is_empty() && !form.note_cut);
     }
 
     /// BUG-77: the Core source says how sure its balance is — the last checked one and when, or
@@ -1858,6 +2087,8 @@ mod tests {
             address: None,
             layers: evolite_api::layer::CORE,
             flow: evolite_api::Flow::Out,
+            key: String::new(),
+            note: None,
         }
     }
 

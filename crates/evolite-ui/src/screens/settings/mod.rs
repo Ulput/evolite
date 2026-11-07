@@ -586,7 +586,9 @@ pub fn settings(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut SettingsS
         let unfinished =
             own && (wallet.unfinished_identity.is_some() || wallet.unfinished_top_up.is_some());
         let balance = own.then_some(&wallet.balances);
-        if crate::screens::delete_wallet::delete_dialog(ui, a, cx, form, balance, unfinished) {
+        let notes = own && wallet.activity.iter().any(|a| a.note.is_some());
+        if crate::screens::delete_wallet::delete_dialog(ui, a, cx, form, balance, unfinished, notes)
+        {
             state.delete = None;
         }
     }

@@ -273,6 +273,7 @@ pub fn overview(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx) {
                     proof: Some(act.proof),
                     amount: &text::signed_amount(act.amount),
                     alert: text::activity_alert(act),
+                    note: act.note.as_deref(),
                 },
             );
             if row.clicked() {

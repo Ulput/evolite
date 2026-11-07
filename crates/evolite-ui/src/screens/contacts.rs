@@ -1147,6 +1147,8 @@ mod tests {
             address: None,
             layers: evolite_api::layer::CORE,
             flow: evolite_api::Flow::Out,
+            key: String::new(),
+            note: None,
         }
     }
 

@@ -64,6 +64,9 @@ pub struct TxRow<'a> {
     pub amount: &'a str,
     /// What went wrong, in red after `detail` (BUG-57: credits not added); `None` mostly.
     pub alert: Option<&'a str>,
+    /// The person's note to the operation (FEAT-0003), quoted after the line and cut with «…»
+    /// before the status; its own direction kept.
+    pub note: Option<&'a str>,
 }
 
 /// row/transaction: 54 px; icon box 36, title and line under it, status chip, amount in mono.
@@ -84,19 +87,28 @@ fn tx_row_sensed(ui: &mut Ui, a: &mut Assets, row: &TxRow, sense: Sense) -> egui
     let hidden = crate::format::display().hide;
     let masked = hidden.then(|| crate::format::mask(row.amount));
     let amount = masked.as_deref().unwrap_or(row.amount);
-    named(
-        &resp,
-        if sense.senses_click() {
-            egui::WidgetType::Button
-        } else {
-            egui::WidgetType::Label
-        },
-        true,
-        &match row.alert {
-            Some(alert) => format!("{} · {} · {} · {alert}", row.title, amount, row.detail),
-            None => format!("{} · {} · {}", row.title, amount, row.detail),
-        },
-    );
+    let kind = if sense.senses_click() {
+        egui::WidgetType::Button
+    } else {
+        egui::WidgetType::Label
+    };
+    let mut name = format!("{} · {} · {}", row.title, amount, row.detail);
+    if let Some(alert) = row.alert {
+        name = format!("{name} · {alert}");
+    }
+    match row.note {
+        // The note in its quotes is read apart: a « · » of the person's own would split it from
+        // its quotes in the line's pieces (FEAT-0003).
+        Some(note) => {
+            let name = format!(
+                "{} · {}",
+                crate::i18n::spoken(&name),
+                crate::i18n::spoken(&quoted_note(note))
+            );
+            resp.widget_info(|| egui::WidgetInfo::labeled(kind, true, &name));
+        }
+        None => named(&resp, kind, true, &name),
+    }
     if resp.hovered() {
         ui.painter()
             .rect_filled(rect, CornerRadius::same(12), p.surface);
@@ -144,6 +156,7 @@ fn tx_row_sensed(ui: &mut Ui, a: &mut Assets, row: &TxRow, sense: Sense) -> egui
         sans(12.0, Weight::Regular),
         p.muted,
     );
+    let mut line_end = line.right();
     if let Some(alert) = row.alert {
         let dot = paint_text(
             ui,
@@ -153,7 +166,7 @@ fn tx_row_sensed(ui: &mut Ui, a: &mut Assets, row: &TxRow, sense: Sense) -> egui
             sans(12.0, Weight::Regular),
             p.muted,
         );
-        paint_text(
+        line_end = paint_text(
             ui,
             pos2(dot.right(), cy + 9.0),
             Align2::LEFT_CENTER,
@@ -161,9 +174,50 @@ fn tx_row_sensed(ui: &mut Ui, a: &mut Assets, row: &TxRow, sense: Sense) -> egui
             sans(12.0, Weight::Medium),
             // A state to finish, not an error (calm states CS-1).
             attention_color(&p),
+        )
+        .right();
+    }
+    if let Some(note) = row.note {
+        let dot = paint_text(
+            ui,
+            pos2(line_end, cy + 9.0),
+            Align2::LEFT_CENTER,
+            " · ",
+            sans(12.0, Weight::Regular),
+            p.muted,
         );
+        let room = text_right - 14.0 - dot.right();
+        if room > 0.0 {
+            let galley = ui.painter().layout_job(note_job(note, room, p.muted));
+            ui.painter().galley(
+                pos2(dot.right(), cy + 9.0 - galley.size().y / 2.0),
+                galley,
+                p.muted,
+            );
+        }
     }
     resp
+}
+
+/// A note in its quotes (N14: the language's own), the person's words kept as they are.
+pub fn quoted_note(note: &str) -> String {
+    format!(tr!("“{}”"), crate::i18n::own(note))
+}
+
+/// A note as a history line shows it: one row, cut with «…» to `width`. egui keeps the laid-out
+/// text from frame to frame, so a long note is not measured anew each frame (AC-T9).
+fn note_job(note: &str, width: f32, color: Color32) -> egui::text::LayoutJob {
+    let mut job = egui::text::LayoutJob::single_section(
+        crate::i18n::t(&quoted_note(note)).into_owned(),
+        egui::TextFormat::simple(sans(12.0, Weight::Regular), color),
+    );
+    job.wrap = egui::text::TextWrapping {
+        max_width: width,
+        max_rows: 1,
+        break_anywhere: true,
+        overflow_character: Some('…'),
+    };
+    job
 }
 
 /// An operation's title as drawn: Inter, with the Dash addresses, short ids and txids in it

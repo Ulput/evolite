@@ -151,6 +151,8 @@ mod tests {
             address: None,
             layers,
             flow,
+            key: String::new(),
+            note: None,
         }
     }
 

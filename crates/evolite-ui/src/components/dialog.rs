@@ -45,6 +45,21 @@ pub fn dialog_with_header(
     header: impl FnOnce(&mut Ui, &mut Assets),
     body: impl FnOnce(&mut Ui, &mut Assets) -> bool,
 ) -> bool {
+    dialog_with_header_held(ui, a, id, width, false, header, body)
+}
+
+/// [`dialog_with_header`] that Escape and a click outside do not close while `held`: something
+/// inside is being edited and Escape is its own (FEAT-0003: a note edited in an operation's
+/// card). The cross and the body still close it.
+pub fn dialog_with_header_held(
+    ui: &mut Ui,
+    a: &mut Assets,
+    id: &str,
+    width: f32,
+    held: bool,
+    header: impl FnOnce(&mut Ui, &mut Assets),
+    body: impl FnOnce(&mut Ui, &mut Assets) -> bool,
+) -> bool {
     let p = a.p;
     let id = egui::Id::new(id);
     let ctx = ui.ctx().clone();
@@ -91,7 +106,7 @@ pub fn dialog_with_header(
         done || close
     });
     place.keep(&ctx, id, response.response.rect);
-    response.inner || response.should_close()
+    response.inner || (!held && response.should_close())
 }
 
 /// Where an open dialog stands. It opens in the middle of the window; from its second frame its

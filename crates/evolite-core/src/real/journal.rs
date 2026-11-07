@@ -310,12 +310,15 @@ impl Journal {
 
     /// Keeps `entry`; written beside and renamed over, so a crash leaves the old file or the
     /// new one. A file that cannot be written loses only the history line.
-    pub fn add(&self, entry: Entry) {
+    /// Returns the line's id ([`give_lines`]): fixed for good, so a note can go to it.
+    pub fn add(&self, entry: Entry) -> Option<u64> {
         let mut entries = self.entries.lock().unwrap_or_else(|e| e.into_inner());
         let kept = entries.get_or_insert_with(|| self.kept());
         kept.all.push(entry);
         give_lines(&mut kept.all);
+        let line = kept.all.last().and_then(|e| e.line);
         let _ = self.write(kept);
+        line
     }
 
     /// [`merge`]s what was read from Platform and writes the file when anything changed, or
@@ -409,6 +412,11 @@ pub fn activity(entry: &Entry) -> Activity {
         address: None,
         layers,
         flow,
+        key: entry
+            .line
+            .map(|line| format!("platform:{line:016x}"))
+            .unwrap_or_default(),
+        note: None,
     }
 }
 

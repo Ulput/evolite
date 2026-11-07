@@ -16,6 +16,10 @@ use zeroize::{Zeroize, Zeroizing};
 
 /// The word typed to confirm.
 const WORD: &str = tr!("delete");
+/// N16: the payment notes are only here (FEAT-0003).
+pub const DELETES_NOTES: &str = tr!(
+    "Payment notes are kept only on this computer: they are deleted with the wallet and do not come back when you restore from the phrase."
+);
 
 /// The word as typed: in Russian or in the interface language (the hint shows the latter).
 fn typed_word(typed: &str) -> bool {
@@ -77,6 +81,7 @@ pub fn delete_dialog(
     form: &mut DeleteForm,
     balance: Option<&Balances>,
     unfinished: bool,
+    notes: bool,
 ) -> bool {
     let p = a.p;
     let now = cx.now;
@@ -117,6 +122,10 @@ pub fn delete_dialog(
         }
         for line in lines {
             ui.add(egui::Label::new(txt(line, 13.0, Weight::Regular, p.text)).wrap());
+        }
+        // The wallet has payment notes: they go with it for good (FEAT-0003, AC-D7).
+        if notes {
+            notice(ui, a, "document", p.danger, DELETES_NOTES);
         }
         if unfinished {
             notice(

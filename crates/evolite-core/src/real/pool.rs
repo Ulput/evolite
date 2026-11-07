@@ -550,6 +550,8 @@ mod imp {
             address: None,
             layers,
             flow,
+            key: format!("pool:{:016x}", u64::from_le_bytes(id)),
+            note: None,
         })
     }
 }

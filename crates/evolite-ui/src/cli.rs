@@ -175,6 +175,9 @@ pub const PRESETS: &[&str] = &[
     "create", "verify", "password", "restore", "dashpay", "sync", "sync-nodes",
     "overview", "hidden", "units", "remind", "wallet-menu", "wallet-switch", "overview-syncing",
     "activity", "activity-card", "activity-filters", "activity-filters-empty",
+    "activity-notes", "activity-search-note", "activity-notes-unreadable", "activity-card-note",
+    "activity-card-add-note", "activity-card-note-edit", "activity-card-note-error",
+    "send-note", "send-note-limit", "send-confirm-note", "delete-notes",
     "send", "send-confirm", "send-contact", "send-book", "send-syncing",
     "receive",
     "identity", "identity-unfinished", "top-up-stopped", "top-up-awaiting", "edit-profile",
@@ -234,11 +237,27 @@ fn dev_args<'a>(
         ) => Screen::Overview,
         (
             None,
-            Some("activity" | "activity-card" | "activity-filters" | "activity-filters-empty"),
+            Some(
+                "activity"
+                | "activity-card"
+                | "activity-filters"
+                | "activity-filters-empty"
+                | "activity-notes"
+                | "activity-search-note"
+                | "activity-notes-unreadable"
+                | "activity-card-note"
+                | "activity-card-add-note"
+                | "activity-card-note-edit"
+                | "activity-card-note-error",
+            ),
         ) => Screen::Activity,
-        (None, Some("send" | "send-confirm" | "send-contact" | "send-book" | "send-syncing")) => {
-            Screen::Send
-        }
+        (
+            None,
+            Some(
+                "send" | "send-confirm" | "send-contact" | "send-book" | "send-syncing"
+                | "send-note" | "send-note-limit" | "send-confirm-note",
+            ),
+        ) => Screen::Send,
         (None, Some("receive")) => Screen::Receive,
         (
             None,
@@ -270,7 +289,8 @@ fn dev_args<'a>(
                 "settings" | "phrase" | "check-phrase" | "appearance" | "change-password"
                 | "security" | "backup" | "notifications" | "own-node" | "appearance-rate"
                 | "nodes" | "nodes-dapi" | "about" | "about-end" | "report" | "report-letter"
-                | "delete" | "resync" | "language" | "wallets" | "wallet-rename" | "wallet-more",
+                | "delete" | "resync" | "language" | "wallets" | "wallet-rename" | "wallet-more"
+                | "delete-notes",
             ),
         ) => Screen::Settings,
         _ => Screen::Welcome,

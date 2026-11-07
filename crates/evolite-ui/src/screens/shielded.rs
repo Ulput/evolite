@@ -253,6 +253,7 @@ pub fn shielded(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut PoolState
                                 proof: None,
                                 amount: &amount,
                                 alert: None,
+                                note: op.note.as_deref(),
                             },
                         );
                     }

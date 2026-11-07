@@ -27,6 +27,7 @@ mod mempool;
 mod mined;
 mod nfts;
 mod node;
+mod notes;
 mod outgoing;
 mod pending;
 mod platform_history;
@@ -130,6 +131,9 @@ pub struct Paths {
     pub pool: PathBuf,
     /// Apps signed in as an identity ([`connected_apps::ConnectedApps`]).
     pub connected_apps: PathBuf,
+    /// The person's payment notes, encrypted ([`notes::Notes`], FEAT-0003): only here; a
+    /// resync keeps them, deleting the wallet deletes them with its folder.
+    pub notes: PathBuf,
 }
 
 impl Paths {
@@ -162,6 +166,7 @@ impl Paths {
             core_balance: wallets.join("core-balance.json"),
             pool: wallets.join("shielded-pool.db"),
             connected_apps: wallets.join("connected-apps.json"),
+            notes: wallets.join("notes.enc"),
         }
     }
 }
@@ -169,8 +174,8 @@ impl Paths {
 /// The resync asked for last run, before anything opens: the headers, filters and
 /// masternode lists (`spv`) and the wallet's store (with SQLite's `-wal` and `-shm`) go, so
 /// sync starts from scratch and the wallet is scanned again from its birth at the unlock. The
-/// vault, the names of identities being made, the Platform journal and contacts' addresses
-/// stay — none of them comes back from the chain. Returns whether it cleared.
+/// vault, the names of identities being made, the Platform journal, contacts' addresses and
+/// the payment notes stay — none of them comes back from the chain. Returns whether it cleared.
 pub fn resync_on_start(paths: &Paths) -> std::io::Result<bool> {
     if !paths.resync.exists() {
         return Ok(false);
@@ -491,6 +496,10 @@ struct Real {
     hidden: Arc<hidden_requests::HiddenRequests>,
     /// The pool's operations with the amounts the scan loses after a restart.
     pool_history: pool_history::PoolHistory,
+    /// The open wallet's payment notes, decrypted, with their key (FEAT-0003): opened with the
+    /// wallet, `None` once it locks (a lock, a switch, "Add a wallet"). Shared with the sends
+    /// in flight, which keep their note once the network takes them.
+    notes: Arc<std::sync::Mutex<Option<notes::Notes>>>,
     /// Core addresses the person named, to pay again.
     address_book: address_book::AddressBook,
     /// The address shown in the last look before paying each contact (by identity): a payment
@@ -640,6 +649,45 @@ async fn nameless_slot(
         }
     }
     None
+}
+
+/// Why a note was not saved, for "Details": the kind of failure, never the note.
+fn note_error(e: notes::NoteError) -> CoreError {
+    match e {
+        notes::NoteError::TooMany => CoreError::NotAvailable(crate::note_text::TOO_MANY.into()),
+        notes::NoteError::NotRead => CoreError::NotAvailable(
+            tr!(
+                "The notes file was not read: notes can be changed once the wallet is opened again"
+            )
+            .into(),
+        ),
+        notes::NoteError::Write(kind) => CoreError::Failed(format!("notes.enc: {kind}")),
+    }
+}
+
+/// A send's note as the core keeps it: cleaned, `None` when empty; too long refuses the send
+/// before anything leaves the wallet (the form cuts it to what a note holds).
+fn send_note(note: Option<NoteText>) -> Result<Option<String>, CoreError> {
+    match note {
+        None => Ok(None),
+        Some(note) => crate::note_text::kept(&note.0)
+            .map_err(|_| CoreError::NotAvailable(crate::note_text::TOO_LONG.into())),
+    }
+}
+
+/// Keeps a send's note once the network took it (FEAT-0003, AC-T3), off the loop's thread and
+/// before the send's answer goes out. A wallet locked meanwhile keeps nothing: its key is gone.
+/// A failed write is in the journal by the file's name and the kind of error only.
+async fn keep_note(
+    notes: Arc<std::sync::Mutex<Option<notes::Notes>>>,
+    keep: impl FnOnce(&mut notes::Notes) + Send + 'static,
+) {
+    let _ = tokio::task::spawn_blocking(move || {
+        if let Some(notes) = notes.lock().unwrap_or_else(|e| e.into_inner()).as_mut() {
+            keep(notes);
+        }
+    })
+    .await;
 }
 
 /// A failed Core payment or asset lock, in the interface's terms.
@@ -937,6 +985,7 @@ impl Real {
         Self {
             wallet,
             index,
+            notes: Arc::default(),
             attempts,
             pending_origin: wallets::Origin::Created,
             switch_to: None,
@@ -1850,7 +1899,48 @@ impl Real {
         self.unlocked = None;
         self.attach = None;
         self.receive_address = None;
+        // The notes' key and every decrypted note go with the keys (AC-T6).
+        *self.notes.lock().unwrap_or_else(|e| e.into_inner()) = None;
         Ok(())
+    }
+
+    /// The wallet's payment notes, opened with it (FEAT-0003): the key from the seed, the file
+    /// read once here, off the loop's thread (up to 6 MB to decrypt, AC-T9), and kept in memory
+    /// until the lock.
+    async fn open_notes(&self, seed: &[u8], wallet_id: &str) {
+        let path = self.paths.notes.clone();
+        let seed = Zeroizing::new(seed.to_vec());
+        let wallet_id = wallet_id.to_owned();
+        let notes =
+            tokio::task::spawn_blocking(move || notes::Notes::open(path, &seed, &wallet_id))
+                .await
+                .ok();
+        *self.notes.lock().unwrap_or_else(|e| e.into_inner()) = notes;
+    }
+
+    /// `Command::SetNote`: the note of an operation of the history, written off the loop's
+    /// thread. The text never goes into an error or the journal.
+    async fn set_note(&self, key: String, text: &str) -> Result<(), CoreError> {
+        let text = crate::note_text::kept(text)
+            .map_err(|_| CoreError::NotAvailable(crate::note_text::TOO_LONG.into()))?;
+        if !["core:", "platform:", "pool:"]
+            .iter()
+            .any(|kind| key.starts_with(kind))
+        {
+            return Err(CoreError::NotAvailable(
+                tr!("There is no such operation in the history").into(),
+            ));
+        }
+        let notes = self.notes.clone();
+        tokio::task::spawn_blocking(move || {
+            let mut notes = notes.lock().unwrap_or_else(|e| e.into_inner());
+            let notes = notes
+                .as_mut()
+                .ok_or(CoreError::NotAvailable(tr!("The wallet is locked").into()))?;
+            notes.set(&key, text).map_err(note_error)
+        })
+        .await
+        .map_err(|_| CoreError::Failed("notes".into()))?
     }
 
     /// Asks the network off the loop and sends the answer when it comes. A name asked before
@@ -2462,6 +2552,38 @@ impl Real {
             .map_or(&[][..], |o| o.stale.as_slice());
         self.mempool
             .leave_out_checking(&mut history, owed, sync_done);
+        // The person's notes on their lines (FEAT-0003); a send's note waiting for its line goes
+        // there first, off the loop's thread: binding it writes the file (AC-T9, review r1
+        // should 2). Rare: once per send out of the pool.
+        let to_bind = self
+            .notes
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .as_ref()
+            .and_then(|notes| notes.lines_to_bind(&history));
+        if let Some(lines) = to_bind {
+            let notes = self.notes.clone();
+            let _ = tokio::task::spawn_blocking(move || {
+                if let Some(notes) = notes.lock().unwrap_or_else(|e| e.into_inner()).as_mut() {
+                    notes.bind(&lines);
+                }
+            })
+            .await;
+        }
+        let notes_error = match self
+            .notes
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .as_ref()
+        {
+            Some(notes) => {
+                for line in history.iter_mut().filter(|a| !a.key.is_empty()) {
+                    line.note = notes.get(&line.key).map(str::to_owned);
+                }
+                notes.trouble()
+            }
+            None => None,
+        };
         history.sort_by_key(|a| std::cmp::Reverse(a.at));
         // Only a checked balance is shown: while the filters are not at the tip (a start, a
         // rewound pass, a rescan) the last checked one with its time, or none (BUG-77).
@@ -2472,6 +2594,7 @@ impl Real {
         );
         let mut shown_wallet = Wallet {
             password_each_send: self.password_each_send,
+            notes_error,
             balances: Balances {
                 core,
                 core_as_of,
@@ -2647,16 +2770,23 @@ impl Real {
     /// takes up to a minute and the loop must go on sending snapshots. Never resent: a payment
     /// with no answer may still go through. "Password for every send" is checked before, by
     /// [`Real::spend_gate`].
-    async fn send(&mut self, from: Source, to: &str, amount: Duffs) -> Result<(), CoreError> {
+    async fn send(
+        &mut self,
+        from: Source,
+        to: &str,
+        amount: Duffs,
+        note: Option<NoteText>,
+    ) -> Result<(), CoreError> {
         let open = self
             .unlocked
             .as_ref()
             .ok_or(CoreError::NotAvailable(tr!("The wallet is locked").into()))?;
         let id = open.id;
+        let note = send_note(note)?;
         match from {
             Source::Core => {}
-            Source::Credits => return self.send_credits(id, to, amount),
-            Source::Pool => return self.send_from_pool(to, amount),
+            Source::Credits => return self.send_credits(id, to, amount, note),
+            Source::Pool => return self.send_from_pool(to, amount, note),
         }
         let payee = self.core_payee(to)?;
         // A contact is paid only to the address the last look before signing showed.
@@ -2703,6 +2833,7 @@ impl Real {
         let chain = self.chain.clone();
         let out = self.out.clone();
         let wake = self.wake.clone();
+        let notes = self.notes.clone();
         let dirty = self.dirty.clone();
         // Building, signing and the network's answer happen off the loop: the broadcast waits
         // for peers to relay the payment.
@@ -2735,6 +2866,14 @@ impl Real {
                     Err(_) => outgoing::Answer::Refused,
                 },
             );
+            // Taken (or maybe taken, with its txid): the note goes with the txid (AC-T3).
+            if let (Ok(paid), Some(text)) = (&paid, note) {
+                let key = format!("core:{}", paid.txid);
+                keep_note(notes, move |n| {
+                    let _ = n.set(&key, Some(text));
+                })
+                .await;
+            }
             let result = paid
                 .map(|paid| SentPayment {
                     txid: paid.txid,
@@ -3033,7 +3172,12 @@ impl Real {
     /// "Send" from the pool: to a private address it stays private; to a Platform address
     /// it leaves the pool (and is seen); to a Core address it is withdrawn, paid out by Platform
     /// minutes later. Answered with `Sent`.
-    fn send_from_pool(&self, to: &str, amount: Duffs) -> Result<(), CoreError> {
+    fn send_from_pool(
+        &self,
+        to: &str,
+        amount: Duffs,
+        note: Option<String>,
+    ) -> Result<(), CoreError> {
         enum To {
             Private,
             Platform,
@@ -3066,11 +3210,13 @@ impl Real {
             amount,
             now(),
         );
+        let notes = self.notes.clone();
+        let signed = now();
         self.pool_job(
             "send",
             async move {
                 let wallet = loaded(&chain, &id).await?;
-                match kind {
+                let sent = match kind {
                     To::Private => chain.pool_transfer(&wallet, &seed[..], &to, credits).await,
                     To::Platform => chain.unshield(&wallet, &seed[..], &to, credits).await,
                     To::Core => chain.pool_withdraw(&wallet, &seed[..], &to, credits).await,
@@ -3080,7 +3226,16 @@ impl Real {
                 .or_else(|e| match e {
                     pool::PoolError::Unconfirmed => Ok(false),
                     other => Err(pool_error(other)),
-                })
+                });
+                // Its line (and so its key) comes with the pool's store: the note waits for it,
+                // encrypted, after a restart too (FEAT-0003).
+                if let (Ok(_), Some(text)) = (&sent, note) {
+                    keep_note(notes, move |n| {
+                        n.set_pending(notes::Pending::Pool, amount, signed, text)
+                    })
+                    .await;
+                }
+                sent
             },
             move |result| {
                 // "No answer" may still be taken: shown until the pool has it, or a while.
@@ -3104,7 +3259,13 @@ impl Real {
     /// Platform address `tdash1…` (credits stay on Platform) or a Core address (a withdrawal,
     /// paid out on Core later). Signed and sent in the background; the answer is `Event::Sent`
     /// with no txid (Platform proves the transition itself).
-    fn send_credits(&self, id: WalletId, to: &str, amount: Duffs) -> Result<(), CoreError> {
+    fn send_credits(
+        &self,
+        id: WalletId,
+        to: &str,
+        amount: Duffs,
+        note: Option<String>,
+    ) -> Result<(), CoreError> {
         let credits = positive_credits(amount)?;
         let to = to.trim();
         enum To {
@@ -3145,6 +3306,7 @@ impl Real {
         let chain = self.chain.clone();
         let dirty = self.dirty.clone();
         let journal = self.journal.clone();
+        let notes = self.notes.clone();
         // In the history from now on, as "being sent", until the journal has its line (BUG-12).
         let sending = self.platform_sending.clone();
         let key = sending.lock().unwrap_or_else(|e| e.into_inner()).start(
@@ -3173,13 +3335,21 @@ impl Real {
                     .map_err(dashpay_failure)?;
                 // `send_credits` read the balance back: the difference is the amount and fee.
                 let after = chain.first_identity_credits(&wallet, false).await;
-                journal.add(journal::Entry {
+                let line = journal.add(journal::Entry {
                     at: now(),
                     what,
                     spent: spent_credits(before, after).unwrap_or(amount),
                     moved: amount,
                     ..Default::default()
                 });
+                // The journal's line is the transfer's for good: its note goes there (AC-T3).
+                if let (Some(line), Some(text)) = (line, note) {
+                    let key = format!("platform:{line:016x}");
+                    keep_note(notes, move |n| {
+                        let _ = n.set(&key, Some(text));
+                    })
+                    .await;
+                }
                 Ok::<(), CoreError>(())
             }
             .await
@@ -3536,11 +3706,13 @@ impl Real {
         let keys = keys_of(&phrase)?;
         // The id platform-wallet gives the wallet: from the same root key.
         let id = keys.compute_wallet_id();
+        let seed = seed_of(&phrase)?;
+        self.open_notes(seed.as_ref(), &meta.wallet_id).await;
         self.unlocked = Some(Unlocked {
             id,
             meta,
             keys: Some(keys),
-            seed: Some(seed_of(&phrase)?),
+            seed: Some(seed),
         });
         self.attach = Some(phrase);
         self.attach_failed = None;
@@ -3832,11 +4004,13 @@ impl Real {
             self.start_after(parked, false);
         }
         let id = keys.compute_wallet_id();
+        let seed = seed_of(&phrase)?;
+        self.open_notes(seed.as_ref(), &meta.wallet_id).await;
         self.unlocked = Some(Unlocked {
             id,
             meta,
             keys: Some(keys),
-            seed: Some(seed_of(&phrase)?),
+            seed: Some(seed),
         });
         self.attach = Some(phrase);
         self.attach_failed = None;
@@ -3892,7 +4066,12 @@ impl Real {
     /// A spend past [`Real::spend_gate`], answered as each operation always was.
     async fn spend(&mut self, op: Spend) -> (Option<Event>, bool) {
         let event = match op {
-            Spend::Send { from, to, amount } => match self.send(from, &to, amount).await {
+            Spend::Send {
+                from,
+                to,
+                amount,
+                note,
+            } => match self.send(from, &to, amount, note).await {
                 // The answer comes from the broadcast task.
                 Ok(()) => return (None, true),
                 Err(e) => Event::Sent(Err(e)),
@@ -4460,6 +4639,17 @@ impl Real {
                 }
                 _ => return (None, false),
             },
+            Command::SetNote { key, text } => {
+                let result = self.set_note(key, &text.0).await;
+                let changed = result.is_ok();
+                return (
+                    Some(Event::Done {
+                        what: "note",
+                        result,
+                    }),
+                    changed,
+                );
+            }
             Command::RenameWallet { id, name, color } => {
                 let name = name.trim().to_owned();
                 let result = if name.is_empty() || name.chars().count() > 24 {
@@ -5004,6 +5194,28 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// FEAT-0003 (AC-T7): "Sync again" keeps the payment notes, and they still open, on the
+    /// same keys.
+    #[test]
+    fn a_resync_keeps_the_payment_notes() {
+        let dir = fresh_dir("resync-notes");
+        let paths = Paths::new(dir.clone(), TEST_WALLET);
+        std::fs::create_dir_all(paths.chain.spv.join("headers")).unwrap();
+        std::fs::create_dir_all(paths.vault.parent().unwrap()).unwrap();
+        std::fs::write(&paths.chain.store, b"x").unwrap();
+        let seed = [7u8; 64];
+        notes::Notes::open(paths.notes.clone(), &seed, "ab")
+            .set("core:aa", Some("rent".into()))
+            .unwrap();
+        std::fs::write(&paths.resync, b"").unwrap();
+        assert!(resync_on_start(&paths).unwrap());
+        assert!(!paths.chain.store.exists());
+        let back = notes::Notes::open(paths.notes.clone(), &seed, "ab");
+        assert_eq!(back.get("core:aa"), Some("rent"));
+        assert!(!back.unreadable());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     #[test]
     fn one_data_folder_one_evolite() {
         let dir = std::env::temp_dir().join(format!("evolite-lock-{}", std::process::id()));
@@ -5168,6 +5380,165 @@ mod tests {
         );
         core.lock().await.unwrap();
         assert!(core.attach.is_none() && core.unlocked.is_none());
+    }
+
+    /// The text of every file under `dir`, as anyone with the disk could read it.
+    fn every_file_text(dir: &std::path::Path) -> String {
+        let mut text = String::new();
+        for entry in std::fs::read_dir(dir).into_iter().flatten().flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                text += &every_file_text(&path);
+            } else if let Ok(bytes) = std::fs::read(&path) {
+                text += &String::from_utf8_lossy(&bytes);
+            }
+        }
+        text
+    }
+
+    fn has_notes(core: &Real) -> bool {
+        core.notes.lock().unwrap().is_some()
+    }
+
+    /// FEAT-0003: the notes open with the wallet and go with its lock (the key and every
+    /// decrypted note), are kept encrypted only, come back after the next unlock — with a new
+    /// password too, since their key is the seed's (AC-T8) — and are not taken while locked.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn the_notes_open_with_the_wallet_and_go_with_its_lock() {
+        let mut core = core_with_vault("notes-lock", "pw");
+        assert!(!has_notes(&core));
+        assert_eq!(core.unlock(&pw("pw")).await, Ok(()));
+        assert!(has_notes(&core));
+        let note = |text: &str| Command::SetNote {
+            key: "core:ab12".into(),
+            text: NoteText(text.into()),
+        };
+        let (event, changed) = core.handle(note("For the logo ZQX-7731")).await;
+        assert!(changed);
+        assert!(matches!(
+            event,
+            Some(Event::Done {
+                what: "note",
+                result: Ok(())
+            })
+        ));
+        assert!(core.paths.notes.exists());
+        let folder = core.paths.vault.parent().unwrap().to_owned();
+        assert!(!every_file_text(&folder).contains("ZQX-7731"));
+        assert!(!every_file_text(&folder).contains("ab12"));
+        // Not an operation's key: refused, nothing kept.
+        let (event, _) = core
+            .handle(Command::SetNote {
+                key: "../wallet.json".into(),
+                text: NoteText("x".into()),
+            })
+            .await;
+        assert!(matches!(event, Some(Event::Done { result: Err(_), .. })));
+
+        core.lock().await.unwrap();
+        assert!(!has_notes(&core), "the key and the notes go with the lock");
+        let (event, changed) = core.handle(note("while locked")).await;
+        assert!(!changed && matches!(event, Some(Event::Done { result: Err(_), .. })));
+
+        assert_eq!(core.unlock(&pw("pw")).await, Ok(()));
+        let (event, _) = core
+            .handle(Command::ChangePassword {
+                old: pw("pw"),
+                new: pw("a new password 2026"),
+            })
+            .await;
+        assert!(matches!(event, Some(Event::Done { result: Ok(()), .. })));
+        core.lock().await.unwrap();
+        assert_eq!(core.unlock(&pw("a new password 2026")).await, Ok(()));
+        let notes = core.notes.lock().unwrap();
+        let notes = notes.as_ref().unwrap();
+        assert_eq!(notes.get("core:ab12"), Some("For the logo ZQX-7731"));
+        assert!(!notes.unreadable());
+    }
+
+    /// Review r1 must 1 (§4a, lock → unlock): a notes file the unlock could not read (a folder
+    /// in its place: no access) is not written over, "Details" says why, and the next unlock
+    /// that reads it saves notes again.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_notes_file_not_read_at_the_unlock_is_kept_until_one_reads_it() {
+        let mut core = core_with_vault("notes-not-read", "pw");
+        std::fs::create_dir_all(core.paths.notes.join("in-the-way")).unwrap();
+        assert_eq!(core.unlock(&pw("pw")).await, Ok(()));
+        assert_eq!(
+            core.notes.lock().unwrap().as_ref().unwrap().trouble(),
+            Some(evolite_api::NotesError::NotRead)
+        );
+        let note = || Command::SetNote {
+            key: "core:ab12".into(),
+            text: NoteText("rent".into()),
+        };
+        let (event, _) = core.handle(note()).await;
+        assert!(matches!(
+            event,
+            Some(Event::Done {
+                what: "note",
+                result: Err(CoreError::NotAvailable(_))
+            })
+        ));
+        assert!(core.paths.notes.join("in-the-way").is_dir());
+        core.lock().await.unwrap();
+        std::fs::remove_dir_all(&core.paths.notes).unwrap();
+        assert_eq!(core.unlock(&pw("pw")).await, Ok(()));
+        let (event, _) = core.handle(note()).await;
+        assert!(matches!(event, Some(Event::Done { result: Ok(()), .. })));
+        assert_eq!(core.notes.lock().unwrap().as_ref().unwrap().trouble(), None);
+    }
+
+    /// FEAT-0003 with BUG-76: "Add a wallet" locks this one (the loop locks the core it
+    /// replaces), so its notes go; "Back" opens it again with its password, and they come back.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn adding_a_wallet_drops_the_notes_and_back_opens_them_again() {
+        let mut core = core_with_vault("notes-add", "pw");
+        assert_eq!(core.unlock(&pw("pw")).await, Ok(()));
+        core.handle(Command::SetNote {
+            key: "platform:00ff".into(),
+            text: NoteText("rent".into()),
+        })
+        .await;
+        let (_, changed) = core.handle(Command::AddWallet).await;
+        assert!(changed && core.switch_to.is_some());
+        // What the loop does with the core it replaces.
+        core.lock().await.unwrap();
+        assert!(!has_notes(&core) && core.unlocked.is_none());
+        let dir = core.paths.root.clone();
+        drop(core);
+        // "Back": a new core for this wallet, locked until its password.
+        let mut back = core_at(&dir, TEST_WALLET);
+        assert!(!has_notes(&back));
+        assert_eq!(back.snapshot().await.wallet.map(|w| w.notes_error), None);
+        assert_eq!(back.unlock(&pw("pw")).await, Ok(()));
+        assert_eq!(
+            back.notes
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .get("platform:00ff"),
+            Some("rent")
+        );
+    }
+
+    /// FEAT-0003 (AC-T7, UC-7): a deleted wallet's notes go with its folder, so the same
+    /// phrase restored later finds none.
+    #[tokio::test]
+    async fn a_deleted_wallets_notes_go_with_its_folder() {
+        let dir = fresh_dir("notes-deleted");
+        let paths = Paths::new(dir.clone(), TEST_WALLET);
+        notes::Notes::open(paths.notes.clone(), &[1; 64], "ab")
+            .set("core:aa", Some("rent".into()))
+            .unwrap();
+        // Deleted: the vault is gone, the rest is left for the next start.
+        assert!(!paths.vault.exists() && paths.notes.exists());
+        assert!(clear_leftovers(&paths).await);
+        assert!(!paths.notes.exists());
+        let restored = notes::Notes::open(paths.notes.clone(), &[1; 64], "ab");
+        assert!(!restored.any() && !restored.unreadable());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// BUG-25: the open wallet goes into platform-wallet as soon as the store is open, so what
@@ -6456,6 +6827,7 @@ mod tests {
                 from: Source::Core,
                 to: "yMrDQWqicXKL8xdJg23oYVVqKNtm5AwvXQ".into(),
                 amount: 10_000,
+                note: None,
             },
             Spend::TopUpIdentity { amount: 10_000 },
             Spend::ResumeTopUp,
@@ -6622,25 +6994,25 @@ mod tests {
         let testnet = address(crate::network::dash());
         assert!(testnet.starts_with("tdash1"), "{testnet}");
         assert_eq!(
-            core.send(Source::Credits, &mainnet, 1_000).await,
+            core.send(Source::Credits, &mainnet, 1_000, None).await,
             Err(CoreError::BadAddress)
         );
         assert_eq!(
-            core.send(Source::Credits, "@a_b", 1_000).await,
+            core.send(Source::Credits, "@a_b", 1_000, None).await,
             Err(CoreError::BadName)
         );
         assert_eq!(
-            core.send(Source::Credits, &testnet, 0).await,
+            core.send(Source::Credits, &testnet, 0, None).await,
             Err(CoreError::BadAmount)
         );
         // A good payee gets as far as the network: proofs cannot be checked yet.
         assert_eq!(
-            core.send(Source::Credits, &testnet, 1_000).await,
+            core.send(Source::Credits, &testnet, 1_000, None).await,
             Err(CoreError::NotSynced)
         );
         // From Core a Platform address is refused with the reason, not as a bad address.
         assert!(matches!(
-            core.send(Source::Core, &testnet, 1_000).await,
+            core.send(Source::Core, &testnet, 1_000, None).await,
             Err(CoreError::NotAvailable(_))
         ));
     }
@@ -6701,7 +7073,7 @@ mod tests {
             last_payment: None,
         }];
         assert!(matches!(
-            core.send(Source::Core, "@bob", 1_000).await,
+            core.send(Source::Core, "@bob", 1_000, None).await,
             Err(CoreError::NotAvailable(_))
         ));
         // A contact without a name is paid by its identity id, not taken for an address.
@@ -6711,6 +7083,7 @@ mod tests {
                 Source::Core,
                 "F5teLR3Vq4JjzQA7jgdGjZQvJbKpMubbu5dsC4MJd1Eh",
                 1_000,
+                None,
             )
             .await,
             Err(CoreError::NotAvailable(_))

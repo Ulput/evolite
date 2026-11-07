@@ -39,6 +39,8 @@ pub(super) struct DevState {
     top_up_preset: Option<bool>,
     /// `--screen overview-syncing` / `send-syncing`: the screen while the sync still runs.
     syncing_preset: bool,
+    /// `--screen activity-notes-unreadable`: the notes file did not open (FEAT-0003, E2).
+    pub(super) notes_error: Option<evolite_api::NotesError>,
     /// The unlock presets of FEAT-0002: the wallets' wrong passwords as the core would send them.
     pause_preset: Option<PausePreset>,
     /// The clock the screens read, stopped at the start: a countdown in a screenshot shows
@@ -117,6 +119,9 @@ impl DevState {
                 None
             },
             syncing_preset: dev.preset("overview-syncing") || dev.preset("send-syncing"),
+            notes_error: dev
+                .preset("activity-notes-unreadable")
+                .then_some(evolite_api::NotesError::PutAside),
             frozen_now: PausePreset::of(dev)
                 .filter(|p| p.tries.is_some())
                 .map(|_| chrono::Local::now()),
@@ -217,6 +222,11 @@ impl App {
             s.sync.progress = Some(0.58);
             s.sync.chainlocked = false;
         }
+        if let Some(e) = self.dev.notes_error
+            && let Some(w) = self.snapshot.as_mut().and_then(|s| s.wallet.as_mut())
+        {
+            w.notes_error = Some(e);
+        }
         if let Some(pp) = &self.dev.pause_preset
             && let Some(s) = self.snapshot.as_mut()
         {
@@ -289,15 +299,58 @@ impl App {
             f.status = Some(screens::activity_filters::Status::Pending);
             f.kinds = screens::activity_filters::kind::NAMES;
         }
+        // FEAT-0003: the notes in History and in an operation's card (Figma 05, 24; the designer's
+        // frames 2, 4-7). The demo's note is the core's example, in the interface's language.
+        if !real_shot {
+            let note = crate::i18n::t_in(
+                crate::i18n::current(),
+                tr!("For the logo design · invoice no. 14 of 30 October"),
+            );
+            let edited = preset("activity-card-note-edit");
+            let failed = preset("activity-card-note-error");
+            if preset("activity-card-note") || edited || failed {
+                screens::open_card(ctx, 3);
+            }
+            if preset("activity-card-add-note") {
+                screens::open_card(ctx, 2);
+            }
+            if edited {
+                screens::activity::edit_note(ctx, "demo:3", &note);
+            }
+            if failed {
+                screens::activity::note_failed_example(ctx, "demo:3", &note);
+            }
+            // A word of the demo's note.
+            if preset("activity-search-note") {
+                self.history.query =
+                    crate::i18n::t_in(crate::i18n::current(), tr!("logo")).into_owned();
+            }
+        }
         // `--screen send-confirm`: the last look asks where the payment goes, as a click does.
-        if preset("send-confirm") {
+        if preset("send-confirm") || preset("send-confirm-note") {
             self.core.send(Command::PreviewPayment {
                 to: "@alice".into(),
             });
         }
         if demo {
             // `--screen send-confirm` opens the last look before signing.
-            self.send.confirming = preset("send-confirm");
+            self.send.confirming = preset("send-confirm") || preset("send-confirm-note");
+            // `--screen send-note`, `send-confirm-note`: a note typed (Figma 03); `send-note-limit`:
+            // more pasted than a note holds, cut and said so (the designer's frame 8).
+            if preset("send-note") || preset("send-confirm-note") {
+                self.send.type_note(&crate::i18n::t_in(
+                    crate::i18n::current(),
+                    tr!("For the logo design"),
+                ));
+            } else if preset("send-note-limit") {
+                let long = crate::i18n::t_in(
+                    crate::i18n::current(),
+                    tr!(
+                        "For the logo, business cards and letterhead design: invoice no. 14 of 30 October, the second stage under contract no. 7, the advance received, the rest by 15 November"
+                    ),
+                );
+                self.send.type_note(&format!("{long} {long}"));
+            }
             // `--screen send-contact`: a name that is not a contact yet (21).
             // `--screen send-book`: nothing typed yet, the address book offered.
             if preset("send-contact") {
@@ -373,7 +426,11 @@ impl App {
             Section::Backup
         } else if preset("appearance") || preset("appearance-rate") || preset("language") {
             Section::Appearance
-        } else if preset("change-password") || preset("delete") || preset("security") {
+        } else if preset("change-password")
+            || preset("delete")
+            || preset("delete-notes")
+            || preset("security")
+        {
             Section::Security
         } else if preset("about") || preset("about-end") || report {
             Section::About
@@ -410,7 +467,8 @@ impl App {
             self.settings.change = Some(Default::default());
         }
         // `--screen delete` and `--screen forgot`: the deletion dialogs, for screenshots.
-        if preset("delete") {
+        // `--screen delete-notes`: the same, for its block about the notes (the demo has notes).
+        if preset("delete") || preset("delete-notes") {
             self.settings.delete = Some(Default::default());
         }
         // `--screen report`: "Report a problem" filled in, for screenshots.

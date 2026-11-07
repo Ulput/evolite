@@ -17,6 +17,11 @@ pub type Duffs = i64;
 /// Unix time, seconds.
 pub type Timestamp = i64;
 
+/// The most characters (extended grapheme clusters) a payment note holds (FEAT-0003).
+pub const NOTE_MAX_GRAPHEMES: usize = 140;
+/// And the most bytes of UTF-8.
+pub const NOTE_MAX_BYTES: usize = 1024;
+
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Network {
     Testnet,
@@ -208,6 +213,12 @@ pub struct Activity {
     pub layers: u8,
     /// Which way it moved money for the whole wallet, set by the core (FEAT-0009).
     pub flow: Flow,
+    /// The operation's key for its note (FEAT-0003): `core:<txid>`, `platform:<line>`,
+    /// `pool:<id>`, the same after a restart and "Sync again"; empty where no note can be
+    /// kept (a send not in the history yet).
+    pub key: String,
+    /// What the person wrote to it, only on this computer ([`Command::SetNote`]).
+    pub note: Option<String>,
 }
 
 #[derive(Clone, PartialEq, Debug)]
@@ -771,6 +782,19 @@ pub struct Wallet {
     /// every [`Command::Spend`] needs the password; off only by [`Command::SetPasswordEachSend`]
     /// with the password.
     pub password_each_send: bool,
+    /// What was wrong with the notes file when the wallet opened, if anything: the history
+    /// shows no notes from it (FEAT-0003, E2).
+    pub notes_error: Option<NotesError>,
+}
+
+/// Why the history shows no notes from the file there (FEAT-0003, E2).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum NotesError {
+    /// It did not open (damaged, or not this wallet's): put aside, new notes go to a new file.
+    PutAside,
+    /// It could not be read now (held by another program, no access, too big): left as it is,
+    /// and no note is saved until the wallet is opened again and the file is read.
+    NotRead,
 }
 
 /// A Core address in the address book, with the name the person gave it.
@@ -1007,6 +1031,17 @@ impl fmt::Debug for Password {
     }
 }
 
+/// A payment note's text in a command (FEAT-0003): `Debug` never shows it, nor its length
+/// (AC-T6), so no log of a command can carry it.
+#[derive(Clone, PartialEq, Eq, Default)]
+pub struct NoteText(pub String);
+
+impl fmt::Debug for NoteText {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("NoteText(hidden)")
+    }
+}
+
 #[derive(Debug)]
 pub enum Command {
     /// A fresh phrase for a new wallet (12 or 24 words). Answered with [`Event::NewPhrase`].
@@ -1180,6 +1215,14 @@ pub enum Command {
     /// "Cancel" (`CancelAddWallet`) back to this one.
     AddWallet,
     CancelAddWallet,
+    /// Keep `text` as the note of the operation `key` ([`Activity::key`]); an empty text
+    /// deletes it. Only on this computer, encrypted; never sent anywhere. At most
+    /// [`NOTE_MAX_GRAPHEMES`] characters and [`NOTE_MAX_BYTES`] bytes. Answered with
+    /// `Done { what: "note" }`.
+    SetNote {
+        key: String,
+        text: NoteText,
+    },
     /// Name a wallet of this computer (1–24 characters) and give it one of the six colours
     /// (Figma 30); local, never sent anywhere. Answered with `Done { what: "wallet" }`.
     RenameWallet {
@@ -1199,6 +1242,9 @@ pub enum Spend {
         from: Source,
         to: String,
         amount: Duffs,
+        /// The person's note to the payment (FEAT-0003): kept with the operation once
+        /// the network took it, only on this computer; never sent.
+        note: Option<NoteText>,
     },
     /// Lock `amount` duffs on Core and add them to the shown identity's credits.
     /// `Done { what: "top-up" }`.
@@ -1409,6 +1455,14 @@ mod tests {
         );
         assert!(!printed.contains("abandon"));
         assert!(!printed.contains("hunter2"));
+        let note = format!(
+            "{:?}",
+            Command::SetNote {
+                key: "core:aa".into(),
+                text: NoteText("For the logo".into()),
+            }
+        );
+        assert!(!note.contains("logo") && !note.contains("12"));
         assert_eq!(phrase.words().len(), 2);
     }
 

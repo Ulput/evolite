@@ -30,8 +30,8 @@ find(sub {
     $src = without_tests($src);
     # Comments (line and doc) carry no interface text.
     $src =~ s{^\s*//[^\n]*}{}mg;
-    # plural(n, tr!("a"), tr!("b")) → one key in both its forms.
-    while ($src =~ /plural\(\s*[^,]+,\s*tr!\(\s*$lit\s*\)\s*,\s*tr!\(\s*$lit\s*\)\s*\)/g) {
+    # plural(n, tr!("a"), tr!("b")) → one key in both its forms (rustfmt may end it with a comma).
+    while ($src =~ /plural\(\s*[^,]+,\s*tr!\(\s*$lit\s*\)\s*,\s*tr!\(\s*$lit\s*\)\s*,?\s*\)/g) {
         $keys{"{} " . unescape($1) . "|{} " . unescape($2)} = 1;
     }
     while ($src =~ /\btr!\(\s*$lit\s*\)/g) {

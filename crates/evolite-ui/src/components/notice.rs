@@ -125,6 +125,8 @@ pub fn details_line(ui: &mut Ui, p: &Palette, details: &str) {
             ))
             .into_owned(),
         );
+    // A Tab stop says what it is (FEAT-0003: the Tab sweep met it in a note's card).
+    named(&link, egui::WidgetType::Button, true, tr!("Details"));
     if link.clicked() {
         ui.ctx().copy_text(details.to_owned());
     }

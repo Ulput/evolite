@@ -20,6 +20,7 @@ mod history;
 mod identity_pool;
 mod loading;
 mod login;
+mod notes;
 mod onboarding;
 mod pause;
 mod send;

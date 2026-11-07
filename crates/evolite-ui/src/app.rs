@@ -506,6 +506,7 @@ impl App {
                     // live test's restore, has no name in the index).
                     if let Some(s) = self.snapshot.as_mut() {
                         screens::wallets::show_default_names(&mut s.wallets);
+                        demo_notes_in_language(s);
                     }
                     #[cfg(feature = "dev-tools")]
                     self.dev_snapshot(ctx);
@@ -531,6 +532,10 @@ impl App {
                     what: "profile",
                     result,
                 } => self.identity.on_profile_saved(result),
+                Event::Done {
+                    what: "note",
+                    result,
+                } => screens::activity::on_note_done(ctx, result),
                 Event::Sent(result) => self.send.on_sent(result),
                 Event::PaymentPreview { to, result } => self.send.on_preview(to, result),
                 Event::Done {
@@ -737,6 +742,19 @@ impl<T: PartialEq + Copy> Visits<T> {
             self.n = self.n.wrapping_add(1);
         }
         self.n
+    }
+}
+
+/// The demo's notes are examples written in English: shown in the interface's language. A
+/// person's own note is never translated (the real core's notes are not touched).
+fn demo_notes_in_language(s: &mut Snapshot) {
+    if !crate::is_demo(s) {
+        return;
+    }
+    for act in s.wallet.iter_mut().flat_map(|w| w.activity.iter_mut()) {
+        if let Some(note) = act.note.as_mut() {
+            *note = crate::i18n::t_in(crate::i18n::current(), note).into_owned();
+        }
     }
 }
 
@@ -965,6 +983,8 @@ impl eframe::App for App {
             self.settings.forget_secrets();
             // FEAT-0009 R-5: the filters and the search go with the lock.
             self.history = Default::default();
+            // And a note half edited in an operation's card (FEAT-0003).
+            screens::activity::forget_note(ui.ctx());
             // And what was typed for a spend (BUG-42).
             self.identity.on_lock();
             self.contacts.on_lock();

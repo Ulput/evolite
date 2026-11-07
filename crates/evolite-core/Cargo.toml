@@ -83,6 +83,8 @@ serde_json = { version = "1", features = ["preserve_order"] }
 tokio = { version = "1", features = ["sync", "macros", "rt-multi-thread", "time", "net"], optional = true }
 # The demo stores Jembe's samples as their documents do: raw deflate.
 miniz_oxide = "0.8"
+# Payment notes count characters as a person sees them (extended grapheme clusters, FEAT-0003).
+unicode-segmentation = "1"
 
 [dev-dependencies]
 # Paused time for the auto-lock test.

@@ -550,6 +550,14 @@ pub fn error_details(e: &CoreError) -> Option<String> {
 fn failure(why: &str) -> &'static str {
     let why = why.to_lowercase();
     let any = |words: &[&str]| words.iter().any(|w| why.contains(w));
+    // The notes file on this computer (FEAT-0003): a disk's failure, not the network's.
+    if any(&["notes.enc"]) {
+        return if any(&["storage_full"]) {
+            tr!("there is no space left on the disk")
+        } else {
+            tr!("the notes file could not be written on this computer")
+        };
+    }
     // The same transition is still in the network's cache of seen ones (BUG-7): no verdict.
     if any(&["already exists in cache", "already in mempool"]) {
         return tr!("the network still holds the earlier attempt — try again in a few minutes");

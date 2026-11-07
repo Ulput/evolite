@@ -216,6 +216,9 @@ pub(super) fn demo_wallet(t: Timestamp) -> Wallet {
             address: None,
             layers,
             flow,
+            // Stable as the real keys are; the demo keeps notes in memory (FEAT-0003).
+            key: format!("demo:{id}"),
+            note: None,
         }
     };
     use ActivityKind::*;
@@ -255,6 +258,7 @@ pub(super) fn demo_wallet(t: Timestamp) -> Wallet {
             },
             // What its card shows (`--screen activity-card`).
             Activity {
+                note: Some(tr!("For the logo design · invoice no. 14 of 30 October").into()),
                 txid: Some(
                     "536e90c01af419f42cd2b9430f318b26031c9532c86013a409d529b02fc802c4".into(),
                 ),
@@ -302,14 +306,17 @@ pub(super) fn demo_wallet(t: Timestamp) -> Wallet {
                 -250_000_000,
                 Proof::Proved,
             ),
-            act(
-                7,
-                CreditTransfer { to: "@bob".into() },
-                Chain::Platform,
-                2 * day + hour,
-                -5_000_000,
-                Proof::Proved,
-            ),
+            Activity {
+                note: Some(tr!("Rent for November").into()),
+                ..act(
+                    7,
+                    CreditTransfer { to: "@bob".into() },
+                    Chain::Platform,
+                    2 * day + hour,
+                    -5_000_000,
+                    Proof::Proved,
+                )
+            },
             Activity {
                 address: Some("yNw3Hc6bV1qK8tR5mZ2xF9jD4sL7gP3aE6u".into()),
                 ..act(
@@ -537,6 +544,7 @@ pub(super) fn demo_wallet(t: Timestamp) -> Wallet {
         // Off in the demo, as the setting was before the core kept it: its screens stay one
         // click (Settings → Security turns it on).
         password_each_send: false,
+        notes_error: None,
         identity_search: IdentitySearch::Done,
         // Two identities, so the Identity screen shows its choice.
         address_book: vec![

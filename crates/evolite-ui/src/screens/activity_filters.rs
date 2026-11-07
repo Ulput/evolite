@@ -272,14 +272,15 @@ pub fn matches_query(act: &Activity, q: &str, book: &[SavedAddress]) -> bool {
     };
     // The payment's Core address too: a payment in names no one, only our own address it came
     // to, and a payment to a contact shows the @name with the address beside it. And the whole
-    // txid, as the card shows it.
+    // txid, as the card shows it. And the person's note (FEAT-0003, FR-9), any case.
     let shown = format!(
-        "{} {} {} {} {}",
+        "{} {} {} {} {} {}",
         text::activity_title_in(act, book),
         crate::format::number(act.amount, true),
         counterparty,
         act.address.as_deref().unwrap_or_default(),
-        act.txid.as_deref().unwrap_or_default()
+        act.txid.as_deref().unwrap_or_default(),
+        act.note.as_deref().unwrap_or_default()
     )
     .replace('\u{a0}', " ")
     .to_lowercase();

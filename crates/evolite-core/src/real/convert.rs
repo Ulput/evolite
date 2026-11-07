@@ -412,6 +412,7 @@ pub(super) fn activity(
     let txid = record.txid.to_string();
     let (layers, flow) = crate::layers::of(&kind, chain);
     Activity {
+        key: format!("core:{txid}"),
         id: u64::from_str_radix(&txid[..16.min(txid.len())], 16).unwrap_or(0),
         kind,
         chain,
@@ -429,6 +430,7 @@ pub(super) fn activity(
         address,
         layers,
         flow,
+        note: None,
     }
 }
 
@@ -1024,6 +1026,8 @@ mod tests {
             address: None,
             layers: layer::CORE,
             flow: Flow::Out,
+            key: String::new(),
+            note: None,
         };
         let contact = |id: &str, name: Option<&str>| Contact {
             identity_id: id.into(),
@@ -1080,6 +1084,8 @@ mod tests {
             address: None,
             layers: layer::CORE,
             flow: Flow::In,
+            key: String::new(),
+            note: None,
         };
         let mut h = vec![
             at(Some(900), Proof::InBlock),

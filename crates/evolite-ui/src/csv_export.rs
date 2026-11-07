@@ -228,6 +228,8 @@ mod tests {
             address: None,
             layers: evolite_api::layer::CORE,
             flow: evolite_api::Flow::Out,
+            key: String::new(),
+            note: None,
         }
     }
 
@@ -252,6 +254,26 @@ mod tests {
             "1970-01-01T00:00:01Z,Income,,DASH,evolite,0.01,DASH,evolite,,,,dd07f79a86185f3b5eeb2b19bdbc1d97eb9db0b887dcedb0fc30c622c43a27ba"
         );
         assert_eq!(lines[2], "");
+    }
+
+    /// FEAT-0003 (FR-10, AC-A12): the file is DashPay's 12 columns with or without notes; no
+    /// note's text is in it.
+    #[test]
+    fn notes_stay_out_of_the_file() {
+        let mut a = act(
+            ActivityKind::Received { from: None },
+            Chain::Core,
+            1,
+            1_000_000,
+            "dd07f79a86185f3b5eeb2b19bdbc1d97eb9db0b887dcedb0fc30c622c43a27ba",
+        );
+        let without = taxbit(std::slice::from_ref(&a), &Own::default());
+        a.note = Some("For the logo, \"invoice\" 14\nsecret-note-7f3a".into());
+        a.key = "core:dd07".into();
+        let with = taxbit(&[a], &Own::default());
+        assert_eq!(with, without);
+        assert!(!with.contains("secret-note-7f3a") && !with.contains("logo"));
+        assert_eq!(with.lines().next().unwrap().split(',').count(), 12);
     }
 
     fn with_fee(mut a: Activity, fee: Duffs) -> Activity {

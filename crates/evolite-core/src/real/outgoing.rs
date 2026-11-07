@@ -108,21 +108,30 @@ impl Outgoing {
             }
         }
         let mut shown: Vec<Activity> = history.into_iter().map(|(_, a)| a).collect();
-        shown.extend(self.pending.iter().map(|p| Activity {
-            // Out of the range of txid-based ids.
-            id: u64::MAX - p.key,
-            kind: ActivityKind::Sent { to: p.to.clone() },
-            chain: Chain::Core,
-            at: p.at,
-            amount: -(p.amount + p.fee),
-            proof: Proof::Sending,
-            txid: p.txid.clone(),
-            // The most it can be until the network has answered.
-            fee: Some(p.fee),
-            block: None,
-            address: None,
-            layers: evolite_api::layer::CORE,
-            flow: evolite_api::Flow::Out,
+        shown.extend(self.pending.iter().map(|p| {
+            Activity {
+                // Out of the range of txid-based ids.
+                id: u64::MAX - p.key,
+                kind: ActivityKind::Sent { to: p.to.clone() },
+                chain: Chain::Core,
+                at: p.at,
+                amount: -(p.amount + p.fee),
+                proof: Proof::Sending,
+                txid: p.txid.clone(),
+                // The most it can be until the network has answered.
+                fee: Some(p.fee),
+                block: None,
+                address: None,
+                layers: evolite_api::layer::CORE,
+                flow: evolite_api::Flow::Out,
+                // A payment with a txid has its note on its line already; without, none yet.
+                key: p
+                    .txid
+                    .as_ref()
+                    .map(|t| format!("core:{t}"))
+                    .unwrap_or_default(),
+                note: None,
+            }
         }));
         shown
     }
@@ -146,6 +155,8 @@ mod tests {
             address: None,
             layers: evolite_api::layer::CORE,
             flow: evolite_api::Flow::Out,
+            key: String::new(),
+            note: None,
         }
     }
 

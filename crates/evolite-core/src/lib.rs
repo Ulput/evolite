@@ -33,6 +33,8 @@ pub use mock::WRONG_PASSWORD as DEMO_WRONG_PASSWORD;
 pub(crate) const PASSWORD_NEEDED: &str =
     tr!("This wallet asks for the password for every send — enter it and try again");
 pub mod network;
+/// What a payment note may hold: the form and the core keep the same rules (FEAT-0003).
+pub mod note_text;
 #[cfg(feature = "real")]
 mod phrase_check;
 #[cfg(feature = "real")]
@@ -808,6 +810,7 @@ mod tests {
             from: evolite_api::Source::Core,
             to: wallet.core_address.clone(),
             amount: 10_000,
+            note: None,
         }));
         let sent = wait_for(&core, 3, |e| match e {
             Event::Sent(r) => Some(r.clone()),
@@ -837,7 +840,12 @@ mod tests {
     ) -> (Duration, Vec<evolite_api::Activity>) {
         let before: Vec<u64> = wallet.activity.iter().map(|a| a.id).collect();
         let started = Instant::now();
-        core.send(spend(Spend::Send { from, to, amount }));
+        core.send(spend(Spend::Send {
+            from,
+            to,
+            amount,
+            note: None,
+        }));
         let mut first_shown = None;
         let mut sent = None;
         let mut last_new = Vec::new();
@@ -1605,6 +1613,7 @@ mod tests {
             from: evolite_api::Source::Core,
             to,
             amount: 10_000,
+            note: None,
         }));
         let sent = wait_for(&core, 3, |e| match e {
             Event::Sent(r) => Some(r.clone()),
@@ -1672,6 +1681,7 @@ mod tests {
                 from: evolite_api::Source::Core,
                 to: to.clone(),
                 amount: 10_000,
+                note: None,
             }));
             let sent = wait_for(&core, 3, |e| match e {
                 Event::Sent(r) => Some(r.clone()),
@@ -1997,6 +2007,7 @@ mod tests {
                 from: evolite_api::Source::Credits,
                 to: to.clone(),
                 amount: 10_000,
+                note: None,
             }));
             let sent = wait_for(&core, 3, |e| match e {
                 Event::Sent(r) => Some(r.clone()),
@@ -2919,6 +2930,7 @@ mod tests {
             from: evolite_api::Source::Pool,
             to: ready.core_address.clone(),
             amount: 300_000,
+            note: None,
         }));
         let sent = wait_for(&core, 15, |e| match e {
             Event::Sent(r) => Some(r.clone()),

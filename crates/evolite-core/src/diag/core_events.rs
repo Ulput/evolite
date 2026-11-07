@@ -42,6 +42,7 @@ pub fn command(command: &Command) -> Record {
         Command::SwitchWallet { .. } => "switch_wallet",
         Command::AddWallet => "add_wallet",
         Command::CancelAddWallet => "cancel_add_wallet",
+        Command::SetNote { .. } => "set_note",
         Command::RenameWallet { .. } => "rename_wallet",
     };
     Record::Command { name }
@@ -196,7 +197,7 @@ impl Watch {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use evolite_api::{Password, Source};
+    use evolite_api::{NoteText, Password, Source};
 
     #[test]
     fn a_command_is_its_name_and_nothing_of_what_it_carries() {
@@ -205,14 +206,22 @@ mod tests {
                 from: Source::Core,
                 to: "yMrDQWqicXKL8xdJg23oYVVqKNtm5AwvXQ".into(),
                 amount: 25_000_000,
+                note: Some(NoteText("For the logo ZQX".into())),
             },
             password: Some(Password::new("hunter2".into())),
         });
         assert_eq!(record, Record::Command { name: "send" });
         let line = record.line(std::time::UNIX_EPOCH);
-        for secret in ["yMrDQ", "25000000", "hunter2"] {
+        for secret in ["yMrDQ", "25000000", "hunter2", "ZQX"] {
             assert!(!line.contains(secret), "{line}");
         }
+        let note = command(&Command::SetNote {
+            key: "core:ab12".into(),
+            text: NoteText("For the logo ZQX".into()),
+        });
+        assert_eq!(note, Record::Command { name: "set_note" });
+        let line = note.line(std::time::UNIX_EPOCH);
+        assert!(!line.contains("ZQX") && !line.contains("ab12"), "{line}");
     }
 
     #[test]

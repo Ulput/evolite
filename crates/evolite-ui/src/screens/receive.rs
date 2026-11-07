@@ -310,6 +310,7 @@ pub fn receive(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut ReceiveForm
                                     proof: None,
                                     amount: &shown,
                                     alert: None,
+                                    note: None,
                                 },
                             );
                             if row
@@ -460,6 +461,8 @@ mod tests {
             address: address.map(Into::into),
             layers: evolite_api::layer::CORE,
             flow: evolite_api::Flow::Out,
+            key: String::new(),
+            note: None,
         };
         let received = || ActivityKind::Received { from: None };
         let history = [
@@ -516,6 +519,8 @@ mod tests {
             address: Some("yA".into()),
             layers: evolite_api::layer::CORE,
             flow: evolite_api::Flow::Out,
+            key: String::new(),
+            note: None,
         }];
         assert_eq!(
             past_addresses(&history, "yNow"),

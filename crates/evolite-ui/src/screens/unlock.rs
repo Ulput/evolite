@@ -254,7 +254,7 @@ pub fn unlock(
     super::welcome::dash_evolution_logo(ui, a, content.response.rect.bottom());
     // The wallet is locked: what it holds is not shown, nor what may be unfinished.
     if let Some(forgot) = &mut form.forgot
-        && delete_dialog(ui, a, cx, forgot, None, false)
+        && delete_dialog(ui, a, cx, forgot, None, false, false)
     {
         form.forgot = None;
     }

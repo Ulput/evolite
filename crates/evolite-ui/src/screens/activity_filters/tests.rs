@@ -23,6 +23,8 @@ fn line(
         address: None,
         layers,
         flow,
+        key: String::new(),
+        note: None,
     }
 }
 

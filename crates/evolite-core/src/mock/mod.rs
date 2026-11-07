@@ -392,6 +392,31 @@ impl Mock {
                 self.snapshot.vault = VaultState::Locked;
                 return true;
             }
+            // In memory only (FR-11): the demo writes no file.
+            Command::SetNote { key, text } => {
+                let line = self.snapshot.wallet.as_mut().and_then(|w| {
+                    w.activity
+                        .iter_mut()
+                        .find(|a| !key.is_empty() && a.key == key)
+                });
+                let result = match (line, crate::note_text::kept(&text.0)) {
+                    (None, _) => Err(CoreError::NotAvailable(
+                        tr!("There is no such operation in the history").into(),
+                    )),
+                    (Some(_), Err(_)) => {
+                        Err(CoreError::NotAvailable(crate::note_text::TOO_LONG.into()))
+                    }
+                    (Some(line), Ok(note)) => {
+                        line.note = note;
+                        changed = true;
+                        Ok(())
+                    }
+                };
+                Event::Done {
+                    what: "note",
+                    result,
+                }
+            }
             Command::RenameWallet { id, name, color } => {
                 let name = name.trim().to_owned();
                 let result = match self.snapshot.wallets.iter_mut().find(|w| w.id == id) {
@@ -809,6 +834,63 @@ mod tests {
         }
     }
 
+    /// FEAT-0003 (FR-11): the demo adds, changes and deletes a note in memory, as the core's
+    /// rules say; an operation it does not have, or a note too long, is refused.
+    #[test]
+    fn a_note_is_set_changed_and_deleted_in_memory() {
+        let (mut m, tx, rx) = mock();
+        let note = |key: &str, text: &str| Command::SetNote {
+            key: key.into(),
+            text: NoteText(text.into()),
+        };
+        let shown = |m: &Mock| m.snapshot.wallet.as_ref().unwrap().activity[0].note.clone();
+        let key = m.snapshot.wallet.as_ref().unwrap().activity[0].key.clone();
+        assert!(!key.is_empty() && shown(&m).is_none());
+        assert!(m.handle(note(&key, " For the logo \u{202E}\n"), &tx));
+        assert!(matches!(
+            rx.recv().unwrap(),
+            Event::Done {
+                what: "note",
+                result: Ok(())
+            }
+        ));
+        assert_eq!(shown(&m).as_deref(), Some("For the logo"));
+        m.handle(note(&key, &"x".repeat(141)), &tx);
+        assert!(matches!(
+            rx.recv().unwrap(),
+            Event::Done {
+                what: "note",
+                result: Err(CoreError::NotAvailable(_))
+            }
+        ));
+        assert_eq!(shown(&m).as_deref(), Some("For the logo"));
+        m.handle(note(&key, "  "), &tx);
+        assert!(matches!(
+            rx.recv().unwrap(),
+            Event::Done {
+                what: "note",
+                result: Ok(())
+            }
+        ));
+        assert_eq!(shown(&m), None);
+        m.handle(note("demo:none", "x"), &tx);
+        assert!(matches!(
+            rx.recv().unwrap(),
+            Event::Done {
+                what: "note",
+                result: Err(_)
+            }
+        ));
+        m.handle(note("", "x"), &tx);
+        assert!(matches!(
+            rx.recv().unwrap(),
+            Event::Done {
+                what: "note",
+                result: Err(_)
+            }
+        ));
+    }
+
     #[test]
     fn never_pretends_to_send() {
         let (mut m, tx, rx) = mock();
@@ -818,6 +900,7 @@ mod tests {
                     from: Source::Core,
                     to: "@alice".into(),
                     amount: 1,
+                    note: None,
                 },
                 password: None,
             },
@@ -836,6 +919,7 @@ mod tests {
                 from: Source::Core,
                 to: "@alice".into(),
                 amount: 1,
+                note: None,
             },
             Spend::TopUpIdentity { amount: 1 },
             Spend::ResumeTopUp,

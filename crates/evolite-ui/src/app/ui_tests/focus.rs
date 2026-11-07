@@ -58,5 +58,5 @@ fn fields_without_a_label_have_names_too() {
     drop(kit);
     drop(_turn);
     let (_turn, kit) = demo_app("activity", "en");
-    kit.get_by_role_and_label(Role::TextInput, "Search by address, name, amount");
+    kit.get_by_role_and_label(Role::TextInput, "Address, name, amount, note");
 }
