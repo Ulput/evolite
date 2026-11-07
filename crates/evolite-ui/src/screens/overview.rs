@@ -306,7 +306,7 @@ pub fn overview(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx) {
 /// The private pool's tile (BUG-66, the designer's improvement 1): read in this run
 /// (`checked_at`), its amount; not read yet, the amount the pool's store already gives (dim),
 /// or none — a 0 before the first read is not known, it is not there yet.
-fn pool_amount(shielded: Duffs, checked_at: Option<Timestamp>) -> CardAmount {
+pub(super) fn pool_amount(shielded: Duffs, checked_at: Option<Timestamp>) -> CardAmount {
     match (checked_at, shielded) {
         (Some(_), duffs) => CardAmount::Now(duffs),
         (None, 0) => CardAmount::Unknown,

@@ -68,3 +68,44 @@ fn a_collection_not_refreshed_keeps_the_saved_list() {
         |k| shows(k, "(timeout). Сохранённые NFT на месте."),
     );
 }
+
+/// CS-4.2: the private pool not read yet shows «—», never «0,0000», with a neutral line — while
+/// it connects and before it is asked to; the store's amount from before is shown dim.
+#[test]
+fn the_pool_waiting_to_connect_shows_a_dash_not_a_zero() {
+    let (_turn, mut kit) = demo_app("shielded", "en");
+    let zero = crate::format::amount(0);
+    let dash = format!("— {}", crate::format::unit_name());
+    let waiting = |connecting: bool| {
+        move |s: &mut Snapshot| {
+            let w = wallet(s);
+            w.pool.checked_at = None;
+            w.pool.address = None;
+            w.pool.connecting = connecting;
+            w.balances.shielded = 0;
+        }
+    };
+    shown_with(&mut kit, waiting(true), "the pool connecting", |k| {
+        has_text(k, &dash) && shows(k, "Connecting the pool") && !shows(k, &zero)
+    });
+    shown_with(&mut kit, waiting(false), "the pool not asked yet", |k| {
+        has_text(k, &dash)
+            && has_text(
+                k,
+                "The pool connects after syncing with Platform — usually a minute",
+            )
+            && !shows(k, "The pool is not connected yet")
+            && !shows(k, &zero)
+    });
+    let stored = 48_885_860;
+    let amount = crate::format::amount(stored);
+    shown_with(
+        &mut kit,
+        |s| {
+            waiting(true)(s);
+            wallet(s).balances.shielded = stored;
+        },
+        "the stored amount",
+        |k| has_text(k, &amount),
+    );
+}

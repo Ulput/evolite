@@ -295,8 +295,29 @@ fn balance(
                 crate::components::amount_toggle(ui, a, false);
             });
         });
-        let amount = crate::format::amount(duffs);
-        crate::components::amount_label(ui, &amount, mono(36.0, Weight::Medium), p.text);
+        // Not read in this run: the store's last amount dim, or «—» — a 0 before the first read
+        // is not known (CS-4, as the Overview's pool tile, BUG-66).
+        let amount = super::overview::pool_amount(duffs, pool.checked_at);
+        let font = mono(36.0, Weight::Medium);
+        match amount.known() {
+            Some(duffs) => {
+                crate::components::amount_label(
+                    ui,
+                    &crate::format::amount(duffs),
+                    font,
+                    amount.color(&p),
+                );
+            }
+            None => {
+                // «— DASH» (the spec, CS-4): what is not known, in the unit it will be in.
+                let unknown = format!("— {}", crate::format::unit_name());
+                ui.label(
+                    egui::RichText::new(unknown)
+                        .font(font)
+                        .color(amount.color(&p)),
+                );
+            }
+        }
         ui.label(
             egui::RichText::new(crate::i18n::t(&pool_line(pool, now)))
                 .font(mono(12.0, Weight::Regular))
@@ -1105,7 +1126,8 @@ fn pool_line(pool: &evolite_api::Pool, now: chrono::DateTime<chrono::Local>) -> 
             tr!("Connecting the pool: preparing keys and reading notes — the first time up to a few minutes")
                 .to_string()
         }
-        None => tr!("The pool is not connected yet").to_string(),
+        // Not asked to connect yet (Platform still syncing): waiting, said neutrally (CS-4).
+        None => POOL_CONNECTING.to_string(),
     }
 }
 
@@ -1124,7 +1146,7 @@ mod pool_line_tests {
             connecting: false,
         };
         let now = chrono::Local::now();
-        assert_eq!(pool_line(&pool, now), tr!("The pool is not connected yet"));
+        assert_eq!(pool_line(&pool, now), POOL_CONNECTING);
         pool.connecting = true;
         assert!(pool_line(&pool, now).starts_with("Connecting the pool"));
         pool.address = Some("tdash1…".into());

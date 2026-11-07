@@ -65,8 +65,9 @@ fn says_start(kit: &Kit, part: &str) -> bool {
     .is_some()
 }
 
-/// №2: while identities are looked for, no «At least ≈ … is needed» — one may yet be found;
-/// once the search is done it shows, in red only for a Core the sync has counted.
+/// №2, CS-4.1: while identities are looked for, no «At least ≈ … is needed» and no buttons — one
+/// may yet be found; once the search is done it shows, in red only for a Core the sync has
+/// counted. A failed search is not done either: no amount line.
 #[test]
 fn identity_says_nothing_of_money_while_it_searches() {
     let (_turn, mut kit) = demo_app("identity", "en");
@@ -78,15 +79,38 @@ fn identity_says_nothing_of_money_while_it_searches() {
     };
     with_wallet(&mut kit, |w| none_yet(w, IdentitySearch::Searching));
     assert!(
-        says_start(&kit, "Looking for this phrase's identities"),
+        says_start(&kit, "Looking for this phrase's identity on Platform"),
         "the search is said"
     );
+    assert!(says_start(
+        &kit,
+        "We check the answer against masternode lists"
+    ));
     assert!(
         !says_start(&kit, "At least ≈ "),
         "no money line while it searches"
     );
+    for none in ["Create an identity", "Search again"] {
+        assert!(
+            kit.query_by_role_and_label(Role::Button, none).is_none(),
+            "«{none}» while it searches"
+        );
+    }
+    with_wallet(&mut kit, |w| {
+        none_yet(w, IdentitySearch::Failed("no answer".into()))
+    });
+    assert!(
+        !says_start(&kit, "At least ≈ "),
+        "no money line after a failed search"
+    );
     with_wallet(&mut kit, |w| none_yet(w, IdentitySearch::Done));
     assert!(says_start(&kit, "At least ≈ "), "after the search");
+    assert!(!says_start(
+        &kit,
+        "Looking for this phrase's identity on Platform"
+    ));
+    button(&kit, "Create an identity");
+    button(&kit, "Search again");
 }
 
 /// №3: no count beside «Collection» while the list loads, nor for none; a count for NFTs there.

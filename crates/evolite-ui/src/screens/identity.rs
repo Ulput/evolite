@@ -230,55 +230,12 @@ pub fn identity(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut IdentityS
     }
     let search_again = search_status(ui, a, &wallet.identity_search, has_identity);
     let Some(identity) = &wallet.identity else {
-        let p = a.p;
-        let searching = wallet.identity_search == IdentitySearch::Searching;
-        let text = if searching {
-            tr!(
-                "Looking for this phrase's identities on Platform: the answer is checked against the masternode lists."
-            )
+        // While the search runs an identity may yet be found: waiting, said neutrally, with
+        // nothing to do and no amounts (CS-4, BUG-74 №2).
+        if wallet.identity_search == IdentitySearch::Searching {
+            searching_for_identity(ui, a);
         } else {
-            tr!("No identity yet. It is made from DASH on Core: a name, keys and credits for apps.")
-        };
-        ui.label(txt(text, 14.0, Weight::Regular, p.muted));
-        // What it takes, against what there is: the name and the creation, plus any credits.
-        // Not while the search runs — an identity may yet be found (BUG-74 №2) — and red only
-        // once the sync has counted Core: a zero before it is not known (the designer's
-        // improvement 1).
-        let least = wallet.fees.name_regular + wallet.fees.identity_create;
-        // «Core has … now» only when Core is checked now (BUG-80): not known yet there is no
-        // amount to say, and the last checked one is not what Core has now.
-        if let (false, CardAmount::Now(core)) = (searching, CardAmount::core(&wallet.balances)) {
-            let counted = cx.snap.sync.stage == evolite_api::SyncStage::Done;
-            ui.label(txt(
-                &format!(
-                    tr!("At least ≈ {} is needed (name and creation) plus any amount for credits; Core has {} now."),
-                    dash(least),
-                    crate::format::balance(core)
-                ),
-                13.0,
-                Weight::Regular,
-                if core > least || !counted {
-                    p.muted
-                } else {
-                    p.danger
-                },
-            ));
-        }
-        let mut again = search_again;
-        ui.horizontal(|ui| {
-            ui.spacing_mut().item_spacing.x = 10.0;
-            if button(ui, a, tr!("Create an identity"), ButtonKind::Primary, None).clicked() {
-                cx.go(Screen::CreateIdentity);
-            }
-            // An identity made elsewhere (Jembe, Dash Evo Tool) after the last search.
-            if wallet.identity_search == IdentitySearch::Done
-                && button(ui, a, tr!("Search again"), ButtonKind::Secondary, None).clicked()
-            {
-                again = true;
-            }
-        });
-        if again {
-            cx.send(Command::FindIdentities);
+            no_identity(ui, a, cx, wallet, search_again);
         }
         return;
     };
@@ -782,6 +739,75 @@ fn search_status(ui: &mut Ui, a: &mut Assets, search: &IdentitySearch, has_ident
         ),
     );
     button(ui, a, tr!("Search again"), ButtonKind::Secondary, None).clicked()
+}
+
+/// No identity shown and the search still running (CS-4): a neutral chip and what happens, no
+/// buttons — «Create an identity» or a red «not enough» now could make a second one.
+fn searching_for_identity(ui: &mut Ui, a: &mut Assets) {
+    let p = a.p;
+    let looking = tr!("Looking for this phrase's identity on Platform…");
+    ui.horizontal(|ui| {
+        // A chip is painted: a screen reader hears it by this name.
+        let resp = chip(ui, a, "pending", looking, false);
+        crate::components::named(&resp, egui::WidgetType::Label, true, looking);
+    });
+    ui.label(txt(
+        tr!("We check the answer against masternode lists — usually under a minute. Nothing to do here yet."),
+        14.0,
+        Weight::Regular,
+        p.muted,
+    ));
+}
+
+/// No identity after the search (or after a failed one, which [`search_status`] explains):
+/// what an identity is, what it takes against what Core has, «Create an identity» and, after a
+/// finished search, «Search again». `search_again`: «Search again» of a failed search clicked.
+fn no_identity(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, wallet: &Wallet, search_again: bool) {
+    let p = a.p;
+    let done = wallet.identity_search == IdentitySearch::Done;
+    ui.label(txt(
+        tr!("No identity yet. It is made from DASH on Core: a name, keys and credits for apps."),
+        14.0,
+        Weight::Regular,
+        p.muted,
+    ));
+    // What it takes, against what there is: the name and the creation, plus any credits. Only
+    // once the search is done — an identity may yet be found (CS-4) — and red only once the
+    // sync has counted Core: a zero before it is not known (the designer's improvement 1).
+    let least = wallet.fees.name_regular + wallet.fees.identity_create;
+    // «Core has … now» only when Core is checked now (BUG-80): not known yet there is no
+    // amount to say, and the last checked one is not what Core has now.
+    if let (true, CardAmount::Now(core)) = (done, CardAmount::core(&wallet.balances)) {
+        let counted = cx.snap.sync.stage == evolite_api::SyncStage::Done;
+        ui.label(txt(
+            &format!(
+                tr!("At least ≈ {} is needed (name and creation) plus any amount for credits; Core has {} now."),
+                dash(least),
+                crate::format::balance(core)
+            ),
+            13.0,
+            Weight::Regular,
+            if core > least || !counted {
+                p.muted
+            } else {
+                p.danger
+            },
+        ));
+    }
+    let mut again = search_again;
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = 10.0;
+        if button(ui, a, tr!("Create an identity"), ButtonKind::Primary, None).clicked() {
+            cx.go(Screen::CreateIdentity);
+        }
+        // An identity made elsewhere (Jembe, Dash Evo Tool) after the last search.
+        if done && button(ui, a, tr!("Search again"), ButtonKind::Secondary, None).clicked() {
+            again = true;
+        }
+    });
+    if again {
+        cx.send(Command::FindIdentities);
+    }
 }
 
 /// Why "Top up" cannot start now, if it cannot.
