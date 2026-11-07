@@ -10,6 +10,8 @@
 mod amounts;
 mod as_known;
 mod bugs;
+mod calm_states;
+mod core_known;
 mod dialog_keys;
 mod dialogs;
 mod focus;

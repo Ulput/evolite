@@ -140,15 +140,19 @@ pub fn collection(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut Collect
             }
         }
     });
+    // The saved list is still here and the core asks again by itself: not an error (calm
+    // states CS-1).
     if let NftsStatus::Failed(why) = &wallet.nfts_status {
         crate::components::notice(
             ui,
             a,
-            "warning",
-            p.danger,
+            "info",
+            p.muted,
             &format!(
-                tr!("The list may be out of date: it did not refresh from Dash Platform ({why})"),
-                why = why
+                tr!(
+                    "The list may be out of date: it did not refresh from Dash Platform ({}). Your saved NFTs are still here."
+                ),
+                why
             ),
         );
     }

@@ -3,9 +3,9 @@
 
 use super::txt;
 use crate::components::{
-    Assets, ButtonKind, RowCell, SpendPassword, TxRow, amount_field, button, button_enabled,
-    button_row, card, dialog, error_notice, field_label, inner, kv_row, list_card, notice,
-    page_header, password_asked, progress_bar, segmented_with_off, select_row, tx_row,
+    Assets, ButtonKind, CardAmount, RowCell, SpendPassword, TxRow, amount_field, button,
+    button_enabled, button_row, card, dialog, error_notice, field_label, inner, kv_row, list_card,
+    notice, page_header, password_asked, progress_bar, segmented_with_off, select_row, tx_row,
 };
 use crate::context::Ctx;
 use crate::text;
@@ -403,6 +403,16 @@ fn shield_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut PoolStat
     let wallet = cx.wallet();
     let sources = shield_sources(wallet);
     let fees = &wallet.fees;
+    // Core as sure as it is (BUG-80): «Not known yet» instead of a 0, and no «From … to …» to
+    // measure an amount against a balance not known.
+    let now = cx.now;
+    let core = CardAmount::core(&wallet.balances);
+    let core_unknown =
+        |source: &ShieldSource| *source == ShieldSource::Core && core.known().is_none();
+    let shown = |source: &ShieldSource, balance: Duffs| match source {
+        ShieldSource::Core => text::core_amount(&wallet.balances, core, now),
+        _ => crate::format::balance(balance),
+    };
     let closed = dialog(
         ui,
         a,
@@ -422,13 +432,13 @@ fn shield_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut PoolStat
                     // The app's one «Hide amounts», at the sources (BUG-73).
                     crate::components::amount_toggle(ui, a, true);
                 });
-                let value = crate::format::balance(*balance);
+                let value = shown(source, *balance);
                 if select_row(ui, a, icon, title, Some(&value)).clicked() && !busy {
                     state.sources_open = !state.sources_open;
                 }
                 if state.sources_open {
-                    for (i, (_, icon, title, balance)) in sources.iter().enumerate() {
-                        let value = crate::format::balance(*balance);
+                    for (i, (source, icon, title, balance)) in sources.iter().enumerate() {
+                        let value = shown(source, *balance);
                         if i != state.from && select_row(ui, a, icon, title, Some(&value)).clicked()
                         {
                             state.from = i;
@@ -475,7 +485,7 @@ fn shield_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut PoolStat
                     if field.all {
                         state.amount = crate::format::input_text(cost.max);
                     }
-                    if amount.is_some() && preview.is_none() {
+                    if amount.is_some() && preview.is_none() && !core_unknown(source) {
                         let why = match source {
                             ShieldSource::Credits => {
                                 tr!("More than there is in this balance").to_string()

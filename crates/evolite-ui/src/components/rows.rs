@@ -159,7 +159,8 @@ fn tx_row_sensed(ui: &mut Ui, a: &mut Assets, row: &TxRow, sense: Sense) -> egui
             Align2::LEFT_CENTER,
             alert,
             sans(12.0, Weight::Medium),
-            p.danger,
+            // A state to finish, not an error (calm states CS-1).
+            attention_color(&p),
         );
     }
     resp
@@ -245,6 +246,51 @@ pub enum CardAmount {
     Earlier(i64),
     /// Not known yet: «—», muted (the detail says so in words).
     Unknown,
+}
+
+impl CardAmount {
+    /// `duffs` — Core's balance or a sum that counts it — as sure as Core's balance is
+    /// ([`evolite_api::Balances::core_as_of`]). Every place that shows Core goes through this
+    /// (BUG-80): a 0 before the first check is not an amount.
+    pub fn as_core(b: &evolite_api::Balances, duffs: i64) -> Self {
+        match b.core_as_of {
+            None => Self::Now(duffs),
+            Some(evolite_api::CoreAsOf::Checked(_)) => Self::Earlier(duffs),
+            Some(evolite_api::CoreAsOf::NotYet) => Self::Unknown,
+        }
+    }
+
+    /// The Core balance as sure as it is.
+    pub fn core(b: &evolite_api::Balances) -> Self {
+        Self::as_core(b, b.core)
+    }
+
+    /// Everything the wallet holds: as sure as Core, which it counts.
+    pub fn total(b: &evolite_api::Balances) -> Self {
+        Self::as_core(b, b.total())
+    }
+
+    /// The amount, if there is one to compare with: none while not known.
+    pub fn known(self) -> Option<i64> {
+        match self {
+            Self::Now(duffs) | Self::Earlier(duffs) => Some(duffs),
+            Self::Unknown => None,
+        }
+    }
+
+    /// The amount with its unit (hidden by «Hide amounts»), «—» while not known.
+    pub fn balance(self) -> String {
+        self.known()
+            .map_or_else(|| "—".to_owned(), crate::format::balance)
+    }
+
+    /// The text colour when checked now, muted otherwise.
+    pub fn color(self, p: &Palette) -> Color32 {
+        match self {
+            Self::Now(_) => p.text,
+            Self::Earlier(_) | Self::Unknown => p.muted,
+        }
+    }
 }
 
 /// card/balance: icon 18 + title 13 Medium, amount 24 mono, detail 12.

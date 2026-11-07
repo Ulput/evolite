@@ -3,9 +3,9 @@
 
 use super::txt;
 use crate::components::{
-    Assets, ButtonKind, FieldKind, SpendPassword, StepState, amount_field, button, button_enabled,
-    card, divider, field_label, inner, kv_row, notice, numbered_step_at, page_header,
-    password_asked, text_field,
+    Assets, ButtonKind, CardAmount, FieldKind, SpendPassword, StepState, amount_field, button,
+    button_enabled, card, divider, field_label, inner, kv_row, notice, numbered_step_at,
+    page_header, password_asked, text_field,
 };
 use crate::context::Ctx;
 use crate::text::name_problem;
@@ -120,8 +120,12 @@ pub fn create_identity(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut Cre
             .saturating_add(fees.identity_create)
     });
     let core_fee = fees.core_payment;
-    let too_much =
-        total.is_some_and(|t| crate::format::left_after(wallet.balances.core, t, core_fee) < 0);
+    // Core as sure as it is (BUG-80): not known yet, it is not «less than the amount» either.
+    let core = CardAmount::core(&wallet.balances);
+    let too_much = match (total, core.known()) {
+        (Some(t), Some(core)) => crate::format::left_after(core, t, core_fee) < 0,
+        _ => false,
+    };
     // Platform takes no asset lock below its minimum, and the DASH in one it refuses stay
     // locked (BUG-54 review r1 must): the credits asked for are at least what makes it up.
     let least = (fees.identity_lock_min - name_fee - fees.identity_create).max(1);
@@ -213,7 +217,7 @@ pub fn create_identity(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut Cre
                 field_label(ui, &p, tr!("How much to turn into credits"));
                 let field = amount_field(ui, &p, "identity-amount", &mut form.amount, true);
                 if field.all {
-                    let all = (wallet.balances.core - name_fee - fees.identity_create - core_fee)
+                    let all = (core.known().unwrap_or(0) - name_fee - fees.identity_create - core_fee)
                         .max(0);
                     form.amount = crate::format::input_text(all);
                 }
@@ -237,7 +241,14 @@ pub fn create_identity(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut Cre
                 }
             });
             let value = mono(13.0, Weight::Medium);
-            crate::components::kv_row_eye(ui, a, tr!("From the Core wallet"), &crate::format::balance(wallet.balances.core), value.clone());
+            crate::components::kv_row_eye_in(
+                ui,
+                a,
+                tr!("From the Core wallet"),
+                &crate::text::core_amount(&wallet.balances, core, cx.now),
+                value.clone(),
+                core.color(&p),
+            );
             kv_row(ui, &p, tr!("Name registration"), &dash(name_fee), value.clone());
             kv_row(
                 ui,

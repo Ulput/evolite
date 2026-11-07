@@ -76,6 +76,31 @@ pub fn notice_parts(
         });
 }
 
+/// The «attention» tone (calm states CS-1): a risk the person decides on, not an error — red is
+/// for errors only. The warning icon in the yellow that holds 3:1 on raised in both themes:
+/// `accent` (the light theme's `brand` #C27C00 is 2.9:1 on the cream; in the dark one they are
+/// one colour).
+pub fn attention_color(p: &Palette) -> Color32 {
+    p.accent
+}
+
+/// [`notice()`] in the «attention» tone ([`attention_color`]).
+pub fn attention_notice(ui: &mut Ui, a: &mut Assets, text: &str) {
+    let color = attention_color(&a.p);
+    notice(ui, a, "warning", color, text);
+}
+
+/// One line in the «attention» tone under a field: the warning icon 14 and 12 px text in the
+/// text colour, wrapped.
+pub fn attention_line(ui: &mut Ui, a: &mut Assets, text: &str) {
+    let p = a.p;
+    ui.horizontal_top(|ui| {
+        ui.spacing_mut().item_spacing.x = 6.0;
+        ui.add(a.icons.icon("warning", attention_color(&p), &p, 14.0));
+        ui.add(egui::Label::new(txt(text, 12.0, Weight::Regular, p.text)).wrap());
+    });
+}
+
 /// [`notice()`] for an error: the line in words, and when the network or a library said more,
 /// "Details" under it with their words on hover (a click copies them, for a bug report).
 pub fn error_notice(ui: &mut Ui, a: &mut Assets, text: &str, details: Option<&str>) {
@@ -137,4 +162,49 @@ pub fn demo_line(ui: &mut Ui, a: &mut Assets, text: &str) {
         ui.add(a.icons.icon("info", p.muted, &p, 16.0));
         ui.label(txt(text, 13.0, Weight::Regular, p.muted));
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::theme::{DARK, LIGHT};
+
+    /// WCAG relative luminance.
+    fn luminance(c: Color32) -> f64 {
+        let lin = |v: u8| {
+            let s = f64::from(v) / 255.0;
+            if s <= 0.039_28 {
+                s / 12.92
+            } else {
+                ((s + 0.055) / 1.055).powf(2.4)
+            }
+        };
+        0.2126 * lin(c.r()) + 0.7152 * lin(c.g()) + 0.0722 * lin(c.b())
+    }
+
+    fn contrast(a: Color32, b: Color32) -> f64 {
+        let (x, y) = (luminance(a), luminance(b));
+        (x.max(y) + 0.05) / (x.min(y) + 0.05)
+    }
+
+    /// CS-1.2: the «attention» icon holds 3:1 on its raised notice and on the page, in both
+    /// themes, and it is not the error red.
+    #[test]
+    fn attention_is_seen_and_is_not_red() {
+        for p in [LIGHT, DARK] {
+            let c = attention_color(&p);
+            assert_ne!(c, p.danger);
+            for bg in [p.raised, p.bg] {
+                assert!(
+                    contrast(c, bg) >= 3.0,
+                    "{:?} on {:?}: {}",
+                    c,
+                    bg,
+                    contrast(c, bg)
+                );
+            }
+        }
+        // The mockup's brand yellow does not, in the light theme: why `accent` is used.
+        assert!(contrast(LIGHT.brand, LIGHT.raised) < 3.0);
+    }
 }

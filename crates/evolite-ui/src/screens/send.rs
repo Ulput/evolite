@@ -741,12 +741,7 @@ pub fn send(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut SendForm) {
             if let Some(name) = &resolved_name {
                 resolved(ui, a, name, all[form.source].source, &mut asked);
                 if to_self {
-                    ui.label(txt(
-                        tr!("This is your identity: the credits would stay yours, only the fee would go."),
-                        12.0,
-                        Weight::Regular,
-                        p.danger,
-                    ));
+                    crate::components::attention_line(ui, a, tr!("This is your identity: the credits would stay yours, only the fee would go."));
                 }
             } else if checking {
                 ui.label(txt(tr!("Checking the name in DPNS…"), 12.0, Weight::Regular, p.muted));
@@ -842,7 +837,7 @@ pub fn send(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut SendForm) {
                 }
                 if let Some(why) = unavailable {
                     ui.add(
-                        egui::Label::new(txt(why, 12.0, Weight::Regular, p.danger)).wrap(),
+                        egui::Label::new(txt(why, 12.0, Weight::Regular, p.muted)).wrap(),
                     );
                 } else if let Some(problem) = problem {
                     ui.add(
@@ -1404,11 +1399,9 @@ fn confirm(
                 p.muted,
             ));
             if let Some(when) = &repeat {
-                notice(
+                crate::components::attention_notice(
                     ui,
                     a,
-                    "warning",
-                    p.danger,
                     &format!(
                         tr!(
                             "Such a payment to {to} is already in the history ({when}). Check that this is not a repeat: the last one may not have arrived yet."

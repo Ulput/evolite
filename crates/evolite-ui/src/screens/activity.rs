@@ -563,7 +563,7 @@ fn card(
                     ui,
                     a,
                     "warning",
-                    p.danger,
+                    crate::components::attention_color(&p),
                     if creates {
                         tr!(
                             "The identity's creation was interrupted. You can continue it on the Identity screen; the DASH are not lost"

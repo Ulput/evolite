@@ -402,11 +402,10 @@ fn connect(ui: &mut Ui, a: &mut Assets, r: &AppRequest, many: bool, answer: &mut
     });
     // The name is the contract owner's `@name` from Platform; in quotes it is the app's own word.
     if app_word(&r.app).1 {
-        notice(
+        // A risk the person decides on, not an error (calm states CS-1).
+        crate::components::attention_notice(
             ui,
             a,
-            "warning",
-            p.danger,
             &format!(
                 tr!(
                     "The name {contract_name} is the app's own word; Platform does not confirm it. Allow only if you started the sign-in yourself."

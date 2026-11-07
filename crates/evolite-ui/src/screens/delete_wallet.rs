@@ -5,13 +5,13 @@
 
 use super::txt;
 use crate::components::{
-    Assets, ButtonKind, FieldKind, button, button_enabled, button_row, checkbox, dialog,
-    field_label, notice, text_field,
+    Assets, ButtonKind, CardAmount, FieldKind, button, button_enabled, button_row, checkbox,
+    dialog, field_label, notice, text_field,
 };
 use crate::context::Ctx;
 use crate::theme::Weight;
 use egui::{Align, Layout, Ui};
-use evolite_api::{Command, CoreError, Duffs, Password};
+use evolite_api::{Balances, Command, CoreError, Password};
 use zeroize::{Zeroize, Zeroizing};
 
 /// The word typed to confirm.
@@ -75,10 +75,11 @@ pub fn delete_dialog(
     a: &mut Assets,
     cx: &mut Ctx,
     form: &mut DeleteForm,
-    balance: Option<Duffs>,
+    balance: Option<&Balances>,
     unfinished: bool,
 ) -> bool {
     let p = a.p;
+    let now = cx.now;
     let title = if form.forgot {
         tr!("Forgot the password?")
     } else {
@@ -100,14 +101,16 @@ pub fn delete_dialog(
         } else {
             &[stays]
         };
-        if let Some(balance) = balance.filter(|_| !form.forgot) {
+        if let Some(balances) = balance.filter(|_| !form.forgot) {
+            // The total counts Core: as sure as Core is (BUG-80), never a 0 not known yet.
+            let total = CardAmount::total(balances);
             ui.horizontal(|ui| {
                 ui.label(txt(tr!("Balance"), 13.0, Weight::Regular, p.muted));
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                     ui.label(
-                        egui::RichText::new(crate::format::balance(balance))
+                        egui::RichText::new(crate::text::core_amount(balances, total, now))
                             .font(crate::theme::mono(13.0, Weight::Medium))
-                            .color(p.text),
+                            .color(total.color(&p)),
                     );
                 });
             });

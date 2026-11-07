@@ -54,6 +54,19 @@ pub fn kv_row_in(
 /// [`kv_row`] with the icon of [`amount_toggle`] right after the label (BUG-73: «Payments» of
 /// a contact, «From the Core wallet» in a dialog): 28 high, the value on the right.
 pub fn kv_row_eye(ui: &mut Ui, a: &mut Assets, label: &str, value: &str, value_font: FontId) {
+    let color = a.p.text;
+    kv_row_eye_in(ui, a, label, value, value_font, color);
+}
+
+/// [`kv_row_eye`] with the value in `color` (a Core amount not checked now is muted, BUG-80).
+pub fn kv_row_eye_in(
+    ui: &mut Ui,
+    a: &mut Assets,
+    label: &str,
+    value: &str,
+    value_font: FontId,
+    color: egui::Color32,
+) {
     let p = a.p;
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 4.0;
@@ -63,7 +76,7 @@ pub fn kv_row_eye(ui: &mut Ui, a: &mut Assets, label: &str, value: &str, value_f
             ui.label(
                 egui::RichText::new(crate::i18n::t(value))
                     .font(value_font)
-                    .color(p.text),
+                    .color(color),
             );
         });
     });

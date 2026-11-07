@@ -131,11 +131,7 @@ pub fn overview(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx) {
         Some(line) => line.clone(),
         None => addresses,
     };
-    let core = match b.core_as_of {
-        None => CardAmount::Now(b.core),
-        Some(evolite_api::CoreAsOf::Checked(_)) => CardAmount::Earlier(b.core),
-        Some(evolite_api::CoreAsOf::NotYet) => CardAmount::Unknown,
-    };
+    let core = CardAmount::core(b);
     let credits_line = if several {
         format!(
             "{unit} · {}",

@@ -3,8 +3,8 @@
 
 use super::{Screen, txt};
 use crate::components::{
-    Assets, ButtonKind, FieldKind, RowCell, SpendPassword, amount_field, avatar, button,
-    button_enabled, button_row, card, chip, dialog, divider, field_label, inner, kv_row,
+    Assets, ButtonKind, CardAmount, FieldKind, RowCell, SpendPassword, amount_field, avatar,
+    button, button_enabled, button_row, card, chip, dialog, divider, field_label, inner, kv_row,
     list_card_in, notice, page_header, pill, text_action, text_field, two_columns,
 };
 use crate::context::Ctx;
@@ -245,17 +245,19 @@ pub fn identity(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut IdentityS
         // once the sync has counted Core: a zero before it is not known (the designer's
         // improvement 1).
         let least = wallet.fees.name_regular + wallet.fees.identity_create;
-        if !searching {
+        // «Core has … now» only when Core is checked now (BUG-80): not known yet there is no
+        // amount to say, and the last checked one is not what Core has now.
+        if let (false, CardAmount::Now(core)) = (searching, CardAmount::core(&wallet.balances)) {
             let counted = cx.snap.sync.stage == evolite_api::SyncStage::Done;
             ui.label(txt(
                 &format!(
                     tr!("At least ≈ {} is needed (name and creation) plus any amount for credits; Core has {} now."),
                     dash(least),
-                    crate::format::balance(wallet.balances.core)
+                    crate::format::balance(core)
                 ),
                 13.0,
                 Weight::Regular,
-                if wallet.balances.core > least || !counted {
+                if core > least || !counted {
                     p.muted
                 } else {
                     p.danger
@@ -330,7 +332,7 @@ pub fn identity(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut IdentityS
         );
     }
     if state.top_up.is_some() {
-        top_up_dialog(ui, a, state, wallet, identity, &mut asked);
+        top_up_dialog(ui, a, state, wallet, identity, cx.now, &mut asked);
     }
     if state.adding_name.is_some() {
         add_name_dialog(ui, a, state, wallet, identity, &mut asked);
@@ -1005,6 +1007,7 @@ fn top_up_dialog(
     state: &mut IdentityState,
     wallet: &Wallet,
     id: &Identity,
+    now: chrono::DateTime<chrono::Local>,
     asked: &mut Vec<Command>,
 ) {
     let Some(form) = &mut state.top_up else {
@@ -1015,7 +1018,9 @@ fn top_up_dialog(
         .name()
         .map_or_else(|| "identity".to_string(), |n| format!("@{n}"));
     let fees = &wallet.fees;
-    let core = wallet.balances.core;
+    // Core as sure as it is (BUG-80): not known yet, no «More than there is on Core».
+    let core_amount = CardAmount::core(&wallet.balances);
+    let core = core_amount.known();
     // The asset lock is one Core transaction: its fee is about a typical payment's.
     let fee = fees.core_payment;
     let running = state.topping_up;
@@ -1058,11 +1063,14 @@ fn top_up_dialog(
                 });
                 let field = amount_field(ui, &p, "top-up-amount", &mut form.amount, true);
                 if field.all {
-                    form.amount = crate::format::input_text((core - fee).max(0));
+                    form.amount = crate::format::input_text((core.unwrap_or(0) - fee).max(0));
                 }
             });
             let amount = crate::format::parse_amount(&form.amount).filter(|d| *d > 0);
-            let too_much = amount.is_some_and(|d| crate::format::left_after(core, d, fee) < 0);
+            let too_much = match (amount, core) {
+                (Some(d), Some(core)) => crate::format::left_after(core, d, fee) < 0,
+                _ => false,
+            };
             if too_much {
                 ui.label(txt(
                     tr!("More than there is on Core"),
@@ -1073,12 +1081,13 @@ fn top_up_dialog(
             }
             let after = wallet.balances.credits.saturating_add(amount.unwrap_or(0));
             let value = mono(13.0, Weight::Medium);
-            crate::components::kv_row_eye(
+            crate::components::kv_row_eye_in(
                 ui,
                 a,
                 tr!("From the Core wallet"),
-                &crate::format::balance(core),
+                &text::core_amount(&wallet.balances, core_amount, now),
                 value.clone(),
+                core_amount.color(&p),
             );
             kv_row(
                 ui,
@@ -1195,6 +1204,7 @@ fn add_name_dialog(
         form.check.clone()
     };
     let mut register = false;
+    let mut top_up = false;
     let close = dialog(
         ui,
         a,
@@ -1276,14 +1286,28 @@ fn add_name_dialog(
                 &format!(tr!("{me} · credits"), me = me),
                 value,
             );
+            // Not an error before anything was tried (calm states CS-1): what is missing, muted,
+            // and the way to it.
             let short = credits < fee;
             if short {
-                ui.label(txt(
-                    tr!("Not enough credits: top up the identity."),
-                    12.0,
-                    Weight::Regular,
-                    p.danger,
-                ));
+                ui.horizontal_wrapped(|ui| {
+                    ui.spacing_mut().item_spacing.x = 8.0;
+                    ui.label(txt(
+                        &format!(
+                            tr!(
+                                "Not enough credits for the name: ≈ {} needed, the identity has {}."
+                            ),
+                            dash(fee),
+                            crate::format::balance(credits)
+                        ),
+                        12.0,
+                        Weight::Regular,
+                        p.muted,
+                    ));
+                    if inline_action(ui, &p, tr!("Top up ›")).clicked() {
+                        top_up = true;
+                    }
+                });
             }
             match &form.result {
                 _ if form.waiting => notice(
@@ -1343,9 +1367,23 @@ fn add_name_dialog(
         asked.push(form.password.command(op, wallet.password_each_send));
         form.waiting = true;
         form.result = None;
+    } else if top_up && !form.waiting {
+        // «Top up ›»: the name waits, the top-up opens (or says why it cannot now).
+        state.adding_name = None;
+        state.top_up_clicked(wallet);
     } else if close && !form.waiting {
         state.adding_name = None;
     }
+}
+
+/// A short action in a line of words (12 SemiBold, the accent): «Top up ›». One Tab stop, a
+/// button for a screen reader.
+fn inline_action(ui: &mut Ui, p: &crate::theme::Palette, label: &str) -> egui::Response {
+    let resp = ui
+        .add(egui::Button::new(txt(label, 12.0, Weight::SemiBold, p.accent)).frame(false))
+        .on_hover_cursor(CursorIcon::PointingHand);
+    crate::components::named(&resp, egui::WidgetType::Button, true, label);
+    resp
 }
 
 /// Why the name was not registered, in words.

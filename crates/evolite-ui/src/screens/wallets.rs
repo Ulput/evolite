@@ -50,9 +50,10 @@ pub fn place_line(snap: &Snapshot) -> String {
 pub fn menu_line(w: &WalletEntry, snap: &Snapshot, now: DateTime<Local>) -> String {
     if w.open {
         match &snap.wallet {
+            // The total counts Core: «—» while Core is not known yet, not a 0 (BUG-80).
             Some(wallet) => format!(
                 tr!("open · {}"),
-                crate::format::balance(wallet.balances.total())
+                crate::components::CardAmount::total(&wallet.balances).balance()
             ),
             None => tr!("open").into(),
         }

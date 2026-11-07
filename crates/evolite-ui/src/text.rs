@@ -98,6 +98,21 @@ pub fn core_as_of(as_of: Option<evolite_api::CoreAsOf>, now: DateTime<Local>) ->
     Some(crate::i18n::t_in(crate::i18n::current(), &line).into_owned())
 }
 
+/// A Core amount in a row of words (BUG-80), as sure as Core's balance is: «1,2000 DASH»;
+/// «1,2000 DASH · as of 23:41» for the last checked one; «Not known yet» when none was checked
+/// — never a 0. `amount` comes from [`crate::components::CardAmount::as_core`].
+pub fn core_amount(
+    b: &evolite_api::Balances,
+    amount: crate::components::CardAmount,
+    now: DateTime<Local>,
+) -> String {
+    match (amount.known(), core_as_of(b.core_as_of, now)) {
+        (Some(duffs), None) => crate::format::balance(duffs),
+        (Some(duffs), Some(line)) => format!("{} · {line}", crate::format::balance(duffs)),
+        (None, line) => line.unwrap_or_else(|| "—".to_owned()),
+    }
+}
+
 /// "just now", "today, 14:32", "yesterday", "27 Oct"; "time unknown" without a time.
 pub fn when(at: Timestamp, now: DateTime<Local>) -> String {
     if !known(at) {
