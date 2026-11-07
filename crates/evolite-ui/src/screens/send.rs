@@ -6,7 +6,7 @@
 use super::txt;
 use crate::components::{
     Assets, ButtonKind, FieldKind, amount_field, button, button_enabled, card, dialog, divider,
-    field_label, kv_row, notice, option_card, page_header, pill, text_field,
+    field_label, kv_row, notice, option_card_at_least, page_header, pill, text_field,
 };
 use crate::context::Ctx;
 use crate::text::{name_problem, short_address};
@@ -481,7 +481,9 @@ fn own_address(w: &Wallet, to: &str) -> bool {
     own_of(&[&w.core_address, &w.platform_address], &w.activity, to)
 }
 
-/// [`own_address`] from the receive addresses `now` and the history.
+/// [`own_address`] from the receive addresses `now` and the history: an address that received,
+/// from someone else or from this wallet itself (a payment to its own address, BUG-68 — the
+/// receive address has moved on since, as «Earlier addresses» of Receive count it).
 fn own_of(now: &[&str], activity: &[Activity], to: &str) -> bool {
     let to = to.trim();
     !to.is_empty()
@@ -489,7 +491,9 @@ fn own_of(now: &[&str], activity: &[Activity], to: &str) -> bool {
             || activity.iter().any(|act| {
                 matches!(
                     act.kind,
-                    ActivityKind::Received { .. } | ActivityKind::PlatformReceived
+                    ActivityKind::Received { .. }
+                        | ActivityKind::SelfTransfer { .. }
+                        | ActivityKind::PlatformReceived
                 ) && act.address.as_deref() == Some(to)
             }))
 }
@@ -631,9 +635,18 @@ pub fn send(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut SendForm) {
             });
             ui.horizontal_wrapped(|ui| {
                 ui.spacing_mut().item_spacing = vec2(8.0, 8.0);
+                // Equal columns in one row (the designer's summary №25), a long Core balance
+                // too (BUG-67).
+                let n = all.len().max(1) as f32;
+                let column = ((ui.available_width() - 8.0 * (n - 1.0)) / n).floor();
                 for (i, s) in all.iter().enumerate() {
                     let detail = crate::format::balance(s.duffs);
-                    if option_card(ui, a, s.icon, s.title, &detail, i == form.source).clicked() {
+                    let selected = i == form.source;
+                    if option_card_at_least(
+                        ui, a, s.icon, s.title, &detail, selected, column,
+                    )
+                    .clicked()
+                    {
                         form.source = i;
                         form.result = None;
                     }
@@ -1847,6 +1860,19 @@ mod tests {
         );
         assert!(!own_of(&["yNow"], &history, "yTheirs"), "a payee");
         assert!(!own_of(&["", "yNow"], &history, ""), "nothing typed");
+    }
+
+    /// BUG-68: an address this wallet paid itself to — the receive address moved on after the
+    /// payment — is still its own, typed with spaces around or not.
+    #[test]
+    fn an_address_the_wallet_paid_itself_to_is_its_own() {
+        let mut moved = paid("", 1, -226);
+        moved.kind = ActivityKind::SelfTransfer { moved: 10_000_000 };
+        moved.address = Some("yMine".into());
+        let history = [moved];
+        assert!(own_of(&["yNext"], &history, "yMine"));
+        assert!(own_of(&["yNext"], &history, "  yMine  "), "with spaces");
+        assert!(!own_of(&["yNext"], &history, "yOther"));
     }
 
     /// BUG-39 №6: "Max" follows the source chosen after it; a typed amount stays.

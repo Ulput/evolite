@@ -13,6 +13,21 @@ pub fn option_card(
     detail: &str,
     selected: bool,
 ) -> Response {
+    option_card_at_least(ui, a, icon, title, detail, selected, 0.0)
+}
+
+/// [`option_card`] `width` wide (a row of cards in equal columns, BUG-67): its words may take
+/// most of the padding on the right, and it widens only when they need more; 0: as wide as its
+/// words.
+pub fn option_card_at_least(
+    ui: &mut Ui,
+    a: &mut Assets,
+    icon: &str,
+    title: &str,
+    detail: &str,
+    selected: bool,
+    width: f32,
+) -> Response {
     let p = a.p;
     let title_font = sans(13.0, Weight::SemiBold);
     let detail_font = mono(11.0, Weight::Regular);
@@ -20,7 +35,12 @@ pub fn option_card(
         text_width(ui, title, title_font.clone()).max(text_width(ui, detail, detail_font.clone()));
     let (rect, resp) = ui.allocate_exact_size(
         vec2(
-            14.0 + 18.0 + 10.0 + text_w + 16.0,
+            // In a column the words may take 12 of the 16 px on the right before it widens.
+            if width > 0.0 {
+                width.max(14.0 + 18.0 + 10.0 + text_w + 4.0)
+            } else {
+                14.0 + 18.0 + 10.0 + text_w + 16.0
+            },
             if detail.is_empty() { 38.0 } else { 52.0 },
         ),
         Sense::click(),

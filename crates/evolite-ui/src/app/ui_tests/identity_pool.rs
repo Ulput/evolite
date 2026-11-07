@@ -330,6 +330,16 @@ fn a_new_identity_asks_for_at_least_what_platform_takes() {
         "At least {} — Dash Platform takes no smaller asset lock",
         crate::format::amount(135_000)
     );
+    // Review r2 should 1: the button too, not only the hint.
+    let create_on = |kit: &Kit| {
+        kit.query_all_by_role(Role::Button)
+            .find(|b| {
+                b.accesskit_node()
+                    .label()
+                    .is_some_and(|l| l.starts_with("Create for "))
+            })
+            .is_some_and(|b| !b.accesskit_node().is_disabled())
+    };
     // The demo core may send its own snapshot first: the fees are set again until they stay.
     let shown = |kit: &mut Kit, amount: &str| {
         for _ in 0..50 {
@@ -352,11 +362,19 @@ fn a_new_identity_asks_for_at_least_what_platform_takes() {
                 .and_then(|s| s.wallet.as_ref())
                 .is_some_and(|w| w.fees.identity_lock_min == 241_000);
             if kept {
-                return has_text(kit, &least);
+                return (has_text(kit, &least), create_on(kit));
             }
         }
         panic!("the fees did not stay");
     };
-    assert!(shown(&mut kit, "0.001"), "0.001 is too little");
-    assert!(!shown(&mut kit, "0.00135"), "the least is enough");
+    assert_eq!(
+        shown(&mut kit, "0.001"),
+        (true, false),
+        "0.001 is too little: the hint, «Create» off"
+    );
+    assert_eq!(
+        shown(&mut kit, "0.00135"),
+        (false, true),
+        "the least is enough: no hint, «Create» on"
+    );
 }

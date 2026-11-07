@@ -251,6 +251,12 @@ fn fill(parts: &[String], text: &str) -> Option<Vec<String>> {
     Some(captures)
 }
 
+/// Text ending with one point after a letter: an abbreviation such as «Min.».
+fn abbreviated(text: &str) -> bool {
+    let mut back = text.chars().rev();
+    back.next() == Some('.') && back.next().is_some_and(char::is_alphabetic)
+}
+
 /// `pattern` with its places filled: `{}` in order, or `{0}`, `{1}`… by number (a language
 /// may need another order of words).
 fn put(pattern: &str, captures: &[String]) -> String {
@@ -268,8 +274,14 @@ fn put(pattern: &str, captures: &[String]) -> String {
                 } else {
                     after[..close].parse().unwrap_or(usize::MAX)
                 };
-                out.push_str(captures.get(index).map_or("", String::as_str));
+                let put_in = captures.get(index).map_or("", String::as_str);
+                out.push_str(put_in);
                 rest = &after[close + 1..];
+                // An abbreviation's point ends the sentence too: «… die nächste Pause 1 Min.»,
+                // not «1 Min..» (BUG-70). An ellipsis on either side stays.
+                if abbreviated(put_in) && rest.starts_with('.') && !rest.starts_with("..") {
+                    rest = &rest[1..];
+                }
             }
             _ => {
                 out.push('{');

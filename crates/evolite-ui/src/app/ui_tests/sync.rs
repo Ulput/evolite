@@ -293,3 +293,111 @@ fn the_keyboard_on_the_rail_mark_shows_its_words() {
     kit.run_steps(2);
     assert!(has_text(&kit, "Synced"), "the tooltip's first line");
 }
+
+/// What the rail's sync status is to a screen reader as a live region.
+fn rail_live(kit: &Kit) -> Option<egui::accesskit::Live> {
+    kit.query_all_by_role(egui::accesskit::Role::Status)
+        .next()
+        .map(|n| n.accesskit_node().live())
+}
+
+/// Whether the sidebar asked egui for a frame in the frames just drawn (egui keeps the file of
+/// each call to `request_repaint*`).
+fn the_sidebar_asks_for_frames(kit: &Kit) -> bool {
+    kit.ctx
+        .repaint_causes()
+        .iter()
+        .any(|c| c.file.ends_with("sidebar.rs"))
+}
+
+/// BUG-75 r1 should 1: the frames themselves, not only the flag — while the block moves the
+/// sidebar asks egui for them; once done, home and quiet, it asks for none.
+#[test]
+fn once_done_the_rail_mark_asks_for_no_frames() {
+    let (_turn, mut kit) = demo_app("overview", "en");
+    system_motion(&mut kit, true);
+    shows(
+        &mut kit,
+        SyncStage::Filters,
+        Some(0.64),
+        "the block moving",
+        the_sidebar_asks_for_frames,
+    );
+    // Done: 400 ms home, and the status quiet after its second (a frame of the harness is
+    // 0.25 s of the app's time).
+    shows(&mut kit, SyncStage::Done, Some(1.0), "done", |_| true);
+    let mut frames = 0;
+    while rail_mark(&kit) != (RailMark::Done, false)
+        || rail_live(&kit) != Some(egui::accesskit::Live::Off)
+    {
+        frames += 1;
+        assert!(frames <= 8, "not home and quiet: {:?}", rail_mark(&kit));
+        shows(&mut kit, SyncStage::Done, Some(1.0), "done", |_| true);
+    }
+    for _ in 0..3 {
+        shows(&mut kit, SyncStage::Done, Some(1.0), "done", |_| true);
+        assert!(
+            !the_sidebar_asks_for_frames(&kit),
+            "frames asked for once done: {:?}",
+            kit.ctx.repaint_causes()
+        );
+    }
+}
+
+/// BUG-75 r1 should 2: the status is polite for a second after a new stage, the end and a stop,
+/// and off after it — the percent moving on is not announced.
+#[test]
+fn the_rail_status_is_polite_for_a_second_after_a_change() {
+    use egui::accesskit::Live;
+    let (_turn, mut kit) = demo_app("overview", "en");
+    system_motion(&mut kit, false);
+    let polite = |k: &Kit| rail_live(k) == Some(Live::Polite);
+    // Quiet after a second (a frame of the harness is 0.25 s), the percent moving meanwhile.
+    let goes_quiet = |kit: &mut Kit, stage: SyncStage, what: &str| {
+        for (i, progress) in [0.30, 0.35, 0.40, 0.45, 0.50, 0.55].into_iter().enumerate() {
+            shows(kit, stage, Some(progress), what, |_| true);
+            if rail_live(kit) == Some(Live::Off) {
+                assert!(i >= 2, "{what}: quiet before its second: frame {i}");
+                return;
+            }
+        }
+        panic!("{what}: still polite after a second: {:?}", rail_live(kit));
+    };
+    shows(
+        &mut kit,
+        SyncStage::Filters,
+        Some(0.25),
+        "polite at a new stage",
+        |k| polite(k) && rail_status(k).starts_with("Sync · Block filters"),
+    );
+    goes_quiet(&mut kit, SyncStage::Filters, "the stage");
+    shows(
+        &mut kit,
+        SyncStage::Done,
+        Some(1.0),
+        "polite at the end",
+        |k| polite(k) && rail_status(k).starts_with("Synced"),
+    );
+    goes_quiet(&mut kit, SyncStage::Done, "the end");
+    // A stop: the same stage with an error.
+    for _ in 0..50 {
+        let sync = &mut kit.state_mut().snapshot.as_mut().expect("a snapshot").sync;
+        sync.stage = SyncStage::Filters;
+        sync.error = Some("No Core nodes answer".into());
+        kit.run_steps(1);
+        if rail_status(&kit).starts_with("The sync stopped") {
+            break;
+        }
+    }
+    assert!(polite(&kit), "polite at a stop: {:?}", rail_live(&kit));
+    let mut frames = 0;
+    while rail_live(&kit) != Some(Live::Off) {
+        frames += 1;
+        assert!(frames <= 6, "the stop: still polite after a second");
+        let sync = &mut kit.state_mut().snapshot.as_mut().expect("a snapshot").sync;
+        sync.stage = SyncStage::Filters;
+        sync.error = Some("No Core nodes answer".into());
+        kit.run_steps(1);
+    }
+    assert!(frames >= 2, "the stop: quiet before its second");
+}

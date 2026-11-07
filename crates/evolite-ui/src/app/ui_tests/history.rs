@@ -399,6 +399,49 @@ fn with_op(kit: &mut Kit, op: &Activity) {
     }
 }
 
+/// The rows of History a screen reader sees (buttons «title · amount · detail»), top first.
+fn history_rows(kit: &Kit) -> Vec<(String, egui::Rect)> {
+    let mut rows: Vec<_> = kit
+        .query_all_by_role(Role::Button)
+        .filter_map(|n| {
+            let name = n.accesskit_node().label()?;
+            (name.matches(" · ").count() >= 2 && name.contains("DASH")).then(|| (name, n.rect()))
+        })
+        .collect();
+    rows.sort_by(|a, b| a.1.top().total_cmp(&b.1.top()));
+    rows
+}
+
+/// The id of the payment [`with_new_payment`] adds.
+const NEW_PAYMENT: u64 = 0x7171_7171;
+
+/// A payment just signed, as the real core then lists it: first in the history, pending. The
+/// demo core never sends (`never_pretends_to_send`), so it is put into the wallet the app shows,
+/// again for a few frames: a snapshot of the demo core in between would take it away.
+fn with_new_payment(kit: &mut Kit) {
+    for _ in 0..3 {
+        let wallet = kit
+            .state_mut()
+            .snapshot
+            .as_mut()
+            .and_then(|s| s.wallet.as_mut())
+            .expect("a wallet");
+        if !wallet.activity.iter().any(|a| a.id == NEW_PAYMENT) {
+            let mut paid = wallet.activity[0].clone();
+            paid.id = NEW_PAYMENT;
+            paid.kind = ActivityKind::Sent {
+                to: "yNewPaymentAddress".into(),
+            };
+            paid.chain = Chain::Core;
+            paid.at = paid.at.max(1) + 60;
+            paid.amount = -71_717_171;
+            paid.proof = Proof::Mempool;
+            wallet.activity.insert(0, paid);
+        }
+        kit.run_steps(1);
+    }
+}
+
 /// BUG-57: a top-up Platform has not credited is not «final» and nothing more: its row says in
 /// red that the credits did not come, its card says «Credits: not added», why, and leads to
 /// Identity, where «Continue the top-up» is.
@@ -489,4 +532,65 @@ fn an_identity_creation_is_not_called_a_top_up() {
         kit.query_by_label("Продолжить на экране Identity")
             .is_some()
     );
+}
+
+/// The rail → History, and whether its top row is the new payment, in sight under the header.
+fn history_opens_on_the_new_payment(kit: &mut Kit) {
+    kit.get_by_role_and_label(Role::Button, "History").click();
+    kit.run_steps(4);
+    assert_eq!(kit.state().screen, Screen::Activity);
+    let header = button(kit, "Export CSV").rect().bottom();
+    assert!(header > 0.0, "the header in sight: {header}");
+    let rows = history_rows(kit);
+    let (first, rect) = rows.first().expect("rows in History");
+    assert!(
+        rect.top() >= header,
+        "the top row «{first}» is above the list's top: {} < {header}",
+        rect.top()
+    );
+    assert!(
+        first.contains("0.71717171"),
+        "the new payment first: «{first}»"
+    );
+}
+
+/// BUG-71: after a payment, the rail → History opens at the top: the new operation is the
+/// first row and it is in sight under the header, not scrolled off. Not reproduced on the demo
+/// (2026-11-07); kept as a guard, with [`history_seen_and_scrolled_opens_at_the_new_payment`].
+#[test]
+fn history_after_a_payment_opens_with_the_new_row_in_sight() {
+    let (_turn, mut kit) = demo_app("send", "en");
+    with_new_payment(&mut kit);
+    history_opens_on_the_new_payment(&mut kit);
+}
+
+/// BUG-71, the other way: History seen and scrolled down, then «Send» and a payment — the rail →
+/// History opens at the top again, on the new payment.
+#[test]
+fn history_seen_and_scrolled_opens_at_the_new_payment() {
+    let (_turn, mut kit) = demo_app("activity", "en");
+    // A low window: the list goes on under the bottom edge.
+    kit.set_size(egui::vec2(1024.0, 480.0));
+    kit.run_steps(3);
+    let row_top = |kit: &Kit| history_rows(kit).first().map(|(_, r)| r.top());
+    let before = row_top(&kit).expect("rows in History");
+    kit.hover_at(egui::pos2(600.0, 300.0));
+    for _ in 0..4 {
+        kit.event(egui::Event::MouseWheel {
+            unit: egui::MouseWheelUnit::Point,
+            delta: egui::vec2(0.0, -400.0),
+            phase: egui::TouchPhase::Move,
+            modifiers: Default::default(),
+        });
+        kit.run_steps(4);
+    }
+    let after = row_top(&kit);
+    assert!(
+        after.is_none_or(|top| top < before - 100.0),
+        "the wheel scrolled the list: {before} → {after:?}"
+    );
+    kit.get_by_role_and_label(Role::Button, "Send").click();
+    kit.run_steps(4);
+    with_new_payment(&mut kit);
+    history_opens_on_the_new_payment(&mut kit);
 }

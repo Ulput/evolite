@@ -388,3 +388,31 @@ fn english_quotes_with_curly_quotes() {
     let guillemets: Vec<&String> = keys.iter().filter(|k| k.contains(['«', '»'])).collect();
     assert!(guillemets.is_empty(), "«…» in English: {guillemets:#?}");
 }
+
+/// BUG-70: an abbreviation's point ends the sentence too — «1 Min.», not «1 Min..»; a point
+/// after a word, or a number stays.
+#[test]
+fn an_abbreviation_at_the_end_takes_no_second_point() {
+    let shown = t_in(
+        Lang::De,
+        "You can try again. If the password is wrong again, the next pause is 1 min.",
+    );
+    assert!(shown.ends_with("die nächste Pause 1 Min."), "{shown}");
+    let mut de = catalog(
+        Lang::De,
+        r#"{
+            "{} min": "{} Min.",
+            "Wait {}.": "Warten Sie {}.",
+            "{} left.": "{} übrig."
+        }"#,
+    );
+    assert_eq!(
+        de.translate("Wait 5 min.").as_deref(),
+        Some("Warten Sie 5 Min.")
+    );
+    assert_eq!(de.translate("Wait 5.").as_deref(), Some("Warten Sie 5."));
+    assert_eq!(
+        de.translate("5 min left.").as_deref(),
+        Some("5 Min. übrig.")
+    );
+}

@@ -429,6 +429,12 @@ fn rail_sync_words(
         }
     };
     let live = if now - changed < 1.0 {
+        // One frame when the second is over, for a still mark too: the status goes quiet then,
+        // not at the next snapshot (review r1 nit).
+        ui.ctx()
+            .request_repaint_after(std::time::Duration::from_secs_f64(
+                (1.0 - (now - changed)).max(0.0),
+            ));
         egui::accesskit::Live::Polite
     } else {
         egui::accesskit::Live::Off

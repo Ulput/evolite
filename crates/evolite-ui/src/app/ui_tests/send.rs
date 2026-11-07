@@ -103,3 +103,68 @@ fn the_wallets_own_address_is_not_offered_for_the_address_book() {
     typed(&mut kit, theirs, Ok(theirs.into()));
     assert!(has_text(&kit, "Save to the address book"));
 }
+
+/// BUG-68: the wallet's own address pasted with spaces around is its own too — the form asks
+/// the core about the trimmed address and says so, not «Save to the address book».
+#[test]
+fn the_wallets_own_address_with_spaces_around_is_its_own() {
+    let (_turn, mut kit) = demo_app("send", "en");
+    let own = kit
+        .state()
+        .snapshot
+        .as_ref()
+        .and_then(|s| s.wallet.as_ref())
+        .map(|w| w.core_address.clone())
+        .expect("the demo wallet");
+    kit.state_mut().send.recipient = format!("  {own}  ");
+    let said = "This is an address of this wallet: the money stays yours, only the fee goes.";
+    wait_for(&mut kit, "the own-address line", |kit| has_text(kit, said));
+    assert!(!has_text(&kit, "Save to the address book"));
+}
+
+/// BUG-67: the sources of «From» stand in one row of equal columns, a Core balance with all
+/// eight decimals too and the other two long as well (1024 × 768, the rail), in Russian as the
+/// bug was found and in English. Before the fix «Приватный пул» went to a second row.
+#[test]
+fn the_sources_stay_in_one_row_of_equal_columns() {
+    for (lang, names) in [
+        ("ru", ["Core", "Кредиты", "Приватный пул"]),
+        ("en", ["Core", "Credits", "Private pool"]),
+    ] {
+        let (_turn, mut kit) = demo_app("send", lang);
+        for _ in 0..5 {
+            if let Some(w) = kit
+                .state_mut()
+                .snapshot
+                .as_mut()
+                .and_then(|s| s.wallet.as_mut())
+            {
+                w.balances.core = 391_724_464;
+                // The other two long as well: the widest the row gets.
+                w.balances.credits = 123_456_789;
+                w.balances.shielded = 98_765_432;
+            }
+            kit.run_steps(1);
+        }
+        let cards: Vec<_> = kit
+            .query_all_by_role(Role::RadioButton)
+            .filter(|n| {
+                n.accesskit_node()
+                    .label()
+                    .is_some_and(|l| names.contains(&l.as_str()))
+            })
+            .map(|n| n.rect())
+            .collect();
+        assert_eq!(cards.len(), 3, "{lang}: {names:?}: {cards:?}");
+        let top = cards[0].top();
+        assert!(
+            cards.iter().all(|r| (r.top() - top).abs() < 0.5),
+            "{lang}: one row: {cards:?}"
+        );
+        let width = cards[0].width();
+        assert!(
+            cards.iter().all(|r| (r.width() - width).abs() < 0.5),
+            "{lang}: equal columns: {cards:?}"
+        );
+    }
+}
