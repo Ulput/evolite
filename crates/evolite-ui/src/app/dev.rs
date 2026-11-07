@@ -41,6 +41,8 @@ pub(super) struct DevState {
     syncing_preset: bool,
     /// `--screen activity-notes-unreadable`: the notes file did not open (FEAT-0003, E2).
     pub(super) notes_error: Option<evolite_api::NotesError>,
+    /// Tests only: every Core card says that part of its details was not saved (FEAT-0005a, FR-6).
+    pub(super) incomplete_details: bool,
     /// The unlock presets of FEAT-0002: the wallets' wrong passwords as the core would send them.
     pause_preset: Option<PausePreset>,
     /// The clock the screens read, stopped at the start: a countdown in a screenshot shows
@@ -119,6 +121,7 @@ impl DevState {
                 None
             },
             syncing_preset: dev.preset("overview-syncing") || dev.preset("send-syncing"),
+            incomplete_details: false,
             notes_error: dev
                 .preset("activity-notes-unreadable")
                 .then_some(evolite_api::NotesError::PutAside),
@@ -227,6 +230,13 @@ impl App {
         {
             w.notes_error = Some(e);
         }
+        if self.dev.incomplete_details
+            && let Some(w) = self.snapshot.as_mut().and_then(|s| s.wallet.as_mut())
+        {
+            for d in w.activity.iter_mut().filter_map(|a| a.detail.as_mut()) {
+                d.incomplete = true;
+            }
+        }
         if let Some(pp) = &self.dev.pause_preset
             && let Some(s) = self.snapshot.as_mut()
         {
@@ -298,6 +308,13 @@ impl App {
             let f = &mut self.history.filters;
             f.status = Some(screens::activity_filters::Status::Pending);
             f.kinds = screens::activity_filters::kind::NAMES;
+        }
+        // FEAT-0005a: a transfer between own addresses (mockup 01) and a payment in.
+        if preset("activity-card-self") && !real_shot {
+            screens::open_card(ctx, 17);
+        }
+        if preset("activity-card-received") && !real_shot {
+            screens::open_card(ctx, 8);
         }
         // FEAT-0003: the notes in History and in an operation's card (Figma 05, 24; the designer's
         // frames 2, 4-7). The demo's note is the core's example, in the interface's language.

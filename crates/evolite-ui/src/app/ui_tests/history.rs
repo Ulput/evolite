@@ -34,6 +34,7 @@ fn with_undated(kit: &mut Kit) {
                 layers: evolite_api::layer::POOL,
                 flow: evolite_api::Flow::In,
                 key: String::new(),
+                detail: None,
                 note: None,
             });
         }
@@ -180,6 +181,7 @@ fn platform_op(id: u64, kind: ActivityKind, amount: i64) -> Activity {
         layers: evolite_api::layer::IDENTITY,
         flow: evolite_api::Flow::Out,
         key: String::new(),
+        detail: None,
         note: None,
     }
 }
@@ -391,6 +393,7 @@ fn lock(creates: bool, credits: evolite_api::Credits) -> Activity {
         layers: evolite_api::layer::CORE | evolite_api::layer::IDENTITY,
         flow: evolite_api::Flow::Between,
         key: String::new(),
+        detail: None,
         note: None,
     }
 }

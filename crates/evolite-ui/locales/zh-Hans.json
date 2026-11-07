@@ -188,6 +188,7 @@
   "Cancel": "取消",
   "Careful: this address only looks like {} that you paid or saved before — the middle is different. Compare it character by character.": "注意：这个地址只是看起来像你以前付过款或保存过的 {}——中间部分不同。请逐个字符核对。",
   "ChainLock and InstantLock": "ChainLock 和 InstantLock",
+  "ChainLock in block {}: the quorum signature is checked": "区块 {} 中的 ChainLock：法定人数签名已验证",
   "ChainLock of the latest block": "最新区块的 ChainLock",
   "ChainLock: masternodes signed the block with this payment. It is final.": "ChainLock：主节点已签名包含这笔付款的区块。付款已最终确定。",
   "Change": "更改",
@@ -255,6 +256,7 @@
   "Core nodes": "Core 节点",
   "Core to Platform": "Core 转入 Platform",
   "Core wallet": "Core 钱包",
+  "Core · this wallet": "Core · 此钱包",
   "Core: receive, send, history, your own node. Platform: identities, DPNS names, credits, Platform address. DashPay contacts and profile, the private pool, app sign-in and signing by link, the Jembe NFT collection, mainnet by a launch flag": "Core：收款、付款、历史、自有节点。Platform：身份、DPNS 名称、积分、Platform 地址。DashPay 联系人和资料、私密池、通过链接登录应用和签名、Jembe NFT 收藏、通过启动参数使用主网",
   "Correct": "正确",
   "Cost": "费用",
@@ -429,6 +431,7 @@
   "InstantLock and ChainLock for your payments": "为你的付款提供 InstantLock 和 ChainLock",
   "InstantLock or ChainLock, we check the BLS signature": "InstantLock 或 ChainLock，我们会验证 BLS 签名",
   "InstantLock: a quorum of masternodes locked this payment within seconds. It cannot be reversed.": "InstantLock：主节点仲裁组在几秒内锁定了这笔付款，无法撤回。",
+  "InstantSend: the quorum signature is checked": "InstantSend：法定人数签名已验证",
   "InstantSend: the recipient sees a confirmed payment in a few seconds.": "InstantSend：收款人几秒内即可看到已确认的付款。",
   "Interface": "界面",
   "Interface language": "界面语言",
@@ -505,6 +508,8 @@
   "More than there is in the pool": "超过池中的余额",
   "More than there is in this balance": "超过此余额",
   "More than there is on Core": "超过 Core 上的余额",
+  "Moved": "转移金额",
+  "Moved {} inside the wallet: only the fee left it.": "已在钱包内转移 {}：只有手续费离开了钱包。",
   "My QR": "我的二维码",
   "My name @{}": "我的名称 @{}",
   "NFT animation": "NFT 动画",
@@ -618,6 +623,7 @@
   "PNG, JPEG, GIF, WebP or SVG, up to 1 MB, over https": "PNG、JPEG、GIF、WebP 或 SVG，不超过 1 MB，通过 https",
   "Paid by": "付款方",
   "Paid out": "已支付",
+  "Part of the details of this operation was not saved": "此操作的部分信息未保存",
   "Password": "密码",
   "Password changed. The phrase is the same — your paper copy is still right.": "密码已更改。助记词不变——你的纸质备份依然有效。",
   "Password for every payment": "每次付款都需密码",
@@ -1244,6 +1250,7 @@
   "this is not a Dash testnet address": "这不是 Dash 测试网地址",
   "this is not an app link evolite knows": "这不是 evolite 认识的应用链接",
   "this locked money was made for another identity or purpose": "这笔锁定的钱是为另一个身份或用途创建的",
+  "this wallet's address": "此钱包的地址",
   "time unknown": "时间未知",
   "to address {}": "到地址 {}",
   "to an address from the contact's key: {}": "到来自联系人密钥的地址：{}",
@@ -1298,6 +1305,9 @@
     "other": "{} 个身份"
   },
   "{} in Platform credits": "Platform 积分中的 {}",
+  "{} input|{} inputs": {
+    "other": "{} 个输入"
+  },
   "{} min": "{} 分钟",
   "{} nodes": "{} 个节点",
   "{} note|{} notes": {

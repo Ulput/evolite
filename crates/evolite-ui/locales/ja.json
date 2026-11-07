@@ -188,6 +188,7 @@
   "Cancel": "キャンセル",
   "Careful: this address only looks like {} that you paid or saved before — the middle is different. Compare it character by character.": "注意：このアドレスは、以前に支払ったか保存した {} に似ているだけで、中ほどが違います。1 文字ずつ照合してください。",
   "ChainLock and InstantLock": "ChainLock と InstantLock",
+  "ChainLock in block {}: the quorum signature is checked": "ブロック {} の ChainLock：クォーラム署名を確認済み",
   "ChainLock of the latest block": "最新ブロックの ChainLock",
   "ChainLock: masternodes signed the block with this payment. It is final.": "ChainLock：この支払いを含むブロックにマスターノードが署名しました。確定です。",
   "Change": "変更",
@@ -255,6 +256,7 @@
   "Core nodes": "Core ノード",
   "Core to Platform": "Core から Platform へ",
   "Core wallet": "Core ウォレット",
+  "Core · this wallet": "Core · このウォレット",
   "Core: receive, send, history, your own node. Platform: identities, DPNS names, credits, Platform address. DashPay contacts and profile, the private pool, app sign-in and signing by link, the Jembe NFT collection, mainnet by a launch flag": "Core：受け取り、送金、履歴、自分のノード。Platform：アイデンティティ、DPNS 名、クレジット、Platform アドレス。DashPay の連絡先とプロフィール、プライベートプール、リンクによるアプリのログインと署名、Jembe の NFT コレクション、起動オプションによるメインネット",
   "Correct": "正解",
   "Cost": "費用",
@@ -429,6 +431,7 @@
   "InstantLock and ChainLock for your payments": "支払いのための InstantLock と ChainLock",
   "InstantLock or ChainLock, we check the BLS signature": "InstantLock または ChainLock、BLS 署名を検証します",
   "InstantLock: a quorum of masternodes locked this payment within seconds. It cannot be reversed.": "InstantLock：マスターノードのクォーラムがこの支払いを数秒でロックしました。取り消せません。",
+  "InstantSend: the quorum signature is checked": "InstantSend：クォーラム署名を確認済み",
   "InstantSend: the recipient sees a confirmed payment in a few seconds.": "InstantSend：受取人は数秒で確認済みの支払いを確認できます。",
   "Interface": "インターフェース",
   "Interface language": "表示言語",
@@ -505,6 +508,8 @@
   "More than there is in the pool": "プールにある額を超えています",
   "More than there is in this balance": "この残高を超えています",
   "More than there is on Core": "Core にある額を超えています",
+  "Moved": "移動額",
+  "Moved {} inside the wallet: only the fee left it.": "{} をウォレット内で移動しました。出ていったのは手数料だけです。",
   "My QR": "自分の QR",
   "My name @{}": "自分の名前 @{}",
   "NFT animation": "NFT のアニメーション",
@@ -618,6 +623,7 @@
   "PNG, JPEG, GIF, WebP or SVG, up to 1 MB, over https": "PNG、JPEG、GIF、WebP、SVG、1 MB まで、https 経由",
   "Paid by": "支払元",
   "Paid out": "支払い済み",
+  "Part of the details of this operation was not saved": "この操作の情報の一部は保存されていません",
   "Password": "パスワード",
   "Password changed. The phrase is the same — your paper copy is still right.": "パスワードを変更しました。フレーズは同じです — 紙の控えはそのまま有効です。",
   "Password for every payment": "支払いごとにパスワード",
@@ -1244,6 +1250,7 @@
   "this is not a Dash testnet address": "これは Dash テストネットのアドレスではありません",
   "this is not an app link evolite knows": "evolite が知っているアプリのリンクではありません",
   "this locked money was made for another identity or purpose": "このロックされた資金は、別のアイデンティティまたは別の目的のために作られたものです",
+  "this wallet's address": "このウォレットのアドレス",
   "time unknown": "時刻不明",
   "to address {}": "アドレス {} へ",
   "to an address from the contact's key: {}": "連絡先の鍵からのアドレスへ：{}",
@@ -1298,6 +1305,9 @@
     "other": "{} 件のアイデンティティ"
   },
   "{} in Platform credits": "Platform クレジットの {}",
+  "{} input|{} inputs": {
+    "other": "入力 {} 件"
+  },
   "{} min": "{}分",
   "{} nodes": "{} ノード",
   "{} note|{} notes": {

@@ -130,6 +130,7 @@ impl Outgoing {
                     .as_ref()
                     .map(|t| format!("core:{t}"))
                     .unwrap_or_default(),
+                detail: None,
                 note: None,
             }
         }));
@@ -156,6 +157,7 @@ mod tests {
             layers: evolite_api::layer::CORE,
             flow: evolite_api::Flow::Out,
             key: String::new(),
+            detail: None,
             note: None,
         }
     }

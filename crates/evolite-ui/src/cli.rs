@@ -175,6 +175,7 @@ pub const PRESETS: &[&str] = &[
     "create", "verify", "password", "restore", "dashpay", "sync", "sync-nodes",
     "overview", "hidden", "units", "remind", "wallet-menu", "wallet-switch", "overview-syncing",
     "activity", "activity-card", "activity-filters", "activity-filters-empty",
+    "activity-card-self", "activity-card-received",
     "activity-notes", "activity-search-note", "activity-notes-unreadable", "activity-card-note",
     "activity-card-add-note", "activity-card-note-edit", "activity-card-note-error",
     "send-note", "send-note-limit", "send-confirm-note", "delete-notes",
@@ -242,6 +243,8 @@ fn dev_args<'a>(
                 | "activity-card"
                 | "activity-filters"
                 | "activity-filters-empty"
+                | "activity-card-self"
+                | "activity-card-received"
                 | "activity-notes"
                 | "activity-search-note"
                 | "activity-notes-unreadable"

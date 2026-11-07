@@ -472,6 +472,7 @@ mod tests {
             layers: evolite_api::layer::IDENTITY,
             flow: evolite_api::Flow::Out,
             key: key.into(),
+            detail: None,
             note: None,
         }
     }

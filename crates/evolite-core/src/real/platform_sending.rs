@@ -93,6 +93,7 @@ impl PlatformSending {
             layers: crate::layers::of(&p.kind, Chain::Platform).0,
             flow: crate::layers::of(&p.kind, Chain::Platform).1,
             key: String::new(),
+            detail: None,
             note: None,
         }));
         history
@@ -148,6 +149,7 @@ mod tests {
             layers: evolite_api::layer::IDENTITY,
             flow: evolite_api::Flow::Out,
             key: String::new(),
+            detail: None,
             note: None,
         }
     }

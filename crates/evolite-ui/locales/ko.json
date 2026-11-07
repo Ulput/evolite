@@ -188,6 +188,7 @@
   "Cancel": "취소",
   "Careful: this address only looks like {} that you paid or saved before — the middle is different. Compare it character by character.": "주의: 이 주소는 전에 결제했거나 저장한 {}와 비슷해 보일 뿐 가운데가 다릅니다. 한 글자씩 비교하세요.",
   "ChainLock and InstantLock": "ChainLock과 InstantLock",
+  "ChainLock in block {}: the quorum signature is checked": "블록 {}의 ChainLock: 쿼럼 서명이 확인됨",
   "ChainLock of the latest block": "최신 블록의 ChainLock",
   "ChainLock: masternodes signed the block with this payment. It is final.": "ChainLock: 마스터노드가 이 결제가 담긴 블록에 서명했습니다. 최종 확정입니다.",
   "Change": "변경",
@@ -255,6 +256,7 @@
   "Core nodes": "Core 노드",
   "Core to Platform": "Core에서 Platform으로",
   "Core wallet": "Core 지갑",
+  "Core · this wallet": "Core · 이 지갑",
   "Core: receive, send, history, your own node. Platform: identities, DPNS names, credits, Platform address. DashPay contacts and profile, the private pool, app sign-in and signing by link, the Jembe NFT collection, mainnet by a launch flag": "Core: 받기, 보내기, 내역, 자체 노드. Platform: 신원, DPNS 이름, 크레딧, Platform 주소. DashPay 연락처와 프로필, 비공개 풀, 링크로 앱 로그인과 서명, Jembe NFT 컬렉션, 실행 옵션으로 메인넷",
   "Correct": "정답",
   "Cost": "비용",
@@ -429,6 +431,7 @@
   "InstantLock and ChainLock for your payments": "결제를 위한 InstantLock과 ChainLock",
   "InstantLock or ChainLock, we check the BLS signature": "InstantLock 또는 ChainLock, BLS 서명을 확인합니다",
   "InstantLock: a quorum of masternodes locked this payment within seconds. It cannot be reversed.": "InstantLock: 마스터노드 쿼럼이 몇 초 만에 이 결제를 잠갔습니다. 되돌릴 수 없습니다.",
+  "InstantSend: the quorum signature is checked": "InstantSend: 쿼럼 서명이 확인됨",
   "InstantSend: the recipient sees a confirmed payment in a few seconds.": "InstantSend: 받는 사람이 몇 초 안에 확인된 결제를 봅니다.",
   "Interface": "인터페이스",
   "Interface language": "인터페이스 언어",
@@ -505,6 +508,8 @@
   "More than there is in the pool": "풀에 있는 것보다 많습니다",
   "More than there is in this balance": "이 잔액보다 많습니다",
   "More than there is on Core": "Core에 있는 것보다 많습니다",
+  "Moved": "이동 금액",
+  "Moved {} inside the wallet: only the fee left it.": "{}을(를) 지갑 안에서 옮겼습니다. 빠져나간 것은 수수료뿐입니다.",
   "My QR": "내 QR",
   "My name @{}": "내 이름 @{}",
   "NFT animation": "NFT 애니메이션",
@@ -618,6 +623,7 @@
   "PNG, JPEG, GIF, WebP or SVG, up to 1 MB, over https": "PNG, JPEG, GIF, WebP 또는 SVG, 최대 1MB, https로",
   "Paid by": "결제자",
   "Paid out": "지급됨",
+  "Part of the details of this operation was not saved": "이 작업의 정보 일부가 저장되지 않았습니다",
   "Password": "비밀번호",
   "Password changed. The phrase is the same — your paper copy is still right.": "비밀번호를 바꿨습니다. 문구는 그대로입니다 — 종이 사본도 여전히 유효합니다.",
   "Password for every payment": "결제마다 비밀번호",
@@ -1244,6 +1250,7 @@
   "this is not a Dash testnet address": "Dash 테스트넷 주소가 아닙니다",
   "this is not an app link evolite knows": "evolite가 아는 앱 링크가 아닙니다",
   "this locked money was made for another identity or purpose": "이 잠긴 돈은 다른 신원이나 다른 용도로 만들어졌습니다",
+  "this wallet's address": "이 지갑의 주소",
   "time unknown": "시간 알 수 없음",
   "to address {}": "주소 {}(으)로",
   "to an address from the contact's key: {}": "연락처 키에서 만든 주소로: {}",
@@ -1298,6 +1305,9 @@
     "other": "신원 {}개"
   },
   "{} in Platform credits": "Platform 크레딧의 {}",
+  "{} input|{} inputs": {
+    "other": "입력 {}개"
+  },
   "{} min": "{}분",
   "{} nodes": "노드 {}개",
   "{} note|{} notes": {

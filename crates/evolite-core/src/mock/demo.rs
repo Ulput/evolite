@@ -196,6 +196,25 @@ pub(super) fn demo_art() -> HashMap<String, Stored> {
         .collect()
 }
 
+/// A Core line's card in full (FEAT-0005a), as the real core builds it from the record.
+fn core_detail(
+    proof: Proof,
+    block: Option<u32>,
+    from: &[&str],
+    to: &[(&str, Duffs)],
+) -> Option<Box<Detail>> {
+    Some(Box::new(Detail {
+        confirm: match proof {
+            Proof::InstantLock => Some(Confirm::InstantLock),
+            Proof::ChainLock => block.map(|block| Confirm::ChainLock { block }),
+            _ => None,
+        },
+        own_from: from.iter().map(|a| a.to_string()).collect(),
+        own_to: to.iter().map(|(a, v)| (a.to_string(), *v)).collect(),
+        incomplete: false,
+    }))
+}
+
 /// The example wallet from the Figma screens, with times relative to `t`.
 pub(super) fn demo_wallet(t: Timestamp) -> Wallet {
     let min = 60;
@@ -218,6 +237,7 @@ pub(super) fn demo_wallet(t: Timestamp) -> Wallet {
             flow,
             // Stable as the real keys are; the demo keeps notes in memory (FEAT-0003).
             key: format!("demo:{id}"),
+            detail: None,
             note: None,
         }
     };
@@ -245,6 +265,12 @@ pub(super) fn demo_wallet(t: Timestamp) -> Wallet {
             // Earlier receive addresses of ours: "Receive" lists them.
             Activity {
                 address: Some("yPq8RkT2vW6nX4mB9cJ3hL7sD5fG1aZ8e4k".into()),
+                detail: core_detail(
+                    Proof::InstantLock,
+                    None,
+                    &[],
+                    &[("yPq8RkT2vW6nX4mB9cJ3hL7sD5fG1aZ8e4k", 25_000_000)],
+                ),
                 ..act(
                     2,
                     Received {
@@ -265,6 +291,17 @@ pub(super) fn demo_wallet(t: Timestamp) -> Wallet {
                 fee: Some(226),
                 block: Some(1_284_101),
                 address: Some("yXk3Tq9mD8vJw2RfL6pN4sB7cH1eZ5a9f2c".into()),
+                // Three coins of ours went into it (FEAT-0005: «3 inputs»).
+                detail: core_detail(
+                    Proof::ChainLock,
+                    Some(1_284_101),
+                    &[
+                        "yMXp7gU4uQ4mVQ4V1V3H6cPCXxWfNrsW3d",
+                        "yRf2kL9pT4wN8xC3vB6mH1sQ7dZ5aG2e8j",
+                        "yMXp7gU4uQ4mVQ4V1V3H6cPCXxWfNrsW3d",
+                    ],
+                    &[],
+                ),
                 ..act(
                     3,
                     Sent {
@@ -319,6 +356,13 @@ pub(super) fn demo_wallet(t: Timestamp) -> Wallet {
             },
             Activity {
                 address: Some("yNw3Hc6bV1qK8tR5mZ2xF9jD4sL7gP3aE6u".into()),
+                block: Some(1_283_650),
+                detail: core_detail(
+                    Proof::ChainLock,
+                    Some(1_283_650),
+                    &[],
+                    &[("yNw3Hc6bV1qK8tR5mZ2xF9jD4sL7gP3aE6u", 500_000_000)],
+                ),
                 ..act(
                     8,
                     Received {
@@ -412,6 +456,29 @@ pub(super) fn demo_wallet(t: Timestamp) -> Wallet {
                 20_000_000,
                 Proof::ChainLock,
             ),
+            // A transfer between own addresses: only the fee left (FEAT-0005, mockup 01).
+            Activity {
+                txid: Some(
+                    "9c1e04a77d2b6e3a81c5d0f2e94b17a6c3d8e5f9012ab34cd56ef78a90b1c2d3".into(),
+                ),
+                fee: Some(226),
+                block: Some(1_283_402),
+                address: Some("yhR9mK3vT6pL2wQ8xN5cB1sD7fG4aZ9eo4nr".into()),
+                detail: core_detail(
+                    Proof::ChainLock,
+                    Some(1_283_402),
+                    &["yNBw5qT8mK2vL6pR9xC3sD1fG7hZ4aE2iReb"],
+                    &[("yhR9mK3vT6pL2wQ8xN5cB1sD7fG4aZ9eo4nr", 1_000_000)],
+                ),
+                ..act(
+                    17,
+                    SelfTransfer { moved: 1_000_000 },
+                    Chain::Core,
+                    3 * day,
+                    -226,
+                    Proof::ChainLock,
+                )
+            },
         ],
         core_address: "yXk3Tq9mD8vJw2RfL6pN4sB7cH1eZ5aG9f2c".into(),
         platform_address: "tdash1qq7x4m9n2r8v5k3j6h0w4p2s8d5f7g9l3c0zq".into(),

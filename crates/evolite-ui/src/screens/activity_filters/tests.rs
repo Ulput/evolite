@@ -24,6 +24,7 @@ fn line(
         layers,
         flow,
         key: String::new(),
+        detail: None,
         note: None,
     }
 }

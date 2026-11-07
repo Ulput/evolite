@@ -188,6 +188,7 @@
   "Cancel": "Batal",
   "Careful: this address only looks like {} that you paid or saved before — the middle is different. Compare it character by character.": "Hati-hati: alamat ini hanya mirip {} yang pernah Anda bayar atau simpan — bagian tengahnya berbeda. Bandingkan karakter demi karakter.",
   "ChainLock and InstantLock": "ChainLock dan InstantLock",
+  "ChainLock in block {}: the quorum signature is checked": "ChainLock di blok {}: tanda tangan kuorum sudah diperiksa",
   "ChainLock of the latest block": "ChainLock blok terakhir",
   "ChainLock: masternodes signed the block with this payment. It is final.": "ChainLock: masternode menandatangani blok berisi pembayaran ini. Pembayaran sudah final.",
   "Change": "Ubah",
@@ -255,6 +256,7 @@
   "Core nodes": "Node Core",
   "Core to Platform": "Core ke Platform",
   "Core wallet": "Dompet Core",
+  "Core · this wallet": "Core · dompet ini",
   "Core: receive, send, history, your own node. Platform: identities, DPNS names, credits, Platform address. DashPay contacts and profile, the private pool, app sign-in and signing by link, the Jembe NFT collection, mainnet by a launch flag": "Core: terima, kirim, riwayat, node sendiri. Platform: identitas, nama DPNS, kredit, alamat Platform. Kontak dan profil DashPay, pool privat, masuk dan tanda tangan aplikasi lewat tautan, koleksi NFT Jembe, mainnet lewat opsi peluncuran",
   "Correct": "Benar",
   "Cost": "Biaya",
@@ -429,6 +431,7 @@
   "InstantLock and ChainLock for your payments": "InstantLock dan ChainLock untuk pembayaran Anda",
   "InstantLock or ChainLock, we check the BLS signature": "InstantLock atau ChainLock, kami memeriksa tanda tangan BLS",
   "InstantLock: a quorum of masternodes locked this payment within seconds. It cannot be reversed.": "InstantLock: kuorum masternode mengunci pembayaran ini dalam hitungan detik. Pembayaran tidak bisa dibatalkan.",
+  "InstantSend: the quorum signature is checked": "InstantSend: tanda tangan kuorum sudah diperiksa",
   "InstantSend: the recipient sees a confirmed payment in a few seconds.": "InstantSend: penerima melihat pembayaran terkonfirmasi dalam beberapa detik.",
   "Interface": "Antarmuka",
   "Interface language": "Bahasa antarmuka",
@@ -505,6 +508,8 @@
   "More than there is in the pool": "Lebih dari yang ada di pool",
   "More than there is in this balance": "Lebih dari yang ada di saldo ini",
   "More than there is on Core": "Lebih dari yang ada di Core",
+  "Moved": "Dipindahkan",
+  "Moved {} inside the wallet: only the fee left it.": "{} dipindahkan di dalam dompet: hanya biayanya yang keluar.",
   "My QR": "QR saya",
   "My name @{}": "Nama saya @{}",
   "NFT animation": "Animasi NFT",
@@ -618,6 +623,7 @@
   "PNG, JPEG, GIF, WebP or SVG, up to 1 MB, over https": "PNG, JPEG, GIF, WebP, atau SVG, maks. 1 MB, lewat https",
   "Paid by": "Dibayar oleh",
   "Paid out": "Dibayarkan",
+  "Part of the details of this operation was not saved": "Sebagian rincian operasi ini tidak tersimpan",
   "Password": "Kata sandi",
   "Password changed. The phrase is the same — your paper copy is still right.": "Kata sandi diubah. Frasanya sama — salinan kertas Anda tetap benar.",
   "Password for every payment": "Kata sandi untuk setiap pembayaran",
@@ -1244,6 +1250,7 @@
   "this is not a Dash testnet address": "ini bukan alamat Dash testnet",
   "this is not an app link evolite knows": "ini bukan tautan aplikasi yang dikenal evolite",
   "this locked money was made for another identity or purpose": "uang terkunci ini dibuat untuk identitas atau tujuan lain",
+  "this wallet's address": "alamat dompet ini",
   "time unknown": "waktu tidak diketahui",
   "to address {}": "ke alamat {}",
   "to an address from the contact's key: {}": "ke alamat dari kunci kontak: {}",
@@ -1298,6 +1305,9 @@
     "other": "{} identitas"
   },
   "{} in Platform credits": "{} dalam kredit Platform",
+  "{} input|{} inputs": {
+    "other": "{} input"
+  },
   "{} min": "{} mnt",
   "{} nodes": "{} node",
   "{} note|{} notes": {

@@ -11,6 +11,7 @@ mod amounts;
 mod as_known;
 mod bugs;
 mod calm_states;
+mod card;
 mod contacts_privacy;
 mod core_known;
 mod dialog_keys;

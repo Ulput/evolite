@@ -219,6 +219,35 @@ pub struct Activity {
     pub key: String,
     /// What the person wrote to it, only on this computer ([`Command::SetNote`]).
     pub note: Option<String>,
+    /// What the operation's card says beyond the row (FEAT-0005); `None` where the core knows
+    /// nothing more. Boxed: the snapshot clones every row each frame.
+    pub detail: Option<Box<Detail>>,
+}
+
+/// An operation's card in full (FEAT-0005): what proved it, which of the wallet's own addresses
+/// the coins came from and went to, and whether part of it was not kept. Built by the core from
+/// what it has; the card draws no line for what is empty.
+#[derive(Clone, PartialEq, Debug, Default)]
+pub struct Detail {
+    /// What proved it, said in words: a verified InstantLock or a ChainLock (BUG-26).
+    pub confirm: Option<Confirm>,
+    /// The wallet's own addresses its coins came from, one per input (a payment out counts them).
+    pub own_from: Vec<String>,
+    /// The wallet's own addresses that got coins and how much each, change not included (the
+    /// customer, designer-16): a payment in, a transfer between own addresses.
+    pub own_to: Vec<(String, Duffs)>,
+    /// Something the card needs was not kept or could not be worked out (FR-6): it says so in
+    /// one line instead of drawing empty ones.
+    pub incomplete: bool,
+}
+
+/// What proved a Core operation, as its card says it.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Confirm {
+    /// A quorum's InstantLock, its signature verified.
+    InstantLock,
+    /// A ChainLock on the block it is in (or on one over it).
+    ChainLock { block: u32 },
 }
 
 #[derive(Clone, PartialEq, Debug)]

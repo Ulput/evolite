@@ -202,6 +202,10 @@ pub(super) fn settle(history: &mut [Activity], chainlocked: Option<u32>) {
     for a in history {
         if a.proof == Proof::InBlock && a.block.is_some_and(|b| b <= locked) {
             a.proof = Proof::ChainLock;
+            // The card says it in words too (FEAT-0005): the block it is in.
+            if let Some(detail) = a.detail.as_deref_mut() {
+                detail.confirm = confirm(a.proof, a.block);
+            }
         }
     }
 }
@@ -411,6 +415,9 @@ pub(super) fn activity(
         .map_or(seen, |b| b.timestamp() as Timestamp);
     let txid = record.txid.to_string();
     let (layers, flow) = crate::layers::of(&kind, chain);
+    let proof = proof(&record.context, instant_verified);
+    let block = record.context.block_info().map(|b| b.height());
+    let detail = detail_of(record, &kind, proof, block);
     Activity {
         key: format!("core:{txid}"),
         id: u64::from_str_radix(&txid[..16.min(txid.len())], 16).unwrap_or(0),
@@ -418,7 +425,7 @@ pub(super) fn activity(
         chain,
         at,
         amount: net,
-        proof: proof(&record.context, instant_verified),
+        proof,
         txid: Some(txid),
         // Only what this wallet paid: an incoming payment's fee is the sender's. An asset lock is
         // always this wallet's, whatever its net says (see `Real::wallet` on locks for the pool).
@@ -426,11 +433,60 @@ pub(super) fn activity(
             .then_some(record.fee)
             .flatten()
             .map(|f| f as Duffs),
-        block: record.context.block_info().map(|b| b.height()),
+        block,
         address,
         layers,
         flow,
+        detail: Some(Box::new(detail)),
         note: None,
+    }
+}
+
+/// What proved a Core operation, in the card's words (FEAT-0005 AC-T3): an InstantLock only as
+/// [`proof`] gives it — verified (BUG-26); a ChainLock with its block. Nothing for the mempool or
+/// a block not locked yet: the chip says that.
+pub(super) fn confirm(proof: Proof, block: Option<u32>) -> Option<Confirm> {
+    match proof {
+        Proof::InstantLock => Some(Confirm::InstantLock),
+        Proof::ChainLock => block.map(|block| Confirm::ChainLock { block }),
+        _ => None,
+    }
+}
+
+/// The card's own addresses of a Core transaction (FEAT-0005 АРХ-3): ours it spent, one per
+/// input, and ours that got coins — `Received` only, change is not shown (designer-16). From the
+/// record's details, which [`one_per_transaction`] and [`attribute_late_inputs`] made whole over
+/// the accounts. Incomplete where the kind needs what the record lacks: a transfer between own
+/// addresses with no input or no receiving output of ours (one account's view of a transfer
+/// between accounts), a payment out with no input of ours, a payment in with no output of ours.
+fn detail_of(
+    record: &TransactionRecord,
+    kind: &ActivityKind,
+    proof: Proof,
+    block: Option<u32>,
+) -> Detail {
+    let own_from: Vec<String> = record
+        .input_details
+        .iter()
+        .map(|d| d.address.to_string())
+        .collect();
+    let own_to: Vec<(String, Duffs)> = record
+        .output_details
+        .iter()
+        .filter(|o| o.role == OutputRole::Received)
+        .filter_map(|o| Some((o.address.as_ref()?.to_string(), o.value as Duffs)))
+        .collect();
+    let incomplete = match kind {
+        ActivityKind::SelfTransfer { .. } => own_from.is_empty() || own_to.is_empty(),
+        ActivityKind::Sent { .. } => own_from.is_empty(),
+        ActivityKind::Received { .. } => own_to.is_empty(),
+        _ => false,
+    };
+    Detail {
+        confirm: confirm(proof, block),
+        own_from,
+        own_to,
+        incomplete,
     }
 }
 
@@ -1027,6 +1083,7 @@ mod tests {
             layers: layer::CORE,
             flow: Flow::Out,
             key: String::new(),
+            detail: None,
             note: None,
         };
         let contact = |id: &str, name: Option<&str>| Contact {
@@ -1085,6 +1142,7 @@ mod tests {
             layers: layer::CORE,
             flow: Flow::In,
             key: String::new(),
+            detail: None,
             note: None,
         };
         let mut h = vec![
@@ -1881,5 +1939,404 @@ mod kind_tests {
                 (-((LOCKED + FEE) as Duffs), Some(FEE as Duffs))
             );
         }
+    }
+}
+
+/// FEAT-0005a, AC-T2/T3: the card's own addresses and its proof in words, from records as
+/// key-wallet keeps them (no network).
+#[cfg(test)]
+mod detail_tests {
+    use super::*;
+    use key_wallet::dashcore::address::Payload;
+    use key_wallet::dashcore::hashes::Hash;
+    use key_wallet::dashcore::{BlockHash, OutPoint, PubkeyHash, Transaction, TxIn, TxOut, Txid};
+    use key_wallet::managed_account::transaction_record::{InputDetail, OutputDetail};
+    use key_wallet::transaction_checking::BlockInfo;
+
+    fn address(n: u8) -> Address {
+        Address::new(
+            key_wallet::Network::Testnet,
+            Payload::PubkeyHash(PubkeyHash::from_byte_array([n; 20])),
+        )
+    }
+
+    fn input(index: u32, value: u64, at: u8) -> InputDetail {
+        InputDetail {
+            index,
+            value,
+            address: address(at),
+        }
+    }
+
+    fn output(index: u32, role: OutputRole, value: u64, at: u8) -> OutputDetail {
+        OutputDetail {
+            index,
+            role,
+            address: Some(address(at)),
+            value,
+        }
+    }
+
+    /// A transaction spending `spends` (txid byte, vout) and paying `pays` (address byte, value).
+    fn tx(spends: &[(u8, u32)], pays: &[(u8, u64)]) -> Transaction {
+        Transaction {
+            version: 2,
+            lock_time: 0,
+            input: spends
+                .iter()
+                .map(|(t, vout)| TxIn {
+                    previous_output: OutPoint::new(Txid::from_byte_array([*t; 32]), *vout),
+                    ..TxIn::default()
+                })
+                .collect(),
+            output: pays
+                .iter()
+                .map(|(at, value)| TxOut {
+                    value: *value,
+                    script_pubkey: address(*at).script_pubkey(),
+                })
+                .collect(),
+            special_transaction_payload: None,
+        }
+    }
+
+    fn record(
+        tx: Transaction,
+        context: TransactionContext,
+        direction: TransactionDirection,
+        inputs: Vec<InputDetail>,
+        outputs: Vec<OutputDetail>,
+        net: i64,
+    ) -> TransactionRecord {
+        TransactionRecord::new(
+            tx,
+            key_wallet::account::AccountType::Standard {
+                index: 0,
+                standard_account_type: key_wallet::account::StandardAccountType::BIP44Account,
+            },
+            context,
+            TransactionType::Standard,
+            direction,
+            inputs,
+            outputs,
+            net,
+        )
+    }
+
+    fn detail(line: &Activity) -> &Detail {
+        line.detail.as_deref().expect("a Core line has its detail")
+    }
+
+    /// One input of ours → `Received` → `Change`: from the input's address to the receiving
+    /// one, the change not shown, the fee apart; ChainLock in words with its block.
+    #[test]
+    fn a_transfer_between_own_addresses_says_from_where_to_where() {
+        let locked = TransactionContext::InChainLockedBlock(BlockInfo::new(
+            1_585_795,
+            BlockHash::all_zeros(),
+            1_762_300_000,
+        ));
+        let mut r = record(
+            tx(&[(1, 0)], &[(7, 100_000), (8, 897_774)]),
+            locked,
+            TransactionDirection::Internal,
+            vec![input(0, 998_000, 5)],
+            vec![
+                output(0, OutputRole::Received, 100_000, 7),
+                output(1, OutputRole::Change, 897_774, 8),
+            ],
+            -226,
+        );
+        r.fee = Some(226);
+        let line = activity(&r, 0, true);
+        assert_eq!(line.kind, ActivityKind::SelfTransfer { moved: 100_000 });
+        assert_eq!((line.amount, line.fee), (-226, Some(226)));
+        assert_eq!(
+            detail(&line),
+            &Detail {
+                confirm: Some(Confirm::ChainLock { block: 1_585_795 }),
+                own_from: vec![address(5).to_string()],
+                own_to: vec![(address(7).to_string(), 100_000)],
+                incomplete: false,
+            }
+        );
+    }
+
+    /// Several inputs: one address each, as a payment out counts them («3 inputs»).
+    #[test]
+    fn a_payment_out_lists_each_input_of_ours() {
+        let r = record(
+            tx(&[(1, 0), (2, 1), (3, 0)], &[(9, 10_000_000), (8, 5_000)]),
+            TransactionContext::Mempool,
+            TransactionDirection::Outgoing,
+            vec![
+                input(0, 4_000_000, 5),
+                input(1, 4_000_000, 6),
+                input(2, 2_005_226, 5),
+            ],
+            vec![
+                output(0, OutputRole::Sent, 10_000_000, 9),
+                output(1, OutputRole::Change, 5_000, 8),
+            ],
+            -10_000_226,
+        );
+        let line = activity(&r, 0, true);
+        assert!(matches!(line.kind, ActivityKind::Sent { .. }));
+        let d = detail(&line);
+        assert_eq!(
+            d.own_from,
+            [5, 6, 5].map(|n| address(n).to_string()).to_vec()
+        );
+        assert!(d.own_to.is_empty(), "the change is not shown");
+        assert_eq!(d.confirm, None, "in the mempool: the chip says it");
+        assert!(!d.incomplete);
+    }
+
+    /// A spend recorded before the coin it spends (a restore): once `attribute_late_inputs` gives
+    /// it the input back, the card has the same addresses as when it was recorded whole.
+    #[test]
+    fn a_spend_recorded_before_its_coin_gives_the_same_addresses() {
+        let coin = record(
+            tx(&[(1, 0)], &[(5, 998_000)]),
+            TransactionContext::Mempool,
+            TransactionDirection::Incoming,
+            Vec::new(),
+            vec![output(0, OutputRole::Received, 998_000, 5)],
+            998_000,
+        );
+        let mut spend = tx(&[(0, 0)], &[(7, 100_000), (8, 897_774)]);
+        spend.input[0].previous_output = OutPoint::new(coin.txid, 0);
+        let outputs = vec![
+            output(0, OutputRole::Received, 100_000, 7),
+            output(1, OutputRole::Change, 897_774, 8),
+        ];
+        let whole = record(
+            spend.clone(),
+            TransactionContext::Mempool,
+            TransactionDirection::Internal,
+            vec![input(0, 998_000, 5)],
+            outputs.clone(),
+            -226,
+        );
+        let late = record(
+            spend,
+            TransactionContext::Mempool,
+            TransactionDirection::Incoming,
+            Vec::new(),
+            outputs,
+            997_774,
+        );
+        let mut records = vec![coin, late];
+        attribute_late_inputs(&mut records);
+        let late = activity(&records[1], 0, true);
+        let whole = activity(&whole, 0, true);
+        assert_eq!(late.kind, whole.kind);
+        assert_eq!(detail(&late), detail(&whole));
+        assert!(!detail(&late).incomplete);
+    }
+
+    /// One account's view of a transfer to another of the wallet's accounts: its coin in, only
+    /// change of its own back — where the coins went is not in the record (АРХ-3).
+    #[test]
+    fn a_transfer_the_record_cannot_follow_is_incomplete() {
+        let r = record(
+            tx(&[(1, 0)], &[(8, 897_774), (9, 100_000)]),
+            TransactionContext::Mempool,
+            TransactionDirection::Internal,
+            vec![input(0, 998_000, 5)],
+            vec![output(0, OutputRole::Change, 897_774, 8)],
+            -100_226,
+        );
+        let line = activity(&r, 0, true);
+        assert!(matches!(line.kind, ActivityKind::SelfTransfer { .. }));
+        assert!(detail(&line).incomplete);
+        // A payment in with none of our outputs listed is incomplete too.
+        let lost = record(
+            tx(&[(1, 0)], &[(9, 5)]),
+            TransactionContext::Mempool,
+            TransactionDirection::Incoming,
+            Vec::new(),
+            Vec::new(),
+            5,
+        );
+        assert!(detail(&activity(&lost, 0, true)).incomplete);
+    }
+
+    /// Review r1 should 2 (D3): a payment out whose inputs of ours were not kept says so; one
+    /// in with its output of ours does not.
+    #[test]
+    fn a_payment_out_without_its_inputs_is_incomplete() {
+        let sent = record(
+            tx(&[(1, 0)], &[(9, 10_000)]),
+            TransactionContext::Mempool,
+            TransactionDirection::Outgoing,
+            Vec::new(),
+            vec![output(0, OutputRole::Sent, 10_000, 9)],
+            -10_226,
+        );
+        let line = activity(&sent, 0, true);
+        assert!(
+            matches!(line.kind, ActivityKind::Sent { .. }),
+            "{:?}",
+            line.kind
+        );
+        assert!(detail(&line).incomplete);
+        let received = record(
+            tx(&[(1, 0)], &[(5, 5_000)]),
+            TransactionContext::Mempool,
+            TransactionDirection::Incoming,
+            Vec::new(),
+            vec![output(0, OutputRole::Received, 5_000, 5)],
+            5_000,
+        );
+        let line = activity(&received, 0, true);
+        assert!(matches!(line.kind, ActivityKind::Received { .. }));
+        assert!(!detail(&line).incomplete);
+    }
+
+    /// AC-T3: an InstantLock in words only when verified (BUG-26); a block not locked yet has
+    /// none until a ChainLock over it settles it — then with its block.
+    #[test]
+    fn the_proof_in_words_follows_the_chip() {
+        let r = |context| {
+            record(
+                tx(&[], &[(7, 5)]),
+                context,
+                TransactionDirection::Incoming,
+                Vec::new(),
+                vec![output(0, OutputRole::Received, 5, 7)],
+                5,
+            )
+        };
+        let is = || TransactionContext::InstantSend(Default::default());
+        assert_eq!(
+            detail(&activity(&r(is()), 0, true)).confirm,
+            Some(Confirm::InstantLock)
+        );
+        assert_eq!(detail(&activity(&r(is()), 0, false)).confirm, None);
+        let in_block = TransactionContext::InBlock(BlockInfo::new(
+            1_000,
+            BlockHash::all_zeros(),
+            1_762_300_000,
+        ));
+        let mut history = vec![activity(&r(in_block), 0, true)];
+        assert_eq!(detail(&history[0]).confirm, None);
+        settle(&mut history, Some(999));
+        assert_eq!(detail(&history[0]).confirm, None, "not under the lock");
+        settle(&mut history, Some(1_001));
+        assert_eq!(history[0].proof, Proof::ChainLock);
+        assert_eq!(
+            detail(&history[0]).confirm,
+            Some(Confirm::ChainLock { block: 1_000 })
+        );
+    }
+}
+
+/// AC-T8 measured, not asserted (timing depends on the machine): run with
+/// `cargo test -p evolite-core ac_t8 -- --ignored --nocapture`.
+#[cfg(test)]
+mod detail_cost {
+    use super::*;
+    use key_wallet::dashcore::address::Payload;
+    use key_wallet::dashcore::hashes::Hash;
+    use key_wallet::dashcore::{OutPoint, PubkeyHash, Transaction, TxIn, TxOut, Txid};
+    use key_wallet::managed_account::transaction_record::{InputDetail, OutputDetail};
+    use std::time::Instant;
+
+    fn address(n: u32) -> Address {
+        let mut b = [0u8; 20];
+        b[..4].copy_from_slice(&n.to_le_bytes());
+        Address::new(
+            key_wallet::Network::Testnet,
+            Payload::PubkeyHash(PubkeyHash::from_byte_array(b)),
+        )
+    }
+
+    /// A payment out: `inputs` coins of ours, one payee, change back.
+    fn send(n: u32, inputs: u32) -> TransactionRecord {
+        let mut t = [0u8; 32];
+        t[..4].copy_from_slice(&n.to_le_bytes());
+        let tx = Transaction {
+            version: 2,
+            lock_time: 0,
+            input: (0..inputs)
+                .map(|i| TxIn {
+                    previous_output: OutPoint::new(Txid::from_byte_array(t), i),
+                    ..TxIn::default()
+                })
+                .collect(),
+            output: vec![
+                TxOut {
+                    value: 1_000,
+                    script_pubkey: address(n).script_pubkey(),
+                },
+                TxOut {
+                    value: 500,
+                    script_pubkey: address(n + 1).script_pubkey(),
+                },
+            ],
+            special_transaction_payload: None,
+        };
+        TransactionRecord::new(
+            tx,
+            key_wallet::account::AccountType::Standard {
+                index: 0,
+                standard_account_type: key_wallet::account::StandardAccountType::BIP44Account,
+            },
+            TransactionContext::Mempool,
+            TransactionType::Standard,
+            TransactionDirection::Outgoing,
+            (0..inputs)
+                .map(|i| InputDetail {
+                    index: i,
+                    value: 1_000,
+                    address: address(n + 10 + i),
+                })
+                .collect(),
+            vec![
+                OutputDetail {
+                    index: 0,
+                    role: OutputRole::Sent,
+                    address: Some(address(n)),
+                    value: 1_000,
+                },
+                OutputDetail {
+                    index: 1,
+                    role: OutputRole::Change,
+                    address: Some(address(n + 1)),
+                    value: 500,
+                },
+            ],
+            -1_226,
+        )
+    }
+
+    #[test]
+    #[ignore = "a measurement: prints, asserts nothing"]
+    fn ac_t8_what_the_detail_costs_per_snapshot() {
+        const LINES: u32 = 2_000;
+        const ROUNDS: u32 = 20;
+        let records: Vec<_> = (0..LINES).map(|n| send(n * 100, 3)).collect();
+        let started = Instant::now();
+        for _ in 0..ROUNDS {
+            let lines: Vec<_> = records.iter().map(|r| activity(r, 0, true)).collect();
+            std::hint::black_box(lines);
+        }
+        let whole = started.elapsed() / ROUNDS;
+        let kind = ActivityKind::Sent { to: String::new() };
+        let started = Instant::now();
+        for _ in 0..ROUNDS {
+            let details: Vec<_> = records
+                .iter()
+                .map(|r| detail_of(r, &kind, Proof::Mempool, None))
+                .collect();
+            std::hint::black_box(details);
+        }
+        let detail = started.elapsed() / ROUNDS;
+        println!(
+            "AC-T8: {LINES} Core lines (3 inputs each): convert {whole:?}, of it Detail {detail:?} \
+             ({:.1} µs a line)",
+            detail.as_secs_f64() * 1e6 / f64::from(LINES)
+        );
     }
 }

@@ -149,6 +149,7 @@ impl Saved {
                 Kind::Sent => evolite_api::Flow::Out,
             },
             key: format!("pool:{:016x}", self.id),
+            detail: None,
             note: None,
         }
     }
@@ -175,6 +176,7 @@ mod tests {
             flow,
             // As `pool.rs` keys its lines and a saved one comes back (FEAT-0003).
             key: format!("pool:{id:016x}"),
+            detail: None,
             note: None,
         }
     }

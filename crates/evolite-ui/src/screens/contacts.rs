@@ -1148,6 +1148,7 @@ mod tests {
             layers: evolite_api::layer::CORE,
             flow: evolite_api::Flow::Out,
             key: String::new(),
+            detail: None,
             note: None,
         }
     }

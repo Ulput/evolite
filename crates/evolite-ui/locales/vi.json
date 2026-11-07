@@ -188,6 +188,7 @@
   "Cancel": "Hủy",
   "Careful: this address only looks like {} that you paid or saved before — the middle is different. Compare it character by character.": "Cẩn thận: địa chỉ này chỉ giống {} mà bạn từng trả tiền hoặc đã lưu — phần giữa khác. Hãy so từng ký tự.",
   "ChainLock and InstantLock": "ChainLock và InstantLock",
+  "ChainLock in block {}: the quorum signature is checked": "ChainLock ở khối {}: chữ ký quorum đã được kiểm tra",
   "ChainLock of the latest block": "ChainLock của khối mới nhất",
   "ChainLock: masternodes signed the block with this payment. It is final.": "ChainLock: các masternode đã ký khối chứa khoản thanh toán này. Khoản này là cuối cùng.",
   "Change": "Đổi",
@@ -255,6 +256,7 @@
   "Core nodes": "Nút Core",
   "Core to Platform": "Core sang Platform",
   "Core wallet": "Ví Core",
+  "Core · this wallet": "Core · ví này",
   "Core: receive, send, history, your own node. Platform: identities, DPNS names, credits, Platform address. DashPay contacts and profile, the private pool, app sign-in and signing by link, the Jembe NFT collection, mainnet by a launch flag": "Core: nhận, gửi, lịch sử, nút riêng. Platform: danh tính, tên DPNS, tín dụng, địa chỉ Platform. Liên hệ và hồ sơ DashPay, pool riêng tư, đăng nhập và ký ứng dụng qua liên kết, bộ sưu tập NFT Jembe, mainnet qua tùy chọn khởi chạy",
   "Correct": "Đúng",
   "Cost": "Chi phí",
@@ -429,6 +431,7 @@
   "InstantLock and ChainLock for your payments": "InstantLock và ChainLock cho các khoản thanh toán của bạn",
   "InstantLock or ChainLock, we check the BLS signature": "InstantLock hoặc ChainLock, chúng tôi kiểm tra chữ ký BLS",
   "InstantLock: a quorum of masternodes locked this payment within seconds. It cannot be reversed.": "InstantLock: một quorum masternode đã khóa khoản thanh toán này trong vài giây. Không thể đảo ngược.",
+  "InstantSend: the quorum signature is checked": "InstantSend: chữ ký quorum đã được kiểm tra",
   "InstantSend: the recipient sees a confirmed payment in a few seconds.": "InstantSend: người nhận thấy khoản thanh toán đã xác nhận trong vài giây.",
   "Interface": "Giao diện",
   "Interface language": "Ngôn ngữ giao diện",
@@ -505,6 +508,8 @@
   "More than there is in the pool": "Nhiều hơn số có trong pool",
   "More than there is in this balance": "Nhiều hơn số có trong số dư này",
   "More than there is on Core": "Nhiều hơn số có trên Core",
+  "Moved": "Đã chuyển",
+  "Moved {} inside the wallet: only the fee left it.": "Đã chuyển {} trong ví: chỉ có phí rời khỏi ví.",
   "My QR": "QR của tôi",
   "My name @{}": "Tên của tôi @{}",
   "NFT animation": "Hoạt ảnh NFT",
@@ -618,6 +623,7 @@
   "PNG, JPEG, GIF, WebP or SVG, up to 1 MB, over https": "PNG, JPEG, GIF, WebP hoặc SVG, tối đa 1 MB, qua https",
   "Paid by": "Trả bởi",
   "Paid out": "Đã chi trả",
+  "Part of the details of this operation was not saved": "Một phần thông tin của thao tác này chưa được lưu",
   "Password": "Mật khẩu",
   "Password changed. The phrase is the same — your paper copy is still right.": "Đã đổi mật khẩu. Cụm từ vẫn như cũ — bản giấy của bạn vẫn đúng.",
   "Password for every payment": "Mật khẩu cho mỗi lần thanh toán",
@@ -1244,6 +1250,7 @@
   "this is not a Dash testnet address": "đây không phải địa chỉ Dash testnet",
   "this is not an app link evolite knows": "đây không phải liên kết ứng dụng mà evolite biết",
   "this locked money was made for another identity or purpose": "số tiền bị khóa này được tạo cho một danh tính hoặc mục đích khác",
+  "this wallet's address": "địa chỉ của ví này",
   "time unknown": "không rõ thời gian",
   "to address {}": "tới địa chỉ {}",
   "to an address from the contact's key: {}": "tới địa chỉ từ khóa của liên hệ: {}",
@@ -1298,6 +1305,9 @@
     "other": "{} danh tính"
   },
   "{} in Platform credits": "{} dưới dạng tín dụng Platform",
+  "{} input|{} inputs": {
+    "other": "{} đầu vào"
+  },
   "{} min": "{} phút",
   "{} nodes": "{} nút",
   "{} note|{} notes": {

@@ -416,6 +416,7 @@ pub fn activity(entry: &Entry) -> Activity {
             .line
             .map(|line| format!("platform:{line:016x}"))
             .unwrap_or_default(),
+        detail: None,
         note: None,
     }
 }
