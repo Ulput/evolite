@@ -320,8 +320,8 @@ fn hex(bytes: &[u8]) -> String {
 /// cannot hold them.
 ///
 /// With it goes what describes this chain rather than its core: its start under way and what
-/// it found, the flag its sync callbacks raise, how far it was asked to rescan (BUG-64), and
-/// what was set up in its manager (the pool, contacts' accounts).
+/// it found, the flag its sync callbacks raise, how far it was asked to rescan (BUG-64) and what
+/// that rescan is owed for, and what was set up in its manager (the pool, contacts' accounts).
 struct Parked {
     wallet: String,
     chain: Arc<Chain>,
@@ -332,6 +332,8 @@ struct Parked {
     last_start: tokio::time::Instant,
     dirty: Arc<AtomicBool>,
     rescanned_from: Option<u32>,
+    /// A rescan asked and not finished yet: noted after "Back" (BUG-82 review r1 should 1).
+    rescan_owed: Option<OwedRescan>,
     pool_wallet: Arc<std::sync::Mutex<Option<WalletId>>>,
     contact_accounts_for: Arc<std::sync::atomic::AtomicUsize>,
     contact_accounts_busy: Arc<AtomicBool>,
@@ -2424,6 +2426,7 @@ impl Real {
         self.mempool.mark_stale(
             &mut history,
             self.chain.status().headers.map_or(0, |h| h.height),
+            now(),
         );
         // A payment long out of a block may have lost its block before this file knew it
         // (BUG-64): the filters are scanned again from the wallet's birth to find it — once for
@@ -2434,6 +2437,8 @@ impl Real {
             self.mempool.rescanned(&done.stale);
             self.mined.rescanned(&done.lost);
         }
+        // Read once, before a rescan is asked: a rescan asked below is owed in this snapshot.
+        let sync_done = self.chain.status().phase == sync::Phase::Synced;
         if let Some(lost) = lost_block {
             let from = lost.from.saturating_sub(1);
             let why = "lost_block";
@@ -2447,6 +2452,16 @@ impl Real {
                     .await;
             }
         }
+        // Stale since an earlier run and not rescanned yet: most likely in a block the store
+        // lost, not a payment still coming or going (BUG-82). Left out only while its rescan
+        // is ahead (not synced yet) or owed (review r1 must 1); shown once it has said.
+        let owed = self
+            .rescan_owed
+            .as_ref()
+            .filter(|o| o.wallet == id)
+            .map_or(&[][..], |o| o.stale.as_slice());
+        self.mempool
+            .leave_out_checking(&mut history, owed, sync_done);
         history.sort_by_key(|a| std::cmp::Reverse(a.at));
         // Only a checked balance is shown: while the filters are not at the tip (a start, a
         // rewound pass, a rescan) the last checked one with its time, or none (BUG-77).
@@ -3369,6 +3384,7 @@ impl Real {
             last_start: self.last_start,
             dirty: self.dirty.clone(),
             rescanned_from: self.rescanned_from,
+            rescan_owed: self.rescan_owed.take(),
             pool_wallet: self.pool_wallet.clone(),
             contact_accounts_for: self.contact_accounts_for.clone(),
             contact_accounts_busy: self.contact_accounts_busy.clone(),
@@ -3389,6 +3405,8 @@ impl Real {
         self.dirty.store(true, Ordering::Relaxed);
         // Not asked again from the birth: the same run of the same chain (BUG-64).
         self.rescanned_from = parked.rescanned_from;
+        // And the rescan asked before "Add a wallet", noted once it has run to its end.
+        self.rescan_owed = parked.rescan_owed;
         self.pool_wallet = parked.pool_wallet;
         self.contact_accounts_for = parked.contact_accounts_for;
         self.contact_accounts_busy = parked.contact_accounts_busy;
@@ -5687,6 +5705,14 @@ mod tests {
             .await
             .expect("the store opens");
         from.rescanned_from = Some(1_234);
+        // A rescan asked before "Add a wallet" and not finished yet (BUG-82 review r1 should 1).
+        OwedRescan::add(
+            &mut from.rescan_owed,
+            [0xa; 32],
+            1_600_000,
+            vec!["t".into()],
+            Vec::new(),
+        );
         let chain = from.chain.clone();
         let mut adding = core_at(dir, "cccc0003");
         hand_on_chain(&mut from, &mut adding, true);
@@ -5847,6 +5873,16 @@ mod tests {
         assert_eq!((count(&chain.starts), count(&chain.stops)), (0, 0));
         assert!(chain.store_open() && !chain.retired());
         assert_eq!(back.rescanned_from, Some(1_234));
+        let owed = back
+            .rescan_owed
+            .as_ref()
+            .map(|o| (o.up_to, o.stale.clone()));
+        assert_eq!(
+            owed,
+            Some((1_600_000, vec!["t".to_owned()])),
+            "still owed after Back"
+        );
+        assert!(adding.rescan_owed.is_none());
         assert!(back.parked.is_none() && back.starting.is_none());
         // The password: the wallet is in that store at once.
         assert_eq!(back.unlock(&pw("pw")).await, Ok(()));
