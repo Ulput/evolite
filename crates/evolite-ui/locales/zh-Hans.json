@@ -199,6 +199,7 @@
   "Copied · wiped in {} s": "已复制 · {} 秒后清除",
   "Copy": "复制",
   "Copy address": "复制地址",
+  "Preparing the address from the wallet keys — no network needed, usually a second.": "正在用钱包密钥准备地址——无需网络，通常只需一秒。",
   "Copy for 60 s": "复制 60 秒",
   "Copy name": "复制名称",
   "Copy txid": "复制 txid",

@@ -86,6 +86,25 @@ impl egui::Plugin for FocusRing {
     }
 }
 
+/// Tab with nothing focused starts on the screen, not in the menu drawn before it (BUG-74 №4):
+/// called before the menu, it holds that press back. Shift+Tab is egui's own (the last widget).
+pub fn hold_first_tab(ctx: &Context) -> bool {
+    let first = ctx.input(|i| i.key_pressed(Key::Tab) && i.modifiers.is_none())
+        && ctx.memory(|m| m.focused().is_none());
+    if first {
+        ctx.memory_mut(|m| m.move_focus(egui::FocusDirection::None));
+    }
+    first
+}
+
+/// Called after the menu, before the screen: the press [`hold_first_tab`] held goes to the
+/// screen's first widget. The menu comes after the screen's last.
+pub fn give_first_tab(ctx: &Context, held: bool) {
+    if held {
+        ctx.memory_mut(|m| m.move_focus(egui::FocusDirection::Next));
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

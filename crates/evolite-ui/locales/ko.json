@@ -199,6 +199,7 @@
   "Copied · wiped in {} s": "복사됨 · {}초 후 지워짐",
   "Copy": "복사",
   "Copy address": "주소 복사",
+  "Preparing the address from the wallet keys — no network needed, usually a second.": "지갑 키로 주소를 준비하고 있습니다. 네트워크가 필요 없으며 보통 1초면 됩니다.",
   "Copy for 60 s": "60초 동안 복사",
   "Copy name": "이름 복사",
   "Copy txid": "txid 복사",

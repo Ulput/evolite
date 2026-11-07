@@ -3,8 +3,8 @@
 
 use super::txt;
 use crate::components::{
-    Assets, ButtonKind, TxRow, amount_field, button, field_label, notice, option_card, page_header,
-    tx_row_clickable,
+    Assets, ButtonKind, TxRow, amount_field, button_enabled, field_label, notice, option_card,
+    page_header, tx_row_clickable,
 };
 use crate::context::Ctx;
 use crate::format::DUFFS_PER_DASH;
@@ -144,6 +144,9 @@ pub fn receive(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut ReceiveForm
             let t = &all[form.target];
             let amount = crate::format::parse_amount(&form.amount).filter(|d| *d > 0);
             let uri = payment_uri(&t.value, amount);
+            // No address yet (the keys are being read): no QR and nothing to copy — a QR without
+            // its address says nothing of what it holds (BUG-74 №1).
+            let ready = !t.value.trim().is_empty();
             let qr_payload = if t.uri {
                 uri.as_str()
             } else {
@@ -152,20 +155,41 @@ pub fn receive(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut ReceiveForm
 
             ui.horizontal_top(|ui| {
                 ui.spacing_mut().item_spacing.x = 32.0;
-                qr_card(ui, &p, qr_payload);
+                if ready {
+                    qr_card(ui, &p, qr_payload);
+                } else {
+                    qr_waiting(ui, &p);
+                }
                 ui.vertical(|ui| {
                     ui.set_width(ui.available_width());
                     ui.spacing_mut().item_spacing.y = 16.0;
                     ui.label(txt(&t.label, 13.0, Weight::Medium, p.muted));
-                    ui.add(
-                        egui::Label::new(
-                            egui::RichText::new(crate::i18n::t(&t.value))
-                                .font(mono(20.0, Weight::Medium))
-                                .color(p.text)
-                                .line_height(Some(28.0)),
-                        )
-                        .wrap(),
-                    );
+                    if ready {
+                        ui.add(
+                            egui::Label::new(
+                                egui::RichText::new(crate::i18n::t(&t.value))
+                                    .font(mono(20.0, Weight::Medium))
+                                    .color(p.text)
+                                    .line_height(Some(28.0)),
+                            )
+                            .wrap(),
+                        );
+                    } else {
+                        ui.add(
+                            egui::Label::new(
+                                txt(
+                                    tr!(
+                                        "Preparing the address from the wallet keys — no network needed, usually a second."
+                                    ),
+                                    14.0,
+                                    Weight::Regular,
+                                    p.muted,
+                                )
+                                .line_height(Some(20.0)),
+                            )
+                            .wrap(),
+                        );
+                    }
                     ui.horizontal(|ui| {
                         ui.spacing_mut().item_spacing.x = 10.0;
                         let copy = if t.name {
@@ -183,8 +207,15 @@ pub fn receive(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut ReceiveForm
                                 name
                             }
                         };
-                        if button(ui, a, label(copy, &t.value), ButtonKind::Secondary, None)
-                            .clicked()
+                        if button_enabled(
+                            ui,
+                            a,
+                            label(copy, &t.value),
+                            ButtonKind::Secondary,
+                            None,
+                            ready,
+                        )
+                        .clicked()
                         {
                             crate::clipboard::copy_answered(
                                 ui.ctx(),
@@ -193,12 +224,13 @@ pub fn receive(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut ReceiveForm
                             );
                         }
                         if t.uri
-                            && button(
+                            && button_enabled(
                                 ui,
                                 a,
                                 label(tr!("dash: link"), &uri),
                                 ButtonKind::Secondary,
                                 None,
+                                ready,
                             )
                             .on_hover_text(crate::i18n::t(&uri).into_owned())
                             .clicked()
@@ -343,6 +375,19 @@ pub(crate) fn past_addresses(history: &[Activity], current: &str) -> Vec<PastAdd
     }
     out.sort_by_key(|p| std::cmp::Reverse(p.last));
     out
+}
+
+/// Where the QR card stands while there is no address yet: the same size, empty (BUG-74 №1).
+fn qr_waiting(ui: &mut Ui, p: &crate::theme::Palette) {
+    let side = 261.0 + 40.0;
+    let (rect, _) = ui.allocate_exact_size(vec2(side, side), Sense::hover());
+    ui.painter().rect(
+        rect,
+        CornerRadius::same(16),
+        p.surface,
+        Stroke::new(1.0, p.line),
+        StrokeKind::Inside,
+    );
 }
 
 /// QR card: always dark modules on white with a quiet zone, in both themes, so any camera

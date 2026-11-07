@@ -118,14 +118,16 @@ pub fn collection(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut Collect
     let gift_fee: Option<Duffs> = None;
     let now = cx.now;
     ui.spacing_mut().item_spacing.y = 20.0;
-    let count = nfts.len().to_string();
+    // The count only for NFTs there are: none while the list loads, not «0» beside «Loading…»
+    // (BUG-74 №3, the designer's improvement 1 rule 9).
+    let count = (!nfts.is_empty()).then(|| nfts.len().to_string());
     #[cfg(demo_core)]
-    page_header(ui, a, tr!("Collection"), Some(&count), |ui, a| {
+    page_header(ui, a, tr!("Collection"), count.as_deref(), |ui, a| {
         button_enabled(ui, a, tr!("Get a gift"), ButtonKind::Secondary, None, false)
             .on_disabled_hover_text(crate::i18n::t(GIFT_LATER).into_owned());
     });
     #[cfg(not(demo_core))]
-    page_header(ui, a, tr!("Collection"), Some(&count), |_, _| {});
+    page_header(ui, a, tr!("Collection"), count.as_deref(), |_, _| {});
     if nfts.is_empty() {
         empty(ui, a, &wallet.nfts_status);
         return;

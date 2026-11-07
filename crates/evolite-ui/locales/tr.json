@@ -199,6 +199,7 @@
   "Copied · wiped in {} s": "Kopyalandı · {} sn sonra silinecek",
   "Copy": "Kopyala",
   "Copy address": "Adresi kopyala",
+  "Preparing the address from the wallet keys — no network needed, usually a second.": "Adres cüzdan anahtarlarından hazırlanıyor — ağ gerekmez, genellikle bir saniye sürer.",
   "Copy for 60 s": "60 sn için kopyala",
   "Copy name": "Adı kopyala",
   "Copy txid": "txid'yi kopyala",

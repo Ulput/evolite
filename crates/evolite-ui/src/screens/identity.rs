@@ -241,21 +241,27 @@ pub fn identity(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut IdentityS
         };
         ui.label(txt(text, 14.0, Weight::Regular, p.muted));
         // What it takes, against what there is: the name and the creation, plus any credits.
+        // Not while the search runs — an identity may yet be found (BUG-74 №2) — and red only
+        // once the sync has counted Core: a zero before it is not known (the designer's
+        // improvement 1).
         let least = wallet.fees.name_regular + wallet.fees.identity_create;
-        ui.label(txt(
-            &format!(
-                tr!("At least ≈ {} is needed (name and creation) plus any amount for credits; Core has {} now."),
-                dash(least),
-                crate::format::balance(wallet.balances.core)
-            ),
-            13.0,
-            Weight::Regular,
-            if wallet.balances.core > least {
-                p.muted
-            } else {
-                p.danger
-            },
-        ));
+        if !searching {
+            let counted = cx.snap.sync.stage == evolite_api::SyncStage::Done;
+            ui.label(txt(
+                &format!(
+                    tr!("At least ≈ {} is needed (name and creation) plus any amount for credits; Core has {} now."),
+                    dash(least),
+                    crate::format::balance(wallet.balances.core)
+                ),
+                13.0,
+                Weight::Regular,
+                if wallet.balances.core > least || !counted {
+                    p.muted
+                } else {
+                    p.danger
+                },
+            ));
+        }
         let mut again = search_again;
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 10.0;

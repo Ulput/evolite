@@ -1090,6 +1090,8 @@ impl eframe::App for App {
         } else {
             let rail = ui.ctx().content_rect().width() < 1100.0;
             let side = if rail { 12 } else { 16 };
+            // The first Tab goes to the screen, the menu after it (BUG-74 №4).
+            let first_tab = crate::focus::hold_first_tab(ui.ctx());
             // Right to left (Arabic) `rtl` mirrors the frame: the menu stands on the right.
             Panel::left("sidebar")
                 .exact_size(if rail { 76.0 } else { 248.0 })
@@ -1124,6 +1126,7 @@ impl eframe::App for App {
                     bottom: 28,
                 }))
                 .show(ui, |ui| {
+                    crate::focus::give_first_tab(ui.ctx(), first_tab);
                     // Left a screen: what it forgets on leaving (BUG-39 №10).
                     if self.drawn != self.screen {
                         if self.drawn == Screen::Receive {

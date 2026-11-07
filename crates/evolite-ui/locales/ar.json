@@ -199,6 +199,7 @@
   "Copied · wiped in {} s": "نُسخ · يُمحى خلال {} ث",
   "Copy": "نسخ",
   "Copy address": "نسخ العنوان",
+  "Preparing the address from the wallet keys — no network needed, usually a second.": "نُعِدّ العنوان من مفاتيح المحفظة — لا حاجة إلى الشبكة، عادةً ثانية واحدة.",
   "Copy for 60 s": "نسخ لمدة 60 ث",
   "Copy name": "نسخ الاسم",
   "Copy txid": "نسخ txid",

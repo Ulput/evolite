@@ -199,6 +199,7 @@
   "Copied · wiped in {} s": "कॉपी हुआ · {} सेकंड में मिटेगा",
   "Copy": "कॉपी करें",
   "Copy address": "पता कॉपी करें",
+  "Preparing the address from the wallet keys — no network needed, usually a second.": "वॉलेट की कुंजियों से पता तैयार किया जा रहा है — नेटवर्क की ज़रूरत नहीं, आमतौर पर एक सेकंड।",
   "Copy for 60 s": "60 सेकंड के लिए कॉपी करें",
   "Copy name": "नाम कॉपी करें",
   "Copy txid": "txid कॉपी करें",

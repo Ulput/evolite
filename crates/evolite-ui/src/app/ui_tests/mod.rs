@@ -14,6 +14,7 @@ mod dialogs;
 mod focus;
 mod history;
 mod identity_pool;
+mod loading;
 mod login;
 mod onboarding;
 mod pause;

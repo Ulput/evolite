@@ -199,6 +199,7 @@
   "Copied · wiped in {} s": "Скопійовано · зітреться через {} с",
   "Copy": "Копіювати",
   "Copy address": "Копіювати адресу",
+  "Preparing the address from the wallet keys — no network needed, usually a second.": "Готуємо адресу з ключів гаманця — мережа для цього не потрібна, зазвичай секунда.",
   "Copy for 60 s": "Копіювати на 60 с",
   "Copy name": "Копіювати ім'я",
   "Copy txid": "Копіювати txid",

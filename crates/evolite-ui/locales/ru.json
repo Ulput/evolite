@@ -199,6 +199,7 @@
   "Copied · wiped in {} s": "Скопировано · сотрётся через {} с",
   "Copy": "Копировать",
   "Copy address": "Копировать адрес",
+  "Preparing the address from the wallet keys — no network needed, usually a second.": "Готовим адрес из ключей кошелька — сеть для этого не нужна, обычно секунда.",
   "Copy for 60 s": "Копировать на 60 с",
   "Copy name": "Копировать имя",
   "Copy txid": "Копировать txid",

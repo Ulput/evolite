@@ -590,6 +590,7 @@
   "Platform says it took these DASH on an earlier attempt, so the credits are already on the identity. No new money is needed",
   "Platform: identities and names",
   "Port “{}” is not a number from 1 to 65535",
+  "Preparing the address from the wallet keys — no network needed, usually a second.",
   "Preparing the phrase…",
   "Preparing…",
   "Price",

@@ -199,6 +199,7 @@
   "Copied · wiped in {} s": "Đã sao chép · xóa sau {} giây",
   "Copy": "Sao chép",
   "Copy address": "Sao chép địa chỉ",
+  "Preparing the address from the wallet keys — no network needed, usually a second.": "Đang chuẩn bị địa chỉ từ khóa của ví — không cần mạng, thường mất một giây.",
   "Copy for 60 s": "Sao chép trong 60 giây",
   "Copy name": "Sao chép tên",
   "Copy txid": "Sao chép txid",

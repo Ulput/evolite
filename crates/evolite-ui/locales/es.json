@@ -199,6 +199,7 @@
   "Copied · wiped in {} s": "Copiado · se borra en {} s",
   "Copy": "Copiar",
   "Copy address": "Copiar dirección",
+  "Preparing the address from the wallet keys — no network needed, usually a second.": "Preparamos la dirección a partir de las claves del monedero: no hace falta la red, suele tardar un segundo.",
   "Copy for 60 s": "Copiar por 60 s",
   "Copy name": "Copiar nombre",
   "Copy txid": "Copiar txid",

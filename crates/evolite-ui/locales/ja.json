@@ -199,6 +199,7 @@
   "Copied · wiped in {} s": "コピーしました · {} 秒後に消去",
   "Copy": "コピー",
   "Copy address": "アドレスをコピー",
+  "Preparing the address from the wallet keys — no network needed, usually a second.": "ウォレットの鍵からアドレスを用意しています。ネットワークは不要で、通常は1秒ほどです。",
   "Copy for 60 s": "60 秒間コピー",
   "Copy name": "名前をコピー",
   "Copy txid": "txid をコピー",
