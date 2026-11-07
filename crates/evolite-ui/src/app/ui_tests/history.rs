@@ -358,3 +358,135 @@ fn receive_scrolls_to_the_end_of_earlier_addresses() {
         "the card's end is in the window after the wheel: {before} → {after}"
     );
 }
+
+/// The id of the asset lock [`lock`] makes.
+const LOCK: u64 = 0x5757_0001;
+
+/// An asset lock of 0.5 DASH to @werner555, its Core transaction chain-locked: a top-up or the
+/// identity's creation, its credits as given.
+fn lock(creates: bool, credits: evolite_api::Credits) -> Activity {
+    Activity {
+        id: LOCK,
+        kind: ActivityKind::TopUp {
+            identity: "@werner555".into(),
+            creates,
+            credits,
+        },
+        chain: Chain::CoreToPlatform,
+        at: chrono::Utc::now().timestamp() - 3_600,
+        amount: -50_000_263,
+        proof: Proof::ChainLock,
+        txid: Some("57".repeat(32)),
+        fee: Some(263),
+        block: Some(1_583_410),
+        address: None,
+    }
+}
+
+/// Puts `op` into the shown wallet in place of the line with its id, for a few frames (the
+/// demo core's snapshots in between would take it away).
+fn with_op(kit: &mut Kit, op: &Activity) {
+    for _ in 0..3 {
+        let wallet = kit
+            .state_mut()
+            .snapshot
+            .as_mut()
+            .and_then(|s| s.wallet.as_mut())
+            .expect("a wallet");
+        wallet.activity.retain(|a| a.id != op.id);
+        wallet.activity.insert(0, op.clone());
+        kit.run_steps(1);
+    }
+}
+
+/// BUG-57: a top-up Platform has not credited is not «final» and nothing more: its row says in
+/// red that the credits did not come, its card says «Credits: not added», why, and leads to
+/// Identity, where «Continue the top-up» is.
+#[test]
+fn a_top_up_without_credits_says_so_and_leads_to_identity() {
+    use evolite_api::Credits;
+    let (_turn, mut kit) = demo_app("activity", "en");
+    kit.state_mut().filter = 4;
+    with_op(&mut kit, &lock(false, Credits::NotAdded));
+    assert!(says(&kit, "Top-up of @werner555 · "), "the row's title");
+    assert!(says(&kit, " · credits not added"), "the row says it");
+    crate::screens::open_card(&kit.ctx, LOCK);
+    with_op(&mut kit, &lock(false, Credits::NotAdded));
+    assert!(says(&kit, "Credits: not added"), "the card's line");
+    assert!(has_text(&kit, "@werner555"), "to whom");
+    assert!(has_text(&kit, "your identity"));
+    assert!(has_text(
+        &kit,
+        "The top-up was interrupted. You can continue it on the Identity screen; the DASH are not lost"
+    ));
+    assert!(
+        !says(&kit, "An identity or the Platform address of this wallet"),
+        "no vague recipient"
+    );
+    button(&kit, "Continue on the Identity screen").click();
+    kit.run_steps(3);
+    assert_eq!(kit.state().screen, Screen::Identity);
+    assert!(
+        kit.query_by_label("Continue on the Identity screen")
+            .is_none(),
+        "the card closed"
+    );
+}
+
+/// BUG-57: once «Continue» went through, the same line says so at once — no red, «added» in
+/// the card, no way to continue — on History and on Overview's latest operations.
+#[test]
+fn a_top_up_that_finishes_stops_saying_not_added() {
+    use evolite_api::Credits;
+    let (_turn, mut kit) = demo_app("activity", "en");
+    kit.state_mut().filter = 4;
+    with_op(&mut kit, &lock(false, Credits::NotAdded));
+    assert!(says(&kit, " · credits not added"));
+    with_op(&mut kit, &lock(false, Credits::Added));
+    assert!(says(&kit, "Top-up of @werner555 · "));
+    assert!(!says(&kit, "credits not added"), "the row updated");
+    crate::screens::open_card(&kit.ctx, LOCK);
+    with_op(&mut kit, &lock(false, Credits::Added));
+    assert!(says(&kit, "Credits: added"));
+    assert!(
+        kit.query_by_label("Continue on the Identity screen")
+            .is_none()
+    );
+    assert!(!says(&kit, "The top-up was interrupted"));
+    // Not known (a restore found the lock): no line about credits at all.
+    with_op(&mut kit, &lock(false, Credits::Unknown));
+    assert!(!says(&kit, "Credits: "), "nothing said when not known");
+    // Overview's latest operations draw the same row.
+    kit.ctx
+        .data_mut(|d| d.remove::<u64>(egui::Id::new("activity-card")));
+    kit.state_mut().screen = Screen::Overview;
+    with_op(&mut kit, &lock(false, Credits::NotAdded));
+    assert!(says(&kit, " · credits not added"), "Overview too");
+    with_op(&mut kit, &lock(false, Credits::Added));
+    assert!(!says(&kit, "credits not added"));
+}
+
+/// BUG-57: an asset lock that made the identity is its creation, not a top-up — in Russian
+/// «Создание identity @…» — and one cut short says the creation is to be continued.
+#[test]
+fn an_identity_creation_is_not_called_a_top_up() {
+    use evolite_api::Credits;
+    let (_turn, mut kit) = demo_app("activity", "ru");
+    kit.state_mut().filter = 4;
+    with_op(&mut kit, &lock(true, Credits::Added));
+    assert!(says(&kit, "Создание identity @werner555 · "), "the row");
+    assert!(!says(&kit, "Пополнение @werner555"));
+    with_op(&mut kit, &lock(true, Credits::NotAdded));
+    assert!(says(&kit, " · кредиты не зачислены"));
+    crate::screens::open_card(&kit.ctx, LOCK);
+    with_op(&mut kit, &lock(true, Credits::NotAdded));
+    assert!(says(&kit, "Кредиты: не зачислены"));
+    assert!(has_text(
+        &kit,
+        "Создание identity прервалось. Его можно продолжить на экране Identity — DASH не потеряны"
+    ));
+    assert!(
+        kit.query_by_label("Продолжить на экране Identity")
+            .is_some()
+    );
+}

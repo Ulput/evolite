@@ -62,6 +62,8 @@ pub struct TxRow<'a> {
     pub detail: &'a str,
     pub proof: Option<Proof>,
     pub amount: &'a str,
+    /// What went wrong, in red after `detail` (BUG-57: credits not added); `None` mostly.
+    pub alert: Option<&'a str>,
 }
 
 /// row/transaction: 54 px; icon box 36, title and line under it, status chip, amount in mono.
@@ -90,7 +92,10 @@ fn tx_row_sensed(ui: &mut Ui, a: &mut Assets, row: &TxRow, sense: Sense) -> egui
             egui::WidgetType::Label
         },
         true,
-        &format!("{} · {} · {}", row.title, amount, row.detail),
+        &match row.alert {
+            Some(alert) => format!("{} · {} · {} · {alert}", row.title, amount, row.detail),
+            None => format!("{} · {} · {}", row.title, amount, row.detail),
+        },
     );
     if resp.hovered() {
         ui.painter()
@@ -131,7 +136,7 @@ fn tx_row_sensed(ui: &mut Ui, a: &mut Assets, row: &TxRow, sense: Sense) -> egui
         text_right - 14.0 - tx,
     ));
     ui.painter().galley(pos2(tx, cy - 17.0), title, p.text);
-    paint_text(
+    let line = paint_text(
         ui,
         pos2(tx, cy + 9.0),
         Align2::LEFT_CENTER,
@@ -139,6 +144,24 @@ fn tx_row_sensed(ui: &mut Ui, a: &mut Assets, row: &TxRow, sense: Sense) -> egui
         sans(12.0, Weight::Regular),
         p.muted,
     );
+    if let Some(alert) = row.alert {
+        let dot = paint_text(
+            ui,
+            pos2(line.right(), cy + 9.0),
+            Align2::LEFT_CENTER,
+            " · ",
+            sans(12.0, Weight::Regular),
+            p.muted,
+        );
+        paint_text(
+            ui,
+            pos2(dot.right(), cy + 9.0),
+            Align2::LEFT_CENTER,
+            alert,
+            sans(12.0, Weight::Medium),
+            p.danger,
+        );
+    }
     resp
 }
 

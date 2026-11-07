@@ -70,8 +70,16 @@ pub enum ActivityKind {
     },
     /// Platform address received DASH.
     PlatformReceived,
+    /// An asset lock for an identity's credits (or for the Platform address when `identity`
+    /// is empty and `creates` false): `identity` is the one it registered or tops up, as
+    /// `@name` or its id, empty when not known.
     TopUp {
         identity: String,
+        /// The lock registered the identity: its creation, not a top-up (BUG-57).
+        creates: bool,
+        /// Whether Platform turned the locked DASH into credits (BUG-57). The line's `proof`
+        /// is only the Core transaction's.
+        credits: Credits,
     },
     AppSignIn {
         app: String,
@@ -112,6 +120,19 @@ pub enum ActivityKind {
     NameRegistered {
         label: String,
     },
+}
+
+/// Whether the DASH of an asset lock became credits on Platform, as far as the wallet knows
+/// (BUG-57).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Credits {
+    /// Not known: a lock found by a restore, one being sent now, the Platform address's.
+    Unknown,
+    /// Platform took the lock: the credits are on the identity.
+    Added,
+    /// Locked on Core and not taken by Platform: [`Wallet::unfinished_top_up`] or
+    /// [`Wallet::unfinished_identity`] says so too, and "Continue" on Identity finishes it.
+    NotAdded,
 }
 
 /// A withdrawal document's `status` (the Withdrawals system contract).

@@ -4,7 +4,7 @@
 
 use chrono::{DateTime, Datelike, Local, TimeZone};
 use evolite_api::{
-    Activity, ActivityKind, Chain, CoreError, KeyLevel, KeyPurpose, Proof, RequestState,
+    Activity, ActivityKind, Chain, CoreError, Credits, KeyLevel, KeyPurpose, Proof, RequestState,
     SavedAddress, SyncStage, Timestamp, WithdrawalState,
 };
 
@@ -254,11 +254,25 @@ pub fn activity_title(a: &Activity) -> String {
         ActivityKind::Sent { to } => format!(tr!("Sent {}"), short_address(to)),
         ActivityKind::SelfTransfer { .. } => tr!("Transfer between own addresses").into(),
         ActivityKind::PlatformReceived => tr!("Received at the Platform address").into(),
-        // An asset lock seen on Core: which identity or address it funds, Core does not say.
-        ActivityKind::TopUp { identity } if identity.is_empty() => {
+        // An asset lock: an identity's creation or top-up (BUG-57); one the wallet cannot place
+        // goes to Platform, nothing more is known.
+        ActivityKind::TopUp {
+            identity,
+            creates: true,
+            ..
+        } if identity.is_empty() => tr!("Identity creation").into(),
+        ActivityKind::TopUp {
+            identity,
+            creates: true,
+            ..
+        } => format!(
+            tr!("Creation of the identity {identity}"),
+            identity = identity
+        ),
+        ActivityKind::TopUp { identity, .. } if identity.is_empty() => {
             tr!("Transfer to Platform").into()
         }
-        ActivityKind::TopUp { identity } => {
+        ActivityKind::TopUp { identity, .. } => {
             format!(tr!("Top-up of {identity}"), identity = identity)
         }
         ActivityKind::AppSignIn { app } => {
@@ -321,6 +335,31 @@ pub fn activity_status(a: &Activity) -> Option<&'static str> {
         },
         _ => return None,
     })
+}
+
+/// What went wrong with an operation, said in red after its row's line (BUG-57): an asset
+/// lock whose credits Platform has not added — its chip is only the Core transaction's.
+pub fn activity_alert(a: &Activity) -> Option<&'static str> {
+    match &a.kind {
+        ActivityKind::TopUp {
+            credits: Credits::NotAdded,
+            ..
+        } => Some(tr!("credits not added")),
+        _ => None,
+    }
+}
+
+/// Whether an asset lock's credits came, for its card (BUG-57): the words and whether they
+/// are bad news (red). `None` when the wallet does not know, and for other operations.
+pub fn activity_credits(a: &Activity) -> Option<(&'static str, bool)> {
+    match &a.kind {
+        ActivityKind::TopUp { credits, .. } => match credits {
+            Credits::Added => Some((tr!("added"), false)),
+            Credits::NotAdded => Some((tr!("not added"), true)),
+            Credits::Unknown => None,
+        },
+        _ => None,
+    }
 }
 
 /// The identity of ours a request to us came to, when the wallet has several: "for @name";

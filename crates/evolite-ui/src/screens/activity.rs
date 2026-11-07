@@ -3,7 +3,7 @@
 use super::txt;
 use crate::components::{
     Assets, ButtonKind, TxRow, button, button_enabled, button_row, dialog_with_header, field_label,
-    kv_row, notice, page_header, paint_icon_box, pill, section_label, status_chip,
+    kv_row, kv_row_in, notice, page_header, paint_icon_box, pill, section_label, status_chip,
     tx_row_clickable,
 };
 use crate::context::Ctx;
@@ -53,7 +53,7 @@ fn matches_query(act: &Activity, q: &str, book: &[SavedAddress]) -> bool {
         | ActivityKind::Withdrawal { to: who, .. }
         | ActivityKind::ContactRequest { to: who, .. }
         | ActivityKind::ContactRequestIn { from: who, .. }
-        | ActivityKind::TopUp { identity: who } => who.as_str(),
+        | ActivityKind::TopUp { identity: who, .. } => who.as_str(),
         _ => "",
     };
     // The payment's Core address too: a payment in names no one, only our own address it came
@@ -287,6 +287,7 @@ pub fn activity(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, filter: &mut usize, q
                         detail: &detail,
                         proof: Some(act.proof),
                         amount: &text::signed_amount(act.amount),
+                        alert: text::activity_alert(act),
                     },
                 );
                 if row.clicked() {
@@ -303,13 +304,15 @@ pub fn card_window(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx) {
     let wallet = cx.wallet();
     let open = ui.data(|d| d.get_temp::<u64>(card_id()));
     if let Some(act) = open.and_then(|id| wallet.activity.iter().find(|a| a.id == id)) {
-        let (closed, again, contacts) = card(ui, a, act, cx.now, &wallet.address_book);
+        let (closed, again, go) = card(ui, a, act, cx.now, &wallet.address_book);
         if closed {
             ui.data_mut(|d| d.remove::<u64>(card_id()));
         }
         // "Open in Contacts": accepting is there, with the password (BUG-42, BUG-58).
-        if contacts {
-            cx.go(crate::screens::Screen::Contacts);
+        // "Continue on the Identity screen": the cut-short top-up or creation is finished
+        // there, with the password (BUG-57).
+        if let Some(screen) = go {
+            cx.go(screen);
         }
         // "Send again": the Send screen with the same recipient and amount.
         if let Some((to, amount)) = again {
@@ -371,10 +374,19 @@ fn counterparty(act: &Activity) -> Option<(&'static str, String, Option<String>)
             from.clone(),
             ours.as_ref().map(|o| format!(tr!("for {name}"), name = o)),
         )),
-        // An asset lock: the identity it registered or tops up, when the core knows it.
-        ActivityKind::TopUp { identity } if !identity.is_empty() => {
-            Some((tr!("To"), identity.clone(), None))
-        }
+        // An asset lock: the identity it registered or tops up, when the core knows it — one of
+        // this wallet's (BUG-57).
+        ActivityKind::TopUp { identity, .. } if !identity.is_empty() => Some((
+            tr!("To"),
+            identity.clone(),
+            Some(tr!("your identity").into()),
+        )),
+        // A creation cut short: the identity is not there yet.
+        ActivityKind::TopUp { creates: true, .. } => Some((
+            tr!("To"),
+            "Dash Platform".into(),
+            Some(tr!("A new identity of this wallet").into()),
+        )),
         // The lock itself does not name it: one of this wallet's identities or its Platform
         // address, and nothing else.
         ActivityKind::TopUp { .. } => Some((
@@ -414,22 +426,34 @@ fn mono_block(
 
 /// 24 · Operation details: what and where, how much and its status, when, the fee and the block,
 /// with whom, and the txid to copy or look up; "Send again" for a payment out, "Open in
-/// Contacts" for a request to us not answered. Whether it closed, the payment to make again
-/// when asked, and whether Contacts were asked for.
+/// Contacts" for a request to us not answered, "Continue on the Identity screen" for an asset
+/// lock whose credits did not come (BUG-57). Whether it closed, the payment to make again when
+/// asked, and the screen asked for.
 fn card(
     ui: &mut Ui,
     a: &mut Assets,
     act: &Activity,
     now: DateTime<Local>,
     book: &[SavedAddress],
-) -> (bool, Option<(String, Duffs)>, bool) {
+) -> (
+    bool,
+    Option<(String, Duffs)>,
+    Option<crate::screens::Screen>,
+) {
     let repeat = again(act);
     let mut paid_again = None;
-    let mut to_contacts = false;
+    let mut go = None;
     let answer_there = matches!(
         act.kind,
         ActivityKind::ContactRequestIn {
             state: evolite_api::RequestState::Waiting,
+            ..
+        }
+    );
+    let not_added = matches!(
+        act.kind,
+        ActivityKind::TopUp {
+            credits: evolite_api::Credits::NotAdded,
             ..
         }
     );
@@ -488,7 +512,13 @@ fn card(
             );
             kv_row(ui, &p, tr!("Where"), text::chain(act.chain), words.clone());
             if let Some(status) = text::activity_status(act) {
-                kv_row(ui, &p, tr!("Status"), status, words);
+                kv_row(ui, &p, tr!("Status"), status, words.clone());
+            }
+            // An asset lock: the chip above is the Core transaction's; whether Platform added
+            // the credits is said apart, in red when it did not (BUG-57, customer: red).
+            if let Some((credits, bad)) = text::activity_credits(act) {
+                let color = if bad { p.danger } else { p.text };
+                kv_row_in(ui, &p, tr!("Credits"), credits, words, color);
             }
             if let Some(fee) = act.fee {
                 kv_row(
@@ -517,6 +547,24 @@ fn card(
                         .map(|l| format!(tr!("“{l}” · from the address book"), l = l))
                 });
                 mono_block(ui, &p, label, &who, note.as_deref());
+            }
+            if not_added {
+                let creates = matches!(act.kind, ActivityKind::TopUp { creates: true, .. });
+                notice(
+                    ui,
+                    a,
+                    "warning",
+                    p.danger,
+                    if creates {
+                        tr!(
+                            "The identity's creation was interrupted. You can continue it on the Identity screen; the DASH are not lost"
+                        )
+                    } else {
+                        tr!(
+                            "The top-up was interrupted. You can continue it on the Identity screen; the DASH are not lost"
+                        )
+                    },
+                );
             }
             let mut close = false;
             if let Some(txid) = &act.txid {
@@ -571,7 +619,20 @@ fn card(
                 if answer_there
                     && button(ui, a, tr!("Open in Contacts"), ButtonKind::Secondary, None).clicked()
                 {
-                    to_contacts = true;
+                    go = Some(crate::screens::Screen::Contacts);
+                    close = true;
+                }
+                if not_added
+                    && button(
+                        ui,
+                        a,
+                        tr!("Continue on the Identity screen"),
+                        ButtonKind::Secondary,
+                        None,
+                    )
+                    .clicked()
+                {
+                    go = Some(crate::screens::Screen::Identity);
                     close = true;
                 }
                 if let Some(repeat) = &repeat
@@ -588,7 +649,7 @@ fn card(
             close
         },
     );
-    (closed, paid_again, to_contacts)
+    (closed, paid_again, go)
 }
 
 /// What "Send again" pays: a Core payment out, to its @name or address, the amount

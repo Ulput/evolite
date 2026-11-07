@@ -277,6 +277,7 @@ pub fn receive(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut ReceiveForm
                                     detail: &detail,
                                     proof: None,
                                     amount: &shown,
+                                    alert: None,
                                 },
                             );
                             if row

@@ -242,6 +242,7 @@ pub fn overview(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx) {
                     detail: &detail,
                     proof: Some(act.proof),
                     amount: &text::signed_amount(act.amount),
+                    alert: text::activity_alert(act),
                 },
             );
             if row.clicked() {

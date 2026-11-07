@@ -212,6 +212,8 @@ fn kind_of(
         (TransactionType::AssetLock, _) => (
             ActivityKind::TopUp {
                 identity: String::new(),
+                creates: false,
+                credits: evolite_api::Credits::Unknown,
             },
             Chain::CoreToPlatform,
         ),
@@ -1168,7 +1170,9 @@ mod kind_tests {
             kind_of(out, TransactionType::AssetLock, None),
             (
                 ActivityKind::TopUp {
-                    identity: String::new()
+                    identity: String::new(),
+                    creates: false,
+                    credits: evolite_api::Credits::Unknown
                 },
                 Chain::CoreToPlatform
             )

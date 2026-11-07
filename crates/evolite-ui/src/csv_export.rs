@@ -265,6 +265,41 @@ mod tests {
         }
     }
 
+    /// BUG-57: whether Platform added the credits, and whether the lock made the identity,
+    /// does not change the export — the DASH stay the wallet's either way, only the fee is
+    /// spent.
+    #[test]
+    fn a_lock_is_its_fee_whether_credits_came_or_not() {
+        use evolite_api::Credits;
+        let line = |creates, credits| {
+            let lock = with_fee(
+                act(
+                    ActivityKind::TopUp {
+                        identity: "@mine".into(),
+                        creates,
+                        credits,
+                    },
+                    Chain::CoreToPlatform,
+                    140,
+                    -50_000_263,
+                    "dd",
+                ),
+                263,
+            );
+            taxbit(&[lock], &own())
+        };
+        let added = line(false, Credits::Added);
+        assert!(added.contains(",Expense,0.00000263,"), "{added}");
+        for (creates, credits) in [
+            (false, Credits::NotAdded),
+            (false, Credits::Unknown),
+            (true, Credits::Added),
+            (true, Credits::NotAdded),
+        ] {
+            assert_eq!(line(creates, credits), added, "{creates} {credits:?}");
+        }
+    }
+
     /// BUG-37, the analyst's table in DashPay's format (customer's decision analyst-33): the
     /// type by the sign, what went out with its fee in Sent Quantity, the Fee columns empty; a
     /// move inside the wallet is one Expense of its fee; the payout of a withdrawal, the
@@ -305,6 +340,8 @@ mod tests {
                 act(
                     K::TopUp {
                         identity: "@mine".into(),
+                        creates: false,
+                        credits: evolite_api::Credits::Added,
                     },
                     Chain::CoreToPlatform,
                     140,

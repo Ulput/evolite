@@ -399,6 +399,8 @@ struct Real {
     /// The wallet's history as the store keeps it (one record per transaction), and when it
     /// was read: how many records the wallet in memory had then.
     stored_history: Vec<key_wallet::managed_account::transaction_record::TransactionRecord>,
+    /// The asset locks the store keeps as consumed (BUG-57 r1), read with the history.
+    consumed_locks: std::collections::HashSet<String>,
     history_read: Option<(usize, tokio::time::Instant)>,
     /// Core payments of this run: who they went to, and those the history does not show yet.
     outgoing: Arc<std::sync::Mutex<outgoing::Outgoing>>,
@@ -920,6 +922,7 @@ impl Real {
             balances_stale: Default::default(),
             phrase_check: None,
             stored_history: Vec::new(),
+            consumed_locks: std::collections::HashSet::new(),
             history_read: None,
             mined,
             rescanned_from: None,
@@ -987,10 +990,20 @@ impl Real {
         }
         self.history_read = Some((live_count, tokio::time::Instant::now()));
         let store = self.paths.chain.store.clone();
-        if let Ok(Ok(records)) =
-            tokio::task::spawn_blocking(move || chain::stored_history(&store, &id)).await
-        {
-            self.stored_history = records;
+        let read = tokio::task::spawn_blocking(move || {
+            (
+                chain::stored_history(&store, &id),
+                chain::consumed_locks(&store, &id),
+            )
+        })
+        .await;
+        if let Ok((records, consumed)) = read {
+            if let Ok(records) = records {
+                self.stored_history = records;
+            }
+            if let Ok(consumed) = consumed {
+                self.consumed_locks = consumed;
+            }
         }
     }
 
@@ -1955,6 +1968,8 @@ impl Real {
         // How far the wallet's filters are: back where a rescan was asked, it has finished.
         let mut synced = 0;
         let mut identities = Vec::new();
+        // What each asset lock in the history is for, by the account it pays (BUG-57).
+        let mut lock_fors: HashMap<String, identity::LockFor> = HashMap::new();
         // Every identity's credits, the one worked as among them (BUG-56), and the coins'
         // values for the fee of a payment (BUG-55).
         let mut all_credits: Duffs = 0;
@@ -2024,6 +2039,17 @@ impl Real {
                 // input back from our own outputs.
                 let mut all: Vec<_> = self.stored_history.iter().chain(fresh).cloned().collect();
                 convert::attribute_late_inputs(&mut all);
+                lock_fors = all
+                    .iter()
+                    .filter(|r| {
+                        r.transaction_type
+                            == key_wallet::transaction_checking::transaction_router::TransactionType::AssetLock
+                    })
+                    .filter_map(|r| {
+                        let what = identity::lock_for(&state.core_wallet.accounts, &r.transaction)?;
+                        Some((r.txid.to_string(), what))
+                    })
+                    .collect();
                 // One the wallet took back out of its block is shown in it, and the filters are
                 // scanned again from there so the wallet and the store get it back (BUG-64).
                 lost_block = self
@@ -2213,8 +2239,9 @@ impl Real {
                     act.amount = -(*locked as Duffs + act.fee.unwrap_or(0));
                 }
             }
-            // "Transfer to Platform" says whom: the identity it registered or tops up.
-            let tracked: HashMap<String, (platform_wallet::AssetLockFundingType, u32)> = wallet
+            // "Transfer to Platform" says whom — the identity it registered or tops up — and
+            // whether Platform took it (BUG-57).
+            let tracked: HashMap<String, identity::Tracked> = wallet
                 .asset_locks()
                 .list_tracked_locks()
                 .await
@@ -2222,18 +2249,52 @@ impl Real {
                 .map(|l| {
                     (
                         l.out_point.txid.to_string(),
-                        (l.funding_type, l.identity_index),
+                        identity::Tracked {
+                            funding: l.funding_type,
+                            slot: l.identity_index,
+                            consumed: l.status.is_consumed(),
+                        },
                     )
                 })
                 .collect();
+            // The locks Identity offers to continue, and only while it offers that: the same
+            // rules as `Wallet::unfinished_*` (not while one is being made, only after the
+            // search for the identities).
+            let mut waiting = std::collections::HashSet::new();
+            if unfinished_top_up.is_some() {
+                for lock in self.chain.unfinished_top_ups(&wallet).await {
+                    if !lock.awaiting_chain_lock {
+                        waiting.insert(lock.out_point.txid.to_string());
+                    }
+                }
+            }
+            if unfinished.as_ref().is_some_and(|u| u.locked.is_some())
+                && let Some(lock) = self.chain.unfinished(&wallet).await
+            {
+                waiting.insert(lock.out_point.txid.to_string());
+            }
             for act in history.iter_mut() {
-                if let (ActivityKind::TopUp { identity }, Some(txid)) =
-                    (&mut act.kind, act.txid.as_deref())
-                    && identity.is_empty()
-                    && let Some(who) =
-                        identity::funded_identity(txid, tracked.get(txid).copied(), &identities)
+                if let (
+                    ActivityKind::TopUp {
+                        identity,
+                        creates,
+                        credits,
+                    },
+                    Some(txid),
+                ) = (&mut act.kind, act.txid.as_deref())
                 {
-                    *identity = who;
+                    let (who, made, taken) = identity::lock_line(
+                        txid,
+                        lock_fors.get(txid).copied(),
+                        tracked.get(txid).copied(),
+                        self.consumed_locks.contains(txid),
+                        waiting.contains(txid),
+                        &identities,
+                    );
+                    if identity.is_empty() {
+                        *identity = who;
+                    }
+                    (*creates, *credits) = (made, taken);
                 }
             }
         }

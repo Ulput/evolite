@@ -1531,6 +1531,100 @@ mod tests {
         assert_eq!(after, before, "the same wallet back from the chain");
     }
 
+    /// BUG-57 on the warm copy (the test phrase restored, many identities made by asset
+    /// locks): each lock line says whether it made the identity or topped it up, and credits
+    /// are «not added» exactly when Identity offers to continue; after locking and unlocking
+    /// (the chain started again) the lines say the same. Spends nothing.
+    /// `cargo t live_asset_locks_say -- --ignored --nocapture`
+    #[test]
+    #[ignore = "needs testnet access and a funded test phrase in .env.test.local"]
+    fn live_asset_locks_say_what_they_did() {
+        use evolite_api::{ActivityKind, Credits};
+        type Line = (String, bool, bool, Credits);
+        let lines = |core: &Core| -> (Vec<Line>, bool) {
+            wait_for(core, 10, |e| match e {
+                Event::Snapshot(s) => {
+                    let w = s.wallet.as_ref()?;
+                    (s.sync.stage == SyncStage::Done
+                        && w.identity_search == evolite_api::IdentitySearch::Done
+                        && !w.identities.is_empty())
+                    .then_some(())
+                }
+                _ => None,
+            });
+            // The history and the locks' facts settle a little after the lookup.
+            let settle = Instant::now() + Duration::from_secs(20);
+            let mut last = None;
+            while Instant::now() < settle {
+                for event in core.events() {
+                    if let Event::Snapshot(s) = event
+                        && let Some(w) = s.wallet
+                    {
+                        last = Some(w);
+                    }
+                }
+                std::thread::sleep(Duration::from_millis(200));
+            }
+            let w = last.expect("a snapshot");
+            let mut out: Vec<Line> = w
+                .activity
+                .iter()
+                .filter_map(|a| match &a.kind {
+                    ActivityKind::TopUp {
+                        identity,
+                        creates,
+                        credits,
+                    } => Some((
+                        a.txid.clone().unwrap_or_default(),
+                        !identity.is_empty(),
+                        *creates,
+                        *credits,
+                    )),
+                    _ => None,
+                })
+                .collect();
+            out.sort_by(|a, b| a.0.cmp(&b.0));
+            let waits = w.unfinished_top_up.is_some_and(|u| !u.awaiting_chain_lock)
+                || w.unfinished_identity.is_some_and(|u| u.locked.is_some());
+            (out, waits)
+        };
+        let count = |l: &[Line], f: &dyn Fn(&Line) -> bool| l.iter().filter(|x| f(x)).count();
+        let summary = |l: &[Line]| {
+            println!(
+                "{} locks: {} creations ({} named, {} added), {} top-ups ({} named, {} added), {} not added, {} unknown",
+                l.len(),
+                count(l, &|x| x.2),
+                count(l, &|x| x.2 && x.1),
+                count(l, &|x| x.2 && x.3 == Credits::Added),
+                count(l, &|x| !x.2),
+                count(l, &|x| !x.2 && x.1),
+                count(l, &|x| !x.2 && x.3 == Credits::Added),
+                count(l, &|x| x.3 == Credits::NotAdded),
+                count(l, &|x| x.3 == Credits::Unknown),
+            );
+        };
+        let core = warm_wallet("evolite-live-locks");
+        let (first, waits) = lines(&core);
+        summary(&first);
+        assert!(
+            first.iter().any(|x| x.1 && x.2 && x.3 == Credits::Added),
+            "an identity made by this phrase is its creation, named and added"
+        );
+        assert_eq!(
+            first.iter().any(|x| x.3 == Credits::NotAdded),
+            waits,
+            "«not added» exactly when Identity offers to continue"
+        );
+        core.send(Command::Lock);
+        std::thread::sleep(Duration::from_secs(3));
+        core.send(Command::Unlock {
+            password: Password::new(WARM_PASSWORD.into()),
+        });
+        let (again, _) = lines(&core);
+        summary(&again);
+        assert_eq!(again, first, "the same after the chain started again");
+    }
+
     /// A top-up on testnet: 0.001 DASH from Core goes into the first identity's credits by an
     /// asset lock; the credits grow by about that, Core shrinks by it and the fee, and nothing
     /// is left unfinished. Spends about 0.001 tDASH.

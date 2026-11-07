@@ -990,6 +990,15 @@ impl Chain {
     /// has not taken yet, or has taken without a proof yet ([`Unfinished::awaiting_chain_lock`]).
     /// A lock that can still be sent comes first.
     pub async fn unfinished_top_up(&self, wallet: &PlatformWallet) -> Option<Unfinished> {
+        self.unfinished_top_ups(wallet)
+            .await
+            .into_iter()
+            .min_by_key(|l| (l.awaiting_chain_lock, l.identity_index))
+    }
+
+    /// Every top-up [`Self::unfinished_top_up`] could name, in no order: the History marks
+    /// each one's line (BUG-57).
+    pub async fn unfinished_top_ups(&self, wallet: &PlatformWallet) -> Vec<Unfinished> {
         let notes = self
             .top_up_notes
             .lock()
@@ -1010,7 +1019,7 @@ impl Chain {
                     awaiting_chain_lock: awaiting,
                 })
             })
-            .min_by_key(|l| (l.awaiting_chain_lock, l.identity_index))
+            .collect()
     }
 
     /// Finishes what a cut-short [`Self::top_up_identity`] left: the tracked lock goes to
@@ -2019,6 +2028,42 @@ pub fn stored_history(
         .collect())
 }
 
+/// The txids of the asset locks this data folder's store keeps as consumed by Platform (BUG-57
+/// r1). platform-wallet-storage keeps a consumed row for good and never reloads it, so this is
+/// how a finished top-up is known after a restart. Read only, like [`stored_history`]. The
+/// outpoint is the store's own bincode (`blob::encode_outpoint`): the length 32, the txid's 32
+/// bytes, then the vout as a varint — the txid is bytes 2 to 33 (`substr(outpoint, 2, 32)`, as
+/// the store's own test says). A row of any other shape is left out.
+pub fn consumed_locks(
+    store: &std::path::Path,
+    wallet: &WalletId,
+) -> Result<HashSet<String>, String> {
+    use key_wallet::dashcore::hashes::Hash;
+    use rusqlite::OpenFlags;
+    let conn = rusqlite::Connection::open_with_flags(
+        store,
+        OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    )
+    .map_err(|e| e.to_string())?;
+    let mut stmt = conn
+        .prepare(
+            "SELECT substr(outpoint, 2, 32) FROM asset_locks WHERE wallet_id = ?1 \
+             AND status = 'consumed' AND length(outpoint) >= 34 \
+             AND substr(outpoint, 1, 1) = x'20'",
+        )
+        .map_err(|e| e.to_string())?;
+    let rows = stmt
+        .query_map(rusqlite::params![wallet.as_slice()], |row| {
+            row.get::<_, Vec<u8>>(0)
+        })
+        .map_err(|e| e.to_string())?;
+    Ok(rows
+        .filter_map(Result::ok)
+        .filter_map(|txid| key_wallet::dashcore::Txid::from_slice(&txid).ok())
+        .map(|txid| txid.to_string())
+        .collect())
+}
+
 /// key-wallet's id of the wallet a phrase makes (from its root public key; not secret).
 pub fn wallet_id_of(phrase: &str) -> Result<WalletId, String> {
     let mnemonic = key_wallet::mnemonic::Mnemonic::from_phrase(phrase)
@@ -2049,6 +2094,109 @@ pub fn creation_step_of(status: Option<&AssetLockStatus>) -> usize {
 mod tests {
     use super::*;
     use std::time::{Duration, Instant};
+
+    /// BUG-57 r1: a lock is «added» after a restart only by a consumed row of this wallet in
+    /// this folder's store; an unconsumed row, another wallet's row, or no row says nothing.
+    #[test]
+    fn consumed_locks_are_this_wallets_consumed_rows() {
+        use key_wallet::dashcore::hashes::Hash;
+        use key_wallet::dashcore::{OutPoint, Txid, consensus};
+        // The store's own encoding (r2): bincode, the length 32, the txid, the vout as a varint.
+        let stored = |outpoint: &OutPoint| {
+            let mut blob = vec![0x20];
+            blob.extend_from_slice(outpoint.txid.as_byte_array());
+            match outpoint.vout {
+                v @ 0..=250 => blob.push(v as u8),
+                v => {
+                    blob.push(0xfb);
+                    blob.extend_from_slice(&(v as u16).to_le_bytes());
+                }
+            }
+            blob
+        };
+        let dir = std::env::temp_dir().join(format!("evolite-consumed-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let store = dir.join("platform-wallet.db");
+        let conn = rusqlite::Connection::open(&store).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE asset_locks (wallet_id BLOB NOT NULL, outpoint BLOB NOT NULL, \
+             status TEXT NOT NULL, PRIMARY KEY (wallet_id, outpoint))",
+        )
+        .unwrap();
+        let ours: WalletId = [7; 32];
+        let theirs: WalletId = [8; 32];
+        // Bytes that differ, so a txid read in the wrong order would not match.
+        let lock = |byte: u8, vout: u32| {
+            let bytes: [u8; 32] =
+                std::array::from_fn(|i| byte.wrapping_mul(31).wrapping_add(i as u8));
+            OutPoint::new(Txid::from_byte_array(bytes), vout)
+        };
+        let insert = |wallet: WalletId, blob: Vec<u8>, status: &str| {
+            conn.execute(
+                "INSERT INTO asset_locks VALUES (?1, ?2, ?3)",
+                rusqlite::params![wallet.as_slice(), blob, status],
+            )
+            .unwrap();
+        };
+        insert(ours, stored(&lock(1, 0)), "consumed");
+        insert(ours, stored(&lock(4, 300)), "consumed");
+        insert(ours, stored(&lock(2, 0)), "chain_locked");
+        insert(theirs, stored(&lock(3, 0)), "consumed");
+        // Another encoding (36-byte consensus, what r1 read): not the store's, left out.
+        insert(ours, consensus::serialize(&lock(5, 0)), "consumed");
+        drop(conn);
+        let found = consumed_locks(&store, &ours).unwrap();
+        assert_eq!(
+            found,
+            HashSet::from([lock(1, 0).txid.to_string(), lock(4, 300).txid.to_string()])
+        );
+        assert!(
+            consumed_locks(&dir.join("none.db"), &ours).is_err(),
+            "no store, no answer"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// BUG-57 r2 on a real store (a COPY: it is only read): every wallet's consumed locks.
+    /// `EVOLITE_STORE=<copy>\platform-wallet.db EVOLITE_CONSUMED=<txid prefix>
+    /// cargo t consumed_locks_of_a_real_store -- --ignored --nocapture`
+    #[test]
+    #[ignore = "reads a copy of a store named in EVOLITE_STORE"]
+    fn consumed_locks_of_a_real_store() {
+        let store =
+            std::path::PathBuf::from(std::env::var("EVOLITE_STORE").expect("EVOLITE_STORE"));
+        let wallets: Vec<Vec<u8>> = {
+            let conn = rusqlite::Connection::open_with_flags(
+                &store,
+                rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+            )
+            .unwrap();
+            let mut stmt = conn
+                .prepare("SELECT DISTINCT wallet_id FROM asset_locks")
+                .unwrap();
+            stmt.query_map([], |row| row.get(0))
+                .unwrap()
+                .filter_map(Result::ok)
+                .collect()
+        };
+        let mut all = HashSet::new();
+        for wallet in wallets {
+            let id: WalletId = wallet.try_into().expect("a 32-byte wallet id");
+            let found = consumed_locks(&store, &id).unwrap();
+            println!(
+                "wallet {}…: consumed {found:?}",
+                super::super::hex(&id[..4])
+            );
+            all.extend(found);
+        }
+        if let Ok(prefix) = std::env::var("EVOLITE_CONSUMED") {
+            assert!(
+                all.iter().any(|t| t.starts_with(&prefix)),
+                "{prefix} not in {all:?}"
+            );
+        }
+    }
 
     /// BUG-60, the chain started again (a failed start, a switch, a lock): the stages count
     /// from where the new client begins, not from where the last one left them.

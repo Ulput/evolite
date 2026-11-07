@@ -191,30 +191,112 @@ pub fn registered_by(txid: &str) -> Option<String> {
     )
 }
 
-/// Which of the wallet's identities a Core asset lock (`txid`) funded, as the history names it
-/// (`@name`, else the id): the one it registered, or — while platform-wallet still tracks the
-/// lock — the identity of its slot. `None` for a Platform address or a lock no longer tracked.
-pub fn funded_identity(
+/// What an asset lock is for, by the wallet's funding account its credit output pays: an
+/// identity's registration, or the top-up of the identity in a slot. The address is the
+/// wallet's own, so this holds after a restart (when platform-wallet no longer tracks a
+/// finished lock) and after a restore, as platform-wallet's own reconstruction reads it.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum LockFor {
+    Registration,
+    TopUp(u32),
+}
+
+/// [`LockFor`] of the asset lock `tx`, from the wallet's `accounts`; `None` for another
+/// transaction or a lock of another kind (the Platform address, the pool).
+pub fn lock_for(
+    accounts: &key_wallet::managed_account::managed_account_collection::ManagedAccountCollection,
+    tx: &key_wallet::dashcore::Transaction,
+) -> Option<LockFor> {
+    use key_wallet::dashcore::blockdata::transaction::special_transaction::TransactionPayload;
+    use key_wallet::managed_account::managed_account_trait::ManagedAccountTrait;
+    let Some(TransactionPayload::AssetLockPayloadType(lock)) = &tx.special_transaction_payload
+    else {
+        return None;
+    };
+    let pays = |account: &key_wallet::managed_account::ManagedCoreKeysAccount| {
+        lock.credit_outputs
+            .iter()
+            .any(|out| account.contains_script_pub_key(&out.script_pubkey))
+    };
+    if accounts.identity_registration.as_ref().is_some_and(pays) {
+        return Some(LockFor::Registration);
+    }
+    accounts
+        .identity_topup
+        .iter()
+        .find(|(_, account)| pays(account))
+        .map(|(slot, _)| LockFor::TopUp(*slot))
+}
+
+/// What platform-wallet tracks of an asset lock: its funding, its slot and whether Platform
+/// consumed it.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct Tracked {
+    pub funding: platform_wallet::AssetLockFundingType,
+    pub slot: u32,
+    pub consumed: bool,
+}
+
+/// How the History shows a Core asset lock (`txid`), BUG-57: the identity it funded (`@name`,
+/// else the id; empty when not known), whether it registered it, and whether Platform took it.
+/// `paid`: [`lock_for`]; `tracked`: platform-wallet's entry, if it still has one; `consumed`:
+/// this data folder's store keeps the lock as consumed ([`super::chain::consumed_locks`]);
+/// `unfinished`: it is the lock of a cut-short top-up or creation, which Identity offers to
+/// continue.
+pub fn lock_line(
     txid: &str,
-    tracked: Option<(platform_wallet::AssetLockFundingType, u32)>,
+    paid: Option<LockFor>,
+    tracked: Option<Tracked>,
+    consumed: bool,
+    unfinished: bool,
     mine: &[evolite_api::IdentityChoice],
-) -> Option<String> {
+) -> (String, bool, evolite_api::Credits) {
+    use evolite_api::Credits;
     use platform_wallet::AssetLockFundingType as Funding;
     let shown = |c: &evolite_api::IdentityChoice| {
         c.name
             .as_ref()
             .map_or_else(|| c.id.clone(), |n| format!("@{n}"))
     };
-    if let Some(id) = registered_by(txid)
-        && let Some(choice) = mine.iter().find(|c| c.id == id)
-    {
-        return Some(shown(choice));
-    }
-    match tracked {
-        Some((Funding::IdentityRegistration | Funding::IdentityTopUp, slot)) => {
-            mine.iter().find(|c| c.slot == slot).map(shown)
-        }
+    // A registration's identity is in its txid: for good, whatever the slot platform-wallet
+    // gives a lock found by a restore (always 0).
+    let registered = registered_by(txid).and_then(|id| mine.iter().find(|c| c.id == id));
+    let tracked_for = tracked.and_then(|t| match t.funding {
+        Funding::IdentityRegistration => Some(LockFor::Registration),
+        Funding::IdentityTopUp => Some(LockFor::TopUp(t.slot)),
         _ => None,
+    });
+    let what = if registered.is_some() {
+        Some(LockFor::Registration)
+    } else {
+        paid.or(tracked_for)
+    };
+    let not_added = |known: bool| match (unfinished, known) {
+        (true, _) => Credits::NotAdded,
+        (false, true) => Credits::Added,
+        (false, false) => Credits::Unknown,
+    };
+    match what {
+        // The identity exists: Platform took the lock that made it.
+        Some(LockFor::Registration) => (
+            registered.map(shown).unwrap_or_default(),
+            true,
+            not_added(registered.is_some()),
+        ),
+        Some(LockFor::TopUp(slot)) => {
+            let identity = mine.iter().find(|c| c.slot == slot).map(shown);
+            // Only what platform-wallet knows was consumed: tracked so, or kept so in this
+            // folder's store (it keeps consumed rows for good, and does not reload them). Not
+            // tracked says nothing: a lock built in another data folder, or one whose
+            // transaction was swept, is not tracked either (BUG-57 r1).
+            let taken = consumed || tracked.is_some_and(|t| t.consumed);
+            (
+                identity.clone().unwrap_or_default(),
+                false,
+                not_added(identity.is_some() && taken),
+            )
+        }
+        None => (String::new(), false, not_added(false)),
     }
 }
 
@@ -240,29 +322,206 @@ mod tests {
                 slot: 1,
             },
         ];
-        // Registration: known from the txid alone, tracked or not.
-        assert_eq!(
-            funded_identity(txid, None, &mine).as_deref(),
-            Some("@alice")
-        );
-        // A top-up still tracked: the identity of its slot, by id when it has no name.
+        let name = |paid, tracked| lock_line(txid, paid, tracked, false, false, &mine).0;
         let other = "11".repeat(32);
-        assert_eq!(
-            funded_identity(&other, Some((Funding::IdentityTopUp, 1)), &mine).as_deref(),
-            Some(mine[1].id.as_str())
-        );
-        // A Platform address, an untracked lock, a broken txid: not said.
-        assert_eq!(
-            funded_identity(&other, Some((Funding::AssetLockAddressTopUp, 0)), &mine),
-            None
-        );
-        assert_eq!(funded_identity(&other, None, &mine), None);
-        assert_eq!(funded_identity("nope", None, &mine), None);
+        let named = |paid, tracked| lock_line(&other, paid, tracked, false, false, &mine).0;
+        let tracked = |funding, slot| {
+            Some(Tracked {
+                funding,
+                slot,
+                consumed: false,
+            })
+        };
+        // Registration: known from the txid alone, tracked or not.
+        assert_eq!(name(None, None), "@alice");
+        // A top-up still tracked: the identity of its slot, by id when it has no name.
+        assert_eq!(named(None, tracked(Funding::IdentityTopUp, 1)), mine[1].id);
+        // No longer tracked (after a restart): the account its credit output pays says it.
+        assert_eq!(named(Some(LockFor::TopUp(1)), None), mine[1].id);
+        // A Platform address, an unknown lock, a broken txid: not said.
+        assert_eq!(named(None, tracked(Funding::AssetLockAddressTopUp, 0)), "");
+        assert_eq!(named(None, None), "");
+        assert_eq!(lock_line("nope", None, None, false, false, &mine).0, "");
         // Platform's own formula: the double SHA-256 of the 36-byte outpoint.
         assert_ne!(registered, registered_by(&other).unwrap());
     }
 
+    /// BUG-57: a lock says whether it made the identity or topped it up, and whether Platform
+    /// took it — "not added" only for the lock Identity offers to continue; once Platform took
+    /// it the same line says "added".
+    #[test]
+    fn an_asset_lock_says_what_it_made_and_whether_credits_came() {
+        use evolite_api::{Credits, IdentityChoice};
+        use platform_wallet::AssetLockFundingType as Funding;
+        let made = "35af26a8000000000000000000000000000000000000000000000000c0c81f18";
+        let mine = [
+            IdentityChoice {
+                id: registered_by(made).unwrap(),
+                name: Some("alice".into()),
+                slot: 0,
+            },
+            IdentityChoice {
+                id: "Bob1111111111111111111111111111111111111111".into(),
+                name: Some("bob".into()),
+                slot: 3,
+            },
+        ];
+        let topup = "22".repeat(32);
+        let tracked = |funding, slot, consumed| {
+            Some(Tracked {
+                funding,
+                slot,
+                consumed,
+            })
+        };
+        // The creation of @alice: made, so taken.
+        assert_eq!(
+            lock_line(made, None, None, false, false, &mine),
+            ("@alice".into(), true, Credits::Added)
+        );
+        // A registration found by a restore sits in slot 0 as platform-wallet tracks it: its
+        // identity is by its txid only, never the identity of slot 0.
+        let lost = "33".repeat(32);
+        assert_eq!(
+            lock_line(
+                &lost,
+                None,
+                tracked(Funding::IdentityRegistration, 0, false),
+                false,
+                false,
+                &mine
+            ),
+            (String::new(), true, Credits::Unknown)
+        );
+        // A creation cut short: no identity yet, the lock waits.
+        assert_eq!(
+            lock_line(
+                &lost,
+                Some(LockFor::Registration),
+                tracked(Funding::IdentityRegistration, 1, false),
+                false,
+                true,
+                &mine
+            ),
+            (String::new(), true, Credits::NotAdded)
+        );
+        // A top-up cut short (werner555's 0.5 DASH): @bob's, not added.
+        let stopped = tracked(Funding::IdentityTopUp, 3, false);
+        assert_eq!(
+            lock_line(&topup, Some(LockFor::TopUp(3)), stopped, false, true, &mine),
+            ("@bob".into(), false, Credits::NotAdded)
+        );
+        // The same lock once "Continue" went through: consumed, added.
+        let done = tracked(Funding::IdentityTopUp, 3, true);
+        assert_eq!(
+            lock_line(&topup, Some(LockFor::TopUp(3)), done, false, false, &mine),
+            ("@bob".into(), false, Credits::Added)
+        );
+        // After a restart platform-wallet no longer tracks it, and this folder's store keeps it
+        // as consumed (kestrel7's 0.01): still @bob's, added.
+        assert_eq!(
+            lock_line(&topup, Some(LockFor::TopUp(3)), None, true, false, &mine),
+            ("@bob".into(), false, Credits::Added)
+        );
+        // Not tracked and no consumed row here (r1 must): built in another data folder, or its
+        // transaction swept — @bob's, but not said to be added.
+        assert_eq!(
+            lock_line(&topup, Some(LockFor::TopUp(3)), None, false, false, &mine),
+            ("@bob".into(), false, Credits::Unknown)
+        );
+        // A consumed row outweighs a tracked entry not yet marked consumed.
+        assert_eq!(
+            lock_line(&topup, Some(LockFor::TopUp(3)), stopped, true, false, &mine).2,
+            Credits::Added
+        );
+        // Tracked and not consumed, not offered to continue (being sent now, found by a
+        // restore, awaiting its ChainLock): not said either way.
+        assert_eq!(
+            lock_line(
+                &topup,
+                Some(LockFor::TopUp(3)),
+                stopped,
+                false,
+                false,
+                &mine
+            )
+            .2,
+            Credits::Unknown
+        );
+        // The Platform address's lock: nothing to say of credits or an identity.
+        assert_eq!(
+            lock_line(
+                &topup,
+                None,
+                tracked(Funding::AssetLockAddressTopUp, 0, true),
+                false,
+                false,
+                &mine
+            ),
+            (String::new(), false, Credits::Unknown)
+        );
+    }
+
     const PHRASE: &str = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
+
+    /// BUG-57: the wallet's own funding accounts tell what a lock is for, without
+    /// platform-wallet's tracking (gone for a finished lock after a restart): the top-up of
+    /// slot 2's identity, a registration, or neither.
+    #[test]
+    fn a_lock_is_known_by_the_account_its_credit_output_pays() {
+        use key_wallet::account::AccountType;
+        use key_wallet::dashcore::blockdata::transaction::special_transaction::TransactionPayload;
+        use key_wallet::dashcore::blockdata::transaction::special_transaction::asset_lock::AssetLockPayload;
+        use key_wallet::dashcore::{ScriptBuf, Transaction, TxOut};
+        use key_wallet::managed_account::managed_account_trait::ManagedAccountTrait;
+        use key_wallet::wallet::managed_wallet_info::ManagedWalletInfo;
+        let mut keys = super::super::keys_of(PHRASE).unwrap();
+        keys.add_account(
+            AccountType::IdentityTopUp {
+                registration_index: 2,
+            },
+            None,
+        )
+        .unwrap();
+        let wallet = ManagedWalletInfo::from_wallet(&keys, 0);
+        let first = |account: &key_wallet::managed_account::ManagedCoreKeysAccount| {
+            account.managed_account_type().address_pools()[0]
+                .addresses
+                .values()
+                .next()
+                .expect("an address made")
+                .address
+                .script_pubkey()
+        };
+        let top_up = first(&wallet.accounts.identity_topup[&2]);
+        let registration = first(wallet.accounts.identity_registration.as_ref().unwrap());
+        let lock = |to: ScriptBuf, payload: bool| Transaction {
+            version: 3,
+            lock_time: 0,
+            input: vec![],
+            output: vec![],
+            special_transaction_payload: payload.then(|| {
+                TransactionPayload::AssetLockPayloadType(AssetLockPayload {
+                    version: 1,
+                    credit_outputs: vec![TxOut {
+                        value: 50_000_000,
+                        script_pubkey: to,
+                    }],
+                })
+            }),
+        };
+        let accounts = &wallet.accounts;
+        assert_eq!(
+            lock_for(accounts, &lock(top_up.clone(), true)),
+            Some(LockFor::TopUp(2))
+        );
+        assert_eq!(
+            lock_for(accounts, &lock(registration, true)),
+            Some(LockFor::Registration)
+        );
+        assert_eq!(lock_for(accounts, &lock(ScriptBuf::new(), true)), None);
+        assert_eq!(lock_for(accounts, &lock(top_up, false)), None, "no lock");
+    }
 
     #[test]
     fn found_keys_are_the_keys_made_for_the_slot() {

@@ -270,6 +270,8 @@ pub(super) fn demo_wallet(t: Timestamp) -> Wallet {
                 4,
                 TopUp {
                     identity: "@satoshi".into(),
+                    creates: false,
+                    credits: Credits::Added,
                 },
                 Chain::CoreToPlatform,
                 day + 2 * hour,

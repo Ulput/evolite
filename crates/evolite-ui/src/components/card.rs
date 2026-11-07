@@ -13,6 +13,18 @@ pub fn card(p: &Palette, margin: Margin) -> Frame {
 
 /// A label on the left and a value on the right: 13 px, the value Medium (mono for amounts).
 pub fn kv_row(ui: &mut Ui, p: &Palette, label: &str, value: &str, value_font: FontId) {
+    kv_row_in(ui, p, label, value, value_font, p.text);
+}
+
+/// [`kv_row`] with the value in `color` (red for credits not added, BUG-57).
+pub fn kv_row_in(
+    ui: &mut Ui,
+    p: &Palette,
+    label: &str,
+    value: &str,
+    value_font: FontId,
+    color: egui::Color32,
+) {
     let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 16.0), Sense::hover());
     // Painted words say nothing to a screen reader: the row reads «label: value».
     let spoken = format!(
@@ -35,7 +47,7 @@ pub fn kv_row(ui: &mut Ui, p: &Palette, label: &str, value: &str, value_font: Fo
         Align2::RIGHT_CENTER,
         value,
         value_font,
-        p.text,
+        color,
     );
 }
 
