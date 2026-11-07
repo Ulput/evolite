@@ -23,14 +23,14 @@ const HOW: [(&str, &str, &str); 3] = [
         "contacts",
         tr!("Contact request"),
         tr!(
-            "Inside is a key for paying you, encrypted for the recipient. The identity's credits pay for it."
+            "Visible to everyone, forever: who, to whom and when. Inside is a key for paying you, encrypted for the recipient. The identity's credits pay for it."
         ),
     ),
     (
         "send",
         tr!("Payments to the contact"),
         tr!(
-            "Each payment goes to a new address from the contact's key: the network cannot see that one person is being paid."
+            "Each payment goes to a new address from the contact's key: the request does not link the payments. Blockchain analysis may still link them."
         ),
     ),
     (
@@ -53,8 +53,13 @@ pub struct ContactsState {
     pub pay: Option<String>,
     /// "Password for every payment" for a request or an answer: both cost credits (BUG-42).
     pub password: SpendPassword,
-    /// "Accept" on a request with the password asked: the identity whose request waits for it.
+    /// "Accept" on a request: the identity whose request waits in "Accept the request" (what
+    /// the answer makes public, and the password when asked).
     pub accepting: Option<String>,
+    /// "Contact privacy" is open (PRIV-1).
+    pub privacy: bool,
+    /// "Contact privacy" closed: its link takes the focus back.
+    privacy_closed: bool,
     /// This frame: whether the wallet asks for its password for every spend.
     ask: bool,
 }
@@ -83,10 +88,14 @@ impl ContactsState {
         self.result = Some(result.clone());
     }
 
-    /// The wallet locked: a password typed for a request goes.
+    /// The wallet locked: a password typed for a request goes, and the dialogs close —
+    /// «Contact privacy» too, so it does not open again after unlocking, nor its link take the
+    /// focus on the next visit.
     pub fn on_lock(&mut self) {
         self.password.forget();
         self.accepting = None;
+        self.privacy = false;
+        self.privacy_closed = false;
     }
 
     pub fn on_resolved(&mut self, name: &str, result: &Result<ResolvedName, CoreError>) {
@@ -199,7 +208,7 @@ pub fn contacts(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut ContactsS
         ui.add(
             egui::Label::new(
                 txt(
-                    tr!("DashPay contacts: you exchanged encrypted requests, and each payment goes to a new address from the contact's keys. A request is a write to Platform, paid for by the identity's credits."),
+                    tr!("DashPay contacts: you exchanged requests. The requests themselves are public; the payment keys inside them are encrypted. Each payment goes to a new address from the contact's keys. A request is a write to Platform paid for by the identity's credits."),
                     14.0,
                     Weight::Regular,
                     p.muted,
@@ -271,12 +280,14 @@ pub fn contacts(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut ContactsS
                 }
             });
         }
+        privacy_link(ui, a, state);
     });
 
     if state.adding.is_some() {
         add_contact(ui, a, cx, wallet, state, &mut asked);
     }
     accept_dialog(ui, a, wallet, state, &mut asked);
+    privacy_dialog(ui, a, state);
     if let Some(id) = state.profile.clone() {
         match wallet.contacts.iter().find(|c| c.identity_id == id) {
             Some(contact) => {
@@ -419,23 +430,18 @@ fn row(
         // A child UI: placing the button must not move the parent's cursor.
         let mut child = ui.new_child(egui::UiBuilder::new().max_rect(r));
         let enabled = !state.waiting;
-        if button_enabled(&mut child, a, label, *kind, Some(*w), enabled).clicked() {
+        let mut resp = button_enabled(&mut child, a, label, *kind, Some(*w), enabled);
+        if *label == tr!("Hide") {
+            resp = hide_hint(&child, resp);
+        }
+        if resp.clicked() {
             clicked_button = true;
             match *label {
-                // With "password for every payment" the answer asks for it first.
-                tr!("Accept") if state.ask => {
+                // The answer is public for good: "Accept the request" says so first, and asks
+                // for the password when the wallet wants it (PRIV-1, BUG-42).
+                tr!("Accept") => {
                     state.password.forget();
                     state.accepting = Some(c.identity_id.clone());
-                    state.result = None;
-                }
-                tr!("Accept") => {
-                    asked.push(state.password.command(
-                        Spend::AcceptContact {
-                            identity_id: c.identity_id.clone(),
-                        },
-                        false,
-                    ));
-                    state.waiting = true;
                     state.result = None;
                 }
                 tr!("Hide") => {
@@ -776,6 +782,13 @@ fn add_contact(
                 );
             }
             let entered = password.field(ui, &p, "add-contact-password", ask);
+            public_line(
+                ui,
+                a,
+                tr!(
+                    "The request, and the fact that you are contacts, are visible to everyone and can't be deleted. The addresses for payments between you are hidden."
+                ),
+            );
             let ready = ready && !waiting && password.ready(ask);
             let mut close = false;
             button_row(ui, |ui| {
@@ -810,8 +823,9 @@ fn add_contact(
     }
 }
 
-/// "Accept" with "password for every payment" on: the answer costs credits, so the password
-/// comes first, in a dialog of its own (the request row has no room for it).
+/// "Accept the request": what the answer makes public, before it goes (PRIV-1), and the password
+/// when the wallet asks for it for every payment: the answer costs credits (BUG-42). The request
+/// row has no room for either.
 fn accept_dialog(
     ui: &mut Ui,
     a: &mut Assets,
@@ -829,6 +843,7 @@ fn accept_dialog(
     let p = a.p;
     let who = shown_name(contact);
     let waiting = state.waiting;
+    let ask = state.ask;
     let mut accept = false;
     let closed = dialog(
         ui,
@@ -859,10 +874,15 @@ fn accept_dialog(
                     crate::text::error_details(e).as_deref(),
                 );
             }
-            let entered = state
-                .password
-                .field(ui, &p, "accept-contact-password", true);
-            let ready = !waiting && state.password.ready(true);
+            let entered = state.password.field(ui, &p, "accept-contact-password", ask);
+            public_line(
+                ui,
+                a,
+                tr!(
+                    "Your answer makes you contacts: everyone can see it, and it can't be deleted. The addresses for payments between you are hidden."
+                ),
+            );
+            let ready = !waiting && state.password.ready(ask);
             let mut close = false;
             button_row(ui, |ui| {
                 if button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked() {
@@ -886,13 +906,126 @@ fn accept_dialog(
         asked.push(
             state
                 .password
-                .command(Spend::AcceptContact { identity_id: id }, true),
+                .command(Spend::AcceptContact { identity_id: id }, ask),
         );
         state.waiting = true;
         state.result = None;
     } else if closed && !waiting {
         state.accepting = None;
         state.password.forget();
+    }
+}
+
+/// The last line before a dialog's buttons when it sends a contact request or an answer: what
+/// becomes public for good and what stays hidden (PRIV-1). Always there, not only on an error.
+fn public_line(ui: &mut Ui, a: &mut Assets, text: &str) {
+    let p = a.p;
+    ui.horizontal_top(|ui| {
+        ui.spacing_mut().item_spacing.x = 6.0;
+        ui.add(a.icons.icon("info", p.muted, &p, 16.0));
+        ui.add(
+            egui::Label::new(txt(text, 12.0, Weight::Regular, p.muted).line_height(Some(17.0)))
+                .wrap(),
+        );
+    });
+}
+
+/// What "Hide" does: a request is public and stays so; hiding is local (PRIV-1).
+const HIDE_HINT: &str =
+    tr!("Hides the request on this computer only. On the network it stays, visible to everyone.");
+
+/// "Hide" says what it does on hover and on keyboard focus, and the same words to a screen
+/// reader as its description.
+fn hide_hint(ui: &Ui, resp: egui::Response) -> egui::Response {
+    let words = crate::i18n::t(HIDE_HINT).into_owned();
+    let spoken = crate::i18n::spoken(HIDE_HINT);
+    ui.ctx()
+        .accesskit_node_builder(resp.id, |node| node.set_description(spoken));
+    if resp.has_focus() && !resp.hovered() {
+        resp.show_tooltip_text(words.clone());
+    }
+    resp.on_hover_text(words)
+}
+
+/// "Learn more about privacy ›" under the explanations: opens "Contact privacy".
+fn privacy_link(ui: &mut Ui, a: &mut Assets, state: &mut ContactsState) {
+    let p = a.p;
+    let label = tr!("Learn more about privacy ›");
+    let resp = ui
+        .add(egui::Button::new(txt(label, 13.0, Weight::SemiBold, p.accent)).frame(false))
+        .on_hover_cursor(egui::CursorIcon::PointingHand);
+    crate::components::named(&resp, egui::WidgetType::Button, true, label);
+    // The dialog closed: the focus comes back here once the page takes input again (egui drops
+    // a focus given to a widget still under last frame's modal layer).
+    if state.privacy_closed && ui.memory(|m| m.allows_interaction(ui.layer_id())) {
+        state.privacy_closed = false;
+        resp.request_focus();
+    }
+    if resp.clicked() {
+        state.privacy = true;
+    }
+}
+
+/// "Contact privacy": what DashPay makes public and what it keeps hidden, as verified in
+/// docs/analysis/dashpay-privacy-2026-11-07.md. «Got it», the cross or Escape close it, and the
+/// focus goes back to the link.
+fn privacy_dialog(ui: &mut Ui, a: &mut Assets, state: &mut ContactsState) {
+    if !state.privacy {
+        return;
+    }
+    const POINTS: [&str; 5] = [
+        tr!(
+            "Who sent a request to whom, and when, is visible to everyone, forever. A request can't be deleted or withdrawn."
+        ),
+        tr!(
+            "Accepting a request means sending one back, so everyone can see who is in contact with whom. Unanswered requests are visible too."
+        ),
+        tr!(
+            "Anyone can send you a request without your consent. “Hide” removes it from this computer only."
+        ),
+        tr!(
+            "The profile (name, “About”, avatar) and @names are public. The avatar loads from someone else's server, which sees your IP."
+        ),
+        tr!(
+            "The payment keys are encrypted, and each payment goes to a new address: the requests do not link the payments. Blockchain analysis may still link them."
+        ),
+    ];
+    let closed = dialog(
+        ui,
+        a,
+        "contacts-privacy",
+        "info",
+        tr!("Contact privacy"),
+        520.0,
+        |ui, a| {
+            let p = a.p;
+            ui.vertical(|ui| {
+                ui.spacing_mut().item_spacing.y = 10.0;
+                for point in POINTS {
+                    ui.horizontal_top(|ui| {
+                        ui.spacing_mut().item_spacing.x = 8.0;
+                        ui.label(txt("•", 14.0, Weight::Regular, p.muted));
+                        ui.add(
+                            egui::Label::new(
+                                txt(point, 14.0, Weight::Regular, p.text).line_height(Some(20.0)),
+                            )
+                            .wrap(),
+                        );
+                    });
+                }
+            });
+            let mut close = false;
+            button_row(ui, |ui| {
+                if button(ui, a, tr!("Got it"), ButtonKind::Primary, None).clicked() {
+                    close = true;
+                }
+            });
+            close
+        },
+    );
+    if closed {
+        state.privacy = false;
+        state.privacy_closed = true;
     }
 }
 
@@ -983,6 +1116,22 @@ pub fn contact_error(e: &CoreError) -> String {
 mod tests {
     use super::*;
     use evolite_api::{Chain, Proof};
+
+    /// PRIV-1 r1 P3: a lock closes «Contact privacy» with the other dialogs, and its link does
+    /// not take the focus on the next visit.
+    #[test]
+    fn a_lock_closes_the_privacy_dialog() {
+        let mut state = ContactsState {
+            accepting: Some("id".into()),
+            privacy: true,
+            privacy_closed: true,
+            ..Default::default()
+        };
+        state.on_lock();
+        assert!(state.accepting.is_none());
+        assert!(!state.privacy);
+        assert!(!state.privacy_closed);
+    }
 
     fn op(kind: ActivityKind) -> Activity {
         Activity {
