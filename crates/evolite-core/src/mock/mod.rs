@@ -36,6 +36,12 @@ mod demo;
 use answers::{PEOPLE, app_request, check_name};
 use demo::{DEMO_PHRASE, demo_art, demo_wallet, demo_wallets, now, staged_sync, synced};
 
+/// The demo's example wallet, for the core's own tests of what a snapshot holds.
+#[cfg(test)]
+pub(crate) fn example_wallet(t: Timestamp) -> Wallet {
+    demo_wallet(t)
+}
+
 struct Mock {
     snapshot: Snapshot,
     /// The phrase between "new phrase / use phrase" and "create wallet".

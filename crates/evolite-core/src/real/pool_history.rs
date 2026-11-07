@@ -59,6 +59,7 @@ impl PoolHistory {
                 Some(kept) if poor(&op) || own_shield(kept, &op) => Activity {
                     proof: op.proof,
                     block: op.block.or(kept.block),
+                    layers: op.layers,
                     ..kept.to_activity()
                 },
                 _ => {
@@ -141,6 +142,12 @@ impl Saved {
             fee: self.fee,
             block: self.block,
             address: None,
+            layers: evolite_api::layer::POOL,
+            flow: match self.kind {
+                Kind::Shielded { .. } => evolite_api::Flow::Between,
+                Kind::Received => evolite_api::Flow::In,
+                Kind::Sent => evolite_api::Flow::Out,
+            },
         }
     }
 }
@@ -150,6 +157,7 @@ mod tests {
     use super::*;
 
     fn op(id: u64, kind: ActivityKind, amount: Duffs, fee: Option<Duffs>) -> Activity {
+        let (layers, flow) = crate::layers::of(&kind, Chain::Platform);
         Activity {
             id,
             kind,
@@ -161,6 +169,8 @@ mod tests {
             fee,
             block: Some(7),
             address: None,
+            layers,
+            flow,
         }
     }
 

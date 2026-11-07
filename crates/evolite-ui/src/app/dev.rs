@@ -276,6 +276,19 @@ impl App {
         if preset("activity-card") && !real_shot {
             screens::open_card(ctx, 3);
         }
+        // `--screen activity-filters`: History with «Filters» open on «In» and «30 days»;
+        // `activity-filters-empty`: «Pending» and «Names», which leave nothing (FEAT-0009).
+        if preset("activity-filters") {
+            let f = &mut self.history.filters;
+            f.flow = Some(evolite_api::Flow::In);
+            f.period = screens::activity_filters::Period::Days(30);
+            self.history.open = true;
+        }
+        if preset("activity-filters-empty") {
+            let f = &mut self.history.filters;
+            f.status = Some(screens::activity_filters::Status::Pending);
+            f.kinds = screens::activity_filters::kind::NAMES;
+        }
         // `--screen send-confirm`: the last look asks where the payment goes, as a click does.
         if preset("send-confirm") {
             self.core.send(Command::PreviewPayment {

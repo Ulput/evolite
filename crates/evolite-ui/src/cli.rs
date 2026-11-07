@@ -174,7 +174,7 @@ impl Launch {
 pub const PRESETS: &[&str] = &[
     "create", "verify", "password", "restore", "dashpay", "sync", "sync-nodes",
     "overview", "hidden", "units", "remind", "wallet-menu", "wallet-switch", "overview-syncing",
-    "activity", "activity-card",
+    "activity", "activity-card", "activity-filters", "activity-filters-empty",
     "send", "send-confirm", "send-contact", "send-book", "send-syncing",
     "receive",
     "identity", "identity-unfinished", "top-up-stopped", "top-up-awaiting", "edit-profile",
@@ -232,7 +232,10 @@ fn dev_args<'a>(
                 | "wallet-switch-wait" | "overview-syncing",
             ),
         ) => Screen::Overview,
-        (None, Some("activity" | "activity-card")) => Screen::Activity,
+        (
+            None,
+            Some("activity" | "activity-card" | "activity-filters" | "activity-filters-empty"),
+        ) => Screen::Activity,
         (None, Some("send" | "send-confirm" | "send-contact" | "send-book" | "send-syncing")) => {
             Screen::Send
         }

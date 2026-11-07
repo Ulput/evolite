@@ -1,10 +1,11 @@
 //! 05 · History: every operation, filtered and searched, grouped by day.
 
+use super::activity_filters::{self, Filters, History, Period, Status};
 use super::txt;
 use crate::components::{
-    Assets, ButtonKind, TxRow, button, button_enabled, button_row, dialog_with_header, field_label,
-    kv_row, kv_row_in, notice, page_header, paint_icon_box, pill, section_label, status_chip,
-    tx_row_clickable,
+    Assets, ButtonKind, TxRow, button, button_enabled, button_row, checkbox, dialog_with_header,
+    field_label, kv_row, kv_row_in, notice, page_header, paint_icon_box, pill, section_label,
+    status_chip, tx_row_clickable,
 };
 use crate::context::Ctx;
 use crate::csv_export;
@@ -12,69 +13,7 @@ use crate::text::{self};
 use crate::theme::{Weight, mono, sans};
 use chrono::{DateTime, Local};
 use egui::{Align, Layout, Margin, Stroke, Ui};
-use evolite_api::{Activity, ActivityKind, Chain, Duffs, SavedAddress, Source};
-
-/// Which operations a filter on the History screen keeps.
-fn matches_filter(filter: usize, act: &Activity) -> bool {
-    match filter {
-        1 => act.chain == Chain::Core,
-        2 => act.chain != Chain::Core,
-        3 => matches!(
-            act.kind,
-            ActivityKind::Shielded { .. } | ActivityKind::PoolReceived | ActivityKind::PoolSent
-        ),
-        4 => matches!(
-            act.kind,
-            ActivityKind::TopUp { .. }
-                | ActivityKind::AppSignIn { .. }
-                | ActivityKind::CreditTransfer { .. }
-                | ActivityKind::Withdrawal { .. }
-                | ActivityKind::ContactRequest { .. }
-                | ActivityKind::ContactRequestIn { .. }
-                | ActivityKind::ProfileSaved
-                | ActivityKind::NameRegistered { .. }
-        ),
-        _ => true,
-    }
-}
-
-/// Search (`q` lowercased) by what the row shows — the title, the amount — and what it stands
-/// for: the whole address or name, and the txid (an operation's id is its txid's first 16 hex
-/// digits, so a pasted txid finds it). Spaces between thousands may be typed as plain spaces.
-fn matches_query(act: &Activity, q: &str, book: &[SavedAddress]) -> bool {
-    if q.is_empty() {
-        return true;
-    }
-    let counterparty = match &act.kind {
-        ActivityKind::Received { from: Some(who) }
-        | ActivityKind::Shielded { from: Some(who) }
-        | ActivityKind::Sent { to: who }
-        | ActivityKind::CreditTransfer { to: who }
-        | ActivityKind::Withdrawal { to: who, .. }
-        | ActivityKind::ContactRequest { to: who, .. }
-        | ActivityKind::ContactRequestIn { from: who, .. }
-        | ActivityKind::TopUp { identity: who, .. } => who.as_str(),
-        _ => "",
-    };
-    // The payment's Core address too: a payment in names no one, only our own address it came
-    // to, and a payment to a contact shows the @name with the address beside it. And the whole
-    // txid, as the card shows it.
-    let shown = format!(
-        "{} {} {} {} {}",
-        text::activity_title_in(act, book),
-        crate::format::number(act.amount, true),
-        counterparty,
-        act.address.as_deref().unwrap_or_default(),
-        act.txid.as_deref().unwrap_or_default()
-    )
-    .replace('\u{a0}', " ")
-    .to_lowercase();
-    let txid = q.len() >= 8 && q.chars().all(|c| c.is_ascii_hexdigit()) && {
-        let id = format!("{:016x}", act.id);
-        id.starts_with(&q[..q.len().min(16)])
-    };
-    shown.contains(q) || txid
-}
+use evolite_api::{Activity, ActivityKind, Chain, Duffs, Flow, SavedAddress, Source};
 
 /// Where the last export's answer is kept: the file written (and how many lines), or why not.
 fn saved_id() -> egui::Id {
@@ -92,8 +31,9 @@ pub fn saved(ctx: &egui::Context) -> Option<Result<(std::path::PathBuf, usize), 
     ctx.data(|d| d.get_temp(saved_id()))
 }
 
-/// 05 · History: filter chips, search, operations grouped by day.
-pub fn activity(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, filter: &mut usize, query: &mut String) {
+/// 05 · History: layer pills, «Filters», search, the filters on as chips, operations grouped by
+/// day (FEAT-0009).
+pub fn activity(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, h: &mut History) {
     let p = a.p;
     let wallet = cx.wallet();
     ui.spacing_mut().item_spacing.y = 18.0;
@@ -128,15 +68,46 @@ pub fn activity(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, filter: &mut usize, q
             );
         });
     });
+    let total = wallet.activity.len();
+    let shown: Vec<usize> = h
+        .shown(&wallet.activity, &wallet.address_book, &cx.now)
+        .to_vec();
+    // With filters on, «Export CSV» asks which lines (UC-6); with none, it writes them all.
+    let mut write: Option<Vec<&Activity>> = None;
     if export {
-        let csv = csv_export::taxbit(&wallet.activity, &csv_export::Own::of(wallet));
-        let lines = csv.lines().count().saturating_sub(1);
+        if shown.len() < total {
+            h.export = Some(true);
+        } else {
+            write = Some(wallet.activity.iter().collect());
+        }
+    }
+    if let Some(only_shown) = h.export {
+        match export_question(ui, a, only_shown, (shown.len(), total), &h.filters) {
+            Ask::Open(choice) => h.export = Some(choice),
+            Ask::Closed => h.export = None,
+            Ask::Export(only_shown) => {
+                h.export = None;
+                write = Some(if only_shown {
+                    shown.iter().map(|i| &wallet.activity[*i]).collect()
+                } else {
+                    wallet.activity.iter().collect()
+                });
+            }
+        }
+    }
+    if let Some(lines) = write {
+        let lines: Vec<Activity> = lines.into_iter().cloned().collect();
+        let csv = csv_export::taxbit(&lines, &csv_export::Own::of(wallet));
+        let count = csv.lines().count().saturating_sub(1);
         let day = Local::now().format("%Y-%m-%d").to_string();
         let saved = csv_export::downloads()
             .ok_or_else(|| tr!("the “Downloads” folder was not found").to_string())
             .and_then(|dir| csv_export::save(&dir, &csv, &day).map_err(|e| e.to_string()))
-            .map(|path| (path, lines));
+            .map(|path| (path, count));
         ui.data_mut(|d| d.insert_temp(saved_id, saved));
+        export = true;
+    } else {
+        export = false;
     }
     let saved: Option<Result<(std::path::PathBuf, usize), String>> =
         ui.data(|d| d.get_temp(saved_id));
@@ -206,11 +177,17 @@ pub fn activity(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, filter: &mut usize, q
         .iter()
         .enumerate()
         {
-            if pill(ui, &p, label, *filter == i).clicked() {
-                *filter = i;
+            if pill(ui, &p, label, h.filters.layer == i).clicked() {
+                h.filters.layer = i;
             }
         }
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+            // At 1024 with the rail the search narrows; «Filters» stays (the designer's rule).
+            let search_width = if ui.available_width() < 560.0 {
+                200.0
+            } else {
+                272.0
+            };
             egui::Frame::new()
                 .fill(p.raised)
                 .stroke(Stroke::new(1.0, p.field_line))
@@ -221,7 +198,7 @@ pub fn activity(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, filter: &mut usize, q
                     crate::a11y::name_next_field(ui, tr!("Search by address, name, amount"));
                     crate::rtl::text_edit(
                         ui,
-                        egui::TextEdit::singleline(query)
+                        egui::TextEdit::singleline(&mut h.query)
                             .hint_text(txt(
                                 tr!("Search by address, name, amount"),
                                 14.0,
@@ -230,36 +207,85 @@ pub fn activity(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, filter: &mut usize, q
                             ))
                             .font(sans(14.0, Weight::Regular))
                             .frame(egui::Frame::NONE)
-                            .desired_width(272.0),
+                            .desired_width(search_width),
                     );
                 });
+            let count = h.filters.chips().len();
+            let resp = filters_button(ui, a, count, h.open);
+            if resp.clicked() {
+                h.open = !h.open;
+            }
+            if h.open {
+                filter_panel(ui, a, h, resp.rect, (shown.len(), total), cx.now);
+                if !h.open {
+                    resp.request_focus();
+                }
+            }
         });
     });
-    let q = query.trim().to_lowercase();
-    let shown: Vec<_> = wallet
-        .activity
-        .iter()
-        .filter(|act| matches_filter(*filter, act))
-        .filter(|act| matches_query(act, &q, &wallet.address_book))
-        .collect();
+    // The filters on, each with its cross, and how many lines they leave (UC-5).
+    let chips = h.filters.chips();
+    if !chips.is_empty() || shown.len() < total {
+        ui.horizontal_wrapped(|ui| {
+            ui.spacing_mut().item_spacing.x = 8.0;
+            for chip in &chips {
+                if filter_chip(ui, a, &activity_filters::chip_label(*chip)).clicked() {
+                    h.filters.remove(*chip);
+                }
+            }
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                if button(ui, a, tr!("Reset"), ButtonKind::Ghost, None).clicked() {
+                    h.filters.reset();
+                    h.filters.layer = 0;
+                    h.query.clear();
+                }
+                ui.label(txt(
+                    &shown_of(shown.len(), total),
+                    13.0,
+                    Weight::Regular,
+                    p.muted,
+                ));
+            });
+        });
+    }
     let mut list = egui::ScrollArea::vertical().auto_shrink(false);
     if banner_new {
         list = list.vertical_scroll_offset(0.0);
     }
+    let filtered = !chips.is_empty();
     list.show(ui, |ui| {
         ui.spacing_mut().item_spacing.y = 2.0;
         if shown.is_empty() {
             ui.add_space(40.0);
-            // Nothing at all is not "nothing found".
-            let empty = if wallet.activity.is_empty() {
-                tr!("No operations yet. Receive DASH on the “Receive” screen.")
+            if filtered {
+                // UC-8: the panel's filters leave nothing.
+                ui.vertical_centered(|ui| {
+                    ui.label(txt(
+                        tr!("Nothing matches these filters"),
+                        14.0,
+                        Weight::Regular,
+                        p.muted,
+                    ));
+                    ui.add_space(12.0);
+                    if button(ui, a, tr!("Reset the filters"), ButtonKind::Secondary, None)
+                        .clicked()
+                    {
+                        h.filters.reset();
+                    }
+                });
             } else {
-                tr!("Nothing found")
-            };
-            ui.vertical_centered(|ui| ui.label(txt(empty, 14.0, Weight::Regular, p.muted)));
+                // Nothing at all is not "nothing found".
+                let empty = if wallet.activity.is_empty() {
+                    tr!("No operations yet. Receive DASH on the “Receive” screen.")
+                } else {
+                    tr!("Nothing found")
+                };
+                ui.vertical_centered(|ui| ui.label(txt(empty, 14.0, Weight::Regular, p.muted)));
+            }
         }
+        // A day's heading only above its lines: a day the filters empty has none (AC-D3).
         let mut day = String::new();
-        for act in shown {
+        for act in shown.iter().map(|i| &wallet.activity[*i]) {
             let this_day = text::day(act.at, cx.now);
             if this_day != day {
                 day = this_day;
@@ -305,6 +331,368 @@ pub fn activity(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, filter: &mut usize, q
         }
     });
     card_window(ui, a, cx);
+}
+
+/// «Shown N of M», the numbers as the number format writes them.
+fn shown_of(n: usize, of: usize) -> String {
+    format!(
+        tr!("Shown {} of {}"),
+        crate::format::count(n as u64),
+        crate::format::count(of as u64)
+    )
+}
+
+/// `history/filters-button`: a pill with the filter icon and how many filters are on; raised
+/// while its panel is open. Its name says the number too (AC-T10).
+fn filters_button(ui: &mut Ui, a: &mut Assets, on: usize, open: bool) -> egui::Response {
+    let p = a.p;
+    let words = crate::i18n::t(tr!("Filters")).into_owned();
+    let label = if on > 0 {
+        format!("{words} {on}")
+    } else {
+        words
+    };
+    let font = sans(13.0, Weight::SemiBold);
+    let text_w = ui
+        .painter()
+        .layout_no_wrap(label.clone(), font.clone(), p.text)
+        .size()
+        .x;
+    let size = egui::vec2(16.0 + 16.0 + 6.0 + text_w + 14.0, 33.0);
+    let (rect, resp) = ui.allocate_exact_size(size, egui::Sense::click());
+    let color = if open || on > 0 || resp.hovered() {
+        p.text
+    } else {
+        p.muted
+    };
+    let fill = if open { p.raised } else { p.surface };
+    let stroke = if on > 0 { p.ink } else { p.line };
+    ui.painter().rect(
+        rect,
+        255,
+        fill,
+        Stroke::new(1.0, stroke),
+        egui::StrokeKind::Inside,
+    );
+    // Laid out left to right; the RTL mirror turns the frame over (rtl.rs).
+    let icon_x = rect.left() + 16.0 + 8.0;
+    let icon =
+        egui::Rect::from_center_size(egui::pos2(icon_x, rect.center().y), egui::vec2(16.0, 16.0));
+    a.icons.icon("filter", color, &p, 16.0).paint_at(ui, icon);
+    let (text_at, align) = (icon.right() + 6.0, egui::Align2::LEFT_CENTER);
+    ui.painter().text(
+        egui::pos2(text_at, rect.center().y),
+        align,
+        &label,
+        font,
+        color,
+    );
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, &label));
+    resp.on_hover_cursor(egui::CursorIcon::PointingHand)
+}
+
+/// `history/active-filter-chip`: a raised pill with the filter's words and a cross 12; a click
+/// takes the filter off. Named «Remove the filter «…»» (AC-T10).
+fn filter_chip(ui: &mut Ui, a: &mut Assets, label: &str) -> egui::Response {
+    let p = a.p;
+    let words = crate::i18n::t(label).into_owned();
+    let font = sans(13.0, Weight::Medium);
+    let text_w = ui
+        .painter()
+        .layout_no_wrap(words.clone(), font.clone(), p.text)
+        .size()
+        .x;
+    let size = egui::vec2(12.0 + text_w + 6.0 + 12.0 + 10.0, 29.0);
+    let (rect, resp) = ui.allocate_exact_size(size, egui::Sense::click());
+    ui.painter().rect(
+        rect,
+        255,
+        p.raised,
+        Stroke::new(1.0, p.line),
+        egui::StrokeKind::Inside,
+    );
+    let (text_at, align, cross_x) = (
+        rect.left() + 12.0,
+        egui::Align2::LEFT_CENTER,
+        rect.right() - 16.0,
+    );
+    ui.painter().text(
+        egui::pos2(text_at, rect.center().y),
+        align,
+        &words,
+        font,
+        p.text,
+    );
+    let cross =
+        egui::Rect::from_center_size(egui::pos2(cross_x, rect.center().y), egui::vec2(12.0, 12.0));
+    let color = if resp.hovered() { p.text } else { p.muted };
+    a.icons.icon("close", color, &p, 12.0).paint_at(ui, cross);
+    let name = format!(tr!("Remove the filter “{}”"), words);
+    let name = crate::i18n::t(&name).into_owned();
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, &name));
+    resp.on_hover_cursor(egui::CursorIcon::PointingHand)
+}
+
+/// `history/filter-panel`: under «Filters», 380 wide, not modal. The filters work at once;
+/// «Done» and Esc only close it.
+fn filter_panel(
+    ui: &mut Ui,
+    a: &mut Assets,
+    h: &mut History,
+    button: egui::Rect,
+    counts: (usize, usize),
+    now: DateTime<Local>,
+) {
+    let p = a.p;
+    const WIDTH: f32 = 380.0;
+    // Down from the button, its right edge on the button's, inside the window (the RTL
+    // mirror turns it over with the frame).
+    let screen = ui.ctx().content_rect();
+    let x = (button.right() - WIDTH).clamp(
+        screen.left() + 8.0,
+        (screen.right() - WIDTH - 8.0).max(screen.left() + 8.0),
+    );
+    egui::Area::new(egui::Id::new("history-filter-panel"))
+        .order(egui::Order::Foreground)
+        .fixed_pos(egui::pos2(x, button.bottom() + 8.0))
+        .show(ui.ctx(), |ui| {
+            egui::Frame::new()
+                .fill(p.surface)
+                .stroke(Stroke::new(1.0, p.line))
+                .corner_radius(16)
+                .shadow(egui::epaint::Shadow {
+                    offset: [0, 8],
+                    blur: 24,
+                    spread: 0,
+                    color: egui::Color32::from_black_alpha(if p.dark { 120 } else { 40 }),
+                })
+                .inner_margin(Margin::same(20))
+                .show(ui, |ui| {
+                    ui.set_width(WIDTH - 40.0);
+                    ui.spacing_mut().item_spacing.y = 10.0;
+                    panel_body(ui, a, h, counts, now);
+                });
+        });
+    if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+        h.open = false;
+    }
+}
+
+fn panel_body(
+    ui: &mut Ui,
+    a: &mut Assets,
+    h: &mut History,
+    (shown, total): (usize, usize),
+    now: DateTime<Local>,
+) {
+    let p = a.p;
+    let f = &mut h.filters;
+    section_label(ui, &p, tr!("Direction"));
+    ui.horizontal_wrapped(|ui| {
+        ui.spacing_mut().item_spacing.x = 6.0;
+        for flow in [None, Some(Flow::In), Some(Flow::Out), Some(Flow::Between)] {
+            let label = activity_filters::flow_label(flow);
+            if pill(ui, &p, label, f.flow == flow).clicked() {
+                f.flow = flow;
+            }
+        }
+    });
+    section_label(ui, &p, tr!("Status"));
+    ui.horizontal_wrapped(|ui| {
+        ui.spacing_mut().item_spacing.x = 6.0;
+        for status in [
+            None,
+            Some(Status::Pending),
+            Some(Status::Confirmed),
+            Some(Status::Final),
+        ] {
+            let label = activity_filters::status_label(status);
+            if pill(ui, &p, label, f.status == status).clicked() {
+                f.status = status;
+            }
+        }
+    });
+    section_label(ui, &p, tr!("Type"));
+    egui::Grid::new("history-filter-types")
+        .num_columns(2)
+        .spacing([16.0, 8.0])
+        .show(ui, |ui| {
+            for (n, (bit, label)) in activity_filters::kind::ALL.iter().enumerate() {
+                let mut on = f.kinds & bit != 0;
+                checkbox(ui, a, &mut on, label);
+                if on {
+                    f.kinds |= bit;
+                } else {
+                    f.kinds &= !bit;
+                }
+                if n % 2 == 1 {
+                    ui.end_row();
+                }
+            }
+        });
+    section_label(ui, &p, tr!("Period"));
+    let custom = matches!(f.period, Period::Custom(..));
+    ui.horizontal_wrapped(|ui| {
+        ui.spacing_mut().item_spacing.x = 6.0;
+        for period in [
+            Period::All,
+            Period::Today,
+            Period::Days(7),
+            Period::Days(30),
+            Period::ThisYear,
+        ] {
+            let label = activity_filters::period_label(period);
+            if pill(ui, &p, &label, f.period == period).clicked() {
+                f.period = period;
+            }
+        }
+        if pill(ui, &p, tr!("Custom…"), custom).clicked() && !custom {
+            let today = now.date_naive();
+            let from = today
+                .checked_sub_days(chrono::Days::new(29))
+                .unwrap_or(today);
+            f.period = Period::Custom(from, today);
+            h.from = activity_filters::date_text(from);
+            h.to = activity_filters::date_text(today);
+        }
+    });
+    if let Period::Custom(..) = h.filters.period {
+        date_fields(ui, a, h);
+    }
+    ui.add_space(4.0);
+    ui.horizontal(|ui| {
+        if button(ui, a, tr!("Reset"), ButtonKind::Ghost, None).clicked() {
+            h.filters.reset();
+        }
+        ui.label(txt(&shown_of(shown, total), 13.0, Weight::Regular, p.muted));
+        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+            if button(ui, a, tr!("Done"), ButtonKind::Primary, None).clicked() {
+                h.open = false;
+            }
+        });
+    });
+}
+
+/// «from … to …» of the custom period: Mono, with the calendar icon; a date that does not read
+/// says so under the fields. The period follows the fields once both read.
+fn date_fields(ui: &mut Ui, a: &mut Assets, h: &mut History) {
+    let p = a.p;
+    let mut wrong = false;
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = 8.0;
+        for (word, from) in [(tr!("from"), true), (tr!("to"), false)] {
+            ui.label(txt(word, 13.0, Weight::Regular, p.muted));
+            let typed = if from { &mut h.from } else { &mut h.to };
+            egui::Frame::new()
+                .fill(p.raised)
+                .stroke(Stroke::new(1.0, p.field_line))
+                .corner_radius(10)
+                .inner_margin(Margin::symmetric(10, 8))
+                .show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        crate::a11y::name_next_field(ui, word);
+                        crate::rtl::text_edit(
+                            ui,
+                            egui::TextEdit::singleline(typed)
+                                .hint_text(txt("31.10.2026", 13.0, Weight::Regular, p.muted))
+                                .font(mono(13.0, Weight::Regular))
+                                .frame(egui::Frame::NONE)
+                                .desired_width(92.0),
+                        );
+                        let (r, _) =
+                            ui.allocate_exact_size(egui::vec2(16.0, 16.0), egui::Sense::hover());
+                        a.icons.icon("calendar", p.muted, &p, 16.0).paint_at(ui, r);
+                    });
+                });
+            wrong |= activity_filters::parse_date(typed).is_none();
+        }
+    });
+    if let (Some(from), Some(to)) = (
+        activity_filters::parse_date(&h.from),
+        activity_filters::parse_date(&h.to),
+    ) {
+        h.filters.period = Period::Custom(from, to);
+    }
+    if wrong {
+        ui.label(txt(
+            tr!("A date as 31.10.2026"),
+            12.0,
+            Weight::Regular,
+            p.danger,
+        ));
+    }
+}
+
+/// What the export question answered this frame.
+enum Ask {
+    Open(bool),
+    Closed,
+    Export(bool),
+}
+
+/// `dialog/export-filtered` (UC-6): only the shown lines (the default) or the whole history.
+fn export_question(
+    ui: &mut Ui,
+    a: &mut Assets,
+    mut only_shown: bool,
+    (shown, total): (usize, usize),
+    filters: &Filters,
+) -> Ask {
+    let mut go = false;
+    let closed = crate::components::dialog(
+        ui,
+        a,
+        "history-export-filtered",
+        "export-csv",
+        tr!("Export CSV"),
+        440.0,
+        |ui, a| {
+            let p = a.p;
+            ui.label(txt(
+                tr!("Filters are on. What to export?"),
+                14.0,
+                Weight::Regular,
+                p.text,
+            ));
+            let what = filters
+                .chips()
+                .into_iter()
+                .map(|c| crate::i18n::t(&activity_filters::chip_label(c)).into_owned())
+                .collect::<Vec<_>>()
+                .join(" · ");
+            let only = format!(
+                tr!("Only the shown ones · {}"),
+                crate::format::count(shown as u64)
+            );
+            if crate::components::option_card(ui, a, "check", &only, &what, only_shown).clicked() {
+                only_shown = true;
+            }
+            let all = format!(
+                tr!("The whole history · {}"),
+                crate::format::count(total as u64)
+            );
+            if crate::components::option_card(ui, a, "activity", &all, "", !only_shown).clicked() {
+                only_shown = false;
+            }
+            let mut close = false;
+            button_row(ui, |ui| {
+                if button(ui, a, tr!("Export"), ButtonKind::Primary, None).clicked() {
+                    go = true;
+                }
+                if button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked() {
+                    close = true;
+                }
+            });
+            close || go
+        },
+    );
+    if go {
+        Ask::Export(only_shown)
+    } else if closed {
+        Ask::Closed
+    } else {
+        Ask::Open(only_shown)
+    }
 }
 
 /// The open operation's card, if one is open: History and Overview's latest operations show
@@ -681,6 +1069,7 @@ fn again(act: &Activity) -> Option<(String, Duffs)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::screens::activity_filters::matches_query;
     use evolite_api::Proof;
 
     fn sent(to: &str, amount: i64) -> Activity {
@@ -695,6 +1084,8 @@ mod tests {
             fee: None,
             block: None,
             address: None,
+            layers: evolite_api::layer::CORE,
+            flow: evolite_api::Flow::Out,
         }
     }
 
@@ -771,6 +1162,8 @@ mod card_tests {
             fee: None,
             block: None,
             address: address.map(Into::into),
+            layers: evolite_api::layer::CORE,
+            flow: evolite_api::Flow::Out,
         }
     }
 
@@ -815,6 +1208,8 @@ mod again_tests {
             fee,
             block: None,
             address: address.map(Into::into),
+            layers: evolite_api::layer::CORE,
+            flow: evolite_api::Flow::Out,
         }
     }
 

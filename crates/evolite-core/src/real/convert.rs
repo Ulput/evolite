@@ -410,6 +410,7 @@ pub(super) fn activity(
         .block_info()
         .map_or(seen, |b| b.timestamp() as Timestamp);
     let txid = record.txid.to_string();
+    let (layers, flow) = crate::layers::of(&kind, chain);
     Activity {
         id: u64::from_str_radix(&txid[..16.min(txid.len())], 16).unwrap_or(0),
         kind,
@@ -426,6 +427,8 @@ pub(super) fn activity(
             .map(|f| f as Duffs),
         block: record.context.block_info().map(|b| b.height()),
         address,
+        layers,
+        flow,
     }
 }
 
@@ -1019,6 +1022,8 @@ mod tests {
             fee: None,
             block: None,
             address: None,
+            layers: layer::CORE,
+            flow: Flow::Out,
         };
         let contact = |id: &str, name: Option<&str>| Contact {
             identity_id: id.into(),
@@ -1073,6 +1078,8 @@ mod tests {
             fee: None,
             block,
             address: None,
+            layers: layer::CORE,
+            flow: Flow::In,
         };
         let mut h = vec![
             at(Some(900), Proof::InBlock),

@@ -326,6 +326,27 @@ pub fn left_after(balance: i64, amount: i64, fee: i64) -> i64 {
     balance.saturating_sub(amount).saturating_sub(fee)
 }
 
+/// A count of things («Shown 1 204 of 2 310»): whole, its thousands grouped as the number
+/// format groups them.
+pub fn count(n: u64) -> String {
+    let (group, _) = display().style.marks();
+    let digits = n.to_string();
+    let mut out = String::new();
+    for (i, c) in digits.chars().enumerate() {
+        if i > 0 && (digits.len() - i).is_multiple_of(3) {
+            out.push(group);
+        }
+        out.push(c);
+    }
+    out
+}
+
+/// An amount typed into History's search, in the chosen unit: a comma or a dot before the
+/// decimals whatever the number format (FEAT-0009 R-4), spaces allowed; none for anything else.
+pub fn parse_search_amount(input: &str) -> Option<i64> {
+    parse_units(input, display().unit.decimals(), &[',', '.'])
+}
+
 /// A decimal number of `decimals` places from text: digits, one decimal mark, spaces allowed.
 fn parse_units(input: &str, decimals: u32, decimal_marks: &[char]) -> Option<i64> {
     let clean: String = input.chars().filter(|c| !c.is_whitespace()).collect();

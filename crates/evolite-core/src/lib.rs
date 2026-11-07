@@ -22,6 +22,7 @@ pub mod attempts;
 pub mod bip39;
 pub mod diag;
 mod dpns;
+pub(crate) mod layers;
 #[cfg(any(feature = "demo", not(feature = "real"), test))]
 mod mock;
 /// The password the demo core refuses (the UI tests' "Wrong password").

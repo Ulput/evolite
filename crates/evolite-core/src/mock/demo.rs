@@ -201,17 +201,22 @@ pub(super) fn demo_wallet(t: Timestamp) -> Wallet {
     let min = 60;
     let hour = 60 * min;
     let day = 24 * hour;
-    let act = |id, kind, chain, ago, amount, proof| Activity {
-        id,
-        kind,
-        chain,
-        at: t - ago,
-        amount,
-        proof,
-        txid: None,
-        fee: None,
-        block: None,
-        address: None,
+    let act = |id, kind: ActivityKind, chain, ago, amount, proof| {
+        let (layers, flow) = crate::layers::of(&kind, chain);
+        Activity {
+            id,
+            kind,
+            chain,
+            at: t - ago,
+            amount,
+            proof,
+            txid: None,
+            fee: None,
+            block: None,
+            address: None,
+            layers,
+            flow,
+        }
     };
     use ActivityKind::*;
     Wallet {
@@ -318,6 +323,88 @@ pub(super) fn demo_wallet(t: Timestamp) -> Wallet {
                     Proof::ChainLock,
                 )
             },
+            // FEAT-0009: the other kinds and statuses, so History's filters have each to find.
+            act(
+                9,
+                Sent { to: "@bob".into() },
+                Chain::Core,
+                3 * day,
+                -15_000_226,
+                Proof::Sending,
+            ),
+            act(
+                10,
+                TopUp {
+                    identity: "@satoshi".into(),
+                    creates: false,
+                    credits: Credits::Unknown,
+                },
+                Chain::CoreToPlatform,
+                4 * day,
+                -30_000_000,
+                Proof::InBlock,
+            ),
+            act(
+                11,
+                SelfTransfer { moved: 10_000_000 },
+                Chain::Core,
+                5 * day,
+                -226,
+                Proof::ChainLock,
+            ),
+            // To the wallet's own Core address: a move between own balances.
+            Activity {
+                flow: Flow::Between,
+                ..act(
+                    12,
+                    Withdrawal {
+                        to: "yXk3Tq9mD8vJw2RfL6pN4sB7cH1eZ5aG9f2c".into(),
+                        status: Some(WithdrawalState::Complete),
+                    },
+                    Chain::Platform,
+                    6 * day,
+                    -40_000_000,
+                    Proof::Proved,
+                )
+            },
+            act(
+                13,
+                NameRegistered {
+                    label: "nakamoto-dev".into(),
+                },
+                Chain::Platform,
+                9 * day,
+                -100_000,
+                Proof::Proved,
+            ),
+            act(
+                14,
+                ContactRequest {
+                    to: "@bob".into(),
+                    accepting: false,
+                    ours: None,
+                },
+                Chain::Platform,
+                10 * day,
+                -10_000,
+                Proof::Proved,
+            ),
+            act(
+                15,
+                ProfileSaved,
+                Chain::Platform,
+                11 * day,
+                -5_000,
+                Proof::Proved,
+            ),
+            act(
+                16,
+                Received { from: None },
+                Chain::Core,
+                40 * day,
+                20_000_000,
+                Proof::ChainLock,
+            ),
         ],
         core_address: "yXk3Tq9mD8vJw2RfL6pN4sB7cH1eZ5aG9f2c".into(),
         platform_address: "tdash1qq7x4m9n2r8v5k3j6h0w4p2s8d5f7g9l3c0zq".into(),

@@ -90,6 +90,8 @@ impl PlatformSending {
             fee: None,
             block: None,
             address: None,
+            layers: crate::layers::of(&p.kind, Chain::Platform).0,
+            flow: crate::layers::of(&p.kind, Chain::Platform).1,
         }));
         history
     }
@@ -141,6 +143,8 @@ mod tests {
             fee: Some(500),
             block: None,
             address: None,
+            layers: evolite_api::layer::IDENTITY,
+            flow: evolite_api::Flow::Out,
         }
     }
 

@@ -529,6 +529,14 @@ mod imp {
         };
         let mut id = [0u8; 8];
         id.copy_from_slice(&entry.id[..8]);
+        // The source of a shield, which only the scan knows (FEAT-0009 R-1).
+        let (mut layers, flow) = crate::layers::of(&kind, Layer::Platform);
+        layers |= match entry.kind {
+            ShieldedActivityKind::ShieldFromAssetLock => evolite_api::layer::CORE,
+            ShieldedActivityKind::ShieldFromIdentity { .. } => evolite_api::layer::IDENTITY,
+            ShieldedActivityKind::Shield => evolite_api::layer::PLATFORM_ADDRESS,
+            _ => 0,
+        };
         Some(Activity {
             id: u64::from_le_bytes(id),
             kind,
@@ -540,6 +548,8 @@ mod imp {
             fee,
             block: entry.block_height.map(|h| h as u32),
             address: None,
+            layers,
+            flow,
         })
     }
 }

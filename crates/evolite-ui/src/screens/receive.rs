@@ -458,6 +458,8 @@ mod tests {
             fee: None,
             block: None,
             address: address.map(Into::into),
+            layers: evolite_api::layer::CORE,
+            flow: evolite_api::Flow::Out,
         };
         let received = || ActivityKind::Received { from: None };
         let history = [
@@ -512,6 +514,8 @@ mod tests {
             fee: Some(226),
             block: None,
             address: Some("yA".into()),
+            layers: evolite_api::layer::CORE,
+            flow: evolite_api::Flow::Out,
         }];
         assert_eq!(
             past_addresses(&history, "yNow"),
@@ -526,6 +530,8 @@ mod tests {
         let pool = Activity {
             kind: ActivityKind::SelfTransfer { moved: 0 },
             address: None,
+            layers: evolite_api::layer::CORE,
+            flow: evolite_api::Flow::Out,
             ..history[0].clone()
         };
         assert!(past_addresses(&[pool], "yNow").is_empty());

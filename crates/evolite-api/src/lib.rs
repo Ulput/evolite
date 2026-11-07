@@ -23,6 +23,30 @@ pub enum Network {
     Mainnet,
 }
 
+/// The balances an operation changes ([`Activity::layers`], a mask of these): History's layer
+/// pills keep an operation in every layer whose money it moves (FEAT-0009 R-1).
+pub mod layer {
+    /// Core DASH.
+    pub const CORE: u8 = 1;
+    /// An identity's credits, and what is done as the identity (names, contacts, profile).
+    pub const IDENTITY: u8 = 2;
+    /// The Platform address's credits.
+    pub const PLATFORM_ADDRESS: u8 = 4;
+    /// The shielded pool.
+    pub const POOL: u8 = 8;
+}
+
+/// Which way an operation moved money, for the wallet as a whole (FEAT-0009 R-2).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Flow {
+    In,
+    Out,
+    /// Between the wallet's own balances: only the fee leaves (a transfer to yourself, a top-up
+    /// of your identity, a move into the pool from your own, a withdrawal to your own address,
+    /// credits to your own identity).
+    Between,
+}
+
 /// How far a payment is proved: the UI shows it as a status chip.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Proof {
@@ -180,6 +204,10 @@ pub struct Activity {
     /// their @name and naming a contact's payments. In: our own address it came to, which
     /// "Receive" lists with what each received.
     pub address: Option<String>,
+    /// The balances it changes: a mask of [`layer`]'s constants, set by the core (FEAT-0009).
+    pub layers: u8,
+    /// Which way it moved money for the whole wallet, set by the core (FEAT-0009).
+    pub flow: Flow,
 }
 
 #[derive(Clone, PartialEq, Debug)]

@@ -159,6 +159,8 @@ mod tests {
             fee: None,
             block: None,
             address: None,
+            layers: evolite_api::layer::CORE,
+            flow: evolite_api::Flow::In,
         }
     }
 

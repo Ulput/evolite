@@ -253,3 +253,69 @@ fn click_at(kit: &mut Kit, pos: egui::Pos2) {
     }
     kit.run_steps(1);
 }
+
+/// FEAT-0009 AC-T9 (AC-A7): a lock takes History's filters and search with it. The demo core
+/// does not lock, so the snapshot the app shows is locked here, as a lock's snapshot arrives;
+/// a snapshot from the core may come first, so it is tried for a few frames.
+#[test]
+fn a_lock_starts_history_from_all() {
+    use crate::screens::activity_filters::{Filters, Period, Status};
+    let (_turn, mut kit) = demo_app("activity", "en");
+    wait_for(&mut kit, "Main open", |kit| {
+        open_wallet(kit).as_deref() == Some("a1b2c3d4")
+    });
+    kit.state_mut().history.filters = Filters {
+        layer: 2,
+        status: Some(Status::Confirmed),
+        period: Period::Days(7),
+        ..Filters::default()
+    };
+    kit.state_mut().history.query = "bob".into();
+    kit.run_steps(2);
+    assert_ne!(kit.state().history.filters, Filters::default());
+    for _ in 0..5 {
+        if let Some(s) = kit.state_mut().snapshot.as_mut() {
+            s.vault = VaultState::Locked;
+        }
+        kit.run_steps(1);
+        if kit.state().history.filters == Filters::default() {
+            break;
+        }
+    }
+    assert_eq!(kit.state().history.filters, Filters::default());
+    assert!(kit.state().history.query.is_empty());
+}
+
+/// FEAT-0009 AC-T9 (AC-A7): History's filters and search are this wallet's; another wallet
+/// starts from «All». The filters narrow the demo history, and the line says how far.
+#[test]
+fn another_wallet_starts_history_from_all() {
+    use crate::screens::activity_filters::{Filters, Period, Status};
+    let (_turn, mut kit) = demo_app("activity", "en");
+    wait_for(&mut kit, "Main open", |kit| {
+        open_wallet(kit).as_deref() == Some("a1b2c3d4")
+    });
+    let narrowed = Filters {
+        layer: 1,
+        status: Some(Status::Pending),
+        period: Period::Days(30),
+        ..Filters::default()
+    };
+    kit.state_mut().history.filters = narrowed;
+    kit.state_mut().history.query = "bob".into();
+    kit.run_steps(2);
+    assert!(
+        has_text(&kit, "Shown 1 of 16"),
+        "the Sending payment to @bob"
+    );
+    kit.state_mut().core.send(Command::SwitchWallet {
+        id: SAVINGS.into(),
+        password: Some(Password::new("savings-password".into())),
+    });
+    wait_for(&mut kit, "Savings open", |kit| {
+        open_wallet(kit).as_deref() == Some(SAVINGS)
+    });
+    kit.run_steps(2);
+    assert_eq!(kit.state().history.filters, Filters::default());
+    assert!(kit.state().history.query.is_empty());
+}

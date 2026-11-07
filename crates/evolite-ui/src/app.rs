@@ -39,8 +39,8 @@ pub struct App {
     screen: Screen,
     /// The screen of the wallet drawn last: when it differs from `screen`, the person left it.
     drawn: Screen,
-    filter: usize,
-    query: String,
+    /// History's filters and search (FEAT-0009): kept for this wallet and this unlock only.
+    history: screens::activity_filters::History,
     send: screens::send::SendForm,
     receive: screens::receive::ReceiveForm,
     identity: screens::identity::IdentityState,
@@ -203,8 +203,7 @@ impl App {
             snapshot: None,
             screen: launch.screen,
             drawn: launch.screen,
-            filter: 0,
-            query: String::new(),
+            history: Default::default(),
             send,
             receive: Default::default(),
             requests: Default::default(),
@@ -463,6 +462,8 @@ impl App {
         self.create_identity = Default::default();
         self.collection.forget_wallet();
         screens::activity::forget(ctx);
+        // FEAT-0009 R-5: another wallet starts from «All».
+        self.history = Default::default();
     }
 
     /// Any input means the person is here: the core's auto-lock starts again. Told at most
@@ -498,6 +499,7 @@ impl App {
                     self.follow_wallet_screens(ctx, snapshot);
                     self.name_unnamed(snapshot);
                     self.notify_changes(ctx, snapshot);
+                    self.history.new_snapshot();
                     self.snapshot = Some((**snapshot).clone());
                     // Shown with its default name until the rename lands — and always under
                     // `--open`, which writes nothing (a wallet made by the core alone, e.g. a
@@ -961,6 +963,8 @@ impl eframe::App for App {
         if keys_gone(self.vault, snapshot.vault) {
             self.send.on_lock();
             self.settings.forget_secrets();
+            // FEAT-0009 R-5: the filters and the search go with the lock.
+            self.history = Default::default();
             // And what was typed for a spend (BUG-42).
             self.identity.on_lock();
             self.contacts.on_lock();
@@ -1159,9 +1163,7 @@ impl eframe::App for App {
                                     screens::overview(ui, a, &mut cx)
                                 });
                         }
-                        Screen::Activity => {
-                            screens::activity(ui, a, &mut cx, &mut self.filter, &mut self.query)
-                        }
+                        Screen::Activity => screens::activity(ui, a, &mut cx, &mut self.history),
                         Screen::Send => screens::send::send(ui, a, &mut cx, &mut self.send),
                         Screen::Receive => {
                             screens::receive::receive(ui, a, &mut cx, &mut self.receive)

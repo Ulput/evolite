@@ -395,6 +395,7 @@ pub fn activity(entry: &Entry) -> Activity {
             from: Some(from.clone()),
         },
     };
+    let (layers, flow) = crate::layers::of(&kind, Chain::Platform);
     Activity {
         id: line_id(entry),
         kind,
@@ -406,6 +407,8 @@ pub fn activity(entry: &Entry) -> Activity {
         fee: fee_of(entry),
         block: None,
         address: None,
+        layers,
+        flow,
     }
 }
 
@@ -489,7 +492,7 @@ mod tests {
         // shows none and the estimate keeps the last known one.
         journal.add(entry(
             What::Shield {
-                from: tr!("a Platform address").into(),
+                from: crate::layers::FROM_PLATFORM_ADDRESS.into(),
             },
             300_000,
             300_000,

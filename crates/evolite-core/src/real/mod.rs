@@ -2056,6 +2056,8 @@ impl Real {
         let mut coin_values = Vec::new();
         // Read before the coins are counted, and again after ([`count_checked`]).
         let status_before = self.chain.status();
+        // The wallet's own Core addresses (FEAT-0009: a withdrawal to one is a move between own).
+        let mut own_core: Vec<String> = Vec::new();
         let (balance, (coins, addresses), mut history, shown, platform) = match self
             .chain
             .wallet(&id)
@@ -2066,6 +2068,14 @@ impl Real {
                     let state = wallet.state().await;
                     state.core_wallet.transaction_history().len()
                 };
+                own_core = wallet
+                    .state()
+                    .await
+                    .core_wallet
+                    .monitored_addresses()
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect();
                 if !self.fresh_receive {
                     // One address for every payment: the first of the wallet's receive chain
                     // (m/44'/1'/0'/0/0), the same after a restart or a restore.
@@ -2445,7 +2455,7 @@ impl Real {
             count_checked(balance.is_some(), &status_before, &self.chain.status()),
             now(),
         );
-        Wallet {
+        let mut shown_wallet = Wallet {
             password_each_send: self.password_each_send,
             balances: Balances {
                 core,
@@ -2508,7 +2518,11 @@ impl Real {
             fees,
             phrase_words: meta.word_count as usize,
             created_at: meta.created_at as Timestamp,
-        }
+        };
+        // Which balances each line changes and which way, with what is the wallet's own
+        // (FEAT-0009 R-1, R-2).
+        crate::layers::settle_wallet(&mut shown_wallet, &own_core);
+        shown_wallet
     }
 
     /// Who a Core payment to `to` goes to: a testnet address, or an established contact by name
@@ -2893,15 +2907,16 @@ impl Real {
                 // Credits and Platform addresses leave a line in the history (Core has its own,
                 // the asset lock); what left them is read before and after.
                 let (label, before) = match from {
+                    // The labels the layers read the source from (FEAT-0009).
                     ShieldSource::Credits => (
-                        tr!("identity credits"),
+                        crate::layers::FROM_CREDITS,
                         chain.first_identity_credits(&wallet, false).await,
                     ),
                     ShieldSource::PlatformAddress => (
-                        tr!("a Platform address"),
+                        crate::layers::FROM_PLATFORM_ADDRESS,
                         chain.platform_address(&wallet).await.ok().map(|(_, c)| c),
                     ),
-                    ShieldSource::Core => ("Core", None),
+                    ShieldSource::Core => (crate::layers::FROM_CORE, None),
                 };
                 match from {
                     ShieldSource::Credits => {
@@ -5179,6 +5194,56 @@ mod tests {
         assert!(core.chain.wallet(&id).await.is_some());
         core.chain.stop().await;
         assert!(!core.chain.store_open());
+    }
+
+    /// FEAT-0009 review r1 must 1: the snapshot's lines are settled with what is the wallet's
+    /// own ([`crate::layers::settle_wallet`], tested there with every kind it changes). A
+    /// withdrawal to one of the wallet's Core addresses is a move between own balances, which
+    /// only the wallet knows.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn the_snapshot_settles_its_lines_with_the_wallets_own_addresses() {
+        let mut core = core_with_vault("settle-own", "pw");
+        assert_eq!(core.unlock(&pw("pw")).await, Ok(()));
+        let open = core.unlocked.as_ref().unwrap();
+        let (id, meta) = (open.id, open.meta.clone());
+        core.chain
+            .open_store_only(&core.paths.chain)
+            .await
+            .expect("the store opens");
+        assert_eq!(core.attach_wallet().await, Ok(()));
+        let wallet = core.chain.wallet(&id).await.expect("the wallet is in");
+        let mine = wallet
+            .state()
+            .await
+            .core_wallet
+            .monitored_addresses()
+            .first()
+            .map(ToString::to_string)
+            .expect("an address of the wallet");
+        drop(wallet);
+        for to in [mine.clone(), "yQeRmBYHdNaSt7QnKpGWLzRaZDZpSkdeKC".into()] {
+            core.journal.add(journal::Entry {
+                at: 1_793_000_000,
+                what: journal::What::Withdrawal { to },
+                spent: 100_000,
+                moved: 99_000,
+                ..Default::default()
+            });
+        }
+        let shown = core.wallet(id, meta).await;
+        let flow_to = |to: &str| {
+            shown
+                .activity
+                .iter()
+                .find(|a| matches!(&a.kind, ActivityKind::Withdrawal { to: t, .. } if t == to))
+                .map(|a| a.flow)
+        };
+        assert_eq!(flow_to(&mine), Some(Flow::Between), "to the wallet's own");
+        assert_eq!(
+            flow_to("yQeRmBYHdNaSt7QnKpGWLzRaZDZpSkdeKC"),
+            Some(Flow::Out)
+        );
+        core.chain.stop().await;
     }
 
     /// "Add a wallet" → "Create": the new wallet is born at the tip the wallet before saw, and
