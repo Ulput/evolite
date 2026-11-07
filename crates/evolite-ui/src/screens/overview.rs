@@ -2,8 +2,8 @@
 
 use super::{Screen, txt};
 use crate::components::{
-    Assets, ButtonKind, TxRow, amount_label, balance_card, button, button_enabled, chip,
-    page_header, status_chip, tx_row_clickable,
+    Assets, ButtonKind, CardAmount, TxRow, amount_label, balance_card, button, button_enabled,
+    chip, page_header, status_chip, tx_row_clickable,
 };
 use crate::context::Ctx;
 use crate::text::{self};
@@ -17,6 +17,11 @@ pub fn overview(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx) {
     let wallet = cx.wallet();
     let b = &wallet.balances;
     let synced = text::coins_known(cx.snap.sync.stage);
+    // The Core balance not checked in this sync: the last checked one, dim, with its time, or
+    // none — «Total» counts it, so it is as sure (BUG-77).
+    let as_of = text::core_as_of(b.core_as_of, cx.now);
+    let unknown = b.core_as_of == Some(evolite_api::CoreAsOf::NotYet);
+    let total_color = if as_of.is_some() { p.muted } else { p.text };
     ui.spacing_mut().item_spacing.y = 22.0;
     page_header(ui, a, tr!("Overview"), None, |ui, a| {
         if button_enabled(ui, a, tr!("Send"), ButtonKind::Primary, None, synced)
@@ -45,14 +50,17 @@ pub fn overview(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx) {
             ui.label(txt(tr!("Total"), 13.0, Weight::Medium, p.muted));
             crate::components::amount_toggle(ui, a, false);
         });
-        amount_label(
-            ui,
-            &crate::format::amount(b.total()),
-            mono(44.0, Weight::Medium),
-            p.text,
-        );
+        let total = if unknown {
+            "—".to_owned()
+        } else {
+            crate::format::amount(b.total())
+        };
+        amount_label(ui, &total, mono(44.0, Weight::Medium), total_color);
+        if let Some(line) = &as_of {
+            ui.label(txt(line, 13.0, Weight::Regular, p.muted));
+        }
         // "Fiat rate": the mainnet price, hidden with the amount.
-        if let Some(fiat) = crate::format::fiat(b.total()) {
+        if let Some(fiat) = crate::format::fiat(b.total()).filter(|_| !unknown) {
             let line = if !crate::format::display().hide {
                 format!(tr!("{fiat} · at the mainnet rate"), fiat = fiat)
             } else {
@@ -107,6 +115,17 @@ pub fn overview(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx) {
         "{unit} · {}",
         text::plural(b.core_addresses, tr!("address"), tr!("addresses"))
     );
+    // Not checked in this sync: when it was, or that it is not known yet (BUG-77).
+    let core_line = match &as_of {
+        Some(line) if !unknown => format!("{unit} · {line}"),
+        Some(line) => line.clone(),
+        None => addresses,
+    };
+    let core = match b.core_as_of {
+        None => CardAmount::Now(b.core),
+        Some(evolite_api::CoreAsOf::Checked(_)) => CardAmount::Earlier(b.core),
+        Some(evolite_api::CoreAsOf::NotYet) => CardAmount::Unknown,
+    };
     let credits_line = if several {
         format!(
             "{unit} · {}",
@@ -119,19 +138,24 @@ pub fn overview(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx) {
     } else {
         format!(tr!("{unit} in Platform credits"), unit = unit)
     };
-    let cards: [(&str, &str, i64, &str); 4] = [
-        ("core", "Core", b.core, &addresses),
-        ("credits", &credits_title, b.all_credits, &credits_line),
+    let cards: [(&str, &str, CardAmount, &str); 4] = [
+        ("core", "Core", core, &core_line),
+        (
+            "credits",
+            &credits_title,
+            CardAmount::Now(b.all_credits),
+            &credits_line,
+        ),
         (
             "platform-address",
             tr!("Platform address"),
-            b.platform_address,
+            CardAmount::Now(b.platform_address),
             &format!(tr!("{unit} · no identity"), unit = unit),
         ),
         (
             "shielded",
             tr!("Private pool"),
-            b.shielded,
+            CardAmount::Now(b.shielded),
             &format!(tr!("{unit} · only you see it"), unit = unit),
         ),
     ];
@@ -144,8 +168,8 @@ pub fn overview(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx) {
         for row in cards.chunks(per_row) {
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = 16.0;
-                for (icon, title, duffs, detail) in row {
-                    balance_card(ui, a, icon, title, *duffs, detail, card_w);
+                for (icon, title, amount, detail) in row {
+                    balance_card(ui, a, icon, title, *amount, detail, card_w);
                 }
             });
         }

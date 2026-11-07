@@ -1048,6 +1048,111 @@ mod tests {
         assert!(waiting.is_empty(), "lines without a block: {waiting:?}");
     }
 
+    /// BUG-77 on a copy of the QA data folder (werner555, «Кошелёк 2»; nothing is spent): in
+    /// every snapshot the Core balance is a checked one — the sum of the coins each once while
+    /// the filters are at the tip, the last checked one with its time otherwise — and never
+    /// the sum counting the 7 DIP-15 coins twice (3,91724464) or one a rewound pass brings
+    /// spent coins back into (6,80…). Then «Add a wallet» → back → the password: the DashPay
+    /// backfill rewinds the filters again, and the checked balance stays on screen.
+    /// `cargo test -p evolite-core live_the_core_balance_shown -- --ignored --nocapture`
+    #[test]
+    #[ignore = "needs testnet access and the QA data folder"]
+    fn live_the_core_balance_shown_is_always_a_checked_one() {
+        use evolite_api::CoreAsOf;
+        const DOUBLE: i64 = 391_724_464;
+        let here = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../.test-identities/qa-evolite-password.txt");
+        let main = std::path::Path::new(r"E:\reps\evolite-rust\.test-identities")
+            .join("qa-evolite-password.txt");
+        let password = std::fs::read_to_string(&here)
+            .or_else(|_| std::fs::read_to_string(&main))
+            .expect("the QA password file")
+            .trim()
+            .to_owned();
+        let dir = std::env::temp_dir().join("evolite-live-b77-qa");
+        let _ = std::fs::remove_dir_all(&dir);
+        copy_dir(std::path::Path::new(r"E:\reps\qa-data"), &dir).expect("a copy of qa-data");
+        let core = Core::real(dir, ArtOptions::default(), || {});
+        core.send(Command::Unlock {
+            password: Password::new(password.clone()),
+        });
+        let target = wait_for(&core, 5, |e| match e {
+            Event::Snapshot(s) if s.vault == VaultState::Unlocked => s
+                .wallets
+                .iter()
+                .find(|w| w.name == "Кошелёк 2")
+                .map(|w| (w.id.clone(), w.open)),
+            _ => None,
+        });
+        if !target.1 {
+            core.send(Command::SwitchWallet {
+                id: target.0,
+                password: Some(Password::new(password.clone())),
+            });
+        }
+        // Every change of (stage, balance, as of) for `secs`, checked; the balances checked now
+        // and whether one was shown as of earlier.
+        let watch = |label: &str, secs: u64| {
+            let started = Instant::now();
+            let mut last = None;
+            let mut checked = std::collections::BTreeSet::new();
+            let mut earlier = false;
+            while started.elapsed() < Duration::from_secs(secs) {
+                for event in core.events() {
+                    let Event::Snapshot(s) = event else { continue };
+                    if !s.wallets.iter().any(|w| w.open && w.name == "Кошелёк 2") {
+                        continue;
+                    }
+                    let Some(w) = &s.wallet else { continue };
+                    let b = &w.balances;
+                    let now = (s.sync.stage, b.core, b.core_as_of);
+                    if last.as_ref() != Some(&now) {
+                        println!(
+                            "{label} {} s: filters {} tip {} {now:?}",
+                            started.elapsed().as_secs(),
+                            s.sync.filters_height,
+                            s.sync.tip_height,
+                        );
+                        last = Some(now);
+                    }
+                    assert_ne!(b.core, DOUBLE, "{label}: the DIP-15 coins counted twice");
+                    assert!(
+                        b.core < 450_000_000,
+                        "{label}: spent coins back in the balance: {now:?}"
+                    );
+                    match b.core_as_of {
+                        None => {
+                            checked.insert(b.core);
+                        }
+                        Some(CoreAsOf::Checked(_)) => earlier = true,
+                        Some(CoreAsOf::NotYet) => assert_eq!(b.core, 0, "{label}: no sum unknown"),
+                    }
+                }
+                std::thread::sleep(Duration::from_millis(300));
+            }
+            (last.expect("snapshots"), checked, earlier)
+        };
+        let (last, checked, _) = watch("open", 5 * 60);
+        println!("open: last {last:?}, checked {checked:?}");
+        assert_eq!(last.2, None, "checked at the end");
+        // The customer's way: a new chain on the same store, the backfill rewinding again.
+        core.send(Command::AddWallet);
+        std::thread::sleep(Duration::from_secs(3));
+        core.send(Command::CancelAddWallet);
+        std::thread::sleep(Duration::from_secs(3));
+        core.send(Command::Unlock {
+            password: Password::new(password.clone()),
+        });
+        let (again, checked_again, earlier) = watch("again", 4 * 60);
+        println!("again: last {again:?}, checked {checked_again:?}, as of earlier {earlier}");
+        assert_eq!(again.2, None, "checked at the end");
+        assert_eq!(again.1, last.1, "the same balance as after opening");
+        assert!(
+            earlier,
+            "while syncing again the checked balance is shown with its time"
+        );
+    }
+
     /// BUG-64 on testnet: a payment to the wallet's own address is "Confirmed" by its InstantLock
     /// in seconds, and stays at least that after the app is opened again on the same folder —
     /// then "In a block" and "Final" as the chain goes on. Prints each change of its status.

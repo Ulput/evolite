@@ -184,7 +184,14 @@ pub struct Activity {
 
 #[derive(Clone, PartialEq, Debug)]
 pub struct Balances {
+    /// The Core balance, each coin once (BUG-77): checked in this sync, or the last checked one
+    /// while the wallet does not know its coins (see `core_as_of`); 0 when none was checked yet.
     pub core: Duffs,
+    /// How sure `core` is (BUG-77, the designer's improvement 1): `None` — checked in this sync
+    /// (the filters are at the tip); otherwise the last checked amount and its time, or none
+    /// checked yet (a new or restored wallet). «Total» is as sure as `core`. Payments from Core
+    /// wait until it is `None`.
+    pub core_as_of: Option<CoreAsOf>,
     pub core_addresses: u32,
     /// The credits of the identity the person works as: what Send, a top-up or a withdrawal
     /// spend.
@@ -202,6 +209,15 @@ impl Balances {
     pub fn total(&self) -> Duffs {
         self.core + self.all_credits + self.platform_address + self.shielded
     }
+}
+
+/// A Core balance not checked in this sync ([`Balances::core_as_of`]).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum CoreAsOf {
+    /// The last checked balance, checked at this time (kept in the wallet's folder).
+    Checked(Timestamp),
+    /// None checked yet: the screens say «not known yet», not an amount.
+    NotYet,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]

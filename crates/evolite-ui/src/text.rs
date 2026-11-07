@@ -72,6 +72,32 @@ pub fn known(at: Timestamp) -> bool {
     at > 0
 }
 
+/// BUG-77, the designer's improvement 1: how sure the Core balance is, in words under it —
+/// nothing when it was checked in this sync; «as of 23:41», «as of 23:41 yesterday», «as of 27
+/// Oct, 23:41» for the last checked one; «Not known yet» when none was checked (a new or restored
+/// wallet), shown instead of an amount.
+pub fn core_as_of(as_of: Option<evolite_api::CoreAsOf>, now: DateTime<Local>) -> Option<String> {
+    use evolite_api::CoreAsOf;
+    let line: String = match as_of? {
+        CoreAsOf::NotYet => tr!("Not known yet").into(),
+        CoreAsOf::Checked(at) => {
+            let t = local(at);
+            let time = t.format("%H:%M").to_string();
+            match days_between(t, now) {
+                d if d <= 0 => format!(tr!("as of {time}"), time = time),
+                1 => format!(tr!("as of {time} yesterday"), time = time),
+                _ => format!(
+                    tr!("as of {date}, {time}"),
+                    date = date_short(at, now),
+                    time = time
+                ),
+            }
+        }
+    };
+    // In the interface language here: the screens put it beside other words.
+    Some(crate::i18n::t_in(crate::i18n::current(), &line).into_owned())
+}
+
 /// "just now", "today, 14:32", "yesterday", "27 Oct"; "time unknown" without a time.
 pub fn when(at: Timestamp, now: DateTime<Local>) -> String {
     if !known(at) {
@@ -796,6 +822,34 @@ mod tests {
                 "Asset lock 0a1b…:0 is ineligible for IdentityTopUp index 2: it is IdentityTopUp index 0"
             ),
             tr!("this locked money was made for another identity or purpose")
+        );
+    }
+
+    /// BUG-77: a Core balance checked earlier says when — today by the time, yesterday so,
+    /// earlier by the date and the time; one never checked says so; one checked now says
+    /// nothing.
+    #[test]
+    fn an_earlier_core_balance_says_when_it_was_checked() {
+        use evolite_api::CoreAsOf;
+        let now = Local.with_ymd_and_hms(2026, 11, 7, 12, 0, 0).unwrap();
+        let at = |d: u32, h: u32, m: u32| {
+            Local
+                .with_ymd_and_hms(2026, 11, 7 - d, h, m, 0)
+                .unwrap()
+                .timestamp()
+        };
+        let f = |a| core_as_of(Some(CoreAsOf::Checked(a)), now).unwrap();
+        assert_eq!(core_as_of(None, now), None);
+        assert_eq!(
+            core_as_of(Some(CoreAsOf::NotYet), now).as_deref(),
+            Some(tr!("Not known yet"))
+        );
+        assert_eq!(f(at(0, 9, 30)), "as of 09:30");
+        assert_eq!(f(at(1, 23, 41)), "as of 23:41 yesterday");
+        let older = f(at(3, 9, 30));
+        assert!(
+            older.starts_with("as of ") && older.ends_with(", 09:30") && older.contains('4'),
+            "{older}"
         );
     }
 

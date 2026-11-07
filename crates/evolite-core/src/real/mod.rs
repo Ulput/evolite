@@ -17,6 +17,7 @@ mod chain;
 mod connected_apps;
 mod contact_addresses;
 mod convert;
+mod core_balance;
 mod dashpay;
 mod hidden_requests;
 mod identity;
@@ -110,6 +111,8 @@ pub struct Paths {
     pub mempool: PathBuf,
     /// The block each Core transaction was seen in ([`mined::Mined`]).
     pub mined: PathBuf,
+    /// The last checked Core balance and its time ([`core_balance::CoreBalance`], BUG-77).
+    pub core_balance: PathBuf,
     /// The shielded pool's note store and commitment tree ([`pool`]).
     pub pool: PathBuf,
     /// Apps signed in as an identity ([`connected_apps::ConnectedApps`]).
@@ -143,6 +146,7 @@ impl Paths {
             address_book: wallets.join("address-book.json"),
             mempool: wallets.join("mempool-seen.json"),
             mined: wallets.join("mined.json"),
+            core_balance: wallets.join("core-balance.json"),
             pool: wallets.join("shielded-pool.db"),
             connected_apps: wallets.join("connected-apps.json"),
         }
@@ -269,6 +273,22 @@ async fn loaded(
         .ok_or_else(|| CoreError::NotAvailable(NOT_LOADED.into()))
 }
 
+/// What a payment from Core may spend: the wallet's coins, each once (BUG-77) — not
+/// platform-wallet's `balance()`, which counts a coin two accounts hold twice. The callers ask
+/// [`coins_known`] first: an unchecked balance is no basis for a payment.
+async fn core_pays(wallet: &platform_wallet::PlatformWallet, amount: u64) -> Result<(), CoreError> {
+    core_covers(&wallet.state().await.core_wallet, amount)
+}
+
+/// [`core_pays`] on the wallet's state: [`CoreError::NotEnough`] when its coins, each once, are
+/// less than `amount`.
+fn core_covers(info: &key_wallet::wallet::ManagedWalletInfo, amount: u64) -> Result<(), CoreError> {
+    if (convert::core_balance(info).max(0) as u64) < amount {
+        return Err(CoreError::NotEnough);
+    }
+    Ok(())
+}
+
 fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
@@ -379,6 +399,8 @@ struct Real {
     mempool: mempool::MempoolSeen,
     /// The block each Core transaction was seen in, for one the wallet took out of it (BUG-64).
     mined: mined::Mined,
+    /// The last checked Core balance, shown while the coins are not known (BUG-77).
+    core_balance: core_balance::CoreBalance,
     /// The lowest height the filters were asked to be scanned again from in this run (BUG-64).
     rescanned_from: Option<u32>,
     /// A rescan asked in this run and not finished yet (review r2 should 1).
@@ -877,6 +899,7 @@ impl Real {
         let journal = Arc::new(journal::Journal::new(paths.journal.clone()));
         let mempool = mempool::MempoolSeen::new(paths.mempool.clone());
         let mined = mined::Mined::new(paths.mined.clone());
+        let core_balance = core_balance::CoreBalance::new(paths.core_balance.clone());
         let contact_paid = Arc::new(contact_addresses::ContactAddresses::new(
             paths.contact_addresses.clone(),
         ));
@@ -954,6 +977,7 @@ impl Real {
             consumed_locks: std::collections::HashSet::new(),
             history_read: None,
             mined,
+            core_balance,
             rescanned_from: None,
             rescan_owed: None,
             outgoing: Default::default(),
@@ -1158,9 +1182,7 @@ impl Real {
             return Err(CoreError::NotSynced);
         }
         let wallet = loaded(&self.chain, &id).await?;
-        if wallet.balance().total() < amount {
-            return Err(CoreError::NotEnough);
-        }
+        core_pays(&wallet, amount).await?;
         // A cut-short top-up is finished first, with the money already locked for it; one that
         // Platform already took (awaiting its ChainLock) does not hold a new one back.
         if self.top_up_to_finish(&wallet).await {
@@ -2206,10 +2228,11 @@ impl Real {
                     line
                 }));
                 (
-                    wallet.balance().total(),
+                    // Each coin once, not platform-wallet's sum of the accounts (BUG-77).
+                    Some(convert::core_balance(&state.core_wallet)),
                     {
                         // Coins, and the addresses holding them (the overview counts those).
-                        let utxos = state.core_wallet.utxos();
+                        let utxos = convert::coins_once(&state.core_wallet);
                         let holding: std::collections::HashSet<_> =
                             utxos.iter().map(|u| u.address.clone()).collect();
                         coin_values = utxos.iter().map(|u| u.value()).collect();
@@ -2220,7 +2243,7 @@ impl Real {
                     platform,
                 )
             }
-            None => (0, (0, 0), Vec::new(), None, None),
+            None => (None, (0, 0), Vec::new(), None, None),
         };
         let (platform_address, platform_credits) = platform.unwrap_or_default();
         // The shielded pool, once connected: local reads, no network.
@@ -2383,10 +2406,18 @@ impl Real {
             }
         }
         history.sort_by_key(|a| std::cmp::Reverse(a.at));
+        // Only a checked balance is shown: while the filters are not at the tip (a start, a
+        // rewound pass, a rescan) the last checked one with its time, or none (BUG-77).
+        let (core, core_as_of) = self.core_balance.shown(
+            balance.unwrap_or(0),
+            balance.is_some() && coins_known(&self.chain.status(), true),
+            now(),
+        );
         Wallet {
             password_each_send: self.password_each_send,
             balances: Balances {
-                core: balance as Duffs,
+                core,
+                core_as_of,
                 core_addresses: addresses as u32,
                 credits,
                 all_credits,
@@ -2588,9 +2619,7 @@ impl Real {
             return Err(CoreError::NotSynced);
         }
         let wallet = loaded(&self.chain, &id).await?;
-        if wallet.balance().total() < amount {
-            return Err(CoreError::NotEnough);
-        }
+        core_pays(&wallet, amount).await?;
         let keys = self
             .unlocked
             .as_ref()
@@ -2598,11 +2627,7 @@ impl Real {
             .ok_or(CoreError::NotAvailable(tr!("The keys are not open").into()))?;
         // In the history from now on, as "sending", until the wallet sees it; its fee as the
         // payment's own coins make it (BUG-55 review, should 2).
-        let values: Vec<u64> = wallet
-            .state()
-            .await
-            .core_wallet
-            .utxos()
+        let values: Vec<u64> = convert::coins_once(&wallet.state().await.core_wallet)
             .iter()
             .map(|u| u.value())
             .collect();
@@ -3541,9 +3566,7 @@ impl Real {
             return Err(CoreError::NotSynced);
         }
         let wallet = loaded(&self.chain, &id).await?;
-        if wallet.balance().total() < amount {
-            return Err(CoreError::NotEnough);
-        }
+        core_pays(&wallet, amount).await?;
         // A cut-short identity is finished first, with the money already locked for it.
         if self.unfinished_identity(&wallet).await.is_some() {
             return Err(CoreError::NotAvailable(
@@ -6395,5 +6418,53 @@ mod tests {
         core.auto_lock = None;
         tokio::time::advance(Duration::from_secs(10_000)).await;
         assert!(!core.idle_too_long(), "\"on close\": never by time");
+    }
+
+    /// BUG-77 r1 should 1: a payment from Core (send, top-up, a new identity) is checked against
+    /// the coins each once. werner555 had 7 coins in two accounts: platform-wallet's balance
+    /// counted them twice and would have let a payment of more than the wallet has through.
+    #[test]
+    fn a_coin_two_accounts_hold_does_not_pay_twice() {
+        use key_wallet::dashcore::hashes::Hash;
+        use key_wallet::wallet::managed_wallet_info::ManagedWalletInfo;
+        use key_wallet::wallet::managed_wallet_info::wallet_info_interface::WalletInfoInterface;
+        let keys = keys_of(PHRASE).unwrap();
+        let mut info = ManagedWalletInfo::from_wallet(&keys, 0);
+        let address = key_wallet::dashcore::Address::new(
+            key_wallet::Network::Testnet,
+            key_wallet::dashcore::address::Payload::PubkeyHash(
+                key_wallet::dashcore::PubkeyHash::from_byte_array([2; 20]),
+            ),
+        );
+        let mut coin = key_wallet::Utxo::new(
+            key_wallet::dashcore::OutPoint::new(
+                key_wallet::dashcore::Txid::from_byte_array([2; 32]),
+                0,
+            ),
+            key_wallet::dashcore::TxOut {
+                value: 5_050_000,
+                script_pubkey: Default::default(),
+            },
+            address,
+            1_570_000,
+            false,
+        );
+        coin.is_confirmed = true;
+        {
+            let mut accounts = info.accounts_mut().all_funding_accounts_mut();
+            accounts[0].utxos.insert(coin.outpoint, coin.clone());
+            accounts[1].utxos.insert(coin.outpoint, coin);
+        }
+        info.update_balance();
+        assert_eq!(info.balance().total(), 10_100_000, "upstream: twice");
+        assert!(core_covers(&info, 5_050_000).is_ok());
+        assert!(matches!(
+            core_covers(&info, 5_050_001),
+            Err(CoreError::NotEnough)
+        ));
+        assert!(matches!(
+            core_covers(&info, 10_100_000),
+            Err(CoreError::NotEnough)
+        ));
     }
 }

@@ -217,6 +217,7 @@ pub(super) fn demo_wallet(t: Timestamp) -> Wallet {
     Wallet {
         balances: Balances {
             core: 841_200_000,
+            core_as_of: None,
             core_addresses: 3,
             credits: 120_000_000,
             // @satoshi-lab has no credits in the demo.

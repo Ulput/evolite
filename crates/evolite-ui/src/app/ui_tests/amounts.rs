@@ -489,3 +489,64 @@ fn the_cards_eye_hides_the_list_too() {
     assert!(hidden(&kit), "one setting");
     assert_eq!(buttons(&kit, SHOW), 2, "the card's eye and History's");
 }
+
+/// Puts `as_of` (and its Core balance) into the shown wallet and draws until `seen` holds on
+/// the same frame: the demo core's own snapshots may come first and put theirs back.
+fn core_as_of_shows(
+    kit: &mut Kit,
+    core: evolite_api::Duffs,
+    as_of: Option<evolite_api::CoreAsOf>,
+    what: &str,
+    seen: impl Fn(&Kit) -> bool,
+) {
+    for _ in 0..50 {
+        if let Some(w) = kit
+            .state_mut()
+            .snapshot
+            .as_mut()
+            .and_then(|s| s.wallet.as_mut())
+        {
+            w.balances.core = core;
+            w.balances.core_as_of = as_of;
+        }
+        kit.run_steps(1);
+        if seen(kit) {
+            return;
+        }
+    }
+    panic!("not shown: {what}");
+}
+
+/// BUG-77 (the designer's improvement 1): a Core balance not checked in this sync is the last
+/// checked one with its time — on the Core tile and under «Total» — and before any check «Ещё
+/// не знаем» with «—» for the amount, never 0 or a sum seen in the middle of a sync. Checked
+/// again, the amount is plain once more.
+#[test]
+fn an_unchecked_core_balance_says_when_it_was_checked_or_that_it_is_not_known() {
+    use evolite_api::CoreAsOf;
+    let (_turn, mut kit) = demo_app("overview", "ru");
+    let at = chrono::Local::now().timestamp() - 120;
+    let line =
+        crate::text::core_as_of(Some(CoreAsOf::Checked(at)), chrono::Local::now()).expect("a line");
+    assert!(line.starts_with("на "), "in the interface language: {line}");
+    let core = 386_574_464;
+    let amount = crate::format::number(core, false);
+    core_as_of_shows(
+        &mut kit,
+        core,
+        Some(CoreAsOf::Checked(at)),
+        "the last checked balance and when",
+        |k| shows(k, &line) && shows(k, &amount) && shows(k, &format!("DASH · {line}")),
+    );
+    // Nothing checked yet: no amount for Core nor for «Total», in words.
+    core_as_of_shows(&mut kit, 0, Some(CoreAsOf::NotYet), "not known yet", |k| {
+        has_text(k, "Ещё не знаем") && has_text(k, "—") && !shows(k, "DASH · 3 ")
+    });
+    // Checked: the addresses again, no «на …».
+    core_as_of_shows(&mut kit, core, None, "checked now", |k| {
+        shows(k, &amount)
+            && shows(k, "DASH · 3 ")
+            && !shows(k, &line)
+            && !has_text(k, "Ещё не знаем")
+    });
+}

@@ -236,13 +236,24 @@ pub fn amount_label(ui: &mut Ui, shown: &str, font: FontId, color: Color32) -> R
     )
 }
 
+/// A balance card's amount and how sure it is (BUG-77, the designer's improvement 1).
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum CardAmount {
+    /// Known now: in the text colour.
+    Now(i64),
+    /// The last known one (the detail says when): muted.
+    Earlier(i64),
+    /// Not known yet: «—», muted (the detail says so in words).
+    Unknown,
+}
+
 /// card/balance: icon 18 + title 13 Medium, amount 24 mono, detail 12.
 pub fn balance_card(
     ui: &mut Ui,
     a: &mut Assets,
     icon: &str,
     title: &str,
-    duffs: i64,
+    amount: CardAmount,
     detail: &str,
     width: f32,
 ) {
@@ -258,7 +269,7 @@ pub fn balance_card(
     )
     .show(ui, |ui| {
         ui.set_width(width - 42.0);
-        ui.vertical(|ui| balance_card_body(ui, a, icon, title, duffs, detail));
+        ui.vertical(|ui| balance_card_body(ui, a, icon, title, amount, detail));
     });
 }
 
@@ -267,7 +278,7 @@ fn balance_card_body(
     a: &mut Assets,
     icon: &str,
     title: &str,
-    duffs: i64,
+    amount: CardAmount,
     detail: &str,
 ) {
     let p = a.p;
@@ -282,12 +293,12 @@ fn balance_card_body(
                     .color(p.muted),
             );
         });
-        amount_label(
-            ui,
-            &crate::format::number(duffs, false),
-            mono(24.0, Weight::Medium),
-            p.text,
-        );
+        let (shown, color) = match amount {
+            CardAmount::Now(duffs) => (crate::format::number(duffs, false), p.text),
+            CardAmount::Earlier(duffs) => (crate::format::number(duffs, false), p.muted),
+            CardAmount::Unknown => ("—".to_owned(), p.muted),
+        };
+        amount_label(ui, &shown, mono(24.0, Weight::Medium), color);
         ui.label(
             egui::RichText::new(crate::i18n::t(detail))
                 .font(sans(12.0, Weight::Regular))

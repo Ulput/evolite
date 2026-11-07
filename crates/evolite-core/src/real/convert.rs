@@ -12,10 +12,15 @@ use key_wallet::wallet::managed_wallet_info::fee::{FeeRate, estimate_tx_size};
 
 use super::sync::SyncStatus;
 
-/// The wallet's coins are known: headers at the tip and, for an open wallet, its filters too.
+/// The wallet's coins are known: headers at the tip and, for an open wallet, its filters too —
+/// done up to the headers' tip in this run ([`SyncStatus::filters_at_tip`]), not only "done",
+/// which dash-spv says right after a start against the last run's height (BUG-77 r1 must).
 /// Until the first filter report after a restart there is none, and that is "not yet".
 pub(super) fn coins_known(s: &SyncStatus, wallet: bool) -> bool {
-    s.headers.is_some_and(|h| h.done) && (!wallet || s.filters.is_some_and(|f| f.done))
+    s.headers.is_some_and(|h| h.done)
+        && (!wallet
+            || s.filters
+                .is_some_and(|f| f.done && s.filters_at_tip.is_some_and(|at| f.height >= at)))
 }
 
 /// What dash-spv reports, in the terms of the screens. `wallet`: a wallet is open, so its
@@ -55,7 +60,9 @@ pub(super) fn sync_info(s: &SyncStatus, wallet: bool) -> SyncInfo {
         // A third each for the filter headers, the filters downloaded and the batches done:
         // the done height alone stood at 28 % for minutes while a restored wallet's blocks
         // came, then jumped to the end.
-        (_, _, Some(f)) if wallet && !f.done => {
+        // Done only at the headers' tip (BUG-77 r2): what dash-spv calls done right after a start
+        // is the last run's height, and the coins are not known yet.
+        (_, _, Some(f)) if wallet && !coins_known(s, true) => {
             // No start known yet (the first report of a new or restored wallet): no count.
             let from = s.filters_from.map(|from| from.min(f.height));
             let stored = s.filters_stored.max(f.height);
@@ -418,6 +425,34 @@ pub(super) fn identity_lock_min(version: &dpp::version::PlatformVersion, keys: u
     (credits.div_ceil(1000) + start) as Duffs
 }
 
+/// The wallet's unspent Core coins, each once (BUG-77, R-34): every funds-bearing account's,
+/// one per outpoint. platform-wallet's balance adds the accounts up, and the store's early load
+/// (BUG-65) puts a contact's DIP-15 coin whose owner it does not find into account 0
+/// («funds-account-fallback»); the filters then find it again in its own DashPay account, and
+/// the sum counted it twice (werner555: 3,9172 instead of 3,8657 DASH).
+pub(super) fn coins_once(
+    info: &key_wallet::wallet::managed_wallet_info::ManagedWalletInfo,
+) -> Vec<&key_wallet::Utxo> {
+    use key_wallet::wallet::managed_wallet_info::wallet_info_interface::WalletInfoInterface;
+    let mut seen = std::collections::HashSet::new();
+    info.accounts()
+        .all_funding_accounts()
+        .into_iter()
+        .flat_map(|account| account.utxos.values())
+        .filter(|utxo| seen.insert(utxo.outpoint))
+        .collect()
+}
+
+/// The wallet's Core balance as the snapshot shows it and payments check it: the coins of
+/// [`coins_once`] — never platform-wallet's `balance()`, which counts a coin held by two
+/// accounts twice. The same sum as key-wallet's total (confirmed, unconfirmed, immature and
+/// locked coins).
+pub(super) fn core_balance(
+    info: &key_wallet::wallet::managed_wallet_info::ManagedWalletInfo,
+) -> Duffs {
+    coins_once(info).iter().map(|u| u.value() as Duffs).sum()
+}
+
 /// The wallet's coins (`values`, in duffs) as [`Fees::core_coins`]: largest first, each with
 /// the fee of a payment spending it and every larger one — what platform-wallet's selection
 /// (key-wallet `BranchAndBound`, which accumulates the largest coins when no change-free set
@@ -530,6 +565,68 @@ pub(super) fn platform_fees(
 mod tests {
     use super::super::sync::{Phase, Stage};
     use super::*;
+
+    /// A coin of `value` duffs at `outpoint` (a txid of `seed`, output `vout`), confirmed.
+    fn coin(seed: u8, vout: u32, value: u64) -> key_wallet::Utxo {
+        use key_wallet::dashcore::hashes::Hash;
+        let address = Address::new(
+            key_wallet::Network::Testnet,
+            key_wallet::dashcore::address::Payload::PubkeyHash(
+                key_wallet::dashcore::PubkeyHash::from_byte_array([seed; 20]),
+            ),
+        );
+        let mut utxo = key_wallet::Utxo::new(
+            key_wallet::dashcore::OutPoint::new(
+                key_wallet::dashcore::Txid::from_byte_array([seed; 32]),
+                vout,
+            ),
+            key_wallet::dashcore::TxOut {
+                value,
+                script_pubkey: Default::default(),
+            },
+            address,
+            1_570_000,
+            false,
+        );
+        utxo.is_confirmed = true;
+        utxo
+    }
+
+    /// BUG-77 (R-34): the store's early load puts a contact's DIP-15 coin into account 0, the
+    /// filters find it again in its DashPay account — one outpoint in two accounts. The balance
+    /// shown and checked counts it once; platform-wallet's sum counts it twice (the mutation
+    /// «take `balance()`» is red here).
+    #[test]
+    fn a_coin_two_accounts_hold_is_counted_once() {
+        use key_wallet::wallet::managed_wallet_info::ManagedWalletInfo;
+        use key_wallet::wallet::managed_wallet_info::wallet_info_interface::WalletInfoInterface;
+        let keys = super::super::keys_of(
+            "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
+        )
+        .unwrap();
+        let mut info = ManagedWalletInfo::from_wallet(&keys, 0);
+        let main = coin(1, 0, 386_574_464 - 5_150_000);
+        let contact = coin(2, 0, 5_050_000);
+        let small = coin(3, 1, 100_000);
+        {
+            let mut accounts = info.accounts_mut().all_funding_accounts_mut();
+            assert!(accounts.len() >= 2, "two funds accounts to hold one coin");
+            for c in [&main, &contact, &small] {
+                accounts[0].utxos.insert(c.outpoint, c.clone());
+            }
+            // The contact's coins found again in their own account.
+            for c in [&contact, &small] {
+                accounts[1].utxos.insert(c.outpoint, c.clone());
+            }
+        }
+        info.update_balance();
+        assert_eq!(info.balance().total(), 391_724_464, "upstream counts twice");
+        assert_eq!(core_balance(&info), 386_574_464);
+        assert_eq!(coins_once(&info).len(), 3);
+        let mut values: Vec<u64> = coins_once(&info).iter().map(|u| u.value()).collect();
+        values.sort_unstable();
+        assert_eq!(values, [100_000, 5_050_000, 381_424_464]);
+    }
 
     /// R-1 / BUG-26: dash-spv's "InstantSend" is InstantSend here only with a verified lock.
     #[test]
@@ -1027,8 +1124,59 @@ mod tests {
             target: 1000,
             done: true,
         });
+        s.latch_filters_at_tip();
         assert_eq!(sync_info(&s, true).stage, SyncStage::Done);
         assert!(coins_known(&s, true));
+    }
+
+    fn filters_done_at(s: &mut SyncStatus, height: u32) {
+        s.filters = Some(Stage {
+            height,
+            target: height,
+            done: true,
+        });
+        s.latch_filters_at_tip();
+    }
+
+    /// BUG-77 r1 must: right after a start dash-spv says the filters are done — against the
+    /// filter headers it has, i.e. the last run's height — while the headers are already at the
+    /// network's tip. The coins are then the last run's: not known, so not shown as checked now
+    /// and no basis for a payment. Known once the filters reach the headers' tip; a new block
+    /// (headers one ahead for a few seconds) keeps them known; a rewind does not.
+    #[test]
+    fn filters_done_below_the_headers_tip_are_not_known_coins() {
+        let mut s = at_tip();
+        filters_done_at(&mut s, 990);
+        assert!(
+            !coins_known(&s, true),
+            "headers at 1000, filters done at 990"
+        );
+        assert_eq!(
+            sync_info(&s, true).stage,
+            SyncStage::Filters,
+            "not «Done» either"
+        );
+        filters_done_at(&mut s, 1000);
+        assert!(coins_known(&s, true));
+        assert_eq!(sync_info(&s, true).stage, SyncStage::Done);
+        // A new block: the headers first.
+        s.headers = Some(Stage {
+            height: 1001,
+            target: 1001,
+            done: true,
+        });
+        s.latch_filters_at_tip();
+        assert!(coins_known(&s, true), "no flicker on a new block");
+        filters_done_at(&mut s, 1001);
+        assert!(coins_known(&s, true));
+        // A rewind (DashPay's backfill, BUG-64's rescan): the filters below where they were.
+        filters_done_at(&mut s, 900);
+        assert!(!coins_known(&s, true));
+        // A new client on the same status: the next run proves it again.
+        filters_done_at(&mut s, 1001);
+        assert!(coins_known(&s, true));
+        s.begin_run();
+        assert!(!coins_known(&s, true));
     }
 
     #[test]

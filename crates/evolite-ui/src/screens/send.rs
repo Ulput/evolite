@@ -415,6 +415,22 @@ fn sources(w: &Wallet, to: &str, amount: Duffs) -> [SourceView; 3] {
     ]
 }
 
+/// The line under a source's title: its balance; for Core not checked in this sync, the last
+/// checked balance and when, or only «not known yet» (BUG-77).
+fn source_detail(
+    s: &SourceView,
+    as_of: Option<evolite_api::CoreAsOf>,
+    line: Option<&str>,
+) -> String {
+    match (line, s.source) {
+        (Some(line), Source::Core) if as_of == Some(evolite_api::CoreAsOf::NotYet) => {
+            line.to_owned()
+        }
+        (Some(line), Source::Core) => format!("{} · {line}", crate::format::balance(s.duffs)),
+        _ => crate::format::balance(s.duffs),
+    }
+}
+
 enum Recipient<'a> {
     Empty,
     /// Waiting for the core to resolve the name.
@@ -523,6 +539,10 @@ pub fn send(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut SendForm) {
         crate::format::parse_amount(&form.amount).unwrap_or(0)
     };
     let all = sources(cx.wallet(), &typed, for_fee);
+    // Core not checked in this sync: its last checked balance and when, or «not known yet»
+    // (BUG-77); a payment waits for the sync all the same.
+    let core_as_of = cx.wallet().balances.core_as_of;
+    let core_as_of_line = crate::text::core_as_of(core_as_of, cx.now);
     let source = &all[form.source];
     form.follow_max(source.duffs, source.max_fee, source.withdrawal);
     // An address for Core is checked as it is typed, so a typo shows before the password.
@@ -640,7 +660,7 @@ pub fn send(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut SendForm) {
                 let n = all.len().max(1) as f32;
                 let column = ((ui.available_width() - 8.0 * (n - 1.0)) / n).floor();
                 for (i, s) in all.iter().enumerate() {
-                    let detail = crate::format::balance(s.duffs);
+                    let detail = source_detail(s, core_as_of, core_as_of_line.as_deref());
                     let selected = i == form.source;
                     if option_card_at_least(
                         ui, a, s.icon, s.title, &detail, selected, column,
@@ -1496,6 +1516,44 @@ fn resolved(ui: &mut Ui, a: &mut Assets, c: &ResolvedName, from: Source, asked: 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// BUG-77: the Core source says how sure its balance is — the last checked one and when, or
+    /// only «not known yet» (no 0 as if checked); the other sources are as they were.
+    #[test]
+    fn the_core_source_says_when_its_balance_was_checked() {
+        use evolite_api::CoreAsOf;
+        let view = |source| SourceView {
+            source,
+            icon: "core",
+            title: "Core",
+            duffs: 386_574_464,
+            fee: 0,
+            max_fee: 0,
+            withdrawal: None,
+            note_icon: "",
+            note: "",
+        };
+        let balance = crate::format::balance(386_574_464);
+        let core = view(Source::Core);
+        assert_eq!(source_detail(&core, None, None), balance);
+        assert_eq!(
+            source_detail(&core, Some(CoreAsOf::Checked(1)), Some("as of 23:41")),
+            format!("{balance} · as of 23:41")
+        );
+        assert_eq!(
+            source_detail(&core, Some(CoreAsOf::NotYet), Some("Not known yet")),
+            "Not known yet"
+        );
+        assert_eq!(
+            source_detail(
+                &view(Source::Credits),
+                Some(CoreAsOf::NotYet),
+                Some("Not known yet")
+            ),
+            balance,
+            "credits are not Core"
+        );
+    }
 
     #[test]
     fn the_amount_line_says_what_is_wrong() {

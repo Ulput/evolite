@@ -64,6 +64,12 @@ pub struct SyncStatus {
     /// them a warm folder, all of it near the tip, said «100 %» from the start (BUG-60).
     pub headers_from: Option<u32>,
     pub filters_from: Option<u32>,
+    /// The height the filters were done to when, this run, they were at the headers' tip;
+    /// gone again when they go below it (a rewind). dash-spv says the filters are done against
+    /// the filter headers it has: right after a start that is the height of the last run, with
+    /// the headers already at the network's tip — the coins then are the last run's (BUG-77 r1
+    /// must). A new block (headers one ahead for a few seconds) keeps it: no flicker.
+    pub filters_at_tip: Option<u32>,
     /// A node answered this run's request for the masternode lists (QRInfo): dash-spv checks
     /// their quorums now. Its list height moves only at the very end, so this is all there is
     /// to tell the two apart (BUG-61).
@@ -134,11 +140,28 @@ impl SyncStatus {
             self.chainlocks_invalid = c.invalid();
         }
         self.percent = (progress.percentage() * 100.0).clamp(0.0, 100.0);
+        self.latch_filters_at_tip();
+    }
+
+    /// Moves [`Self::filters_at_tip`]: up when the filters are done to the headers' tip, away
+    /// when they go below it (a rewind).
+    pub fn latch_filters_at_tip(&mut self) {
+        match (self.headers, self.filters) {
+            (Some(h), Some(f)) if h.done && f.done && f.height >= h.height => {
+                self.filters_at_tip = Some(f.height);
+            }
+            (_, Some(f)) if self.filters_at_tip.is_some_and(|at| f.height < at) => {
+                self.filters_at_tip = None;
+            }
+            (_, None) => self.filters_at_tip = None,
+            _ => {}
+        }
     }
 
     /// A new client is coming: its stages begin where it finds them, not where the last one
     /// left them.
     pub fn begin_run(&mut self) {
+        self.filters_at_tip = None;
         self.headers_from = None;
         self.filters_from = None;
         self.lists_answered = false;
