@@ -8,6 +8,7 @@
 //! answer is not in the tree.
 
 mod amounts;
+mod as_known;
 mod bugs;
 mod dialog_keys;
 mod dialogs;

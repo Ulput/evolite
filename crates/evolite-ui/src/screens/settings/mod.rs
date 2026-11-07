@@ -556,7 +556,11 @@ pub fn settings(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut SettingsS
                     Section::Wallets => wallets::wallets(ui, a, cx, state),
                     Section::Network => network(ui, a, cx, state),
                     Section::Security => security(ui, a, cx, state),
-                    Section::Backup => backup(ui, a, state, wallet),
+                    Section::Backup => {
+                        // How the open wallet came here: the phrase line says so (BUG-59).
+                        let origin = cx.snap.wallets.iter().find(|w| w.open).map(|w| w.origin);
+                        backup(ui, a, state, wallet, origin)
+                    }
                     Section::Appearance => appearance(ui, a, state, cx.snap.fiat.as_ref()),
                     Section::Notifications => notifications(ui, a, state),
                     Section::About => about(ui, a, state),

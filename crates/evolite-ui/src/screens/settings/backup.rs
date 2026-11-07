@@ -11,7 +11,7 @@ use crate::context::Ctx;
 use crate::text;
 use crate::theme::Weight;
 use egui::{Align, Layout, Ui};
-use evolite_api::{Command, CoreError, Password, Wallet};
+use evolite_api::{Command, CoreError, Password, Timestamp, Wallet, WalletOrigin};
 use std::time::Duration;
 use zeroize::Zeroize;
 
@@ -34,12 +34,31 @@ pub const KEPT_HERE_TEXT: &str = tr!(
 pub const STAYS_ON_NETWORK: &str =
     tr!("Money, identities, names and contacts stay on the network: the phrase brings them back.");
 
-pub(super) fn backup(ui: &mut Ui, a: &mut Assets, state: &mut SettingsState, wallet: &Wallet) {
-    let phrase_line = format!(
-        tr!("{} words · made {}"),
-        wallet.phrase_words,
-        text::date_long(wallet.created_at)
-    );
+/// The line under "Show the phrase" (BUG-59): its words and the one date the vault has — when
+/// the wallet came to this computer. A phrase keeps no date of its own, so for a wallet restored
+/// (or imported from DashPay) from a phrase made elsewhere that date is when it was restored,
+/// never a "made" one. `origin`: from the wallet list; not found there, as before.
+fn phrase_line(words: usize, at: Timestamp, origin: Option<WalletOrigin>) -> String {
+    let date = text::date_long(at);
+    match origin {
+        Some(WalletOrigin::Restored) => {
+            format!(tr!("{} words · restored on this computer {}"), words, date)
+        }
+        Some(WalletOrigin::DashPay) => {
+            format!(tr!("{} words · imported from DashPay {}"), words, date)
+        }
+        Some(WalletOrigin::Created) | None => format!(tr!("{} words · made {}"), words, date),
+    }
+}
+
+pub(super) fn backup(
+    ui: &mut Ui,
+    a: &mut Assets,
+    state: &mut SettingsState,
+    wallet: &Wallet,
+    origin: Option<WalletOrigin>,
+) {
+    let phrase_line = phrase_line(wallet.phrase_words, wallet.created_at, origin);
     let p = a.p;
     heading(
         ui,
@@ -476,5 +495,28 @@ mod tests {
         assert!(!words_shown(&state), "a wrong password shows no words");
         state.on_revealed(Ok(Phrase::new(vec!["abandon".into(); 12])));
         assert!(words_shown(&state));
+    }
+
+    /// BUG-59: a restored wallet's date is when it was restored here; only a wallet made here
+    /// says "made".
+    #[test]
+    fn a_restored_phrase_is_not_said_to_be_made_on_its_restore_day() {
+        let at = 1_793_000_000;
+        let day = text::date_long(at);
+        let made = phrase_line(12, at, Some(WalletOrigin::Created));
+        assert_eq!(made, format!("12 words · made {day}"));
+        let restored = phrase_line(12, at, Some(WalletOrigin::Restored));
+        assert_eq!(
+            restored,
+            format!("12 words · restored on this computer {day}")
+        );
+        let imported = phrase_line(24, at, Some(WalletOrigin::DashPay));
+        assert_eq!(imported, format!("24 words · imported from DashPay {day}"));
+        assert!(!restored.contains("made") && !imported.contains("made"));
+        assert_eq!(
+            phrase_line(12, at, None),
+            made,
+            "not in the list: as before"
+        );
     }
 }

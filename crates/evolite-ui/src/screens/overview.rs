@@ -9,7 +9,7 @@ use crate::context::Ctx;
 use crate::text::{self};
 use crate::theme::{Weight, mono};
 use egui::{Align, Layout, Ui, vec2};
-use evolite_api::{Proof, Source};
+use evolite_api::{Duffs, Proof, Source, Timestamp};
 
 /// 02 · Overview: header, total, four balance cards, quick actions, recent activity.
 pub fn overview(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx) {
@@ -21,7 +21,15 @@ pub fn overview(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx) {
     // none — «Total» counts it, so it is as sure (BUG-77).
     let as_of = text::core_as_of(b.core_as_of, cx.now);
     let unknown = b.core_as_of == Some(evolite_api::CoreAsOf::NotYet);
-    let total_color = if as_of.is_some() { p.muted } else { p.text };
+    // The private pool not read in this run yet (BUG-66): «Total» counts it as its tile shows
+    // it. One line under «Total» says what it does not know yet, Core's and the pool's together.
+    let pool = pool_amount(b.shielded, wallet.pool.checked_at);
+    let total_line = total_line(as_of.as_deref(), unknown, pool);
+    let total_color = if total_line.is_some() {
+        p.muted
+    } else {
+        p.text
+    };
     ui.spacing_mut().item_spacing.y = 22.0;
     page_header(ui, a, tr!("Overview"), None, |ui, a| {
         if button_enabled(ui, a, tr!("Send"), ButtonKind::Primary, None, synced)
@@ -56,7 +64,7 @@ pub fn overview(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx) {
             crate::format::amount(b.total())
         };
         amount_label(ui, &total, mono(44.0, Weight::Medium), total_color);
-        if let Some(line) = &as_of {
+        if let Some(line) = &total_line {
             ui.label(txt(line, 13.0, Weight::Regular, p.muted));
         }
         // "Fiat rate": the mainnet price, hidden with the amount.
@@ -138,6 +146,11 @@ pub fn overview(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx) {
     } else {
         format!(tr!("{unit} in Platform credits"), unit = unit)
     };
+    let pool_detail = match pool {
+        CardAmount::Now(_) => format!(tr!("{unit} · only you see it"), unit = unit),
+        CardAmount::Earlier(_) => format!(tr!("{unit} · not checked yet"), unit = unit),
+        CardAmount::Unknown => tr!("Not known yet").to_owned(),
+    };
     let cards: [(&str, &str, CardAmount, &str); 4] = [
         ("core", "Core", core, &core_line),
         (
@@ -152,12 +165,7 @@ pub fn overview(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx) {
             CardAmount::Now(b.platform_address),
             &format!(tr!("{unit} · no identity"), unit = unit),
         ),
-        (
-            "shielded",
-            tr!("Private pool"),
-            CardAmount::Now(b.shielded),
-            &format!(tr!("{unit} · only you see it"), unit = unit),
-        ),
+        ("shielded", tr!("Private pool"), pool, &pool_detail),
     ];
     // Four cards in a row when there is room (≥ 896 px of content), otherwise two.
     let width = ui.available_width();
@@ -284,5 +292,96 @@ pub fn overview(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx) {
                 "Demo data: there is no wallet behind these screens, it is the example from the mockup."
             ),
         );
+    }
+}
+
+/// The private pool's tile (BUG-66, the designer's improvement 1): read in this run
+/// (`checked_at`), its amount; not read yet, the amount the pool's store already gives (dim),
+/// or none — a 0 before the first read is not known, it is not there yet.
+fn pool_amount(shielded: Duffs, checked_at: Option<Timestamp>) -> CardAmount {
+    match (checked_at, shielded) {
+        (Some(_), duffs) => CardAmount::Now(duffs),
+        (None, 0) => CardAmount::Unknown,
+        (None, duffs) => CardAmount::Earlier(duffs),
+    }
+}
+
+/// The one line under «Total» (BUG-77, BUG-66): what it does not know yet, or nothing. `core`:
+/// Core's line ([`text::core_as_of`]), `core_unknown` when it is «Not known yet» — then «Total»
+/// is «—» and that line alone says why, whatever the pool. Otherwise Core's time and the pool
+/// not read yet go into one line.
+fn total_line(core: Option<&str>, core_unknown: bool, pool: CardAmount) -> Option<String> {
+    if core_unknown {
+        return core.map(str::to_owned);
+    }
+    Some(match (core, pool) {
+        (core, CardAmount::Now(_)) => return core.map(str::to_owned),
+        (None, CardAmount::Earlier(_)) => tr!("The private pool in it is not checked yet").into(),
+        (None, CardAmount::Unknown) => {
+            tr!("Not counting the private pool: it is still being read").into()
+        }
+        (Some(core), CardAmount::Earlier(_)) => {
+            format!(tr!("{} · the private pool in it is not checked yet"), core)
+        }
+        (Some(core), CardAmount::Unknown) => format!(
+            tr!("{} · not counting the private pool: it is still being read"),
+            core
+        ),
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// BUG-66: no 0 for the pool before it is read; what the store has is shown dim.
+    #[test]
+    fn the_pool_is_not_zero_before_it_is_read() {
+        assert_eq!(pool_amount(0, None), CardAmount::Unknown);
+        assert_eq!(
+            pool_amount(48_885_860, None),
+            CardAmount::Earlier(48_885_860)
+        );
+        assert_eq!(pool_amount(0, Some(1_793_000_000)), CardAmount::Now(0));
+        assert_eq!(
+            pool_amount(48_885_860, Some(1_793_000_000)),
+            CardAmount::Now(48_885_860)
+        );
+    }
+
+    /// BUG-66 with BUG-77: Core and the pool both unchecked — one line under «Total», not two;
+    /// Core not known at all — «Total» is «—» and only Core's «Not known yet» is said.
+    #[test]
+    fn total_has_one_line_for_core_and_the_pool() {
+        let unknown = CardAmount::Unknown;
+        let stored = CardAmount::Earlier(1);
+        let read = CardAmount::Now(1);
+        assert_eq!(total_line(None, false, read), None);
+        assert_eq!(
+            total_line(Some("as of 20:07"), false, read).as_deref(),
+            Some("as of 20:07")
+        );
+        assert_eq!(
+            total_line(None, false, unknown).as_deref(),
+            Some("Not counting the private pool: it is still being read")
+        );
+        assert_eq!(
+            total_line(None, false, stored).as_deref(),
+            Some("The private pool in it is not checked yet")
+        );
+        assert_eq!(
+            total_line(Some("as of 20:07"), false, unknown).as_deref(),
+            Some("as of 20:07 · not counting the private pool: it is still being read")
+        );
+        assert_eq!(
+            total_line(Some("as of 20:07"), false, stored).as_deref(),
+            Some("as of 20:07 · the private pool in it is not checked yet")
+        );
+        for pool in [unknown, stored, read] {
+            assert_eq!(
+                total_line(Some("Not known yet"), true, pool).as_deref(),
+                Some("Not known yet")
+            );
+        }
     }
 }
