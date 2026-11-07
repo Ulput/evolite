@@ -27,8 +27,9 @@
 //!   record, i.e. the rewind as before: slow, never lossy. The journal says which.
 //!
 //! Claims only stop a credit: a coin wrongly claimed can make the balance lower, never higher.
-//! Only coins whose spender the store holds in a block are claimed — a send seen in the mempool
-//! alone may never be mined, and its coin must come back.
+//! Only coins whose spender the store holds in a ChainLocked block are claimed — a send seen in
+//! the mempool alone may never be mined, and a block without a ChainLock may be reorganized out:
+//! either way its coin must come back, not stay hidden until a resync.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
@@ -445,16 +446,18 @@ impl<P: PlatformWalletPersistence> PlatformWalletPersistence for Store<P> {
     }
 }
 
-/// The store's spent coins to claim: each with the transaction that spent it in a block.
+/// The store's spent coins to claim: each with the transaction that spent it in a ChainLocked
+/// block.
 #[derive(Debug, Default, PartialEq)]
 pub struct Claims {
     pub claimed: Vec<(OutPoint, Option<Txid>)>,
-    /// Spent in the store, but no spender of it in a block there: not claimed.
+    /// Spent in the store, but no spender of it in a ChainLocked block there: not claimed (the
+    /// journal's `notInBlock`).
     pub not_in_block: usize,
 }
 
 /// The coins of wallet `wallet` the store at `db` has as spent (`core_utxos`, `spent = 1`) whose
-/// spender it holds in a block (`core_transactions`), read only. A store this does not read
+/// spender it holds in a ChainLocked block (`core_transactions`), read only. A store this does not read
 /// claims nothing: the pass as before, never a coin hidden for nothing.
 pub fn spent_claims(db: &Path, wallet: &WalletId) -> Claims {
     let Ok(spent) = spent_outpoints(db, wallet) else {
@@ -467,7 +470,10 @@ pub fn spent_claims(db: &Path, wallet: &WalletId) -> Claims {
 fn claims_of(spent: &BTreeSet<OutPoint>, records: &[TransactionRecord]) -> Claims {
     let mut spender: BTreeMap<OutPoint, Txid> = BTreeMap::new();
     for record in records {
-        if record.context.block_info().is_none() {
+        // A block alone may still be reorganized out, and its spend with it: claimed at every
+        // start, the coin would stay hidden until a resync. A ChainLock is final, and in Dash a
+        // block gets one within seconds.
+        if !record.context.is_chain_locked() {
             continue;
         }
         for input in &record.transaction.input {

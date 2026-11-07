@@ -2315,11 +2315,12 @@ mod tests {
                 c => format!("{c:?}"),
             };
             println!(
-                "{} {context} {:?} {:?} net {} ins {} outs {}",
+                "{} {context} {:?} {:?} net {} once {} ins {} outs {}",
                 r.txid,
                 r.transaction_type,
                 r.direction,
                 r.net_amount,
+                super::super::convert::net_once(&r),
                 r.input_details.len(),
                 r.output_details.len()
             );

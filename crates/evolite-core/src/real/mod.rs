@@ -57,7 +57,9 @@ use zeroize::Zeroizing;
 
 use crate::dpns;
 use chain::{Chain, ChainPaths, CreditPayee};
-use convert::{activity, coins_known, fees, not_an_address, payee, platform_fees, sync_info};
+use convert::{
+    activity, coins_known, count_checked, fees, not_an_address, payee, platform_fees, sync_info,
+};
 use dpp::address_funds::PlatformAddress;
 use dpp::identity::accessors::IdentityGettersV0;
 use dpp::platform_value::string_encoding::Encoding;
@@ -2052,10 +2054,8 @@ impl Real {
         // values for the fee of a payment (BUG-55).
         let mut all_credits: Duffs = 0;
         let mut coin_values = Vec::new();
-        // Known before the coins are counted, and still after: a count made while a rewound pass
-        // was below the tip, checked only once it had reached it, showed 4,82 as checked for a
-        // moment (live, BUG-77 workarounds).
-        let known_before = coins_known(&self.chain.status(), true);
+        // Read before the coins are counted, and again after ([`count_checked`]).
+        let status_before = self.chain.status();
         let (balance, (coins, addresses), mut history, shown, platform) = match self
             .chain
             .wallet(&id)
@@ -2442,7 +2442,7 @@ impl Real {
         // rewound pass, a rescan) the last checked one with its time, or none (BUG-77).
         let (core, core_as_of) = self.core_balance.shown(
             balance.unwrap_or(0),
-            balance.is_some() && known_before && coins_known(&self.chain.status(), true),
+            count_checked(balance.is_some(), &status_before, &self.chain.status()),
             now(),
         );
         Wallet {

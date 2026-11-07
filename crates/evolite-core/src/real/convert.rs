@@ -27,6 +27,14 @@ pub(super) fn coins_known(s: &SyncStatus, wallet: bool) -> bool {
                 .is_some_and(|f| s.filters_at_tip.is_some_and(|at| f.height >= at)))
 }
 
+/// A wallet's balance counted between two reads of the sync status is checked only when its
+/// coins were known at both: `before` is read before the coins are counted, `after` once they
+/// are. A count made while a rewound pass was below the tip and checked only once the pass had
+/// reached it showed 4,82 as checked for a moment (live, BUG-77 workarounds).
+pub(super) fn count_checked(counted: bool, before: &SyncStatus, after: &SyncStatus) -> bool {
+    counted && coins_known(before, true) && coins_known(after, true)
+}
+
 /// What dash-spv reports, in the terms of the screens. `wallet`: a wallet is open, so its
 /// filters are part of the sync.
 pub(super) fn sync_info(s: &SyncStatus, wallet: bool) -> SyncInfo {
@@ -253,8 +261,11 @@ fn kind_of(
 /// two accounts hold (a contact's coin also in account 0, BUG-77 U1) was then subtracted twice —
 /// a transfer to an own address showed −0,05153778 for a fee of 0,00003778 (BUG-85). The
 /// details are already one per index (the fold keeps the first); key-wallet's own net is this
-/// same sum per account (`recompute_net_and_direction`). A record with no input of ours (a
-/// payment in) keeps its net: nothing of it can be counted twice.
+/// same sum per account (`recompute_net_and_direction`). A payment in is counted by its details
+/// too: one transaction paying two of our accounts has both outputs in them (this run's records
+/// as one, [`one_per_transaction`]), and an output two accounts hold would be added twice by the
+/// fold (BUG-85 r1 should 1). A record keeps its own net only with no details at all, and an
+/// asset lock with no input of ours: its details there are of the lock's payload.
 pub(super) fn net_once(record: &TransactionRecord) -> i64 {
     use std::collections::BTreeMap;
     let spent: BTreeMap<u32, u64> = record
@@ -268,7 +279,10 @@ pub(super) fn net_once(record: &TransactionRecord) -> i64 {
         .filter(|o| matches!(o.role, OutputRole::Received | OutputRole::Change))
         .map(|o| (o.index, o.value))
         .collect();
-    if spent.is_empty() {
+    if spent.is_empty()
+        && (record.output_details.is_empty()
+            || record.transaction_type == TransactionType::AssetLock)
+    {
         return record.net_amount;
     }
     owned.values().sum::<u64>() as i64 - spent.values().sum::<u64>() as i64
@@ -1254,6 +1268,28 @@ mod tests {
         s.latch_filters_at_tip();
     }
 
+    /// BUG-77 workarounds r1 should 2 (the race in `Real::wallet()`): the coins are counted
+    /// while a rewound pass is below the tip, and the pass reaches it before the count is
+    /// checked. Known only after: not checked — that count is the rewound pass's 4,82.
+    #[test]
+    fn a_count_is_checked_only_when_the_coins_were_known_before_and_after_it() {
+        let mut before = at_tip();
+        filters_done_at(&mut before, 1000);
+        let known = before.clone();
+        filters_done_at(&mut before, 900);
+        assert!(!coins_known(&before, true), "a rewound pass below the tip");
+        let mut after = before.clone();
+        filters_done_at(&mut after, 1000);
+        assert!(coins_known(&after, true), "the pass has reached the tip");
+        assert!(
+            !count_checked(true, &before, &after),
+            "counted while the pass was below the tip"
+        );
+        assert!(!count_checked(true, &known, &before), "a rewind meanwhile");
+        assert!(count_checked(true, &known, &after));
+        assert!(!count_checked(false, &known, &after), "no balance counted");
+    }
+
     /// BUG-77 r1 must: right after a start dash-spv says the filters are done — against the
     /// filter headers it has, i.e. the last run's height — while the headers are already at the
     /// network's tip. The coins are then the last run's: not known, so not shown as checked now
@@ -1499,6 +1535,7 @@ mod tests {
 #[cfg(test)]
 mod kind_tests {
     use super::*;
+    use key_wallet::managed_account::transaction_record::{InputDetail, OutputDetail};
 
     #[test]
     fn tells_asset_locks_unlocks_and_payees_apart() {
@@ -1543,8 +1580,8 @@ mod kind_tests {
     fn a_transfer_to_our_own_address_names_it_and_what_came() {
         use key_wallet::dashcore::address::Payload;
         use key_wallet::dashcore::hashes::Hash;
-        use key_wallet::dashcore::{PubkeyHash, Transaction};
-        use key_wallet::managed_account::transaction_record::OutputDetail;
+        use key_wallet::dashcore::{PubkeyHash, Transaction, TxIn};
+        use key_wallet::managed_account::transaction_record::{InputDetail, OutputDetail};
 
         let address = |n: u8| {
             Address::new(
@@ -1559,11 +1596,13 @@ mod kind_tests {
             address: Some(at.clone()),
             value,
         };
+        // Our coin of 0,00998 in: what came, the change and the fee (key-wallet has no transfer
+        // of ours without an input of ours, BUG-85 r1 should 1).
         let mut record = TransactionRecord::new(
             Transaction {
                 version: 2,
                 lock_time: 0,
-                input: Vec::new(),
+                input: vec![TxIn::default()],
                 output: Vec::new(),
                 special_transaction_payload: None,
             },
@@ -1574,7 +1613,11 @@ mod kind_tests {
             TransactionContext::Mempool,
             TransactionType::Standard,
             TransactionDirection::Internal,
-            Vec::new(),
+            vec![InputDetail {
+                index: 0,
+                value: 998_000,
+                address: change.clone(),
+            }],
             vec![
                 detail(0, OutputRole::Received, &ours, 100_000),
                 detail(1, OutputRole::Change, &change, 897_774),
@@ -1693,5 +1736,137 @@ mod kind_tests {
         // A payment out of the contact's coin alone stays what it was.
         let alone = one_per_transaction([&contact]);
         assert_eq!(activity(&alone[0], 0, true).amount, -(CONTACT as Duffs));
+    }
+
+    fn two_account_records(
+        kind: TransactionType,
+        outputs: usize,
+        first: (Vec<InputDetail>, Vec<OutputDetail>, i64),
+        second: (Vec<InputDetail>, Vec<OutputDetail>, i64),
+    ) -> (TransactionRecord, TransactionRecord) {
+        use key_wallet::dashcore::{Transaction, TxIn, TxOut};
+        let tx = Transaction {
+            version: 3,
+            lock_time: 0,
+            input: vec![TxIn::default()],
+            output: vec![TxOut::default(); outputs],
+            special_transaction_payload: None,
+        };
+        let record = |index, (ins, outs, net): (Vec<InputDetail>, Vec<OutputDetail>, i64)| {
+            let direction = if ins.is_empty() {
+                TransactionDirection::Incoming
+            } else {
+                TransactionDirection::Outgoing
+            };
+            TransactionRecord::new(
+                tx.clone(),
+                key_wallet::account::AccountType::Standard {
+                    index,
+                    standard_account_type: key_wallet::account::StandardAccountType::BIP44Account,
+                },
+                TransactionContext::Mempool,
+                kind,
+                direction,
+                ins,
+                outs,
+                net,
+            )
+        };
+        (record(0, first), record(1, second))
+    }
+
+    fn detail(index: u32, role: OutputRole, value: u64) -> OutputDetail {
+        use key_wallet::dashcore::PubkeyHash;
+        use key_wallet::dashcore::address::Payload;
+        use key_wallet::dashcore::hashes::Hash;
+        OutputDetail {
+            index,
+            role,
+            address: Some(Address::new(
+                key_wallet::Network::Testnet,
+                Payload::PubkeyHash(PubkeyHash::from_byte_array([index as u8 + 1; 20])),
+            )),
+            value,
+        }
+    }
+
+    /// BUG-85 r1 should 1: one payment in to two of our accounts (an address of account 0 and
+    /// a contact's) is one line of both outputs, in this run as after a restart. The first
+    /// account's net alone left the second output out of the sum.
+    #[test]
+    fn a_payment_in_to_two_of_our_accounts_counts_both() {
+        let (zero, contact) = two_account_records(
+            TransactionType::Standard,
+            3,
+            (
+                Vec::new(),
+                vec![detail(0, OutputRole::Received, 70_000)],
+                70_000,
+            ),
+            (
+                Vec::new(),
+                vec![detail(2, OutputRole::Received, 30_000)],
+                30_000,
+            ),
+        );
+        let one = one_per_transaction([&zero, &contact]);
+        assert_eq!(one.len(), 1);
+        assert_eq!(one[0].direction, TransactionDirection::Incoming);
+        assert_eq!(activity(&one[0], 0, true).amount, 100_000);
+        // The store's fold of the same two (details by index, nets added) says the same.
+        let mut folded = one[0].clone();
+        folded.net_amount = 100_000;
+        assert_eq!(activity(&folded, 0, true).amount, 100_000);
+        // An output both accounts hold (the mirror of BUG-77 U1) is counted once, though the
+        // fold adds it twice.
+        let mut twice = zero.clone();
+        twice.net_amount = 140_000;
+        assert_eq!(activity(&twice, 0, true).amount, 70_000);
+    }
+
+    /// BUG-85 r1 should 2: an asset lock's records stay the spending account's alone. The other
+    /// account's details are of the lock's payload, by its own indexes: folded by index with the
+    /// transaction's outputs, the credit output would turn the burnt one into a coin received.
+    #[test]
+    fn an_asset_lock_is_left_unfolded() {
+        const LOCKED: u64 = 1_000_000;
+        const CHANGE: u64 = 500_000;
+        const FEE: u64 = 263;
+        let spending = (
+            vec![InputDetail {
+                index: 0,
+                value: LOCKED + CHANGE + FEE,
+                address: detail(5, OutputRole::Change, 0).address.unwrap(),
+            }],
+            vec![
+                detail(0, OutputRole::Unspendable, LOCKED),
+                detail(1, OutputRole::Change, CHANGE),
+            ],
+            -((LOCKED + FEE) as i64),
+        );
+        let payload = (
+            Vec::new(),
+            vec![detail(0, OutputRole::Received, LOCKED)],
+            LOCKED as i64,
+        );
+        let (mut lock, top_up) =
+            two_account_records(TransactionType::AssetLock, 2, spending, payload);
+        lock.fee = Some(FEE);
+        for order in [[&top_up, &lock], [&lock, &top_up]] {
+            let one = one_per_transaction(order);
+            assert_eq!(one.len(), 1);
+            assert_eq!(
+                one[0].account_type, lock.account_type,
+                "the spending account's"
+            );
+            assert_eq!(one[0].net_amount, lock.net_amount);
+            let roles: Vec<_> = one[0].output_details.iter().map(|d| d.role).collect();
+            assert_eq!(roles, [OutputRole::Unspendable, OutputRole::Change]);
+            let line = activity(&one[0], 0, true);
+            assert_eq!(
+                (line.amount, line.fee),
+                (-((LOCKED + FEE) as Duffs), Some(FEE as Duffs))
+            );
+        }
     }
 }

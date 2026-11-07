@@ -490,7 +490,16 @@ fn the_journal_says_what_the_load_did_with_the_record() {
     let _ = std::fs::remove_dir_all(db.parent().unwrap());
 }
 
-fn spender(txid: u8, spends: &[OutPoint], in_block: bool) -> TransactionRecord {
+/// Where a spender stands in the store.
+#[derive(Clone, Copy)]
+enum Mined {
+    Mempool,
+    /// In a block without a ChainLock yet: it may be reorganized out.
+    Block,
+    ChainLocked,
+}
+
+fn spender(txid: u8, spends: &[OutPoint], mined: Mined) -> TransactionRecord {
     use key_wallet::dashcore::{BlockHash, Transaction, TxIn};
     use key_wallet::transaction_checking::{BlockInfo, TransactionContext};
     let tx = Transaction {
@@ -506,10 +515,11 @@ fn spender(txid: u8, spends: &[OutPoint], in_block: bool) -> TransactionRecord {
         output: Vec::new(),
         special_transaction_payload: None,
     };
-    let context = if in_block {
-        TransactionContext::InBlock(BlockInfo::new(100, BlockHash::from([txid; 32]), 0))
-    } else {
-        TransactionContext::Mempool
+    let block = BlockInfo::new(100, BlockHash::from([txid; 32]), 0);
+    let context = match mined {
+        Mined::Mempool => TransactionContext::Mempool,
+        Mined::Block => TransactionContext::InBlock(block),
+        Mined::ChainLocked => TransactionContext::InChainLockedBlock(block),
     };
     let mut record = TransactionRecord::new(
         tx,
@@ -528,18 +538,41 @@ fn spender(txid: u8, spends: &[OutPoint], in_block: bool) -> TransactionRecord {
     record
 }
 
-/// Workaround (2): only a coin whose spender the store holds in a block is claimed. A send seen
-/// in the mempool alone may never be mined: its coin must be able to come back.
+/// Workaround (2): only a coin whose spender the store holds in a ChainLocked block is claimed.
+/// A send seen in the mempool alone may never be mined: its coin must be able to come back.
 #[test]
 fn only_coins_spent_in_a_block_are_claimed() {
     let a = OutPoint::new(Txid::from([1; 32]), 0);
     let b = OutPoint::new(Txid::from([2; 32]), 1);
     let c = OutPoint::new(Txid::from([3; 32]), 0);
     let spent = BTreeSet::from([a, b, c]);
-    let records = [spender(9, &[a], true), spender(10, &[b], false)];
+    let records = [
+        spender(9, &[a], Mined::ChainLocked),
+        spender(10, &[b], Mined::Mempool),
+    ];
     let claims = claims_of(&spent, &records);
     assert_eq!(claims.claimed, vec![(a, Some(Txid::from([9; 32])))]);
     assert_eq!(claims.not_in_block, 2);
+}
+
+/// BUG-77 workarounds r1 should 1: a spend in a block without a ChainLock is not claimed. If
+/// that block is reorganized out while the store still holds its spender `InBlock`, a claim made
+/// at every start would hide the coin until a resync; only a ChainLock makes the spend final.
+#[test]
+fn a_spend_in_a_block_without_a_chainlock_is_not_claimed() {
+    let a = OutPoint::new(Txid::from([1; 32]), 0);
+    let b = OutPoint::new(Txid::from([2; 32]), 1);
+    let spent = BTreeSet::from([a, b]);
+    let records = [
+        spender(9, &[a], Mined::Block),
+        spender(10, &[b], Mined::ChainLocked),
+    ];
+    let claims = claims_of(&spent, &records);
+    assert_eq!(claims.claimed, vec![(b, Some(Txid::from([10; 32])))]);
+    assert_eq!(
+        claims.not_in_block, 1,
+        "the unlocked block's coin is left to the pass"
+    );
 }
 
 /// The store's outpoint (bincode, 34 bytes) is read as the store writes it; a row that does not
@@ -715,8 +748,8 @@ async fn the_load_claims_coins_spent_in_a_block_and_never_a_mempool_send() {
         .unwrap();
     }
     for record in [
-        spender(60, &[mined_coin], true),
-        spender(61, &[pending_coin], false),
+        spender(60, &[mined_coin], Mined::ChainLocked),
+        spender(61, &[pending_coin], Mined::Mempool),
     ] {
         conn.execute(
             "INSERT INTO core_transactions VALUES (?1, ?2)",
