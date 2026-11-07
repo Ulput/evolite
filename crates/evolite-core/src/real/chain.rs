@@ -80,6 +80,10 @@ pub struct Chain {
     pub(super) starts: std::sync::atomic::AtomicUsize,
     #[cfg(test)]
     pub(super) stops: std::sync::atomic::AtomicUsize,
+    /// DashPay scans asked of this chain: an onboarding's import goes through the parked one
+    /// (BUG-76 r1).
+    #[cfg(test)]
+    pub(super) dashpay_scans: std::sync::atomic::AtomicUsize,
 }
 
 impl Default for Chain {
@@ -100,6 +104,8 @@ impl Default for Chain {
             starts: Default::default(),
             #[cfg(test)]
             stops: Default::default(),
+            #[cfg(test)]
+            dashpay_scans: Default::default(),
         }
     }
 }
@@ -550,6 +556,12 @@ impl Chain {
 
     pub fn retired(&self) -> bool {
         self.retired.load(Ordering::Relaxed)
+    }
+
+    /// Sets the sync status as dash-spv would report it (tests: there is no SPV client).
+    #[cfg(test)]
+    pub(super) fn set_status(&self, change: impl FnOnce(&mut SyncStatus)) {
+        change(&mut self.status.lock().unwrap_or_else(|e| e.into_inner()));
     }
 
     /// A start is coming (off the core's loop): the status says so at once, and no longer
@@ -1469,6 +1481,8 @@ impl Chain {
     /// key), its credits and keys, its name, and how many contacts it has established (DIP-15:
     /// requests both ways). All proved. Core balances need the wallet's own sync: not here.
     pub async fn scan_dashpay(&self, keys: &key_wallet::Wallet) -> Result<DashPayFound, String> {
+        #[cfg(test)]
+        self.dashpay_scans.fetch_add(1, Ordering::Relaxed);
         use dash_sdk::platform::types::identity::PublicKeyHash;
         use dash_sdk::platform::{Fetch, FetchMany};
         use dpp::identity::accessors::IdentityGettersV0;

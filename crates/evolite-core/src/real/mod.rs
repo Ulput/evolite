@@ -3256,16 +3256,63 @@ impl Real {
     /// No start under way and the last one failed (offline at launch, say, or a deleted
     /// wallet's files still held): tried again every [`RETRY_START`].
     fn retry_start(&mut self) {
+        // An onboarding over a parked chain starts its own once its wallet is written; the
+        // parked one is the chain to keep trying meanwhile.
+        if self.parked.is_some() {
+            self.retry_parked_start();
+            return;
+        }
         let failed = !self.start_tried || self.chain.status().phase == Phase::Error;
-        // An onboarding over a parked chain starts its own once its wallet is written.
-        if self.parked.is_none()
-            && self.starting.is_none()
+        if self.starting.is_none()
             && !self.chain.running()
             && failed
             && self.last_start.elapsed() >= RETRY_START
         {
             self.start_chain(None, None, None, false);
         }
+    }
+
+    /// During an onboarding the parked chain is the one that reaches the network: one not
+    /// running ("Add a wallet" while offline, say, or its start failed) is started again every
+    /// [`RETRY_START`], with its own callbacks — else a new wallet would be born at 0 and a
+    /// DashPay import would find nothing (BUG-76 r1, should 1). Its folder is a saved wallet's:
+    /// nothing is cleared. A start under way is not doubled; one retired by
+    /// [`Self::start_after`] is not made.
+    fn retry_parked_start(&mut self) {
+        let wake = self.wake.clone();
+        let root = self.paths.root.clone();
+        let Some(parked) = self.parked.as_mut() else {
+            return;
+        };
+        if parked.chain.running()
+            || parked.starting.as_ref().is_some_and(|t| !t.is_finished())
+            || parked.last_start.elapsed() < RETRY_START
+        {
+            return;
+        }
+        let chain = parked.chain.clone();
+        let paths = Paths::new(root, &parked.wallet);
+        let dirty = parked.dirty.clone();
+        let publish: Arc<dyn Fn(&SyncStatus) + Send + Sync> = {
+            let (dirty, wake) = (dirty.clone(), wake.clone());
+            Arc::new(move |_: &SyncStatus| {
+                dirty.store(true, Ordering::Relaxed);
+                wake();
+            })
+        };
+        chain.mark_starting();
+        parked.last_start = tokio::time::Instant::now();
+        // A finished start is replaced. Its answer, as [`Self::start_chain`]'s, is whether the
+        // folder is clear (taken over on "Back" as `start_tried`), not whether it runs.
+        parked.starting = Some(tokio::spawn(async move {
+            let clear = !chain.retired() && paths.vault.exists();
+            if clear {
+                let _ = chain.start(&paths.chain, publish).await;
+            }
+            dirty.store(true, Ordering::Relaxed);
+            wake();
+            clear
+        }));
     }
 
     /// The chain that reaches the network now: during an onboarding over a parked chain,
@@ -5656,6 +5703,131 @@ mod tests {
         );
         assert_eq!(count(&chain.stops), 1);
         assert!(!chain.store_open() && chain.retired());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// BUG-76 r1, should 1: a parked chain that does not run ("Add a wallet" while offline)
+    /// is started again during the onboarding — that chain, not the onboarding's own — but
+    /// not before [`RETRY_START`], and not over a start of it still under way.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_parked_chain_that_did_not_start_is_started_again() {
+        let dir = fresh_dir("b76-retry-parked");
+        let (chain, mut adding) = adding_from_open_store(&dir).await;
+        // No SPV client in a test: retired, a start that is made only counts.
+        chain.retire();
+        let due = tokio::time::Instant::now() - RETRY_START * 2;
+        adding.parked.as_mut().unwrap().last_start = tokio::time::Instant::now();
+        adding.retry_start();
+        assert_eq!(count(&chain.starts), 0, "not due yet");
+        let (release, start) = held_start();
+        {
+            let parked = adding.parked.as_mut().unwrap();
+            parked.starting = Some(start);
+            parked.last_start = due;
+        }
+        adding.retry_start();
+        assert_eq!(count(&chain.starts), 0, "a start under way is not doubled");
+        let _ = release.send(());
+        let finished = || {
+            adding
+                .parked
+                .as_ref()
+                .and_then(|p| p.starting.as_ref())
+                .is_some_and(|t| t.is_finished())
+        };
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+        while !finished() && tokio::time::Instant::now() < deadline {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        adding.retry_start();
+        assert_eq!(count(&chain.starts), 1, "the parked chain is started again");
+        assert_eq!(
+            count(&adding.chain.starts),
+            0,
+            "the onboarding's own is not"
+        );
+        let again = adding.parked.as_mut().unwrap().starting.take().unwrap();
+        assert_eq!(again.await.ok(), Some(false), "retired: nothing is made");
+        adding.retry_start();
+        assert_eq!(
+            count(&chain.starts),
+            1,
+            "just tried: not again before RETRY_START"
+        );
+        chain.stop().await;
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// BUG-76 r1, should 2 (M3): "Add a wallet" → "Create" births the new wallet at the tip of
+    /// the parked chain's headers, not at the lower hint the wallet before left.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_wallet_made_while_adding_is_born_at_the_parked_chains_tip() {
+        let dir = fresh_dir("b76-birth");
+        let (chain, mut adding) = adding_from_open_store(&dir).await;
+        chain.set_status(|s| {
+            s.headers = Some(sync::Stage {
+                height: 900,
+                target: 900,
+                done: true,
+            })
+        });
+        let (release, start) = held_start();
+        adding.parked.as_mut().unwrap().starting = Some(start);
+        adding.pending = Some((Zeroizing::new(PHRASE.into()), false));
+        adding.birth_hint = Some(777);
+        assert_eq!(adding.create(&pw("Second-wallet-7")).await, Ok(()));
+        // No SPV client in a test: the new chain is retired before its turn comes.
+        adding.chain.retire();
+        assert_eq!(adding.saved.as_ref().map(|m| m.birth_height), Some(900));
+        let _ = release.send(());
+        let started = adding.starting.take().unwrap();
+        assert!(
+            tokio::time::timeout(Duration::from_secs(20), started)
+                .await
+                .is_ok()
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// BUG-76 r1, should 3 (M4): a DashPay import during "Add a wallet" reads Platform through
+    /// the parked chain: the onboarding's own never starts, and through it the import would
+    /// wait out its 30 s and find nothing. Without an onboarding, through the core's own.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_dashpay_import_while_adding_goes_through_the_parked_chain() {
+        let dir = fresh_dir("b76-dashpay");
+        seal_wallet(&dir, "bbbb0002");
+        let mut from = core_at(&dir, "bbbb0002");
+        assert!(
+            Arc::ptr_eq(from.network_chain(), &from.chain),
+            "no onboarding"
+        );
+        let chain = from.chain.clone();
+        let mut adding = core_at(&dir, "cccc0003");
+        hand_on_chain(&mut from, &mut adding, true);
+        assert!(Arc::ptr_eq(adding.network_chain(), &chain));
+        // Proofs can be checked; no store is open, so the scan ends at once, off the network.
+        chain.set_status(|s| {
+            s.masternodes = Some(sync::Stage {
+                height: 1,
+                target: 1,
+                done: true,
+            })
+        });
+        let other = "legal winner thank year wave sausage worth useful legal winner thank yellow";
+        let phrase = Phrase::new(other.split_whitespace().map(str::to_owned).collect());
+        let (event, _) = adding
+            .handle(Command::UsePhrase {
+                phrase,
+                dashpay: true,
+            })
+            .await;
+        assert!(event.is_none(), "answered later");
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+        while count(&chain.dashpay_scans) == 0 && tokio::time::Instant::now() < deadline {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        assert_eq!(count(&chain.dashpay_scans), 1, "through the parked chain");
+        assert_eq!(count(&adding.chain.dashpay_scans), 0);
         let _ = std::fs::remove_dir_all(&dir);
     }
 
