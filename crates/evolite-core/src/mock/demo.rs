@@ -252,6 +252,8 @@ pub(super) fn demo_wallet(t: Timestamp) -> Wallet {
             all_credits: 120_000_000,
             platform_address: 73_400_000,
             shielded: 250_000_000,
+            credits_read: true,
+            platform_address_read: true,
         },
         activity: vec![
             act(

@@ -101,6 +101,15 @@ pub(super) fn has_text(kit: &Kit, text: &str) -> bool {
         .is_some()
 }
 
+/// Whether some node says `part` within its words.
+pub(super) fn has_words(kit: &Kit, part: &str) -> bool {
+    kit.query_all_by(|n| {
+        n.label().is_some_and(|l| l.contains(part)) || n.value().is_some_and(|v| v.contains(part))
+    })
+    .next()
+    .is_some()
+}
+
 /// A click on the words of the widget named `name`, not on its centre or its icon: the label
 /// inside it (BUG-17, BUG-18). A row clicked through `a11y::row_click` (BUG-40) has its words
 /// beside it in the tree, not inside: then they are the label that says the same.

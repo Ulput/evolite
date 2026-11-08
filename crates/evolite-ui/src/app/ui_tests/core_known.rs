@@ -192,6 +192,8 @@ fn a_core_amount_is_as_sure_as_core() {
         all_credits: 7,
         platform_address: 0,
         shielded: 0,
+        credits_read: true,
+        platform_address_read: true,
     };
     assert_eq!(CardAmount::core(&b), CardAmount::Now(5));
     assert_eq!(CardAmount::total(&b), CardAmount::Now(12));
@@ -202,4 +204,178 @@ fn a_core_amount_is_as_sure_as_core() {
     assert_eq!(CardAmount::core(&b), CardAmount::Unknown);
     assert_eq!(CardAmount::total(&b).known(), None);
     assert_eq!(CardAmount::Unknown.balance(), "—");
+}
+
+/// Platform not read yet: «—» and «Not known yet», not a 0 (BUG-91).
+#[test]
+fn overview_says_platform_is_not_known_until_read() {
+    let (_turn, mut kit) = demo_app("overview", "en");
+    kit.state_mut()
+        .snapshot
+        .as_mut()
+        .and_then(|s| s.wallet.as_mut())
+        .expect("wallet")
+        .balances
+        .credits_read = false;
+    kit.state_mut()
+        .snapshot
+        .as_mut()
+        .and_then(|s| s.wallet.as_mut())
+        .expect("wallet")
+        .balances
+        .platform_address_read = false;
+    kit.run_steps(3);
+    assert!(has_text(&kit, "Not known yet"));
+    assert!(!has_text(&kit, "0.0000"), "no zero while unknown");
+    assert!(
+        !has_text(&kit, "1.2000"),
+        "the demo credits must not show as read"
+    );
+}
+
+/// The total cannot be said while a part of it is not read.
+#[test]
+fn the_total_is_unknown_until_platform_is_read() {
+    use crate::components::CardAmount;
+    let mut b = evolite_api::Balances {
+        core: 10,
+        core_as_of: None,
+        core_addresses: 0,
+        credits: 0,
+        all_credits: 7,
+        platform_address: 0,
+        shielded: 0,
+        credits_read: false,
+        platform_address_read: false,
+    };
+    assert_eq!(CardAmount::total(&b), CardAmount::Unknown);
+    b.credits_read = true;
+    assert_eq!(CardAmount::total(&b), CardAmount::Unknown);
+    b.platform_address_read = true;
+    assert_eq!(CardAmount::total(&b), CardAmount::Now(17));
+}
+
+/// «Total» with Platform unread and Core empty: a dash, not a sum of what happens to be known.
+/// The sum here is one no tile shows, so it can only be the total (BUG-91 r1, must 1).
+#[test]
+fn overview_total_is_a_dash_until_platform_is_read() {
+    let (_turn, mut kit) = demo_app("overview", "en");
+    let sum = crate::format::amount(2_000 + 300 + 40_000);
+    let parts = |read: bool| {
+        move |s: &mut Snapshot| {
+            let b = &mut wallet(s).balances;
+            b.core = 0;
+            b.core_as_of = None;
+            b.all_credits = 2_000;
+            b.platform_address = 300;
+            b.shielded = 40_000;
+            b.credits_read = read;
+            b.platform_address_read = read;
+        }
+    };
+    shown_with(&mut kit, parts(false), "no sum while unread", |k| {
+        has_text(k, "Total") && has_text(k, "Not known yet") && !has_text(k, &sum)
+    });
+    shown_with(&mut kit, parts(true), "the sum once read", |k| {
+        has_text(k, &sum)
+    });
+}
+
+/// The total's fiat line goes with the total.
+#[test]
+fn overview_has_no_fiat_line_while_the_total_is_not_known() {
+    let (_turn, mut kit) = demo_app("overview", "en");
+    kit.state_mut().settings.turn_on("fiat-rate");
+    let with_rate = |read: bool| {
+        move |s: &mut Snapshot| {
+            s.fiat = Some(evolite_api::FiatRate {
+                currency: "USD".into(),
+                price: 4_800_000_000,
+                at: chrono::Utc::now().timestamp(),
+            });
+            let b = &mut wallet(s).balances;
+            b.credits_read = read;
+            b.platform_address_read = read;
+        }
+    };
+    shown_with(&mut kit, with_rate(true), "the fiat line once read", |k| {
+        shows(k, "at the mainnet rate")
+    });
+    shown_with(&mut kit, with_rate(false), "no fiat while unread", |k| {
+        !shows(k, "at the mainnet rate")
+    });
+}
+
+/// Empty lists while Platform's search runs say «still reading», on the Overview and in History;
+/// «none yet» only once it ended (BUG-91 r1, should 3).
+#[test]
+fn no_operations_waits_for_the_search_of_platform() {
+    const READING: &str =
+        "Still reading the operations — they appear here as soon as they are found";
+    const NONE: &str = "No operations yet. Receive DASH on the “Receive” screen.";
+    for screen in ["overview", "activity"] {
+        let (_turn, mut kit) = demo_app(screen, "en");
+        let empty = |read: bool| {
+            move |s: &mut Snapshot| {
+                let w = wallet(s);
+                w.activity.clear();
+                w.balances.credits_read = read;
+            }
+        };
+        shown_with(&mut kit, empty(false), "still reading", |k| {
+            has_text(k, READING) && !has_text(k, NONE)
+        });
+        shown_with(&mut kit, empty(true), "none yet", |k| {
+            has_text(k, NONE) && !has_text(k, READING)
+        });
+    }
+}
+
+/// The pool's list says «still reading» until the pool was read once (BUG-91 r1, should 1).
+#[test]
+fn the_pool_list_is_still_reading_until_checked() {
+    let (_turn, mut kit) = demo_app("shielded", "en");
+    let empty = |checked: bool| {
+        move |s: &mut Snapshot| {
+            let w = wallet(s);
+            w.pool.operations.clear();
+            if !checked {
+                w.pool.checked_at = None;
+            }
+        }
+    };
+    shown_with(&mut kit, empty(false), "still reading", |k| {
+        has_text(
+            k,
+            "Still reading the operations — they appear here as soon as they are found",
+        ) && !has_text(k, "No operations in the pool yet")
+    });
+}
+
+/// Shielding: unread credits and address say «—», no 0, and such a row cannot be chosen
+/// (BUG-91 r1, should 2).
+#[test]
+fn shield_sources_are_dashes_until_read_and_cannot_be_chosen() {
+    let (_turn, mut kit) = demo_app("shield", "en");
+    let unread = |s: &mut Snapshot| {
+        let b = &mut wallet(s).balances;
+        b.credits = 0;
+        b.platform_address = 0;
+        b.credits_read = false;
+        b.platform_address_read = false;
+    };
+    kit.state_mut().pool.sources_open = true;
+    let zero = crate::format::balance(0);
+    shown_with(&mut kit, unread, "dashes", |k| {
+        shows(k, "Platform address: —") && !shows(k, &format!(": {zero}"))
+    });
+    // Coming from the Core row, the unread address cannot be taken.
+    kit.state_mut().pool.from = 2;
+    kit.run_steps(2);
+    unread(kit.state_mut().snapshot.as_mut().expect("a snapshot"));
+    kit.run_steps(1);
+    kit.get_by_role_and_label(Role::ComboBox, "Platform address: —")
+        .click();
+    kit.run_steps(2);
+    assert_eq!(kit.state().pool.from, 2, "the unread row is not taken");
 }

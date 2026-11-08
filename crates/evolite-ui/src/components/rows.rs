@@ -321,7 +321,19 @@ impl CardAmount {
 
     /// Everything the wallet holds: as sure as Core, which it counts.
     pub fn total(b: &evolite_api::Balances) -> Self {
+        if !b.platform_known() {
+            return Self::Unknown;
+        }
         Self::as_core(b, b.total())
+    }
+
+    /// An amount on Platform: `duffs` while `read`, else «—», never a 0 (BUG-91).
+    pub fn platform(read: bool, duffs: i64) -> Self {
+        if read {
+            Self::Now(duffs)
+        } else {
+            Self::Unknown
+        }
     }
 
     /// The amount, if there is one to compare with: none while not known.

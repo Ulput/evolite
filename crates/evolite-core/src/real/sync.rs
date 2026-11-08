@@ -77,6 +77,9 @@ pub struct SyncStatus {
     /// their quorums now. Its list height moves only at the very end, so this is all there is
     /// to tell the two apart (BUG-61).
     pub lists_answered: bool,
+    /// Platform has answered for the address balances this run (BUG-91): before that a 0 there is
+    /// not an amount.
+    pub platform_address_read: bool,
     /// Height of the best ChainLock whose BLS signature was verified (this run or, restored
     /// from storage, an earlier one). The counters below cover this run only.
     pub chainlock_height: Option<u32>,
@@ -296,10 +299,53 @@ impl EventHandler for Reporter {
 impl PlatformEventHandler for Reporter {
     fn on_platform_address_sync_completed(
         &self,
-        _summary: &platform_wallet::PlatformAddressSyncSummary,
+        summary: &platform_wallet::PlatformAddressSyncSummary,
     ) {
         // Platform address balances: the snapshot is rebuilt from the wallet.
-        self.update(|_| {});
+        let answered = address_pass_answered(summary);
+        self.update(|s| s.platform_address_read |= answered);
+    }
+}
+
+/// Whether Platform answered for the addresses in this pass (BUG-91): a pass that failed, or
+/// was skipped and so has no results, says nothing about the balance there.
+fn address_pass_answered(summary: &platform_wallet::PlatformAddressSyncSummary) -> bool {
+    summary
+        .wallet_results
+        .values()
+        .any(|outcome| outcome.is_ok())
+}
+
+#[cfg(test)]
+mod address_pass_tests {
+    use super::*;
+    use platform_wallet::PlatformAddressSyncSummary;
+    use platform_wallet::manager::platform_address_sync::WalletSyncOutcome;
+
+    fn pass(outcomes: Vec<WalletSyncOutcome>) -> PlatformAddressSyncSummary {
+        let mut summary = PlatformAddressSyncSummary::default();
+        for (i, outcome) in outcomes.into_iter().enumerate() {
+            summary.wallet_results.insert([i as u8; 32], outcome);
+        }
+        summary
+    }
+
+    #[test]
+    fn only_an_answer_from_platform_makes_the_address_read() {
+        assert!(!address_pass_answered(&pass(vec![])), "a skipped pass");
+        assert!(
+            !address_pass_answered(&pass(vec![WalletSyncOutcome::Err("no".into())])),
+            "a failed pass"
+        );
+        assert!(address_pass_answered(&pass(vec![WalletSyncOutcome::Ok(
+            Default::default()
+        )])));
+    }
+
+    /// A new run knows nothing yet: the chain's status starts unread.
+    #[test]
+    fn a_new_run_has_not_read_the_address() {
+        assert!(!SyncStatus::default().platform_address_read);
     }
 }
 

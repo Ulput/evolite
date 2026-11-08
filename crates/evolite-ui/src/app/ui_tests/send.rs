@@ -276,3 +276,54 @@ fn every_source_lies_inside_the_from_panel() {
         }
     }
 }
+
+/// The answer to a name is long in coming: the Send form says the network is slow, not
+/// «Checking» for minutes (BUG-87).
+#[test]
+fn a_name_with_no_answer_for_long_is_said_in_words_on_send() {
+    let (_turn, mut kit) = demo_app("send", "en");
+    let long_ago = std::time::Instant::now() - std::time::Duration::from_secs(60);
+    {
+        let send = &mut kit.state_mut().send;
+        send.recipient = "@slowname".into();
+        send.asked = "@slowname".into();
+        send.resolution = None;
+        send.asked_at = Some(long_ago);
+    }
+    kit.run_steps(3);
+    assert!(has_words(&kit, "The network is slow to answer"));
+}
+
+/// Just asked: still «Checking», no alarm.
+#[test]
+fn a_name_just_asked_is_only_being_checked_on_send() {
+    let (_turn, mut kit) = demo_app("send", "en");
+    {
+        let send = &mut kit.state_mut().send;
+        send.recipient = "@freshname".into();
+        send.asked = "@freshname".into();
+        send.resolution = None;
+        send.asked_at = Some(std::time::Instant::now());
+    }
+    kit.run_steps(3);
+    assert!(has_words(&kit, "Checking the name in DPNS"));
+    assert!(!has_words(&kit, "The network is slow to answer"));
+}
+
+/// `NotSynced`, sent at once when the lists are not in: the words, not «Checking» (BUG-87).
+#[test]
+fn a_name_not_checkable_yet_says_why_on_send() {
+    let (_turn, mut kit) = demo_app("send", "en");
+    {
+        let send = &mut kit.state_mut().send;
+        send.recipient = "@waiting".into();
+        send.asked = "@waiting".into();
+        send.resolution = Some(Err(evolite_api::CoreError::NotSynced));
+    }
+    kit.run_steps(3);
+    assert!(has_words(
+        &kit,
+        "We check the name once the masternode lists load"
+    ));
+    assert!(!has_words(&kit, "Checking the name in DPNS"));
+}

@@ -348,6 +348,12 @@ impl SettingsState {
         self.toggles.get(key).copied().unwrap_or(false)
     }
 
+    /// Turns a switch on, for a test of what it shows.
+    #[cfg(all(test, demo_core, feature = "dev-tools"))]
+    pub fn turn_on(&mut self, key: &'static str) {
+        self.toggles.insert(key, true);
+    }
+
     /// How amounts look; `fiat`: the price the core has, if any.
     pub fn display(&self, fiat: Option<&FiatRate>) -> crate::format::Display {
         let rate = self.fiat_currency().and(fiat).and_then(|f| {

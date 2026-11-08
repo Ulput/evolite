@@ -269,6 +269,12 @@ pub struct Balances {
     pub all_credits: Duffs,
     pub platform_address: Duffs,
     pub shielded: Duffs,
+    /// `all_credits` and `credits` are known: an identity is known here, or the search for them
+    /// ended with none. `false`: «—», not a 0 (BUG-91).
+    pub credits_read: bool,
+    /// `platform_address` is known: Platform answered this run, or the store holds an earlier
+    /// read that found credits there. `false`: «—», not a 0 (BUG-91).
+    pub platform_address_read: bool,
 }
 
 impl Balances {
@@ -276,6 +282,11 @@ impl Balances {
     /// the pool. Choosing another identity does not change it.
     pub fn total(&self) -> Duffs {
         self.core + self.all_credits + self.platform_address + self.shielded
+    }
+
+    /// Whether every part of [`Self::total`] other than Core is known (BUG-91).
+    pub fn platform_known(&self) -> bool {
+        self.credits_read && self.platform_address_read
     }
 }
 

@@ -259,3 +259,18 @@ fn arabic_mirrors_the_public_line_and_shows_the_privacy_dialog() {
         assert!(has_text(&kit, &shown), "missing: {point}");
     }
 }
+
+/// «Add a contact»: an answer long in coming is said in words (BUG-87).
+#[test]
+fn a_name_with_no_answer_for_long_is_said_in_words_on_add_contact() {
+    let (_turn, mut kit) = demo_app("add-contact", "en");
+    let long_ago = std::time::Instant::now() - std::time::Duration::from_secs(60);
+    if let Some(adding) = kit.state_mut().contacts.adding.as_mut() {
+        adding.name = "slowname".into();
+        adding.asked = "slowname".into();
+        adding.resolution = None;
+        adding.asked_at = Some(long_ago);
+    }
+    kit.run_steps(3);
+    assert!(has_words(&kit, "The network is slow to answer"));
+}

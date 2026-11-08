@@ -70,6 +70,8 @@ pub struct AddContact {
     /// The name last sent to the core, and its answer.
     pub asked: String,
     pub resolution: Option<Result<ResolvedName, CoreError>>,
+    /// When [`Self::asked`] went to the core: a long silence is said in words (BUG-87).
+    pub asked_at: Option<std::time::Instant>,
 }
 
 impl ContactsState {
@@ -636,6 +638,7 @@ fn add_contact(
         });
         adding.asked = typed.clone();
         adding.resolution = None;
+        adding.asked_at = Some(std::time::Instant::now());
     }
     let found = match &adding.resolution {
         Some(Ok(found)) if adding.asked == typed => Some(found.clone()),
@@ -731,8 +734,10 @@ fn add_contact(
                     ));
                 }
                 _ if typed.trim_start_matches('@').len() >= 3 => {
+                    ui.ctx()
+                        .request_repaint_after(std::time::Duration::from_secs(1));
                     ui.label(txt(
-                        tr!("Checking the name in DPNS…"),
+                        text::name_waiting(adding.asked_at),
                         12.0,
                         Weight::Regular,
                         p.muted,

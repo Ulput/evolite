@@ -506,6 +506,21 @@ pub fn key_purpose(purpose: &KeyPurpose) -> String {
     }
 }
 
+/// After this long without an answer, the wait for a name is said in words.
+pub const NAME_SLOW_AFTER: std::time::Duration = std::time::Duration::from_secs(15);
+
+/// What stands under a name while the core has not answered: «Checking», then, when the answer
+/// is long in coming, that it is the network and the name will still appear (BUG-87).
+pub fn name_waiting(asked_at: Option<std::time::Instant>) -> &'static str {
+    if asked_at.is_some_and(|at| at.elapsed() >= NAME_SLOW_AFTER) {
+        tr!(
+            "The network is slow to answer. We keep checking: the name appears here as soon as the answer comes."
+        )
+    } else {
+        tr!("Checking the name in DPNS…")
+    }
+}
+
 /// Why a DPNS name has no answer, in words, and whether the person can fix it by typing
 /// (`true`, shown in red) or must wait for the network (`false`, shown muted).
 pub fn name_problem(e: &CoreError) -> (String, bool) {
@@ -679,6 +694,18 @@ pub fn signed_amount(duffs: i64) -> String {
 mod tests {
     use super::*;
     use chrono::Duration;
+
+    /// A name's read cut off at its limit, in the core's words: what the person reads is that
+    /// the network did not answer, and it is not a mistake in the name (BUG-87).
+    #[test]
+    fn a_name_read_cut_off_says_the_network_did_not_answer_in_time() {
+        let (line, can_fix) = name_problem(&CoreError::Failed("timed out".into()));
+        assert!(
+            line.contains(tr!("the network did not answer in time — try again")),
+            "{line}"
+        );
+        assert!(!can_fix, "typing cannot fix a slow network");
+    }
 
     #[test]
     fn a_failure_and_its_reason_are_both_in_the_interface_language() {

@@ -304,7 +304,12 @@ pub fn activity(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, h: &mut History) {
             } else {
                 // Nothing at all is not "nothing found".
                 let empty = if wallet.activity.is_empty() {
-                    tr!("No operations yet. Receive DASH on the “Receive” screen.")
+                    if crate::text::coins_known(cx.snap.sync.stage) && wallet.balances.credits_read
+                    {
+                        tr!("No operations yet. Receive DASH on the “Receive” screen.")
+                    } else {
+                        tr!("Still reading the operations — they appear here as soon as they are found")
+                    }
                 } else {
                     tr!("Nothing found")
                 };

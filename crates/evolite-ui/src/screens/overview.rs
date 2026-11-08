@@ -27,7 +27,11 @@ pub fn overview(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx) {
     let pool = pool_amount(b.shielded, wallet.pool.checked_at);
     // A real core built without the pool never reads it (review r1, should 1); the demo does.
     let pool_read = cfg!(feature = "pool") || crate::is_demo(cx.snap);
-    let total_line = total_line(as_of.as_deref(), unknown, pool, pool_read);
+    let total_line = if b.platform_known() {
+        total_line(as_of.as_deref(), unknown, pool, pool_read)
+    } else {
+        Some(tr!("Not known yet").to_owned())
+    };
     let total_color = if total_line.is_some() {
         p.muted
     } else {
@@ -61,17 +65,15 @@ pub fn overview(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx) {
             ui.label(txt(tr!("Total"), 13.0, Weight::Medium, p.muted));
             crate::components::amount_toggle(ui, a, false);
         });
-        let total = if unknown {
-            "—".to_owned()
-        } else {
-            crate::format::amount(b.total())
-        };
+        // A part not known yet leaves no sum to say, and no rate to apply to one (BUG-91).
+        let sum = CardAmount::total(b).known();
+        let total = sum.map_or_else(|| "—".to_owned(), crate::format::amount);
         amount_label(ui, &total, mono(44.0, Weight::Medium), total_color);
         if let Some(line) = &total_line {
             ui.label(txt(line, 13.0, Weight::Regular, p.muted));
         }
         // "Fiat rate": the mainnet price, hidden with the amount.
-        if let Some(fiat) = crate::format::fiat(b.total()).filter(|_| !unknown) {
+        if let Some(fiat) = sum.and_then(crate::format::fiat) {
             let line = if !crate::format::display().hide {
                 format!(tr!("{fiat} · at the mainnet rate"), fiat = fiat)
             } else {
@@ -150,19 +152,28 @@ pub fn overview(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx) {
         CardAmount::Earlier(_) => format!(tr!("{unit} · not checked yet"), unit = unit),
         CardAmount::Unknown => tr!("Not known yet").to_owned(),
     };
+    let address_line = &*if b.platform_address_read {
+        format!(tr!("{unit} · no identity"), unit = unit)
+    } else {
+        tr!("Not known yet").to_owned()
+    };
     let cards: [(&str, &str, CardAmount, &str); 4] = [
         ("core", "Core", core, &core_line),
         (
             "credits",
             &credits_title,
-            CardAmount::Now(b.all_credits),
-            &credits_line,
+            CardAmount::platform(b.credits_read, b.all_credits),
+            if b.credits_read {
+                &credits_line
+            } else {
+                tr!("Not known yet")
+            },
         ),
         (
             "platform-address",
             tr!("Platform address"),
-            CardAmount::Now(b.platform_address),
-            &format!(tr!("{unit} · no identity"), unit = unit),
+            CardAmount::platform(b.platform_address_read, b.platform_address),
+            address_line,
         ),
         ("shielded", tr!("Private pool"), pool, &pool_detail),
     ];
@@ -259,7 +270,12 @@ pub fn overview(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx) {
         ui.add_space(2.0);
         if wallet.activity.is_empty() {
             ui.label(txt(
-                tr!("No operations yet. Receive DASH on the “Receive” screen."),
+                // Platform's operations count too: «none yet» waits for the end of its search.
+                if synced && b.credits_read {
+                    tr!("No operations yet. Receive DASH on the “Receive” screen.")
+                } else {
+                    tr!("Still reading the operations — they appear here as soon as they are found")
+                },
                 14.0,
                 Weight::Regular,
                 p.muted,

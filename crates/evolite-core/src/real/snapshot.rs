@@ -308,6 +308,13 @@ impl Real {
                             .map(|label| format!("@{label}"))
                     })
                 };
+                let shown_id = shown.as_ref().map(|(identity, _, _)| identity.id.as_str());
+                let answered = established_ids(
+                    shown
+                        .as_ref()
+                        .map(|(_, _, contacts)| contacts.as_slice())
+                        .unwrap_or_default(),
+                );
                 history.extend(self.journal.entries().iter().map(|entry| {
                     let mut line = journal::activity(entry);
                     platform_history::name_request_sides(
@@ -317,16 +324,13 @@ impl Real {
                         named,
                     );
                     if let ActivityKind::ContactRequestIn { state, .. } = &mut line.kind {
-                        let from = entry
-                            .key
-                            .as_deref()
-                            .and_then(|k| k.strip_prefix("cri:"))
-                            .and_then(|k| k.split(':').next());
-                        if *state == evolite_api::RequestState::Waiting
-                            && from.is_some_and(|f| self.hidden.contains(f))
-                        {
-                            *state = evolite_api::RequestState::Hidden;
-                        }
+                        *state = settle_incoming(
+                            *state,
+                            entry.key.as_deref(),
+                            shown_id,
+                            |f| self.hidden.contains(f),
+                            |f| answered.contains(f),
+                        );
                     }
                     line
                 }));
@@ -463,6 +467,13 @@ impl Real {
             .filter(|c| c.name.is_none())
             .map(|c| c.identity_id.clone())
             .collect();
+        let credits_read = credits_known(
+            !identities.is_empty(),
+            &self
+                .identity_search
+                .lock()
+                .unwrap_or_else(|e| e.into_inner()),
+        );
         self.ask_names(unnamed);
         self.contacts = contacts.clone();
         let (nfts, nfts_status) = self.shown_nfts(shown.as_ref().map(|(identity, _, _)| identity));
@@ -574,6 +585,11 @@ impl Real {
                 shielded: pool
                     .as_ref()
                     .map_or(0, |p| identity::credits_as_duffs(p.credits)),
+                credits_read,
+                platform_address_read: platform_address_known(
+                    self.chain.status().platform_address_read,
+                    platform_credits,
+                ),
             },
             activity: history,
             core_address: self
@@ -767,5 +783,182 @@ pub(super) async fn keep_balances_fresh(
             _ = stale.notified() => {}
             _ = tokio::time::sleep(BALANCES_EVERY) => {}
         }
+    }
+}
+
+/// Whether the credits are known (BUG-91): an identity is known here, or the search for them
+/// ended and found none. While it runs or after it failed, a 0 is not an amount.
+fn credits_known(has_identities: bool, search: &IdentitySearch) -> bool {
+    has_identities || *search == IdentitySearch::Done
+}
+
+/// Whether the Platform address's balance is known (BUG-91): Platform answered this run, or the
+/// store holds credits from an earlier read. A stored 0 is what an unread address has as well.
+fn platform_address_known(answered_this_run: bool, stored_credits: u64) -> bool {
+    answered_this_run || stored_credits > 0
+}
+
+#[cfg(test)]
+mod platform_known_tests {
+    use super::{credits_known, platform_address_known};
+    use evolite_api::IdentitySearch::{Done, Failed, Searching};
+
+    #[test]
+    fn credits_are_known_once_an_identity_is_or_the_search_ended() {
+        assert!(!credits_known(false, &Searching));
+        assert!(!credits_known(false, &Failed("no".into())));
+        assert!(credits_known(false, &Done));
+        assert!(credits_known(true, &Searching));
+        assert!(credits_known(true, &Failed("no".into())));
+        assert!(credits_known(true, &Done));
+    }
+
+    #[test]
+    fn the_address_is_known_once_platform_answered_or_the_store_has_credits() {
+        assert!(!platform_address_known(false, 0));
+        assert!(platform_address_known(false, 5));
+        assert!(platform_address_known(true, 0));
+    }
+}
+
+/// The two sides of an incoming request, from its journal key `cri:<from>:<ours>`: the sender
+/// and, when the key has it, the identity of ours it came to.
+fn incoming_sides(key: &str) -> Option<(&str, Option<&str>)> {
+    let sides = key.strip_prefix("cri:")?;
+    Some(match sides.split_once(':') {
+        Some((from, ours)) => (from, Some(ours)),
+        None => (sides, None),
+    })
+}
+
+/// The identities `contacts` are made with: an answer from each side (BUG-88). A request one
+/// side has only sent is no contact yet.
+fn established_ids(contacts: &[Contact]) -> std::collections::HashSet<&str> {
+    contacts
+        .iter()
+        .filter(|c| c.state == ContactState::Established)
+        .map(|c| c.identity_id.as_str())
+        .collect()
+}
+
+/// What the line of an incoming request says now: hidden on this computer, accepted once the
+/// sender is a contact of the identity it came to, else as the journal has it. The running
+/// wallet knows the contact at once, before the next read of Platform (BUG-88). `answered` are
+/// the contacts of the identity shown, and the journal has the requests of every identity: only
+/// a request to the one shown can be told by them, the others stay as they are.
+fn settle_incoming<'a>(
+    state: evolite_api::RequestState,
+    key: Option<&'a str>,
+    shown: Option<&str>,
+    hidden: impl Fn(&'a str) -> bool,
+    answered: impl Fn(&'a str) -> bool,
+) -> evolite_api::RequestState {
+    use evolite_api::RequestState::{Accepted, Hidden, Waiting};
+    let Some((from, ours)) = key.and_then(incoming_sides) else {
+        return state;
+    };
+    if state != Waiting {
+        return state;
+    }
+    if hidden(from) {
+        Hidden
+    } else if ours.is_some() && ours == shown && answered(from) {
+        Accepted
+    } else {
+        state
+    }
+}
+
+#[cfg(test)]
+mod incoming_tests {
+    use super::{established_ids, incoming_sides, settle_incoming};
+    use evolite_api::RequestState::{self, Accepted, Hidden, Waiting};
+    use evolite_api::{Contact, ContactState, Profile};
+
+    fn contact(id: &str, state: ContactState) -> Contact {
+        Contact {
+            identity_id: id.to_owned(),
+            name: None,
+            profile: Profile {
+                display: None,
+                about: None,
+                avatar: None,
+                avatar_url: None,
+                updated_at: None,
+            },
+            state,
+            since: 0,
+            payments: 0,
+            last_payment: None,
+        }
+    }
+
+    /// Settled with the contacts of identity `s`, the one shown.
+    fn settled(state: RequestState, key: &str, contacts: &[Contact]) -> RequestState {
+        let answered = established_ids(contacts);
+        settle_incoming(
+            state,
+            Some(key),
+            Some("s"),
+            |_| false,
+            |f| answered.contains(f),
+        )
+    }
+
+    #[test]
+    fn a_key_names_the_sender_and_the_identity_it_came_to() {
+        assert_eq!(incoming_sides("cri:x:me"), Some(("x", Some("me"))));
+        assert_eq!(incoming_sides("cri:x"), Some(("x", None)));
+        assert_eq!(incoming_sides("cr:me:x"), None);
+    }
+
+    #[test]
+    fn a_request_to_the_identity_shown_says_accepted_once_it_is_a_contact() {
+        let contacts = [contact("x", ContactState::Established)];
+        assert_eq!(settled(Waiting, "cri:x:s", &contacts), Accepted);
+    }
+
+    /// X is a contact of S; its request to T has not been answered by T (r1, must 1).
+    #[test]
+    fn a_request_to_another_identity_is_not_accepted_by_a_contact_of_the_one_shown() {
+        let contacts = [contact("x", ContactState::Established)];
+        assert_eq!(settled(Waiting, "cri:x:t", &contacts), Waiting);
+    }
+
+    /// One way only: not a contact yet.
+    #[test]
+    fn a_request_one_side_has_only_sent_is_not_accepted() {
+        for state in [ContactState::Outgoing, ContactState::Incoming] {
+            let contacts = [contact("x", state)];
+            assert_eq!(settled(Waiting, "cri:x:s", &contacts), Waiting, "{state:?}");
+        }
+    }
+
+    #[test]
+    fn hidden_goes_by_the_sender_whichever_identity_is_shown() {
+        for key in ["cri:x:s", "cri:x:t", "cri:x"] {
+            assert_eq!(
+                settle_incoming(Waiting, Some(key), Some("s"), |_| true, |_| false),
+                Hidden,
+                "{key}"
+            );
+        }
+    }
+
+    #[test]
+    fn only_a_waiting_line_changes() {
+        assert_eq!(
+            settle_incoming(Accepted, Some("cri:x:s"), Some("s"), |_| true, |_| false),
+            Accepted
+        );
+        assert_eq!(
+            settle_incoming(Waiting, None, Some("s"), |_| true, |_| true),
+            Waiting
+        );
+        assert_eq!(
+            settle_incoming(Waiting, Some("cri:x"), Some("s"), |_| false, |_| true),
+            Waiting,
+            "a key without our side: nobody can tell"
+        );
     }
 }

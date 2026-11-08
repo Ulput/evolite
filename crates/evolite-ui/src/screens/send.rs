@@ -31,6 +31,8 @@ pub struct SendForm {
     /// The name last sent to the core for resolving, and its answer.
     pub asked: String,
     pub resolution: Option<Result<ResolvedName, CoreError>>,
+    /// When [`Self::asked`] went to the core: a long silence is said in words (BUG-87).
+    pub asked_at: Option<std::time::Instant>,
     /// The payment shown for a last look before signing.
     pub confirming: bool,
     /// Payments signed and with the network; each answer comes as `Event::Sent`. The form is free
@@ -370,6 +372,7 @@ impl Default for SendForm {
             max: false,
             asked: String::new(),
             resolution: None,
+            asked_at: None,
             confirming: false,
             waiting: 0,
             signed: String::new(),
@@ -608,6 +611,19 @@ fn source_detail(
     }
 }
 
+/// What a «From» card says: credits not read yet are not a 0 (BUG-91).
+fn source_line(
+    s: &SourceView,
+    credits_read: bool,
+    as_of: Option<evolite_api::CoreAsOf>,
+    line: Option<&str>,
+) -> String {
+    if s.source == Source::Credits && !credits_read {
+        return tr!("Not known yet").to_owned();
+    }
+    source_detail(s, as_of, line)
+}
+
 /// What a «From» card needs: the width of its words alone and with its icon
 /// ([`option_card_width`]).
 #[derive(Clone, Copy, Debug)]
@@ -732,6 +748,7 @@ pub fn send(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut SendForm) {
         });
         form.asked = typed.clone();
         form.resolution = None;
+        form.asked_at = Some(std::time::Instant::now());
     }
 
     // The fee from Core is of the coins the amount takes: "Max" spends them all (BUG-55).
@@ -864,7 +881,14 @@ pub fn send(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut SendForm) {
                 // (BUG-81): as many columns as hold the widest words, without icons if need be.
                 let details: Vec<String> = all
                     .iter()
-                    .map(|s| source_detail(s, core_as_of, core_as_of_line.as_deref()))
+                    .map(|s| {
+                        source_line(
+                            s,
+                            cx.wallet().balances.credits_read,
+                            core_as_of,
+                            core_as_of_line.as_deref(),
+                        )
+                    })
                     .collect();
                 let widths: Vec<CardWidths> = all
                     .iter()
@@ -910,7 +934,8 @@ pub fn send(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut SendForm) {
                     crate::components::attention_line(ui, a, tr!("This is your identity: the credits would stay yours, only the fee would go."));
                 }
             } else if checking {
-                ui.label(txt(tr!("Checking the name in DPNS…"), 12.0, Weight::Regular, p.muted));
+                ui.ctx().request_repaint_after(std::time::Duration::from_secs(1));
+                ui.add(egui::Label::new(txt(crate::text::name_waiting(form.asked_at), 12.0, Weight::Regular, p.muted)).wrap());
             } else if let Some((why, typo)) = &name_problem {
                 let color = if *typo { p.danger } else { p.muted };
                 ui.label(txt(why, 12.0, Weight::Regular, color));
@@ -1824,6 +1849,16 @@ mod tests {
         let balance = crate::format::balance(386_574_464);
         let core = view(Source::Core);
         assert_eq!(source_detail(&core, None, None), balance);
+        // The accessibility name of a «From» card is its title: the words are checked here.
+        assert_eq!(
+            source_line(&view(Source::Credits), false, None, None),
+            "Not known yet"
+        );
+        assert_eq!(
+            source_line(&view(Source::Credits), true, None, None),
+            balance
+        );
+        assert_eq!(source_line(&core, false, None, None), balance);
         assert_eq!(
             source_detail(&core, Some(CoreAsOf::Checked(1)), Some("as of 23:41")),
             format!("{balance} · as of 23:41")

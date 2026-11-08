@@ -217,7 +217,11 @@ pub fn shielded(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut PoolState
                         ui.horizontal(|ui| {
                             ui.add_space(16.0);
                             ui.label(txt(
-                                tr!("No operations in the pool yet"),
+                                if wallet.pool.checked_at.is_some() {
+                                    tr!("No operations in the pool yet")
+                                } else {
+                                    tr!("Still reading the operations — they appear here as soon as they are found")
+                                },
                                 14.0,
                                 Weight::Regular,
                                 a.p.muted,
@@ -432,9 +436,15 @@ fn shield_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut PoolStat
     let core = CardAmount::core(&wallet.balances);
     let core_unknown =
         |source: &ShieldSource| *source == ShieldSource::Core && core.known().is_none();
+    // Platform not read yet (BUG-91): «—», never a 0, and such a row cannot be chosen.
+    let unread = |source: &ShieldSource| match source {
+        ShieldSource::Credits => !wallet.balances.credits_read,
+        ShieldSource::PlatformAddress => !wallet.balances.platform_address_read,
+        ShieldSource::Core => false,
+    };
     let shown = |source: &ShieldSource, balance: Duffs| match source {
         ShieldSource::Core => text::core_amount(&wallet.balances, core, now),
-        _ => crate::format::balance(balance),
+        _ => CardAmount::platform(!unread(source), balance).balance(),
     };
     let closed = dialog(
         ui,
@@ -462,7 +472,9 @@ fn shield_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut PoolStat
                 if state.sources_open {
                     for (i, (source, icon, title, balance)) in sources.iter().enumerate() {
                         let value = shown(source, *balance);
-                        if i != state.from && select_row(ui, a, icon, title, Some(&value)).clicked()
+                        if i != state.from
+                            && select_row(ui, a, icon, title, Some(&value)).clicked()
+                            && !unread(source)
                         {
                             state.from = i;
                             state.sources_open = false;
@@ -508,7 +520,11 @@ fn shield_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut PoolStat
                     if field.all {
                         state.amount = crate::format::input_text(cost.max);
                     }
-                    if amount.is_some() && preview.is_none() && !core_unknown(source) {
+                    if amount.is_some()
+                        && preview.is_none()
+                        && !core_unknown(source)
+                        && !unread(source)
+                    {
                         let why = match source {
                             ShieldSource::Credits => {
                                 tr!("More than there is in this balance").to_string()
