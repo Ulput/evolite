@@ -5423,7 +5423,7 @@ mod tests {
         assert_eq!(core.unlock(&pw("pw")).await, Ok(()));
         assert!(has_notes(&core));
         let note = |text: &str| Command::SetNote {
-            key: "core:ab12".into(),
+            key: "core:KEY-QZX-4410".into(),
             text: NoteText(text.into()),
         };
         let (event, changed) = core.handle(note("For the logo ZQX-7731")).await;
@@ -5438,7 +5438,7 @@ mod tests {
         assert!(core.paths.notes.exists());
         let folder = core.paths.vault.parent().unwrap().to_owned();
         assert!(!every_file_text(&folder).contains("ZQX-7731"));
-        assert!(!every_file_text(&folder).contains("ab12"));
+        assert!(!every_file_text(&folder).contains("KEY-QZX-4410"));
         // Not an operation's key: refused, nothing kept.
         let (event, _) = core
             .handle(Command::SetNote {
@@ -5465,7 +5465,10 @@ mod tests {
         assert_eq!(core.unlock(&pw("a new password 2026")).await, Ok(()));
         let notes = core.notes.lock().unwrap();
         let notes = notes.as_ref().unwrap();
-        assert_eq!(notes.get("core:ab12"), Some("For the logo ZQX-7731"));
+        assert_eq!(
+            notes.get("core:KEY-QZX-4410"),
+            Some("For the logo ZQX-7731")
+        );
         assert!(!notes.unreadable());
     }
 
