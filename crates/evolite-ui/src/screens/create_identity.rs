@@ -1,5 +1,6 @@
 //! 07 · Create an identity: a DPNS name (checked by the core; optional for one more identity,
-//! FEAT-0014), a top-up from Core into credits, the costs, and what will happen step by step;
+//! FEAT-0014), the amount put into credits from Core — it reaches the identity whole, every fee
+//! goes on top of it with a margin (BUG-93) — the costs, and what will happen step by step;
 //! «Check the new identity» with the password before anything is locked. The core does the
 //! asset lock and the rest.
 
@@ -115,28 +116,30 @@ fn dash(d: i64) -> String {
 struct Plan {
     /// The DPNS label; `None`: an identity without a name (R-7).
     label: Option<String>,
+    /// The amount asked for: what ends up as credits, whole (BUG-93).
     top_up: Duffs,
     name_fee: Duffs,
     create_fee: Duffs,
+    /// The asset lock: the amount and Platform's fees on top (BUG-93), as the core locks it
+    /// (`Fees::identity_lock_for`).
+    lock: Duffs,
+    /// The Core fee of the lock's transaction.
+    core_fee: Duffs,
 }
 
 impl Plan {
-    /// Credits, the name and the creation: what the asset lock takes (BUG-54).
+    /// What leaves Core: the lock and its transaction's fee (BUG-93).
     fn total(&self) -> Duffs {
-        self.top_up
-            .saturating_add(self.name_fee)
-            .saturating_add(self.create_fee)
+        self.lock.saturating_add(self.core_fee)
     }
 }
 
-/// The least credits to ask for so that the asset lock — the credits, the name when `named`
-/// and the creation — reaches Platform's minimum `lock_min`, as the core counts it
-/// (`convert::identity_lock`): without a name nothing is paid for one. Never below one duff.
-fn least_top_up(lock_min: Duffs, name_fee: Duffs, create_fee: Duffs, named: bool) -> Duffs {
-    lock_min
-        .saturating_sub(if named { name_fee } else { 0 })
-        .saturating_sub(create_fee)
-        .max(1)
+/// What the amount means (BUG-93), under it on the form and in the review: it becomes credits
+/// whole, the fees are on top with a margin, and what the margin leaves stays as credits.
+fn fees_note() -> &'static str {
+    tr!(
+        "This amount becomes credits in full. Platform's fees are added on top with a margin; what the margin leaves stays as credits too."
+    )
 }
 
 /// Whether Core can pay `total` and the lock's own fee: `None` while Core's balance is not
@@ -201,33 +204,35 @@ pub fn create_identity(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut Cre
     let nameless = more && label.is_empty();
     // A contested name goes to a masternode vote, which the core cannot start: it is
     // explained at once and not offered, so the price shown is always a regular name's.
-    let name_fee = if nameless { 0 } else { fees.name_regular };
+    let name_fee = if nameless { 0 } else { fees.name_on_top() };
     let top_up = crate::format::parse_amount(&form.amount).filter(|d| *d > 0);
-    // What the asset lock takes — the credits, the name and the creation, as the core locks
-    // them (BUG-54) — and the Core fee of the lock's transaction on top, as for a top-up.
+    // What the asset lock takes — the amount asked for, whole, and on top of it the fees for
+    // the name and the creation, as the core locks them (BUG-93) — and the Core fee of the
+    // lock's transaction on top of that, as for a top-up.
+    let core_fee = top_up.map_or(fees.core_payment, |t| {
+        fees.core_payment_for(fees.identity_lock_for(t, !nameless))
+    });
     let plan = top_up.map(|top_up| Plan {
         label: (!nameless).then(|| label.clone()),
         top_up,
         name_fee,
         create_fee: fees.identity_create,
+        lock: fees.identity_lock_for(top_up, !nameless),
+        core_fee,
     });
+    let lock = plan.as_ref().map(|plan| plan.lock);
     let total = plan.as_ref().map(Plan::total);
-    let core_fee = fees.core_payment;
     // Core as sure as it is (BUG-80): not known yet, it is not «less than the amount» either;
     // not checked now, nothing is locked from it (BUG-77, frame 10).
     let core = CardAmount::core(&wallet.balances);
     let core_text = crate::text::core_amount(&wallet.balances, core, cx.now);
-    let short = total.map(|t| short_of(core, t, core_fee));
+    let short = lock.map(|l| short_of(core, l, core_fee));
     let checked = matches!(core, CardAmount::Now(_));
     let too_much = matches!(short, Some(Some(Some(_))));
     // Platform takes no asset lock below its minimum, and the DASH in one it refuses stay
-    // locked (BUG-54 review r1 must): the credits asked for are at least what makes it up.
-    let least = least_top_up(
-        fees.identity_lock_min,
-        fees.name_regular,
-        fees.identity_create,
-        !nameless,
-    );
+    // locked (BUG-54 review r1 must); with a name, the credits after the creation also have
+    // to pay for it, or the DASH are locked and the name is refused (BUG-93).
+    let least = fees.identity_amount_least(!nameless);
     let too_little = top_up.is_some_and(|t| t < least);
     let name_ok = nameless || matches!(check, Some(Ok(NameCheck::Available)));
 
@@ -332,22 +337,31 @@ pub fn create_identity(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut Cre
                 field_label(ui, &p, tr!("How much to turn into credits"));
                 let field = amount_field(ui, &p, "identity-amount", &mut form.amount, true);
                 if field.all {
-                    let all = (core.known().unwrap_or(0) - name_fee - fees.identity_create - core_fee)
+                    let all = (core.known().unwrap_or(0)
+                        - name_fee
+                        - fees.identity_create
+                        - fees.core_payment)
                         .max(0);
                     form.amount = crate::format::input_text(all);
                 }
                 // Too little for Core is said in place of the InstantSend hint below (the
                 // designer, frame 9): the amount itself may be right.
                 if too_little {
-                    ui.label(txt(
-                        &format!(
+                    let hint = if nameless {
+                        format!(
                             tr!("At least {} — Dash Platform takes no smaller asset lock"),
                             dash(least)
-                        ),
-                        12.0,
-                        Weight::Regular,
-                        p.danger,
-                    ));
+                        )
+                    } else {
+                        format!(
+                            tr!("At least {} — less may not cover the name's registration"),
+                            dash(least)
+                        )
+                    };
+                    ui.label(txt(&hint, 12.0, Weight::Regular, p.danger));
+
+                } else {
+                    ui.label(txt(fees_note(), 12.0, Weight::Regular, p.muted));
                 }
             });
             let value = mono(13.0, Weight::Medium);
@@ -362,7 +376,7 @@ pub fn create_identity(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut Cre
             let name_cost = if nameless {
                 tr!("no name · 0").to_string()
             } else {
-                dash(name_fee)
+                format!("≈ {}", dash(name_fee))
             };
             kv_row(ui, &p, tr!("Name registration"), &name_cost, value.clone());
             kv_row(
@@ -370,8 +384,9 @@ pub fn create_identity(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut Cre
                 &p,
                 tr!("Making an identity"),
                 &format!("≈ {}", dash(fees.identity_create)),
-                value,
+                value.clone(),
             );
+            kv_row(ui, &p, tr!("Core fee"), &format!("≈ {}", dash(core_fee)), value);
             match (short, core) {
                 (Some(Some(Some(needed))), CardAmount::Now(has)) => {
                     crate::components::error_notice(
@@ -403,7 +418,7 @@ pub fn create_identity(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut Cre
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = 10.0;
                 let label = match total {
-                    Some(t) => format!(tr!("Create for {}"), dash(t)),
+                    Some(t) => format!(tr!("Create for {}"), format!("≈ {}", dash(t))),
                     None => tr!("Create").into(),
                 };
                 // The password and the last look come in «Check the new identity» (frame 7).
@@ -434,7 +449,7 @@ pub fn create_identity(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut Cre
     };
 
     let steps = Steps {
-        locked: total.unwrap_or(0),
+        locked: lock.unwrap_or(0),
         current,
         // The name's step, when there may be none (frame 4): said as optional.
         name: if nameless {
@@ -701,7 +716,21 @@ fn check_new_identity(
                 &format!("≈ {}", dash(plan.create_fee)),
                 value.clone(),
             );
-            kv_row(ui, &p, tr!("Total from Core"), &dash(plan.total()), value);
+            kv_row(
+                ui,
+                &p,
+                tr!("Core fee"),
+                &format!("≈ {}", dash(plan.core_fee)),
+                value.clone(),
+            );
+            kv_row(
+                ui,
+                &p,
+                tr!("Total from Core"),
+                &format!("≈ {}", dash(plan.total())),
+                value,
+            );
+            ui.add(egui::Label::new(txt(fees_note(), 12.0, Weight::Regular, p.muted)).wrap());
             ui.add(
                 egui::Label::new(
                     txt(
@@ -796,7 +825,20 @@ fn resume_card(
                 .wrap(),
         );
         if let Some(Err(e)) = &form.result {
-            crate::components::error_notice(ui, a, &create_error(e), crate::text::error_details(e).as_deref());
+            let text = match (e, unfinished.locked) {
+                // BUG-93: the identity exists, it is its credits that ran out.
+                (CoreError::NotEnough, None) => tr!("Not enough credits for the name. Top up this identity on the Identity screen, then press Continue.").to_string(),
+                _ => create_error(e),
+            };
+            crate::components::error_notice(ui, a, &text, crate::text::error_details(e).as_deref());
+            // BUG-93 review should 2: the top-up goes to the chosen identity, and after a failed
+            // creation that is still the old one: choosing this one first.
+            if let (CoreError::NotEnough, Some(id)) = (e, unfinished.identity.as_ref())
+                && button(ui, a, tr!("Top up"), ButtonKind::Secondary, None).clicked()
+            {
+                cx.send(Command::ChooseIdentity { id: id.clone() });
+                cx.top_up();
+            }
         }
         if form.waiting {
             notice(
@@ -822,43 +864,8 @@ fn resume_card(
 
 #[cfg(test)]
 mod tests {
-    use super::{CardAmount, CreateIdentityForm, Plan, least_top_up, short_of};
+    use super::{CardAmount, CreateIdentityForm, short_of};
     use evolite_api::CoreError;
-
-    /// FEAT-0014 (frame 7, AC-D7): «Total from Core» is the credits, the name and the
-    /// creation; without a name there is nothing for one.
-    #[test]
-    fn the_total_is_credits_name_and_creation() {
-        let named = Plan {
-            label: Some("satoshi-apps".into()),
-            top_up: 30_000_000,
-            name_fee: 58_000,
-            create_fee: 2_000,
-        };
-        assert_eq!(named.total(), 30_060_000);
-        let nameless = Plan {
-            label: None,
-            name_fee: 0,
-            ..named
-        };
-        assert_eq!(nameless.total(), 30_002_000);
-    }
-
-    /// FEAT-0014 review r1 must 1: the least top-up leaves out the name's price only when there
-    /// is a name; without one the core locks the credits and the creation alone and refuses
-    /// less than Platform's minimum (`convert::identity_lock(.., named = false)`).
-    #[test]
-    fn the_least_top_up_counts_the_name_only_when_there_is_one() {
-        let (min, name, create) = (230_000, 58_000, 2_000);
-        let named = least_top_up(min, name, create, true);
-        assert_eq!(named, 170_000);
-        assert_eq!(named + name + create, min);
-        let nameless = least_top_up(min, name, create, false);
-        assert_eq!(nameless, 228_000);
-        assert_eq!(nameless + create, min);
-        // A minimum the fees already make up still asks for some credits.
-        assert_eq!(least_top_up(10_000, name, create, true), 1);
-    }
 
     /// FEAT-0014 (frames 9, 10; BUG-77): Core checked now says how much is missing; a balance
     /// of an earlier check, or none, says nothing of the kind and spends nothing.

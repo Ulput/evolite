@@ -226,6 +226,7 @@ impl App {
             && let Some(w) = self.snapshot.as_mut().and_then(|s| s.wallet.as_mut())
         {
             w.unfinished_identity = Some(evolite_api::UnfinishedIdentity {
+                identity: None,
                 locked: Some(31_000_000),
                 name: None,
             });

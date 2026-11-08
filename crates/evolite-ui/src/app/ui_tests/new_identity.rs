@@ -4,7 +4,7 @@
 
 use super::*;
 use crate::screens::Screen;
-use evolite_api::Wallet;
+use evolite_api::{CoreError, Wallet};
 
 const NEW: &str = "Create a new identity";
 
@@ -208,7 +208,7 @@ fn a_nameless_identity_asks_for_its_own_least_top_up() {
     });
     let mut kept = false;
     for _ in 0..50 {
-        kit.state_mut().create_identity.amount = "0.0015".to_owned();
+        kit.state_mut().create_identity.amount = "0.0006".to_owned();
         if let Some(w) = kit
             .state_mut()
             .snapshot
@@ -216,7 +216,7 @@ fn a_nameless_identity_asks_for_its_own_least_top_up() {
             .and_then(|s| s.wallet.as_mut())
         {
             w.fees.name_regular = 65_000;
-            w.fees.identity_create = 41_000;
+            w.fees.identity_create = 175_000;
             w.fees.identity_lock_min = 241_000;
         }
         kit.run_steps(1);
@@ -235,14 +235,122 @@ fn a_nameless_identity_asks_for_its_own_least_top_up() {
         &kit,
         &format!(
             "At least {} — Dash Platform takes no smaller asset lock",
-            crate::format::amount(200_000)
+            crate::format::amount(66_000)
         )
     ));
     assert_eq!(on(&kit, "Create for "), Some(false), "«Create» off");
 }
 
-/// AC-D7 (frame 7): «Check the new identity» lists the credits, the name and the creation and
-/// their total from Core.
+/// BUG-93: the form says the amount becomes credits whole and the fees go on top; every fee
+/// (the name, the creation, the Core fee) is on a row of its own, as an estimate.
+#[test]
+fn the_form_says_fees_are_on_top_of_the_amount() {
+    let (_turn, mut kit) = demo_app("create-identity", "en");
+    wait_for(&mut kit, "«Create for …» on", |kit| {
+        on(kit, "Create for ") == Some(true)
+    });
+    let fees = kit
+        .state()
+        .snapshot
+        .as_ref()
+        .and_then(|s| s.wallet.as_ref())
+        .map(|w| w.fees.clone())
+        .expect("fees");
+    let lock = fees.identity_lock_for(30_000_000, true);
+    let core_fee = fees.core_payment_for(lock);
+    for fee in [fees.name_on_top(), fees.identity_create, core_fee] {
+        assert!(shows(&kit, &format!("≈ {}", crate::format::amount(fee))));
+    }
+    assert!(shows(&kit, "This amount becomes credits in full"));
+    // A cheap last name: the row and the lock keep the name's margin. The demo core's own
+    // snapshot may come first, so the fees are set again until they show.
+    let margin = format!("≈ {}", crate::format::amount(90_000));
+    let shown = (0..50).any(|_| {
+        with_wallet(&mut kit, |w| w.fees.name_regular = 65_000);
+        shows(&kit, &margin)
+    });
+    assert!(shown, "the name's row keeps its margin");
+    with_wallet(&mut kit, |w| w.fees.name_regular = fees.name_regular);
+    let total = lock + core_fee;
+    assert_eq!(
+        on(
+            &kit,
+            &format!("Create for ≈ {}", crate::format::amount(total))
+        ),
+        Some(true),
+        "the button says all that leaves Core"
+    );
+}
+
+/// BUG-93: a top-up from Core: the amount reaches the identity whole, so Platform's fee is on
+/// its own row and in the total from Core; «Max» leaves it, and an amount that does not leave
+/// it is more than there is.
+#[test]
+fn a_top_up_shows_platforms_fee_on_top() {
+    let (_turn, mut kit) = demo_app("top-up", "en");
+    wait_for(&mut kit, "the top-up form", |kit| {
+        kit.state().identity.top_up.is_some() && shows(kit, "Platform fee")
+    });
+    let wallet = kit
+        .state()
+        .snapshot
+        .as_ref()
+        .and_then(|s| s.wallet.clone())
+        .expect("wallet");
+    let fees = wallet.fees.clone();
+    let on_top = fees.top_up_on_top();
+    let core_fee = fees.core_payment;
+    let amount = crate::format::parse_amount(&kit.state().identity.top_up.as_ref().unwrap().amount)
+        .expect("the suggested amount");
+    assert!(shows(
+        &kit,
+        &format!("Platform fee: ≈ {}", crate::format::amount(on_top))
+    ));
+    assert!(shows(
+        &kit,
+        &format!(
+            "Total from Core: ≈ {}",
+            crate::format::amount(amount + on_top + core_fee)
+        )
+    ));
+    kit.query_by_label("Max").expect("«Max»").click();
+    kit.run_steps(3);
+    let max = crate::format::parse_amount(&kit.state().identity.top_up.as_ref().unwrap().amount)
+        .expect("«Max» puts an amount in");
+    assert_eq!(
+        max,
+        wallet.balances.core - core_fee - on_top,
+        "«Max» leaves the fee"
+    );
+    assert!(!has_text(&kit, "More than there is on Core"));
+    // BUG-93 review must 1: at Platform's least lock the button is on; one duff less, the
+    // minimum is said and the button off.
+    let hint = format!(
+        "At least {} — Dash Platform takes no smaller asset lock",
+        crate::format::amount(fees.top_up_amount_least())
+    );
+    let topped = |kit: &Kit| on(kit, "Top up by ");
+    kit.state_mut().identity.top_up.as_mut().unwrap().amount =
+        crate::format::input_text(fees.top_up_amount_least());
+    kit.run_steps(3);
+    assert!(!has_text(&kit, &hint), "the least amount: no hint");
+    assert_eq!(topped(&kit), Some(true), "the least amount: on");
+    kit.state_mut().identity.top_up.as_mut().unwrap().amount =
+        crate::format::input_text(fees.top_up_amount_least() - 1);
+    kit.run_steps(3);
+    assert!(has_text(&kit, &hint), "one duff less: the hint");
+    assert_eq!(topped(&kit), Some(false), "one duff less: off");
+    let over = crate::format::input_text(wallet.balances.core - core_fee);
+    kit.state_mut().identity.top_up.as_mut().unwrap().amount = over;
+    kit.run_steps(3);
+    assert!(
+        has_text(&kit, "More than there is on Core"),
+        "less the fee on top"
+    );
+}
+
+/// AC-D7 (frame 7), BUG-93: «Check the new identity» lists the amount into credits, exactly,
+/// every fee on its own row as an estimate, and the total from Core: the amount and the fees.
 #[test]
 fn the_review_lists_what_is_locked_and_its_total() {
     let (_turn, mut kit) = demo_app("create-identity-confirm", "en");
@@ -256,14 +364,116 @@ fn the_review_lists_what_is_locked_and_its_total() {
         .and_then(|s| s.wallet.as_ref())
         .map(|w| w.fees.clone())
         .expect("fees");
-    let total = 30_000_000 + fees.name_regular + fees.identity_create;
+    let lock = fees.identity_lock_for(30_000_000, true);
+    let core_fee = fees.core_payment_for(lock);
+    let total = lock + core_fee;
     assert!(has_text(&kit, "Check the new identity"));
     assert!(shows(
         &kit,
-        &format!("Total from Core: {}", crate::format::amount(total))
+        &format!("Into credits: {}", crate::format::amount(30_000_000))
+    ));
+    // The name's and the creation's rows, the review's: the form's say the same, so counted.
+    for fee in [fees.name_on_top(), fees.identity_create, core_fee] {
+        let text = format!("≈ {}", crate::format::amount(fee));
+        let rows = kit
+            .query_all_by(|n| {
+                n.label().is_some_and(|l| l.contains(&text))
+                    || n.value().is_some_and(|v| v.contains(&text))
+            })
+            .count();
+        assert!(rows >= 2, "{text}: the form and the review, {rows} found");
+    }
+    assert!(shows(
+        &kit,
+        &format!("Total from Core: ≈ {}", crate::format::amount(total))
     ));
     assert!(shows(&kit, &crate::format::amount(total)), "the total");
     assert!(shows(&kit, "@evolite-2026"));
+}
+
+/// BUG-93: the name refused for lack of credits, the identity made, says what to do: the
+/// credits are short, and it can be finished after a top-up; a lock still waiting does not.
+#[test]
+fn a_name_short_of_credits_says_to_top_up_and_continue() {
+    let (_turn, mut kit) = demo_app("create-identity", "en");
+    let text = "Not enough credits for the name. Top up this identity on the Identity screen, then press Continue.";
+    let set = |kit: &mut Kit, locked| {
+        for _ in 0..3 {
+            kit.state_mut().create_identity.result = Some(Err(CoreError::NotEnough));
+            if let Some(w) = kit
+                .state_mut()
+                .snapshot
+                .as_mut()
+                .and_then(|s| s.wallet.as_mut())
+            {
+                w.unfinished_identity = Some(evolite_api::UnfinishedIdentity {
+                    locked,
+                    name: Some("satoshi-2026".into()),
+                    identity: None,
+                });
+            }
+            kit.run_steps(1);
+        }
+    };
+    set(&mut kit, None);
+    assert!(has_text(&kit, text), "no lock waiting: the credits ran out");
+    set(&mut kit, Some(241_000));
+    assert!(!has_text(&kit, text), "a lock waiting: not this");
+}
+
+/// BUG-93 review should 2: after a failed name the chosen identity is still the old one, and a
+/// top-up goes to the chosen one: «Top up» on the card chooses the new one and opens the form.
+#[test]
+fn a_name_short_of_credits_tops_up_the_new_identity() {
+    let (_turn, mut kit) = demo_app("create-identity", "en");
+    let new_id = kit
+        .state()
+        .snapshot
+        .as_ref()
+        .and_then(|s| s.wallet.as_ref())
+        .and_then(|w| {
+            let current = w.identity.as_ref()?.id.clone();
+            w.identities
+                .iter()
+                .find(|i| i.id != current)
+                .map(|i| i.id.clone())
+        })
+        .expect("a second identity in the demo");
+    let id = new_id.clone();
+    let set = move |kit: &mut Kit| {
+        kit.state_mut().create_identity.result = Some(Err(CoreError::NotEnough));
+        with_wallet(kit, |w| {
+            w.unfinished_identity = Some(evolite_api::UnfinishedIdentity {
+                locked: None,
+                name: Some("satoshi-2026".into()),
+                identity: Some(id.clone()),
+            });
+        });
+    };
+    set(&mut kit);
+    let clicked = (0..20).any(|_| {
+        set(&mut kit);
+        kit.query_all_by_role(Role::Button)
+            .find(|b| b.accesskit_node().label().is_some_and(|l| l == "Top up"))
+            .map(|b| b.click())
+            .is_some()
+    });
+    assert!(clicked, "«Top up» on the card");
+    wait_for(
+        &mut kit,
+        "the new identity chosen and the form open",
+        |kit| {
+            kit.state().screen == Screen::Identity
+                && kit.state().identity.top_up.is_some()
+                && kit
+                    .state()
+                    .snapshot
+                    .as_ref()
+                    .and_then(|s| s.wallet.as_ref())
+                    .and_then(|w| w.identity.as_ref())
+                    .is_some_and(|i| i.id == new_id)
+        },
+    );
 }
 
 /// AC-T10, AC-D4, AC-D5, AC-T9 (analyst-44): created without a name, the new identity is the
@@ -275,6 +485,9 @@ fn a_new_identity_is_shown_with_its_banner_which_closes() {
     wait_for(&mut kit, "«Create for …» on", |kit| {
         on(kit, "Create for ") == Some(true)
     });
+    // BUG-93: two more lines on the form; the button is below the fold of the default window.
+    kit.set_size(egui::vec2(1024.0, 1000.0));
+    kit.run_steps(2);
     kit.query_all_by_role(Role::Button)
         .find(|b| {
             b.accesskit_node()

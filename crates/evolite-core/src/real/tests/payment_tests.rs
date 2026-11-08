@@ -35,6 +35,28 @@ fn app_links_name_the_network_in_force() {
     assert_eq!(app_connect::link_network(Mainnet), None);
 }
 
+/// BUG-93 review must 1, should 5: `top_up_identity` itself refuses an amount whose lock
+/// Platform would not take, before anything else; the least amount gets as far as the network.
+#[tokio::test]
+async fn a_top_up_below_platforms_least_lock_is_refused_at_once() {
+    let mut core = core_with_vault("top-up-least", "pw");
+    let meta = core.saved.clone().unwrap();
+    core.unlocked = Some(Unlocked {
+        id: [0; 32],
+        meta,
+        keys: None,
+        seed: None,
+    });
+    assert_eq!(
+        core.top_up_identity(40_499).await,
+        Err(CoreError::BadAmount)
+    );
+    assert_eq!(
+        core.top_up_identity(40_500).await,
+        Err(CoreError::NotSynced)
+    );
+}
+
 #[tokio::test]
 async fn credits_refuse_bad_payees_before_asking_the_network() {
     let mut core = core_with_vault("credits", "pw");

@@ -244,8 +244,19 @@ impl Mock {
                 }
                 return true;
             }
-            // The demo has one identity behind both choices.
-            Command::ChooseIdentity { .. } => return changed,
+            // The demo has one identity behind both choices: it takes the chosen id.
+            Command::ChooseIdentity { id } => {
+                let Some(wallet) = &mut self.snapshot.wallet else {
+                    return changed;
+                };
+                if wallet.identities.iter().any(|i| i.id == id)
+                    && let Some(identity) = wallet.identity.as_mut()
+                {
+                    identity.id = id;
+                    return true;
+                }
+                return changed;
+            }
             // Another demo wallet goes from the list by its own password (R-28); the open one
             // stays as it is.
             Command::DeleteWallet {
@@ -606,9 +617,8 @@ impl Mock {
             .max()
             .unwrap_or(0);
         let id = format!("{}Hk2Wm4nPq8rSt3uVw5xYz6aBc9dEf2gHj7kLm1n9QwP", slot + 2);
-        let lock = top_up
-            + wallet.fees.identity_create
-            + label.as_ref().map_or(0, |_| wallet.fees.name_regular);
+        // BUG-93: the amount becomes credits whole, the fees are on top of it.
+        let lock = wallet.fees.identity_lock_for(top_up, label.is_some());
         let keys = wallet
             .identity
             .as_ref()
@@ -641,6 +651,7 @@ impl Mock {
         wallet.balances.core -= lock;
         wallet.balances.credits = top_up;
         wallet.balances.all_credits += top_up;
+
         let line = wallet.activity.iter().map(|a| a.id).max().unwrap_or(0) + 1;
         let kind = ActivityKind::TopUp {
             identity: label.map_or(id, |l| format!("@{l}")),
@@ -1031,7 +1042,8 @@ mod tests {
     #[test]
     fn the_demo_makes_one_more_identity() {
         let (mut m, tx, rx) = mock();
-        let all_before = m.snapshot.wallet.as_ref().unwrap().balances.all_credits;
+        let before = m.snapshot.wallet.as_ref().unwrap().balances.clone();
+        let (all_before, core_before) = (before.all_credits, before.core);
         create(&mut m, &tx, Some("satoshi-apps2"));
         assert!(matches!(
             rx.recv().unwrap(),
@@ -1047,8 +1059,12 @@ mod tests {
             (2, "satoshi-apps2")
         );
         assert_eq!(w.identities.last().unwrap().id, made.id);
+        // BUG-93: the amount becomes credits whole; the fees are on top of it.
+        let lock = w.fees.identity_lock_for(30_000_000, true);
+        assert_eq!(w.balances.core, core_before - lock);
         assert_eq!(w.balances.credits, 30_000_000, "the chosen one: the new");
         assert_eq!(w.balances.all_credits, all_before + 30_000_000);
+
         create(&mut m, &tx, Some("  "));
         assert!(matches!(
             rx.recv().unwrap(),
@@ -1062,6 +1078,7 @@ mod tests {
         m.snapshot.wallet.as_mut().unwrap().unfinished_identity = Some(UnfinishedIdentity {
             locked: Some(1),
             name: None,
+            identity: None,
         });
         create(&mut m, &tx, None);
         assert!(matches!(

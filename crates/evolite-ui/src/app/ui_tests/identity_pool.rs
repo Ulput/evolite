@@ -299,9 +299,9 @@ fn the_cards_stand_still_frame_after_frame() {
     }
 }
 
-/// BUG-54 part 2: «Max» on «Create an identity» leaves the name, the creation and the Core fee
-/// of the asset lock's transaction — the name no longer hides that fee in an estimate ten
-/// times its price — and the sum it then asks for is not «More than there is on Core».
+/// BUG-54 part 2, BUG-93: «Max» on «Create an identity» leaves the name, the creation and the
+/// Core fee of the asset lock's transaction — all of them on top of the amount — and the sum
+/// it then asks for is not «More than there is on Core».
 #[test]
 fn max_for_a_new_identity_leaves_the_lock_its_fee() {
     let (_turn, mut kit) = demo_app("create-identity", "en");
@@ -320,21 +320,46 @@ fn max_for_a_new_identity_leaves_the_lock_its_fee() {
         .expect("«Max» puts an amount in");
     assert_eq!(
         amount,
-        wallet.balances.core - fees.name_regular - fees.identity_create - fees.core_payment,
+        wallet.balances.core - fees.name_on_top() - fees.identity_create - fees.core_payment,
         "everything but the name, the creation and the lock's Core fee"
     );
     assert!(!has_text(&kit, "More than there is on Core"));
 }
 
-/// BUG-54 part 2, review r1 must: at testnet's prices a small top-up makes an asset lock below
-/// Platform's least one (241 000 duffs: 135 000 for credits with a 65 000 name and a 41 000
-/// creation) — the form says how much at least and does not create; at the least it does.
+/// BUG-93 review should 3: without a name «Max» leaves only the creation and the lock's Core
+/// fee: nothing is paid for a name.
+#[test]
+fn max_for_a_nameless_identity_leaves_only_the_creation_and_the_core_fee() {
+    let (_turn, mut kit) = demo_app("create-identity-nameless", "en");
+    kit.query_by_label("Max")
+        .expect("«Max» beside the field")
+        .click();
+    kit.run_steps(3);
+    let wallet = kit
+        .state()
+        .snapshot
+        .as_ref()
+        .and_then(|s| s.wallet.clone())
+        .expect("the demo wallet");
+    let amount = crate::format::parse_amount(&kit.state().create_identity.amount)
+        .expect("«Max» puts an amount in");
+    assert_eq!(
+        amount,
+        wallet.balances.core - wallet.fees.identity_create - wallet.fees.core_payment,
+        "everything but the creation and the lock's Core fee"
+    );
+}
+
+/// BUG-54 part 2, review r1 must; BUG-93: the least amount is in the form's own terms, what
+/// becomes credits: at testnet's prices the name's peak wants 130 000 on the identity and the
+/// 90 000 on top covers part of it, so 40 000 at least — the form says so and does not
+/// create below it; at the least it does.
 #[test]
 fn a_new_identity_asks_for_at_least_what_platform_takes() {
     let (_turn, mut kit) = demo_app("create-identity", "en");
     let least = format!(
-        "At least {} — Dash Platform takes no smaller asset lock",
-        crate::format::amount(135_000)
+        "At least {} — less may not cover the name's registration",
+        crate::format::amount(40_000)
     );
     // Review r2 should 1: the button too, not only the hint.
     let create_on = |kit: &Kit| {
@@ -357,7 +382,7 @@ fn a_new_identity_asks_for_at_least_what_platform_takes() {
                 .and_then(|s| s.wallet.as_mut())
             {
                 w.fees.name_regular = 65_000;
-                w.fees.identity_create = 41_000;
+                w.fees.identity_create = 175_000;
                 w.fees.identity_lock_min = 241_000;
             }
             kit.run_steps(1);
@@ -374,12 +399,17 @@ fn a_new_identity_asks_for_at_least_what_platform_takes() {
         panic!("the fees did not stay");
     };
     assert_eq!(
-        shown(&mut kit, "0.001"),
+        shown(&mut kit, "0.0001"),
         (true, false),
-        "0.001 is too little: the hint, «Create» off"
+        "0.0001 is too little: the hint, «Create» off"
     );
     assert_eq!(
-        shown(&mut kit, "0.00135"),
+        shown(&mut kit, "0.00039"),
+        (true, false),
+        "just under the least: the hint, «Create» off"
+    );
+    assert_eq!(
+        shown(&mut kit, "0.0004"),
         (false, true),
         "the least is enough: no hint, «Create» on"
     );

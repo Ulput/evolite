@@ -468,6 +468,9 @@ pub struct UnfinishedIdentity {
     pub locked: Option<Duffs>,
     /// The name it was to get, when this computer remembers it.
     pub name: Option<String>,
+    /// The identity's id when it is made and only its name is missing: what its credits are
+    /// topped up on when the name ran out of them (BUG-93 review, should 2).
+    pub identity: Option<String>,
 }
 
 /// A top-up of the identity that Platform has not finished in the wallet's eyes.
@@ -733,11 +736,17 @@ pub struct Fees {
     pub document_write: Duffs,
     /// Moving the identity's credits into the shielded pool (the proof is built locally).
     pub shield: Duffs,
-    /// Registering a new identity from an asset lock.
+    /// What making a new identity takes from its asset lock, with a margin (BUG-93): Platform
+    /// meters it (storage of the six keys, processing), so it is paid on top of the amount
+    /// asked for and what the margin leaves stays as credits.
     pub identity_create: Duffs,
-    /// The least an identity's asset lock may hold: Platform rejects a smaller one (since
-    /// protocol 3, `calculate_min_required_fee` of the creation, six keys), and its DASH stay locked.
+    /// The least asset lock Platform takes (since protocol 3, `calculate_min_required_fee` of
+    /// the creation, six keys): a smaller one is refused and its DASH stay locked.
+    /// [`Fees::identity_amount_least`] is the least amount evolite allows.
     pub identity_lock_min: Duffs,
+    /// The least asset lock Platform takes to top an identity up: a smaller one is refused,
+    /// its DASH stay locked and every next top-up waits for it (BUG-93 review, must 1).
+    pub top_up_lock_min: Duffs,
     /// A DPNS name: a regular one, and a contested one (goes to a masternode vote).
     pub name_regular: Duffs,
     pub name_contested: Duffs,
@@ -792,7 +801,73 @@ impl Fees {
         }
         self.core_coins.last().map_or(self.core_payment, |c| c.fee)
     }
+
+    /// What a name takes from the identity's credits, with a margin, as paid on top of the
+    /// amount asked for (BUG-93): never below [`NAME_ON_TOP`], and what the last name of this
+    /// data folder cost when that was more.
+    pub fn name_on_top(&self) -> Duffs {
+        self.name_regular.max(NAME_ON_TOP)
+    }
+
+    /// Platform's fees for an identity's creation and (when `named`) its name, paid on top of
+    /// the amount asked for (BUG-93): upper estimates, so the amount reaches the identity whole.
+    pub fn identity_fees_on_top(&self, named: bool) -> Duffs {
+        let name = if named { self.name_on_top() } else { 0 };
+        self.identity_create.saturating_add(name)
+    }
+
+    /// The asset lock that leaves `amount` as credits (BUG-93): the amount and the fees on top.
+    pub fn identity_lock_for(&self, amount: Duffs, named: bool) -> Duffs {
+        amount.saturating_add(self.identity_fees_on_top(named))
+    }
+
+    /// The least amount to ask for (BUG-93). The lock it makes reaches Platform's own minimum;
+    /// with a name, the credits after the creation also cover the name's two paid steps at
+    /// their peak ([`NAME_PEAK`]: the preorder, then the domain at Platform's estimate with no
+    /// refund counted), so a name is not refused for lack of credits after the DASH are locked.
+    /// Never below one duff.
+    pub fn identity_amount_least(&self, named: bool) -> Duffs {
+        let for_the_lock = self
+            .identity_lock_min
+            .saturating_sub(self.identity_fees_on_top(named));
+        let for_the_name = if named {
+            self.name_regular
+                .max(NAME_FLOOR)
+                .saturating_mul(NAME_PEAK)
+                .saturating_sub(self.name_on_top())
+        } else {
+            0
+        };
+        for_the_lock.max(for_the_name).max(1)
+    }
+
+    /// Platform's fee of topping an identity up from Core, on top of the amount asked for
+    /// (BUG-93): an upper estimate, so the amount reaches the identity whole.
+    pub fn top_up_on_top(&self) -> Duffs {
+        TOP_UP_ON_TOP
+    }
+
+    /// The least amount to top up by: its lock (the amount and the fee on top) reaches
+    /// Platform's [`Self::top_up_lock_min`]. Never below one duff.
+    pub fn top_up_amount_least(&self) -> Duffs {
+        self.top_up_lock_min.saturating_sub(TOP_UP_ON_TOP).max(1)
+    }
 }
+
+/// What goes on top for a name (BUG-93). The firm number is the live 222 937 duffs of a creation
+/// and a first name together; how they divide is an estimate (a name measured 57 979 on an
+/// existing identity, Platform's own test charges a first name 76 851 at protocol 14 and 63 395
+/// at 15). With [`IDENTITY_CREATE`] the 265 000 on top also covers the longest legal name (about
+/// 7 500 more) and a `Continue` that pays the preorder again (32 318, protocol 14).
+const NAME_ON_TOP: Duffs = 90_000;
+/// A name's estimate is its net price; while it is being written Platform wants more up front,
+/// see [`Fees::identity_amount_least`]. Twice the estimate covers that (BUG-93).
+const NAME_PEAK: Duffs = 2;
+/// A name cost 57 979 duffs on testnet (2026-11-05, on an existing identity); [`NAME_PEAK`]
+/// never counts on less, even if this data folder's last name happened to be cheaper.
+const NAME_FLOOR: Duffs = 58_000;
+/// A top-up's fee on testnet: 8 130 duffs (2026-11-05, 0.01 DASH), rounded up.
+const TOP_UP_ON_TOP: Duffs = 10_000;
 
 #[derive(Clone, PartialEq, Debug)]
 pub struct Wallet {
@@ -1482,6 +1557,7 @@ mod tests {
             shield: 0,
             identity_create: 0,
             identity_lock_min: 0,
+            top_up_lock_min: 50_500,
             name_regular: 0,
             name_contested: 0,
             add_key: 0,
@@ -1500,6 +1576,38 @@ mod tests {
         fees.core_coins = vec![coin(1_000, 226), coin(500, 374), coin(300, 522)];
         assert_eq!(fees.core_payment_for(0), 226);
         assert_eq!(fees.core_payment_for(774), 226, "the coin and its fee");
+        // BUG-93: the amount becomes credits whole; every fee is on top of it.
+        fees.identity_lock_min = 241_000;
+        fees.identity_create = 175_000;
+        fees.name_regular = 65_000;
+        assert_eq!(fees.name_on_top(), 90_000, "at least the name's margin");
+        assert_eq!(fees.identity_fees_on_top(true), 175_000 + 90_000);
+        assert_eq!(fees.identity_fees_on_top(false), 175_000);
+        assert_eq!(fees.identity_lock_for(1_000_000, true), 1_265_000);
+        assert_eq!(fees.identity_lock_for(1_000_000, false), 1_175_000);
+        // The name's peak (twice its price) less the margin already on top.
+        assert_eq!(fees.identity_amount_least(true), 2 * 65_000 - 90_000);
+        // Without a name: what makes the lock reach Platform's minimum.
+        assert_eq!(fees.identity_amount_least(false), 241_000 - 175_000);
+        fees.name_regular = 100_000;
+        assert_eq!(fees.name_on_top(), 100_000, "a dearer last name is kept");
+        assert_eq!(fees.identity_amount_least(true), 2 * 100_000 - 100_000);
+        fees.name_regular = 1_000;
+        assert_eq!(
+            fees.identity_amount_least(true),
+            2 * 58_000 - 90_000,
+            "a cheap last name does not lower the bar"
+        );
+        fees.identity_lock_min = 1;
+        fees.identity_create = 1_000_000;
+        assert_eq!(fees.identity_amount_least(false), 1, "never below a duff");
+        assert_eq!(fees.top_up_on_top(), 10_000);
+        // BUG-93 review must 1: the lock of the least amount is Platform's minimum exactly.
+        fees.top_up_lock_min = 50_500;
+        assert_eq!(fees.top_up_amount_least(), 40_500);
+        fees.top_up_lock_min = 9_000;
+        assert_eq!(fees.top_up_amount_least(), 1, "never below a duff");
+
         assert_eq!(fees.core_payment_for(775), 374);
         assert_eq!(fees.core_payment_for(1_278), 522);
         assert_eq!(fees.core_payment_for(9_999), 522, "more than there is");

@@ -626,18 +626,47 @@ pub(super) fn fee_rate() -> FeeRate {
 const CONTACT_REQUEST: Duffs = 105_000;
 /// A regular DPNS name on testnet, 2026-11-05: 0.00057979 DASH (evolite-test-data), rounded up.
 const NAME_REGULAR: Duffs = 65_000;
+/// What goes on top for an identity with its six keys (BUG-93). The firm number is the live
+/// 222 937 duffs of a creation and a first name together (2026-11-08); the creation alone is
+/// inferred, and is between about 147 000 (Platform's fixtures per key) and 165 000 (the total
+/// less a name's 57 979). Platform's processing fee depends on the state of its trees, so this
+/// has a margin. Not the protocol's minimum, which is only the floor of what a lock must hold
+/// (`identity_lock_min`).
+const IDENTITY_CREATE: Duffs = 175_000;
 
-/// What an identity's asset lock takes from Core (`create_identity`): the credits asked for,
-/// the identity's creation and its name — the same three the form adds up from the snapshot's
-/// fees, so the identity is left with about the credits asked for (BUG-54) — or
-/// `None` when that is below [`Fees::identity_lock_min`]: Platform would reject the lock and its
-/// DASH would stay in it, «Continue» failing the same way (review r1 must). Without a name
-/// (`named` false, FEAT-0014 R-7) the name is not paid for.
+/// What an identity's asset lock holds and takes from Core (`create_identity`): the amount
+/// asked for and the fees on top of it, with a margin (BUG-93), so the amount reaches the
+/// identity whole and what the margin leaves stays as credits — or `None` below
+/// [`Fees::identity_amount_least`]: the lock would be refused, or the name short of credits
+/// with the DASH already locked. Without a name (`named` false, FEAT-0014 R-7) nothing is paid
+/// for one.
 pub(super) fn identity_lock(top_up: u64, fees: &Fees, named: bool) -> Option<u64> {
-    let cost = |duffs: Duffs| u64::try_from(duffs).unwrap_or(0);
-    let name = if named { cost(fees.name_regular) } else { 0 };
-    let lock = top_up + name + cost(fees.identity_create);
-    (lock >= cost(fees.identity_lock_min)).then_some(lock)
+    let amount = Duffs::try_from(top_up).unwrap_or(Duffs::MAX);
+    (amount >= fees.identity_amount_least(named))
+        .then(|| fees.identity_lock_for(amount, named) as u64)
+}
+
+/// What a top-up's asset lock holds (`top_up_identity`): the amount asked for and Platform's fee
+/// on top of it (BUG-93), so the amount reaches the identity whole — or `None` below
+/// [`Fees::top_up_amount_least`]: Platform would refuse the lock, its DASH would stay in it and
+/// every next top-up would wait for it (review must 1).
+pub(super) fn top_up_lock(amount: u64, fees: &Fees) -> Option<u64> {
+    let enough = Duffs::try_from(amount).unwrap_or(Duffs::MAX) >= fees.top_up_amount_least();
+    enough.then(|| amount.saturating_add(fees.top_up_on_top() as u64))
+}
+
+/// The least a top-up's asset lock may hold, in duffs, at protocol `version`: dpp's
+/// `calculate_min_required_fee_v1` of an identity top-up — the base cost and the asset lock's
+/// processing start.
+pub(super) fn top_up_lock_min(version: &dpp::version::PlatformVersion) -> Duffs {
+    let min = &version.fee_version.state_transition_min_fees;
+    let start = version
+        .dpp
+        .state_transitions
+        .identities
+        .asset_locks
+        .required_asset_lock_duff_balance_for_processing_start_for_identity_top_up;
+    (min.identity_topup_base_cost.div_ceil(1000) + start) as Duffs
 }
 
 /// The least an identity's asset lock may hold, in duffs, at protocol `version`: dpp's
@@ -716,11 +745,13 @@ pub(super) fn fees(coins: usize) -> Fees {
         // ([`tests::the_first_writes_are_priced_near_what_platform_charges`], BUG-54). A typical
         // write ("≈ N operations" on the credits tile, an app's request) is a contact request.
         document_write: CONTACT_REQUEST,
-        identity_create: 2_000,
+        identity_create: IDENTITY_CREATE,
         // The protocol's at 15 ([`identity_lock_min`]), until the SDK is up.
         identity_lock_min: 241_000,
-        // Metered like the documents above; an identity's asset lock adds it for its name
-        // ([`identity_lock`], from the same fees the snapshot shows).
+        // The same, at 15 ([`top_up_lock_min`]).
+        top_up_lock_min: 50_500,
+        // Metered like the documents above: what remains of an identity's lock is shown
+        // with a margin ([`Fees::name_on_top`]).
         name_regular: NAME_REGULAR,
         name_contested: 20_000_000,
         add_key: 10_000,
@@ -748,8 +779,9 @@ pub(super) fn fees(coins: usize) -> Fees {
 /// The fees of Platform writes outside the pool, at protocol `version`. Credit transfers,
 /// withdrawals and documents (profile, contact request, name) are metered by Platform: what the
 /// last one of a kind really cost (the journal), else the protocol's minimum — for documents,
-/// whose minimum is far below any real write, the estimate above. Creating an identity and
-/// adding a key have fixed protocol costs; a contested name adds the masternode vote's fund.
+/// whose minimum is far below any real write, the estimate above. Creating an identity is
+/// metered too ([`IDENTITY_CREATE`]); adding a key has a fixed protocol cost; a contested name
+/// adds the masternode vote's fund.
 pub(super) fn platform_fees(
     fees: &mut Fees,
     version: &dpp::version::PlatformVersion,
@@ -787,9 +819,8 @@ pub(super) fn platform_fees(
                 .contested_document_vote_resolution_fund_required_amount,
         );
     // An identity is made with six keys (`identity::new_identity_keys`).
-    fees.identity_create =
-        duffs(min.identity_create_base_cost + 6 * min.identity_key_in_creation_cost);
     fees.identity_lock_min = identity_lock_min(version, 6);
+    fees.top_up_lock_min = top_up_lock_min(version);
     fees.add_key = duffs(min.identity_update + min.identity_key_in_creation_cost);
 }
 
@@ -908,37 +939,120 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// BUG-54 part 2: an identity's asset lock is what the form adds up — the credits asked
-    /// for, its creation and its name, at the fees the snapshot shows (a name this data folder
-    /// has paid for before at what it really cost), not the old name constant.
+    /// BUG-93, the estimate: the live creation with a name (@qa-kestrel-1108b, 2026-11-08) cost
+    /// 222 937 duffs together; what goes on top covers it (the amount is never short) with a
+    /// margin of at most 20 %, and is not the 106 000 of the protocol's minimum plus the name.
     #[test]
-    fn an_identity_locks_what_the_form_shows() {
-        let dir = std::env::temp_dir().join(format!("evolite-lock-fees-{}", std::process::id()));
+    fn bug_93_the_fees_on_top_cover_what_testnet_charged() {
+        let dir = std::env::temp_dir().join(format!("evolite-bug93-est-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let journal = super::super::journal::Journal::new(dir.join("platform-history.json"));
         let v15 = dpp::version::PlatformVersion::get(15).unwrap();
         let mut f = fees(0);
         platform_fees(&mut f, v15, &journal);
-        let shown = 1_000_000 + f.name_regular + f.identity_create;
-        assert_eq!(identity_lock(1_000_000, &f, true), Some(shown as u64));
+        let on_top = f.identity_fees_on_top(true);
+        let charged: Duffs = 222_937;
+        assert!(on_top >= charged, "{on_top} on top, {charged} charged");
         assert!(
-            identity_lock(1_000_000, &f, true) < Some(1_000_000 + 200_000),
-            "a name and an identity, not 0.01 DASH more"
+            (on_top - charged) * 100 <= charged * 20,
+            "{on_top} on top, {charged} charged"
         );
-        f.name_regular = 61_000;
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// BUG-93 (the customer): the amount typed is what ends up as credits; every fee is on top.
+    /// The lock holds the amount and the fees, and the live charge leaves at least the amount.
+    #[test]
+    fn bug_93_the_lock_is_the_amount_and_the_fees_on_top() {
+        let f = fees(0);
+        let on_top = f.identity_fees_on_top(true) as u64;
+        assert_eq!(identity_lock(500_000, &f, true), Some(500_000 + on_top));
         assert_eq!(
-            identity_lock(500_000, &f, true),
-            Some(500_000 + 61_000 + 41_000)
+            identity_lock(500_000, &f, false),
+            Some(500_000 + f.identity_create as u64)
         );
-        // FEAT-0014 R-7: without a name, no name in the lock.
-        assert_eq!(identity_lock(500_000, &f, false), Some(500_000 + 41_000));
+        let charged = 222_937;
+        for typed in [100_000u64, 500_000, 30_000_000] {
+            let lock = identity_lock(typed, &f, true).unwrap();
+            assert!(lock - charged >= typed, "{typed} typed, {lock} locked");
+        }
+    }
+
+    /// BUG-93: a top-up's lock is the amount and the fee on top, and the live fee (8 130 duffs
+    /// on 0.01 DASH, 2026-11-05) leaves at least the amount. The review's must 1: Platform's
+    /// least lock (50 500 at protocol 15) is reached at the least amount, and one duff below it
+    /// no lock is made.
+    #[test]
+    fn bug_93_a_top_up_locks_the_amount_and_the_fee_on_top() {
+        let dir = std::env::temp_dir().join(format!("evolite-bug93-top-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let journal = super::super::journal::Journal::new(dir.join("platform-history.json"));
+        let v15 = dpp::version::PlatformVersion::get(15).unwrap();
+        let mut f = fees(0);
+        platform_fees(&mut f, v15, &journal);
+        assert_eq!(
+            f.top_up_lock_min, 50_500,
+            "500 base + 50 000 processing start"
+        );
+        assert_eq!(
+            fees(0).top_up_lock_min,
+            50_500,
+            "the same before the SDK is up"
+        );
+        assert_eq!(top_up_lock(1_000_000, &f), Some(1_010_000));
+        assert!(top_up_lock(1_000_000, &f).unwrap() - 8_130 >= 1_000_000);
+        assert_eq!(top_up_lock(40_500, &f), Some(50_500), "at the least");
+        assert_eq!(top_up_lock(40_499, &f), None, "one duff below");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// BUG-93 review should 1: a `Continue` after a failed domain pays the preorder again
+    /// (32 318 duffs at protocol 14, without a refund): the fees on top cover that too, with
+    /// the longest legal name (about 7 500 more than the live 16 characters).
+    #[test]
+    fn bug_93_a_name_retried_still_leaves_the_amount() {
+        let f = fees(0);
+        let typed = 500_000;
+        let lock = identity_lock(typed, &f, true).unwrap();
+        assert!(lock - (222_937 + 32_318 + 7_500) >= typed, "{lock} locked");
+    }
+
+    /// BUG-93, the edge that matters: the least lock accepted for a named identity leaves,
+    /// after the creation as testnet charged it (164 958 duffs, the 222 937 less the 57 979 of a
+    /// name), enough for the name's two steps at their peak — preorder as charged, domain at
+    /// Platform's estimate, no refund counted (`validate_fees_of_event`): at most about 92 700
+    /// (the 63-character name at protocol 14, the review's reckoning).
+    #[test]
+    fn bug_93_the_least_named_lock_can_pay_for_the_name_after_the_creation() {
+        let dir = std::env::temp_dir().join(format!("evolite-bug93-min-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let journal = super::super::journal::Journal::new(dir.join("platform-history.json"));
+        let v15 = dpp::version::PlatformVersion::get(15).unwrap();
+        let mut f = fees(0);
+        platform_fees(&mut f, v15, &journal);
+        let least_lock = |f: &Fees, named| {
+            (1..2_000u64)
+                .map(|k| k * 1_000)
+                .find_map(|amount| identity_lock(amount, f, named))
+                .expect("some lock is accepted")
+        };
+        let least = least_lock(&f, true);
+        assert!(
+            least >= 164_958 + 92_700,
+            "the least lock {least} leaves too little for the name"
+        );
+        // A name this data folder paid little for does not lower the bar under the name's peak.
+        f.name_regular = 1_000;
+        assert!(least_lock(&f, true) >= 164_958 + 92_700);
+        // Without a name there is nothing to pay after the creation: Platform's own minimum.
+        assert!(least_lock(&f, false) >= 241_000);
         let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// BUG-54 part 2, review r1 must: Platform refuses an identity's asset lock below
     /// `calculate_min_required_fee` (protocol 3 on: base, the lock's processing start, six keys
     /// = 241 000 duffs at 15) and its DASH stay locked — such a lock is never made; one at the
-    /// minimum is.
+    /// minimum is. BUG-93: with a name the least is higher still.
     #[test]
     fn an_identity_lock_is_never_below_what_platform_takes() {
         let dir = std::env::temp_dir().join(format!("evolite-lock-min-{}", std::process::id()));
@@ -953,14 +1067,21 @@ mod tests {
             241_000,
             "the same before the SDK is up"
         );
-        let least = (f.identity_lock_min - f.name_regular - f.identity_create) as u64;
+        let least = f.identity_amount_least(true) as u64;
         assert_eq!(
             identity_lock(least, &f, true),
-            Some(241_000),
-            "at the minimum"
+            Some(least + f.identity_fees_on_top(true) as u64),
+            "at the least"
         );
         assert_eq!(identity_lock(least - 1, &f, true), None, "one duff below");
         assert_eq!(identity_lock(1, &f, true), None, "a tiny top-up");
+        let nameless = f.identity_amount_least(false) as u64;
+        assert_eq!(
+            identity_lock(nameless, &f, false),
+            Some(241_000),
+            "exactly Platform's minimum"
+        );
+        assert_eq!(identity_lock(nameless - 1, &f, false), None, "below it");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -976,7 +1097,11 @@ mod tests {
         assert_eq!(f.credit_withdrawal, 400_000);
         assert_eq!(f.credit_withdrawal_reserve, 400_000);
         assert_eq!(f.credit_transfer, 100);
-        assert_eq!(f.identity_create, 41_000, "base and six keys");
+        assert_eq!(
+            f.identity_create, IDENTITY_CREATE,
+            "metered, not the minimum"
+        );
+
         assert_eq!(f.add_key, 6_600);
         assert_eq!(
             f.name_contested,

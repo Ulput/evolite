@@ -25,12 +25,15 @@ impl Real {
             return Some(UnfinishedIdentity {
                 locked: Some(lock.amount as Duffs),
                 name: names.get(&lock.identity_index).cloned(),
+                identity: None,
             });
         }
         let slot = nameless_slot(&self.chain, wallet, &names).await?;
+        let made = self.chain.nameless(wallet, slot).await;
         Some(UnfinishedIdentity {
             locked: None,
             name: names.get(&slot).cloned(),
+            identity: made.map(|id| id.to_string(Encoding::Base58)),
         })
     }
 
@@ -120,7 +123,10 @@ impl Real {
             .as_ref()
             .ok_or(CoreError::NotAvailable(tr!("The wallet is locked").into()))?;
         let id = open.id;
-        let amount = positive_duffs(amount)?;
+        // BUG-93: the amount reaches the identity whole, Platform's fee goes on top of it; a
+        // lock Platform would refuse is not made (review must 1).
+        let amount = convert::top_up_lock(positive_duffs(amount)?, &self.fees_now(0).await)
+            .ok_or(CoreError::BadAmount)?;
         let status = self.chain.status();
         if !coins_known(&status, true)
             || status.phase == Phase::Error

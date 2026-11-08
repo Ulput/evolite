@@ -2062,6 +2062,7 @@ mod tests {
             shield: 0,
             identity_create: 0,
             identity_lock_min: 0,
+            top_up_lock_min: 50_500,
             name_regular: 0,
             name_contested: 0,
             add_key: 0,

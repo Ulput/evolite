@@ -935,7 +935,7 @@ fn no_identity(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, wallet: &Wallet, searc
     // What it takes, against what there is: the name and the creation, plus any credits. Only
     // once the search is done — an identity may yet be found (CS-4) — and red only once the
     // sync has counted Core: a zero before it is not known (the designer's improvement 1).
-    let least = wallet.fees.name_regular + wallet.fees.identity_create;
+    let least = wallet.fees.identity_fees_on_top(true) + wallet.fees.identity_amount_least(true);
     // «Core has … now» only when Core is checked now (BUG-80): not known yet there is no
     // amount to say, and the last checked one is not what Core has now.
     if let (true, CardAmount::Now(core)) = (done, CardAmount::core(&wallet.balances)) {
@@ -1250,17 +1250,34 @@ fn top_up_dialog(
                 });
                 let field = amount_field(ui, &p, "top-up-amount", &mut form.amount, true);
                 if field.all {
-                    form.amount = crate::format::input_text((core.unwrap_or(0) - fee).max(0));
+                    let all = core.unwrap_or(0) - fee - fees.top_up_on_top();
+                    form.amount = crate::format::input_text(all.max(0));
                 }
             });
             let amount = crate::format::parse_amount(&form.amount).filter(|d| *d > 0);
             let too_much = match (amount, core) {
-                (Some(d), Some(core)) => crate::format::left_after(core, d, fee) < 0,
+                (Some(d), Some(core)) => {
+                    crate::format::left_after(core, d + fees.top_up_on_top(), fee) < 0
+                }
                 _ => false,
             };
             if too_much {
                 ui.label(txt(
                     tr!("More than there is on Core"),
+                    12.0,
+                    Weight::Regular,
+                    p.danger,
+                ));
+            }
+            // BUG-93 review must 1: Platform refuses a smaller lock and its DASH stay in it.
+            let least = fees.top_up_amount_least();
+            let too_little = amount.is_some_and(|d| d < least);
+            if too_little {
+                ui.label(txt(
+                    &format!(
+                        tr!("At least {} — Dash Platform takes no smaller asset lock"),
+                        dash(least)
+                    ),
                     12.0,
                     Weight::Regular,
                     p.danger,
@@ -1283,6 +1300,23 @@ fn top_up_dialog(
                 &format!("≈ {}", dash(fee)),
                 value.clone(),
             );
+            // BUG-93: the fee of Platform goes on top, the amount reaches the identity whole.
+            kv_row(
+                ui,
+                &p,
+                tr!("Platform fee"),
+                &format!("≈ {}", dash(fees.top_up_on_top())),
+                value.clone(),
+            );
+            if let Some(d) = amount {
+                kv_row(
+                    ui,
+                    &p,
+                    tr!("Total from Core"),
+                    &format!("≈ {}", dash(d + fees.top_up_on_top() + fee)),
+                    value.clone(),
+                );
+            }
             kv_row(
                 ui,
                 &p,
@@ -1331,6 +1365,7 @@ fn top_up_dialog(
                 let ready = running.is_none()
                     && amount.is_some()
                     && !too_much
+                    && !too_little
                     && state.top_up_password.ready(ask);
                 if button_enabled(ui, a, &label, ButtonKind::Primary, None, ready).clicked()
                     || (entered && ready)
