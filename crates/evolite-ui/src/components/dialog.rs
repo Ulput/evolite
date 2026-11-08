@@ -86,13 +86,7 @@ pub fn dialog_with_header_held(
             ui.spacing_mut().item_spacing.x = 10.0;
             header(ui, a);
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                let img = a.icons.icon("close", p.muted, &p, 20.0);
-                let cross = ui
-                    .add(egui::Button::image(img).frame(false))
-                    .on_hover_text(crate::i18n::t(tr!("Close")).into_owned());
-                // A picture alone says nothing to a screen reader (BUG-41).
-                named(&cross, egui::WidgetType::Button, true, tr!("Close"));
-                if cross.clicked() {
+                if close_cross(ui, a, 20.0).clicked() {
                     close = true;
                 }
             });
@@ -107,6 +101,19 @@ pub fn dialog_with_header_held(
     });
     place.keep(&ctx, id, response.response.rect);
     response.inner || (!held && response.should_close())
+}
+
+/// «×» of a dialog or a closable notice: the muted close icon at `size`, «Close» on hover and
+/// for a screen reader.
+pub fn close_cross(ui: &mut Ui, a: &mut Assets, size: f32) -> Response {
+    let p = a.p;
+    let img = a.icons.icon("close", p.muted, &p, size);
+    let cross = ui
+        .add(egui::Button::image(img).frame(false))
+        .on_hover_text(crate::i18n::t(tr!("Close")).into_owned());
+    // A picture alone says nothing to a screen reader (BUG-41).
+    named(&cross, egui::WidgetType::Button, true, tr!("Close"));
+    cross
 }
 
 /// Where an open dialog stands. It opens in the middle of the window; from its second frame its

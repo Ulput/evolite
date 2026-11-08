@@ -22,6 +22,7 @@ mod identity_pool;
 mod layout;
 mod loading;
 mod login;
+mod new_identity;
 mod notes;
 mod onboarding;
 mod pause;
@@ -43,8 +44,8 @@ use std::time::{Duration, Instant};
 
 pub(super) type Kit = Harness<'static, App>;
 
-/// App tests take turns: the interface language is per thread now, but the capture switch
-/// (`capture::WANTED`), the network and the core and art threads are one per process.
+/// App tests take turns: the interface language and the capture request are per thread now,
+/// but the network and the core and art threads are one per process.
 static ONE_APP: Mutex<()> = Mutex::new(());
 
 /// The app as `evolite --screen <preset> --lang <lang>` starts it — the demo core, dark,

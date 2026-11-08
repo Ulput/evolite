@@ -630,10 +630,12 @@ const NAME_REGULAR: Duffs = 65_000;
 /// the identity's creation and its name — the same three the form adds up from the snapshot's
 /// fees, so the identity is left with about the credits asked for (BUG-54) — or
 /// `None` when that is below [`Fees::identity_lock_min`]: Platform would reject the lock and its
-/// DASH would stay in it, «Continue» failing the same way (review r1 must).
-pub(super) fn identity_lock(top_up: u64, fees: &Fees) -> Option<u64> {
+/// DASH would stay in it, «Continue» failing the same way (review r1 must). Without a name
+/// (`named` false, FEAT-0014 R-7) the name is not paid for.
+pub(super) fn identity_lock(top_up: u64, fees: &Fees, named: bool) -> Option<u64> {
     let cost = |duffs: Duffs| u64::try_from(duffs).unwrap_or(0);
-    let lock = top_up + cost(fees.name_regular) + cost(fees.identity_create);
+    let name = if named { cost(fees.name_regular) } else { 0 };
+    let lock = top_up + name + cost(fees.identity_create);
     (lock >= cost(fees.identity_lock_min)).then_some(lock)
 }
 
@@ -917,13 +919,18 @@ mod tests {
         let mut f = fees(0);
         platform_fees(&mut f, v15, &journal);
         let shown = 1_000_000 + f.name_regular + f.identity_create;
-        assert_eq!(identity_lock(1_000_000, &f), Some(shown as u64));
+        assert_eq!(identity_lock(1_000_000, &f, true), Some(shown as u64));
         assert!(
-            identity_lock(1_000_000, &f) < Some(1_000_000 + 200_000),
+            identity_lock(1_000_000, &f, true) < Some(1_000_000 + 200_000),
             "a name and an identity, not 0.01 DASH more"
         );
         f.name_regular = 61_000;
-        assert_eq!(identity_lock(500_000, &f), Some(500_000 + 61_000 + 41_000));
+        assert_eq!(
+            identity_lock(500_000, &f, true),
+            Some(500_000 + 61_000 + 41_000)
+        );
+        // FEAT-0014 R-7: without a name, no name in the lock.
+        assert_eq!(identity_lock(500_000, &f, false), Some(500_000 + 41_000));
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -946,9 +953,13 @@ mod tests {
             "the same before the SDK is up"
         );
         let least = (f.identity_lock_min - f.name_regular - f.identity_create) as u64;
-        assert_eq!(identity_lock(least, &f), Some(241_000), "at the minimum");
-        assert_eq!(identity_lock(least - 1, &f), None, "one duff below");
-        assert_eq!(identity_lock(1, &f), None, "a tiny top-up");
+        assert_eq!(
+            identity_lock(least, &f, true),
+            Some(241_000),
+            "at the minimum"
+        );
+        assert_eq!(identity_lock(least - 1, &f, true), None, "one duff below");
+        assert_eq!(identity_lock(1, &f, true), None, "a tiny top-up");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

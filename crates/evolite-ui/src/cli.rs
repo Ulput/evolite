@@ -181,10 +181,12 @@ pub const PRESETS: &[&str] = &[
     "send-note", "send-note-limit", "send-confirm-note", "delete-notes",
     "send", "send-confirm", "send-contact", "send-book", "send-syncing",
     "receive",
-    "identity", "identity-unfinished", "top-up-stopped", "top-up-awaiting", "edit-profile",
+    "identity", "identity-unfinished", "identity-created", "top-up-stopped", "top-up-awaiting",
+    "edit-profile",
     "top-up", "add-name",
     "contacts", "add-contact", "contact-profile",
-    "create-identity", "creating",
+    "create-identity", "creating", "create-identity-nameless", "create-identity-confirm",
+    "create-identity-short", "create-identity-unchecked",
     "shielded", "shield", "shield-core", "unshield", "unshield-identity", "pool-address",
     "apps", "connect", "sign", "exchange",
     "collection", "gift",
@@ -267,6 +269,7 @@ fn dev_args<'a>(
             Some(
                 "identity"
                 | "identity-unfinished"
+                | "identity-created"
                 | "top-up-stopped"
                 | "top-up-awaiting"
                 | "edit-profile"
@@ -275,7 +278,17 @@ fn dev_args<'a>(
             ),
         ) => Screen::Identity,
         (None, Some("contacts" | "add-contact" | "contact-profile")) => Screen::Contacts,
-        (None, Some("create-identity" | "creating")) => Screen::CreateIdentity,
+        (
+            None,
+            Some(
+                "create-identity"
+                | "creating"
+                | "create-identity-nameless"
+                | "create-identity-confirm"
+                | "create-identity-short"
+                | "create-identity-unchecked",
+            ),
+        ) => Screen::CreateIdentity,
         (
             None,
             Some(

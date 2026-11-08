@@ -6,8 +6,8 @@
 use super::txt;
 use crate::components::{
     Assets, ButtonKind, CardColumn, FieldKind, amount_field, button, button_enabled, card, dialog,
-    divider, field_label, kv_row, notice, option_card_in, option_card_width, page_header, pill,
-    text_field,
+    divider, field_label, from_columns, kv_row, notice, option_card_in, option_card_width,
+    page_header, pill, text_field,
 };
 use crate::context::Ctx;
 use crate::text::{name_problem, short_address};
@@ -606,18 +606,6 @@ fn source_detail(
         (Some(line), Source::Core) => format!("{} · {line}", crate::format::balance(s.duffs)),
         _ => crate::format::balance(s.duffs),
     }
-}
-
-/// The width of each of `n` equal columns of «From» in `width` (8 px between them): all `n`
-/// in one row when each holds `least`, otherwise fewer per row (BUG-81), one under another at
-/// the least.
-fn from_columns(width: f32, n: usize, least: f32) -> f32 {
-    let column = |k: usize| ((width - 8.0 * (k as f32 - 1.0)) / k as f32).floor();
-    (1..=n.max(1))
-        .rev()
-        .map(column)
-        .find(|&c| c >= least)
-        .unwrap_or_else(|| column(1))
 }
 
 /// What a «From» card needs: the width of its words alone and with its icon
@@ -1747,23 +1735,6 @@ fn resolved(ui: &mut Ui, a: &mut Assets, c: &ResolvedName, from: Source, asked: 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    /// BUG-81: three columns while each holds the widest words, then two, then one; a column
-    /// and the 8 px between them never take more than the panel.
-    #[test]
-    fn the_sources_take_as_many_columns_as_hold_their_words() {
-        assert_eq!(from_columns(474.0, 3, 141.0), 152.0);
-        assert_eq!(from_columns(474.0, 3, 152.0), 152.0);
-        assert_eq!(from_columns(474.0, 3, 153.0), 233.0);
-        assert_eq!(from_columns(474.0, 3, 234.0), 474.0);
-        assert_eq!(from_columns(474.0, 3, 600.0), 474.0);
-        assert_eq!(from_columns(474.0, 0, 10.0), 474.0);
-        for least in [100.0, 152.5, 200.0, 300.0] {
-            let c = from_columns(474.0, 3, least);
-            let per_row = ((474.0 + 8.0) / (c + 8.0)).floor().min(3.0);
-            assert!(per_row * c + 8.0 * (per_row - 1.0) <= 474.0, "{least}: {c}");
-        }
-    }
 
     /// BUG-81 r2 (the designer): a row shows icons on all its cards or on none. At a 152 px
     /// column the Credits card holds its icon (150.4) and Core does not (157): none get one;

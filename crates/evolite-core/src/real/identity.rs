@@ -9,7 +9,7 @@ use dpp::identity::identity_public_key::v0::IdentityPublicKeyV0;
 use dpp::identity::{IdentityPublicKey, KeyType, Purpose, SecurityLevel};
 use dpp::platform_value::BinaryData;
 use dpp::platform_value::string_encoding::Encoding;
-use evolite_api::{DpnsName, Identity, IdentityKey, KeyKind, KeyLevel, KeyPurpose};
+use evolite_api::{CoreError, DpnsName, Identity, IdentityKey, KeyKind, KeyLevel, KeyPurpose};
 use key_wallet::bip32::{DerivationPath, ExtendedPubKey};
 use key_wallet::dashcore::ecdsa::{EcdsaPublicKey, EcdsaSignature};
 use key_wallet::signer::{ExtendedPubKeySigner, Signer, SignerMethod};
@@ -171,6 +171,8 @@ pub fn to_api(managed: &ManagedIdentity) -> Identity {
         names,
         keys,
         profile: None,
+        // As the choice of identities counts it (`Real::wallet`).
+        slot: managed.identity_index.unwrap_or_default(),
     }
 }
 
@@ -458,9 +460,80 @@ pub fn lock_line(
     }
 }
 
+/// The DPNS label a new identity is to get: `None` for no name or one of only spaces
+/// (FEAT-0014 R-7); a contested one is refused before any money moves.
+pub(super) fn new_identity_label(name: Option<&str>) -> Result<Option<String>, CoreError> {
+    let Some(name) = name.map(str::trim).filter(|n| !n.is_empty()) else {
+        return Ok(None);
+    };
+    let label = crate::dpns::label(name)?;
+    if crate::dpns::is_contested(&label) {
+        return Err(CoreError::NotAvailable(
+            tr!("Contested names are decided by a masternode vote, which evolite cannot do yet. Add a digit from 2 to 9 to the name or make it longer than 19 characters").into(),
+        ));
+    }
+    Ok(Some(label))
+}
+
+/// Keeps the name slot `index` is being made with, so a run cut short finishes it. A nameless
+/// identity keeps none (R-7) and drops one an earlier attempt in the same slot left there (one
+/// that failed before its lock): `nameless_slot` would take the slot for one cut short and
+/// «Continue» would register that old name (review r1 should 1).
+pub(super) fn remember_name(
+    pending: &super::pending::PendingNames,
+    index: u32,
+    label: Option<&str>,
+) -> Result<(), String> {
+    match label {
+        Some(label) => pending.set(index, label),
+        None => pending.remove(index),
+    }
+}
+
+/// After "Create an identity": the identity made in slot `made`
+/// is the one the wallet acts as from now on (analyst-44), through the same choice as
+/// `ChooseIdentity`; a failure leaves the choice as it was.
+pub(super) fn choose_created(
+    wallet: key_wallet_manager::WalletId,
+    made: Result<u32, CoreError>,
+) -> Result<(), CoreError> {
+    made.map(|slot| super::chain::choose_identity(wallet, slot))
+}
+
+/// "Continue" finished the identity of slot `index`: no name is pending for it any more, and
+/// it is the one actions go from, as one made at once (analyst-44): the banner the form put up
+/// waits for this choice (review r1 should 2).
+pub(super) fn finish_resumed(
+    pending: &super::pending::PendingNames,
+    wallet: key_wallet_manager::WalletId,
+    index: u32,
+) -> Result<(), String> {
+    pending.remove(index)?;
+    super::chain::choose_identity(wallet, index);
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Review r1 should 2: an identity finished by «Continue» leaves the pending names and
+    /// becomes the chosen one, as one made at once.
+    #[test]
+    fn a_resumed_identity_is_chosen_and_keeps_no_pending_name() {
+        use super::super::chain;
+        let dir = std::env::temp_dir().join(format!("evolite-f14-resumed-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let pending = super::super::pending::PendingNames::new(dir.join("pending-names.json"));
+        pending.set(2, "half-made").unwrap();
+        let wallet: key_wallet_manager::WalletId = [0x15; 32];
+        chain::choose_identity(wallet, 0);
+        finish_resumed(&pending, wallet, 2).unwrap();
+        assert!(pending.load().is_empty(), "the name is no longer pending");
+        assert_eq!(chain::shown_slot(wallet, [0, 1, 2].into_iter()), Some(2));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn an_asset_lock_names_the_identity_it_funded() {
@@ -849,5 +922,80 @@ mod tests {
         t.cover([2; 32], Some(&keys), [1], &[]);
         assert_eq!(t.derived(1), TOP_UP_GAP, "another wallet starts afresh");
         assert_eq!(t.lock_for(&chain[2]), None);
+    }
+
+    /// FEAT-0014 AC-T2: an empty name (after trimming) is no name; a name is checked as
+    /// before, a contested one refused before any money moves.
+    #[test]
+    fn an_empty_name_makes_a_nameless_identity() {
+        assert_eq!(new_identity_label(None), Ok(None));
+        assert_eq!(new_identity_label(Some("")), Ok(None));
+        assert_eq!(new_identity_label(Some("   ")), Ok(None));
+        assert_eq!(
+            new_identity_label(Some(" Satoshi-Apps2 ")),
+            Ok(Some("satoshi-apps2".into()))
+        );
+        assert_eq!(new_identity_label(Some("ab")), Err(CoreError::BadName));
+        assert!(matches!(
+            new_identity_label(Some("alice")),
+            Err(CoreError::NotAvailable(_))
+        ));
+    }
+
+    /// FEAT-0014 AC-T2, R-7, review r1 should 1: a nameless identity keeps no name in
+    /// `pending-names.json` — none of its own, and not the one an earlier named attempt in the
+    /// same slot left there (it failed before its lock) — so after a restart `nameless_slot`
+    /// (which looks only at the slots kept there) finds nothing and «Creation stopped» with the
+    /// old name is not shown; other slots stay; a named one is kept until its name is in DPNS
+    /// (AC-T3).
+    #[test]
+    fn a_nameless_identity_keeps_no_pending_name() {
+        let dir = std::env::temp_dir().join(format!("evolite-f14-pending-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("pending-names.json");
+        let pending = super::super::pending::PendingNames::new(path.clone());
+        pending.set(1, "older").unwrap();
+        let before = std::fs::read(&path).unwrap();
+        remember_name(&pending, 3, None).unwrap();
+        assert_eq!(
+            std::fs::read(&path).unwrap(),
+            before,
+            "nothing for slot 3: the file is untouched"
+        );
+        assert!(!pending.load().contains_key(&3));
+        // The slot an earlier named attempt left behind.
+        pending.set(3, "stale").unwrap();
+        remember_name(&pending, 3, None).unwrap();
+        assert!(
+            !pending.load().contains_key(&3),
+            "the old name of slot 3 goes"
+        );
+        assert_eq!(
+            pending.load().get(&1).map(String::as_str),
+            Some("older"),
+            "other slots stay"
+        );
+        // With a name: kept before the lock, for «Continue».
+        remember_name(&pending, 4, Some("satoshi-apps")).unwrap();
+        assert_eq!(
+            pending.load().get(&4).map(String::as_str),
+            Some("satoshi-apps")
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// FEAT-0014 AC-T4 (analyst-44): once made, the new identity is the chosen one — the same
+    /// choice `ChooseIdentity` makes; a failure leaves the choice alone.
+    #[test]
+    fn the_new_identity_is_chosen_only_once_made() {
+        use super::super::chain;
+        let wallet: key_wallet_manager::WalletId = [0x14; 32];
+        chain::choose_identity(wallet, 0);
+        let slots = || [0, 1, 2, 3].into_iter();
+        assert!(choose_created(wallet, Err(CoreError::NotEnough)).is_err());
+        assert_eq!(chain::shown_slot(wallet, slots()), Some(0), "a failure");
+        assert_eq!(choose_created(wallet, Ok(3)), Ok(()));
+        assert_eq!(chain::shown_slot(wallet, slots()), Some(3));
     }
 }

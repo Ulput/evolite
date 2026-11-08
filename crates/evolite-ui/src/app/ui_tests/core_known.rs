@@ -48,6 +48,8 @@ fn core(as_of: Option<CoreAsOf>) -> impl Fn(&mut Snapshot) {
 }
 
 const MORE: &str = "Больше, чем есть на Core";
+/// FEAT-0014 (frame 9): the creation says it in place of the InstantSend hint, with both sums.
+const NEEDED: &str = "Нужно не меньше ≈";
 const NOT_KNOWN: &str = "Ещё не знаем";
 
 /// «Создать identity»: the Core row says «Ещё не знаем», and the suggested 0,3 DASH is not «more
@@ -59,10 +61,10 @@ fn create_identity_does_not_measure_against_core_not_known() {
         &mut kit,
         core(Some(CoreAsOf::NotYet)),
         "Core not known yet",
-        |k| has_text(k, NOT_KNOWN) && !has_text(k, MORE),
+        |k| has_text(k, NOT_KNOWN) && !shows(k, NEEDED),
     );
     shown_with(&mut kit, core(None), "Core checked at 0", |k| {
-        has_text(k, MORE) && !has_text(k, NOT_KNOWN)
+        shows(k, NEEDED) && !has_text(k, NOT_KNOWN)
     });
 }
 

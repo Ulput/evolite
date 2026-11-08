@@ -292,7 +292,18 @@ impl Mock {
             // but an empty one and [`WRONG_PASSWORD`].
             Command::Spend { op, password } => match self.spend_gate(password.as_ref()) {
                 Err(why) => op.refused(why),
-                Ok(()) => self.spend(op),
+                Ok(()) => {
+                    let event = self.spend(op);
+                    // A new identity changes the wallet (FEAT-0014).
+                    changed |= matches!(
+                        event,
+                        Event::Done {
+                            what: "identity",
+                            result: Ok(())
+                        }
+                    );
+                    event
+                }
             },
             Command::SetPasswordEachSend { on, password } => {
                 let result = match &mut self.snapshot.wallet {
@@ -554,9 +565,112 @@ impl Mock {
             Spend::TopUpFromPool { .. } => {
                 tr!("This is the mockup's example: there is nothing to top up with")
             }
+            Spend::CreateIdentity { name, top_up } => {
+                let result = self.create_identity(name.as_deref(), top_up);
+                return Event::Done {
+                    what: "identity",
+                    result,
+                };
+            }
             _ => NO_WALLET,
         };
         op.refused(CoreError::NotAvailable(why.into()))
+    }
+
+    /// "Create an identity" in the demo (FEAT-0014): the next slot gets an identity with the
+    /// name, or none, and becomes the chosen one, as the real core answers once Platform has
+    /// it. Refused while a creation is cut short, as the real core refuses it.
+    fn create_identity(&mut self, name: Option<&str>, top_up: Duffs) -> Result<(), CoreError> {
+        let wallet = self
+            .snapshot
+            .wallet
+            .as_mut()
+            .ok_or(CoreError::NotAvailable(NO_WALLET.into()))?;
+        if top_up <= 0 {
+            return Err(CoreError::BadAmount);
+        }
+        if wallet.unfinished_identity.is_some() {
+            return Err(CoreError::NotAvailable(
+                tr!("First finish the stopped identity — its money is already locked").into(),
+            ));
+        }
+        let label = name
+            .map(str::trim)
+            .filter(|n| !n.is_empty())
+            .map(crate::dpns::label)
+            .transpose()?;
+        let slot = wallet
+            .identities
+            .iter()
+            .map(|i| i.slot + 1)
+            .max()
+            .unwrap_or(0);
+        let id = format!("{}Hk2Wm4nPq8rSt3uVw5xYz6aBc9dEf2gHj7kLm1n9QwP", slot + 2);
+        let lock = top_up
+            + wallet.fees.identity_create
+            + label.as_ref().map_or(0, |_| wallet.fees.name_regular);
+        let keys = wallet
+            .identity
+            .as_ref()
+            .map(|i| i.keys.clone())
+            .unwrap_or_default();
+        let names = label
+            .iter()
+            .map(|label| DpnsName {
+                label: label.clone(),
+                primary: true,
+                voting_days_left: None,
+            })
+            .collect();
+        wallet.identity = Some(Identity {
+            id: id.clone(),
+            created_at: now(),
+            created_block: 0,
+            revision: 0,
+            key_source: format!("DIP-13 · identity {slot}"),
+            names,
+            keys,
+            profile: None,
+            slot,
+        });
+        wallet.identities.push(IdentityChoice {
+            id: id.clone(),
+            name: label.clone(),
+            slot,
+        });
+        wallet.balances.core -= lock;
+        wallet.balances.credits = top_up;
+        wallet.balances.all_credits += top_up;
+        let line = wallet.activity.iter().map(|a| a.id).max().unwrap_or(0) + 1;
+        let kind = ActivityKind::TopUp {
+            identity: label.map_or(id, |l| format!("@{l}")),
+            creates: true,
+            credits: Credits::Added,
+        };
+        let chain = Chain::CoreToPlatform;
+        let (layers, flow) = crate::layers::of(&kind, chain);
+        wallet.activity.insert(
+            0,
+            Activity {
+                id: line,
+                kind,
+                chain,
+                at: now(),
+                amount: -lock,
+                proof: Proof::InstantLock,
+                txid: None,
+                fee: None,
+                block: None,
+                address: None,
+                layers,
+                flow,
+                // Stable as the demo's other keys (FEAT-0003).
+                key: format!("demo:{line}"),
+                note: None,
+                detail: None,
+            },
+        );
+        Ok(())
     }
 
     /// A demo wallet's password checked as the real core checks one (FEAT-0002): refused
@@ -898,6 +1012,68 @@ mod tests {
         ));
     }
 
+    fn create(m: &mut Mock, tx: &Sender<Event>, name: Option<&str>) {
+        m.handle(
+            Command::Spend {
+                op: Spend::CreateIdentity {
+                    name: name.map(Into::into),
+                    top_up: 30_000_000,
+                },
+                password: None,
+            },
+            tx,
+        );
+    }
+
+    /// FEAT-0014 (AC-T4, AC-T6, R-7): the demo's new identity takes the next slot, is the
+    /// chosen one at once, counts in all the credits, and may have no name; a cut-short
+    /// creation is finished first.
+    #[test]
+    fn the_demo_makes_one_more_identity() {
+        let (mut m, tx, rx) = mock();
+        let all_before = m.snapshot.wallet.as_ref().unwrap().balances.all_credits;
+        create(&mut m, &tx, Some("satoshi-apps2"));
+        assert!(matches!(
+            rx.recv().unwrap(),
+            Event::Done {
+                what: "identity",
+                result: Ok(())
+            }
+        ));
+        let w = m.snapshot.wallet.as_ref().unwrap();
+        let made = w.identity.as_ref().unwrap();
+        assert_eq!(
+            (made.slot, made.names[0].label.as_str()),
+            (2, "satoshi-apps2")
+        );
+        assert_eq!(w.identities.last().unwrap().id, made.id);
+        assert_eq!(w.balances.credits, 30_000_000, "the chosen one: the new");
+        assert_eq!(w.balances.all_credits, all_before + 30_000_000);
+        create(&mut m, &tx, Some("  "));
+        assert!(matches!(
+            rx.recv().unwrap(),
+            Event::Done { result: Ok(()), .. }
+        ));
+        let w = m.snapshot.wallet.as_ref().unwrap();
+        let nameless = w.identity.as_ref().unwrap();
+        assert_eq!(nameless.slot, 3);
+        assert!(nameless.names.is_empty());
+        assert_eq!(w.identities.last().unwrap().name, None);
+        m.snapshot.wallet.as_mut().unwrap().unfinished_identity = Some(UnfinishedIdentity {
+            locked: Some(1),
+            name: None,
+        });
+        create(&mut m, &tx, None);
+        assert!(matches!(
+            rx.recv().unwrap(),
+            Event::Done {
+                result: Err(CoreError::NotAvailable(_)),
+                ..
+            }
+        ));
+        assert_eq!(m.snapshot.wallet.as_ref().unwrap().identities.len(), 4);
+    }
+
     #[test]
     fn never_pretends_to_send() {
         let (mut m, tx, rx) = mock();
@@ -931,7 +1107,7 @@ mod tests {
             Spend::TopUpIdentity { amount: 1 },
             Spend::ResumeTopUp,
             Spend::CreateIdentity {
-                name: "alice".into(),
+                name: Some("alice".into()),
                 top_up: 1,
             },
             Spend::ResumeIdentity,

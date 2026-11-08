@@ -151,6 +151,19 @@ pub fn grid_layout(width: f32, n: usize, spec: GridSpec) -> (usize, f32) {
     (cols, cell_w)
 }
 
+/// The width of each of `n` equal columns in `width` (8 px between them), whole pixels: all
+/// `n` in one row when each holds `least`, otherwise fewer per row (BUG-81), one under another
+/// at the least. «From» on Send and on «Create an identity»; unlike [`grid_layout`] the least
+/// is what the widest cell's words need, not a minimum of the responsive spec.
+pub fn from_columns(width: f32, n: usize, least: f32) -> f32 {
+    let column = |k: usize| ((width - 8.0 * (k as f32 - 1.0)) / k as f32).floor();
+    (1..=n.max(1))
+        .rev()
+        .map(column)
+        .find(|&c| c >= least)
+        .unwrap_or_else(|| column(1))
+}
+
 /// `n` cells in as many columns of at least `spec.min_w` as fit the available width
 /// ([`grid_layout`]), all of one width (`cell` is told it, with the cell's index). The cards of
 /// a row are one height in the very frame they are drawn, as in [`two_columns`]: each cell draws
@@ -334,6 +347,23 @@ fn list_card_framed(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// BUG-81: three columns while each holds the widest words, then two, then one; a column
+    /// and the 8 px between them never take more than the panel.
+    #[test]
+    fn the_sources_take_as_many_columns_as_hold_their_words() {
+        assert_eq!(from_columns(474.0, 3, 141.0), 152.0);
+        assert_eq!(from_columns(474.0, 3, 152.0), 152.0);
+        assert_eq!(from_columns(474.0, 3, 153.0), 233.0);
+        assert_eq!(from_columns(474.0, 3, 234.0), 474.0);
+        assert_eq!(from_columns(474.0, 3, 600.0), 474.0);
+        assert_eq!(from_columns(474.0, 0, 10.0), 474.0);
+        for least in [100.0, 152.5, 200.0, 300.0] {
+            let c = from_columns(474.0, 3, least);
+            let per_row = ((474.0 + 8.0) / (c + 8.0)).floor().min(3.0);
+            assert!(per_row * c + 8.0 * (per_row - 1.0) <= 474.0, "{least}: {c}");
+        }
+    }
 
     /// The card backgrounds painted in a frame: rectangles filled with the card colour.
     fn backgrounds(out: &egui::FullOutput, fill: Color32) -> Vec<Rect> {

@@ -7,16 +7,33 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 
 /// Set by a screen with the phrase each frame it is drawn, read once per frame by the app.
+#[cfg(not(test))]
 static WANTED: AtomicBool = AtomicBool::new(false);
+
+// One request per test thread, as the interface language (`i18n::CURRENT`): an app test that
+// draws a phrase screen, or takes the request at the end of its frame, on its own thread never
+// sets or clears it for a test running beside it. The app draws on the thread that runs it, as
+// egui_kittest does.
+#[cfg(test)]
+thread_local! {
+    static WANTED: AtomicBool = const { AtomicBool::new(false) };
+}
+
+fn wanted<T>(f: impl FnOnce(&AtomicBool) -> T) -> T {
+    #[cfg(not(test))]
+    return f(&WANTED);
+    #[cfg(test)]
+    return WANTED.with(f);
+}
 
 /// This frame shows the phrase (or words of it): keep the window out of captures.
 pub fn keep_out() {
-    WANTED.store(true, Ordering::Relaxed);
+    wanted(|w| w.store(true, Ordering::Relaxed));
 }
 
 /// Whether the frame just drawn asked for it; the request is cleared for the next one.
 pub fn take() -> bool {
-    WANTED.swap(false, Ordering::Relaxed)
+    wanted(|w| w.swap(false, Ordering::Relaxed))
 }
 
 /// Keeps the window of `frame` out of captures, or lets it back in; false when the system
@@ -62,5 +79,20 @@ mod tests {
             !take(),
             "the next frame asks again or the window comes back"
         );
+    }
+
+    /// A phrase screen drawn on another thread (an app test beside this one) neither asks
+    /// for this thread's frame nor takes its request away.
+    #[test]
+    fn a_request_belongs_to_the_thread_that_draws() {
+        keep_out();
+        std::thread::spawn(|| {
+            assert!(!take(), "another thread's request");
+            keep_out();
+        })
+        .join()
+        .unwrap();
+        assert!(take(), "still this thread's request");
+        assert!(!take());
     }
 }

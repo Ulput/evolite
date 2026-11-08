@@ -1194,7 +1194,7 @@ impl Real {
                 chain
                     .resume_identity(&wallet, &keys, index, names.get(&index).map(String::as_str))
                     .await?;
-                pending.remove(index)
+                identity::finish_resumed(&pending, id, index)
             }
             .await
             .map_err(core_failure);
@@ -3824,24 +3824,23 @@ impl Real {
     /// check, the asset lock ([`convert::identity_lock`]: `top_up`, the name and the
     /// creation), the identity and its name take a minute or more. The answer is
     /// `Done { what: "identity" }`.
-    async fn create_identity(&mut self, name: &str, top_up: Duffs) -> Result<(), CoreError> {
+    async fn create_identity(
+        &mut self,
+        name: Option<&str>,
+        top_up: Duffs,
+    ) -> Result<(), CoreError> {
         let open = self
             .unlocked
             .as_ref()
             .ok_or(CoreError::NotAvailable(tr!("The wallet is locked").into()))?;
         let id = open.id;
-        let label = dpns::label(name)?;
-        if dpns::is_contested(&label) {
-            return Err(CoreError::NotAvailable(
-                tr!("Contested names are decided by a masternode vote, which evolite cannot do yet. Add a digit from 2 to 9 to the name or make it longer than 19 characters").into(),
-            ));
-        }
+        let label = identity::new_identity_label(name)?;
         let top_up = positive_duffs(top_up)?;
         // The name and the identity's creation at the fees the form showed (BUG-54).
         // Below Platform's least lock it would be refused and its DASH stay locked: not made
         // (review r1 must; the form says how much at least).
-        let amount =
-            convert::identity_lock(top_up, &self.fees_now(0).await).ok_or(CoreError::BadAmount)?;
+        let amount = convert::identity_lock(top_up, &self.fees_now(0).await, label.is_some())
+            .ok_or(CoreError::BadAmount)?;
         let status = self.chain.status();
         if !coins_known(&status, true)
             || status.phase == Phase::Error
@@ -3872,10 +3871,14 @@ impl Real {
         let busy = self.identity_busy.clone();
         let (out, wake) = (self.out.clone(), self.wake.clone());
         self.answer_later(async move {
-            let result = match chain.name_available(&label).await {
+            let available = match &label {
+                Some(label) => chain.name_available(label).await,
+                None => Ok(true),
+            };
+            let result = match available {
                 Ok(false) => Err(CoreError::NotAvailable(format!(
                     tr!("The name @{label} is already taken, the money is untouched"),
-                    label = label
+                    label = label.as_deref().unwrap_or_default()
                 ))),
                 Err(e) => Err(CoreError::Failed(e)),
                 Ok(true) => async {
@@ -3889,16 +3892,21 @@ impl Real {
                         wake,
                     );
                     // The name is kept before any money moves: a run cut short is finished
-                    // with it (ResumeIdentity).
-                    pending.set(index, &label)?;
+                    // with it (ResumeIdentity). Without a name nothing is kept, or the
+                    // nameless identity would look cut short for ever (R-7, `nameless_slot`).
+                    identity::remember_name(&pending, index, label.as_deref())?;
                     chain
-                        .create_identity(&wallet, &keys, index, &label, amount)
+                        .create_identity(&wallet, &keys, index, label.as_deref(), amount)
                         .await?;
-                    pending.remove(index)
+                    pending.remove(index)?;
+                    Ok(index)
                 }
                 .await
                 .map_err(core_failure),
             };
+            // The new identity is the one actions go from (analyst-44); on a failure the
+            // choice stays.
+            let result = identity::choose_created(id, result);
             busy.store(false, Ordering::Relaxed);
             dirty.store(true, Ordering::Relaxed);
             Event::Done {
@@ -4077,7 +4085,7 @@ impl Real {
                 Err(e) => Event::Sent(Err(e)),
             },
             Spend::CreateIdentity { name, top_up } => {
-                match self.create_identity(&name, top_up).await {
+                match self.create_identity(name.as_deref(), top_up).await {
                     // The answer comes from the background task.
                     Ok(()) => return (None, true),
                     Err(e) => Event::Done {
@@ -6837,7 +6845,11 @@ mod tests {
             Spend::TopUpIdentity { amount: 10_000 },
             Spend::ResumeTopUp,
             Spend::CreateIdentity {
-                name: "satoshi-test".into(),
+                name: Some("satoshi-test".into()),
+                top_up: 10_000,
+            },
+            Spend::CreateIdentity {
+                name: None,
                 top_up: 10_000,
             },
             Spend::ResumeIdentity,

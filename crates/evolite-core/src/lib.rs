@@ -1473,7 +1473,7 @@ mod tests {
         assert!(!dpns::is_contested(&label));
         let started = Instant::now();
         core.send(spend(Spend::CreateIdentity {
-            name: label.clone(),
+            name: Some(label.clone()),
             top_up: 300_000,
         }));
         let created = wait_for(&core, 15, |e| match e {
@@ -1508,6 +1508,126 @@ mod tests {
             resolved.identity_id, identity.id,
             "a new identity, not the first one"
         );
+    }
+
+    /// FEAT-0014 AC-T8 (AC-A2): one more identity in the test wallet takes the slot past the
+    /// highest and is the chosen one at once; after the wallet is deleted and the phrase restored
+    /// into a new folder, every identity is found again with its name, and all the credits count
+    /// the new one's. Prints how long the search took before and after (the handoff's measure).
+    /// Spends an asset lock of 0.003 DASH, the name's fee and the Core fee (about 0.0036 tDASH).
+    /// `cargo test -p evolite-core live_another_identity -- --ignored --nocapture`
+    #[test]
+    #[ignore = "needs testnet access, a funded test phrase in .env.test.local, and spends"]
+    fn live_another_identity_is_found_after_a_restore() {
+        use evolite_api::IdentitySearch;
+        let searched = |s: &evolite_api::Snapshot| {
+            s.sync.stage == SyncStage::Done
+                && s.wallet
+                    .as_ref()
+                    .is_some_and(|w| w.identity_search == IdentitySearch::Done)
+        };
+        let started = Instant::now();
+        let core = warm_wallet("evolite-live-another-identity");
+        let before = wait_for(&core, 60, |e| match e {
+            Event::Snapshot(s) if searched(s) => s.wallet.clone(),
+            _ => None,
+        });
+        println!(
+            "before: {} identities, slots {:?}, search done in {}s",
+            before.identities.len(),
+            before.identities.iter().map(|i| i.slot).collect::<Vec<_>>(),
+            started.elapsed().as_secs()
+        );
+        let next = before
+            .identities
+            .iter()
+            .map(|i| i.slot + 1)
+            .max()
+            .unwrap_or(0);
+        let stamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        let label = format!("evolite-{}", stamp % 100_000_000 + 22_222_222);
+        assert!(!dpns::is_contested(&label));
+        core.send(spend(Spend::CreateIdentity {
+            name: Some(label.clone()),
+            top_up: 300_000,
+        }));
+        wait_for(&core, 15, |e| match e {
+            Event::Done {
+                what: "identity",
+                result,
+            } => Some(result.clone()),
+            _ => None,
+        })
+        .expect("the identity and its name made");
+        let made = wait_for(&core, 5, |e| match e {
+            Event::Snapshot(s) => s
+                .wallet
+                .as_ref()
+                .filter(|w| w.identities.len() > before.identities.len())
+                .cloned(),
+            _ => None,
+        });
+        let new = made.identity.clone().expect("the new identity chosen");
+        assert_eq!(new.slot, next, "the slot past the highest");
+        assert_eq!(new.name(), Some(label.as_str()));
+        assert!(made.balances.all_credits > before.balances.all_credits);
+        let all: Vec<(String, Option<String>, u32)> = made
+            .identities
+            .iter()
+            .map(|i| (i.id.clone(), i.name.clone(), i.slot))
+            .collect();
+
+        core.send(Command::DeleteWallet {
+            password: Some(Password::new(WARM_PASSWORD.into())),
+            wallet: None,
+        });
+        wait_for(&core, 2, |e| match e {
+            Event::Done {
+                what: "delete",
+                result,
+            } => Some(result.clone()),
+            _ => None,
+        })
+        .expect("deleted");
+        drop(core);
+        std::thread::sleep(Duration::from_secs(10));
+
+        let dir = std::env::temp_dir().join("evolite-live-another-identity-restored");
+        let _ = std::fs::remove_dir_all(&dir);
+        let phrase =
+            test_env("EVOLITE_TEST_PHRASE").expect("EVOLITE_TEST_PHRASE in .env.test.local");
+        let restored = Instant::now();
+        let core = Core::real(dir, ArtOptions::default(), || {});
+        core.send(Command::UsePhrase {
+            phrase: evolite_api::Phrase::new(
+                phrase.split_whitespace().map(str::to_owned).collect(),
+            ),
+            dashpay: false,
+        });
+        core.send(Command::CreateWallet {
+            password: Password::new(WARM_PASSWORD.into()),
+        });
+        let again = wait_for(&core, 60, |e| match e {
+            Event::Snapshot(s) if searched(s) => s.wallet.clone(),
+            _ => None,
+        });
+        println!(
+            "restored: {} identities in {}s (a restore scans the chain from the start)",
+            again.identities.len(),
+            restored.elapsed().as_secs()
+        );
+        for (id, name, slot) in &all {
+            let found = again
+                .identities
+                .iter()
+                .find(|i| &i.id == id)
+                .unwrap_or_else(|| panic!("identity in slot {slot} not found again"));
+            assert_eq!((&found.name, found.slot), (name, *slot), "{id}");
+        }
+        assert!(again.balances.all_credits >= made.balances.all_credits);
     }
 
     /// Two identities of the test phrase become DashPay contacts and one pays the other, end to

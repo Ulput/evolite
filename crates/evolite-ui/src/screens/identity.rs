@@ -40,6 +40,41 @@ pub struct IdentityState {
     pub top_up_password: SpendPassword,
     /// The same for "Continue the top-up" on the screen itself.
     pub resume_password: SpendPassword,
+    /// The banner after «Create» (FEAT-0014, analyst-44), until closed or another identity is
+    /// chosen.
+    pub created: Option<Created>,
+    /// «Create» was sent for another identity and the core has not answered yet: App sets it
+    /// from the form before each frame (R-4: the creation under way is not in the snapshot).
+    pub creating: bool,
+}
+
+/// The banner «Identity … created» over «Work as».
+#[derive(Clone, Debug, PartialEq)]
+pub enum Created {
+    /// The core said it is made; the snapshot still shows the identity chosen before (`None`:
+    /// there was none).
+    Awaiting(Option<String>),
+    /// Shown for this identity while it is the chosen one.
+    Shown(String),
+}
+
+/// The identity the banner is shown for this frame, with `chosen` the one the wallet acts as:
+/// the new one as soon as the snapshot has it chosen; none once another one is chosen (the
+/// banner closes by itself, the designer).
+fn created_banner(created: &mut Option<Created>, chosen: Option<&str>) -> Option<String> {
+    let next = match (created.take(), chosen) {
+        (Some(Created::Awaiting(before)), Some(now)) if before.as_deref() != Some(now) => {
+            Some(Created::Shown(now.to_owned()))
+        }
+        (Some(Created::Awaiting(before)), _) => Some(Created::Awaiting(before)),
+        (Some(Created::Shown(id)), Some(now)) if id == now => Some(Created::Shown(id)),
+        _ => None,
+    };
+    *created = next;
+    match created {
+        Some(Created::Shown(id)) => Some(id.clone()),
+        _ => None,
+    }
 }
 
 /// "Add a name" as typed: the label, the core's check of it, and the registration's answer.
@@ -148,6 +183,14 @@ impl IdentityState {
         }
     }
 
+    /// An identity was made (FEAT-0014): its banner, once the snapshot has it chosen. `before`:
+    /// the identity chosen when the creation was signed; none — not sent from this app run.
+    pub fn on_created(&mut self, before: Option<Option<String>>) {
+        if let Some(before) = before {
+            self.created = Some(Created::Awaiting(before));
+        }
+    }
+
     /// The wallet locked: what was typed for a spend goes.
     pub fn on_lock(&mut self) {
         self.top_up_password.forget();
@@ -207,7 +250,7 @@ pub fn identity(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut IdentityS
             }
         }
     });
-    identity_choice(ui, a, wallet, &mut asked);
+    identity_choice(ui, a, cx, state, &mut asked);
     top_up_status(ui, a, wallet, state, &mut asked);
     if let Some(unfinished) = &wallet.unfinished_identity {
         let p = a.p;
@@ -435,7 +478,18 @@ fn profile(
             mono(13.0, Weight::Medium),
         );
         kv_row(ui, &p, tr!("Source"), &id.key_source, value);
+        if let Some(line) = dashpay_android_line(id.slot) {
+            ui.add(egui::Label::new(txt(line, 12.0, Weight::Regular, p.muted)).wrap());
+        }
     });
+}
+
+/// R-9 (FEAT-0014, AC-D5): DashPay on Android sees only the phrase's first identity, slot 0;
+/// on any other this is said under the profile.
+fn dashpay_android_line(slot: u32) -> Option<&'static str> {
+    (slot != 0).then_some(tr!(
+        "DashPay on Android shows only the first identity of this phrase: this one is not visible there."
+    ))
 }
 
 /// DashPay's limits on a profile (DIP-15).
@@ -652,41 +706,146 @@ fn edit_profile(
     }
 }
 
-/// With more than one identity: which one the wallet acts as. Credits, contacts,
-/// profile, top-ups and names follow the choice.
-fn identity_choice(ui: &mut Ui, a: &mut Assets, wallet: &Wallet, asked: &mut Vec<Command>) {
-    if wallet.identities.len() < 2 {
+/// Which identity the wallet acts as, and «+ New identity» last in the same row (FEAT-0014,
+/// R-1: shown with one identity too); above it the banner after a creation, below it why a new
+/// one cannot start now (R-4). Credits, contacts, profile, top-ups and names follow the choice.
+fn identity_choice(
+    ui: &mut Ui,
+    a: &mut Assets,
+    cx: &mut Ctx,
+    state: &mut IdentityState,
+    asked: &mut Vec<Command>,
+) {
+    let wallet = cx.wallet();
+    let Some(chosen) = &wallet.identity else {
         return;
-    }
+    };
     let p = a.p;
-    let shown = wallet.identity.as_ref().map(|i| i.id.as_str());
-    // «Work as» in the middle of the first row of pills; many identities wrap onto more rows
-    // instead of pushing the page past the window, each row from under the first pill (design
-    // review №14).
-    ui.horizontal_top(|ui| {
-        ui.spacing_mut().item_spacing.x = 8.0;
-        let font = sans(13.0, Weight::Medium);
-        let label_w = crate::components::text_width(ui, tr!("Work as"), font);
-        ui.allocate_ui_with_layout(
-            vec2(label_w, 33.0),
-            Layout::left_to_right(Align::Center),
-            |ui| ui.label(txt(tr!("Work as"), 13.0, Weight::Medium, p.muted)),
-        );
-        ui.horizontal_wrapped(|ui| {
-            ui.spacing_mut().item_spacing = vec2(8.0, 8.0);
-            pills(ui, &p, wallet, shown, asked);
+    if let Some(made) = created_banner(&mut state.created, Some(chosen.id.as_str())) {
+        created_notice(ui, a, chosen, &made, state);
+    }
+    let shown = Some(chosen.id.as_str());
+    let blocked = new_identity_blocked(wallet, state);
+    let mut chose = false;
+    let mut new_one = false;
+    ui.vertical(|ui| {
+        ui.spacing_mut().item_spacing.y = 6.0;
+        // «Work as» in the middle of the first row of pills; many identities wrap onto more
+        // rows instead of pushing the page past the window, each row from under the first pill
+        // (design review №14).
+        ui.horizontal_top(|ui| {
+            ui.spacing_mut().item_spacing.x = 8.0;
+            let font = sans(13.0, Weight::Medium);
+            let label_w = crate::components::text_width(ui, tr!("Work as"), font);
+            ui.allocate_ui_with_layout(
+                vec2(label_w, 33.0),
+                Layout::left_to_right(Align::Center),
+                |ui| ui.label(txt(tr!("Work as"), 13.0, Weight::Medium, p.muted)),
+            );
+            ui.horizontal_wrapped(|ui| {
+                ui.spacing_mut().item_spacing = vec2(8.0, 8.0);
+                chose = pills(ui, &p, wallet, shown, asked);
+                new_one = crate::components::add_pill(
+                    ui,
+                    a,
+                    tr!("New identity"),
+                    tr!("Create a new identity"),
+                    blocked.is_none(),
+                )
+                .clicked();
+            });
         });
+        // Why not, in words and without hovering (AC-D2), naming the identity to finish.
+        if let Some(why) = &blocked {
+            ui.add(egui::Label::new(txt(why, 12.0, Weight::Regular, p.muted)).wrap());
+        }
     });
+    if chose {
+        state.created = None;
+    }
+    if new_one && blocked.is_none() {
+        cx.go(Screen::CreateIdentity);
+    }
 }
 
-/// The pills of [`identity_choice`]: one per identity, the shown one on.
+/// Why «+ New identity» cannot start now (R-4), if it cannot: one operation at a time — a
+/// creation cut short is finished first, and none starts beside a top-up.
+fn new_identity_blocked(wallet: &Wallet, state: &IdentityState) -> Option<String> {
+    if state.creating {
+        return Some(
+            tr!("Creating: asset lock, confirmation, identity and name — about a minute. Do not close evolite.").into(),
+        );
+    }
+    if let Some(unfinished) = &wallet.unfinished_identity {
+        return Some(match &unfinished.name {
+            Some(name) => format!(
+                tr!("Finish creating {} first: “Continue” is on its card"),
+                crate::i18n::own(&format!("@{name}"))
+            ),
+            None => tr!("Finish creating the identity first: “Continue” is on its card").into(),
+        });
+    }
+    // A running top-up only (R-4): a stopped one does not hold a creation back (the core makes
+    // a new lock for it), and the pill never sends anyone to continue a top-up (review r1
+    // must 2: werner555's stopped 0.5 DASH top-up must not be continued).
+    top_up_blocked_by(true, None, state.topping_up.is_some()).map(String::from)
+}
+
+/// «Identity … created» (frame 5; without a name frame 6, with «Add a name»): actions now go
+/// from it; «×» closes it.
+fn created_notice(
+    ui: &mut Ui,
+    a: &mut Assets,
+    chosen: &Identity,
+    made: &str,
+    state: &mut IdentityState,
+) {
+    let (title, text) = match chosen.name() {
+        Some(name) => {
+            let name = crate::i18n::own(&format!("@{name}"));
+            (
+                format!(tr!("Identity {} created"), name),
+                format!(
+                    tr!(
+                        "Actions now go from {}: names, contacts, apps, NFTs. Switch in “Work as”."
+                    ),
+                    name
+                ),
+            )
+        }
+        None => (
+            tr!("Identity created").to_string(),
+            format!(
+                tr!(
+                    "Actions now go from identity {} (no name). Without a name nobody finds it by @name; you can add a name any time."
+                ),
+                crate::i18n::own(&short_id(made))
+            ),
+        ),
+    };
+    let action = chosen
+        .name()
+        .is_none()
+        .then_some(("username", tr!("Add a name")));
+    let answer = crate::components::notice_closable(ui, a, "check", &title, &text, action);
+    if answer.closed {
+        state.created = None;
+    }
+    if answer.action {
+        state.adding_name = Some(NameForm::default());
+    }
+}
+
+/// The pills of [`identity_choice`]: one per identity, the shown one on. True when another one
+/// was chosen.
 fn pills(
     ui: &mut Ui,
     p: &crate::theme::Palette,
     wallet: &Wallet,
     shown: Option<&str>,
     asked: &mut Vec<Command>,
-) {
+) -> bool {
+    let mut chose = false;
     for choice in &wallet.identities {
         let label = choice
             .name
@@ -701,8 +860,10 @@ fn pills(
             asked.push(Command::ChooseIdentity {
                 id: choice.id.clone(),
             });
+            chose = true;
         }
     }
+    chose
 }
 
 /// While identities are shown, a search still going on (BUG-9): more of them, or their
@@ -1570,6 +1731,19 @@ fn names(ui: &mut Ui, a: &mut Assets, id: &Identity, width: f32, cell: &mut RowC
                 });
                 ui.add_space(12.0);
             }
+            // A nameless identity (FEAT-0014, frame 6): what a name would give.
+            if id.names.is_empty() {
+                divider(ui, &p);
+                ui.add(
+                    egui::Label::new(txt(
+                        tr!("No names yet. With a name the identity can be found by @name and added to contacts."),
+                        13.0,
+                        Weight::Regular,
+                        p.muted,
+                    ))
+                    .wrap(),
+                );
+            }
         },
     );
 }
@@ -1632,12 +1806,47 @@ fn keys(ui: &mut Ui, a: &mut Assets, id: &Identity, width: f32, cell: &mut RowCe
 #[cfg(test)]
 mod tests {
     use super::{
-        IdentityState, TOP_UP_SETTLED, searching_text, top_up_blocked_by, top_up_done_text,
-        top_up_error, unfinished_top_up_text,
+        Created, IdentityState, TOP_UP_SETTLED, created_banner, searching_text, top_up_blocked_by,
+        top_up_done_text, top_up_error, unfinished_top_up_text,
     };
     use evolite_api::CoreError;
     use evolite_api::IdentitySearch;
     use evolite_api::UnfinishedTopUp;
+
+    /// FEAT-0014 (analyst-44), review r1 should 7 (mutation B4): the banner waits for the
+    /// snapshot to have the new identity chosen; then it is shown for it; once another one is
+    /// chosen it closes by itself.
+    #[test]
+    fn the_created_banner_waits_for_the_new_identity_to_be_chosen() {
+        let mut created = Some(Created::Awaiting(Some("old".into())));
+        assert_eq!(
+            created_banner(&mut created, Some("old")),
+            None,
+            "still the old"
+        );
+        assert_eq!(
+            created,
+            Some(Created::Awaiting(Some("old".into()))),
+            "waits"
+        );
+        assert_eq!(
+            created_banner(&mut created, Some("new")),
+            Some("new".into()),
+            "the new one chosen"
+        );
+        assert_eq!(
+            created_banner(&mut created, Some("new")),
+            Some("new".into()),
+            "stays while it is chosen"
+        );
+        assert_eq!(created_banner(&mut created, Some("other")), None, "another");
+        assert_eq!(created, None, "closed");
+        assert_eq!(created_banner(&mut created, Some("new")), None, "for good");
+        // The first identity of the wallet: nothing was chosen before.
+        let mut first = Some(Created::Awaiting(None));
+        assert_eq!(created_banner(&mut first, None), None);
+        assert_eq!(created_banner(&mut first, Some("new")), Some("new".into()));
+    }
 
     #[test]
     fn top_up_errors_are_words_not_debug() {

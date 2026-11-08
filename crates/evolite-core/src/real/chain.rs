@@ -149,6 +149,15 @@ pub fn shown_slot(wallet: WalletId, slots: impl Iterator<Item = u32>) -> Option<
         .or_else(|| slots.into_iter().min())
 }
 
+/// The slot a new identity takes (FEAT-0014 R-3): one past the highest of the phrase's
+/// identities `taken` and of a lock still waiting for its identity (`locked`, which holds its
+/// slot), 0 for the first. Gaps are not filled: a slot left empty below the highest (say, by an
+/// identity made in another app past it) stays empty, so discovery, which stops after 5 empty
+/// slots in a row, still finds every identity.
+pub fn next_slot(taken: impl IntoIterator<Item = u32>, locked: Option<u32>) -> u32 {
+    taken.into_iter().max().max(locked).map_or(0, |i| i + 1)
+}
+
 /// What [`Chain::scan_dashpay`] found for a phrase.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct DashPayFound {
@@ -827,26 +836,26 @@ impl Chain {
     ) -> Result<u32, String> {
         self.discover_every_identity(wallet, keys).await?;
         let state = wallet.state().await;
-        let taken = of_wallet(&state.identity_manager, wallet.wallet_id())
+        let taken: Vec<u32> = of_wallet(&state.identity_manager, wallet.wallet_id())
             .filter_map(|m| m.identity_index)
-            .max();
-        // A lock still waiting for its identity holds its slot too.
+            .collect();
         drop(state);
         let locked = self.unfinished(wallet).await.map(|u| u.identity_index);
-        Ok(taken.max(locked).map_or(0, |i| i + 1))
+        Ok(next_slot(taken, locked))
     }
 
     /// Creates an identity in slot `index` from `amount` duffs of Core funds (an asset lock,
-    /// proved by InstantSend or else ChainLock) and registers `label` for it in DPNS.
+    /// proved by InstantSend or else ChainLock) and registers `label` for it in DPNS; `None`:
+    /// no name, the step is skipped (FEAT-0014 R-7) and the answer is `Ok`.
     /// platform-wallet tracks the asset lock in the store until Platform takes it, so a run cut
-    /// short is finished by [`Self::resume_identity`]. An identity made without its name is an
-    /// `Err` that says so.
+    /// short is finished by [`Self::resume_identity`]. An identity made without the name it
+    /// was to get is an `Err` that says so.
     pub async fn create_identity(
         &self,
         wallet: &PlatformWallet,
         keys: &key_wallet::Wallet,
         index: u32,
-        label: &str,
+        label: Option<&str>,
         amount: u64,
     ) -> Result<String, String> {
         let id = self
@@ -860,7 +869,9 @@ impl Chain {
                 },
             )
             .await?;
-        self.register_name(wallet, keys, index, &id, label).await?;
+        if let Some(label) = label {
+            self.register_name(wallet, keys, index, &id, label).await?;
+        }
         Ok(id.to_string(Encoding::Base58))
     }
 
@@ -2763,6 +2774,21 @@ mod tests {
         // A choice the wallet no longer has falls back to the lowest.
         assert_eq!(shown_slot(wallet, [0, 2].into_iter()), Some(0));
         assert_eq!(shown_slot(wallet, std::iter::empty()), None);
+    }
+
+    /// FEAT-0014 AC-T1: the new identity goes one past the highest slot; a lock still waiting
+    /// for its identity holds its slot, and once it is finished the next one is past it.
+    #[test]
+    fn a_new_identity_takes_the_slot_past_the_highest() {
+        assert_eq!(next_slot([], None), 0);
+        assert_eq!(next_slot([0, 1, 2], None), 3);
+        assert_eq!(next_slot([2, 0, 1], None), 3, "in any order");
+        // Creation cut short in slot 3: the slot is held.
+        assert_eq!(next_slot([0, 1, 2], Some(3)), 4);
+        // "Continue" made it: slot 3 is an identity now, the lock is gone.
+        assert_eq!(next_slot([0, 1, 2, 3], None), 4);
+        // A gap left by an identity made elsewhere is not filled: nothing is reused.
+        assert_eq!(next_slot([0, 4], None), 5);
     }
 
     /// What a write costs is read from the identity that signed it: the chosen one, not the

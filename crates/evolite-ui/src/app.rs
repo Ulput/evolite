@@ -688,7 +688,18 @@ impl App {
                 Event::Done {
                     what: "identity",
                     result,
-                } => self.create_identity.on_done(result),
+                } => {
+                    // Made (FEAT-0014, analyst-44): Identity shows it chosen, with its banner;
+                    // the form starts empty for the next one.
+                    if self.create_identity.on_done(result) {
+                        let before = self.create_identity.before.take();
+                        self.create_identity = Default::default();
+                        self.identity.on_created(before);
+                        if self.screen == Screen::CreateIdentity {
+                            self.screen = Screen::Identity;
+                        }
+                    }
+                }
                 // Which of the four steps of "Create an identity" the core is on.
                 Event::Progress {
                     what: "identity",
@@ -990,6 +1001,7 @@ impl eframe::App for App {
             self.contacts.on_lock();
             self.pool.password.forget();
             self.create_identity.password.forget();
+            self.create_identity.confirming = false;
             self.requests.password.forget();
             #[cfg(demo_core)]
             self.collection.password.forget();
@@ -1198,6 +1210,7 @@ impl eframe::App for App {
                                 screens::receive::receive(ui, a, &mut cx, &mut self.receive)
                             }
                             Screen::Identity => {
+                                self.identity.creating = self.create_identity.waiting;
                                 screens::identity::identity(ui, a, &mut cx, &mut self.identity)
                             }
                             Screen::Shielded => {

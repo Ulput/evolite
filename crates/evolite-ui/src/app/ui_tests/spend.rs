@@ -13,7 +13,7 @@ const SPENDS: [(&str, &str, Option<&str>); 17] = [
     ("TopUpIdentity", "top-up", None),
     ("ResumeTopUp", "top-up-stopped", None),
     ("ResumeTopUp (ChainLock)", "top-up-awaiting", None),
-    ("CreateIdentity", "create-identity", None),
+    ("CreateIdentity", "create-identity-confirm", None),
     (
         "ResumeIdentity",
         "identity-unfinished",

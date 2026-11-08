@@ -27,6 +27,56 @@ pub fn notice(ui: &mut Ui, a: &mut Assets, icon: &str, icon_color: Color32, text
         });
 }
 
+/// What the person did with a [`notice_closable`] this frame.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct NoticeAnswer {
+    /// «×» was clicked.
+    pub closed: bool,
+    /// Its action under the text was clicked.
+    pub action: bool,
+}
+
+/// A notice with a heading (13 SemiBold), a muted 12 px text, an optional action under it
+/// (`(icon, label)`, a [`text_action`]) and «×» on the right, as a dialog's: «Identity …
+/// created» (FEAT-0014, frames 5 and 6).
+pub fn notice_closable(
+    ui: &mut Ui,
+    a: &mut Assets,
+    icon: &str,
+    title: &str,
+    text: &str,
+    action: Option<(&str, &str)>,
+) -> NoticeAnswer {
+    let p = a.p;
+    let mut answer = NoticeAnswer::default();
+    Frame::new()
+        .fill(p.raised)
+        .corner_radius(CornerRadius::same(12))
+        .inner_margin(Margin::symmetric(14, 12))
+        .show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            ui.horizontal_top(|ui| {
+                ui.spacing_mut().item_spacing.x = 10.0;
+                ui.add(a.icons.icon(icon, p.text, &p, 18.0));
+                let cross_w = 20.0;
+                ui.allocate_ui_with_layout(
+                    vec2(ui.available_width() - cross_w - 10.0, 0.0),
+                    Layout::top_down(Align::Min),
+                    |ui| {
+                        ui.spacing_mut().item_spacing.y = 4.0;
+                        ui.add(egui::Label::new(txt(title, 13.0, Weight::SemiBold, p.text)).wrap());
+                        ui.add(egui::Label::new(txt(text, 12.0, Weight::Regular, p.muted)).wrap());
+                        if let Some((icon, label)) = action {
+                            answer.action = text_action(ui, a, icon, label).clicked();
+                        }
+                    },
+                );
+                answer.closed = close_cross(ui, a, 18.0).clicked();
+            });
+        });
+    answer
+}
+
 /// [`notice()`] in parts, each under a small heading (13 SemiBold): what the phrase brings back
 /// and what it does not, say (BUG-58).
 pub fn notice_parts(

@@ -539,6 +539,7 @@ pub(super) fn demo_wallet(t: Timestamp) -> Wallet {
                 },
             ],
             profile: Some(PEOPLE[0].profile()),
+            slot: 0,
         }),
         pool: Pool {
             notes: 3,

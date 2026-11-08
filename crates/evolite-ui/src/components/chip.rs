@@ -107,3 +107,74 @@ pub fn pill(ui: &mut Ui, p: &Palette, label: &str, on: bool) -> Response {
     named_choice(&resp, egui::WidgetType::SelectableLabel, on, label);
     resp.on_hover_cursor(CursorIcon::PointingHand)
 }
+
+/// The pill that adds one more to a row of [`pill`]s (FEAT-0014, «+ New identity»): a dashed
+/// muted line, a plus and the words 12 SemiBold, 33 px high as a pill. `name` is what a screen
+/// reader hears. Off (`enabled` false): at 45 %, no click and no Tab stop; the caller says why
+/// in words beside it.
+pub fn add_pill(ui: &mut Ui, a: &mut Assets, label: &str, name: &str, enabled: bool) -> Response {
+    let p = a.p;
+    let font = sans(12.0, Weight::SemiBold);
+    // Padding 14, the plus 14 and a gap of 6 before the words.
+    let w = 14.0 + 14.0 + 6.0 + text_width(ui, label, font.clone()) + 14.0;
+    let sense = if enabled {
+        Sense::click()
+    } else {
+        Sense::hover()
+    };
+    let (rect, resp) = ui.allocate_exact_size(vec2(w, 33.0), sense);
+    named(&resp, egui::WidgetType::Button, enabled, name);
+    let over = enabled && (resp.hovered() || resp.has_focus());
+    let fade = |c: Color32| if enabled { c } else { c.gamma_multiply(0.45) };
+    let line = fade(if over { p.text } else { p.muted });
+    let color = fade(if over { p.text } else { p.muted });
+    // A dashed line around the rounded pill: its straight sides and, at each end, a half
+    // circle of short arcs.
+    let r = rect.shrink(0.5);
+    let radius = r.height() / 2.0;
+    let mut points = vec![
+        pos2(r.left() + radius, r.top()),
+        pos2(r.right() - radius, r.top()),
+    ];
+    let arc = |center: egui::Pos2, from: f32, points: &mut Vec<egui::Pos2>| {
+        for i in 1..=12 {
+            let t = from + std::f32::consts::PI * i as f32 / 12.0;
+            points.push(center + radius * vec2(t.cos(), t.sin()));
+        }
+    };
+    arc(
+        pos2(r.right() - radius, r.center().y),
+        -std::f32::consts::FRAC_PI_2,
+        &mut points,
+    );
+    points.push(pos2(r.left() + radius, r.bottom()));
+    arc(
+        pos2(r.left() + radius, r.center().y),
+        std::f32::consts::FRAC_PI_2,
+        &mut points,
+    );
+    ui.painter().extend(egui::Shape::dashed_line(
+        &points,
+        Stroke::new(1.0, line),
+        4.0,
+        3.0,
+    ));
+    let plus = Rect::from_center_size(
+        pos2(rect.left() + 14.0 + 7.0, rect.center().y),
+        vec2(14.0, 14.0),
+    );
+    a.icons.icon("plus", color, &p, 14.0).paint_at(ui, plus);
+    paint_text(
+        ui,
+        pos2(plus.right() + 6.0, rect.center().y),
+        Align2::LEFT_CENTER,
+        label,
+        font,
+        color,
+    );
+    if enabled {
+        resp.on_hover_cursor(CursorIcon::PointingHand)
+    } else {
+        resp
+    }
+}

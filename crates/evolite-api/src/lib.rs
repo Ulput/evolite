@@ -427,6 +427,8 @@ pub struct Identity {
     pub keys: Vec<IdentityKey>,
     /// Its DashPay profile, once written.
     pub profile: Option<Profile>,
+    /// Its slot in the phrase (DIP-13 identity index); DashPay on Android shows only slot 0.
+    pub slot: u32,
 }
 
 /// What an identity says about itself in DashPay. Only its @name is proved (DPNS); these are
@@ -1285,9 +1287,10 @@ pub enum Spend {
     /// Finish [`Wallet::unfinished_top_up`] with the lock already made, without locking more.
     /// `Done { what: "top-up" }`.
     ResumeTopUp,
-    /// Lock DASH on Core, create the identity and register the name.
-    /// `Done { what: "identity" }`.
-    CreateIdentity { name: String, top_up: Duffs },
+    /// Lock DASH on Core, create the identity in the phrase's next slot and register `name`;
+    /// `None`: an identity without a name (FEAT-0014 R-7). Once made, the new identity is the
+    /// chosen one. `Done { what: "identity" }`.
+    CreateIdentity { name: Option<String>, top_up: Duffs },
     /// Finish [`Wallet::unfinished_identity`] from where it stopped, without locking more.
     /// `Done { what: "identity" }`.
     ResumeIdentity,

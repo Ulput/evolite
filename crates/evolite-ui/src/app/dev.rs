@@ -34,6 +34,11 @@ pub(super) struct DevState {
     /// `--screen identity-unfinished`: Identity with a creation stopped after the Core lock
     /// (Figma "Screens", the Arabic frames), which the example wallet does not have.
     unfinished_preset: bool,
+    /// `--screen create-identity-short` / `create-identity-unchecked`: Core has too little for
+    /// the identity, or was last checked a while ago (FEAT-0014, frames 9 and 10).
+    core_preset: Option<CorePreset>,
+    /// `--screen identity-created`: the identity shown is not the phrase's first (R-9).
+    second_identity_preset: bool,
     /// `--screen top-up-stopped` / `top-up-awaiting`: Identity with a cut-short top-up, to
     /// continue or (Platform already took it) awaiting its ChainLock (BUG-7).
     top_up_preset: Option<bool>,
@@ -92,6 +97,15 @@ impl PausePreset {
     }
 }
 
+/// What `--screen create-identity-short` / `create-identity-unchecked` do to Core.
+#[derive(Clone, Copy)]
+enum CorePreset {
+    /// 0.15 DASH: less than the identity takes (frame 9).
+    Short,
+    /// Last checked 20 minutes ago, the sync not there yet (frame 10).
+    Unchecked,
+}
+
 /// The demo's second wallet ("Savings").
 const DEMO_OTHER: &str = "5e6f7a8b";
 
@@ -113,6 +127,14 @@ impl DevState {
             preset_forgot: dev.preset("forgot"),
             remind_preset: dev.preset("remind"),
             unfinished_preset: dev.preset("identity-unfinished"),
+            core_preset: if dev.preset("create-identity-short") {
+                Some(CorePreset::Short)
+            } else if dev.preset("create-identity-unchecked") {
+                Some(CorePreset::Unchecked)
+            } else {
+                None
+            },
+            second_identity_preset: dev.preset("identity-created"),
             top_up_preset: if dev.preset("top-up-stopped") {
                 Some(false)
             } else if dev.preset("top-up-awaiting") {
@@ -207,6 +229,26 @@ impl App {
                 locked: Some(31_000_000),
                 name: None,
             });
+        }
+        if let Some(core) = self.dev.core_preset
+            && let Some(w) = self.snapshot.as_mut().and_then(|s| s.wallet.as_mut())
+        {
+            match core {
+                CorePreset::Short => w.balances.core = 15_000_000,
+                CorePreset::Unchecked => {
+                    let at = chrono::Local::now().timestamp() - 20 * 60;
+                    w.balances.core_as_of = Some(evolite_api::CoreAsOf::Checked(at));
+                }
+            }
+        }
+        if self.dev.second_identity_preset
+            && let Some(id) = self
+                .snapshot
+                .as_mut()
+                .and_then(|s| s.wallet.as_mut())
+                .and_then(|w| w.identity.as_mut())
+        {
+            id.slot = 1;
         }
         if let Some(awaiting_chain_lock) = self.dev.top_up_preset
             && let Some(w) = self.snapshot.as_mut().and_then(|s| s.wallet.as_mut())
@@ -461,9 +503,15 @@ impl App {
         self.settings.phrase_dialog = preset("phrase");
         // `--screen create-identity` shows a name, as in Figma; `--screen creating` the
         // same while the core is on step 2.
-        if preset("create-identity") || preset("creating") {
+        if preset("create-identity") || preset("creating") || preset("create-identity-confirm") {
             self.create_identity.name = "evolite-2026".into();
         }
+        // `--screen create-identity-confirm`: «Check the new identity» over it (FEAT-0014,
+        // frame 7); `create-identity-nameless`, `-short`, `-unchecked` keep the name empty.
+        self.create_identity.confirming = preset("create-identity-confirm");
+        // `--screen identity-created`: the banner after a creation (frame 5).
+        self.identity.created =
+            preset("identity-created").then_some(screens::identity::Created::Awaiting(None));
         self.create_identity.waiting = preset("creating");
         self.create_identity.step = preset("creating").then_some(2);
         self.wallet_menu = preset("wallet-menu");

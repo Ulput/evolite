@@ -206,7 +206,7 @@ mod tests {
             Spend::TopUpIdentity { amount: 1 },
             Spend::ResumeTopUp,
             Spend::CreateIdentity {
-                name: "a".into(),
+                name: Some("a".into()),
                 top_up: 1,
             },
             Spend::ResumeIdentity,

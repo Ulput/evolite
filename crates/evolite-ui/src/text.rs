@@ -223,6 +223,16 @@ pub fn date_day(at: Timestamp, now: DateTime<Local>) -> String {
     }
 }
 
+/// An identity in a line of History: its @name as the core gives it, a nameless one by its
+/// short ID (FEAT-0014, frame 11) — the core names it by its whole ID.
+fn identity_in_line(identity: &str) -> String {
+    if identity.starts_with('@') {
+        identity.to_owned()
+    } else {
+        short_id(identity)
+    }
+}
+
 /// "8rd3Ux7pQf…kV2mJ38R" for an identity ID.
 pub fn short_id(id: &str) -> String {
     let chars: Vec<char> = id.chars().collect();
@@ -308,13 +318,16 @@ pub fn activity_title(a: &Activity) -> String {
             ..
         } => format!(
             tr!("Creation of the identity {identity}"),
-            identity = identity
+            identity = identity_in_line(identity)
         ),
         ActivityKind::TopUp { identity, .. } if identity.is_empty() => {
             tr!("Transfer to Platform").into()
         }
         ActivityKind::TopUp { identity, .. } => {
-            format!(tr!("Top-up of {identity}"), identity = identity)
+            format!(
+                tr!("Top-up of {identity}"),
+                identity = identity_in_line(identity)
+            )
         }
         ActivityKind::AppSignIn { app } => {
             format!(tr!("Signed in to {app} · keys added"), app = app)
