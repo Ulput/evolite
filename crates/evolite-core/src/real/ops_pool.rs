@@ -101,7 +101,7 @@ impl Real {
             }
         });
         let dirty = self.dirty.clone();
-        self.answer_later(async move {
+        self.answer_later("task:pool_job", async move {
             let result = job.await;
             busy.store(false, Ordering::Relaxed);
             dirty.store(true, Ordering::Relaxed);

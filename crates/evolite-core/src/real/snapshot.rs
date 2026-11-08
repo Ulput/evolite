@@ -21,8 +21,8 @@ impl Real {
             .as_ref()
             .is_some_and(|(at, _, _)| at.elapsed() < Duration::from_secs(5));
         if !fresh {
-            let core = self.chain.core_peers().await;
-            let dapi = self.chain.dapi_nodes().await;
+            let core = turn::timed("core_peers", self.chain.core_peers()).await;
+            let dapi = turn::timed("dapi_nodes", self.chain.dapi_nodes()).await;
             self.nodes = Some((tokio::time::Instant::now(), core, dapi));
         }
         let (core_nodes, dapi_nodes) = self
@@ -37,12 +37,13 @@ impl Real {
         Snapshot {
             network: crate::network::current(),
             sync: SyncInfo {
-                disk_bytes: self.disk_bytes(),
+                disk_bytes: turn::during("disk_bytes", || self.disk_bytes()),
                 platform_nodes,
                 core_nodes,
                 dapi_nodes,
                 core_node_next: {
-                    let saved = node::load(&self.paths.chain.core_node);
+                    let saved =
+                        turn::during("core_node_file", || node::load(&self.paths.chain.core_node));
                     // Empty: back to DNS seeds at the next start.
                     (saved != status.core_node).then(|| saved.unwrap_or_default())
                 },
@@ -119,18 +120,14 @@ impl Real {
         let status_before = self.chain.status();
         // The wallet's own Core addresses (FEAT-0009: a withdrawal to one is a move between own).
         let mut own_core: Vec<String> = Vec::new();
-        let (balance, (coins, addresses), mut history, shown, platform) = match self
-            .chain
-            .wallet(&id)
-            .await
-        {
+        let found = turn::timed("wallet_lookup", self.chain.wallet(&id)).await;
+        let (balance, (coins, addresses), mut history, shown, platform) = match found {
             Some(wallet) => {
                 let records = {
-                    let state = wallet.state().await;
+                    let state = turn::timed("state_records", wallet.state()).await;
                     state.core_wallet.transaction_history().len()
                 };
-                own_core = wallet
-                    .state()
+                own_core = turn::timed("state_addresses", wallet.state())
                     .await
                     .core_wallet
                     .monitored_addresses()
@@ -140,7 +137,7 @@ impl Real {
                 if !self.fresh_receive {
                     // One address for every payment: the first of the wallet's receive chain
                     // (m/44'/1'/0'/0/0), the same after a restart or a restore.
-                    let state = wallet.state().await;
+                    let state = turn::timed("state_receive", wallet.state()).await;
                     self.receive_address =
                         first_receive_address(&state.core_wallet).map(|a| (a, records));
                 } else if self
@@ -148,22 +145,33 @@ impl Real {
                     .as_ref()
                     .is_none_or(|(_, at)| *at != records)
                 {
-                    self.receive_address = wallet
-                        .core()
-                        .next_receive_address_for_account(0)
-                        .await
-                        .ok()
-                        .map(|a| (a.to_string(), records));
+                    self.receive_address = turn::timed(
+                        "next_receive_address",
+                        wallet.core().next_receive_address_for_account(0),
+                    )
+                    .await
+                    .ok()
+                    .map(|a| (a.to_string(), records));
                 }
-                let platform = self.chain.platform_address(&wallet).await.ok();
-                unfinished = self.unfinished_identity(&wallet).await;
-                unfinished_top_up = self.unfinished_top_up(&wallet).await;
+                let platform =
+                    turn::timed("platform_address", self.chain.platform_address(&wallet))
+                        .await
+                        .ok();
+                unfinished =
+                    turn::timed("unfinished_identity", self.unfinished_identity(&wallet)).await;
+                unfinished_top_up =
+                    turn::timed("unfinished_top_up", self.unfinished_top_up(&wallet)).await;
                 let live_count = {
-                    let state = wallet.state().await;
+                    let state = turn::timed("state_count", wallet.state()).await;
                     state.core_wallet.transaction_history().len()
                 };
-                self.refresh_stored_history(id, live_count).await;
-                let state = wallet.state().await;
+                turn::timed(
+                    "refresh_stored_history",
+                    self.refresh_stored_history(id, live_count),
+                )
+                .await;
+                let state = turn::timed("state_history", wallet.state()).await;
+                let _building = turn::begin("history_build");
                 synced = state.core_wallet.synced_height();
                 let now = now();
                 let tip = self.chain.status().headers.map_or(0, |h| h.height);
@@ -354,13 +362,16 @@ impl Real {
         };
         let (platform_address, platform_credits) = platform.unwrap_or_default();
         // The shielded pool, once connected: local reads, no network.
-        let (pool, unfinished_shield) = match self.chain.wallet(&id).await {
+        let found = turn::timed("wallet_lookup_pool", self.chain.wallet(&id)).await;
+        let (pool, unfinished_shield) = match found {
             Some(wallet) => (
-                self.chain.pool_view(&wallet).await,
-                self.chain
-                    .unfinished_pool_shield(&wallet)
-                    .await
-                    .map(|duffs| duffs as Duffs),
+                turn::timed("pool_view", self.chain.pool_view(&wallet)).await,
+                turn::timed(
+                    "unfinished_pool_shield",
+                    self.chain.unfinished_pool_shield(&wallet),
+                )
+                .await
+                .map(|duffs| duffs as Duffs),
             ),
             None => (None, None),
         };
@@ -372,7 +383,7 @@ impl Real {
             p.operations = self.pool_history.merge(std::mem::take(&mut p.operations));
             p
         });
-        let mut fees = self.fees_now(coins).await;
+        let mut fees = turn::timed("fees_now", self.fees_now(coins)).await;
         fees.core_coins = convert::core_coins(coin_values);
         // The pool's own operations are in the history too (only the owner sees them), and a
         // Core asset lock made for the pool says so instead of "Transfer to Platform".
@@ -385,8 +396,8 @@ impl Real {
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .apply(history, now());
-        if let Some(wallet) = self.chain.wallet(&id).await {
-            let pool_locks = self.chain.pool_locks(&wallet).await;
+        if let Some(wallet) = turn::timed("wallet_lookup_locks", self.chain.wallet(&id)).await {
+            let pool_locks = turn::timed("pool_locks", self.chain.pool_locks(&wallet)).await;
             for act in history.iter_mut() {
                 let locked = act.txid.as_ref().and_then(|t| pool_locks.get(t));
                 if let (ActivityKind::TopUp { .. }, Some(locked)) = (&act.kind, locked) {
@@ -400,35 +411,37 @@ impl Real {
             }
             // "Transfer to Platform" says whom — the identity it registered or tops up — and
             // whether Platform took it (BUG-57).
-            let tracked: HashMap<String, identity::Tracked> = wallet
-                .asset_locks()
-                .list_tracked_locks()
-                .await
-                .into_iter()
-                .map(|l| {
-                    (
-                        l.out_point.txid.to_string(),
-                        identity::Tracked {
-                            funding: l.funding_type,
-                            slot: l.identity_index,
-                            consumed: l.status.is_consumed(),
-                        },
-                    )
-                })
-                .collect();
+            let tracked: HashMap<String, identity::Tracked> =
+                turn::timed("tracked_locks", wallet.asset_locks().list_tracked_locks())
+                    .await
+                    .into_iter()
+                    .map(|l| {
+                        (
+                            l.out_point.txid.to_string(),
+                            identity::Tracked {
+                                funding: l.funding_type,
+                                slot: l.identity_index,
+                                consumed: l.status.is_consumed(),
+                            },
+                        )
+                    })
+                    .collect();
             // The locks Identity offers to continue, and only while it offers that: the same
             // rules as `Wallet::unfinished_*` (not while one is being made, only after the
             // search for the identities).
             let mut waiting = std::collections::HashSet::new();
             if unfinished_top_up.is_some() {
-                for lock in self.chain.unfinished_top_ups(&wallet).await {
+                for lock in
+                    turn::timed("unfinished_top_ups", self.chain.unfinished_top_ups(&wallet)).await
+                {
                     if !lock.awaiting_chain_lock {
                         waiting.insert(lock.out_point.txid.to_string());
                     }
                 }
             }
             if unfinished.as_ref().is_some_and(|u| u.locked.is_some())
-                && let Some(lock) = self.chain.unfinished(&wallet).await
+                && let Some(lock) =
+                    turn::timed("unfinished_lock", self.chain.unfinished(&wallet)).await
             {
                 waiting.insert(lock.out_point.txid.to_string());
             }
@@ -481,8 +494,12 @@ impl Real {
             &self.apps.all(),
             shown.as_ref().map(|(identity, _, _)| identity.id.as_str()),
         );
-        if let Some(wallet) = self.chain.wallet(&id).await {
-            let mut keys = self.chain.contact_key_addresses(&wallet).await;
+        if let Some(wallet) = turn::timed("wallet_lookup_keys", self.chain.wallet(&id)).await {
+            let mut keys = turn::timed(
+                "contact_key_addresses",
+                self.chain.contact_key_addresses(&wallet),
+            )
+            .await;
             // And the ones paid in earlier runs, kept beside the store.
             for c in &contacts {
                 for address in self.contact_paid.paid(&c.identity_id) {
@@ -512,14 +529,20 @@ impl Real {
         if let Some(lost) = lost_block {
             let from = lost.from.saturating_sub(1);
             let why = "lost_block";
-            self.rescan_from(id, from, why, synced, Vec::new(), lost.txids)
-                .await;
+            turn::timed(
+                "rescan_lost",
+                self.rescan_from(id, from, why, synced, Vec::new(), lost.txids),
+            )
+            .await;
         } else {
             let stale = self.mempool.not_rescanned(&history);
             if !stale.is_empty() {
                 let from = meta.birth_height;
-                self.rescan_from(id, from, "stale", synced, stale, Vec::new())
-                    .await;
+                turn::timed(
+                    "rescan_stale",
+                    self.rescan_from(id, from, "stale", synced, stale, Vec::new()),
+                )
+                .await;
             }
         }
         // Stale since an earlier run and not rescanned yet: most likely in a block the store
@@ -543,12 +566,12 @@ impl Real {
             .and_then(|notes| notes.lines_to_bind(&history));
         if let Some(lines) = to_bind {
             let notes = self.notes.clone();
-            let _ = tokio::task::spawn_blocking(move || {
+            let bound = tokio::task::spawn_blocking(move || {
                 if let Some(notes) = notes.lock().unwrap_or_else(|e| e.into_inner()).as_mut() {
                     notes.bind(&lines);
                 }
-            })
-            .await;
+            });
+            let _ = turn::timed("notes_bind", bound).await;
         }
         let notes_error = match self
             .notes
@@ -737,7 +760,8 @@ impl Real {
                 return;
             };
             let marks = platform_history::Marks::load(&marks_path);
-            match platform_history::read(&chain, &wallet, id, &marks, &names).await {
+            let read = platform_history::read(&chain, &wallet, id, &marks, &names);
+            match turn::timed("platform_history_read", read).await {
                 // A lock (or a new lookup) since the start: this answer is for no one.
                 Ok(_) if current.load(Ordering::Relaxed) != run => {}
                 Ok((entries, next)) => {
@@ -775,7 +799,9 @@ pub(super) async fn keep_balances_fresh(
         let all = round.is_multiple_of(BALANCES_ALL_EVERY);
         round = round.wrapping_add(1);
         if let Some(wallet) = chain.wallet(&id).await
-            && chain.refresh_balances(&wallet, all).await.is_ok()
+            && turn::timed("refresh_balances", chain.refresh_balances(&wallet, all))
+                .await
+                .is_ok()
         {
             refresh();
         }

@@ -84,7 +84,7 @@ impl Real {
         let chain = self.chain.clone();
         let previews = self.previews.clone();
         let paid = self.contact_paid.paid(&contact.to_string(Encoding::Base58));
-        self.answer_later(async move {
+        self.answer_later("task:preview_payment", async move {
             let result = async {
                 let wallet = loaded(&chain, &id).await?;
                 let address = chain

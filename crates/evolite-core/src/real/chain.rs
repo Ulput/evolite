@@ -641,12 +641,11 @@ impl Chain {
     /// The Core nodes connected now, each as the masternode list knows it.
     pub async fn core_peers(&self) -> Vec<evolite_api::NodeInfo> {
         use platform_wallet::spv::SpvPeerNodeType;
-        let Ok(manager) = self.manager().await else {
+        let Ok(manager) = super::turn::timed("core_peers_manager", self.manager()).await else {
             return Vec::new();
         };
-        let mut peers: Vec<_> = manager
-            .spv_arc()
-            .connected_peers()
+        let spv = manager.spv_arc();
+        let mut peers: Vec<_> = super::turn::timed("core_peers_connected", spv.connected_peers())
             .await
             .into_iter()
             .map(|p| evolite_api::NodeInfo {

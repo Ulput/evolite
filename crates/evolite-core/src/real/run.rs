@@ -16,10 +16,15 @@ impl Real {
     /// Asks the network off the loop and sends the answer when it comes. A name asked before
     /// proofs can be checked gets `NotSynced` at once and the real answer once the masternode
     /// lists are in; the interface keeps the last answer for the name it shows.
-    pub(super) fn answer_later(&self, question: impl Future<Output = Event> + Send + 'static) {
+    pub(super) fn answer_later(
+        &self,
+        step: &'static str,
+        question: impl Future<Output = Event> + Send + 'static,
+    ) {
         let out = self.out.clone();
         let wake = self.wake.clone();
         let stale = self.balances_stale.clone();
+        let question = turn::task(step, question);
         tokio::spawn(async move {
             let event = question.await;
             // A write (or a try at one) may have moved credits: read the balances again.
@@ -136,14 +141,15 @@ pub fn run(
         // Starting the client opens the stored headers and filters — 12 s in a release build
         // with a synced store, half a minute in a debug one — and runs off the loop, so the
         // password typed meanwhile opens the wallet at once (F3, BUG-24).
-        let snapshot = core.snapshot().await;
+        let snapshot = turn::timed("snapshot", core.snapshot()).await;
         let _ = out.send(Event::Snapshot(Box::new(snapshot)));
         wake();
         core.start_chain(None, None, None, false);
         // When the last DashPay pass the snapshot knows of finished.
         let mut dashpay_pass = None;
         loop {
-            if core.start_ended().await {
+            let _turn = turn::begin("loop_turn");
+            if turn::timed("start_ended", core.start_ended()).await {
                 core.dirty.store(true, Ordering::Relaxed);
             }
             core.retry_start();
@@ -152,26 +158,32 @@ pub fn run(
             // says what is wrong with the chain itself). The
             // identity lookup begun at the unlock starts again on the loaded wallet, without
             // its pause after "the wallet is not loaded yet".
-            if core.attach.is_some() && core.attach_wallet().await.is_ok() && core.attach.is_none()
+            if core.attach.is_some()
+                && turn::timed("attach_wallet", core.attach_wallet())
+                    .await
+                    .is_ok()
+                && core.attach.is_none()
             {
                 core.discover_identities();
             }
             // Platform address balances come with proofs: from the masternode lists on.
             if core.chain.platform_ready() {
-                core.chain.start_platform_sync().await;
+                turn::timed("start_platform_sync", core.chain.start_platform_sync()).await;
                 core.connect_pool();
                 core.build_contact_accounts();
                 core.read_platform_history();
                 // A DashPay pass brings requests and contacts without any other event: the
                 // snapshot is made again after each one (BUG-13).
-                if new_pass(&mut dashpay_pass, core.chain.dashpay_synced_at().await) {
+                let synced = turn::timed("dashpay_synced_at", core.chain.dashpay_synced_at()).await;
+                if new_pass(&mut dashpay_pass, synced) {
                     core.dirty.store(true, Ordering::Relaxed);
                 }
             }
             loop {
                 match inbox.try_recv() {
                     Ok(command) => {
-                        let (event, changed) = core.handle(command).await;
+                        let name = crate::diag::command_name(&command);
+                        let (event, changed) = turn::timed(name, core.handle(command)).await;
                         answer(&out, &*wake, event);
                         if changed {
                             core.dirty.store(true, Ordering::Relaxed);
@@ -192,7 +204,7 @@ pub fn run(
                             // "Add a wallet" asked here: this chain is parked (BUG-76).
                             let adding =
                                 !core.restart && adding_from.as_deref() == Some(&*core.wallet);
-                            let _ = core.lock().await;
+                            let _ = turn::timed("switch_lock", core.lock()).await;
                             // A deleted wallet's pictures go too.
                             if let (Some(base), Some(id)) = (&art_base, &deleted) {
                                 let _ = std::fs::remove_dir_all(base.join(id));
@@ -214,27 +226,29 @@ pub fn run(
                             // Figma 29: the vault opened before the switch opens the wallet now
                             // (no second Argon2, F2).
                             if let Some((file, phrase)) = opened {
-                                let result = core.unlock_opened(file, phrase).await;
+                                let result =
+                                    turn::timed("switch_unlock", core.unlock_opened(file, phrase))
+                                        .await;
                                 let _ = out.send(Event::Done {
                                     what: "switch",
                                     result,
                                 });
                             }
                             core.dirty.store(false, Ordering::Relaxed);
-                            let snapshot = core.snapshot().await;
+                            let snapshot = turn::timed("snapshot", core.snapshot()).await;
                             let _ = out.send(Event::Snapshot(Box::new(snapshot)));
                             wake();
                         }
                     }
                     Err(std::sync::mpsc::TryRecvError::Empty) => break,
                     Err(std::sync::mpsc::TryRecvError::Disconnected) => {
-                        core.shut_down().await;
+                        turn::timed("shut_down", core.shut_down()).await;
                         return;
                     }
                 }
             }
             if core.idle_too_long() {
-                let result = core.lock().await;
+                let result = turn::timed("idle_lock", core.lock()).await;
                 let _ = out.send(Event::Done {
                     what: "lock",
                     result,
@@ -242,7 +256,7 @@ pub fn run(
                 core.dirty.store(true, Ordering::Relaxed);
             }
             if core.dirty.swap(false, Ordering::Relaxed) {
-                let snapshot = core.snapshot().await;
+                let snapshot = turn::timed("snapshot", core.snapshot()).await;
                 let _ = out.send(Event::Snapshot(Box::new(snapshot)));
                 wake();
             }

@@ -7,7 +7,14 @@ use evolite_api::{Command, CoreError, Event, Spend, SyncStage, VaultState};
 
 /// A command by name only.
 pub fn command(command: &Command) -> Record {
-    let name = match command {
+    Record::Command {
+        name: command_name(command),
+    }
+}
+
+/// The name of a command, from this closed list; never its contents.
+pub fn command_name(command: &Command) -> &'static str {
+    match command {
         Command::NewPhrase { .. } => "new_phrase",
         Command::UsePhrase { .. } => "use_phrase",
         Command::CreateWallet { .. } => "create_wallet",
@@ -45,8 +52,7 @@ pub fn command(command: &Command) -> Record {
         Command::CancelAddWallet => "cancel_add_wallet",
         Command::SetNote { .. } => "set_note",
         Command::RenameWallet { .. } => "rename_wallet",
-    };
-    Record::Command { name }
+    }
 }
 
 /// A spend by the name its command had before the password gate (R-27), so old and new

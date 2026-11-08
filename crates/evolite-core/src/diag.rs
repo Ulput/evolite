@@ -11,6 +11,8 @@
 mod core_events;
 mod scrub;
 
+#[cfg(feature = "real")]
+pub(crate) use core_events::command_name;
 pub use core_events::error_kind;
 pub(crate) use core_events::{Watch, answer, command};
 pub use scrub::{phrase_words, scrub};
@@ -81,6 +83,17 @@ pub enum Record {
         name: &'static str,
     },
     SlowFrame {
+        ms: u64,
+    },
+    /// A step of the core ended after a long time (`real/turn.rs`): its name, fixed in the
+    /// code, and how long it took.
+    SlowStep {
+        step: &'static str,
+        ms: u64,
+    },
+    /// A step of the core is past the limit and has not come back: how long so far.
+    StuckStep {
+        step: &'static str,
         ms: u64,
     },
     /// A core file that did not save: its name only, what was done and the I/O error's kind.
@@ -154,6 +167,10 @@ impl Record {
             Record::Art { reason } => json!({"k": "art", "reason": reason}),
             Record::Screen { name } => json!({"k": "screen", "name": name}),
             Record::SlowFrame { ms } => json!({"k": "slow_frame", "ms": ms}),
+            Record::SlowStep { step, ms } => json!({"k": "slow_step", "step": step, "ms": ms}),
+            Record::StuckStep { step, ms } => {
+                json!({"k": "stuck_step", "step": step, "ms": ms})
+            }
             Record::Storage { file, op, error } => {
                 json!({"k": "storage", "file": scrub(file), "op": op, "error": error})
             }
@@ -495,6 +512,26 @@ mod tests {
         assert_eq!(timestamp(UNIX_EPOCH), "1970-01-01T00:00:00.000Z");
         assert_eq!(civil(19_723), (2024, 1, 1));
         assert_eq!(civil(11_016), (2000, 2, 29));
+    }
+
+    #[test]
+    fn a_slow_step_keeps_its_name_and_milliseconds_only() {
+        let step = "core_peers";
+        let cases = [
+            (Record::SlowStep { step, ms: 7 }, "slow_step"),
+            (Record::StuckStep { step, ms: 7 }, "stuck_step"),
+        ];
+        for (record, kind) in cases {
+            let fields = record.fields();
+            let mut names: Vec<_> = fields.as_object().unwrap().keys().cloned().collect();
+            names.sort();
+            assert_eq!(names, ["k", "ms", "step"], "{fields}");
+            assert_eq!(fields["k"], kind);
+            assert_eq!(fields["step"], step);
+            assert_eq!(fields["ms"], 7);
+            let line: serde_json::Value = serde_json::from_str(&record.line(UNIX_EPOCH)).unwrap();
+            assert_eq!(line.as_object().unwrap().len(), 4, "{line}");
+        }
     }
 
     #[test]

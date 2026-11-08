@@ -139,6 +139,7 @@ impl ContextProvider for SpvContextProvider {
         let handle = tokio::runtime::Handle::try_current().map_err(|_| {
             ContextProviderError::Config("no async runtime for the quorum lookup".into())
         })?;
+        let _timed = super::turn::begin("quorum_key");
         tokio::task::block_in_place(|| {
             handle
                 .block_on(self.spv.get_quorum_public_key(

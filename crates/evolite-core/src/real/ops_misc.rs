@@ -21,7 +21,8 @@ impl Real {
             tokio::spawn(async move {
                 let result = match Identifier::from_string(&owner, Encoding::Base58) {
                     Ok(id) => {
-                        tokio::time::timeout(nfts::ASK_TIMEOUT, chain.jembe_gifts(id, &known))
+                        let read = turn::timed("nft_read", chain.jembe_gifts(id, &known));
+                        tokio::time::timeout(nfts::ASK_TIMEOUT, read)
                             .await
                             .unwrap_or_else(|_| Err(nfts::no_answer().into()))
                     }

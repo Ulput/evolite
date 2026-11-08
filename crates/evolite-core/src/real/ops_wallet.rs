@@ -513,7 +513,7 @@ impl Real {
                 let keys = keys_of(&text);
                 self.pending = Some((text, true));
                 let chain = self.network_chain().clone();
-                self.answer_later(async move {
+                self.answer_later("task:use_phrase", async move {
                     let found = match keys {
                         Ok(keys) => scan_dashpay(&chain, &keys).await,
                         Err(_) => None,

@@ -62,6 +62,7 @@ mod security;
 mod snapshot;
 mod store;
 mod sync;
+mod turn;
 mod vault;
 mod wallets;
 

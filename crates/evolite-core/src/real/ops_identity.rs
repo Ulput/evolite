@@ -48,7 +48,7 @@ impl Real {
         let busy = self.identity_busy.clone();
         let refresh = self.refresher();
         let (out, wake) = (self.out.clone(), self.wake.clone());
-        self.answer_later(async move {
+        self.answer_later("task:resume_identity", async move {
             let result = async {
                 let wallet = chain.wallet(&id).await.ok_or(NOT_LOADED)?;
                 let names = pending.load();
@@ -149,7 +149,7 @@ impl Real {
         let chain = self.chain.clone();
         let busy = self.identity_busy.clone();
         let refresh = self.refresher();
-        self.answer_later(async move {
+        self.answer_later("task:top_up_identity", async move {
             let result = chain
                 .top_up_identity(&wallet, &keys, amount)
                 .await
@@ -184,7 +184,7 @@ impl Real {
         let busy = self.identity_busy.clone();
         let refresh = self.refresher();
         let journal = self.journal.clone();
-        self.answer_later(async move {
+        self.answer_later("task:add_name", async move {
             let result = match chain.name_available(&label).await {
                 Ok(false) => Err(CoreError::NotAvailable(format!(
                     tr!("The name @{label} is already taken"),
@@ -233,7 +233,7 @@ impl Real {
         let chain = self.chain.clone();
         let busy = self.identity_busy.clone();
         let refresh = self.refresher();
-        self.answer_later(async move {
+        self.answer_later("task:resume_top_up", async move {
             let result = async {
                 let wallet = chain.wallet(&id).await.ok_or(NOT_LOADED)?;
                 chain.resume_top_up(&wallet, &keys).await
@@ -310,7 +310,7 @@ impl Real {
             amount,
             now(),
         );
-        self.answer_later(async move {
+        self.answer_later("task:send_credits", async move {
             let result = async {
                 let wallet = loaded(&chain, &id).await?;
                 let before = chain.first_identity_credits(&wallet, false).await;
@@ -389,15 +389,14 @@ impl Real {
         refresh();
         tokio::spawn(async move {
             let live = move || current.load(Ordering::Relaxed) == run;
-            chain.until_platform_ready().await;
+            turn::timed("gate_identities", chain.until_platform_ready()).await;
             let mut pause = DISCOVERY_RETRY;
             let mut names_read = std::collections::HashSet::new();
             while live() {
                 let result = match chain.wallet(&id).await {
                     Some(wallet) => {
-                        chain
-                            .discover_identities_again(&wallet, &keys, &mut names_read)
-                            .await
+                        let pass = chain.discover_identities_again(&wallet, &keys, &mut names_read);
+                        turn::timed("identity_search_pass", pass).await
                     }
                     None => Err(tr!("the wallet is not loaded yet").into()),
                 };
@@ -488,7 +487,7 @@ impl Real {
         let pending = self.pending_names();
         let busy = self.identity_busy.clone();
         let (out, wake) = (self.out.clone(), self.wake.clone());
-        self.answer_later(async move {
+        self.answer_later("task:create_identity", async move {
             let available = match &label {
                 Some(label) => chain.name_available(label).await,
                 None => Ok(true),

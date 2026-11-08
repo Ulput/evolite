@@ -93,12 +93,14 @@ impl Real {
     /// wait of the name lookups, with `give_up` after [`LISTS_WAIT`].
     fn answer_when_platform_ready(
         &self,
+        step: &'static str,
         give_up: Event,
         question: impl Future<Output = Event> + Send + 'static,
     ) {
         let chain = self.chain.clone();
-        self.answer_later(async move {
-            when_ready(chain.until_platform_ready(), LISTS_WAIT, give_up, question).await
+        self.answer_later(step, async move {
+            let ready = turn::timed("gate_names", chain.until_platform_ready());
+            when_ready(ready, LISTS_WAIT, give_up, question).await
         });
     }
 
@@ -125,7 +127,7 @@ impl Real {
                 let names = self.names.clone();
                 let renamed = self.refresher();
                 let give_up = lookup_not_synced(name.clone());
-                self.answer_when_platform_ready(give_up, async move {
+                self.answer_when_platform_ready("task:resolve_name", give_up, async move {
                     let read = {
                         let (chain, label) = (chain.clone(), label.clone());
                         async move { chain.resolve_name(&label).await }
@@ -196,7 +198,7 @@ impl Real {
                 }
                 let chain = self.chain.clone();
                 let give_up = check_not_synced(asked.clone());
-                self.answer_when_platform_ready(give_up, async move {
+                self.answer_when_platform_ready("task:check_name", give_up, async move {
                     let read = async move { chain.name_available(&label).await };
                     let result = name_standing(read).await;
                     Event::NameChecked {

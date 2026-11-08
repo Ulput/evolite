@@ -29,7 +29,7 @@ impl Real {
         let chain = self.chain.clone();
         let refresh = self.refresher();
         let journal = self.journal.clone();
-        self.answer_later(async move {
+        self.answer_later("task:add_contact", async move {
             let result = async {
                 let wallet = loaded(&chain, &id).await?;
                 let to = match chain.resolve_name(&label).await {
@@ -92,7 +92,7 @@ impl Real {
             .find(|c| c.identity_id == identity_id)
             .map(Contact::handle)
             .unwrap_or_else(|| identity_id.to_owned());
-        self.answer_later(async move {
+        self.answer_later("task:contact_job", async move {
             let result = async {
                 let wallet = loaded(&chain, &id).await?;
                 match job {
@@ -159,7 +159,7 @@ impl Real {
         let chain = self.chain.clone();
         let refresh = self.refresher();
         let journal = self.journal.clone();
-        self.answer_later(async move {
+        self.answer_later("task:save_profile", async move {
             let result = async {
                 let avatar = match avatar_url {
                     Some(url) => {
@@ -275,7 +275,7 @@ impl Real {
                 let Ok(identifier) = Identifier::from_string(&id, Encoding::Base58) else {
                     return;
                 };
-                match chain.name_of(identifier).await {
+                match turn::timed("contact_name_read", chain.name_of(identifier)).await {
                     Ok(name) => {
                         names
                             .lock()
@@ -323,9 +323,8 @@ pub(super) fn contact_accounts_done(established: usize, accounts: Option<usize>)
 /// and contacts, read from Platform with proofs. `None` — and the onboarding goes straight on —
 /// when the phrase has no identity, or Platform could not be read in time.
 pub(super) async fn scan_dashpay(chain: &Chain, keys: &key_wallet::Wallet) -> Option<DashPayScan> {
-    tokio::time::timeout(DASHPAY_SCAN_WAIT, chain.until_platform_ready())
-        .await
-        .ok()?;
+    let ready = turn::timed("gate_dashpay_scan", chain.until_platform_ready());
+    tokio::time::timeout(DASHPAY_SCAN_WAIT, ready).await.ok()?;
     let found = chain.scan_dashpay(keys).await.ok()?;
     dashpay_scan_of(found)
 }

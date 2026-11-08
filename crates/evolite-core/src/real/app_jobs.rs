@@ -95,7 +95,7 @@ impl Real {
             super::convert::fees(0),
         );
         let request_id = self.next_app_request.fetch_add(1, Ordering::Relaxed) + 1;
-        self.answer_later(async move {
+        self.answer_later("task:open_app_link", async move {
             let result = async {
                 let wallet = loaded(&chain, &id).await?;
                 let who = chain
@@ -246,7 +246,7 @@ impl Real {
         let job = job.ok_or_else(out_of_date)?;
         let (wallet_id, keys) = self.dashpay_ready()?;
         let (chain, apps, refresh) = (self.chain.clone(), self.apps.clone(), self.refresher());
-        self.answer_later(async move {
+        self.answer_later("task:answer_app", async move {
             let result = async {
                 let wallet = loaded(&chain, &wallet_id).await?;
                 let who = chain
@@ -339,7 +339,7 @@ impl Real {
         let (wallet_id, keys) = self.dashpay_ready()?;
         let (chain, apps, refresh) = (self.chain.clone(), self.apps.clone(), self.refresher());
         let contract = contract.to_owned();
-        self.answer_later(async move {
+        self.answer_later("task:disconnect_app", async move {
             let result = async {
                 let wallet = loaded(&chain, &wallet_id).await?;
                 let who = chain
