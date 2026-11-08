@@ -2057,18 +2057,76 @@ async fn tear_down(manager: &Manager) {
 /// bincode `TransactionRecord` per row — platform-wallet-storage's reader for it is not
 /// public). A row that does not decode is left out; a store this does not understand gives no
 /// history, never a wrong one.
+///
+/// A row is one account's view when the last write was (BUG-86): its outputs to an address of
+/// another of the wallet's accounts are `Sent` there. They are ours again by the store's own
+/// address pools ([`own_scripts`], `convert::own_outputs`).
 pub fn stored_history(
     store: &std::path::Path,
     wallet: &WalletId,
 ) -> Result<Vec<key_wallet::managed_account::transaction_record::TransactionRecord>, String> {
+    let conn = open_read_only(store)?;
+    let mut records = stored_records(&conn, wallet)?;
+    let own = own_scripts(&conn, wallet);
+    for r in &mut records {
+        super::convert::own_outputs(r, |address| {
+            own.get(address.script_pubkey().as_bytes()).copied()
+        });
+    }
+    Ok(records)
+}
+
+fn open_read_only(store: &std::path::Path) -> Result<rusqlite::Connection, String> {
     use rusqlite::OpenFlags;
-    // The store's own limit on a blob.
-    const LIMIT: usize = platform_wallet_storage::SIZE_LIMIT_BYTES;
-    let conn = rusqlite::Connection::open_with_flags(
+    rusqlite::Connection::open_with_flags(
         store,
         OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
     )
-    .map_err(|e| e.to_string())?;
+    .map_err(|e| e.to_string())
+}
+
+/// The scripts of the wallet's own addresses in the store (`core_address_pool`), with what an
+/// output to each is to the wallet: change (the internal pool) or received. Only the accounts
+/// that hold coins: a DashPay contact's own addresses (`dashpay_external`, where we pay them),
+/// identity and provider keys, Platform addresses are not where a Core payment comes to us.
+/// Nothing when the store has no such table: the records stay as stored.
+fn own_scripts(
+    conn: &rusqlite::Connection,
+    wallet: &WalletId,
+) -> std::collections::HashMap<Vec<u8>, key_wallet::managed_account::transaction_record::OutputRole>
+{
+    use key_wallet::managed_account::transaction_record::OutputRole;
+    let Ok(mut stmt) = conn.prepare(
+        "SELECT script, pool_type FROM core_address_pool WHERE wallet_id = ?1 AND account_type \
+         IN ('standard_bip44', 'standard_bip32', 'coinjoin', 'dashpay_receiving')",
+    ) else {
+        return Default::default();
+    };
+    let Ok(rows) = stmt.query_map(rusqlite::params![wallet.as_slice()], |row| {
+        Ok((row.get::<_, Vec<u8>>(0)?, row.get::<_, i64>(1)?))
+    }) else {
+        return Default::default();
+    };
+    rows.filter_map(Result::ok)
+        .map(|(script, pool)| {
+            // platform-wallet-storage `core_pool::pool_type_to_i64`: 1 is the internal pool.
+            let role = if pool == 1 {
+                OutputRole::Change
+            } else {
+                OutputRole::Received
+            };
+            (script, role)
+        })
+        .collect()
+}
+
+/// The store's records as written, one per transaction.
+fn stored_records(
+    conn: &rusqlite::Connection,
+    wallet: &WalletId,
+) -> Result<Vec<key_wallet::managed_account::transaction_record::TransactionRecord>, String> {
+    // The store's own limit on a blob.
+    const LIMIT: usize = platform_wallet_storage::SIZE_LIMIT_BYTES;
     let mut stmt = conn
         .prepare(
             "SELECT record_blob FROM core_transactions \
@@ -2324,7 +2382,189 @@ mod tests {
                 r.input_details.len(),
                 r.output_details.len()
             );
+            // BUG-86: one transaction's details, `EVOLITE_B64_TX=<txid prefix>`.
+            if std::env::var("EVOLITE_B64_TX").is_ok_and(|t| r.txid.to_string().starts_with(&t)) {
+                println!(
+                    "  {:?} fee {:?} tx ins {} outs {}",
+                    r.account_type,
+                    r.fee,
+                    r.transaction.input.len(),
+                    r.transaction.output.len()
+                );
+                for d in &r.input_details {
+                    println!("  in {} {} {}", d.index, d.value, d.address);
+                }
+                for d in &r.output_details {
+                    println!(
+                        "  out {} {:?} {} {:?}",
+                        d.index,
+                        d.role,
+                        d.value,
+                        d.address.as_ref().map(|a| a.to_string())
+                    );
+                }
+                for (i, o) in r.transaction.output.iter().enumerate() {
+                    println!("  txout {i} {}", o.value);
+                }
+            }
         }
+        // BUG-86 (§4a item 4): the History lines from the rows as written and as read now —
+        // the same lines, but for the ones the fix is for.
+        let conn = open_read_only(std::path::Path::new(&store)).unwrap();
+        let lines = |mut records: Vec<_>| {
+            super::super::convert::attribute_late_inputs(&mut records);
+            records
+                .iter()
+                .map(|r| {
+                    let a = super::super::convert::activity(r, 0, true);
+                    (
+                        r.txid.to_string(),
+                        format!("{:?} {} {:?}", a.kind, a.amount, a.fee),
+                    )
+                })
+                .collect::<Vec<_>>()
+        };
+        let before = lines(stored_records(&conn, &id).unwrap());
+        let after = lines(stored_history(std::path::Path::new(&store), &id).unwrap());
+        assert_eq!(before.len(), after.len());
+        let mut changed = 0;
+        for ((txid, was), (_, now)) in before.iter().zip(&after) {
+            if was != now {
+                changed += 1;
+                println!("CHANGED {txid}: {was} -> {now}");
+            }
+        }
+        println!("lines {} changed {changed}", after.len());
+    }
+
+    /// BUG-86: a row kept as one account's slice — the output to an address of account 0
+    /// `Sent` — is read back with that output ours, by the store's own address pools; an
+    /// output to a contact's address (`dashpay_external`, where we pay them) stays paid out. A
+    /// store without the pools table gives the rows as written.
+    #[test]
+    fn a_stored_slice_gets_the_wallets_own_outputs_back() {
+        use key_wallet::dashcore::address::Payload;
+        use key_wallet::dashcore::hashes::Hash;
+        use key_wallet::dashcore::{PubkeyHash, Transaction, TxIn, TxOut};
+        use key_wallet::managed_account::transaction_record::{
+            InputDetail, OutputDetail, OutputRole, TransactionDirection, TransactionRecord,
+        };
+        use key_wallet::transaction_checking::TransactionContext;
+        use key_wallet::transaction_checking::transaction_router::TransactionType;
+        let address = |n: u8| {
+            key_wallet::dashcore::Address::new(
+                key_wallet::Network::Testnet,
+                Payload::PubkeyHash(PubkeyHash::from_byte_array([n; 20])),
+            )
+        };
+        let (mine, contact, change) = (address(7), address(9), address(8));
+        let tx = Transaction {
+            version: 2,
+            lock_time: 0,
+            input: vec![TxIn::default()],
+            output: [(&mine, 600), (&contact, 300), (&change, 50)]
+                .map(|(a, value)| TxOut {
+                    value,
+                    script_pubkey: a.script_pubkey(),
+                })
+                .to_vec(),
+            special_transaction_payload: None,
+        };
+        let out = |index: u32, at: &key_wallet::dashcore::Address, value| OutputDetail {
+            index,
+            role: OutputRole::Sent,
+            address: Some(at.clone()),
+            value,
+        };
+        let slice = TransactionRecord::new(
+            tx,
+            key_wallet::account::AccountType::Standard {
+                index: 1,
+                standard_account_type: key_wallet::account::StandardAccountType::BIP44Account,
+            },
+            TransactionContext::Mempool,
+            TransactionType::Standard,
+            TransactionDirection::Outgoing,
+            vec![InputDetail {
+                index: 0,
+                value: 1_000,
+                address: address(5),
+            }],
+            vec![
+                out(0, &mine, 600),
+                out(1, &contact, 300),
+                out(2, &change, 50),
+            ],
+            -1_000,
+        );
+        let dir = std::env::temp_dir().join(format!("evolite-b86-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let db = dir.join("platform-wallet.db");
+        let wallet: WalletId = [0x86; 32];
+        let config = bincode::config::standard();
+        {
+            let conn = rusqlite::Connection::open(&db).unwrap();
+            conn.execute_batch(
+                "CREATE TABLE core_transactions (wallet_id BLOB, txid BLOB, record_blob BLOB);",
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO core_transactions VALUES (?1, ?2, ?3)",
+                rusqlite::params![
+                    wallet.as_slice(),
+                    slice.txid.to_byte_array().as_slice(),
+                    bincode::serde::encode_to_vec(&slice, config).unwrap()
+                ],
+            )
+            .unwrap();
+        }
+        let roles = |records: Vec<TransactionRecord>| {
+            assert_eq!(records.len(), 1);
+            let r = &records[0];
+            let roles: Vec<_> = r.output_details.iter().map(|d| d.role).collect();
+            (roles, r.direction, r.net_amount)
+        };
+        // No pools table (an older store): as written.
+        assert_eq!(
+            roles(stored_history(&db, &wallet).unwrap()),
+            (
+                vec![OutputRole::Sent; 3],
+                TransactionDirection::Outgoing,
+                -1_000
+            )
+        );
+        {
+            let conn = rusqlite::Connection::open(&db).unwrap();
+            conn.execute_batch(
+                "CREATE TABLE core_address_pool (wallet_id BLOB, account_type TEXT, \
+                 pool_type INTEGER, script BLOB);",
+            )
+            .unwrap();
+            let other: WalletId = [0x87; 32];
+            for (id, kind, pool, at) in [
+                (&wallet, "standard_bip44", 0, &mine),
+                (&wallet, "standard_bip44", 1, &change),
+                (&wallet, "dashpay_external", 2, &contact),
+                (&other, "standard_bip44", 0, &contact),
+            ] {
+                conn.execute(
+                    "INSERT INTO core_address_pool VALUES (?1, ?2, ?3, ?4)",
+                    rusqlite::params![id.as_slice(), kind, pool, at.script_pubkey().as_bytes()],
+                )
+                .unwrap();
+            }
+        }
+        assert_eq!(
+            roles(stored_history(&db, &wallet).unwrap()),
+            (
+                vec![OutputRole::Received, OutputRole::Sent, OutputRole::Change],
+                TransactionDirection::Outgoing,
+                -350
+            ),
+            "ours received and change, the contact's paid"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// BUG-13 r1 should 1: "Act as" moves on between the check of a request and its signing —

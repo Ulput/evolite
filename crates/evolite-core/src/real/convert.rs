@@ -346,34 +346,72 @@ pub(super) fn one_per_transaction<'a>(
             }
             merged.input_details.sort_by_key(|d| d.index);
             merged.output_details.sort_by_key(|d| d.index);
-            merged.net_amount = net_once(&merged);
-            let sent = merged
-                .output_details
-                .iter()
-                .any(|d| d.role == OutputRole::Sent);
-            let ours = merged
-                .output_details
-                .iter()
-                .any(|d| matches!(d.role, OutputRole::Received | OutputRole::Change));
-            let inputs = !merged.input_details.is_empty();
-            merged.direction = if merged.transaction_type == TransactionType::CoinJoin {
-                TransactionDirection::CoinJoin
-            } else if !sent && inputs && ours {
-                TransactionDirection::Internal
-            } else if inputs {
-                TransactionDirection::Outgoing
-            } else {
-                TransactionDirection::Incoming
-            };
-            // Every input ours: the fee is what they held over what the outputs carry.
-            if merged.input_details.len() == merged.transaction.input.len() {
-                let spent: u64 = merged.input_details.iter().map(|d| d.value).sum();
-                let out: u64 = merged.transaction.output.iter().map(|o| o.value).sum();
-                merged.fee = spent.checked_sub(out).or(merged.fee);
-            }
+            settle_record(&mut merged);
             merged
         })
         .collect()
+}
+
+/// A record's net, direction and fee again from its details, by key-wallet's rules: no `Sent`
+/// output, inputs and outputs of ours — a transfer between own addresses; inputs of ours — out;
+/// else in. With every input ours, the fee is what they held over what the outputs carry.
+fn settle_record(record: &mut TransactionRecord) {
+    record.net_amount = net_once(record);
+    let sent = record
+        .output_details
+        .iter()
+        .any(|d| d.role == OutputRole::Sent);
+    let ours = record
+        .output_details
+        .iter()
+        .any(|d| matches!(d.role, OutputRole::Received | OutputRole::Change));
+    let inputs = !record.input_details.is_empty();
+    record.direction = if record.transaction_type == TransactionType::CoinJoin {
+        TransactionDirection::CoinJoin
+    } else if !sent && inputs && ours {
+        TransactionDirection::Internal
+    } else if inputs {
+        TransactionDirection::Outgoing
+    } else {
+        TransactionDirection::Incoming
+    };
+    if record.input_details.len() == record.transaction.input.len() {
+        let spent: u64 = record.input_details.iter().map(|d| d.value).sum();
+        let out: u64 = record.transaction.output.iter().map(|o| o.value).sum();
+        record.fee = spent.checked_sub(out).or(record.fee);
+    }
+}
+
+/// A stored record's outputs to an address of this wallet as ours (BUG-86). The store keeps one
+/// row per transaction and the last write wins: a transfer of «All» to an own address of
+/// account 0 that also spent contact coins was kept as the contact account's slice alone —
+/// its coins in, the output `Sent`, because that account does not know account 0's address
+/// (the rescan after the sync recorded it there and wrote it over account 0's record).
+/// [`attribute_late_inputs`] then gave it the other inputs, and it showed as paid out in full,
+/// −3,86574464. `ours` says what an address is to the wallet (`Received` or `Change`) over
+/// every account that holds coins. An asset lock is left as it is (its details there are of
+/// the lock's payload). True when an output changed; the net, direction and fee follow.
+pub(super) fn own_outputs(
+    record: &mut TransactionRecord,
+    ours: impl Fn(&Address) -> Option<OutputRole>,
+) -> bool {
+    if record.transaction_type == TransactionType::AssetLock {
+        return false;
+    }
+    let mut changed = false;
+    for d in &mut record.output_details {
+        if d.role != OutputRole::Sent {
+            continue;
+        }
+        if let Some(role) = d.address.as_ref().and_then(&ours) {
+            d.role = role;
+            changed = true;
+        }
+    }
+    if changed {
+        settle_record(record);
+    }
+    changed
 }
 
 /// `instant_verified`: the InstantLock of the transaction was verified ([`proof`]).
@@ -2229,6 +2267,99 @@ mod detail_tests {
             detail(&history[0]).confirm,
             Some(Confirm::ChainLock { block: 1_000 })
         );
+    }
+
+    /// BUG-86, werner555's «All» to its own address ydAH…WiXC (account 0, receiving), on a fresh
+    /// copy: the rescan after the sync recorded the transaction in the contact account too, and
+    /// that slice alone stayed in the store — the contact's coins in, the output `Sent` (the
+    /// contact account does not know account 0's address). The late inputs then made it a
+    /// payment of everything out: «Sent ydAH…WiXC −3,86574464».
+    #[test]
+    fn a_send_of_all_to_an_own_address_kept_as_another_accounts_slice_is_a_transfer() {
+        const FEE: u64 = 3_778;
+        let (own, contact) = ([381_000_000u64, 424_464], [5_000_000u64, 150_000]);
+        // The coins, as stored: account 0's on address 5, the contact account's on address 6.
+        let coin = |n: u8, value: u64, at: u8| {
+            record(
+                tx(&[(n, 0)], &[(at, value)]),
+                TransactionContext::Mempool,
+                TransactionDirection::Incoming,
+                Vec::new(),
+                vec![output(0, OutputRole::Received, value, at)],
+                value as i64,
+            )
+        };
+        let coins = [
+            coin(1, own[0], 5),
+            coin(2, own[1], 5),
+            coin(3, contact[0], 6),
+            coin(4, contact[1], 6),
+        ];
+        let all: u64 = own.iter().chain(&contact).sum();
+        let back = all - FEE;
+        let mut spend = tx(&[(0, 0); 4], &[(7, back)]);
+        for (input, coin) in spend.input.iter_mut().zip(&coins) {
+            input.previous_output = OutPoint::new(coin.txid, 0);
+        }
+        // The contact account's slice: its two coins (inputs 2 and 3), the output not its own.
+        let slice = record(
+            spend,
+            TransactionContext::Mempool,
+            TransactionDirection::Outgoing,
+            vec![input(2, contact[0], 6), input(3, contact[1], 6)],
+            vec![output(0, OutputRole::Sent, back, 7)],
+            -((contact[0] + contact[1]) as i64),
+        );
+        // The wallet's own addresses: 5 and 7 of account 0, 6 of the contact account.
+        let ours = |a: &Address| {
+            [5, 6, 7]
+                .iter()
+                .any(|n| address(*n) == *a)
+                .then_some(OutputRole::Received)
+        };
+        let shown = |slice: &TransactionRecord, ours: &dyn Fn(&Address) -> Option<OutputRole>| {
+            let mut records: Vec<_> = coins.iter().cloned().chain([slice.clone()]).collect();
+            for r in &mut records {
+                own_outputs(r, ours);
+            }
+            attribute_late_inputs(&mut records);
+            activity(&records[4], 0, true)
+        };
+        let line = shown(&slice, &ours);
+        assert_eq!(
+            line.kind,
+            ActivityKind::SelfTransfer {
+                moved: back as Duffs
+            }
+        );
+        assert_eq!(
+            (line.amount, line.fee),
+            (-(FEE as Duffs), Some(FEE as Duffs))
+        );
+        assert_eq!(line.address, Some(address(7).to_string()));
+        let d = detail(&line);
+        assert_eq!(d.own_from.len(), 4, "every coin of ours, once");
+        assert_eq!(d.own_to, vec![(address(7).to_string(), back as Duffs)]);
+        assert!(!d.incomplete);
+        // The same slice paying an address that is not the wallet's stays a payment out.
+        let theirs = |a: &Address| (address(7) != *a).then(|| ours(a)).flatten();
+        let paid = shown(&slice, &theirs);
+        assert!(matches!(&paid.kind, ActivityKind::Sent { to } if *to == address(7).to_string()));
+        assert_eq!(paid.amount, -(all as Duffs));
+        // A change address is change: the line is still a transfer, nothing "received" shown.
+        let mut alone = slice.clone();
+        assert!(own_outputs(&mut alone, |_| Some(OutputRole::Change)));
+        assert_eq!(alone.output_details[0].role, OutputRole::Change);
+        assert_eq!(alone.direction, TransactionDirection::Internal);
+        // A record with nothing of ours as `Sent` is left as it is.
+        let mut kept = coins[0].clone();
+        assert!(!own_outputs(&mut kept, ours));
+        assert_eq!(kept.net_amount, own[0] as i64);
+        // An asset lock keeps its details: there they are of the lock's payload.
+        let mut lock = slice.clone();
+        lock.transaction_type = TransactionType::AssetLock;
+        assert!(!own_outputs(&mut lock, ours));
+        assert_eq!(lock.output_details[0].role, OutputRole::Sent);
     }
 }
 
