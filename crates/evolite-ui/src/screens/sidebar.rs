@@ -11,8 +11,8 @@ use crate::theme::{Weight, mono, sans};
 use egui::{Align, Layout, Stroke, Ui, vec2};
 use evolite_api::SyncStage;
 
-/// Sidebar 248 px (rail of 76 px below 1100 px): logo, the wallet switcher (Figma 26),
-/// 9 items, sync widget, network and settings. `menu`: the wallet menu is open.
+/// Sidebar 248 px (a rail of 76 px below 1280, `theme::Breakpoint`): logo, the wallet switcher
+/// (Figma 26), 9 items, sync widget, network and settings. `menu`: the wallet menu is open.
 pub fn sidebar(
     ui: &mut Ui,
     a: &mut Assets,

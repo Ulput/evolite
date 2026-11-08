@@ -19,6 +19,7 @@ mod dialogs;
 mod focus;
 mod history;
 mod identity_pool;
+mod layout;
 mod loading;
 mod login;
 mod notes;

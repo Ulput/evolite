@@ -193,8 +193,8 @@ fn every_source_lies_inside_the_from_panel() {
                 (1000.0, 768.0, true),
                 (1024.0, 768.0, true),
                 (1024.0, 480.0, true),
-                // The menu opens: three columns of the bug's words do not fit until about 1160.
-                (1100.0, 768.0, false),
+                // The rail up to 1280 (R2): three columns fit at 1100 too.
+                (1100.0, 768.0, true),
                 (1280.0, 800.0, true),
                 (1440.0, 900.0, true),
                 (1920.0, 1080.0, true),

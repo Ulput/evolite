@@ -517,10 +517,10 @@ fn a_row_of_tiles_has_one_amount_size() {
 
 /// Responsive spec R4 and the designer, 2026-11-07: Collection's NFT cards (195 at the least,
 /// gap 16) stand as many in a row as fit beside the details panel (300 + 24) — left to right and
-/// mirrored (`ar`). At 800 the panel goes under the grid: 644 - 10 (the scroll bar) holds 3; at
-/// 1024 868 - 324 - 10 = 534 holds 2; at 1600 938 holds 4. At 1280 the grid is 952 - 324 - 10 =
-/// 618 (the scroll bar of a list taller than the window takes its 10): 3 x 195 + 2 x 16 = 617
-/// fit, so 3 (the designer, after R4 r2).
+/// mirrored (`ar`). At 800 the panel goes under the grid: 676 (margins 24, R2) - 10 (the scroll
+/// bar) holds 3; at 1024 868 - 324 - 10 = 534 holds 2; at 1600 the content is 1200 (R2) and the
+/// grid 866 holds 4. At 1280 the grid is 952 - 324 - 10 = 618 (the scroll bar of a list taller
+/// than the window takes its 10): 3 x 195 + 2 x 16 = 617 fit, so 3 (the designer, after R4 r2).
 #[test]
 fn the_collection_takes_as_many_columns_as_fit_at_every_width() {
     for lang in ["en", "ar"] {

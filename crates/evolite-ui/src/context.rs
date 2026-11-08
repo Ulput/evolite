@@ -2,6 +2,7 @@
 //! commands to the core and a way to switch screens. Screens never talk to the core directly.
 
 use crate::screens::Screen;
+use crate::theme::Breakpoint;
 use chrono::{DateTime, Local};
 use evolite_api::{Command, Duffs, Snapshot, Source, Wallet};
 
@@ -15,6 +16,9 @@ pub struct Pay {
 pub struct Ctx<'a> {
     pub snap: &'a Snapshot,
     pub now: DateTime<Local>,
+    /// The window's width class this frame (responsive spec R2): what screens go by for one
+    /// column or two; the app's frame for the rail and the margins.
+    pub bp: Breakpoint,
     commands: &'a mut Vec<Command>,
     go: &'a mut Option<Screen>,
     /// The Send screen asked for with a source and a recipient filled in.
@@ -51,6 +55,7 @@ impl<'a> Ctx<'a> {
         Self {
             snap,
             now: Local::now(),
+            bp: Breakpoint::default(),
             commands,
             go,
             pay: None,

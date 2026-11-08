@@ -487,9 +487,114 @@ pub const TILE_MIN_W: f32 = 200.0;
 pub const NFT_MIN_W: f32 = 195.0;
 pub const APP_CARD_MIN_W: f32 = 240.0;
 
+/// The smallest window (responsive spec §1; the customer, 2026-11-07, дизайнер-26): 1280 × 720
+/// at 150 % is 853 wide; 440 is 1366 × 768 at 150 % less the taskbar and the title bar.
+pub const MIN_WINDOW: [f32; 2] = [800.0, 440.0];
+/// From these window widths on: S (standard), W (wide, the menu with its words), X (very wide).
+pub const BP_STANDARD: f32 = 1024.0;
+pub const BP_WIDE: f32 = 1280.0;
+pub const BP_EXTRA_WIDE: f32 = 1600.0;
+/// The menu with its words, and the rail of icons it folds to below [`BP_WIDE`].
+pub const MENU_W: f32 = 248.0;
+pub const RAIL_W: f32 = 76.0;
+/// The widest the content of a screen gets, centred in a wider window (дизайнер-28).
+pub const CONTENT_MAX_W: f32 = 1200.0;
+
+/// The window's width class (responsive spec §1). Taken from the width of the **window**, not of
+/// the content: the rail changes the content's width, and the content's width must not switch
+/// the rail back (the architect, 2026-11-06). Once a frame in `App`, kept in `Ctx::bp`.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, Default)]
+pub enum Breakpoint {
+    /// C, 800–1023: the rail, margins 24 (20 on top).
+    Compact,
+    /// S, 1024–1279: the rail, margins 40 (28 on top).
+    #[default]
+    Standard,
+    /// W, 1280–1599: the menu with its words.
+    Wide,
+    /// X, 1600 and wider: the menu; the content as in W, no wider than [`CONTENT_MAX_W`].
+    ExtraWide,
+}
+
+impl Breakpoint {
+    /// The class of a window `width` points wide.
+    pub fn of(width: f32) -> Self {
+        if width >= BP_EXTRA_WIDE {
+            Self::ExtraWide
+        } else if width >= BP_WIDE {
+            Self::Wide
+        } else if width >= BP_STANDARD {
+            Self::Standard
+        } else {
+            Self::Compact
+        }
+    }
+
+    /// The menu is the rail of icons below W (дизайнер-27).
+    pub fn rail(self) -> bool {
+        self < Self::Wide
+    }
+
+    /// The menu's width.
+    pub fn menu_width(self) -> f32 {
+        if self.rail() { RAIL_W } else { MENU_W }
+    }
+
+    /// The screen's margins: (left and right, top and bottom) — 24 and 20 in C, 40 and 28 wider.
+    pub fn margins(self) -> (i8, i8) {
+        if self == Self::Compact {
+            (24, 20)
+        } else {
+            (40, 28)
+        }
+    }
+}
+
+/// The content's place in the screen's `area` (inside its margins): all of it, or
+/// [`CONTENT_MAX_W`] in the middle of a wider one (дизайнер-28).
+pub fn content_rect(area: egui::Rect) -> egui::Rect {
+    if area.width() <= CONTENT_MAX_W {
+        return area;
+    }
+    let left = area.center().x - CONTENT_MAX_W / 2.0;
+    egui::Rect::from_x_y_ranges(left..=left + CONTENT_MAX_W, area.y_range())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// R2: the window's width class at the edges of the spec's table, the rail below 1280,
+    /// margins 24 in C only, the content no wider than 1200 and in the middle.
+    #[test]
+    fn the_window_width_gives_its_class_menu_and_margins() {
+        use Breakpoint::*;
+        for (width, bp) in [
+            (800.0, Compact),
+            (1023.9, Compact),
+            (1024.0, Standard),
+            (1279.0, Standard),
+            (1280.0, Wide),
+            (1599.0, Wide),
+            (1600.0, ExtraWide),
+            (2560.0, ExtraWide),
+        ] {
+            assert_eq!(Breakpoint::of(width), bp, "{width}");
+        }
+        assert!(Compact.rail() && Standard.rail() && !Wide.rail() && !ExtraWide.rail());
+        assert_eq!(Standard.menu_width(), 76.0);
+        assert_eq!(Wide.menu_width(), 248.0);
+        assert_eq!(Compact.margins(), (24, 20));
+        assert_eq!(Standard.margins(), (40, 28));
+        assert_eq!(ExtraWide.margins(), (40, 28));
+        let narrow = egui::Rect::from_min_size(egui::pos2(76.0, 0.0), egui::vec2(900.0, 500.0));
+        assert_eq!(content_rect(narrow), narrow);
+        let wide = egui::Rect::from_min_size(egui::pos2(288.0, 28.0), egui::vec2(1592.0, 900.0));
+        let content = content_rect(wide);
+        assert_eq!(content.width(), CONTENT_MAX_W);
+        assert_eq!(content.center().x, wide.center().x);
+        assert_eq!(content.y_range(), wide.y_range());
+    }
 
     /// BUG-31, 49, 50: dark evolite on a light system. egui's active style is ours whatever
     /// the system says: text in our colour, hints `muted`, the scroll bar `field_line`.

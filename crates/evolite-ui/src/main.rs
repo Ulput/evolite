@@ -91,11 +91,12 @@ fn main() {
     let window = launch.dev.window;
     #[cfg(not(feature = "dev-tools"))]
     let window: Option<[f32; 2]> = None;
-    // The smallest window fits a 1366 × 768 screen at 150 % (910 × 512 points, less the taskbar
-    // and the title bar); screens scroll below that height and the menu becomes a rail.
+    // The smallest window fits a 1280 × 720 screen at 150 % (853 points wide) and a 1366 × 768
+    // one at 150 % (512 high, less the taskbar and the title bar); screens scroll below that
+    // height, and below 1280 wide the menu is a rail (responsive spec R2).
     let (size, min) = match window {
         Some(size) => (size, size),
-        None => ([1280.0, 800.0], [860.0, 440.0]),
+        None => ([1280.0, 800.0], theme::MIN_WINDOW),
     };
     // The last run ended with its window open (a crash, a driver reset): the saved size and the
     // maximized state are dropped, so the window that may have brought it down does not open

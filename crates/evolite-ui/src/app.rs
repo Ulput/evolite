@@ -1043,6 +1043,8 @@ impl eframe::App for App {
             }
         }
         let mut cx = Ctx::new(snapshot, &mut commands, &mut go);
+        // By the window's width, once a frame (responsive spec R2).
+        cx.bp = crate::theme::Breakpoint::of(ui.ctx().content_rect().width());
         // A countdown preset (FEAT-0002) shows the time it names.
         #[cfg(feature = "dev-tools")]
         if let Some(now) = self.dev.frozen_now {
@@ -1112,13 +1114,16 @@ impl eframe::App for App {
                     }
                 });
         } else {
-            let rail = ui.ctx().content_rect().width() < 1100.0;
+            // The rail below 1280, margins 24 or 40, the content no wider than 1200 (R2).
+            let bp = cx.bp;
+            let rail = bp.rail();
             let side = if rail { 12 } else { 16 };
+            let (across, down) = bp.margins();
             // The first Tab goes to the screen, the menu after it (BUG-74 №4).
             let first_tab = crate::focus::hold_first_tab(ui.ctx());
             // Right to left (Arabic) `rtl` mirrors the frame: the menu stands on the right.
             Panel::left("sidebar")
-                .exact_size(if rail { 76.0 } else { 248.0 })
+                .exact_size(bp.menu_width())
                 .resizable(false)
                 .show_separator_line(false)
                 .frame(
@@ -1144,76 +1149,84 @@ impl eframe::App for App {
                 });
             egui::CentralPanel::default()
                 .frame(Frame::new().fill(p.bg).inner_margin(Margin {
-                    left: 40,
-                    right: 40,
-                    top: 28,
-                    bottom: 28,
+                    left: across,
+                    right: across,
+                    top: down,
+                    bottom: down,
                 }))
                 .show(ui, |ui| {
-                    crate::focus::give_first_tab(ui.ctx(), first_tab);
-                    // Left a screen: what it forgets on leaving (BUG-39 №10).
-                    if self.drawn != self.screen {
-                        if self.drawn == Screen::Receive {
-                            self.receive.leave();
+                    let content = crate::theme::content_rect(ui.max_rect());
+                    ui.scope_builder(egui::UiBuilder::new().max_rect(content), |ui| {
+                        crate::focus::give_first_tab(ui.ctx(), first_tab);
+                        // Left a screen: what it forgets on leaving (BUG-39 №10).
+                        if self.drawn != self.screen {
+                            if self.drawn == Screen::Receive {
+                                self.receive.leave();
+                            }
+                            self.drawn = self.screen;
                         }
-                        self.drawn = self.screen;
-                    }
-                    // `--screen remind` (dev-tools): the reminder whatever the dates say.
-                    #[cfg(feature = "dev-tools")]
-                    let remind = self.dev.remind_preset;
-                    #[cfg(not(feature = "dev-tools"))]
-                    let remind = false;
-                    let a = &mut self.a;
-                    // Each visit of a screen gets ids of its own: it opens at the top, not
-                    // where the last screen was scrolled to (all share one scroll area id
-                    // otherwise), and keeps its place while it stays (BUG-48).
-                    let visit = self.visits.of(self.screen);
-                    ui.push_id(("screen", visit), |ui| match self.screen {
-                        Screen::Overview => {
-                            egui::ScrollArea::vertical()
-                                .auto_shrink(false)
-                                .show(ui, |ui| {
-                                    screens::settings::check_reminder(
-                                        ui,
-                                        a,
-                                        &mut cx,
-                                        &mut self.settings,
-                                        remind,
-                                    );
-                                    screens::overview(ui, a, &mut cx)
-                                });
-                        }
-                        Screen::Activity => screens::activity(ui, a, &mut cx, &mut self.history),
-                        Screen::Send => screens::send::send(ui, a, &mut cx, &mut self.send),
-                        Screen::Receive => {
-                            screens::receive::receive(ui, a, &mut cx, &mut self.receive)
-                        }
-                        Screen::Identity => {
-                            screens::identity::identity(ui, a, &mut cx, &mut self.identity)
-                        }
-                        Screen::Shielded => {
-                            screens::shielded::shielded(ui, a, &mut cx, &mut self.pool)
-                        }
-                        Screen::Contacts => {
-                            screens::contacts::contacts(ui, a, &mut cx, &mut self.contacts)
-                        }
-                        Screen::Apps => screens::apps::apps(ui, a, &mut cx, &mut self.requests),
-                        Screen::Collection => {
-                            screens::collection::collection(ui, a, &mut cx, &mut self.collection)
-                        }
-                        Screen::Settings => {
-                            screens::settings::settings(ui, a, &mut cx, &mut self.settings)
-                        }
-                        Screen::CreateIdentity => screens::create_identity::create_identity(
-                            ui,
-                            a,
-                            &mut cx,
-                            &mut self.create_identity,
-                        ),
-                        // Drawn above, without the sidebar.
-                        Screen::Welcome | Screen::Unlock | Screen::Onboarding(_) => {}
+                        // `--screen remind` (dev-tools): the reminder whatever the dates say.
                         #[cfg(feature = "dev-tools")]
-                        Screen::Probe => {}
+                        let remind = self.dev.remind_preset;
+                        #[cfg(not(feature = "dev-tools"))]
+                        let remind = false;
+                        let a = &mut self.a;
+                        // Each visit of a screen gets ids of its own: it opens at the top, not
+                        // where the last screen was scrolled to (all share one scroll area id
+                        // otherwise), and keeps its place while it stays (BUG-48).
+                        let visit = self.visits.of(self.screen);
+                        ui.push_id(("screen", visit), |ui| match self.screen {
+                            Screen::Overview => {
+                                egui::ScrollArea::vertical()
+                                    .auto_shrink(false)
+                                    .show(ui, |ui| {
+                                        screens::settings::check_reminder(
+                                            ui,
+                                            a,
+                                            &mut cx,
+                                            &mut self.settings,
+                                            remind,
+                                        );
+                                        screens::overview(ui, a, &mut cx)
+                                    });
+                            }
+                            Screen::Activity => {
+                                screens::activity(ui, a, &mut cx, &mut self.history)
+                            }
+                            Screen::Send => screens::send::send(ui, a, &mut cx, &mut self.send),
+                            Screen::Receive => {
+                                screens::receive::receive(ui, a, &mut cx, &mut self.receive)
+                            }
+                            Screen::Identity => {
+                                screens::identity::identity(ui, a, &mut cx, &mut self.identity)
+                            }
+                            Screen::Shielded => {
+                                screens::shielded::shielded(ui, a, &mut cx, &mut self.pool)
+                            }
+                            Screen::Contacts => {
+                                screens::contacts::contacts(ui, a, &mut cx, &mut self.contacts)
+                            }
+                            Screen::Apps => screens::apps::apps(ui, a, &mut cx, &mut self.requests),
+                            Screen::Collection => screens::collection::collection(
+                                ui,
+                                a,
+                                &mut cx,
+                                &mut self.collection,
+                            ),
+                            Screen::Settings => {
+                                screens::settings::settings(ui, a, &mut cx, &mut self.settings)
+                            }
+                            Screen::CreateIdentity => screens::create_identity::create_identity(
+                                ui,
+                                a,
+                                &mut cx,
+                                &mut self.create_identity,
+                            ),
+                            // Drawn above, without the sidebar.
+                            Screen::Welcome | Screen::Unlock | Screen::Onboarding(_) => {}
+                            #[cfg(feature = "dev-tools")]
+                            Screen::Probe => {}
+                        });
                     });
                 });
         }
