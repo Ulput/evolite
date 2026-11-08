@@ -515,6 +515,95 @@ fn a_row_of_tiles_has_one_amount_size() {
     );
 }
 
+/// R4a (the designer, 2026-11-07): in the 1024 px window 1,234.56789012 DASH of Core is too
+/// wide even at 20. It is not wrapped: fewer decimals, rounded, «≈» in front, on one line inside
+/// its tile, of one size with the row; the full amount with its unit is the screen reader's
+/// description and the tooltip on Tab focus (nothing of it before). «Hide amounts» hides it all.
+#[test]
+fn a_four_digit_balance_is_shortened_in_its_tile_and_said_in_full() {
+    const CORE: i64 = 123_456_789_012;
+    const FULL: &str = "1,234.56789012 DASH";
+    let (_turn, mut kit) = demo_app("overview", "en");
+    kit.set_size(egui::vec2(WINDOW, 800.0));
+    with_wallet(&mut kit, |w| w.balances.core = CORE);
+    let node = kit
+        .query_all(By::new().role(Role::Label))
+        .find(|n| n.value().is_some_and(|v| v.starts_with("≈ 1,234.")))
+        .unwrap_or_else(|| panic!("a shortened «≈ 1,234.…» on Overview"));
+    let shown = node.value().unwrap_or_default();
+    let amount = node.rect();
+    assert_eq!(node.accesskit_node().description().as_deref(), Some(FULL));
+    let decimals = shown.rsplit_once('.').map_or(0, |(_, f)| f.len());
+    assert!(
+        (2..8).contains(&decimals),
+        "at least two decimals, fewer than eight: «{shown}»"
+    );
+    let rounded = format!("{:.*}", decimals, CORE as f64 / 1e8);
+    assert!(
+        shown.ends_with(&rounded[1..]),
+        "rounded half up: «{shown}» for {rounded}"
+    );
+    let tiles = card_backgrounds(&kit);
+    let tile = tiles
+        .iter()
+        .find(|t| t.contains(amount.center()))
+        .unwrap_or_else(|| panic!("«{shown}» {amount:?} in a tile of {tiles:?}"));
+    assert!(amount.height() < 30.0, "one line: {amount:?}");
+    assert!(
+        amount.right() <= tile.right() - 20.0,
+        "inside: {amount:?} in {tile:?}"
+    );
+    // The other amounts of the row: the same size as the shortened one.
+    let row: Vec<egui::Rect> = tiles
+        .iter()
+        .filter(|t| (t.top() - tile.top()).abs() < 0.5)
+        .map(|t| {
+            kit.query_all(By::new().role(Role::Label))
+                .map(|n| n.rect())
+                .filter(|r| t.contains_rect(*r))
+                .max_by(|a, b| a.height().total_cmp(&b.height()))
+                .unwrap_or_else(|| panic!("no words in {t:?}"))
+        })
+        .collect();
+    assert_eq!(row.len(), 4, "four tiles in a row at 1024: {row:?}");
+    assert!(
+        row.iter()
+            .all(|r| (r.height() - amount.height()).abs() < 0.5),
+        "one size in the row: {row:?}, the shortened {amount:?}"
+    );
+    // On Tab focus the full amount shows; not before.
+    let full_shown = |kit: &Kit| {
+        kit.query_all(By::new().role(Role::Label))
+            .any(|n| n.value().as_deref() == Some(FULL))
+    };
+    assert!(!full_shown(&kit), "the full amount before any focus");
+    let mut reached = false;
+    for _ in 0..40 {
+        with_wallet(&mut kit, |w| w.balances.core = CORE);
+        if kit
+            .query_by(|n| n.is_focused())
+            .is_some_and(|n| n.value().is_some_and(|v| v.starts_with("≈ ")))
+        {
+            reached = true;
+            break;
+        }
+        tab(&mut kit, false);
+    }
+    assert!(reached, "Tab never reached the shortened amount");
+    kit.run_steps(2);
+    assert!(full_shown(&kit), "no full amount on keyboard focus");
+    // Hidden: «••••», no description, no tooltip.
+    kit.state_mut().settings.flip_hide_amounts();
+    with_wallet(&mut kit, |w| w.balances.core = CORE);
+    kit.run_steps(2);
+    assert!(
+        !kit.query_all(By::new().role(Role::Label))
+            .any(|n| n.value().is_some_and(|v| v.contains("1,234"))
+                || n.accesskit_node().description().as_deref() == Some(FULL)),
+        "a hidden amount says nothing of itself"
+    );
+}
+
 /// Responsive spec R4 and the designer, 2026-11-07: Collection's NFT cards (195 at the least,
 /// gap 16) stand as many in a row as fit beside the details panel (300 + 24) — left to right and
 /// mirrored (`ar`). At 800 the panel goes under the grid: 676 (margins 24, R2) - 10 (the scroll

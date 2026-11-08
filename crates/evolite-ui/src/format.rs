@@ -143,6 +143,25 @@ fn grouped(n: u64, mark: Option<char>) -> String {
 
 /// `duffs` in `unit`, written in `style`; `group`: thousands marked (not in a field).
 fn write(duffs: i64, unit: Unit, style: NumberStyle, signed: bool, group: bool) -> String {
+    let all = unit.decimals() as usize;
+    write_digits(
+        duffs,
+        unit,
+        style,
+        (signed, group),
+        (unit.min_decimals(), all),
+    )
+}
+
+/// As [`write`], with at most `max` decimals (the rest cut off, not rounded: [`rounded_number`]
+/// rounds first) and trailing zeros dropped down to `min`.
+fn write_digits(
+    duffs: i64,
+    unit: Unit,
+    style: NumberStyle,
+    (signed, group): (bool, bool),
+    (min, max): (usize, usize),
+) -> String {
     let (thousands, decimal) = style.marks();
     let abs = duffs.unsigned_abs();
     let per_unit = 10u64.pow(unit.decimals());
@@ -152,7 +171,8 @@ fn write(duffs: i64, unit: Unit, style: NumberStyle, signed: bool, group: bool) 
         abs % per_unit,
         width = unit.decimals() as usize
     );
-    while fraction.len() > unit.min_decimals() && fraction.ends_with('0') {
+    fraction.truncate(max);
+    while fraction.len() > min && fraction.ends_with('0') {
         fraction.pop();
     }
     let sign = match (signed, duffs.signum()) {
@@ -171,6 +191,25 @@ fn write(duffs: i64, unit: Unit, style: NumberStyle, signed: bool, group: bool) 
 pub fn number(duffs: i64, signed: bool) -> String {
     let d = display();
     write(duffs, d.unit, d.style, signed, true)
+}
+
+/// [`number`] with no more than `decimals` after the decimal mark, rounded half up (R4a: a tile
+/// too narrow for the whole amount), and whether that is still the exact amount. Trailing zeros
+/// go as in [`number`], but never below `decimals`: 1234.5 DASH with 2 is "1 234,50", exact.
+/// With as many decimals as the unit has, or more, it is [`number`] itself.
+pub fn rounded_number(duffs: i64, decimals: usize) -> (String, bool) {
+    let d = display();
+    let all = d.unit.decimals() as usize;
+    if decimals >= all {
+        return (number(duffs, false), true);
+    }
+    let step = 10u64.pow((all - decimals) as u32);
+    let abs = duffs.unsigned_abs();
+    let rounded = (abs / step + u64::from(abs % step >= step / 2)) * step;
+    let signed = i64::try_from(rounded).map_or(duffs, |r| r * duffs.signum());
+    let min = decimals.min(d.unit.min_decimals());
+    let text = write_digits(signed, d.unit, d.style, (false, true), (min, decimals));
+    (text, rounded == abs)
 }
 
 /// An amount with its unit, as screens show it: "12,8460 DASH", "12 846,00 mDASH".
@@ -446,6 +485,64 @@ mod tests {
             format_dash(123_456_700_000_001, false),
             "1\u{a0}234\u{a0}567,00000001"
         );
+    }
+
+    /// R4a: a tile's amount with fewer decimals is rounded half up, carries into the whole
+    /// part, keeps the decimals asked for and says whether it is still exact.
+    #[test]
+    fn fewer_decimals_round_half_up_and_say_whether_exact() {
+        with(Unit::Dash, NumberStyle::SpaceComma);
+        assert_eq!(
+            rounded_number(123_456_789_012, 5),
+            ("1\u{a0}234,56789".into(), false)
+        );
+        assert_eq!(
+            rounded_number(123_456_789_012, 2),
+            ("1\u{a0}234,57".into(), false)
+        );
+        assert_eq!(
+            rounded_number(123_454_999_999, 2),
+            ("1\u{a0}234,55".into(), false)
+        );
+        assert_eq!(
+            rounded_number(123_449_999_999, 2),
+            ("1\u{a0}234,50".into(), false)
+        );
+        assert_eq!(
+            rounded_number(123_444_499_999, 2),
+            ("1\u{a0}234,44".into(), false)
+        );
+        assert_eq!(
+            rounded_number(99_999_999_999, 2),
+            ("1\u{a0}000,00".into(), false)
+        );
+        assert_eq!(
+            rounded_number(123_450_000_000, 2),
+            ("1\u{a0}234,50".into(), true)
+        );
+        assert_eq!(
+            rounded_number(123_450_000_000, 6),
+            ("1\u{a0}234,5000".into(), true)
+        );
+        assert_eq!(
+            rounded_number(123_456_789_012, 8),
+            (number(123_456_789_012, false), true)
+        );
+        assert_eq!(
+            rounded_number(-123_456_789_012, 2),
+            ("−1\u{a0}234,57".into(), false)
+        );
+        with(Unit::MilliDash, NumberStyle::CommaDot);
+        assert_eq!(
+            rounded_number(123_456_789_012, 2),
+            ("1,234,567.89".into(), false)
+        );
+        with(Unit::Duffs, NumberStyle::CommaDot);
+        assert_eq!(
+            rounded_number(123_456_789_012, 2),
+            ("123,456,789,012".into(), true)
+        );
+        with(Unit::Dash, NumberStyle::SpaceComma);
     }
 
     #[test]

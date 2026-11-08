@@ -378,7 +378,17 @@ pub fn balance_card_in(
     );
     cell.card(ui, frame, |ui| {
         ui.set_width(width - TILE_INSIDE);
-        ui.vertical(|ui| balance_card_body(ui, a, icon, title, (amount, font), detail));
+        ui.vertical(|ui| {
+            balance_card_body(
+                ui,
+                a,
+                icon,
+                title,
+                (amount, font),
+                detail,
+                width - TILE_INSIDE,
+            )
+        });
     });
 }
 
@@ -410,6 +420,7 @@ fn balance_card_body(
     title: &str,
     (amount, font): (CardAmount, FontId),
     detail: &str,
+    room: f32,
 ) {
     let p = a.p;
     {
@@ -423,13 +434,101 @@ fn balance_card_body(
                     .color(p.muted),
             );
         });
-        amount_label(ui, &amount.shown(), font, amount.color(&p));
+        let fitted = fit_tile_amount(amount, |text| {
+            super::text_width(ui, text, font.clone()) <= room
+        });
+        tile_amount_label(ui, amount, &fitted, font, amount.color(&p));
         ui.label(
             egui::RichText::new(crate::i18n::t(detail))
                 .font(sans(12.0, Weight::Regular))
                 .color(p.muted),
         );
     }
+}
+
+/// What a tile shows of its amount ([`fit_tile_amount`]).
+#[derive(Clone, PartialEq, Debug)]
+pub struct TileText {
+    /// The number as drawn (no unit: the tile's detail line names it).
+    pub shown: String,
+    /// Fewer decimals than the amount has, rounded («≈ 1 234,57» when no longer exact).
+    pub shortened: bool,
+}
+
+/// Fewest decimals a shortened tile amount keeps (the designer, 2026-11-07).
+pub const TILE_MIN_DECIMALS: usize = 2;
+
+/// A tile's amount as it fits (R4a; the designer, 2026-11-07, responsive spec): the whole of it
+/// when it `fits`; else as many decimals as fit, never fewer than [`TILE_MIN_DECIMALS`], rounded
+/// half up, with «≈» in front while that is not the exact amount. Never wrapped nor cut at the
+/// end: with two decimals it is shown even when it still does not fit. «—» stays «—».
+pub fn fit_tile_amount(amount: CardAmount, fits: impl Fn(&str) -> bool) -> TileText {
+    let whole = amount.shown();
+    let Some(duffs) = amount.known() else {
+        return TileText {
+            shown: whole,
+            shortened: false,
+        };
+    };
+    if fits(&whole) {
+        return TileText {
+            shown: whole,
+            shortened: false,
+        };
+    }
+    let written = |decimals: usize| {
+        let (number, exact) = crate::format::rounded_number(duffs, decimals);
+        if exact {
+            number
+        } else {
+            format!("≈ {number}")
+        }
+    };
+    // From the most decimals any unit has (8, DASH) down: those a unit has not give the whole
+    // amount again.
+    let shown = (TILE_MIN_DECIMALS..8)
+        .rev()
+        .map(written)
+        .find(|text| *text != whole && fits(text))
+        .unwrap_or_else(|| written(TILE_MIN_DECIMALS));
+    let shortened = shown != whole;
+    TileText { shown, shortened }
+}
+
+/// A tile's amount on one line. Shortened, it says the full amount with its unit on hover, on
+/// Tab focus (it takes the focus for that) and to a screen reader as its description. With
+/// «Hide amounts» it is «••••» as everywhere and says nothing more.
+fn tile_amount_label(
+    ui: &mut Ui,
+    amount: CardAmount,
+    fitted: &TileText,
+    font: FontId,
+    color: Color32,
+) {
+    let hidden = crate::format::display().hide;
+    let text = if hidden {
+        crate::format::mask(&fitted.shown)
+    } else {
+        fitted.shown.clone()
+    };
+    let label = egui::Label::new(
+        egui::RichText::new(crate::i18n::t(&text))
+            .font(font)
+            .color(color),
+    )
+    .wrap_mode(egui::TextWrapMode::Extend);
+    let (Some(duffs), true, false) = (amount.known(), fitted.shortened, hidden) else {
+        ui.add(label);
+        return;
+    };
+    let resp = ui.add(label.sense(Sense::FOCUSABLE));
+    let full = crate::format::amount(duffs);
+    ui.ctx()
+        .accesskit_node_builder(resp.id, |node| node.set_description(full.clone()));
+    if resp.has_focus() && !resp.hovered() {
+        resp.show_tooltip_text(full.clone());
+    }
+    resp.on_hover_text(full);
 }
 
 /// A raised rounded square with an icon in the middle (transaction rows, actions, dialogs).
@@ -488,7 +587,71 @@ pub fn paint_letter_box(ui: &Ui, p: &Palette, rect: Rect, name: &str) {
 
 #[cfg(test)]
 mod tests {
-    use super::{code_spans, looks_like_code};
+    use super::{CardAmount, TileText, code_spans, fit_tile_amount, looks_like_code};
+    use crate::format::{Display, NumberStyle, Unit, set_display};
+
+    fn in_dash() {
+        set_display(Display {
+            unit: Unit::Dash,
+            style: NumberStyle::SpaceComma,
+            ..Display::default()
+        });
+    }
+
+    /// `n` characters of mono fit: what a tile of that width holds.
+    fn up_to(n: usize) -> impl Fn(&str) -> bool {
+        move |text: &str| text.chars().count() <= n
+    }
+
+    fn fitted(shown: &str, shortened: bool) -> TileText {
+        TileText {
+            shown: shown.into(),
+            shortened,
+        }
+    }
+
+    /// R4a (the designer, 2026-11-07): an amount too wide for its tile keeps as many decimals as
+    /// fit, rounded, «≈» in front; never fewer than two, even when two do not fit either.
+    #[test]
+    fn a_wide_tile_amount_keeps_the_decimals_that_fit() {
+        in_dash();
+        let amount = CardAmount::Now(123_456_789_012);
+        assert_eq!(
+            fit_tile_amount(amount, up_to(14)),
+            fitted("1\u{a0}234,56789012", false)
+        );
+        assert_eq!(
+            fit_tile_amount(amount, up_to(13)),
+            fitted("≈ 1\u{a0}234,56789", true)
+        );
+        assert_eq!(
+            fit_tile_amount(amount, up_to(10)),
+            fitted("≈ 1\u{a0}234,57", true)
+        );
+        assert_eq!(
+            fit_tile_amount(amount, up_to(4)),
+            fitted("≈ 1\u{a0}234,57", true)
+        );
+        // Muted, the last known amount is shortened the same way.
+        assert_eq!(
+            fit_tile_amount(CardAmount::Earlier(123_456_789_012), up_to(10)),
+            fitted("≈ 1\u{a0}234,57", true)
+        );
+    }
+
+    /// Fewer decimals that are still the exact amount go without «≈»; «—» is never shortened.
+    #[test]
+    fn an_exact_or_unknown_tile_amount_has_no_approximately() {
+        in_dash();
+        assert_eq!(
+            fit_tile_amount(CardAmount::Now(123_450_000_000), up_to(8)),
+            fitted("1\u{a0}234,50", true)
+        );
+        assert_eq!(
+            fit_tile_amount(CardAmount::Unknown, up_to(0)),
+            fitted("—", false)
+        );
+    }
 
     /// Summary №10: in a row's title the address (whole or short), the short id and the txid are
     /// set apart for mono; the words and @names are not.
