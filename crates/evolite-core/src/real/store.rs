@@ -27,9 +27,18 @@
 //!   record, i.e. the rewind as before: slow, never lossy. The journal says which.
 //!
 //! Claims only stop a credit: a coin wrongly claimed can make the balance lower, never higher.
-//! Only coins whose spender the store holds in a ChainLocked block are claimed — a send seen in
-//! the mempool alone may never be mined, and a block without a ChainLock may be reorganized out:
-//! either way its coin must come back, not stay hidden until a resync.
+//! Only coins whose spender the store holds in a final block are claimed: one with a ChainLock,
+//! or at or below the last ChainLock applied (a record seen in a catch-up stays `InBlock` for
+//! good, BUG-99). A send seen in the mempool alone may never be mined, and a block above the
+//! last ChainLock may be reorganized out: either way its coin must come back, not stay hidden
+//! until a resync.
+//!
+//! **A spent coin the store has as unspent.** When a pass brings a funding transaction the
+//! wallet has no record of in memory (records are not loaded), the store is told of its outputs
+//! as new, and its upsert writes them unspent whatever they were; the wallet in memory knows
+//! better until the next start, and the coin is back then (BUG-99). So a coin a final block
+//! spent is taken out at every load, however its row reads. The row itself is the library's
+//! and stays as it is.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
@@ -38,6 +47,7 @@ use std::sync::Mutex;
 use dpp::prelude::Identifier;
 use key_wallet::dashcore::{Network, OutPoint, Txid};
 use key_wallet::managed_account::transaction_record::TransactionRecord;
+use key_wallet::wallet::managed_wallet_info::wallet_info_interface::WalletInfoInterface;
 use key_wallet_manager::WalletId;
 use platform_wallet::changeset::{
     ClientStartState, DashPayBackfillRecord, DpnsNameStateEntry, ListedCoreTxid,
@@ -406,11 +416,24 @@ impl<P: PlatformWalletPersistence> PlatformWalletPersistence for Store<P> {
             let loaded = wallet.wallet_info.metadata.synced_height;
             wallet.dashpay_backfill = self.take_back(id, loaded).0;
             // Before the SPV client starts: no block reaches the wallet before its claims.
-            let claims = spent_claims(&self.db, id);
-            let held = wallet
+            let locked = wallet
                 .wallet_info
-                .restore_spent_outpoints(&claims.claimed)
-                .len();
+                .metadata
+                .last_applied_chain_lock
+                .as_ref()
+                .map_or(0, |lock| lock.block_height);
+            let claims = spent_claims(&self.db, id, locked);
+            let held = wallet.wallet_info.restore_spent_outpoints(&claims.claimed);
+            // Loaded as unspent, spent in a final block: not the wallet's any more.
+            if !held.is_empty() {
+                for account in wallet.wallet_info.accounts.all_funding_accounts_mut() {
+                    for coin in &held {
+                        account.utxos.remove(coin);
+                    }
+                }
+                wallet.wallet_info.update_balance();
+            }
+            let held = held.len();
             crate::diag::record(crate::diag::Record::SpentClaims {
                 claimed: claims.claimed.len() as u32,
                 not_in_block: claims.not_in_block as u32,
@@ -446,34 +469,44 @@ impl<P: PlatformWalletPersistence> PlatformWalletPersistence for Store<P> {
     }
 }
 
-/// The store's spent coins to claim: each with the transaction that spent it in a ChainLocked
-/// block.
+/// The store's coins to claim: each with the transaction that spent it in a final block.
 #[derive(Debug, Default, PartialEq)]
 pub struct Claims {
     pub claimed: Vec<(OutPoint, Option<Txid>)>,
-    /// Spent in the store, but no spender of it in a ChainLocked block there: not claimed (the
+    /// Spent in the store, but no spender of it in a final block there: not claimed (the
     /// journal's `notInBlock`).
     pub not_in_block: usize,
 }
 
-/// The coins of wallet `wallet` the store at `db` has as spent (`core_utxos`, `spent = 1`) whose
-/// spender it holds in a ChainLocked block (`core_transactions`), read only. A store this does not read
-/// claims nothing: the pass as before, never a coin hidden for nothing.
-pub fn spent_claims(db: &Path, wallet: &WalletId) -> Claims {
-    let Ok(spent) = spent_outpoints(db, wallet) else {
+/// The coins of wallet `wallet` in the store at `db` (`core_utxos`, either `spent`) whose spender
+/// it holds in a final block (`core_transactions`), read only; `locked`: the height of the last
+/// ChainLock applied. A store this does not read claims nothing: the pass as before, never a
+/// coin hidden for nothing.
+pub fn spent_claims(db: &Path, wallet: &WalletId, locked: u32) -> Claims {
+    let Ok(spent) = outpoints(db, wallet, true) else {
         return Claims::default();
     };
+    let unspent = outpoints(db, wallet, false).unwrap_or_default();
     let records = super::chain::stored_history(db, wallet).unwrap_or_default();
-    claims_of(&spent, &records)
+    claims_of(&spent, &unspent, &records, locked)
 }
 
-fn claims_of(spent: &BTreeSet<OutPoint>, records: &[TransactionRecord]) -> Claims {
+fn claims_of(
+    spent: &BTreeSet<OutPoint>,
+    unspent: &BTreeSet<OutPoint>,
+    records: &[TransactionRecord],
+    locked: u32,
+) -> Claims {
     let mut spender: BTreeMap<OutPoint, Txid> = BTreeMap::new();
     for record in records {
         // A block alone may still be reorganized out, and its spend with it: claimed at every
-        // start, the coin would stay hidden until a resync. A ChainLock is final, and in Dash a
-        // block gets one within seconds.
-        if !record.context.is_chain_locked() {
+        // start, the coin would stay hidden until a resync. A ChainLock is final, the block's
+        // own or a later one's, and in Dash a block gets one within seconds.
+        let under_lock = record
+            .context
+            .block_info()
+            .is_some_and(|b| b.height() <= locked);
+        if !record.context.is_chain_locked() && !under_lock {
             continue;
         }
         for input in &record.transaction.input {
@@ -487,11 +520,21 @@ fn claims_of(spent: &BTreeSet<OutPoint>, records: &[TransactionRecord]) -> Claim
             None => claims.not_in_block += 1,
         }
     }
+    for outpoint in unspent {
+        if let Some(txid) = spender.get(outpoint) {
+            claims.claimed.push((*outpoint, Some(*txid)));
+        }
+    }
     claims
 }
 
-/// `core_utxos` rows with `spent = 1`; the outpoint is the store's bincode of it.
+#[cfg(test)]
 fn spent_outpoints(db: &Path, wallet: &WalletId) -> Result<BTreeSet<OutPoint>, String> {
+    outpoints(db, wallet, true)
+}
+
+/// `core_utxos` rows with this `spent`; the outpoint is the store's bincode of it.
+fn outpoints(db: &Path, wallet: &WalletId, spent: bool) -> Result<BTreeSet<OutPoint>, String> {
     use rusqlite::OpenFlags;
     let conn = rusqlite::Connection::open_with_flags(
         db,
@@ -499,10 +542,10 @@ fn spent_outpoints(db: &Path, wallet: &WalletId) -> Result<BTreeSet<OutPoint>, S
     )
     .map_err(|e| e.to_string())?;
     let mut stmt = conn
-        .prepare("SELECT outpoint FROM core_utxos WHERE wallet_id = ?1 AND spent = 1")
+        .prepare("SELECT outpoint FROM core_utxos WHERE wallet_id = ?1 AND spent = ?2")
         .map_err(|e| e.to_string())?;
     let rows = stmt
-        .query_map(rusqlite::params![wallet.as_slice()], |row| {
+        .query_map(rusqlite::params![wallet.as_slice(), spent], |row| {
             row.get::<_, Vec<u8>>(0)
         })
         .map_err(|e| e.to_string())?;

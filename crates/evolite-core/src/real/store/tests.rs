@@ -550,7 +550,7 @@ fn only_coins_spent_in_a_block_are_claimed() {
         spender(9, &[a], Mined::ChainLocked),
         spender(10, &[b], Mined::Mempool),
     ];
-    let claims = claims_of(&spent, &records);
+    let claims = claims_of(&spent, &BTreeSet::new(), &records, 0);
     assert_eq!(claims.claimed, vec![(a, Some(Txid::from([9; 32])))]);
     assert_eq!(claims.not_in_block, 2);
 }
@@ -567,7 +567,7 @@ fn a_spend_in_a_block_without_a_chainlock_is_not_claimed() {
         spender(9, &[a], Mined::Block),
         spender(10, &[b], Mined::ChainLocked),
     ];
-    let claims = claims_of(&spent, &records);
+    let claims = claims_of(&spent, &BTreeSet::new(), &records, 0);
     assert_eq!(claims.claimed, vec![(b, Some(Txid::from([10; 32])))]);
     assert_eq!(
         claims.not_in_block, 1,
@@ -607,7 +607,7 @@ fn spent_coins_are_read_from_the_store_as_it_writes_them() {
     drop(conn);
     assert_eq!(spent_outpoints(&db, &ID).unwrap(), BTreeSet::from([spent]));
     assert_eq!(
-        spent_claims(&db.with_file_name("none.db"), &ID),
+        spent_claims(&db.with_file_name("none.db"), &ID, 0),
         Claims::default()
     );
     let _ = std::fs::remove_dir_all(db.parent().unwrap());
@@ -820,5 +820,135 @@ fn a_rescan_without_a_record_keeps_the_record() {
     assert!(record.covers(&owner(), &Identifier::from([2; 32]), 0, 1_582_131));
     store.store(ID, scanned(1_600_000)).unwrap();
     assert_eq!(open(&db).take_back(&ID, 1_600_000).1, Verdict::Kept);
+    let _ = std::fs::remove_dir_all(db.parent().unwrap());
+}
+
+/// BUG-99, as the store of pass 13 held it: a contact's backfill brought the funding of a coin
+/// again, and the store wrote it back unspent. Its spender is in a block under the last ChainLock
+/// (`InBlock` for good: a catch-up never tells the record of the lock), so the coin is gone: the
+/// load neither counts it nor lets a later pass credit it.
+#[tokio::test]
+async fn a_coin_the_store_has_unspent_is_gone_when_a_final_block_spent_it() {
+    use key_wallet::dashcore::{BlockHash, Transaction, TxIn, TxOut};
+    use key_wallet::transaction_checking::{
+        BlockInfo, TransactionContext, WalletTransactionChecker,
+    };
+    use key_wallet::wallet::ManagedWalletInfo;
+    use key_wallet::wallet::managed_wallet_info::wallet_info_interface::WalletInfoInterface;
+    use platform_wallet::changeset::ClientWalletStartState;
+
+    struct Loads(Mutex<Option<ClientStartState>>);
+    impl PlatformWalletPersistence for Loads {
+        fn store(&self, _: WalletId, _: PlatformWalletChangeSet) -> Result<(), PersistenceError> {
+            Ok(())
+        }
+        fn flush(&self, _: WalletId) -> Result<(), PersistenceError> {
+            Ok(())
+        }
+        fn load(&self) -> Result<ClientStartState, PersistenceError> {
+            Ok(self.0.lock().unwrap().take().unwrap_or_default())
+        }
+    }
+
+    let mut keys = super::super::keys_of(
+        "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
+    )
+    .unwrap();
+    let mut info = ManagedWalletInfo::from_wallet(&keys, 0);
+    let to = info.monitored_addresses()[0].clone();
+    let pay = |n: u8, value: u64| Transaction {
+        version: 2,
+        lock_time: 0,
+        input: vec![TxIn {
+            previous_output: OutPoint::new(Txid::from([n; 32]), 0),
+            ..TxIn::default()
+        }],
+        output: vec![TxOut {
+            value,
+            script_pubkey: to.script_pubkey(),
+        }],
+        special_transaction_payload: None,
+    };
+    let block =
+        |h: u32| TransactionContext::InBlock(BlockInfo::new(h, BlockHash::from([h as u8; 32]), 0));
+    // Three coins the store holds unspent: spent under the ChainLock, spent above it, not spent.
+    let gone = pay(70, 18_899_511);
+    let recent = pay(71, 70_000);
+    let live = pay(72, 5_000);
+    for (tx, h) in [(&gone, 10), (&recent, 11), (&live, 12)] {
+        info.check_core_transaction(tx, block(h), &mut keys, true, true)
+            .await;
+    }
+    info.update_balance();
+    assert_eq!(info.balance().total(), 18_899_511 + 70_000 + 5_000);
+    info.metadata.last_applied_chain_lock = Some(key_wallet::dashcore::ChainLock {
+        block_height: 100,
+        block_hash: BlockHash::from([1; 32]),
+        signature: [0; 96].into(),
+    });
+
+    let (gone_coin, recent_coin, live_coin) = (
+        OutPoint::new(gone.txid(), 0),
+        OutPoint::new(recent.txid(), 0),
+        OutPoint::new(live.txid(), 0),
+    );
+    let db = folder("spent-unspent");
+    let conn = rusqlite::Connection::open(&db).unwrap();
+    conn.execute_batch(
+        "CREATE TABLE core_utxos (wallet_id BLOB, outpoint BLOB, spent INTEGER);
+         CREATE TABLE core_transactions (wallet_id BLOB, record_blob BLOB);",
+    )
+    .unwrap();
+    let config = bincode::config::standard();
+    for coin in [gone_coin, recent_coin, live_coin] {
+        conn.execute(
+            "INSERT INTO core_utxos VALUES (?1, ?2, 0)",
+            rusqlite::params![
+                ID.as_slice(),
+                bincode::serde::encode_to_vec(coin, config).unwrap()
+            ],
+        )
+        .unwrap();
+    }
+    let mut above = spender(81, &[recent_coin], Mined::Block);
+    above.context = block(101);
+    for record in [spender(80, &[gone_coin], Mined::Block), above] {
+        conn.execute(
+            "INSERT INTO core_transactions VALUES (?1, ?2)",
+            rusqlite::params![
+                ID.as_slice(),
+                bincode::serde::encode_to_vec(&record, config).unwrap()
+            ],
+        )
+        .unwrap();
+    }
+    drop(conn);
+
+    let mut start = ClientStartState::default();
+    start.wallets.insert(
+        ID,
+        ClientWalletStartState {
+            wallet: keys.clone(),
+            wallet_info: info,
+            identity_manager: Default::default(),
+            unused_asset_locks: BTreeMap::new(),
+            unconfirmed_outgoing_txs: Vec::new(),
+            dashpay_backfill: DashPayBackfillRecord::default(),
+        },
+    );
+    let store = Store::new(Loads(Mutex::new(Some(start))), db.clone());
+    let mut loaded = store.load().unwrap();
+    let wallet = loaded.wallets.remove(&ID).unwrap();
+    let (mut keys, mut info) = (wallet.wallet, wallet.wallet_info);
+    assert_eq!(
+        info.balance().total(),
+        70_000 + 5_000,
+        "the coin a final block spent is not counted; the others are"
+    );
+    // The same funding delivered by a later pass does not bring it back.
+    info.check_core_transaction(&gone, block(10), &mut keys, true, true)
+        .await;
+    info.update_balance();
+    assert_eq!(info.balance().total(), 70_000 + 5_000);
     let _ = std::fs::remove_dir_all(db.parent().unwrap());
 }

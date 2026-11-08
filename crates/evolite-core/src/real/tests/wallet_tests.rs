@@ -39,7 +39,7 @@ fn a_resync_clears_the_chain_and_the_store_and_keeps_the_rest() {
         "the backfill record vouches for a scan that is gone"
     );
     assert_eq!(
-        store::spent_claims(&paths.chain.store, &[0; 32]),
+        store::spent_claims(&paths.chain.store, &[0; 32], 0),
         store::Claims::default()
     );
     assert!(!paths.resync.exists(), "once");
