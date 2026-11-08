@@ -130,9 +130,9 @@ jobs:
           curl -sSfL --retry 5 --retry-all-errors --retry-delay 15 -o "evolite-rust/target/tenderdash-${TENDERDASH_VERSION}.zip" "https://github.com/dashpay/tenderdash/archive/${TENDERDASH_VERSION}.zip"
           echo "CARGO_TARGET_DIR=$GITHUB_WORKSPACE/evolite-rust/target" >> "$GITHUB_ENV"
       - name: tests (default features)
-        run: cargo test --workspace --locked
+        run: cargo test --workspace --locked --no-fail-fast
       - name: tests (dev-tools)
-        run: cargo test --workspace --locked --features evolite-ui/dev-tools
+        run: cargo test --workspace --locked --features evolite-ui/dev-tools --no-fail-fast
       # clippy elsewhere does not see the cfg(macos) code.
       - name: clippy (macOS code)
         run: cargo clippy --workspace --all-targets --locked -- -D warnings

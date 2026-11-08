@@ -177,7 +177,7 @@ pub fn load(data_dir: &Path) -> Index {
             Some((id, created))
         })
         .collect();
-    found.sort_by_key(|(_, created)| *created);
+    oldest_first(&mut found);
     for (id, created) in found {
         if index.get(&id).is_none() {
             index.add(&id, Origin::Created, created);
@@ -194,6 +194,12 @@ pub fn load(data_dir: &Path) -> Index {
         let _ = save(data_dir, &index);
     }
     index
+}
+
+/// Oldest first, and by id within one second: the time is in whole seconds, and the order
+/// `read_dir` gives the rest differs from one file system to another.
+fn oldest_first(found: &mut [(String, i64)]) {
+    found.sort_by(|a, b| a.1.cmp(&b.1).then_with(|| a.0.cmp(&b.0)));
 }
 
 /// Writes the index beside and renames it over: the old one or the new one, never half.
@@ -315,6 +321,15 @@ mod tests {
         assert_eq!(index.current().unwrap().id, "aaaa0001");
         assert!(is_id("0badc0de") && !is_id("0BADC0DE") && !is_id("..") && !is_id("aaaa000/"));
         let _ = std::fs::remove_dir_all(&data);
+    }
+
+    #[test]
+    fn wallets_of_one_second_go_by_id() {
+        let mut found = [("bbbb0002", 5), ("cccc0003", 1), ("aaaa0001", 5)]
+            .map(|(id, created)| (id.to_owned(), created));
+        oldest_first(&mut found);
+        let ids = found.each_ref().map(|(id, _)| id.as_str());
+        assert_eq!(ids, ["cccc0003", "aaaa0001", "bbbb0002"]);
     }
 
     #[test]
