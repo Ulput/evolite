@@ -405,8 +405,80 @@ mod tests {
         assert!(matches!(p.lock().unwrap().result, Some(Err(_))));
         assert!(known.testnet_data().exists(), "nothing deleted");
         drop(lock);
-        assert!(!system::running(&known));
+        assert!(!system::running(&known), "{}", still_held(&known));
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// BUG-98, the failure's message: this test's own lock is gone, yet the file counts as
+    /// locked (seen once, on macOS, cause not proven). Says for how long, and who has it open
+    /// if that lasts past 200 ms; the test fails all the same.
+    fn still_held(known: &Known) -> String {
+        const NOT_TAKEN: &str =
+            "lsof not taken: it runs 200 ms after the drop, a shorter holder is not named";
+        let file = known.testnet_data().join("evolite.lock");
+        let start = std::time::Instant::now();
+        let mut lsof: Option<String> = None;
+        loop {
+            let said = lsof.as_deref().unwrap_or(NOT_TAKEN);
+            if !system::running(known) {
+                return format!(
+                    "held after the drop, free {:?} later; {said}",
+                    start.elapsed()
+                );
+            }
+            if start.elapsed() >= std::time::Duration::from_secs(5) {
+                return format!("still held 5 s after the drop; {said}");
+            }
+            if lsof.is_none() && start.elapsed().as_millis() >= 200 {
+                lsof = Some(who_has_open(&file));
+            }
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+    }
+
+    /// `lsof` on the file, for at most three seconds: CI's job has no time limit of its own.
+    fn who_has_open(file: &Path) -> String {
+        let spawned = std::process::Command::new("lsof")
+            .arg(file)
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::null())
+            .spawn();
+        let mut child = match spawned {
+            Ok(child) => child,
+            Err(e) => return format!("lsof did not start: {e}"),
+        };
+        let start = std::time::Instant::now();
+        loop {
+            match child.try_wait() {
+                Ok(Some(_)) => break,
+                Ok(None) if start.elapsed() < std::time::Duration::from_secs(3) => {
+                    std::thread::sleep(std::time::Duration::from_millis(20));
+                }
+                _ => {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return "lsof did not finish in 3 s".to_owned();
+                }
+            }
+        }
+        match child.wait_with_output() {
+            Ok(o) => format!("lsof: {:?}", String::from_utf8_lossy(&o.stdout)),
+            Err(e) => format!("lsof: {e}"),
+        }
+    }
+
+    /// A number listed when the «still running» screen opened gets a signal only if it still
+    /// runs from the program folder: by the click it may be another program's. Nothing is
+    /// signalled here.
+    #[test]
+    fn only_a_process_still_listed_is_ended() {
+        assert_eq!(system::still_listed(&[1, 2, 3], &[2, 3, 4]), [2, 3]);
+        assert!(system::still_listed(&[1, 2], &[]).is_empty(), "all gone");
+        assert!(system::still_listed(&[], &[1]).is_empty(), "never offered");
+        // This test's own process really runs, but not from that folder.
+        let nowhere = std::env::temp_dir().join("evolite-nowhere");
+        let now = system::processes_in_all(&[nowhere]);
+        assert!(system::still_listed(&[std::process::id()], &now).is_empty());
     }
 
     /// «Close evolite» ends only processes started from the program folder: found by their
@@ -414,8 +486,17 @@ mod tests {
     #[test]
     fn a_running_program_is_found_by_its_full_path() {
         let me = std::env::current_exe().unwrap();
-        if cfg!(any(windows, target_os = "linux")) {
-            assert!(system::processes_of(&me).contains(&std::process::id()));
+        assert!(system::processes_of(&me).contains(&std::process::id()));
+        // macOS only: its kernel names the resolved path, so `processes_of` resolves the one it
+        // is given; Linux compares the path as given.
+        #[cfg(target_os = "macos")]
+        {
+            let link = std::env::temp_dir().join(format!("evolite-link-{}", std::process::id()));
+            let _ = std::fs::remove_file(&link);
+            std::os::unix::fs::symlink(&me, &link).unwrap();
+            let by_link = system::processes_of(&link);
+            let _ = std::fs::remove_file(&link);
+            assert!(by_link.contains(&std::process::id()), "through a link");
         }
         let elsewhere = std::env::temp_dir()
             .join("evolite-elsewhere")

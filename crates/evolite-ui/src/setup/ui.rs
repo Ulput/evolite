@@ -62,6 +62,8 @@ pub struct Setup {
     existing: Option<plan::Installed>,
     /// Its processes when it still runs ([`Step::Running`]); empty when only its lock says so.
     running: Vec<u32>,
+    /// The program folders [`Self::running`] was listed from, listed again before a signal.
+    running_dirs: Vec<PathBuf>,
     /// «Close evolite» did not end every process.
     not_ended: bool,
     // Removal.
@@ -130,6 +132,7 @@ impl Setup {
             installed_dir: None,
             existing: None,
             running: Vec::new(),
+            running_dirs: Vec::new(),
             not_ended: false,
             delete_data: false,
             sure: false,
@@ -1634,15 +1637,14 @@ impl Setup {
         let Ok(known) = &self.known else {
             return false;
         };
-        let mut procs: Vec<u32> = dirs.iter().flat_map(|d| system::processes_in(d)).collect();
-        procs.sort_unstable();
-        procs.dedup();
+        let procs = system::processes_in_all(dirs);
         let busy = system::running(known)
             || !procs.is_empty()
             || dirs.iter().any(|d| system::in_use(&d.join(plan::APP)));
         if busy {
             crate::log(&format!("evolite is running: processes {procs:?}"));
             self.running = procs;
+            self.running_dirs = dirs.to_vec();
             self.step = Step::Running;
         }
         busy
@@ -1664,7 +1666,11 @@ impl Setup {
         if self.example {
             return;
         }
-        for pid in std::mem::take(&mut self.running) {
+        // The screen may have stood open for hours: a number from its list can belong to another
+        // program by now, so only what still runs from the same folders gets the signal.
+        let seen = std::mem::take(&mut self.running);
+        let now = system::processes_in_all(&self.running_dirs);
+        for pid in system::still_listed(&seen, &now) {
             let ended = system::end_process(pid);
             crate::log(&format!("end process {pid}: {ended}"));
         }

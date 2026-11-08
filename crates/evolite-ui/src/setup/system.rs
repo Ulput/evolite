@@ -659,10 +659,56 @@ mod imp {
         )
     }
 
-    /// The processes of this user running `exe`: Linux reads `/proc/<pid>/exe`; on macOS the
-    /// data folder's lock alone tells that evolite runs.
+    /// Every process's id. `proc_listallpids` fills what fits, so a full buffer is asked again
+    /// with a larger one.
+    #[cfg(target_os = "macos")]
+    fn all_pids() -> Vec<libc::pid_t> {
+        let mut pids = vec![0 as libc::pid_t; 4096];
+        loop {
+            let bytes = (pids.len() * size_of::<libc::pid_t>()) as libc::c_int;
+            // SAFETY: the buffer is `bytes` long; the call writes at most that and returns how
+            // many ids it wrote, or -1.
+            let n = unsafe { libc::proc_listallpids(pids.as_mut_ptr().cast(), bytes) };
+            if n < 0 {
+                return Vec::new();
+            }
+            if (n as usize) < pids.len() || pids.len() >= 1 << 20 {
+                pids.truncate(n as usize);
+                return pids;
+            }
+            pids.resize(pids.len() * 2, 0);
+        }
+    }
+
+    /// The file `pid` runs, as the kernel names it (symbolic links resolved); `None` for a
+    /// process that has ended. The kernel answers about other users' processes too.
+    #[cfg(target_os = "macos")]
+    fn path_of(pid: libc::pid_t) -> Option<PathBuf> {
+        use std::os::unix::ffi::OsStrExt;
+        let mut buf = [0u8; libc::PROC_PIDPATHINFO_MAXSIZE as usize];
+        // SAFETY: the buffer is as long as the size passed; the call returns the path's length,
+        // at most that size, or 0.
+        let n = unsafe { libc::proc_pidpath(pid, buf.as_mut_ptr().cast(), buf.len() as u32) };
+        (n > 0).then(|| PathBuf::from(std::ffi::OsStr::from_bytes(&buf[..n as usize])))
+    }
+
+    /// The processes of this user running `exe`, compared by full path: Linux reads
+    /// `/proc/<pid>/exe`, macOS asks the kernel.
     pub fn processes_of(exe: &Path) -> Vec<u32> {
         let mut found = Vec::new();
+        #[cfg(target_os = "macos")]
+        {
+            // The kernel's path has its links resolved (`/tmp` is `/private/tmp`), so ours too.
+            let want = std::fs::canonicalize(exe).unwrap_or_else(|_| exe.to_owned());
+            found.extend(
+                all_pids()
+                    .into_iter()
+                    .filter(|pid| path_of(*pid).is_some_and(|p| p == want))
+                    // SAFETY: signal 0 sends nothing; it fails on another user's process.
+                    .filter(|pid| unsafe { libc::kill(*pid, 0) } == 0)
+                    .map(|pid| pid as u32),
+            );
+        }
         if cfg!(target_os = "linux") {
             for entry in std::fs::read_dir("/proc").into_iter().flatten().flatten() {
                 let Some(pid) = entry.file_name().to_str().and_then(|n| n.parse().ok()) else {
@@ -682,8 +728,19 @@ mod imp {
         if unsafe { libc::kill(pid as libc::pid_t, libc::SIGKILL) } != 0 {
             return false;
         }
-        // Ended but not yet collected by its parent (a zombie, state `Z`): gone all the same.
+        // Ended but not yet collected by its parent (a zombie, state `Z`): gone all the same,
+        // yet signal 0 still answers for it. macOS has no `/proc`: its `ps` tells the state.
         let zombie = || {
+            if cfg!(target_os = "macos") {
+                return std::process::Command::new("/bin/ps")
+                    .args(["-o", "stat=", "-p", &pid.to_string()])
+                    .output()
+                    .is_ok_and(|o| {
+                        String::from_utf8_lossy(&o.stdout)
+                            .trim_start()
+                            .starts_with('Z')
+                    });
+            }
             std::fs::read_to_string(format!("/proc/{pid}/stat"))
                 .ok()
                 .and_then(|s| {
@@ -936,6 +993,22 @@ pub fn processes_in(dir: &Path) -> Vec<u32> {
     found.extend(processes_of(&dir.join(crate::plan::RENDERER)));
     found
 }
+
+/// The evolite processes started from any of `dirs`, each once.
+pub fn processes_in_all(dirs: &[PathBuf]) -> Vec<u32> {
+    let mut found: Vec<u32> = dirs.iter().flat_map(|d| processes_in(d)).collect();
+    found.sort_unstable();
+    found.dedup();
+    found
+}
+
+/// Of the processes `seen` on the screen, those still `now` listed from the program folder: a
+/// number that left the list may be another program's by now and must not get a signal, and
+/// one that joined it was never offered to the person.
+pub fn still_listed(seen: &[u32], now: &[u32]) -> Vec<u32> {
+    seen.iter().copied().filter(|p| now.contains(p)).collect()
+}
+
 /// The shortcuts: Start menu (Windows), applications menu (Linux); the desktop if chosen.
 pub use links::{add as add_shortcuts, remove as remove_shortcuts};
 
