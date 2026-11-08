@@ -39,9 +39,15 @@ pub fn serve(input: impl Read, output: impl Write, limits: &Limits) -> io::Resul
 
 /// Finds the fonts, then closes everything the worker does not need (`lockdown.rs`).
 /// `Err`: the doors could not be closed, and nothing untrusted may be read.
-pub fn lock_down() -> Result<(), String> {
+pub fn lock_down() -> Result<(), crate::lockdown::Refusal> {
     let font_dirs = crate::svg::warm_up();
     crate::lockdown::apply(&font_dirs)
+}
+
+/// The memory cap on a system where the worker sets it itself (macOS); elsewhere the wallet has
+/// set it already. For a test mode that does not go through [`lock_down`].
+pub fn cap_memory() -> Result<(), String> {
+    crate::lockdown::cap_memory()
 }
 
 /// A worker that crashes ends at once. Over the Job Object's memory cap an allocation fails and
@@ -67,8 +73,8 @@ pub fn run() -> ! {
     quiet_crashes();
     // Nobody reads a panic message here; the answer carries what matters.
     std::panic::set_hook(Box::new(|_| {}));
-    if lock_down().is_err() {
-        std::process::exit(2);
+    if let Err(refusal) = lock_down() {
+        std::process::exit(refusal.kind.exit_code());
     }
     let code = match serve(io::stdin().lock(), io::stdout().lock(), &Limits::default()) {
         Ok(()) => 0,

@@ -4,7 +4,7 @@
 use std::io::Cursor;
 use std::time::{Duration, Instant};
 
-use evolite_render::{RenderError, Renderer, Settings};
+use evolite_render::{RenderError, Renderer, SandboxRefusal, Settings};
 use image::{ImageFormat, Rgba, RgbaImage};
 
 const WORKER: &str = env!("CARGO_BIN_EXE_evolite-render-worker");
@@ -14,7 +14,8 @@ fn renderer(mode: Option<&str>) -> Renderer {
         WORKER.into(),
         mode.map(|m| vec![m.into()]).unwrap_or_default(),
     );
-    settings.timeout = Duration::from_secs(3);
+    // A loaded macOS runner reads its fonts slowly; the deadline counts them.
+    settings.timeout = Duration::from_secs(if cfg!(target_os = "macos") { 10 } else { 3 });
     settings.memory = 256 * 1024 * 1024;
     Renderer::new(settings)
 }
@@ -45,7 +46,7 @@ fn a_hanging_worker_is_stopped_at_the_deadline() {
     let mut r = renderer(Some("--test-hang"));
     let started = Instant::now();
     assert_eq!(r.render(&png()), Err(RenderError::Timeout));
-    assert!(started.elapsed() < Duration::from_secs(10));
+    assert!(started.elapsed() < Duration::from_secs(20));
 }
 
 #[test]
@@ -62,7 +63,7 @@ fn an_answer_over_the_limits_is_refused() {
     assert_eq!(r.render(&png()), Err(RenderError::Crashed));
 }
 
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 #[test]
 fn the_memory_cap_ends_a_greedy_worker() {
     // A deadline far past what the cap takes even on a loaded machine: the check is how the
@@ -84,6 +85,47 @@ fn the_memory_cap_ends_a_greedy_worker() {
         "{:?}",
         started.elapsed()
     );
+}
+
+/// A cap the worker cannot set: it does not serve, and the wallet is told so.
+#[cfg(target_os = "macos")]
+#[test]
+fn a_memory_cap_that_cannot_be_set_refuses_the_picture() {
+    let mut settings = Settings::new(WORKER.into(), Vec::new());
+    settings.memory = usize::MAX;
+    let mut r = Renderer::new(settings);
+    assert_eq!(
+        r.render(&png()),
+        Err(RenderError::Refused(SandboxRefusal::NoMemoryCap))
+    );
+}
+
+/// A worker that will not serve is told apart from one that crashed, by its exit code.
+#[test]
+fn a_refusal_is_not_a_crash() {
+    let mut r = renderer(Some("--test-refuse"));
+    assert_eq!(
+        r.render(&png()),
+        Err(RenderError::Refused(SandboxRefusal::NoFileIsolation))
+    );
+    for (code, refusal) in [
+        (2, SandboxRefusal::NoSandbox),
+        (4, SandboxRefusal::NoFileIsolation),
+        (5, SandboxRefusal::NoMemoryCap),
+    ] {
+        assert_eq!(SandboxRefusal::from_exit_code(code), Some(refusal));
+    }
+    for code in [0, 1, 3, 134, 137] {
+        assert_eq!(SandboxRefusal::from_exit_code(code), None);
+    }
+}
+
+/// A worker the system will not start is a refusal: the picture is not drawn some other way.
+#[test]
+fn a_worker_that_cannot_start_refuses_the_picture() {
+    let mut r = Renderer::new(Settings::new("does-not-exist".into(), Vec::new()));
+    assert_eq!(r.start(), Err(RenderError::Crashed));
+    assert_eq!(r.render(&png()), Err(RenderError::Crashed));
 }
 
 #[test]

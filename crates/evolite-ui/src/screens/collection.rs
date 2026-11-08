@@ -128,6 +128,16 @@ pub fn collection(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut Collect
     });
     #[cfg(not(demo_core))]
     page_header(ui, a, tr!("Collection"), count.as_deref(), |_, _| {});
+    // Before the list: avatars ask too, and there may be no NFT here at all (BUG-95).
+    if let Some(why) = state.art.off.or(a.avatars.off) {
+        crate::components::notice(
+            ui,
+            a,
+            "warning",
+            p.muted,
+            crate::art::pictures_off_text(why),
+        );
+    }
     if nfts.is_empty() {
         if empty(ui, a, &wallet.nfts_status) {
             cx.send(Command::RefreshNfts);

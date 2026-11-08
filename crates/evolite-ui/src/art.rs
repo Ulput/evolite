@@ -5,7 +5,7 @@
 
 use crate::theme::{Palette, Weight, sans};
 use egui::{Align2, ColorImage, CornerRadius, Rect, TextureHandle, TextureOptions, Ui, pos2, vec2};
-use evolite_api::{Command, CoreError, Picture};
+use evolite_api::{Command, CoreError, Picture, PicturesOff};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
@@ -46,6 +46,8 @@ pub struct ArtCache {
     scratch: Vec<u8>,
     /// Animations stand on their first frame (Settings → Collection, or the system's choice).
     pub still: bool,
+    /// This system cannot draw pictures from outside safely: said once, on the Collection.
+    pub off: Option<PicturesOff>,
 }
 
 /// The pixel side for a picture `points` wide on this screen.
@@ -86,6 +88,10 @@ impl ArtCache {
         }
         let shown = match result {
             Ok(picture) => self.first_frame(ctx, art, side, partial, picture),
+            Err(CoreError::PicturesOff(why)) => {
+                self.off = Some(*why);
+                Shown::Failed(tr!("not drawn on this system").to_owned())
+            }
             Err(CoreError::Failed(why) | CoreError::NotAvailable(why)) => {
                 Shown::Failed(why.clone())
             }
@@ -288,6 +294,21 @@ impl ArtCache {
             }
         }
         Prepared::Ready(texture.id(), texture.size_vec2())
+    }
+}
+
+/// Why no picture from outside is drawn here, what it does not touch and what can be done.
+pub fn pictures_off_text(why: PicturesOff) -> &'static str {
+    match why {
+        PicturesOff::NoFileIsolation => tr!(
+            "This system cannot isolate pictures from outside safely, so NFT pictures and profile photos are not drawn. Your wallet and funds are not affected. To see them, use a Linux kernel with Landlock enabled (5.13 or newer)."
+        ),
+        PicturesOff::NoMemoryCap => tr!(
+            "macOS would not limit the memory of the process that draws pictures from outside, so NFT pictures and profile photos are not drawn. Your wallet and funds are not affected. Updating macOS may help; if it does not, please report this."
+        ),
+        PicturesOff::NoSandbox => tr!(
+            "This system would not set up the sandbox for pictures from outside, so NFT pictures and profile photos are not drawn. Your wallet and funds are not affected. Updating the system may help; if it does not, please report this."
+        ),
     }
 }
 

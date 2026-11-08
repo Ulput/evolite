@@ -8,7 +8,7 @@ use std::path::PathBuf;
 use std::sync::mpsc::{Receiver, RecvTimeoutError, channel};
 use std::time::Duration;
 
-use crate::frames::{Limits, PackedArt, RenderError};
+use crate::frames::{Limits, PackedArt, RenderError, SandboxRefusal};
 use crate::sandbox::{self, Sandboxed};
 use crate::wire;
 
@@ -38,7 +38,8 @@ pub struct Settings {
     pub limits: Limits,
     /// One picture, from the request to the last byte of the answer.
     pub timeout: Duration,
-    /// The worker's memory cap: the Job Object on Windows, `RLIMIT_AS` elsewhere.
+    /// The worker's memory cap: the Job Object on Windows, `RLIMIT_AS` elsewhere. On macOS it
+    /// is counted above what the worker has mapped when it sets it (`lockdown.rs`).
     pub memory: usize,
     /// Windows: no window or graphics system calls (Win32k). Only for a program that links
     /// no window code: `evolite-renderer`, not the app.
@@ -127,6 +128,29 @@ impl Worker {
         self.process.kill();
         self.process.wait();
     }
+
+    /// [`Self::start`], with the reason said on stderr: [`RenderError::Crashed`] has no room for
+    /// it, and a system that refuses the sandbox would read as a worker that died (BUG-95).
+    /// Only the system's error is printed, nothing of the picture.
+    fn launch(settings: &Settings) -> Result<Self, RenderError> {
+        Self::start(settings).map_err(|e| {
+            eprintln!("evolite-render: the worker did not start: {e}");
+            RenderError::Crashed
+        })
+    }
+
+    /// Stops a worker that broke, says how it ended and what that means: a refusal
+    /// (`lockdown.rs`) is told apart from a crash by the exit code.
+    fn stop_broken(self) -> RenderError {
+        self.process.kill();
+        self.process.wait();
+        let code = self.process.exit_code();
+        eprintln!("evolite-render: the worker stopped, exit code {code:?}");
+        match code.and_then(SandboxRefusal::from_exit_code) {
+            Some(refusal) => RenderError::Refused(refusal),
+            None => RenderError::Crashed,
+        }
+    }
 }
 
 /// Renders untrusted pictures in a worker process. Blocking: call it off the UI thread.
@@ -149,7 +173,7 @@ impl Renderer {
     /// picture does not wait for it. A worker that has died since is started again.
     pub fn start(&mut self) -> Result<(), RenderError> {
         if self.worker.is_none() {
-            self.worker = Some(Worker::start(&self.settings).map_err(|_| RenderError::Crashed)?);
+            self.worker = Some(Worker::launch(&self.settings)?);
         }
         Ok(())
     }
@@ -202,13 +226,12 @@ impl Renderer {
         }
         let mut worker = match self.worker.take() {
             Some(worker) => worker,
-            None => Worker::start(&self.settings).map_err(|_| RenderError::Crashed)?,
+            None => Worker::launch(&self.settings)?,
         };
         self.next_id += 1;
         let id = self.next_id;
         if wire::write_request(&mut worker.input, id, side, flags, bytes).is_err() {
-            worker.stop();
-            return Err(RenderError::Crashed);
+            return Err(worker.stop_broken());
         }
         match worker.answers.recv_timeout(self.settings.timeout) {
             Ok(Ok((answered, result))) if answered == id => {
@@ -222,10 +245,7 @@ impl Renderer {
                 Err(RenderError::Timeout)
             }
             // A wrong id, a broken message, or the worker gone.
-            _ => {
-                worker.stop();
-                Err(RenderError::Crashed)
-            }
+            _ => Err(worker.stop_broken()),
         }
     }
 }

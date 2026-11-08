@@ -136,7 +136,7 @@ fn error_codes(e: &RenderError) -> (u8, u8) {
         RenderError::Limit(what) => (2, index(&LIMITS, what)),
         RenderError::Invalid(what) => (3, index(&INVALID, what)),
         // Only the client decides these; a worker never sends them.
-        RenderError::Timeout | RenderError::Crashed => (3, 255),
+        RenderError::Timeout | RenderError::Crashed | RenderError::Refused(_) => (3, 255),
     }
 }
 

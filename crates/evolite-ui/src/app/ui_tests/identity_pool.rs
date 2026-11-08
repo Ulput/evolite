@@ -642,3 +642,31 @@ fn the_collection_takes_as_many_columns_as_fit_at_every_width() {
         }
     }
 }
+
+/// BUG-95: a system that cannot isolate pictures is said once, in words that fit, at the usual
+/// window and in the narrow one; not on every tile.
+#[test]
+fn pictures_off_is_said_once_on_the_collection() {
+    use evolite_api::{CoreError, PicturesOff};
+    let text = crate::art::pictures_off_text(PicturesOff::NoFileIsolation);
+    for size in [egui::vec2(1024.0, 768.0), egui::vec2(853.0, 533.0)] {
+        let (_turn, mut kit) = demo_app("collection", "en");
+        kit.set_size(size);
+        let ctx = kit.ctx.clone();
+        kit.state_mut().collection.art.on_answer(
+            &ctx,
+            "any",
+            64,
+            false,
+            &Err(CoreError::PicturesOff(PicturesOff::NoFileIsolation)),
+        );
+        kit.run_steps(4);
+        let notices: Vec<_> = kit.query_all_by_label(text).collect();
+        assert_eq!(notices.len(), 1, "once, at {size:?}");
+        let rect = notices[0].rect();
+        assert!(
+            rect.left() >= 0.0 && rect.right() <= size.x && rect.bottom() <= size.y,
+            "inside the window at {size:?}: {rect:?}"
+        );
+    }
+}

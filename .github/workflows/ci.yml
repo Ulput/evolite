@@ -145,7 +145,14 @@ jobs:
         run: umask 0002 && cargo test --workspace --locked private_folders
       # clippy elsewhere does not see the cfg(macos) code.
       - name: clippy (macOS code)
+        if: ${{ !cancelled() }}
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      # What Seatbelt refused the renderer, and which processes crashed (BUG-95).
+      - name: sandbox denials and crash reports
+        if: failure()
+        run: |
+          log show --last 40m --style compact --predicate 'eventMessage CONTAINS "deny(" OR sender == "Sandbox"' | tail -n 200 || true
+          ls -t ~/Library/Logs/DiagnosticReports 2>/dev/null | head -n 3 | while read -r report; do head -n 80 ~/Library/Logs/DiagnosticReports/"$report"; done || true
 
   windows:
     name: windows

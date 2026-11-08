@@ -560,6 +560,7 @@ pub fn error_text(e: &CoreError) -> String {
         CoreError::NotSynced => tr!("wait for the sync to finish").into(),
         CoreError::BadLink => tr!("this is not an app link evolite knows").into(),
         CoreError::TooManyTries { .. } => tr!("too many wrong passwords").into(),
+        CoreError::PicturesOff(_) => tr!("not drawn on this system").into(),
         CoreError::Failed(why) => failure(why).into(),
     }
 }

@@ -1397,6 +1397,19 @@ pub enum CoreError {
     TooManyTries {
         until: Timestamp,
     },
+    /// This system cannot close the picture renderer in, so no picture from outside is drawn.
+    PicturesOff(PicturesOff),
+}
+
+/// Why no picture from outside is drawn on this system.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PicturesOff {
+    /// Linux without Landlock.
+    NoFileIsolation,
+    /// macOS would not take the memory cap.
+    NoMemoryCap,
+    /// The system would not set up the sandbox.
+    NoSandbox,
 }
 
 #[derive(Debug)]

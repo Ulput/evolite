@@ -167,12 +167,12 @@ impl Studio {
 
     fn render(&mut self, job: &Job, first: bool) -> Result<PackedArt, CoreError> {
         let Some(renderer) = &mut self.renderer else {
-            return Err(CoreError::Failed(reason(&RenderError::Crashed).into()));
+            return Err(error(&RenderError::Crashed));
         };
         let pass = if first { Pass::First } else { Pass::Whole };
         let Stored { bytes, packing } = &job.stored;
         let art = renderer.draw(bytes, *packing, job.side, pass);
-        art.map_err(|e| CoreError::Failed(reason(&e).into()))
+        art.map_err(|e| error(&e))
     }
 
     /// The whole picture: to the interface and to the disk.
@@ -216,6 +216,25 @@ fn picture(art: PackedArt) -> Picture {
     }
 }
 
+/// What the interface is told. A refusal of the system is its own answer: it is said once for
+/// all pictures, not on each.
+fn error(e: &RenderError) -> CoreError {
+    use evolite_api::PicturesOff;
+    use evolite_render::SandboxRefusal;
+    match e {
+        RenderError::Refused(SandboxRefusal::NoFileIsolation) => {
+            CoreError::PicturesOff(PicturesOff::NoFileIsolation)
+        }
+        RenderError::Refused(SandboxRefusal::NoMemoryCap) => {
+            CoreError::PicturesOff(PicturesOff::NoMemoryCap)
+        }
+        RenderError::Refused(SandboxRefusal::NoSandbox) => {
+            CoreError::PicturesOff(PicturesOff::NoSandbox)
+        }
+        other => CoreError::Failed(reason(other).into()),
+    }
+}
+
 /// Why a picture is not shown, for the details line.
 fn reason(e: &RenderError) -> &'static str {
     match e {
@@ -223,7 +242,7 @@ fn reason(e: &RenderError) -> &'static str {
         RenderError::Unsupported => tr!("the picture's format is not supported"),
         RenderError::Invalid(_) => tr!("the picture is damaged"),
         RenderError::Timeout => tr!("the picture takes too long to draw"),
-        RenderError::Crashed => tr!("the renderer stopped"),
+        RenderError::Crashed | RenderError::Refused(_) => tr!("the renderer stopped"),
     }
 }
 

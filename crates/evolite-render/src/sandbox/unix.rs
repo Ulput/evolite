@@ -46,18 +46,24 @@ impl Sandboxed {
     }
 }
 
-/// Between fork and exec: only async-signal-safe calls here (plain system calls).
+/// Between fork and exec: only async-signal-safe calls here (plain system calls). The memory
+/// cap on macOS is the worker's own (`lockdown.rs`): XNU refuses it here.
 fn confine(parent: libc::pid_t, memory: usize) -> io::Result<()> {
     let last = io::Error::last_os_error;
     // SAFETY: setrlimit/prctl/getppid/unshare/_exit are system calls, safe after fork.
     unsafe {
-        let cap = libc::rlimit {
-            rlim_cur: memory as libc::rlim_t,
-            rlim_max: memory as libc::rlim_t,
-        };
-        if libc::setrlimit(libc::RLIMIT_AS, &cap) != 0 {
-            return Err(last());
+        #[cfg(not(target_os = "macos"))]
+        {
+            let cap = libc::rlimit {
+                rlim_cur: memory as libc::rlim_t,
+                rlim_max: memory as libc::rlim_t,
+            };
+            if libc::setrlimit(libc::RLIMIT_AS, &cap) != 0 {
+                return Err(last());
+            }
         }
+        #[cfg(target_os = "macos")]
+        let _ = memory;
         let none = libc::rlimit {
             rlim_cur: 0,
             rlim_max: 0,
@@ -102,6 +108,8 @@ pub fn spawn(
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::null());
+    #[cfg(target_os = "macos")]
+    command.env(crate::lockdown::MEMORY_ENV, memory.to_string());
     // SAFETY: `confine` makes only system calls, which are async-signal-safe.
     unsafe {
         command.pre_exec(move || confine(parent, memory));

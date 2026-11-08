@@ -4,23 +4,77 @@
 //!
 //! - **Linux**: Landlock — of the file system only the font folders stay, read-only; TCP
 //!   neither out nor in (kernel 6.7+). Then seccomp — no sockets, no new programs, no
-//!   debugging or reading other processes, no namespaces, mounts or kernel modules, and no
+//!   debugging or reading other processes, no namespaces, mounts or kernel modules, no changing
+//!   of a file's length or attributes by its path (Landlock leaves those: `truncate` before
+//!   ABI 3, `chmod`, `chown`, `setxattr` and `utimensat` at every ABI), and no
 //!   memory made executable (what shellcode needs). Landlock works on kernels from 5.13 and
-//!   is applied as far as the kernel goes; seccomp is required: without it the worker refuses
-//!   to start.
-//! - **macOS**: a Seatbelt profile — everything denied but reading the font folders.
+//!   is applied as far as the kernel goes, but a kernel without it is refused, as one without
+//!   seccomp: seccomp alone leaves the user's files open (BUG-95).
+//! - **macOS**: the memory cap, then a Seatbelt profile — everything denied but reading the
+//!   font folders. The cap is set here and not between fork and exec, as on Linux: XNU refuses
+//!   a limit below what the process has mapped, and the dyld shared region alone is 6 GB. So
+//!   it is counted above what is mapped now (BUG-95).
 
 use std::path::PathBuf;
 
+use crate::frames::SandboxRefusal;
+
+/// Why the worker did not close itself: the kind for the wallet, the words for a test's log.
+#[derive(Debug)]
+pub struct Refusal {
+    pub kind: SandboxRefusal,
+    pub detail: String,
+}
+
+impl std::fmt::Display for Refusal {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}: {}", self.kind, self.detail)
+    }
+}
+
+/// `result`, an error of it being a refusal of this `kind`.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn refuse(kind: SandboxRefusal, result: Result<(), String>) -> Result<(), Refusal> {
+    result.map_err(|detail| Refusal { kind, detail })
+}
+
+/// Where the wallet tells a macOS worker how much memory it may take, in bytes.
+#[cfg(target_os = "macos")]
+pub(crate) const MEMORY_ENV: &str = "EVOLITE_RENDER_MEMORY";
+
+/// The address-space cap for a process with `mapped` bytes mapped now, allowed `memory` more
+/// (as the wallet wrote it). `Err`: no usable size, and no cap means no serving.
+#[cfg(any(target_os = "macos", test))]
+fn cap_above(mapped: u64, memory: Option<&str>) -> Result<u64, String> {
+    let memory = memory
+        .and_then(|text| text.parse::<u64>().ok())
+        .filter(|bytes| *bytes > 0)
+        .ok_or("memory cap: no size given")?;
+    mapped
+        .checked_add(memory)
+        .ok_or_else(|| format!("memory cap: {memory} above {mapped} bytes does not fit"))
+}
+
+/// The memory cap, where the worker sets it itself. `Err`: the worker must not serve.
+pub(crate) fn cap_memory() -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    macos::cap_memory()?;
+    Ok(())
+}
+
 /// Closes what can be closed. `Err`: the worker must not serve.
-pub(crate) fn apply(font_dirs: &[PathBuf]) -> Result<(), String> {
+pub(crate) fn apply(font_dirs: &[PathBuf]) -> Result<(), Refusal> {
     #[cfg(target_os = "linux")]
     {
-        linux::landlock(font_dirs)?;
-        linux::seccomp()?;
+        refuse(SandboxRefusal::NoFileIsolation, linux::landlock(font_dirs))?;
+        refuse(SandboxRefusal::NoSandbox, linux::seccomp())?;
     }
     #[cfg(target_os = "macos")]
-    macos::seatbelt(font_dirs)?;
+    {
+        // Measured after the fonts, so what is mapped for them does not eat into the cap.
+        refuse(SandboxRefusal::NoMemoryCap, cap_memory())?;
+        refuse(SandboxRefusal::NoSandbox, macos::seatbelt(font_dirs))?;
+    }
     #[cfg(not(any(target_os = "linux", target_os = "macos")))]
     let _ = font_dirs;
     Ok(())
@@ -32,7 +86,7 @@ mod linux {
     use std::path::PathBuf;
 
     use landlock::{
-        ABI, Access, AccessFs, AccessNet, Ruleset, RulesetAttr, RulesetCreatedAttr,
+        ABI, Access, AccessFs, AccessNet, Ruleset, RulesetAttr, RulesetCreatedAttr, RulesetStatus,
         path_beneath_rules,
     };
     use seccompiler::{
@@ -42,15 +96,23 @@ mod linux {
 
     pub(super) fn landlock(font_dirs: &[PathBuf]) -> Result<(), String> {
         let fs = ABI::V5;
-        Ruleset::default()
+        let status = Ruleset::default()
             .handle_access(AccessFs::from_all(fs))
             .and_then(|r| r.handle_access(AccessNet::from_all(ABI::V4)))
             .and_then(|r| r.create())
             .and_then(|r| r.add_rules(path_beneath_rules(font_dirs, AccessFs::from_read(fs))))
             .and_then(|r| r.restrict_self())
-            .map(|_| ())
-            .map_err(|e| format!("landlock: {e}"))
+            .map_err(|e| format!("landlock: {e}"))?;
+        // Best effort means an older kernel may close less; closing nothing leaves the user's
+        // files open to a compromised decoder.
+        if matches!(status.ruleset, RulesetStatus::NotEnforced) {
+            return Err("landlock: not enforced on this system".into());
+        }
+        Ok(())
     }
+
+    /// `fchmodat2`, the same number on every architecture; `libc` does not name it on all.
+    const FCHMODAT2: i64 = 452;
 
     /// Calls that answer `EPERM` from now on.
     fn denied() -> Vec<i64> {
@@ -87,9 +149,32 @@ mod linux {
             libc::SYS_reboot,
             libc::SYS_swapon,
             libc::SYS_swapoff,
+            // What Landlock does not stop, and a decoder has no use for.
+            libc::SYS_truncate,
+            libc::SYS_fchmod,
+            libc::SYS_fchmodat,
+            FCHMODAT2,
+            libc::SYS_fchown,
+            libc::SYS_fchownat,
+            libc::SYS_utimensat,
+            libc::SYS_setxattr,
+            libc::SYS_lsetxattr,
+            libc::SYS_fsetxattr,
+            libc::SYS_removexattr,
+            libc::SYS_lremovexattr,
+            libc::SYS_fremovexattr,
         ];
         #[cfg(target_arch = "x86_64")]
-        calls.extend([libc::SYS_fork, libc::SYS_vfork]);
+        calls.extend([
+            libc::SYS_fork,
+            libc::SYS_vfork,
+            libc::SYS_chmod,
+            libc::SYS_chown,
+            libc::SYS_lchown,
+            libc::SYS_utime,
+            libc::SYS_utimes,
+            libc::SYS_futimesat,
+        ]);
         calls
     }
 
@@ -142,9 +227,54 @@ mod macos {
     use std::ffi::{CStr, CString, c_char, c_int};
     use std::path::PathBuf;
 
+    #[allow(non_upper_case_globals, reason = "the system's own name")]
     unsafe extern "C" {
         fn sandbox_init(profile: *const c_char, flags: u64, error: *mut *mut c_char) -> c_int;
         fn sandbox_free_error(error: *mut c_char);
+        static mach_task_self_: u32;
+        fn task_info(task: u32, flavor: c_int, info: *mut c_int, count: *mut u32) -> c_int;
+    }
+
+    /// Bytes mapped by this process: `virtual_size`, the first field of
+    /// `mach_task_basic_info`, the size XNU holds the limit against.
+    fn mapped() -> Result<u64, String> {
+        const MACH_TASK_BASIC_INFO: c_int = 20;
+        const COUNT: u32 = 12;
+        let mut info = [0u32; COUNT as usize];
+        let mut count = COUNT;
+        // SAFETY: this task's own port and a buffer of the 12 words the flavor fills.
+        let status = unsafe {
+            task_info(
+                mach_task_self_,
+                MACH_TASK_BASIC_INFO,
+                info.as_mut_ptr().cast(),
+                &mut count,
+            )
+        };
+        if status != 0 {
+            return Err(format!("memory cap: task_info answered {status}"));
+        }
+        Ok(u64::from(info[0]) | (u64::from(info[1]) << 32))
+    }
+
+    /// Above what is mapped now, by what the wallet allows. A limit lowered this way cannot be
+    /// raised again: both the soft and the hard one are set.
+    pub(super) fn cap_memory() -> Result<(), String> {
+        let mapped = mapped()?;
+        let memory = std::env::var(super::MEMORY_ENV).ok();
+        let cap = super::cap_above(mapped, memory.as_deref())?;
+        let limit = libc::rlimit {
+            rlim_cur: cap,
+            rlim_max: cap,
+        };
+        // SAFETY: a plain system call with a limit that lives through it.
+        if unsafe { libc::setrlimit(libc::RLIMIT_AS, &limit) } != 0 {
+            let error = std::io::Error::last_os_error();
+            return Err(format!(
+                "memory cap: setrlimit({cap}) with {mapped} bytes mapped: {error}"
+            ));
+        }
+        Ok(())
     }
 
     /// A path as an SBPL string literal.
@@ -174,5 +304,23 @@ mod macos {
             };
             Err(message)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_cap_is_counted_above_what_is_mapped() {
+        assert_eq!(cap_above(6_000, Some("512")), Ok(6_512));
+    }
+
+    #[test]
+    fn no_cap_without_a_size_that_fits() {
+        for bad in [None, Some(""), Some("0"), Some("-1"), Some("lots")] {
+            assert!(cap_above(1, bad).is_err(), "{bad:?}");
+        }
+        assert!(cap_above(u64::MAX, Some("1")).is_err());
     }
 }

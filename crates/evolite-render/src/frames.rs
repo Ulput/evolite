@@ -255,6 +255,37 @@ pub enum RenderError {
     Timeout,
     /// The worker died (crashed, or the memory cap ended it) or could not be started.
     Crashed,
+    /// The worker would not serve: this system cannot close it in (`lockdown.rs`). Not about
+    /// this picture: none will be drawn.
+    Refused(SandboxRefusal),
+}
+
+/// Why a worker would not serve, told by its exit code: a fixed list, nothing free-form.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SandboxRefusal {
+    /// Linux without Landlock: the user's files would stay open to it.
+    NoFileIsolation,
+    /// macOS would not take the memory cap.
+    NoMemoryCap,
+    /// The sandbox itself could not be set up: seccomp, Seatbelt.
+    NoSandbox,
+}
+
+impl SandboxRefusal {
+    /// The worker's exit code. 1 and 3 mean other things; a signal reads as 128 and up.
+    pub fn exit_code(self) -> i32 {
+        match self {
+            Self::NoSandbox => 2,
+            Self::NoFileIsolation => 4,
+            Self::NoMemoryCap => 5,
+        }
+    }
+
+    pub fn from_exit_code(code: u32) -> Option<Self> {
+        [Self::NoSandbox, Self::NoFileIsolation, Self::NoMemoryCap]
+            .into_iter()
+            .find(|refusal| refusal.exit_code() as u32 == code)
+    }
 }
 
 impl fmt::Display for RenderError {
@@ -266,6 +297,7 @@ impl fmt::Display for RenderError {
             Self::Invalid(what) => write!(f, "damaged picture: {what}"),
             Self::Timeout => write!(f, "took too long to draw"),
             Self::Crashed => write!(f, "the renderer stopped"),
+            Self::Refused(why) => write!(f, "this system cannot close the renderer in: {why:?}"),
         }
     }
 }

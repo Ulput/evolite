@@ -32,7 +32,9 @@ pub mod worker;
 pub const RENDER_VERSION: u32 = 3;
 
 pub use client::{Packing, Pass, Renderer, Settings};
-pub use frames::{Art, Frame, Limits, PackedArt, PackedFrame, RenderError, packed_bound};
+pub use frames::{
+    Art, Frame, Limits, PackedArt, PackedFrame, RenderError, SandboxRefusal, packed_bound,
+};
 pub use sniff::{Format, sniff};
 
 /// Decodes `bytes` into frames, in this process, unpacked: for tests and tools. The app goes

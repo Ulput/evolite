@@ -39,13 +39,19 @@ fn main() -> ExitCode {
             })
             .is_some();
         let write = std::fs::write(std::path::Path::new(dir).join("escaped.txt"), b"x").is_ok();
+        let chmod = std::fs::metadata(file)
+            .and_then(|meta| std::fs::set_permissions(file, meta.permissions()))
+            .is_ok();
         let word = |ok: bool| if ok { "ok" } else { "denied" };
         println!(
-            "read={} net={} write={} exec={}",
+            "read={} net={} write={} exec={} chmod={} truncate={}",
             word(read),
             word(net),
             word(write),
-            word(executable_memory())
+            word(executable_memory()),
+            word(chmod),
+            // Last: it empties the file.
+            word(truncated(file))
         );
         return ExitCode::SUCCESS;
     }
@@ -59,9 +65,16 @@ fn main() -> ExitCode {
             std::thread::sleep(std::time::Duration::from_secs(60));
         },
         "--test-crash" => ExitCode::from(3),
-        // Over the Job Object's memory cap: Windows ends the process. Without the cap it would
-        // hang here, and the client would see a timeout instead of a crash.
+        // What a worker that cannot close itself ends with (`SandboxRefusal`).
+        "--test-refuse" => ExitCode::from(4),
+        // Over the memory cap: the process ends. Without the cap it would hang here, and the
+        // client would see a timeout instead of a crash; so does a cap that could not be set.
         "--test-allocate" => {
+            if evolite_render::worker::cap_memory().is_err() {
+                loop {
+                    std::thread::sleep(std::time::Duration::from_secs(60));
+                }
+            }
             let mut hog: Vec<Vec<u8>> = Vec::new();
             for _ in 0..16 {
                 hog.push(vec![1; 64 * 1024 * 1024]);
@@ -90,6 +103,26 @@ fn main() -> ExitCode {
     }
 }
 
+/// Whether the file can be emptied by its path, without opening it for writing first where the
+/// system has such a call: what Landlock before ABI 3 does not restrict.
+#[cfg(unix)]
+fn truncated(path: &str) -> bool {
+    let Ok(path) = std::ffi::CString::new(path) else {
+        return false;
+    };
+    // SAFETY: a NUL-terminated path that lives through the call.
+    unsafe { libc::truncate(path.as_ptr(), 0) == 0 }
+}
+
+#[cfg(windows)]
+fn truncated(path: &str) -> bool {
+    std::fs::OpenOptions::new()
+        .write(true)
+        .open(path)
+        .and_then(|file| file.set_len(0))
+        .is_ok()
+}
+
 /// Whether this process may make memory executable — what shellcode needs. The sandbox's
 /// "no dynamic code" mitigation refuses it.
 #[cfg(windows)]
@@ -115,13 +148,19 @@ fn executable_memory() -> bool {
 
 #[cfg(unix)]
 fn executable_memory() -> bool {
+    // On Apple silicon the system refuses write-and-execute memory without MAP_JIT, inside the
+    // sandbox or not; with it, the probe asks what a compromised decoder would.
+    #[cfg(target_os = "macos")]
+    const JIT: libc::c_int = libc::MAP_JIT;
+    #[cfg(not(target_os = "macos"))]
+    const JIT: libc::c_int = 0;
     // SAFETY: a fresh anonymous page is asked for and unmapped at once; nothing is run.
     unsafe {
         let page = libc::mmap(
             std::ptr::null_mut(),
             4096,
             libc::PROT_READ | libc::PROT_WRITE | libc::PROT_EXEC,
-            libc::MAP_PRIVATE | libc::MAP_ANONYMOUS,
+            libc::MAP_PRIVATE | libc::MAP_ANONYMOUS | JIT,
             -1,
             0,
         );
