@@ -1408,8 +1408,11 @@ fn add_name_dialog(
     let me = id
         .name()
         .map_or_else(|| "identity".to_string(), |n| format!("@{n}"));
-    let fee = wallet.fees.name_regular;
+    let fee = wallet.fees.name_price(id.names.is_empty());
+    // BUG-97: what the name wants on the identity up front, not its price.
+    let needed = wallet.fees.name_credits_needed();
     let credits = wallet.balances.credits;
+    let read = wallet.balances.credits_read;
     // The name goes to the core once per change; the answer comes back as an event.
     let label = form.name.trim().trim_start_matches('@').to_lowercase();
     if label.len() >= 3 && label != form.asked {
@@ -1510,8 +1513,21 @@ fn add_name_dialog(
             );
             // Not an error before anything was tried (calm states CS-1): what is missing, muted,
             // and the way to it.
-            let short = credits < fee;
-            if short {
+            let short = read && credits < needed;
+            if !read {
+                ui.add(
+                    egui::Label::new(txt(
+                        &format!(
+                            "{}.",
+                            tr!("The identity's credits are not read yet: nothing is charged until they are")
+                        ),
+                        12.0,
+                        Weight::Regular,
+                        p.muted,
+                    ))
+                    .wrap(),
+                );
+            } else if short {
                 ui.horizontal_wrapped(|ui| {
                     ui.spacing_mut().item_spacing.x = 8.0;
                     ui.label(txt(
@@ -1519,7 +1535,7 @@ fn add_name_dialog(
                             tr!(
                                 "Not enough credits for the name: ≈ {} needed, the identity has {}."
                             ),
-                            dash(fee),
+                            dash(needed),
                             crate::format::balance(credits)
                         ),
                         12.0,
@@ -1530,6 +1546,15 @@ fn add_name_dialog(
                         top_up = true;
                     }
                 });
+                ui.add(
+                    egui::Label::new(txt(
+                        tr!("Platform wants this much before it writes a name; what the name does not use stays on the identity."),
+                        12.0,
+                        Weight::Regular,
+                        p.muted,
+                    ))
+                    .wrap(),
+                );
             }
             match &form.result {
                 _ if form.waiting => notice(
@@ -1564,6 +1589,7 @@ fn add_name_dialog(
                     close = true;
                 }
                 let ready = matches!(check, Some(Ok(NameCheck::Available)))
+                    && read
                     && !short
                     && !form.waiting
                     && form.result.is_none()

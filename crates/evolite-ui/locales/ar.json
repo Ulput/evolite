@@ -1461,5 +1461,7 @@
   "“{}” continues from where it stopped last time.": "تتابع «{}» من حيث توقفت آخر مرة.",
   "“{}” will be locked: its keys leave memory and its sync stops. “{}” continues from where it stopped last time.": "ستُقفل «{}»: تخرج مفاتيحها من الذاكرة وتتوقف مزامنتها. تتابع «{}» من حيث توقفت آخر مرة.",
   "“{}” · from the address book": "«{}» · من دفتر العناوين",
-  "“ष्टि” and “र्ई” should form ligatures, with vowel signs above and below the letters.": "يجب أن تُكوّن «ष्टि» و«र्ई» حروفًا مركبة، مع علامات الحركات فوق الحروف وتحتها."
+  "“ष्टि” and “र्ई” should form ligatures, with vowel signs above and below the letters.": "يجب أن تُكوّن «ष्टि» و«र्ई» حروفًا مركبة، مع علامات الحركات فوق الحروف وتحتها.",
+  "Platform wants this much before it writes a name; what the name does not use stays on the identity.": "يطلب Platform هذا المقدار قبل كتابة الاسم؛ وما لا يستخدمه الاسم يبقى في identity.",
+  "The identity's credits are not read yet: nothing is charged until they are": "لم تُقرأ أرصدة identity بعد: لن يُخصم شيء حتى تُقرأ"
 }

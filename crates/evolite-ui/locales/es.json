@@ -1430,5 +1430,7 @@
   "“{}” continues from where it stopped last time.": "«{}» seguirá donde se quedó la última vez.",
   "“{}” will be locked: its keys leave memory and its sync stops. “{}” continues from where it stopped last time.": "«{}» se bloqueará: sus claves salen de la memoria y su sincronización se detiene. «{}» seguirá donde se quedó la última vez.",
   "“{}” · from the address book": "«{}» · de la libreta de direcciones",
-  "“ष्टि” and “र्ई” should form ligatures, with vowel signs above and below the letters.": "«ष्टि» y «र्ई» deben formar ligaduras, con los signos vocálicos encima y debajo de las letras."
+  "“ष्टि” and “र्ई” should form ligatures, with vowel signs above and below the letters.": "«ष्टि» y «र्ई» deben formar ligaduras, con los signos vocálicos encima y debajo de las letras.",
+  "Platform wants this much before it writes a name; what the name does not use stays on the identity.": "Platform exige esta cantidad antes de escribir un nombre; lo que el nombre no use se queda en la identity.",
+  "The identity's credits are not read yet: nothing is charged until they are": "Los créditos de la identity aún no se han leído: no se cobra nada hasta entonces"
 }

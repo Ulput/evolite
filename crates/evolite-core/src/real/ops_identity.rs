@@ -39,8 +39,9 @@ impl Real {
 
     /// Finishes the unfinished identity in the background: no new lock, no new money. The
     /// answer is `Done { what: "identity" }`.
-    pub(super) fn resume_identity(&self) -> Result<(), CoreError> {
+    pub(super) async fn resume_identity(&self) -> Result<(), CoreError> {
         let (id, keys) = self.dashpay_ready()?;
+        let needed = self.fees_now(0).await.name_credits_needed();
         if self.identity_busy.swap(true, Ordering::Relaxed) {
             return Err(CoreError::NotAvailable(
                 tr!("An identity is already being made").into(),
@@ -69,7 +70,13 @@ impl Real {
                     wake,
                 );
                 chain
-                    .resume_identity(&wallet, &keys, index, names.get(&index).map(String::as_str))
+                    .resume_identity(
+                        &wallet,
+                        &keys,
+                        index,
+                        names.get(&index).map(String::as_str),
+                        needed,
+                    )
                     .await?;
                 identity::finish_resumed(&pending, id, index)
             }
@@ -173,13 +180,14 @@ impl Real {
 
     /// Checks the name at once and registers it for the shown identity in the background (one
     /// more DPNS name, paid from its credits). The answer is `Done { what: "name" }`.
-    pub(super) fn add_name(&self, name: &str) -> Result<(), CoreError> {
+    pub(super) async fn add_name(&self, name: &str) -> Result<(), CoreError> {
         let label = dpns::label(name)?;
         if dpns::is_contested(&label) {
             return Err(CoreError::NotAvailable(
                 tr!("Contested names are decided by a masternode vote, which evolite cannot do yet. Add a digit from 2 to 9 to the name or make it longer than 19 characters").into(),
             ));
         }
+        let needed = self.fees_now(0).await.name_credits_needed();
         let (id, keys) = self.dashpay_ready()?;
         if self.identity_busy.swap(true, Ordering::Relaxed) {
             return Err(CoreError::NotAvailable(
@@ -200,7 +208,7 @@ impl Real {
                 Ok(true) => async {
                     let wallet = chain.wallet(&id).await.ok_or(NOT_LOADED)?;
                     let before = chain.first_identity_credits(&wallet, false).await;
-                    chain.add_name(&wallet, &keys, &label).await?;
+                    chain.add_name(&wallet, &keys, &label, needed).await?;
                     // In the history, with what it cost: the next name is estimated from it.
                     let after = chain.first_identity_credits(&wallet, true).await;
                     journal.add(journal::Entry {
@@ -462,8 +470,10 @@ impl Real {
         // The name and the identity's creation at the fees the form showed (BUG-54).
         // Below Platform's least lock it would be refused and its DASH stay locked: not made
         // (review r1 must; the form says how much at least).
-        let amount = convert::identity_lock(top_up, &self.fees_now(0).await, label.is_some())
-            .ok_or(CoreError::BadAmount)?;
+        let fees = self.fees_now(0).await;
+        let needed = fees.name_credits_needed();
+        let amount =
+            convert::identity_lock(top_up, &fees, label.is_some()).ok_or(CoreError::BadAmount)?;
         let status = self.chain.status();
         if !coins_known(&status, true)
             || status.phase == Phase::Error
@@ -519,7 +529,7 @@ impl Real {
                     // nameless identity would look cut short for ever (R-7, `nameless_slot`).
                     identity::remember_name(&pending, index, label.as_deref())?;
                     chain
-                        .create_identity(&wallet, &keys, index, label.as_deref(), amount)
+                        .create_identity(&wallet, &keys, index, label.as_deref(), amount, needed)
                         .await?;
                     pending.remove(index)?;
                     Ok(index)
@@ -621,7 +631,10 @@ async fn nameless_slot(
 /// A failed top-up or name, in the interface's terms. A top-up that fails after its lock loses
 /// nothing: the snapshot shows it as unfinished and `ResumeTopUp` finishes it.
 pub(super) fn identity_failure(text: String) -> CoreError {
-    if text.to_lowercase().contains("insufficient") {
+    if text.contains(chain::name_credits_unknown_text()) {
+        // BUG-97: said as it is, the name was not started.
+        CoreError::NotAvailable(chain::name_credits_unknown_text().into())
+    } else if text.to_lowercase().contains("insufficient") {
         CoreError::NotEnough
     } else if text == tr!("The wallet has no identity") {
         CoreError::NotAvailable(tr!("Make an identity first").into())

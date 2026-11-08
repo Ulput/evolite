@@ -1410,5 +1410,7 @@
   "“{}” continues from where it stopped last time.": "«{}»은(는) 지난번에 멈춘 곳부터 이어갑니다.",
   "“{}” will be locked: its keys leave memory and its sync stops. “{}” continues from where it stopped last time.": "«{}»은(는) 잠깁니다: 키가 메모리에서 지워지고 동기화가 멈춥니다. «{}»은(는) 지난번에 멈춘 곳부터 이어갑니다.",
   "“{}” · from the address book": "«{}» · 주소록에서",
-  "“ष्टि” and “र्ई” should form ligatures, with vowel signs above and below the letters.": "«ष्टि»와 «र्ई»는 합자가 되어야 하며, 모음 기호가 글자 위아래에 붙어야 합니다."
+  "“ष्टि” and “र्ई” should form ligatures, with vowel signs above and below the letters.": "«ष्टि»와 «र्ई»는 합자가 되어야 하며, 모음 기호가 글자 위아래에 붙어야 합니다.",
+  "Platform wants this much before it writes a name; what the name does not use stays on the identity.": "이름을 쓰기 전에 Platform은 이만큼을 요구합니다. 이름에 쓰이지 않은 금액은 identity에 남습니다.",
+  "The identity's credits are not read yet: nothing is charged until they are": "identity의 크레딧을 아직 읽지 못했습니다. 읽을 때까지 아무것도 청구되지 않습니다"
 }

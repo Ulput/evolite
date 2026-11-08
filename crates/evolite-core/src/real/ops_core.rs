@@ -271,7 +271,9 @@ pub(super) fn core_covers(
 
 /// A failed Core payment or asset lock, in the interface's terms.
 pub(super) fn core_failure(text: String) -> CoreError {
-    if text.to_lowercase().contains("insufficient") {
+    if text.contains(chain::name_credits_unknown_text()) {
+        CoreError::NotAvailable(chain::name_credits_unknown_text().into())
+    } else if text.to_lowercase().contains("insufficient") {
         CoreError::NotEnough
     } else {
         CoreError::Failed(text)

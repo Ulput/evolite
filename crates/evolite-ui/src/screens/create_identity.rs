@@ -850,8 +850,32 @@ fn resume_card(
             );
         }
         let ask = password_asked(cx.snap) && !form.waiting;
+        // BUG-97: the made identity's credits have to carry the name again; only known for
+        // the identity shown, the core refuses the others itself, before anything is sent.
+        let wallet = cx.wallet();
+        let needed = wallet.fees.name_credits_needed();
+        let shown_short = unfinished.locked.is_none()
+            && unfinished.identity.is_some()
+            && wallet.identity.as_ref().map(|i| &i.id) == unfinished.identity.as_ref()
+            && wallet.balances.credits_read
+            && wallet.balances.credits < needed;
+        if shown_short {
+            let has = crate::format::balance(wallet.balances.credits);
+            let text = format!(
+                tr!("Not enough credits for the name: ≈ {} needed, the identity has {}."),
+                dash(needed),
+                has
+            );
+            ui.add(egui::Label::new(txt(&text, 13.0, Weight::Regular, p.muted)).wrap());
+            if let Some(id) = unfinished.identity.as_ref()
+                && button(ui, a, tr!("Top up"), ButtonKind::Secondary, None).clicked()
+            {
+                cx.send(Command::ChooseIdentity { id: id.clone() });
+                cx.top_up();
+            }
+        }
         let entered = form.password.field(ui, &p, "resume-identity-password", ask);
-        let ready = !form.waiting && form.password.ready(ask);
+        let ready = !form.waiting && form.password.ready(ask) && !shown_short;
         let label = if form.waiting { tr!("Continuing…") } else { tr!("Continue") };
         if button_enabled(ui, a, label, ButtonKind::Primary, None, ready).clicked()
             || (entered && ready)

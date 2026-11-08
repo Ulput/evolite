@@ -1440,5 +1440,7 @@
   "“{}” continues from where it stopped last time.": "«{}» продовжить з того місця, де зупинився минулого разу.",
   "“{}” will be locked: its keys leave memory and its sync stops. “{}” continues from where it stopped last time.": "«{}» заблокується: його ключі зникнуть із пам’яті, синхронізація зупиниться. «{}» продовжить з того місця, де зупинився минулого разу.",
   "“{}” · from the address book": "«{}» · з адресної книги",
-  "“ष्टि” and “र्ई” should form ligatures, with vowel signs above and below the letters.": "«ष्टि» і «र्ई» мають скластися в лігатури, а знаки голосних — стати над і під буквами."
+  "“ष्टि” and “र्ई” should form ligatures, with vowel signs above and below the letters.": "«ष्टि» і «र्ई» мають скластися в лігатури, а знаки голосних — стати над і під буквами.",
+  "Platform wants this much before it writes a name; what the name does not use stays on the identity.": "Стільки Platform вимагає перед записом імені; усе, що ім'я не витратить, залишиться на identity.",
+  "The identity's credits are not read yet: nothing is charged until they are": "Кредити identity ще не прочитані: поки їх не знаємо, нічого не списується"
 }

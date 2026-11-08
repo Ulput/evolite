@@ -1410,5 +1410,7 @@
   "“{}” continues from where it stopped last time.": "“{}” melanjutkan dari tempat terakhir berhenti.",
   "“{}” will be locked: its keys leave memory and its sync stops. “{}” continues from where it stopped last time.": "“{}” akan dikunci: kuncinya keluar dari memori, sinkronisasinya berhenti. “{}” melanjutkan dari tempat terakhir berhenti.",
   "“{}” · from the address book": "«{}» · dari buku alamat",
-  "“ष्टि” and “र्ई” should form ligatures, with vowel signs above and below the letters.": "«ष्टि» dan «र्ई» harus membentuk ligatur, dengan tanda vokal di atas dan di bawah huruf."
+  "“ष्टि” and “र्ई” should form ligatures, with vowel signs above and below the letters.": "«ष्टि» dan «र्ई» harus membentuk ligatur, dengan tanda vokal di atas dan di bawah huruf.",
+  "Platform wants this much before it writes a name; what the name does not use stays on the identity.": "Platform meminta sebanyak ini sebelum menulis nama; yang tidak dipakai nama tetap ada di identity.",
+  "The identity's credits are not read yet: nothing is charged until they are": "Kredit identity belum terbaca: tidak ada yang ditagih sampai terbaca"
 }

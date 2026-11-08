@@ -625,6 +625,9 @@ pub(super) fn fee_rate() -> FeeRate {
 /// A contact request on testnet, 2026-11-05: 0.00102028 DASH (manual run M-7), rounded up.
 const CONTACT_REQUEST: Duffs = 105_000;
 /// A regular DPNS name on testnet, 2026-11-05: 0.00057979 DASH (evolite-test-data), rounded up.
+/// What a *later* name costs: a first name on an identity measured about 77 200 and the form
+/// shows [`Fees::name_price`] (BUG-97). What it needs up front is not this: see
+/// [`Fees::name_credits_needed`].
 const NAME_REGULAR: Duffs = 65_000;
 /// What goes on top for an identity with its six keys (BUG-93). The firm number is the live
 /// 222 937 duffs of a creation and a first name together (2026-11-08); the creation alone is
@@ -1017,13 +1020,12 @@ mod tests {
         assert!(lock - (222_937 + 32_318 + 7_500) >= typed, "{lock} locked");
     }
 
-    /// BUG-93, the edge that matters: the least lock accepted for a named identity leaves,
-    /// after the creation as testnet charged it (164 958 duffs, the 222 937 less the 57 979 of a
-    /// name), enough for the name's two steps at their peak — preorder as charged, domain at
-    /// Platform's estimate, no refund counted (`validate_fees_of_event`): at most about 92 700
-    /// (the 63-character name at protocol 14, the review's reckoning).
+    /// BUG-97, the edge that matters: the least lock accepted for a named identity leaves, after
+    /// the creation at its upper estimate (175 000; measured 145 715), enough for the first
+    /// preorder and the domain's peak out of what remains: 165 000. Bare, the domain's peak is
+    /// above the 78 546 Platform refused it at and at most the 117 786 it took it from.
     #[test]
-    fn bug_93_the_least_named_lock_can_pay_for_the_name_after_the_creation() {
+    fn bug_97_the_least_named_lock_can_pay_for_the_name_after_the_creation() {
         let dir = std::env::temp_dir().join(format!("evolite-bug93-min-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let journal = super::super::journal::Journal::new(dir.join("platform-history.json"));
@@ -1038,12 +1040,12 @@ mod tests {
         };
         let least = least_lock(&f, true);
         assert!(
-            least >= 164_958 + 92_700,
+            least >= 175_000 + 165_000,
             "the least lock {least} leaves too little for the name"
         );
-        // A name this data folder paid little for does not lower the bar under the name's peak.
+        // A name this data folder paid little for does not lower the bar.
         f.name_regular = 1_000;
-        assert!(least_lock(&f, true) >= 164_958 + 92_700);
+        assert!(least_lock(&f, true) >= 175_000 + 165_000);
         // Without a name there is nothing to pay after the creation: Platform's own minimum.
         assert!(least_lock(&f, false) >= 241_000);
         let _ = std::fs::remove_dir_all(&dir);

@@ -77,3 +77,62 @@ async fn locking_ends_the_identity_lookup() {
         IdentitySearch::Searching
     );
 }
+
+/// BUG-97: a name's preorder is charged only when the credits can also carry the domain. The
+/// balance is in credits (1000 a duff), what a name needs in duffs.
+#[test]
+fn a_name_is_judged_by_the_credits_and_said_as_the_interface_expects() {
+    const NEED: Duffs = 165_000;
+    let credits = |duffs: u64| Some(duffs * 1000);
+    assert_eq!(chain::name_credits_gate(credits(180_406), NEED), Ok(()));
+    assert_eq!(chain::name_credits_gate(credits(165_000), NEED), Ok(()));
+    let short = chain::name_credits_gate(Some(164_999_999), NEED).unwrap_err();
+    assert_eq!(identity_failure(short.clone()), CoreError::NotEnough);
+    assert_eq!(core_failure(short), CoreError::NotEnough);
+    // The attempts of pass 12 that were charged and refused.
+    assert!(chain::name_credits_gate(credits(95_285), NEED).is_err());
+    assert!(chain::name_credits_gate(credits(102_105), NEED).is_err());
+    // Not read: the same as not enough, nothing is sent, and it says so as it is.
+    let unknown = chain::name_credits_gate(None, NEED).unwrap_err();
+    assert_eq!(unknown, chain::name_credits_unknown_text());
+    let reads = CoreError::NotAvailable(chain::name_credits_unknown_text().into());
+    assert_eq!(identity_failure(unknown.clone()), reads);
+    assert_eq!(core_failure(unknown), reads);
+}
+
+/// BUG-97, the must: nothing is broadcast when the credits cannot finish the name.
+#[tokio::test]
+async fn a_name_the_credits_cannot_finish_is_not_broadcast() {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    let sent = AtomicBool::new(false);
+    let write = || async {
+        sent.store(true, Ordering::Relaxed);
+        Ok::<(), String>(())
+    };
+    let refused = chain::gated_write(Some(102_105_000), 165_000, write());
+    assert!(refused.await.is_err());
+    assert!(!sent.load(Ordering::Relaxed), "a refused name is not sent");
+    let unknown = chain::gated_write(None, 165_000, write());
+    assert!(unknown.await.is_err());
+    assert!(
+        !sent.load(Ordering::Relaxed),
+        "unknown credits are not sent"
+    );
+    let ok = chain::gated_write(Some(165_000_000), 165_000, write());
+    assert!(ok.await.is_ok());
+    assert!(sent.load(Ordering::Relaxed), "enough credits are sent");
+}
+
+/// BUG-97: one way to a DPNS write, the gated one: a new call of the SDK next to it would pay
+/// a preorder without the check.
+#[test]
+fn every_name_goes_through_the_credits_check() {
+    let source = include_str!("../chain.rs");
+    let code = source.split("\n#[cfg(test)]").next().unwrap_or(source);
+    assert_eq!(
+        code.matches("register_name_with_external_signer(").count(),
+        1,
+        "one call of the SDK's name registration, inside `write_name`"
+    );
+    assert_eq!(code.matches("gated_write(").count(), 1, "its one call");
+}

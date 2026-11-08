@@ -1410,5 +1410,7 @@
   "“{}” continues from where it stopped last time.": "“{}”会从上次停下的地方继续。",
   "“{}” will be locked: its keys leave memory and its sync stops. “{}” continues from where it stopped last time.": "“{}”将被锁定：其密钥从内存中清除，同步停止。“{}”会从上次停下的地方继续。",
   "“{}” · from the address book": "“{}” · 来自地址簿",
-  "“ष्टि” and “र्ई” should form ligatures, with vowel signs above and below the letters.": "“ष्टि”和“र्ई”应组成连字，元音符号位于字母上方和下方。"
+  "“ष्टि” and “र्ई” should form ligatures, with vowel signs above and below the letters.": "“ष्टि”和“र्ई”应组成连字，元音符号位于字母上方和下方。",
+  "Platform wants this much before it writes a name; what the name does not use stays on the identity.": "写入名称前 Platform 要求有这么多；名称用不掉的部分仍留在 identity 上。",
+  "The identity's credits are not read yet: nothing is charged until they are": "尚未读取到 identity 的积分：在读取之前不会扣费"
 }

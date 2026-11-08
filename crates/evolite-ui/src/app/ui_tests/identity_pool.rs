@@ -359,7 +359,7 @@ fn a_new_identity_asks_for_at_least_what_platform_takes() {
     let (_turn, mut kit) = demo_app("create-identity", "en");
     let least = format!(
         "At least {} — less may not cover the name's registration",
-        crate::format::amount(40_000)
+        crate::format::amount(75_000)
     );
     // Review r2 should 1: the button too, not only the hint.
     let create_on = |kit: &Kit| {
@@ -404,12 +404,12 @@ fn a_new_identity_asks_for_at_least_what_platform_takes() {
         "0.0001 is too little: the hint, «Create» off"
     );
     assert_eq!(
-        shown(&mut kit, "0.00039"),
+        shown(&mut kit, "0.00074"),
         (true, false),
         "just under the least: the hint, «Create» off"
     );
     assert_eq!(
-        shown(&mut kit, "0.0004"),
+        shown(&mut kit, "0.00075"),
         (false, true),
         "the least is enough: no hint, «Create» on"
     );

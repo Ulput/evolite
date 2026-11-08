@@ -1420,5 +1420,7 @@
   "“{}” continues from where it stopped last time.": "«{}» वहीं से जारी रहेगा जहाँ पिछली बार रुका था।",
   "“{}” will be locked: its keys leave memory and its sync stops. “{}” continues from where it stopped last time.": "«{}» लॉक हो जाएगा: इसकी कुंजियाँ मेमोरी से हटेंगी, सिंक रुकेगा। «{}» वहीं से जारी रहेगा जहाँ पिछली बार रुका था।",
   "“{}” · from the address book": "«{}» · पता पुस्तिका से",
-  "“ष्टि” and “र्ई” should form ligatures, with vowel signs above and below the letters.": "«ष्टि» और «र्ई» संयुक्ताक्षर बनाने चाहिए, मात्राएँ अक्षरों के ऊपर और नीचे।"
+  "“ष्टि” and “र्ई” should form ligatures, with vowel signs above and below the letters.": "«ष्टि» और «र्ई» संयुक्ताक्षर बनाने चाहिए, मात्राएँ अक्षरों के ऊपर और नीचे।",
+  "Platform wants this much before it writes a name; what the name does not use stays on the identity.": "नाम लिखने से पहले Platform इतना माँगता है; नाम जो इस्तेमाल न करे वह identity पर रहता है।",
+  "The identity's credits are not read yet: nothing is charged until they are": "identity के क्रेडिट अभी पढ़े नहीं गए: जब तक नहीं पढ़े जाते, कुछ नहीं कटता"
 }

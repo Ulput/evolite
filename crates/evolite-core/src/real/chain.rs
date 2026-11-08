@@ -360,6 +360,45 @@ pub fn is_taken_with_chain_lock(error: &platform_wallet::PlatformWalletError) ->
     )
 }
 
+/// The answer when a name was not started because the identity's credits could not be read
+/// (BUG-97); the core passes it on as is (`identity_failure`, `core_failure`).
+pub(crate) fn name_credits_unknown_text() -> &'static str {
+    tr!("The identity's credits are not read yet: nothing is charged until they are")
+}
+
+/// Whether a name may start (BUG-97): `needed` duffs ([`evolite_api::Fees::name_credits_needed`])
+/// against `credits`, in credits as Platform keeps them. Unknown credits refuse as well: the
+/// preorder would be charged at the risk of a domain refused. The word "insufficient" makes it
+/// `CoreError::NotEnough`, as the same words from Platform do.
+pub(crate) fn name_credits_gate(
+    credits: Option<u64>,
+    needed: evolite_api::Duffs,
+) -> Result<(), String> {
+    let credits = credits.ok_or(name_credits_unknown_text())?;
+    let needed = u64::try_from(needed)
+        .unwrap_or(u64::MAX)
+        .saturating_mul(1000);
+    if credits < needed {
+        return Err(format!(
+            "insufficient credits for a name: {credits} of {needed}"
+        ));
+    }
+    Ok(())
+}
+
+/// `write`, only after [`name_credits_gate`] allows it: nothing is sent otherwise.
+pub(crate) async fn gated_write<W>(
+    credits: Option<u64>,
+    needed: evolite_api::Duffs,
+    write: W,
+) -> Result<(), String>
+where
+    W: std::future::Future<Output = Result<(), String>>,
+{
+    name_credits_gate(credits, needed)?;
+    write.await
+}
+
 /// The answer to a top-up whose lock Platform already took but that cannot be confirmed yet;
 /// the core passes it on as is (`identity_failure`).
 pub fn awaiting_chain_lock_text() -> &'static str {
@@ -859,6 +898,7 @@ impl Chain {
         index: u32,
         label: Option<&str>,
         amount: u64,
+        needed: evolite_api::Duffs,
     ) -> Result<String, String> {
         let id = self
             .register_identity(
@@ -872,7 +912,8 @@ impl Chain {
             )
             .await?;
         if let Some(label) = label {
-            self.register_name(wallet, keys, index, &id, label).await?;
+            self.register_name(wallet, keys, index, &id, label, (needed, true))
+                .await?;
         }
         Ok(id.to_string(Encoding::Base58))
     }
@@ -944,11 +985,14 @@ impl Chain {
         keys: &key_wallet::Wallet,
         index: u32,
         label: Option<&str>,
+        needed: evolite_api::Duffs,
     ) -> Result<String, String> {
         // Platform may have taken the lock before the run was cut: look first.
         self.discover_every_identity(wallet, keys).await?;
-        let id = match self.unfinished(wallet).await {
-            Some(lock) if lock.identity_index == index => {
+        // Made here and now, so the store's balance is Platform's proved answer; an identity
+        // from an earlier attempt can have spent since: its credits are read or unknown.
+        let (id, just_made) = match self.unfinished(wallet).await {
+            Some(lock) if lock.identity_index == index => (
                 self.register_identity(
                     wallet,
                     keys,
@@ -958,19 +1002,22 @@ impl Chain {
                         consume_invitation_voucher: false,
                     },
                 )
-                .await?
-            }
+                .await?,
+                true,
+            ),
             _ => {
                 let state = wallet.state().await;
-                in_slot(&state.identity_manager, wallet.wallet_id(), index)
+                let id = in_slot(&state.identity_manager, wallet.wallet_id(), index)
                     .map(|m| m.identity.id())
-                    .ok_or(tr!("There is no unfinished identity any more"))?
+                    .ok_or(tr!("There is no unfinished identity any more"))?;
+                (id, false)
             }
         };
         if let Some(label) = label
             && self.nameless(wallet, index).await.is_some()
         {
-            self.register_name(wallet, keys, index, &id, label).await?;
+            self.register_name(wallet, keys, index, &id, label, (needed, just_made))
+                .await?;
         }
         Ok(id.to_string(Encoding::Base58))
     }
@@ -1019,16 +1066,44 @@ impl Chain {
         wallet: &PlatformWallet,
         keys: &key_wallet::Wallet,
         label: &str,
+        needed: evolite_api::Duffs,
     ) -> Result<(), String> {
         let (identity, signer) = Self::first_identity(wallet, keys).await?;
         let id = identity.id();
-        wallet
-            .identity()
-            .register_name_with_external_signer(&id, label, None, &signer)
+        self.write_name(wallet, &id, label, &signer, needed, false)
             .await
-            .map_err(|e| e.to_string())?;
+    }
+
+    /// The one way a DPNS name reaches Platform (BUG-97): the credits are read and judged first,
+    /// and a name they cannot finish is not sent, so nothing is charged. `trust_store`: the
+    /// identity was just made, its balance in the store is the proved result of that, and a
+    /// node that lags cannot refuse it; anywhere else a failed read means credits unknown.
+    async fn write_name(
+        &self,
+        wallet: &PlatformWallet,
+        id: &Identifier,
+        label: &str,
+        signer: &SimpleSigner,
+        needed: evolite_api::Duffs,
+        trust_store: bool,
+    ) -> Result<(), String> {
+        let fresh = wallet.identity().refresh_identity_balance(id).await.ok();
+        let credits = match fresh {
+            Some(credits) => Some(credits),
+            None if trust_store => self.identity_credits(wallet, id, false).await,
+            None => None,
+        };
+        gated_write(credits, needed, async {
+            wallet
+                .identity()
+                .register_name_with_external_signer(id, label, None, signer)
+                .await
+                .map(|_| ())
+                .map_err(|e| e.to_string())
+        })
+        .await?;
         // The name in the store, so the interface shows it at once.
-        let _ = wallet.identity().sync_dpns_names(&id).await;
+        let _ = wallet.identity().sync_dpns_names(id).await;
         Ok(())
     }
 
@@ -1282,12 +1357,11 @@ impl Chain {
         index: u32,
         id: &Identifier,
         label: &str,
+        (needed, trust_store): (evolite_api::Duffs, bool),
     ) -> Result<(), String> {
         let mut signer = SimpleSigner::default();
         signer.add_identity_public_keys(identity::new_identity_keys(keys, index)?);
-        wallet
-            .identity()
-            .register_name_with_external_signer(id, label, None, &signer)
+        self.write_name(wallet, id, label, &signer, needed, trust_store)
             .await
             .map_err(|e| {
                 format!(
@@ -1295,10 +1369,7 @@ impl Chain {
                     label = label,
                     e = e
                 )
-            })?;
-        // The name in the store, so the interface shows it at once.
-        let _ = wallet.identity().sync_dpns_names(id).await;
-        Ok(())
+            })
     }
 
     /// Starts platform-wallet's background sync of Platform address balances (its own thread,
@@ -3068,7 +3139,7 @@ mod tests {
         let index = unfinished.identity_index;
         let started = Instant::now();
         let id = chain
-            .resume_identity(&wallet, &keys, index, Some(&label))
+            .resume_identity(&wallet, &keys, index, Some(&label), 165_000)
             .await
             .expect("resumed");
         println!(

@@ -26,7 +26,7 @@ impl Real {
                     },
                 }
             }
-            Spend::ResumeIdentity => match self.resume_identity() {
+            Spend::ResumeIdentity => match self.resume_identity().await {
                 Ok(()) => return (None, true),
                 Err(e) => Event::Done {
                     what: "identity",
@@ -109,7 +109,7 @@ impl Real {
                     result: Err(e),
                 },
             },
-            Spend::AddName { name } => match self.add_name(&name) {
+            Spend::AddName { name } => match self.add_name(&name).await {
                 Ok(()) => return (None, true),
                 Err(e) => Event::Done {
                     what: "name",

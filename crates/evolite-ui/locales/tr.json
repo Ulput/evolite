@@ -1420,5 +1420,7 @@
   "“{}” continues from where it stopped last time.": "“{}” geçen sefer kaldığı yerden devam eder.",
   "“{}” will be locked: its keys leave memory and its sync stops. “{}” continues from where it stopped last time.": "“{}” kilitlenecek: anahtarları bellekten çıkar, eşitlemesi durur. “{}” geçen sefer kaldığı yerden devam eder.",
   "“{}” · from the address book": "«{}» · adres defterinden",
-  "“ष्टि” and “र्ई” should form ligatures, with vowel signs above and below the letters.": "«ष्टि» ve «र्ई» bitişik harf oluşturmalı, ünlü işaretleri harflerin üstünde ve altında olmalı."
+  "“ष्टि” and “र्ई” should form ligatures, with vowel signs above and below the letters.": "«ष्टि» ve «र्ई» bitişik harf oluşturmalı, ünlü işaretleri harflerin üstünde ve altında olmalı.",
+  "Platform wants this much before it writes a name; what the name does not use stays on the identity.": "Platform, bir ad yazılmadan önce bu kadarını ister; adın kullanmadığı kısım identity'de kalır.",
+  "The identity's credits are not read yet: nothing is charged until they are": "Identity'nin kredileri henüz okunmadı: okunana kadar hiçbir şey kesilmez"
 }
