@@ -40,7 +40,7 @@ pub fn write(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
 
 fn write_whole(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir)?;
+        super::folders::create(dir)?;
     }
     let mut tmp = path.as_os_str().to_owned();
     tmp.push(".tmp");

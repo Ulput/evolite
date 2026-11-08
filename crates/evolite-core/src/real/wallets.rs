@@ -144,7 +144,7 @@ pub fn migrate(data_dir: &Path) -> std::io::Result<()> {
         std::fs::rename(&dir, &moving)?;
     }
     // Steps 2 and 3.
-    std::fs::create_dir_all(&dir)?;
+    super::folders::create(&dir)?;
     let target = dir.join(new_id(data_dir));
     std::fs::rename(&moving, &target)?;
     Ok(())

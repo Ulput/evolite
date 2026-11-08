@@ -107,6 +107,7 @@ pub(super) fn sync_info(s: &SyncStatus, wallet: bool) -> SyncInfo {
         // A checked ChainLock near the tip: the history we show cannot be rewritten.
         chainlocked: s.chainlock_height.is_some_and(|c| tip > 0 && c + 10 >= tip),
         error: s.error.clone(),
+        folder_refused: s.folder_refused.clone(),
         // The core counts the folder itself.
         disk_bytes: None,
         core_node: s.core_node.clone(),

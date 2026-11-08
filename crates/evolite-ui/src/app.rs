@@ -933,6 +933,29 @@ impl eframe::App for App {
                     });
                 });
         }
+        // The wallet's database refused a folder (BUG-94): sync cannot start until the person
+        // changes it, and only the whole sentence says how.
+        if let Some(what_to_do) = &snapshot.sync.folder_refused {
+            Panel::top("folder-refused")
+                .resizable(false)
+                .show_separator_line(false)
+                .frame(
+                    Frame::new()
+                        .fill(p.danger)
+                        .inner_margin(Margin::symmetric(16, 8)),
+                )
+                .show(ui, |ui| {
+                    ui.add(
+                        egui::Label::new(txt(
+                            what_to_do,
+                            13.0,
+                            theme::Weight::SemiBold,
+                            if p.dark { p.bg } else { egui::Color32::WHITE },
+                        ))
+                        .wrap(),
+                    );
+                });
+        }
         // The data folder is another window's: nothing here but why.
         #[cfg(feature = "dev-tools")]
         let elsewhere = snapshot.elsewhere || self.dev.show_elsewhere;

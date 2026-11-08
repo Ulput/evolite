@@ -30,6 +30,7 @@ mod convert;
 mod core_balance;
 mod dashpay;
 mod dispatch;
+mod folders;
 mod hidden_requests;
 mod identity;
 mod journal;

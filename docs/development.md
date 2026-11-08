@@ -80,6 +80,7 @@ Two checks, one per system, each running its commands in this order:
 | | `cargo clippy --workspace --all-targets --locked --features evolite-ui/dev-tools -- -D warnings` |
 | | `cargo test --workspace --locked` |
 | | `cargo test --workspace --locked --features evolite-ui/dev-tools` |
+| | `umask 0002 && cargo test --workspace --locked private_folders` (Linux and macOS: the folders evolite makes pass the check of the wallet's database, BUG-94) |
 | | `cargo check -p evolite-ui --no-default-features --features dev-tools --locked` (in its own `CARGO_TARGET_DIR`: `-p` builds other features of the dependencies) |
 | `windows` | `cargo test --workspace --locked` |
 | | `cargo test --workspace --locked --features evolite-ui/dev-tools` |

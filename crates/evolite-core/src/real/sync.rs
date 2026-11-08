@@ -88,6 +88,8 @@ pub struct SyncStatus {
     /// Overall progress, 0–100.
     pub percent: f64,
     pub error: Option<String>,
+    /// The store refused a folder: what the person has to do ([`super::folders::refused`]).
+    pub folder_refused: Option<String>,
     /// "Own node" this run connects to alone; `None`: nodes from DNS seeds.
     pub core_node: Option<String>,
 }

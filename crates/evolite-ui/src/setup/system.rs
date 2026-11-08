@@ -847,9 +847,8 @@ mod links {
     }
 
     fn write(path: &Path, text: &str) -> Result<(), String> {
-        if let Some(dir) = path.parent() {
-            std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
-        }
+        // `~/.local/share/applications`: what is missing is above the wallet's data too.
+        crate::private_dir::create_above(path).map_err(|e| e.to_string())?;
         std::fs::write(path, text).map_err(|e| format!("{}: {e}", path.display()))?;
         // Desktops start only entries that may be executed.
         std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755))

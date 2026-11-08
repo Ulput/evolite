@@ -453,9 +453,11 @@ pub(super) async fn loaded(
 
 /// The data folder for this process alone: an exclusive lock on `evolite.lock` in it, held
 /// while the returned file lives (the OS lets go if the process dies). `Ok(None)`: another
-/// evolite has it — two writers on one store and one vault would corrupt them.
+/// evolite has it — two writers on one store and one vault would corrupt them. Its folders are
+/// put right here too, once per start (BUG-94).
 pub fn lock_data_dir(data_dir: &std::path::Path) -> std::io::Result<Option<std::fs::File>> {
-    std::fs::create_dir_all(data_dir)?;
+    folders::create(data_dir)?;
+    folders::repair(data_dir);
     let file = std::fs::OpenOptions::new()
         .create(true)
         .truncate(false)

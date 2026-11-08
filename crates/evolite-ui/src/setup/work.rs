@@ -112,6 +112,8 @@ fn run_install(job: &Install, p: &Shared) -> Result<(), String> {
     if system::running(&job.known) || system::in_use(&job.dir.join(plan::APP)) {
         return Err(tr!("evolite is running. Close it and try again.").into());
     }
+    // What is missing above the program folder is above the wallet's data too (`~/.local`).
+    crate::private_dir::create_above(&job.dir).map_err(|e| e.to_string())?;
     std::fs::create_dir_all(&job.dir).map_err(|e| e.to_string())?;
     set(p, |p| p.step = 1);
     let mut source = std::fs::File::open(&job.source).map_err(|e| e.to_string())?;
@@ -155,7 +157,7 @@ fn first_language(known: &Known, language: &str) {
     if settings.exists() {
         return;
     }
-    let _ = std::fs::create_dir_all(&data);
+    let _ = crate::private_dir::create(&data);
     let _ = std::fs::write(settings, format!("{{\n  \"lang\": \"{language}\"\n}}\n"));
 }
 

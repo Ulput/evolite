@@ -334,6 +334,9 @@ pub struct SyncInfo {
     pub chainlocked: bool,
     /// Why sync stopped, when it did.
     pub error: Option<String>,
+    /// The wallet's database refused a folder: what the person has to do, in full. A resync
+    /// would not help; sync starts by itself once the folder is changed.
+    pub folder_refused: Option<String>,
     /// Bytes the wallet's data folder takes on disk (headers, filters, masternode lists, the
     /// store); `None` until counted.
     pub disk_bytes: Option<u64>,

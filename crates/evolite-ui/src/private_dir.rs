@@ -4,8 +4,9 @@
 //! computer could copy the vault and guess its password offline.
 //!
 //! On Windows the folder gets its own protected list, inherited by everything inside: full access
-//! for its owner, SYSTEM and Administrators, nobody else. On Unix the folder is 0700. Only a
-//! folder evolite creates: an existing one keeps the access its owner gave it.
+//! for its owner, SYSTEM and Administrators, nobody else. On Unix the folder and any missing
+//! above it are 0700. Only a folder evolite creates: an existing one keeps the access its owner
+//! gave it (the core takes write access from others at start, BUG-94: the store refuses it).
 
 use std::path::Path;
 
@@ -19,8 +20,27 @@ pub fn create(dir: &Path) -> std::io::Result<()> {
     if dir.is_dir() {
         return Ok(());
     }
-    std::fs::create_dir_all(dir)?;
+    create_above(dir)?;
+    owners_alone().create(dir)?;
     restrict(dir)
+}
+
+/// The folders missing above `path`, not `path` itself: on Unix they are the owner's alone
+/// whatever the umask, since the wallet's database refuses a folder above it that others can
+/// write to (`~/.local` of a new user, made by the installer, BUG-94).
+pub fn create_above(path: &Path) -> std::io::Result<()> {
+    match path.parent() {
+        Some(parent) => owners_alone().create(parent),
+        None => Ok(()),
+    }
+}
+
+fn owners_alone() -> std::fs::DirBuilder {
+    let mut builder = std::fs::DirBuilder::new();
+    builder.recursive(true);
+    #[cfg(unix)]
+    std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
+    builder
 }
 
 #[cfg(unix)]
@@ -175,6 +195,23 @@ mod tests {
             use std::os::unix::fs::PermissionsExt;
             let mode = std::fs::metadata(&inside).unwrap().permissions().mode() & 0o777;
             assert_eq!(mode, 0o700);
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn private_folders_missing_above_are_made_and_not_the_last() {
+        let dir = folder("above");
+        let last = dir.join("share").join("applications");
+        create_above(&last).unwrap();
+        assert!(dir.join("share").is_dir() && !last.exists());
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            for made in [dir.clone(), dir.join("share")] {
+                let mode = std::fs::metadata(&made).unwrap().permissions().mode() & 0o777;
+                assert_eq!(mode, 0o700, "{}", made.display());
+            }
         }
         let _ = std::fs::remove_dir_all(&dir);
     }

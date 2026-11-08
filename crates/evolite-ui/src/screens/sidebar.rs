@@ -129,7 +129,12 @@ pub fn sidebar(
     a.icons
         .sync_mark(if done { 3 } else { 2 }, &p, 28.0)
         .paint_at(ui, mark);
-    let (title, detail) = if done {
+    let (title, detail) = if status.folder_refused.is_some() {
+        (
+            tr!("The sync stopped").to_string(),
+            tr!("a folder needs fixing").to_string(),
+        )
+    } else if done {
         (
             tr!("Synced").to_string(),
             format!(tr!("block {}"), group_thousands(status.tip_height as i64))
@@ -312,6 +317,13 @@ pub(crate) fn rail_mark_now(
 
 /// The two lines of the rail mark's words, and whether the first is a stop's (`danger`).
 fn rail_words(status: &evolite_api::SyncInfo) -> (String, String, bool) {
+    if let Some(what_to_do) = &status.folder_refused {
+        return (
+            tr!("The sync stopped").to_string(),
+            crate::i18n::t(what_to_do).to_string(),
+            true,
+        );
+    }
     if let Some(why) = &status.error {
         return (
             tr!("The sync stopped").to_string(),
@@ -484,6 +496,7 @@ mod tests {
             minutes_left: None,
             chainlocked: false,
             error: None,
+            folder_refused: None,
             disk_bytes: None,
             core_node: None,
             core_node_next: None,

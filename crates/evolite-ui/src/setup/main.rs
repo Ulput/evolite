@@ -41,6 +41,8 @@ mod theme;
 
 mod payload;
 mod plan;
+#[path = "../private_dir.rs"]
+mod private_dir;
 mod system;
 mod ui;
 mod work;

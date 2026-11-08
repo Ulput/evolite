@@ -401,3 +401,31 @@ fn the_rail_status_is_polite_for_a_second_after_a_change() {
     }
     assert!(frames >= 2, "the stop: quiet before its second");
 }
+
+/// BUG-94: a folder the wallet's database refuses is said in full, in the interface's language,
+/// and no resync is offered: it would not help.
+#[test]
+fn a_refused_folder_is_said_in_words() {
+    let text = "Sync cannot start: other users of this computer can write to the folder /home/a. Run chmod go-w '/home/a' in a terminal, and it starts by itself within a minute.";
+    let (_turn, mut kit) = demo_app("overview", "en");
+    system_motion(&mut kit, true);
+    for _ in 0..50 {
+        let sync = &mut kit.state_mut().snapshot.as_mut().expect("a snapshot").sync;
+        sync.error = Some("database ancestor /home/a is group/other-writable".into());
+        sync.folder_refused = Some(text.into());
+        kit.run_steps(1);
+        if rail_status(&kit).starts_with("The sync stopped") {
+            break;
+        }
+    }
+    assert_eq!(rail_status(&kit), format!("The sync stopped · {text}"));
+    assert!(
+        kit.query_by_label(text).is_some(),
+        "the band over the screen"
+    );
+    let ru = crate::i18n::t_in(crate::i18n::Lang::Ru, text);
+    assert!(
+        ru.starts_with("Синхронизация не может начаться") && ru.contains("chmod go-w '/home/a'"),
+        "{ru}"
+    );
+}

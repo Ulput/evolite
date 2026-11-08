@@ -4,6 +4,8 @@ use super::*;
 use crate::network::{hrp_of, platform_address_on};
 
 mod dashpay_tests;
+#[cfg(unix)]
+mod folder_tests;
 mod identity_tests;
 mod notes_tests;
 mod payment_tests;

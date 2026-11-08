@@ -425,15 +425,18 @@ impl Chain {
         .build()
         .map_err(|e| e.to_string())?;
         if let Some(dir) = store.parent() {
-            std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+            super::folders::create(dir).map_err(|e| e.to_string())?;
         }
         // The record and the claims are read in `load_from_persistor` below: before the SPV
         // client starts (BUG-77).
-        let persister = super::store::Store::new(
-            SqlitePersister::open(SqlitePersisterConfig::new(store.to_path_buf()))
-                .map_err(|e| e.to_string())?,
-            store.to_path_buf(),
-        );
+        let opened = SqlitePersister::open(SqlitePersisterConfig::new(store.to_path_buf()));
+        // Kept through the tries to start again, so the words on screen do not blink (BUG-94).
+        self.status
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .folder_refused = opened.as_ref().err().and_then(super::folders::refused);
+        let persister =
+            super::store::Store::new(opened.map_err(|e| e.to_string())?, store.to_path_buf());
         let manager = Arc::new(PlatformWalletManager::new(
             Arc::new(sdk),
             Arc::new(persister),

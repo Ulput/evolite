@@ -84,6 +84,11 @@ jobs:
         run: cargo test --workspace --locked
       - name: tests (dev-tools)
         run: cargo test --workspace --locked --features evolite-ui/dev-tools
+      # The default umask of many Linux desktops: the folders evolite makes must still pass the
+      # check of the wallet's database (BUG-94).
+      - name: tests (umask 0002)
+        if: ${{ !cancelled() }}
+        run: umask 0002 && cargo test --workspace --locked private_folders
       # The demo-only app (no Platform stack) still builds. `-p` turns on other features of the
       # dependencies, so it gets a folder of its own and leaves the cached one alone.
       - name: check (demo only)
@@ -133,6 +138,11 @@ jobs:
         run: cargo test --workspace --locked --no-fail-fast
       - name: tests (dev-tools)
         run: cargo test --workspace --locked --features evolite-ui/dev-tools --no-fail-fast
+      # The default umask of many Linux desktops: the folders evolite makes must still pass the
+      # check of the wallet's database (BUG-94).
+      - name: tests (umask 0002)
+        if: ${{ !cancelled() }}
+        run: umask 0002 && cargo test --workspace --locked private_folders
       # clippy elsewhere does not see the cfg(macos) code.
       - name: clippy (macOS code)
         run: cargo clippy --workspace --all-targets --locked -- -D warnings

@@ -215,7 +215,7 @@ pub fn load(path: &Path) -> Result<Option<VaultFile>, VaultError> {
 pub fn save(path: &Path, file: &VaultFile) -> Result<(), VaultError> {
     let io = |e: std::io::Error| VaultError::Io(e.kind().to_string());
     if let Some(dir) = path.parent() {
-        fs::create_dir_all(dir).map_err(io)?;
+        super::folders::create(dir).map_err(io)?;
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
