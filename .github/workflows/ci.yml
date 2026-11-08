@@ -25,6 +25,7 @@ concurrency:
 
 env:
   PROTOC_VERSION: "32.0"
+  TENDERDASH_VERSION: "v1.8.0"
   CARGO_TERM_COLOR: always
   # CI builds each commit once: incremental state would only fill the cache.
   CARGO_INCREMENTAL: "0"
@@ -45,7 +46,7 @@ jobs:
       - name: protoc ${{ env.PROTOC_VERSION }}
         working-directory: .
         run: |
-          curl -sSfL -o protoc.zip "https://github.com/protocolbuffers/protobuf/releases/download/v${PROTOC_VERSION}/protoc-${PROTOC_VERSION}-linux-x86_64.zip"
+          curl -sSfL --retry 5 --retry-all-errors --retry-delay 15 -o protoc.zip "https://github.com/protocolbuffers/protobuf/releases/download/v${PROTOC_VERSION}/protoc-${PROTOC_VERSION}-linux-x86_64.zip"
           mkdir -p tools/protoc && unzip -q protoc.zip -d tools/protoc
           echo "PROTOC=$GITHUB_WORKSPACE/tools/protoc/bin/protoc" >> "$GITHUB_ENV"
       - name: System libraries
@@ -67,6 +68,14 @@ jobs:
           workspaces: evolite-rust
           shared-key: linux
           save-if: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/master') }}
+      # tenderdash-proto's build script fetches this archive itself, with two attempts and no pause;
+      # GitHub answers runners with errors at times. It takes an archive already in CARGO_TARGET_DIR.
+      - name: tenderdash ${{ env.TENDERDASH_VERSION }} sources
+        working-directory: .
+        run: |
+          mkdir -p evolite-rust/target
+          curl -sSfL --retry 5 --retry-all-errors --retry-delay 15 -o "evolite-rust/target/tenderdash-${TENDERDASH_VERSION}.zip" "https://github.com/dashpay/tenderdash/archive/${TENDERDASH_VERSION}.zip"
+          echo "CARGO_TARGET_DIR=$GITHUB_WORKSPACE/evolite-rust/target" >> "$GITHUB_ENV"
       - name: rustfmt
         run: cargo fmt --all --check
       - name: clippy (dev-tools)
@@ -104,7 +113,7 @@ jobs:
       - name: protoc ${{ env.PROTOC_VERSION }}
         working-directory: .
         run: |
-          curl -sSfL -o protoc.zip "https://github.com/protocolbuffers/protobuf/releases/download/v${PROTOC_VERSION}/protoc-${PROTOC_VERSION}-win64.zip"
+          curl -sSfL --retry 5 --retry-all-errors --retry-delay 15 -o protoc.zip "https://github.com/protocolbuffers/protobuf/releases/download/v${PROTOC_VERSION}/protoc-${PROTOC_VERSION}-win64.zip"
           mkdir -p tools/protoc && unzip -q protoc.zip -d tools/protoc
           echo "PROTOC=$GITHUB_WORKSPACE/tools/protoc/bin/protoc.exe" >> "$GITHUB_ENV"
       - name: Rust
@@ -122,6 +131,14 @@ jobs:
           shared-key: win
           cache-targets: false
           save-if: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/master') }}
+      # tenderdash-proto's build script fetches this archive itself, with two attempts and no pause;
+      # GitHub answers runners with errors at times. It takes an archive already in CARGO_TARGET_DIR.
+      - name: tenderdash ${{ env.TENDERDASH_VERSION }} sources
+        working-directory: .
+        run: |
+          mkdir -p evolite-rust/target
+          curl -sSfL --retry 5 --retry-all-errors --retry-delay 15 -o "evolite-rust/target/tenderdash-${TENDERDASH_VERSION}.zip" "https://github.com/dashpay/tenderdash/archive/${TENDERDASH_VERSION}.zip"
+          echo "CARGO_TARGET_DIR=$GITHUB_WORKSPACE/evolite-rust/target" >> "$GITHUB_ENV"
       - name: tests (default features)
         run: cargo test --workspace --locked
       - name: tests (dev-tools)

@@ -13,6 +13,7 @@ on:
 
 env:
   PROTOC_VERSION: "32.0"
+  TENDERDASH_VERSION: "v1.8.0"
   CARGO_TERM_COLOR: always
 
 jobs:
@@ -64,7 +65,7 @@ jobs:
           path: evolite-rust
       - name: protoc ${{ env.PROTOC_VERSION }}
         run: |
-          curl -sSfL -o protoc.zip "https://github.com/protocolbuffers/protobuf/releases/download/v${PROTOC_VERSION}/protoc-${PROTOC_VERSION}-${{ matrix.protoc }}.zip"
+          curl -sSfL --retry 5 --retry-all-errors --retry-delay 15 -o protoc.zip "https://github.com/protocolbuffers/protobuf/releases/download/v${PROTOC_VERSION}/protoc-${PROTOC_VERSION}-${{ matrix.protoc }}.zip"
           mkdir -p tools/protoc && unzip -q protoc.zip -d tools/protoc
           exe=protoc; [ "$RUNNER_OS" = Windows ] && exe=protoc.exe
           echo "PROTOC=$GITHUB_WORKSPACE/tools/protoc/bin/$exe" >> "$GITHUB_ENV"
@@ -84,6 +85,14 @@ jobs:
           rustup target add ${{ matrix.target }}
           rustc --version
 
+      # tenderdash-proto's build script fetches this archive itself, with two attempts and no pause;
+      # GitHub answers runners with errors at times. It takes an archive already in CARGO_TARGET_DIR.
+      - name: tenderdash ${{ env.TENDERDASH_VERSION }} sources
+        working-directory: .
+        run: |
+          mkdir -p evolite-rust/target
+          curl -sSfL --retry 5 --retry-all-errors --retry-delay 15 -o "evolite-rust/target/tenderdash-${TENDERDASH_VERSION}.zip" "https://github.com/dashpay/tenderdash/archive/${TENDERDASH_VERSION}.zip"
+          echo "CARGO_TARGET_DIR=$GITHUB_WORKSPACE/evolite-rust/target" >> "$GITHUB_ENV"
       - name: Build
         working-directory: evolite-rust
         run: cargo build --release --target ${{ matrix.target }} --bin evolite --bin evolite-renderer --bin evolite-setup
