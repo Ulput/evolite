@@ -239,6 +239,19 @@ fn run_remove(job: &Remove, p: &Shared) -> Result<(), String> {
 mod tests {
     use super::*;
 
+    /// A new process holds a copy of this process's open files until its `exec` closes them, and
+    /// a file lock lasts while any copy is open (BUG-98: about 45 ms on macOS's CI). Every test
+    /// in this binary that starts a process takes this, and so does the test of the lock, so
+    /// that none starts while the lock is tested.
+    static PROCESS_STARTS: Mutex<()> = Mutex::new(());
+
+    /// A test that failed holding it says nothing about the others.
+    fn no_process_starts() -> std::sync::MutexGuard<'static, ()> {
+        PROCESS_STARTS
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
     fn temp_known(root: &Path) -> Known {
         Known {
             local: root.join("Local"),
@@ -380,6 +393,7 @@ mod tests {
     /// removed then.
     #[test]
     fn a_running_evolite_is_seen_by_its_lock() {
+        let _no_starts = no_process_starts();
         let root = std::env::temp_dir().join(format!("evolite-setup-lock-{}", std::process::id()));
         let known = temp_known(&root);
         assert!(!system::running(&known), "no data folder yet");
@@ -511,6 +525,8 @@ mod tests {
     /// What «Close evolite» does to a process that does not end by itself.
     #[test]
     fn a_hung_process_is_ended() {
+        // For the whole test: on macOS `end_process` starts `ps` as well.
+        let _no_starts = no_process_starts();
         let mut child = if cfg!(windows) {
             std::process::Command::new("ping")
                 .args(["-n", "60", "127.0.0.1"])
