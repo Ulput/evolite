@@ -40,6 +40,37 @@ pub(crate) fn dash() -> key_wallet::Network {
     }
 }
 
+/// The start of this network's Platform and private (Orchard) addresses: `tdash1` on testnet,
+/// `dash1` on mainnet.
+#[cfg(feature = "real")]
+pub(crate) fn platform_hrp() -> &'static str {
+    hrp_of(current())
+}
+
+#[cfg(feature = "real")]
+pub(crate) fn hrp_of(network: Network) -> &'static str {
+    match network {
+        Network::Testnet => "tdash1",
+        Network::Mainnet => "dash1",
+    }
+}
+
+/// Whether `to` is a Platform address of this run's network: the same key's address on the
+/// other network would take the credits somewhere the person did not mean, and this network's
+/// own addresses must work.
+#[cfg(feature = "real")]
+pub(crate) fn platform_address_here(to: &str) -> bool {
+    platform_address_on(to, current())
+}
+
+#[cfg(feature = "real")]
+pub(crate) fn platform_address_on(to: &str, network: Network) -> bool {
+    matches!(
+        dpp::address_funds::PlatformAddress::is_mainnet_bech32m(to),
+        Ok(mainnet) if mainnet == (network == Network::Mainnet)
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
