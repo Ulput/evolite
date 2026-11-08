@@ -1173,6 +1173,10 @@ pub enum Command {
     /// Look for the phrase's identities on Platform again, now. The answer is in
     /// [`Wallet::identity_search`].
     FindIdentities,
+    /// Ask Platform for the shown identity's NFTs again, now, not at the next refresh
+    /// (Collection's «Try again» after a failed load). The answer is in [`Wallet::nfts`] and
+    /// [`Wallet::nfts_status`].
+    RefreshNfts,
     /// Act as this identity (base58) from now on: the Identity screen, credits, contacts,
     /// profile, top-ups and names follow it.
     ChooseIdentity {

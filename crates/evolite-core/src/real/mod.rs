@@ -4516,6 +4516,11 @@ impl Real {
                     result,
                 }
             }
+            // Asked with the next snapshot (`shown_nfts`), as a due refresh is.
+            Command::RefreshNfts => {
+                self.nfts.ask_now();
+                return (None, true);
+            }
             Command::FindIdentities => {
                 self.discover_identities();
                 return (None, true);
@@ -7269,5 +7274,26 @@ mod tests {
             core_covers(&info, 10_100_000),
             Err(CoreError::NotEnough)
         ));
+    }
+
+    /// CS-1a r2 must 1: «Try again» reaches the NFT ask through the core. After a failed
+    /// ask `RefreshNfts` makes the next snapshot ask at once, not after `REFRESH`, and asks
+    /// for a new snapshot to do it.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn refresh_nfts_asks_at_once_after_a_failed_ask() {
+        let mut core = core_at(&fresh_dir("refresh-nfts"), TEST_WALLET);
+        let owner = "owner";
+        assert!(core.nfts.due(owner), "the first ask");
+        core.nfts.found(owner, "@o", Err("timeout".into()));
+        assert!(
+            !core.nfts.due(owner),
+            "on its own, the next ask waits for REFRESH"
+        );
+        let (event, snapshot) = core.handle(Command::RefreshNfts).await;
+        assert!(
+            event.is_none() && snapshot,
+            "no answer of its own: a new snapshot"
+        );
+        assert!(core.nfts.due(owner), "asked again at once");
     }
 }

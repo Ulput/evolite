@@ -237,6 +237,13 @@ impl Mock {
             },
             // The demo identity is always found.
             Command::FindIdentities => return changed,
+            // The demo's NFTs are always there: asked again, the list is as good as new.
+            Command::RefreshNfts => {
+                if let Some(wallet) = &mut self.snapshot.wallet {
+                    wallet.nfts_status = NftsStatus::Ready;
+                }
+                return true;
+            }
             // The demo has one identity behind both choices.
             Command::ChooseIdentity { .. } => return changed,
             // Another demo wallet goes from the list by its own password (R-28); the open one

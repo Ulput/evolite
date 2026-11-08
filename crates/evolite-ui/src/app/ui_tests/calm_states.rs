@@ -109,3 +109,54 @@ fn the_pool_waiting_to_connect_shows_a_dash_not_a_zero() {
         |k| has_text(k, &amount),
     );
 }
+
+/// CS-1a: «Try again» under a list that did not refresh asks the core now; the demo core's
+/// answer is the list as good as new, and the line goes. The failure is put on the snapshot the
+/// app shows once (the demo core sends a new one only when something changed).
+#[test]
+fn try_again_asks_for_the_nfts_now() {
+    let (_turn, mut kit) = demo_app("collection", "ru");
+    let failed = |s: &mut Snapshot| wallet(s).nfts_status = NftsStatus::Failed("timeout".into());
+    shown_with(&mut kit, failed, "the line and its button", |k| {
+        shows(k, "Сохранённые NFT на месте.")
+    });
+    kit.get_by_role_and_label(Role::Button, "Попробовать снова")
+        .click();
+    wait_for(&mut kit, "the refreshed list", |k| {
+        !shows(k, "Сохранённые NFT на месте.")
+    });
+    assert_eq!(
+        kit.state()
+            .snapshot
+            .as_ref()
+            .and_then(|s| s.wallet.as_ref())
+            .map(|w| &w.nfts_status),
+        Some(&NftsStatus::Ready)
+    );
+}
+
+/// CS-1a r2 should 1: an empty list after a failed load has «Try again» in its card; it asks
+/// the core now, and the demo core's answer is the list. The failure is put on the snapshot the
+/// app shows until seen (the demo core sends a new one only when something changed).
+#[test]
+fn try_again_on_an_empty_list_asks_for_the_nfts_now() {
+    let (_turn, mut kit) = demo_app("collection", "ru");
+    let failed = |s: &mut Snapshot| {
+        let w = wallet(s);
+        w.nfts.clear();
+        w.nfts_status = NftsStatus::Failed("timeout".into());
+    };
+    shown_with(&mut kit, failed, "the empty card and its button", |k| {
+        has_text(k, "Не удалось загрузить NFT")
+    });
+    kit.get_by_role_and_label(Role::Button, "Попробовать снова")
+        .click();
+    wait_for(&mut kit, "the list again", |k| {
+        !has_text(k, "Не удалось загрузить NFT")
+            && k.state()
+                .snapshot
+                .as_ref()
+                .and_then(|s| s.wallet.as_ref())
+                .is_some_and(|w| !w.nfts.is_empty() && w.nfts_status == NftsStatus::Ready)
+    });
+}

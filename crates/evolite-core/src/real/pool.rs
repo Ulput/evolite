@@ -133,6 +133,26 @@ mod imp {
     /// History rows read for the screen.
     const SHOWN_OPERATIONS: usize = 50;
 
+    /// The account's spendable credits by the store's ledger, and when the pool was read: the
+    /// time of the last pass only while the ledger is ready (BUG-84). platform-wallet stamps a
+    /// pass that failed too, and a ledger not ready reads as 0 — that 0 is not known, so no
+    /// time, and the screens say «not known yet».
+    pub(super) fn read_ledger(
+        state: Option<&ShieldedLocalBalanceState>,
+        last_pass: Option<u64>,
+    ) -> (u64, Option<i64>) {
+        match state {
+            Some(ShieldedLocalBalanceState::Ready(snapshot)) => (
+                snapshot
+                    .accounts
+                    .get(&ACCOUNT)
+                    .map_or(0, |a| a.spendable_credits),
+                last_pass.map(|s| s as i64),
+            ),
+            _ => (0, None),
+        }
+    }
+
     /// The Core fee rate of a withdrawal from the pool, duffs a byte (the network minimum).
     const CORE_FEE_PER_BYTE: u32 = 1;
 
@@ -183,13 +203,11 @@ mod imp {
             let address = dpp::address_funds::OrchardAddress::from_raw_bytes(&raw)
                 .ok()?
                 .to_bech32m_string(crate::network::dash());
-            let credits = match coordinator.local_balance_snapshot(wallet.wallet_id()).await {
-                Ok(ShieldedLocalBalanceState::Ready(snapshot)) => snapshot
-                    .accounts
-                    .get(&ACCOUNT)
-                    .map_or(0, |a| a.spendable_credits),
-                _ => 0,
-            };
+            let state = coordinator.local_balance_snapshot(wallet.wallet_id()).await;
+            let (credits, checked_at) = read_ledger(
+                state.as_ref().ok(),
+                manager.shielded_sync().last_sync_unix_seconds(),
+            );
             let id = SubwalletId::new(wallet.wallet_id(), ACCOUNT);
             let (notes, entries) = match coordinator.store().try_read() {
                 Ok(store) => (
@@ -204,10 +222,7 @@ mod imp {
                 credits,
                 notes,
                 address,
-                checked_at: manager
-                    .shielded_sync()
-                    .last_sync_unix_seconds()
-                    .map(|s| s as i64),
+                checked_at,
                 operations: operations(entries),
             })
         }
@@ -752,6 +767,49 @@ pub fn set_fees(_: &mut evolite_api::Fees, _: &dpp::version::PlatformVersion) {}
 #[cfg(all(test, feature = "pool"))]
 mod tests {
     use super::*;
+
+    /// BUG-84: a pass stamped after it failed does not make a ledger that is not ready a read
+    /// 0; a ready one — an empty pool too — is read at the pass's time.
+    #[test]
+    fn the_pool_is_read_only_when_its_ledger_is_ready() {
+        use platform_wallet::wallet::shielded::{
+            ShieldedLocalAccountBalance, ShieldedLocalBalanceSnapshot, ShieldedLocalBalanceState,
+        };
+        let stamp = Some(1_793_000_000);
+        for state in [
+            None,
+            Some(ShieldedLocalBalanceState::Unbound),
+            Some(ShieldedLocalBalanceState::RestoreIncomplete),
+        ] {
+            assert_eq!(
+                imp::read_ledger(state.as_ref(), stamp),
+                (0, None),
+                "{state:?}"
+            );
+        }
+        let ready = |credits| {
+            let mut snapshot = ShieldedLocalBalanceSnapshot::default();
+            snapshot.accounts.insert(
+                ACCOUNT,
+                ShieldedLocalAccountBalance {
+                    spendable_credits: credits,
+                    last_scanned_index: Some(0),
+                    ..Default::default()
+                },
+            );
+            ShieldedLocalBalanceState::Ready(snapshot)
+        };
+        assert_eq!(
+            imp::read_ledger(Some(&ready(0)), stamp),
+            (0, Some(1_793_000_000))
+        );
+        assert_eq!(
+            imp::read_ledger(Some(&ready(250_000)), stamp),
+            (250_000, Some(1_793_000_000))
+        );
+        // Ready before the first pass of this run (restored): the amount, no time yet.
+        assert_eq!(imp::read_ledger(Some(&ready(7)), None), (7, None));
+    }
 
     /// What testnet charged on 2026-10-31 (protocol 15): an unshield of 0.005 DASH took
     /// 120 223 duffs, a withdrawal to Core 226 480 — the formulas give the same.

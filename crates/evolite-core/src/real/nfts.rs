@@ -181,6 +181,19 @@ impl Nfts {
         due
     }
 
+    /// «Try again»: the next [`Self::due`] asks at once, unless an ask runs now. A list that
+    /// failed and has nothing saved shows as loading again until the answer.
+    pub fn ask_now(&self) {
+        let mut state = self.state();
+        if state.running {
+            return;
+        }
+        state.asked = None;
+        if state.nfts.is_empty() && matches!(state.status, NftsStatus::Failed(_)) {
+            state.status = NftsStatus::Loading;
+        }
+    }
+
     /// The models already read, so an ask fetches only new ones.
     pub fn known_models(&self) -> Vec<String> {
         self.state().models.keys().cloned().collect()
@@ -260,6 +273,34 @@ mod tests {
             NftsStatus::Failed(no_answer().into())
         );
         assert!(!nfts.due(owner));
+    }
+
+    /// CS-1a: «Try again» asks at once, not after REFRESH; never a second ask beside a running
+    /// one; a failed list with nothing saved shows as loading until the answer.
+    #[test]
+    fn try_again_asks_at_once_and_only_once() {
+        let nfts = Nfts::default();
+        let owner = "owner";
+        assert!(nfts.due(owner));
+        nfts.ask_now();
+        assert!(!nfts.due(owner), "an ask runs: none beside it");
+        nfts.found(owner, "@o", Err(no_answer().into()));
+        assert!(!nfts.due(owner), "the next one after REFRESH");
+        nfts.ask_now();
+        assert_eq!(nfts.shown(Some(owner)).1, NftsStatus::Loading);
+        assert!(nfts.due(owner), "asked again now");
+        assert!(!nfts.due(owner), "once");
+        // A saved list stays and says it failed until the answer.
+        nfts.found(owner, "@o", Ok((vec![gift(None)], vec![model(b"<svg/>")])));
+        assert_eq!(nfts.shown(Some(owner)).0.len(), 1);
+        nfts.state().running = false;
+        nfts.state().status = NftsStatus::Failed("timeout".into());
+        nfts.ask_now();
+        assert_eq!(
+            nfts.shown(Some(owner)).1,
+            NftsStatus::Failed("timeout".into())
+        );
+        assert!(nfts.due(owner));
     }
 
     fn model(svg: &[u8]) -> ModelDoc {

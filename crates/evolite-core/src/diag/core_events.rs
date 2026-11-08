@@ -28,6 +28,7 @@ pub fn command(command: &Command) -> Record {
         Command::HideRequest { .. } => "hide_request",
         Command::PreviewPayment { .. } => "preview_payment",
         Command::FindIdentities => "find_identities",
+        Command::RefreshNfts => "refresh_nfts",
         Command::ChooseIdentity { .. } => "choose_identity",
         Command::DeleteWallet { .. } => "delete_wallet",
         Command::AskPhraseCheck { .. } => "ask_phrase_check",

@@ -129,7 +129,9 @@ pub fn collection(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut Collect
     #[cfg(not(demo_core))]
     page_header(ui, a, tr!("Collection"), count.as_deref(), |_, _| {});
     if nfts.is_empty() {
-        empty(ui, a, &wallet.nfts_status);
+        if empty(ui, a, &wallet.nfts_status) {
+            cx.send(Command::RefreshNfts);
+        }
         return;
     }
     ui.horizontal(|ui| {
@@ -141,7 +143,7 @@ pub fn collection(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut Collect
         }
     });
     // The saved list is still here and the core asks again by itself: not an error (calm
-    // states CS-1).
+    // states CS-1); «Try again» asks now (CS-1a).
     if let NftsStatus::Failed(why) = &wallet.nfts_status {
         crate::components::notice(
             ui,
@@ -155,6 +157,9 @@ pub fn collection(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut Collect
                 why
             ),
         );
+        if button(ui, a, tr!("Try again"), ButtonKind::Secondary, None).clicked() {
+            cx.send(Command::RefreshNfts);
+        }
     }
 
     let shown: Vec<usize> = (0..nfts.len())
@@ -265,8 +270,10 @@ fn edition(nft: &Nft) -> String {
     }
 }
 
-/// No NFTs: why, as the core says, instead of an empty grid.
-fn empty(ui: &mut Ui, a: &mut Assets, status: &NftsStatus) {
+/// No NFTs: why, as the core says, instead of an empty grid. After a failed load, «Try again»;
+/// `true` when it was clicked (CS-1a).
+fn empty(ui: &mut Ui, a: &mut Assets, status: &NftsStatus) -> bool {
+    let mut again = false;
     let p = a.p;
     let (title, detail) = match status {
         NftsStatus::Loading => (tr!("Loading NFTs from Dash Platform…"), String::new()),
@@ -290,8 +297,12 @@ fn empty(ui: &mut Ui, a: &mut Assets, status: &NftsStatus) {
             if !detail.is_empty() {
                 ui.add(egui::Label::new(txt(&detail, 13.0, Weight::Regular, p.muted)).wrap());
             }
+            if matches!(status, NftsStatus::Failed(_)) {
+                again = button(ui, a, tr!("Try again"), ButtonKind::Secondary, None).clicked();
+            }
         });
     });
+    again
 }
 
 /// A tile: art (square), name 15 SemiBold, edition and origin. Selected — 1.5 px ink border.
