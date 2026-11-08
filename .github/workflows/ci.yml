@@ -91,6 +91,52 @@ jobs:
           CARGO_TARGET_DIR: ${{ github.workspace }}/target-demo
         run: cargo check -p evolite-ui --no-default-features --features dev-tools --locked
 
+  macos:
+    name: macos
+    # Apple silicon, as the release build in build.yml.
+    runs-on: macos-15
+    defaults:
+      run:
+        shell: bash
+        working-directory: evolite-rust
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          path: evolite-rust
+          persist-credentials: false
+      - name: protoc ${{ env.PROTOC_VERSION }}
+        working-directory: .
+        run: |
+          curl -sSfL --retry 5 --retry-all-errors --retry-delay 15 -o protoc.zip "https://github.com/protocolbuffers/protobuf/releases/download/v${PROTOC_VERSION}/protoc-${PROTOC_VERSION}-osx-aarch_64.zip"
+          mkdir -p tools/protoc && unzip -q protoc.zip -d tools/protoc
+          echo "PROTOC=$GITHUB_WORKSPACE/tools/protoc/bin/protoc" >> "$GITHUB_ENV"
+      - name: Rust
+        run: |
+          rustup --version
+          rustup toolchain install
+          rustc --version
+          cargo clippy --version
+      # Registry and git only, as on Windows: the repository's cache is 10 GB for all jobs.
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          workspaces: evolite-rust
+          shared-key: macos
+          cache-targets: false
+          save-if: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/master') }}
+      - name: tenderdash ${{ env.TENDERDASH_VERSION }} sources
+        working-directory: .
+        run: |
+          mkdir -p evolite-rust/target
+          curl -sSfL --retry 5 --retry-all-errors --retry-delay 15 -o "evolite-rust/target/tenderdash-${TENDERDASH_VERSION}.zip" "https://github.com/dashpay/tenderdash/archive/${TENDERDASH_VERSION}.zip"
+          echo "CARGO_TARGET_DIR=$GITHUB_WORKSPACE/evolite-rust/target" >> "$GITHUB_ENV"
+      - name: tests (default features)
+        run: cargo test --workspace --locked
+      - name: tests (dev-tools)
+        run: cargo test --workspace --locked --features evolite-ui/dev-tools
+      # clippy elsewhere does not see the cfg(macos) code.
+      - name: clippy (macOS code)
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+
   windows:
     name: windows
     runs-on: windows-latest
