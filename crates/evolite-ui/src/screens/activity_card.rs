@@ -27,7 +27,11 @@ pub fn card_window(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx) {
             cx.send(command);
         }
         if closed {
-            ui.data_mut(|d| d.remove::<u64>(card_id()));
+            ui.data_mut(|d| {
+                d.remove::<u64>(card_id());
+                d.remove::<u64>(all_sides_id());
+                d.remove::<u64>(body_of_id());
+            });
             // A note half edited goes with its card.
             forget_note(ui.ctx());
         }
@@ -47,6 +51,12 @@ pub fn card_window(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx) {
 /// Where the open card's operation is kept between frames.
 fn card_id() -> egui::Id {
     egui::Id::new("activity-card")
+}
+
+/// The operation whose card was asked to list all its addresses («Show all», BUG-90); only
+/// that card, and only while it stays open.
+fn all_sides_id() -> egui::Id {
+    card_id().with("all-sides")
 }
 
 /// Opens the card of operation `id` (a row clicked; `--screen activity-card`).
@@ -266,7 +276,7 @@ fn note_block(ui: &mut Ui, a: &mut Assets, act: &Activity) -> Option<Command> {
             })
             .inner;
         // Opened: the focus in the field, the cursor after the last character.
-        if !edit.placed {
+        if !edit.placed && !ui.is_sizing_pass() {
             edit.placed = true;
             ui.memory_mut(|m| m.request_focus(id));
             if let Some(mut state) = egui::TextEdit::load_state(ui.ctx(), id) {
@@ -563,12 +573,19 @@ fn sides(act: &Activity, detail: &Detail, book: &[SavedAddress]) -> (Vec<Side>, 
     }
 }
 
+/// The label column of the «From → To» panel, and the gap after it.
+const SIDE_LABEL: f32 = 64.0;
+const SIDE_GAP: f32 = 12.0;
+
+/// A side of more addresses than this is one line of how many, its addresses behind «Show
+/// all» (BUG-90: 25 inputs took the card past the window).
+const SIDE_ROWS: usize = 3;
+
 /// One line of the «From → To» panel, painted and named «label: value · line» for a screen
 /// reader (BUG-41); `label` only on a side's first line. The value wraps beside the label.
 fn side_row(ui: &mut Ui, p: &crate::theme::Palette, label: &str, side: &Side) {
-    const LABEL: f32 = 64.0;
     let width = ui.available_width();
-    let wrap = (width - LABEL - 12.0).max(40.0);
+    let wrap = (width - SIDE_LABEL - SIDE_GAP).max(40.0);
     let font = if side.mono {
         mono(13.0, Weight::Medium)
     } else {
@@ -612,12 +629,35 @@ fn side_row(ui: &mut Ui, p: &crate::theme::Palette, label: &str, side: &Side) {
             p.muted,
         );
     }
-    let x = rect.left() + LABEL + 12.0;
+    let x = rect.left() + SIDE_LABEL + SIDE_GAP;
     let sub_y = rect.top() + value.size().y + 2.0;
     painter.galley(egui::pos2(x, rect.top()), value, p.text);
     if let Some(sub) = sub {
         painter.galley(egui::pos2(x, sub_y), sub, p.muted);
     }
+}
+
+/// The one line that stands for a side too long to list (BUG-90): the wallet's inputs and
+/// its addresses, in the words of a payment's «Core · this wallet · N inputs».
+fn side_summaries(detail: &Detail, to: &[Side]) -> [Side; 2] {
+    let line = |sub: String| Side {
+        value: tr!("Core · this wallet").into(),
+        mono: false,
+        sub: Some(sub),
+    };
+    let addresses = to
+        .iter()
+        .map(|s| &s.value)
+        .collect::<std::collections::HashSet<_>>()
+        .len() as u32;
+    [
+        line(text::plural(
+            detail.own_from.len() as u32,
+            tr!("input"),
+            tr!("inputs"),
+        )),
+        line(text::plural(addresses, tr!("address"), tr!("addresses"))),
+    ]
 }
 
 /// The Core card's body under the amount (FEAT-0005a, mockups 01, 02): what a transfer between
@@ -661,10 +701,28 @@ fn core_body(
             .show(ui, |ui| {
                 ui.set_width(ui.available_width());
                 ui.spacing_mut().item_spacing.y = 8.0;
-                for (label, side) in [(tr!("From"), &from), (tr!("To"), &to)] {
+                let all = ui.data(|d| d.get_temp::<u64>(all_sides_id())) == Some(act.id);
+                let [from_line, to_line] = side_summaries(detail, &to);
+                let mut held_back = false;
+                for (label, side, line) in
+                    [(tr!("From"), &from, from_line), (tr!("To"), &to, to_line)]
+                {
+                    if !all && side.len() > SIDE_ROWS {
+                        held_back = true;
+                        side_row(ui, &p, label, &line);
+                        continue;
+                    }
                     for (i, s) in side.iter().enumerate() {
                         side_row(ui, &p, if i == 0 { label } else { "" }, s);
                     }
+                }
+                if held_back {
+                    ui.horizontal(|ui| {
+                        ui.add_space(SIDE_LABEL + SIDE_GAP);
+                        if text_action(ui, a, "chevron-down", tr!("Show all")).clicked() {
+                            ui.data_mut(|d| d.insert_temp(all_sides_id(), act.id));
+                        }
+                    });
                 }
             });
     }
@@ -766,6 +824,60 @@ fn mono_block(
     });
 }
 
+/// The height of the card's row of buttons, measured last frame.
+fn footer_id() -> egui::Id {
+    card_id().with("footer")
+}
+
+/// The operation the card's scrolled part last showed: another one, or a new opening, starts at
+/// the top.
+fn body_of_id() -> egui::Id {
+    card_id().with("body-of")
+}
+
+/// The widget that had the focus when the card's scrolled part was last drawn.
+fn focus_seen_id() -> egui::Id {
+    card_id().with("focus-seen")
+}
+
+/// The most the card's scrolled part can take: the window less the dialog's margins, the header
+/// drawn above it and the buttons under it. `footer` already has the gap between the two.
+fn body_room(ui: &Ui) -> f32 {
+    // From the edges of the window. A card that fits must not scroll: the ordinary one at
+    // 1024×768 stands 14 from them in English, 5 in ru, uk, es, fr and pt-BR.
+    const MARGIN: f32 = 4.0;
+    const PADDING: f32 = 50.0; // the dialog's 24 above and below, and its stroke
+    const FIRST_FRAME_FOOTER: f32 = 56.0;
+    const AT_LEAST: f32 = 96.0;
+    let footer = ui
+        .data(|d| d.get_temp::<f32>(footer_id()))
+        .unwrap_or(FIRST_FRAME_FOOTER);
+    let above = ui.cursor().top() - ui.min_rect().top();
+    let window = ui.ctx().content_rect().height();
+    (window - 2.0 * MARGIN - PADDING - above - footer).max(AT_LEAST)
+}
+
+/// Brings into the visible part what the focus has just come to, so that Tab never lands on a
+/// button below the fold and Enter never presses it blind. Called at the end of the scrolled
+/// part; only a widget cut by its clip moves it, which the header's cross and the row of buttons
+/// never are. Only on a change of focus, so the wheel can still leave a focused widget behind.
+fn follow_focus(ui: &Ui) {
+    const AIR: f32 = 12.0; // the note field's frame comes into view with it
+    let focus = ui.memory(|m| m.focused());
+    let seen = ui
+        .data(|d| d.get_temp::<Option<egui::Id>>(focus_seen_id()))
+        .flatten();
+    if focus == seen {
+        return;
+    }
+    ui.data_mut(|d| d.insert_temp(focus_seen_id(), focus));
+    if let Some(widget) = focus.and_then(|id| ui.ctx().read_response(id))
+        && widget.interact_rect != widget.rect
+    {
+        ui.scroll_to_rect(widget.rect.expand(AIR), None);
+    }
+}
+
 /// What the card asks for: closed, the payment to make again, the screen to go to, the note
 /// to write (FEAT-0003).
 type CardAnswer = (
@@ -836,145 +948,179 @@ fn card(
         },
         |ui, a| {
             let p = a.p;
-            ui.horizontal(|ui| {
-                crate::components::amount_label(
-                    ui,
-                    &text::signed_amount(act.amount),
-                    mono(28.0, Weight::Medium),
-                    p.text,
-                );
-                // The app's one «Hide amounts», as an icon right after the sum (BUG-73): a
-                // click hides the list under the card too.
-                ui.add_space(8.0 - ui.spacing().item_spacing.x);
-                crate::components::amount_toggle(ui, a, true);
-                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    status_chip(ui, a, act.proof);
-                });
-            });
-            // Mono is for amounts, addresses and hashes; the date and the chain are words.
-            let words = sans(13.0, Weight::Medium);
-            let value = mono(13.0, Weight::Medium);
-            if let Some(detail) = core_detail(act) {
-                // FEAT-0005a (mockups 01, 02): from where to where, the parts of the amount,
-                // when, and what proved it in words. The chain is in the header and the block
-                // in the proof's line.
-                core_body(ui, a, act, detail, now, book);
-            } else {
-                kv_row(
-                    ui,
-                    &p,
-                    tr!("When"),
-                    &text::date_time(act.at, now),
-                    words.clone(),
-                );
-                kv_row(ui, &p, tr!("Where"), text::chain(act.chain), words.clone());
-                if let Some(status) = text::activity_status(act) {
-                    kv_row(ui, &p, tr!("Status"), status, words.clone());
-                }
-                // An asset lock: the chip above is the Core transaction's; whether Platform added
-                // the credits is said apart, in red when it did not (BUG-57, customer: red).
-                if let Some((credits, bad)) = text::activity_credits(act) {
-                    let color = if bad { p.danger } else { p.text };
-                    kv_row_in(ui, &p, tr!("Credits"), credits, words, color);
-                }
-                if let Some(fee) = act.fee {
-                    kv_row(
+            // Everything but the header and the buttons scrolls, so neither is ever out of the
+            // window, however long the operation is (AC-D7, BUG-90).
+            let room = body_room(ui);
+            let mut content = |ui: &mut Ui, a: &mut Assets| {
+                ui.horizontal(|ui| {
+                    crate::components::amount_label(
                         ui,
-                        &p,
-                        tr!("Fee"),
-                        // Already inside the amount above: shown as a size, not a second debit
-                        //.
-                        &crate::format::amount(fee),
-                        value.clone(),
+                        &text::signed_amount(act.amount),
+                        mono(28.0, Weight::Medium),
+                        p.text,
                     );
-                }
-                if let Some(block) = act.block {
-                    kv_row(
-                        ui,
-                        &p,
-                        tr!("Block"),
-                        &text::group_thousands(block as i64),
-                        value,
-                    );
-                }
-                if let Some((label, who, note)) = counterparty(act) {
-                    // An address the person named says so.
-                    let note = note.or_else(|| {
-                        text::book_label(act, book)
-                            .map(|l| format!(tr!("“{l}” · from the address book"), l = l))
+                    // The app's one «Hide amounts», as an icon right after the sum (BUG-73): a
+                    // click hides the list under the card too.
+                    ui.add_space(8.0 - ui.spacing().item_spacing.x);
+                    crate::components::amount_toggle(ui, a, true);
+                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                        status_chip(ui, a, act.proof);
                     });
-                    mono_block(ui, &p, label, &who, note.as_deref());
+                });
+                // Mono is for amounts, addresses and hashes; the date and the chain are words.
+                let words = sans(13.0, Weight::Medium);
+                let value = mono(13.0, Weight::Medium);
+                if let Some(detail) = core_detail(act) {
+                    // FEAT-0005a (mockups 01, 02): from where to where, the parts of the amount,
+                    // when, and what proved it in words. The chain is in the header and the block
+                    // in the proof's line.
+                    core_body(ui, a, act, detail, now, book);
+                } else {
+                    kv_row(
+                        ui,
+                        &p,
+                        tr!("When"),
+                        &text::date_time(act.at, now),
+                        words.clone(),
+                    );
+                    kv_row(ui, &p, tr!("Where"), text::chain(act.chain), words.clone());
+                    if let Some(status) = text::activity_status(act) {
+                        kv_row(ui, &p, tr!("Status"), status, words.clone());
+                    }
+                    // An asset lock: the chip above is the Core transaction's; whether Platform added
+                    // the credits is said apart, in red when it did not (BUG-57, customer: red).
+                    if let Some((credits, bad)) = text::activity_credits(act) {
+                        let color = if bad { p.danger } else { p.text };
+                        kv_row_in(ui, &p, tr!("Credits"), credits, words, color);
+                    }
+                    if let Some(fee) = act.fee {
+                        kv_row(
+                            ui,
+                            &p,
+                            tr!("Fee"),
+                            // Already inside the amount above: shown as a size, not a second debit
+                            //.
+                            &crate::format::amount(fee),
+                            value.clone(),
+                        );
+                    }
+                    if let Some(block) = act.block {
+                        kv_row(
+                            ui,
+                            &p,
+                            tr!("Block"),
+                            &text::group_thousands(block as i64),
+                            value,
+                        );
+                    }
+                    if let Some((label, who, note)) = counterparty(act) {
+                        // An address the person named says so.
+                        let note = note.or_else(|| {
+                            text::book_label(act, book)
+                                .map(|l| format!(tr!("“{l}” · from the address book"), l = l))
+                        });
+                        mono_block(ui, &p, label, &who, note.as_deref());
+                    }
+                    if not_added {
+                        let creates = matches!(act.kind, ActivityKind::TopUp { creates: true, .. });
+                        notice(
+                            ui,
+                            a,
+                            "warning",
+                            crate::components::attention_color(&p),
+                            if creates {
+                                tr!(
+                                    "The identity's creation was interrupted. You can continue it on the Identity screen; the DASH are not lost"
+                                )
+                            } else {
+                                tr!(
+                                    "The top-up was interrupted. You can continue it on the Identity screen; the DASH are not lost"
+                                )
+                            },
+                        );
+                    }
                 }
-                if not_added {
-                    let creates = matches!(act.kind, ActivityKind::TopUp { creates: true, .. });
+                // The person's note, between the related operation and the txid (FEAT-0005 item 9,
+                // FEAT-0003); none where no note can be kept.
+                if !act.key.is_empty() {
+                    note = note_block(ui, a, act);
+                }
+                if let Some(txid) = &act.txid {
+                    ui.vertical(|ui| {
+                        ui.spacing_mut().item_spacing.y = 6.0;
+                        mono_block(ui, &p, "txid", txid, None);
+                        ui.add_space(4.0);
+                        ui.horizontal(|ui| {
+                            // Two outlined buttons with a gap: a ghost one beside an outlined one read as
+                            // one control.
+                            ui.spacing_mut().item_spacing.x = 12.0;
+                            // "Copied" in its place for a moment, as on "Receive" (BUG-39 №1).
+                            let copy_id = egui::Id::new("copy-txid").with(act.id);
+                            let label = if crate::clipboard::just_copied(ui.ctx(), copy_id) {
+                                tr!("Copied")
+                            } else {
+                                tr!("Copy txid")
+                            };
+                            if button(ui, a, label, ButtonKind::Secondary, None).clicked() {
+                                crate::clipboard::copy_answered(ui.ctx(), txid.clone(), copy_id);
+                            }
+                            if button(
+                                ui,
+                                a,
+                                tr!("Open in the explorer"),
+                                ButtonKind::Secondary,
+                                None,
+                            )
+                            .on_hover_text(crate::i18n::t(&explorer(txid)).into_owned())
+                            .clicked()
+                            {
+                                // egui's open_url does nothing without eframe's `links`.
+                                crate::links::open(&explorer(txid));
+                            }
+                        });
+                    });
                     notice(
                         ui,
                         a,
-                        "warning",
-                        crate::components::attention_color(&p),
-                        if creates {
-                            tr!(
-                                "The identity's creation was interrupted. You can continue it on the Identity screen; the DASH are not lost"
-                            )
-                        } else {
-                            tr!(
-                                "The top-up was interrupted. You can continue it on the Identity screen; the DASH are not lost"
-                            )
-                        },
+                        "shield",
+                        p.accent,
+                        tr!(
+                            "The explorer opens only when you click. The explorer's site learns this computer's address and which operation you look at, so evolite opens it only by the button. You can simply copy the txid."
+                        ),
                     );
                 }
-            }
-            // The person's note, between the related operation and the txid (FEAT-0005 item 9,
-            // FEAT-0003); none where no note can be kept.
-            if !act.key.is_empty() {
-                note = note_block(ui, a, act);
+            };
+            // The first frame only measures: without the area, or its height there is wrong.
+            if ui.is_sizing_pass() {
+                content(ui, a);
+            } else {
+                // The lines are as wide with a bar as without: egui widens an area to its
+                // content, so the bar's gutter goes into the dialog's side padding. In a child
+                // [`Ui`], or the dialog would grow by the gutter.
+                let width = ui.available_width();
+                let mut wider = ui.new_child(egui::UiBuilder::new().id_salt("activity-card-place"));
+                let mut area = egui::ScrollArea::vertical()
+                    .id_salt("activity-card-body")
+                    .auto_shrink([false, true])
+                    .max_height(room);
+                if ui.data(|d| d.get_temp::<u64>(body_of_id())) != Some(act.id) {
+                    ui.data_mut(|d| d.insert_temp(body_of_id(), act.id));
+                    area = area.vertical_scroll_offset(0.0);
+                }
+                area.show(&mut wider, |ui| {
+                    ui.set_max_width(width);
+                    content(ui, a);
+                    follow_focus(ui);
+                });
+                let used = wider.min_rect();
+                ui.advance_cursor_after_rect(egui::Rect::from_min_size(
+                    used.min,
+                    egui::vec2(width, used.height()),
+                ));
             }
             let mut close = false;
-            if let Some(txid) = &act.txid {
-                ui.vertical(|ui| {
-                    ui.spacing_mut().item_spacing.y = 6.0;
-                    mono_block(ui, &p, "txid", txid, None);
-                    ui.add_space(4.0);
-                    ui.horizontal(|ui| {
-                        // Two outlined buttons with a gap: a ghost one beside an outlined one read as
-                        // one control.
-                        ui.spacing_mut().item_spacing.x = 12.0;
-                        // "Copied" in its place for a moment, as on "Receive" (BUG-39 №1).
-                        let copy_id = egui::Id::new("copy-txid").with(act.id);
-                        let label = if crate::clipboard::just_copied(ui.ctx(), copy_id) {
-                            tr!("Copied")
-                        } else {
-                            tr!("Copy txid")
-                        };
-                        if button(ui, a, label, ButtonKind::Secondary, None).clicked() {
-                            crate::clipboard::copy_answered(ui.ctx(), txid.clone(), copy_id);
-                        }
-                        if button(
-                            ui,
-                            a,
-                            tr!("Open in the explorer"),
-                            ButtonKind::Secondary,
-                            None,
-                        )
-                        .on_hover_text(crate::i18n::t(&explorer(txid)).into_owned())
-                        .clicked()
-                        {
-                            // egui's open_url does nothing without eframe's `links`.
-                            crate::links::open(&explorer(txid));
-                        }
-                    });
-                });
-                notice(
-                    ui,
-                    a,
-                    "shield",
-                    p.accent,
-                    tr!(
-                        "The explorer opens only when you click. The explorer's site learns this computer's address and which operation you look at, so evolite opens it only by the button. You can simply copy the txid."
-                    ),
-                );
-            }
             // The action on the right, «Close» on its left: as in every dialog (designer review №8).
+            let footer_top = ui.cursor().top();
             button_row(ui, |ui| {
                 if button(ui, a, tr!("Close"), ButtonKind::Ghost, None).clicked() {
                     close = true;
@@ -1009,6 +1155,8 @@ fn card(
                     close = true;
                 }
             });
+            let footer = ui.cursor().top() - footer_top;
+            ui.data_mut(|d| d.insert_temp(footer_id(), footer));
             close
         },
     );
