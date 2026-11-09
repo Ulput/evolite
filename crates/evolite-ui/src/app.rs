@@ -1034,6 +1034,8 @@ impl eframe::App for App {
         }
         // A lock (by the button, the timer or the core) takes what was typed or shown with it.
         if keys_gone(self.vault, snapshot.vault) {
+            // A QR picture still being read is dropped when it ends (FEAT-0006).
+            crate::qr_scan::on_lock();
             self.send.on_lock();
             self.settings.forget_secrets();
             // FEAT-0009 R-5: the filters and the search go with the lock.

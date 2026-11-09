@@ -34,6 +34,9 @@ pub struct AppRequests {
     pub password: SpendPassword,
     /// Where the person's yes to [`Self::open`] is (BUG-30).
     pub consent: Consent,
+    /// «Scan QR» (FEAT-0006, UC-4) and what it said when the code was not an app's.
+    pub scanner: crate::qr_scan::Scanner,
+    pub qr_error: Option<&'static str>,
 }
 
 /// The person's yes to a request ("Allow sign-in", "Sign", "The code matches"). The core takes

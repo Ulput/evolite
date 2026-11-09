@@ -379,7 +379,7 @@ pub(crate) fn past_addresses(history: &[Activity], current: &str) -> Vec<PastAdd
 }
 
 /// Where the QR card stands while there is no address yet: the same size, empty (BUG-74 №1).
-fn qr_waiting(ui: &mut Ui, p: &crate::theme::Palette) {
+pub(crate) fn qr_waiting(ui: &mut Ui, p: &crate::theme::Palette) {
     let side = 261.0 + 40.0;
     let (rect, _) = ui.allocate_exact_size(vec2(side, side), Sense::hover());
     ui.painter().rect(

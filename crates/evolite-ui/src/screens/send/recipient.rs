@@ -104,8 +104,12 @@ pub(super) fn book_matches<'a>(book: &'a [SavedAddress], typed: &str) -> Vec<&'a
 
 /// A muted text that can be clicked.
 fn link(ui: &mut Ui, p: &crate::theme::Palette, text: &str) -> egui::Response {
-    ui.add(egui::Label::new(txt(text, 12.0, Weight::Medium, p.muted)).sense(egui::Sense::click()))
-        .on_hover_cursor(egui::CursorIcon::PointingHand)
+    let resp = ui
+        .add(egui::Label::new(txt(text, 12.0, Weight::Medium, p.muted)).sense(egui::Sense::click()))
+        .on_hover_cursor(egui::CursorIcon::PointingHand);
+    // A Tab stop: named, or a screen reader says nothing there.
+    crate::components::named(&resp, egui::WidgetType::Button, true, text);
+    resp
 }
 
 /// Under "To", paying from Core: saved addresses to pick; for a saved one its name, to rename

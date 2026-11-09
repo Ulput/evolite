@@ -859,3 +859,220 @@ fn a_lock_clears_the_form() {
     form.on_sent(0, &Err(CoreError::NotEnough));
     assert!(form.amount.is_empty());
 }
+
+const QR_ADDR: &str = "yXk3Tq9mD8vJw2RfL6pN4sB7cH1eZ5aG9f";
+
+/// FEAT-0006 FR-6, FR-7: a `dash:` link in «To» (from a QR or pasted) fills the recipient,
+/// the amount and the note, and says what it filled; a refused link fills in nothing; a
+/// scan of an app link or of no code says why and leaves what was typed.
+#[test]
+fn a_dash_link_fills_the_form_as_a_qr_does() {
+    use crate::components::QrNote;
+    use crate::qr_scan::{Kind, Scanned};
+    let mut form = SendForm::empty();
+    form.recipient = "@typed".into();
+    assert!(form.take_link(&format!(
+        "dash:{QR_ADDR}?amount=0.25&label=For%20the%20design"
+    )));
+    assert_eq!(form.recipient, QR_ADDR);
+    assert_eq!(crate::format::parse_amount(&form.amount), Some(25_000_000));
+    assert_eq!(form.note, "For the design");
+    assert!(form.note_from_link());
+    assert_eq!(form.qr, Some(QrNote::Filled("address and amount")));
+    // The note changed by hand is the person's own.
+    form.type_note("For the logo");
+    assert!(!form.note_from_link());
+    // `user=`: the payment goes to the contact by name; `message` when there is no label.
+    let mut form = SendForm::empty();
+    assert!(form.take_link(&format!("dash:{QR_ADDR}?user=satoshi&message=Hi")));
+    assert_eq!(form.recipient, "@satoshi");
+    assert_eq!(form.note, "Hi");
+    assert_eq!(form.qr, Some(QrNote::Filled("name")));
+    // Refused whole: nothing filled in.
+    let mut form = SendForm::empty();
+    form.amount = "1".into();
+    assert!(form.take_link(&format!("dash:{QR_ADDR}?amount=1e3")));
+    assert_eq!(form.amount, "1");
+    assert!(form.link_note.is_none());
+    assert!(matches!(form.qr, Some(QrNote::Error(_))));
+    assert!(!form.take_link(QR_ADDR), "not a link");
+    // Scans.
+    let mut form = SendForm::empty();
+    form.take_scan(&Scanned::Found {
+        text: QR_ADDR.into(),
+        kind: Kind::Address,
+    });
+    assert_eq!(
+        (form.recipient.as_str(), form.qr.clone()),
+        (QR_ADDR, Some(QrNote::Filled("address")))
+    );
+    form.take_scan(&Scanned::Found {
+        text: "dash-key:abc".into(),
+        kind: Kind::AppLink,
+    });
+    assert_eq!(form.recipient, QR_ADDR, "what was there stays");
+    assert!(matches!(form.qr, Some(QrNote::Error(_))));
+    form.qr = None;
+    form.take_scan(&Scanned::Cancelled);
+    assert_eq!(form.qr, None, "a closed dialog says nothing");
+    // A lock takes the link's note with the rest.
+    form.take_link(&format!("dash:{QR_ADDR}?label=x"));
+    form.on_lock();
+    assert!(form.link_note.is_none() && form.qr.is_none());
+}
+
+/// A scan that ends during «Check the payment» does not change the payment being checked.
+#[test]
+fn a_scan_ending_during_the_last_look_changes_nothing() {
+    use crate::qr_scan::{Kind, Scanned};
+    let mut form = SendForm::empty();
+    form.recipient = "@checked".into();
+    form.confirming = true;
+    for scanned in [
+        Scanned::Found {
+            text: QR_ADDR.into(),
+            kind: Kind::Address,
+        },
+        Scanned::Found {
+            text: format!("dash:{QR_ADDR}?amount=5&label=x"),
+            kind: Kind::Uri,
+        },
+    ] {
+        form.take_scan(&scanned);
+        assert_eq!(form.recipient, "@checked");
+        assert!(form.amount.is_empty() && form.note.is_empty() && form.qr.is_none());
+    }
+}
+
+/// The note of an earlier link is not the next recipient's, whatever brings that recipient;
+/// a note the person wrote stays.
+#[test]
+fn a_new_code_takes_the_last_links_note_but_not_the_persons() {
+    use crate::qr_scan::{Kind, Scanned};
+    let mut form = SendForm::empty();
+    form.take_link(&format!("dash:{QR_ADDR}?label=First"));
+    assert_eq!(form.note, "First");
+    form.take_link(&format!("dash:{QR_ADDR}"));
+    assert!(form.note.is_empty() && form.link_note.is_none());
+    form.take_link(&format!("dash:{QR_ADDR}?label=First"));
+    form.take_scan(&Scanned::Found {
+        text: "@bob".into(),
+        kind: Kind::Name,
+    });
+    assert!(form.note.is_empty() && form.link_note.is_none());
+    form.take_link(&format!("dash:{QR_ADDR}?label=First"));
+    form.type_note("Mine");
+    form.take_link(&format!("dash:{QR_ADDR}"));
+    assert_eq!(form.note, "Mine");
+}
+
+/// While its answer is awaited the note has left the form (BUG-92): the last look still
+/// says it came from the link.
+#[test]
+fn the_last_look_says_from_the_link_while_the_answer_is_awaited() {
+    let mut form = SendForm::empty();
+    form.take_link(&format!("dash:{QR_ADDR}?label=First"));
+    form.signed_note = std::mem::take(&mut form.note);
+    form.signing = Some(std::time::Instant::now());
+    assert!(form.note_from_link());
+}
+
+/// The amount follows the note's rule: the next code takes the last link's amount away, unless
+/// the person changed it; a code that brings nothing changes nothing.
+#[test]
+fn a_new_code_takes_the_last_links_amount_but_not_the_persons() {
+    use crate::qr_scan::{Kind, Scanned};
+    let link = format!("dash:{QR_ADDR}?amount=0.25");
+    let address = Scanned::Found {
+        text: QR_ADDR.into(),
+        kind: Kind::Address,
+    };
+    let name = Scanned::Found {
+        text: "@bob".into(),
+        kind: Kind::Name,
+    };
+    let bare = Scanned::Found {
+        text: format!("dash:{QR_ADDR}"),
+        kind: Kind::Uri,
+    };
+    for next in [&address, &name, &bare] {
+        let mut form = SendForm::empty();
+        form.take_link(&link);
+        assert!(!form.amount.is_empty());
+        form.take_scan(next);
+        assert!(form.amount.is_empty(), "{next:?}");
+        assert!(form.link_amount.is_none());
+    }
+    // A pasted link, no amount in it.
+    let mut form = SendForm::empty();
+    form.take_link(&link);
+    assert!(form.take_link(&format!("dash:{QR_ADDR}")));
+    assert!(form.amount.is_empty());
+    // A new amount replaces it.
+    form.take_link(&link);
+    form.take_link(&format!("dash:{QR_ADDR}?amount=1"));
+    assert_eq!(crate::format::parse_amount(&form.amount), Some(100_000_000));
+    // Changed by hand, or «Max» taken: the person's.
+    form.take_link(&link);
+    form.amount = "3".into();
+    form.take_scan(&address);
+    assert_eq!(form.amount, "3");
+    form.take_link(&link);
+    form.max = true;
+    form.take_scan(&address);
+    assert!(!form.amount.is_empty());
+    // What was typed before any link stays too.
+    let mut form = SendForm::empty();
+    form.amount = "2".into();
+    form.take_scan(&address);
+    assert_eq!(form.amount, "2");
+}
+
+/// An error, no code, or a refused link change nothing, and the next good code still knows
+/// what the last link brought.
+#[test]
+fn a_code_that_brings_nothing_leaves_what_the_link_brought() {
+    use crate::qr_scan::{Kind, Scanned};
+    let mut form = SendForm::empty();
+    form.take_link(&format!("dash:{QR_ADDR}?amount=0.25&label=First"));
+    let amount = form.amount.clone();
+    for nothing in [
+        Scanned::NoQr,
+        Scanned::NotDash,
+        Scanned::NotAPicture,
+        Scanned::Cancelled,
+        Scanned::Found {
+            text: "dash-key:abc".into(),
+            kind: Kind::AppLink,
+        },
+    ] {
+        form.take_scan(&nothing);
+        assert_eq!(
+            (form.amount.as_str(), form.note.as_str()),
+            (amount.as_str(), "First")
+        );
+    }
+    assert!(form.take_link(&format!("dash:{QR_ADDR}?amount=1e3")));
+    assert_eq!(
+        (form.amount.as_str(), form.note.as_str()),
+        (amount.as_str(), "First")
+    );
+    assert!(form.link_amount.is_some() && form.link_note.is_some());
+}
+
+/// A wallet locked or switched during a scan (the app resets the form either way): the scan
+/// goes with the form.
+#[test]
+fn a_lock_or_a_switch_during_a_scan_drops_it() {
+    use crate::qr_scan::Picture;
+    let ctx = egui::Context::default();
+    let mut form = SendForm::empty();
+    form.scanner.start(
+        &ctx,
+        Picture::Bytes(crate::qr_scan::test_png(QR_ADDR).into()),
+    );
+    assert!(form.scanner.busy());
+    form.on_lock();
+    assert!(!form.scanner.busy());
+    assert_eq!(form.scanner.poll(), None);
+}

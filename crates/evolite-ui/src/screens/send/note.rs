@@ -109,8 +109,9 @@ pub(super) fn summary_note_row(ui: &mut Ui, p: &crate::theme::Palette, note: &st
 
 /// The note in «Check the payment» (AC-D2): `raised`, r12, after the total and before «A
 /// payment cannot be undone.»; its heading with the `document` icon, the note in the person's
-/// own direction, and N15.
-pub(super) fn confirm_note(ui: &mut Ui, a: &mut Assets, note: &str) {
+/// own direction, and N15. A note a `dash:` link brought (FEAT-0006 FR-7) is headed «Note from
+/// the link» and says it is the QR's text, not a checked name of the recipient.
+pub(super) fn confirm_note(ui: &mut Ui, a: &mut Assets, note: &str, from_link: bool) {
     let p = a.p;
     egui::Frame::new()
         .fill(p.raised)
@@ -122,17 +123,28 @@ pub(super) fn confirm_note(ui: &mut Ui, a: &mut Assets, note: &str) {
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = 6.0;
                 ui.add(a.icons.icon("document", p.muted, &p, 14.0));
-                ui.label(txt(
-                    tr!("Note · only for you"),
-                    12.0,
-                    Weight::Medium,
-                    p.muted,
-                ));
+                let heading = if from_link {
+                    tr!("Note from the link")
+                } else {
+                    tr!("Note · only for you")
+                };
+                ui.label(txt(heading, 12.0, Weight::Medium, p.muted));
             });
             ui.add(
                 egui::Label::new(txt(&crate::i18n::own(note), 14.0, Weight::Regular, p.text))
                     .wrap(),
             );
+            if from_link {
+                ui.add(
+                    egui::Label::new(txt(
+                        tr!("This is text from the QR code, not a verified recipient name."),
+                        12.0,
+                        Weight::Regular,
+                        p.muted,
+                    ))
+                    .wrap(),
+                );
+            }
             ui.add(
                 egui::Label::new(txt(
                     tr!("Saved to the payment on this computer; it does not go to the network."),

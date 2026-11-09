@@ -62,6 +62,8 @@ pub struct ContactsState {
     privacy_closed: bool,
     /// This frame: whether the wallet asks for its password for every spend.
     ask: bool,
+    /// «My QR» is open (FR-8).
+    pub my_qr: bool,
 }
 
 #[derive(Default)]
@@ -70,6 +72,9 @@ pub struct AddContact {
     /// The name last sent to the core, and its answer.
     pub asked: String,
     pub resolution: Option<Result<ResolvedName, CoreError>>,
+    /// «QR» in the name field (FEAT-0006), and what it said until the name is typed again.
+    pub scanner: crate::qr_scan::Scanner,
+    pub qr_error: Option<&'static str>,
     /// When [`Self::asked`] went to the core: a long silence is said in words (BUG-87).
     pub asked_at: Option<std::time::Instant>,
 }
@@ -189,8 +194,15 @@ pub fn contacts(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut ContactsS
             state.adding = Some(AddContact::default());
             state.result = None;
         }
-        button_enabled(ui, a, tr!("My QR"), ButtonKind::Secondary, None, false)
-            .on_disabled_hover_text(crate::i18n::t(tr!("Requests by QR come next")).into_owned());
+        let named = wallet.identity.as_ref().and_then(|i| i.name()).is_some();
+        if button_enabled(ui, a, tr!("My QR"), ButtonKind::Secondary, None, named)
+            .on_disabled_hover_text(
+                crate::i18n::t(tr!("An identity with a name is needed first")).into_owned(),
+            )
+            .clicked()
+        {
+            state.my_qr = true;
+        }
     });
 
     let requests: Vec<&Contact> = wallet
@@ -287,6 +299,9 @@ pub fn contacts(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut ContactsS
 
     if state.adding.is_some() {
         add_contact(ui, a, cx, wallet, state, &mut asked);
+    }
+    if state.my_qr {
+        my_qr(ui, a, wallet, &mut state.my_qr);
     }
     accept_dialog(ui, a, wallet, state, &mut asked);
     privacy_dialog(ui, a, state);
@@ -630,6 +645,20 @@ fn add_contact(
     let Some(adding) = &mut state.adding else {
         return;
     };
+    // A picture dropped on the dialog, then what a scan brought: a name goes into the field as
+    // if typed (UC-5); anything else says why and leaves what was typed.
+    if let Some(picture) = crate::qr_scan::dropped(ui.ctx()) {
+        adding.scanner.start(ui.ctx(), picture);
+    }
+    if let Some(scanned) = adding.scanner.poll() {
+        match name_from_qr(&scanned) {
+            Ok(name) => {
+                adding.name = name;
+                adding.qr_error = None;
+            }
+            Err(why) => adding.qr_error = why,
+        }
+    }
     // A name goes to the core once per change; the answer comes back as an event.
     let typed = adding.name.trim().to_string();
     if typed.trim_start_matches('@').len() >= 3 && typed != adding.asked {
@@ -668,15 +697,24 @@ fn add_contact(
             ui.vertical(|ui| {
                 ui.spacing_mut().item_spacing.y = 6.0;
                 field_label(ui, &p, tr!("Name in DPNS"));
-                text_field(
+                let scanner = &mut adding.scanner;
+                let typed = text_field(
                     ui,
                     &p,
                     "add-contact-name",
                     &mut adding.name,
                     tr!("@name"),
                     FieldKind::Text,
-                    |_| {},
+                    |ui| {
+                        crate::components::qr_button(ui, a, "add-contact", scanner);
+                    },
                 );
+                if typed.changed() {
+                    adding.qr_error = None;
+                }
+                if let Some(why) = adding.qr_error {
+                    crate::components::qr_note(ui, a, &crate::components::QrNote::Error(why));
+                }
             });
             let mut ready = false;
             match (&adding.resolution, &found) {
@@ -811,6 +849,10 @@ fn add_contact(
                     send = true;
                 }
             });
+            // A picture dragged over the dialog: the overlay covers it (Figma 10).
+            if crate::qr_scan::dragging_picture(ui.ctx()) {
+                crate::components::drop_overlay(ui.ctx(), a, ui.min_rect().expand(12.0));
+            }
             close
         },
     );
@@ -825,6 +867,101 @@ fn add_contact(
     } else if close && !waiting {
         state.adding = None;
         state.password.forget();
+    }
+}
+
+/// What a QR brings to «Name in DPNS» (UC-5): `@name`, or the name of a `dash:` link's `user`;
+/// else why not (`None`: the file dialog was closed, nothing to say).
+fn name_from_qr(scanned: &crate::qr_scan::Scanned) -> Result<String, Option<&'static str>> {
+    use crate::qr_scan::{Kind, Scanned};
+    let no_name = tr!("There is no @name in this QR code");
+    match scanned {
+        Scanned::Found {
+            text,
+            kind: Kind::Name,
+        } => Ok(text.clone()),
+        Scanned::Found {
+            text,
+            kind: Kind::Uri,
+        } => match crate::payment_uri::parse(text) {
+            Some(Ok(link)) if link.user.is_some() => Ok(link.recipient()),
+            Some(Ok(_)) => Err(Some(no_name)),
+            _ => Err(Some(tr!("This is not a Dash address or an app link"))),
+        },
+        Scanned::Found {
+            kind: Kind::Address,
+            ..
+        } => Err(Some(no_name)),
+        Scanned::Found {
+            kind: Kind::AppLink,
+            ..
+        } => Err(Some(tr!(
+            "This is an app link: open it on the “Apps” screen"
+        ))),
+        other => Err(crate::components::qr_error(other)),
+    }
+}
+
+/// «My QR» (FR-8, Figma `dialog/my-qr`): the identity's name and the address to receive on now
+/// as `dash:<address>?user=<name>`, as DashPay shows it; no amount.
+fn my_qr(ui: &mut Ui, a: &mut Assets, wallet: &Wallet, open: &mut bool) {
+    let Some(name) = wallet.identity.as_ref().and_then(|i| i.name()) else {
+        *open = false;
+        return;
+    };
+    let link = crate::payment_uri::my_link(&wallet.core_address, name);
+    let title = format!(tr!("My QR · @{}"), name);
+    let copy_id = egui::Id::new("my-qr-copy").with(&link);
+    let closed = dialog(ui, a, "my-qr", "scan", &title, 440.0, |ui, a| {
+        let p = a.p;
+        ui.add(
+            egui::Label::new(txt(
+                tr!("Show this code: DashPay or evolite opens a payment to you. It holds your name and your current receiving address."),
+                13.0,
+                Weight::Regular,
+                p.muted,
+            ))
+            .wrap(),
+        );
+        if wallet.core_address.is_empty() {
+            super::receive::qr_waiting(ui, &p);
+        } else {
+            super::receive::qr_card(ui, &p, &link);
+        }
+        // The link whole, in Mono; in Arabic it keeps its own direction (`own`).
+        ui.add(
+            egui::Label::new(
+                txt(&crate::i18n::own(&link), 12.0, Weight::Regular, p.text)
+                    .font(mono(12.0, Weight::Regular)),
+            )
+            .wrap(),
+        );
+        kv_row(
+            ui,
+            &p,
+            tr!("Work as"),
+            &crate::i18n::own(&format!("@{name}")),
+            sans(13.0, Weight::SemiBold),
+        );
+        let mut close = false;
+        button_row(ui, |ui| {
+            if button(ui, a, tr!("Close"), ButtonKind::Ghost, None).clicked() {
+                close = true;
+            }
+            let copied = crate::clipboard::just_copied(ui.ctx(), copy_id);
+            let label = if copied {
+                tr!("Copied")
+            } else {
+                tr!("Copy the link")
+            };
+            if button(ui, a, label, ButtonKind::Secondary, None).clicked() {
+                crate::clipboard::copy_answered(ui.ctx(), link.clone(), copy_id);
+            }
+        });
+        close
+    });
+    if closed {
+        *open = false;
     }
 }
 

@@ -45,8 +45,10 @@ mod icons;
 mod links;
 mod motion;
 mod notify;
+mod payment_uri;
 mod prefs;
 mod private_dir;
+mod qr_scan;
 mod rtl;
 mod screens;
 #[cfg(feature = "dev-tools")]

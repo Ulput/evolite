@@ -200,6 +200,7 @@ pub(super) fn form_card(
         ui.vertical(|ui| {
             ui.spacing_mut().item_spacing.y = 6.0;
             field_label(ui, &p, tr!("To"));
+            let scanner = &mut form.scanner;
             if text_field(
                 ui,
                 &p,
@@ -207,11 +208,24 @@ pub(super) fn form_card(
                 &mut form.recipient,
                 tr!("@name or Dash address"),
                 FieldKind::Text,
-                |_| {},
+                |ui| {
+                    crate::components::qr_button(ui, a, "send-recipient", scanner);
+                },
             )
             .changed()
             {
                 form.result = None;
+                // A `dash:` link pasted as text is taken as a QR's (FR-6).
+                let typed = form.recipient.clone();
+                form.take_link(&typed);
+            }
+            // The line is about the «To» it was said of: typing, a contact chosen or the
+            // payment gone take it away.
+            if form.recipient != form.qr_about {
+                form.qr = None;
+            }
+            if let Some(note) = &form.qr {
+                crate::components::qr_note(ui, a, note);
             }
         });
         recipient_state(ui, a, form, v, asked);

@@ -11,6 +11,7 @@ mod field;
 mod notice;
 mod page;
 mod progress;
+mod qr;
 mod rows;
 mod spend_password;
 
@@ -24,6 +25,7 @@ pub use field::*;
 pub use notice::*;
 pub use page::*;
 pub use progress::*;
+pub use qr::*;
 pub use rows::*;
 pub use spend_password::*;
 

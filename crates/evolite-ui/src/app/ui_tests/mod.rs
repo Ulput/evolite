@@ -28,6 +28,7 @@ mod notes;
 mod onboarding;
 mod pause;
 mod pool_moves;
+mod qr;
 mod scrolling;
 mod send;
 mod settings_apps;

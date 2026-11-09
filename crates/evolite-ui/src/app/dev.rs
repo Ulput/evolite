@@ -387,14 +387,31 @@ impl App {
             }
         }
         // `--screen send-confirm`: the last look asks where the payment goes, as a click does.
-        if preset("send-confirm") || preset("send-confirm-note") {
+        if preset("send-confirm") || preset("send-confirm-note") || preset("send-confirm-link") {
             self.core.send(Command::PreviewPayment {
                 to: "@alice".into(),
             });
         }
         if demo {
             // `--screen send-confirm` opens the last look before signing.
-            self.send.confirming = preset("send-confirm") || preset("send-confirm-note");
+            self.send.confirming = preset("send-confirm")
+                || preset("send-confirm-note")
+                || preset("send-confirm-link");
+            // FEAT-0006: what a QR leaves in the form (Figma 02, 04, 09).
+            const LINK: &str =
+                "dash:yXk3Tq9mD8vJw2RfL6pN4sB7cH1eZ5aG9f?amount=0.25&label=Invoice%2014";
+            if preset("send-qr-filled") {
+                self.send.take_link(LINK);
+                // The frame sets how amounts are written after this: shown as the example is.
+                self.send.suggested = crate::format::parse_amount(&self.send.amount);
+            } else if preset("send-confirm-link") {
+                self.send.take_link(
+                    "dash:yXk3Tq9mD8vJw2RfL6pN4sB7cH1eZ5aG9f?user=alice&label=Invoice%2014",
+                );
+            } else if preset("send-qr-error") {
+                self.send.recipient.clear();
+                self.send.take_scan(&crate::qr_scan::Scanned::NoQr);
+            }
             // `--screen send-note`, `send-confirm-note`: a note typed (Figma 03); `send-note-limit`:
             // more pasted than a note holds, cut and said so (the designer's frame 8).
             if preset("send-note") || preset("send-confirm-note") {
@@ -419,6 +436,13 @@ impl App {
                 self.send.recipient.clear();
             }
         }
+        // `--screen send-qr-menu` (`--open send-qr-menu` over the real wallet): «To»'s QR menu
+        // open, «From the clipboard» active — not the clipboard's own answer, so that the shot
+        // is the same on every machine. Nothing is read until an item is chosen.
+        if preset("send-qr-menu") {
+            self.send.scanner.menu = true;
+            self.send.scanner.clip_picture = Some(true);
+        }
         // `--screen edit-profile` opens 23 over Identity.
         if preset("edit-profile") && !real_shot {
             self.identity.editing = Some(screens::identity::ProfileForm {
@@ -440,6 +464,7 @@ impl App {
             name: "@carol".into(),
             ..Default::default()
         });
+        self.contacts.my_qr = preset("my-qr");
         if preset("contact-profile") && !real_shot {
             self.contacts.profile = Some("3Ah7Kp2Qx9Lm4Vt8Rn5Wc1Jd6Yb2Fs7Ge4Hu3Mz9Lp1".into());
         }

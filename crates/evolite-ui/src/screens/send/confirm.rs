@@ -106,7 +106,7 @@ pub(super) fn confirm(
             recipient_lines(ui, &p, form, &look);
             amount_lines(ui, &p, amount, source.fee);
             if let Some(note) = form.note_shown() {
-                confirm_note(ui, a, &note);
+                confirm_note(ui, a, &note, form.note_from_link());
             }
             ui.label(txt(
                 tr!("A payment cannot be undone."),

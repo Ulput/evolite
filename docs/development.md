@@ -162,3 +162,14 @@ the `demo` feature, which `dev-tools` turns on.
   file name in its font folders on Windows, macOS and Linux (Segoe UI / Helvetica / DejaVu,
   Microsoft YaHei / PingFang / Noto Sans CJK and the like; `theme::system_font`).
 - `icons.rs` — icons and the logo from SVG (`assets/icons`), recoloured for the theme.
+
+## Third-party licences
+
+The release carries the notices of the crates whose licences ask for them. Besides the fonts
+(`assets/fonts`, OFL), these are listed here until the release has its own list:
+
+- `rqrr` — reading QR codes from a picture (FEAT-0006): MIT OR Apache-2.0, and ISC for the
+  code ported from quirc (© Daniel Beer). The ISC notice goes into the release's licences.
+- `rfd` (MIT), `arboard` with `image-data` and `wl-clipboard-rs` (MIT OR Apache-2.0), `image`
+  with JPEG (`zune-jpeg`) and BMP (MIT OR Apache-2.0) — the file dialog, a picture from the
+  clipboard and from a file.

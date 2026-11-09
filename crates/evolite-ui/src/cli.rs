@@ -179,12 +179,13 @@ pub const PRESETS: &[&str] = &[
     "activity-notes", "activity-search-note", "activity-notes-unreadable", "activity-card-note",
     "activity-card-add-note", "activity-card-note-edit", "activity-card-note-error",
     "send-note", "send-note-limit", "send-confirm-note", "delete-notes",
-    "send", "send-confirm", "send-contact", "send-book", "send-syncing",
+    "send", "send-confirm", "send-contact", "send-book", "send-syncing", "send-qr-menu",
+    "send-qr-filled", "send-qr-error", "send-confirm-link",
     "receive",
     "identity", "identity-unfinished", "identity-created", "top-up-stopped", "top-up-awaiting",
     "edit-profile",
     "top-up", "add-name",
-    "contacts", "add-contact", "contact-profile",
+    "contacts", "add-contact", "contact-profile", "my-qr",
     "create-identity", "creating", "create-identity-nameless", "create-identity-confirm",
     "create-identity-short", "create-identity-unchecked",
     "shielded", "shield", "shield-core", "unshield", "unshield-identity", "pool-address",
@@ -260,7 +261,8 @@ fn dev_args<'a>(
             None,
             Some(
                 "send" | "send-confirm" | "send-contact" | "send-book" | "send-syncing"
-                | "send-note" | "send-note-limit" | "send-confirm-note",
+                | "send-note" | "send-note-limit" | "send-confirm-note" | "send-qr-menu"
+                | "send-qr-filled" | "send-qr-error" | "send-confirm-link",
             ),
         ) => Screen::Send,
         (None, Some("receive")) => Screen::Receive,
@@ -277,7 +279,7 @@ fn dev_args<'a>(
                 | "add-name",
             ),
         ) => Screen::Identity,
-        (None, Some("contacts" | "add-contact" | "contact-profile")) => Screen::Contacts,
+        (None, Some("contacts" | "add-contact" | "contact-profile" | "my-qr")) => Screen::Contacts,
         (
             None,
             Some(

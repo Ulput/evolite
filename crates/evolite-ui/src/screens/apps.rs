@@ -86,18 +86,39 @@ pub fn apps(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, requests: &mut AppRequest
     let name = wallet.identity.as_ref().and_then(|i| i.name());
     let now = cx.now;
     ui.spacing_mut().item_spacing.y = 22.0;
+    // «Scan QR» (UC-4): an app's link goes where «Paste a link» sends it; a picture may also be
+    // dropped on the screen.
+    let screen = ui.max_rect();
+    if !requests.pasting
+        && requests.open.is_none()
+        && let Some(picture) = crate::qr_scan::dropped(ui.ctx())
+    {
+        requests.scanner.start(ui.ctx(), picture);
+    }
+    if let Some(scanned) = requests.scanner.poll() {
+        match app_link_from_qr(&scanned) {
+            Ok(link) => {
+                requests.qr_error = None;
+                cx.send(evolite_api::Command::OpenAppLink { text: link });
+            }
+            Err(why) => requests.qr_error = why,
+        }
+    }
     page_header(ui, a, tr!("Apps"), None, |ui, a| {
-        button_enabled(ui, a, tr!("Scan QR"), ButtonKind::Primary, None, false)
-            .on_disabled_hover_text(
-                crate::i18n::t(tr!(
-                    "QR scanning is not here yet: paste the link from the app"
-                ))
-                .into_owned(),
-            );
+        let scanning = requests.scanner.busy();
+        let scan = button_enabled(ui, a, tr!("Scan QR"), ButtonKind::Primary, None, !scanning);
+        crate::components::qr_menu_under(ui, a, "apps", &scan, &mut requests.scanner);
         if button(ui, a, tr!("Paste a link"), ButtonKind::Secondary, None).clicked() {
             requests.pasting = true;
+            requests.qr_error = None;
         }
     });
+    if let Some(why) = requests.qr_error {
+        crate::components::qr_note(ui, a, &crate::components::QrNote::Error(why));
+    }
+    if !requests.pasting && requests.open.is_none() && crate::qr_scan::dragging_picture(ui.ctx()) {
+        crate::components::drop_overlay(ui.ctx(), a, screen);
+    }
 
     egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
         ui.spacing_mut().item_spacing.y = 22.0;
@@ -281,9 +302,53 @@ fn app_row(
         .clicked()
 }
 
+/// What a QR brings to «Apps» (UC-4, AC-T8): an app's link, else why not (`None`: the file
+/// dialog was closed, nothing to say).
+fn app_link_from_qr(scanned: &crate::qr_scan::Scanned) -> Result<String, Option<&'static str>> {
+    use crate::qr_scan::{Kind, Scanned};
+    match scanned {
+        Scanned::Found {
+            text,
+            kind: Kind::AppLink,
+        } => Ok(text.clone()),
+        Scanned::Found { .. } | Scanned::NotDash => {
+            Err(Some(tr!("This is not a Dash app request")))
+        }
+        other => Err(crate::components::qr_error(other)),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_an_app_link_from_a_qr_goes_to_the_core() {
+        use crate::qr_scan::{Kind, Scanned};
+        let found = |text: &str, kind| Scanned::Found {
+            text: text.into(),
+            kind,
+        };
+        assert_eq!(
+            app_link_from_qr(&found("dash-key:yappr", Kind::AppLink)),
+            Ok("dash-key:yappr".into())
+        );
+        for other in [
+            found("yXk3Tq9mD8vJw2RfL6pN4sB7cH1eZ5aG9f", Kind::Address),
+            found("@bob", Kind::Name),
+            Scanned::NotDash,
+        ] {
+            assert_eq!(
+                app_link_from_qr(&other),
+                Err(Some("This is not a Dash app request"))
+            );
+        }
+        assert_eq!(
+            app_link_from_qr(&Scanned::NoQr),
+            Err(Some("There is no QR code in the picture"))
+        );
+        assert_eq!(app_link_from_qr(&Scanned::Cancelled), Err(None));
+    }
     use evolite_api::{CoreError, KeyLevel};
 
     fn app(key: Option<(u32, KeyLevel, Vec<String>)>) -> ConnectedApp {

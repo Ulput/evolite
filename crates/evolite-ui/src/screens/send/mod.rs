@@ -94,6 +94,18 @@ pub struct SendForm {
     /// The note of the last payment signed: cleared from the form with the amount, put back
     /// if the core refuses the payment (AC-A3).
     pub signed_note: String,
+    /// The QR button's menu and its scan (FEAT-0006).
+    pub scanner: crate::qr_scan::Scanner,
+    /// The line under «To» after a QR or a pasted `dash:` link, and the «To» it is about:
+    /// gone once «To» holds anything else.
+    pub qr: Option<crate::components::QrNote>,
+    pub qr_about: String,
+    /// The note a `dash:` link brought (`label`, else `message`, FR-7): put in «Note», and while
+    /// the note is still it, «Check the payment» says it is from the link.
+    pub link_note: Option<String>,
+    /// The amount a `dash:` link brought, the same way: the next code takes it away unless
+    /// the person changed it.
+    pub link_amount: Option<Duffs>,
 }
 
 impl SendForm {
@@ -147,6 +159,9 @@ impl SendForm {
         // The note is the person's too: not left in memory after a lock (AC-T6).
         self.note.zeroize();
         self.signed_note.zeroize();
+        if let Some(note) = &mut self.link_note {
+            note.zeroize();
+        }
         self.contact_password.forget();
         self.replace(SendForm::empty());
     }
@@ -198,6 +213,8 @@ impl SendForm {
                 self.book_error = None;
                 self.max = false;
                 self.signed.clear();
+                self.link_amount = None;
+                self.link_note = None;
             }
         } else if result.is_err() && self.max {
             // An earlier payment's refusal gives nothing back to send a second time (BUG-92 r2).
@@ -251,6 +268,122 @@ impl SendForm {
         let (fit, cut) = evolite_core::note_text::fit(typed);
         self.note = fit;
         self.note_cut = cut;
+    }
+
+    /// The line under «To» about what «To» holds now.
+    fn say_qr(&mut self, note: crate::components::QrNote) {
+        self.qr = Some(note);
+        self.qr_about = self.recipient.clone();
+    }
+
+    /// A new recipient from a code: what the last link brought is not this one's. What the
+    /// person changed since is theirs and stays.
+    fn forget_what_the_link_brought(&mut self) {
+        if let Some(was) = self.link_amount.take()
+            && !self.max
+            && crate::format::parse_amount(&self.amount) == Some(was)
+        {
+            self.amount.clear();
+            self.suggested = None;
+        }
+        if let Some(mut was) = self.link_note.take() {
+            if was.trim() == self.note.trim() {
+                self.note.zeroize();
+                self.note_cut = false;
+            }
+            was.zeroize();
+        }
+    }
+
+    /// A `dash:` link in «To», from a QR or pasted (FR-6, FR-7): the recipient (`@name` for
+    /// `user=`), the amount, the note from `label`/`message`; what was in the fields is replaced.
+    /// A link refused whole fills in nothing and says so. `false`: `text` is not a link.
+    pub fn take_link(&mut self, text: &str) -> bool {
+        use crate::components::QrNote;
+        match crate::payment_uri::parse(text) {
+            None => false,
+            Some(Err(_)) => {
+                self.say_qr(QrNote::Error(tr!(
+                    "This Dash link can't be used: nothing from it was filled in"
+                )));
+                true
+            }
+            Some(Ok(link)) => {
+                self.recipient = link.recipient();
+                self.forget_what_the_link_brought();
+                if let Some(amount) = link.amount {
+                    self.amount = crate::format::input_text(amount);
+                    self.suggested = None;
+                    self.max = false;
+                    self.link_amount = Some(amount);
+                }
+                if let Some(note) = &link.note {
+                    self.type_note(note);
+                    self.link_note = Some(self.note.clone());
+                }
+                let what = match (link.user.is_some(), link.amount.is_some()) {
+                    (false, false) => tr!("address"),
+                    (false, true) => tr!("address and amount"),
+                    (true, false) => tr!("name"),
+                    (true, true) => tr!("name and amount"),
+                };
+                self.say_qr(QrNote::Filled(what));
+                self.result = None;
+                true
+            }
+        }
+    }
+
+    /// What a scan brought to «To»: a link as [`Self::take_link`], an address or `@name` as if
+    /// typed; anything else says why and leaves what was typed. A scan ending during the last
+    /// look is dropped: the payment being checked does not change under the person's eyes.
+    pub fn take_scan(&mut self, scanned: &crate::qr_scan::Scanned) {
+        use crate::components::QrNote;
+        use crate::qr_scan::{Kind, Scanned};
+        if self.confirming {
+            return;
+        }
+        match scanned {
+            Scanned::Found {
+                text,
+                kind: Kind::Uri,
+            } => {
+                self.take_link(text);
+            }
+            Scanned::Found {
+                text,
+                kind: kind @ (Kind::Address | Kind::Name),
+            } => {
+                self.recipient = text.clone();
+                self.forget_what_the_link_brought();
+                self.say_qr(QrNote::Filled(if *kind == Kind::Name {
+                    tr!("name")
+                } else {
+                    tr!("address")
+                }));
+                self.result = None;
+            }
+            Scanned::Found {
+                kind: Kind::AppLink,
+                ..
+            } => {
+                self.say_qr(QrNote::Error(tr!(
+                    "This is an app link: open it on the “Apps” screen"
+                )));
+            }
+            other => {
+                if let Some(why) = crate::components::qr_error(other) {
+                    self.say_qr(QrNote::Error(why));
+                }
+            }
+        }
+    }
+
+    /// Whether the note the last look shows is still the one the link brought.
+    fn note_from_link(&self) -> bool {
+        self.link_note
+            .as_deref()
+            .is_some_and(|n| Some(n.trim()) == self.note_shown().as_deref())
     }
 
     /// The note to send with the payment: trimmed, none when empty.
@@ -331,6 +464,11 @@ impl Default for SendForm {
             note: String::new(),
             note_cut: false,
             signed_note: String::new(),
+            scanner: Default::default(),
+            qr: None,
+            qr_about: String::new(),
+            link_note: None,
+            link_amount: None,
         }
     }
 }
@@ -343,6 +481,19 @@ pub fn send(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut SendForm) {
     crate::format::fill_suggested(&mut form.amount, &mut form.suggested);
     ui.spacing_mut().item_spacing.y = 24.0;
     page_header(ui, a, tr!("Send"), None, |_, _| {});
+
+    // A picture dropped on the window, then what a scan brought (FEAT-0006): «To» gets it.
+    if !form.confirming
+        && let Some(picture) = crate::qr_scan::dropped(ui.ctx())
+    {
+        form.scanner.start(ui.ctx(), picture);
+    }
+    if let Some(scanned) = form.scanner.poll() {
+        form.take_scan(&scanned);
+    }
+    if !form.confirming && crate::qr_scan::dragging_picture(ui.ctx()) {
+        crate::components::drop_overlay(ui.ctx(), a, ui.max_rect());
+    }
 
     // A name goes to the core once per change; the answer comes back as an event.
     let typed = form.recipient.trim().to_string();

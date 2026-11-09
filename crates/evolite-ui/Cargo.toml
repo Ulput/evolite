@@ -46,9 +46,15 @@ egui = "0.36"
 egui_extras = { version = "0.36", features = ["svg"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-image = { version = "0.25", default-features = false, features = ["png"] }
+# PNG for the app icon and NFT art; JPEG and BMP for a QR picture from a file or a drop (FEAT-0006).
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "bmp"] }
+# QR codes from a picture (FEAT-0006): pure Rust, fed our own grey picture, so without `image`.
+rqrr = { version = "0.11", default-features = false }
+# The "Choose a picture…" dialog: IFileOpenDialog on Windows, NSOpenPanel on macOS; the portal on Linux.
+rfd = { version = "0.17", default-features = false }
 qrcode = { version = "0.14", default-features = false }
-arboard = { version = "3", default-features = false }
+# `image-data`: a QR picture from the clipboard (FEAT-0006); `wayland-data-control`: the same on Wayland.
+arboard = { version = "3", default-features = false, features = ["image-data", "wayland-data-control"] }
 sha2 = { version = "0.10", default-features = false }
 chrono = "0.4.45"
 zeroize = "1"
@@ -66,6 +72,10 @@ windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Globali
 windows = { version = "0.62", features = ["Win32_System_Com", "Win32_UI_Shell", "Win32_UI_Shell_Common"] }
 # The window's handle from eframe (already in the tree through winit).
 raw-window-handle = "0.6"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+# The file dialog through the desktop portal (no GTK, so no system library to install).
+rfd = { version = "0.17", default-features = false, features = ["xdg-portal"] }
 
 [target.'cfg(unix)'.dependencies]
 # The installer on Linux and macOS: free space of the mounted disks (statvfs, getmntinfo).
