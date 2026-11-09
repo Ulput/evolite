@@ -824,6 +824,7 @@ pub fn demo_wallet(t: Timestamp) -> Wallet {
                 },
             ],
             credit_transfer: 2_000,
+            credit_transfer_to_address: 20_000,
             pool_transfer: 114_140,
             nft_transfer: 30_000,
             document_write: 20_000,
@@ -835,6 +836,7 @@ pub fn demo_wallet(t: Timestamp) -> Wallet {
             name_contested: 20_000_000,
             add_key: 10_000,
             contact_request: 10_000,
+            contact_request_balance: 230_000,
             profile: 15_000,
             // Platform's pool formulas at protocol 15, two Orchard actions.
             shield_from_address: 114_140,

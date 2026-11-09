@@ -358,11 +358,39 @@ pub(in crate::real) fn dashpay_scan_of(found: chain::DashPayFound) -> Option<Das
 /// A failed DashPay write, in the interface's terms.
 pub(in crate::real) fn dashpay_failure(text: String) -> CoreError {
     let lower = text.to_lowercase();
-    if lower.contains("insufficient") || lower.contains("balance") {
+    // Platform's refusals for lack of credits, not any text about a balance: "Platform balance
+    // unavailable…" is a read that failed (BUG-107).
+    if lower.contains("insufficient") || lower.contains("is not enough") {
         CoreError::NotEnough
     } else if text == tr!("The wallet has no identity") {
         CoreError::NotAvailable(text)
     } else {
         CoreError::Failed(text)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// BUG-107: a read of the balance that failed is not a lack of credits; Platform's two
+    /// refusals for them are.
+    #[test]
+    fn only_a_refusal_for_credits_says_not_enough() {
+        let unavailable =
+            "Platform balance unavailable for identity abc; retry against an up-to-date node";
+        assert!(matches!(
+            dashpay_failure(unavailable.into()),
+            CoreError::Failed(_)
+        ));
+        for refused in [
+            "Insufficient identity abc balance 126042000 required 190000000",
+            "Current credits balance 1 is not enough to pay 2 fee",
+        ] {
+            assert!(
+                matches!(dashpay_failure(refused.into()), CoreError::NotEnough),
+                "{refused}"
+            );
+        }
     }
 }

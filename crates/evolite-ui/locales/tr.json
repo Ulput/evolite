@@ -1446,5 +1446,7 @@
   "“ष्टि” and “र्ई” should form ligatures, with vowel signs above and below the letters.": "«ष्टि» ve «र्ई» bitişik harf oluşturmalı, ünlü işaretleri harflerin üstünde ve altında olmalı.",
   "Platform wants this much before it writes a name; what the name does not use stays on the identity.": "Platform, bir ad yazılmadan önce bu kadarını ister; adın kullanmadığı kısım identity'de kalır.",
   "The identity's credits are not read yet: nothing is charged until they are": "Identity'nin kredileri henüz okunmadı: okunana kadar hiçbir şey kesilmez",
-  "Not every operation becomes a line of the file: those not final yet, the second half of a transfer between your own balances and those with no amount or an unknown fee are left out.": "Her işlem dosyada bir satır olmaz: henüz kesinleşmemiş olanlar, kendi bakiyeleriniz arasındaki aktarımın ikinci yarısı ve tutarı olmayan ya da ücreti bilinmeyenler dosyaya yazılmaz."
+  "Not every operation becomes a line of the file: those not final yet, the second half of a transfer between your own balances and those with no amount or an unknown fee are left out.": "Her işlem dosyada bir satır olmaz: henüz kesinleşmemiş olanlar, kendi bakiyeleriniz arasındaki aktarımın ikinci yarısı ve tutarı olmayan ya da ücreti bilinmeyenler dosyaya yazılmaz.",
+  "The network checks a reserve before it writes: with less than ≈ {} on the identity it may refuse. Less is charged.": "Ağ yazmadan önce bir rezerv kontrol eder: kimlikte ≈ {} altında bakiye varsa reddedebilir. Daha azı kesilir.",
+  "Fee, about": "Ücret, yaklaşık"
 }

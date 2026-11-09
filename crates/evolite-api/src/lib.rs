@@ -726,7 +726,10 @@ pub struct Fees {
     /// The wallet's spendable Core coins, largest first, each with the fee of a payment (with
     /// change) spending it and every coin before it (BUG-55). Empty when not known.
     pub core_coins: Vec<CoreCoin>,
+    /// The most a transfer of credits to an identity costs (what "Fee, at most" says), and to a
+    /// Platform address (Platform meters both; a new address stores a row).
     pub credit_transfer: Duffs,
+    pub credit_transfer_to_address: Duffs,
     /// A private transfer inside the pool (to a private address). The pool's fees are
     /// Platform's own formulas for a bundle of two Orchard actions; spending more than two
     /// notes at once costs a little more.
@@ -754,6 +757,9 @@ pub struct Fees {
     pub add_key: Duffs,
     /// A DashPay contact request (a document in Platform, paid in credits).
     pub contact_request: Duffs,
+    /// The balance the network wants on the identity before it writes a contact request: more
+    /// than the request costs, it checks an estimate first (BUG-107). A margin over what was seen.
+    pub contact_request_balance: Duffs,
     /// Writing the DashPay profile.
     pub profile: Duffs,
     /// Shielding from Platform addresses: the fee (metered by Platform, so an estimate), and
@@ -1655,6 +1661,7 @@ mod tests {
             core_payment: 522,
             core_coins: Vec::new(),
             credit_transfer: 0,
+            credit_transfer_to_address: 0,
             pool_transfer: 0,
             nft_transfer: 0,
             document_write: 0,
@@ -1666,6 +1673,7 @@ mod tests {
             name_contested: 0,
             add_key: 0,
             contact_request: 0,
+            contact_request_balance: 0,
             profile: 0,
             shield_from_address: 0,
             shield_reserve: 0,

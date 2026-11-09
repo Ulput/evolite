@@ -1436,5 +1436,7 @@
   "“ष्टि” and “र्ई” should form ligatures, with vowel signs above and below the letters.": "“ष्टि”和“र्ई”应组成连字，元音符号位于字母上方和下方。",
   "Platform wants this much before it writes a name; what the name does not use stays on the identity.": "写入名称前 Platform 要求有这么多；名称用不掉的部分仍留在 identity 上。",
   "The identity's credits are not read yet: nothing is charged until they are": "尚未读取到 identity 的积分：在读取之前不会扣费",
-  "Not every operation becomes a line of the file: those not final yet, the second half of a transfer between your own balances and those with no amount or an unknown fee are left out.": "并非每笔操作都会成为文件中的一行：尚未最终确认的操作、自有余额之间转账的后半部分以及没有金额或手续费未知的操作不会写入文件。"
+  "Not every operation becomes a line of the file: those not final yet, the second half of a transfer between your own balances and those with no amount or an unknown fee are left out.": "并非每笔操作都会成为文件中的一行：尚未最终确认的操作、自有余额之间转账的后半部分以及没有金额或手续费未知的操作不会写入文件。",
+  "The network checks a reserve before it writes: with less than ≈ {} on the identity it may refuse. Less is charged.": "网络在写入前会检查余量：身份余额少于约 {} 时可能拒绝。实际扣除更少。",
+  "Fee, about": "手续费，约"
 }

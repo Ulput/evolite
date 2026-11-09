@@ -272,13 +272,14 @@ fn a_withdrawal_keeps_the_reserve_and_the_smallest_amount() {
 fn credits_to_core_cost_a_withdrawal() {
     let fees = evolite_api::Fees {
         credit_transfer: 777,
+        credit_transfer_to_address: 888,
         credit_withdrawal: 400_000,
         ..zero_fees()
     };
     assert_eq!(credits_fee(&fees, "@alice"), 777);
     assert_eq!(
         credits_fee(&fees, "tdash1qq7x4m9n2r8v5k3j6h0w4p2s8d5f7g9l3c0zq"),
-        777
+        888
     );
     assert_eq!(
         credits_fee(&fees, " yStwA1xNxEE2kv5ZVDNGSsPach8pBApWHZ"),
@@ -298,6 +299,7 @@ fn zero_fees() -> evolite_api::Fees {
         core_payment: 0,
         core_coins: Vec::new(),
         credit_transfer: 0,
+        credit_transfer_to_address: 0,
         pool_transfer: 0,
         nft_transfer: 0,
         document_write: 0,
@@ -309,6 +311,7 @@ fn zero_fees() -> evolite_api::Fees {
         name_contested: 0,
         add_key: 0,
         contact_request: 0,
+        contact_request_balance: 0,
         profile: 0,
         shield_from_address: 0,
         shield_reserve: 0,
@@ -858,6 +861,19 @@ fn a_lock_clears_the_form() {
     // The answer of the payment with the network gives no amount back after the lock.
     form.on_sent(0, &Err(CoreError::NotEnough));
     assert!(form.amount.is_empty());
+}
+
+/// BUG-108 r1 must 1: Platform meters credits and has no cap, so their fee is an estimate, said so
+/// on the fee and on the total. A Core fee is known before signing and stays "at most".
+#[test]
+fn only_a_fee_known_before_signing_says_at_most() {
+    let (label, fee, total) = confirm::fee_lines(100_000, 5_000, true);
+    assert_eq!(label, "Fee, about");
+    assert!(fee.starts_with("≈ "), "{fee}");
+    assert!(total.starts_with("≈ "), "{total}");
+    let (label, fee, total) = confirm::fee_lines(100_000, 226, false);
+    assert_eq!(label, "Fee, at most");
+    assert!(!fee.contains('≈') && !total.contains('≈'), "{fee} {total}");
 }
 
 const QR_ADDR: &str = "yXk3Tq9mD8vJw2RfL6pN4sB7cH1eZ5aG9f";

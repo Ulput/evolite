@@ -24,6 +24,8 @@ pub(super) struct FormView<'a> {
     pub(super) name_problem: Option<(String, bool)>,
     pub(super) checking: bool,
     pub(super) contact_fee: Duffs,
+    /// The warning before "Add to contacts": what the network wants on the identity (BUG-107).
+    pub(super) contact_reserve: Option<String>,
     pub(super) not_contact: bool,
     pub(super) recipient_label: String,
     pub(super) book: Vec<SavedAddress>,
@@ -118,6 +120,7 @@ impl<'a> FormView<'a> {
         // Core pays a name only as a DashPay contact: to the addresses its answer to our request
         // gave us. Until then the form explains and offers the request instead of an amount.
         let contact_fee = cx.wallet().fees.contact_request;
+        let contact_reserve = super::super::contacts::reserve_warning(cx.wallet());
         let not_contact = all[form.source].source == Source::Core
             && resolved_name
                 .as_ref()
@@ -163,6 +166,7 @@ impl<'a> FormView<'a> {
             name_problem,
             checking,
             contact_fee,
+            contact_reserve,
             not_contact,
             recipient_label,
             book,
@@ -392,6 +396,11 @@ fn contact_first(
         ),
     };
     notice(ui, a, "contacts", p.accent, &text);
+    if name.contact.is_none()
+        && let Some(warning) = &v.contact_reserve
+    {
+        super::super::contacts::reserve_line(ui, &p, warning);
+    }
     if let Some(Err(e)) = &form.contact_result
         && !form.contact_password.is_wrong()
     {

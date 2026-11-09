@@ -148,13 +148,21 @@ pub(super) fn max_amount(balance: Duffs, fee: Duffs, withdrawal: Option<Withdraw
 /// to a name or a Platform address (a transfer).
 pub(super) fn credits_to_core(to: &str) -> bool {
     let to = to.trim();
-    !(to.is_empty() || to.starts_with('@') || to.to_ascii_lowercase().starts_with("tdash1"))
+    !(to.is_empty() || to.starts_with('@') || credits_to_platform_address(to))
 }
 
-/// What credits to `to` cost: a withdrawal to a Core address, else a transfer.
+/// Credits to `to` go to a Platform address, whose transfer costs more than one to a name (BUG-108).
+fn credits_to_platform_address(to: &str) -> bool {
+    to.trim().to_ascii_lowercase().starts_with("tdash1")
+}
+
+/// What credits to `to` cost: a withdrawal to a Core address, else a transfer to a Platform address
+/// or a name.
 pub(super) fn credits_fee(fees: &evolite_api::Fees, to: &str) -> Duffs {
     if credits_to_core(to) {
         fees.credit_withdrawal
+    } else if credits_to_platform_address(to) {
+        fees.credit_transfer_to_address
     } else {
         fees.credit_transfer
     }

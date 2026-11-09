@@ -345,6 +345,17 @@ impl Journal {
             .find_map(fee_of)
     }
 
+    /// The dearest fee among the last `recent` entries of a kind (`kind`) whose fee is known.
+    pub fn dearest_fee(&self, kind: impl Fn(&What) -> bool, recent: usize) -> Option<Duffs> {
+        self.entries()
+            .iter()
+            .rev()
+            .filter(|e| kind(&e.what))
+            .filter_map(fee_of)
+            .take(recent)
+            .max()
+    }
+
     /// The file's entries, each with its line's id (given now to those written without one:
     /// by an older build, or before ids were kept).
     fn load(&self) -> Vec<Entry> {

@@ -1436,5 +1436,7 @@
   "“ष्टि” and “र्ई” should form ligatures, with vowel signs above and below the letters.": "「ष्टि」と「र्ई」は合字になり、母音記号が文字の上下に付く必要があります。",
   "Platform wants this much before it writes a name; what the name does not use stays on the identity.": "名前を書き込む前に Platform はこの額を必要とします。名前に使われなかった分は identity に残ります。",
   "The identity's credits are not read yet: nothing is charged until they are": "identity のクレジットをまだ読み取っていません。読み取るまで何も請求されません",
-  "Not every operation becomes a line of the file: those not final yet, the second half of a transfer between your own balances and those with no amount or an unknown fee are left out.": "すべての操作がファイルの行になるわけではありません。まだ確定していないもの、自分の残高間の送金の後半、金額がないものや手数料が不明なものは含まれません。"
+  "Not every operation becomes a line of the file: those not final yet, the second half of a transfer between your own balances and those with no amount or an unknown fee are left out.": "すべての操作がファイルの行になるわけではありません。まだ確定していないもの、自分の残高間の送金の後半、金額がないものや手数料が不明なものは含まれません。",
+  "The network checks a reserve before it writes: with less than ≈ {} on the identity it may refuse. Less is charged.": "ネットワークは書き込み前に余力を確認します。ID の残高が約 {} 未満だと拒否されることがあります。実際の請求額はこれより少なくなります。",
+  "Fee, about": "手数料（目安）"
 }

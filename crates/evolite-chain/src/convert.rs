@@ -638,6 +638,22 @@ pub fn fee_rate() -> FeeRate {
     FeeRate::normal()
 }
 
+/// "Fee, at most" of a transfer of credits. Platform meters these writes and nothing gives their
+/// cost in advance; its protocol minimum (100 duffs) is no bound. Seen on testnet: to an identity
+/// 2 901 duffs (manual pass 16), to a Platform address about 3 400 (live run of 2026-11-08) and
+/// 9 900 (the skill `platform-wallet`). These are our margin over that, not a limit of the protocol.
+const CREDIT_TRANSFER: Duffs = 5_000;
+const CREDIT_TRANSFER_TO_ADDRESS: Duffs = 20_000;
+/// How many of the last transfers "at most" looks at: enough that a cheap one after a dear one does
+/// not bring it down, few enough that one fee misread from a stale balance does not stay for good.
+const RECENT_TRANSFERS: usize = 8;
+
+/// What the network wants on the identity before it writes a contact request (BUG-107): Platform
+/// compares the balance with an estimate (`validate_fees_of_event`, a dry run at worst-case tree
+/// costs), not with the fee, and then takes less. Manual pass 16 was refused at 126 042 duffs and
+/// accepted at 226 042; where between is not known, this is above the accepted one.
+const CONTACT_REQUEST_BALANCE: Duffs = 230_000;
+
 /// A contact request on testnet, 2026-11-05: 0.00102028 DASH (manual run M-7), rounded up.
 const CONTACT_REQUEST: Duffs = 105_000;
 /// A regular DPNS name on testnet, 2026-11-05: 0.00057979 DASH (evolite-test-data), rounded up.
@@ -755,7 +771,8 @@ pub fn fees(coins: usize) -> Fees {
         core_payment: fee_rate().calculate_fee(estimate_tx_size(coins.max(1), 1, true)) as Duffs,
         // The coins themselves: [`core_coins`], once the wallet's are read.
         core_coins: Vec::new(),
-        credit_transfer: 2_000,
+        credit_transfer: CREDIT_TRANSFER,
+        credit_transfer_to_address: CREDIT_TRANSFER_TO_ADDRESS,
         nft_transfer: 30_000,
         // Documents are metered by Platform; until this data folder has paid for one of a kind
         // ([`platform_fees`] then takes what it really cost), what testnet charged
@@ -773,6 +790,7 @@ pub fn fees(coins: usize) -> Fees {
         name_contested: 20_000_000,
         add_key: 10_000,
         contact_request: CONTACT_REQUEST,
+        contact_request_balance: CONTACT_REQUEST_BALANCE,
         // Not measured yet: one document like a contact request, with fewer indexes — this is
         // the upper side.
         profile: CONTACT_REQUEST,
@@ -793,9 +811,9 @@ pub fn fees(coins: usize) -> Fees {
     }
 }
 
-/// The fees of Platform writes outside the pool, at protocol `version`. Credit transfers,
-/// withdrawals and documents (profile, contact request, name) are metered by Platform: what the
-/// last one of a kind really cost (the journal), else the protocol's minimum — for documents,
+/// The fees of Platform writes outside the pool, at protocol `version`. Withdrawals and documents
+/// (profile, contact request, name) are metered by Platform: what the last one of a kind really
+/// cost (the journal), else the protocol's minimum — for documents,
 /// whose minimum is far below any real write, the estimate above. Creating an identity is
 /// metered too ([`IDENTITY_CREATE`]); adding a key has a fixed protocol cost; a contested name
 /// adds the masternode vote's fund.
@@ -807,9 +825,16 @@ pub fn platform_fees(
     use super::journal::What;
     let duffs = |credits: u64| credits.div_ceil(1000) as Duffs;
     let min = &version.fee_version.state_transition_min_fees;
-    fees.credit_transfer = journal
-        .last_fee(|w| matches!(w, What::Credits { .. }))
-        .unwrap_or(duffs(min.credit_transfer));
+    // "At most" must not be below what is taken (BUG-108): the bound, or a quarter over the dearest
+    // of the recent transfers to that kind of destination.
+    let at_most = |bound: Duffs, to_a_name: bool| {
+        let kind = |w: &What| matches!(w, What::Credits { to } if to.starts_with('@') == to_a_name);
+        journal
+            .dearest_fee(kind, RECENT_TRANSFERS)
+            .map_or(bound, |fee| bound.max(fee.saturating_mul(5) / 4))
+    };
+    fees.credit_transfer = at_most(CREDIT_TRANSFER, true);
+    fees.credit_transfer_to_address = at_most(CREDIT_TRANSFER_TO_ADDRESS, false);
     fees.credit_withdrawal = journal
         .last_fee(|w| matches!(w, What::Withdrawal { .. }))
         .unwrap_or(duffs(min.credit_withdrawal));
@@ -1101,6 +1126,96 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// BUG-108: before the first transfer "Fee, at most" said the protocol's minimum (100 duffs)
+    /// and Platform took 2 901. Not below what it was seen to take, for either destination.
+    #[test]
+    fn at_most_a_first_transfer_is_not_below_what_platform_took() {
+        let dir = std::env::temp_dir().join(format!("evolite-at-most-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let journal = super::super::journal::Journal::new(dir.join("platform-history.json"));
+        let v15 = dpp::version::PlatformVersion::get(15).unwrap();
+        let mut f = fees(0);
+        platform_fees(&mut f, v15, &journal);
+        assert!(f.credit_transfer >= 2_901, "{}", f.credit_transfer);
+        assert!(
+            f.credit_transfer_to_address >= 9_900,
+            "{}",
+            f.credit_transfer_to_address
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// BUG-108: a cheap transfer does not lower the next one's bound, and a dear one raises only
+    /// its own destination's, with a margin over what was taken.
+    #[test]
+    fn at_most_follows_a_dearer_transfer_of_the_same_destination() {
+        let dir = std::env::temp_dir().join(format!("evolite-at-most-2-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let journal = super::super::journal::Journal::new(dir.join("platform-history.json"));
+        let v15 = dpp::version::PlatformVersion::get(15).unwrap();
+        let mut f = fees(0);
+        journal.add(super::super::journal::Entry {
+            at: 1,
+            what: super::super::journal::What::Credits { to: "@a".into() },
+            spent: 10_100,
+            moved: 10_000,
+            ..Default::default()
+        });
+        platform_fees(&mut f, v15, &journal);
+        assert_eq!(f.credit_transfer, CREDIT_TRANSFER, "cheap: still the bound");
+        journal.add(super::super::journal::Entry {
+            at: 2,
+            what: super::super::journal::What::Credits {
+                to: "tdash1x".into(),
+            },
+            spent: 110_000,
+            moved: 10_000,
+            ..Default::default()
+        });
+        platform_fees(&mut f, v15, &journal);
+        assert_eq!(
+            f.credit_transfer_to_address, 125_000,
+            "100 000 and a quarter"
+        );
+        assert_eq!(f.credit_transfer, CREDIT_TRANSFER, "not the identity's");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// BUG-108: "at most" looks at the last transfers of a destination, not only the last: a
+    /// cheap one after a dear one does not bring it down, and one reading gone wrong (a stale
+    /// balance) does not raise it for good.
+    #[test]
+    fn at_most_holds_the_dearest_of_the_recent_transfers() {
+        use super::super::journal::{Entry, Journal, What};
+        let dir = std::env::temp_dir().join(format!("evolite-at-most-3-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let journal = Journal::new(dir.join("platform-history.json"));
+        let v15 = dpp::version::PlatformVersion::get(15).unwrap();
+        let to_address = |at, fee: i64| Entry {
+            at,
+            what: What::Credits {
+                to: "tdash1x".into(),
+            },
+            spent: 10_000 + fee,
+            moved: 10_000,
+            ..Default::default()
+        };
+        journal.add(to_address(1, 30_000));
+        journal.add(to_address(2, 4_000));
+        let mut f = fees(0);
+        platform_fees(&mut f, v15, &journal);
+        assert_eq!(f.credit_transfer_to_address, 37_500, "30 000 and a quarter");
+        for at in 3..=9 {
+            journal.add(to_address(at, 4_000));
+        }
+        platform_fees(&mut f, v15, &journal);
+        assert_eq!(
+            f.credit_transfer_to_address, CREDIT_TRANSFER_TO_ADDRESS,
+            "eight transfers on it is forgotten"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     #[test]
     fn platform_fees_follow_the_protocol_and_the_last_write() {
         let dir = std::env::temp_dir().join(format!("evolite-fees-{}", std::process::id()));
@@ -1112,7 +1227,8 @@ mod tests {
         // Nothing written yet: the protocol's own numbers.
         assert_eq!(f.credit_withdrawal, 400_000);
         assert_eq!(f.credit_withdrawal_reserve, 400_000);
-        assert_eq!(f.credit_transfer, 100);
+        assert_eq!(f.credit_transfer, CREDIT_TRANSFER);
+        assert_eq!(f.credit_transfer_to_address, CREDIT_TRANSFER_TO_ADDRESS);
         assert_eq!(
             f.identity_create, IDENTITY_CREATE,
             "metered, not the minimum"
@@ -1140,7 +1256,10 @@ mod tests {
             ..Default::default()
         });
         platform_fees(&mut f, v15, &journal);
-        assert_eq!((f.name_regular, f.credit_transfer), (123_456, 777));
+        assert_eq!(
+            (f.name_regular, f.credit_transfer),
+            (123_456, CREDIT_TRANSFER)
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 

@@ -24,9 +24,15 @@ struct Saved {
 
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 enum Kind {
-    Shielded { from: Option<String> },
+    Shielded {
+        from: Option<String>,
+    },
     Received,
     Sent,
+    /// Between the pool's own addresses (BUG-109).
+    SelfTransfer {
+        moved: Duffs,
+    },
 }
 
 pub struct PoolHistory {
@@ -127,6 +133,7 @@ impl Saved {
             ActivityKind::Shielded { from } => Kind::Shielded { from: from.clone() },
             ActivityKind::PoolReceived => Kind::Received,
             ActivityKind::PoolSent => Kind::Sent,
+            ActivityKind::SelfTransfer { moved } => Kind::SelfTransfer { moved: *moved },
             _ => return None,
         };
         Some(Self {
@@ -146,6 +153,7 @@ impl Saved {
                 Kind::Shielded { from } => ActivityKind::Shielded { from: from.clone() },
                 Kind::Received => ActivityKind::PoolReceived,
                 Kind::Sent => ActivityKind::PoolSent,
+                Kind::SelfTransfer { moved } => ActivityKind::SelfTransfer { moved: *moved },
             },
             chain: Chain::Platform,
             at: self.at,
@@ -161,6 +169,7 @@ impl Saved {
                 Kind::Shielded { .. } => evolite_api::Flow::Between,
                 Kind::Received => evolite_api::Flow::In,
                 Kind::Sent => evolite_api::Flow::Out,
+                Kind::SelfTransfer { .. } => evolite_api::Flow::Between,
             },
             key: format!("pool:{:016x}", self.id),
             detail: None,
@@ -304,6 +313,67 @@ mod tests {
         live.merge(vec![sending]);
         live.merge(vec![proved.clone()]);
         assert_eq!(PoolHistory::new(path).kept(), vec![proved]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// BUG-109: a transfer between the pool's own addresses is a line of the history too, and
+    /// comes back at the start with the rest.
+    #[test]
+    fn a_proved_self_transfer_is_kept() {
+        let dir =
+            std::env::temp_dir().join(format!("evolite-pool-history-self-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let path = dir.join("pool-history.json");
+        let moved = op(
+            10,
+            ActivityKind::SelfTransfer { moved: 0 },
+            -114_140,
+            Some(114_140),
+        );
+        PoolHistory::new(path.clone()).merge(vec![moved.clone()]);
+        assert_eq!(PoolHistory::new(path).kept(), vec![moved]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The rule stays: pending, it is not kept.
+    #[test]
+    fn a_pending_self_transfer_is_not_kept() {
+        let dir = std::env::temp_dir().join(format!(
+            "evolite-pool-history-self-p-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        let path = dir.join("pool-history.json");
+        let moved = Activity {
+            proof: Proof::Sending,
+            ..op(
+                11,
+                ActivityKind::SelfTransfer { moved: 0 },
+                -114_140,
+                Some(114_140),
+            )
+        };
+        PoolHistory::new(path.clone()).merge(vec![moved]);
+        assert_eq!(PoolHistory::new(path).kept(), Vec::new());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// BUG-109: as the screen had it: the scan gives this line with no fee, 0 moved and no time.
+    #[test]
+    fn a_self_transfer_the_scan_gives_empty_is_kept() {
+        let dir = std::env::temp_dir().join(format!(
+            "evolite-pool-history-self-e-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        let path = dir.join("pool-history.json");
+        let moved = Activity {
+            at: 0,
+            block: None,
+            ..op(12, ActivityKind::SelfTransfer { moved: 0 }, 0, None)
+        };
+        PoolHistory::new(path.clone()).merge(vec![moved.clone()]);
+        assert_eq!(PoolHistory::new(path).kept(), vec![moved]);
         let _ = std::fs::remove_dir_all(&dir);
     }
 

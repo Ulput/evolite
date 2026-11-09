@@ -429,7 +429,8 @@ impl Real {
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .apply(records);
-        self.add_platform_lines(&mut history, &identities, &names, shown.as_ref());
+        let answered = answered_requests(&mine);
+        self.add_platform_lines(&mut history, &identities, &names, &answered);
         // Coins, and the addresses holding them (the overview counts those).
         let utxos = convert::coins_once(&state.core_wallet);
         let holding: std::collections::HashSet<_> =
@@ -563,7 +564,7 @@ impl Real {
         history: &mut Vec<Activity>,
         identities: &[IdentityChoice],
         names: &HashMap<String, Option<String>>,
-        shown: Option<&ShownIdentity>,
+        answered: &HashMap<String, std::collections::HashSet<String>>,
     ) {
         let own: std::collections::HashMap<&str, String> = identities
             .iter()
@@ -578,12 +579,6 @@ impl Real {
                     .map(|label| format!("@{label}"))
             })
         };
-        let shown_id = shown.map(|(identity, _, _)| identity.id.as_str());
-        let answered = established_ids(
-            shown
-                .map(|(_, _, contacts)| contacts.as_slice())
-                .unwrap_or_default(),
-        );
         history.extend(self.journal.entries().iter().map(|entry| {
             let mut line = journal::activity(entry);
             platform_history::name_request_sides(
@@ -596,9 +591,12 @@ impl Real {
                 *state = settle_incoming(
                     *state,
                     entry.key.as_deref(),
-                    shown_id,
                     |f| self.hidden.contains(f),
-                    |f| answered.contains(f),
+                    |ours, f| {
+                        answered
+                            .get(ours)
+                            .is_some_and(|contacts| contacts.contains(f))
+                    },
                 );
             }
             line
@@ -1013,27 +1011,37 @@ fn incoming_sides(key: &str) -> Option<(&str, Option<&str>)> {
     })
 }
 
-/// The identities `contacts` are made with: an answer from each side (BUG-88). A request one
-/// side has only sent is no contact yet.
-fn established_ids(contacts: &[Contact]) -> std::collections::HashSet<&str> {
-    contacts
-        .iter()
-        .filter(|c| c.state == ContactState::Established)
-        .map(|c| c.identity_id.as_str())
+/// Who is a contact of each of the wallet's identities: a request came to the one it says.
+fn answered_requests(
+    mine: &[&platform_wallet::ManagedIdentity],
+) -> HashMap<String, std::collections::HashSet<String>> {
+    answered_by(mine.iter().map(|m| {
+        (
+            m.identity.id().to_string(Encoding::Base58),
+            m.dashpay().established_contacts(),
+        )
+    }))
+}
+
+/// [`answered_requests`] from each identity's id and its established contacts (a request one side
+/// has only sent is not among them).
+fn answered_by<'a, C: 'a>(
+    mine: impl Iterator<Item = (String, &'a std::collections::BTreeMap<Identifier, C>)>,
+) -> HashMap<String, std::collections::HashSet<String>> {
+    mine.map(|(ours, contacts)| (ours, contacts.keys().map(dashpay::base58).collect()))
         .collect()
 }
 
 /// What the line of an incoming request says now: hidden on this computer, accepted once the
 /// sender is a contact of the identity it came to, else as the journal has it. The running
-/// wallet knows the contact at once, before the next read of Platform (BUG-88). `answered` are
-/// the contacts of the identity shown, and the journal has the requests of every identity: only
-/// a request to the one shown can be told by them, the others stay as they are.
+/// wallet knows the contact at once, before the next read of Platform (BUG-88). `answered` says
+/// whether a sender is a contact of the identity of ours the request came to (BUG-110: any of the
+/// wallet's, not only the one shown).
 fn settle_incoming<'a>(
     state: evolite_api::RequestState,
     key: Option<&'a str>,
-    shown: Option<&str>,
     hidden: impl Fn(&'a str) -> bool,
-    answered: impl Fn(&'a str) -> bool,
+    answered: impl Fn(&'a str, &'a str) -> bool,
 ) -> evolite_api::RequestState {
     use evolite_api::RequestState::{Accepted, Hidden, Waiting};
     let Some((from, ours)) = key.and_then(incoming_sides) else {
@@ -1044,7 +1052,7 @@ fn settle_incoming<'a>(
     }
     if hidden(from) {
         Hidden
-    } else if ours.is_some() && ours == shown && answered(from) {
+    } else if ours.is_some_and(|ours| answered(ours, from)) {
         Accepted
     } else {
         state
@@ -1053,37 +1061,17 @@ fn settle_incoming<'a>(
 
 #[cfg(test)]
 mod incoming_tests {
-    use super::{established_ids, incoming_sides, settle_incoming};
+    use super::{Encoding, Identifier, answered_by, incoming_sides, settle_incoming};
     use evolite_api::RequestState::{self, Accepted, Hidden, Waiting};
-    use evolite_api::{Contact, ContactState, Profile};
-
-    fn contact(id: &str, state: ContactState) -> Contact {
-        Contact {
-            identity_id: id.to_owned(),
-            name: None,
-            profile: Profile {
-                display: None,
-                about: None,
-                avatar: None,
-                avatar_url: None,
-                updated_at: None,
-            },
-            state,
-            since: 0,
-            payments: 0,
-            last_payment: None,
-        }
-    }
 
     /// Settled with the contacts of identity `s`, the one shown.
-    fn settled(state: RequestState, key: &str, contacts: &[Contact]) -> RequestState {
-        let answered = established_ids(contacts);
+    fn settled(state: RequestState, key: &str, contacts: &[&str]) -> RequestState {
+        let answered: std::collections::HashSet<&str> = contacts.iter().copied().collect();
         settle_incoming(
             state,
             Some(key),
-            Some("s"),
             |_| false,
-            |f| answered.contains(f),
+            |ours, f| ours == "s" && answered.contains(f),
         )
     }
 
@@ -1096,31 +1084,57 @@ mod incoming_tests {
 
     #[test]
     fn a_request_to_the_identity_shown_says_accepted_once_it_is_a_contact() {
-        let contacts = [contact("x", ContactState::Established)];
-        assert_eq!(settled(Waiting, "cri:x:s", &contacts), Accepted);
+        assert_eq!(settled(Waiting, "cri:x:s", &["x"]), Accepted);
     }
 
     /// X is a contact of S; its request to T has not been answered by T (r1, must 1).
     #[test]
     fn a_request_to_another_identity_is_not_accepted_by_a_contact_of_the_one_shown() {
-        let contacts = [contact("x", ContactState::Established)];
-        assert_eq!(settled(Waiting, "cri:x:t", &contacts), Waiting);
+        assert_eq!(settled(Waiting, "cri:x:t", &["x"]), Waiting);
     }
 
-    /// One way only: not a contact yet.
+    /// BUG-110: X became a contact of T while S was shown: T's request says accepted at once.
+    #[test]
+    fn a_request_to_another_identity_says_accepted_once_that_identity_has_the_contact() {
+        let answered: std::collections::HashSet<&str> = ["x"].into_iter().collect();
+        let state = settle_incoming(
+            Waiting,
+            Some("cri:x:t"),
+            |_| false,
+            |ours, f| ours == "t" && answered.contains(f),
+        );
+        assert_eq!(state, Accepted);
+    }
+
+    /// One way only: not among the established contacts, so not answered.
     #[test]
     fn a_request_one_side_has_only_sent_is_not_accepted() {
-        for state in [ContactState::Outgoing, ContactState::Incoming] {
-            let contacts = [contact("x", state)];
-            assert_eq!(settled(Waiting, "cri:x:s", &contacts), Waiting, "{state:?}");
-        }
+        assert_eq!(settled(Waiting, "cri:x:s", &[]), Waiting);
+    }
+
+    /// BUG-110 r1 should 2: the map a line is settled by holds each identity's own contacts.
+    #[test]
+    fn each_identity_answers_for_its_own_contacts() {
+        let (s, t, x, y) = (
+            Identifier::from([1; 32]),
+            Identifier::from([2; 32]),
+            Identifier::from([3; 32]),
+            Identifier::from([4; 32]),
+        );
+        let b58 = |id: &Identifier| id.to_string(Encoding::Base58);
+        let of_s = std::collections::BTreeMap::from([(x, ())]);
+        let of_t = std::collections::BTreeMap::from([(y, ()), (x, ())]);
+        let answered = answered_by([(b58(&s), &of_s), (b58(&t), &of_t)].into_iter());
+        let holds = |ours: &Identifier, f: &Identifier| answered[&b58(ours)].contains(&b58(f));
+        assert!(holds(&s, &x) && holds(&t, &x) && holds(&t, &y));
+        assert!(!holds(&s, &y), "a contact of t is no contact of s");
     }
 
     #[test]
     fn hidden_goes_by_the_sender_whichever_identity_is_shown() {
         for key in ["cri:x:s", "cri:x:t", "cri:x"] {
             assert_eq!(
-                settle_incoming(Waiting, Some(key), Some("s"), |_| true, |_| false),
+                settle_incoming(Waiting, Some(key), |_| true, |_, _| false),
                 Hidden,
                 "{key}"
             );
@@ -1130,15 +1144,15 @@ mod incoming_tests {
     #[test]
     fn only_a_waiting_line_changes() {
         assert_eq!(
-            settle_incoming(Accepted, Some("cri:x:s"), Some("s"), |_| true, |_| false),
+            settle_incoming(Accepted, Some("cri:x:s"), |_| true, |_, _| false),
             Accepted
         );
         assert_eq!(
-            settle_incoming(Waiting, None, Some("s"), |_| true, |_| true),
+            settle_incoming(Waiting, None, |_| true, |_, _| true),
             Waiting
         );
         assert_eq!(
-            settle_incoming(Waiting, Some("cri:x"), Some("s"), |_| false, |_| true),
+            settle_incoming(Waiting, Some("cri:x"), |_| false, |_, _| true),
             Waiting,
             "a key without our side: nobody can tell"
         );

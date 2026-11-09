@@ -104,7 +104,7 @@ pub(super) fn confirm(
                 sans(13.0, Weight::Medium),
             );
             recipient_lines(ui, &p, form, &look);
-            amount_lines(ui, &p, amount, source.fee);
+            amount_lines(ui, &p, amount, source.fee, source.source == Source::Credits);
             if let Some(note) = form.note_shown() {
                 confirm_note(ui, a, &note, form.note_from_link());
             }
@@ -285,20 +285,37 @@ fn recipient_lines(ui: &mut Ui, p: &crate::theme::Palette, form: &SendForm, look
             });
 }
 
-/// The amount, the most the fee can be, and the two together.
-fn amount_lines(ui: &mut Ui, p: &crate::theme::Palette, amount: Duffs, fee: Duffs) {
+/// What the last look says of the fee: its label, the fee and the total. `about`: Platform meters
+/// credits with no cap and a transfer cannot set a maximum, so their fee is an estimate; a Core
+/// fee is known before signing and is "at most" (BUG-108 r1).
+pub(super) fn fee_lines(amount: Duffs, fee: Duffs, about: bool) -> (&'static str, String, String) {
+    let dash = crate::format::amount;
+    let total = amount.saturating_add(fee);
+    if about {
+        (
+            tr!("Fee, about"),
+            format!("≈ {}", dash(fee)),
+            format!("≈ {}", dash(total)),
+        )
+    } else {
+        (tr!("Fee, at most"), dash(fee), dash(total))
+    }
+}
+
+/// The amount, the fee and the two together. `about`: see [`fee_lines`].
+fn amount_lines(ui: &mut Ui, p: &crate::theme::Palette, amount: Duffs, fee: Duffs, about: bool) {
     let value = mono(13.0, Weight::Medium);
-    let dash = |d: Duffs| crate::format::amount(d);
-    kv_row(ui, p, tr!("Amount"), &dash(amount), value.clone());
-    kv_row(ui, p, tr!("Fee, at most"), &dash(fee), value.clone());
-    divider(ui, p);
+    let (label, fee, total) = fee_lines(amount, fee, about);
     kv_row(
         ui,
         p,
-        tr!("In total"),
-        &dash(amount.saturating_add(fee)),
-        value,
+        tr!("Amount"),
+        &crate::format::amount(amount),
+        value.clone(),
     );
+    kv_row(ui, p, label, &fee, value.clone());
+    divider(ui, p);
+    kv_row(ui, p, tr!("In total"), &total, value);
 }
 
 /// The wallet's password, asked in the last look.

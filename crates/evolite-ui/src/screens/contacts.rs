@@ -14,8 +14,8 @@ use crate::theme::{Weight, mono, sans};
 use chrono::{DateTime, Local};
 use egui::{Align, Align2, Layout, Margin, Rect, Sense, Ui, pos2, vec2};
 use evolite_api::{
-    Activity, ActivityKind, Command, Contact, ContactState, CoreError, Profile, ResolvedName,
-    Spend, Wallet,
+    Activity, ActivityKind, Command, Contact, ContactState, CoreError, Duffs, Profile,
+    ResolvedName, Spend, Wallet,
 };
 
 const HOW: [(&str, &str, &str); 3] = [
@@ -60,6 +60,8 @@ pub struct ContactsState {
     pub privacy: bool,
     /// "Contact privacy" closed: its link takes the focus back.
     privacy_closed: bool,
+    /// The credits and identity when "not enough credits" was first shown: it goes once they change.
+    refused_with: Option<(Duffs, Option<String>)>,
     /// This frame: whether the wallet asks for its password for every spend.
     ask: bool,
     /// «My QR» is open (FR-8).
@@ -80,6 +82,26 @@ pub struct AddContact {
 }
 
 impl ContactsState {
+    /// BUG-110: "Not enough credits" stays until the identity has more or another identity is
+    /// worked as. `credits`: `None` while the balance is not read yet.
+    fn forget_not_enough_after_top_up(&mut self, credits: Option<Duffs>, identity: Option<&str>) {
+        if !matches!(self.result, Some(Err(CoreError::NotEnough))) {
+            self.refused_with = None;
+            return;
+        }
+        let Some(credits) = credits else {
+            return;
+        };
+        match &self.refused_with {
+            None => self.refused_with = Some((credits, identity.map(str::to_owned))),
+            Some((at, who)) if credits > *at || who.as_deref() != identity => {
+                self.result = None;
+                self.refused_with = None;
+            }
+            Some(_) => {}
+        }
+    }
+
     /// The core's answer to a contact request, an answer or "Hide". Only one this screen
     /// sent: "Add to contacts" on the Send screen is answered the same way.
     pub fn on_done(&mut self, result: &Result<(), CoreError>) {
@@ -93,6 +115,8 @@ impl ContactsState {
             self.accepting = None;
         }
         self.result = Some(result.clone());
+        // A new answer is measured from the balance it comes at (BUG-110 r1).
+        self.refused_with = None;
     }
 
     /// The wallet locked: a password typed for a request goes, and the dialogs close —
@@ -230,6 +254,10 @@ pub fn contacts(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut ContactsS
                 .line_height(Some(21.0)),
             )
             .wrap(),
+        );
+        state.forget_not_enough_after_top_up(
+            known_credits(wallet),
+            wallet.identity.as_ref().map(|i| i.id.as_str()),
         );
         if let Some(Err(e)) = &state.result {
             crate::components::error_notice(ui, a, &contact_error(e), crate::text::error_details(e).as_deref());
@@ -814,6 +842,7 @@ fn add_contact(
                     who = who
                 ),
             );
+            reserve_notice(ui, &p, wallet);
             if let Some(Err(e)) = &result
                 && !password.is_wrong()
             {
@@ -1006,6 +1035,7 @@ fn accept_dialog(
                 Weight::Regular,
                 p.text,
             ));
+            reserve_notice(ui, &p, wallet);
             if let Some(Err(e)) = &state.result
                 && !state.password.is_wrong()
             {
@@ -1236,6 +1266,43 @@ fn found_box(ui: &mut Ui, a: &mut Assets, found: &ResolvedName, asked: &mut Vec<
         });
 }
 
+/// What a dialog says when the identity has less than the network wants before it writes (BUG-107):
+/// the price is not the whole of it, and the write is refused below this. Nothing while the balance
+/// is not read yet.
+fn balance_warning(credits: Option<Duffs>, needed: Duffs) -> Option<String> {
+    (credits? < needed).then(|| {
+        format!(
+            tr!("The network checks a reserve before it writes: with less than ≈ {amount} on the identity it may refuse. Less is charged."),
+            amount = crate::format::amount(needed)
+        )
+    })
+}
+
+/// The identity's credits, once read.
+fn known_credits(wallet: &Wallet) -> Option<Duffs> {
+    wallet
+        .balances
+        .credits_read
+        .then_some(wallet.balances.credits)
+}
+
+/// [`balance_warning`] for whatever sends a contact request or an answer.
+pub(super) fn reserve_warning(wallet: &Wallet) -> Option<String> {
+    balance_warning(known_credits(wallet), wallet.fees.contact_request_balance)
+}
+
+/// [`reserve_warning`] as a line of text.
+pub(super) fn reserve_line(ui: &mut Ui, p: &crate::theme::Palette, warning: &str) {
+    ui.add(egui::Label::new(txt(warning, 13.0, Weight::Regular, p.muted)).wrap());
+}
+
+/// [`reserve_line`] in a dialog, if the identity has too little.
+fn reserve_notice(ui: &mut Ui, p: &crate::theme::Palette, wallet: &Wallet) {
+    if let Some(warning) = reserve_warning(wallet) {
+        reserve_line(ui, p, &warning);
+    }
+}
+
 /// Why a contact action did not happen, in words.
 pub fn contact_error(e: &CoreError) -> String {
     match e {
@@ -1258,6 +1325,67 @@ pub fn contact_error(e: &CoreError) -> String {
 mod tests {
     use super::*;
     use evolite_api::{Chain, Proof};
+
+    /// BUG-107: below what the network wants the dialog says so, at it or above nothing is added.
+    #[test]
+    fn the_dialog_warns_only_below_the_balance_the_network_wants() {
+        assert!(balance_warning(Some(126_042), 230_000).is_some());
+        assert!(balance_warning(Some(230_000), 230_000).is_none());
+        assert!(
+            balance_warning(None, 230_000).is_none(),
+            "a balance not read yet says nothing"
+        );
+    }
+
+    /// BUG-110.
+    #[test]
+    fn not_enough_credits_goes_when_the_credits_or_identity_change() {
+        let mut state = ContactsState {
+            result: Some(Err(CoreError::NotEnough)),
+            ..Default::default()
+        };
+        state.forget_not_enough_after_top_up(Some(100), Some("a"));
+        assert!(state.result.is_some(), "as it was: it stays");
+        state.forget_not_enough_after_top_up(Some(100), Some("a"));
+        assert!(state.result.is_some(), "the same credits: it stays");
+        state.forget_not_enough_after_top_up(Some(300), Some("a"));
+        assert!(state.result.is_none(), "topped up: gone");
+
+        state.result = Some(Err(CoreError::NotEnough));
+        state.forget_not_enough_after_top_up(Some(100), Some("a"));
+        state.forget_not_enough_after_top_up(Some(100), Some("b"));
+        assert!(state.result.is_none(), "another identity: gone");
+
+        state.result = Some(Err(CoreError::WrongPassword));
+        state.forget_not_enough_after_top_up(Some(100), Some("a"));
+        state.forget_not_enough_after_top_up(Some(900), Some("a"));
+        assert!(state.result.is_some(), "another refusal is left alone");
+
+        state.result = Some(Err(CoreError::NotEnough));
+        state.forget_not_enough_after_top_up(None, Some("a"));
+        state.forget_not_enough_after_top_up(Some(5), Some("a"));
+        state.forget_not_enough_after_top_up(Some(5), Some("a"));
+        assert!(
+            state.result.is_some(),
+            "a balance read only now is no top-up"
+        );
+    }
+
+    /// BUG-110 r1 P3: a new refusal starts from the balance it came at, not the first one's.
+    #[test]
+    fn a_second_refusal_is_measured_from_its_own_balance() {
+        let mut state = ContactsState {
+            waiting: true,
+            ..Default::default()
+        };
+        state.on_done(&Err(CoreError::NotEnough));
+        state.forget_not_enough_after_top_up(Some(100), Some("a"));
+        state.waiting = true;
+        state.on_done(&Err(CoreError::NotEnough));
+        state.forget_not_enough_after_top_up(Some(50), Some("a"));
+        state.forget_not_enough_after_top_up(Some(80), Some("a"));
+        assert!(state.result.is_none(), "topped up from 50 to 80: gone");
+    }
 
     /// PRIV-1 r1 P3: a lock closes «Contact privacy» with the other dialogs, and its link does
     /// not take the focus on the next visit.

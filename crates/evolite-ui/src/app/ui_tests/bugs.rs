@@ -289,3 +289,81 @@ fn the_total_counts_every_identitys_credits() {
     assert!(has_text(&kit, &total), "«Total» stays");
     assert!(has_text(&kit, &crate::format::number(150_000_000, false)));
 }
+
+/// BUG-107: «Accept the request» says what the identity needs for the network to take the write,
+/// only while it has less; the price alone led to refusals.
+#[test]
+fn accept_warns_below_the_balance_the_network_wants() {
+    let (_turn, mut kit) = demo_app("contacts", "en");
+    wait_for(&mut kit, "a request", |kit| {
+        kit.query_all_by_role_and_label(Role::Button, "Accept")
+            .next()
+            .is_some()
+    });
+    kit.query_all_by_role_and_label(Role::Button, "Accept")
+        .next()
+        .expect("«Accept» of the request")
+        .click();
+    kit.run_steps(4);
+    let warning = format!(
+        "The network checks a reserve before it writes: with less than ≈ {} on the identity it may refuse. Less is charged.",
+        crate::format::amount(230_000)
+    );
+    with_credits(&mut kit, 126_042, 126_042);
+    assert!(has_text(&kit, &warning), "below it: said");
+    with_credits(&mut kit, 230_000, 230_000);
+    assert!(!has_text(&kit, &warning), "enough: not said");
+}
+
+/// BUG-110: «Not enough credits» on Contacts goes once the identity has more; on the screen,
+/// not only in the method.
+#[test]
+fn not_enough_credits_on_contacts_goes_after_a_top_up() {
+    let (_turn, mut kit) = demo_app("contacts", "en");
+    kit.run_steps(3);
+    kit.state_mut().contacts.result = Some(Err(evolite_api::CoreError::NotEnough));
+    kit.run_steps(2);
+    assert!(kit.state().contacts.result.is_some(), "shown as it was");
+    with_credits(&mut kit, 130_000_000, 130_000_000);
+    assert!(kit.state().contacts.result.is_none(), "the banner stays");
+}
+
+/// BUG-108 r1 must 1: on the screen, from credits the last look says "about"; from Core "at most".
+#[test]
+fn the_last_look_says_about_for_credits_and_at_most_for_core() {
+    // A row reads «label: value» to a screen reader.
+    let row = |kit: &Kit, start: &str, mark: &str| {
+        kit.query_all_by(|n| {
+            n.value()
+                .or(n.label())
+                .is_some_and(|v| v.starts_with(start) && v.contains(mark))
+        })
+        .next()
+        .is_some()
+    };
+    let (_turn, mut kit) = demo_app("send-confirm", "en");
+    wait_for(&mut kit, "the fee from Core", |kit| {
+        row(kit, "Fee, at most: ", "")
+    });
+    assert!(!row(&kit, "In total: ", "≈"), "from Core, no estimate");
+    kit.state_mut().send.source = 1;
+    kit.run_steps(3);
+    assert!(row(&kit, "Fee, about: ", "≈"), "from credits");
+    assert!(row(&kit, "In total: ", "≈"), "and the total");
+    assert!(!row(&kit, "Fee, at most: ", ""));
+}
+
+/// BUG-107 r1 should 1: the Send form's "Add to contacts" is the same write as the dialog's.
+#[test]
+fn add_to_contacts_on_the_send_form_warns_below_the_balance_the_network_wants() {
+    let (_turn, mut kit) = demo_app("send-contact", "en");
+    kit.run_steps(3);
+    let warning = format!(
+        "The network checks a reserve before it writes: with less than ≈ {} on the identity it may refuse. Less is charged.",
+        crate::format::amount(230_000)
+    );
+    with_credits(&mut kit, 126_042, 126_042);
+    assert!(has_text(&kit, &warning), "below it: said");
+    with_credits(&mut kit, 230_000, 230_000);
+    assert!(!has_text(&kit, &warning), "enough: not said");
+}
