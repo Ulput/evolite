@@ -185,3 +185,31 @@ async fn refresh_nfts_asks_at_once_after_a_failed_ask() {
     );
     assert!(core.nfts.due(owner), "asked again at once");
 }
+
+/// BUG-103: the pool's lines are in the first snapshot after a start, from the file, before
+/// the pool connects (masternode lists, seconds to a minute later).
+#[tokio::test]
+async fn the_pools_lines_do_not_wait_for_the_pool() {
+    let mut core = opened("pool-lines-at-start", "pw");
+    let line = Activity {
+        id: 7,
+        kind: ActivityKind::PoolSent,
+        chain: evolite_api::Chain::Platform,
+        at: 1_000,
+        amount: -214_360,
+        proof: Proof::Proved,
+        txid: None,
+        fee: Some(114_360),
+        block: None,
+        address: None,
+        layers: evolite_api::layer::POOL,
+        flow: evolite_api::Flow::Out,
+        key: format!("pool:{:016x}", 7),
+        detail: None,
+        note: None,
+    };
+    pool_history::PoolHistory::new(core.paths.pool_history.clone()).merge(vec![line]);
+    core.pool_history = pool_history::PoolHistory::new(core.paths.pool_history.clone());
+    let shown = core.snapshot().await.wallet.expect("open").activity;
+    assert_eq!(shown.iter().map(|a| a.id).collect::<Vec<_>>(), vec![7]);
+}

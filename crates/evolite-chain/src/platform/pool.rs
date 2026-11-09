@@ -12,6 +12,7 @@ use platform_wallet::PlatformWallet;
 use std::path::Path;
 
 /// The pool as the snapshot shows it.
+#[derive(Clone)]
 pub struct PoolView {
     /// Spendable credits (notes reserved by a move in flight are not counted).
     pub credits: u64,
@@ -115,6 +116,42 @@ impl Chain {
 #[cfg(not(feature = "pool"))]
 const NO_POOL: &str = tr!("This build of evolite has no private pool");
 
+/// `read`, noted in `last`; `last` as it is when `read` takes longer than `wait`.
+#[cfg(feature = "pool")]
+async fn read_or_last<T: Clone>(
+    last: &std::sync::Mutex<Option<T>>,
+    wait: std::time::Duration,
+    read: impl std::future::Future<Output = Option<T>>,
+) -> Option<T> {
+    match tokio::time::timeout(wait, read).await {
+        Ok(value) => {
+            *last.lock().unwrap_or_else(|e| e.into_inner()) = value.clone();
+            value
+        }
+        Err(_) => last.lock().unwrap_or_else(|e| e.into_inner()).clone(),
+    }
+}
+
+/// A read for wallet `id` is only that wallet's: another's last read is not shown (a switch).
+#[cfg(feature = "pool")]
+fn view_of<K: PartialEq, V>(read: Option<(K, V)>, id: &K) -> Option<V> {
+    read.filter(|(wallet, _)| wallet == id)
+        .map(|(_, view)| view)
+}
+
+/// The notes and operations of a read that found the store busy: this wallet's last ones, not
+/// none, which would stay on screen for the whole scan (review r1 should 1). No last read: none.
+#[cfg(feature = "pool")]
+fn last_lines<K: PartialEq>(
+    last: &std::sync::Mutex<Option<(K, PoolView)>>,
+    id: &K,
+) -> (u32, Vec<Activity>) {
+    match &*last.lock().unwrap_or_else(|e| e.into_inner()) {
+        Some((wallet, view)) if wallet == id => (view.notes, view.operations.clone()),
+        _ => (0, Vec::new()),
+    }
+}
+
 /// The one Orchard account evolite uses.
 #[cfg(feature = "pool")]
 const ACCOUNT: u32 = 0;
@@ -132,6 +169,11 @@ mod imp {
 
     /// History rows read for the screen.
     const SHOWN_OPERATIONS: usize = 50;
+
+    /// How long a snapshot waits for the pool's reads. A scan holds the pool's store for seconds
+    /// (the first one for minutes): the snapshot, and with it every line of the history, does not
+    /// wait behind it (BUG-105).
+    const POOL_READ_WAIT: std::time::Duration = std::time::Duration::from_millis(200);
 
     /// The account's spendable credits by the store's ledger, and when the pool was read: the
     /// time of the last pass only while the ledger is ready (BUG-84). platform-wallet stamps a
@@ -194,9 +236,19 @@ mod imp {
             Ok(())
         }
 
-        /// What the snapshot shows; `None` while the pool is not connected. Local reads only,
-        /// and none that would wait behind a scan holding the store.
+        /// What the snapshot shows; `None` while the pool is not connected. Local reads only. One
+        /// that waits behind a scan holding the store gives up after [`POOL_READ_WAIT`]: the last
+        /// read is shown instead (BUG-105).
         pub async fn pool_view(&self, wallet: &PlatformWallet) -> Option<PoolView> {
+            let id = wallet.wallet_id();
+            let read = async { self.read_pool_view(wallet).await.map(|view| (id, view)) };
+            super::view_of(
+                super::read_or_last(&self.last_pool, POOL_READ_WAIT, read).await,
+                &id,
+            )
+        }
+
+        async fn read_pool_view(&self, wallet: &PlatformWallet) -> Option<PoolView> {
             let manager = self.manager().await.ok()?;
             let coordinator = manager.shielded_coordinator().await?;
             let raw = wallet.shielded_default_address(ACCOUNT).await?;
@@ -209,21 +261,23 @@ mod imp {
                 manager.shielded_sync().last_sync_unix_seconds(),
             );
             let id = SubwalletId::new(wallet.wallet_id(), ACCOUNT);
-            let (notes, entries) = match coordinator.store().try_read() {
+            let (notes, operations) = match coordinator.store().try_read() {
                 Ok(store) => (
                     store.get_unspent_notes(id).map_or(0, |n| n.len() as u32),
-                    store
-                        .get_activity(id, 0, SHOWN_OPERATIONS)
-                        .unwrap_or_default(),
+                    operations(
+                        store
+                            .get_activity(id, 0, SHOWN_OPERATIONS)
+                            .unwrap_or_default(),
+                    ),
                 ),
-                Err(_) => (0, Vec::new()),
+                Err(_) => super::last_lines(&self.last_pool, &wallet.wallet_id()),
             };
             Some(PoolView {
                 credits,
                 notes,
                 address,
                 checked_at,
-                operations: operations(entries),
+                operations,
             })
         }
 
@@ -767,6 +821,98 @@ pub fn set_fees(_: &mut evolite_api::Fees, _: &dpp::version::PlatformVersion) {}
 #[cfg(all(test, feature = "pool"))]
 mod tests {
     use super::*;
+    use evolite_api::{ActivityKind, Chain as Layer, Proof};
+
+    const WAIT: std::time::Duration = std::time::Duration::from_millis(30);
+
+    /// At most this: a read that never ends must not take the test with it.
+    async fn bounded<T>(work: impl std::future::Future<Output = T>) -> T {
+        tokio::time::timeout(std::time::Duration::from_secs(5), work)
+            .await
+            .expect("waited behind the read")
+    }
+
+    fn a_line(id: u64) -> Activity {
+        Activity {
+            id,
+            kind: ActivityKind::PoolSent,
+            chain: Layer::Platform,
+            at: 1_000,
+            amount: -1_000,
+            proof: Proof::Proved,
+            txid: None,
+            fee: None,
+            block: None,
+            address: None,
+            layers: evolite_api::layer::POOL,
+            flow: evolite_api::Flow::Out,
+            key: String::new(),
+            detail: None,
+            note: None,
+        }
+    }
+
+    fn a_view(notes: u32, operations: Vec<Activity>) -> PoolView {
+        PoolView {
+            credits: 5,
+            notes,
+            address: "tdash1".to_owned(),
+            checked_at: None,
+            operations,
+        }
+    }
+
+    /// Review r1 should 1: the store busy, a read keeps the wallet's last notes and lines.
+    #[test]
+    fn a_busy_store_keeps_the_wallets_last_notes_and_lines() {
+        let last = std::sync::Mutex::new(Some((1u8, a_view(3, vec![a_line(9)]))));
+        assert_eq!(last_lines(&last, &1), (3, vec![a_line(9)]));
+    }
+
+    #[test]
+    fn a_busy_store_with_no_last_read_of_the_wallet_has_none() {
+        let none = std::sync::Mutex::new(None::<(u8, PoolView)>);
+        assert_eq!(last_lines(&none, &1), (0, Vec::new()));
+        let other = std::sync::Mutex::new(Some((2u8, a_view(3, vec![a_line(9)]))));
+        assert_eq!(last_lines(&other, &1), (0, Vec::new()), "another wallet's");
+    }
+
+    /// Review r1 P3: what `pool_view` does with the read. `pool_view` itself needs a connected
+    /// pool (a [`PlatformWallet`]), so the filter is apart.
+    #[test]
+    fn another_wallets_last_read_is_not_shown() {
+        assert_eq!(view_of(Some((2u8, 7)), &1), None);
+        assert_eq!(view_of(Some((1u8, 7)), &1), Some(7));
+        assert_eq!(view_of(None::<(u8, u32)>, &1), None);
+    }
+
+    /// BUG-105: a scan held the store and the snapshot stood 4 s, or more, behind it.
+    #[tokio::test]
+    async fn the_snapshot_does_not_wait_behind_a_read_of_the_pool() {
+        let last = std::sync::Mutex::new(Some(7));
+        let shown = bounded(read_or_last(&last, WAIT, std::future::pending())).await;
+        assert_eq!(shown, Some(7), "what was read last");
+        assert_eq!(*last.lock().unwrap(), Some(7), "and it is kept");
+    }
+
+    #[tokio::test]
+    async fn nothing_read_yet_and_a_read_that_waits_is_nothing() {
+        let last = std::sync::Mutex::new(None::<u32>);
+        assert_eq!(
+            bounded(read_or_last(&last, WAIT, std::future::pending())).await,
+            None
+        );
+    }
+
+    #[tokio::test]
+    async fn a_read_in_time_is_shown_and_kept() {
+        let last = std::sync::Mutex::new(Some(7));
+        assert_eq!(read_or_last(&last, WAIT, async { Some(9) }).await, Some(9));
+        assert_eq!(*last.lock().unwrap(), Some(9));
+        // Not connected any more: none is shown, not the old one.
+        assert_eq!(read_or_last(&last, WAIT, async { None }).await, None);
+        assert_eq!(*last.lock().unwrap(), None);
+    }
 
     /// BUG-84: a pass stamped after it failed does not make a ledger that is not ready a read
     /// 0; a ready one — an empty pool too — is read at the pass's time.

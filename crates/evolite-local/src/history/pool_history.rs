@@ -45,7 +45,10 @@ impl PoolHistory {
 
     /// The pool's operations from the scan, with what was kept put back: an operation that
     /// comes back poorer (no amount, no fee) is shown as it was, one the scan no longer gives
-    /// is shown from the file, and one known better now is kept for next time.
+    /// is shown from the file, and one known better now is kept for next time. One the scan gives
+    /// empty with nothing better known is kept as it is: it is still the wallet's line, and it is
+    /// there at the next start before the scan is (BUG-103). Only what Platform took is kept: a move
+    /// seen pending may fail and leave the scan (review r1 should 2).
     pub fn merge(&self, operations: Vec<Activity>) -> Vec<Activity> {
         let mut saved = self.saved.lock().unwrap_or_else(|e| e.into_inner());
         let all = saved.get_or_insert_with(|| self.load());
@@ -63,7 +66,7 @@ impl PoolHistory {
                     ..kept.to_activity()
                 },
                 _ => {
-                    if !poor(&op)
+                    if op.proof == Proof::Proved
                         && let Some(new) = Saved::of(&op)
                         && all.get(&op.id) != Some(&new)
                     {
@@ -83,6 +86,17 @@ impl PoolHistory {
             let _ = crate::json_file::save(&self.path, &all.values().collect::<Vec<_>>());
         }
         shown
+    }
+
+    /// The operations the file keeps, for the history while the pool is not connected yet (a
+    /// start, BUG-103): the lines do not wait for the masternode lists and the scan.
+    pub fn kept(&self) -> Vec<Activity> {
+        let mut saved = self.saved.lock().unwrap_or_else(|e| e.into_inner());
+        saved
+            .get_or_insert_with(|| self.load())
+            .values()
+            .map(Saved::to_activity)
+            .collect()
     }
 
     fn load(&self) -> BTreeMap<u64, Saved> {
@@ -246,6 +260,85 @@ mod tests {
         assert_eq!(again.merge(vec![scanned.clone()]), vec![expected.clone()]);
         // And the file was not overwritten: the next start still knows it.
         assert_eq!(PoolHistory::new(path).merge(vec![scanned]), vec![expected]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Review r1 should 2: a move seen pending and then gone failed: it is no line of the history
+    /// (it came back from the file as proved, with its amount, for good).
+    #[test]
+    fn a_pending_move_that_went_is_not_kept() {
+        let dir =
+            std::env::temp_dir().join(format!("evolite-pool-history-went-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let path = dir.join("pool-history.json");
+        let sending = Activity {
+            proof: Proof::Sending,
+            ..op(8, ActivityKind::PoolSent, -214_360, Some(114_360))
+        };
+        let live = PoolHistory::new(path.clone());
+        assert_eq!(live.merge(vec![sending.clone()]), vec![sending]);
+        assert_eq!(live.merge(Vec::new()), Vec::new(), "gone from the scan");
+        assert_eq!(
+            PoolHistory::new(path).kept(),
+            Vec::new(),
+            "and from the file"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// And one Platform took is kept from then on.
+    #[test]
+    fn a_pending_move_is_kept_once_proved() {
+        let dir = std::env::temp_dir().join(format!(
+            "evolite-pool-history-proved-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        let path = dir.join("pool-history.json");
+        let proved = op(9, ActivityKind::PoolSent, -214_360, Some(114_360));
+        let sending = Activity {
+            proof: Proof::Sending,
+            ..proved.clone()
+        };
+        let live = PoolHistory::new(path.clone());
+        live.merge(vec![sending]);
+        live.merge(vec![proved.clone()]);
+        assert_eq!(PoolHistory::new(path).kept(), vec![proved]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// BUG-103: the scan gave a spend as 0 with no fee and no time (a restored wallet's own
+    /// spend). Nothing better is known of it, and it is still the wallet's operation: the file
+    /// keeps it, so it is in the history at the next start before the pool connects.
+    #[test]
+    fn a_line_the_scan_gives_empty_is_kept_for_the_next_start() {
+        let dir =
+            std::env::temp_dir().join(format!("evolite-pool-history-empty-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let path = dir.join("pool-history.json");
+        let empty = Activity {
+            at: 0,
+            ..op(5, ActivityKind::PoolSent, 0, None)
+        };
+        assert_eq!(
+            PoolHistory::new(path.clone()).merge(vec![empty.clone()]),
+            vec![empty.clone()]
+        );
+        assert_eq!(PoolHistory::new(path).kept(), vec![empty]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// BUG-103: what the file holds is there with no scan at all, as the merge would show it.
+    #[test]
+    fn the_kept_lines_are_there_before_any_scan() {
+        let dir =
+            std::env::temp_dir().join(format!("evolite-pool-history-kept-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let path = dir.join("pool-history.json");
+        let made = op(6, ActivityKind::PoolSent, -214_360, Some(114_360));
+        let received = op(7, ActivityKind::PoolReceived, 70_000, None);
+        PoolHistory::new(path.clone()).merge(vec![made.clone(), received.clone()]);
+        assert_eq!(PoolHistory::new(path).kept(), vec![made, received]);
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

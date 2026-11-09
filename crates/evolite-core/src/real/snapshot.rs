@@ -389,6 +389,9 @@ impl Real {
         // Core asset lock made for the pool says so instead of "Transfer to Platform".
         if let Some(pool) = &pool {
             history.extend(pool.operations.iter().cloned());
+        } else {
+            // Not connected yet (a start): what the file keeps, not nothing (BUG-103).
+            history.extend(self.pool_history.kept());
         }
         // Sends on Platform shown from "Sign" until their own lines are here (BUG-12).
         let mut history = self

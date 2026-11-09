@@ -75,6 +75,9 @@ pub struct Chain {
     /// its SPV client starts (BUG-25: that took 12 s in a release build and half a minute or
     /// more in a debug one, and the wallet's identities, balance and history waited for it).
     store_open: AtomicBool,
+    /// The pool as last read, with its wallet: shown while a read has to wait (BUG-105).
+    #[cfg(feature = "pool")]
+    pub(crate) last_pool: Mutex<Option<(WalletId, crate::platform::pool::PoolView)>>,
     /// Its core has been replaced: a start not yet made is not made.
     retired: AtomicBool,
     status: Arc<Mutex<SyncStatus>>,
@@ -106,6 +109,8 @@ impl Default for Chain {
             starting: tokio::sync::Mutex::new(()),
             running: AtomicBool::new(false),
             store_open: AtomicBool::new(false),
+            #[cfg(feature = "pool")]
+            last_pool: Mutex::new(None),
             retired: AtomicBool::new(false),
             status: Arc::new(Mutex::new(SyncStatus {
                 network: crate::network::name(),
