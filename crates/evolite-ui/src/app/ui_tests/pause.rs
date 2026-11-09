@@ -117,6 +117,25 @@ fn after_the_pause_the_next_one_is_named() {
     assert_eq!(open_enabled(&kit, "Open the wallet"), Some(true));
 }
 
+/// BUG-70: in German the whole line is on screen with «1 Min.», no second point, in the window.
+#[test]
+fn german_says_the_next_pause_with_one_point_and_in_full() {
+    let (_turn, mut kit) = demo_app("unlock-wait-end", "de");
+    let end = "dauert die nächste Pause 1 Min.";
+    wait_for(&mut kit, "the line after the pause", |kit| {
+        has_words(kit, end)
+    });
+    let line = kit
+        .query_all(By::new().role(Role::Label))
+        .find(|n| n.value().is_some_and(|v| v.ends_with(end)))
+        .expect("a line ending with «1 Min.»");
+    assert!(
+        kit.ctx.content_rect().contains_rect(line.rect()),
+        "the whole line in the window: {:?}",
+        line.rect()
+    );
+}
+
 /// AC-A6, D3: «Savings» chosen in a pause has the plate and «Open» off; «Main», chosen, has
 /// none and opens with its password.
 #[test]

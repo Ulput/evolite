@@ -500,6 +500,11 @@ mod tests {
             rounded_number(123_456_789_012, 2),
             ("1\u{a0}234,57".into(), false)
         );
+        // Exactly half goes up.
+        assert_eq!(
+            rounded_number(123_456_500_000, 2),
+            ("1\u{a0}234,57".into(), false)
+        );
         assert_eq!(
             rounded_number(123_454_999_999, 2),
             ("1\u{a0}234,55".into(), false)

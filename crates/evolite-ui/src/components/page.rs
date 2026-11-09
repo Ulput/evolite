@@ -34,6 +34,27 @@ pub fn page_header(
     );
 }
 
+/// The wheel over the margins beside a screen's content scrolls the screen, as over the content
+/// (R2a: wider than 1528 the content is a 1200 column, and the margins were dead). `panel` is the
+/// whole of the screen beside the menu, `content` its column. Handed to the first scroll area
+/// drawn after this call, so every screen is served by this one place. Under a dialog the pointer
+/// is on the dialog's layer, not here: nothing moves.
+pub fn wheel_over_margins(ui: &Ui, panel: Rect, content: Rect) {
+    let beside = ui.rect_contains_pointer(panel)
+        && ui
+            .ctx()
+            .pointer_hover_pos()
+            .is_some_and(|at| !content.contains(at));
+    if !beside {
+        return;
+    }
+    let wheel = ui.input(|i| i.smooth_scroll_delta().y);
+    if wheel != 0.0 {
+        // Already smoothed by egui: not animated a second time.
+        ui.scroll_with_delta_animation(vec2(0.0, wheel), egui::style::ScrollAnimation::none());
+    }
+}
+
 /// "NETWORK", "TODAY": 11 mono Medium, uppercase, letter spacing 0.88.
 pub fn section_label(ui: &mut Ui, p: &Palette, text: &str) {
     ui.label(

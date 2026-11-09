@@ -59,6 +59,25 @@ const HOW: [(&str, &str); 3] = [
     ),
 ];
 
+/// Which dialog a move of the pool belongs to.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum PoolMove {
+    Shield,
+    /// Out of the pool: to the Platform address or into the identity's credits.
+    Unshield,
+}
+
+impl PoolMove {
+    /// The move a core's `Done` answers.
+    pub fn of(what: &str) -> Self {
+        if what == "shield" {
+            Self::Shield
+        } else {
+            Self::Unshield
+        }
+    }
+}
+
 #[derive(Default)]
 pub struct PoolState {
     /// 09 · "Shield into the private pool" is open.
@@ -72,7 +91,12 @@ pub struct PoolState {
     pub suggested: Option<i64>,
     /// The core is building the proof: how far it has got.
     pub progress: Option<f32>,
-    pub result: Option<Result<(), CoreError>>,
+    /// The move running is «Continue» of a stopped shield, not a shield started now: what it
+    /// moves is the lock, not the amount typed (BUG-101).
+    pub continuing: bool,
+    /// The core's last answer, and the move it answers: the dialogs share this, and one
+    /// dialog's answer is not the other's (BUG-101).
+    pub result: Option<(PoolMove, Result<(), CoreError>)>,
     /// "Unshield" is open.
     pub unshielding: bool,
     pub unshield_amount: String,
@@ -84,6 +108,26 @@ pub struct PoolState {
     pub unshield_to_identity: bool,
     /// "Password for every payment" in "Shield" and "Unshield" (one move at a time; BUG-42).
     pub password: SpendPassword,
+}
+
+impl PoolState {
+    /// `move_`'s answer is gone; the other dialog's stays.
+    fn forget_result(&mut self, move_: PoolMove) {
+        if self.result.as_ref().is_some_and(|(of, _)| *of == move_) {
+            self.result = None;
+        }
+    }
+}
+
+/// The answer to `move_`, if the last answer is to it.
+fn result_of(
+    result: &Option<(PoolMove, Result<(), CoreError>)>,
+    move_: PoolMove,
+) -> Option<&Result<(), CoreError>> {
+    result
+        .as_ref()
+        .filter(|(of, _)| *of == move_)
+        .map(|(_, r)| r)
 }
 
 /// Where funds can be shielded from: the identity's credits, the Platform address or Core.
@@ -304,13 +348,9 @@ fn balance(
         let amount = super::overview::pool_amount(duffs, pool.checked_at);
         let font = mono(36.0, Weight::Medium);
         match amount.known() {
-            Some(duffs) => {
-                crate::components::amount_label(
-                    ui,
-                    &crate::format::amount(duffs),
-                    font,
-                    amount.color(&p),
-                );
+            Some(_) => {
+                let color = amount.color(&p);
+                crate::components::card_amount_fitted(ui, amount, font, color, inner(width, 24));
             }
             None => {
                 // «— DASH» (the spec, CS-4): what is not known, in the unit it will be in.
@@ -478,14 +518,18 @@ fn shield_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut PoolStat
                         {
                             state.from = i;
                             state.sources_open = false;
-                            state.result = None;
+                            state.forget_result(PoolMove::Shield);
                         }
                     }
                 }
             });
+            // A move running or just done has its coins gone already (BUG-101): its typed amount
+            // is not measured against what is left, and a lock the core remembers for it is
+            // not a stopped shield.
+            let judged = can_judge(busy, result_of(&state.result, PoolMove::Shield));
             // A shield from Core cut short: its lock is finished, never a new one made.
             let resume = match source {
-                ShieldSource::Core => wallet.pool.unfinished_shield,
+                ShieldSource::Core if judged || state.continuing => wallet.pool.unfinished_shield,
                 _ => None,
             };
             let cost = shield_cost(fees, *source, *balance);
@@ -499,7 +543,7 @@ fn shield_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut PoolStat
                 (None, Some(d)) => shield_preview(fees, *source, *balance, d),
                 _ => None,
             };
-            if let Some(locked) = resume {
+            if let Some(locked) = resume.filter(|_| !busy) {
                 notice(
                     ui,
                     a,
@@ -512,7 +556,7 @@ fn shield_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut PoolStat
                         crate::format::amount(locked)
                     ),
                 );
-            } else {
+            } else if resume.is_none() {
                 ui.vertical(|ui| {
                     ui.spacing_mut().item_spacing.y = 8.0;
                     field_label(ui, &p, tr!("Amount"));
@@ -520,7 +564,9 @@ fn shield_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut PoolStat
                     if field.all {
                         state.amount = crate::format::input_text(cost.max);
                     }
-                    if amount.is_some()
+                    forget_success(state, PoolMove::Shield, &field);
+                    if judged
+                        && amount.is_some()
                         && preview.is_none()
                         && !core_unknown(source)
                         && !unread(source)
@@ -587,8 +633,11 @@ fn shield_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut PoolStat
                 proof_progress(ui, a, fraction);
             }
             // A wrong password is said under its field, not as a failed move.
-            state.password.settle(state.result.as_ref());
-            let shown = state.result.as_ref().filter(|_| !state.password.is_wrong());
+            state
+                .password
+                .settle(result_of(&state.result, PoolMove::Shield));
+            let shown =
+                result_of(&state.result, PoolMove::Shield).filter(|_| !state.password.is_wrong());
             match shown {
                 Some(Err(CoreError::NotAvailable(why))) => notice(
                     ui,
@@ -632,6 +681,7 @@ fn shield_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut PoolStat
                         from: *source,
                         amount,
                     };
+                    state.continuing = resume.is_some();
                     cx.send(state.password.command(op, ask));
                     state.progress = Some(0.0);
                     state.result = None;
@@ -643,7 +693,7 @@ fn shield_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut PoolStat
     if closed {
         state.shielding = false;
         state.sources_open = false;
-        state.result = None;
+        state.forget_result(PoolMove::Shield);
         state.password.forget();
     }
 }
@@ -731,7 +781,7 @@ fn unshield_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut PoolSt
                 );
                 if !busy && (choice == 1) != state.unshield_to_identity {
                     state.unshield_to_identity = choice == 1;
-                    state.result = None;
+                    state.forget_result(PoolMove::Unshield);
                 }
                 let target = match &identity {
                     Some(name) if to_identity => format!(tr!("{name} · credits"), name = name),
@@ -753,7 +803,10 @@ fn unshield_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut PoolSt
                 if field.all {
                     state.unshield_amount = crate::format::input_text((balance - fee).max(0));
                 }
-                if left.is_some_and(|l| l < 0) {
+                forget_success(state, PoolMove::Unshield, &field);
+                if can_judge(busy, result_of(&state.result, PoolMove::Unshield))
+                    && left.is_some_and(|l| l < 0)
+                {
                     ui.label(txt(
                         tr!("More than there is in the pool"),
                         12.0,
@@ -799,8 +852,11 @@ fn unshield_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut PoolSt
                 proof_progress(ui, a, fraction);
             }
             // A wrong password is said under its field, not as a failed move.
-            state.password.settle(state.result.as_ref());
-            let shown = state.result.as_ref().filter(|_| !state.password.is_wrong());
+            state
+                .password
+                .settle(result_of(&state.result, PoolMove::Unshield));
+            let shown =
+                result_of(&state.result, PoolMove::Unshield).filter(|_| !state.password.is_wrong());
             match shown {
                 Some(Err(CoreError::NotAvailable(why))) => notice(
                     ui,
@@ -859,8 +915,26 @@ fn unshield_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut PoolSt
     );
     if closed {
         state.unshielding = false;
-        state.result = None;
+        state.forget_result(PoolMove::Unshield);
         state.password.forget();
+    }
+}
+
+/// Whether a typed amount is measured against the balance (BUG-101): not while the move runs nor
+/// after it succeeded, when the balance is what it left behind.
+fn can_judge(busy: bool, result: Option<&Result<(), CoreError>>) -> bool {
+    !busy && !matches!(result, Some(Ok(())))
+}
+
+/// A new amount typed after a success: the success is over, and the amount is judged again.
+fn forget_success(
+    state: &mut PoolState,
+    move_: PoolMove,
+    field: &crate::components::AmountResponse,
+) {
+    let succeeded = matches!(result_of(&state.result, move_), Some(Ok(())));
+    if (field.response.changed() || field.all) && succeeded {
+        state.result = None;
     }
 }
 

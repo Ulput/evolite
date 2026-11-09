@@ -21,7 +21,7 @@ const NAME_IN_PROFILE: f32 = 113.0;
 
 /// Changes the wallet the app shows, and draws, a few times over: a snapshot of the demo core
 /// in between would undo it.
-fn with_wallet(kit: &mut Kit, change: impl Fn(&mut Wallet)) {
+pub(super) fn with_wallet(kit: &mut Kit, change: impl Fn(&mut Wallet)) {
     for _ in 0..3 {
         if let Some(wallet) = kit
             .state_mut()
@@ -699,4 +699,47 @@ fn pictures_off_is_said_once_on_the_collection() {
             "inside the window at {size:?}: {rect:?}"
         );
     }
+}
+
+/// R4b, the rule of R4a on the pool's own card: at 1024 «1,234.56789012 DASH» at 36 is wider than
+/// its half of the screen. It stays on one line inside the card, with fewer decimals and «≈», and
+/// says the whole amount to a screen reader; wide enough, it is shown whole. Hidden, nothing.
+#[test]
+fn a_long_pool_balance_stays_on_one_line_and_is_said_in_full() {
+    const POOL: i64 = 123_456_789_012;
+    const FULL: &str = "1,234.56789012 DASH";
+    let (_turn, mut kit) = demo_app("shielded", "en");
+    kit.set_size(egui::vec2(WINDOW, 800.0));
+    with_wallet(&mut kit, |w| w.balances.shielded = POOL);
+    let node = kit
+        .query_all(By::new().role(Role::Label))
+        .find(|n| n.value().is_some_and(|v| v.starts_with("≈ 1,234.")))
+        .unwrap_or_else(|| panic!("a shortened «≈ 1,234.…» on the pool's card"));
+    let shown = node.value().unwrap_or_default();
+    assert!(shown.ends_with(" DASH"), "with its unit: «{shown}»");
+    assert_eq!(node.accesskit_node().description().as_deref(), Some(FULL));
+    let amount = node.rect();
+    assert!(amount.height() < 60.0, "one line at 36: {amount:?}");
+    let cards = card_backgrounds(&kit);
+    let inside = cards.iter().find(|c| c.contains(amount.center()));
+    let card = inside.unwrap_or_else(|| panic!("{amount:?} in a card of {cards:?}"));
+    assert!(
+        amount.right() <= card.right() - 24.0,
+        "inside the card's margin: {amount:?} in {card:?}"
+    );
+
+    kit.set_size(egui::vec2(1600.0, 800.0));
+    with_wallet(&mut kit, |w| w.balances.shielded = POOL);
+    assert!(has_text(&kit, FULL), "room for the whole amount");
+
+    kit.set_size(egui::vec2(WINDOW, 800.0));
+    kit.state_mut().settings.flip_hide_amounts();
+    with_wallet(&mut kit, |w| w.balances.shielded = POOL);
+    kit.run_steps(2);
+    assert!(
+        !kit.query_all(By::new().role(Role::Label))
+            .any(|n| n.value().is_some_and(|v| v.contains("1,234"))
+                || n.accesskit_node().description().as_deref() == Some(FULL)),
+        "a hidden amount says nothing of itself"
+    );
 }

@@ -507,6 +507,24 @@ pub fn fit_tile_amount(amount: CardAmount, fits: impl Fn(&str) -> bool) -> TileT
     TileText { shown, shortened }
 }
 
+/// An amount alone on a card's width, on one line with its unit (R4b, the rule of R4a): as many
+/// decimals as fit in `room`, the same tooltip and description as a tile's when shortened.
+pub fn card_amount_fitted(
+    ui: &mut Ui,
+    amount: CardAmount,
+    font: FontId,
+    color: Color32,
+    room: f32,
+) {
+    let unit = crate::format::unit_name();
+    let with_unit = |number: &str| format!("{number} {unit}");
+    let mut fitted = fit_tile_amount(amount, |text| {
+        super::text_width(ui, &with_unit(text), font.clone()) <= room
+    });
+    fitted.shown = with_unit(&fitted.shown);
+    tile_amount_label(ui, amount, &fitted, font, color);
+}
+
 /// A tile's amount on one line. Shortened, it says the full amount with its unit on hover, on
 /// Tab focus (it takes the focus for that) and to a screen reader as its description. With
 /// «Hide amounts» it is «••••» as everywhere and says nothing more.
@@ -635,6 +653,11 @@ mod tests {
         assert_eq!(
             fit_tile_amount(amount, up_to(13)),
             fitted("≈ 1\u{a0}234,56789", true)
+        );
+        // Never fewer than two decimals, though one would fit.
+        assert_eq!(
+            fit_tile_amount(amount, up_to(9)),
+            fitted("≈ 1\u{a0}234,57", true)
         );
         assert_eq!(
             fit_tile_amount(amount, up_to(10)),

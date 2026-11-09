@@ -129,6 +129,11 @@ impl App {
         launch: Launch,
         art: evolite_core::ArtOptions,
     ) -> Self {
+        // eframe restores egui's memory from the last run, scroll offsets too, and the visits
+        // of the screens count from 1 again: a screen would open at the offset of whatever
+        // held its number then (BUG-102).
+        cc.egui_ctx
+            .data_mut(|d| d.remove_by_type::<egui::containers::scroll_area::State>());
         #[cfg(feature = "dev-tools")]
         let mut launch = launch;
         egui_extras::install_image_loaders(&cc.egui_ctx);
@@ -453,6 +458,8 @@ impl App {
         if self.screens_wallet.replace(open.id.clone()).is_none() {
             return;
         }
+        // Another wallet's screens open at the top (BUG-102).
+        self.visits.forget();
         self.send.on_lock();
         self.receive = Default::default();
         self.identity = Default::default();
@@ -669,11 +676,13 @@ impl App {
                     fraction,
                 } => self.pool.progress = Some(*fraction),
                 Event::Done {
-                    what: "shield" | "unshield" | "pool-top-up",
+                    what: what @ ("shield" | "unshield" | "pool-top-up"),
                     result,
                 } => {
                     self.pool.progress = None;
-                    self.pool.result = Some(result.clone());
+                    self.pool.continuing = false;
+                    let done = screens::shielded::PoolMove::of(what);
+                    self.pool.result = Some((done, result.clone()));
                 }
                 Event::NameChecked { label, result } => {
                     if *label == self.create_identity.asked {
@@ -753,6 +762,11 @@ impl<T: PartialEq + Copy> Visits<T> {
             self.n = self.n.wrapping_add(1);
         }
         self.n
+    }
+
+    /// The visit is over though the same place may be shown next: that will be a new one.
+    pub(crate) fn forget(&mut self) {
+        self.shown = None;
     }
 }
 
@@ -1022,6 +1036,8 @@ impl eframe::App for App {
             // And what was typed for a spend (BUG-42).
             self.identity.on_lock();
             self.contacts.on_lock();
+            // The lock ends the visit: the screen after it opens at the top (BUG-102).
+            self.visits.forget();
             self.pool.password.forget();
             self.create_identity.password.forget();
             self.create_identity.confirming = false;
@@ -1191,6 +1207,12 @@ impl eframe::App for App {
                 }))
                 .show(ui, |ui| {
                     let content = crate::theme::content_rect(ui.max_rect());
+                    crate::components::wheel_over_margins(
+                        ui,
+                        ui.max_rect()
+                            .expand2(egui::vec2(f32::from(across), f32::from(down))),
+                        content,
+                    );
                     ui.scope_builder(egui::UiBuilder::new().max_rect(content), |ui| {
                         crate::focus::give_first_tab(ui.ctx(), first_tab);
                         // Left a screen: what it forgets on leaving (BUG-39 №10).
