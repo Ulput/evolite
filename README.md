@@ -47,8 +47,9 @@ installer with right-click → Open.
 
 ## Building
 
-Rust stable (MSVC on Windows) and protoc 25 or newer in `PATH`: `dapi-grpc` and
-`tenderdash-proto` generate code with it during the build.
+Rust through rustup: `rust-toolchain.toml` pins the release, and rustup installs it (MSVC on
+Windows). And protoc 25 or newer in `PATH`: `dapi-grpc` and `tenderdash-proto` generate code with
+it during the build.
 
 ```
 winget install Google.Protobuf      # Windows
@@ -77,10 +78,10 @@ The installer for Windows, Linux and macOS is built from the same workspace: `do
 ## Running
 
 ```
-cargo run                                       # the real wallet, testnet; data in %APPDATA%\evolite
-cargo run -- --data-dir <folder>                # another data folder
-cargo run -- --network mainnet                  # mainnet (its own folder, evolite-mainnet)
-cargo run -- --theme light --lang en            # theme and language for this run
+cargo run --bin evolite                                # the real wallet, testnet; data in %APPDATA%\evolite
+cargo run --bin evolite -- --data-dir <folder>         # another data folder
+cargo run --bin evolite -- --network mainnet           # mainnet (its own folder, evolite-mainnet)
+cargo run --bin evolite -- --theme light --lang en     # theme and language for this run
 ```
 
 Flags of the app: `--data-dir <folder>`, `--network testnet|mainnet`, `--theme dark|light`,

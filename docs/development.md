@@ -20,11 +20,13 @@ The tools for screenshots are left out of the release build; `--features dev-too
 Without it these flags are not read at all, and `--screen` or `--demo` start the usual wallet.
 
 ```
-cargo run --features dev-tools -- --demo                             # the demo wallet with the example from the mockups
-cargo run --features dev-tools -- --screen overview --theme light    # a screen from the mockups on the demo wallet
-cargo run --features dev-tools -- --screen send --lang ar --screenshot send.png   # a screenshot, then exit
-cargo run --features dev-tools -- --open activity --data-dir <folder> --screenshot a.png   # the real wallet, read only
+cargo run --bin evolite --features dev-tools -- --demo                             # the demo wallet with the example from the mockups
+cargo run --bin evolite --features dev-tools -- --screen overview --theme light    # a screen from the mockups on the demo wallet
+cargo run --bin evolite --features dev-tools -- --screen send --lang ar --screenshot send.png   # a screenshot, then exit
+cargo run --bin evolite --features dev-tools -- --open activity --data-dir <folder> --screenshot a.png   # the real wallet, read only
 ```
+
+`--bin evolite` is needed: the workspace has several binaries and no default one.
 
 - `--demo` — the demo core with the example from the mockups.
 - `--screen <name>` — a screen in its mockup state; always on the demo wallet.
@@ -72,7 +74,7 @@ and by hand (`workflow_dispatch`). Each check is a command you can run here as i
 release is the one in `rust-toolchain.toml` (rustup picks it up), so a new stable release does not
 change what CI says. Live tests (`#[ignore]`) never run in CI.
 
-Two checks, one per system, each running its commands in this order:
+Three checks, one per system, each running its commands in this order:
 
 | Check | Commands |
 |---|---|
@@ -85,8 +87,10 @@ Two checks, one per system, each running its commands in this order:
 | `windows` | `cargo test --workspace --locked` |
 | | `cargo test --workspace --locked --features evolite-ui/dev-tools` |
 | | `cargo clippy --workspace --all-targets --locked -- -D warnings` (the code under `cfg(windows)`) |
-
-The code under `cfg(target_os = "macos")` is linted by neither.
+| `macos` | `cargo test --workspace --locked --no-fail-fast` |
+| | `cargo test --workspace --locked --features evolite-ui/dev-tools --no-fail-fast` |
+| | `umask 0002 && cargo test --workspace --locked private_folders` |
+| | `cargo clippy --workspace --all-targets --locked -- -D warnings` (the code under `cfg(target_os = "macos")`) |
 
 The lints are set once for the workspace (`[workspace.lints]` in `Cargo.toml`): clippy's default
 set, every warning an error in CI. When a lint is wrong for one place, allow it on that item only,
@@ -117,9 +121,13 @@ Nine crates in one workspace; the boundary between the interface and the wallet 
 | `crates/evolite-demo` | The demo core: the example wallet from Figma behind the same commands. | Keys, the network. |
 | `crates/evolite-local` | The files of a wallet's folder: the vault, the list of wallets, what the wallet did, notes, the small JSON files. | The chain, Platform. |
 | `crates/evolite-chain` | dash-spv, platform-wallet and dash-sdk behind our wrappers: the chain and its sync, the store, identities, DashPay, the pool, NFTs, apps, and turning what they report into what the screens show. | The operations and the core's state. |
-| `crates/evolite-core` | The wallet on its own thread. `Core::real` (`real/`): the wallet's state and its operations (payments, identities, DashPay, the pool, apps), over `evolite-chain` and `evolite-local`. `Core::mock`, from `evolite-demo`, — the demo with the example from the mockups. `diag` — the journal for problem reports. | egui. |
+| `crates/evolite-core` | The wallet on its own thread. `Core::real` (`real/`): the wallet's state and its operations (payments, identities, DashPay, the pool, apps), over `evolite-chain` and `evolite-local`. `Core::mock`, from `evolite-demo`, — the demo with the example from the mockups. | egui. |
 | `crates/evolite-render` | The renderer for untrusted pictures (SVG with SMIL and CSS animation, PNG, JPEG, GIF, WebP, GLB) in a separate sandboxed process — `docs/renderer.md`. | Keys, the network, the user's files. |
-| `crates/evolite-ui` | Screens in egui (the `evolite` binary) and the renderer without window code (`evolite-renderer`, placed alongside). | Keys, the network, the wallet's files on disk. |
+| `crates/evolite-ui` | Screens in egui (the `evolite` binary), the renderer without window code (`evolite-renderer`, placed alongside) and the installer (`evolite-setup`). | Keys, the network, the wallet's files on disk. |
+
+Dependencies point one way: `evolite-ui` → `evolite-core` → `evolite-chain` → `evolite-local`;
+`evolite-art` and `evolite-demo` take `evolite-render`; `evolite-common` and `evolite-api` are at
+the bottom. `evolite-ui` sees only `evolite-api`, `evolite-core` and `evolite-render`.
 
 A screen receives `Ctx` — the latest snapshot, the time and a place for commands. Commands go to
 the core after the frame, answers arrive as events and wake the interface; a frame never waits for
@@ -137,7 +145,8 @@ the `demo` feature, which `dev-tools` turns on.
 - egui / eframe **0.36** — the same line as Dash Evo Tool.
 - `components/` — the UI kit from Figma: buttons, status badges, cards, fields, toggles,
   transaction rows, dialogs. Almost everything is drawn by hand with `Painter`.
-- `screens/` — one file per screen; large ones get a folder (`onboarding/`, `settings/`).
+- `screens/` — one file per screen; large ones get a folder (`onboarding/`, `settings/`,
+  `send/`, `identity/`).
 - `i18n/` and `locales/` — localisation. The source language of the interface is English:
   strings are marked with the `tr!("…")` macro, and the English text is the key.
   `perl crates/evolite-ui/locales/extract.pl` collects the keys from the `tr!` marks into

@@ -5,7 +5,7 @@ separate process. The main process (the core with the keys, and the interface) n
 untrusted bytes.
 
 ```
-core (keys, network)                  evolite.exe --render-worker
+core (keys, network)                  evolite-renderer (or evolite --render-worker)
   picture bytes  ─── stdin ────────▶  format by the first bytes
                                        parsing with limits, rasterising
   answer checked ◀── stdout ────────  RGBA frames or a refusal code
@@ -19,13 +19,15 @@ The `crates/evolite-render` crate:
 | `packing` | unpacking: raw deflate (by a request flag) and gzip (`.svgz`, by its signature), no more than `max_input` |
 | `raster` | `image` with `image::Limits`: the size from the header is checked before memory is allocated; GIF, WebP and APNG animations come as frames with delays |
 | `svg` | usvg/resvg with no way out (below) |
-| `smil` | animated SVG as frames (below) |
+| `anim` (`smil`, `css`) | animated SVG as frames (below) |
+| `glb` | 3D models as a turntable (below) |
 | `frames` | `Art`, `Limits`, `RenderError`; `Art::check` |
 | `wire` | the binary protocol: an answer is checked against the limits before memory is allocated; errors are codes from a fixed list, text from the renderer is not accepted |
 | `worker` | the renderer's loop; a decoder panic is a refusal, not a crash |
 | `client` | `Renderer`: one process, a time limit per picture, a restart after any failure |
 | `job` | a Windows Job Object: a memory limit, no child processes, no clipboard or desktop, dies together with the wallet |
-| `sandbox` | starting the renderer on Windows through `CreateProcessW` (below) |
+| `sandbox` | starting the renderer: `CreateProcessW` on Windows (below), limits between fork and exec on Unix |
+| `lockdown` | what the renderer does to itself before the first untrusted byte on Linux and macOS (below) |
 
 ## The sandbox on Windows
 
@@ -50,6 +52,15 @@ policies, so the process is started by our own code:
   both files.
 - System fonts are available to the container — text in SVG is drawn.
 
+## The sandbox on Linux and macOS
+
+A process there closes the doors from the inside (`lockdown.rs`), before the first untrusted byte:
+- **Linux:** Landlock (of the file system only the font folders, read-only), then seccomp (no
+  sockets, new programs or processes, no executable memory; threads stay). A kernel without either
+  is refused.
+- **macOS:** the memory cap, then a Seatbelt profile: everything denied but reading the font
+  folders. There is no ban on executable memory in the profile.
+
 ## SVG
 
 By default usvg reads `<image href="…">` from disk: an untrusted SVG would show a user's file,
@@ -73,9 +84,9 @@ and a `\\host\share\…` path on Windows would hand an NTLM hash to someone else
   `miniz_oxide` — pure Rust with no `unsafe`), no more than `max_input` (16 MB): a 60 KB "bomb"
   that would expand to 64 MB stops at the limit without memory for the rest
   (`Limit("unpacked size")`). Nothing is unpacked twice.
-- In the demo the Jembe samples are stored as in the documents: raw deflate. When the real core
-  checks a picture against `imageHash`, it will have to unpack too — the same way and with the
-  same limit.
+- In the demo the Jembe samples are stored as in the documents: raw deflate. The real core
+  unpacks a picture only to check it against `imageHash` (`crates/evolite-chain/src/platform/nfts.rs`,
+  pure Rust, at most 1 MB).
 
 ## Animated SVG (SMIL and CSS)
 
@@ -178,12 +189,11 @@ An NFT in the API carries not the picture's bytes but its key — a SHA-256 (`Nf
 interface decodes nothing: for each card it asks for `Command::DrawArt { art, side }`, where
 `side` is the card's width in screen pixels (accounting for the scale), rounded up to 32, at most
 1024. The core (`evolite-art/src/lib.rs`) draws pictures one at a time on a separate thread
-through the sandboxed renderer (`evolite.exe --render-worker`) and answers with `Event::Art`
+through the sandboxed renderer and answers with `Event::Art`
 carrying frames (`Picture`). The interface (`evolite-ui/src/art.rs`) turns frames into textures,
 runs the animation on egui's clock and asks for repaints only for visible cards. While a picture
 is being drawn there is a "Drawing…" placeholder (or the same picture at its previous size); on a
-refusal — "Could not show it" with the reason. The real core answers `DrawArt` with "Platform is
-not connected yet".
+refusal — "Could not show it" with the reason.
 
 Order in the core: first pictures from the disk cache; then the first frame of each picture
 (`Renderer::render_first`, the `FIRST_FRAME` request flag) — cards on screen before the others
@@ -191,8 +201,8 @@ Order in the core: first pictures from the disk cache; then the first frame of e
 single frame with `delay_ms` 0 is a static picture; nothing follows it.
 
 The disk cache (`evolite-art/src/art_cache.rs`): the user's cache folder
-(`%LOCALAPPDATA%\evolite\art\r<renderer version>`, `~/.cache/evolite/…`,
-`~/Library/Caches/evolite/…`), a file per key and size, with frames compressed (LZ4) the way the
+(`%LOCALAPPDATA%\evolite\<wallet>\art\r<renderer version>`, `~/.cache/evolite/…`,
+`~/Library/Caches/evolite/…`; deleted with the wallet), a file per key and size, with frames compressed (LZ4) the way the
 interface takes them. The core writes it, not the renderer; on reading, sizes are checked against
 the limits, a damaged file is deleted and the picture is drawn again. Over 256 MB, the least
 recently opened files are deleted down to 192 MB. A new renderer version (`RENDER_VERSION`) means
@@ -274,8 +284,8 @@ frame side up to 512, a 3 s budget for frames; a 5 s time limit per picture; ren
 
 ## Next
 
-1. Linux and macOS: build and run the sandbox and thread tests there (the code exists, untested;
-   needs Docker or a machine). The system "reduce motion" setting is not read there yet.
+1. Linux and macOS: the system "reduce motion" setting is not read there yet (the tests run
+   there in CI).
 2. Fuzzing with libFuzzer (`cargo-fuzz`, needs nightly) — deeper than mutations on stable.
 3. Report the crashes found to tiny-skia and svgtypes (the renderer catches them).
 4. Repainting only the changed area of a frame (SVG).
@@ -283,4 +293,3 @@ frame side up to 512, a 3 s budget for frames; a 5 s time limit per picture; ren
 6. GLB: textures (pictures inside the model — through the same raster decoder with limits),
    handing out frames one at a time while the rest are drawn; drawing the wallet's NFTs ahead of
    time, while idle.
-7. Trusted issuers and "Show" are not kept between runs (settings are not saved at all yet).
