@@ -35,30 +35,99 @@ pub(super) fn restore(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, o: &mut Onboard
     // As when creating: how many fields there are is chosen, not guessed from a paste.
     // DashPay's phrase is always 12 words.
     if o.flow != Flow::DashPay {
-        ui.allocate_ui_with_layout(
-            vec2(ui.available_width(), 36.0),
-            Layout::left_to_right(Align::Center),
-            |ui| {
-                ui.label(txt(tr!("Phrase length"), 13.0, Weight::Medium, p.muted));
-                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    let mut long = usize::from(o.restore_words.len() == 24);
-                    segmented(
-                        ui,
-                        &p,
-                        &[tr!("12 words"), tr!("24 words")],
-                        &mut long,
-                        false,
-                    );
-                    set_length(o, if long == 1 { 24 } else { 12 });
-                });
-            },
-        );
+        phrase_length(ui, o, &p);
     }
 
     take_pasted(o);
 
     let width = ui.available_width();
     let w = (width - 16.0) / 3.0;
+    word_grid(ui, o, &p, w);
+
+    // Suggestions for the field in focus.
+    suggestions(ui, o, &p);
+
+    paste_row(ui, a, o);
+    if o.paste_error {
+        ui.label(txt(
+            tr!("The clipboard holds no phrase of 12 or 24 words"),
+            12.0,
+            Weight::Regular,
+            p.danger,
+        ));
+    }
+
+    let words: Vec<String> = o
+        .restore_words
+        .iter()
+        .map(|w| w.trim().to_lowercase())
+        .collect();
+    let filled = words.iter().all(|w| !w.is_empty());
+    let refs: Vec<&str> = words.iter().map(String::as_str).collect();
+    let result = bip39::check(&refs);
+    phrase_problem(ui, &p, &result, &words, filled);
+    notice(
+        ui,
+        a,
+        "info",
+        p.muted,
+        tr!(
+            "Words are checked against the BIP39 word list, the checksum after the last word. evolite shows the addresses, identities and names it found on the next step."
+        ),
+    );
+    if let Some(error) = &o.error {
+        ui.label(txt(error, 12.0, Weight::Regular, p.danger));
+    }
+    let ready = result.is_ok() && !o.waiting;
+    // An import from DashPay reads Platform first: up to a few minutes on a first sync.
+    let label = if o.waiting && o.flow == Flow::DashPay {
+        tr!("Looking for your DashPay wallet…")
+    } else if o.waiting {
+        tr!("Checking…")
+    } else {
+        tr!("Continue")
+    };
+    let pressed = actions(ui, a, None, label, ready).1 || (o.submit_on_open && ready);
+    if pressed {
+        // The phrase goes to the core and is wiped here at once.
+        cx.send(Command::UsePhrase {
+            phrase: Phrase::new(words),
+            dashpay: o.flow == Flow::DashPay,
+        });
+        for w in o.restore_words.iter_mut() {
+            w.zeroize();
+        }
+        o.waiting = true;
+        o.error = None;
+        o.submit_on_open = false;
+    }
+}
+
+/// «Phrase length»: how many fields there are is chosen, not guessed from a paste.
+fn phrase_length(ui: &mut Ui, o: &mut Onboarding, p: &crate::theme::Palette) {
+    let p = *p;
+    ui.allocate_ui_with_layout(
+        vec2(ui.available_width(), 36.0),
+        Layout::left_to_right(Align::Center),
+        |ui| {
+            ui.label(txt(tr!("Phrase length"), 13.0, Weight::Medium, p.muted));
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                let mut long = usize::from(o.restore_words.len() == 24);
+                segmented(
+                    ui,
+                    &p,
+                    &[tr!("12 words"), tr!("24 words")],
+                    &mut long,
+                    false,
+                );
+                set_length(o, if long == 1 { 24 } else { 12 });
+            });
+        },
+    );
+}
+
+/// The word fields, three in a row; the last one focused is remembered for the suggestions.
+fn word_grid(ui: &mut Ui, o: &mut Onboarding, p: &crate::theme::Palette, w: f32) {
     let mut focused = None;
     ui.vertical(|ui| {
         ui.spacing_mut().item_spacing.y = 8.0;
@@ -67,82 +136,7 @@ pub(super) fn restore(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, o: &mut Onboard
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = 8.0;
                 for c in 0..3 {
-                    let i = row * 3 + c;
-                    let word = o.restore_words[i].trim().to_lowercase();
-                    let id = ui.make_persistent_id(("restore-word", i));
-                    let has_focus = ui.memory(|m| m.has_focus(id));
-                    // While typing (in the field or the last one typed in), a start of a word
-                    // is fine; once another field is taken, only a whole word of the list is.
-                    let typing = has_focus || o.focused == Some(i);
-                    let unknown = !word.is_empty()
-                        && if typing {
-                            bip39::suggest(&word, 1).is_empty()
-                        } else {
-                            bip39::index(&word).is_none()
-                        };
-                    if has_focus {
-                        focused = Some(i);
-                    }
-                    let stroke = if unknown {
-                        p.danger
-                    } else if has_focus {
-                        p.ink
-                    } else {
-                        p.field_line
-                    };
-                    let fill = if word.is_empty() && !has_focus {
-                        p.bg
-                    } else {
-                        p.raised
-                    };
-                    egui::Frame::new()
-                        .fill(fill)
-                        .stroke(Stroke::new(1.0, stroke))
-                        .corner_radius(CornerRadius::same(10))
-                        .inner_margin(Margin::symmetric(12, 10))
-                        .show(ui, |ui| {
-                            ui.set_width(w - 26.0);
-                            ui.horizontal(|ui| {
-                                ui.spacing_mut().item_spacing.x = 10.0;
-                                ui.label(
-                                    egui::RichText::new(crate::i18n::t(&format!("{:02}", i + 1)))
-                                        .font(mono(12.0, Weight::Regular))
-                                        .color(p.muted),
-                                );
-                                crate::a11y::name_next_field(
-                                    ui,
-                                    &format!(tr!("Word no. {}"), i + 1),
-                                );
-                                crate::rtl::text_edit(
-                                    ui,
-                                    egui::TextEdit::singleline(&mut o.restore_words[i])
-                                        .id(id)
-                                        .password(o.restore_hidden)
-                                        .font(mono(14.0, Weight::Medium))
-                                        .text_color(p.text)
-                                        .frame(egui::Frame::NONE)
-                                        .desired_width(f32::INFINITY),
-                                );
-                                crate::components::forget_typing(ui.ctx(), id);
-                            });
-                            // Enter or Tab takes the first suggestion; Enter also goes on to
-                            // the next field (Tab does so by itself).
-                            let (enter, tab) = ui.input(|inp| {
-                                (inp.key_pressed(Key::Enter), inp.key_pressed(Key::Tab))
-                            });
-                            if has_focus && (enter || tab) {
-                                if let Some(first) = completion(&o.restore_words[i]) {
-                                    o.restore_words[i] = first.to_string();
-                                }
-                                if enter && i + 1 < count {
-                                    ui.memory_mut(|m| {
-                                        m.request_focus(
-                                            ui.make_persistent_id(("restore-word", i + 1)),
-                                        )
-                                    });
-                                }
-                            }
-                        });
+                    word_cell(ui, o, p, row * 3 + c, count, w, &mut focused);
                 }
             });
         }
@@ -150,8 +144,93 @@ pub(super) fn restore(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, o: &mut Onboard
     if focused.is_some() {
         o.focused = focused;
     }
+}
 
-    // Suggestions for the field in focus.
+/// One word's field: its number, its text, and what Enter and Tab do there.
+fn word_cell(
+    ui: &mut Ui,
+    o: &mut Onboarding,
+    p: &crate::theme::Palette,
+    i: usize,
+    count: usize,
+    w: f32,
+    focused: &mut Option<usize>,
+) {
+    let p = *p;
+    let word = o.restore_words[i].trim().to_lowercase();
+    let id = ui.make_persistent_id(("restore-word", i));
+    let has_focus = ui.memory(|m| m.has_focus(id));
+    // While typing (in the field or the last one typed in), a start of a word
+    // is fine; once another field is taken, only a whole word of the list is.
+    let typing = has_focus || o.focused == Some(i);
+    let unknown = !word.is_empty()
+        && if typing {
+            bip39::suggest(&word, 1).is_empty()
+        } else {
+            bip39::index(&word).is_none()
+        };
+    if has_focus {
+        *focused = Some(i);
+    }
+    let stroke = if unknown {
+        p.danger
+    } else if has_focus {
+        p.ink
+    } else {
+        p.field_line
+    };
+    let fill = if word.is_empty() && !has_focus {
+        p.bg
+    } else {
+        p.raised
+    };
+    egui::Frame::new()
+        .fill(fill)
+        .stroke(Stroke::new(1.0, stroke))
+        .corner_radius(CornerRadius::same(10))
+        .inner_margin(Margin::symmetric(12, 10))
+        .show(ui, |ui| {
+            ui.set_width(w - 26.0);
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = 10.0;
+                ui.label(
+                    egui::RichText::new(crate::i18n::t(&format!("{:02}", i + 1)))
+                        .font(mono(12.0, Weight::Regular))
+                        .color(p.muted),
+                );
+                crate::a11y::name_next_field(ui, &format!(tr!("Word no. {}"), i + 1));
+                crate::rtl::text_edit(
+                    ui,
+                    egui::TextEdit::singleline(&mut o.restore_words[i])
+                        .id(id)
+                        .password(o.restore_hidden)
+                        .font(mono(14.0, Weight::Medium))
+                        .text_color(p.text)
+                        .frame(egui::Frame::NONE)
+                        .desired_width(f32::INFINITY),
+                );
+                crate::components::forget_typing(ui.ctx(), id);
+            });
+            // Enter or Tab takes the first suggestion; Enter also goes on to
+            // the next field (Tab does so by itself).
+            let (enter, tab) =
+                ui.input(|inp| (inp.key_pressed(Key::Enter), inp.key_pressed(Key::Tab)));
+            if has_focus && (enter || tab) {
+                if let Some(first) = completion(&o.restore_words[i]) {
+                    o.restore_words[i] = first.to_string();
+                }
+                if enter && i + 1 < count {
+                    ui.memory_mut(|m| {
+                        m.request_focus(ui.make_persistent_id(("restore-word", i + 1)))
+                    });
+                }
+            }
+        });
+}
+
+/// Suggestions for the field in focus.
+fn suggestions(ui: &mut Ui, o: &mut Onboarding, p: &crate::theme::Palette) {
+    let p = *p;
     if let Some(i) = o.focused.filter(|i| *i < o.restore_words.len()) {
         let prefix = o.restore_words[i].trim().to_lowercase();
         let hints = bip39::suggest(&prefix, 4);
@@ -202,7 +281,10 @@ pub(super) fn restore(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, o: &mut Onboard
             );
         }
     }
+}
 
+/// «Paste from clipboard» and «Show / Hide the words».
+fn paste_row(ui: &mut Ui, a: &mut Assets, o: &mut Onboarding) {
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 20.0;
         if text_action(ui, a, "paste", tr!("Paste from clipboard")).clicked() {
@@ -226,23 +308,17 @@ pub(super) fn restore(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, o: &mut Onboard
             o.restore_hidden = !o.restore_hidden;
         }
     });
-    if o.paste_error {
-        ui.label(txt(
-            tr!("The clipboard holds no phrase of 12 or 24 words"),
-            12.0,
-            Weight::Regular,
-            p.danger,
-        ));
-    }
+}
 
-    let words: Vec<String> = o
-        .restore_words
-        .iter()
-        .map(|w| w.trim().to_lowercase())
-        .collect();
-    let filled = words.iter().all(|w| !w.is_empty());
-    let refs: Vec<&str> = words.iter().map(String::as_str).collect();
-    let result = bip39::check(&refs);
+/// What is wrong with the phrase, once that can be said.
+fn phrase_problem(
+    ui: &mut Ui,
+    p: &crate::theme::Palette,
+    result: &Result<(), bip39::PhraseError>,
+    words: &[String],
+    filled: bool,
+) {
+    let p = *p;
     match (&result, filled) {
         // A word that cannot start any word of the list, or, once every field is filled, any
         // word that is not one (an unfinished "aban" too).
@@ -265,41 +341,6 @@ pub(super) fn restore(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, o: &mut Onboard
             ));
         }
         _ => {}
-    }
-    notice(
-        ui,
-        a,
-        "info",
-        p.muted,
-        tr!(
-            "Words are checked against the BIP39 word list, the checksum after the last word. evolite shows the addresses, identities and names it found on the next step."
-        ),
-    );
-    if let Some(error) = &o.error {
-        ui.label(txt(error, 12.0, Weight::Regular, p.danger));
-    }
-    let ready = result.is_ok() && !o.waiting;
-    // An import from DashPay reads Platform first: up to a few minutes on a first sync.
-    let label = if o.waiting && o.flow == Flow::DashPay {
-        tr!("Looking for your DashPay wallet…")
-    } else if o.waiting {
-        tr!("Checking…")
-    } else {
-        tr!("Continue")
-    };
-    let pressed = actions(ui, a, None, label, ready).1 || (o.submit_on_open && ready);
-    if pressed {
-        // The phrase goes to the core and is wiped here at once.
-        cx.send(Command::UsePhrase {
-            phrase: Phrase::new(words),
-            dashpay: o.flow == Flow::DashPay,
-        });
-        for w in o.restore_words.iter_mut() {
-            w.zeroize();
-        }
-        o.waiting = true;
-        o.error = None;
-        o.submit_on_open = false;
     }
 }
 

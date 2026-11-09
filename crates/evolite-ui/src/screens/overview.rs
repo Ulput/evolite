@@ -49,6 +49,35 @@ pub fn overview(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx) {
             cx.go(Screen::Receive);
         }
     });
+    total_block(ui, a, cx, wallet, &total_line, total_color, synced);
+    balance_cards(ui, a, wallet, pool, &as_of, unknown);
+    quick_actions(ui, a, cx, wallet);
+    latest_operations(ui, a, cx, wallet, synced);
+    super::activity::card_window(ui, a, cx);
+    #[cfg(demo_core)]
+    if cx.snap.demo {
+        crate::components::demo_line(
+            ui,
+            a,
+            tr!(
+                "Demo data: there is no wallet behind these screens, it is the example from the mockup."
+            ),
+        );
+    }
+}
+
+/// «Total», what it does not know yet, and how settled the payments are.
+fn total_block(
+    ui: &mut Ui,
+    a: &mut Assets,
+    cx: &Ctx,
+    wallet: &evolite_api::Wallet,
+    total_line: &Option<String>,
+    total_color: egui::Color32,
+    synced: bool,
+) {
+    let p = a.p;
+    let b = &wallet.balances;
     // Locked or proved: a payment in the mempool, on its way, or in a block without a ChainLock
     // is not settled yet.
     let all_proved = wallet.activity.iter().all(|act| {
@@ -116,6 +145,18 @@ pub fn overview(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx) {
             ui.label(txt(&line, 13.0, Weight::Regular, p.muted));
         });
     });
+}
+
+/// The four balance cards.
+fn balance_cards(
+    ui: &mut Ui,
+    a: &mut Assets,
+    wallet: &evolite_api::Wallet,
+    pool: CardAmount,
+    as_of: &Option<String>,
+    unknown: bool,
+) {
+    let b = &wallet.balances;
     // The credits of every identity of the wallet, as «Total» counts them (BUG-56); the one
     // worked as has its own on Identity.
     let several = wallet.identities.len() > 1;
@@ -200,6 +241,11 @@ pub fn overview(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx) {
         let font = fonts[i / cols].clone();
         balance_card_in(ui, a, cell, (icon, title), (*amount, font), detail, w);
     });
+}
+
+/// Top up, shield, withdraw.
+fn quick_actions(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, wallet: &evolite_api::Wallet) {
+    let b = &wallet.balances;
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 10.0;
         // The top-up window lives on the Identity screen, next to the credits it fills: it
@@ -248,6 +294,18 @@ pub fn overview(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx) {
             cx.pay(Source::Credits, wallet.core_address.clone());
         }
     });
+}
+
+/// The latest operations, and the way to all of them.
+fn latest_operations(
+    ui: &mut Ui,
+    a: &mut Assets,
+    cx: &mut Ctx,
+    wallet: &evolite_api::Wallet,
+    synced: bool,
+) {
+    let p = a.p;
+    let b = &wallet.balances;
     ui.vertical(|ui| {
         ui.spacing_mut().item_spacing.y = 4.0;
         ui.allocate_ui_with_layout(
@@ -306,17 +364,6 @@ pub fn overview(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx) {
             }
         }
     });
-    super::activity::card_window(ui, a, cx);
-    #[cfg(demo_core)]
-    if cx.snap.demo {
-        crate::components::demo_line(
-            ui,
-            a,
-            tr!(
-                "Demo data: there is no wallet behind these screens, it is the example from the mockup."
-            ),
-        );
-    }
 }
 
 /// The private pool's tile (BUG-66, the designer's improvement 1): read in this run

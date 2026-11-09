@@ -497,32 +497,8 @@ fn shield_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut PoolStat
             let p = a.p;
             let mut close = false;
             let busy = state.progress.is_some();
-            let (source, icon, title, balance) = &sources[state.from.min(sources.len() - 1)];
-            ui.vertical(|ui| {
-                ui.spacing_mut().item_spacing.y = 8.0;
-                ui.horizontal(|ui| {
-                    field_label(ui, &p, tr!("From"));
-                    // The app's one «Hide amounts», at the sources (BUG-73).
-                    crate::components::amount_toggle(ui, a, true);
-                });
-                let value = shown(source, *balance);
-                if select_row(ui, a, icon, title, Some(&value)).clicked() && !busy {
-                    state.sources_open = !state.sources_open;
-                }
-                if state.sources_open {
-                    for (i, (source, icon, title, balance)) in sources.iter().enumerate() {
-                        let value = shown(source, *balance);
-                        if i != state.from
-                            && select_row(ui, a, icon, title, Some(&value)).clicked()
-                            && !unread(source)
-                        {
-                            state.from = i;
-                            state.sources_open = false;
-                            state.forget_result(PoolMove::Shield);
-                        }
-                    }
-                }
-            });
+            let (source, _, _, balance) = &sources[state.from.min(sources.len() - 1)];
+            shield_source_rows(ui, a, state, &sources, busy, &shown, &unread);
             // A move running or just done has its coins gone already (BUG-101): its typed amount
             // is not measured against what is left, and a lock the core remembers for it is
             // not a stopped shield.
@@ -557,110 +533,18 @@ fn shield_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut PoolStat
                     ),
                 );
             } else if resume.is_none() {
-                ui.vertical(|ui| {
-                    ui.spacing_mut().item_spacing.y = 8.0;
-                    field_label(ui, &p, tr!("Amount"));
-                    let field = amount_field(ui, &p, "shield-amount", &mut state.amount, true);
-                    if field.all {
-                        state.amount = crate::format::input_text(cost.max);
-                    }
-                    forget_success(state, PoolMove::Shield, &field);
-                    if judged
-                        && amount.is_some()
-                        && preview.is_none()
-                        && !core_unknown(source)
-                        && !unread(source)
-                    {
-                        let why = match source {
-                            ShieldSource::Credits => {
-                                tr!("More than there is in this balance").to_string()
-                            }
-                            // platform-wallet keeps a reserve for the fee on the first address.
-                            ShieldSource::PlatformAddress => format!(
-                                tr!("At most {}: a reserve for the fee stays at the address"),
-                                crate::format::amount(cost.max)
-                            ),
-                            ShieldSource::Core => format!(
-                                tr!("From {} to {}: the Platform fee comes out of the amount"),
-                                crate::format::amount(cost.min),
-                                crate::format::amount(cost.max)
-                            ),
-                        };
-                        ui.label(txt(&why, 12.0, Weight::Regular, p.danger));
-                    }
-                });
+                let say_limits = judged
+                    && amount.is_some()
+                    && preview.is_none()
+                    && !core_unknown(source)
+                    && !unread(source);
+                shield_amount_field(ui, &p, state, &cost, *source, say_limits);
             }
-            let value = mono(13.0, Weight::Medium);
-            kv_row(
-                ui,
-                &p,
-                tr!("Platform fee"),
-                &format!("≈ {}", crate::format::amount(cost.fee)),
-                value.clone(),
-            );
-            // From Core the asset lock is a Core transaction with its own fee: a line of its own,
-            // so "Platform fee" is the amount less what arrives in the pool. A stopped shield's lock
-            // is already paid for.
-            if cost.core_fee > 0 && resume.is_none() {
-                kv_row(
-                    ui,
-                    &p,
-                    tr!("Core fee"),
-                    &format!("≈ {}", crate::format::amount(cost.core_fee)),
-                    value.clone(),
-                );
-            }
-            let left_label = match source {
-                ShieldSource::Credits => tr!("Left in credits"),
-                ShieldSource::PlatformAddress => tr!("Left at the address"),
-                ShieldSource::Core => tr!("Left on Core"),
-            };
-            // Platform meters a shield from addresses, and Core's fee depends on the coins: an
-            // estimate there; from credits the rest is exact.
-            let left_text = preview.map_or("—".to_string(), |(left, _)| match source {
-                ShieldSource::Credits => crate::format::balance(left),
-                _ => format!("≈ {}", crate::format::balance(left)),
-            });
-            kv_row(ui, &p, left_label, &left_text, value.clone());
-            // From Core Platform's fee comes out of the lock: less reaches the pool.
-            if *source == ShieldSource::Core {
-                let arrives = preview.map_or("—".to_string(), |(_, arrives)| {
-                    crate::format::amount(arrives)
-                });
-                kv_row(ui, &p, tr!("Arrives in the pool"), &arrives, value);
-            }
+            shield_cost_lines(ui, &p, &cost, source, resume, preview);
             if let Some(fraction) = state.progress {
                 proof_progress(ui, a, fraction);
             }
-            // A wrong password is said under its field, not as a failed move.
-            state
-                .password
-                .settle(result_of(&state.result, PoolMove::Shield));
-            let shown =
-                result_of(&state.result, PoolMove::Shield).filter(|_| !state.password.is_wrong());
-            match shown {
-                Some(Err(CoreError::NotAvailable(why))) => notice(
-                    ui,
-                    a,
-                    "info",
-                    p.muted,
-                    &format!(tr!("{why}. Nothing went into the pool."), why = why),
-                ),
-                Some(Err(e)) => error_notice(
-                    ui,
-                    a,
-                    &crate::text::failed(tr!("Not shielded"), e),
-                    crate::text::error_details(e).as_deref(),
-                ),
-                Some(Ok(())) => notice(
-                    ui,
-                    a,
-                    "confirmed",
-                    p.accent,
-                    tr!("The funds are in the pool."),
-                ),
-                None => {}
-            }
+            shield_answer(ui, a, state);
             let ask = password_asked(cx.snap) && !busy;
             let entered = state.password.field(ui, &p, "shield-password", ask);
             crate::components::button_row_spend(ui, |ui| {
@@ -695,6 +579,166 @@ fn shield_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut PoolStat
         state.sources_open = false;
         state.forget_result(PoolMove::Shield);
         state.password.forget();
+    }
+}
+
+/// «From»: the source chosen and, opened, the others to choose from.
+fn shield_source_rows(
+    ui: &mut Ui,
+    a: &mut Assets,
+    state: &mut PoolState,
+    sources: &[(ShieldSource, &'static str, String, i64)],
+    busy: bool,
+    shown: &impl Fn(&ShieldSource, Duffs) -> String,
+    unread: &impl Fn(&ShieldSource) -> bool,
+) {
+    let p = a.p;
+    let (source, icon, title, balance) = &sources[state.from.min(sources.len() - 1)];
+    ui.vertical(|ui| {
+        ui.spacing_mut().item_spacing.y = 8.0;
+        ui.horizontal(|ui| {
+            field_label(ui, &p, tr!("From"));
+            // The app's one «Hide amounts», at the sources (BUG-73).
+            crate::components::amount_toggle(ui, a, true);
+        });
+        let value = shown(source, *balance);
+        if select_row(ui, a, icon, title, Some(&value)).clicked() && !busy {
+            state.sources_open = !state.sources_open;
+        }
+        if state.sources_open {
+            for (i, (source, icon, title, balance)) in sources.iter().enumerate() {
+                let value = shown(source, *balance);
+                if i != state.from
+                    && select_row(ui, a, icon, title, Some(&value)).clicked()
+                    && !unread(source)
+                {
+                    state.from = i;
+                    state.sources_open = false;
+                    state.forget_result(PoolMove::Shield);
+                }
+            }
+        }
+    });
+}
+
+/// The amount to shield, and the limits it has to keep (`say_limits`: it does not keep them).
+fn shield_amount_field(
+    ui: &mut Ui,
+    p: &crate::theme::Palette,
+    state: &mut PoolState,
+    cost: &ShieldCost,
+    source: ShieldSource,
+    say_limits: bool,
+) {
+    let p = *p;
+    ui.vertical(|ui| {
+        ui.spacing_mut().item_spacing.y = 8.0;
+        field_label(ui, &p, tr!("Amount"));
+        let field = amount_field(ui, &p, "shield-amount", &mut state.amount, true);
+        if field.all {
+            state.amount = crate::format::input_text(cost.max);
+        }
+        forget_success(state, PoolMove::Shield, &field);
+        if say_limits {
+            let why = match source {
+                ShieldSource::Credits => tr!("More than there is in this balance").to_string(),
+                // platform-wallet keeps a reserve for the fee on the first address.
+                ShieldSource::PlatformAddress => format!(
+                    tr!("At most {}: a reserve for the fee stays at the address"),
+                    crate::format::amount(cost.max)
+                ),
+                ShieldSource::Core => format!(
+                    tr!("From {} to {}: the Platform fee comes out of the amount"),
+                    crate::format::amount(cost.min),
+                    crate::format::amount(cost.max)
+                ),
+            };
+            ui.label(txt(&why, 12.0, Weight::Regular, p.danger));
+        }
+    });
+}
+
+/// The fees, what is left and what arrives.
+fn shield_cost_lines(
+    ui: &mut Ui,
+    p: &crate::theme::Palette,
+    cost: &ShieldCost,
+    source: &ShieldSource,
+    resume: Option<Duffs>,
+    preview: Option<(Duffs, Duffs)>,
+) {
+    let p = *p;
+    let value = mono(13.0, Weight::Medium);
+    kv_row(
+        ui,
+        &p,
+        tr!("Platform fee"),
+        &format!("≈ {}", crate::format::amount(cost.fee)),
+        value.clone(),
+    );
+    // From Core the asset lock is a Core transaction with its own fee: a line of its own,
+    // so "Platform fee" is the amount less what arrives in the pool. A stopped shield's lock
+    // is already paid for.
+    if cost.core_fee > 0 && resume.is_none() {
+        kv_row(
+            ui,
+            &p,
+            tr!("Core fee"),
+            &format!("≈ {}", crate::format::amount(cost.core_fee)),
+            value.clone(),
+        );
+    }
+    let left_label = match source {
+        ShieldSource::Credits => tr!("Left in credits"),
+        ShieldSource::PlatformAddress => tr!("Left at the address"),
+        ShieldSource::Core => tr!("Left on Core"),
+    };
+    // Platform meters a shield from addresses, and Core's fee depends on the coins: an
+    // estimate there; from credits the rest is exact.
+    let left_text = preview.map_or("—".to_string(), |(left, _)| match source {
+        ShieldSource::Credits => crate::format::balance(left),
+        _ => format!("≈ {}", crate::format::balance(left)),
+    });
+    kv_row(ui, &p, left_label, &left_text, value.clone());
+    // From Core Platform's fee comes out of the lock: less reaches the pool.
+    if *source == ShieldSource::Core {
+        let arrives = preview.map_or("—".to_string(), |(_, arrives)| {
+            crate::format::amount(arrives)
+        });
+        kv_row(ui, &p, tr!("Arrives in the pool"), &arrives, value);
+    }
+}
+
+/// The answer to the shield, unless it was the password that was wrong.
+fn shield_answer(ui: &mut Ui, a: &mut Assets, state: &mut PoolState) {
+    let p = a.p;
+    // A wrong password is said under its field, not as a failed move.
+    state
+        .password
+        .settle(result_of(&state.result, PoolMove::Shield));
+    let shown = result_of(&state.result, PoolMove::Shield).filter(|_| !state.password.is_wrong());
+    match shown {
+        Some(Err(CoreError::NotAvailable(why))) => notice(
+            ui,
+            a,
+            "info",
+            p.muted,
+            &format!(tr!("{why}. Nothing went into the pool."), why = why),
+        ),
+        Some(Err(e)) => error_notice(
+            ui,
+            a,
+            &crate::text::failed(tr!("Not shielded"), e),
+            crate::text::error_details(e).as_deref(),
+        ),
+        Some(Ok(())) => notice(
+            ui,
+            a,
+            "confirmed",
+            p.accent,
+            tr!("The funds are in the pool."),
+        ),
+        None => {}
     }
 }
 

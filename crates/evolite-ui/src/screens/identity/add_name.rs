@@ -64,7 +64,80 @@ pub(super) fn add_name_dialog(
                 )
                 .wrap(),
             );
-            ui.vertical(|ui| {
+            name_field(ui, &p, form, &label, &check);
+            let value = mono(13.0, Weight::Medium);
+            kv_row(
+                ui,
+                &p,
+                tr!("Name registration"),
+                &format!("≈ {}", dash(fee)),
+                value.clone(),
+            );
+            kv_row(
+                ui,
+                &p,
+                tr!("Paid by"),
+                &format!(tr!("{me} · credits"), me = me),
+                value,
+            );
+            // Not an error before anything was tried (calm states CS-1): what is missing, muted,
+            // and the way to it.
+            let short = read && credits < needed;
+            credits_state(ui, &p, read, short, needed, credits, &mut top_up);
+            name_answer(ui, a, form);
+            let ask = wallet.password_each_send && form.result.is_none();
+            let entered = form.password.field(ui, &p, "add-name-password", ask);
+            let mut close = false;
+            button_row(ui, |ui| {
+                if button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked() {
+                    close = true;
+                }
+                let ready = matches!(check, Some(Ok(NameCheck::Available)))
+                    && read
+                    && !short
+                    && !form.waiting
+                    && form.result.is_none()
+                    && form.password.ready(ask);
+                let label = if form.waiting {
+                    tr!("Writing…")
+                } else {
+                    tr!("Register")
+                };
+                if button_enabled(ui, a, label, ButtonKind::Primary, None, ready).clicked()
+                    || (entered && ready)
+                {
+                    register = true;
+                }
+            });
+            close
+        },
+    );
+    if register {
+        let op = Spend::AddName {
+            name: form.asked.clone(),
+        };
+        asked.push(form.password.command(op, wallet.password_each_send));
+        form.waiting = true;
+        form.result = None;
+    } else if top_up && !form.waiting {
+        // «Top up ›»: the name waits, the top-up opens (or says why it cannot now).
+        state.adding_name = None;
+        state.top_up_clicked(wallet);
+    } else if close && !form.waiting {
+        state.adding_name = None;
+    }
+}
+
+/// The name, and what DPNS says of it.
+fn name_field(
+    ui: &mut Ui,
+    p: &crate::theme::Palette,
+    form: &mut NameForm,
+    label: &str,
+    check: &Option<Result<NameCheck, CoreError>>,
+) {
+    let p = *p;
+    ui.vertical(|ui| {
                 ui.spacing_mut().item_spacing.y = 6.0;
                 field_label(ui, &p, tr!("Name"));
                 text_field(
@@ -107,57 +180,52 @@ pub(super) fn add_name_dialog(
                     );
                 }
             });
-            let value = mono(13.0, Weight::Medium);
-            kv_row(
-                ui,
-                &p,
-                tr!("Name registration"),
-                &format!("≈ {}", dash(fee)),
-                value.clone(),
-            );
-            kv_row(
-                ui,
-                &p,
-                tr!("Paid by"),
-                &format!(tr!("{me} · credits"), me = me),
-                value,
-            );
-            // Not an error before anything was tried (calm states CS-1): what is missing, muted,
-            // and the way to it.
-            let short = read && credits < needed;
-            if !read {
-                ui.add(
-                    egui::Label::new(txt(
-                        &format!(
-                            "{}.",
-                            tr!("The identity's credits are not read yet: nothing is charged until they are")
-                        ),
-                        12.0,
-                        Weight::Regular,
-                        p.muted,
-                    ))
-                    .wrap(),
-                );
-            } else if short {
-                ui.horizontal_wrapped(|ui| {
-                    ui.spacing_mut().item_spacing.x = 8.0;
-                    ui.label(txt(
-                        &format!(
-                            tr!(
-                                "Not enough credits for the name: ≈ {} needed, the identity has {}."
-                            ),
-                            dash(needed),
-                            crate::format::balance(credits)
-                        ),
-                        12.0,
-                        Weight::Regular,
-                        p.muted,
-                    ));
-                    if inline_action(ui, &p, tr!("Top up ›")).clicked() {
-                        top_up = true;
-                    }
-                });
-                ui.add(
+}
+
+/// Whether the identity's credits are enough, and the way to more.
+fn credits_state(
+    ui: &mut Ui,
+    p: &crate::theme::Palette,
+    read: bool,
+    short: bool,
+    needed: evolite_api::Duffs,
+    credits: evolite_api::Duffs,
+    top_up: &mut bool,
+) {
+    let p = *p;
+    if !read {
+        ui.add(
+            egui::Label::new(txt(
+                &format!(
+                    "{}.",
+                    tr!(
+                        "The identity's credits are not read yet: nothing is charged until they are"
+                    )
+                ),
+                12.0,
+                Weight::Regular,
+                p.muted,
+            ))
+            .wrap(),
+        );
+    } else if short {
+        ui.horizontal_wrapped(|ui| {
+            ui.spacing_mut().item_spacing.x = 8.0;
+            ui.label(txt(
+                &format!(
+                    tr!("Not enough credits for the name: ≈ {} needed, the identity has {}."),
+                    dash(needed),
+                    crate::format::balance(credits)
+                ),
+                12.0,
+                Weight::Regular,
+                p.muted,
+            ));
+            if inline_action(ui, &p, tr!("Top up ›")).clicked() {
+                *top_up = true;
+            }
+        });
+        ui.add(
                     egui::Label::new(txt(
                         tr!("Platform wants this much before it writes a name; what the name does not use stays on the identity."),
                         12.0,
@@ -166,72 +234,34 @@ pub(super) fn add_name_dialog(
                     ))
                     .wrap(),
                 );
-            }
-            match &form.result {
-                _ if form.waiting => notice(
-                    ui,
-                    a,
-                    "pending",
-                    p.muted,
-                    tr!(
-                        "Writing the name to Platform: preorder and domain — usually under a minute."
-                    ),
-                ),
-                Some(Ok(())) => notice(
-                    ui,
-                    a,
-                    "confirmed",
-                    p.accent,
-                    &format!(tr!("The name @{} is written."), form.asked),
-                ),
-                Some(Err(e)) => crate::components::error_notice(
-                    ui,
-                    a,
-                    &name_error(e),
-                    crate::text::error_details(e).as_deref(),
-                ),
-                None => {}
-            }
-            let ask = wallet.password_each_send && form.result.is_none();
-            let entered = form.password.field(ui, &p, "add-name-password", ask);
-            let mut close = false;
-            button_row(ui, |ui| {
-                if button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked() {
-                    close = true;
-                }
-                let ready = matches!(check, Some(Ok(NameCheck::Available)))
-                    && read
-                    && !short
-                    && !form.waiting
-                    && form.result.is_none()
-                    && form.password.ready(ask);
-                let label = if form.waiting {
-                    tr!("Writing…")
-                } else {
-                    tr!("Register")
-                };
-                if button_enabled(ui, a, label, ButtonKind::Primary, None, ready).clicked()
-                    || (entered && ready)
-                {
-                    register = true;
-                }
-            });
-            close
-        },
-    );
-    if register {
-        let op = Spend::AddName {
-            name: form.asked.clone(),
-        };
-        asked.push(form.password.command(op, wallet.password_each_send));
-        form.waiting = true;
-        form.result = None;
-    } else if top_up && !form.waiting {
-        // «Top up ›»: the name waits, the top-up opens (or says why it cannot now).
-        state.adding_name = None;
-        state.top_up_clicked(wallet);
-    } else if close && !form.waiting {
-        state.adding_name = None;
+    }
+}
+
+/// While the name is written, and Platform's answer.
+fn name_answer(ui: &mut Ui, a: &mut Assets, form: &NameForm) {
+    let p = a.p;
+    match &form.result {
+        _ if form.waiting => notice(
+            ui,
+            a,
+            "pending",
+            p.muted,
+            tr!("Writing the name to Platform: preorder and domain — usually under a minute."),
+        ),
+        Some(Ok(())) => notice(
+            ui,
+            a,
+            "confirmed",
+            p.accent,
+            &format!(tr!("The name @{} is written."), form.asked),
+        ),
+        Some(Err(e)) => crate::components::error_notice(
+            ui,
+            a,
+            &name_error(e),
+            crate::text::error_details(e).as_deref(),
+        ),
+        None => {}
     }
 }
 

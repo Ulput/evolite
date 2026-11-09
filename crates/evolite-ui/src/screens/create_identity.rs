@@ -254,198 +254,26 @@ pub fn create_identity(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut Cre
     let ask = password_asked(cx.snap) && !form.waiting;
     let ready = name_ok && plan.is_some() && checked && !too_much && !too_little && !form.waiting;
 
+    let facts = FormFacts {
+        wallet,
+        more,
+        label: &label,
+        check: &check,
+        nameless,
+        name_ok,
+        name_fee,
+        core_fee,
+        least,
+        too_little,
+        core,
+        core_text: &core_text,
+        short,
+        checked,
+        total,
+        ready,
+    };
     let mut draw_form = |ui: &mut Ui, a: &mut Assets| {
-        card(&p, Margin::same(24)).show(ui, |ui| {
-            ui.set_width(inner(form_w, 24));
-            ui.spacing_mut().item_spacing.y = 16.0;
-            let heading = if more {
-                tr!("1 · Name (optional)")
-            } else {
-                tr!("1 · Name")
-            };
-            ui.label(txt(heading, 15.0, Weight::SemiBold, p.text));
-            ui.vertical(|ui| {
-                ui.spacing_mut().item_spacing.y = 6.0;
-                field_label(ui, &p, tr!("Username"));
-                if text_field(
-                    ui,
-                    &p,
-                    "identity-name",
-                    &mut form.name,
-                    &example(wallet),
-                    FieldKind::Text,
-                    |_| {},
-                )
-                .changed()
-                {
-                    form.result = None;
-                }
-            });
-            let (line, color) = match &check {
-                // An empty name is no mistake for one more identity: what it means (frame 4).
-                None if nameless => (
-                    Some(tr!("Without a name nobody finds it by @name or adds it to DashPay contacts. You can add a name later on the Identity screen.").to_string()),
-                    p.muted,
-                ),
-                None if label.len() >= 3 => (Some(tr!("Checking the name in DPNS…").to_string()), p.muted),
-                // Too short to ask DPNS about: say so instead of staying silent.
-                None if !label.is_empty() => (
-                    Some(tr!("This is not a Dash name: 3–63 letters, digits and hyphens").to_string()),
-                    p.danger,
-                ),
-                None => (None, p.muted),
-                Some(Ok(NameCheck::Available)) => (
-                    Some(format!(tr!("@{label} is free · a regular name, no vote"), label = label)),
-                    p.text,
-                ),
-                Some(Ok(NameCheck::Contested)) => (
-                    Some(format!(
-                        tr!("@{label} is a contested name: masternodes award it by vote, which evolite cannot do yet. Add a digit from 2 to 9 or make the name longer than 19 characters.")
-                    , label = label)),
-                    p.danger,
-                ),
-                Some(Ok(NameCheck::Taken)) => (Some(format!(tr!("@{label} is already taken"), label = label)), p.danger),
-                Some(Err(e)) => {
-                    let (why, typo) = name_problem(e);
-                    (Some(why), if typo { p.danger } else { p.muted })
-                }
-            };
-            if let Some(line) = line {
-                ui.horizontal(|ui| {
-                    ui.spacing_mut().item_spacing.x = 8.0;
-                    if name_ok {
-                        ui.add(a.icons.icon("check", if nameless { p.muted } else { p.text }, &p, 16.0));
-                    }
-                    ui.add(egui::Label::new(txt(&line, 13.0, Weight::Regular, color)).wrap());
-                });
-            }
-            // About short contested names: hidden while there is no name to be one (frame 4).
-            if !nameless {
-                notice(
-                    ui,
-                    a,
-                    "info",
-                    p.muted,
-                    tr!("Names shorter than 20 characters made only of letters, 0, 1 and hyphens are contested: masternodes award them by a vote of up to 14 days, and they cost more. A digit from 2 to 9 makes a name regular."),
-                );
-            }
-            divider(ui, &p);
-            ui.label(txt(tr!("2 · Top-up"), 15.0, Weight::SemiBold, p.text));
-            pay_from(ui, a, &core_text);
-            ui.vertical(|ui| {
-                ui.spacing_mut().item_spacing.y = 6.0;
-                field_label(ui, &p, tr!("How much to turn into credits"));
-                let field = amount_field(ui, &p, "identity-amount", &mut form.amount, true);
-                if field.all {
-                    let all = (core.known().unwrap_or(0)
-                        - name_fee
-                        - fees.identity_create
-                        - fees.core_payment)
-                        .max(0);
-                    form.amount = crate::format::input_text(all);
-                }
-                // Too little for Core is said in place of the InstantSend hint below (the
-                // designer, frame 9): the amount itself may be right.
-                if too_little {
-                    let hint = if nameless {
-                        format!(
-                            tr!("At least {} — Dash Platform takes no smaller asset lock"),
-                            dash(least)
-                        )
-                    } else {
-                        format!(
-                            tr!("At least {} — less may not cover the name's registration"),
-                            dash(least)
-                        )
-                    };
-                    ui.label(txt(&hint, 12.0, Weight::Regular, p.danger));
-
-                } else {
-                    ui.label(txt(fees_note(), 12.0, Weight::Regular, p.muted));
-                }
-            });
-            let value = mono(13.0, Weight::Medium);
-            crate::components::kv_row_eye_in(
-                ui,
-                a,
-                tr!("From the Core wallet"),
-                &core_text,
-                value.clone(),
-                core.color(&p),
-            );
-            let name_cost = if nameless {
-                tr!("no name · 0").to_string()
-            } else {
-                format!("≈ {}", dash(name_fee))
-            };
-            kv_row(ui, &p, tr!("Name registration"), &name_cost, value.clone());
-            kv_row(
-                ui,
-                &p,
-                tr!("Making an identity"),
-                &format!("≈ {}", dash(fees.identity_create)),
-                value.clone(),
-            );
-            kv_row(ui, &p, tr!("Core fee"), &format!("≈ {}", dash(core_fee)), value);
-            match (short, core) {
-                (Some(Some(Some(needed))), CardAmount::Now(has)) => {
-                    crate::components::error_notice(
-                        ui,
-                        a,
-                        &format!(
-                            tr!("At least ≈ {} is needed, Core has {}. Lower the amount or top up Core."),
-                            dash(needed),
-                            crate::format::balance(has)
-                        ),
-                        None,
-                    );
-                }
-                _ if !checked => notice(
-                    ui,
-                    a,
-                    "instantsend",
-                    p.accent,
-                    tr!("The Core balance is still being checked: you can create an identity once the sync is done."),
-                ),
-                _ => notice(
-                    ui,
-                    a,
-                    "instantsend",
-                    p.accent,
-                    tr!("The asset lock is confirmed by InstantSend in seconds; if not, we wait for a ChainLock."),
-                ),
-            }
-            ui.horizontal(|ui| {
-                ui.spacing_mut().item_spacing.x = 10.0;
-                let label = match total {
-                    Some(t) => format!(tr!("Create for {}"), format!("≈ {}", dash(t))),
-                    None => tr!("Create").into(),
-                };
-                // The password and the last look come in «Check the new identity» (frame 7).
-                if button_enabled(ui, a, &label, ButtonKind::Primary, None, ready).clicked() {
-                    form.confirming = true;
-                    form.result = None;
-                }
-                if button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked() {
-                    cx.go(super::Screen::Identity);
-                }
-            });
-            match &form.result {
-                _ if form.waiting => notice(
-                    ui,
-                    a,
-                    "pending",
-                    p.muted,
-                    tr!("Creating: asset lock, confirmation, identity and name — about a minute. Do not close evolite."),
-                ),
-                Some(Err(e @ (CoreError::NotAvailable(_) | CoreError::NotSynced))) => {
-                    notice(ui, a, "info", p.muted, &create_error(e))
-                }
-                Some(Err(e)) => crate::components::error_notice(ui, a, &create_error(e), crate::text::error_details(e).as_deref()),
-                Some(Ok(())) => notice(ui, a, "confirmed", p.accent, tr!("Identity made.")),
-                None => {}
-            }
-        });
+        new_identity_card(ui, a, cx, form, &facts, form_w);
     };
 
     let steps = Steps {
@@ -513,6 +341,306 @@ pub fn create_identity(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut Cre
                 form.password.forget();
             }
         }
+    }
+}
+
+/// What one frame of the form knows, worked out before anything is drawn.
+struct FormFacts<'a> {
+    wallet: &'a evolite_api::Wallet,
+    /// One more identity (FEAT-0014): the name may stay empty.
+    more: bool,
+    label: &'a str,
+    check: &'a Option<Result<NameCheck, CoreError>>,
+    nameless: bool,
+    name_ok: bool,
+    name_fee: Duffs,
+    core_fee: Duffs,
+    least: Duffs,
+    too_little: bool,
+    core: CardAmount,
+    core_text: &'a str,
+    short: Option<Option<Option<Duffs>>>,
+    checked: bool,
+    total: Option<Duffs>,
+    ready: bool,
+}
+
+/// The form's card: the name, the top-up, what it costs and the core's answer.
+fn new_identity_card(
+    ui: &mut Ui,
+    a: &mut Assets,
+    cx: &mut Ctx,
+    form: &mut CreateIdentityForm,
+    v: &FormFacts,
+    form_w: f32,
+) {
+    let p = a.p;
+    card(&p, Margin::same(24)).show(ui, |ui| {
+        ui.set_width(inner(form_w, 24));
+        ui.spacing_mut().item_spacing.y = 16.0;
+        name_section(ui, a, form, v);
+        divider(ui, &p);
+        ui.label(txt(tr!("2 · Top-up"), 15.0, Weight::SemiBold, p.text));
+        pay_from(ui, a, v.core_text);
+        top_up_field(ui, form, v, &p);
+        cost_rows(ui, a, v);
+        balance_notice(ui, a, v);
+        form_buttons(ui, a, cx, form, v);
+        form_answer(ui, a, form);
+    });
+}
+
+/// «1 · Name»: the field, what DPNS says of the name, and the note on contested names.
+fn name_section(ui: &mut Ui, a: &mut Assets, form: &mut CreateIdentityForm, v: &FormFacts) {
+    let p = a.p;
+    let wallet = v.wallet;
+    let (more, label, check) = (v.more, v.label, v.check);
+    let (nameless, name_ok) = (v.nameless, v.name_ok);
+    let heading = if more {
+        tr!("1 · Name (optional)")
+    } else {
+        tr!("1 · Name")
+    };
+    ui.label(txt(heading, 15.0, Weight::SemiBold, p.text));
+    ui.vertical(|ui| {
+        ui.spacing_mut().item_spacing.y = 6.0;
+        field_label(ui, &p, tr!("Username"));
+        if text_field(
+            ui,
+            &p,
+            "identity-name",
+            &mut form.name,
+            &example(wallet),
+            FieldKind::Text,
+            |_| {},
+        )
+        .changed()
+        {
+            form.result = None;
+        }
+    });
+    let (line, color) = match &check {
+                // An empty name is no mistake for one more identity: what it means (frame 4).
+                None if nameless => (
+                    Some(tr!("Without a name nobody finds it by @name or adds it to DashPay contacts. You can add a name later on the Identity screen.").to_string()),
+                    p.muted,
+                ),
+                None if label.len() >= 3 => (Some(tr!("Checking the name in DPNS…").to_string()), p.muted),
+                // Too short to ask DPNS about: say so instead of staying silent.
+                None if !label.is_empty() => (
+                    Some(tr!("This is not a Dash name: 3–63 letters, digits and hyphens").to_string()),
+                    p.danger,
+                ),
+                None => (None, p.muted),
+                Some(Ok(NameCheck::Available)) => (
+                    Some(format!(tr!("@{label} is free · a regular name, no vote"), label = label)),
+                    p.text,
+                ),
+                Some(Ok(NameCheck::Contested)) => (
+                    Some(format!(
+                        tr!("@{label} is a contested name: masternodes award it by vote, which evolite cannot do yet. Add a digit from 2 to 9 or make the name longer than 19 characters.")
+                    , label = label)),
+                    p.danger,
+                ),
+                Some(Ok(NameCheck::Taken)) => (Some(format!(tr!("@{label} is already taken"), label = label)), p.danger),
+                Some(Err(e)) => {
+                    let (why, typo) = name_problem(e);
+                    (Some(why), if typo { p.danger } else { p.muted })
+                }
+            };
+    if let Some(line) = line {
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 8.0;
+            if name_ok {
+                ui.add(
+                    a.icons
+                        .icon("check", if nameless { p.muted } else { p.text }, &p, 16.0),
+                );
+            }
+            ui.add(egui::Label::new(txt(&line, 13.0, Weight::Regular, color)).wrap());
+        });
+    }
+    // About short contested names: hidden while there is no name to be one (frame 4).
+    if !nameless {
+        notice(
+            ui,
+            a,
+            "info",
+            p.muted,
+            tr!(
+                "Names shorter than 20 characters made only of letters, 0, 1 and hyphens are contested: masternodes award them by a vote of up to 14 days, and they cost more. A digit from 2 to 9 makes a name regular."
+            ),
+        );
+    }
+}
+
+/// How much to turn into credits, and what is wrong with that amount.
+fn top_up_field(
+    ui: &mut Ui,
+    form: &mut CreateIdentityForm,
+    v: &FormFacts,
+    p: &crate::theme::Palette,
+) {
+    let p = *p;
+    let fees = &v.wallet.fees;
+    let (core, name_fee, too_little, nameless, least) =
+        (v.core, v.name_fee, v.too_little, v.nameless, v.least);
+    ui.vertical(|ui| {
+        ui.spacing_mut().item_spacing.y = 6.0;
+        field_label(ui, &p, tr!("How much to turn into credits"));
+        let field = amount_field(ui, &p, "identity-amount", &mut form.amount, true);
+        if field.all {
+            let all =
+                (core.known().unwrap_or(0) - name_fee - fees.identity_create - fees.core_payment)
+                    .max(0);
+            form.amount = crate::format::input_text(all);
+        }
+        // Too little for Core is said in place of the InstantSend hint below (the
+        // designer, frame 9): the amount itself may be right.
+        if too_little {
+            let hint = if nameless {
+                format!(
+                    tr!("At least {} — Dash Platform takes no smaller asset lock"),
+                    dash(least)
+                )
+            } else {
+                format!(
+                    tr!("At least {} — less may not cover the name's registration"),
+                    dash(least)
+                )
+            };
+            ui.label(txt(&hint, 12.0, Weight::Regular, p.danger));
+        } else {
+            ui.label(txt(fees_note(), 12.0, Weight::Regular, p.muted));
+        }
+    });
+}
+
+/// What the identity will cost, line by line.
+fn cost_rows(ui: &mut Ui, a: &mut Assets, v: &FormFacts) {
+    let p = a.p;
+    let fees = &v.wallet.fees;
+    let (core, core_text) = (v.core, v.core_text);
+    let (nameless, name_fee, core_fee) = (v.nameless, v.name_fee, v.core_fee);
+    let value = mono(13.0, Weight::Medium);
+    crate::components::kv_row_eye_in(
+        ui,
+        a,
+        tr!("From the Core wallet"),
+        core_text,
+        value.clone(),
+        core.color(&p),
+    );
+    let name_cost = if nameless {
+        tr!("no name · 0").to_string()
+    } else {
+        format!("≈ {}", dash(name_fee))
+    };
+    kv_row(ui, &p, tr!("Name registration"), &name_cost, value.clone());
+    kv_row(
+        ui,
+        &p,
+        tr!("Making an identity"),
+        &format!("≈ {}", dash(fees.identity_create)),
+        value.clone(),
+    );
+    kv_row(
+        ui,
+        &p,
+        tr!("Core fee"),
+        &format!("≈ {}", dash(core_fee)),
+        value,
+    );
+}
+
+/// Whether Core can pay for it, and how the asset lock will be confirmed.
+fn balance_notice(ui: &mut Ui, a: &mut Assets, v: &FormFacts) {
+    let p = a.p;
+    let (short, core, checked) = (v.short, v.core, v.checked);
+    match (short, core) {
+        (Some(Some(Some(needed))), CardAmount::Now(has)) => {
+            crate::components::error_notice(
+                ui,
+                a,
+                &format!(
+                    tr!("At least ≈ {} is needed, Core has {}. Lower the amount or top up Core."),
+                    dash(needed),
+                    crate::format::balance(has)
+                ),
+                None,
+            );
+        }
+        _ if !checked => notice(
+            ui,
+            a,
+            "instantsend",
+            p.accent,
+            tr!(
+                "The Core balance is still being checked: you can create an identity once the sync is done."
+            ),
+        ),
+        _ => notice(
+            ui,
+            a,
+            "instantsend",
+            p.accent,
+            tr!(
+                "The asset lock is confirmed by InstantSend in seconds; if not, we wait for a ChainLock."
+            ),
+        ),
+    }
+}
+
+/// «Create» and «Cancel».
+fn form_buttons(
+    ui: &mut Ui,
+    a: &mut Assets,
+    cx: &mut Ctx,
+    form: &mut CreateIdentityForm,
+    v: &FormFacts,
+) {
+    let (total, ready) = (v.total, v.ready);
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = 10.0;
+        let label = match total {
+            Some(t) => format!(tr!("Create for {}"), format!("≈ {}", dash(t))),
+            None => tr!("Create").into(),
+        };
+        // The password and the last look come in «Check the new identity» (frame 7).
+        if button_enabled(ui, a, &label, ButtonKind::Primary, None, ready).clicked() {
+            form.confirming = true;
+            form.result = None;
+        }
+        if button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked() {
+            cx.go(super::Screen::Identity);
+        }
+    });
+}
+
+/// While the core works, and its answer.
+fn form_answer(ui: &mut Ui, a: &mut Assets, form: &CreateIdentityForm) {
+    let p = a.p;
+    match &form.result {
+        _ if form.waiting => notice(
+            ui,
+            a,
+            "pending",
+            p.muted,
+            tr!(
+                "Creating: asset lock, confirmation, identity and name — about a minute. Do not close evolite."
+            ),
+        ),
+        Some(Err(e @ (CoreError::NotAvailable(_) | CoreError::NotSynced))) => {
+            notice(ui, a, "info", p.muted, &create_error(e))
+        }
+        Some(Err(e)) => crate::components::error_notice(
+            ui,
+            a,
+            &create_error(e),
+            crate::text::error_details(e).as_deref(),
+        ),
+        Some(Ok(())) => notice(ui, a, "confirmed", p.accent, tr!("Identity made.")),
+        None => {}
     }
 }
 
