@@ -52,7 +52,6 @@ pub fn saved(ctx: &egui::Context) -> Option<Result<(std::path::PathBuf, usize), 
 /// 05 · History: layer pills, «Filters», search, the filters on as chips, operations grouped by
 /// day (FEAT-0009).
 pub fn activity(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, h: &mut History) {
-    let p = a.p;
     let wallet = cx.wallet();
     ui.spacing_mut().item_spacing.y = 18.0;
     let saved_id = saved_id();
@@ -90,6 +89,59 @@ pub fn activity(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, h: &mut History) {
     let shown: Vec<usize> = h
         .shown(&wallet.activity, &wallet.address_book, &cx.now)
         .to_vec();
+    let export = run_export(ui, a, h, wallet, &shown, total, export);
+    let saved: Option<Result<(std::path::PathBuf, usize), String>> =
+        ui.data(|d| d.get_temp(saved_id));
+    // The export's answer has just appeared (or a new one came) above the list: the list
+    // starts again from its top, the first day and its first row right under the banner
+    // (BUG-83).
+    let shown_id = saved_id.with("shown");
+    let banner_new =
+        export || saved.is_some() && !ui.data(|d| d.get_temp(shown_id).unwrap_or(false));
+    ui.data_mut(|d| d.insert_temp(shown_id, saved.is_some()));
+    export_banner(ui, a, saved);
+    filter_row(ui, a, cx, h, &shown, total);
+    // E2 (FEAT-0003, AC-D6): the notes file did not open and was put aside, untouched; or it
+    // could not be read now and is left where it is, with no note saved over it (r1 must 1).
+    if let Some(error) = wallet.notes_error {
+        notes_problem(ui, a, error);
+    }
+    // The filters on, each with its cross, and how many lines they leave (UC-5).
+    let chips = h.filters.chips();
+    chips_row(ui, a, h, &chips, &shown, total);
+    let mut list = egui::ScrollArea::vertical().auto_shrink(false);
+    if banner_new {
+        list = list.vertical_scroll_offset(0.0);
+    }
+    let filtered = !chips.is_empty();
+    list.show(ui, |ui| {
+        ui.spacing_mut().item_spacing.y = 2.0;
+        if shown.is_empty() {
+            ui.add_space(40.0);
+            empty_list(ui, a, h, cx, filtered);
+        }
+        // A day's heading only above its lines: a day the filters empty has none (AC-D3).
+        let mut day = String::new();
+        for act in shown.iter().map(|i| &wallet.activity[*i]) {
+            operation_row(ui, a, cx, act, &mut day);
+        }
+    });
+    card_window(ui, a, cx);
+}
+
+/// «Export CSV»: asks which lines when filters are on, and writes the file. Whether a file was
+/// written just now.
+fn run_export(
+    ui: &mut Ui,
+    a: &mut Assets,
+    h: &mut History,
+    wallet: &evolite_api::Wallet,
+    shown: &[usize],
+    total: usize,
+    export: bool,
+) -> bool {
+    let saved_id = saved_id();
+    let mut export = export;
     // With filters on, «Export CSV» asks which lines (UC-6); with none, it writes them all.
     let mut write: Option<Vec<&Activity>> = None;
     if export {
@@ -135,15 +187,16 @@ pub fn activity(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, h: &mut History) {
     } else {
         export = false;
     }
-    let saved: Option<Result<(std::path::PathBuf, usize), String>> =
-        ui.data(|d| d.get_temp(saved_id));
-    // The export's answer has just appeared (or a new one came) above the list: the list
-    // starts again from its top, the first day and its first row right under the banner
-    // (BUG-83).
-    let shown_id = saved_id.with("shown");
-    let banner_new =
-        export || saved.is_some() && !ui.data(|d| d.get_temp(shown_id).unwrap_or(false));
-    ui.data_mut(|d| d.insert_temp(shown_id, saved.is_some()));
+    export
+}
+
+/// What the last export did, above the list.
+fn export_banner(
+    ui: &mut Ui,
+    a: &mut Assets,
+    saved: Option<Result<(std::path::PathBuf, usize), String>>,
+) {
+    let p = a.p;
     match saved {
         Some(Ok((path, lines))) => {
             notice(
@@ -194,6 +247,18 @@ pub fn activity(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, h: &mut History) {
         ),
         None => {}
     }
+}
+
+/// The layer pills, the search and «Filters».
+fn filter_row(
+    ui: &mut Ui,
+    a: &mut Assets,
+    cx: &Ctx,
+    h: &mut History,
+    shown: &[usize],
+    total: usize,
+) {
+    let p = a.p;
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 8.0;
         for (i, label) in [
@@ -252,31 +317,42 @@ pub fn activity(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, h: &mut History) {
             }
         });
     });
-    // E2 (FEAT-0003, AC-D6): the notes file did not open and was put aside, untouched; or it
-    // could not be read now and is left where it is, with no note saved over it (r1 must 1).
-    if let Some(error) = wallet.notes_error {
-        let why = match error {
-            evolite_api::NotesError::PutAside => tr!(
-                "The notes file is damaged or cannot be decrypted. It is kept next to the wallet as is; new notes go to a new file."
-            ),
-            evolite_api::NotesError::NotRead => tr!(
-                "The notes file could not be read now. It is left as it is, and notes cannot be changed until the wallet is opened again."
-            ),
-        };
-        crate::components::notice_parts(
-            ui,
-            a,
-            "warning",
-            p.danger,
-            &[(tr!("Notes could not be read"), why)],
-        );
-    }
-    // The filters on, each with its cross, and how many lines they leave (UC-5).
-    let chips = h.filters.chips();
+}
+
+/// The notes file could not be used: why.
+fn notes_problem(ui: &mut Ui, a: &mut Assets, error: evolite_api::NotesError) {
+    let p = a.p;
+    let why = match error {
+        evolite_api::NotesError::PutAside => tr!(
+            "The notes file is damaged or cannot be decrypted. It is kept next to the wallet as is; new notes go to a new file."
+        ),
+        evolite_api::NotesError::NotRead => tr!(
+            "The notes file could not be read now. It is left as it is, and notes cannot be changed until the wallet is opened again."
+        ),
+    };
+    crate::components::notice_parts(
+        ui,
+        a,
+        "warning",
+        p.danger,
+        &[(tr!("Notes could not be read"), why)],
+    );
+}
+
+/// The filters on, each with its cross, and how many lines they leave.
+fn chips_row(
+    ui: &mut Ui,
+    a: &mut Assets,
+    h: &mut History,
+    chips: &[activity_filters::Chip],
+    shown: &[usize],
+    total: usize,
+) {
+    let p = a.p;
     if !chips.is_empty() || shown.len() < total {
         ui.horizontal_wrapped(|ui| {
             ui.spacing_mut().item_spacing.x = 8.0;
-            for chip in &chips {
+            for chip in chips {
                 if filter_chip(ui, a, &activity_filters::chip_label(*chip)).clicked() {
                     h.filters.remove(*chip);
                 }
@@ -296,95 +372,88 @@ pub fn activity(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, h: &mut History) {
             });
         });
     }
-    let mut list = egui::ScrollArea::vertical().auto_shrink(false);
-    if banner_new {
-        list = list.vertical_scroll_offset(0.0);
-    }
-    let filtered = !chips.is_empty();
-    list.show(ui, |ui| {
-        ui.spacing_mut().item_spacing.y = 2.0;
-        if shown.is_empty() {
-            ui.add_space(40.0);
-            if filtered {
-                // UC-8: the panel's filters leave nothing.
-                ui.vertical_centered(|ui| {
-                    ui.label(txt(
-                        tr!("Nothing matches these filters"),
-                        14.0,
-                        Weight::Regular,
-                        p.muted,
-                    ));
-                    ui.add_space(12.0);
-                    if button(ui, a, tr!("Reset the filters"), ButtonKind::Secondary, None)
-                        .clicked()
-                    {
-                        h.filters.reset();
-                    }
-                });
+}
+
+/// What the list says when it has no lines.
+fn empty_list(ui: &mut Ui, a: &mut Assets, h: &mut History, cx: &Ctx, filtered: bool) {
+    let p = a.p;
+    let wallet = cx.wallet();
+    if filtered {
+        // UC-8: the panel's filters leave nothing.
+        ui.vertical_centered(|ui| {
+            ui.label(txt(
+                tr!("Nothing matches these filters"),
+                14.0,
+                Weight::Regular,
+                p.muted,
+            ));
+            ui.add_space(12.0);
+            if button(ui, a, tr!("Reset the filters"), ButtonKind::Secondary, None).clicked() {
+                h.filters.reset();
+            }
+        });
+    } else {
+        // Nothing at all is not "nothing found".
+        let empty = if wallet.activity.is_empty() {
+            if crate::text::coins_known(cx.snap.sync.stage) && wallet.balances.credits_read {
+                tr!("No operations yet. Receive DASH on the “Receive” screen.")
             } else {
-                // Nothing at all is not "nothing found".
-                let empty = if wallet.activity.is_empty() {
-                    if crate::text::coins_known(cx.snap.sync.stage) && wallet.balances.credits_read
-                    {
-                        tr!("No operations yet. Receive DASH on the “Receive” screen.")
-                    } else {
-                        tr!("Still reading the operations — they appear here as soon as they are found")
-                    }
-                } else {
-                    tr!("Nothing found")
-                };
-                ui.vertical_centered(|ui| ui.label(txt(empty, 14.0, Weight::Regular, p.muted)));
+                tr!("Still reading the operations — they appear here as soon as they are found")
             }
-        }
-        // A day's heading only above its lines: a day the filters empty has none (AC-D3).
-        let mut day = String::new();
-        for act in shown.iter().map(|i| &wallet.activity[*i]) {
-            let this_day = text::day(act.at, cx.now);
-            if this_day != day {
-                day = this_day;
-                ui.add_space(10.0);
-                ui.horizontal(|ui| {
-                    ui.add_space(16.0);
-                    section_label(ui, &p, &day);
-                });
-                ui.add_space(4.0);
-            }
-            let mut detail = format!(
-                "{} · {}",
-                text::chain(act.chain),
-                text::time_of_day(act.at, cx.now)
-            );
-            // How a withdrawal or a request to us stands, and which identity of ours it
-            // came to (BUG-58).
-            for part in [
-                text::activity_for(act),
-                text::activity_status(act).map(str::to_owned),
-            ]
-            .into_iter()
-            .flatten()
-            {
-                detail.push_str(" · ");
-                detail.push_str(crate::i18n::t(&part).as_ref());
-            }
-            let row = tx_row_clickable(
-                ui,
-                a,
-                &TxRow {
-                    icon: text::activity_icon(act),
-                    title: &text::activity_title_in(act, &wallet.address_book),
-                    detail: &detail,
-                    proof: Some(act.proof),
-                    amount: &text::signed_amount(act.amount),
-                    alert: text::activity_alert(act),
-                    note: act.note.as_deref(),
-                },
-            );
-            if row.clicked() {
-                open_card(ui.ctx(), act.id);
-            }
-        }
-    });
-    card_window(ui, a, cx);
+        } else {
+            tr!("Nothing found")
+        };
+        ui.vertical_centered(|ui| ui.label(txt(empty, 14.0, Weight::Regular, p.muted)));
+    }
+}
+
+/// One operation, under its day's heading when the day changes.
+fn operation_row(ui: &mut Ui, a: &mut Assets, cx: &Ctx, act: &Activity, day: &mut String) {
+    let p = a.p;
+    let wallet = cx.wallet();
+    let this_day = text::day(act.at, cx.now);
+    if this_day != *day {
+        *day = this_day;
+        ui.add_space(10.0);
+        ui.horizontal(|ui| {
+            ui.add_space(16.0);
+            section_label(ui, &p, day);
+        });
+        ui.add_space(4.0);
+    }
+    let mut detail = format!(
+        "{} · {}",
+        text::chain(act.chain),
+        text::time_of_day(act.at, cx.now)
+    );
+    // How a withdrawal or a request to us stands, and which identity of ours it
+    // came to (BUG-58).
+    for part in [
+        text::activity_for(act),
+        text::activity_status(act).map(str::to_owned),
+    ]
+    .into_iter()
+    .flatten()
+    {
+        detail.push_str(" · ");
+        detail.push_str(crate::i18n::t(&part).as_ref());
+    }
+    let row = tx_row_clickable(
+        ui,
+        a,
+        &TxRow {
+            icon: text::activity_icon(act),
+            title: &text::activity_title_in(act, &wallet.address_book),
+            detail: &detail,
+            proof: Some(act.proof),
+            amount: &text::signed_amount(act.amount),
+            alert: text::activity_alert(act),
+            note: act.note.as_deref(),
+        },
+    );
+    if row.clicked() {
+        open_card(ui.ctx(), act.id);
+    }
 }
 
 /// «Shown N of M», the numbers as the number format writes them.

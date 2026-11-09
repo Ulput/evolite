@@ -926,25 +926,7 @@ fn card(
         464.0,
         editing,
         |ui, a| {
-            let p = a.p;
-            let (boxr, _) = ui.allocate_exact_size(egui::vec2(48.0, 48.0), egui::Sense::hover());
-            paint_icon_box(ui, a, boxr, 12, text::activity_icon(act), 22.0, p.ink);
-            ui.vertical(|ui| {
-                ui.spacing_mut().item_spacing.y = 2.0;
-                ui.add_space(4.0);
-                ui.label(txt(
-                    &text::activity_title_in(act, book),
-                    20.0,
-                    Weight::Bold,
-                    p.text,
-                ));
-                ui.label(txt(
-                    &format!("{} · {}", text::chain(act.chain), text::when(act.at, now)),
-                    14.0,
-                    Weight::Medium,
-                    p.muted,
-                ));
-            });
+            card_header(ui, a, act, now, book);
         },
         |ui, a| {
             let p = a.p;
@@ -967,78 +949,13 @@ fn card(
                         status_chip(ui, a, act.proof);
                     });
                 });
-                // Mono is for amounts, addresses and hashes; the date and the chain are words.
-                let words = sans(13.0, Weight::Medium);
-                let value = mono(13.0, Weight::Medium);
                 if let Some(detail) = core_detail(act) {
                     // FEAT-0005a (mockups 01, 02): from where to where, the parts of the amount,
                     // when, and what proved it in words. The chain is in the header and the block
                     // in the proof's line.
                     core_body(ui, a, act, detail, now, book);
                 } else {
-                    kv_row(
-                        ui,
-                        &p,
-                        tr!("When"),
-                        &text::date_time(act.at, now),
-                        words.clone(),
-                    );
-                    kv_row(ui, &p, tr!("Where"), text::chain(act.chain), words.clone());
-                    if let Some(status) = text::activity_status(act) {
-                        kv_row(ui, &p, tr!("Status"), status, words.clone());
-                    }
-                    // An asset lock: the chip above is the Core transaction's; whether Platform added
-                    // the credits is said apart, in red when it did not (BUG-57, customer: red).
-                    if let Some((credits, bad)) = text::activity_credits(act) {
-                        let color = if bad { p.danger } else { p.text };
-                        kv_row_in(ui, &p, tr!("Credits"), credits, words, color);
-                    }
-                    if let Some(fee) = act.fee {
-                        kv_row(
-                            ui,
-                            &p,
-                            tr!("Fee"),
-                            // Already inside the amount above: shown as a size, not a second debit
-                            //.
-                            &crate::format::amount(fee),
-                            value.clone(),
-                        );
-                    }
-                    if let Some(block) = act.block {
-                        kv_row(
-                            ui,
-                            &p,
-                            tr!("Block"),
-                            &text::group_thousands(block as i64),
-                            value,
-                        );
-                    }
-                    if let Some((label, who, note)) = counterparty(act) {
-                        // An address the person named says so.
-                        let note = note.or_else(|| {
-                            text::book_label(act, book)
-                                .map(|l| format!(tr!("“{l}” · from the address book"), l = l))
-                        });
-                        mono_block(ui, &p, label, &who, note.as_deref());
-                    }
-                    if not_added {
-                        let creates = matches!(act.kind, ActivityKind::TopUp { creates: true, .. });
-                        notice(
-                            ui,
-                            a,
-                            "warning",
-                            crate::components::attention_color(&p),
-                            if creates {
-                                tr!(
-                                    "The identity's creation was interrupted. You can continue it on the Identity screen; the DASH are not lost"
-                                )
-                            } else {
-                                tr!(
-                                    "The top-up was interrupted. You can continue it on the Identity screen; the DASH are not lost"
-                                )
-                            },
-                        );
-                    }
+                    plain_body(ui, a, act, now, book, not_added);
                 }
                 // The person's note, between the related operation and the txid (FEAT-0005 item 9,
                 // FEAT-0003); none where no note can be kept.
@@ -1046,48 +963,7 @@ fn card(
                     note = note_block(ui, a, act);
                 }
                 if let Some(txid) = &act.txid {
-                    ui.vertical(|ui| {
-                        ui.spacing_mut().item_spacing.y = 6.0;
-                        mono_block(ui, &p, "txid", txid, None);
-                        ui.add_space(4.0);
-                        ui.horizontal(|ui| {
-                            // Two outlined buttons with a gap: a ghost one beside an outlined one read as
-                            // one control.
-                            ui.spacing_mut().item_spacing.x = 12.0;
-                            // "Copied" in its place for a moment, as on "Receive" (BUG-39 №1).
-                            let copy_id = egui::Id::new("copy-txid").with(act.id);
-                            let label = if crate::clipboard::just_copied(ui.ctx(), copy_id) {
-                                tr!("Copied")
-                            } else {
-                                tr!("Copy txid")
-                            };
-                            if button(ui, a, label, ButtonKind::Secondary, None).clicked() {
-                                crate::clipboard::copy_answered(ui.ctx(), txid.clone(), copy_id);
-                            }
-                            if button(
-                                ui,
-                                a,
-                                tr!("Open in the explorer"),
-                                ButtonKind::Secondary,
-                                None,
-                            )
-                            .on_hover_text(crate::i18n::t(&explorer(txid)).into_owned())
-                            .clicked()
-                            {
-                                // egui's open_url does nothing without eframe's `links`.
-                                crate::links::open(&explorer(txid));
-                            }
-                        });
-                    });
-                    notice(
-                        ui,
-                        a,
-                        "shield",
-                        p.accent,
-                        tr!(
-                            "The explorer opens only when you click. The explorer's site learns this computer's address and which operation you look at, so evolite opens it only by the button. You can simply copy the txid."
-                        ),
-                    );
+                    txid_block(ui, a, act, txid);
                 }
             };
             // The first frame only measures: without the area, or its height there is wrong.
@@ -1118,49 +994,224 @@ fn card(
                     egui::vec2(width, used.height()),
                 ));
             }
-            let mut close = false;
-            // The action on the right, «Close» on its left: as in every dialog (designer review №8).
-            let footer_top = ui.cursor().top();
-            button_row(ui, |ui| {
-                if button(ui, a, tr!("Close"), ButtonKind::Ghost, None).clicked() {
-                    close = true;
-                }
-                if answer_there
-                    && button(ui, a, tr!("Open in Contacts"), ButtonKind::Secondary, None).clicked()
-                {
-                    go = Some(crate::screens::Screen::Contacts);
-                    close = true;
-                }
-                if not_added
-                    && button(
-                        ui,
-                        a,
-                        tr!("Continue on the Identity screen"),
-                        ButtonKind::Secondary,
-                        None,
-                    )
-                    .clicked()
-                {
-                    go = Some(crate::screens::Screen::Identity);
-                    close = true;
-                }
-                if let Some(repeat) = &repeat
+            card_footer(
+                ui,
+                a,
+                answer_there,
+                not_added,
+                &repeat,
+                &mut go,
+                &mut paid_again,
+            )
+        },
+    );
+    (closed, paid_again, go, note)
+}
+
+/// The card's header: the operation's icon, what it is, where and when.
+fn card_header(
+    ui: &mut Ui,
+    a: &mut Assets,
+    act: &Activity,
+    now: DateTime<Local>,
+    book: &[SavedAddress],
+) {
+    let p = a.p;
+    let (boxr, _) = ui.allocate_exact_size(egui::vec2(48.0, 48.0), egui::Sense::hover());
+    paint_icon_box(ui, a, boxr, 12, text::activity_icon(act), 22.0, p.ink);
+    ui.vertical(|ui| {
+        ui.spacing_mut().item_spacing.y = 2.0;
+        ui.add_space(4.0);
+        ui.label(txt(
+            &text::activity_title_in(act, book),
+            20.0,
+            Weight::Bold,
+            p.text,
+        ));
+        ui.label(txt(
+            &format!("{} · {}", text::chain(act.chain), text::when(act.at, now)),
+            14.0,
+            Weight::Medium,
+            p.muted,
+        ));
+    });
+}
+
+/// The lines of an operation that is not a Core payment.
+fn plain_body(
+    ui: &mut Ui,
+    a: &mut Assets,
+    act: &Activity,
+    now: DateTime<Local>,
+    book: &[SavedAddress],
+    not_added: bool,
+) {
+    let p = a.p;
+    // Mono is for amounts, addresses and hashes; the date and the chain are words.
+    let words = sans(13.0, Weight::Medium);
+    let value = mono(13.0, Weight::Medium);
+    kv_row(
+        ui,
+        &p,
+        tr!("When"),
+        &text::date_time(act.at, now),
+        words.clone(),
+    );
+    kv_row(ui, &p, tr!("Where"), text::chain(act.chain), words.clone());
+    if let Some(status) = text::activity_status(act) {
+        kv_row(ui, &p, tr!("Status"), status, words.clone());
+    }
+    // An asset lock: the chip above is the Core transaction's; whether Platform added
+    // the credits is said apart, in red when it did not (BUG-57, customer: red).
+    if let Some((credits, bad)) = text::activity_credits(act) {
+        let color = if bad { p.danger } else { p.text };
+        kv_row_in(ui, &p, tr!("Credits"), credits, words, color);
+    }
+    if let Some(fee) = act.fee {
+        kv_row(
+            ui,
+            &p,
+            tr!("Fee"),
+            // Already inside the amount above: shown as a size, not a second debit
+            //.
+            &crate::format::amount(fee),
+            value.clone(),
+        );
+    }
+    if let Some(block) = act.block {
+        kv_row(
+            ui,
+            &p,
+            tr!("Block"),
+            &text::group_thousands(block as i64),
+            value,
+        );
+    }
+    if let Some((label, who, note)) = counterparty(act) {
+        // An address the person named says so.
+        let note = note.or_else(|| {
+            text::book_label(act, book)
+                .map(|l| format!(tr!("“{l}” · from the address book"), l = l))
+        });
+        mono_block(ui, &p, label, &who, note.as_deref());
+    }
+    if not_added {
+        let creates = matches!(act.kind, ActivityKind::TopUp { creates: true, .. });
+        notice(
+            ui,
+            a,
+            "warning",
+            crate::components::attention_color(&p),
+            if creates {
+                tr!(
+                    "The identity's creation was interrupted. You can continue it on the Identity screen; the DASH are not lost"
+                )
+            } else {
+                tr!(
+                    "The top-up was interrupted. You can continue it on the Identity screen; the DASH are not lost"
+                )
+            },
+        );
+    }
+}
+
+/// The txid: to copy, or to look up in the explorer.
+fn txid_block(ui: &mut Ui, a: &mut Assets, act: &Activity, txid: &str) {
+    let p = a.p;
+    ui.vertical(|ui| {
+        ui.spacing_mut().item_spacing.y = 6.0;
+        mono_block(ui, &p, "txid", txid, None);
+        ui.add_space(4.0);
+        ui.horizontal(|ui| {
+            // Two outlined buttons with a gap: a ghost one beside an outlined one read as
+            // one control.
+            ui.spacing_mut().item_spacing.x = 12.0;
+            // "Copied" in its place for a moment, as on "Receive" (BUG-39 №1).
+            let copy_id = egui::Id::new("copy-txid").with(act.id);
+            let label = if crate::clipboard::just_copied(ui.ctx(), copy_id) {
+                tr!("Copied")
+            } else {
+                tr!("Copy txid")
+            };
+            if button(ui, a, label, ButtonKind::Secondary, None).clicked() {
+                crate::clipboard::copy_answered(ui.ctx(), txid.to_string(), copy_id);
+            }
+            if button(
+                ui,
+                a,
+                tr!("Open in the explorer"),
+                ButtonKind::Secondary,
+                None,
+            )
+            .on_hover_text(crate::i18n::t(&explorer(txid)).into_owned())
+            .clicked()
+            {
+                // egui's open_url does nothing without eframe's `links`.
+                crate::links::open(&explorer(txid));
+            }
+        });
+    });
+    notice(
+        ui,
+        a,
+        "shield",
+        p.accent,
+        tr!(
+            "The explorer opens only when you click. The explorer's site learns this computer's address and which operation you look at, so evolite opens it only by the button. You can simply copy the txid."
+        ),
+    );
+}
+
+/// The buttons under the card. Whether it closes.
+fn card_footer(
+    ui: &mut Ui,
+    a: &mut Assets,
+    answer_there: bool,
+    not_added: bool,
+    repeat: &Option<(String, Duffs)>,
+    go: &mut Option<crate::screens::Screen>,
+    paid_again: &mut Option<(String, Duffs)>,
+) -> bool {
+    let mut close = false;
+    // The action on the right, «Close» on its left: as in every dialog (designer review №8).
+    let footer_top = ui.cursor().top();
+    button_row(ui, |ui| {
+        if button(ui, a, tr!("Close"), ButtonKind::Ghost, None).clicked() {
+            close = true;
+        }
+        if answer_there
+            && button(ui, a, tr!("Open in Contacts"), ButtonKind::Secondary, None).clicked()
+        {
+            *go = Some(crate::screens::Screen::Contacts);
+            close = true;
+        }
+        if not_added
+            && button(
+                ui,
+                a,
+                tr!("Continue on the Identity screen"),
+                ButtonKind::Secondary,
+                None,
+            )
+            .clicked()
+        {
+            *go = Some(crate::screens::Screen::Identity);
+            close = true;
+        }
+        if let Some(repeat) = &repeat
                     && button(ui, a, tr!("Send again"), ButtonKind::Secondary, None)
                         .on_hover_text(
                             crate::i18n::t(tr!("The same amount to the same recipient — we show everything again before signing"),)
                         .into_owned())
                         .clicked()
                 {
-                    paid_again = Some(repeat.clone());
+                    *paid_again = Some(repeat.clone());
                     close = true;
                 }
-            });
-            let footer = ui.cursor().top() - footer_top;
-            ui.data_mut(|d| d.insert_temp(footer_id(), footer));
-            close
-        },
-    );
-    (closed, paid_again, go, note)
+    });
+    let footer = ui.cursor().top() - footer_top;
+    ui.data_mut(|d| d.insert_temp(footer_id(), footer));
+    close
 }
 
 /// What "Send again" pays: a Core payment out, to its @name or address, the amount

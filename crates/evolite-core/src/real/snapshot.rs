@@ -1,6 +1,81 @@
 //! What the interface is shown: the snapshot of the open wallet, built from the chain, the store and the journal.
 
 use super::*;
+use key_wallet::managed_account::transaction_record::TransactionRecord;
+use platform_wallet::{ManagedIdentity, PlatformWallet};
+
+/// The asset locks platform-wallet tracks, by txid.
+async fn tracked_locks(wallet: &PlatformWallet) -> HashMap<String, identity::Tracked> {
+    turn::timed("tracked_locks", wallet.asset_locks().list_tracked_locks())
+        .await
+        .into_iter()
+        .map(|l| {
+            (
+                l.out_point.txid.to_string(),
+                identity::Tracked {
+                    funding: l.funding_type,
+                    slot: l.identity_index,
+                    consumed: l.status.is_consumed(),
+                },
+            )
+        })
+        .collect()
+}
+
+/// The pool as the snapshot shows it.
+fn shown_pool(
+    pool: Option<pool::PoolView>,
+    unfinished_shield: Option<Duffs>,
+    connecting: bool,
+) -> Pool {
+    match pool {
+        Some(pool) => Pool {
+            notes: pool.notes,
+            checked_at: pool.checked_at,
+            address: Some(pool.address),
+            unfinished_shield,
+            connecting: false,
+            operations: pool.operations,
+        },
+        None => Pool {
+            notes: 0,
+            checked_at: None,
+            address: None,
+            unfinished_shield,
+            connecting,
+            operations: Vec::new(),
+        },
+    }
+}
+
+/// The identity the person works as, its credits and its contacts.
+type ShownIdentity = (Identity, Duffs, Vec<Contact>);
+
+/// What one read of a wallet's own state gives its snapshot: empty while the wallet is not open.
+#[derive(Default)]
+struct WalletRead {
+    balance: Option<Duffs>,
+    /// The coins, and the addresses holding them (the overview counts those).
+    coins: usize,
+    addresses: usize,
+    /// The coins' values for the fee of a payment (BUG-55).
+    coin_values: Vec<u64>,
+    history: Vec<Activity>,
+    shown: Option<ShownIdentity>,
+    platform: Option<(String, u64)>,
+    unfinished: Option<UnfinishedIdentity>,
+    unfinished_top_up: Option<UnfinishedTopUp>,
+    lost_block: Option<mined::Lost>,
+    /// How far the wallet's filters are: back where a rescan was asked, it has finished.
+    synced: u32,
+    identities: Vec<IdentityChoice>,
+    /// What each asset lock in the history is for, by the account it pays (BUG-57).
+    lock_fors: HashMap<String, identity::LockFor>,
+    /// Every identity's credits, the one worked as among them (BUG-56).
+    all_credits: Duffs,
+    /// The wallet's own Core addresses (FEAT-0009: a withdrawal to one is a move between own).
+    own_core: Vec<String>,
+}
 
 impl Real {
     pub(super) async fn snapshot(&mut self) -> Snapshot {
@@ -104,285 +179,27 @@ impl Real {
     }
 
     pub(super) async fn wallet(&mut self, id: WalletId, meta: VaultMeta) -> Wallet {
-        let mut unfinished = None;
-        let mut unfinished_top_up = None;
-        let mut lost_block = None;
-        // How far the wallet's filters are: back where a rescan was asked, it has finished.
-        let mut synced = 0;
-        let mut identities = Vec::new();
-        // What each asset lock in the history is for, by the account it pays (BUG-57).
-        let mut lock_fors: HashMap<String, identity::LockFor> = HashMap::new();
-        // Every identity's credits, the one worked as among them (BUG-56), and the coins'
-        // values for the fee of a payment (BUG-55).
-        let mut all_credits: Duffs = 0;
-        let mut coin_values = Vec::new();
         // Read before the coins are counted, and again after ([`count_checked`]).
         let status_before = self.chain.status();
-        // The wallet's own Core addresses (FEAT-0009: a withdrawal to one is a move between own).
-        let mut own_core: Vec<String> = Vec::new();
-        let found = turn::timed("wallet_lookup", self.chain.wallet(&id)).await;
-        let (balance, (coins, addresses), mut history, shown, platform) = match found {
-            Some(wallet) => {
-                let records = {
-                    let state = turn::timed("state_records", wallet.state()).await;
-                    state.core_wallet.transaction_history().len()
-                };
-                own_core = turn::timed("state_addresses", wallet.state())
-                    .await
-                    .core_wallet
-                    .monitored_addresses()
-                    .iter()
-                    .map(ToString::to_string)
-                    .collect();
-                if !self.fresh_receive {
-                    // One address for every payment: the first of the wallet's receive chain
-                    // (m/44'/1'/0'/0/0), the same after a restart or a restore.
-                    let state = turn::timed("state_receive", wallet.state()).await;
-                    self.receive_address =
-                        first_receive_address(&state.core_wallet).map(|a| (a, records));
-                } else if self
-                    .receive_address
-                    .as_ref()
-                    .is_none_or(|(_, at)| *at != records)
-                {
-                    self.receive_address = turn::timed(
-                        "next_receive_address",
-                        wallet.core().next_receive_address_for_account(0),
-                    )
-                    .await
-                    .ok()
-                    .map(|a| (a.to_string(), records));
-                }
-                let platform =
-                    turn::timed("platform_address", self.chain.platform_address(&wallet))
-                        .await
-                        .ok();
-                unfinished =
-                    turn::timed("unfinished_identity", self.unfinished_identity(&wallet)).await;
-                unfinished_top_up =
-                    turn::timed("unfinished_top_up", self.unfinished_top_up(&wallet)).await;
-                let live_count = {
-                    let state = turn::timed("state_count", wallet.state()).await;
-                    state.core_wallet.transaction_history().len()
-                };
-                turn::timed(
-                    "refresh_stored_history",
-                    self.refresh_stored_history(id, live_count),
-                )
-                .await;
-                let state = turn::timed("state_history", wallet.state()).await;
-                let _building = turn::begin("history_build");
-                synced = state.core_wallet.synced_height();
-                let now = now();
-                let tip = self.chain.status().headers.map_or(0, |h| h.height);
-                // The store's records first: one per transaction, as platform-wallet folds the
-                // accounts it touches. Then this run's records the store has not got yet, one
-                // per transaction too, each input and output once over the accounts (BUG-85), so
-                // an asset lock — which touches two accounts — is one line, not two.
-                let stored_ids: std::collections::HashSet<_> =
-                    self.stored_history.iter().map(|r| r.txid).collect();
-                let fresh = convert::one_per_transaction(
-                    state
-                        .core_wallet
-                        .transaction_history()
-                        .into_iter()
-                        .filter(|r| !stored_ids.contains(&r.txid)),
-                );
-                // A spend recorded before the coin it spends (a restore's rescan) gets its
-                // input back from our own outputs.
-                let mut all: Vec<_> = self.stored_history.iter().cloned().chain(fresh).collect();
-                convert::attribute_late_inputs(&mut all);
-                let locks: Vec<_> = all
-                    .iter()
-                    .filter(|r| {
-                        r.transaction_type
-                            == key_wallet::transaction_checking::transaction_router::TransactionType::AssetLock
-                    })
-                    .map(|r| (r.txid.to_string(), &r.transaction))
-                    .collect();
-                lock_fors = identity::lock_fors(
-                    &state.core_wallet.accounts,
-                    &mut self.top_ups,
-                    id,
-                    self.unlocked.as_ref().and_then(|o| o.keys.as_ref()),
-                    state
-                        .identity_manager
-                        .managed_identities()
-                        .filter(|m| m.wallet_id == Some(id))
-                        .filter_map(|m| m.identity_index),
-                    &locks,
-                );
-                // One the wallet took back out of its block is shown in it, and the filters are
-                // scanned again from there so the wallet and the store get it back (BUG-64).
-                lost_block = self
-                    .mined
-                    .recall(&mut all, self.chain.status().chainlock_height);
-                let records: Vec<(String, Activity)> = all
-                    .iter()
-                    .map(|r| {
-                        let txid = r.txid.to_string();
-                        // A block gives its own time: only what is out of one is kept (each
-                        // new one is a write of the file).
-                        let seen = match r.context.block_info() {
-                            Some(_) => now,
-                            None => self.mempool.first_seen(&txid, now, tip),
-                        };
-                        let verified = self.chain.instant_lock_verified(&r.txid);
-                        (txid, activity(r, seen, verified))
-                    })
-                    .collect();
-                let paid_at: HashMap<String, Timestamp> =
-                    records.iter().map(|(t, a)| (t.clone(), a.at)).collect();
-                // The interface shows one identity: the first slot of the phrase, with its
-                // DashPay profile and contacts.
-                let names = self.names.lock().unwrap_or_else(|e| e.into_inner()).clone();
-                let avatars = self.avatars.clone();
-                let refresh = self.refresher();
-                let avatar = |owner: &Identifier, p: &platform_wallet::DashPayProfile| {
-                    avatars.want(
-                        &dashpay::base58(owner),
-                        p.avatar_url.as_deref(),
-                        p.avatar_hash,
-                        refresh.clone(),
-                    )
-                };
-                let mine: Vec<_> = state
-                    .identity_manager
-                    .managed_identities()
-                    .filter(|m| m.wallet_id == Some(id) && m.identity_index.is_some())
-                    .collect();
-                identities = mine
-                    .iter()
-                    .map(|m| IdentityChoice {
-                        id: m.identity.id().to_string(Encoding::Base58),
-                        name: identity::to_api(m).name().map(str::to_owned),
-                        slot: m.identity_index.unwrap_or_default(),
-                    })
-                    .collect();
-                identities.sort_by_key(|c| c.slot);
-                all_credits = mine
-                    .iter()
-                    .map(|m| identity::credits_as_duffs(m.identity.balance()))
-                    .sum();
-                let slot = chain::shown_slot(id, mine.iter().filter_map(|m| m.identity_index));
-                // The identity the person works as (the first one until they choose).
-                let first = mine.iter().copied().find(|m| m.identity_index == slot);
-                let shown = first.map(|m| {
-                    let mut api = identity::to_api(m);
-                    api.profile = m
-                        .dashpay()
-                        .profile
-                        .as_ref()
-                        .map(|p| dashpay::profile_of(p, avatar(&m.identity.id(), p)));
-                    (
-                        api,
-                        identity::credits_as_duffs(m.identity.balance()),
-                        dashpay::contacts_of(m, &names, avatar, |txid| paid_at.get(txid).copied())
-                            .into_iter()
-                            // Hidden before a resync: the new store does not know it.
-                            .filter(|c| {
-                                c.state != ContactState::Incoming
-                                    || !self.hidden.contains(&c.identity_id)
-                            })
-                            .collect::<Vec<_>>(),
-                    )
-                });
-                // Payments to and from contacts say who; this run's payments too, and they
-                // show until the history has them.
-                let records = match first {
-                    Some(m) => dashpay::name_payments(m, &names, records),
-                    None => records,
-                };
-                let mut history = self
-                    .outgoing
-                    .lock()
-                    .unwrap_or_else(|e| e.into_inner())
-                    .apply(records);
-                // And what the wallet did on Platform, which Core does not see.
-                // A request names both sides as the wallet knows them now: our identities by
-                // their names, contacts by theirs (BUG-69), and which identity of ours it
-                // went from or came to when there are several (BUG-58); one hidden here
-                // before a resync stays hidden.
-                let own: std::collections::HashMap<&str, String> = identities
-                    .iter()
-                    .filter_map(|c| Some((c.id.as_str(), format!("@{}", c.name.as_ref()?))))
-                    .collect();
-                let named = |id: &str| {
-                    own.get(id).cloned().or_else(|| {
-                        names
-                            .get(id)
-                            .cloned()
-                            .flatten()
-                            .map(|label| format!("@{label}"))
-                    })
-                };
-                let shown_id = shown.as_ref().map(|(identity, _, _)| identity.id.as_str());
-                let answered = established_ids(
-                    shown
-                        .as_ref()
-                        .map(|(_, _, contacts)| contacts.as_slice())
-                        .unwrap_or_default(),
-                );
-                history.extend(self.journal.entries().iter().map(|entry| {
-                    let mut line = journal::activity(entry);
-                    platform_history::name_request_sides(
-                        &mut line.kind,
-                        entry,
-                        identities.len() > 1,
-                        named,
-                    );
-                    if let ActivityKind::ContactRequestIn { state, .. } = &mut line.kind {
-                        *state = settle_incoming(
-                            *state,
-                            entry.key.as_deref(),
-                            shown_id,
-                            |f| self.hidden.contains(f),
-                            |f| answered.contains(f),
-                        );
-                    }
-                    line
-                }));
-                (
-                    // Each coin once, not platform-wallet's sum of the accounts (BUG-77).
-                    Some(convert::core_balance(&state.core_wallet)),
-                    {
-                        // Coins, and the addresses holding them (the overview counts those).
-                        let utxos = convert::coins_once(&state.core_wallet);
-                        let holding: std::collections::HashSet<_> =
-                            utxos.iter().map(|u| u.address.clone()).collect();
-                        coin_values = utxos.iter().map(|u| u.value()).collect();
-                        (utxos.len(), holding.len())
-                    },
-                    history,
-                    shown,
-                    platform,
-                )
-            }
-            None => (None, (0, 0), Vec::new(), None, None),
-        };
+        let WalletRead {
+            balance,
+            coins,
+            addresses,
+            coin_values,
+            mut history,
+            shown,
+            platform,
+            unfinished,
+            unfinished_top_up,
+            lost_block,
+            synced,
+            identities,
+            lock_fors,
+            all_credits,
+            own_core,
+        } = self.read_wallet(id).await;
         let (platform_address, platform_credits) = platform.unwrap_or_default();
-        // The shielded pool, once connected: local reads, no network.
-        let found = turn::timed("wallet_lookup_pool", self.chain.wallet(&id)).await;
-        let (pool, unfinished_shield) = match found {
-            Some(wallet) => (
-                turn::timed("pool_view", self.chain.pool_view(&wallet)).await,
-                turn::timed(
-                    "unfinished_pool_shield",
-                    self.chain.unfinished_pool_shield(&wallet),
-                )
-                .await
-                .map(|duffs| duffs as Duffs),
-            ),
-            None => (None, None),
-        };
-        // Asked to connect for this wallet and not ready yet.
-        let connecting_pool = pool.is_none()
-            && *self.pool_wallet.lock().unwrap_or_else(|e| e.into_inner()) == Some(id);
-        // What the scan lost after a restart (a top-up from the pool as 0), put back.
-        let pool = pool.map(|mut p| {
-            p.operations = self.pool_history.merge(std::mem::take(&mut p.operations));
-            p
-        });
+        let (pool, unfinished_shield, connecting_pool) = self.read_pool(id).await;
         let mut fees = turn::timed("fees_now", self.fees_now(coins)).await;
         fees.core_coins = convert::core_coins(coin_values);
         // The pool's own operations are in the history too (only the owner sees them), and a
@@ -399,80 +216,15 @@ impl Real {
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .apply(history, now());
-        if let Some(wallet) = turn::timed("wallet_lookup_locks", self.chain.wallet(&id)).await {
-            let pool_locks = turn::timed("pool_locks", self.chain.pool_locks(&wallet)).await;
-            for act in history.iter_mut() {
-                let locked = act.txid.as_ref().and_then(|t| pool_locks.get(t));
-                if let (ActivityKind::TopUp { .. }, Some(locked)) = (&act.kind, locked) {
-                    act.kind = ActivityKind::Shielded {
-                        from: Some("Core".into()),
-                    };
-                    // key-wallet's net for these locks counts the change but not the lock: what
-                    // left Core is the lock and its fee.
-                    act.amount = -(*locked as Duffs + act.fee.unwrap_or(0));
-                }
-            }
-            // "Transfer to Platform" says whom — the identity it registered or tops up — and
-            // whether Platform took it (BUG-57).
-            let tracked: HashMap<String, identity::Tracked> =
-                turn::timed("tracked_locks", wallet.asset_locks().list_tracked_locks())
-                    .await
-                    .into_iter()
-                    .map(|l| {
-                        (
-                            l.out_point.txid.to_string(),
-                            identity::Tracked {
-                                funding: l.funding_type,
-                                slot: l.identity_index,
-                                consumed: l.status.is_consumed(),
-                            },
-                        )
-                    })
-                    .collect();
-            // The locks Identity offers to continue, and only while it offers that: the same
-            // rules as `Wallet::unfinished_*` (not while one is being made, only after the
-            // search for the identities).
-            let mut waiting = std::collections::HashSet::new();
-            if unfinished_top_up.is_some() {
-                for lock in
-                    turn::timed("unfinished_top_ups", self.chain.unfinished_top_ups(&wallet)).await
-                {
-                    if !lock.awaiting_chain_lock {
-                        waiting.insert(lock.out_point.txid.to_string());
-                    }
-                }
-            }
-            if unfinished.as_ref().is_some_and(|u| u.locked.is_some())
-                && let Some(lock) =
-                    turn::timed("unfinished_lock", self.chain.unfinished(&wallet)).await
-            {
-                waiting.insert(lock.out_point.txid.to_string());
-            }
-            for act in history.iter_mut() {
-                if let (
-                    ActivityKind::TopUp {
-                        identity,
-                        creates,
-                        credits,
-                    },
-                    Some(txid),
-                ) = (&mut act.kind, act.txid.as_deref())
-                {
-                    let (who, made, taken) = identity::lock_line(
-                        txid,
-                        lock_fors.get(txid).copied(),
-                        tracked.get(txid).copied(),
-                        self.consumed_locks.contains(txid),
-                        waiting.contains(txid),
-                        &identities,
-                    );
-                    if identity.is_empty() {
-                        *identity = who;
-                    }
-                    (*creates, *credits) = (made, taken);
-                }
-            }
-        }
+        self.say_what_locks_are(
+            id,
+            &mut history,
+            &identities,
+            &lock_fors,
+            unfinished.as_ref(),
+            unfinished_top_up.as_ref(),
+        )
+        .await;
         let credits = shown.as_ref().map_or(0, |(_, c, _)| *c);
         let mut contacts = shown
             .as_ref()
@@ -497,99 +249,17 @@ impl Real {
             &self.apps.all(),
             shown.as_ref().map(|(identity, _, _)| identity.id.as_str()),
         );
-        if let Some(wallet) = turn::timed("wallet_lookup_keys", self.chain.wallet(&id)).await {
-            let mut keys = turn::timed(
-                "contact_key_addresses",
-                self.chain.contact_key_addresses(&wallet),
-            )
+        self.name_contact_lines(id, &mut history, &mut contacts)
             .await;
-            // And the ones paid in earlier runs, kept beside the store.
-            for c in &contacts {
-                for address in self.contact_paid.paid(&c.identity_id) {
-                    keys.insert(address, c.identity_id.clone());
-                }
-            }
-            convert::name_contact_payments(&mut history, &keys, &contacts);
-            convert::count_contact_payments(&history, &keys, &mut contacts);
-        }
         convert::settle(&mut history, self.chain.status().chainlock_height);
         self.mempool.mark_stale(
             &mut history,
             self.chain.status().headers.map_or(0, |h| h.height),
             now(),
         );
-        // A payment long out of a block may have lost its block before this file knew it
-        // (BUG-64): the filters are scanned again from the wallet's birth to find it — once for
-        // each such payment, also across restarts (review r1 should 1). Noted as done only when
-        // the rescan has run to its end (review r2 should 1), and a lost block is noted too
-        // (should 2): one cut short is asked again at the next start, one finished never again.
-        if let Some(done) = OwedRescan::finished(&mut self.rescan_owed, &id, synced) {
-            self.mempool.rescanned(&done.stale);
-            self.mined.rescanned(&done.lost);
-        }
-        // Read once, before a rescan is asked: a rescan asked below is owed in this snapshot.
-        let sync_done = self.chain.status().phase == sync::Phase::Synced;
-        if let Some(lost) = lost_block {
-            let from = lost.from.saturating_sub(1);
-            let why = "lost_block";
-            turn::timed(
-                "rescan_lost",
-                self.rescan_from(id, from, why, synced, Vec::new(), lost.txids),
-            )
+        self.settle_rescans(id, meta.birth_height, synced, lost_block, &mut history)
             .await;
-        } else {
-            let stale = self.mempool.not_rescanned(&history);
-            if !stale.is_empty() {
-                let from = meta.birth_height;
-                turn::timed(
-                    "rescan_stale",
-                    self.rescan_from(id, from, "stale", synced, stale, Vec::new()),
-                )
-                .await;
-            }
-        }
-        // Stale since an earlier run and not rescanned yet: most likely in a block the store
-        // lost, not a payment still coming or going (BUG-82). Left out only while its rescan
-        // is ahead (not synced yet) or owed (review r1 must 1); shown once it has said.
-        let owed = self
-            .rescan_owed
-            .as_ref()
-            .filter(|o| o.wallet == id)
-            .map_or(&[][..], |o| o.stale.as_slice());
-        self.mempool
-            .leave_out_checking(&mut history, owed, sync_done);
-        // The person's notes on their lines (FEAT-0003); a send's note waiting for its line goes
-        // there first, off the loop's thread: binding it writes the file (AC-T9, review r1
-        // should 2). Rare: once per send out of the pool.
-        let to_bind = self
-            .notes
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .as_ref()
-            .and_then(|notes| notes.lines_to_bind(&history));
-        if let Some(lines) = to_bind {
-            let notes = self.notes.clone();
-            let bound = tokio::task::spawn_blocking(move || {
-                if let Some(notes) = notes.lock().unwrap_or_else(|e| e.into_inner()).as_mut() {
-                    notes.bind(&lines);
-                }
-            });
-            let _ = turn::timed("notes_bind", bound).await;
-        }
-        let notes_error = match self
-            .notes
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .as_ref()
-        {
-            Some(notes) => {
-                for line in history.iter_mut().filter(|a| !a.key.is_empty()) {
-                    line.note = notes.get(&line.key).map(str::to_owned);
-                }
-                notes.trouble()
-            }
-            None => None,
-        };
+        let notes_error = self.put_notes_on(&mut history).await;
         history.sort_by_key(|a| std::cmp::Reverse(a.at));
         // Only a checked balance is shown: while the filters are not at the tip (a start, a
         // rewound pass, a rescan) the last checked one with its time, or none (BUG-77).
@@ -625,24 +295,7 @@ impl Real {
                 .unwrap_or_default(),
             platform_address,
             identity: shown.map(|(identity, _, _)| identity),
-            pool: match pool {
-                Some(pool) => Pool {
-                    notes: pool.notes,
-                    checked_at: pool.checked_at,
-                    address: Some(pool.address),
-                    unfinished_shield,
-                    connecting: false,
-                    operations: pool.operations,
-                },
-                None => Pool {
-                    notes: 0,
-                    checked_at: None,
-                    address: None,
-                    unfinished_shield,
-                    connecting: connecting_pool,
-                    operations: Vec::new(),
-                },
-            },
+            pool: shown_pool(pool, unfinished_shield, connecting_pool),
             apps,
             nfts,
             nfts_status,
@@ -672,6 +325,506 @@ impl Real {
         // (FEAT-0009 R-1, R-2).
         crate::layers::settle_wallet(&mut shown_wallet, &own_core);
         shown_wallet
+    }
+
+    /// Everything a snapshot takes from the wallet's own state, under one read of it.
+    async fn read_wallet(&mut self, id: WalletId) -> WalletRead {
+        let found = turn::timed("wallet_lookup", self.chain.wallet(&id)).await;
+        let Some(wallet) = found else {
+            return WalletRead::default();
+        };
+        let records = {
+            let state = turn::timed("state_records", wallet.state()).await;
+            state.core_wallet.transaction_history().len()
+        };
+        let own_core = turn::timed("state_addresses", wallet.state())
+            .await
+            .core_wallet
+            .monitored_addresses()
+            .iter()
+            .map(ToString::to_string)
+            .collect();
+        self.refresh_receive_address(&wallet, records).await;
+        let platform = turn::timed("platform_address", self.chain.platform_address(&wallet))
+            .await
+            .ok();
+        let unfinished =
+            turn::timed("unfinished_identity", self.unfinished_identity(&wallet)).await;
+        let unfinished_top_up =
+            turn::timed("unfinished_top_up", self.unfinished_top_up(&wallet)).await;
+        let live_count = {
+            let state = turn::timed("state_count", wallet.state()).await;
+            state.core_wallet.transaction_history().len()
+        };
+        turn::timed(
+            "refresh_stored_history",
+            self.refresh_stored_history(id, live_count),
+        )
+        .await;
+        let state = turn::timed("state_history", wallet.state()).await;
+        let _building = turn::begin("history_build");
+        let synced = state.core_wallet.synced_height();
+        let mut all = self.merged_records(&state.core_wallet);
+        let locks: Vec<_> = all
+            .iter()
+            .filter(|r| {
+                r.transaction_type
+                    == key_wallet::transaction_checking::transaction_router::TransactionType::AssetLock
+            })
+            .map(|r| (r.txid.to_string(), &r.transaction))
+            .collect();
+        let lock_fors = identity::lock_fors(
+            &state.core_wallet.accounts,
+            &mut self.top_ups,
+            id,
+            self.unlocked.as_ref().and_then(|o| o.keys.as_ref()),
+            state
+                .identity_manager
+                .managed_identities()
+                .filter(|m| m.wallet_id == Some(id))
+                .filter_map(|m| m.identity_index),
+            &locks,
+        );
+        // One the wallet took back out of its block is shown in it, and the filters are
+        // scanned again from there so the wallet and the store get it back (BUG-64).
+        let lost_block = self
+            .mined
+            .recall(&mut all, self.chain.status().chainlock_height);
+        let records = self.activity_lines(&all);
+        let paid_at: HashMap<String, Timestamp> =
+            records.iter().map(|(t, a)| (t.clone(), a.at)).collect();
+        // The interface shows one identity: the first slot of the phrase, with its
+        // DashPay profile and contacts.
+        let names = self.names.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        let mine: Vec<_> = state
+            .identity_manager
+            .managed_identities()
+            .filter(|m| m.wallet_id == Some(id) && m.identity_index.is_some())
+            .collect();
+        let mut identities: Vec<_> = mine
+            .iter()
+            .map(|m| IdentityChoice {
+                id: m.identity.id().to_string(Encoding::Base58),
+                name: identity::to_api(m).name().map(str::to_owned),
+                slot: m.identity_index.unwrap_or_default(),
+            })
+            .collect();
+        identities.sort_by_key(|c| c.slot);
+        let all_credits = mine
+            .iter()
+            .map(|m| identity::credits_as_duffs(m.identity.balance()))
+            .sum();
+        let slot = chain::shown_slot(id, mine.iter().filter_map(|m| m.identity_index));
+        // The identity the person works as (the first one until they choose).
+        let first = mine.iter().copied().find(|m| m.identity_index == slot);
+        let shown = first.map(|m| self.shown_identity(m, &names, &paid_at));
+        // Payments to and from contacts say who; this run's payments too, and they
+        // show until the history has them.
+        let records = match first {
+            Some(m) => dashpay::name_payments(m, &names, records),
+            None => records,
+        };
+        let mut history = self
+            .outgoing
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .apply(records);
+        self.add_platform_lines(&mut history, &identities, &names, shown.as_ref());
+        // Coins, and the addresses holding them (the overview counts those).
+        let utxos = convert::coins_once(&state.core_wallet);
+        let holding: std::collections::HashSet<_> =
+            utxos.iter().map(|u| u.address.clone()).collect();
+        WalletRead {
+            // Each coin once, not platform-wallet's sum of the accounts (BUG-77).
+            balance: Some(convert::core_balance(&state.core_wallet)),
+            coins: utxos.len(),
+            addresses: holding.len(),
+            coin_values: utxos.iter().map(|u| u.value()).collect(),
+            history,
+            shown,
+            platform,
+            unfinished,
+            unfinished_top_up,
+            lost_block,
+            synced,
+            identities,
+            lock_fors,
+            all_credits,
+            own_core,
+        }
+    }
+
+    /// The address Receive shows: one for every payment, or a new one after each if the person
+    /// asked for that.
+    async fn refresh_receive_address(&mut self, wallet: &PlatformWallet, records: usize) {
+        if !self.fresh_receive {
+            // One address for every payment: the first of the wallet's receive chain
+            // (m/44'/1'/0'/0/0), the same after a restart or a restore.
+            let state = turn::timed("state_receive", wallet.state()).await;
+            self.receive_address = first_receive_address(&state.core_wallet).map(|a| (a, records));
+        } else if self
+            .receive_address
+            .as_ref()
+            .is_none_or(|(_, at)| *at != records)
+        {
+            self.receive_address = turn::timed(
+                "next_receive_address",
+                wallet.core().next_receive_address_for_account(0),
+            )
+            .await
+            .ok()
+            .map(|a| (a.to_string(), records));
+        }
+    }
+
+    /// The store's records first: one per transaction, as platform-wallet folds the accounts it
+    /// touches. Then this run's records the store has not got yet, one per transaction too, each
+    /// input and output once over the accounts (BUG-85), so an asset lock — which touches two
+    /// accounts — is one line, not two.
+    fn merged_records(
+        &self,
+        info: &key_wallet::wallet::managed_wallet_info::ManagedWalletInfo,
+    ) -> Vec<TransactionRecord> {
+        let stored_ids: std::collections::HashSet<_> =
+            self.stored_history.iter().map(|r| r.txid).collect();
+        let fresh = convert::one_per_transaction(
+            info.transaction_history()
+                .into_iter()
+                .filter(|r| !stored_ids.contains(&r.txid)),
+        );
+        // A spend recorded before the coin it spends (a restore's rescan) gets its
+        // input back from our own outputs.
+        let mut all: Vec<_> = self.stored_history.iter().cloned().chain(fresh).collect();
+        convert::attribute_late_inputs(&mut all);
+        all
+    }
+
+    /// One history line per record, by its txid.
+    fn activity_lines(&self, all: &[TransactionRecord]) -> Vec<(String, Activity)> {
+        let now = now();
+        let tip = self.chain.status().headers.map_or(0, |h| h.height);
+        all.iter()
+            .map(|r| {
+                let txid = r.txid.to_string();
+                // A block gives its own time: only what is out of one is kept (each
+                // new one is a write of the file).
+                let seen = match r.context.block_info() {
+                    Some(_) => now,
+                    None => self.mempool.first_seen(&txid, now, tip),
+                };
+                let verified = self.chain.instant_lock_verified(&r.txid);
+                (txid, activity(r, seen, verified))
+            })
+            .collect()
+    }
+
+    /// The identity the person works as, with its profile and contacts.
+    fn shown_identity(
+        &self,
+        m: &ManagedIdentity,
+        names: &HashMap<String, Option<String>>,
+        paid_at: &HashMap<String, Timestamp>,
+    ) -> ShownIdentity {
+        let avatars = self.avatars.clone();
+        let refresh = self.refresher();
+        let avatar = |owner: &Identifier, p: &platform_wallet::DashPayProfile| {
+            avatars.want(
+                &dashpay::base58(owner),
+                p.avatar_url.as_deref(),
+                p.avatar_hash,
+                refresh.clone(),
+            )
+        };
+        let mut api = identity::to_api(m);
+        api.profile = m
+            .dashpay()
+            .profile
+            .as_ref()
+            .map(|p| dashpay::profile_of(p, avatar(&m.identity.id(), p)));
+        (
+            api,
+            identity::credits_as_duffs(m.identity.balance()),
+            dashpay::contacts_of(m, names, avatar, |txid| paid_at.get(txid).copied())
+                .into_iter()
+                // Hidden before a resync: the new store does not know it.
+                .filter(|c| {
+                    c.state != ContactState::Incoming || !self.hidden.contains(&c.identity_id)
+                })
+                .collect::<Vec<_>>(),
+        )
+    }
+
+    /// What the wallet did on Platform, which Core does not see. A request names both sides as
+    /// the wallet knows them now: our identities by their names, contacts by theirs (BUG-69),
+    /// and which identity of ours it went from or came to when there are several (BUG-58); one
+    /// hidden here before a resync stays hidden.
+    fn add_platform_lines(
+        &self,
+        history: &mut Vec<Activity>,
+        identities: &[IdentityChoice],
+        names: &HashMap<String, Option<String>>,
+        shown: Option<&ShownIdentity>,
+    ) {
+        let own: std::collections::HashMap<&str, String> = identities
+            .iter()
+            .filter_map(|c| Some((c.id.as_str(), format!("@{}", c.name.as_ref()?))))
+            .collect();
+        let named = |id: &str| {
+            own.get(id).cloned().or_else(|| {
+                names
+                    .get(id)
+                    .cloned()
+                    .flatten()
+                    .map(|label| format!("@{label}"))
+            })
+        };
+        let shown_id = shown.map(|(identity, _, _)| identity.id.as_str());
+        let answered = established_ids(
+            shown
+                .map(|(_, _, contacts)| contacts.as_slice())
+                .unwrap_or_default(),
+        );
+        history.extend(self.journal.entries().iter().map(|entry| {
+            let mut line = journal::activity(entry);
+            platform_history::name_request_sides(
+                &mut line.kind,
+                entry,
+                identities.len() > 1,
+                named,
+            );
+            if let ActivityKind::ContactRequestIn { state, .. } = &mut line.kind {
+                *state = settle_incoming(
+                    *state,
+                    entry.key.as_deref(),
+                    shown_id,
+                    |f| self.hidden.contains(f),
+                    |f| answered.contains(f),
+                );
+            }
+            line
+        }));
+    }
+
+    /// The shielded pool, once connected (local reads, no network): the view, the shield left
+    /// unfinished, and whether it was asked to connect for this wallet and is not ready yet.
+    async fn read_pool(&self, id: WalletId) -> (Option<pool::PoolView>, Option<Duffs>, bool) {
+        let found = turn::timed("wallet_lookup_pool", self.chain.wallet(&id)).await;
+        let (pool, unfinished_shield) = match found {
+            Some(wallet) => (
+                turn::timed("pool_view", self.chain.pool_view(&wallet)).await,
+                turn::timed(
+                    "unfinished_pool_shield",
+                    self.chain.unfinished_pool_shield(&wallet),
+                )
+                .await
+                .map(|duffs| duffs as Duffs),
+            ),
+            None => (None, None),
+        };
+        // Asked to connect for this wallet and not ready yet.
+        let connecting_pool = pool.is_none()
+            && *self.pool_wallet.lock().unwrap_or_else(|e| e.into_inner()) == Some(id);
+        // What the scan lost after a restart (a top-up from the pool as 0), put back.
+        let pool = pool.map(|mut p| {
+            p.operations = self.pool_history.merge(std::mem::take(&mut p.operations));
+            p
+        });
+        (pool, unfinished_shield, connecting_pool)
+    }
+
+    /// Asset locks in the history say what they were for: the pool's as a shield, the others
+    /// with the identity they registered or top up.
+    async fn say_what_locks_are(
+        &self,
+        id: WalletId,
+        history: &mut [Activity],
+        identities: &[IdentityChoice],
+        lock_fors: &HashMap<String, identity::LockFor>,
+        unfinished: Option<&UnfinishedIdentity>,
+        unfinished_top_up: Option<&UnfinishedTopUp>,
+    ) {
+        let Some(wallet) = turn::timed("wallet_lookup_locks", self.chain.wallet(&id)).await else {
+            return;
+        };
+        let pool_locks = turn::timed("pool_locks", self.chain.pool_locks(&wallet)).await;
+        for act in history.iter_mut() {
+            let locked = act.txid.as_ref().and_then(|t| pool_locks.get(t));
+            if let (ActivityKind::TopUp { .. }, Some(locked)) = (&act.kind, locked) {
+                act.kind = ActivityKind::Shielded {
+                    from: Some("Core".into()),
+                };
+                // key-wallet's net for these locks counts the change but not the lock: what
+                // left Core is the lock and its fee.
+                act.amount = -(*locked as Duffs + act.fee.unwrap_or(0));
+            }
+        }
+        // "Transfer to Platform" says whom — the identity it registered or tops up — and
+        // whether Platform took it (BUG-57).
+        let tracked = tracked_locks(&wallet).await;
+        let waiting = self
+            .waiting_locks(&wallet, unfinished, unfinished_top_up)
+            .await;
+        for act in history.iter_mut() {
+            if let (
+                ActivityKind::TopUp {
+                    identity,
+                    creates,
+                    credits,
+                },
+                Some(txid),
+            ) = (&mut act.kind, act.txid.as_deref())
+            {
+                let (who, made, taken) = identity::lock_line(
+                    txid,
+                    lock_fors.get(txid).copied(),
+                    tracked.get(txid).copied(),
+                    self.consumed_locks.contains(txid),
+                    waiting.contains(txid),
+                    identities,
+                );
+                if identity.is_empty() {
+                    *identity = who;
+                }
+                (*creates, *credits) = (made, taken);
+            }
+        }
+    }
+
+    /// The locks Identity offers to continue, and only while it offers that: the same rules as
+    /// `Wallet::unfinished_*` (not while one is being made, only after the search for the
+    /// identities).
+    async fn waiting_locks(
+        &self,
+        wallet: &PlatformWallet,
+        unfinished: Option<&UnfinishedIdentity>,
+        unfinished_top_up: Option<&UnfinishedTopUp>,
+    ) -> std::collections::HashSet<String> {
+        let mut waiting = std::collections::HashSet::new();
+        if unfinished_top_up.is_some() {
+            for lock in
+                turn::timed("unfinished_top_ups", self.chain.unfinished_top_ups(wallet)).await
+            {
+                if !lock.awaiting_chain_lock {
+                    waiting.insert(lock.out_point.txid.to_string());
+                }
+            }
+        }
+        if unfinished.is_some_and(|u| u.locked.is_some())
+            && let Some(lock) = turn::timed("unfinished_lock", self.chain.unfinished(wallet)).await
+        {
+            waiting.insert(lock.out_point.txid.to_string());
+        }
+        waiting
+    }
+
+    /// Payments to contacts say whom, and each contact counts them.
+    async fn name_contact_lines(
+        &self,
+        id: WalletId,
+        history: &mut [Activity],
+        contacts: &mut [Contact],
+    ) {
+        let Some(wallet) = turn::timed("wallet_lookup_keys", self.chain.wallet(&id)).await else {
+            return;
+        };
+        let mut keys = turn::timed(
+            "contact_key_addresses",
+            self.chain.contact_key_addresses(&wallet),
+        )
+        .await;
+        // And the ones paid in earlier runs, kept beside the store.
+        for c in contacts.iter() {
+            for address in self.contact_paid.paid(&c.identity_id) {
+                keys.insert(address, c.identity_id.clone());
+            }
+        }
+        convert::name_contact_payments(history, &keys, contacts);
+        convert::count_contact_payments(history, &keys, contacts);
+    }
+
+    /// Rescans owed for payments that lost their block, and the lines waiting on one.
+    async fn settle_rescans(
+        &mut self,
+        id: WalletId,
+        birth_height: u32,
+        synced: u32,
+        lost_block: Option<mined::Lost>,
+        history: &mut Vec<Activity>,
+    ) {
+        // A payment long out of a block may have lost its block before this file knew it
+        // (BUG-64): the filters are scanned again from the wallet's birth to find it — once for
+        // each such payment, also across restarts (review r1 should 1). Noted as done only when
+        // the rescan has run to its end (review r2 should 1), and a lost block is noted too
+        // (should 2): one cut short is asked again at the next start, one finished never again.
+        if let Some(done) = OwedRescan::finished(&mut self.rescan_owed, &id, synced) {
+            self.mempool.rescanned(&done.stale);
+            self.mined.rescanned(&done.lost);
+        }
+        // Read once, before a rescan is asked: a rescan asked below is owed in this snapshot.
+        let sync_done = self.chain.status().phase == sync::Phase::Synced;
+        if let Some(lost) = lost_block {
+            let from = lost.from.saturating_sub(1);
+            let why = "lost_block";
+            turn::timed(
+                "rescan_lost",
+                self.rescan_from(id, from, why, synced, Vec::new(), lost.txids),
+            )
+            .await;
+        } else {
+            let stale = self.mempool.not_rescanned(history);
+            if !stale.is_empty() {
+                turn::timed(
+                    "rescan_stale",
+                    self.rescan_from(id, birth_height, "stale", synced, stale, Vec::new()),
+                )
+                .await;
+            }
+        }
+        // Stale since an earlier run and not rescanned yet: most likely in a block the store
+        // lost, not a payment still coming or going (BUG-82). Left out only while its rescan
+        // is ahead (not synced yet) or owed (review r1 must 1); shown once it has said.
+        let owed = self
+            .rescan_owed
+            .as_ref()
+            .filter(|o| o.wallet == id)
+            .map_or(&[][..], |o| o.stale.as_slice());
+        self.mempool.leave_out_checking(history, owed, sync_done);
+    }
+
+    /// The person's notes on their lines (FEAT-0003); what went wrong with the notes' file, if
+    /// anything. A send's note waiting for its line goes there first, off the loop's thread:
+    /// binding it writes the file (AC-T9, review r1 should 2). Rare: once per send out of the
+    /// pool.
+    async fn put_notes_on(&self, history: &mut [Activity]) -> Option<NotesError> {
+        let to_bind = self
+            .notes
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .as_ref()
+            .and_then(|notes| notes.lines_to_bind(history));
+        if let Some(lines) = to_bind {
+            let notes = self.notes.clone();
+            let bound = tokio::task::spawn_blocking(move || {
+                if let Some(notes) = notes.lock().unwrap_or_else(|e| e.into_inner()).as_mut() {
+                    notes.bind(&lines);
+                }
+            });
+            let _ = turn::timed("notes_bind", bound).await;
+        }
+        match self
+            .notes
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .as_ref()
+        {
+            Some(notes) => {
+                for line in history.iter_mut().filter(|a| !a.key.is_empty()) {
+                    line.note = notes.get(&line.key).map(str::to_owned);
+                }
+                notes.trouble()
+            }
+            None => None,
+        }
     }
 
     /// The fees the snapshot shows for a wallet of `coins` coins (without
