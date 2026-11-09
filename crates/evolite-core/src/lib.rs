@@ -139,7 +139,18 @@ mod tests {
     use evolite_api::{DoneWhat, Password, Spend, SyncStage, VaultState};
     use std::time::{Duration, Instant};
 
-    fn wait_for<T>(core: &Core, minutes: u64, mut found: impl FnMut(&Event) -> Option<T>) -> T {
+    fn wait_for<T>(core: &Core, minutes: u64, found: impl FnMut(&Event) -> Option<T>) -> T {
+        wait_saying(core, minutes, found, String::new)
+    }
+
+    /// [`wait_for`], and when no answer comes the failure ends with `last_seen`: what the wait
+    /// was looking at when the time ran out.
+    fn wait_saying<T>(
+        core: &Core,
+        minutes: u64,
+        mut found: impl FnMut(&Event) -> Option<T>,
+        last_seen: impl Fn() -> String,
+    ) -> T {
         let deadline = Instant::now() + Duration::from_secs(minutes * 60);
         loop {
             for event in core.events() {
@@ -147,7 +158,11 @@ mod tests {
                     return t;
                 }
             }
-            assert!(Instant::now() < deadline, "no answer in {minutes} min");
+            assert!(
+                Instant::now() < deadline,
+                "no answer in {minutes} min{}",
+                last_seen()
+            );
             std::thread::sleep(Duration::from_millis(200));
         }
     }
@@ -1698,6 +1713,61 @@ mod tests {
         assert!(sent.relayed, "the network did not relay the payment");
     }
 
+    /// Whether the wallet, synced, has the established contact `to` ("@name"), wherever it
+    /// stands among its contacts (BUG-104).
+    fn shows_contact(stage: SyncStage, contacts: &[evolite_api::Contact], to: &str) -> bool {
+        use evolite_api::ContactState;
+        stage == SyncStage::Done
+            && contacts.iter().any(|c| {
+                c.state == ContactState::Established && c.name.as_deref() == to.strip_prefix('@')
+            })
+    }
+
+    /// What a wait for a contact last saw, for its failure: the sync stage and the contacts.
+    fn contacts_seen(stage: SyncStage, contacts: &[evolite_api::Contact]) -> String {
+        let contacts: Vec<String> = contacts
+            .iter()
+            .map(|c| format!("{} {:?}", c.name.as_deref().unwrap_or("(no name)"), c.state))
+            .collect();
+        format!("stage {stage:?}, contacts [{}]", contacts.join(", "))
+    }
+
+    fn contact(name: Option<&str>, state: evolite_api::ContactState) -> evolite_api::Contact {
+        evolite_api::Contact {
+            identity_id: "id".into(),
+            name: name.map(str::to_owned),
+            profile: Default::default(),
+            state,
+            since: 0,
+            payments: 0,
+            last_payment: None,
+        }
+    }
+
+    /// BUG-104: the newest contact comes first, and the one paid before the restart need not be
+    /// it; waiting for the first one to be it never ended.
+    #[test]
+    fn the_contact_paid_is_found_below_a_newer_one() {
+        use evolite_api::ContactState::Established;
+        let contacts = [
+            contact(Some("kestrel7"), Established),
+            contact(Some("paid"), Established),
+        ];
+        assert!(shows_contact(SyncStage::Done, &contacts, "@paid"));
+    }
+
+    #[test]
+    fn a_contact_counts_only_when_synced_established_and_of_that_name() {
+        use evolite_api::ContactState::{Established, Outgoing};
+        let paid = [contact(Some("paid"), Established)];
+        assert!(!shows_contact(SyncStage::Filters, &paid, "@paid"));
+        assert!(!shows_contact(SyncStage::Done, &paid, "@other"));
+        let sent = [contact(Some("paid"), Outgoing)];
+        assert!(!shows_contact(SyncStage::Done, &sent, "@paid"));
+        let unnamed = [contact(None, Established)];
+        assert!(!shows_contact(SyncStage::Done, &unnamed, "@paid"));
+    }
+
     /// On testnet: a Core payment to a DashPay contact, then a restart of the app on the
     /// same folder; the next payment to that contact goes to the next address of its key, not
     /// the one just paid. Run it twice, as two processes are two runs of the app (the store
@@ -1784,10 +1854,21 @@ mod tests {
             _ => None,
         })
         .expect("the wallet opens again");
-        wait_for(&core, 60, |e| match e {
-            Event::Snapshot(s) => contact_of(s).filter(|c| *c == to),
-            _ => None,
-        });
+        // By its name: the contact paid need not be the newest one (BUG-104).
+        let seen = std::cell::RefCell::new(String::from("no wallet yet"));
+        wait_saying(
+            &core,
+            10,
+            |e| {
+                let Event::Snapshot(s) = e else {
+                    return None;
+                };
+                let w = s.wallet.as_ref()?;
+                seen.replace(contacts_seen(s.sync.stage, &w.contacts));
+                shows_contact(s.sync.stage, &w.contacts, &to).then_some(())
+            },
+            || format!(" for {to} after the restart: {}", seen.borrow()),
+        );
         let next = preview(&core, &to);
         println!("{to} after the restart: {next}");
         assert_ne!(
