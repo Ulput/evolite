@@ -3,7 +3,9 @@
 //! on Linux and macOS a process can only close the doors from the inside:
 //!
 //! - **Linux**: Landlock — of the file system only the font folders stay, read-only; TCP
-//!   neither out nor in (kernel 6.7+). Then seccomp — no sockets, no new programs, no
+//!   neither out nor in (kernel 6.7+). Then seccomp — no sockets, no new programs, no new
+//!   processes (threads stay: they are how pictures are drawn), no signals to anyone but the
+//!   worker itself (BUG-96), no
 //!   debugging or reading other processes, no namespaces, mounts or kernel modules, no changing
 //!   of a file's length or attributes by its path (Landlock leaves those: `truncate` before
 //!   ABI 3, `chmod`, `chown`, `setxattr` and `utimensat` at every ABI), and no
@@ -91,7 +93,7 @@ mod linux {
     };
     use seccompiler::{
         BpfProgram, SeccompAction, SeccompCmpArgLen, SeccompCmpOp, SeccompCondition, SeccompFilter,
-        SeccompRule,
+        SeccompRule, sock_filter,
     };
 
     pub(super) fn landlock(font_dirs: &[PathBuf]) -> Result<(), String> {
@@ -113,8 +115,18 @@ mod linux {
 
     /// `fchmodat2`, the same number on every architecture; `libc` does not name it on all.
     const FCHMODAT2: i64 = 452;
+    /// The same on every architecture too, and `libc` names them on none of ours.
+    const SETXATTRAT: i64 = 463;
+    const REMOVEXATTRAT: i64 = 466;
+    const FILE_SETATTR: i64 = 469;
+    /// `fcntl`'s other way to name a file's owner; `libc` does not name it for glibc.
+    const F_SETOWN_EX: u64 = 15;
 
-    /// Calls that answer `EPERM` from now on.
+    /// Set in a call's number when it is made through the x32 ABI. seccompiler's check of the
+    /// architecture does not tell x32 from x86-64, and no number in the main filter matches.
+    const X32_BIT: u32 = 0x4000_0000;
+
+    /// Calls that answer `EPERM` from now on, whatever their arguments.
     fn denied() -> Vec<i64> {
         let mut calls = vec![
             libc::SYS_socket,
@@ -126,6 +138,16 @@ mod linux {
             libc::SYS_accept4,
             libc::SYS_execve,
             libc::SYS_execveat,
+            // No signal to another process: the wallet and the user's other programs. A pidfd
+            // is a way to signal, and to take the descriptors of, whoever it names. `tkill`
+            // takes any thread on the system; glibc uses `tgkill`, which has its own rule.
+            libc::SYS_kill,
+            libc::SYS_tkill,
+            libc::SYS_rt_sigqueueinfo,
+            libc::SYS_rt_tgsigqueueinfo,
+            libc::SYS_pidfd_send_signal,
+            libc::SYS_pidfd_open,
+            libc::SYS_pidfd_getfd,
             libc::SYS_ptrace,
             libc::SYS_process_vm_readv,
             libc::SYS_process_vm_writev,
@@ -163,6 +185,9 @@ mod linux {
             libc::SYS_removexattr,
             libc::SYS_lremovexattr,
             libc::SYS_fremovexattr,
+            SETXATTRAT,
+            REMOVEXATTRAT,
+            FILE_SETATTR,
         ];
         #[cfg(target_arch = "x86_64")]
         calls.extend([
@@ -178,18 +203,72 @@ mod linux {
         calls
     }
 
+    /// The rule that matches when the low half of argument `arg` compares to `value` by `op`.
+    /// The low half is all that counts here: pids are `pid_t` and the `fcntl` command is
+    /// `unsigned int`, `clone` keeps only the low 32 bits of its flags, `PROT_EXEC` is a low bit.
+    fn when(arg: u8, op: SeccompCmpOp, value: u64) -> Result<SeccompRule, String> {
+        SeccompCondition::new(arg, SeccompCmpArgLen::Dword, op, value)
+            .and_then(|c| SeccompRule::new(vec![c]))
+            .map_err(|e| format!("seccomp rule: {e}"))
+    }
+
     /// The argument of `mmap`/`mprotect` with the protection, and the rule that matches when it
     /// asks for executable memory.
     fn asks_for_exec(arg: u8) -> Result<SeccompRule, String> {
         let exec = libc::PROT_EXEC as u64;
-        SeccompCondition::new(
-            arg,
-            SeccompCmpArgLen::Dword,
-            SeccompCmpOp::MaskedEq(exec),
-            exec,
-        )
-        .and_then(|c| SeccompRule::new(vec![c]))
-        .map_err(|e| format!("seccomp rule: {e}"))
+        when(arg, SeccompCmpOp::MaskedEq(exec), exec)
+    }
+
+    /// When `clone` is refused: for anything but a thread of this process. The animation and
+    /// model renderers start threads after the filter is in place, so `clone` itself must stay.
+    /// `CLONE_THREAD` is what makes a thread, and the kernel takes it only together with
+    /// `CLONE_SIGHAND` and `CLONE_VM`; glibc and musl pass it for every thread. A rule says what
+    /// is refused and rules are alternatives, so a missing flag and each new namespace are
+    /// rules of their own. The flags are the first argument on all three architectures
+    /// seccompiler builds for (not on s390x, which it refuses).
+    fn not_a_thread() -> Result<Vec<SeccompRule>, String> {
+        let thread = libc::CLONE_THREAD as u64;
+        let mut rules = vec![when(0, SeccompCmpOp::MaskedEq(thread), 0)?];
+        for namespace in [
+            libc::CLONE_NEWNS,
+            libc::CLONE_NEWCGROUP,
+            libc::CLONE_NEWUTS,
+            libc::CLONE_NEWIPC,
+            libc::CLONE_NEWUSER,
+            libc::CLONE_NEWPID,
+            libc::CLONE_NEWNET,
+        ] {
+            let flag = namespace as u64;
+            rules.push(when(0, SeccompCmpOp::MaskedEq(flag), flag)?);
+        }
+        Ok(rules)
+    }
+
+    /// The calls that must look as if this kernel did not have them: `ENOSYS`, where the main
+    /// filter answers `EPERM`, which is why this is a filter of its own: one filter has one
+    /// answer. Of several the kernel takes the strongest, and of equals the newest filter's, so
+    /// `clone3` must stay out of the main filter: its `EPERM` would win and end all threads.
+    ///
+    /// - `clone3`: its flags are in a struct seccomp cannot read, so it cannot be told from a
+    ///   fork. glibc 2.34+ tries it first for every thread and goes to `clone` only on `ENOSYS`;
+    ///   `EPERM` here would be no threads and no animated pictures.
+    /// - Anything through the x32 ABI, which no number in the main filter matches. Our own
+    ///   binary is 64-bit and never makes such a call.
+    fn absent_calls() -> BpfProgram {
+        let step = |code, jt, jf, k| sock_filter { code, jt, jf, k };
+        // BPF_LD | BPF_W | BPF_ABS, from offset 0: the number in `seccomp_data`.
+        const LOAD_NUMBER: u16 = 0x20;
+        // BPF_JMP | BPF_K with BPF_JEQ and BPF_JGE; BPF_RET | BPF_K.
+        const JUMP_EQUAL: u16 = 0x15;
+        const JUMP_AT_LEAST: u16 = 0x35;
+        const RETURN: u16 = 0x06;
+        vec![
+            step(LOAD_NUMBER, 0, 0, 0),
+            step(JUMP_EQUAL, 2, 0, libc::SYS_clone3 as u32),
+            step(JUMP_AT_LEAST, 1, 0, X32_BIT),
+            step(RETURN, 0, 0, libc::SECCOMP_RET_ALLOW),
+            step(RETURN, 0, 0, libc::SECCOMP_RET_ERRNO | libc::ENOSYS as u32),
+        ]
     }
 
     pub(super) fn seccomp() -> Result<(), String> {
@@ -201,6 +280,23 @@ mod linux {
         rules.insert(libc::SYS_mmap, vec![asks_for_exec(2)?]);
         rules.insert(libc::SYS_mprotect, vec![asks_for_exec(2)?]);
         rules.insert(libc::SYS_pkey_mprotect, vec![asks_for_exec(2)?]);
+        rules.insert(libc::SYS_clone, not_a_thread()?);
+        // tgkill(tgid, tid, signal) reaches only threads of `tgid`. Our own stays: `abort()` is
+        // how glibc ends the process on an allocation over the memory cap or a double panic.
+        let own = u64::from(std::process::id());
+        rules.insert(libc::SYS_tgkill, vec![when(0, SeccompCmpOp::Ne, own)?]);
+        // A file owner gets SIGIO, by default fatal, when its file is ready: a signal by way
+        // of a pipe. Nothing here sets an owner.
+        rules.insert(
+            libc::SYS_fcntl,
+            vec![
+                when(1, SeccompCmpOp::Eq, libc::F_SETOWN as u64)?,
+                when(1, SeccompCmpOp::Eq, F_SETOWN_EX)?,
+            ],
+        );
+        // prlimit64(pid, …): libc asks for its own limits with pid 0. On someone else, a CPU or
+        // file-size limit is a fatal signal later.
+        rules.insert(libc::SYS_prlimit64, vec![when(0, SeccompCmpOp::Ne, 0)?]);
         let arch = std::env::consts::ARCH
             .try_into()
             .map_err(|e| format!("seccomp arch: {e:?}"))?;
@@ -218,7 +314,10 @@ mod linux {
         if unsafe { libc::prctl(libc::PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) } != 0 {
             return Err("no_new_privs".into());
         }
-        seccompiler::apply_filter_all_threads(&program).map_err(|e| format!("seccomp: {e}"))
+        for program in [absent_calls(), program] {
+            seccompiler::apply_filter_all_threads(&program).map_err(|e| format!("seccomp: {e}"))?;
+        }
+        Ok(())
     }
 }
 

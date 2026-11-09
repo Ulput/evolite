@@ -36,10 +36,14 @@ fn outside_the_sandbox_the_same_attempts_work() {
         .args(args("--test-escape", &file, &listener, &dir))
         .output()
         .unwrap();
-    assert_eq!(
-        String::from_utf8_lossy(&out.stdout).trim(),
-        "read=ok net=ok write=ok exec=ok chmod=ok truncate=ok"
+    let expected = "read=ok net=ok write=ok exec=ok chmod=ok truncate=ok";
+    // `clone3=other`: it made a child, where inside the sandbox it must answer ENOSYS.
+    #[cfg(target_os = "linux")]
+    let expected = format!(
+        "{expected} kill=ok tkill=ok tgkill=ok owner=ok limit=ok fork=ok clone3=other \
+         thread=ok own_signal=ok"
     );
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), expected);
 }
 
 /// Started as the wallet starts the worker, and closed as the worker closes itself.
@@ -60,9 +64,32 @@ fn inside_the_sandbox_nothing_gets_through() {
     // for it, so what the system does is printed above and not checked.
     #[cfg(target_os = "macos")]
     let out = out.replace(" exec=ok", " exec=denied");
-    assert_eq!(
-        out.trim(),
-        "read=denied net=denied write=denied exec=denied chmod=denied truncate=denied"
+    let expected = "read=denied net=denied write=denied exec=denied chmod=denied truncate=denied";
+    // On Linux also: no reaching other processes and no new ones, while the worker keeps its
+    // own threads and its own abort (BUG-96).
+    #[cfg(target_os = "linux")]
+    let expected = format!(
+        "{expected} kill=denied tkill=denied tgkill=denied owner=denied limit=denied \
+         fork=denied clone3=enosys thread=ok own_signal=ok"
     );
+    assert_eq!(out.trim(), expected);
     assert!(!dir.join("escaped.txt").exists());
+}
+
+/// `abort()` is how a worker ends over the memory cap. It raises SIGABRT by `tgkill` on itself;
+/// if the filter stopped that, glibc would fall through to a bad instruction, a different death.
+#[cfg(target_os = "linux")]
+#[test]
+fn an_abort_inside_the_sandbox_is_an_abort() {
+    let worker = evolite_render::sandbox::spawn(
+        Path::new(WORKER),
+        &["--test-abort-locked"],
+        256 << 20,
+        false,
+    )
+    .unwrap();
+    let mut out = String::new();
+    (&worker.stdout).read_to_string(&mut out).unwrap();
+    assert!(worker.wait());
+    assert_eq!(worker.exit_code(), Some(134));
 }

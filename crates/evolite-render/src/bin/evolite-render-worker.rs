@@ -43,7 +43,7 @@ fn main() -> ExitCode {
             .and_then(|meta| std::fs::set_permissions(file, meta.permissions()))
             .is_ok();
         let word = |ok: bool| if ok { "ok" } else { "denied" };
-        println!(
+        let line = format!(
             "read={} net={} write={} exec={} chmod={} truncate={}",
             word(read),
             word(net),
@@ -53,7 +53,19 @@ fn main() -> ExitCode {
             // Last: it empties the file.
             word(truncated(file))
         );
+        // In both modes, so that `denied` inside is the filter's answer and not a broken probe.
+        #[cfg(target_os = "linux")]
+        let line = format!("{line} {}", other_processes());
+        println!("{line}");
         return ExitCode::SUCCESS;
+    }
+    // A worker that aborts inside the sandbox: `abort()` must get its own signal through.
+    #[cfg(target_os = "linux")]
+    if mode == "--test-abort-locked" {
+        if evolite_render::worker::lock_down().is_err() {
+            return ExitCode::FAILURE;
+        }
+        std::process::abort();
     }
     // Every test mode waits for a request first, like the real worker.
     let mut request = [0u8; 16];
@@ -100,6 +112,67 @@ fn main() -> ExitCode {
             ExitCode::SUCCESS
         }
         _ => ExitCode::FAILURE,
+    }
+}
+
+/// What the worker can do to other processes and what it must still do itself. Signal 0 checks
+/// the target and sends nothing; the parent is the process a closed worker must not reach.
+#[cfg(target_os = "linux")]
+fn other_processes() -> String {
+    let word = |ok: bool| if ok { "ok" } else { "denied" };
+    // SAFETY: plain system calls on this process and its parent, signal 0, buffers that live
+    // through the call; a child that does appear ends at once.
+    unsafe {
+        let parent = libc::getppid();
+        let signal = libc::kill(parent, 0) == 0;
+        let tkill = libc::syscall(libc::SYS_tkill, parent, 0) == 0;
+        let tgkill = libc::syscall(libc::SYS_tgkill, parent, parent, 0) == 0;
+        let owner = libc::fcntl(libc::STDOUT_FILENO, libc::F_SETOWN, parent) == 0;
+        let mut old = [0u64; 2];
+        let limit = libc::syscall(
+            libc::SYS_prlimit64,
+            parent,
+            libc::RLIMIT_CORE,
+            std::ptr::null::<u64>(),
+            old.as_mut_ptr(),
+        ) == 0;
+        let fork = match libc::fork() {
+            0 => libc::_exit(0),
+            -1 => false,
+            _ => true,
+        };
+        let mut args = [0u64; 11];
+        let clone3 = libc::syscall(
+            libc::SYS_clone3,
+            args.as_mut_ptr(),
+            std::mem::size_of_val(&args),
+        );
+        if clone3 == 0 {
+            libc::_exit(0);
+        }
+        let clone3_answer = std::io::Error::last_os_error().raw_os_error();
+        let clone3 = if clone3 == -1 && clone3_answer == Some(libc::ENOSYS) {
+            "enosys"
+        } else {
+            "other"
+        };
+        let thread = std::thread::Builder::new()
+            .spawn(|| 7u8)
+            .ok()
+            .and_then(|thread| thread.join().ok())
+            == Some(7);
+        let own = libc::syscall(libc::SYS_tgkill, libc::getpid(), libc::gettid(), 0) == 0;
+        format!(
+            "kill={} tkill={} tgkill={} owner={} limit={} fork={} clone3={clone3} thread={} own_signal={}",
+            word(signal),
+            word(tkill),
+            word(tgkill),
+            word(owner),
+            word(limit),
+            word(fork),
+            word(thread),
+            word(own)
+        )
     }
 }
 
