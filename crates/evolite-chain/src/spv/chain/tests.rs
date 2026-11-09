@@ -467,6 +467,75 @@ fn a_taken_lock_with_a_chain_lock_is_recognised() {
     )));
 }
 
+/// BUG-106: "already in the cache" names no lock, so the one to send again is the one this
+/// attempt made. A stopped top-up of the same identity (or another's) that sorts first in the
+/// wallet's list is not touched, and when the attempt's own lock cannot be named, nothing is sent.
+#[test]
+fn a_repeat_sends_only_the_lock_this_attempt_made() {
+    use AssetLockFundingType::{IdentityRegistration, IdentityTopUp};
+    use AssetLockStatus::{Broadcast, Consumed, InstantSendLocked, RecoveredFromChain};
+    use key_wallet::dashcore::{OutPoint, Txid};
+    let lock = |n: u8| OutPoint::new(Txid::from([n; 32]), 0);
+    let (stopped, other, new) = (lock(1), lock(2), lock(9));
+    let known = HashSet::from([stopped, other]);
+    let before = [
+        (stopped, IdentityTopUp, InstantSendLocked, 3),
+        (other, IdentityTopUp, InstantSendLocked, 0),
+    ];
+    let with = |more: &[(OutPoint, AssetLockFundingType, AssetLockStatus, u32)]| {
+        let mut all = before.to_vec();
+        all.extend_from_slice(more);
+        all
+    };
+    let made = || (new, IdentityTopUp, InstantSendLocked, 3);
+    assert_eq!(
+        lock_of_this_attempt(&known, &with(&[made()]), Some(3)),
+        Some(new),
+        "the new one, not the stopped one of the same slot"
+    );
+    let cases = [
+        (with(&[]), Some(3), "nothing new appeared"),
+        (
+            with(&[made(), (lock(10), IdentityTopUp, Broadcast, 3)]),
+            Some(3),
+            "two new: no guessing",
+        ),
+        (
+            with(&[(new, IdentityTopUp, InstantSendLocked, 4)]),
+            Some(3),
+            "another identity's slot",
+        ),
+        (
+            with(&[(new, IdentityRegistration, InstantSendLocked, 3)]),
+            Some(3),
+            "not a top-up",
+        ),
+        (
+            with(&[(new, IdentityTopUp, RecoveredFromChain, 3)]),
+            Some(3),
+            "found on chain, not made here",
+        ),
+        (
+            with(&[(new, IdentityTopUp, Consumed, 3)]),
+            Some(3),
+            "already consumed",
+        ),
+        (with(&[made()]), None, "the identity's slot is unknown"),
+    ];
+    for (tracked, slot, why) in cases {
+        assert_eq!(lock_of_this_attempt(&known, &tracked, slot), None, "{why}");
+    }
+    // A foreign lock of the slot next to the new one is not "two new": it was there before.
+    assert_eq!(
+        lock_of_this_attempt(
+            &HashSet::from([stopped]),
+            &[made(), (stopped, IdentityTopUp, Broadcast, 3)],
+            Some(3)
+        ),
+        Some(new)
+    );
+}
+
 /// BUG-7 (seen on testnet): the same lock sent again is "already in the cache" — that alone
 /// is sent again as a new transition; Platform's own verdicts are not.
 #[test]

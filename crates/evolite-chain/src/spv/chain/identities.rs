@@ -116,6 +116,33 @@ pub fn top_up_state(
     }
 }
 
+/// The lock this top-up attempt made, for when Platform's answer names none (BUG-106): of the
+/// wallet's tracked locks `(out point, funding, status, slot)`, the one top-up lock of the
+/// identity's `slot` that was not among those `known` before the attempt. No such lock, or more
+/// than one, is `None`: another lock is someone's stopped top-up and is never sent in its place.
+pub(super) fn lock_of_this_attempt(
+    known: &HashSet<key_wallet::dashcore::OutPoint>,
+    tracked: &[(
+        key_wallet::dashcore::OutPoint,
+        AssetLockFundingType,
+        AssetLockStatus,
+        u32,
+    )],
+    slot: Option<u32>,
+) -> Option<key_wallet::dashcore::OutPoint> {
+    let slot = slot?;
+    let mut made = tracked
+        .iter()
+        .filter(|(out_point, funding, status, index)| {
+            !known.contains(out_point)
+                && *index == slot
+                && top_up_state(*funding, status, None).is_some()
+        })
+        .map(|(out_point, ..)| *out_point);
+    let first = made.next()?;
+    made.next().is_none().then_some(first)
+}
+
 /// What "the lock is already taken" means for the person, from the identity's credits before
 /// and after (proved) and the lock's status after the answer.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -640,6 +667,33 @@ impl Chain {
             .map(|m| m.identity.balance())
     }
 
+    /// The lock `funding` went to Platform with: the one asked for, or the one this attempt made
+    /// ([`lock_of_this_attempt`], against the locks `known` before it).
+    async fn lock_sent(
+        wallet: &PlatformWallet,
+        id: &Identifier,
+        funding: &AssetLockFunding,
+        known: &HashSet<key_wallet::dashcore::OutPoint>,
+    ) -> Option<key_wallet::dashcore::OutPoint> {
+        if let AssetLockFunding::FromExistingAssetLock { out_point, .. } = funding {
+            return Some(*out_point);
+        }
+        let slot = {
+            let state = wallet.state().await;
+            of_wallet(&state.identity_manager, wallet.wallet_id())
+                .find(|m| m.identity.id() == *id)
+                .and_then(|m| m.identity_index)
+        };
+        let tracked: Vec<_> = wallet
+            .asset_locks()
+            .list_tracked_locks()
+            .await
+            .into_iter()
+            .map(|l| (l.out_point, l.funding_type, l.status, l.identity_index))
+            .collect();
+        lock_of_this_attempt(known, &tracked, slot)
+    }
+
     /// Tops up the identity `id` from `funding`; the asset lock is signed with the phrase's keys.
     ///
     /// "The lock is already taken" (an earlier attempt reached Platform, its answer was lost)
@@ -664,6 +718,13 @@ impl Chain {
         funding: AssetLockFunding,
     ) -> Result<u64, String> {
         let before = Self::stored_credits(wallet, id).await;
+        let known: HashSet<_> = wallet
+            .asset_locks()
+            .list_tracked_locks()
+            .await
+            .into_iter()
+            .map(|l| l.out_point)
+            .collect();
         let signer = identity::AssetLockSigner(keys.clone());
         let mut funding = funding;
         let mut fee_increase: u16 = 0;
@@ -684,12 +745,8 @@ impl Chain {
             if !is_cached_duplicate(&error) || fee_increase >= SAME_TRANSITION_RETRIES {
                 break error;
             }
-            // The lock the cached transition spent: the one asked for, or the one just made.
-            let out_point = match &funding {
-                AssetLockFunding::FromExistingAssetLock { out_point, .. } => Some(*out_point),
-                _ => self.unfinished_top_up(wallet).await.map(|u| u.out_point),
-            };
-            let Some(out_point) = out_point else {
+            // The lock the cached transition spent; if it cannot be named, nothing is sent.
+            let Some(out_point) = Self::lock_sent(wallet, id, &funding, &known).await else {
                 break error;
             };
             funding = AssetLockFunding::FromExistingAssetLock {
@@ -703,11 +760,7 @@ impl Chain {
                 (out_point, false)
             }
             ref e if is_taken_with_chain_lock(e) => {
-                let out_point = match &funding {
-                    AssetLockFunding::FromExistingAssetLock { out_point, .. } => Some(*out_point),
-                    _ => self.unfinished_top_up(wallet).await.map(|u| u.out_point),
-                };
-                let Some(out_point) = out_point else {
+                let Some(out_point) = Self::lock_sent(wallet, id, &funding, &known).await else {
                     return Err(error.to_string());
                 };
                 (out_point, true)

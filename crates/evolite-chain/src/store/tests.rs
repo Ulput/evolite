@@ -1,4 +1,5 @@
 use super::*;
+use platform_wallet::changeset::changeset::UtxoCreditVerdict;
 use platform_wallet::changeset::{
     CoreChangeSet, DashPayBackfillCoveredContact, PersistenceErrorKind, persists_backfill_coverage,
 };
@@ -951,4 +952,257 @@ async fn a_coin_the_store_has_unspent_is_gone_when_a_final_block_spent_it() {
     info.update_balance();
     assert_eq!(info.balance().total(), 70_000 + 5_000);
     let _ = std::fs::remove_dir_all(db.parent().unwrap());
+}
+
+fn funding_coin(n: u8) -> (OutPoint, key_wallet::Utxo) {
+    use key_wallet::dashcore::TxOut;
+    let keys = crate::keys_of(
+        "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
+    )
+    .unwrap();
+    let info = key_wallet::wallet::ManagedWalletInfo::from_wallet(&keys, 0);
+    let to = info.monitored_addresses()[0].clone();
+    let outpoint = OutPoint::new(Txid::from([n; 32]), 0);
+    let output = TxOut {
+        value: 18_899_511,
+        script_pubkey: to.script_pubkey(),
+    };
+    (
+        outpoint,
+        key_wallet::Utxo::new(outpoint, output, to, 10, false),
+    )
+}
+
+/// The store as the app has it: [`Store`] over the real SQLite one, on a wallet it knows.
+fn real_store(
+    tag: &str,
+) -> (
+    PathBuf,
+    Store<platform_wallet_storage::sqlite::SqlitePersister>,
+) {
+    let db = folder(tag);
+    let sqlite = platform_wallet_storage::sqlite::SqlitePersister::open(
+        platform_wallet_storage::sqlite::SqlitePersisterConfig::new(db.clone()),
+    )
+    .unwrap();
+    let store = Store::new(sqlite, db.clone());
+    store
+        .store(
+            ID,
+            PlatformWalletChangeSet {
+                wallet_metadata: Some(platform_wallet::changeset::WalletMetadataEntry {
+                    network: Network::Testnet,
+                    wallet_group_id: [0; 32],
+                    birth_height: 0,
+                }),
+                ..PlatformWalletChangeSet::default()
+            },
+        )
+        .unwrap();
+    (db, store)
+}
+
+fn core_round(core: CoreChangeSet) -> PlatformWalletChangeSet {
+    PlatformWalletChangeSet {
+        core: Some(core),
+        ..PlatformWalletChangeSet::default()
+    }
+}
+
+/// A funding round: the outputs as new, and what the wallet said of those it did not credit.
+fn funded(
+    coins: &[&key_wallet::Utxo],
+    verdicts: &[(OutPoint, UtxoCreditVerdict)],
+) -> CoreChangeSet {
+    CoreChangeSet {
+        new_utxos: coins.iter().map(|c| (*c).clone()).collect(),
+        utxo_credit_verdicts: verdicts.iter().copied().collect(),
+        ..CoreChangeSet::default()
+    }
+}
+
+fn spends(coin: &key_wallet::Utxo) -> CoreChangeSet {
+    CoreChangeSet {
+        spent_utxos: vec![coin.clone()],
+        ..CoreChangeSet::default()
+    }
+}
+
+fn is_spent(db: &Path, coin: OutPoint) -> Option<bool> {
+    let spent = outpoints(db, &ID, true).unwrap().contains(&coin);
+    let unspent = outpoints(db, &ID, false).unwrap().contains(&coin);
+    assert!(!(spent && unspent), "one row a coin");
+    (spent || unspent).then_some(spent)
+}
+
+/// BUG-99b: a pass brings a coin's funding again after the coin was spent. The wallet did not
+/// credit it and says so, whichever the reason; the row stays spent. In the same round a coin
+/// the wallet did credit is written as ever.
+#[test]
+fn a_coin_the_wallet_did_not_credit_is_not_written_back_unspent() {
+    let (db, store) = real_store("verdict");
+    let verdicts = [
+        UtxoCreditVerdict::Uncredited,
+        UtxoCreditVerdict::ObservedSpent { height: 90 },
+        UtxoCreditVerdict::Doomed,
+    ];
+    let (fresh, fresh_utxo) = funding_coin(40);
+    for (n, verdict) in (30u8..).zip(verdicts) {
+        let (coin, utxo) = funding_coin(n);
+        store.store(ID, core_round(funded(&[&utxo], &[]))).unwrap();
+        store.store(ID, core_round(spends(&utxo))).unwrap();
+        assert_eq!(is_spent(&db, coin), Some(true));
+        store
+            .store(
+                ID,
+                core_round(funded(&[&utxo, &fresh_utxo], &[(coin, verdict)])),
+            )
+            .unwrap();
+        assert_eq!(is_spent(&db, coin), Some(true), "{verdict:?}");
+    }
+    assert_eq!(is_spent(&db, fresh), Some(false));
+    drop(store);
+    let _ = std::fs::remove_dir_all(db.parent().unwrap());
+}
+
+/// A coin the wallet never held and did not credit gets no unspent row, and its spend still
+/// leaves the row that says so.
+#[test]
+fn a_coin_never_credited_has_no_row_until_its_spend_comes() {
+    let (db, store) = real_store("verdict-new");
+    let (coin, utxo) = funding_coin(31);
+    store
+        .store(
+            ID,
+            core_round(funded(&[&utxo], &[(coin, UtxoCreditVerdict::Uncredited)])),
+        )
+        .unwrap();
+    assert_eq!(is_spent(&db, coin), None);
+    store.store(ID, core_round(spends(&utxo))).unwrap();
+    assert_eq!(is_spent(&db, coin), Some(true));
+    drop(store);
+    let _ = std::fs::remove_dir_all(db.parent().unwrap());
+}
+
+/// Why the guard is the wallet's verdict and not "spent stays spent": a funding the wallet does
+/// credit is written unspent over a spent row.
+#[test]
+fn a_coin_the_wallet_credited_is_written_unspent_over_a_spent_row() {
+    let (db, store) = real_store("no-verdict");
+    let (coin, utxo) = funding_coin(32);
+    store.store(ID, core_round(funded(&[&utxo], &[]))).unwrap();
+    store.store(ID, core_round(spends(&utxo))).unwrap();
+    assert_eq!(is_spent(&db, coin), Some(true));
+    store.store(ID, core_round(funded(&[&utxo], &[]))).unwrap();
+    assert_eq!(is_spent(&db, coin), Some(false));
+    drop(store);
+    let _ = std::fs::remove_dir_all(db.parent().unwrap());
+}
+
+/// platform-wallet folds rounds before the store sees them, and the newer one speaks for the
+/// coin: credited after a verdict is credited; a verdict after a credit is a verdict.
+#[test]
+fn merged_rounds_answer_as_the_newer_one_does() {
+    use platform_wallet::changeset::Merge;
+    let (db, store) = real_store("merged");
+    let (credited, credited_utxo) = funding_coin(33);
+    let (held, held_utxo) = funding_coin(34);
+    for utxo in [&credited_utxo, &held_utxo] {
+        store.store(ID, core_round(funded(&[utxo], &[]))).unwrap();
+        store.store(ID, core_round(spends(utxo))).unwrap();
+    }
+
+    let mut round = funded(
+        &[&credited_utxo],
+        &[(credited, UtxoCreditVerdict::Uncredited)],
+    );
+    round.merge(funded(&[&credited_utxo], &[]));
+    let mut other = funded(&[&held_utxo], &[]);
+    other.merge(funded(
+        &[&held_utxo],
+        &[(held, UtxoCreditVerdict::Uncredited)],
+    ));
+    round.merge(other);
+    store.store(ID, core_round(round)).unwrap();
+
+    assert_eq!(is_spent(&db, credited), Some(false), "credited last");
+    assert_eq!(is_spent(&db, held), Some(true), "not credited last");
+    drop(store);
+    let _ = std::fs::remove_dir_all(db.parent().unwrap());
+}
+
+/// The upstream reinstatement a blanket guard would break, through the real sweep: a swept
+/// funding comes back ChainLocked and its coin lands unspent, and so does a coin a swept spend
+/// held. With a verdict the same held coin stays spent.
+#[test]
+fn a_swept_funding_that_comes_back_lands_unspent() {
+    use key_wallet::dashcore::TxOut;
+    use platform_wallet::changeset::changeset::SweepBatch;
+    let (db, store) = real_store("sweep");
+    let (coin, utxo) = funding_coin(35);
+    let mut funding = spender(35, &[], Mined::Block);
+    funding.transaction.output = vec![TxOut {
+        value: utxo.value(),
+        script_pubkey: utxo.txout.script_pubkey.clone(),
+    }];
+    let mut first = funded(&[&utxo], &[]);
+    first.records = vec![funding.clone()];
+    store.store(ID, core_round(first)).unwrap();
+    assert_eq!(is_spent(&db, coin), Some(false));
+
+    let sweep = |txid: Txid| SweepBatch {
+        txids: vec![txid],
+        superseded_by: Txid::from([99; 32]),
+        winner_mined_height: Some(11),
+        released_outpoints: Vec::new(),
+    };
+    let swept = CoreChangeSet {
+        sweeps: vec![sweep(funding.txid)],
+        ..CoreChangeSet::default()
+    };
+    store.store(ID, core_round(swept)).unwrap();
+    assert_eq!(is_spent(&db, coin), None, "gone with its funding");
+
+    let mut back = funded(&[&utxo], &[]);
+    back.records = vec![funding];
+    store.store(ID, core_round(back)).unwrap();
+    assert_eq!(is_spent(&db, coin), Some(false), "reinstated");
+
+    // A spend of it swept, the coin not released: held spent, the row has no live spender.
+    let loser = spender(36, &[coin], Mined::Mempool);
+    let mut spent = spends(&utxo);
+    spent.records = vec![loser.clone()];
+    store.store(ID, core_round(spent)).unwrap();
+    let held = CoreChangeSet {
+        sweeps: vec![sweep(loser.txid)],
+        ..CoreChangeSet::default()
+    };
+    store.store(ID, core_round(held)).unwrap();
+    assert_eq!(is_spent(&db, coin), Some(true), "held by the sweep");
+    store
+        .store(
+            ID,
+            core_round(funded(&[&utxo], &[(coin, UtxoCreditVerdict::Uncredited)])),
+        )
+        .unwrap();
+    assert_eq!(is_spent(&db, coin), Some(true), "not credited: stays");
+    store.store(ID, core_round(funded(&[&utxo], &[]))).unwrap();
+    assert_eq!(is_spent(&db, coin), Some(false), "credited: comes back");
+    drop(store);
+    let _ = std::fs::remove_dir_all(db.parent().unwrap());
+}
+
+/// The branch BUG-99 added and only tested with `spent = 0`: a row already spent, spender in a
+/// block at or under the last ChainLock, is claimed; one block above it is not.
+#[test]
+fn a_spent_row_with_its_spender_under_the_chain_lock_is_claimed() {
+    let a = OutPoint::new(Txid::from([1; 32]), 0);
+    let spent = BTreeSet::from([a]);
+    let records = [spender(9, &[a], Mined::Block)];
+    let claims = claims_of(&spent, &BTreeSet::new(), &records, 100);
+    assert_eq!(claims.claimed, vec![(a, Some(Txid::from([9; 32])))]);
+    assert_eq!(claims.not_in_block, 0);
+    let claims = claims_of(&spent, &BTreeSet::new(), &records, 99);
+    assert!(claims.claimed.is_empty());
+    assert_eq!(claims.not_in_block, 1);
 }

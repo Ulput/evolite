@@ -37,8 +37,10 @@
 //! wallet has no record of in memory (records are not loaded), the store is told of its outputs
 //! as new, and its upsert writes them unspent whatever they were; the wallet in memory knows
 //! better until the next start, and the coin is back then (BUG-99). So a coin a final block
-//! spent is taken out at every load, however its row reads. The row itself is the library's
-//! and stays as it is.
+//! spent is taken out at every load, however its row reads. Such a write no longer happens when
+//! the wallet says it did not credit the coin ([`CoreChangeSet::utxo_credit_verdicts`], BUG-99b):
+//! the check at the load is for rows written before that, and for a spend from an earlier run
+//! that is not final yet, which the wallet credits again until its block comes.
 
 pub mod store_refusal;
 
@@ -52,7 +54,7 @@ use key_wallet::managed_account::transaction_record::TransactionRecord;
 use key_wallet::wallet::managed_wallet_info::wallet_info_interface::WalletInfoInterface;
 use key_wallet_manager::WalletId;
 use platform_wallet::changeset::{
-    ClientStartState, DashPayBackfillRecord, DpnsNameStateEntry, ListedCoreTxid,
+    ClientStartState, CoreChangeSet, DashPayBackfillRecord, DpnsNameStateEntry, ListedCoreTxid,
     PersistenceCapabilities, PersistenceError, PlatformWalletChangeSet, PlatformWalletPersistence,
 };
 use platform_wallet::masternode::TrackedMasternode;
@@ -381,8 +383,13 @@ impl<P: PlatformWalletPersistence> PlatformWalletPersistence for Store<P> {
     fn store(
         &self,
         wallet_id: WalletId,
-        changeset: PlatformWalletChangeSet,
+        mut changeset: PlatformWalletChangeSet,
     ) -> Result<(), PersistenceError> {
+        if !plain()
+            && let Some(core) = changeset.core.as_mut()
+        {
+            only_credited_as_new(core);
+        }
         let round = Round::of(&changeset);
         // SQLite first: the record vouches for the cursor of a committed round only.
         self.inner.store(wallet_id, changeset)?;
@@ -469,6 +476,18 @@ impl<P: PlatformWalletPersistence> PlatformWalletPersistence for Store<P> {
         self.inner
             .get_dpns_name_state(wallet_id, wallet_identity_id, normalized_label)
     }
+}
+
+/// Takes out of a round's new coins those the wallet did not credit (BUG-99b): the SQLite store
+/// ignores the verdict and would write them unspent over a spent row. A coin the wallet did
+/// credit has no verdict, so a funding brought back after a sweep still lands unspent.
+fn only_credited_as_new(core: &mut CoreChangeSet) {
+    let CoreChangeSet {
+        new_utxos,
+        utxo_credit_verdicts,
+        ..
+    } = core;
+    new_utxos.retain(|coin| !utxo_credit_verdicts.contains_key(&coin.outpoint));
 }
 
 /// The store's coins to claim: each with the transaction that spent it in a final block.
