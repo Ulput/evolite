@@ -6,22 +6,17 @@
 #[macro_use]
 extern crate evolite_common;
 
-pub mod app_chain;
-pub mod app_connect;
-pub mod chain;
+mod apps;
 pub mod convert;
-pub mod dashpay;
-pub mod identity;
-pub mod mined;
 pub mod network;
-pub mod nfts;
-pub mod platform_history;
-pub mod pool;
-pub mod provider;
+mod platform;
+mod spv;
 pub mod store;
-pub mod store_refusal;
-pub mod sync;
-pub mod turn;
+
+pub use apps::{app_chain, app_connect};
+pub use platform::{dashpay, identity, nfts, platform_history, pool};
+pub use spv::{chain, mined, provider, sync, turn};
+pub use store::store_refusal;
 
 use evolite_api::CoreError;
 use evolite_art as art;

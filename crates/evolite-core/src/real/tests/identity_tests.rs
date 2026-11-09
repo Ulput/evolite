@@ -127,17 +127,28 @@ async fn a_name_the_credits_cannot_finish_is_not_broadcast() {
 /// a preorder without the check.
 #[test]
 fn every_name_goes_through_the_credits_check() {
-    let source = concat!(
-        include_str!("../../../../evolite-chain/src/chain/identities.rs"),
-        include_str!("../../../../evolite-chain/src/chain/contacts.rs"),
-        include_str!("../../../../evolite-chain/src/chain/store_read.rs"),
-        include_str!("../../../../evolite-chain/src/chain/mod.rs"),
+    // Each file of the chain module on its own, read while the test runs: a new file is
+    // covered without being listed, and a test mark in one file cuts only that file.
+    let dir = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../evolite-chain/src/spv/chain"
     );
-    let code = source.split("\n#[cfg(test)]").next().unwrap_or(source);
+    let (mut sdk_calls, mut gated_calls) = (0, 0);
+    for entry in std::fs::read_dir(dir).expect("the chain module's folder") {
+        let path = entry.expect("a file of the chain module").path();
+        let is_code = path.extension().and_then(|e| e.to_str()) == Some("rs")
+            && path.file_name().and_then(|n| n.to_str()) != Some("tests.rs");
+        if !is_code {
+            continue;
+        }
+        let source = std::fs::read_to_string(&path).expect("the file reads");
+        let code = source.split("\n#[cfg(test)]").next().unwrap_or(&source);
+        sdk_calls += code.matches("register_name_with_external_signer(").count();
+        gated_calls += code.matches("gated_write(").count();
+    }
     assert_eq!(
-        code.matches("register_name_with_external_signer(").count(),
-        1,
+        sdk_calls, 1,
         "one call of the SDK's name registration, inside `write_name`"
     );
-    assert_eq!(code.matches("gated_write(").count(), 1, "its one call");
+    assert_eq!(gated_calls, 1, "its one call");
 }

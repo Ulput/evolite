@@ -23,7 +23,7 @@ real = [
     "dep:tokio",
 ]
 # The shielded pool (Orchard proofs: orchard, halo2 and friends, a large share of a clean
-# build): screens 08–09 on the real core (`evolite-chain/src/pool.rs`).
+# build): screens 08–09 on the real core (`evolite-chain/src/platform/pool.rs`).
 pool = ["real", "evolite-chain/pool"]
 # The demo core ([`Core::mock`]: the example wallet from Figma) beside the real one, for
 # screenshots and the demo; `evolite-ui`'s `dev-tools` turns it on. Built without `real` it is

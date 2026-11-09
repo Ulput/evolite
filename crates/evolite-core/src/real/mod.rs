@@ -10,37 +10,27 @@
 //! - [`dispatch`]: which operation each command is;
 //! - [`snapshot`]: what the interface is shown;
 //! - [`lifecycle`]: starting and stopping the chain, the data folder;
-//! - `ops_wallet` (a wallet and its password), `ops_core` (Core payments), `ops_notes`,
-//!   `ops_identity` (identities, credits, names), `ops_names` (DPNS lookups), `ops_dashpay`,
-//!   `ops_pool`, `ops_misc`.
+//! - `ops::wallet` (a wallet and its password), `ops::core` (Core payments), `ops::notes`,
+//!   `ops::identity` (identities, credits, names), `ops::names` (DPNS lookups), `ops::dashpay`,
+//!   `ops::pool`, `ops::misc`.
 //!
 //! Calls into platform-wallet are in [`chain`] and its neighbours (`identity`, `dashpay`, `pool`,
 //! …). Tests are in `tests/`, by area.
 
-mod app_jobs;
-mod avatars;
 mod dispatch;
 mod lifecycle;
-mod ops_core;
-mod ops_dashpay;
-mod ops_identity;
-mod ops_misc;
-mod ops_names;
-mod ops_notes;
-mod ops_pool;
-mod ops_wallet;
-mod outgoing;
-mod platform_sending;
+mod ops;
 mod run;
 mod snapshot;
 
 use lifecycle::*;
-use ops_core::*;
-use ops_dashpay::*;
-use ops_identity::*;
-use ops_notes::*;
-use ops_pool::*;
-use ops_wallet::*;
+use ops::core::*;
+use ops::dashpay::*;
+use ops::identity::*;
+use ops::notes::*;
+use ops::pool::*;
+use ops::wallet::*;
+use ops::{app_jobs, avatars, outgoing, platform_sending};
 pub(crate) use run::*;
 use snapshot::*;
 use std::collections::HashMap;

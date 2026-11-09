@@ -6,21 +6,14 @@
 #[macro_use]
 extern crate evolite_common;
 
-pub mod address_book;
-pub mod attempts;
-pub mod connected_apps;
-pub mod contact_addresses;
-pub mod core_balance;
-pub mod folders;
-pub mod hidden_requests;
-pub mod journal;
-pub mod json_file;
-pub mod mempool;
+mod contacts;
+mod history;
 pub mod node;
-pub mod notes;
-pub mod pending;
-pub mod pool_history;
 pub mod rates;
-pub mod security;
-pub mod vault;
-pub mod wallets;
+mod secrets;
+mod wallet;
+
+pub use contacts::{address_book, connected_apps, contact_addresses, hidden_requests};
+pub use history::{core_balance, journal, mempool, pending, pool_history};
+pub use secrets::{attempts, notes, security, vault};
+pub use wallet::{folders, json_file, wallets};

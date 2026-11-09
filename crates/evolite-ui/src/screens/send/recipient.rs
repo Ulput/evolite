@@ -103,7 +103,7 @@ pub(super) fn book_matches<'a>(book: &'a [SavedAddress], typed: &str) -> Vec<&'a
 }
 
 /// A muted text that can be clicked.
-pub(super) fn link(ui: &mut Ui, p: &crate::theme::Palette, text: &str) -> egui::Response {
+fn link(ui: &mut Ui, p: &crate::theme::Palette, text: &str) -> egui::Response {
     ui.add(egui::Label::new(txt(text, 12.0, Weight::Medium, p.muted)).sense(egui::Sense::click()))
         .on_hover_cursor(egui::CursorIcon::PointingHand)
 }

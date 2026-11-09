@@ -24,7 +24,7 @@ pub(super) struct SourceView {
 /// the amount since protocol 14 (platform 575d961, `rs-dpp/src/withdrawal/mod.rs`).
 /// It assumes `core_fee_per_byte = 1` (platform-wallet `withdrawal.rs:104`): should evolite pass
 /// its own rate, count the minimum with `min_withdrawal_amount_with_core_fee` instead.
-pub(super) const MIN_WITHDRAWAL: Duffs = 1_190;
+const MIN_WITHDRAWAL: Duffs = 1_190;
 
 /// What Platform checks before it takes a withdrawal of credits to Core.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -68,7 +68,7 @@ pub(super) enum AmountProblem {
 }
 
 /// What stays on the balance on top of the amount, and the smallest amount.
-pub(super) fn keep_and_min(fee: Duffs, withdrawal: Option<Withdrawal>) -> (Duffs, Duffs) {
+fn keep_and_min(fee: Duffs, withdrawal: Option<Withdrawal>) -> (Duffs, Duffs) {
     match withdrawal {
         Some(w) => (w.reserve, w.min.max(1)),
         None => (fee, 1),

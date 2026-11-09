@@ -624,7 +624,7 @@ async fn a_claimed_coin_can_only_lower_the_balance() {
     };
     use key_wallet::wallet::ManagedWalletInfo;
     use key_wallet::wallet::managed_wallet_info::wallet_info_interface::WalletInfoInterface;
-    let keys = super::super::keys_of(
+    let keys = crate::keys_of(
         "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
     )
     .unwrap();
@@ -705,7 +705,7 @@ async fn the_load_claims_coins_spent_in_a_block_and_never_a_mempool_send() {
         }
     }
 
-    let keys = super::super::keys_of(
+    let keys = crate::keys_of(
         "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
     )
     .unwrap();
@@ -850,7 +850,7 @@ async fn a_coin_the_store_has_unspent_is_gone_when_a_final_block_spent_it() {
         }
     }
 
-    let mut keys = super::super::keys_of(
+    let mut keys = crate::keys_of(
         "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
     )
     .unwrap();

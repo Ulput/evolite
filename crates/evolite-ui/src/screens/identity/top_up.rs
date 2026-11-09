@@ -296,7 +296,7 @@ pub(super) fn unfinished_top_up_text(
 }
 
 /// The answer to the last top-up: done, or why not with the network's words under "Details".
-pub(super) fn top_up_answer(
+fn top_up_answer(
     ui: &mut Ui,
     a: &mut Assets,
     duffs: evolite_api::Duffs,

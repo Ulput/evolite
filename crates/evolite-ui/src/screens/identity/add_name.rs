@@ -236,7 +236,7 @@ pub(super) fn add_name_dialog(
 }
 
 /// Why the name was not registered, in words.
-pub(super) fn name_error(e: &CoreError) -> String {
+fn name_error(e: &CoreError) -> String {
     match e {
         // The core's reason is a catalog key: the catalog adds the language's own full stop.
         CoreError::NotAvailable(why) => format!("{}.", why.trim_end_matches('.')),

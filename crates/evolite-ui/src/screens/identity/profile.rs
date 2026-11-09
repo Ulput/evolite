@@ -245,12 +245,12 @@ impl ProfileForm {
 }
 
 /// DashPay's limits on a profile (DIP-15).
-pub(super) const DISPLAY_MAX: usize = 25;
+const DISPLAY_MAX: usize = 25;
 
-pub(super) const ABOUT_MAX: usize = 140;
+const ABOUT_MAX: usize = 140;
 
 /// Cuts `s` to `max` characters (not bytes).
-pub(super) fn keep_chars(s: &mut String, max: usize) {
+fn keep_chars(s: &mut String, max: usize) {
     if let Some((cut, _)) = s.char_indices().nth(max) {
         s.truncate(cut);
     }
