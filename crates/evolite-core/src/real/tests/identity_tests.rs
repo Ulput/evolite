@@ -127,7 +127,12 @@ async fn a_name_the_credits_cannot_finish_is_not_broadcast() {
 /// a preorder without the check.
 #[test]
 fn every_name_goes_through_the_credits_check() {
-    let source = include_str!("../../../../evolite-chain/src/chain.rs");
+    let source = concat!(
+        include_str!("../../../../evolite-chain/src/chain/identities.rs"),
+        include_str!("../../../../evolite-chain/src/chain/contacts.rs"),
+        include_str!("../../../../evolite-chain/src/chain/store_read.rs"),
+        include_str!("../../../../evolite-chain/src/chain/mod.rs"),
+    );
     let code = source.split("\n#[cfg(test)]").next().unwrap_or(source);
     assert_eq!(
         code.matches("register_name_with_external_signer(").count(),
