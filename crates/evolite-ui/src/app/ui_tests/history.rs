@@ -733,3 +733,109 @@ fn with_the_csv_banner_on_the_list_still_scrolls() {
         "it stays scrolled: {after} → {later}"
     );
 }
+
+/// BUG-100: the export question counts the lines the file will hold, the same number
+/// `csv_export::lines` gives — a row not final yet is no line — and says why in plain words.
+/// The demo cannot export: the dialog is opened as «Export CSV» opens it with filters on.
+#[test]
+fn the_export_question_counts_what_the_file_will_hold() {
+    let (_turn, mut kit) = demo_app("activity", "en");
+    for _ in 0..3 {
+        let wallet = kit
+            .state_mut()
+            .snapshot
+            .as_mut()
+            .and_then(|s| s.wallet.as_mut())
+            .expect("a wallet");
+        if !wallet.activity.iter().any(|a| a.id == NEW_PAYMENT) {
+            let mut sending = wallet.activity[0].clone();
+            sending.id = NEW_PAYMENT;
+            sending.kind = ActivityKind::Sent {
+                to: "yNewPaymentAddress".into(),
+            };
+            sending.proof = Proof::Sending;
+            sending.amount = -71_717_171;
+            wallet.activity.insert(0, sending);
+        }
+        kit.run_steps(1);
+    }
+    let (total, lines) = {
+        let wallet = kit
+            .state()
+            .snapshot
+            .as_ref()
+            .and_then(|s| s.wallet.as_ref())
+            .expect("a wallet");
+        let own = crate::csv_export::Own::of(wallet);
+        (
+            wallet.activity.len(),
+            crate::csv_export::lines(&wallet.activity, &own),
+        )
+    };
+    assert!(
+        lines < total,
+        "the demo's history has an operation that is no line"
+    );
+    kit.state_mut().history.export = Some(true);
+    kit.run_steps(3);
+    let lines = crate::format::count(lines as u64);
+    assert!(
+        has_text(&kit, &format!("Only the shown ones · {lines}")),
+        "the shown ones counted as the file holds them"
+    );
+    assert!(
+        has_text(&kit, &format!("The whole history · {lines}")),
+        "the whole history counted as the file holds it"
+    );
+    assert!(
+        has_text(&kit, crate::screens::activity::LEFT_OUT),
+        "and it says why, in plain words"
+    );
+}
+
+/// BUG-100: under the export's answer the sentence appears only when the file holds fewer lines
+/// than the operations asked for.
+#[test]
+fn the_csv_banner_says_why_lines_are_missing_only_when_some_are() {
+    let (_turn, mut kit) = demo_app("activity", "en");
+    csv_saved(&mut kit);
+    assert!(
+        !has_text(&kit, crate::screens::activity::LEFT_OUT),
+        "none left out"
+    );
+    kit.ctx
+        .data_mut(|d| d.insert_temp(egui::Id::new("csv-export").with("left-out"), true));
+    kit.run_steps(3);
+    assert!(
+        has_text(&kit, crate::screens::activity::LEFT_OUT),
+        "some left out"
+    );
+}
+
+/// BUG-71: the Send form scrolled down first, as at 1024 × 768 the form must be to reach its
+/// buttons, then the payment and the rail → History: History still opens at its top. Not
+/// reproduced on the demo; a guard, with the two above.
+#[test]
+fn history_after_a_scrolled_send_form_opens_at_the_new_payment() {
+    let (_turn, mut kit) = demo_app("send", "en");
+    kit.set_size(egui::vec2(1024.0, 480.0));
+    kit.run_steps(3);
+    let before = button(&kit, "Check and send").rect().top();
+    kit.hover_at(egui::pos2(500.0, 300.0));
+    for _ in 0..3 {
+        kit.event(egui::Event::MouseWheel {
+            unit: egui::MouseWheelUnit::Point,
+            delta: egui::vec2(0.0, -400.0),
+            phase: egui::TouchPhase::Move,
+            modifiers: Default::default(),
+        });
+        kit.run_steps(4);
+    }
+    let after = button(&kit, "Check and send").rect().top();
+    assert!(
+        after < before - 100.0,
+        "the wheel scrolled the form: {before} → {after}"
+    );
+    with_new_payment(&mut kit);
+    history_opens_on_the_new_payment(&mut kit);
+}

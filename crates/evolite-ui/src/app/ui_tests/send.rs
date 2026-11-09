@@ -327,3 +327,56 @@ fn a_name_not_checkable_yet_says_why_on_send() {
     ));
     assert!(!has_words(&kit, "Checking the name in DPNS"));
 }
+
+/// BUG-67 in every interface language: the bug's balances at 1024 × 768 (the rail) stay in one
+/// row of three equal columns, whatever the words of the language, and with the Core balance
+/// «as of» yesterday too (its words under the row, not on the card). Before the fix Core's line
+/// took the cards to two rows or one column.
+#[test]
+fn the_sources_stay_in_one_row_in_every_language() {
+    let mut wrong = Vec::new();
+    for lang in crate::i18n::Lang::ALL {
+        let code = lang.code();
+        let (turn, mut kit) = demo_app("send", code);
+        for _ in 0..5 {
+            if let Some(w) = kit
+                .state_mut()
+                .snapshot
+                .as_mut()
+                .and_then(|s| s.wallet.as_mut())
+            {
+                w.balances.core = 391_724_464;
+                w.balances.credits = 123_456_789;
+                w.balances.shielded = 98_765_432;
+                w.balances.core_as_of = Some(evolite_api::CoreAsOf::Checked(
+                    chrono::Utc::now().timestamp() - 86_400,
+                ));
+            }
+            kit.run_steps(1);
+        }
+        let names = ["Core", "Credits", "Private pool"].map(crate::i18n::spoken);
+        let cards: Vec<_> = kit
+            .query_all_by_role(Role::RadioButton)
+            .filter(|n| {
+                n.accesskit_node()
+                    .label()
+                    .is_some_and(|l| names.contains(&l))
+            })
+            .map(|n| n.rect())
+            .collect();
+        let row = cards.len() == 3
+            && cards.iter().all(|r| (r.top() - cards[0].top()).abs() < 0.5)
+            && cards
+                .iter()
+                .all(|r| (r.width() - cards[0].width()).abs() < 0.5);
+        if !row {
+            wrong.push(format!("{code}: {names:?}: {cards:?}"));
+        }
+        if lang.code() == "en" && !has_words(&kit, "Core · as of") {
+            wrong.push("en: no caption under the row".into());
+        }
+        drop(kit);
+        drop(turn);
+    }
+    assert!(wrong.is_empty(), "{wrong:#?}");
+}

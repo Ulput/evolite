@@ -548,6 +548,7 @@
   "Not enough for the amount and the fee.",
   "Not enough for the top-up, the name and the fee.",
   "Not enough to withdraw: the balance must keep at least {} on top of the amount",
+  "Not every operation becomes a line of the file: those not final yet, the second half of a transfer between your own balances and those with no amount or an unknown fee are left out.",
   "Not in this test build",
   "Not known yet",
   "Not made",

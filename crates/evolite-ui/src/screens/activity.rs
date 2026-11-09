@@ -27,9 +27,18 @@ fn saved_id() -> egui::Id {
     egui::Id::new("csv-export")
 }
 
+/// Whether the last export left operations out (BUG-100): beside [`saved_id`], so its answer stays
+/// one value.
+fn left_out_id() -> egui::Id {
+    saved_id().with("left-out")
+}
+
 /// The last export's answer, when another wallet opens: its file is not this one's (BUG-45).
 pub fn forget(ctx: &egui::Context) {
-    ctx.data_mut(|d| d.remove::<Result<(std::path::PathBuf, usize), String>>(saved_id()));
+    ctx.data_mut(|d| {
+        d.remove::<Result<(std::path::PathBuf, usize), String>>(saved_id());
+        d.remove::<bool>(left_out_id());
+    });
     // And a note half edited in a card of that wallet's operation (FEAT-0003).
     forget_note(ctx);
 }
@@ -91,7 +100,13 @@ pub fn activity(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, h: &mut History) {
         }
     }
     if let Some(only_shown) = h.export {
-        match export_question(ui, a, only_shown, (shown.len(), total), &h.filters) {
+        // The number the file will hold, not the number of rows on screen (BUG-100).
+        let own = csv_export::Own::of(wallet);
+        let lines = (
+            csv_export::lines(shown.iter().map(|i| &wallet.activity[*i]), &own),
+            csv_export::lines(&wallet.activity, &own),
+        );
+        match export_question(ui, a, only_shown, (shown.len(), total), lines, &h.filters) {
             Ask::Open(choice) => h.export = Some(choice),
             Ask::Closed => h.export = None,
             Ask::Export(only_shown) => {
@@ -108,6 +123,8 @@ pub fn activity(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, h: &mut History) {
         let lines: Vec<Activity> = lines.into_iter().cloned().collect();
         let csv = csv_export::taxbit(&lines, &csv_export::Own::of(wallet));
         let count = csv.lines().count().saturating_sub(1);
+        let left_out = count < lines.len();
+        ui.data_mut(|d| d.insert_temp(left_out_id(), left_out));
         let day = Local::now().format("%Y-%m-%d").to_string();
         let saved = csv_export::downloads()
             .ok_or_else(|| tr!("the “Downloads” folder was not found").to_string())
@@ -147,6 +164,9 @@ pub fn activity(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, h: &mut History) {
                 Weight::Regular,
                 p.muted,
             ));
+            if ui.data(|d| d.get_temp::<bool>(left_out_id()).unwrap_or(false)) {
+                ui.add(egui::Label::new(txt(LEFT_OUT, 12.0, Weight::Regular, p.muted)).wrap());
+            }
             if button(ui, a, tr!("Show in folder"), ButtonKind::Ghost, None).clicked() {
                 // Explorer and Finder select the file; Linux file managers open its folder.
                 let mut command = if cfg!(windows) {
@@ -657,6 +677,12 @@ fn date_fields(ui: &mut Ui, a: &mut Assets, h: &mut History) {
     }
 }
 
+/// In the export question and under the export's answer, when the file holds fewer lines than
+/// there are operations (BUG-100).
+pub const LEFT_OUT: &str = tr!(
+    "Not every operation becomes a line of the file: those not final yet, the second half of a transfer between your own balances and those with no amount or an unknown fee are left out."
+);
+
 /// What the export question answered this frame.
 enum Ask {
     Open(bool),
@@ -670,6 +696,7 @@ fn export_question(
     a: &mut Assets,
     mut only_shown: bool,
     (shown, total): (usize, usize),
+    (shown_lines, total_lines): (usize, usize),
     filters: &Filters,
 ) -> Ask {
     let mut go = false;
@@ -696,17 +723,26 @@ fn export_question(
                 .join(" · ");
             let only = format!(
                 tr!("Only the shown ones · {}"),
-                crate::format::count(shown as u64)
+                crate::format::count(shown_lines as u64)
             );
             if crate::components::option_card(ui, a, "check", &only, &what, only_shown).clicked() {
                 only_shown = true;
             }
             let all = format!(
                 tr!("The whole history · {}"),
-                crate::format::count(total as u64)
+                crate::format::count(total_lines as u64)
             );
             if crate::components::option_card(ui, a, "activity", &all, "", !only_shown).clicked() {
                 only_shown = false;
+            }
+            // Rows and lines differ for the choice made: why, in plain words (BUG-100).
+            let (rows, lines) = if only_shown {
+                (shown, shown_lines)
+            } else {
+                (total, total_lines)
+            };
+            if lines != rows {
+                ui.add(egui::Label::new(txt(LEFT_OUT, 12.0, Weight::Regular, p.muted)).wrap());
             }
             let mut close = false;
             button_row(ui, |ui| {

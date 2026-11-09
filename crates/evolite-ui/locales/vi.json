@@ -1412,5 +1412,6 @@
   "“{}” · from the address book": "«{}» · từ sổ địa chỉ",
   "“ष्टि” and “र्ई” should form ligatures, with vowel signs above and below the letters.": "«ष्टि» và «र्ई» phải tạo thành chữ ghép, với dấu nguyên âm ở trên và dưới chữ cái.",
   "Platform wants this much before it writes a name; what the name does not use stays on the identity.": "Platform yêu cầu số này trước khi ghi tên; phần tên không dùng sẽ vẫn ở trên identity.",
-  "The identity's credits are not read yet: nothing is charged until they are": "Chưa đọc được credit của identity: chưa bị trừ gì cho đến khi đọc xong"
+  "The identity's credits are not read yet: nothing is charged until they are": "Chưa đọc được credit của identity: chưa bị trừ gì cho đến khi đọc xong",
+  "Not every operation becomes a line of the file: those not final yet, the second half of a transfer between your own balances and those with no amount or an unknown fee are left out.": "Không phải mọi thao tác đều thành một dòng trong tệp: các thao tác chưa hoàn tất, nửa sau của khoản chuyển giữa các số dư của bạn và các thao tác không có số tiền hoặc không rõ phí sẽ bị bỏ qua."
 }

@@ -1435,5 +1435,6 @@
   "“{}” · from the address book": "«{}» · из адресной книги",
   "“ष्टि” and “र्ई” should form ligatures, with vowel signs above and below the letters.": "«ष्टि» и «र्ई» должны собираться в лигатуры, огласовки — над и под буквами.",
   "Platform wants this much before it writes a name; what the name does not use stays on the identity.": "Столько Platform требует до записи имени; всё, что имя не потратит, останется на identity.",
-  "The identity's credits are not read yet: nothing is charged until they are": "Кредиты identity ещё не прочитаны: пока их не знаем, ничего не списывается"
+  "The identity's credits are not read yet: nothing is charged until they are": "Кредиты identity ещё не прочитаны: пока их не знаем, ничего не списывается",
+  "Not every operation becomes a line of the file: those not final yet, the second half of a transfer between your own balances and those with no amount or an unknown fee are left out.": "Не каждая операция становится строкой файла: ещё не окончательные, вторая половина перевода между своими балансами и операции без суммы или с неизвестной комиссией в файл не попадают."
 }

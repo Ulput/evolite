@@ -1422,5 +1422,6 @@
   "“{}” · from the address book": "„{}“ · aus dem Adressbuch",
   "“ष्टि” and “र्ई” should form ligatures, with vowel signs above and below the letters.": "„ष्टि“ und „र्ई“ sollten Ligaturen bilden, mit Vokalzeichen über und unter den Buchstaben.",
   "Platform wants this much before it writes a name; what the name does not use stays on the identity.": "So viel verlangt Platform, bevor ein Name geschrieben wird; was der Name nicht verbraucht, bleibt auf der Identity.",
-  "The identity's credits are not read yet: nothing is charged until they are": "Die Credits der Identity sind noch nicht gelesen: Solange sie unbekannt sind, wird nichts abgebucht"
+  "The identity's credits are not read yet: nothing is charged until they are": "Die Credits der Identity sind noch nicht gelesen: Solange sie unbekannt sind, wird nichts abgebucht",
+  "Not every operation becomes a line of the file: those not final yet, the second half of a transfer between your own balances and those with no amount or an unknown fee are left out.": "Nicht jeder Vorgang wird zu einer Zeile der Datei: noch nicht endgültige, die zweite Hälfte einer Überweisung zwischen Ihren eigenen Guthaben und solche ohne Betrag oder mit unbekannter Gebühr werden ausgelassen."
 }

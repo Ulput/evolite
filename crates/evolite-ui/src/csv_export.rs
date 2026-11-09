@@ -114,6 +114,17 @@ fn line(a: &Activity, own: &Own) -> Option<Line> {
     }
 }
 
+/// How many lines of the file these operations make (BUG-100): not every operation is one.
+/// [`line`] answers no line for one not final yet, the other half of a move inside the wallet,
+/// one with no amount (a contact request, a saved profile, an app's sign-in) and a move inside
+/// the wallet whose fee is not known.
+pub fn lines<'a>(activity: impl IntoIterator<Item = &'a Activity>, own: &Own) -> usize {
+    activity
+        .into_iter()
+        .filter(|a| line(a, own).is_some())
+        .count()
+}
+
 /// The CSV of `activity` (any order), `own` telling moves inside the wallet apart.
 pub fn taxbit(activity: &[Activity], own: &Own) -> String {
     let mut rows: Vec<(&Activity, Line)> = activity
@@ -494,6 +505,53 @@ mod tests {
         ];
         assert_eq!(lines, expected, "{csv}");
         assert!(!csv.contains("Transfer"));
+    }
+
+    /// BUG-100: the count [`lines`] gives is exactly the file's, line for line; a non-final
+    /// operation, the second half of a move and an operation without an amount are not counted.
+    #[test]
+    fn lines_counts_what_the_file_holds() {
+        use ActivityKind as K;
+        let ops = vec![
+            act(
+                K::Received { from: None },
+                Chain::Core,
+                100,
+                5_000_000,
+                "aa",
+            ),
+            Activity {
+                proof: Proof::Sending,
+                ..act(K::Sent { to: "yX".into() }, Chain::Core, 230, -50_226, "gg")
+            },
+            act(
+                K::Received {
+                    from: Some("withdrawal from Platform".into()),
+                },
+                Chain::Core,
+                171,
+                1_000_000,
+                "ff",
+            ),
+            act(K::ProfileSaved, Chain::Platform, 210, 0, ""),
+            // A move inside the wallet with an amount but no known fee.
+            act(
+                K::TopUp {
+                    identity: "@mine".into(),
+                    creates: false,
+                    credits: evolite_api::Credits::Added,
+                },
+                Chain::CoreToPlatform,
+                140,
+                -1_000_263,
+                "dd",
+            ),
+        ];
+        assert_eq!(lines(&ops, &own()), 1);
+        assert_eq!(
+            lines(&ops, &own()),
+            taxbit(&ops, &own()).lines().count() - 1
+        );
     }
 
     /// A payment to a contact that is an identity of this wallet moves nothing out of it

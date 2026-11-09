@@ -49,8 +49,18 @@ pub struct SendForm {
     /// The address book's answer to the last save or removal, when it refused.
     pub book_error: Option<CoreError>,
     pub result: Option<Result<SentPayment, CoreError>>,
-    /// "Password for every payment": typed in the confirmation, wiped once sent or closed.
+    /// "Password for every payment": typed in the confirmation, wiped once answered or closed
+    /// (BUG-92: kept for a correction when the core says it is wrong).
     pub password: Zeroizing<String>,
+    /// The last look stays open on the core's answer for this password (BUG-92): when it was
+    /// sent, so a slow answer stops holding the dialog after [`SIGNING_HOLD`].
+    pub signing: Option<std::time::Instant>,
+    /// The core said this password is wrong: said at the field, until it changes (BUG-92).
+    pub password_wrong: bool,
+    /// That answer has come: the password field takes the focus again, once.
+    pub refocus_password: bool,
+    /// A refusal has just come with the dialog closed: its line is brought into view, once.
+    pub reveal_result: bool,
     /// "Add to contacts" from here went to the core, no answer yet; then its answer.
     pub contact_waiting: bool,
     pub contact_result: Option<Result<(), CoreError>>,
@@ -135,15 +145,28 @@ impl SendForm {
 
     pub fn on_sent(&mut self, result: &Result<SentPayment, CoreError>) {
         self.waiting = self.waiting.saturating_sub(1);
-        if result.is_err() && self.amount.is_empty() {
-            self.amount = std::mem::take(&mut self.signed);
-        }
-        // Not sent: the note was kept nowhere, the form has it again (AC-A3). Sent: the core
-        // keeps it with the payment.
-        if result.is_err() && self.note.is_empty() {
-            self.note = std::mem::take(&mut self.signed_note);
+        // The last look was held open for this answer (BUG-92).
+        let held = self.signing.take().is_some();
+        if result.is_err() && self.waiting > 0 {
+            // Another payment is still out and an answer does not say whose it is: this refusal
+            // may be an earlier payment's while the last one goes through. Nothing comes back
+            // to send a second time (BUG-92 r2); what was signed last waits for its own answer.
+            // «Max» would fill the amount again; an amount typed since is the person's.
+            if self.max {
+                self.max = false;
+                self.amount.clear();
+            }
         } else {
-            self.signed_note.zeroize();
+            if result.is_err() && self.amount.is_empty() {
+                self.amount = std::mem::take(&mut self.signed);
+            }
+            // Not sent: the note was kept nowhere, the form has it again (AC-A3). Sent: the core
+            // keeps it with the payment.
+            if result.is_err() && self.note.is_empty() {
+                self.note = std::mem::take(&mut self.signed_note);
+            } else {
+                self.signed_note.zeroize();
+            }
         }
         // Gone: "To" is cleared for the next payment, unless the person already typed another.
         if result.is_ok() && self.recipient.trim() == self.sent_to.trim() {
@@ -153,6 +176,19 @@ impl SendForm {
             self.max = false;
             self.signed.clear();
         }
+        if held && matches!(result, Err(CoreError::WrongPassword)) {
+            // Nothing was sent: the dialog stays, the error at its field, the password to correct.
+            self.password_wrong = true;
+            self.refocus_password = true;
+            self.result = None;
+            return;
+        }
+        if held {
+            self.confirming = false;
+            self.password.zeroize();
+        }
+        // Under the buttons, which may be below the window's edge at 1024×768 (BUG-92).
+        self.reveal_result = result.is_err();
         self.result = Some(result.clone());
     }
 
@@ -186,6 +222,15 @@ impl SendForm {
     /// The note to send with the payment: trimmed, none when empty.
     fn note_to_send(&self) -> Option<String> {
         Some(self.note.trim().to_owned()).filter(|n| !n.is_empty())
+    }
+
+    /// The note the last look shows: the one sent, while its answer is awaited (BUG-92).
+    fn note_shown(&self) -> Option<String> {
+        if self.signing.is_some() {
+            Some(self.signed_note.trim().to_owned()).filter(|n| !n.is_empty())
+        } else {
+            self.note_to_send()
+        }
     }
 
     /// Where a payment goes, asked for the last look or while an address is typed.
@@ -381,6 +426,10 @@ impl Default for SendForm {
             book_error: None,
             result: None,
             password: Zeroizing::default(),
+            signing: None,
+            password_wrong: false,
+            refocus_password: false,
+            reveal_result: false,
             contact_waiting: false,
             contact_result: None,
             contact_password: Default::default(),
@@ -408,6 +457,11 @@ struct SourceView {
     note_icon: &'static str,
     note: &'static str,
 }
+
+/// How long the last look waits for the core's answer to its password before closing all the same
+/// (BUG-92). The check is quick; a right password is answered only once the network has the
+/// payment, and the form must be free meanwhile. A later refusal comes into view on the form.
+const SIGNING_HOLD: std::time::Duration = std::time::Duration::from_secs(5);
 
 /// The smallest withdrawal of credits to Core: Platform's own minimum, 1000 duffs
 /// (`system_limits.min_withdrawal_amount`, 1 000 000 credits), plus the Core fee of the asset
@@ -595,8 +649,9 @@ fn sources(w: &Wallet, to: &str, amount: Duffs) -> [SourceView; 3] {
     ]
 }
 
-/// The line under a source's title: its balance; for Core not checked in this sync, the last
-/// checked balance and when, or only «not known yet» (BUG-77).
+/// The line under a source's title: its balance; for Core not known yet in this sync, only that
+/// (BUG-77). «As of when» for a last checked Core balance goes under the row
+/// ([`as_of_caption`]), so a long one does not push the third card to a second row (BUG-67).
 fn source_detail(
     s: &SourceView,
     as_of: Option<evolite_api::CoreAsOf>,
@@ -606,8 +661,16 @@ fn source_detail(
         (Some(line), Source::Core) if as_of == Some(evolite_api::CoreAsOf::NotYet) => {
             line.to_owned()
         }
-        (Some(line), Source::Core) => format!("{} · {line}", crate::format::balance(s.duffs)),
         _ => crate::format::balance(s.duffs),
+    }
+}
+
+/// Under the row of sources: the Core balance on its card is the last checked one, and since
+/// when (BUG-77, BUG-67). None when Core is checked in this sync or not known yet.
+fn as_of_caption(as_of: Option<evolite_api::CoreAsOf>, line: Option<&str>) -> Option<String> {
+    match (as_of, line) {
+        (Some(evolite_api::CoreAsOf::Checked(_)), Some(line)) => Some(format!("Core · {line}")),
+        _ => None,
     }
 }
 
@@ -736,6 +799,8 @@ pub fn send(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut SendForm) {
     // "A password for every payment": the core keeps it for the wallet (BUG-42).
     let ask_password = crate::components::password_asked(cx.snap);
     let p = a.p;
+    // A refusal has just come: its line under the buttons is brought into view, once.
+    let reveal = std::mem::take(&mut form.reveal_result);
     crate::format::fill_suggested(&mut form.amount, &mut form.suggested);
     ui.spacing_mut().item_spacing.y = 24.0;
     page_header(ui, a, tr!("Send"), None, |_, _| {});
@@ -874,6 +939,8 @@ pub fn send(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut SendForm) {
                     crate::components::amount_toggle(ui, a, false);
                 });
             });
+            ui.vertical(|ui| {
+            ui.spacing_mut().item_spacing.y = 6.0;
             ui.horizontal_wrapped(|ui| {
                 ui.spacing_mut().item_spacing = vec2(8.0, 8.0);
                 // Equal columns in one row (the designer's summary №25), a long Core balance
@@ -910,6 +977,10 @@ pub fn send(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut SendForm) {
                         form.result = None;
                     }
                 }
+            });
+            if let Some(caption) = as_of_caption(core_as_of, core_as_of_line.as_deref()) {
+                ui.add(egui::Label::new(txt(&caption, 12.0, Weight::Regular, p.muted)).wrap());
+            }
             });
             ui.vertical(|ui| {
                 ui.spacing_mut().item_spacing.y = 6.0;
@@ -1129,7 +1200,7 @@ pub fn send(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut SendForm) {
             if let Some(missing) = missing {
                 ui.add(egui::Label::new(txt(missing, 12.0, Weight::Regular, p.muted)).wrap());
             }
-            match &form.result {
+            let answer = ui.scope(|ui| match &form.result {
                 // No clear answer from the network: the payment may have gone.
                 Some(Ok(sent)) if !sent.relayed => notice(
                     ui,
@@ -1191,6 +1262,9 @@ pub fn send(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut SendForm) {
                 }
                 Some(Err(e)) => crate::components::error_notice(ui, a, &send_error(e), crate::text::error_details(e).as_deref()),
                 None => {}
+            });
+            if reveal {
+                answer.response.scroll_to_me(Some(Align::Center));
             }
         });
     };
@@ -1266,8 +1340,12 @@ pub fn send(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut SendForm) {
         cx.go(super::Screen::Contacts);
     }
 
+    // While its answer is awaited the amount has left the form for the payment (BUG-92).
+    let signed = form
+        .signing
+        .and_then(|_| crate::format::parse_amount(&form.signed).filter(|d| *d > 0));
     if form.confirming
-        && let Some(amount) = amount
+        && let Some(amount) = amount.or(signed)
     {
         confirm(ui, a, cx, form, amount, ask_password);
     }
@@ -1448,6 +1526,8 @@ fn confirm(
         source.fee,
         cx.now.timestamp(),
     )
+    // Once signed the payment is in the history itself: it is no repeat of itself (BUG-92 r1).
+    .filter(|_| form.signing.is_none())
     .map(|act| crate::text::when(act.at, cx.now));
     // An address only like one from the book or the history: a planted lookalike.
     let lookalike = {
@@ -1460,6 +1540,12 @@ fn confirm(
         );
         crate::text::lookalike(&to, known).map(crate::text::grouped)
     };
+    let signing = form.signing.is_some();
+    // A slow answer does not hold the dialog for ever: the form says it is awaited.
+    let timed_out = form.signing.is_some_and(|at| at.elapsed() >= SIGNING_HOLD);
+    if signing {
+        ui.ctx().request_repaint_after(SIGNING_HOLD);
+    }
     let mut send_now = false;
     let closed = dialog(
         ui,
@@ -1587,7 +1673,7 @@ fn confirm(
                 &dash(amount.saturating_add(source.fee)),
                 value,
             );
-            if let Some(note) = form.note_to_send() {
+            if let Some(note) = form.note_shown() {
                 confirm_note(ui, a, &note);
             }
             ui.label(txt(
@@ -1615,7 +1701,7 @@ fn confirm(
                 ui.vertical(|ui| {
                     ui.spacing_mut().item_spacing.y = 6.0;
                     field_label(ui, &p, tr!("Wallet password"));
-                    text_field(
+                    let field = text_field(
                         ui,
                         &p,
                         "send-password",
@@ -1624,19 +1710,42 @@ fn confirm(
                         FieldKind::Password,
                         |_| {},
                     );
+                    if field.changed() {
+                        form.password_wrong = false;
+                    }
+                    if std::mem::take(&mut form.refocus_password) {
+                        field.request_focus();
+                    }
+                    if form.password_wrong {
+                        ui.add(
+                            egui::Label::new(txt(
+                                &send_error(&CoreError::WrongPassword),
+                                12.0,
+                                Weight::Regular,
+                                p.danger,
+                            ))
+                            .wrap(),
+                        );
+                    }
                 });
             }
             let mut close = false;
             crate::components::button_row_spend(ui, |ui| {
-                if button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked() {
+                // It is with the core: nothing to cancel any more, only its answer to wait for.
+                if !signing && button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked() {
                     close = true;
                 }
-                let ready = (!ask_password || !form.password.is_empty())
+                let ready = !signing
+                    && (!ask_password || !form.password.is_empty())
                     && (!from_core || address.is_some());
                 let clicked = button_enabled(
                     ui,
                     a,
-                    tr!("Sign and send"),
+                    if signing {
+                        tr!("Sending…")
+                    } else {
+                        tr!("Sign and send")
+                    },
                     ButtonKind::Primary,
                     None,
                     ready,
@@ -1644,10 +1753,13 @@ fn confirm(
                 .clicked();
                 if ready && clicked {
                     send_now = true;
-                    close = true;
+                    // With a password its answer decides, when it can only be this payment's:
+                    // `Event::Sent` says not whose it is, so with another still unanswered the
+                    // dialog closes and the answers go to the form (BUG-92 r1).
+                    close = !ask_password || form.waiting > 0;
                 }
             });
-            close
+            close || timed_out
         },
     );
     if send_now {
@@ -1668,9 +1780,14 @@ fn confirm(
         // And its note, which is this payment's only.
         form.signed_note = std::mem::take(&mut form.note);
         form.note_cut = false;
+        // A wrong password is said here, at its field (BUG-92): the dialog waits for the answer.
+        form.signing = (ask_password && form.waiting == 1).then(std::time::Instant::now);
+        form.password_wrong = false;
     }
     if closed {
         form.confirming = false;
+        form.signing = None;
+        form.password_wrong = false;
         form.password.zeroize();
     }
 }
@@ -1861,7 +1978,7 @@ mod tests {
         assert_eq!(source_line(&core, false, None, None), balance);
         assert_eq!(
             source_detail(&core, Some(CoreAsOf::Checked(1)), Some("as of 23:41")),
-            format!("{balance} · as of 23:41")
+            balance
         );
         assert_eq!(
             source_detail(&core, Some(CoreAsOf::NotYet), Some("Not known yet")),
@@ -2132,9 +2249,20 @@ mod tests {
             signed: "0,25".into(),
             ..SendForm::empty()
         };
+        // Another payment is still out: this answer may be that one's, nothing comes back (BUG-92
+        // r2), and what was signed last stays for its own answer.
         form.on_sent(&Err(CoreError::NotEnough));
-        assert_eq!((form.waiting, form.amount.as_str()), (1, "0,25"));
+        assert_eq!((form.waiting, form.amount.as_str()), (1, ""));
+        assert_eq!(form.signed, "0,25");
+        assert!(
+            form.result.is_some() && form.reveal_result,
+            "the refusal is said"
+        );
+        // The last one out: it is the payment's own answer, its amount comes back.
+        form.on_sent(&Err(CoreError::NotEnough));
+        assert_eq!((form.waiting, form.amount.as_str()), (0, "0,25"));
         // Taken: the form stays as the person left it.
+        form.waiting = 1;
         form.amount = "0,1".into();
         form.on_sent(&Ok(SentPayment {
             txid: "aa".into(),
@@ -2143,6 +2271,39 @@ mod tests {
             relayed: true,
         }));
         assert_eq!((form.waiting, form.amount.as_str()), (0, "0,1"));
+    }
+
+    /// BUG-92 r2: with another payment out, a refusal gives back neither the note nor a «Max»
+    /// amount: the note is kept for the last payment's answer, and «Max» would fill the form again.
+    /// An amount typed by hand for the next payment is the person's and stays.
+    #[test]
+    fn a_refusal_with_another_payment_out_gives_nothing_back() {
+        let mut form = SendForm {
+            waiting: 2,
+            signed: "0,25".into(),
+            signed_note: "for B".into(),
+            max: true,
+            amount: "1,5".into(),
+            ..SendForm::empty()
+        };
+        form.on_sent(&Err(CoreError::WrongPassword));
+        assert!(
+            !form.max && form.amount.is_empty(),
+            "«Max» does not refill it"
+        );
+        assert!(form.note.is_empty());
+        assert_eq!(
+            (form.signed.as_str(), form.signed_note.as_str()),
+            ("0,25", "for B")
+        );
+
+        let mut typed = SendForm {
+            waiting: 2,
+            amount: "0,7".into(),
+            ..SendForm::empty()
+        };
+        typed.on_sent(&Err(CoreError::WrongPassword));
+        assert_eq!(typed.amount, "0,7");
     }
 
     #[test]
@@ -2183,6 +2344,55 @@ mod tests {
         };
         sent.on_lock();
         assert_eq!(sent.waiting, 1, "the network's answer is still awaited");
+    }
+
+    /// BUG-92: the answer to the password the last look holds for: wrong keeps the dialog, the
+    /// amount and the password to correct, and is no result of the form; any other closes it,
+    /// wipes the password, and a refusal comes into view. Without the hold it goes as before.
+    #[test]
+    fn the_last_look_stays_only_for_a_wrong_password() {
+        let held = || SendForm {
+            amount: String::new(),
+            signed: "0,1".into(),
+            confirming: true,
+            waiting: 1,
+            password: Zeroizing::new("nope".into()),
+            signing: Some(std::time::Instant::now()),
+            ..SendForm::default()
+        };
+        let mut form = held();
+        form.on_sent(&Err(CoreError::WrongPassword));
+        assert!(form.confirming && form.signing.is_none() && form.password_wrong);
+        assert!(form.refocus_password && !form.reveal_result);
+        assert!(form.result.is_none(), "not said twice");
+        assert_eq!(form.amount, "0,1", "the amount is back");
+        assert_eq!(form.password.as_str(), "nope", "to correct, not to retype");
+        assert_eq!(form.waiting, 0);
+
+        let mut form = held();
+        form.on_sent(&Err(CoreError::NotEnough));
+        assert!(!form.confirming && form.password.is_empty());
+        assert!(form.reveal_result && !form.password_wrong);
+        assert_eq!(form.result, Some(Err(CoreError::NotEnough)));
+
+        let mut form = held();
+        form.on_sent(&Ok(SentPayment {
+            txid: "ab".into(),
+            amount: 1,
+            fee: 1,
+            relayed: true,
+        }));
+        assert!(!form.confirming && form.password.is_empty());
+        assert!(!form.reveal_result, "a success does not move the form");
+
+        // The dialog closed meanwhile (the cross, or the wait ran out): the line is on the form.
+        let mut form = SendForm {
+            waiting: 1,
+            ..SendForm::default()
+        };
+        form.on_sent(&Err(CoreError::WrongPassword));
+        assert!(form.reveal_result && !form.password_wrong);
+        assert_eq!(form.result, Some(Err(CoreError::WrongPassword)));
     }
 
     /// "Cancel", "Send" from a contact, "Withdraw to Core": a new form, and a payment still
