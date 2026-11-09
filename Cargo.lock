@@ -2795,17 +2795,29 @@ dependencies = [
 ]
 
 [[package]]
-name = "evolite-core"
+name = "evolite-art"
+version = "0.1.0"
+dependencies = [
+ "evolite-api",
+ "evolite-common",
+ "evolite-render",
+ "sha2 0.10.9",
+]
+
+[[package]]
+name = "evolite-chain"
 version = "0.1.0"
 dependencies = [
  "aes-gcm",
- "argon2",
  "async-trait",
  "dapi-grpc",
  "dash-sdk",
  "dash-spv",
  "dpp",
  "evolite-api",
+ "evolite-art",
+ "evolite-common",
+ "evolite-local",
  "evolite-render",
  "getrandom 0.3.4",
  "grovedb-bincode",
@@ -2822,7 +2834,69 @@ dependencies = [
  "sha2 0.10.9",
  "simple-signer",
  "tokio",
+ "zeroize",
+]
+
+[[package]]
+name = "evolite-common"
+version = "0.1.0"
+dependencies = [
+ "evolite-api",
+ "serde_json",
+ "sha2 0.10.9",
  "unicode-segmentation",
+ "zeroize",
+]
+
+[[package]]
+name = "evolite-core"
+version = "0.1.0"
+dependencies = [
+ "dpp",
+ "evolite-api",
+ "evolite-art",
+ "evolite-chain",
+ "evolite-common",
+ "evolite-demo",
+ "evolite-local",
+ "evolite-render",
+ "getrandom 0.3.4",
+ "key-wallet",
+ "key-wallet-manager",
+ "platform-wallet",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tokio",
+ "ureq",
+ "zeroize",
+]
+
+[[package]]
+name = "evolite-demo"
+version = "0.1.0"
+dependencies = [
+ "evolite-api",
+ "evolite-art",
+ "evolite-common",
+ "evolite-render",
+ "miniz_oxide 0.8.9",
+]
+
+[[package]]
+name = "evolite-local"
+version = "0.1.0"
+dependencies = [
+ "aes-gcm",
+ "argon2",
+ "evolite-api",
+ "evolite-common",
+ "getrandom 0.3.4",
+ "hkdf",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tokio",
  "ureq",
  "zeroize",
 ]

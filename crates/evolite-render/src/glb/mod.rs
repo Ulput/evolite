@@ -134,7 +134,7 @@ mod tests {
     fn ring() -> Vec<u8> {
         std::fs::read(
             std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-                .join("../evolite-core/assets/nft/diamond-ring-3d.glb"),
+                .join("../evolite-demo/assets/nft/diamond-ring-3d.glb"),
         )
         .unwrap()
     }

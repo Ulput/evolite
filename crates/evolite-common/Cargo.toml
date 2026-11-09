@@ -1,0 +1,19 @@
+[package]
+name = "evolite-common"
+description = "What every part of the evolite core shares: the network, the journal, the rules of names, notes and phrases. No Platform stack."
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+evolite-api = { path = "../evolite-api" }
+sha2 = { version = "0.10", default-features = false }
+# The diagnostic journal's lines. `preserve_order`: a line keeps the order it is written in
+# ("t", then "k", ...).
+serde_json = { version = "1", features = ["preserve_order"] }
+zeroize = "1"
+# Payment notes count characters as a person sees them (extended grapheme clusters, FEAT-0003).
+unicode-segmentation = "1"
+
+[lints]
+workspace = true

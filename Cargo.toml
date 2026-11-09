@@ -1,6 +1,10 @@
 [workspace]
 resolver = "3"
 members = [
+    "crates/evolite-chain",
+    "crates/evolite-art",
+    "crates/evolite-demo",
+    "crates/evolite-local",
     "crates/evolite-api",
     "crates/evolite-core",
     "crates/evolite-render",

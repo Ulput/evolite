@@ -131,7 +131,7 @@ fn mutate(rng: &mut Rng, input: &[u8]) -> Vec<u8> {
 }
 
 fn assets() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../evolite-core/assets/nft")
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../evolite-demo/assets/nft")
 }
 
 fn png() -> Vec<u8> {

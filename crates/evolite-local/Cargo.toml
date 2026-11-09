@@ -1,0 +1,29 @@
+[package]
+name = "evolite-local"
+description = "The files of a wallet's folder: the vault, the list of wallets, the journal, notes and the small JSON files. No Platform stack."
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+evolite-api = { path = "../evolite-api" }
+evolite-common = { path = "../evolite-common" }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+# The vault: RustCrypto's audited AES-GCM and Argon2, secrets in Zeroizing.
+aes-gcm = "0.10"
+# The notes' key, derived with HKDF.
+hkdf = "0.12"
+argon2 = "0.5"
+getrandom = "0.3"
+zeroize = "1"
+sha2 = { version = "0.10", default-features = false }
+# The rates over https only (rustls); already in the tree through Platform.
+ureq = "3"
+tokio = { version = "1", features = ["sync", "macros", "rt-multi-thread", "time", "net"] }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["test-util"] }
+
+[lints]
+workspace = true

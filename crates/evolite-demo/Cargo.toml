@@ -1,0 +1,17 @@
+[package]
+name = "evolite-demo"
+description = "The demo core: the example wallet from Figma behind the same commands as the real one."
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+evolite-api = { path = "../evolite-api" }
+evolite-art = { path = "../evolite-art" }
+evolite-common = { path = "../evolite-common" }
+evolite-render = { path = "../evolite-render" }
+# The demo stores Jembe's samples as their documents do: raw deflate.
+miniz_oxide = "0.8"
+
+[lints]
+workspace = true

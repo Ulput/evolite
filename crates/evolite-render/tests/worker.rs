@@ -202,7 +202,7 @@ fn compressed_svg_is_unpacked_in_the_worker() {
 fn a_model_turns_inside_the_memory_cap() {
     let ring = std::fs::read(
         std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../evolite-core/assets/nft/diamond-ring-3d.glb"),
+            .join("../evolite-demo/assets/nft/diamond-ring-3d.glb"),
     )
     .unwrap();
     let mut settings = Settings::new(WORKER.into(), Vec::new());

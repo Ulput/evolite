@@ -53,7 +53,7 @@ acceptance), a credit transfer to one's own Platform address. Pitfalls:
 
 ## What the branch already does
 
-- The core (`crates/evolite-core/src/real/`) runs on `platform-wallet`: `chain.rs` holds the
+- The core (`crates/evolite-core/src/real/`, its chain in `crates/evolite-chain/`) runs on `platform-wallet`: `chain.rs` holds the
   wallet manager, its SPV client and the SQLite store (`wallets/testnet/platform-wallet.db`,
   public data only). In the manager the wallet is watch-only: the core derives signing keys from
   the phrase on unlock and forgets them on lock. Locking no longer stops the sync: the history
@@ -65,7 +65,7 @@ acceptance), a credit transfer to one's own Platform address. Pitfalls:
 
 ## Next
 
-1. ~~Quorum keys from our SPV~~ — done: `real/provider.rs` (`SpvContextProvider`, like
+1. ~~Quorum keys from our SPV~~ — done: `evolite-chain/src/provider.rs` (`SpvContextProvider`, like
    `SpvProvider` in DET). Live test `live_spv_proved_read`: masternode lists from scratch in 78 s,
    proved DPNS reads passed. The plan was: quorum keys for verifying Platform proofs come from our
    SPV (`SpvRuntime::get_quorum_public_key`, verified quorums only), not from a trusted HTTP
@@ -80,7 +80,7 @@ acceptance), a credit transfer to one's own Platform address. Pitfalls:
    an explanation: a name gives an identity, not a Core address — that is a DashPay contact
    (step 5).
 3. ~~Identities: search by phrase on sign-in, creation through an asset lock, name
-   registration~~ — done (`real/identity.rs`, `chain.rs`):
+   registration~~ — done (`evolite-chain/src/identity.rs`, `chain.rs`):
    - After an unlock or a new wallet, the core searches for the phrase's identities in the
      background (`discover_from_master`, slots from 0 up to a gap) as soon as the masternode lists
      are loaded. platform-wallet puts what it finds into the store together with DPNS names. The
@@ -131,7 +131,7 @@ acceptance), a credit transfer to one's own Platform address. Pitfalls:
      of the first identity's credits went to its own Platform address and to the name of a second
      identity of the same phrase; after a sync the Platform address balance grew from 10,000 to
      20,000 duff. The withdrawal to Core was not checked live.
-5. ~~DashPay~~ — done (Figma screens 19–23; `real/dashpay.rs`, `real/avatars.rs`, `chain.rs`):
+5. ~~DashPay~~ — done (Figma screens 19–23; `evolite-chain/src/dashpay.rs`, `real/avatars.rs`, `chain.rs`):
    - DashPay sync is platform-wallet's background `dashpay_sync` (requests both ways, profiles,
      payments, every 15 s); it starts together with the Platform address sync.
    - The DIP-15 key work (ECDH, account reference, contactInfo) is a `SeedCrypto` from the
@@ -153,7 +153,7 @@ acceptance), a credit transfer to one's own Platform address. Pitfalls:
      to a second identity of the same phrase was sent and shows as outgoing. Accepting a request
      and paying a contact were not checked live in this core: they need a second party (acceptance
      and a B↔C contact were checked earlier with a probe on the same revision).
-6. ~~Jembe NFTs~~ — done, display only (`real/nfts.rs`, `chain.rs`: `jembe_gifts`):
+6. ~~Jembe NFTs~~ — done, display only (`evolite-chain/src/nfts.rs`, `chain.rs`: `jembe_gifts`):
    - The `jembe-nft` contract on testnet is `8WdoxVsS2gh8enEhzSZPtGSxmbDs4SDadeLzqoRt3b3A`
      (`contracts/deployments.json` in Jembe, `testnet:nft`). A `gift` is a numbered copy that can
      be transferred and sold; a `giftModel` holds the title, description, picture (raw deflate;

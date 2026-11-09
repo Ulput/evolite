@@ -1,0 +1,16 @@
+[package]
+name = "evolite-art"
+description = "NFT pictures and avatars for the core: asks the sandboxed renderer, keeps what it drew."
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+evolite-api = { path = "../evolite-api" }
+evolite-common = { path = "../evolite-common" }
+# NFT pictures: drawn in a sandboxed worker process, never in the app's own.
+evolite-render = { path = "../evolite-render" }
+sha2 = { version = "0.10", default-features = false }
+
+[lints]
+workspace = true

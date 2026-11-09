@@ -8,68 +8,37 @@
 
 #![forbid(unsafe_code)]
 
-/// Marks interface text (a reason the screens show): the literal as it is, in English, the key
-/// of the catalogs in `evolite-ui/locales`, which `extract.pl` collects from these marks.
-macro_rules! tr {
-    ($text:literal) => {
-        $text
-    };
-}
+#[cfg(feature = "real")]
+#[macro_use]
+extern crate evolite_common;
 
-mod art;
-mod art_cache;
-pub mod attempts;
-pub mod bip39;
-pub mod diag;
-mod dpns;
-pub(crate) mod layers;
+#[cfg(feature = "real")]
+use evolite_art as art;
+pub use evolite_art::ArtOptions;
+#[cfg(feature = "real")]
+pub use evolite_chain::network;
+#[cfg(all(test, feature = "real"))]
+pub(crate) use evolite_chain::{test_env, test_name};
+#[cfg(not(feature = "real"))]
+pub use evolite_common::network;
+#[cfg(feature = "real")]
+use evolite_common::phrase_check;
+#[cfg(feature = "real")]
+pub(crate) use evolite_common::{PASSWORD_NEEDED, dpns, layers};
+pub use evolite_common::{attempts, bip39, diag, note_text};
 #[cfg(any(feature = "demo", not(feature = "real"), test))]
-mod mock;
+use evolite_demo as mock;
 /// The password the demo core refuses (the UI tests' "Wrong password").
 #[cfg(any(feature = "demo", not(feature = "real"), test))]
 pub use mock::WRONG_PASSWORD as DEMO_WRONG_PASSWORD;
-/// A spend without the password while "password for every send" is on (the screen did not
-/// ask): the same refusal from the demo and the real core.
-pub(crate) const PASSWORD_NEEDED: &str =
-    tr!("This wallet asks for the password for every send — enter it and try again");
-pub mod network;
-/// What a payment note may hold: the form and the core keep the same rules (FEAT-0003).
-pub mod note_text;
-#[cfg(feature = "real")]
-mod phrase_check;
 #[cfg(feature = "real")]
 mod real;
 
 use evolite_api::{Command, Event};
+#[cfg(feature = "real")]
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::mpsc::{Receiver, Sender, channel};
-
-/// How NFT pictures are drawn and kept.
-#[derive(Clone, Debug, Default)]
-pub struct ArtOptions {
-    /// Where drawn pictures are kept between runs; `None`: drawn again every time.
-    pub cache: Option<PathBuf>,
-    /// The renderer process; `None`: `evolite-renderer` next to the app (Win32k off), or the
-    /// app itself with `--render-worker`.
-    pub worker: Option<evolite_render::Settings>,
-    /// No pictures at all: no renderer process and nothing kept, `worker` and `cache` aside
-    /// ([`Self::off`]).
-    pub off: bool,
-}
-
-impl ArtOptions {
-    /// Pictures are not drawn: no renderer process is started and nothing is written to the
-    /// disk. For the UI tests: their executable is not the app (it would be started as the
-    /// renderer), and they must not write to the user's folder.
-    pub fn off() -> Self {
-        Self {
-            cache: None,
-            worker: None,
-            off: true,
-        }
-    }
-}
 
 /// The UI's end of the core: send commands, drain events.
 pub struct Core {
@@ -162,27 +131,6 @@ impl Core {
             watch: Default::default(),
         }
     }
-}
-
-/// A value from `.env.test.local` at the workspace root (never committed): the live tests'
-/// phrases and the names of the test accounts stay out of the repository.
-#[cfg(all(test, feature = "real"))]
-pub(crate) fn test_env(key: &str) -> Option<zeroize::Zeroizing<String>> {
-    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.env.test.local");
-    let text = zeroize::Zeroizing::new(std::fs::read_to_string(path).ok()?);
-    text.lines()
-        .filter_map(|l| l.split_once('='))
-        .find(|(k, _)| k.trim() == key)
-        .map(|(_, v)| zeroize::Zeroizing::new(v.trim().trim_matches('"').to_owned()))
-        .filter(|v| !v.is_empty())
-}
-
-/// A test account's DPNS name from `.env.test.local`, without the `@`.
-#[cfg(all(test, feature = "real"))]
-pub(crate) fn test_name(key: &str) -> String {
-    test_env(key)
-        .map(|v| v.trim_start_matches('@').to_owned())
-        .unwrap_or_else(|| panic!("{key} in .env.test.local"))
 }
 
 #[cfg(all(test, feature = "real"))]

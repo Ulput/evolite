@@ -17,30 +17,10 @@
 //! Calls into platform-wallet are in [`chain`] and its neighbours (`identity`, `dashpay`, `pool`,
 //! …). Tests are in `tests/`, by area.
 
-mod address_book;
-mod app_chain;
-mod app_connect;
 mod app_jobs;
-mod attempts;
 mod avatars;
-mod chain;
-mod connected_apps;
-mod contact_addresses;
-mod convert;
-mod core_balance;
-mod dashpay;
 mod dispatch;
-mod folders;
-mod hidden_requests;
-mod identity;
-mod journal;
-mod json_file;
 mod lifecycle;
-mod mempool;
-mod mined;
-mod nfts;
-mod node;
-mod notes;
 mod ops_core;
 mod ops_dashpay;
 mod ops_identity;
@@ -50,21 +30,9 @@ mod ops_notes;
 mod ops_pool;
 mod ops_wallet;
 mod outgoing;
-mod pending;
-mod platform_history;
 mod platform_sending;
-mod pool;
-mod pool_history;
-mod provider;
-mod rates;
 mod run;
-mod security;
 mod snapshot;
-mod store;
-mod sync;
-mod turn;
-mod vault;
-mod wallets;
 
 use lifecycle::*;
 use ops_core::*;
@@ -80,9 +48,11 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, Sender};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 
 use evolite_api::*;
+pub(crate) use evolite_chain::keys_of;
+use evolite_common::{hex, now, wall_secs};
 use key_wallet::mnemonic::{Language, Mnemonic};
 use key_wallet::wallet::managed_wallet_info::wallet_info_interface::WalletInfoInterface;
 use key_wallet_manager::WalletId;
@@ -99,6 +69,15 @@ use dpp::address_funds::PlatformAddress;
 use dpp::identity::accessors::IdentityGettersV0;
 use dpp::platform_value::string_encoding::Encoding;
 use dpp::prelude::Identifier;
+use evolite_chain::{
+    app_connect, chain, convert, dashpay, identity, mined, nfts, platform_history, pool, store,
+    sync, turn,
+};
+use evolite_local::{
+    address_book, attempts, connected_apps, contact_addresses, core_balance, folders,
+    hidden_requests, journal, mempool, node, notes, pending, pool_history, rates, security, vault,
+    wallets,
+};
 use sync::{Phase, SyncStatus};
 use vault::{KdfParams, VaultError, VaultMeta};
 
@@ -216,42 +195,14 @@ struct Unlocked {
     seed: Option<Zeroizing<[u8; 64]>>,
 }
 
-/// Signing keys from the phrase; key-wallet's `Wallet` signs Core transactions itself.
-pub(crate) fn keys_of(phrase: &str) -> Result<key_wallet::Wallet, CoreError> {
-    let mnemonic = Mnemonic::from_phrase(phrase).map_err(|_| CoreError::BadPhrase)?;
-    key_wallet::Wallet::from_mnemonic(
-        mnemonic,
-        crate::network::dash(),
-        key_wallet::wallet::initialization::WalletAccountCreationOptions::Default,
-    )
-    .map_err(|_| CoreError::BadPhrase)
-}
-
 /// The phrase's BIP-39 seed (no passphrase), zeroed when dropped.
 fn seed_of(phrase: &str) -> Result<Zeroizing<[u8; 64]>, CoreError> {
     let mnemonic = Mnemonic::from_phrase(phrase).map_err(|_| CoreError::BadPhrase)?;
     Ok(Zeroizing::new(mnemonic.to_seed("")))
 }
 
-fn now() -> Timestamp {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |d| d.as_secs() as Timestamp)
-}
-
-/// The wall clock in Unix seconds, as the wrong-password count keeps it (FEAT-0002).
-fn wall_secs() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |d| d.as_secs())
-}
-
 /// Said when the open wallet is not (or no longer) in platform-wallet.
 const NOT_LOADED: &str = tr!("The wallet is not loaded");
-
-fn hex(bytes: &[u8]) -> String {
-    bytes.iter().map(|b| format!("{b:02x}")).collect()
-}
 
 /// The chain of the wallet a wallet is being added from, kept running while the onboarding
 /// lasts (BUG-76): watch-only, its keys gone with its core's lock. "Back" gives it to the next

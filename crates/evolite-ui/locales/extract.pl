@@ -14,7 +14,7 @@ use File::Find;
 binmode STDOUT, ':encoding(UTF-8)';
 
 my %keys;
-my @dirs = ('crates/evolite-ui/src', 'crates/evolite-core/src', 'crates/evolite-api/src');
+my @dirs = map { "crates/$_/src" } qw(evolite-ui evolite-core evolite-api evolite-chain evolite-art evolite-common evolite-demo evolite-local);
 my $lit = qr/"((?:[^"\\]|\\.)*)"/s;
 
 find(sub {

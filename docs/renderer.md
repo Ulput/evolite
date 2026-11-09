@@ -177,7 +177,7 @@ does not drag 512 px frames along. `render(bytes)` — the picture's own size.
 An NFT in the API carries not the picture's bytes but its key — a SHA-256 (`Nft::art`). The
 interface decodes nothing: for each card it asks for `Command::DrawArt { art, side }`, where
 `side` is the card's width in screen pixels (accounting for the scale), rounded up to 32, at most
-1024. The core (`evolite-core/src/art.rs`) draws pictures one at a time on a separate thread
+1024. The core (`evolite-art/src/lib.rs`) draws pictures one at a time on a separate thread
 through the sandboxed renderer (`evolite.exe --render-worker`) and answers with `Event::Art`
 carrying frames (`Picture`). The interface (`evolite-ui/src/art.rs`) turns frames into textures,
 runs the animation on egui's clock and asks for repaints only for visible cards. While a picture
@@ -190,7 +190,7 @@ Order in the core: first pictures from the disk cache; then the first frame of e
 (`urgent`), and it is shown at once (`Event::Art { partial: true }`); then whole animations. A
 single frame with `delay_ms` 0 is a static picture; nothing follows it.
 
-The disk cache (`evolite-core/src/art_cache.rs`): the user's cache folder
+The disk cache (`evolite-art/src/art_cache.rs`): the user's cache folder
 (`%LOCALAPPDATA%\evolite\art\r<renderer version>`, `~/.cache/evolite/…`,
 `~/Library/Caches/evolite/…`), a file per key and size, with frames compressed (LZ4) the way the
 interface takes them. The core writes it, not the renderer; on reading, sizes are checked against

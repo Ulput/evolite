@@ -1,0 +1,56 @@
+[package]
+name = "evolite-chain"
+description = "evolite's wrappers of dash-spv, platform-wallet and the Platform SDK: the chain, the store and what is read from Platform."
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[features]
+# The shielded pool (Orchard proofs: orchard, halo2 and friends, a large share of a clean build).
+pool = ["platform-wallet/shielded", "platform-wallet-storage/shielded"]
+# What this crate's own tests have, for the core's tests: counters of what the chain did, the
+# `Chain::open_store_only` start, the live tests' `.env.test.local`. Never in the app.
+test-support = []
+
+[dependencies]
+evolite-api = { path = "../evolite-api" }
+evolite-art = { path = "../evolite-art" }
+evolite-common = { path = "../evolite-common" }
+evolite-local = { path = "../evolite-local" }
+evolite-render = { path = "../evolite-render" }
+# rust-dashcore and Platform at Dash Evo Tool's revisions: see the workspace manifest.
+dash-spv = { workspace = true }
+key-wallet = { workspace = true }
+# keep-finalized-transactions: without it key-wallet drops the records of chainlocked
+# transactions (only their txids stay) and expects the host to keep the history.
+key-wallet-manager = { workspace = true, features = ["keep-finalized-transactions"] }
+dash-sdk = { workspace = true }
+dapi-grpc = { workspace = true }
+dpp = { workspace = true }
+platform-wallet = { workspace = true }
+platform-wallet-storage = { workspace = true }
+simple-signer = { workspace = true }
+platform-encryption = { workspace = true }
+# The wallet's history straight from platform-wallet's store (read only): the store keeps it, but
+# platform-wallet does not load it back into the wallet after a restart. Same version as the store.
+rusqlite = "0.38"
+# The store's record format: bincode (Platform's fork, its version) of key-wallet's TransactionRecord.
+bincode = { package = "grovedb-bincode", version = "=2.1.0", features = ["serde"] }
+# key-wallet's signer traits are async_trait ones.
+async-trait = "0.1"
+# App sign-in (key exchange): the login key's derivations and its envelope, as the apps do them.
+aes-gcm = "0.10"
+hkdf = "0.12"
+getrandom = "0.3"
+zeroize = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+tokio = { version = "1", features = ["sync", "macros", "rt-multi-thread", "time", "net"] }
+sha2 = { version = "0.10", default-features = false }
+miniz_oxide = "0.8"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["test-util"] }
+
+[lints]
+workspace = true

@@ -106,13 +106,18 @@ lints ask for.
 
 ## Architecture
 
-Four crates in one workspace; the boundary between the interface and the wallet is the types in
+Nine crates in one workspace; the boundary between the interface and the wallet is the types in
 `evolite-api`.
 
 | Crate | What is inside | What is not there |
 |---|---|---|
 | `crates/evolite-api` | Commands (`Command`), answers (`Event`), a snapshot of everything the screens show (`Snapshot`). Amounts are in duffs, times in Unix seconds. The phrase and the password have their own types: they are never printed and are wiped (`zeroize`). | Logic, and a type for a private key: keys never leave the core. |
-| `crates/evolite-core` | The wallet on its own thread. `Core::real` (`real/`) — dash-spv, storage (`vault.rs`), Platform through platform-wallet and dash-sdk (`chain.rs`), DashPay, identities, the pool, apps, NFTs, wallets (`wallets.rs`). `Core::mock` (`mock/`) — the demo with the example from the mockups. `diag` — the journal for problem reports. | egui. |
+| `crates/evolite-common` | What every part of the core shares, with no Platform stack: the network this process runs on, the diagnostic journal, the rules of names, payment notes and phrases, which balances a line of history moves. | The wallet's files, the chain. |
+| `crates/evolite-art` | NFT pictures and avatars for the core: asks the sandboxed renderer, keeps what it drew. | Decoding: that is `evolite-render`, in its own process. |
+| `crates/evolite-demo` | The demo core: the example wallet from Figma behind the same commands. | Keys, the network. |
+| `crates/evolite-local` | The files of a wallet's folder: the vault, the list of wallets, what the wallet did, notes, the small JSON files. | The chain, Platform. |
+| `crates/evolite-chain` | dash-spv, platform-wallet and dash-sdk behind our wrappers: the chain and its sync, the store, identities, DashPay, the pool, NFTs, apps, and turning what they report into what the screens show. | The operations and the core's state. |
+| `crates/evolite-core` | The wallet on its own thread. `Core::real` (`real/`): the wallet's state and its operations (payments, identities, DashPay, the pool, apps), over `evolite-chain` and `evolite-local`. `Core::mock`, from `evolite-demo`, — the demo with the example from the mockups. `diag` — the journal for problem reports. | egui. |
 | `crates/evolite-render` | The renderer for untrusted pictures (SVG with SMIL and CSS animation, PNG, JPEG, GIF, WebP, GLB) in a separate sandboxed process — `docs/renderer.md`. | Keys, the network, the user's files. |
 | `crates/evolite-ui` | Screens in egui (the `evolite` binary) and the renderer without window code (`evolite-renderer`, placed alongside). | Keys, the network, the wallet's files on disk. |
 
