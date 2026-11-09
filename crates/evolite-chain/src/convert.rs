@@ -2,7 +2,7 @@
 //! the one address check before paying.
 
 use evolite_api::*;
-use key_wallet::dashcore::address::{Address, NetworkUnchecked};
+use key_wallet::dashcore::address::{Address, AddressType, NetworkUnchecked};
 use key_wallet::managed_account::transaction_record::{
     OutputRole, TransactionDirection, TransactionRecord,
 };
@@ -118,13 +118,33 @@ pub fn sync_info(s: &SyncStatus, wallet: bool) -> SyncInfo {
     }
 }
 
-/// A testnet Core address to pay to; a mainnet one is refused, not converted.
+/// A testnet Core address to pay to; a mainnet one is refused, not converted. Only P2PKH and
+/// P2SH: a witness address parses too, but a payment to it could never be spent (R-3).
 pub fn payee(to: &str) -> Result<Address<NetworkUnchecked>, CoreError> {
     to.trim()
         .parse::<Address<NetworkUnchecked>>()
         .ok()
         .filter(|a| a.is_valid_for_network(crate::network::dash()))
+        .filter(|a| {
+            matches!(
+                a.assume_checked_ref().address_type(),
+                Some(AddressType::P2pkh | AddressType::P2sh)
+            )
+        })
         .ok_or(CoreError::BadAddress)
+}
+
+/// Whether `amount` to `to` is below the dust limit: the network does not relay such an output, and
+/// its inputs would stay reserved for nothing (R-4). `None`: an address not known yet, a
+/// contact's, which is always P2PKH.
+pub fn is_dust(to: Option<&Address>, amount: u64) -> bool {
+    use key_wallet::dashcore::hashes::Hash;
+    use key_wallet::dashcore::{PubkeyHash, ScriptBuf};
+    let script = match to {
+        Some(address) => address.script_pubkey(),
+        None => ScriptBuf::new_p2pkh(&PubkeyHash::all_zeros()),
+    };
+    amount < script.dust_value().to_sat()
 }
 
 /// Why `to` is no address at all — a typo, a missing or extra character (its checksum does
@@ -1359,6 +1379,58 @@ mod tests {
         assert!(not_an_address("not an address").is_some());
         assert_eq!(not_an_address("XpESxaUmonkq8RaLLp46Brx2K39ggQe226"), None);
         assert_eq!(not_an_address(" yMrDQWqicXKL8xdJg23oYVVqKNtm5AwvXQ "), None);
+    }
+
+    /// R-3: a witness address parses, and Dash has no witness outputs that a wallet could spend:
+    /// money sent there is gone. P2PKH and P2SH are the two kinds of Core address there are.
+    #[test]
+    fn pays_only_addresses_a_dash_wallet_can_spend() {
+        use key_wallet::dashcore::address::Payload;
+        use key_wallet::dashcore::bech32::{self, ToBase32, Variant, u5};
+        use key_wallet::dashcore::hashes::Hash;
+        use key_wallet::dashcore::{Network, ScriptHash};
+        // As an address of a testnet witness program is written: `td1…`. (The library prints them
+        // with `tb1`, which it does not read back.)
+        let witness = |version: u8, length: usize, variant| {
+            let mut data = vec![u5::try_from_u8(version).unwrap()];
+            data.extend(vec![1u8; length].to_base32());
+            bech32::encode("td", data, variant).unwrap()
+        };
+        for to in [
+            witness(0, 20, Variant::Bech32),
+            witness(0, 32, Variant::Bech32),
+            witness(1, 32, Variant::Bech32m),
+        ] {
+            let parsed = to.parse::<Address<NetworkUnchecked>>();
+            assert!(
+                parsed.is_ok_and(|a| a.is_valid_for_network(Network::Testnet)),
+                "{to}"
+            );
+            assert_eq!(payee(&to).err(), Some(CoreError::BadAddress), "{to}");
+        }
+        let script = ScriptHash::from_byte_array([3; 20]);
+        let p2sh = Address::new(Network::Testnet, Payload::ScriptHash(script)).to_string();
+        assert!(payee(&p2sh).is_ok(), "{p2sh}");
+    }
+
+    /// R-4: the limit is Dash Core's, by the kind of output: 546 duffs for P2PKH, 540 for P2SH.
+    #[test]
+    fn a_payment_below_the_dust_limit_is_too_small() {
+        use key_wallet::dashcore::address::Payload;
+        use key_wallet::dashcore::hashes::Hash;
+        use key_wallet::dashcore::{Network, PubkeyHash, ScriptHash};
+        let p2pkh = Address::new(
+            Network::Testnet,
+            Payload::PubkeyHash(PubkeyHash::from_byte_array([2; 20])),
+        );
+        let p2sh = Address::new(
+            Network::Testnet,
+            Payload::ScriptHash(ScriptHash::from_byte_array([3; 20])),
+        );
+        for (to, limit) in [(Some(&p2pkh), 546), (Some(&p2sh), 540), (None, 546)] {
+            assert!(is_dust(to, limit - 1), "{to:?} below");
+            assert!(!is_dust(to, limit), "{to:?} at the limit");
+        }
     }
 
     #[test]

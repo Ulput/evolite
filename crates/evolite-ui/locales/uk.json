@@ -1258,6 +1258,8 @@
   "since {}": "з {}",
   "still receive payments": "і далі приймають платежі",
   "the amount must be more than zero": "сума має бути більшою за нуль",
+  "Part of your balance is not confirmed yet: try again in a minute": "Частину балансу ще не підтверджено: спробуйте за хвилину",
+  "This amount is too small: the network does not relay so small a payment": "Сума занадто мала: мережа не передає такі малі платежі",
   "the identity is made, but the name @{} was not written: {}": "identity створено, але ім'я @{} не записано: {}",
   "the link is not a picture: PNG, JPEG, GIF, WebP or SVG is needed": "за посиланням не картинка: потрібен PNG, JPEG, GIF, WebP або SVG",
   "the mail app did not open: save the report to a folder and send it yourself": "поштова програма не відкрилася: збережіть звіт у теку й надішліть його самі",

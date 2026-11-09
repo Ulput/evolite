@@ -1255,6 +1255,8 @@
   "since {}": "{}부터",
   "still receive payments": "계속 결제를 받습니다",
   "the amount must be more than zero": "금액은 0보다 커야 합니다",
+  "Part of your balance is not confirmed yet: try again in a minute": "잔액의 일부가 아직 확인되지 않았습니다: 1분 후에 다시 시도하세요",
+  "This amount is too small: the network does not relay so small a payment": "금액이 너무 적습니다: 네트워크는 이렇게 적은 결제를 전달하지 않습니다",
   "the identity is made, but the name @{} was not written: {}": "신원은 만들어졌지만 이름 @{}은(는) 기록되지 않았습니다: {}",
   "the link is not a picture: PNG, JPEG, GIF, WebP or SVG is needed": "링크가 그림이 아닙니다: PNG, JPEG, GIF, WebP 또는 SVG가 필요합니다",
   "the mail app did not open: save the report to a folder and send it yourself": "메일 프로그램이 열리지 않았습니다: 보고서를 폴더에 저장해 직접 보내세요",

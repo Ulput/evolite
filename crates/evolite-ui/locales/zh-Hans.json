@@ -1255,6 +1255,8 @@
   "since {}": "自 {} 起",
   "still receive payments": "仍可接收付款",
   "the amount must be more than zero": "金额必须大于零",
+  "Part of your balance is not confirmed yet: try again in a minute": "部分余额尚未确认：请一分钟后重试",
+  "This amount is too small: the network does not relay so small a payment": "金额太小：网络不会转发这么小的付款",
   "the identity is made, but the name @{} was not written: {}": "身份已创建，但名称 @{} 未写入：{}",
   "the link is not a picture: PNG, JPEG, GIF, WebP or SVG is needed": "链接不是图片：需要 PNG、JPEG、GIF、WebP 或 SVG",
   "the mail app did not open: save the report to a folder and send it yourself": "邮件程序没有打开：请将报告保存到文件夹并自行发送",

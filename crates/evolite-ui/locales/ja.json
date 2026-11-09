@@ -1255,6 +1255,8 @@
   "since {}": "{} から",
   "still receive payments": "引き続き支払いを受け取れます",
   "the amount must be more than zero": "金額は 0 より大きくしてください",
+  "Part of your balance is not confirmed yet: try again in a minute": "残高の一部はまだ確認されていません: 1 分後にもう一度お試しください",
+  "This amount is too small: the network does not relay so small a payment": "金額が小さすぎます: ネットワークはこれほど小さな支払いを中継しません",
   "the identity is made, but the name @{} was not written: {}": "アイデンティティは作成されましたが、名前 @{} は書き込まれていません：{}",
   "the link is not a picture: PNG, JPEG, GIF, WebP or SVG is needed": "リンク先が画像ではありません：PNG、JPEG、GIF、WebP、SVG が必要です",
   "the mail app did not open: save the report to a folder and send it yourself": "メールアプリが開きませんでした。レポートをフォルダーに保存してご自身で送ってください",

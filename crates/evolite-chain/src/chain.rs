@@ -429,6 +429,14 @@ pub struct Paid {
     pub relayed: bool,
 }
 
+/// A payment of `amount` to `to`, not yet funded: of final coins only (in a block or
+/// InstantSend-locked), as an InstantSend lock of this payment needs them too (R-5).
+pub fn payment_builder(to: &Address, amount: u64) -> TransactionBuilder {
+    TransactionBuilder::new()
+        .require_final_inputs()
+        .add_output(to, amount)
+}
+
 impl Chain {
     /// Whether the InstantLock of `txid` was verified in this run (R-1, BUG-26).
     pub fn instant_lock_verified(&self, txid: &key_wallet::dashcore::Txid) -> bool {
@@ -2077,7 +2085,7 @@ impl Chain {
         to: &Address,
         amount: u64,
     ) -> Result<Paid, String> {
-        let builder = TransactionBuilder::new().add_output(to, amount);
+        let builder = payment_builder(to, amount);
         let signed = wallet
             .core()
             .finalize_transaction(builder, &SEND_FUNDING_SOURCES, 0, keys)
@@ -2299,6 +2307,44 @@ pub fn creation_step_of(status: Option<&AssetLockStatus>) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// R-5: a coin that is neither in a block nor InstantSend-locked is not spent: its parent may
+    /// never be mined, and the payment with it. Only such inputs can get an InstantSend lock.
+    #[test]
+    fn a_payment_spends_only_final_coins() {
+        use key_wallet::dashcore::address::Payload;
+        use key_wallet::dashcore::hashes::Hash;
+        use key_wallet::dashcore::{Network, OutPoint, PubkeyHash, TxOut, Txid};
+        let address = Address::new(
+            Network::Testnet,
+            Payload::PubkeyHash(PubkeyHash::from_byte_array([2; 20])),
+        );
+        let build = |confirmed: bool, instant: bool, trusted: bool| {
+            let mut coin = key_wallet::Utxo::new(
+                OutPoint::new(Txid::from_byte_array([1; 32]), 0),
+                TxOut {
+                    value: 5_000_000,
+                    script_pubkey: address.script_pubkey(),
+                },
+                address.clone(),
+                100,
+                false,
+            );
+            coin.is_confirmed = confirmed;
+            coin.is_instantlocked = instant;
+            coin.is_trusted = trusted;
+            payment_builder(&address, 1_000_000)
+                .set_current_height(200)
+                .set_change_address(address.clone())
+                .add_inputs([coin])
+                .build_unsigned_reserved()
+                .is_ok()
+        };
+        assert!(build(true, false, false), "in a block");
+        assert!(build(false, true, false), "InstantSend-locked");
+        assert!(!build(false, false, false), "someone's, unconfirmed");
+        assert!(!build(false, false, true), "own change, not locked yet");
+    }
     use std::time::{Duration, Instant};
 
     /// BUG-57 r1: a lock is «added» after a restart only by a consumed row of this wallet in

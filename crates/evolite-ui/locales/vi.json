@@ -1255,6 +1255,8 @@
   "since {}": "từ {}",
   "still receive payments": "vẫn nhận thanh toán",
   "the amount must be more than zero": "số tiền phải lớn hơn không",
+  "Part of your balance is not confirmed yet: try again in a minute": "Một phần số dư của bạn chưa được xác nhận: hãy thử lại sau một phút",
+  "This amount is too small: the network does not relay so small a payment": "Số tiền này quá nhỏ: mạng không chuyển tiếp khoản thanh toán nhỏ như vậy",
   "the identity is made, but the name @{} was not written: {}": "danh tính đã được tạo, nhưng tên @{} chưa được ghi: {}",
   "the link is not a picture: PNG, JPEG, GIF, WebP or SVG is needed": "liên kết không phải hình: cần PNG, JPEG, GIF, WebP hoặc SVG",
   "the mail app did not open: save the report to a folder and send it yourself": "ứng dụng thư không mở: hãy lưu báo cáo vào thư mục và tự gửi",

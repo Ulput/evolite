@@ -1256,6 +1256,8 @@
   "since {}": "{} tarihinden beri",
   "still receive payments": "ödeme almaya devam eder",
   "the amount must be more than zero": "tutar sıfırdan büyük olmalı",
+  "Part of your balance is not confirmed yet: try again in a minute": "Bakiyenizin bir kısmı henüz onaylanmadı: bir dakika sonra yeniden deneyin",
+  "This amount is too small: the network does not relay so small a payment": "Bu tutar çok küçük: ağ bu kadar küçük ödemeleri iletmez",
   "the identity is made, but the name @{} was not written: {}": "kimlik oluşturuldu ama @{} adı yazılmadı: {}",
   "the link is not a picture: PNG, JPEG, GIF, WebP or SVG is needed": "bağlantı bir resim değil: PNG, JPEG, GIF, WebP veya SVG gerekli",
   "the mail app did not open: save the report to a folder and send it yourself": "posta uygulaması açılmadı: raporu bir klasöre kaydedip kendiniz gönderin",

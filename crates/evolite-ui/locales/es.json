@@ -1257,6 +1257,8 @@
   "since {}": "desde {}",
   "still receive payments": "siguen recibiendo pagos",
   "the amount must be more than zero": "el importe debe ser mayor que cero",
+  "Part of your balance is not confirmed yet: try again in a minute": "Parte de tu saldo aún no está confirmada: inténtalo de nuevo en un minuto",
+  "This amount is too small: the network does not relay so small a payment": "Este importe es demasiado pequeño: la red no retransmite pagos tan pequeños",
   "the identity is made, but the name @{} was not written: {}": "la identidad está creada, pero el nombre @{} no se escribió: {}",
   "the link is not a picture: PNG, JPEG, GIF, WebP or SVG is needed": "el enlace no es una imagen: hace falta PNG, JPEG, GIF, WebP o SVG",
   "the mail app did not open: save the report to a folder and send it yourself": "el programa de correo no se abrió: guarde el informe en una carpeta y envíelo usted",

@@ -1255,6 +1255,8 @@
   "since {}": "sejak {}",
   "still receive payments": "tetap menerima pembayaran",
   "the amount must be more than zero": "jumlah harus lebih dari nol",
+  "Part of your balance is not confirmed yet: try again in a minute": "Sebagian saldo Anda belum dikonfirmasi: coba lagi dalam satu menit",
+  "This amount is too small: the network does not relay so small a payment": "Jumlah ini terlalu kecil: jaringan tidak meneruskan pembayaran sekecil ini",
   "the identity is made, but the name @{} was not written: {}": "identitas sudah dibuat, tetapi nama @{} belum ditulis: {}",
   "the link is not a picture: PNG, JPEG, GIF, WebP or SVG is needed": "tautan bukan gambar: perlu PNG, JPEG, GIF, WebP, atau SVG",
   "the mail app did not open: save the report to a folder and send it yourself": "aplikasi surel tidak terbuka: simpan laporan ke folder dan kirim sendiri",

@@ -2,6 +2,13 @@
 
 use super::*;
 
+/// A payment below the dust limit (R-4).
+const TOO_SMALL: &str =
+    tr!("This amount is too small: the network does not relay so small a payment");
+
+/// Money that is there but not final yet (R-5).
+const NOT_SETTLED: &str = tr!("Part of your balance is not confirmed yet: try again in a minute");
+
 impl Real {
     /// Who a Core payment to `to` goes to: a testnet address, or an established contact by name
     /// or — one without a name — by its identity id.
@@ -144,6 +151,13 @@ impl Real {
             ),
         };
         let amount = positive_duffs(amount)?;
+        let address = match &payee {
+            CorePayee::Address(address) => Some(address),
+            CorePayee::Contact(_) => None,
+        };
+        if convert::is_dust(address, amount) {
+            return Err(CoreError::NotAvailable(TOO_SMALL.into()));
+        }
         // Coins are known only after the filters have been checked up to the tip.
         let status = self.chain.status();
         if !coins_known(&status, true) || status.phase == Phase::Error {
@@ -151,6 +165,11 @@ impl Real {
         }
         let wallet = loaded(&self.chain, &id).await?;
         core_pays(&wallet, amount).await?;
+        coins_settled(
+            &wallet.state().await.core_wallet,
+            amount,
+            matches!(payee, CorePayee::Contact(_)),
+        )?;
         let keys = self
             .unlocked
             .as_ref()
@@ -278,6 +297,53 @@ pub(super) fn core_failure(text: String) -> CoreError {
     } else {
         CoreError::Failed(text)
     }
+}
+
+/// Whether a payment of `amount` can go now without a coin that is not final: neither in a block
+/// nor InstantSend-locked (R-5). `contact`: such a payment is built by platform-wallet, which takes
+/// any coin, largest first: it waits only if that walk reaches someone's coin that is not final.
+/// A coin no block ever takes stays in the wallet without end, so one the payment would not take
+/// must not stop it.
+pub(super) fn coins_settled(
+    info: &key_wallet::wallet::ManagedWalletInfo,
+    amount: u64,
+    contact: bool,
+) -> Result<(), CoreError> {
+    let waiting = || CoreError::NotAvailable(NOT_SETTLED.into());
+    let coins = convert::coins_once(info);
+    let is_final = |coin: &&key_wallet::Utxo| coin.is_confirmed || coin.is_instantlocked;
+    if contact {
+        let risky = |coin: &&key_wallet::Utxo| !is_final(coin) && !coin.is_trusted;
+        let mut by_value = coins;
+        // As `LargestFirst` takes them; of equal ones, the worse first.
+        by_value.sort_by_key(|coin| (std::cmp::Reverse(coin.value()), !risky(coin)));
+        let steps = convert::core_coins(by_value.iter().map(|c| c.value()).collect());
+        let mut taken = 0;
+        for (coin, step) in by_value.iter().zip(&steps) {
+            if risky(coin) {
+                return Err(waiting());
+            }
+            taken += coin.value();
+            if taken >= amount + step.fee as u64 {
+                break;
+            }
+        }
+        return Ok(());
+    }
+    let values: Vec<u64> = coins
+        .iter()
+        .filter(|c| is_final(c))
+        .map(|c| c.value())
+        .collect();
+    if values.len() == coins.len() {
+        return Ok(());
+    }
+    let settled: u64 = values.iter().sum();
+    let fee = payment_fee(values, amount as Duffs) as u64;
+    if settled < amount + fee {
+        return Err(waiting());
+    }
+    Ok(())
 }
 
 /// A positive amount of duffs, as the chain takes it.
