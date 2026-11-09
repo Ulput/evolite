@@ -108,7 +108,7 @@ fn a_wrong_password_says_which_operation_did_not_happen() {
         .next()
         .expect("no «Register»")
         .click();
-    let said = crate::components::wrong_text(Some("name"));
+    let said = crate::components::wrong_text(Some(evolite_api::DoneWhat::Name));
     wait_for(&mut kit, "the wrong-password line", |kit| {
         has_text(kit, said)
     });
@@ -261,7 +261,20 @@ fn a_refused_payment_comes_into_view_on_the_form() {
     assert!(line.bottom() <= 480.0, "{line:?} past the window");
 }
 
-/// BUG-92 r1, must 1: `Event::Sent` does not say whose answer it is. With an earlier payment
+/// R-10 r1 must 2: every payment signed gets the next number, and the core's answer says it back.
+#[test]
+fn each_payment_signed_has_its_own_number() {
+    let (_turn, mut kit) = demo_app("send-confirm", "en");
+    ask_every_time(&mut kit);
+    assert_eq!(kit.state().send.last_payment, 0);
+    sign_with(&mut kit, "right");
+    assert_eq!(kit.state().send.last_payment, 1);
+    wait_for(&mut kit, "the answer to that number", |kit| {
+        kit.state().send.waiting == 0
+    });
+}
+
+/// BUG-92 r1, must 1: with an earlier payment
 /// still unanswered the dialog does not wait: it closes at once, as before BUG-92, and that
 /// payment's «wrong password», arriving now, goes to the form. Waiting would have left «not
 /// signed» and «Sign and send» on screen with this payment already queued: a double send.
@@ -279,7 +292,7 @@ fn with_another_payment_unanswered_the_last_look_does_not_wait() {
     }
     kit.state_mut()
         .send
-        .on_sent(&Err(evolite_api::CoreError::WrongPassword));
+        .on_sent(0, &Err(evolite_api::CoreError::WrongPassword));
     kit.run_steps(3);
     assert!(!kit.state().send.confirming, "no dialog comes back");
     assert!(!kit.state().send.password_wrong, "nothing said at a field");
@@ -336,7 +349,7 @@ fn can_check_and_send(kit: &Kit) -> bool {
 }
 
 /// BUG-92 r2, must 2: payment A unanswered, B signed and queued behind it, then A's «wrong
-/// password»: `Event::Sent` does not say whose it is. The form must not offer to send again —
+/// password». The form must not offer to send again —
 /// no amount back, «Check and send» off — and A's refusal is still said, in sight. With «Max»
 /// too, which would fill the amount again.
 #[test]
@@ -350,12 +363,13 @@ fn a_refusal_with_another_payment_out_does_not_offer_to_send_again() {
             send.signed = std::mem::take(&mut send.amount);
             send.suggested = None;
             send.max = max;
+            send.last_payment = 2;
             send.waiting = 2;
         }
         kit.run_steps(3);
         kit.state_mut()
             .send
-            .on_sent(&Err(evolite_api::CoreError::WrongPassword));
+            .on_sent(1, &Err(evolite_api::CoreError::WrongPassword));
         kit.run_steps(30);
         assert!(!can_check_and_send(&kit), "max {max}: the button is live");
         let send = &kit.state().send;

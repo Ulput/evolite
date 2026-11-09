@@ -38,6 +38,11 @@ pub struct SendForm {
     /// Payments signed and with the network; each answer comes as `Event::Sent`. The form is free
     /// meanwhile: a payment on its way is in the history as "Being sent".
     pub waiting: u32,
+    /// The number of the last payment handed to the core: its answer ([`Event::Sent`]) is told
+    /// from an earlier one's by it (ids only grow, also across a form replaced).
+    pub last_payment: u64,
+    /// The last payment whose own answer has come: after it an earlier one's changes nothing.
+    pub last_answered: u64,
     /// The amount as typed for the last payment signed: cleared from the form at once, put back
     /// if the core refuses it.
     pub signed: String,
@@ -108,9 +113,13 @@ impl SendForm {
     /// goes on saying that their answer is coming (and about which kind of payment).
     pub fn replace(&mut self, next: SendForm) {
         let waiting = self.waiting;
+        let last_payment = self.last_payment;
+        let last_answered = self.last_answered;
         let sent_to = std::mem::take(&mut self.sent_to);
         *self = SendForm {
             waiting,
+            last_payment,
+            last_answered,
             sent_to,
             ..next
         };
@@ -143,38 +152,46 @@ impl SendForm {
         }
     }
 
-    pub fn on_sent(&mut self, result: &Result<SentPayment, CoreError>) {
+    pub fn on_sent(&mut self, id: u64, result: &Result<SentPayment, CoreError>) {
+        // A number this form never gave.
+        if id > self.last_payment {
+            return;
+        }
         self.waiting = self.waiting.saturating_sub(1);
+        // What the form holds (the amount, the note, the recipient) is the last payment's.
+        let last = id == self.last_payment;
+        // An earlier payment's answer, after the last one's: that line and that form stay.
+        if !last && self.last_answered == self.last_payment {
+            return;
+        }
+        if last {
+            self.last_answered = id;
+        }
         // The last look was held open for this answer (BUG-92).
-        let held = self.signing.take().is_some();
-        if result.is_err() && self.waiting > 0 {
-            // Another payment is still out and an answer does not say whose it is: this refusal
-            // may be an earlier payment's while the last one goes through. Nothing comes back
-            // to send a second time (BUG-92 r2); what was signed last waits for its own answer.
-            // «Max» would fill the amount again; an amount typed since is the person's.
-            if self.max {
-                self.max = false;
-                self.amount.clear();
-            }
-        } else {
+        let held = last && self.signing.take().is_some();
+        if last {
+            // Not sent: the form has it again (AC-A3); sent: the core keeps the note with it.
             if result.is_err() && self.amount.is_empty() {
                 self.amount = std::mem::take(&mut self.signed);
             }
-            // Not sent: the note was kept nowhere, the form has it again (AC-A3). Sent: the core
-            // keeps it with the payment.
             if result.is_err() && self.note.is_empty() {
                 self.note = std::mem::take(&mut self.signed_note);
             } else {
                 self.signed_note.zeroize();
             }
-        }
-        // Gone: "To" is cleared for the next payment, unless the person already typed another.
-        if result.is_ok() && self.recipient.trim() == self.sent_to.trim() {
-            self.recipient.clear();
-            self.naming = None;
-            self.book_error = None;
+            // Gone: "To" is cleared for the next payment, unless the person already typed another.
+            if result.is_ok() && self.recipient.trim() == self.sent_to.trim() {
+                self.recipient.clear();
+                self.naming = None;
+                self.book_error = None;
+                self.max = false;
+                self.signed.clear();
+            }
+        } else if result.is_err() && self.max {
+            // An earlier payment's refusal gives nothing back to send a second time (BUG-92 r2).
+            // «Max» would fill the amount again; an amount typed since is the person's.
             self.max = false;
-            self.signed.clear();
+            self.amount.clear();
         }
         if held && matches!(result, Err(CoreError::WrongPassword)) {
             // Nothing was sent: the dialog stays, the error at its field, the password to correct.
@@ -186,6 +203,11 @@ impl SendForm {
         if held {
             self.confirming = false;
             self.password.zeroize();
+        }
+        // One line for the answers, and the last payment's own is what it says. An earlier
+        // payment's «sent» does not take the place of a refusal already there.
+        if !last && result.is_ok() && matches!(self.result, Some(Err(_))) {
+            return;
         }
         // Under the buttons, which may be below the window's edge at 1024×768 (BUG-92).
         self.reveal_result = result.is_err();
@@ -420,6 +442,8 @@ impl Default for SendForm {
             asked_at: None,
             confirming: false,
             waiting: 0,
+            last_payment: 0,
+            last_answered: 0,
             signed: String::new(),
             sent_to: String::new(),
             naming: None,
@@ -1765,8 +1789,10 @@ fn confirm(
     if send_now {
         form.sent_to = to.clone();
         // The password goes to the core and is wiped here at once.
+        form.last_payment += 1;
         cx.send(Command::Spend {
             op: Spend::Send {
+                id: form.last_payment,
                 from: source.source,
                 to,
                 amount,
@@ -1931,16 +1957,19 @@ mod tests {
         form.type_note("rent");
         form.signed_note = std::mem::take(&mut form.note);
         form.waiting = 1;
-        form.on_sent(&Err(CoreError::NotEnough));
+        form.on_sent(0, &Err(CoreError::NotEnough));
         assert_eq!(form.note, "rent");
         form.signed_note = std::mem::take(&mut form.note);
         form.waiting = 1;
-        form.on_sent(&Ok(SentPayment {
-            txid: "aa".into(),
-            amount: 1,
-            fee: 1,
-            relayed: true,
-        }));
+        form.on_sent(
+            0,
+            &Ok(SentPayment {
+                txid: "aa".into(),
+                amount: 1,
+                fee: 1,
+                relayed: true,
+            }),
+        );
         assert!(form.note.is_empty() && form.signed_note.is_empty());
         form.type_note("typed, not sent");
         form.on_lock();
@@ -2246,12 +2275,13 @@ mod tests {
     fn a_refused_payment_gives_its_amount_back() {
         let mut form = SendForm {
             waiting: 2,
+            last_payment: 2,
             signed: "0,25".into(),
             ..SendForm::empty()
         };
         // Another payment is still out: this answer may be that one's, nothing comes back (BUG-92
         // r2), and what was signed last stays for its own answer.
-        form.on_sent(&Err(CoreError::NotEnough));
+        form.on_sent(1, &Err(CoreError::NotEnough));
         assert_eq!((form.waiting, form.amount.as_str()), (1, ""));
         assert_eq!(form.signed, "0,25");
         assert!(
@@ -2259,17 +2289,20 @@ mod tests {
             "the refusal is said"
         );
         // The last one out: it is the payment's own answer, its amount comes back.
-        form.on_sent(&Err(CoreError::NotEnough));
+        form.on_sent(2, &Err(CoreError::NotEnough));
         assert_eq!((form.waiting, form.amount.as_str()), (0, "0,25"));
         // Taken: the form stays as the person left it.
         form.waiting = 1;
         form.amount = "0,1".into();
-        form.on_sent(&Ok(SentPayment {
-            txid: "aa".into(),
-            amount: 1,
-            fee: 1,
-            relayed: true,
-        }));
+        form.on_sent(
+            2,
+            &Ok(SentPayment {
+                txid: "aa".into(),
+                amount: 1,
+                fee: 1,
+                relayed: true,
+            }),
+        );
         assert_eq!((form.waiting, form.amount.as_str()), (0, "0,1"));
     }
 
@@ -2280,13 +2313,14 @@ mod tests {
     fn a_refusal_with_another_payment_out_gives_nothing_back() {
         let mut form = SendForm {
             waiting: 2,
+            last_payment: 2,
             signed: "0,25".into(),
             signed_note: "for B".into(),
             max: true,
             amount: "1,5".into(),
             ..SendForm::empty()
         };
-        form.on_sent(&Err(CoreError::WrongPassword));
+        form.on_sent(1, &Err(CoreError::WrongPassword));
         assert!(
             !form.max && form.amount.is_empty(),
             "«Max» does not refill it"
@@ -2299,11 +2333,182 @@ mod tests {
 
         let mut typed = SendForm {
             waiting: 2,
+            last_payment: 2,
             amount: "0,7".into(),
             ..SendForm::empty()
         };
-        typed.on_sent(&Err(CoreError::WrongPassword));
+        typed.on_sent(1, &Err(CoreError::WrongPassword));
         assert_eq!(typed.amount, "0,7");
+    }
+
+    /// TECH-sent-id: the answer says whose it is, so a refusal of the last payment gives its amount
+    /// and note back even with an earlier one still out.
+    #[test]
+    fn the_last_payments_refusal_comes_back_with_another_still_out() {
+        let mut form = SendForm {
+            waiting: 2,
+            last_payment: 2,
+            signed: "0,25".into(),
+            signed_note: "for B".into(),
+            ..SendForm::empty()
+        };
+        form.on_sent(2, &Err(CoreError::NotEnough));
+        assert_eq!((form.waiting, form.amount.as_str()), (1, "0,25"));
+        assert_eq!(form.note, "for B");
+    }
+
+    /// Two payments out, A and B (the last): a form as the last look leaves it after signing B.
+    fn two_out() -> SendForm {
+        SendForm {
+            waiting: 2,
+            last_payment: 2,
+            signed: "0,25".into(),
+            signed_note: "for B".into(),
+            recipient: ADDRESS.into(),
+            sent_to: ADDRESS.into(),
+            ..SendForm::empty()
+        }
+    }
+
+    fn sent() -> Result<SentPayment, CoreError> {
+        Ok(SentPayment {
+            txid: "aa".into(),
+            amount: 1,
+            fee: 1,
+            relayed: true,
+        })
+    }
+
+    /// R-10 r1 must 1: A taken says nothing of B, which is refused after it.
+    #[test]
+    fn an_earlier_payment_taken_leaves_the_last_ones_refusal_its_amount() {
+        let mut form = two_out();
+        form.on_sent(1, &sent());
+        assert_eq!(form.recipient, ADDRESS, "B's recipient stays");
+        assert_eq!(form.signed, "0,25", "B's amount waits for its answer");
+        form.on_sent(2, &Err(CoreError::NotEnough));
+        assert_eq!(
+            (form.amount.as_str(), form.note.as_str()),
+            ("0,25", "for B")
+        );
+        assert!(matches!(form.result, Some(Err(CoreError::NotEnough))));
+    }
+
+    /// R-10 r1 must 1: B refused stays said when A is taken after it: B did not go.
+    #[test]
+    fn an_earlier_payment_taken_does_not_replace_the_last_ones_refusal() {
+        let mut form = two_out();
+        form.on_sent(2, &Err(CoreError::NotEnough));
+        form.on_sent(1, &sent());
+        assert!(matches!(form.result, Some(Err(CoreError::NotEnough))));
+        assert_eq!(form.recipient, ADDRESS, "to try B again");
+        assert_eq!(form.waiting, 0);
+    }
+
+    /// R-10 r2 must 4: what the person sees is the last payment's own answer, also after an earlier
+    /// one was refused: a payment that left is never hidden behind another's «not signed».
+    #[test]
+    fn the_last_payments_own_answer_is_what_is_shown() {
+        let mut form = two_out();
+        form.on_sent(1, &Err(CoreError::WrongPassword));
+        form.on_sent(2, &sent());
+        assert!(matches!(form.result, Some(Ok(_))));
+        assert!(!form.reveal_result);
+        assert!(form.recipient.is_empty(), "B went");
+
+        // With no clear answer from the network: «Do not send it again» has to be seen.
+        let mut unclear = two_out();
+        unclear.on_sent(1, &Err(CoreError::WrongPassword));
+        let not_relayed = Ok(SentPayment {
+            txid: String::new(),
+            amount: 1,
+            fee: 0,
+            relayed: false,
+        });
+        unclear.on_sent(2, &not_relayed);
+        assert!(matches!(
+            unclear.result,
+            Some(Ok(SentPayment { relayed: false, .. }))
+        ));
+    }
+
+    /// R-10 r3 should 4: once the last payment has answered, an earlier payment's answer does not
+    /// touch that line: not «Do not send it again», and not an amount that came back.
+    #[test]
+    fn a_late_answer_of_an_earlier_payment_leaves_the_last_ones_alone() {
+        let unclear = || {
+            Ok(SentPayment {
+                txid: String::new(),
+                amount: 1,
+                fee: 0,
+                relayed: false,
+            })
+        };
+        let lasts = [sent(), unclear(), Err(CoreError::NotEnough)];
+        for last in &lasts {
+            for late in [sent(), Err(CoreError::WrongPassword)] {
+                let mut form = SendForm {
+                    max: true,
+                    ..two_out()
+                };
+                form.on_sent(2, last);
+                let amount = form.amount.clone();
+                form.on_sent(1, &late);
+                assert_eq!(
+                    format!("{:?}", form.result),
+                    format!("{:?}", Some(last)),
+                    "{late:?}"
+                );
+                assert_eq!(form.reveal_result, last.is_err(), "{late:?}");
+                assert_eq!(form.amount, amount, "{late:?}");
+                assert_eq!(form.waiting, 0);
+            }
+        }
+    }
+
+    /// R-10 r1 should 2: A's refusal after B was answered gives nothing back.
+    #[test]
+    fn a_late_refusal_of_an_earlier_payment_gives_nothing_back() {
+        let mut form = two_out();
+        form.on_sent(2, &sent());
+        form.signed = "0,25".into();
+        form.on_sent(1, &Err(CoreError::NotEnough));
+        assert_eq!((form.waiting, form.amount.as_str()), (0, ""));
+    }
+
+    /// R-10 r1 should 1: a number this form never gave is nobody's here.
+    #[test]
+    fn an_answer_of_an_unknown_payment_changes_nothing() {
+        let mut form = SendForm {
+            signing: Some(std::time::Instant::now()),
+            ..two_out()
+        };
+        form.on_sent(99, &Err(CoreError::WrongPassword));
+        assert_eq!(form.waiting, 2);
+        assert!(form.signing.is_some() && form.result.is_none());
+    }
+
+    /// R-10 r1 should 1: only the last payment's answer ends the wait of the dialog.
+    #[test]
+    fn an_earlier_answer_does_not_end_the_wait_of_the_last_look() {
+        let mut form = SendForm {
+            signing: Some(std::time::Instant::now()),
+            confirming: true,
+            ..two_out()
+        };
+        form.on_sent(1, &Err(CoreError::WrongPassword));
+        assert!(form.signing.is_some() && form.confirming && !form.password_wrong);
+    }
+
+    /// R-10 r1 must 2: the number outlives a form replaced, or a new payment would take an old one's.
+    #[test]
+    fn a_new_form_keeps_the_payment_number() {
+        let mut form = SendForm {
+            last_payment: 7,
+            ..SendForm::empty()
+        };
+        form.replace(SendForm::paying(Source::Credits, "yX".into()));
+        assert_eq!(form.last_payment, 7);
     }
 
     #[test]
@@ -2361,7 +2566,7 @@ mod tests {
             ..SendForm::default()
         };
         let mut form = held();
-        form.on_sent(&Err(CoreError::WrongPassword));
+        form.on_sent(0, &Err(CoreError::WrongPassword));
         assert!(form.confirming && form.signing.is_none() && form.password_wrong);
         assert!(form.refocus_password && !form.reveal_result);
         assert!(form.result.is_none(), "not said twice");
@@ -2370,18 +2575,21 @@ mod tests {
         assert_eq!(form.waiting, 0);
 
         let mut form = held();
-        form.on_sent(&Err(CoreError::NotEnough));
+        form.on_sent(0, &Err(CoreError::NotEnough));
         assert!(!form.confirming && form.password.is_empty());
         assert!(form.reveal_result && !form.password_wrong);
         assert_eq!(form.result, Some(Err(CoreError::NotEnough)));
 
         let mut form = held();
-        form.on_sent(&Ok(SentPayment {
-            txid: "ab".into(),
-            amount: 1,
-            fee: 1,
-            relayed: true,
-        }));
+        form.on_sent(
+            0,
+            &Ok(SentPayment {
+                txid: "ab".into(),
+                amount: 1,
+                fee: 1,
+                relayed: true,
+            }),
+        );
         assert!(!form.confirming && form.password.is_empty());
         assert!(!form.reveal_result, "a success does not move the form");
 
@@ -2390,7 +2598,7 @@ mod tests {
             waiting: 1,
             ..SendForm::default()
         };
-        form.on_sent(&Err(CoreError::WrongPassword));
+        form.on_sent(0, &Err(CoreError::WrongPassword));
         assert!(form.reveal_result && !form.password_wrong);
         assert_eq!(form.result, Some(Err(CoreError::WrongPassword)));
     }
@@ -2408,7 +2616,7 @@ mod tests {
         form.replace(SendForm::paying(Source::Credits, "yX".into()));
         assert_eq!(form.waiting, 1);
         assert_eq!((form.recipient.as_str(), form.amount.as_str()), ("yX", ""));
-        form.on_sent(&Err(CoreError::NotEnough));
+        form.on_sent(0, &Err(CoreError::NotEnough));
         assert_eq!(form.waiting, 0);
     }
 
@@ -2510,10 +2718,11 @@ mod tests {
             max: true,
             ..SendForm::empty()
         };
-        form.on_sent(&Err(CoreError::NotEnough));
+        form.on_sent(0, &Err(CoreError::NotEnough));
         assert_eq!(form.recipient, ADDRESS, "refused: the person may try again");
+        form.result = None; // «Check and send» again
         form.waiting = 1;
-        form.on_sent(&taken());
+        form.on_sent(0, &taken());
         assert!(form.recipient.is_empty() && !form.max);
         assert!(
             matches!(form.result, Some(Ok(_))),
@@ -2526,7 +2735,7 @@ mod tests {
             waiting: 1,
             ..SendForm::empty()
         };
-        next.on_sent(&taken());
+        next.on_sent(0, &taken());
         assert_eq!(next.recipient, "@bob", "the next payment typed meanwhile");
     }
 
@@ -2551,7 +2760,7 @@ mod tests {
         assert!(form.result.is_none() && form.naming.is_none() && !form.max);
         assert_eq!((form.source, form.waiting), (0, 1));
         // The answer of the payment with the network gives no amount back after the lock.
-        form.on_sent(&Err(CoreError::NotEnough));
+        form.on_sent(0, &Err(CoreError::NotEnough));
         assert!(form.amount.is_empty());
     }
 }

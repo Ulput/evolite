@@ -7,21 +7,22 @@ impl Real {
     async fn spend(&mut self, op: Spend) -> (Option<Event>, bool) {
         let event = match op {
             Spend::Send {
+                id,
                 from,
                 to,
                 amount,
                 note,
-            } => match self.send(from, &to, amount, note).await {
+            } => match self.send(id, from, &to, amount, note).await {
                 // The answer comes from the broadcast task.
                 Ok(()) => return (None, true),
-                Err(e) => Event::Sent(Err(e)),
+                Err(e) => Event::Sent { id, result: Err(e) },
             },
             Spend::CreateIdentity { name, top_up } => {
                 match self.create_identity(name.as_deref(), top_up).await {
                     // The answer comes from the background task.
                     Ok(()) => return (None, true),
                     Err(e) => Event::Done {
-                        what: "identity",
+                        what: DoneWhat::Identity,
                         result: Err(e),
                     },
                 }
@@ -29,7 +30,7 @@ impl Real {
             Spend::ResumeIdentity => match self.resume_identity().await {
                 Ok(()) => return (None, true),
                 Err(e) => Event::Done {
-                    what: "identity",
+                    what: DoneWhat::Identity,
                     result: Err(e),
                 },
             },
@@ -39,18 +40,18 @@ impl Real {
                     fraction: 0.0,
                 },
                 Err(e) => Event::Done {
-                    what: "shield",
+                    what: DoneWhat::Shield,
                     result: Err(e),
                 },
             },
             Spend::GiftNft { .. } => Event::Done {
-                what: "gift",
+                what: DoneWhat::Gift,
                 result: Err(CoreError::NotAvailable(NO_GIFTS.into())),
             },
             Spend::AddContact { name } => match self.add_contact(&name) {
                 Ok(()) => return (None, false),
                 Err(e) => Event::Done {
-                    what: "contact",
+                    what: DoneWhat::Contact,
                     result: Err(e),
                 },
             },
@@ -58,7 +59,7 @@ impl Real {
                 match self.contact_job(&identity_id, ContactJob::Accept) {
                     Ok(()) => return (None, false),
                     Err(e) => Event::Done {
-                        what: "contact",
+                        what: DoneWhat::Contact,
                         result: Err(e),
                     },
                 }
@@ -70,7 +71,7 @@ impl Real {
             } => match self.save_profile(display, about, avatar_url) {
                 Ok(()) => return (None, false),
                 Err(e) => Event::Done {
-                    what: "profile",
+                    what: DoneWhat::Profile,
                     result: Err(e),
                 },
             },
@@ -78,14 +79,14 @@ impl Real {
                 // The answer comes from the background task.
                 Ok(()) => return (None, true),
                 Err(e) => Event::Done {
-                    what: "top-up",
+                    what: DoneWhat::TopUp,
                     result: Err(e),
                 },
             },
             Spend::ResumeTopUp => match self.resume_top_up() {
                 Ok(()) => return (None, true),
                 Err(e) => Event::Done {
-                    what: "top-up",
+                    what: DoneWhat::TopUp,
                     result: Err(e),
                 },
             },
@@ -95,7 +96,7 @@ impl Real {
                     fraction: 0.0,
                 },
                 Err(e) => Event::Done {
-                    what: "unshield",
+                    what: DoneWhat::Unshield,
                     result: Err(e),
                 },
             },
@@ -105,14 +106,14 @@ impl Real {
                     fraction: 0.0,
                 },
                 Err(e) => Event::Done {
-                    what: "pool-top-up",
+                    what: DoneWhat::PoolTopUp,
                     result: Err(e),
                 },
             },
             Spend::AddName { name } => match self.add_name(&name).await {
                 Ok(()) => return (None, true),
                 Err(e) => Event::Done {
-                    what: "name",
+                    what: DoneWhat::Name,
                     result: Err(e),
                 },
             },
@@ -120,11 +121,11 @@ impl Real {
                 // The answer comes from the background task.
                 Ok(true) => return (None, true),
                 Ok(false) => Event::Done {
-                    what: "app",
+                    what: DoneWhat::App,
                     result: Ok(()),
                 },
                 Err(e) => Event::Done {
-                    what: "app",
+                    what: DoneWhat::App,
                     result: Err(e),
                 },
             },
@@ -139,19 +140,19 @@ impl Real {
                 return self.use_phrase(phrase, dashpay).await;
             }
             Command::CreateWallet { .. } if self.leftovers => Event::Done {
-                what: "create",
+                what: DoneWhat::Create,
                 result: Err(CoreError::NotAvailable(LEFTOVERS.into())),
             },
             Command::CreateWallet { password } => Event::Done {
-                what: "create",
+                what: DoneWhat::Create,
                 result: self.create(&password).await,
             },
             Command::Unlock { password } => Event::Done {
-                what: "unlock",
+                what: DoneWhat::Unlock,
                 result: self.unlock_counted(&password).await,
             },
             Command::Lock => Event::Done {
-                what: "lock",
+                what: DoneWhat::Lock,
                 result: self.lock().await,
             },
             Command::AutoLock { after_secs } => {
@@ -175,7 +176,7 @@ impl Real {
                 return (None, true);
             }
             Command::ChangePassword { old, new } => Event::Done {
-                what: "password",
+                what: DoneWhat::Password,
                 result: self.change_password(&old, &new).await,
             },
             Command::RevealPhrase { password, wallet } => {
@@ -202,7 +203,7 @@ impl Real {
                 match self.contact_job(&identity_id, ContactJob::Hide) {
                     Ok(()) => return (None, false),
                     Err(e) => Event::Done {
-                        what: "contact",
+                        what: DoneWhat::Contact,
                         result: Err(e),
                     },
                 }
@@ -216,7 +217,7 @@ impl Real {
             Command::DisconnectApp { id } => match self.disconnect_app(&id) {
                 Ok(()) => return (None, true),
                 Err(e) => Event::Done {
-                    what: "disconnect",
+                    what: DoneWhat::Disconnect,
                     result: Err(e),
                 },
             },
@@ -229,17 +230,17 @@ impl Real {
                 return self.spend(op).await;
             }
             Command::SetPasswordEachSend { on, password } => Event::Done {
-                what: "password-each-send",
+                what: DoneWhat::PasswordEachSend,
                 result: self.set_password_each_send(on, password.as_ref()).await,
             },
             // Turning a request down spends nothing: no password.
             Command::DeclineApp { id } => match self.answer_app(id, false) {
                 Ok(_) => Event::Done {
-                    what: "app",
+                    what: DoneWhat::App,
                     result: Ok(()),
                 },
                 Err(e) => Event::Done {
-                    what: "app",
+                    what: DoneWhat::App,
                     result: Err(e),
                 },
             },
@@ -251,7 +252,7 @@ impl Real {
                     .map_err(CoreError::NotAvailable);
                 self.dirty.store(true, Ordering::Relaxed);
                 Event::Done {
-                    what: "address-book",
+                    what: DoneWhat::AddressBook,
                     result,
                 }
             }
@@ -287,17 +288,17 @@ impl Real {
                 match wallet.filter(|id| *id != self.wallet) {
                     // Another wallet: not "delete", which the app takes for the open one gone.
                     Some(id) => Event::Done {
-                        what: "delete-other",
+                        what: DoneWhat::DeleteOther,
                         result: self.delete_other(&id, password.as_ref()).await,
                     },
                     None => Event::Done {
-                        what: "delete",
+                        what: DoneWhat::Delete,
                         result: self.delete_wallet(password.as_ref()).await,
                     },
                 }
             }
             Command::Resync => Event::Done {
-                what: "resync",
+                what: DoneWhat::Resync,
                 result: self.ask_resync().await,
             },
             Command::SwitchWallet { id, password } => {
@@ -326,7 +327,7 @@ impl Real {
                 let changed = result.is_ok();
                 return (
                     Some(Event::Done {
-                        what: "note",
+                        what: DoneWhat::Note,
                         result,
                     }),
                     changed,

@@ -474,7 +474,7 @@ impl Real {
                     Event::NewPhrase(Phrase::new(words))
                 }
                 Err(_) => Event::Done {
-                    what: "create",
+                    what: DoneWhat::Create,
                     result: Err(CoreError::BadPhrase),
                 },
             }
@@ -540,7 +540,7 @@ impl Real {
             return match password {
                 Some(password) if self.unlocked.is_none() => (
                     Some(Event::Done {
-                        what: "switch",
+                        what: DoneWhat::Switch,
                         result: self.unlock_counted(&password).await,
                     }),
                     true,
@@ -556,7 +556,7 @@ impl Real {
                 Err(e) => {
                     return (
                         Some(Event::Done {
-                            what: "switch",
+                            what: DoneWhat::Switch,
                             result: Err(e),
                         }),
                         true,
@@ -597,7 +597,7 @@ impl Real {
                 ))
             };
             Event::Done {
-                what: "wallet",
+                what: DoneWhat::Wallet,
                 result,
             }
         };

@@ -21,7 +21,7 @@ use zeroize::{Zeroize, Zeroizing};
 #[derive(Default)]
 pub struct UnlockForm {
     pub password: Zeroizing<String>,
-    /// The password is with the core; the answer comes as `Done { what: "unlock" }` (or
+    /// The password is with the core; the answer comes as `Done { what: DoneWhat::Unlock }` (or
     /// `"switch"` for another wallet chosen).
     pub waiting: bool,
     /// When the password went (`ui.input` time): "Opening… N s" counts while the core works

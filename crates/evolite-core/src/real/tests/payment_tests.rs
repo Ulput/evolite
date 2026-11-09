@@ -72,25 +72,25 @@ async fn credits_refuse_bad_payees_before_asking_the_network() {
     let testnet = address(crate::network::dash());
     assert!(testnet.starts_with("tdash1"), "{testnet}");
     assert_eq!(
-        core.send(Source::Credits, &mainnet, 1_000, None).await,
+        core.send(0, Source::Credits, &mainnet, 1_000, None).await,
         Err(CoreError::BadAddress)
     );
     assert_eq!(
-        core.send(Source::Credits, "@a_b", 1_000, None).await,
+        core.send(0, Source::Credits, "@a_b", 1_000, None).await,
         Err(CoreError::BadName)
     );
     assert_eq!(
-        core.send(Source::Credits, &testnet, 0, None).await,
+        core.send(0, Source::Credits, &testnet, 0, None).await,
         Err(CoreError::BadAmount)
     );
     // A good payee gets as far as the network: proofs cannot be checked yet.
     assert_eq!(
-        core.send(Source::Credits, &testnet, 1_000, None).await,
+        core.send(0, Source::Credits, &testnet, 1_000, None).await,
         Err(CoreError::NotSynced)
     );
     // From Core a Platform address is refused with the reason, not as a bad address.
     assert!(matches!(
-        core.send(Source::Core, &testnet, 1_000, None).await,
+        core.send(0, Source::Core, &testnet, 1_000, None).await,
         Err(CoreError::NotAvailable(_))
     ));
 }
@@ -115,7 +115,7 @@ async fn a_disconnect_is_not_taken_for_an_answer_to_a_request() {
     assert!(matches!(
         event,
         Some(Event::Done {
-            what: "disconnect",
+            what: DoneWhat::Disconnect,
             ..
         })
     ));
@@ -151,7 +151,7 @@ async fn app_links_are_checked_before_anything_is_signed() {
     assert!(matches!(
         event,
         Some(Event::Done {
-            what: "app",
+            what: DoneWhat::App,
             result: Ok(())
         })
     ));
@@ -159,7 +159,7 @@ async fn app_links_are_checked_before_anything_is_signed() {
     assert!(matches!(
         event,
         Some(Event::Done {
-            what: "app",
+            what: DoneWhat::App,
             result: Err(CoreError::NotAvailable(_))
         })
     ));
@@ -220,13 +220,13 @@ async fn a_dust_payment_is_refused_before_it_is_built() {
     let mut core = core_with_vault("dust", "pw");
     assert_eq!(core.unlock(&pw("pw")).await, Ok(()));
     const TO: &str = "yMrDQWqicXKL8xdJg23oYVVqKNtm5AwvXQ";
-    let below = core.send(Source::Core, TO, 545, None).await;
+    let below = core.send(0, Source::Core, TO, 545, None).await;
     assert!(
         matches!(&below, Err(CoreError::NotAvailable(why)) if why.contains("too small")),
         "{below:?}"
     );
     assert_eq!(
-        core.send(Source::Core, TO, 546, None).await,
+        core.send(0, Source::Core, TO, 546, None).await,
         Err(CoreError::NotSynced)
     );
 }
@@ -382,4 +382,43 @@ fn an_instantsend_locked_coin_is_final() {
     assert_eq!(coins_settled(&locked, 2_000_000, false), Ok(()));
     let only_locked = wallet_of_coins(&[coin(5_000_000, LOCKED)]);
     assert_eq!(coins_settled(&only_locked, 2_000_000, true), Ok(()));
+}
+
+/// R-10 r1 should 2: a refusal, from the gate or from `send`, says the payment's own number.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_refused_payment_says_its_number_back() {
+    let send = |id, password| Command::Spend {
+        op: Spend::Send {
+            id,
+            from: Source::Core,
+            to: "yMrDQWqicXKL8xdJg23oYVVqKNtm5AwvXQ".into(),
+            amount: 1_000,
+            note: None,
+        },
+        password,
+    };
+    let mut core = core_with_vault("sent-id", "pw");
+    assert_eq!(core.unlock(&pw("pw")).await, Ok(()));
+    let (gate, _) = core.handle(send(7, Some(pw("wrong")))).await;
+    assert!(
+        matches!(
+            gate,
+            Some(Event::Sent {
+                id: 7,
+                result: Err(_)
+            })
+        ),
+        "{gate:?}"
+    );
+    let (not_synced, _) = core.handle(send(8, Some(pw("pw")))).await;
+    assert!(
+        matches!(
+            not_synced,
+            Some(Event::Sent {
+                id: 8,
+                result: Err(CoreError::NotSynced)
+            })
+        ),
+        "{not_synced:?}"
+    );
 }

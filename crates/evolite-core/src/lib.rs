@@ -136,7 +136,7 @@ impl Core {
 #[cfg(all(test, feature = "real"))]
 mod tests {
     use super::*;
-    use evolite_api::{Password, Spend, SyncStage, VaultState};
+    use evolite_api::{DoneWhat, Password, Spend, SyncStage, VaultState};
     use std::time::{Duration, Instant};
 
     fn wait_for<T>(core: &Core, minutes: u64, mut found: impl FnMut(&Event) -> Option<T>) -> T {
@@ -195,7 +195,7 @@ mod tests {
         });
         wait_for(&core, 5, |e| match e {
             Event::Done {
-                what: "unlock",
+                what: DoneWhat::Unlock,
                 result,
             } => Some(result.clone()),
             _ => None,
@@ -323,7 +323,7 @@ mod tests {
         });
         let result = wait_for(&core, 5, |e| match e {
             Event::Done {
-                what: "unlock",
+                what: DoneWhat::Unlock,
                 result,
             } => Some(result.clone()),
             Event::Snapshot(s) if s.sync.error.is_some() => {
@@ -388,7 +388,7 @@ mod tests {
             });
             wait_for(core, 5, |e| match e {
                 Event::Done {
-                    what: "create",
+                    what: DoneWhat::Create,
                     result,
                 } => Some(result.clone()),
                 _ => None,
@@ -401,7 +401,7 @@ mod tests {
             });
             wait_for(core, 2, |e| match e {
                 Event::Done {
-                    what: "delete",
+                    what: DoneWhat::Delete,
                     result,
                 } => Some(result.clone()),
                 _ => None,
@@ -515,7 +515,7 @@ mod tests {
             core.send(Command::Unlock { password });
             wait_for(core, 5, |e| match e {
                 Event::Done {
-                    what: "unlock",
+                    what: DoneWhat::Unlock,
                     result,
                 } => Some(result.clone()),
                 _ => None,
@@ -556,7 +556,7 @@ mod tests {
             });
             wait_for(core, 5, |e| match e {
                 Event::Done {
-                    what: "switch",
+                    what: DoneWhat::Switch,
                     result,
                 } => Some(result.clone()),
                 _ => None,
@@ -614,7 +614,7 @@ mod tests {
         });
         wait_for(&core, 5, |e| match e {
             Event::Done {
-                what: "create",
+                what: DoneWhat::Create,
                 result,
             } => Some(result.clone()),
             _ => None,
@@ -652,7 +652,7 @@ mod tests {
         });
         let wrong = wait_for(&core, 2, |e| match e {
             Event::Done {
-                what: "unlock",
+                what: DoneWhat::Unlock,
                 result,
             } => Some(result.clone()),
             _ => None,
@@ -663,7 +663,7 @@ mod tests {
         });
         wait_for(&core, 5, |e| match e {
             Event::Done {
-                what: "unlock",
+                what: DoneWhat::Unlock,
                 result,
             } => Some(result.clone()),
             _ => None,
@@ -755,13 +755,14 @@ mod tests {
         assert!(wallet.balances.core > 20_000, "the test wallet needs coins");
 
         core.send(spend(Spend::Send {
+            id: 0,
             from: evolite_api::Source::Core,
             to: wallet.core_address.clone(),
             amount: 10_000,
             note: None,
         }));
         let sent = wait_for(&core, 3, |e| match e {
-            Event::Sent(r) => Some(r.clone()),
+            Event::Sent { result: r, .. } => Some(r.clone()),
             _ => None,
         })
         .expect("payment signed and broadcast");
@@ -789,6 +790,7 @@ mod tests {
         let before: Vec<u64> = wallet.activity.iter().map(|a| a.id).collect();
         let started = Instant::now();
         core.send(spend(Spend::Send {
+            id: 0,
             from,
             to,
             amount,
@@ -801,7 +803,7 @@ mod tests {
         while started.elapsed() < Duration::from_secs(secs) {
             for event in core.events() {
                 match event {
-                    Event::Sent(r) => {
+                    Event::Sent { result: r, .. } => {
                         println!("{} ms: sent {r:?}", started.elapsed().as_millis());
                         sent = Some(r.expect("signed and taken"));
                     }
@@ -911,7 +913,7 @@ mod tests {
             });
             let wallets = wait_for(&core, 5, |e| match e {
                 Event::Done {
-                    what: "unlock",
+                    what: DoneWhat::Unlock,
                     result,
                 } => Some(result.clone()),
                 _ => None,
@@ -1426,7 +1428,7 @@ mod tests {
         }));
         let created = wait_for(&core, 15, |e| match e {
             Event::Done {
-                what: "identity",
+                what: DoneWhat::Identity,
                 result,
             } => Some(result.clone()),
             _ => None,
@@ -1504,7 +1506,7 @@ mod tests {
         }));
         wait_for(&core, 15, |e| match e {
             Event::Done {
-                what: "identity",
+                what: DoneWhat::Identity,
                 result,
             } => Some(result.clone()),
             _ => None,
@@ -1534,7 +1536,7 @@ mod tests {
         });
         wait_for(&core, 2, |e| match e {
             Event::Done {
-                what: "delete",
+                what: DoneWhat::Delete,
                 result,
             } => Some(result.clone()),
             _ => None,
@@ -1631,7 +1633,7 @@ mod tests {
             }));
             let accepted = wait_for(&core, 5, |e| match e {
                 Event::Done {
-                    what: "contact",
+                    what: DoneWhat::Contact,
                     result,
                 } => Some(result.clone()),
                 _ => None,
@@ -1678,13 +1680,14 @@ mod tests {
         .expect("the address the payment goes to");
         println!("preview: {to} -> {address}");
         core.send(spend(Spend::Send {
+            id: 0,
             from: evolite_api::Source::Core,
             to,
             amount: 10_000,
             note: None,
         }));
         let sent = wait_for(&core, 3, |e| match e {
-            Event::Sent(r) => Some(r.clone()),
+            Event::Sent { result: r, .. } => Some(r.clone()),
             _ => None,
         })
         .expect("payment to the contact signed and broadcast");
@@ -1746,13 +1749,14 @@ mod tests {
             let first = preview(&core, &to);
             println!("{to}: paying {first}");
             core.send(spend(Spend::Send {
+                id: 0,
                 from: evolite_api::Source::Core,
                 to: to.clone(),
                 amount: 10_000,
                 note: None,
             }));
             let sent = wait_for(&core, 3, |e| match e {
-                Event::Sent(r) => Some(r.clone()),
+                Event::Sent { result: r, .. } => Some(r.clone()),
                 _ => None,
             })
             .expect("payment to the contact signed and broadcast");
@@ -1774,7 +1778,7 @@ mod tests {
         });
         wait_for(&core, 5, |e| match e {
             Event::Done {
-                what: "unlock",
+                what: DoneWhat::Unlock,
                 result,
             } => Some(result.clone()),
             _ => None,
@@ -1824,7 +1828,7 @@ mod tests {
             core.send(Command::Resync);
             wait_for(&core, 2, |e| match e {
                 Event::Done {
-                    what: "resync",
+                    what: DoneWhat::Resync,
                     result,
                 } => Some(result.clone()),
                 _ => None,
@@ -1843,7 +1847,7 @@ mod tests {
         });
         wait_for(&core, 5, |e| match e {
             Event::Done {
-                what: "unlock",
+                what: DoneWhat::Unlock,
                 result,
             } => Some(result.clone()),
             _ => None,
@@ -2013,7 +2017,7 @@ mod tests {
         core.send(spend(Spend::TopUpIdentity { amount }));
         let done = wait_for(&core, 15, |e| match e {
             Event::Done {
-                what: "top-up",
+                what: DoneWhat::TopUp,
                 result,
             } => Some(result.clone()),
             _ => None,
@@ -2072,13 +2076,14 @@ mod tests {
         let second = format!("@{}", test_name("EVOLITE_TEST_NAME_2"));
         for to in [ready.platform_address.clone(), second] {
             core.send(spend(Spend::Send {
+                id: 0,
                 from: evolite_api::Source::Credits,
                 to: to.clone(),
                 amount: 10_000,
                 note: None,
             }));
             let sent = wait_for(&core, 3, |e| match e {
-                Event::Sent(r) => Some(r.clone()),
+                Event::Sent { result: r, .. } => Some(r.clone()),
                 _ => None,
             });
             println!("credits to {to}: {sent:?}");
@@ -2150,7 +2155,7 @@ mod tests {
         }));
         let saved = wait_for(&core, 5, |e| match e {
             Event::Done {
-                what: "profile",
+                what: DoneWhat::Profile,
                 result,
             } => Some(result.clone()),
             _ => None,
@@ -2175,7 +2180,7 @@ mod tests {
         }));
         let sent = wait_for(&core, 5, |e| match e {
             Event::Done {
-                what: "contact",
+                what: DoneWhat::Contact,
                 result,
             } => Some(result.clone()),
             _ => None,
@@ -2281,7 +2286,7 @@ mod tests {
         let started = Instant::now();
         let sent = wait_for(&core, 5, |e| match e {
             Event::Done {
-                what: "contact",
+                what: DoneWhat::Contact,
                 result,
             } => Some(result.clone()),
             _ => None,
@@ -2336,7 +2341,7 @@ mod tests {
         }));
         let again = wait_for(&core, 5, |e| match e {
             Event::Done {
-                what: "contact",
+                what: DoneWhat::Contact,
                 result,
             } => Some(result.clone()),
             _ => None,
@@ -2497,7 +2502,7 @@ mod tests {
         let node_saved = |core: &Core| {
             wait_for(core, 1, |e| match e {
                 Event::Done {
-                    what: "core-node",
+                    what: DoneWhat::CoreNode,
                     result,
                 } => Some(result.clone()),
                 _ => None,
@@ -2546,7 +2551,7 @@ mod tests {
         let node_saved = |core: &Core| {
             wait_for(core, 1, |e| match e {
                 Event::Done {
-                    what: "core-node",
+                    what: DoneWhat::CoreNode,
                     result,
                 } => Some(result.clone()),
                 _ => None,
@@ -2869,7 +2874,7 @@ mod tests {
         );
         let before = ready.balances.shielded;
 
-        let move_and_wait = |command: Command, what: &'static str| {
+        let move_and_wait = |command: Command, what: DoneWhat| {
             let started = Instant::now();
             core.send(command);
             let result = wait_for(&core, 15, |e| match e {
@@ -2884,7 +2889,7 @@ mod tests {
                 from: evolite_api::ShieldSource::Credits,
                 amount: 1_000_000,
             }),
-            "shield",
+            DoneWhat::Shield,
         );
         let shielded = wait_for(&core, 15, |e| match e {
             Event::Snapshot(s) => {
@@ -2895,7 +2900,10 @@ mod tests {
         });
         println!("in the pool now: {shielded} duffs");
 
-        move_and_wait(spend(Spend::Unshield { amount: 500_000 }), "unshield");
+        move_and_wait(
+            spend(Spend::Unshield { amount: 500_000 }),
+            DoneWhat::Unshield,
+        );
         let left = wait_for(&core, 15, |e| match e {
             Event::Snapshot(s) => {
                 let w = s.wallet.as_ref()?;
@@ -2946,7 +2954,7 @@ mod tests {
         }));
         let result = wait_for(&core, 15, |e| match e {
             Event::Done {
-                what: "shield",
+                what: DoneWhat::Shield,
                 result,
             } => Some(result.clone()),
             _ => None,
@@ -2995,13 +3003,14 @@ mod tests {
         assert!(ready.balances.shielded > 500_000, "the pool needs funds");
         let started = Instant::now();
         core.send(spend(Spend::Send {
+            id: 0,
             from: evolite_api::Source::Pool,
             to: ready.core_address.clone(),
             amount: 300_000,
             note: None,
         }));
         let sent = wait_for(&core, 15, |e| match e {
-            Event::Sent(r) => Some(r.clone()),
+            Event::Sent { result: r, .. } => Some(r.clone()),
             _ => None,
         });
         println!(
@@ -3065,7 +3074,7 @@ mod tests {
             fees.pool_transfer,
             fees.pool_withdrawal
         );
-        let step = |command: Command, what: &'static str| {
+        let step = |command: Command, what: DoneWhat| {
             core.send(command);
             let result = wait_for(&core, 15, |e| match e {
                 Event::Done { what: w, result } if *w == what => Some(result.clone()),
@@ -3087,14 +3096,17 @@ mod tests {
                 from: evolite_api::ShieldSource::Credits,
                 amount: 300_000,
             }),
-            "shield",
+            DoneWhat::Shield,
         );
         let shielded = pool_after(ready.balances.shielded);
         println!(
             "pool after shield: {shielded} (+{})",
             shielded - ready.balances.shielded
         );
-        step(spend(Spend::Unshield { amount: 100_000 }), "unshield");
+        step(
+            spend(Spend::Unshield { amount: 100_000 }),
+            DoneWhat::Unshield,
+        );
         let left = pool_after(shielded);
         let charged = shielded - left - 100_000;
         println!(
@@ -3136,7 +3148,7 @@ mod tests {
             fees.pool_top_up,
             ready.pool.unfinished_shield
         );
-        let step = |command: Command, what: &'static str| {
+        let step = |command: Command, what: DoneWhat| {
             let started = Instant::now();
             core.send(command);
             let result = wait_for(&core, 20, |e| match e {
@@ -3160,7 +3172,7 @@ mod tests {
                 from: evolite_api::ShieldSource::Core,
                 amount: 400_000,
             }),
-            "shield",
+            DoneWhat::Shield,
         );
         let after_shield = pool_after(ready.balances.shielded);
         let arrived = after_shield.balances.shielded - ready.balances.shielded;
@@ -3174,7 +3186,7 @@ mod tests {
 
         step(
             spend(Spend::TopUpFromPool { amount: 100_000 }),
-            "pool-top-up",
+            DoneWhat::PoolTopUp,
         );
         let after_top_up = pool_after(after_shield.balances.shielded);
         let taken = after_shield.balances.shielded - after_top_up.balances.shielded;
@@ -3274,7 +3286,7 @@ mod tests {
             (core, ready)
         };
         let (core, ready) = open();
-        let step = |command: Command, what: &'static str| {
+        let step = |command: Command, what: DoneWhat| {
             core.send(command);
             let result = wait_for(&core, 20, |e| match e {
                 Event::Done { what: w, result } if *w == what => Some(result.clone()),
@@ -3289,11 +3301,11 @@ mod tests {
                 from: evolite_api::ShieldSource::Core,
                 amount: 300_000,
             }),
-            "shield",
+            DoneWhat::Shield,
         );
         step(
             spend(Spend::TopUpFromPool { amount: 100_000 }),
-            "pool-top-up",
+            DoneWhat::PoolTopUp,
         );
         let top_up = |w: &evolite_api::Wallet| {
             w.pool

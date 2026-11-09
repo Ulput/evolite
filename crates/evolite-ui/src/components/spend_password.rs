@@ -4,7 +4,7 @@
 //! before anything else ([`Command::Spend`]); a screen only asks for it and hands it over.
 
 use super::prelude::*;
-use evolite_api::{Command, CoreError, Password, Snapshot, Spend};
+use evolite_api::{Command, CoreError, DoneWhat, Password, Snapshot, Spend};
 use zeroize::{Zeroize, Zeroizing};
 
 /// Whether the shown wallet wants its password for every spend.
@@ -23,7 +23,7 @@ pub struct SpendPassword {
     pending: bool,
     /// The operation of the last [`Self::command`] ([`Spend::what`]), named in the "wrong
     /// password" line; none for the setting itself.
-    what: Option<&'static str>,
+    what: Option<DoneWhat>,
 }
 
 impl SpendPassword {
@@ -118,18 +118,20 @@ impl SpendPassword {
 /// Under the field after a wrong password: nothing was spent — said of the operation itself
 /// (BUG-42, the analyst: «Неверный пароль — <операция> не выполнена.»), a whole sentence each,
 /// so that every language can agree its words. `what`: [`Spend::what`]; none — the setting.
-pub fn wrong_text(what: Option<&str>) -> &'static str {
+pub fn wrong_text(what: Option<DoneWhat>) -> &'static str {
     match what {
-        Some("send") => tr!("Wrong password — the payment was not sent."),
-        Some("top-up") => tr!("Wrong password — the top-up did not happen."),
-        Some("identity") => tr!("Wrong password — the identity was not created."),
-        Some("name") => tr!("Wrong password — the name was not registered."),
-        Some("shield") => tr!("Wrong password — nothing went into the pool."),
-        Some("unshield" | "pool-top-up") => tr!("Wrong password — nothing came out of the pool."),
-        Some("contact") => tr!("Wrong password — the contact request was not sent."),
-        Some("profile") => tr!("Wrong password — the profile was not saved."),
-        Some("app") => tr!("Wrong password — the app's request was not signed."),
-        Some("gift") => tr!("Wrong password — the NFT was not given."),
+        Some(DoneWhat::Send) => tr!("Wrong password — the payment was not sent."),
+        Some(DoneWhat::TopUp) => tr!("Wrong password — the top-up did not happen."),
+        Some(DoneWhat::Identity) => tr!("Wrong password — the identity was not created."),
+        Some(DoneWhat::Name) => tr!("Wrong password — the name was not registered."),
+        Some(DoneWhat::Shield) => tr!("Wrong password — nothing went into the pool."),
+        Some(DoneWhat::Unshield | DoneWhat::PoolTopUp) => {
+            tr!("Wrong password — nothing came out of the pool.")
+        }
+        Some(DoneWhat::Contact) => tr!("Wrong password — the contact request was not sent."),
+        Some(DoneWhat::Profile) => tr!("Wrong password — the profile was not saved."),
+        Some(DoneWhat::App) => tr!("Wrong password — the app's request was not signed."),
+        Some(DoneWhat::Gift) => tr!("Wrong password — the NFT was not given."),
         None => tr!("Wrong password — the setting stays on."),
         Some(_) => tr!("Wrong password — the operation did not happen."),
     }
@@ -142,6 +144,7 @@ mod tests {
 
     fn send() -> Spend {
         Spend::Send {
+            id: 0,
             from: Source::Core,
             to: "@alice".into(),
             amount: 1,
@@ -232,7 +235,7 @@ mod tests {
                 to: "@a".into(),
             },
         ];
-        let general = wrong_text(Some("?"));
+        let general = wrong_text(Some(DoneWhat::Lock));
         for op in every {
             let text = wrong_text(Some(op.what()));
             assert_ne!(text, general, "{} is not named", op.what());

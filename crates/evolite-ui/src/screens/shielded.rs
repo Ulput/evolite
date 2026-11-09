@@ -15,7 +15,7 @@ use egui::{
     Align, Align2, CornerRadius, CursorIcon, Layout, Margin, Rect, Sense, Stroke, StrokeKind, Ui,
     pos2, vec2,
 };
-use evolite_api::{CoreError, Duffs, Fees, Pool, ShieldSource, Source, Spend, Wallet};
+use evolite_api::{CoreError, DoneWhat, Duffs, Fees, Pool, ShieldSource, Source, Spend, Wallet};
 
 /// (icon, title, line under it).
 const ACTIONS: [(&str, &str, &str); 4] = [
@@ -69,8 +69,8 @@ pub enum PoolMove {
 
 impl PoolMove {
     /// The move a core's `Done` answers.
-    pub fn of(what: &str) -> Self {
-        if what == "shield" {
+    pub fn of(what: DoneWhat) -> Self {
+        if what == DoneWhat::Shield {
             Self::Shield
         } else {
             Self::Unshield

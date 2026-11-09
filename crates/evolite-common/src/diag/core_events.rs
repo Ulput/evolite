@@ -130,9 +130,9 @@ pub fn answer(event: &Event) -> Option<Record> {
         Event::NewPhrase(_) => ("new_phrase", "ok"),
         Event::PhraseAccepted(r) => ("phrase_accepted", outcome(r)),
         Event::NameResolved { result, .. } => ("name_resolved", outcome(result)),
-        Event::Done { what, result } => (*what, outcome(result)),
+        Event::Done { what, result } => (what.as_str(), outcome(result)),
         Event::PhraseRevealed(r) => ("phrase_revealed", outcome(r)),
-        Event::Sent(r) => ("sent", outcome(r)),
+        Event::Sent { result: r, .. } => ("sent", outcome(r)),
         Event::NameChecked { result, .. } => ("name_checked", outcome(result)),
         Event::AppRequest(r) => ("app_request", outcome(r)),
         Event::PaymentPreview { result, .. } => ("payment_preview", outcome(result)),
@@ -205,12 +205,14 @@ impl Watch {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use evolite_api::DoneWhat;
     use evolite_api::{NoteText, Password, Source};
 
     #[test]
     fn a_command_is_its_name_and_nothing_of_what_it_carries() {
         let record = command(&Command::Spend {
             op: Spend::Send {
+                id: 0,
                 from: Source::Core,
                 to: "yMrDQWqicXKL8xdJg23oYVVqKNtm5AwvXQ".into(),
                 amount: 25_000_000,
@@ -235,7 +237,7 @@ mod tests {
     #[test]
     fn an_answer_is_its_kind_and_how_it_ended() {
         let done = Event::Done {
-            what: "send",
+            what: DoneWhat::Send,
             result: Err(CoreError::Failed("insufficient funds at yMrDQ…".into())),
         };
         assert_eq!(

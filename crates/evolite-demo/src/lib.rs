@@ -135,7 +135,7 @@ impl Mock {
                     Ok(())
                 };
                 Event::Done {
-                    what: "create",
+                    what: DoneWhat::Create,
                     result,
                 }
             }
@@ -157,7 +157,7 @@ impl Mock {
                     changed = true;
                 }
                 Event::Done {
-                    what: "contact",
+                    what: DoneWhat::Contact,
                     result: Ok(()),
                 }
             }
@@ -195,7 +195,7 @@ impl Mock {
                     Ok(())
                 };
                 Event::Done {
-                    what: "address-book",
+                    what: DoneWhat::AddressBook,
                     result,
                 }
             }
@@ -205,7 +205,7 @@ impl Mock {
                     changed = true;
                 }
                 Event::Done {
-                    what: "address-book",
+                    what: DoneWhat::AddressBook,
                     result: Ok(()),
                 }
             }
@@ -235,7 +235,7 @@ impl Mock {
                     changed = true;
                 }
                 Event::Done {
-                    what: "disconnect",
+                    what: DoneWhat::Disconnect,
                     result: Ok(()),
                 }
             }
@@ -271,7 +271,7 @@ impl Mock {
                 password,
                 wallet: Some(id),
             } if self.snapshot.wallets.iter().any(|w| w.id == id && !w.open) => Event::Done {
-                what: "delete-other",
+                what: DoneWhat::DeleteOther,
                 result: if password.is_none_or(|p| p.expose().is_empty()) {
                     Err(CoreError::WrongPassword)
                 } else {
@@ -283,14 +283,14 @@ impl Mock {
             },
             // The example wallet is not on this computer to delete.
             Command::DeleteWallet { .. } => Event::Done {
-                what: "delete",
+                what: DoneWhat::Delete,
                 result: Err(CoreError::NotAvailable(
                     tr!("This is the mockup's example: there is nothing to delete").into(),
                 )),
             },
             // Nor is there a chain behind it to sync again.
             Command::Resync => Event::Done {
-                what: "resync",
+                what: DoneWhat::Resync,
                 result: Err(CoreError::NotAvailable(
                     tr!("This is the mockup's example: there is nothing to sync").into(),
                 )),
@@ -304,7 +304,7 @@ impl Mock {
                 Event::AppRequest(request)
             }
             Command::DeclineApp { .. } => Event::Done {
-                what: "app",
+                what: DoneWhat::App,
                 result: Ok(()),
             },
             // The same gate as the real core's, in memory: the demo wallets take any password
@@ -317,7 +317,7 @@ impl Mock {
                     changed |= matches!(
                         event,
                         Event::Done {
-                            what: "identity",
+                            what: DoneWhat::Identity,
                             result: Ok(())
                         }
                     );
@@ -337,7 +337,7 @@ impl Mock {
                     }
                 };
                 Event::Done {
-                    what: "password-each-send",
+                    what: DoneWhat::PasswordEachSend,
                     result,
                 }
             }
@@ -360,7 +360,7 @@ impl Mock {
                 }
                 changed = true;
                 Event::Done {
-                    what: "unlock",
+                    what: DoneWhat::Unlock,
                     result,
                 }
             }
@@ -383,7 +383,7 @@ impl Mock {
                             self.snapshot.wallet = Some(demo_wallet(now()));
                         }
                         Event::Done {
-                            what: "switch",
+                            what: DoneWhat::Switch,
                             result,
                         }
                     }
@@ -450,7 +450,7 @@ impl Mock {
                     }
                 };
                 Event::Done {
-                    what: "note",
+                    what: DoneWhat::Note,
                     result,
                 }
             }
@@ -471,19 +471,19 @@ impl Mock {
                     )),
                 };
                 Event::Done {
-                    what: "wallet",
+                    what: DoneWhat::Wallet,
                     result,
                 }
             }
             Command::Lock => Event::Done {
-                what: "lock",
+                what: DoneWhat::Lock,
                 result: Err(CoreError::NotAvailable(NO_WALLET.into())),
             },
             // The demo wallet has no keys to forget.
             Command::AutoLock { .. } | Command::Touch => return changed,
             // Nor a network to choose nodes in.
             Command::CoreNode { .. } => Event::Done {
-                what: "core-node",
+                what: DoneWhat::CoreNode,
                 result: Err(CoreError::NotAvailable(
                     tr!("This is the mockup's example: it does not connect to the network").into(),
                 )),
@@ -500,7 +500,7 @@ impl Mock {
             // The demo shows one address either way.
             Command::ReceiveAddress { .. } => return changed,
             Command::ChangePassword { old, .. } => Event::Done {
-                what: "password",
+                what: DoneWhat::Password,
                 result: if old.expose().is_empty() {
                     Err(CoreError::WrongPassword)
                 } else {
@@ -587,7 +587,7 @@ impl Mock {
             Spend::CreateIdentity { name, top_up } => {
                 let result = self.create_identity(name.as_deref(), top_up);
                 return Event::Done {
-                    what: "identity",
+                    what: DoneWhat::Identity,
                     result,
                 };
             }
@@ -733,7 +733,7 @@ impl Mock {
             if fraction >= 1.0 {
                 self.shield_started = None;
                 let _ = out.send(Event::Done {
-                    what: "shield",
+                    what: DoneWhat::Shield,
                     result: Err(CoreError::NotAvailable(NO_WALLET.into())),
                 });
             } else {
@@ -849,7 +849,7 @@ mod tests {
         assert!(matches!(
             rx.recv().unwrap(),
             Event::Done {
-                what: "unlock",
+                what: DoneWhat::Unlock,
                 result: Err(CoreError::WrongPassword)
             }
         ));
@@ -858,14 +858,14 @@ mod tests {
         assert!(matches!(
             rx.recv().unwrap(),
             Event::Done {
-                what: "unlock",
+                what: DoneWhat::Unlock,
                 result: Ok(())
             }
         ));
         assert_eq!(m.snapshot.vault, VaultState::Unlocked);
     }
 
-    fn done(rx: &Receiver<Event>) -> (&'static str, Result<(), CoreError>) {
+    fn done(rx: &Receiver<Event>) -> (DoneWhat, Result<(), CoreError>) {
         match rx.recv().unwrap() {
             Event::Done { what, result } => (what, result),
             other => panic!("{other:?}"),
@@ -888,7 +888,7 @@ mod tests {
                 m.handle(unlock(password), &tx),
                 "the count is in the snapshot"
             );
-            assert_eq!(done(&rx), ("unlock", Err(CoreError::WrongPassword)));
+            assert_eq!(done(&rx), (DoneWhat::Unlock, Err(CoreError::WrongPassword)));
             assert_eq!(main(&m).wrong_tries, n as u32 + 1);
         }
         let until = main(&m).wait_until.expect("a pause");
@@ -896,7 +896,7 @@ mod tests {
         m.handle(unlock("right"), &tx);
         assert_eq!(
             done(&rx),
-            ("unlock", Err(CoreError::TooManyTries { until }))
+            (DoneWhat::Unlock, Err(CoreError::TooManyTries { until }))
         );
         assert_eq!(m.snapshot.vault, VaultState::Locked);
         // "Savings" by its own password: no pause there, and a wrong one counts for it alone.
@@ -908,7 +908,7 @@ mod tests {
             },
             &tx,
         );
-        assert_eq!(done(&rx), ("switch", Err(CoreError::WrongPassword)));
+        assert_eq!(done(&rx), (DoneWhat::Switch, Err(CoreError::WrongPassword)));
         assert_eq!(m.snapshot.wallets[1].wrong_tries, 1);
         assert_eq!(main(&m).wrong_tries, 5);
         // The pause over (as the core's clock sees it), a right password clears the count.
@@ -921,7 +921,7 @@ mod tests {
             },
         );
         m.handle(unlock("right"), &tx);
-        assert_eq!(done(&rx), ("unlock", Ok(())));
+        assert_eq!(done(&rx), (DoneWhat::Unlock, Ok(())));
         assert_eq!((main(&m).wrong_tries, main(&m).wait_until), (0, None));
         m.handle(
             Command::DeleteWallet {
@@ -930,7 +930,7 @@ mod tests {
             },
             &tx,
         );
-        assert_eq!(done(&rx), ("delete-other", Ok(())));
+        assert_eq!(done(&rx), (DoneWhat::DeleteOther, Ok(())));
         assert_eq!(m.tries.get(&savings).failures, 0);
     }
 
@@ -990,7 +990,7 @@ mod tests {
         assert!(matches!(
             rx.recv().unwrap(),
             Event::Done {
-                what: "note",
+                what: DoneWhat::Note,
                 result: Ok(())
             }
         ));
@@ -999,7 +999,7 @@ mod tests {
         assert!(matches!(
             rx.recv().unwrap(),
             Event::Done {
-                what: "note",
+                what: DoneWhat::Note,
                 result: Err(CoreError::NotAvailable(_))
             }
         ));
@@ -1008,7 +1008,7 @@ mod tests {
         assert!(matches!(
             rx.recv().unwrap(),
             Event::Done {
-                what: "note",
+                what: DoneWhat::Note,
                 result: Ok(())
             }
         ));
@@ -1017,7 +1017,7 @@ mod tests {
         assert!(matches!(
             rx.recv().unwrap(),
             Event::Done {
-                what: "note",
+                what: DoneWhat::Note,
                 result: Err(_)
             }
         ));
@@ -1025,7 +1025,7 @@ mod tests {
         assert!(matches!(
             rx.recv().unwrap(),
             Event::Done {
-                what: "note",
+                what: DoneWhat::Note,
                 result: Err(_)
             }
         ));
@@ -1056,7 +1056,7 @@ mod tests {
         assert!(matches!(
             rx.recv().unwrap(),
             Event::Done {
-                what: "identity",
+                what: DoneWhat::Identity,
                 result: Ok(())
             }
         ));
@@ -1105,6 +1105,7 @@ mod tests {
         m.handle(
             Command::Spend {
                 op: Spend::Send {
+                    id: 0,
                     from: Source::Core,
                     to: "@alice".into(),
                     amount: 1,
@@ -1116,7 +1117,10 @@ mod tests {
         );
         assert!(matches!(
             rx.recv().unwrap(),
-            Event::Sent(Err(CoreError::NotAvailable(_)))
+            Event::Sent {
+                result: Err(CoreError::NotAvailable(_)),
+                ..
+            }
         ));
     }
 
@@ -1124,6 +1128,7 @@ mod tests {
     fn every_spend() -> Vec<Spend> {
         vec![
             Spend::Send {
+                id: 0,
                 from: Source::Core,
                 to: "@alice".into(),
                 amount: 1,
@@ -1164,9 +1169,9 @@ mod tests {
         ]
     }
 
-    fn refusal(event: Event) -> (&'static str, CoreError) {
+    fn refusal(event: Event) -> (DoneWhat, CoreError) {
         match event {
-            Event::Sent(Err(e)) => ("send", e),
+            Event::Sent { result: Err(e), .. } => (DoneWhat::Send, e),
             Event::Done {
                 what,
                 result: Err(e),
@@ -1232,7 +1237,8 @@ mod tests {
         for op in every_spend() {
             m.handle(Command::Spend { op, password: None }, &tx);
             let event = rx.recv().unwrap();
-            if let Event::Sent(Err(e)) | Event::Done { result: Err(e), .. } = &event {
+            if let Event::Sent { result: Err(e), .. } | Event::Done { result: Err(e), .. } = &event
+            {
                 assert!(
                     !matches!(e, CoreError::WrongPassword)
                         && *e != CoreError::NotAvailable(PASSWORD_NEEDED.into()),
@@ -1265,7 +1271,7 @@ mod tests {
             );
             assert_eq!(
                 refusal(rx.recv().unwrap()),
-                ("password-each-send", CoreError::WrongPassword)
+                (DoneWhat::PasswordEachSend, CoreError::WrongPassword)
             );
             assert!(on(&m));
         }

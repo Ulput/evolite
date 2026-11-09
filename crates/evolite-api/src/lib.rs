@@ -1201,7 +1201,7 @@ pub enum Command {
     CreateWallet {
         password: Password,
     },
-    /// Open the saved wallet with its password. Answered with `Done { what: "unlock" }`;
+    /// Open the saved wallet with its password. Answered with `Done { what: DoneWhat::Unlock }`;
     /// after too many wrong passwords in a row, for a while with [`CoreError::TooManyTries`],
     /// the password not checked (FEAT-0002).
     Unlock {
@@ -1216,7 +1216,7 @@ pub enum Command {
     },
     /// The person is using the app: the auto-lock timer starts again.
     Touch,
-    /// Encrypt the phrase again under a new password. Answered with `Done { what: "password" }`.
+    /// Encrypt the phrase again under a new password. Answered with `Done { what: DoneWhat::Password }`.
     ChangePassword {
         old: Password,
         new: Password,
@@ -1235,12 +1235,12 @@ pub enum Command {
     },
     /// Settings → Security → "Password for every send". Turning it off needs the password
     /// (else anyone at the unlocked computer could switch it off and spend); turning it on does
-    /// not. Answered with `Done { what: "password-each-send" }`.
+    /// not. Answered with `Done { what: DoneWhat::PasswordEachSend }`.
     SetPasswordEachSend {
         on: bool,
         password: Option<Password>,
     },
-    /// Forget a connected app. Answered with `Done { what: "disconnect" }`.
+    /// Forget a connected app. Answered with `Done { what: DoneWhat::Disconnect }`.
     DisconnectApp {
         id: String,
     },
@@ -1254,7 +1254,7 @@ pub enum Command {
         text: String,
     },
     /// Turn down an app's request (approving it is [`Spend::ApproveApp`]). Answered with
-    /// `Done { what: "app" }`.
+    /// `Done { what: DoneWhat::App }`.
     DeclineApp {
         id: u64,
     },
@@ -1274,7 +1274,7 @@ pub enum Command {
         wallet: Option<String>,
     },
     /// Stop showing requests from this identity (kept on this computer only).
-    /// `Done { what: "contact" }`.
+    /// `Done { what: DoneWhat::Contact }`.
     HideRequest {
         identity_id: String,
     },
@@ -1299,10 +1299,10 @@ pub enum Command {
     /// Remove the wallet from this computer: the vault, the store and everything kept next
     /// to them (the money stays on the network, back with the phrase). `password`: checked
     /// first, from Settings; `None` from "Forgot the password?", where it is not known. Answered with
-    /// `Done { what: "delete" }`; the core then starts again with no wallet.
+    /// `Done { what: DoneWhat::Delete }`; the core then starts again with no wallet.
     /// `wallet`: another wallet of this computer (its "…" in Settings), by its own password,
     /// which is then required; the open one stays as it is. Answered with
-    /// `Done { what: "delete-other" }` (R-28). `None` or the open one's id: the open one.
+    /// `Done { what: DoneWhat::DeleteOther }` (R-28). `None` or the open one's id: the open one.
     DeleteWallet {
         password: Option<Password>,
         wallet: Option<String>,
@@ -1321,21 +1321,21 @@ pub enum Command {
     /// filters and masternode lists and the wallet's store go, and the wallet is scanned again
     /// from its birth (the vault, the Platform journal and contacts' addresses stay). Refused
     /// while an identity creation or top-up is unfinished: its lock lives in the store.
-    /// Answered with `Done { what: "resync" }`; the app then starts again.
+    /// Answered with `Done { what: DoneWhat::Resync }`; the app then starts again.
     Resync,
     /// Keep a Core testnet address in the address book under `label` (1–40 characters), or
-    /// rename it. `Done { what: "address-book" }`.
+    /// rename it. `Done { what: DoneWhat::AddressBook }`.
     SaveAddress {
         address: String,
         label: String,
     },
-    /// Take an address out of the address book. `Done { what: "address-book" }`.
+    /// Take an address out of the address book. `Done { what: DoneWhat::AddressBook }`.
     ForgetAddress {
         address: String,
     },
     /// Settings → "Own node": from the next start connect only to this Core node
     /// (`host:port`; the testnet port 19999 when none is given); `None`: nodes from DNS seeds
-    /// again. The address must resolve now. Answered with `Done { what: "core-node" }`.
+    /// again. The address must resolve now. Answered with `Done { what: DoneWhat::CoreNode }`.
     CoreNode {
         address: Option<String>,
     },
@@ -1351,7 +1351,7 @@ pub enum Command {
     },
     /// Lock this wallet and open another one of this computer. With `password` (Figma 28,
     /// 29) it is checked against that wallet first: a wrong one changes nothing, the right one
-    /// opens it at once; answered with `Done { what: "switch" }`. Without, its unlock screen
+    /// opens it at once; answered with `Done { what: DoneWhat::Switch }`. Without, its unlock screen
     /// comes next and only the snapshots answer. Wrong passwords count for that wallet as on
     /// its unlock screen, so it may be answered with [`CoreError::TooManyTries`] (FEAT-0002).
     SwitchWallet {
@@ -1365,13 +1365,13 @@ pub enum Command {
     /// Keep `text` as the note of the operation `key` ([`Activity::key`]); an empty text
     /// deletes it. Only on this computer, encrypted; never sent anywhere. At most
     /// [`NOTE_MAX_GRAPHEMES`] characters and [`NOTE_MAX_BYTES`] bytes. Answered with
-    /// `Done { what: "note" }`.
+    /// `Done { what: DoneWhat::Note }`.
     SetNote {
         key: String,
         text: NoteText,
     },
     /// Name a wallet of this computer (1–24 characters) and give it one of the six colours
-    /// (Figma 30); local, never sent anywhere. Answered with `Done { what: "wallet" }`.
+    /// (Figma 30); local, never sent anywhere. Answered with `Done { what: DoneWhat::Wallet }`.
     RenameWallet {
         id: String,
         name: String,
@@ -1386,6 +1386,8 @@ pub enum Spend {
     /// Pay `amount` to `to` (an address, `@name` or a contact) from `from`. Answered with
     /// [`Event::Sent`].
     Send {
+        /// The interface's number of this payment; [`Event::Sent`] says it back.
+        id: u64,
         from: Source,
         to: String,
         amount: Duffs,
@@ -1394,66 +1396,66 @@ pub enum Spend {
         note: Option<NoteText>,
     },
     /// Lock `amount` duffs on Core and add them to the shown identity's credits.
-    /// `Done { what: "top-up" }`.
+    /// `Done { what: DoneWhat::TopUp }`.
     TopUpIdentity { amount: Duffs },
     /// Finish [`Wallet::unfinished_top_up`] with the lock already made, without locking more.
-    /// `Done { what: "top-up" }`.
+    /// `Done { what: DoneWhat::TopUp }`.
     ResumeTopUp,
     /// Lock DASH on Core, create the identity in the phrase's next slot and register `name`;
     /// `None`: an identity without a name (FEAT-0014 R-7). Once made, the new identity is the
-    /// chosen one. `Done { what: "identity" }`.
+    /// chosen one. `Done { what: DoneWhat::Identity }`.
     CreateIdentity { name: Option<String>, top_up: Duffs },
     /// Finish [`Wallet::unfinished_identity`] from where it stopped, without locking more.
-    /// `Done { what: "identity" }`.
+    /// `Done { what: DoneWhat::Identity }`.
     ResumeIdentity,
     /// Register one more DPNS name for the shown identity, paid from its credits.
-    /// `Done { what: "name" }`.
+    /// `Done { what: DoneWhat::Name }`.
     AddName { name: String },
     /// Move credits into the pool; the core builds the proof and reports [`Event::Progress`],
-    /// then `Done { what: "shield" }`.
+    /// then `Done { what: DoneWhat::Shield }`.
     Shield { from: ShieldSource, amount: Duffs },
     /// Take `amount` out of the pool to the wallet's own Platform address; the amount becomes
-    /// visible on the network. Answered with `Done { what: "unshield" }`, [`Event::Progress`]
+    /// visible on the network. Answered with `Done { what: DoneWhat::Unshield }`, [`Event::Progress`]
     /// while the proof is built.
     Unshield { amount: Duffs },
     /// Take `amount` out of the pool into the credits of the identity the interface shows; the
     /// identity gets `amount`, the fee comes from the pool on top. Answered with
-    /// `Done { what: "pool-top-up" }`, [`Event::Progress`] while the proof is built.
+    /// `Done { what: DoneWhat::PoolTopUp }`, [`Event::Progress`] while the proof is built.
     TopUpFromPool { amount: Duffs },
     /// Send a DashPay contact request to `name` (a DPNS name). Answered with
-    /// `Done { what: "contact" }`.
+    /// `Done { what: DoneWhat::Contact }`.
     AddContact { name: String },
-    /// Answer an incoming request with ours: the contact is made. `Done { what: "contact" }`.
+    /// Answer an incoming request with ours: the contact is made. `Done { what: DoneWhat::Contact }`.
     AcceptContact { identity_id: String },
     /// Write the identity's DashPay profile. `avatar_url`: https, the core downloads the
-    /// picture to put its hash in the profile. `Done { what: "profile" }`.
+    /// picture to put its hash in the profile. `Done { what: DoneWhat::Profile }`.
     SaveProfile {
         display: String,
         about: String,
         avatar_url: Option<String>,
     },
     /// Do what an app asked ([`Event::AppRequest`]): sign its document or add its key.
-    /// `Done { what: "app" }`.
+    /// `Done { what: DoneWhat::App }`.
     ApproveApp { id: u64 },
-    /// Give an NFT to `to`. `Done { what: "gift" }`.
+    /// Give an NFT to `to`. `Done { what: DoneWhat::Gift }`.
     GiftNft { id: String, to: String },
 }
 
 impl Spend {
     /// The `what` of the operation's `Done` (or `"send"` for [`Event::Sent`]).
-    pub fn what(&self) -> &'static str {
+    pub fn what(&self) -> DoneWhat {
         match self {
-            Spend::Send { .. } => "send",
-            Spend::TopUpIdentity { .. } | Spend::ResumeTopUp => "top-up",
-            Spend::CreateIdentity { .. } | Spend::ResumeIdentity => "identity",
-            Spend::AddName { .. } => "name",
-            Spend::Shield { .. } => "shield",
-            Spend::Unshield { .. } => "unshield",
-            Spend::TopUpFromPool { .. } => "pool-top-up",
-            Spend::AddContact { .. } | Spend::AcceptContact { .. } => "contact",
-            Spend::SaveProfile { .. } => "profile",
-            Spend::ApproveApp { .. } => "app",
-            Spend::GiftNft { .. } => "gift",
+            Spend::Send { .. } => DoneWhat::Send,
+            Spend::TopUpIdentity { .. } | Spend::ResumeTopUp => DoneWhat::TopUp,
+            Spend::CreateIdentity { .. } | Spend::ResumeIdentity => DoneWhat::Identity,
+            Spend::AddName { .. } => DoneWhat::Name,
+            Spend::Shield { .. } => DoneWhat::Shield,
+            Spend::Unshield { .. } => DoneWhat::Unshield,
+            Spend::TopUpFromPool { .. } => DoneWhat::PoolTopUp,
+            Spend::AddContact { .. } | Spend::AcceptContact { .. } => DoneWhat::Contact,
+            Spend::SaveProfile { .. } => DoneWhat::Profile,
+            Spend::ApproveApp { .. } => DoneWhat::App,
+            Spend::GiftNft { .. } => DoneWhat::Gift,
         }
     }
 
@@ -1461,7 +1463,10 @@ impl Spend {
     /// there): the event its screen already waits for.
     pub fn refused(&self, why: CoreError) -> Event {
         match self {
-            Spend::Send { .. } => Event::Sent(Err(why)),
+            Spend::Send { id, .. } => Event::Sent {
+                id: *id,
+                result: Err(why),
+            },
             _ => Event::Done {
                 what: self.what(),
                 result: Err(why),
@@ -1510,6 +1515,78 @@ pub enum PicturesOff {
     NoSandbox,
 }
 
+/// Which operation an [`Event::Done`] answers. The screens match on it without a catch-all: a new
+/// kind of answer has to be given a place (R-10).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DoneWhat {
+    AddressBook,
+    App,
+    Contact,
+    CoreNode,
+    Create,
+    Delete,
+    DeleteOther,
+    Disconnect,
+    Gift,
+    Identity,
+    Lock,
+    Name,
+    Note,
+    Password,
+    PasswordEachSend,
+    PoolTopUp,
+    Profile,
+    Rescan,
+    Resync,
+    Send,
+    Shield,
+    Switch,
+    TopUp,
+    Unlock,
+    Unshield,
+    Wallet,
+}
+
+impl DoneWhat {
+    /// Its name in the diagnostic journal.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::AddressBook => "address-book",
+            Self::App => "app",
+            Self::Contact => "contact",
+            Self::CoreNode => "core-node",
+            Self::Create => "create",
+            Self::Delete => "delete",
+            Self::DeleteOther => "delete-other",
+            Self::Disconnect => "disconnect",
+            Self::Gift => "gift",
+            Self::Identity => "identity",
+            Self::Lock => "lock",
+            Self::Name => "name",
+            Self::Note => "note",
+            Self::Password => "password",
+            Self::PasswordEachSend => "password-each-send",
+            Self::PoolTopUp => "pool-top-up",
+            Self::Profile => "profile",
+            Self::Rescan => "rescan",
+            Self::Resync => "resync",
+            Self::Send => "send",
+            Self::Shield => "shield",
+            Self::Switch => "switch",
+            Self::TopUp => "top-up",
+            Self::Unlock => "unlock",
+            Self::Unshield => "unshield",
+            Self::Wallet => "wallet",
+        }
+    }
+}
+
+impl fmt::Display for DoneWhat {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
 #[derive(Debug)]
 pub enum Event {
     Snapshot(Box<Snapshot>),
@@ -1523,12 +1600,16 @@ pub enum Event {
     /// The result of `GiftNft`, `DisconnectApp`, `CreateWallet`, `CreateIdentity`,
     /// `Shield`, `AnswerApp`.
     Done {
-        what: &'static str,
+        what: DoneWhat,
         result: Result<(), CoreError>,
     },
     PhraseRevealed(Result<Phrase, CoreError>),
     /// The answer to `Send`, once, after the network's answer (up to about a minute).
-    Sent(Result<SentPayment, CoreError>),
+    /// The answer to the payment `id` of [`Spend::Send`].
+    Sent {
+        id: u64,
+        result: Result<SentPayment, CoreError>,
+    },
     /// The answer to `DrawArt`. `partial`: the first frame of an animation, the whole of it
     /// comes in a later `Art`.
     Art {

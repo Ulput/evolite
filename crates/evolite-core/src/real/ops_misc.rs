@@ -104,7 +104,7 @@ impl Real {
                 }
             };
             Event::Done {
-                what: "core-node",
+                what: DoneWhat::CoreNode,
                 result,
             }
         };
@@ -157,7 +157,7 @@ impl Real {
                 });
             self.dirty.store(true, Ordering::Relaxed);
             Event::Done {
-                what: "address-book",
+                what: DoneWhat::AddressBook,
                 result,
             }
         };

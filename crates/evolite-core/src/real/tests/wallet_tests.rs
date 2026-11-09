@@ -208,7 +208,7 @@ async fn switching_and_adding_go_through_the_index() {
     assert!(matches!(
         event,
         Some(Event::Done {
-            what: "switch",
+            what: DoneWhat::Switch,
             result: Err(CoreError::WrongPassword)
         })
     ));
@@ -285,14 +285,14 @@ async fn deletes_another_wallet_by_its_password_and_keeps_the_open_one() {
         let (event, _) = core.handle(delete(password, "bbbb0002")).await;
         assert_eq!(
             answer(event),
-            ("delete-other", Err(CoreError::WrongPassword))
+            (DoneWhat::DeleteOther, Err(CoreError::WrongPassword))
         );
         assert!(other.join("wallet.json").exists());
         untouched(&core);
     }
     // Its own password: its folder, record and pictures go; the open one's stay.
     let (event, changed) = core.handle(delete(Some("pw"), "bbbb0002")).await;
-    assert_eq!(answer(event), ("delete-other", Ok(())));
+    assert_eq!(answer(event), (DoneWhat::DeleteOther, Ok(())));
     assert!(changed, "the list of wallets is sent again");
     assert!(!other.exists());
     assert!(!art.join("bbbb0002").exists() && art.join("aaaa0001").exists());
@@ -309,11 +309,14 @@ async fn deletes_another_wallet_by_its_password_and_keeps_the_open_one() {
     let (event, _) = core.handle(delete(Some("pw"), "bbbb0002")).await;
     assert!(matches!(
         answer(event),
-        ("delete-other", Err(CoreError::NotAvailable(_)))
+        (DoneWhat::DeleteOther, Err(CoreError::NotAvailable(_)))
     ));
     // The open one's id is the open one's deletion, as before.
     let (event, _) = core.handle(delete(Some("wrong"), "aaaa0001")).await;
-    assert_eq!(answer(event), ("delete", Err(CoreError::WrongPassword)));
+    assert_eq!(
+        answer(event),
+        (DoneWhat::Delete, Err(CoreError::WrongPassword))
+    );
     untouched(&core);
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -332,7 +335,7 @@ async fn the_fifth_wrong_password_pauses_the_unlock_even_after_a_restart() {
         let (event, changed) = core.handle(unlock("no")).await;
         assert_eq!(
             answer_of(event),
-            ("unlock", Err(CoreError::WrongPassword)),
+            (DoneWhat::Unlock, Err(CoreError::WrongPassword)),
             "try {n}"
         );
         assert!(changed, "the count goes out with the next snapshot");
@@ -348,7 +351,7 @@ async fn the_fifth_wrong_password_pauses_the_unlock_even_after_a_restart() {
     let (event, _) = core.handle(unlock("pw")).await;
     assert_eq!(
         answer_of(event),
-        ("unlock", Err(CoreError::TooManyTries { until }))
+        (DoneWhat::Unlock, Err(CoreError::TooManyTries { until }))
     );
     std::fs::write(&vault, sealed).unwrap();
     assert!(core.unlocked.is_none());
@@ -385,12 +388,12 @@ async fn only_wrong_passwords_count_each_for_its_own_wallet() {
     let (event, _) = core.handle(unlock("pw")).await;
     assert!(matches!(
         answer_of(event),
-        ("unlock", Err(CoreError::NotAvailable(_)))
+        (DoneWhat::Unlock, Err(CoreError::NotAvailable(_)))
     ));
     assert_eq!(entry(&mut core, "aaaa0001").wrong_tries, 2);
     core.leftovers = false;
     let (event, _) = core.handle(unlock("pw")).await;
-    assert_eq!(answer_of(event), ("unlock", Ok(())));
+    assert_eq!(answer_of(event), (DoneWhat::Unlock, Ok(())));
     assert_eq!(entry(&mut core, "aaaa0001").wrong_tries, 0);
     assert_eq!(
         attempts::Attempts::read(&dir, ["aaaa0001"]).failures("aaaa0001"),
@@ -402,7 +405,10 @@ async fn only_wrong_passwords_count_each_for_its_own_wallet() {
         password: Some(pw(p)),
     };
     let (event, changed) = core.handle(switch("no")).await;
-    assert_eq!(answer_of(event), ("switch", Err(CoreError::WrongPassword)));
+    assert_eq!(
+        answer_of(event),
+        (DoneWhat::Switch, Err(CoreError::WrongPassword))
+    );
     assert!(changed);
     assert_eq!(entry(&mut core, "bbbb0002").wrong_tries, 1);
     assert_eq!(entry(&mut core, "aaaa0001").wrong_tries, 0);
@@ -414,7 +420,7 @@ async fn only_wrong_passwords_count_each_for_its_own_wallet() {
             wallet: Some("bbbb0002".into()),
         })
         .await;
-    assert_eq!(answer_of(event), ("delete-other", Ok(())));
+    assert_eq!(answer_of(event), (DoneWhat::DeleteOther, Ok(())));
     assert_eq!(core.attempts.failures("bbbb0002"), 0);
     assert!(
         !wallets::wallet_dir(&dir, "bbbb0002")
@@ -439,7 +445,7 @@ async fn renames_a_wallet_within_24_characters() {
         assert!(matches!(
             event,
             Some(Event::Done {
-                what: "wallet",
+                what: DoneWhat::Wallet,
                 result: Err(_)
             })
         ));
@@ -448,7 +454,7 @@ async fn renames_a_wallet_within_24_characters() {
     assert!(matches!(
         event,
         Some(Event::Done {
-            what: "wallet",
+            what: DoneWhat::Wallet,
             result: Ok(())
         })
     ));
@@ -585,7 +591,10 @@ async fn with_the_setting_on_no_spend_goes_without_the_right_password() {
     };
     assert_eq!(
         debug(&core.handle(right).await.0),
-        debug(&Some(Event::Sent(Err(CoreError::NotSynced))))
+        debug(&Some(Event::Sent {
+            id: 0,
+            result: Err(CoreError::NotSynced),
+        }))
     );
 }
 
@@ -602,7 +611,7 @@ async fn the_setting_goes_off_only_with_the_password() {
         assert!(matches!(
             core.handle(off(password)).await.0,
             Some(Event::Done {
-                what: "password-each-send",
+                what: DoneWhat::PasswordEachSend,
                 result: Err(CoreError::WrongPassword)
             })
         ));
@@ -612,7 +621,7 @@ async fn the_setting_goes_off_only_with_the_password() {
     assert!(matches!(
         event,
         Some(Event::Done {
-            what: "password-each-send",
+            what: DoneWhat::PasswordEachSend,
             result: Ok(())
         })
     ));
@@ -624,7 +633,10 @@ async fn the_setting_goes_off_only_with_the_password() {
     };
     assert_eq!(
         debug(&core.handle(send).await.0),
-        debug(&Some(Event::Sent(Err(CoreError::NotSynced))))
+        debug(&Some(Event::Sent {
+            id: 0,
+            result: Err(CoreError::NotSynced),
+        }))
     );
     // On again at once, without the password.
     let on = Command::SetPasswordEachSend {

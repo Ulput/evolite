@@ -21,7 +21,7 @@ use crate::context::Ctx;
 use crate::icons::Logo;
 use crate::theme::{Palette, Weight, mono, sans};
 use egui::{Align, Align2, CornerRadius, CursorIcon, Layout, Rect, Sense, Ui, pos2, vec2};
-use evolite_api::{Command, CoreError, DashPayScan, Event, Phrase, VaultState};
+use evolite_api::{Command, CoreError, DashPayScan, DoneWhat, Event, Phrase, VaultState};
 use zeroize::Zeroizing;
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum Flow {
@@ -195,7 +195,7 @@ impl Onboarding {
                 }
             }
             Event::Done {
-                what: "create",
+                what: DoneWhat::Create,
                 result,
             } if self.waiting => {
                 self.waiting = false;

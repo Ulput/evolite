@@ -38,7 +38,7 @@ impl Real {
     }
 
     /// Finishes the unfinished identity in the background: no new lock, no new money. The
-    /// answer is `Done { what: "identity" }`.
+    /// answer is `Done { what: DoneWhat::Identity }`.
     pub(super) async fn resume_identity(&self) -> Result<(), CoreError> {
         let (id, keys) = self.dashpay_ready()?;
         let needed = self.fees_now(0).await.name_credits_needed();
@@ -85,7 +85,7 @@ impl Real {
             busy.store(false, Ordering::Relaxed);
             refresh();
             Event::Done {
-                what: "identity",
+                what: DoneWhat::Identity,
                 result,
             }
         });
@@ -123,7 +123,7 @@ impl Real {
 
     /// Checks what can be checked at once and tops up the shown identity in the background
     /// with `amount` duffs from Core (an asset lock, then Platform). The answer is
-    /// `Done { what: "top-up" }`.
+    /// `Done { what: DoneWhat::TopUp }`.
     pub(super) async fn top_up_identity(&mut self, amount: Duffs) -> Result<(), CoreError> {
         let open = self
             .unlocked
@@ -171,7 +171,7 @@ impl Real {
             busy.store(false, Ordering::Relaxed);
             refresh();
             Event::Done {
-                what: "top-up",
+                what: DoneWhat::TopUp,
                 result,
             }
         });
@@ -179,7 +179,7 @@ impl Real {
     }
 
     /// Checks the name at once and registers it for the shown identity in the background (one
-    /// more DPNS name, paid from its credits). The answer is `Done { what: "name" }`.
+    /// more DPNS name, paid from its credits). The answer is `Done { what: DoneWhat::Name }`.
     pub(super) async fn add_name(&self, name: &str) -> Result<(), CoreError> {
         let label = dpns::label(name)?;
         if dpns::is_contested(&label) {
@@ -228,7 +228,7 @@ impl Real {
             busy.store(false, Ordering::Relaxed);
             refresh();
             Event::Done {
-                what: "name",
+                what: DoneWhat::Name,
                 result,
             }
         });
@@ -236,7 +236,7 @@ impl Real {
     }
 
     /// Finishes the cut-short top-up in the background with the lock already made: no new
-    /// money. The answer is `Done { what: "top-up" }`.
+    /// money. The answer is `Done { what: DoneWhat::TopUp }`.
     pub(super) fn resume_top_up(&self) -> Result<(), CoreError> {
         let (id, keys) = self.dashpay_ready()?;
         if self.identity_busy.swap(true, Ordering::Relaxed) {
@@ -258,7 +258,7 @@ impl Real {
             busy.store(false, Ordering::Relaxed);
             refresh();
             Event::Done {
-                what: "top-up",
+                what: DoneWhat::TopUp,
                 result,
             }
         });
@@ -271,6 +271,7 @@ impl Real {
     /// with no txid (Platform proves the transition itself).
     pub(super) fn send_credits(
         &self,
+        payment: u64,
         id: WalletId,
         to: &str,
         amount: Duffs,
@@ -374,7 +375,10 @@ impl Real {
                 .unwrap_or_else(|e| e.into_inner())
                 .answered(key, result.is_ok(), now());
             dirty.store(true, Ordering::Relaxed);
-            Event::Sent(result)
+            Event::Sent {
+                id: payment,
+                result,
+            }
         });
         Ok(())
     }
@@ -454,7 +458,7 @@ impl Real {
     /// Checks what can be checked at once and starts the identity in the background: the name
     /// check, the asset lock ([`convert::identity_lock`]: `top_up`, the name and the
     /// creation), the identity and its name take a minute or more. The answer is
-    /// `Done { what: "identity" }`.
+    /// `Done { what: DoneWhat::Identity }`.
     pub(super) async fn create_identity(
         &mut self,
         name: Option<&str>,
@@ -543,7 +547,7 @@ impl Real {
             busy.store(false, Ordering::Relaxed);
             dirty.store(true, Ordering::Relaxed);
             Event::Done {
-                what: "identity",
+                what: DoneWhat::Identity,
                 result,
             }
         });

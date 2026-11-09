@@ -119,6 +119,7 @@ impl Real {
     /// [`Real::spend_gate`].
     pub(super) async fn send(
         &mut self,
+        payment: u64,
         from: Source,
         to: &str,
         amount: Duffs,
@@ -132,8 +133,8 @@ impl Real {
         let note = send_note(note)?;
         match from {
             Source::Core => {}
-            Source::Credits => return self.send_credits(id, to, amount, note),
-            Source::Pool => return self.send_from_pool(to, amount, note),
+            Source::Credits => return self.send_credits(payment, id, to, amount, note),
+            Source::Pool => return self.send_from_pool(payment, to, amount, note),
         }
         let payee = self.core_payee(to)?;
         // A contact is paid only to the address the last look before signing showed.
@@ -241,7 +242,10 @@ impl Real {
                     relayed: paid.relayed,
                 })
                 .map_err(core_failure);
-            let _ = out.send(Event::Sent(result));
+            let _ = out.send(Event::Sent {
+                id: payment,
+                result,
+            });
             dirty.store(true, Ordering::Relaxed);
             wake();
         });

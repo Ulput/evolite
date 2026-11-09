@@ -40,7 +40,7 @@ async fn the_notes_open_with_the_wallet_and_go_with_its_lock() {
     assert!(matches!(
         event,
         Some(Event::Done {
-            what: "note",
+            what: DoneWhat::Note,
             result: Ok(())
         })
     ));
@@ -101,7 +101,7 @@ async fn a_notes_file_not_read_at_the_unlock_is_kept_until_one_reads_it() {
     assert!(matches!(
         event,
         Some(Event::Done {
-            what: "note",
+            what: DoneWhat::Note,
             result: Err(CoreError::NotAvailable(_))
         })
     ));

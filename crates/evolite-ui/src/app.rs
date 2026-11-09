@@ -16,7 +16,7 @@ use crate::screens::onboarding::{Onboarding, Outcome};
 use crate::screens::settings::{Section, ThemeChoice};
 use crate::{icons, screens, theme};
 use egui::{Frame, Margin, Panel, Stroke};
-use evolite_api::{Command, Event, Snapshot, VaultState};
+use evolite_api::{Command, DoneWhat, Event, Snapshot, VaultState};
 use evolite_core::Core;
 
 /// What "Switching…" waits for (BUG-39 №15).
@@ -525,37 +525,37 @@ impl App {
                     self.contacts.on_resolved(name, result);
                 }
                 Event::Done {
-                    what: "contact",
+                    what: DoneWhat::Contact,
                     result,
                 } => {
                     self.contacts.on_done(result);
                     self.send.on_contact_done(result);
                 }
                 Event::Done {
-                    what: "address-book",
+                    what: DoneWhat::AddressBook,
                     result,
                 } => self.send.on_book_done(result),
                 Event::Done {
-                    what: "profile",
+                    what: DoneWhat::Profile,
                     result,
                 } => self.identity.on_profile_saved(result),
                 Event::Done {
-                    what: "note",
+                    what: DoneWhat::Note,
                     result,
                 } => screens::activity::on_note_done(ctx, result),
-                Event::Sent(result) => self.send.on_sent(result),
+                Event::Sent { id, result } => self.send.on_sent(*id, result),
                 Event::PaymentPreview { to, result } => self.send.on_preview(to, result),
                 Event::Done {
-                    what: "gift",
+                    what: DoneWhat::Gift,
                     result,
                 } => self.collection.result = Some(result.clone()),
                 Event::Done {
-                    what: "unlock",
+                    what: DoneWhat::Unlock,
                     result,
                 } => self.unlock.on_answer(result),
                 // Another wallet by its password: from "Open "…"" or the unlock screen.
                 Event::Done {
-                    what: "switch",
+                    what: DoneWhat::Switch,
                     result,
                 } => match &mut self.switching {
                     Some(form) => {
@@ -568,7 +568,7 @@ impl App {
                 // The resync is marked: evolite starts again with the same arguments and this
                 // window closes. The new one waits for this one to let go of the folder.
                 Event::Done {
-                    what: "resync",
+                    what: DoneWhat::Resync,
                     result,
                 } => {
                     let marked = self
@@ -582,7 +582,7 @@ impl App {
                 }
                 // The wallet is gone: both deletion forms close, the welcome screen follows.
                 Event::Done {
-                    what: "delete",
+                    what: DoneWhat::Delete,
                     result,
                 } => {
                     let mut gone = false;
@@ -606,7 +606,7 @@ impl App {
                 }
                 // Another wallet is gone (R-28): only its dialog closes, the open one stays.
                 Event::Done {
-                    what: "delete-other",
+                    what: DoneWhat::DeleteOther,
                     result,
                 } => {
                     if self
@@ -624,15 +624,15 @@ impl App {
                     .settings
                     .on_phrase_checked(*wrong, chrono::Utc::now().timestamp()),
                 Event::Done {
-                    what: "password",
+                    what: DoneWhat::Password,
                     result,
                 } => self.settings.on_password_changed(result),
                 Event::Done {
-                    what: "password-each-send",
+                    what: DoneWhat::PasswordEachSend,
                     result,
                 } => self.settings.on_password_each_send(result),
                 Event::Done {
-                    what: "wallet",
+                    what: DoneWhat::Wallet,
                     result,
                 } => {
                     if self
@@ -648,7 +648,7 @@ impl App {
                     }
                 }
                 Event::Done {
-                    what: "core-node",
+                    what: DoneWhat::CoreNode,
                     result,
                 } => self.settings.on_node_saved(result),
                 Event::AppRequest(request) => {
@@ -663,11 +663,11 @@ impl App {
                     self.requests.on_request(request.clone());
                 }
                 Event::Done {
-                    what: "app",
+                    what: DoneWhat::App,
                     result,
                 } => self.requests.on_answer(result.clone()),
                 Event::Done {
-                    what: "disconnect",
+                    what: DoneWhat::Disconnect,
                     result,
                 } => self.requests.on_disconnected(result.clone()),
                 // "Hide" and "Unshield" share the pool's progress: one move at a time.
@@ -676,12 +676,12 @@ impl App {
                     fraction,
                 } => self.pool.progress = Some(*fraction),
                 Event::Done {
-                    what: what @ ("shield" | "unshield" | "pool-top-up"),
+                    what: what @ (DoneWhat::Shield | DoneWhat::Unshield | DoneWhat::PoolTopUp),
                     result,
                 } => {
                     self.pool.progress = None;
                     self.pool.continuing = false;
-                    let done = screens::shielded::PoolMove::of(what);
+                    let done = screens::shielded::PoolMove::of(*what);
                     self.pool.result = Some((done, result.clone()));
                 }
                 Event::NameChecked { label, result } => {
@@ -691,11 +691,11 @@ impl App {
                     self.identity.on_name_checked(label, result);
                 }
                 Event::Done {
-                    what: "name",
+                    what: DoneWhat::Name,
                     result,
                 } => self.identity.on_name_done(result),
                 Event::Done {
-                    what: "identity",
+                    what: DoneWhat::Identity,
                     result,
                 } => {
                     // Made (FEAT-0014, analyst-44): Identity shows it chosen, with its banner;
@@ -715,7 +715,7 @@ impl App {
                     fraction,
                 } => self.create_identity.on_progress(*fraction),
                 Event::Done {
-                    what: "top-up",
+                    what: DoneWhat::TopUp,
                     result,
                 } => self.identity.on_top_up_done(result),
                 Event::Art {
@@ -731,7 +731,14 @@ impl App {
                     };
                     cache.on_answer(ctx, art, *side, *partial, result);
                 }
-                _ => {}
+                // The onboarding has these below; a new kind of answer has to be placed here.
+                Event::NewPhrase(_)
+                | Event::PhraseAccepted(_)
+                | Event::Progress { .. }
+                | Event::Done {
+                    what: DoneWhat::Create | DoneWhat::Lock | DoneWhat::Rescan | DoneWhat::Send,
+                    ..
+                } => {}
             }
             if let Some(o) = &mut self.onboarding {
                 o.on_event(&event);

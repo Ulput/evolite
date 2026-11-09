@@ -54,14 +54,14 @@ fn an_answer_without_a_new_snapshot_still_wakes_the_interface() {
         &out,
         &wake,
         Some(Event::Done {
-            what: "unlock",
+            what: DoneWhat::Unlock,
             result: Err(CoreError::WrongPassword),
         }),
     );
     assert!(matches!(
         events.try_recv(),
         Ok(Event::Done {
-            what: "unlock",
+            what: DoneWhat::Unlock,
             result: Err(CoreError::WrongPassword)
         })
     ));

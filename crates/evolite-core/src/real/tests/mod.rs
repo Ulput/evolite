@@ -201,7 +201,7 @@ fn entry(core: &mut Real, id: &str) -> WalletEntry {
         .expect("the wallet is listed")
 }
 
-fn answer_of(event: Option<Event>) -> (&'static str, Result<(), CoreError>) {
+fn answer_of(event: Option<Event>) -> (DoneWhat, Result<(), CoreError>) {
     match event {
         Some(Event::Done { what, result }) => (what, result),
         other => panic!("{other:?}"),
@@ -230,6 +230,7 @@ fn debug(event: &Option<Event>) -> String {
 fn every_spend() -> Vec<Spend> {
     vec![
         Spend::Send {
+            id: 0,
             from: Source::Core,
             to: "yMrDQWqicXKL8xdJg23oYVVqKNtm5AwvXQ".into(),
             amount: 10_000,

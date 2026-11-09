@@ -28,7 +28,7 @@ impl Real {
         tokio::spawn(async move {
             let event = question.await;
             // A write (or a try at one) may have moved credits: read the balances again.
-            if matches!(event, Event::Done { .. } | Event::Sent(_)) {
+            if matches!(event, Event::Done { .. } | Event::Sent { .. }) {
                 stale.notify_one();
             }
             let _ = out.send(event);
@@ -230,7 +230,7 @@ pub fn run(
                                     turn::timed("switch_unlock", core.unlock_opened(file, phrase))
                                         .await;
                                 let _ = out.send(Event::Done {
-                                    what: "switch",
+                                    what: DoneWhat::Switch,
                                     result,
                                 });
                             }
@@ -250,7 +250,7 @@ pub fn run(
             if core.idle_too_long() {
                 let result = turn::timed("idle_lock", core.lock()).await;
                 let _ = out.send(Event::Done {
-                    what: "lock",
+                    what: DoneWhat::Lock,
                     result,
                 });
                 core.dirty.store(true, Ordering::Relaxed);

@@ -180,7 +180,7 @@ impl Real {
                 Ok(())
             },
             |result| Event::Done {
-                what: "shield",
+                what: DoneWhat::Shield,
                 result,
             },
         );
@@ -206,7 +206,7 @@ impl Real {
                     .map_err(pool_error)
             },
             |result| Event::Done {
-                what: "unshield",
+                what: DoneWhat::Unshield,
                 result,
             },
         );
@@ -232,7 +232,7 @@ impl Real {
                     .map_err(pool_error)
             },
             |result| Event::Done {
-                what: "pool-top-up",
+                what: DoneWhat::PoolTopUp,
                 result,
             },
         );
@@ -244,6 +244,7 @@ impl Real {
     /// minutes later. Answered with `Sent`.
     pub(super) fn send_from_pool(
         &self,
+        payment: u64,
         to: &str,
         amount: Duffs,
         note: Option<String>,
@@ -314,12 +315,15 @@ impl Real {
                     result.is_ok(),
                     now(),
                 );
-                Event::Sent(result.map(|relayed| SentPayment {
-                    txid: String::new(),
-                    amount,
-                    fee: 0,
-                    relayed,
-                }))
+                Event::Sent {
+                    id: payment,
+                    result: result.map(|relayed| SentPayment {
+                        txid: String::new(),
+                        amount,
+                        fee: 0,
+                        relayed,
+                    }),
+                }
             },
         );
         Ok(())

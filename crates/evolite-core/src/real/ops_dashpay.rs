@@ -21,7 +21,7 @@ impl Real {
     }
 
     /// Sends our contact request to the owner of `name`, in the background; the answer is
-    /// `Done { what: "contact" }`. Not again to someone we already asked or who is a contact:
+    /// `Done { what: DoneWhat::Contact }`. Not again to someone we already asked or who is a contact:
     /// platform-wallet would write a new request (a key rotation), paid in credits, for nothing.
     pub(super) fn add_contact(&self, name: &str) -> Result<(), CoreError> {
         let label = dpns::label(name)?;
@@ -68,7 +68,7 @@ impl Real {
             .await;
             refresh();
             Event::Done {
-                what: "contact",
+                what: DoneWhat::Contact,
                 result,
             }
         });
@@ -127,7 +127,7 @@ impl Real {
             .await;
             refresh();
             Event::Done {
-                what: "contact",
+                what: DoneWhat::Contact,
                 result,
             }
         });
@@ -196,7 +196,7 @@ impl Real {
             .await;
             refresh();
             Event::Done {
-                what: "profile",
+                what: DoneWhat::Profile,
                 result,
             }
         });

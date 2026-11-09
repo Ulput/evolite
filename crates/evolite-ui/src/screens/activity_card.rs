@@ -112,7 +112,7 @@ fn put_note_edit(ctx: &egui::Context, edit: NoteEdit) {
     ctx.data_mut(|d| d.insert_temp(note_edit_id(), edit));
 }
 
-/// The core's answer to [`Command::SetNote`] (`Done { what: "note" }`): written — back to the
+/// The core's answer to [`Command::SetNote`] (`Done { what: DoneWhat::Note }`): written — back to the
 /// note as shown, with the new text; not — the reason under the field, the text kept for
 /// another try (AC-D5).
 pub fn on_note_done(ctx: &egui::Context, result: &Result<(), CoreError>) {

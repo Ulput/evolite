@@ -233,7 +233,7 @@ impl Real {
     }
 
     /// The person's answer to request `id`: declined at once, approved in the background.
-    /// `Ok(true)`: the answer comes later as `Done { what: "app" }`.
+    /// `Ok(true)`: the answer comes later as `Done { what: DoneWhat::App }`.
     pub(super) fn answer_app(&self, id: u64, approve: bool) -> Result<bool, CoreError> {
         let job = self
             .app_requests
@@ -326,7 +326,7 @@ impl Real {
             .await;
             refresh();
             Event::Done {
-                what: "app",
+                what: DoneWhat::App,
                 result,
             }
         });
@@ -334,7 +334,7 @@ impl Real {
     }
 
     /// "Disconnect": the app's keys on the identity are disabled (an IdentityUpdate signed by the
-    /// MASTER key) and the app leaves the list. Answered with `Done { what: "disconnect" }`.
+    /// MASTER key) and the app leaves the list. Answered with `Done { what: DoneWhat::Disconnect }`.
     pub(super) fn disconnect_app(&self, contract: &str) -> Result<(), CoreError> {
         let (wallet_id, keys) = self.dashpay_ready()?;
         let (chain, apps, refresh) = (self.chain.clone(), self.apps.clone(), self.refresher());
@@ -385,7 +385,7 @@ impl Real {
             .await;
             refresh();
             Event::Done {
-                what: "disconnect",
+                what: DoneWhat::Disconnect,
                 result,
             }
         });
