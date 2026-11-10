@@ -66,6 +66,31 @@ pub fn option_card_in(
     selected: bool,
     column: CardColumn,
 ) -> Response {
+    card_in(ui, a, [icon, title, detail], selected, column, false)
+}
+
+/// [`option_card_in`] with its line dimmed: an amount not read in this run, the last known one
+/// (BUG-113).
+pub fn option_card_dim_in(
+    ui: &mut Ui,
+    a: &mut Assets,
+    icon: &str,
+    title: &str,
+    detail: &str,
+    selected: bool,
+    column: CardColumn,
+) -> Response {
+    card_in(ui, a, [icon, title, detail], selected, column, true)
+}
+
+fn card_in(
+    ui: &mut Ui,
+    a: &mut Assets,
+    [icon, title, detail]: [&str; 3],
+    selected: bool,
+    column: CardColumn,
+    dim: bool,
+) -> Response {
     let CardColumn {
         width,
         icon: with_icon,
@@ -130,7 +155,11 @@ pub fn option_card_in(
             Align2::LEFT_TOP,
             detail,
             detail_font,
-            p.muted,
+            if dim {
+                p.muted.gamma_multiply(0.6)
+            } else {
+                p.muted
+            },
         );
     }
     resp.on_hover_cursor(CursorIcon::PointingHand)

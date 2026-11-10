@@ -18,8 +18,8 @@ use source::*;
 use super::txt;
 use crate::components::{
     Assets, ButtonKind, CardColumn, FieldKind, amount_field, button, button_enabled, card, dialog,
-    divider, field_label, from_columns, kv_row, notice, option_card_in, option_card_width,
-    page_header, pill, text_field,
+    divider, field_label, from_columns, kv_row, notice, option_card_dim_in, option_card_in,
+    option_card_width, page_header, pill, text_field,
 };
 use crate::context::Ctx;
 use crate::text::{name_problem, short_address};
@@ -250,6 +250,14 @@ impl SendForm {
                 self.book_error = None;
             }
             Err(e) => self.book_error = Some(e.clone()),
+        }
+    }
+
+    /// [`Self::follow_max`] of `source`, if its balance is read: «Max» of a balance not read yet
+    /// would fill in a guess (BUG-113).
+    fn follow_source(&mut self, source: &SourceView) {
+        if source.read {
+            self.follow_max(source.duffs, source.max_fee, source.withdrawal);
         }
     }
 

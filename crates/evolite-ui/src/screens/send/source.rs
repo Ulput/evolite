@@ -14,6 +14,10 @@ pub(super) struct SourceView {
     pub(super) max_fee: Duffs,
     /// Credits to a Core address: what Platform checks before it takes the withdrawal.
     pub(super) withdrawal: Option<Withdrawal>,
+    /// The balance is read in this run: Core is (its own rules are `core_as_of`), credits once
+    /// `credits_read`, the pool once `checked_at` (BUG-113). Unread, `duffs` is no amount to
+    /// refuse or fill in by.
+    pub(super) read: bool,
     pub(super) note_icon: &'static str,
     pub(super) note: &'static str,
 }
@@ -182,6 +186,7 @@ pub(super) fn sources(w: &Wallet, to: &str, amount: Duffs) -> [SourceView; 3] {
             fee: w.fees.core_payment_for(amount),
             max_fee: w.fees.core_payment,
             withdrawal: None,
+            read: true,
             note_icon: "instantsend",
             note: tr!("InstantSend: the recipient sees a confirmed payment in a few seconds."),
         },
@@ -193,6 +198,7 @@ pub(super) fn sources(w: &Wallet, to: &str, amount: Duffs) -> [SourceView; 3] {
             fee: credits,
             max_fee: credits,
             withdrawal: credits_to_core(to).then(|| Withdrawal::of(&w.fees)),
+            read: w.balances.credits_read,
             note_icon: "confirmed",
             note: tr!("A credit transfer is confirmed by a Platform proof in a couple of seconds."),
         },
@@ -204,6 +210,7 @@ pub(super) fn sources(w: &Wallet, to: &str, amount: Duffs) -> [SourceView; 3] {
             fee: pool,
             max_fee: pool,
             withdrawal: None,
+            read: w.pool.checked_at.is_some(),
             note_icon: "shield",
             note: tr!(
                 "From the pool: the amount and the recipient are not visible on the network."
@@ -240,14 +247,14 @@ pub(super) fn as_of_caption(
     }
 }
 
-/// What a «From» card says: credits not read yet are not a 0 (BUG-91).
+/// What a «From» card says: a balance not read yet is not a 0 — credits not read are not known
+/// (BUG-91), nor is a pool with nothing kept from before (BUG-113).
 pub(super) fn source_line(
     s: &SourceView,
-    credits_read: bool,
     as_of: Option<evolite_api::CoreAsOf>,
     line: Option<&str>,
 ) -> String {
-    if s.source == Source::Credits && !credits_read {
+    if !s.read && (s.source == Source::Credits || s.duffs == 0) {
         return tr!("Not known yet").to_owned();
     }
     source_detail(s, as_of, line)
@@ -276,4 +283,34 @@ pub(super) fn from_layout(width: f32, cards: &[CardWidths]) -> Vec<CardColumn> {
             icon,
         })
         .collect()
+}
+
+/// Whether a «From» card shows its amount dimmed: the last known one, not read in this run.
+pub(super) fn source_dim(s: &SourceView) -> bool {
+    s.source == Source::Pool && !s.read && s.duffs > 0
+}
+
+/// The one line under the row of sources: Core's last check and a pool not read yet.
+pub(super) fn sources_caption(
+    as_of: Option<evolite_api::CoreAsOf>,
+    line: Option<&str>,
+    all: &[SourceView],
+) -> Option<String> {
+    let pool = all
+        .iter()
+        .any(source_dim)
+        .then(|| tr!("The pool: the last known balance, still checking").to_owned());
+    match (as_of_caption(as_of, line), pool) {
+        (Some(core), Some(pool)) => Some(format!("{core} · {pool}")),
+        (core, pool) => core.or(pool),
+    }
+}
+
+/// What is wrong with the amount typed from `s`, as far as the wallet can tell now.
+pub(super) fn form_problem(typed: &str, s: &SourceView, synced: bool) -> Option<AmountProblem> {
+    use AmountProblem::{MoreThanBalance, NoFunds, NoRoomForFee};
+    amount_problem(typed, s.duffs, s.fee, s.withdrawal)
+        .filter(|p| synced || *p != NoFunds)
+        // Over a balance not read yet nothing is known to be too much (BUG-113).
+        .filter(|p| s.read || !matches!(p, NoFunds | MoreThanBalance | NoRoomForFee))
 }

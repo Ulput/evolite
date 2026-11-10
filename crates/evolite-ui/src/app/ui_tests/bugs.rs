@@ -367,3 +367,87 @@ fn add_to_contacts_on_the_send_form_warns_below_the_balance_the_network_wants() 
     with_credits(&mut kit, 230_000, 230_000);
     assert!(!has_text(&kit, &warning), "enough: not said");
 }
+
+/// BUG-113: from the pool not read yet «Left» is «—», not 0, an amount over it is not called too
+/// much, and the button waits for the sync with its reason. «Max»: `max_waits_for_a_balance_to_be_read`.
+#[test]
+fn the_pool_not_read_yet_leaves_nothing_and_waits() {
+    let (_turn, mut kit) = demo_app("send", "en");
+    kit.run_steps(3);
+    let unread = |kit: &mut Kit| {
+        for _ in 0..3 {
+            if let Some(w) = kit
+                .state_mut()
+                .snapshot
+                .as_mut()
+                .and_then(|s| s.wallet.as_mut())
+            {
+                w.pool.checked_at = None;
+                w.balances.shielded = 0;
+            }
+            kit.run_steps(1);
+        }
+    };
+    kit.state_mut().send.source = 2;
+    kit.state_mut().send.recipient = "yXk3Tq9mD8vJw2RfL6pN4sB7cH1eZ5aG9f".into();
+    kit.state_mut().send.amount = "5".into();
+    unread(&mut kit);
+    assert!(!has_text(&kit, "More than there is in this balance"));
+    assert!(has_words(&kit, "Left: —"), "«Left» is not known");
+    assert!(has_words(&kit, crate::text::WAIT_FOR_SYNC));
+}
+
+/// BUG-113, the coordinator's check: only the source chosen waits for its balance. From Core,
+/// read, a payment goes while the pool is still unread.
+#[test]
+fn a_payment_from_core_does_not_wait_for_the_pool() {
+    let (_turn, mut kit) = demo_app("send", "en");
+    kit.run_steps(3);
+    kit.state_mut().send.source = 0;
+    kit.state_mut().send.recipient = "yXk3Tq9mD8vJw2RfL6pN4sB7cH1eZ5aG9f".into();
+    kit.state_mut().send.amount = "0.01".into();
+    let mut ready = false;
+    for _ in 0..120 {
+        if let Some(w) = kit
+            .state_mut()
+            .snapshot
+            .as_mut()
+            .and_then(|s| s.wallet.as_mut())
+        {
+            w.pool.checked_at = None;
+            w.balances.shielded = 0;
+        }
+        kit.run_steps(1);
+        ready = kit
+            .query_all_by_role_and_label(Role::Button, "Check and send")
+            .any(|b| !b.accesskit_node().is_disabled());
+        if ready {
+            break;
+        }
+    }
+    let unread = kit
+        .state()
+        .snapshot
+        .as_ref()
+        .and_then(|s| s.wallet.as_ref())
+        .is_some_and(|w| w.pool.checked_at.is_none());
+    assert!(unread, "the pool is still not read");
+    assert!(ready, "«Check and send» from Core waits for nothing");
+    assert!(!has_words(&kit, crate::text::WAIT_FOR_SYNC));
+}
+
+/// BUG-113 r1 should 1: the presets show the unread pool for the designer and QA: with an amount
+/// kept, the line under the row; with none, no line; «Left» unknown in both.
+#[test]
+fn the_unread_pool_presets_show_what_they_say() {
+    for (preset, line) in [("send-pool-unread", true), ("send-pool-unknown", false)] {
+        let (_turn, mut kit) = demo_app(preset, "en");
+        kit.run_steps(4);
+        assert_eq!(
+            has_text(&kit, "The pool: the last known balance, still checking"),
+            line,
+            "{preset}"
+        );
+        assert!(has_words(&kit, "Left: —"), "{preset}");
+    }
+}

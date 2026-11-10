@@ -1448,5 +1448,6 @@
   "The identity's credits are not read yet: nothing is charged until they are": "identity के क्रेडिट अभी पढ़े नहीं गए: जब तक नहीं पढ़े जाते, कुछ नहीं कटता",
   "Not every operation becomes a line of the file: those not final yet, the second half of a transfer between your own balances and those with no amount or an unknown fee are left out.": "हर ऑपरेशन फ़ाइल की पंक्ति नहीं बनता: जो अभी अंतिम नहीं हैं, आपके अपने बैलेंस के बीच ट्रांसफ़र का दूसरा आधा हिस्सा और बिना राशि या अज्ञात शुल्क वाले शामिल नहीं होते।",
   "The network checks a reserve before it writes: with less than ≈ {} on the identity it may refuse. Less is charged.": "लिखने से पहले नेटवर्क आरक्षित राशि जाँचता है: identity पर ≈ {} से कम होने पर वह मना कर सकता है। कटता इससे कम है।",
-  "Fee, about": "शुल्क, लगभग"
+  "Fee, about": "शुल्क, लगभग",
+  "The pool: the last known balance, still checking": "पूल: आख़िरी ज्ञात बैलेंस, अभी जाँच रहे हैं"
 }

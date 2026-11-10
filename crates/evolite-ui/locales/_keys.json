@@ -921,6 +921,7 @@
   "The picture's hash is in the NFT document and checked on this computer",
   "The pool connects after syncing with Platform — usually a minute",
   "The pool is empty for now",
+  "The pool: the last known balance, still checking",
   "The private pool connects after syncing with Platform — usually a minute.",
   "The private pool in it is not checked yet",
   "The private pool is not connected yet",

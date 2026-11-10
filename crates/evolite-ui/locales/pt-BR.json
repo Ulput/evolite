@@ -1458,5 +1458,6 @@
   "The identity's credits are not read yet: nothing is charged until they are": "Os créditos da identity ainda não foram lidos: nada é cobrado até lá",
   "Not every operation becomes a line of the file: those not final yet, the second half of a transfer between your own balances and those with no amount or an unknown fee are left out.": "Nem toda operação vira uma linha do arquivo: ficam de fora as que ainda não são definitivas, a segunda metade de uma transferência entre seus próprios saldos e as que não têm valor ou cuja taxa é desconhecida.",
   "The network checks a reserve before it writes: with less than ≈ {} on the identity it may refuse. Less is charged.": "A rede verifica uma reserva antes de gravar: com menos de ≈ {} na identidade ela pode recusar. É cobrado menos.",
-  "Fee, about": "Taxa, aproximada"
+  "Fee, about": "Taxa, aproximada",
+  "The pool: the last known balance, still checking": "O pool: o último saldo conhecido, ainda verificando"
 }

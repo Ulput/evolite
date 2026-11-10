@@ -1438,5 +1438,6 @@
   "The identity's credits are not read yet: nothing is charged until they are": "Chưa đọc được credit của identity: chưa bị trừ gì cho đến khi đọc xong",
   "Not every operation becomes a line of the file: those not final yet, the second half of a transfer between your own balances and those with no amount or an unknown fee are left out.": "Không phải mọi thao tác đều thành một dòng trong tệp: các thao tác chưa hoàn tất, nửa sau của khoản chuyển giữa các số dư của bạn và các thao tác không có số tiền hoặc không rõ phí sẽ bị bỏ qua.",
   "The network checks a reserve before it writes: with less than ≈ {} on the identity it may refuse. Less is charged.": "Mạng kiểm tra một khoản dự phòng trước khi ghi: nếu danh tính có ít hơn ≈ {} thì có thể bị từ chối. Số bị trừ sẽ ít hơn.",
-  "Fee, about": "Phí, khoảng"
+  "Fee, about": "Phí, khoảng",
+  "The pool: the last known balance, still checking": "Pool: số dư biết gần nhất, vẫn đang kiểm tra"
 }

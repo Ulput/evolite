@@ -1448,5 +1448,6 @@
   "The identity's credits are not read yet: nothing is charged until they are": "Die Credits der Identity sind noch nicht gelesen: Solange sie unbekannt sind, wird nichts abgebucht",
   "Not every operation becomes a line of the file: those not final yet, the second half of a transfer between your own balances and those with no amount or an unknown fee are left out.": "Nicht jeder Vorgang wird zu einer Zeile der Datei: noch nicht endgültige, die zweite Hälfte einer Überweisung zwischen Ihren eigenen Guthaben und solche ohne Betrag oder mit unbekannter Gebühr werden ausgelassen.",
   "The network checks a reserve before it writes: with less than ≈ {} on the identity it may refuse. Less is charged.": "Das Netzwerk prüft vor dem Schreiben eine Reserve: Mit weniger als ≈ {} auf der Identität kann es ablehnen. Abgebucht wird weniger.",
-  "Fee, about": "Gebühr, ungefähr"
+  "Fee, about": "Gebühr, ungefähr",
+  "The pool: the last known balance, still checking": "Pool: der letzte bekannte Stand, wird noch geprüft"
 }

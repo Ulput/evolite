@@ -44,6 +44,9 @@ pub(super) struct DevState {
     top_up_preset: Option<bool>,
     /// `--screen overview-syncing` / `send-syncing`: the screen while the sync still runs.
     syncing_preset: bool,
+    /// `--screen send-pool-unread` / `send-pool-unknown`: Send from the pool before its first read
+    /// in this run, with the amount kept from before (`true`) or none (BUG-113).
+    pool_preset: Option<bool>,
     /// `--screen activity-notes-unreadable`: the notes file did not open (FEAT-0003, E2).
     pub(super) notes_error: Option<evolite_api::NotesError>,
     /// Tests only: every Core card says that part of its details was not saved (FEAT-0005a, FR-6).
@@ -143,6 +146,13 @@ impl DevState {
                 None
             },
             syncing_preset: dev.preset("overview-syncing") || dev.preset("send-syncing"),
+            pool_preset: if dev.preset("send-pool-unread") {
+                Some(true)
+            } else if dev.preset("send-pool-unknown") {
+                Some(false)
+            } else {
+                None
+            },
             incomplete_details: false,
             notes_error: dev
                 .preset("activity-notes-unreadable")
@@ -267,6 +277,16 @@ impl App {
             s.sync.stage = evolite_api::SyncStage::Filters;
             s.sync.progress = Some(0.58);
             s.sync.chainlocked = false;
+        }
+        // `--screen send-pool-unread` / `send-pool-unknown`: the pool not read in this run yet, with
+        // the demo's amount kept from before or none (BUG-113).
+        if let Some(kept) = self.dev.pool_preset
+            && let Some(w) = self.snapshot.as_mut().and_then(|s| s.wallet.as_mut())
+        {
+            w.pool.checked_at = None;
+            if !kept {
+                w.balances.shielded = 0;
+            }
         }
         if let Some(e) = self.dev.notes_error
             && let Some(w) = self.snapshot.as_mut().and_then(|s| s.wallet.as_mut())
@@ -434,6 +454,12 @@ impl App {
                 self.send.recipient = "@carol".into();
             } else if preset("send-book") {
                 self.send.recipient.clear();
+            }
+            // `--screen send-pool-unread` / `send-pool-unknown`: from the pool, to an address: the card,
+            // the line under the row, «Left» and the button (BUG-113).
+            if preset("send-pool-unread") || preset("send-pool-unknown") {
+                self.send.source = 2;
+                self.send.recipient = "yXk3Tq9mD8vJw2RfL6pN4sB7cH1eZ5aG9f".into();
             }
         }
         // `--screen send-qr-menu` (`--open send-qr-menu` over the real wallet): «To»'s QR menu

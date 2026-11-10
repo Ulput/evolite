@@ -8,7 +8,6 @@ pub(super) struct FormView<'a> {
     pub(super) source: &'a SourceView,
     pub(super) core_as_of: Option<evolite_api::CoreAsOf>,
     pub(super) core_as_of_line: Option<String>,
-    pub(super) credits_read: bool,
     pub(super) ask_password: bool,
     /// A refusal has just come: its line under the buttons is brought into view, once.
     pub(super) reveal: bool,
@@ -57,7 +56,7 @@ impl<'a> FormView<'a> {
         let core_as_of = cx.wallet().balances.core_as_of;
         let core_as_of_line = crate::text::core_as_of(core_as_of, cx.now);
         let source = &all[form.source];
-        form.follow_max(source.duffs, source.max_fee, source.withdrawal);
+        form.follow_source(source);
         // An address for Core is checked as it is typed, so a typo shows before the password.
         let typed_address =
             source.source == Source::Core && !typed.is_empty() && !typed.starts_with('@');
@@ -76,12 +75,13 @@ impl<'a> FormView<'a> {
             _ => None,
         };
         let amount = crate::format::parse_amount(&form.amount).filter(|d| *d > 0);
-        let left = amount.map(|d| crate::format::left_after(source.duffs, d, source.fee));
+        let left = amount
+            .filter(|_| source.read)
+            .map(|d| crate::format::left_after(source.duffs, d, source.fee));
         // Not before the wallet knows all its coins: the core would refuse, and a balance
         // still syncing is no basis for a payment (nor for saying it is too small).
         let synced = crate::text::coins_known(cx.snap.sync.stage);
-        let problem = amount_problem(&form.amount, source.duffs, source.fee, source.withdrawal)
-            .filter(|p| synced || *p != AmountProblem::NoFunds);
+        let problem = form_problem(&form.amount, source, synced);
         // A source that cannot pay at all says why, not "more than there is".
         let unavailable = match source.source {
             Source::Credits if cx.wallet().identity.is_none() => Some(tr!(
@@ -145,13 +145,11 @@ impl<'a> FormView<'a> {
         let own = own_address(cx.wallet(), &typed);
         // The kind of the last payment signed, for its answer: "To" may be cleared or new by then.
         let sent_to = form.sent_to.trim().to_string();
-        let credits_read = cx.wallet().balances.credits_read;
         FormView {
             all,
             source,
             core_as_of,
             core_as_of_line,
-            credits_read,
             ask_password,
             reveal,
             address_problem,
@@ -267,7 +265,7 @@ fn source_cards(ui: &mut Ui, a: &mut Assets, form: &mut SendForm, v: &FormView) 
             // (BUG-81): as many columns as hold the widest words, without icons if need be.
             let details: Vec<String> = all
                 .iter()
-                .map(|s| source_line(s, v.credits_read, core_as_of, core_as_of_line.as_deref()))
+                .map(|s| source_line(s, core_as_of, core_as_of_line.as_deref()))
                 .collect();
             let widths: Vec<CardWidths> = all
                 .iter()
@@ -280,13 +278,19 @@ fn source_cards(ui: &mut Ui, a: &mut Assets, form: &mut SendForm, v: &FormView) 
             let columns = from_layout(ui.available_width(), &widths);
             for (i, ((s, detail), column)) in all.iter().zip(&details).zip(columns).enumerate() {
                 let selected = i == form.source;
-                if option_card_in(ui, a, s.icon, s.title, detail, selected, column).clicked() {
+                // The last known amount, not read in this run, is dimmed (BUG-113).
+                let card = if source_dim(s) {
+                    option_card_dim_in
+                } else {
+                    option_card_in
+                };
+                if card(ui, a, s.icon, s.title, detail, selected, column).clicked() {
                     form.source = i;
                     form.result = None;
                 }
             }
         });
-        if let Some(caption) = as_of_caption(core_as_of, core_as_of_line.as_deref()) {
+        if let Some(caption) = sources_caption(core_as_of, core_as_of_line.as_deref(), all) {
             ui.add(egui::Label::new(txt(&caption, 12.0, Weight::Regular, p.muted)).wrap());
         }
     });
@@ -463,7 +467,7 @@ fn amount_row(ui: &mut Ui, form: &mut SendForm, v: &FormView, p: &crate::theme::
         }
         if all {
             form.max = true;
-            form.follow_max(source.duffs, source.max_fee, source.withdrawal);
+            form.follow_source(source);
         }
         if resp.changed() || all {
             form.result = None;
@@ -526,6 +530,8 @@ fn send_row(ui: &mut Ui, a: &mut Assets, form: &mut SendForm, v: &FormView, aske
     let source = v.source;
     let (amount, problem, unavailable) = (v.amount, v.problem, v.unavailable);
     let (target_known, synced, checking) = (v.target_known, v.synced, v.checking);
+    // A balance not read yet waits like the sync (BUG-113): the pool is read after it.
+    let synced = synced && source.read;
     let ready =
         amount.is_some() && problem.is_none() && unavailable.is_none() && target_known && synced;
     if form.waiting > 0 {
@@ -674,7 +680,7 @@ pub(super) fn summary_card(ui: &mut Ui, p: &crate::theme::Palette, v: &FormView,
             );
             // Nothing is paid until the name is a contact.
             let (amount, fee, left) = if not_contact {
-                (None, None, Some(source.duffs))
+                (None, None, source.read.then_some(source.duffs))
             } else {
                 (amount, Some(source.fee), left.filter(|l| *l >= 0))
             };

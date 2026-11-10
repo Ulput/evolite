@@ -85,6 +85,7 @@ fn the_core_source_says_when_its_balance_was_checked() {
         fee: 0,
         max_fee: 0,
         withdrawal: None,
+        read: true,
         note_icon: "",
         note: "",
     };
@@ -93,14 +94,18 @@ fn the_core_source_says_when_its_balance_was_checked() {
     assert_eq!(source_detail(&core, None, None), balance);
     // The accessibility name of a «From» card is its title: the words are checked here.
     assert_eq!(
-        source_line(&view(Source::Credits), false, None, None),
+        source_line(
+            &SourceView {
+                read: false,
+                ..view(Source::Credits)
+            },
+            None,
+            None
+        ),
         "Not known yet"
     );
-    assert_eq!(
-        source_line(&view(Source::Credits), true, None, None),
-        balance
-    );
-    assert_eq!(source_line(&core, false, None, None), balance);
+    assert_eq!(source_line(&view(Source::Credits), None, None), balance);
+    assert_eq!(source_line(&core, None, None), balance);
     assert_eq!(
         source_detail(&core, Some(CoreAsOf::Checked(1)), Some("as of 23:41")),
         balance
@@ -1186,4 +1191,85 @@ fn a_lock_or_a_switch_during_a_scan_drops_it() {
     form.on_lock();
     assert!(!form.scanner.busy());
     assert_eq!(form.scanner.poll(), None);
+}
+
+/// The pool's «From» card with `duffs`, read in this run or not.
+fn pool_source(duffs: Duffs, read: bool) -> SourceView {
+    SourceView {
+        source: Source::Pool,
+        icon: "shielded",
+        title: "Private pool",
+        duffs,
+        fee: 114_140,
+        max_fee: 114_140,
+        withdrawal: None,
+        read,
+        note_icon: "",
+        note: "",
+    }
+}
+
+/// BUG-113: the pool not read yet is no 0 on its card. With nothing kept it is not known; with
+/// an amount kept, that amount, dimmed; read, as it is.
+#[test]
+fn an_unread_pool_is_not_a_zero_on_its_card() {
+    let unknown = pool_source(0, false);
+    assert_eq!(source_line(&unknown, None, None), "Not known yet");
+    let kept = pool_source(931_274, false);
+    assert_eq!(
+        source_line(&kept, None, None),
+        crate::format::balance(931_274)
+    );
+    assert!(source_dim(&kept));
+    let read = pool_source(0, true);
+    assert_eq!(source_line(&read, None, None), crate::format::balance(0));
+    assert!(!source_dim(&read));
+    assert!(!source_dim(&unknown), "nothing to dim");
+}
+
+/// BUG-113: one line under the sources says the pool's amount is the last known one, after
+/// Core's when that is due too; nothing when every amount on the cards is read.
+#[test]
+fn the_caption_says_the_pool_is_the_last_known_balance() {
+    use evolite_api::CoreAsOf;
+    const POOL: &str = "The pool: the last known balance, still checking";
+    let kept = [pool_source(931_274, false)];
+    assert_eq!(sources_caption(None, None, &kept).as_deref(), Some(POOL));
+    let both = sources_caption(Some(CoreAsOf::Checked(1)), Some("5 min ago"), &kept);
+    assert_eq!(both, Some(format!("Core · 5 min ago · {POOL}")));
+    assert_eq!(sources_caption(None, None, &[pool_source(0, false)]), None);
+    assert_eq!(
+        sources_caption(None, None, &[pool_source(931_274, true)]),
+        None
+    );
+}
+
+/// BUG-113: an amount over a balance not read yet is not called too much; read, it is.
+#[test]
+fn an_unread_balance_is_no_reason_to_refuse_an_amount() {
+    assert_eq!(form_problem("5", &pool_source(0, false), true), None);
+    assert_eq!(
+        form_problem("0.000001", &pool_source(931_274, false), true),
+        None
+    );
+    assert_eq!(
+        form_problem("5", &pool_source(0, true), true),
+        Some(AmountProblem::MoreThanBalance)
+    );
+    assert_eq!(
+        form_problem("abc", &pool_source(0, false), true),
+        Some(AmountProblem::NotAnAmount),
+        "what is wrong with the words themselves still is"
+    );
+}
+
+/// BUG-113: «Max» of a balance not read yet fills in nothing; read, it follows the balance.
+#[test]
+fn max_waits_for_a_balance_to_be_read() {
+    let mut form = SendForm::empty();
+    form.max = true;
+    form.follow_source(&pool_source(931_274, false));
+    assert!(form.amount.is_empty(), "{}", form.amount);
+    form.follow_source(&pool_source(931_274, true));
+    assert!(!form.amount.is_empty());
 }

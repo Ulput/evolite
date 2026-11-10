@@ -1438,5 +1438,6 @@
   "The identity's credits are not read yet: nothing is charged until they are": "Kredit identity belum terbaca: tidak ada yang ditagih sampai terbaca",
   "Not every operation becomes a line of the file: those not final yet, the second half of a transfer between your own balances and those with no amount or an unknown fee are left out.": "Tidak semua operasi menjadi baris dalam berkas: yang belum final, paruh kedua transfer antar saldo Anda sendiri, dan yang tanpa jumlah atau biayanya tidak diketahui tidak disertakan.",
   "The network checks a reserve before it writes: with less than ≈ {} on the identity it may refuse. Less is charged.": "Jaringan memeriksa cadangan sebelum menulis: jika identitas memiliki kurang dari ≈ {}, jaringan dapat menolak. Yang ditagih lebih sedikit.",
-  "Fee, about": "Biaya, kira-kira"
+  "Fee, about": "Biaya, kira-kira",
+  "The pool: the last known balance, still checking": "Pool: saldo terakhir yang diketahui, masih memeriksa"
 }

@@ -180,7 +180,7 @@ pub const PRESETS: &[&str] = &[
     "activity-card-add-note", "activity-card-note-edit", "activity-card-note-error",
     "send-note", "send-note-limit", "send-confirm-note", "delete-notes",
     "send", "send-confirm", "send-contact", "send-book", "send-syncing", "send-qr-menu",
-    "send-qr-filled", "send-qr-error", "send-confirm-link",
+    "send-qr-filled", "send-qr-error", "send-confirm-link", "send-pool-unread", "send-pool-unknown",
     "receive",
     "identity", "identity-unfinished", "identity-created", "top-up-stopped", "top-up-awaiting",
     "edit-profile",
@@ -262,7 +262,8 @@ fn dev_args<'a>(
             Some(
                 "send" | "send-confirm" | "send-contact" | "send-book" | "send-syncing"
                 | "send-note" | "send-note-limit" | "send-confirm-note" | "send-qr-menu"
-                | "send-qr-filled" | "send-qr-error" | "send-confirm-link",
+                | "send-qr-filled" | "send-qr-error" | "send-confirm-link" | "send-pool-unread"
+                | "send-pool-unknown",
             ),
         ) => Screen::Send,
         (None, Some("receive")) => Screen::Receive,
