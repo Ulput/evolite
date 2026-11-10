@@ -271,27 +271,27 @@ fn a_payment_waits_for_coins_that_are_not_final() {
     let waits = |r: Result<(), CoreError>| matches!(r, Err(CoreError::NotAvailable(why)) if why.contains("not confirmed yet"));
     let mixed = wallet(&[(1, 1_000_000, true, false), (2, 5_000_000, false, false)]);
     assert_eq!(
-        coins_settled(&mixed, 500_000, false),
+        coins_settled(&mixed, 500_000, false, |_| true),
         Ok(()),
         "final coins cover it"
     );
     assert!(
-        waits(coins_settled(&mixed, 2_000_000, false)),
+        waits(coins_settled(&mixed, 2_000_000, false, |_| true)),
         "only with the waiting coin"
     );
     let settled = wallet(&[(1, 1_000_000, true, false)]);
     assert_eq!(
-        coins_settled(&settled, 2_000_000, false),
+        coins_settled(&settled, 2_000_000, false, |_| true),
         Ok(()),
         "left to `core_covers`"
     );
     assert!(
-        waits(coins_settled(&mixed, 500_000, true)),
+        waits(coins_settled(&mixed, 500_000, true, |_| true)),
         "a contact: others' coin waits"
     );
     let own = wallet(&[(1, 1_000_000, true, false), (2, 5_000_000, false, true)]);
     assert_eq!(
-        coins_settled(&own, 500_000, true),
+        coins_settled(&own, 500_000, true, |_| true),
         Ok(()),
         "a contact: own change is no risk"
     );
@@ -351,7 +351,7 @@ fn coin(value: u64, (confirmed, instant, trusted): (bool, bool, bool)) -> (u64, 
 #[test]
 fn a_contact_payment_waits_only_for_coins_it_would_take() {
     let check = |coins: &[(u64, bool, bool, bool)], amount| {
-        coins_settled(&wallet_of_coins(coins), amount, true)
+        coins_settled(&wallet_of_coins(coins), amount, true, |_| true)
     };
     let big_and_stuck = [coin(100_000_000, CONFIRMED), coin(1_000, OTHERS)];
     assert_eq!(check(&big_and_stuck, 500_000), Ok(()), "never reached");
@@ -379,9 +379,25 @@ fn a_contact_payment_waits_only_for_coins_it_would_take() {
 #[test]
 fn an_instantsend_locked_coin_is_final() {
     let locked = wallet_of_coins(&[coin(3_000_000, LOCKED), coin(5_000_000, OTHERS)]);
-    assert_eq!(coins_settled(&locked, 2_000_000, false), Ok(()));
+    assert_eq!(coins_settled(&locked, 2_000_000, false, |_| true), Ok(()));
     let only_locked = wallet_of_coins(&[coin(5_000_000, LOCKED)]);
-    assert_eq!(coins_settled(&only_locked, 2_000_000, true), Ok(()));
+    assert_eq!(
+        coins_settled(&only_locked, 2_000_000, true, |_| true),
+        Ok(())
+    );
+}
+
+/// BUG-111: an InstantLock counts only once its signature was verified, on both paths. A coin in
+/// a block needs no lock.
+#[test]
+fn a_coin_with_an_unverified_instant_lock_waits() {
+    let locked = wallet_of_coins(&[coin(3_000_000, LOCKED)]);
+    assert!(waits(coins_settled(&locked, 2_000_000, false, |_| false)));
+    assert!(waits(coins_settled(&locked, 2_000_000, true, |_| false)));
+    assert_eq!(coins_settled(&locked, 2_000_000, false, |_| true), Ok(()));
+    assert_eq!(coins_settled(&locked, 2_000_000, true, |_| true), Ok(()));
+    let mined = wallet_of_coins(&[coin(3_000_000, CONFIRMED)]);
+    assert_eq!(coins_settled(&mined, 2_000_000, false, |_| false), Ok(()));
 }
 
 /// R-10 r1 should 2: a refusal, from the gate or from `send`, says the payment's own number.

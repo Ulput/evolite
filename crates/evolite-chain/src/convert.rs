@@ -739,6 +739,37 @@ pub fn coins_once(
         .collect()
 }
 
+/// Whether a coin can be spent as final: in a block, or InstantSend-locked by a lock whose signature
+/// was verified in this run (`verified`, R-1). dash-spv marks a coin locked before its lock is
+/// checked, and on any lock at all (BUG-111), so key-wallet's `is_instantlocked` alone says nothing.
+pub fn coin_is_final(
+    coin: &key_wallet::Utxo,
+    verified: impl Fn(&key_wallet::dashcore::Txid) -> bool,
+) -> bool {
+    coin.is_confirmed || (coin.is_instantlocked && verified(&coin.outpoint.txid))
+}
+
+/// The coins a payment may take: of the accounts of `SEND_FUNDING_SOURCES` at index 0, each once,
+/// and final ([`coin_is_final`]). Coins of another account could not be signed for.
+pub fn payable_coins(
+    info: &key_wallet::wallet::managed_wallet_info::ManagedWalletInfo,
+    verified: impl Fn(&key_wallet::dashcore::Txid) -> bool,
+) -> Vec<key_wallet::Utxo> {
+    use key_wallet::wallet::managed_wallet_info::wallet_info_interface::WalletInfoInterface;
+    let accounts = info.accounts();
+    let mut seen = std::collections::HashSet::new();
+    accounts
+        .standard_bip44_accounts
+        .get(&0)
+        .into_iter()
+        .chain(accounts.standard_bip32_accounts.get(&0))
+        .chain(accounts.dashpay_receival_accounts.values())
+        .flat_map(|account| account.utxos.values())
+        .filter(|utxo| coin_is_final(utxo, &verified) && seen.insert(utxo.outpoint))
+        .cloned()
+        .collect()
+}
+
 /// The wallet's Core balance as the snapshot shows it and payments check it: the coins of
 /// [`coins_once`] — never platform-wallet's `balance()`, which counts a coin held by two
 /// accounts twice. The same sum as key-wallet's total (confirmed, unconfirmed, immature and

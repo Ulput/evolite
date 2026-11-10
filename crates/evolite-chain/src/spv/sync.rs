@@ -204,7 +204,7 @@ impl VerifiedLocks {
     }
 
     /// Notes `txid`; false when it was noted already.
-    fn insert(&self, txid: Txid) -> bool {
+    pub(crate) fn insert(&self, txid: Txid) -> bool {
         let mut locks = self.0.lock().unwrap_or_else(|e| e.into_inner());
         if !locks.set.insert(txid) {
             return false;

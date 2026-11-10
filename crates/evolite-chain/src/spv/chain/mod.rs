@@ -781,8 +781,30 @@ impl Chain {
         self.manager().await.ok()?.get_wallet(id).await
     }
 
-    /// Builds, signs (with `keys`) and broadcasts a payment to `to`. Coin selection and the
-    /// reservation of the spent coins are platform-wallet's; a payment with no clear answer is
+    /// The payment to `to`, built and signed, not sent.
+    async fn funded_payment(
+        &self,
+        wallet: &PlatformWallet,
+        keys: &key_wallet::Wallet,
+        to: &Address,
+        amount: u64,
+    ) -> Result<platform_wallet::SignedCoreTransaction, String> {
+        // The candidates are ours to give, and the accounts only keep the books (`true`): left to
+        // itself the builder takes any coin marked locked, verified or not (BUG-111).
+        let coins = crate::convert::payable_coins(&wallet.state().await.core_wallet, |txid| {
+            self.instant_lock_verified(txid)
+        });
+        let builder = payment_builder(to, amount).add_inputs(coins);
+        wallet
+            .core()
+            .finalize_transaction_with_options(builder, &SEND_FUNDING_SOURCES, 0, keys, true)
+            .await
+            .map_err(|e| e.to_string())
+    }
+
+    /// Builds, signs (with `keys`) and broadcasts a payment to `to`, of final coins only
+    /// ([`crate::convert::payable_coins`]). The choice among them and the reservation of the spent
+    /// coins are platform-wallet's; a payment with no clear answer is
     /// reported, never resent.
     pub async fn pay(
         &self,
@@ -791,12 +813,7 @@ impl Chain {
         to: &Address,
         amount: u64,
     ) -> Result<Paid, String> {
-        let builder = payment_builder(to, amount);
-        let signed = wallet
-            .core()
-            .finalize_transaction(builder, &SEND_FUNDING_SOURCES, 0, keys)
-            .await
-            .map_err(|e| e.to_string())?;
+        let signed = self.funded_payment(wallet, keys, to, amount).await?;
         let fee = signed.fee();
         let txid = signed.transaction().txid().to_string();
         match wallet.core().broadcast_finalized_transaction(&signed).await {

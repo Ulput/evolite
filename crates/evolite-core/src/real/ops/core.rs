@@ -170,6 +170,7 @@ impl Real {
             &wallet.state().await.core_wallet,
             amount,
             matches!(payee, CorePayee::Contact(_)),
+            |txid| self.chain.instant_lock_verified(txid),
         )?;
         let keys = self
             .unlocked
@@ -304,7 +305,7 @@ pub(in crate::real) fn core_failure(text: String) -> CoreError {
 }
 
 /// Whether a payment of `amount` can go now without a coin that is not final: neither in a block
-/// nor InstantSend-locked (R-5). `contact`: such a payment is built by platform-wallet, which takes
+/// nor InstantSend-locked by a lock `verified` in this run (R-5, BUG-111). `contact`: such a payment is built by platform-wallet, which takes
 /// any coin, largest first: it waits only if that walk reaches someone's coin that is not final.
 /// A coin no block ever takes stays in the wallet without end, so one the payment would not take
 /// must not stop it.
@@ -312,10 +313,11 @@ pub(in crate::real) fn coins_settled(
     info: &key_wallet::wallet::ManagedWalletInfo,
     amount: u64,
     contact: bool,
+    verified: impl Fn(&key_wallet::dashcore::Txid) -> bool,
 ) -> Result<(), CoreError> {
     let waiting = || CoreError::NotAvailable(NOT_SETTLED.into());
     let coins = convert::coins_once(info);
-    let is_final = |coin: &&key_wallet::Utxo| coin.is_confirmed || coin.is_instantlocked;
+    let is_final = |coin: &&key_wallet::Utxo| convert::coin_is_final(coin, &verified);
     if contact {
         let risky = |coin: &&key_wallet::Utxo| !is_final(coin) && !coin.is_trusted;
         let mut by_value = coins;

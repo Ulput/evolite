@@ -1411,3 +1411,121 @@ fn a_stopped_chain_lets_go_of_the_store() {
         let _ = std::fs::remove_dir_all(&dir);
     });
 }
+
+/// BUG-111: a coin whose InstantLock was not verified in this run is not taken by a payment, even
+/// though the library has marked it InstantSend-locked; once the lock is verified it is. Offline:
+/// the store only, no SPV client, a public test phrase.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_payment_takes_no_coin_with_an_unverified_instant_lock() {
+    use key_wallet::dashcore::hashes::Hash;
+    use key_wallet::dashcore::{OutPoint, TxOut, Txid};
+    let dir = std::env::temp_dir().join(format!("evolite-unverified-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let paths = ChainPaths {
+        spv: dir.join("spv").join("testnet"),
+        store: dir
+            .join("wallets")
+            .join("testnet")
+            .join("platform-wallet.db"),
+        core_node: dir.join("core-node.txt"),
+    };
+    let chain = Chain::default();
+    chain
+        .open_store_only(&paths)
+        .await
+        .expect("the store opens");
+    let phrase = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
+    let (_, wallet) = chain.open_wallet(phrase, 0).await.expect("wallet opens");
+    let keys = crate::keys_of(phrase).expect("keys");
+    let address = wallet
+        .core()
+        .next_receive_address_for_account(0)
+        .await
+        .expect("an address");
+    let coin = |seed: u8, value: u64, final_by: fn(&mut key_wallet::Utxo)| {
+        let mut utxo = key_wallet::Utxo::new(
+            OutPoint::new(Txid::from_byte_array([seed; 32]), 0),
+            TxOut {
+                value,
+                script_pubkey: address.script_pubkey(),
+            },
+            address.clone(),
+            100,
+            false,
+        );
+        final_by(&mut utxo);
+        utxo
+    };
+    let unverified = coin(1, 9_000_000, |u| u.is_instantlocked = true);
+    let mined = coin(2, 1_000_000, |u| u.is_confirmed = true);
+    {
+        use key_wallet::account::account_type::StandardAccountType;
+        let mut state = wallet.state_mut().await;
+        let account = state
+            .core_wallet
+            .accounts
+            .funds_account_mut(&key_wallet::AccountType::Standard {
+                index: 0,
+                standard_account_type: StandardAccountType::BIP44Account,
+            })
+            .expect("BIP44 account 0");
+        account
+            .utxos
+            .insert(unverified.outpoint, unverified.clone());
+        account.utxos.insert(mined.outpoint, mined.clone());
+        // The same coin in two accounts is offered once, and a mixed coin is not offered.
+        state
+            .core_wallet
+            .accounts
+            .funds_account_mut(&key_wallet::AccountType::Standard {
+                index: 0,
+                standard_account_type: StandardAccountType::BIP32Account,
+            })
+            .expect("BIP32 account 0")
+            .utxos
+            .insert(mined.outpoint, mined.clone());
+        let mixed = coin(3, 3_000_000, |u| u.is_confirmed = true);
+        state
+            .core_wallet
+            .accounts
+            .funds_account_mut(&key_wallet::AccountType::CoinJoin { index: 0 })
+            .expect("CoinJoin account 0")
+            .utxos
+            .insert(mixed.outpoint, mixed);
+        assert_eq!(
+            crate::convert::payable_coins(&state.core_wallet, |_| false),
+            vec![mined.clone()]
+        );
+    }
+    let to = address.clone();
+    assert!(
+        chain
+            .funded_payment(&wallet, &keys, &to, 5_000_000)
+            .await
+            .is_err(),
+        "only the coin with the unverified lock could pay this"
+    );
+    let signed = chain
+        .funded_payment(&wallet, &keys, &to, 500_000)
+        .await
+        .expect("the mined coin pays this");
+    let spent: Vec<_> = signed
+        .transaction()
+        .input
+        .iter()
+        .map(|i| i.previous_output)
+        .collect();
+    assert_eq!(spent, vec![mined.outpoint]);
+    wallet.core().abandon_transaction(&signed).await;
+    chain.instant_locks.insert(unverified.outpoint.txid);
+    assert!(
+        chain
+            .funded_payment(&wallet, &keys, &to, 5_000_000)
+            .await
+            .is_ok(),
+        "verified, it counts"
+    );
+    drop(wallet);
+    chain.stop().await;
+    let _ = std::fs::remove_dir_all(&dir);
+}
