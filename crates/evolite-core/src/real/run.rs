@@ -175,6 +175,7 @@ pub fn run(
                 core.connect_pool();
                 core.build_contact_accounts();
                 core.read_platform_history();
+                core.read_lock_status();
                 // A DashPay pass brings requests and contacts without any other event: the
                 // snapshot is made again after each one (BUG-13).
                 let synced = turn::timed("dashpay_synced_at", core.chain.dashpay_synced_at()).await;

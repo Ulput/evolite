@@ -65,7 +65,24 @@ fn chip_in(
 /// How far a payment is proved: accent for the checked ones, muted for the mempool and for a
 /// payment still on its way.
 pub fn status_chip(ui: &mut Ui, a: &mut Assets, proof: Proof) -> Response {
-    let (icon, label) = crate::text::proof(proof);
+    status_chip_of(ui, a, proof, false)
+}
+
+/// The words of a status chip; `core`: it speaks only of the Core transaction (FEAT-0016).
+pub fn status_words(proof: Proof, core: bool) -> String {
+    let (_, label) = crate::text::proof(proof);
+    if core {
+        format!("Core · {label}")
+    } else {
+        label.to_owned()
+    }
+}
+
+/// [`status_chip`] that can say it is only the Core transaction's.
+pub fn status_chip_of(ui: &mut Ui, a: &mut Assets, proof: Proof, core: bool) -> Response {
+    let (icon, _) = crate::text::proof(proof);
+    let label = status_words(proof, core);
+    let label = label.as_str();
     let hint = crate::text::proof_hint(proof);
     let resp = chip(
         ui,

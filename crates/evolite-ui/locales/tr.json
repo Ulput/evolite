@@ -1474,5 +1474,18 @@
   "domain document “{}.dash”": "domain belgesi “{}.dash”",
   "profile document": "profile belgesi",
   "{} were added": "{} eklendi",
-  "The pool: the last known balance, still checking": "Havuz: bilinen son bakiye, hâlâ kontrol ediliyor"
+  "The pool: the last known balance, still checking": "Havuz: bilinen son bakiye, hâlâ kontrol ediliyor",
+  "credits: used in Platform": "krediler: Platform'da kullanıldı",
+  "credits: partly used": "krediler: kısmen kullanıldı",
+  "Platform has not received these DASH": "Platform bu DASH'leri almadı",
+  "used in Platform": "Platform'da kullanıldı",
+  "partly used, {} left": "kısmen kullanıldı, {} kaldı",
+  "Platform has proved that these DASH were used. It does not record which identity got the credits. The identity's credits are on the Identity screen.": "Platform bu DASH'lerin kullanıldığını kanıtla doğruladı. Kredileri hangi identity'nin aldığını kaydetmez. identity'nin kredileri “Kimlik” ekranındadır.",
+  "Platform has proved that only part of these DASH was used: {} is left. It does not record which identity got the credits.": "Platform bu DASH'lerin yalnızca bir kısmının kullanıldığını kanıtla doğruladı: {} kaldı. Kredileri hangi identity'nin aldığını kaydetmez.",
+  "Platform has proved that these DASH have not reached it. They left Core for good. There is no unfinished top-up here to continue.": "Platform bu DASH'lerin kendisine ulaşmadığını kanıtla doğruladı. Core'dan kalıcı olarak çıktılar. Burada devam ettirilecek yarım kalmış bir yükleme yok.",
+  "Open Identity": "“Kimlik”i aç",
+  "credits: no record": "krediler: kayıt yok",
+  "no record": "kayıt yok",
+  "This top-up was made on another computer or its result was not kept here, so evolite does not know whether Platform added the credits. The DASH left Core for good. The identity's credits are on the Identity screen.": "Bu yükleme başka bir bilgisayarda yapıldı ya da sonucu burada saklanmadı; bu yüzden evolite, Platform'un kredileri ekleyip eklemediğini bilmiyor. DASH'ler Core'dan kalıcı olarak çıktı. identity'nin kredileri “Kimlik” ekranındadır.",
+  "This identity was created on another computer or its result was not kept here, so evolite does not know whether Platform added the credits. The DASH left Core for good. The identity's credits are on the Identity screen.": "Bu identity başka bir bilgisayarda oluşturuldu ya da sonucu burada saklanmadı; bu yüzden evolite, Platform'un kredileri ekleyip eklemediğini bilmiyor. DASH'ler Core'dan kalıcı olarak çıktı. identity'nin kredileri “Kimlik” ekranındadır."
 }

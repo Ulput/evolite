@@ -1494,5 +1494,18 @@
   "domain document “{}.dash”": "документ domain «{}.dash»",
   "profile document": "документ profile",
   "{} were added": "{} зараховано",
-  "The pool: the last known balance, still checking": "Пул — останній відомий баланс, ще перевіряємо"
+  "The pool: the last known balance, still checking": "Пул — останній відомий баланс, ще перевіряємо",
+  "credits: used in Platform": "кредити: використано в Platform",
+  "credits: partly used": "кредити: використано частково",
+  "Platform has not received these DASH": "Platform не отримала ці DASH",
+  "used in Platform": "використано в Platform",
+  "partly used, {} left": "використано частково, залишилося {}",
+  "Platform has proved that these DASH were used. It does not record which identity got the credits. The identity's credits are on the Identity screen.": "Platform підтвердила доказом, що ці DASH використано. Якій identity дісталися кредити, вона не зберігає. Скільки кредитів в identity — на екрані Identity.",
+  "Platform has proved that only part of these DASH was used: {} is left. It does not record which identity got the credits.": "Platform підтвердила доказом, що ці DASH використано не повністю: залишилося {}. Якій identity дісталися кредити, вона не зберігає.",
+  "Platform has proved that these DASH have not reached it. They left Core for good. There is no unfinished top-up here to continue.": "Platform підтвердила доказом, що ці DASH до неї не дійшли. З Core їх списано остаточно. Незавершеного поповнення тут немає, продовжувати нічого.",
+  "Open Identity": "Відкрити Identity",
+  "credits: no record": "кредити: немає відомостей",
+  "no record": "немає відомостей",
+  "This top-up was made on another computer or its result was not kept here, so evolite does not know whether Platform added the credits. The DASH left Core for good. The identity's credits are on the Identity screen.": "Поповнення зроблено не на цьому комп'ютері або його результат тут не збережено, тому evolite не знає, чи зарахувала Platform кредити. DASH з Core списано остаточно. Скільки кредитів в identity — на екрані Identity.",
+  "This identity was created on another computer or its result was not kept here, so evolite does not know whether Platform added the credits. The DASH left Core for good. The identity's credits are on the Identity screen.": "Створення identity зроблено не на цьому комп'ютері або його результат тут не збережено, тому evolite не знає, чи зарахувала Platform кредити. DASH з Core списано остаточно. Скільки кредитів в identity — на екрані Identity."
 }

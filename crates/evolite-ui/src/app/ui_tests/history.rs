@@ -531,9 +531,10 @@ fn a_top_up_that_finishes_stops_saying_not_added() {
             .is_none()
     );
     assert!(!says(&kit, "The top-up was interrupted"));
-    // Not known (a restore found the lock): no line about credits at all.
+    // Not known (a restore found the lock): said calmly, as BUG-57 decided (FEAT-0016 R-3а).
     with_op(&mut kit, &lock(false, Credits::Unknown));
-    assert!(!says(&kit, "Credits: "), "nothing said when not known");
+    assert!(says(&kit, "Credits: no record"), "said when not known");
+    assert!(!says(&kit, "Credits: added"));
     // Overview's latest operations draw the same row.
     kit.ctx
         .data_mut(|d| d.remove::<u64>(egui::Id::new("activity-card")));

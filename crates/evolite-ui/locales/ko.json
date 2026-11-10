@@ -1464,5 +1464,18 @@
   "domain document “{}.dash”": "domain 문서 “{}.dash”",
   "profile document": "profile 문서",
   "{} were added": "{} 추가됨",
-  "The pool: the last known balance, still checking": "풀: 마지막으로 알려진 잔액, 아직 확인 중"
+  "The pool: the last known balance, still checking": "풀: 마지막으로 알려진 잔액, 아직 확인 중",
+  "credits: used in Platform": "크레딧: Platform에서 사용됨",
+  "credits: partly used": "크레딧: 일부 사용됨",
+  "Platform has not received these DASH": "Platform이 이 DASH를 받지 못했습니다",
+  "used in Platform": "Platform에서 사용됨",
+  "partly used, {} left": "일부 사용됨, {} 남음",
+  "Platform has proved that these DASH were used. It does not record which identity got the credits. The identity's credits are on the Identity screen.": "Platform이 증명으로 이 DASH가 사용되었음을 확인했습니다. 어느 identity가 크레딧을 받았는지는 기록하지 않습니다. identity의 크레딧은 ‘신원’ 화면에 있습니다.",
+  "Platform has proved that only part of these DASH was used: {} is left. It does not record which identity got the credits.": "Platform이 증명으로 이 DASH 중 일부만 사용되었음을 확인했습니다: {} 남았습니다. 어느 identity가 크레딧을 받았는지는 기록하지 않습니다.",
+  "Platform has proved that these DASH have not reached it. They left Core for good. There is no unfinished top-up here to continue.": "Platform이 증명으로 이 DASH가 도달하지 않았음을 확인했습니다. DASH는 Core에서 완전히 빠져나갔습니다. 여기에는 이어서 할 미완료 충전이 없습니다.",
+  "Open Identity": "‘신원’ 열기",
+  "credits: no record": "크레딧: 기록 없음",
+  "no record": "기록 없음",
+  "This top-up was made on another computer or its result was not kept here, so evolite does not know whether Platform added the credits. The DASH left Core for good. The identity's credits are on the Identity screen.": "이 충전은 다른 컴퓨터에서 했거나 결과가 여기에 저장되지 않아, evolite는 Platform이 크레딧을 추가했는지 알 수 없습니다. DASH는 Core에서 완전히 빠져나갔습니다. identity의 크레딧은 ‘신원’ 화면에 있습니다.",
+  "This identity was created on another computer or its result was not kept here, so evolite does not know whether Platform added the credits. The DASH left Core for good. The identity's credits are on the Identity screen.": "이 identity는 다른 컴퓨터에서 만들었거나 결과가 여기에 저장되지 않아, evolite는 Platform이 크레딧을 추가했는지 알 수 없습니다. DASH는 Core에서 완전히 빠져나갔습니다. identity의 크레딧은 ‘신원’ 화면에 있습니다."
 }

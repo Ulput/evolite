@@ -1464,5 +1464,18 @@
   "domain document “{}.dash”": "dokumen domain “{}.dash”",
   "profile document": "dokumen profile",
   "{} were added": "{} ditambahkan",
-  "The pool: the last known balance, still checking": "Pool: saldo terakhir yang diketahui, masih memeriksa"
+  "The pool: the last known balance, still checking": "Pool: saldo terakhir yang diketahui, masih memeriksa",
+  "credits: used in Platform": "kredit: dipakai di Platform",
+  "credits: partly used": "kredit: dipakai sebagian",
+  "Platform has not received these DASH": "Platform tidak menerima DASH ini",
+  "used in Platform": "dipakai di Platform",
+  "partly used, {} left": "dipakai sebagian, sisa {}",
+  "Platform has proved that these DASH were used. It does not record which identity got the credits. The identity's credits are on the Identity screen.": "Platform telah membuktikan bahwa DASH ini sudah dipakai. Platform tidak mencatat identity mana yang menerima kreditnya. Kredit identity ada di layar “Identitas”.",
+  "Platform has proved that only part of these DASH was used: {} is left. It does not record which identity got the credits.": "Platform telah membuktikan bahwa hanya sebagian DASH ini yang dipakai: sisa {}. Platform tidak mencatat identity mana yang menerima kreditnya.",
+  "Platform has proved that these DASH have not reached it. They left Core for good. There is no unfinished top-up here to continue.": "Platform telah membuktikan bahwa DASH ini tidak sampai kepadanya. DASH ini sudah keluar dari Core untuk selamanya. Tidak ada isi ulang yang belum selesai untuk dilanjutkan di sini.",
+  "Open Identity": "Buka “Identitas”",
+  "credits: no record": "kredit: tidak ada catatan",
+  "no record": "tidak ada catatan",
+  "This top-up was made on another computer or its result was not kept here, so evolite does not know whether Platform added the credits. The DASH left Core for good. The identity's credits are on the Identity screen.": "Isi ulang ini dilakukan di komputer lain atau hasilnya tidak disimpan di sini, jadi evolite tidak tahu apakah Platform sudah menambahkan kreditnya. DASH sudah keluar dari Core untuk selamanya. Kredit identity ada di layar “Identitas”.",
+  "This identity was created on another computer or its result was not kept here, so evolite does not know whether Platform added the credits. The DASH left Core for good. The identity's credits are on the Identity screen.": "Identity ini dibuat di komputer lain atau hasilnya tidak disimpan di sini, jadi evolite tidak tahu apakah Platform sudah menambahkan kreditnya. DASH sudah keluar dari Core untuk selamanya. Kredit identity ada di layar “Identitas”."
 }

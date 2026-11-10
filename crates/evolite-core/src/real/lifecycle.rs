@@ -59,6 +59,10 @@ impl Real {
             prices: prices::PriceWatch::new(journal.clone()),
             journal,
             history_busy: Arc::new(AtomicBool::new(false)),
+            lock_status: Arc::new(evolite_chain::lock_status::LockStatuses::new(
+                paths.lock_status.clone(),
+            )),
+            lock_status_busy: Arc::new(AtomicBool::new(false)),
             history_next: None,
             contact_paid,
             hidden,

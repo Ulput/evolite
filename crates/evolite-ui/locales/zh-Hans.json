@@ -1464,5 +1464,18 @@
   "domain document “{}.dash”": "domain 文档“{}.dash”",
   "profile document": "profile 文档",
   "{} were added": "已到账 {}",
-  "The pool: the last known balance, still checking": "私密池：上次已知的余额，仍在核对"
+  "The pool: the last known balance, still checking": "私密池：上次已知的余额，仍在核对",
+  "credits: used in Platform": "积分：已在 Platform 使用",
+  "credits: partly used": "积分：部分已使用",
+  "Platform has not received these DASH": "Platform 未收到这些 DASH",
+  "used in Platform": "已在 Platform 使用",
+  "partly used, {} left": "部分已使用，剩余 {}",
+  "Platform has proved that these DASH were used. It does not record which identity got the credits. The identity's credits are on the Identity screen.": "Platform 已用证明确认这些 DASH 已被使用。它不记录积分归哪个 identity。identity 的积分请在“身份”页面查看。",
+  "Platform has proved that only part of these DASH was used: {} is left. It does not record which identity got the credits.": "Platform 已用证明确认这些 DASH 只使用了一部分：剩余 {}。它不记录积分归哪个 identity。",
+  "Platform has proved that these DASH have not reached it. They left Core for good. There is no unfinished top-up here to continue.": "Platform 已用证明确认这些 DASH 没有到达它。它们已从 Core 永久扣除。这里没有可继续的未完成充值。",
+  "Open Identity": "打开“身份”",
+  "credits: no record": "积分：无记录",
+  "no record": "无记录",
+  "This top-up was made on another computer or its result was not kept here, so evolite does not know whether Platform added the credits. The DASH left Core for good. The identity's credits are on the Identity screen.": "这笔充值是在另一台电脑上完成的，或其结果未保存在这里，因此 evolite 不知道 Platform 是否已添加积分。DASH 已从 Core 永久扣除。identity 的积分请在“身份”页面查看。",
+  "This identity was created on another computer or its result was not kept here, so evolite does not know whether Platform added the credits. The DASH left Core for good. The identity's credits are on the Identity screen.": "这个 identity 是在另一台电脑上创建的，或其结果未保存在这里，因此 evolite 不知道 Platform 是否已添加积分。DASH 已从 Core 永久扣除。identity 的积分请在“身份”页面查看。"
 }

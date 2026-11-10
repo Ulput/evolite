@@ -14,7 +14,7 @@ mod spv;
 pub mod store;
 
 pub use apps::{app_chain, app_connect};
-pub use platform::{dashpay, identity, nfts, platform_history, pool};
+pub use platform::{dashpay, identity, lock_status, nfts, platform_history, pool};
 pub use spv::{chain, mined, provider, sync, turn};
 pub use store::store_refusal;
 

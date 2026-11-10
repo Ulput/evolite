@@ -4,7 +4,7 @@
 use super::txt;
 use crate::components::{
     Assets, ButtonKind, button, button_enabled, button_row, dialog_with_header_held, field_label,
-    kv_row, kv_row_in, notice, paint_icon_box, status_chip, text_action,
+    kv_row, kv_row_in, notice, paint_icon_box, text_action,
 };
 use crate::context::Ctx;
 use crate::text::{self};
@@ -1167,15 +1167,7 @@ fn detail_body(
     }
     // An asset lock: the Core transaction's proof is the chip; the credits are apart, red when
     // Platform did not add them (BUG-57).
-    if let Some((credits, bad)) = text::activity_credits(act) {
-        let color = if bad { p.danger } else { p.text };
-        // How many, when this computer made the top-up (FR-3).
-        let said = match detail.credits_added.filter(|_| !bad) {
-            Some(added) => format!(tr!("{} were added"), crate::format::amount(added)),
-            None => credits.to_owned(),
-        };
-        kv_row_in(ui, &p, tr!("Credits"), &said, words.clone(), color);
-    }
+    credits_lines(ui, a, act, detail.credits_added);
     // Where a contact request stands; a withdrawal Platform gave up on says so here.
     if let Some(status) = shown_status(act) {
         kv_row(ui, &p, tr!("Status"), status, words.clone());
@@ -1247,6 +1239,29 @@ fn proof_line(ui: &mut Ui, a: &mut Assets, icon: &str, said: &str) {
         ui.add(a.icons.icon(icon, p.accent, &p, 16.0));
         ui.add(egui::Label::new(txt(said, 13.0, Weight::Regular, p.text)).wrap());
     });
+}
+
+/// «Credits» of an asset lock, red only when not added (BUG-57); `added`: how many, when this
+/// computer made the top-up (FR-3). What Platform proved is explained under it (FEAT-0016).
+fn credits_lines(ui: &mut Ui, a: &mut Assets, act: &Activity, added: Option<Duffs>) {
+    let p = a.p;
+    let Some((credits, tone)) = text::activity_credits(act) else {
+        return;
+    };
+    let color = match tone {
+        text::Tone::Plain => p.text,
+        text::Tone::Quiet => p.muted,
+        text::Tone::Bad => p.danger,
+    };
+    let said = match added.filter(|_| tone == text::Tone::Plain) {
+        Some(added) => format!(tr!("{} were added"), crate::format::amount(added)),
+        None => credits,
+    };
+    let words = sans(13.0, Weight::Medium);
+    kv_row_in(ui, &p, tr!("Credits"), &said, words, color);
+    if let Some(explained) = text::credits_explained(act) {
+        notice(ui, a, "info", p.muted, &explained);
+    }
 }
 
 /// The status said in words, where the card has no better line for it: a withdrawal's states
@@ -1375,7 +1390,7 @@ fn identity_to_open<'a>(act: &'a Activity, identities: &[IdentityChoice]) -> Opt
         }
     );
     let id = card_detail(act)?.identity.as_ref()?.id.as_str();
-    (!not_added && identities.iter().any(|c| c.id == id)).then_some(id)
+    (!not_added && !text::credits_quiet(act) && identities.iter().any(|c| c.id == id)).then_some(id)
 }
 
 /// 24 · Operation details: what and where, how much and its status, when, the fee and the block,
@@ -1408,6 +1423,7 @@ fn card(ui: &mut Ui, a: &mut Assets, act: &Activity, around: &Around) -> CardAns
         not_added,
         repeat: &repeat,
         identity: identity_to_open(act, around.identities),
+        open_identity: text::credits_quiet(act),
     };
     let closed = dialog_with_header_held(
         ui,
@@ -1436,7 +1452,7 @@ fn card(ui: &mut Ui, a: &mut Assets, act: &Activity, around: &Around) -> CardAns
                     ui.add_space(8.0 - ui.spacing().item_spacing.x);
                     crate::components::amount_toggle(ui, a, true);
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                        status_chip(ui, a, act.proof);
+                        crate::components::status_chip_of(ui, a, act.proof, text::core_chip(act));
                     });
                 });
                 if let Some(detail) = card_detail(act) {
@@ -1550,10 +1566,7 @@ fn plain_body(
     }
     // An asset lock: the chip above is the Core transaction's; whether Platform added
     // the credits is said apart, in red when it did not (BUG-57, customer: red).
-    if let Some((credits, bad)) = text::activity_credits(act) {
-        let color = if bad { p.danger } else { p.text };
-        kv_row_in(ui, &p, tr!("Credits"), credits, words, color);
-    }
+    credits_lines(ui, a, act, None);
     if let Some(fee) = act.fee {
         kv_row(
             ui,
@@ -1732,6 +1745,8 @@ struct Footer<'a> {
     not_added: bool,
     repeat: &'a Option<(String, Duffs)>,
     identity: Option<&'a str>,
+    /// «Open Identity»: to see the credits, with no promise to continue (FEAT-0016).
+    open_identity: bool,
 }
 
 /// The buttons under the card. Whether it closes.
@@ -1741,6 +1756,7 @@ fn card_footer(ui: &mut Ui, a: &mut Assets, footer: &Footer, answer: &mut CardAn
         not_added,
         repeat,
         identity,
+        open_identity,
     } = *footer;
     let mut close = false;
     // The action on the right, «Close» on its left: as in every dialog (designer review №8).
@@ -1764,6 +1780,12 @@ fn card_footer(ui: &mut Ui, a: &mut Assets, footer: &Footer, answer: &mut CardAn
                 None,
             )
             .clicked()
+        {
+            answer.go = Some(crate::screens::Screen::Identity);
+            close = true;
+        }
+        if open_identity
+            && button(ui, a, tr!("Open Identity"), ButtonKind::Secondary, None).clicked()
         {
             answer.go = Some(crate::screens::Screen::Identity);
             close = true;

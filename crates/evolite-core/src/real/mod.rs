@@ -115,6 +115,8 @@ pub struct Paths {
     pub journal: PathBuf,
     /// How far Platform was read back into the journal ([`platform_history::Marks`]).
     pub platform_sync: PathBuf,
+    /// What Platform proved about the wallet's asset locks (FEAT-0016).
+    pub lock_status: PathBuf,
     /// Addresses of contacts' keys already paid ([`contact_addresses::ContactAddresses`]).
     pub contact_addresses: PathBuf,
     /// Senders whose contact requests were hidden ([`hidden_requests::HiddenRequests`]).
@@ -160,6 +162,7 @@ impl Paths {
             pending_names: wallets.join("pending-names.json"),
             journal: wallets.join("platform-history.json"),
             platform_sync: wallets.join("platform-sync.json"),
+            lock_status: wallets.join("lock-status.json"),
             contact_addresses: wallets.join("contact-addresses.json"),
             hidden_requests: wallets.join("hidden-requests.json"),
             pool_history: wallets.join("pool-history.json"),
@@ -369,6 +372,8 @@ struct Real {
     prices: prices::PriceWatch,
     /// A pass reading Platform back into the journal is running (one at a time).
     history_busy: Arc<AtomicBool>,
+    lock_status: Arc<evolite_chain::lock_status::LockStatuses>,
+    lock_status_busy: Arc<AtomicBool>,
     /// When the next pass is due; `None`: as soon as the identities are known.
     history_next: Option<std::time::Instant>,
     /// Addresses of contacts' keys already paid: never paid again, after a restart too.

@@ -391,6 +391,10 @@ impl App {
             ("activity-card-pool-sent", 21),
             ("activity-card-pool-received", 22),
             ("activity-card-top-up", 4),
+            ("activity-card-lock-used", 23),
+            ("activity-card-lock-partly", 24),
+            ("activity-card-lock-not-received", 25),
+            ("activity-card-lock-unknown", 10),
         ] {
             if preset(name) && !real_shot {
                 screens::open_card(ctx, line);

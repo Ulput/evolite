@@ -162,6 +162,12 @@ pub enum Credits {
     /// Locked on Core and not taken by Platform: [`Wallet::unfinished_top_up`] or
     /// [`Wallet::unfinished_identity`] says so too, and "Continue" on Identity finishes it.
     NotAdded,
+    /// Platform proved it spent; who got the credits it does not record (FEAT-0016).
+    Used,
+    /// Platform proved only part of it spent; `left` duffs are still in the lock.
+    UsedPartly { left: Duffs },
+    /// Platform proved it has not seen the lock, and no top-up here is left to continue.
+    NotReceived,
 }
 
 /// A withdrawal document's `status` (the Withdrawals system contract).

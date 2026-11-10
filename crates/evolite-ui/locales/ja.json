@@ -1464,5 +1464,18 @@
   "domain document “{}.dash”": "domain ドキュメント「{}.dash」",
   "profile document": "profile ドキュメント",
   "{} were added": "{} が追加されました",
-  "The pool: the last known balance, still checking": "プール：最後に分かっている残高、確認中"
+  "The pool: the last known balance, still checking": "プール：最後に分かっている残高、確認中",
+  "credits: used in Platform": "クレジット：Platform で使用済み",
+  "credits: partly used": "クレジット：一部使用済み",
+  "Platform has not received these DASH": "Platform はこの DASH を受け取っていません",
+  "used in Platform": "Platform で使用済み",
+  "partly used, {} left": "一部使用済み、残り {}",
+  "Platform has proved that these DASH were used. It does not record which identity got the credits. The identity's credits are on the Identity screen.": "Platform は、この DASH が使用されたことを証明で確認しました。どの identity がクレジットを受け取ったかは記録されません。identity のクレジットは「アイデンティティ」画面にあります。",
+  "Platform has proved that only part of these DASH was used: {} is left. It does not record which identity got the credits.": "Platform は、この DASH の一部だけが使用されたことを証明で確認しました：残り {}。どの identity がクレジットを受け取ったかは記録されません。",
+  "Platform has proved that these DASH have not reached it. They left Core for good. There is no unfinished top-up here to continue.": "Platform は、この DASH が届いていないことを証明で確認しました。DASH は Core から完全に出ています。ここで続行できる未完了のチャージはありません。",
+  "Open Identity": "「アイデンティティ」を開く",
+  "credits: no record": "クレジット：記録なし",
+  "no record": "記録なし",
+  "This top-up was made on another computer or its result was not kept here, so evolite does not know whether Platform added the credits. The DASH left Core for good. The identity's credits are on the Identity screen.": "このチャージは別のコンピューターで行われたか、結果がここに保存されていません。そのため、Platform がクレジットを追加したかどうか evolite にはわかりません。DASH は Core から完全に出ています。identity のクレジットは「アイデンティティ」画面にあります。",
+  "This identity was created on another computer or its result was not kept here, so evolite does not know whether Platform added the credits. The DASH left Core for good. The identity's credits are on the Identity screen.": "この identity は別のコンピューターで作成されたか、結果がここに保存されていません。そのため、Platform がクレジットを追加したかどうか evolite にはわかりません。DASH は Core から完全に出ています。identity のクレジットは「アイデンティティ」画面にあります。"
 }

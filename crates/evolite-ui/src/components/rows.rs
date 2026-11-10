@@ -64,6 +64,10 @@ pub struct TxRow<'a> {
     pub amount: &'a str,
     /// What went wrong, in red after `detail` (BUG-57: credits not added); `None` mostly.
     pub alert: Option<&'a str>,
+    /// `alert` is only said, not something to act on: muted (FEAT-0016, BUG-57).
+    pub quiet: bool,
+    /// The chip names the Core transaction: the credits are not known to have arrived.
+    pub core_chip: bool,
     /// The person's note to the operation (FEAT-0003), quoted after the line and cut with «…»
     /// before the status; its own direction kept.
     pub note: Option<&'a str>,
@@ -130,14 +134,14 @@ fn tx_row_sensed(ui: &mut Ui, a: &mut Assets, row: &TxRow, sense: Sense) -> egui
     // The chip sits left of a 150 px amount column, as in Figma.
     let mut text_right = amount_right - 150.0;
     if let Some(proof) = row.proof {
-        let (_, label) = crate::text::proof(proof);
-        let chip_w = 8.0 + 14.0 + 6.0 + text_width(ui, label, sans(12.0, Weight::SemiBold)) + 10.0;
+        let label = status_words(proof, row.core_chip);
+        let chip_w = 8.0 + 14.0 + 6.0 + text_width(ui, &label, sans(12.0, Weight::SemiBold)) + 10.0;
         let chip_rect = Rect::from_min_size(
             pos2(amount_right - 150.0 - 14.0 - chip_w, cy - 12.5),
             vec2(chip_w, 25.0),
         );
         let mut chip_ui = ui.new_child(egui::UiBuilder::new().max_rect(chip_rect));
-        status_chip(&mut chip_ui, a, proof);
+        status_chip_of(&mut chip_ui, a, proof, row.core_chip);
         text_right = chip_rect.left();
     }
 
@@ -172,8 +176,12 @@ fn tx_row_sensed(ui: &mut Ui, a: &mut Assets, row: &TxRow, sense: Sense) -> egui
             Align2::LEFT_CENTER,
             alert,
             sans(12.0, Weight::Medium),
-            // A state to finish, not an error (calm states CS-1).
-            attention_color(&p),
+            // A state to finish, not an error (calm states CS-1); an answer is only said.
+            if row.quiet {
+                p.muted
+            } else {
+                attention_color(&p)
+            },
         )
         .right();
     }

@@ -643,6 +643,84 @@ pub fn demo_wallet(t: Timestamp) -> Wallet {
                     Proof::Proved,
                 )
             },
+            // FEAT-0016: what Platform proved about a lock this wallet knows nothing of.
+            Activity {
+                txid: Some(
+                    "a100000000000000000000000000000000000000000000000000000000000000".into(),
+                ),
+                fee: Some(263),
+                block: Some(1_283_100),
+                detail: core_detail(
+                    Proof::ChainLock,
+                    Some(1_283_100),
+                    &["yMXp7gU4uQ4mVQ4V1V3H6cPCXxWfNrsW3d"],
+                    &[],
+                ),
+                ..act(
+                    23,
+                    TopUp {
+                        identity: String::new(),
+                        creates: false,
+                        credits: Credits::Used,
+                    },
+                    Chain::CoreToPlatform,
+                    12 * day,
+                    -50_000_263,
+                    Proof::ChainLock,
+                )
+            },
+            // FEAT-0016: what Platform proved about a lock this wallet knows nothing of.
+            Activity {
+                txid: Some(
+                    "a200000000000000000000000000000000000000000000000000000000000000".into(),
+                ),
+                fee: Some(263),
+                block: Some(1_283_100),
+                detail: core_detail(
+                    Proof::ChainLock,
+                    Some(1_283_100),
+                    &["yMXp7gU4uQ4mVQ4V1V3H6cPCXxWfNrsW3d"],
+                    &[],
+                ),
+                ..act(
+                    24,
+                    TopUp {
+                        identity: String::new(),
+                        creates: false,
+                        credits: Credits::UsedPartly { left: 10_000_000 },
+                    },
+                    Chain::CoreToPlatform,
+                    13 * day,
+                    -50_000_263,
+                    Proof::ChainLock,
+                )
+            },
+            // FEAT-0016: what Platform proved about a lock this wallet knows nothing of.
+            Activity {
+                txid: Some(
+                    "a300000000000000000000000000000000000000000000000000000000000000".into(),
+                ),
+                fee: Some(263),
+                block: Some(1_283_100),
+                detail: core_detail(
+                    Proof::ChainLock,
+                    Some(1_283_100),
+                    &["yMXp7gU4uQ4mVQ4V1V3H6cPCXxWfNrsW3d"],
+                    &[],
+                ),
+                ..act(
+                    25,
+                    TopUp {
+                        identity: String::new(),
+                        creates: false,
+                        credits: Credits::NotReceived,
+                    },
+                    Chain::CoreToPlatform,
+                    14 * day,
+                    -50_000_263,
+                    Proof::ChainLock,
+                )
+            },
         ],
         core_address: "yXk3Tq9mD8vJw2RfL6pN4sB7cH1eZ5aG9f2c".into(),
         platform_address: "tdash1qq7x4m9n2r8v5k3j6h0w4p2s8d5f7g9l3c0zq".into(),

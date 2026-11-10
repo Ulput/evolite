@@ -884,3 +884,75 @@ fn the_bar_of_a_long_card_stands_beside_the_lines() {
         "the bar is not there: {down:?}"
     );
 }
+
+/// FEAT-0016, R-3: a lock Platform proved used says so, muted, with no red and no way to
+/// continue; the chip speaks only of the Core transaction.
+#[test]
+fn a_lock_platform_proved_used_says_so_and_offers_no_continue() {
+    let (_turn, mut kit) = demo_app("activity-card-lock-used", "en");
+    shown(&mut kit, "Credits: used in Platform");
+    assert!(any_starts(
+        &kit,
+        "Platform has proved that these DASH were used."
+    ));
+    assert!(any_starts(&kit, "Core · Final"));
+    assert!(!any_starts(&kit, "Continue on the Identity screen"));
+    assert!(
+        !any_starts(&kit, "Open in Identity"),
+        "it does not say whose"
+    );
+    press(&mut kit, "Open Identity");
+    wait_for(&mut kit, "the Identity screen", |kit| {
+        kit.state().screen == crate::screens::Screen::Identity
+    });
+}
+
+/// R-3а, BUG-57: a lock the wallet knows nothing of says so calmly, with the Core chip and no way
+/// to continue. Demo line 10 is such a lock.
+#[test]
+fn a_lock_without_a_record_says_so_and_offers_no_continue() {
+    let (_turn, mut kit) = demo_app("activity-card-lock-unknown", "en");
+    shown(&mut kit, "Credits: no record");
+    assert!(any_starts(&kit, "This top-up was made on another computer"));
+    assert!(any_starts(&kit, "Core · In a block"));
+    assert!(!any_starts(&kit, "Continue on the Identity screen"));
+    press(&mut kit, "Open Identity");
+    wait_for(&mut kit, "the Identity screen", |kit| {
+        kit.state().screen == crate::screens::Screen::Identity
+    });
+}
+
+/// R-3а: a lock not added keeps its red and «Continue», and its chip names Core too.
+#[test]
+fn only_a_lock_not_added_is_red_but_every_lock_not_added_names_core() {
+    let (_turn, mut kit) = demo_app("activity-card-lock-not-added", "en");
+    shown(&mut kit, "Credits: not added");
+    assert!(any_starts(&kit, "Core · Final"));
+    assert!(any_starts(&kit, "Continue on the Identity screen"));
+    assert!(!any_starts(&kit, "Open Identity"));
+}
+
+/// FEAT-0016, R-3: what is left of a lock used in part, in the line and under it.
+#[test]
+fn a_lock_used_in_part_says_what_is_left() {
+    let (_turn, mut kit) = demo_app("activity-card-lock-partly", "en");
+    let left = format::amount(10_000_000);
+    shown(&mut kit, &format!("Credits: partly used, {left} left"));
+    assert!(any_starts(
+        &kit,
+        &format!("Platform has proved that only part of these DASH was used: {left} is left.")
+    ));
+}
+
+/// FEAT-0016, R-3: not seen by Platform is said without red, and nothing is left to continue.
+#[test]
+fn a_lock_platform_has_not_seen_offers_no_continue() {
+    let (_turn, mut kit) = demo_app("activity-card-lock-not-received", "en");
+    shown(&mut kit, "Credits: Platform has not received these DASH");
+    assert!(any_starts(
+        &kit,
+        "Platform has proved that these DASH have not reached it."
+    ));
+    assert!(!any_starts(&kit, "Continue on the Identity screen"));
+    assert!(!any_starts(&kit, "The credits are not added yet"));
+}

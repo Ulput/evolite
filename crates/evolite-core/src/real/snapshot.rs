@@ -1,6 +1,7 @@
 //! What the interface is shown: the snapshot of the open wallet, built from the chain, the store and the journal.
 
 use super::*;
+use evolite_chain::lock_status;
 use key_wallet::managed_account::transaction_record::TransactionRecord;
 use platform_wallet::{ManagedIdentity, PlatformWallet};
 
@@ -756,6 +757,8 @@ impl Real {
         // whether Platform took it (BUG-57).
         let tracked = tracked_locks(&wallet).await;
         let top_ups = self.journal.top_ups();
+        let chainlocked = self.chain.status().chainlock_height;
+        let mut no_answer = Vec::new();
         let waiting = self
             .waiting_locks(&wallet, unfinished, unfinished_top_up)
             .await;
@@ -767,7 +770,7 @@ impl Real {
             else {
                 continue;
             };
-            let line = identity::lock_line(
+            let (who, made, mut taken) = identity::lock_line(
                 &txid,
                 lock_fors.get(&txid).copied(),
                 tracked.get(&txid).copied(),
@@ -775,8 +778,18 @@ impl Real {
                 waiting.contains(&txid),
                 identities,
             );
-            say_the_lock(act, line, &top_ups, identities);
+            // What the wallet does not know, Platform may have proved (FEAT-0016).
+            if taken == Credits::Unknown
+                && lock_status::core_proved(act.proof, act.block, chainlocked)
+            {
+                match self.lock_status.credits(&txid, made, false) {
+                    Some(answer) => taken = answer,
+                    None => no_answer.push((txid.clone(), made)),
+                }
+            }
+            say_the_lock(act, (who, made, taken), &top_ups, identities);
         }
+        self.lock_status.want(no_answer);
     }
 
     /// The locks Identity offers to continue, and only while it offers that: the same rules as
@@ -1024,6 +1037,59 @@ impl Real {
                     }
                 }
                 Err(e) => crate::diag::platform_failed("platform_history", &e),
+            }
+        });
+    }
+}
+
+impl Real {
+    /// Asks Platform, with a proof, about the locks the last snapshot could not say anything
+    /// of (FEAT-0016): in the background, one request at a time, once a run. Only reads.
+    pub(super) fn read_lock_status(&mut self) {
+        if self.unlocked.is_none()
+            || !self.chain.platform_ready()
+            || self.lock_status_busy.load(Ordering::Relaxed)
+        {
+            return;
+        }
+        let batch = self.lock_status.next_batch(std::time::Instant::now());
+        if batch.is_empty() {
+            return;
+        }
+        self.lock_status_busy.store(true, Ordering::Relaxed);
+        let busy = self.lock_status_busy.clone();
+        let chain = self.chain.clone();
+        let status = self.lock_status.clone();
+        let refresh = self.refresher();
+        tokio::spawn(async move {
+            // Lowered on every way out, a panic in the read too.
+            struct Done(Arc<AtomicBool>);
+            impl Drop for Done {
+                fn drop(&mut self) {
+                    self.0.store(false, Ordering::Relaxed);
+                }
+            }
+            let _done = Done(busy);
+            let read = lock_status::read(&chain, &batch);
+            match turn::timed("lock_status_read", read).await {
+                Ok(answers) => {
+                    for (lock, told) in answers {
+                        match told {
+                            Ok(told) => {
+                                status.answered(&lock.0, told);
+                            }
+                            Err(e) => {
+                                crate::diag::platform_failed("lock_status", &e);
+                                status.failed(&[lock], std::time::Instant::now());
+                            }
+                        }
+                    }
+                    refresh();
+                }
+                Err(e) => {
+                    crate::diag::platform_failed("lock_status", &e);
+                    status.failed(&batch, std::time::Instant::now());
+                }
             }
         });
     }

@@ -1464,5 +1464,18 @@
   "domain document “{}.dash”": "tài liệu domain “{}.dash”",
   "profile document": "tài liệu profile",
   "{} were added": "Đã thêm {}",
-  "The pool: the last known balance, still checking": "Pool: số dư biết gần nhất, vẫn đang kiểm tra"
+  "The pool: the last known balance, still checking": "Pool: số dư biết gần nhất, vẫn đang kiểm tra",
+  "credits: used in Platform": "tín dụng: đã dùng trên Platform",
+  "credits: partly used": "tín dụng: đã dùng một phần",
+  "Platform has not received these DASH": "Platform chưa nhận được số DASH này",
+  "used in Platform": "đã dùng trên Platform",
+  "partly used, {} left": "đã dùng một phần, còn {}",
+  "Platform has proved that these DASH were used. It does not record which identity got the credits. The identity's credits are on the Identity screen.": "Platform đã chứng minh rằng số DASH này đã được dùng. Platform không ghi lại identity nào nhận tín dụng. Tín dụng của identity nằm trên màn hình “Danh tính”.",
+  "Platform has proved that only part of these DASH was used: {} is left. It does not record which identity got the credits.": "Platform đã chứng minh rằng chỉ một phần số DASH này đã được dùng: còn {}. Platform không ghi lại identity nào nhận tín dụng.",
+  "Platform has proved that these DASH have not reached it. They left Core for good. There is no unfinished top-up here to continue.": "Platform đã chứng minh rằng số DASH này chưa đến được với nó. Chúng đã rời Core vĩnh viễn. Ở đây không có lần nạp dở dang nào để tiếp tục.",
+  "Open Identity": "Mở “Danh tính”",
+  "credits: no record": "tín dụng: không có dữ liệu",
+  "no record": "không có dữ liệu",
+  "This top-up was made on another computer or its result was not kept here, so evolite does not know whether Platform added the credits. The DASH left Core for good. The identity's credits are on the Identity screen.": "Lần nạp này được thực hiện trên máy tính khác hoặc kết quả không được lưu ở đây, nên evolite không biết Platform đã thêm tín dụng hay chưa. DASH đã rời Core vĩnh viễn. Tín dụng của identity nằm trên màn hình “Danh tính”.",
+  "This identity was created on another computer or its result was not kept here, so evolite does not know whether Platform added the credits. The DASH left Core for good. The identity's credits are on the Identity screen.": "Identity này được tạo trên máy tính khác hoặc kết quả không được lưu ở đây, nên evolite không biết Platform đã thêm tín dụng hay chưa. DASH đã rời Core vĩnh viễn. Tín dụng của identity nằm trên màn hình “Danh tính”."
 }

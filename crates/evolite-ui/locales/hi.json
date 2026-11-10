@@ -1474,5 +1474,18 @@
   "domain document “{}.dash”": "domain दस्तावेज़ “{}.dash”",
   "profile document": "profile दस्तावेज़",
   "{} were added": "{} जोड़े गए",
-  "The pool: the last known balance, still checking": "पूल: आख़िरी ज्ञात बैलेंस, अभी जाँच रहे हैं"
+  "The pool: the last known balance, still checking": "पूल: आख़िरी ज्ञात बैलेंस, अभी जाँच रहे हैं",
+  "credits: used in Platform": "क्रेडिट: Platform में उपयोग हुए",
+  "credits: partly used": "क्रेडिट: आंशिक रूप से उपयोग हुए",
+  "Platform has not received these DASH": "Platform को ये DASH नहीं मिले",
+  "used in Platform": "Platform में उपयोग हुए",
+  "partly used, {} left": "आंशिक रूप से उपयोग हुए, {} बाकी",
+  "Platform has proved that these DASH were used. It does not record which identity got the credits. The identity's credits are on the Identity screen.": "Platform ने प्रमाण से पुष्टि की है कि ये DASH उपयोग हो चुके हैं। वह दर्ज नहीं करता कि क्रेडिट किस identity को मिले। identity के क्रेडिट “पहचान” स्क्रीन पर हैं।",
+  "Platform has proved that only part of these DASH was used: {} is left. It does not record which identity got the credits.": "Platform ने प्रमाण से पुष्टि की है कि इन DASH का केवल एक हिस्सा उपयोग हुआ: {} बाकी है। वह दर्ज नहीं करता कि क्रेडिट किस identity को मिले।",
+  "Platform has proved that these DASH have not reached it. They left Core for good. There is no unfinished top-up here to continue.": "Platform ने प्रमाण से पुष्टि की है कि ये DASH उस तक नहीं पहुँचे। ये Core से स्थायी रूप से निकल चुके हैं। यहाँ जारी रखने के लिए कोई अधूरा टॉप-अप नहीं है।",
+  "Open Identity": "“पहचान” खोलें",
+  "credits: no record": "क्रेडिट: कोई रिकॉर्ड नहीं",
+  "no record": "कोई रिकॉर्ड नहीं",
+  "This top-up was made on another computer or its result was not kept here, so evolite does not know whether Platform added the credits. The DASH left Core for good. The identity's credits are on the Identity screen.": "यह टॉप-अप किसी दूसरे कंप्यूटर पर किया गया था या इसका परिणाम यहाँ सहेजा नहीं गया, इसलिए evolite नहीं जानता कि Platform ने क्रेडिट जोड़े या नहीं। DASH Core से स्थायी रूप से निकल चुके हैं। identity के क्रेडिट “पहचान” स्क्रीन पर हैं।",
+  "This identity was created on another computer or its result was not kept here, so evolite does not know whether Platform added the credits. The DASH left Core for good. The identity's credits are on the Identity screen.": "यह identity किसी दूसरे कंप्यूटर पर बनाई गई थी या इसका परिणाम यहाँ सहेजा नहीं गया, इसलिए evolite नहीं जानता कि Platform ने क्रेडिट जोड़े या नहीं। DASH Core से स्थायी रूप से निकल चुके हैं। identity के क्रेडिट “पहचान” स्क्रीन पर हैं।"
 }

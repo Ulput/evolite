@@ -400,18 +400,107 @@ pub fn activity_alert(a: &Activity) -> Option<&'static str> {
             credits: Credits::NotAdded,
             ..
         } => Some(tr!("credits not added")),
+        ActivityKind::TopUp {
+            credits: Credits::Used,
+            ..
+        } => Some(tr!("credits: used in Platform")),
+        ActivityKind::TopUp {
+            credits: Credits::UsedPartly { .. },
+            ..
+        } => Some(tr!("credits: partly used")),
+        ActivityKind::TopUp {
+            credits: Credits::NotReceived,
+            ..
+        } => Some(tr!("Platform has not received these DASH")),
+        ActivityKind::TopUp {
+            credits: Credits::Unknown,
+            ..
+        } => Some(tr!("credits: no record")),
         _ => None,
     }
 }
 
+/// An asset lock whose credits are not known to have arrived (BUG-57, R-3а): its chip speaks only
+/// of the Core transaction.
+pub fn core_chip(a: &Activity) -> bool {
+    matches!(a.kind, ActivityKind::TopUp { credits, .. } if credits != Credits::Added)
+}
+
+/// A lock's credits told calmly (FEAT-0016, BUG-57): muted words, nothing to continue, «Open
+/// Identity» to see the credits.
+pub fn credits_quiet(a: &Activity) -> bool {
+    matches!(
+        a.kind,
+        ActivityKind::TopUp {
+            credits: Credits::Used
+                | Credits::UsedPartly { .. }
+                | Credits::NotReceived
+                | Credits::Unknown,
+            ..
+        }
+    )
+}
+
+/// How the value of the card's «Credits» line is drawn.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Tone {
+    Plain,
+    Quiet,
+    Bad,
+}
+
+/// What Platform's proof means for this lock, under the card's «Credits» line (FEAT-0016).
+pub fn credits_explained(a: &Activity) -> Option<String> {
+    let ActivityKind::TopUp {
+        credits, creates, ..
+    } = &a.kind
+    else {
+        return None;
+    };
+    Some(match credits {
+        Credits::Unknown if *creates => tr!(
+            "This identity was created on another computer or its result was not kept here, so evolite does not know whether Platform added the credits. The DASH left Core for good. The identity's credits are on the Identity screen."
+        )
+        .into(),
+        Credits::Unknown => tr!(
+            "This top-up was made on another computer or its result was not kept here, so evolite does not know whether Platform added the credits. The DASH left Core for good. The identity's credits are on the Identity screen."
+        )
+        .into(),
+        Credits::Used => tr!(
+            "Platform has proved that these DASH were used. It does not record which identity got the credits. The identity's credits are on the Identity screen."
+        )
+        .into(),
+        Credits::UsedPartly { left } => format!(
+            tr!(
+                "Platform has proved that only part of these DASH was used: {} is left. It does not record which identity got the credits."
+            ),
+            crate::format::amount(*left)
+        ),
+        Credits::NotReceived => tr!(
+            "Platform has proved that these DASH have not reached it. They left Core for good. There is no unfinished top-up here to continue."
+        )
+        .into(),
+        _ => return None,
+    })
+}
+
 /// Whether an asset lock's credits came, for its card (BUG-57): the words and whether they
 /// are bad news (red). `None` when the wallet does not know, and for other operations.
-pub fn activity_credits(a: &Activity) -> Option<(&'static str, bool)> {
+pub fn activity_credits(a: &Activity) -> Option<(String, Tone)> {
     match &a.kind {
         ActivityKind::TopUp { credits, .. } => match credits {
-            Credits::Added => Some((tr!("added"), false)),
-            Credits::NotAdded => Some((tr!("not added"), true)),
-            Credits::Unknown => None,
+            Credits::Added => Some((tr!("added").into(), Tone::Plain)),
+            Credits::NotAdded => Some((tr!("not added").into(), Tone::Bad)),
+            Credits::Unknown => Some((tr!("no record").into(), Tone::Quiet)),
+            Credits::Used => Some((tr!("used in Platform").into(), Tone::Quiet)),
+            Credits::UsedPartly { left } => Some((
+                format!(tr!("partly used, {} left"), crate::format::amount(*left)),
+                Tone::Quiet,
+            )),
+            Credits::NotReceived => Some((
+                tr!("Platform has not received these DASH").into(),
+                Tone::Quiet,
+            )),
         },
         _ => None,
     }
@@ -991,5 +1080,63 @@ mod key_label_tests {
         assert_eq!(key_role(&key(true)), tr!("DashPay decryption"));
         assert_eq!(key_kind(KeyKind::Bls), "BLS");
         assert_eq!(key_kind(KeyKind::EcdsaHash160), "ECDSA · hash160");
+    }
+}
+
+#[cfg(test)]
+mod lock_tests {
+    use super::*;
+    use evolite_api::{Chain, Flow, Proof};
+
+    fn lock(credits: Credits) -> Activity {
+        Activity {
+            id: 1,
+            kind: ActivityKind::TopUp {
+                identity: String::new(),
+                creates: false,
+                credits,
+            },
+            chain: Chain::CoreToPlatform,
+            at: 1,
+            amount: -1,
+            proof: Proof::ChainLock,
+            txid: None,
+            fee: None,
+            block: None,
+            address: None,
+            layers: 0,
+            flow: Flow::Between,
+            key: String::new(),
+            note: None,
+            detail: None,
+        }
+    }
+
+    /// R-3а, BUG-57: the chip names Core for every lock not known to be added; only a lock not
+    /// added is red and can be continued; the others are said calmly.
+    #[test]
+    fn every_lock_not_added_names_core_and_only_one_is_red() {
+        assert!(!core_chip(&lock(Credits::Added)));
+        for credits in [
+            Credits::NotAdded,
+            Credits::Unknown,
+            Credits::Used,
+            Credits::UsedPartly { left: 1 },
+            Credits::NotReceived,
+        ] {
+            let line = lock(credits);
+            assert!(core_chip(&line), "{credits:?}");
+            assert_eq!(
+                credits_quiet(&line),
+                credits != Credits::NotAdded,
+                "{credits:?}"
+            );
+            let tone = activity_credits(&line).map(|(_, tone)| tone);
+            assert_eq!(
+                tone == Some(Tone::Bad),
+                credits == Credits::NotAdded,
+                "{credits:?}"
+            );
+        }
     }
 }

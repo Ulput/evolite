@@ -310,6 +310,8 @@ pub fn receive(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut ReceiveForm
                                     proof: None,
                                     amount: &shown,
                                     alert: None,
+                                    quiet: false,
+ core_chip: false,
                                     note: None,
                                 },
                             );

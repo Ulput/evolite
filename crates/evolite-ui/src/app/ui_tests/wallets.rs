@@ -305,7 +305,7 @@ fn another_wallet_starts_history_from_all() {
     kit.state_mut().history.query = "bob".into();
     kit.run_steps(2);
     assert!(
-        has_text(&kit, "Shown 1 of 22"),
+        has_text(&kit, "Shown 1 of 25"),
         "the Sending payment to @bob"
     );
     kit.state_mut().core.send(Command::SwitchWallet {

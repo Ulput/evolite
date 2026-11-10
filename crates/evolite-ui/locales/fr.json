@@ -1484,5 +1484,18 @@
   "domain document “{}.dash”": "document domain « {}.dash »",
   "profile document": "document profile",
   "{} were added": "{} ont été crédités",
-  "The pool: the last known balance, still checking": "Le pool : le dernier solde connu, vérification en cours"
+  "The pool: the last known balance, still checking": "Le pool : le dernier solde connu, vérification en cours",
+  "credits: used in Platform": "crédits : utilisés sur Platform",
+  "credits: partly used": "crédits : utilisés en partie",
+  "Platform has not received these DASH": "Platform n’a pas reçu ces DASH",
+  "used in Platform": "utilisés sur Platform",
+  "partly used, {} left": "utilisés en partie, il reste {}",
+  "Platform has proved that these DASH were used. It does not record which identity got the credits. The identity's credits are on the Identity screen.": "Platform a prouvé que ces DASH ont été utilisés. Elle n’enregistre pas quelle identity a reçu les crédits. Les crédits de l’identity sont dans l’écran « Identité ».",
+  "Platform has proved that only part of these DASH was used: {} is left. It does not record which identity got the credits.": "Platform a prouvé qu’une partie seulement de ces DASH a été utilisée : il reste {}. Elle n’enregistre pas quelle identity a reçu les crédits.",
+  "Platform has proved that these DASH have not reached it. They left Core for good. There is no unfinished top-up here to continue.": "Platform a prouvé que ces DASH ne lui sont pas parvenus. Ils ont quitté Core définitivement. Il n’y a ici aucune recharge inachevée à poursuivre.",
+  "Open Identity": "Ouvrir « Identité »",
+  "credits: no record": "crédits : aucune information",
+  "no record": "aucune information",
+  "This top-up was made on another computer or its result was not kept here, so evolite does not know whether Platform added the credits. The DASH left Core for good. The identity's credits are on the Identity screen.": "Cette recharge a été faite sur un autre ordinateur ou son résultat n’a pas été conservé ici : evolite ne sait donc pas si Platform a ajouté les crédits. Les DASH ont quitté Core définitivement. Les crédits de l’identity sont dans l’écran « Identité ».",
+  "This identity was created on another computer or its result was not kept here, so evolite does not know whether Platform added the credits. The DASH left Core for good. The identity's credits are on the Identity screen.": "Cette identity a été créée sur un autre ordinateur ou son résultat n’a pas été conservé ici : evolite ne sait donc pas si Platform a ajouté les crédits. Les DASH ont quitté Core définitivement. Les crédits de l’identity sont dans l’écran « Identité »."
 }

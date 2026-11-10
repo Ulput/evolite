@@ -356,6 +356,8 @@ fn latest_operations(
                     proof: Some(act.proof),
                     amount: &text::signed_amount(act.amount),
                     alert: text::activity_alert(act),
+                    quiet: text::credits_quiet(act),
+                    core_chip: text::core_chip(act),
                     note: act.note.as_deref(),
                 },
             );

@@ -1515,5 +1515,18 @@
   "domain document “{}.dash”": "مستند domain «{}.dash»",
   "profile document": "مستند profile",
   "{} were added": "أُضيف {}",
-  "The pool: the last known balance, still checking": "المجمّع: آخر رصيد معروف، ما زلنا نتحقق"
+  "The pool: the last known balance, still checking": "المجمّع: آخر رصيد معروف، ما زلنا نتحقق",
+  "credits: used in Platform": "الأرصدة: استُخدمت في Platform",
+  "credits: partly used": "الأرصدة: استُخدمت جزئيًا",
+  "Platform has not received these DASH": "لم تتلقَّ Platform عملات DASH هذه",
+  "used in Platform": "استُخدمت في Platform",
+  "partly used, {} left": "استُخدمت جزئيًا، تبقّى {}",
+  "Platform has proved that these DASH were used. It does not record which identity got the credits. The identity's credits are on the Identity screen.": "أثبتت Platform بالدليل أن عملات DASH هذه استُخدمت. ولا تسجّل أي identity حصلت على الأرصدة. أرصدة الـ identity موجودة في شاشة «الهوية».",
+  "Platform has proved that only part of these DASH was used: {} is left. It does not record which identity got the credits.": "أثبتت Platform بالدليل أن جزءًا فقط من عملات DASH هذه استُخدم: تبقّى {}. ولا تسجّل أي identity حصلت على الأرصدة.",
+  "Platform has proved that these DASH have not reached it. They left Core for good. There is no unfinished top-up here to continue.": "أثبتت Platform بالدليل أن عملات DASH هذه لم تصل إليها. لقد غادرت Core نهائيًا. لا يوجد هنا شحن غير مكتمل للمتابعة.",
+  "Open Identity": "فتح «الهوية»",
+  "credits: no record": "الأرصدة: لا توجد معلومات",
+  "no record": "لا توجد معلومات",
+  "This top-up was made on another computer or its result was not kept here, so evolite does not know whether Platform added the credits. The DASH left Core for good. The identity's credits are on the Identity screen.": "تم هذا الشحن على حاسوب آخر أو لم تُحفظ نتيجته هنا، لذلك لا يعرف evolite إن كانت Platform قد أضافت الأرصدة. غادرت عملات DASH شبكة Core نهائيًا. أرصدة الـ identity موجودة في شاشة «الهوية».",
+  "This identity was created on another computer or its result was not kept here, so evolite does not know whether Platform added the credits. The DASH left Core for good. The identity's credits are on the Identity screen.": "أُنشئت هذه الـ identity على حاسوب آخر أو لم تُحفظ نتيجتها هنا، لذلك لا يعرف evolite إن كانت Platform قد أضافت الأرصدة. غادرت عملات DASH شبكة Core نهائيًا. أرصدة الـ identity موجودة في شاشة «الهوية»."
 }
