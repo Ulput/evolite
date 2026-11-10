@@ -103,7 +103,7 @@ pub fn to_hex(c: Color32) -> String {
 }
 
 /// Font weights we ship. egui has no weight axis, so every weight is its own family.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Weight {
     Regular,
     Medium,
@@ -125,6 +125,80 @@ pub fn mono(size: f32, weight: Weight) -> FontId {
     match weight {
         Weight::Regular => FontId::new(size, FontFamily::Monospace),
         _ => FontId::new(size, FontFamily::Name("mono-500".into())),
+    }
+}
+
+/// The named type scale (FEAT-0033): every text of the app takes one of these steps, not a size
+/// of its own. A step is a size, the line height of a paragraph in it (the designer's table: about 1.5 times the size), the
+/// face and the weight it is set in. Screens move to it one by one (FEAT-0033 step 2); until
+/// then the guard test lists the sizes still written as numbers.
+// Unused until the first screen moves to it (step 2).
+#[allow(dead_code)]
+pub mod type_scale {
+    use super::Weight;
+
+    /// One step of the scale.
+    #[derive(Clone, Copy, PartialEq, Debug)]
+    pub struct Step {
+        pub size: f32,
+        /// A paragraph's line height in this step.
+        pub line: f32,
+        /// JetBrains Mono, for amounts, addresses, ids, txids and keys only; Inter otherwise.
+        pub mono: bool,
+        pub weight: Weight,
+    }
+
+    impl Step {
+        /// The same step in another weight: Body, UI and Small are set in several.
+        pub const fn weight(self, weight: Weight) -> Step {
+            Step { weight, ..self }
+        }
+    }
+
+    const fn step(size: f32, line: f32, mono: bool, weight: Weight) -> Step {
+        Step {
+            size,
+            line,
+            mono,
+            weight,
+        }
+    }
+
+    /// Overview's total.
+    pub const DISPLAY: Step = step(44.0, 55.0, true, Weight::Medium);
+    /// A large amount: an operation's card, the pool, an app's request.
+    pub const AMOUNT_L: Step = step(28.0, 35.0, true, Weight::Medium);
+    /// An amount in a tile (20 in a narrow window, R4).
+    pub const AMOUNT_M: Step = step(24.0, 30.0, true, Weight::Medium);
+    /// A screen's title.
+    pub const TITLE: Step = step(28.0, 35.0, false, Weight::Bold);
+    /// A dialog's title.
+    pub const HEADING: Step = step(20.0, 25.0, false, Weight::Bold);
+    /// A card's or a section's title.
+    pub const SUBHEADING: Step = step(16.0, 20.0, false, Weight::SemiBold);
+    /// Fields, buttons, lines.
+    pub const BODY: Step = step(14.0, 21.0, false, Weight::Regular);
+    /// Labels and the values in rows.
+    pub const UI: Step = step(13.0, 20.0, false, Weight::Regular);
+    /// The lines under rows, explanations.
+    pub const SMALL: Step = step(12.0, 18.0, false, Weight::Regular);
+    /// Over groups; addresses under a source.
+    pub const CAPTION: Step = step(11.0, 16.0, false, Weight::Regular);
+
+    /// Every step, largest first.
+    pub const ALL: [Step; 10] = [
+        DISPLAY, AMOUNT_L, AMOUNT_M, TITLE, HEADING, SUBHEADING, BODY, UI, SMALL, CAPTION,
+    ];
+}
+
+/// The font of a step of the type scale (FEAT-0033): the one way a screen asks for a text's
+/// size once it has moved to the scale.
+#[allow(dead_code)] // Until the first screen moves to the scale (step 2).
+pub fn style(step: type_scale::Step) -> FontId {
+    if step.mono {
+        mono(step.size, step.weight)
+    } else {
+        sans(step.size, step.weight)
     }
 }
 
@@ -258,6 +332,63 @@ fn font_files() -> &'static std::collections::HashMap<String, std::path::PathBuf
 /// What the app does not ship: the Latin letters of Vietnamese and Turkish beyond Inter's
 /// subset, and Chinese, Japanese and Korean (each font is megabytes).
 fn system_font(faces: &[Face]) -> Option<FontData> {
+    system_font_file(faces)
+}
+
+/// A system CJK font, its glyphs moved onto Inter's baseline ([`on_latin_baseline`]).
+fn cjk_system_font(faces: &[Face]) -> Option<FontData> {
+    system_font_file(faces).map(on_latin_baseline)
+}
+
+/// egui sets a fallback font's glyphs by that font's own ascent, centring the difference in line
+/// height, so a system CJK font stands off Inter's baseline: Japanese sat higher than the Latin
+/// letters beside it (FEAT-0033, AC-D5). The two baselines are measured once, in a layout of «H»
+/// and «中» at a large size, and the CJK font is shifted by the difference. Only where its
+/// glyphs are drawn: the line's height does not change.
+fn on_latin_baseline(mut cjk: FontData) -> FontData {
+    if let Some(shift) = baseline_gap(&cjk) {
+        cjk.tweak.y_offset_factor = bounded_shift(shift);
+    }
+    cjk
+}
+
+/// The measured shift, trusted only within [`MAX_SHIFT`] of the size: a strange or damaged font
+/// file could measure far off and push its text out of the line, so beyond that it is not
+/// moved at all, as before the fix (FEAT-0033 r1 Should 1).
+fn bounded_shift(gap: f32) -> f32 {
+    if gap.abs() <= MAX_SHIFT { gap } else { 0.0 }
+}
+
+/// The largest shift trusted, as a fraction of the size.
+const MAX_SHIFT: f32 = 0.3;
+
+/// How far down (as a fraction of the size) `cjk`'s «中» must move to sit on Inter's baseline
+/// beside an «H»; `None` when the font lacks it.
+fn baseline_gap(cjk: &FontData) -> Option<f32> {
+    const SIZE: f32 = 100.0;
+    let mut defs = FontDefinitions::empty();
+    defs.font_data.insert(
+        "latin".into(),
+        Arc::new(FontData::from_static(font!("Inter-latin-400.ttf"))),
+    );
+    defs.font_data.insert("cjk".into(), Arc::new(cjk.clone()));
+    defs.families
+        .insert(FontFamily::Proportional, vec!["latin".into(), "cjk".into()]);
+    let mut fonts =
+        egui::epaint::text::Fonts::new(egui::epaint::text::TextOptions::default(), defs);
+    let mut view = fonts.with_pixels_per_point(1.0);
+    let galley = view.layout_no_wrap(
+        "H中".into(),
+        FontId::new(SIZE, FontFamily::Proportional),
+        Color32::WHITE,
+    );
+    let glyphs = &galley.rows.first()?.glyphs;
+    let (latin, cjk) = (glyphs.first()?, glyphs.get(1)?);
+    (cjk.chr == '中').then(|| (latin.pos.y - cjk.pos.y) / SIZE)
+}
+
+/// The first of `faces` found on disk, as it is.
+fn system_font_file(faces: &[Face]) -> Option<FontData> {
     let files = font_files();
     faces.iter().find_map(|(name, index)| {
         let bytes = std::fs::read(files.get(&name.to_lowercase())?).ok()?;
@@ -346,7 +477,7 @@ pub fn install_fonts(ctx: &egui::Context, lang: crate::i18n::Lang, names: bool) 
         extra.push("System-latin");
     }
     if let Some((key, file)) = cjk_font(lang)
-        && let Some(data) = system_font(file)
+        && let Some(data) = cjk_system_font(file)
     {
         fonts.font_data.insert(key.into(), Arc::new(data));
         extra.push(key);
@@ -361,7 +492,7 @@ pub fn install_fonts(ctx: &egui::Context, lang: crate::i18n::Lang, names: bool) 
             if fonts.font_data.contains_key(own_key) {
                 name_keys.push((other, own_key.to_string()));
             }
-        } else if let Some(data) = system_font(file) {
+        } else if let Some(data) = cjk_system_font(file) {
             let key = format!("System-cjk-{}", other.code());
             fonts.font_data.insert(key.clone(), Arc::new(data));
             name_keys.push((other, key));
@@ -630,5 +761,216 @@ mod tests {
                 "8 px between the content and the bar"
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod type_scale_tests {
+    use super::*;
+
+    /// FEAT-0033: the scale is the designer's: ten steps, the paragraphs' lines from the table,
+    /// mono only for amounts.
+    #[test]
+    fn the_scale_is_the_designers() {
+        use type_scale::*;
+        let sizes: Vec<f32> = ALL.iter().map(|s| s.size).collect();
+        assert_eq!(
+            sizes,
+            [44.0, 28.0, 24.0, 28.0, 20.0, 16.0, 14.0, 13.0, 12.0, 11.0]
+        );
+        assert_eq!(
+            (BODY.line, UI.line, SMALL.line, CAPTION.line),
+            (21.0, 20.0, 18.0, 16.0)
+        );
+        // Headings and amounts: 1.25 times the size, whole pixels (the designer, 2026-11-11).
+        let lines: Vec<f32> = ALL[..6].iter().map(|s| s.line).collect();
+        assert_eq!(lines, [55.0, 35.0, 30.0, 35.0, 25.0, 20.0]);
+        let monos: Vec<bool> = ALL.iter().map(|s| s.mono).collect();
+        assert_eq!(
+            monos,
+            [
+                true, true, true, false, false, false, false, false, false, false
+            ]
+        );
+        assert_eq!(style(HEADING), sans(20.0, Weight::Bold));
+        assert_eq!(style(AMOUNT_L), mono(28.0, Weight::Medium));
+        assert_eq!(
+            style(BODY.weight(Weight::SemiBold)),
+            sans(14.0, Weight::SemiBold)
+        );
+    }
+
+    /// r1 Should 1: a shift beyond 0.3 of the size, or no number at all, moves nothing.
+    #[test]
+    fn a_shift_out_of_bounds_moves_nothing() {
+        assert_eq!(bounded_shift(0.04), 0.04);
+        assert_eq!(bounded_shift(-0.3), -0.3);
+        assert_eq!(bounded_shift(0.31), 0.0);
+        assert_eq!(bounded_shift(-2.0), 0.0);
+        assert_eq!(bounded_shift(f32::NAN), 0.0);
+    }
+
+    /// FEAT-0033 AC-D5: shifted, a system Japanese font's «中» sits on Inter's baseline at the
+    /// sizes the app uses. Skipped where the system has no Japanese font (a CI machine).
+    #[test]
+    fn a_system_japanese_font_sits_on_the_latin_baseline() {
+        let Some(raw) = system_font_file(JA) else {
+            eprintln!("no Japanese system font here: nothing to check");
+            return;
+        };
+        let shifted = on_latin_baseline(raw.clone());
+        for size in [13.0, 20.0] {
+            let gap = |cjk: &FontData| {
+                let mut defs = FontDefinitions::empty();
+                defs.font_data.insert(
+                    "latin".into(),
+                    Arc::new(FontData::from_static(font!("Inter-latin-400.ttf"))),
+                );
+                defs.font_data.insert("cjk".into(), Arc::new(cjk.clone()));
+                defs.families
+                    .insert(FontFamily::Proportional, vec!["latin".into(), "cjk".into()]);
+                let mut fonts = egui::epaint::text::Fonts::new(
+                    egui::epaint::text::TextOptions::default(),
+                    defs,
+                );
+                let mut view = fonts.with_pixels_per_point(1.0);
+                let galley = view.layout_no_wrap(
+                    "H中".into(),
+                    FontId::new(size, FontFamily::Proportional),
+                    Color32::WHITE,
+                );
+                // Where each glyph's ink starts: its baseline plus its font's own shift.
+                let row = &galley.rows[0];
+                let y = |i: usize, tweak: f32| row.glyphs[i].pos.y + tweak * size;
+                y(0, 0.0) - y(1, cjk.tweak.y_offset_factor)
+            };
+            let before = gap(&raw);
+            let after = gap(&shifted);
+            eprintln!("size {size}: {before:.2} px off before, {after:.2} after");
+            assert!(
+                after.abs() <= 1.0,
+                "size {size}: {after} px off the baseline"
+            );
+        }
+    }
+}
+
+/// FEAT-0033 step 1: the files of `evolite-ui/src` that still give a text's size as a number
+/// (`sans(13.0, …)`, `mono(…)`, `txt(…, 12.0, …)`), with how many. Printed only: when every
+/// screen has moved to [`type_scale`] (step 3), this becomes an assert that the list is empty.
+#[cfg(test)]
+mod size_literals {
+    use std::path::{Path, PathBuf};
+
+    /// How many calls of `sans` / `mono` with a number first and of `txt` with a number second.
+    pub(super) fn count(text: &str) -> usize {
+        let mut n = 0;
+        for (call, arg) in [("sans(", 0), ("mono(", 0), ("txt(", 1)] {
+            let mut from = 0;
+            while let Some(at) = text[from..].find(call) {
+                let start = from + at;
+                from = start + call.len();
+                // A call, not the end of another name (`is_txt(`) or a definition.
+                let before = text[..start].chars().next_back();
+                if before.is_some_and(|c| c.is_alphanumeric() || c == '_')
+                    || text[..start].ends_with("fn ")
+                {
+                    continue;
+                }
+                if nth_arg(&text[from..], arg)
+                    .is_some_and(|a| a.starts_with(|c: char| c.is_ascii_digit()))
+                {
+                    n += 1;
+                }
+            }
+        }
+        n
+    }
+
+    /// The `n`th argument of a call whose text starts right after its `(`, trimmed.
+    fn nth_arg(rest: &str, n: usize) -> Option<&str> {
+        let (mut depth, mut quoted, mut escaped) = (0usize, false, false);
+        let (mut index, mut arg_start) = (0usize, 0usize);
+        for (i, c) in rest.char_indices() {
+            if quoted {
+                match (escaped, c) {
+                    (true, _) => escaped = false,
+                    (false, '\\') => escaped = true,
+                    (false, '"') => quoted = false,
+                    _ => {}
+                }
+                continue;
+            }
+            match c {
+                '"' => quoted = true,
+                '(' | '[' | '{' => depth += 1,
+                ')' | ']' | '}' if depth == 0 => {
+                    return (index == n).then(|| rest[arg_start..i].trim());
+                }
+                ')' | ']' | '}' => depth -= 1,
+                ',' if depth == 0 => {
+                    if index == n {
+                        return Some(rest[arg_start..i].trim());
+                    }
+                    index += 1;
+                    arg_start = i + 1;
+                }
+                _ => {}
+            }
+        }
+        None
+    }
+
+    fn files(dir: &Path, out: &mut Vec<PathBuf>) {
+        for entry in std::fs::read_dir(dir).into_iter().flatten().flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                files(&path, out);
+            } else if path.extension().is_some_and(|e| e == "rs") {
+                out.push(path);
+            }
+        }
+    }
+
+    #[test]
+    fn sizes_written_as_numbers_are_listed() {
+        let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let mut all = Vec::new();
+        files(&src, &mut all);
+        let mut found: Vec<(String, usize)> = all
+            .iter()
+            .filter(|p| !p.ends_with("theme.rs"))
+            .filter_map(|p| {
+                let n = count(&std::fs::read_to_string(p).ok()?);
+                let name = p.strip_prefix(&src).ok()?.display().to_string();
+                (n > 0).then_some((name, n))
+            })
+            .collect();
+        found.sort();
+        let total: usize = found.iter().map(|(_, n)| n).sum();
+        eprintln!(
+            "FEAT-0033: {total} sizes as numbers in {} files (step 3 makes this fail):",
+            found.len()
+        );
+        for (name, n) in &found {
+            eprintln!("  {n:4}  {name}");
+        }
+        assert!(
+            !found.is_empty(),
+            "the scan found nothing: is it reading `src`?"
+        );
+    }
+
+    /// The scan counts what it should and nothing else.
+    #[test]
+    fn the_scan_counts_calls_with_a_number() {
+        let text = r#"
+            sans(13.0, Weight::Medium); mono(28.0, w);
+            txt("Hi, there", 12.0, Weight::Regular, p.muted);
+            txt(&format!("{}, {}", a, b), 14.0, w, c);
+            sans(size, w); txt(s, step.size, w, c);
+            fn sans(size: f32) {} is_txt(1, 2);
+        "#;
+        assert_eq!(count(text), 4);
     }
 }
