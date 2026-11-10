@@ -1510,5 +1510,8 @@
   "credits: no record": "кредити: немає відомостей",
   "no record": "немає відомостей",
   "This top-up was made on another computer or its result was not kept here, so evolite does not know whether Platform added the credits. The DASH left Core for good. The identity's credits are on the Identity screen.": "Поповнення зроблено не на цьому комп'ютері або його результат тут не збережено, тому evolite не знає, чи зарахувала Platform кредити. DASH з Core списано остаточно. Скільки кредитів в identity — на екрані Identity.",
-  "This identity was created on another computer or its result was not kept here, so evolite does not know whether Platform added the credits. The DASH left Core for good. The identity's credits are on the Identity screen.": "Створення identity зроблено не на цьому комп'ютері або його результат тут не збережено, тому evolite не знає, чи зарахувала Platform кредити. DASH з Core списано остаточно. Скільки кредитів в identity — на екрані Identity."
+  "This identity was created on another computer or its result was not kept here, so evolite does not know whether Platform added the credits. The DASH left Core for good. The identity's credits are on the Identity screen.": "Створення identity зроблено не на цьому комп'ютері або його результат тут не збережено, тому evolite не знає, чи зарахувала Platform кредити. DASH з Core списано остаточно. Скільки кредитів в identity — на екрані Identity.",
+  "Change the source or the recipient": "Змініть джерело або одержувача",
+  "Private address: the amount and the recipient will not be visible on the network.": "Приватна адреса: сума й одержувач не будуть видимі в мережі.",
+  "You can't send from the pool to an @name. Enter an evolite private address, a Platform address or a Core address, or choose another source.": "З пулу не можна надіслати на @ім'я. Вкажіть приватну адресу evolite, адресу Platform або Core чи виберіть інше джерело."
 }

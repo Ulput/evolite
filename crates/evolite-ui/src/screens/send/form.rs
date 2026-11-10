@@ -17,6 +17,8 @@ pub(super) struct FormView<'a> {
     pub(super) synced: bool,
     pub(super) problem: Option<AmountProblem>,
     pub(super) unavailable: Option<&'static str>,
+    /// From the pool to an @name, which it cannot pay (BUG-112): said once, under the recipient.
+    pub(super) pool_to_name: bool,
     pub(super) resolved_name: Option<ResolvedName>,
     pub(super) to_self: bool,
     pub(super) target_known: bool,
@@ -92,10 +94,12 @@ impl<'a> FormView<'a> {
             )),
             // A private address in a DashPay profile is an open question.
             Source::Pool if typed.starts_with('@') => Some(tr!(
-                "From the pool you can send to an evolite private address (the amount stays hidden), to a Platform address or to a Core address (the amount becomes visible)."
+                "You can't send from the pool to an @name. Enter an evolite private address, a Platform address or a Core address, or choose another source."
             )),
             _ => None,
         };
+        let pool_to_name =
+            source.source == Source::Pool && pool_route(&typed) == Some(PoolRoute::Name);
         let to = recipient(form);
         let resolved_name = match &to {
             Recipient::Name(n) => Some((*n).clone()),
@@ -158,6 +162,7 @@ impl<'a> FormView<'a> {
             synced,
             problem,
             unavailable,
+            pool_to_name,
             resolved_name,
             to_self,
             target_known,
@@ -241,7 +246,12 @@ pub(super) fn form_card(
             ui,
             &p,
             tr!("Network fee"),
-            &crate::format::amount(v.source.fee),
+            // Nothing to pay for a payment that cannot be made (BUG-112).
+            &if v.pool_to_name {
+                "—".to_owned()
+            } else {
+                crate::format::amount(v.source.fee)
+            },
             mono(13.0, Weight::Regular),
         );
         route_notice(ui, a, v);
@@ -298,6 +308,23 @@ fn source_cards(ui: &mut Ui, a: &mut Assets, form: &mut SendForm, v: &FormView) 
 
 /// What the form knows about whom it pays: the name found, or why not; the address book.
 fn recipient_state(
+    ui: &mut Ui,
+    a: &mut Assets,
+    form: &mut SendForm,
+    v: &FormView,
+    asked: &mut Asked,
+) {
+    recipient_lines(ui, a, form, v, asked);
+    // Said once, right under the recipient, not under the amount (BUG-112).
+    if v.pool_to_name
+        && let Some(why) = v.unavailable
+    {
+        crate::components::attention_notice(ui, a, why);
+    }
+}
+
+/// The recipient's card, or why there is none yet, and the address book.
+fn recipient_lines(
     ui: &mut Ui,
     a: &mut Assets,
     form: &mut SendForm,
@@ -472,7 +499,7 @@ fn amount_row(ui: &mut Ui, form: &mut SendForm, v: &FormView, p: &crate::theme::
         if resp.changed() || all {
             form.result = None;
         }
-        if let Some(why) = unavailable {
+        if let Some(why) = unavailable.filter(|_| !v.pool_to_name) {
             ui.add(egui::Label::new(txt(why, 12.0, Weight::Regular, p.muted)).wrap());
         } else if let Some(problem) = problem {
             ui.add(
@@ -491,36 +518,10 @@ fn amount_row(ui: &mut Ui, form: &mut SendForm, v: &FormView, p: &crate::theme::
 /// How the money travels: a withdrawal arrives later than a payment.
 fn route_notice(ui: &mut Ui, a: &mut Assets, v: &FormView) {
     let p = a.p;
-    let source = v.source;
-    let recipient_label = &v.recipient_label;
-    // Credits or the pool to a Core address are a withdrawal: they arrive later, not in
-    // seconds.
-    let withdrawal = matches!(source.source, Source::Credits | Source::Pool)
-        && !recipient_label.is_empty()
-        && !recipient_label.starts_with('@')
-        && !recipient_label.starts_with("tdash1");
-    if withdrawal && source.source == Source::Pool {
-        notice(
-            ui,
-            a,
-            "pending",
-            p.accent,
-            tr!(
-                "Withdrawal from the pool to Core: the amount becomes visible on the network; the DASH arrive at this address in a few minutes, when Platform releases a batch of withdrawals."
-            ),
-        );
-    } else if withdrawal {
-        notice(
-            ui,
-            a,
-            "pending",
-            p.accent,
-            tr!(
-                "Withdrawing credits to Core: the DASH arrive at this address in a few minutes, when Platform releases a batch of withdrawals."
-            ),
-        );
-    } else {
-        notice(ui, a, source.note_icon, p.accent, source.note);
+    // Credits or the pool to a Core address are a withdrawal: they arrive later, not in seconds;
+    // from the pool, the line says what the network sees, which depends on the recipient (BUG-112).
+    if let Some((icon, text)) = route_line(v.source, &v.recipient_label) {
+        notice(ui, a, icon, p.accent, text);
     }
 }
 
@@ -534,6 +535,12 @@ fn send_row(ui: &mut Ui, a: &mut Assets, form: &mut SendForm, v: &FormView, aske
     let synced = synced && source.read;
     let ready =
         amount.is_some() && problem.is_none() && unavailable.is_none() && target_known && synced;
+    // From the pool to a name the button is outlined and says what to change (BUG-112).
+    let kind = if v.pool_to_name {
+        ButtonKind::Secondary
+    } else {
+        ButtonKind::Primary
+    };
     if form.waiting > 0 {
         ui.add(
                     egui::Label::new(txt(
@@ -549,6 +556,8 @@ fn send_row(ui: &mut Ui, a: &mut Assets, form: &mut SendForm, v: &FormView, aske
     // wrapped, so a long reason does not widen the form past the window (BUG-36).
     let missing = if ready {
         None
+    } else if v.pool_to_name {
+        Some(tr!("Change the source or the recipient"))
     } else if !synced {
         Some(crate::text::WAIT_FOR_SYNC)
     } else if form.recipient.trim().is_empty() {
@@ -563,7 +572,7 @@ fn send_row(ui: &mut Ui, a: &mut Assets, form: &mut SendForm, v: &FormView, aske
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 10.0;
         let label = tr!("Check and send");
-        if button_enabled(ui, a, label, ButtonKind::Primary, None, ready).clicked() {
+        if button_enabled(ui, a, label, kind, None, ready).clicked() {
             form.confirming = true;
             form.result = None;
             // From Core the last look shows where the money goes: the address, or the
@@ -678,8 +687,10 @@ pub(super) fn summary_card(ui: &mut Ui, p: &crate::theme::Palette, v: &FormView,
                 summary_to,
                 sans(13.0, Weight::Medium),
             );
-            // Nothing is paid until the name is a contact.
-            let (amount, fee, left) = if not_contact {
+            // Nothing is paid until the name is a contact, nor from the pool to a name (BUG-112).
+            let (amount, fee, left) = if v.pool_to_name {
+                (amount, None, None)
+            } else if not_contact {
                 (None, None, source.read.then_some(source.duffs))
             } else {
                 (amount, Some(source.fee), left.filter(|l| *l >= 0))

@@ -481,3 +481,29 @@ fn credits_not_checked_yet_say_so_without_the_count() {
     assert!(has_text(&kit, "DASH · 2 identities"));
     assert!(!has_text(&kit, "DASH · not checked yet"));
 }
+
+/// BUG-112: from the pool to an @name the form says once, under the recipient, that the pool
+/// cannot pay a name, promises nothing about privacy, shows no fee, and the button says why.
+#[test]
+fn from_the_pool_an_at_name_says_so_once_and_promises_nothing() {
+    let (_turn, mut kit) = demo_app("send", "en");
+    kit.run_steps(3);
+    kit.state_mut().send.source = 2;
+    kit.state_mut().send.recipient = "@alice".into();
+    kit.run_steps(4);
+    assert!(has_text(
+        &kit,
+        "You can't send from the pool to an @name. Enter an evolite private address, a Platform address or a Core address, or choose another source."
+    ));
+    assert!(!has_words(
+        &kit,
+        "From the pool: the amount and the recipient are not visible"
+    ));
+    assert!(
+        !has_words(&kit, "From the pool you can send to"),
+        "the old hint"
+    );
+    assert!(has_text(&kit, "Change the source or the recipient"));
+    assert!(has_words(&kit, "Network fee: —"));
+    assert!(has_words(&kit, "Fee: —"));
+}

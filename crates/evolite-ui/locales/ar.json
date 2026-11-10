@@ -1531,5 +1531,8 @@
   "credits: no record": "الأرصدة: لا توجد معلومات",
   "no record": "لا توجد معلومات",
   "This top-up was made on another computer or its result was not kept here, so evolite does not know whether Platform added the credits. The DASH left Core for good. The identity's credits are on the Identity screen.": "تم هذا الشحن على حاسوب آخر أو لم تُحفظ نتيجته هنا، لذلك لا يعرف evolite إن كانت Platform قد أضافت الأرصدة. غادرت عملات DASH شبكة Core نهائيًا. أرصدة الـ identity موجودة في شاشة «الهوية».",
-  "This identity was created on another computer or its result was not kept here, so evolite does not know whether Platform added the credits. The DASH left Core for good. The identity's credits are on the Identity screen.": "أُنشئت هذه الـ identity على حاسوب آخر أو لم تُحفظ نتيجتها هنا، لذلك لا يعرف evolite إن كانت Platform قد أضافت الأرصدة. غادرت عملات DASH شبكة Core نهائيًا. أرصدة الـ identity موجودة في شاشة «الهوية»."
+  "This identity was created on another computer or its result was not kept here, so evolite does not know whether Platform added the credits. The DASH left Core for good. The identity's credits are on the Identity screen.": "أُنشئت هذه الـ identity على حاسوب آخر أو لم تُحفظ نتيجتها هنا، لذلك لا يعرف evolite إن كانت Platform قد أضافت الأرصدة. غادرت عملات DASH شبكة Core نهائيًا. أرصدة الـ identity موجودة في شاشة «الهوية».",
+  "Change the source or the recipient": "غيّر المصدر أو المستلم",
+  "Private address: the amount and the recipient will not be visible on the network.": "عنوان خاص: لن يظهر المبلغ ولا المستلم على الشبكة.",
+  "You can't send from the pool to an @name. Enter an evolite private address, a Platform address or a Core address, or choose another source.": "لا يمكن الإرسال من المجمّع إلى @اسم. أدخل عنوانًا خاصًا في evolite أو عنوان Platform أو Core، أو اختر مصدرًا آخر."
 }

@@ -1501,6 +1501,9 @@
   "The network checks a reserve before it writes: with less than ≈ {} on the identity it may refuse. Less is charged.": "Сеть сначала проверяет запас: если на identity меньше ≈ {}, она может отказать. Списывается меньше.",
   "Fee, about": "Комиссия, примерно",
   "The pool: the last known balance, still checking": "Пул — последний известный баланс, ещё проверяем",
+  "Change the source or the recipient": "Смените источник или получателя",
+  "Private address: the amount and the recipient will not be visible on the network.": "Приватный адрес: сумма и получатель не будут видны в сети.",
+  "You can't send from the pool to an @name. Enter an evolite private address, a Platform address or a Core address, or choose another source.": "Из пула нельзя отправить на @имя. Укажите приватный адрес evolite, адрес Platform или Core либо выберите другой источник.",
   "Credits and the pool: the last known balance, still checking": "Кредиты и пул — последний известный баланс, ещё проверяем",
   "Credits: the last known balance, still checking": "Кредиты — последний известный баланс, ещё проверяем",
   "{} credits\nnot checked yet": "{} кредитов\nещё не проверено"

@@ -1490,5 +1490,8 @@
   "credits: no record": "krediler: kayıt yok",
   "no record": "kayıt yok",
   "This top-up was made on another computer or its result was not kept here, so evolite does not know whether Platform added the credits. The DASH left Core for good. The identity's credits are on the Identity screen.": "Bu yükleme başka bir bilgisayarda yapıldı ya da sonucu burada saklanmadı; bu yüzden evolite, Platform'un kredileri ekleyip eklemediğini bilmiyor. DASH'ler Core'dan kalıcı olarak çıktı. identity'nin kredileri “Kimlik” ekranındadır.",
-  "This identity was created on another computer or its result was not kept here, so evolite does not know whether Platform added the credits. The DASH left Core for good. The identity's credits are on the Identity screen.": "Bu identity başka bir bilgisayarda oluşturuldu ya da sonucu burada saklanmadı; bu yüzden evolite, Platform'un kredileri ekleyip eklemediğini bilmiyor. DASH'ler Core'dan kalıcı olarak çıktı. identity'nin kredileri “Kimlik” ekranındadır."
+  "This identity was created on another computer or its result was not kept here, so evolite does not know whether Platform added the credits. The DASH left Core for good. The identity's credits are on the Identity screen.": "Bu identity başka bir bilgisayarda oluşturuldu ya da sonucu burada saklanmadı; bu yüzden evolite, Platform'un kredileri ekleyip eklemediğini bilmiyor. DASH'ler Core'dan kalıcı olarak çıktı. identity'nin kredileri “Kimlik” ekranındadır.",
+  "Change the source or the recipient": "Kaynağı veya alıcıyı değiştirin",
+  "Private address: the amount and the recipient will not be visible on the network.": "Gizli adres: tutar ve alıcı ağda görünmez.",
+  "You can't send from the pool to an @name. Enter an evolite private address, a Platform address or a Core address, or choose another source.": "Havuzdan bir @ada gönderilemez. Bir evolite gizli adresi, Platform ya da Core adresi girin veya başka bir kaynak seçin."
 }

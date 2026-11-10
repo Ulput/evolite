@@ -1116,14 +1116,19 @@ fn shield_preview(
 /// What a payment out of the pool to `to` costs: to a private address it is a private
 /// transfer, to a Platform address an unshield, to anything else (a Core address) a withdrawal.
 /// Nothing typed yet: a private transfer, the pool's own move.
+/// A `tdash1…` that is an evolite private address, not a Platform address: it carries 43 bytes, a
+/// Platform address 21, so about 83 characters against 46.
+pub(crate) fn is_private_address(to: &str) -> bool {
+    to.trim().len() > 64
+}
+
 pub(crate) fn pool_fee(fees: &Fees, to: &str) -> Duffs {
     let to = to.trim();
     if to.is_empty() || to.starts_with('@') {
         return fees.pool_transfer;
     }
     if to.to_ascii_lowercase().starts_with("tdash1") {
-        // A private address carries 43 bytes, a Platform address 21: ~83 characters against ~46.
-        return if to.len() > 64 {
+        return if is_private_address(to) {
             fees.pool_transfer
         } else {
             fees.unshield

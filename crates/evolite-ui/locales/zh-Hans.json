@@ -1480,5 +1480,8 @@
   "credits: no record": "积分：无记录",
   "no record": "无记录",
   "This top-up was made on another computer or its result was not kept here, so evolite does not know whether Platform added the credits. The DASH left Core for good. The identity's credits are on the Identity screen.": "这笔充值是在另一台电脑上完成的，或其结果未保存在这里，因此 evolite 不知道 Platform 是否已添加积分。DASH 已从 Core 永久扣除。identity 的积分请在“身份”页面查看。",
-  "This identity was created on another computer or its result was not kept here, so evolite does not know whether Platform added the credits. The DASH left Core for good. The identity's credits are on the Identity screen.": "这个 identity 是在另一台电脑上创建的，或其结果未保存在这里，因此 evolite 不知道 Platform 是否已添加积分。DASH 已从 Core 永久扣除。identity 的积分请在“身份”页面查看。"
+  "This identity was created on another computer or its result was not kept here, so evolite does not know whether Platform added the credits. The DASH left Core for good. The identity's credits are on the Identity screen.": "这个 identity 是在另一台电脑上创建的，或其结果未保存在这里，因此 evolite 不知道 Platform 是否已添加积分。DASH 已从 Core 永久扣除。identity 的积分请在“身份”页面查看。",
+  "Change the source or the recipient": "请更换来源或收款人",
+  "Private address: the amount and the recipient will not be visible on the network.": "私密地址：金额和收款人不会在网络上可见。",
+  "You can't send from the pool to an @name. Enter an evolite private address, a Platform address or a Core address, or choose another source.": "无法从私密池发送到 @名称。请输入 evolite 私密地址、Platform 地址或 Core 地址，或选择其他来源。"
 }

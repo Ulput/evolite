@@ -321,3 +321,78 @@ pub(super) fn form_problem(typed: &str, s: &SourceView, synced: bool) -> Option<
         // Over a balance not read yet nothing is known to be too much (BUG-113).
         .filter(|p| s.read || !matches!(p, NoFunds | MoreThanBalance | NoRoomForFee))
 }
+
+/// Where a payment from the pool goes, by the recipient typed (BUG-112).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(super) enum PoolRoute {
+    /// An @name: not from the pool (no private address in a DashPay profile).
+    Name,
+    /// An evolite private address: a transfer inside the pool.
+    Private,
+    /// A Platform address: out of the pool, the amount becomes visible.
+    Platform,
+    /// A Core address: a withdrawal.
+    Core,
+}
+
+/// [`PoolRoute`] of the recipient typed; none while nothing is typed.
+pub(super) fn pool_route(to: &str) -> Option<PoolRoute> {
+    let to = to.trim();
+    if to.is_empty() {
+        None
+    } else if to.starts_with('@') {
+        Some(PoolRoute::Name)
+    } else if to.to_ascii_lowercase().starts_with("tdash1") {
+        Some(if super::super::shielded::is_private_address(to) {
+            PoolRoute::Private
+        } else {
+            PoolRoute::Platform
+        })
+    } else {
+        Some(PoolRoute::Core)
+    }
+}
+
+/// The line under the form about where the money goes and what the network sees: its icon and
+/// its words, or none.
+pub(super) fn route_line(s: &SourceView, to: &str) -> Option<(&'static str, &'static str)> {
+    let to = to.trim();
+    // From the pool only a private address keeps the amount and the recipient hidden (BUG-112).
+    if s.source == Source::Pool {
+        return match pool_route(to)? {
+            PoolRoute::Name => None,
+            PoolRoute::Private => Some((
+                "shielded",
+                tr!(
+                    "Private address: the amount and the recipient will not be visible on the network."
+                ),
+            )),
+            PoolRoute::Platform => Some((
+                "eye",
+                tr!(
+                    "The unshielded amount becomes visible on the network, like any transfer to a Platform address."
+                ),
+            )),
+            PoolRoute::Core => Some((
+                "pending",
+                tr!(
+                    "Withdrawal from the pool to Core: the amount becomes visible on the network; the DASH arrive at this address in a few minutes, when Platform releases a batch of withdrawals."
+                ),
+            )),
+        };
+    }
+    let withdrawal = s.source == Source::Credits
+        && !to.is_empty()
+        && !to.starts_with('@')
+        && !to.starts_with("tdash1");
+    Some(if withdrawal {
+        (
+            "pending",
+            tr!(
+                "Withdrawing credits to Core: the DASH arrive at this address in a few minutes, when Platform releases a batch of withdrawals."
+            ),
+        )
+    } else {
+        (s.note_icon, s.note)
+    })
+}

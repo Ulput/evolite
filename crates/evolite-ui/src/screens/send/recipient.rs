@@ -240,6 +240,8 @@ pub(super) fn resolved(
             "pending",
             p.line,
         ),
+        // The pool cannot pay a name (BUG-112): the card says who it is, nothing about credits.
+        (Source::Pool, _) => ("", tr!("Name verified"), "confirmed", p.line),
         _ => (
             tr!("the owner's identity gets the credits"),
             tr!("Name verified"),
@@ -291,7 +293,11 @@ pub(super) fn resolved(
                         );
                         ui.add(
                             egui::Label::new(txt(
-                                &format!("identity {} · {goes}", short_address(&c.identity_id)),
+                                &if goes.is_empty() {
+                                    format!("identity {}", short_address(&c.identity_id))
+                                } else {
+                                    format!("identity {} · {goes}", short_address(&c.identity_id))
+                                },
                                 12.0,
                                 Weight::Regular,
                                 p.muted,

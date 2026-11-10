@@ -1317,3 +1317,28 @@ fn credits_kept_from_before_are_dim_and_said_under_the_row() {
         )
     );
 }
+
+/// BUG-112: from the pool the line under the form says what the network sees, and that depends on
+/// the recipient: nothing before one is typed or for an @name (the pool cannot pay one), hidden
+/// only for a private address, the amount seen for a Platform address, a withdrawal for Core.
+#[test]
+fn from_the_pool_the_line_says_only_what_the_recipient_keeps_hidden() {
+    const PRIVATE: &str =
+        "Private address: the amount and the recipient will not be visible on the network.";
+    const UNSHIELD: &str = "The unshielded amount becomes visible on the network, like any transfer to a Platform address.";
+    let pool = pool_source(1_000_000, true);
+    assert_eq!(route_line(&pool, ""), None);
+    assert_eq!(route_line(&pool, "@alice"), None);
+    let private = format!("tdash1z{}", "q".repeat(76));
+    assert_eq!(pool_route(&private), Some(PoolRoute::Private));
+    assert_eq!(route_line(&pool, &private), Some(("shielded", PRIVATE)));
+    let platform = "tdash1qq7x4m9n2r8v5k3j6h0w4p2s8d5f7g9l3c0zq";
+    assert_eq!(pool_route(platform), Some(PoolRoute::Platform));
+    assert_eq!(route_line(&pool, platform), Some(("eye", UNSHIELD)));
+    let core = route_line(&pool, "yXk3Tq9mD8vJw2RfL6pN4sB7cH1eZ5aG9f");
+    assert!(
+        core.is_some_and(|(_, t)| t.starts_with("Withdrawal from the pool to Core")),
+        "{core:?}"
+    );
+    assert_eq!(pool_route("@alice"), Some(PoolRoute::Name));
+}

@@ -1480,5 +1480,8 @@
   "credits: no record": "kredit: tidak ada catatan",
   "no record": "tidak ada catatan",
   "This top-up was made on another computer or its result was not kept here, so evolite does not know whether Platform added the credits. The DASH left Core for good. The identity's credits are on the Identity screen.": "Isi ulang ini dilakukan di komputer lain atau hasilnya tidak disimpan di sini, jadi evolite tidak tahu apakah Platform sudah menambahkan kreditnya. DASH sudah keluar dari Core untuk selamanya. Kredit identity ada di layar “Identitas”.",
-  "This identity was created on another computer or its result was not kept here, so evolite does not know whether Platform added the credits. The DASH left Core for good. The identity's credits are on the Identity screen.": "Identity ini dibuat di komputer lain atau hasilnya tidak disimpan di sini, jadi evolite tidak tahu apakah Platform sudah menambahkan kreditnya. DASH sudah keluar dari Core untuk selamanya. Kredit identity ada di layar “Identitas”."
+  "This identity was created on another computer or its result was not kept here, so evolite does not know whether Platform added the credits. The DASH left Core for good. The identity's credits are on the Identity screen.": "Identity ini dibuat di komputer lain atau hasilnya tidak disimpan di sini, jadi evolite tidak tahu apakah Platform sudah menambahkan kreditnya. DASH sudah keluar dari Core untuk selamanya. Kredit identity ada di layar “Identitas”.",
+  "Change the source or the recipient": "Ganti sumber atau penerima",
+  "Private address: the amount and the recipient will not be visible on the network.": "Alamat privat: jumlah dan penerima tidak akan terlihat di jaringan.",
+  "You can't send from the pool to an @name. Enter an evolite private address, a Platform address or a Core address, or choose another source.": "Tidak bisa mengirim dari pool ke @nama. Masukkan alamat privat evolite, alamat Platform atau Core, atau pilih sumber lain."
 }

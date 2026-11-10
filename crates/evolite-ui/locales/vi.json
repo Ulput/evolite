@@ -1480,5 +1480,8 @@
   "credits: no record": "tín dụng: không có dữ liệu",
   "no record": "không có dữ liệu",
   "This top-up was made on another computer or its result was not kept here, so evolite does not know whether Platform added the credits. The DASH left Core for good. The identity's credits are on the Identity screen.": "Lần nạp này được thực hiện trên máy tính khác hoặc kết quả không được lưu ở đây, nên evolite không biết Platform đã thêm tín dụng hay chưa. DASH đã rời Core vĩnh viễn. Tín dụng của identity nằm trên màn hình “Danh tính”.",
-  "This identity was created on another computer or its result was not kept here, so evolite does not know whether Platform added the credits. The DASH left Core for good. The identity's credits are on the Identity screen.": "Identity này được tạo trên máy tính khác hoặc kết quả không được lưu ở đây, nên evolite không biết Platform đã thêm tín dụng hay chưa. DASH đã rời Core vĩnh viễn. Tín dụng của identity nằm trên màn hình “Danh tính”."
+  "This identity was created on another computer or its result was not kept here, so evolite does not know whether Platform added the credits. The DASH left Core for good. The identity's credits are on the Identity screen.": "Identity này được tạo trên máy tính khác hoặc kết quả không được lưu ở đây, nên evolite không biết Platform đã thêm tín dụng hay chưa. DASH đã rời Core vĩnh viễn. Tín dụng của identity nằm trên màn hình “Danh tính”.",
+  "Change the source or the recipient": "Hãy đổi nguồn hoặc người nhận",
+  "Private address: the amount and the recipient will not be visible on the network.": "Địa chỉ riêng tư: số tiền và người nhận sẽ không hiển thị trên mạng.",
+  "You can't send from the pool to an @name. Enter an evolite private address, a Platform address or a Core address, or choose another source.": "Không thể gửi từ pool đến một @tên. Hãy nhập địa chỉ riêng tư evolite, địa chỉ Platform hoặc Core, hoặc chọn nguồn khác."
 }

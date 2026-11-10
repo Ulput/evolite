@@ -1490,5 +1490,8 @@
   "credits: no record": "क्रेडिट: कोई रिकॉर्ड नहीं",
   "no record": "कोई रिकॉर्ड नहीं",
   "This top-up was made on another computer or its result was not kept here, so evolite does not know whether Platform added the credits. The DASH left Core for good. The identity's credits are on the Identity screen.": "यह टॉप-अप किसी दूसरे कंप्यूटर पर किया गया था या इसका परिणाम यहाँ सहेजा नहीं गया, इसलिए evolite नहीं जानता कि Platform ने क्रेडिट जोड़े या नहीं। DASH Core से स्थायी रूप से निकल चुके हैं। identity के क्रेडिट “पहचान” स्क्रीन पर हैं।",
-  "This identity was created on another computer or its result was not kept here, so evolite does not know whether Platform added the credits. The DASH left Core for good. The identity's credits are on the Identity screen.": "यह identity किसी दूसरे कंप्यूटर पर बनाई गई थी या इसका परिणाम यहाँ सहेजा नहीं गया, इसलिए evolite नहीं जानता कि Platform ने क्रेडिट जोड़े या नहीं। DASH Core से स्थायी रूप से निकल चुके हैं। identity के क्रेडिट “पहचान” स्क्रीन पर हैं।"
+  "This identity was created on another computer or its result was not kept here, so evolite does not know whether Platform added the credits. The DASH left Core for good. The identity's credits are on the Identity screen.": "यह identity किसी दूसरे कंप्यूटर पर बनाई गई थी या इसका परिणाम यहाँ सहेजा नहीं गया, इसलिए evolite नहीं जानता कि Platform ने क्रेडिट जोड़े या नहीं। DASH Core से स्थायी रूप से निकल चुके हैं। identity के क्रेडिट “पहचान” स्क्रीन पर हैं।",
+  "Change the source or the recipient": "स्रोत या प्राप्तकर्ता बदलें",
+  "Private address: the amount and the recipient will not be visible on the network.": "निजी पता: राशि और प्राप्तकर्ता नेटवर्क पर दिखाई नहीं देंगे।",
+  "You can't send from the pool to an @name. Enter an evolite private address, a Platform address or a Core address, or choose another source.": "पूल से @नाम पर नहीं भेजा जा सकता। evolite निजी पता, Platform पता या Core पता दर्ज करें, या कोई दूसरा स्रोत चुनें।"
 }
