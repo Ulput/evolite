@@ -863,6 +863,101 @@ fn a_lock_clears_the_form() {
     assert!(form.amount.is_empty());
 }
 
+/// TECH-price-check AC-T2: the price the journal records as promised is the number this form
+/// shows, for each way of paying and each kind of recipient.
+#[test]
+fn the_price_on_record_is_the_one_the_send_form_shows() {
+    use evolite_core::price::{Seen, declared};
+    let fees = evolite_api::Fees {
+        core_payment: 11,
+        credit_transfer: 12,
+        credit_transfer_to_address: 33,
+        credit_withdrawal: 31,
+        pool_transfer: 13,
+        unshield: 27,
+        pool_withdrawal: 28,
+        contact_request: 23,
+        profile: 24,
+        name_regular: 20,
+        ..zero_fees()
+    };
+    let seen = Seen {
+        fees: fees.clone(),
+        core: 1_000,
+        credits: 1_000,
+        platform_address: 1_000,
+        pool: 1_000,
+        first_name: false,
+    };
+    let send = |from, to: &str, amount| Spend::Send {
+        id: 1,
+        from,
+        to: to.into(),
+        amount,
+        note: None,
+    };
+    let price = |op: &Spend| declared(op, &seen, 0).declared;
+    let private = format!("tdash1{}", "z".repeat(70));
+    for to in [
+        "@bob",
+        "yMrDQWqicXKL8xdJg23oYVVqKNtm5AwvXQ",
+        "tdash1qq7x4m9n2r8v5k3j6h0w4p2s8d5f7g9l3c0zq",
+        private.as_str(),
+        "",
+    ] {
+        assert_eq!(
+            price(&send(Source::Credits, to, 5)),
+            credits_fee(&fees, to),
+            "{to}"
+        );
+        assert_eq!(
+            price(&send(Source::Pool, to, 5)),
+            crate::screens::shielded::pool_fee(&fees, to),
+            "{to}"
+        );
+    }
+    assert_eq!(
+        price(&send(Source::Core, "@bob", 5)),
+        fees.core_payment_for(5)
+    );
+    // The forms that read a field or a `Fees` method directly: `contacts`, `identity/mod`,
+    // `identity/add_name`, and `identity/top_up`, whose fee of the lock is `core_payment`.
+    assert_eq!(
+        price(&Spend::AddContact { name: "b".into() }),
+        fees.contact_request
+    );
+    assert_eq!(
+        price(&Spend::AcceptContact {
+            identity_id: "i".into()
+        }),
+        fees.contact_request
+    );
+    assert_eq!(
+        price(&Spend::SaveProfile {
+            display: String::new(),
+            about: String::new(),
+            avatar_url: None
+        }),
+        fees.profile
+    );
+    assert_eq!(
+        price(&Spend::AddName { name: "b".into() }),
+        fees.name_price(false)
+    );
+    let first = Seen {
+        first_name: true,
+        ..seen.clone()
+    };
+    assert_eq!(
+        declared(&Spend::AddName { name: "b".into() }, &first, 0).declared,
+        fees.name_price(true)
+    );
+    assert_eq!(
+        price(&Spend::TopUpIdentity { amount: 5 }),
+        fees.top_up_on_top() + fees.core_payment
+    );
+}
+
 /// BUG-108 r1 must 1: Platform meters credits and has no cap, so their fee is an estimate, said so
 /// on the fee and on the total. A Core fee is known before signing and stays "at most".
 #[test]

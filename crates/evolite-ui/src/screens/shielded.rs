@@ -1131,12 +1131,12 @@ pub(crate) fn pool_fee(fees: &Fees, to: &str) -> Duffs {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::{notes, pool_fee, shield_cost, shield_preview, unshield_fee};
     use evolite_api::{Fees, ShieldSource};
 
     /// The pool's fees as the core gives them at protocol 15 (its own test checks the formulas).
-    fn fees() -> Fees {
+    pub(crate) fn fees() -> Fees {
         Fees {
             core_payment: 226,
             core_coins: Vec::new(),
@@ -1288,5 +1288,44 @@ mod pool_line_tests {
         assert!(pool_line(&pool, now).starts_with("Connecting the pool"));
         pool.address = Some("tdash1…".into());
         assert!(pool_line(&pool, now).starts_with("Reading the pool"));
+    }
+
+    /// TECH-price-check AC-T2: what the journal records as promised is what this screen shows.
+    #[test]
+    fn the_price_on_record_is_the_one_the_pool_screen_shows() {
+        use super::tests::fees;
+        use super::{shield_cost, unshield_fee};
+        use evolite_api::ShieldSource;
+        use evolite_api::Spend;
+        use evolite_core::price::{Seen, declared};
+        let f = fees();
+        let seen = Seen {
+            fees: f.clone(),
+            core: 0,
+            credits: 0,
+            platform_address: 0,
+            pool: 0,
+            first_name: false,
+        };
+        for source in [
+            ShieldSource::Credits,
+            ShieldSource::PlatformAddress,
+            ShieldSource::Core,
+        ] {
+            let cost = shield_cost(&f, source, 1_000_000);
+            let op = Spend::Shield {
+                from: source,
+                amount: 5,
+            };
+            assert_eq!(declared(&op, &seen, 0).declared, cost.fee + cost.core_fee);
+        }
+        assert_eq!(
+            declared(&Spend::Unshield { amount: 5 }, &seen, 0).declared,
+            unshield_fee(&f, false)
+        );
+        assert_eq!(
+            declared(&Spend::TopUpFromPool { amount: 5 }, &seen, 0).declared,
+            unshield_fee(&f, true)
+        );
     }
 }

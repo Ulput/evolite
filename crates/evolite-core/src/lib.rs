@@ -31,6 +31,7 @@ use evolite_demo as mock;
 /// The password the demo core refuses (the UI tests' "Wrong password").
 #[cfg(any(feature = "demo", not(feature = "real"), test))]
 pub use mock::WRONG_PASSWORD as DEMO_WRONG_PASSWORD;
+pub mod price;
 #[cfg(feature = "real")]
 mod real;
 

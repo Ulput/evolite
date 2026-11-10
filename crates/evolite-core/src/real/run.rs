@@ -24,9 +24,11 @@ impl Real {
         let out = self.out.clone();
         let wake = self.wake.clone();
         let stale = self.balances_stale.clone();
+        let prices = self.prices.clone();
         let question = turn::task(step, question);
         tokio::spawn(async move {
             let event = question.await;
+            prices.finish(&event);
             // A write (or a try at one) may have moved credits: read the balances again.
             if matches!(event, Event::Done { .. } | Event::Sent { .. }) {
                 stale.notify_one();
@@ -142,6 +144,7 @@ pub fn run(
         // with a synced store, half a minute in a debug one — and runs off the loop, so the
         // password typed meanwhile opens the wallet at once (F3, BUG-24).
         let snapshot = turn::timed("snapshot", core.snapshot()).await;
+        core.prices.saw(snapshot.wallet.as_ref());
         let _ = out.send(Event::Snapshot(Box::new(snapshot)));
         wake();
         core.start_chain(None, None, None, false);
@@ -236,6 +239,7 @@ pub fn run(
                             }
                             core.dirty.store(false, Ordering::Relaxed);
                             let snapshot = turn::timed("snapshot", core.snapshot()).await;
+                            core.prices.saw(snapshot.wallet.as_ref());
                             let _ = out.send(Event::Snapshot(Box::new(snapshot)));
                             wake();
                         }
@@ -257,6 +261,7 @@ pub fn run(
             }
             if core.dirty.swap(false, Ordering::Relaxed) {
                 let snapshot = turn::timed("snapshot", core.snapshot()).await;
+                core.prices.saw(snapshot.wallet.as_ref());
                 let _ = out.send(Event::Snapshot(Box::new(snapshot)));
                 wake();
             }

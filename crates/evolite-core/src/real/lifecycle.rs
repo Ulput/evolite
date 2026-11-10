@@ -56,6 +56,7 @@ impl Real {
             attach: None,
             attach_failed: None,
             birth_hint: None,
+            prices: prices::PriceWatch::new(journal.clone()),
             journal,
             history_busy: Arc::new(AtomicBool::new(false)),
             history_next: None,

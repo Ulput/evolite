@@ -20,6 +20,7 @@
 mod dispatch;
 mod lifecycle;
 mod ops;
+mod prices;
 mod run;
 mod snapshot;
 
@@ -364,6 +365,8 @@ struct Real {
     platform_sending: Arc<std::sync::Mutex<platform_sending::PlatformSending>>,
     /// What the wallet did on Platform, for the history.
     journal: Arc<journal::Journal>,
+    /// What each spend was said to cost, until its answer comes (TECH-price-check).
+    prices: prices::PriceWatch,
     /// A pass reading Platform back into the journal is running (one at a time).
     history_busy: Arc<AtomicBool>,
     /// When the next pass is due; `None`: as soon as the identities are known.

@@ -12,11 +12,20 @@ fn pick(text: &str) {
         .unwrap_or_else(|e| e.into_inner()) = Some(crate::qr_scan::test_png(text));
 }
 
-/// Waits for the menu and for its look at the clipboard (made off the frame).
+/// Waits for the menu and for its look at the clipboard: a thread of its own answers it, and
+/// the focus goes to the first item only once it has (a loaded machine is slow to answer).
 fn menu_ready(kit: &mut Kit) {
     wait_for(kit, "the menu", |kit| {
         kit.query_by_role_and_label(Role::Button, "Choose a picture…")
             .is_some()
+    });
+    wait_for(kit, "the clipboard's answer", |kit| {
+        let app = kit.state();
+        let mut open = [&app.send.scanner, &app.requests.scanner]
+            .into_iter()
+            .chain(app.contacts.adding.as_ref().map(|a| &a.scanner))
+            .filter(|s| s.menu);
+        open.all(|s| s.clip_picture.is_some())
     });
     kit.run_steps(4);
 }

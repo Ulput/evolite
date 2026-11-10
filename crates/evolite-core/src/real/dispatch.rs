@@ -227,7 +227,12 @@ impl Real {
                 if let Err(why) = self.spend_gate(password.as_ref()).await {
                     return (Some(op.refused(why)), true);
                 }
-                return self.spend(op).await;
+                self.prices.begin(&op, now());
+                let (event, changed) = self.spend(op).await;
+                if let Some(event) = &event {
+                    self.prices.finish(event);
+                }
+                return (event, changed);
             }
             Command::SetPasswordEachSend { on, password } => Event::Done {
                 what: DoneWhat::PasswordEachSend,

@@ -133,6 +133,16 @@ pub enum Record {
         not_in_block: u32,
         still_held: u32,
     },
+    /// A spend's price (TECH-price-check): the kind of spend, what the form promised, what was
+    /// taken (`None`: not known, or refused), whether the balance covered the promise, and `ok` or
+    /// the refusal's code. Only the price: no address, name, amount or text of the network.
+    Price {
+        what: &'static str,
+        declared: evolite_api::Duffs,
+        actual: Option<evolite_api::Duffs>,
+        enough: bool,
+        reason: &'static str,
+    },
 }
 
 impl Record {
@@ -196,6 +206,16 @@ impl Record {
             } => json!({
                 "k": "spent_claims", "claimed": claimed, "notInBlock": not_in_block,
                 "stillHeld": still_held,
+            }),
+            Record::Price {
+                what,
+                declared,
+                actual,
+                enough,
+                reason,
+            } => json!({
+                "k": "price", "what": what, "declared": declared, "actual": actual,
+                "enough": enough, "reason": reason,
             }),
         }
     }
@@ -547,6 +567,35 @@ mod tests {
         }
         .line(UNIX_EPOCH);
         assert!(!line.contains("192.168"), "{line}");
+    }
+
+    /// AC-T3: a price record holds its five fields, and none of them can hold text of the
+    /// person's: the names are the code's, the rest are numbers and a flag.
+    #[test]
+    fn a_price_record_is_only_the_price() {
+        let line = Record::Price {
+            what: "send_credits",
+            declared: 12,
+            actual: None,
+            enough: true,
+            reason: "not_enough",
+        }
+        .line(UNIX_EPOCH);
+        let value: serde_json::Value = serde_json::from_str(&line).unwrap();
+        let mut keys: Vec<&str> = value
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(|k| k.as_str())
+            .collect();
+        keys.sort_unstable();
+        assert_eq!(
+            keys,
+            ["actual", "declared", "enough", "k", "reason", "t", "what"],
+            "{line}"
+        );
+        assert_eq!(value["k"], "price");
+        assert!(value["actual"].is_null());
     }
 
     #[test]

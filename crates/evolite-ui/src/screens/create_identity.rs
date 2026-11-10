@@ -1053,4 +1053,34 @@ mod tests {
         assert!(!form.confirming);
         assert!(form.on_done(&Ok(())));
     }
+
+    /// TECH-price-check AC-T2: the fees on top of the amount, as this form's plan adds them
+    /// up: its total without the amount itself.
+    #[test]
+    fn the_price_on_record_is_the_one_the_form_adds_up() {
+        use evolite_core::price::{Seen, declared};
+        let fees = crate::screens::shielded::tests::fees();
+        let seen = Seen {
+            fees: fees.clone(),
+            core: 0,
+            credits: 0,
+            platform_address: 0,
+            pool: 0,
+            first_name: false,
+        };
+        for (name, named) in [(Some("bob".to_string()), true), (None, false)] {
+            let top_up = 500;
+            let lock = fees.identity_lock_for(top_up, named);
+            let plan = super::Plan {
+                label: name.clone(),
+                top_up,
+                name_fee: if named { fees.name_on_top() } else { 0 },
+                create_fee: fees.identity_create,
+                lock,
+                core_fee: fees.core_payment_for(lock),
+            };
+            let op = evolite_api::Spend::CreateIdentity { name, top_up };
+            assert_eq!(declared(&op, &seen, 0).declared, plan.total() - top_up);
+        }
+    }
 }

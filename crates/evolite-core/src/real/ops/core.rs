@@ -195,6 +195,7 @@ impl Real {
         let out = self.out.clone();
         let wake = self.wake.clone();
         let notes = self.notes.clone();
+        let prices = self.prices.clone();
         let dirty = self.dirty.clone();
         // Building, signing and the network's answer happen off the loop: the broadcast waits
         // for peers to relay the payment.
@@ -243,10 +244,12 @@ impl Real {
                     relayed: paid.relayed,
                 })
                 .map_err(core_failure);
-            let _ = out.send(Event::Sent {
+            let event = Event::Sent {
                 id: payment,
                 result,
-            });
+            };
+            prices.finish(&event);
+            let _ = out.send(event);
             dirty.store(true, Ordering::Relaxed);
             wake();
         });
