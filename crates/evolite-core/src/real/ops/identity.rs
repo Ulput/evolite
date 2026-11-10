@@ -168,12 +168,16 @@ impl Real {
         let chain = self.chain.clone();
         let busy = self.identity_busy.clone();
         let refresh = self.refresher();
+        let journal = self.journal.clone();
         self.answer_later("task:top_up_identity", async move {
-            let result = chain
-                .top_up_identity(&wallet, &keys, amount)
-                .await
-                .map(|_| ())
-                .map_err(identity_failure);
+            let credits_before = chain.first_identity_credits(&wallet, true).await;
+            let locks_before = asset_locks(&wallet).await;
+            let result = chain.top_up_identity(&wallet, &keys, amount).await;
+            if let Ok(after) = &result {
+                let lock = new_lock(&locks_before, asset_locks(&wallet).await);
+                keep_added(&journal, lock, credits_before, *after);
+            }
+            let result = result.map(|_| ()).map_err(identity_failure);
             busy.store(false, Ordering::Relaxed);
             refresh();
             Event::Done {
@@ -213,6 +217,7 @@ impl Real {
                 Err(e) => Err(CoreError::Failed(e)),
                 Ok(true) => async {
                     let wallet = chain.wallet(&id).await.ok_or(NOT_LOADED)?;
+                    let acting = acting_identity(&wallet).await;
                     let before = chain.first_identity_credits(&wallet, false).await;
                     chain.add_name(&wallet, &keys, &label, needed).await?;
                     // In the history, with what it cost: the next name is estimated from it.
@@ -224,6 +229,7 @@ impl Real {
                         },
                         spent: spent_credits(before, after).unwrap_or(0),
                         moved: 0,
+                        identity: acting,
                         ..Default::default()
                     });
                     Ok::<(), String>(())
@@ -253,10 +259,35 @@ impl Real {
         let chain = self.chain.clone();
         let busy = self.identity_busy.clone();
         let refresh = self.refresher();
+        let journal = self.journal.clone();
         self.answer_later("task:resume_top_up", async move {
             let result = async {
                 let wallet = chain.wallet(&id).await.ok_or(NOT_LOADED)?;
-                chain.resume_top_up(&wallet, &keys).await
+                // The lock's own identity, which need not be the one worked as: it is the one
+                // credited, and with a shown identity's balance the amount would be wrong.
+                let unfinished = chain.unfinished_top_up(&wallet).await;
+                let owner = match &unfinished {
+                    Some(lock) => {
+                        let state = wallet.state().await;
+                        lock_owner(
+                            state
+                                .identity_manager
+                                .managed_identities()
+                                .filter(|m| m.wallet_id == Some(id))
+                                .map(|m| (m.identity_index, m.identity.id())),
+                            lock.identity_index,
+                        )
+                    }
+                    None => None,
+                };
+                let credits_before = match &owner {
+                    Some(owner) => chain.identity_credits(&wallet, owner, true).await,
+                    None => None,
+                };
+                let lock = unfinished.map(|l| l.out_point.txid.to_string());
+                let after = chain.resume_top_up(&wallet, &keys).await?;
+                keep_added(&journal, lock, credits_before, after);
+                Ok::<u64, String>(after)
             }
             .await
             .map(|_| ())
@@ -334,6 +365,7 @@ impl Real {
         self.answer_later("task:send_credits", async move {
             let result = async {
                 let wallet = loaded(&chain, &id).await?;
+                let acting = acting_identity(&wallet).await;
                 let before = chain.first_identity_credits(&wallet, false).await;
                 let payee = match to {
                     To::Ready(payee) => payee,
@@ -357,6 +389,7 @@ impl Real {
                     what,
                     spent: spent_credits(before, after).unwrap_or(amount),
                     moved: amount,
+                    identity: acting,
                     ..Default::default()
                 });
                 // The journal's line is the transfer's for good: its note goes there (AC-T3).
@@ -701,5 +734,82 @@ pub(in crate::real) fn too_short(password: &Password) -> Result<(), CoreError> {
 fn set_search(search: &std::sync::Mutex<IdentitySearch>, state: IdentitySearch) {
     if let Ok(mut s) = search.lock() {
         *s = state;
+    }
+}
+
+/// The txids of the wallet's asset locks.
+async fn asset_locks(
+    wallet: &platform_wallet::PlatformWallet,
+) -> std::collections::HashSet<String> {
+    use key_wallet::transaction_checking::transaction_router::TransactionType;
+    wallet
+        .state()
+        .await
+        .core_wallet
+        .transaction_history()
+        .into_iter()
+        .filter(|r| r.transaction_type == TransactionType::AssetLock)
+        .map(|r| r.txid.to_string())
+        .collect()
+}
+
+/// Which of the wallet's identities (`slot`, id) a resumed top-up credits: the one in the lock's
+/// slot, whichever is worked as. None when the wallet does not have it.
+fn lock_owner<T>(mine: impl IntoIterator<Item = (Option<u32>, T)>, slot: u32) -> Option<T> {
+    mine.into_iter()
+        .find(|(index, _)| *index == Some(slot))
+        .map(|(_, id)| id)
+}
+
+/// The lock a top-up made: the one asset lock that was not there before it. None when it cannot
+/// be told (FR-3 then shows no amount, never another lock's).
+fn new_lock(
+    before: &std::collections::HashSet<String>,
+    after: std::collections::HashSet<String>,
+) -> Option<String> {
+    let mut new = after.into_iter().filter(|t| !before.contains(t));
+    match (new.next(), new.next()) {
+        (Some(txid), None) => Some(txid),
+        _ => None,
+    }
+}
+
+/// Keeps what a finished top-up added, in duffs: the identity's balance after it less before it.
+/// Nothing when the lock or the earlier balance is not known.
+fn keep_added(journal: &journal::Journal, lock: Option<String>, before: Option<u64>, after: u64) {
+    if let (Some(txid), Some(before)) = (lock, before)
+        && after > before
+    {
+        journal.keep_top_up(&txid, identity::credits_as_duffs(after - before));
+    }
+}
+
+#[cfg(test)]
+mod top_up_amount_tests {
+    use super::{lock_owner, new_lock};
+
+    fn set(ids: &[&str]) -> std::collections::HashSet<String> {
+        ids.iter().map(|s| s.to_string()).collect()
+    }
+
+    /// A resumed top-up's amount is read from the identity its lock belongs to, not the one
+    /// worked as: with several identities the card would show a wrong amount.
+    #[test]
+    fn a_resumed_top_up_belongs_to_the_identity_of_its_slot() {
+        let mine = [(Some(0), "shown"), (Some(3), "owner"), (None, "no slot")];
+        assert_eq!(lock_owner(mine, 3), Some("owner"));
+        assert_eq!(lock_owner(mine, 0), Some("shown"));
+        assert_eq!(lock_owner(mine, 7), None, "not one of this wallet's");
+    }
+
+    /// FR-3: only a lock that can be told for certain gets the amount.
+    #[test]
+    fn the_new_lock_is_the_only_one_that_was_not_there() {
+        assert_eq!(
+            new_lock(&set(&["a"]), set(&["a", "b"])).as_deref(),
+            Some("b")
+        );
+        assert_eq!(new_lock(&set(&["a"]), set(&["a"])), None, "none new");
+        assert_eq!(new_lock(&set(&[]), set(&["a", "b"])), None, "two new");
     }
 }

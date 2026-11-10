@@ -272,15 +272,23 @@ pub fn matches_query(act: &Activity, q: &str, book: &[SavedAddress]) -> bool {
     };
     // The payment's Core address too: a payment in names no one, only our own address it came
     // to, and a payment to a contact shows the @name with the address beside it. And the whole
-    // txid, as the card shows it. And the person's note (FEAT-0003, FR-9), any case.
+    // txid, as the card shows it. And the person's note (FEAT-0003, FR-9), any case. And the
+    // identity it was done as and its document's id, as the card names them (FEAT-0005, FR-9).
+    let detail = act.detail.as_deref();
+    let identity = detail.and_then(|d| d.identity.as_ref());
     let shown = format!(
-        "{} {} {} {} {} {}",
+        "{} {} {} {} {} {} {} {} {}",
         text::activity_title_in(act, book),
         crate::format::number(act.amount, true),
         counterparty,
         act.address.as_deref().unwrap_or_default(),
         act.txid.as_deref().unwrap_or_default(),
-        act.note.as_deref().unwrap_or_default()
+        act.note.as_deref().unwrap_or_default(),
+        identity.map_or("", |i| i.id.as_str()),
+        identity.and_then(|i| i.name.as_deref()).unwrap_or_default(),
+        detail
+            .and_then(|d| d.document.as_deref())
+            .unwrap_or_default()
     )
     .replace('\u{a0}', " ")
     .to_lowercase();

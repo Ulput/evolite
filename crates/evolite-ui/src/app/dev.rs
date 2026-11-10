@@ -379,6 +379,23 @@ impl App {
         if preset("activity-card-received") && !real_shot {
             screens::open_card(ctx, 8);
         }
+        // FEAT-0005b: the demo's Platform lines (mockups 03-08).
+        for (name, line) in [
+            ("activity-card-name", 13),
+            ("activity-card-withdrawal-waiting", 18),
+            ("activity-card-withdrawal-paid", 12),
+            ("activity-card-payout", 19),
+            ("activity-card-lock-not-added", 20),
+            ("activity-card-shield", 6),
+            ("activity-card-old", 14),
+            ("activity-card-pool-sent", 21),
+            ("activity-card-pool-received", 22),
+            ("activity-card-top-up", 4),
+        ] {
+            if preset(name) && !real_shot {
+                screens::open_card(ctx, line);
+            }
+        }
         // FEAT-0003: the notes in History and in an operation's card (Figma 05, 24; the designer's
         // frames 2, 4-7). The demo's note is the core's example, in the interface's language.
         if !real_shot {

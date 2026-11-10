@@ -167,6 +167,10 @@ impl Real {
                         _ => chain.platform_address(&wallet).await.ok().map(|(_, c)| c),
                     };
                     let moved = amount;
+                    let acting = match from {
+                        ShieldSource::Credits => acting_identity(&wallet).await,
+                        _ => None,
+                    };
                     journal.add(journal::Entry {
                         at: now(),
                         what: journal::What::Shield {
@@ -178,6 +182,7 @@ impl Real {
                             .filter(|s| *s > moved)
                             .unwrap_or(moved),
                         moved,
+                        identity: acting,
                         ..Default::default()
                     });
                 }

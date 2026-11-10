@@ -12,7 +12,8 @@ use crate::theme::{Weight, mono, sans};
 use chrono::{DateTime, Local};
 use egui::{Align, Layout, Margin, Stroke, Ui};
 use evolite_api::{
-    Activity, ActivityKind, Chain, Command, Confirm, CoreError, Detail, Duffs, SavedAddress, Source,
+    Activity, ActivityKind, Chain, Command, Confirm, CoreError, Detail, Duffs, IdentityChoice,
+    IdentityRef, Proof, SavedAddress, Source, WithdrawalState,
 };
 use zeroize::{Zeroize, Zeroizing};
 
@@ -22,11 +23,22 @@ pub fn card_window(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx) {
     let wallet = cx.wallet();
     let open = ui.data(|d| d.get_temp::<u64>(card_id()));
     if let Some(act) = open.and_then(|id| wallet.activity.iter().find(|a| a.id == id)) {
-        let (closed, again, go, note) = card(ui, a, act, cx.now, &wallet.address_book);
-        if let Some(command) = note {
+        let linked = act
+            .detail
+            .as_deref()
+            .and_then(|d| d.link.as_deref())
+            .and_then(|key| wallet.activity.iter().find(|a| a.key == key));
+        let around = Around {
+            now: cx.now,
+            book: &wallet.address_book,
+            linked,
+            identities: &wallet.identities,
+        };
+        let answer = card(ui, a, act, &around);
+        if let Some(command) = answer.note {
             cx.send(command);
         }
-        if closed {
+        if answer.closed {
             ui.data_mut(|d| {
                 d.remove::<u64>(card_id());
                 d.remove::<u64>(all_sides_id());
@@ -38,11 +50,22 @@ pub fn card_window(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx) {
         // "Open in Contacts": accepting is there, with the password (BUG-42, BUG-58).
         // "Continue on the Identity screen": the cut-short top-up or creation is finished
         // there, with the password (BUG-57).
-        if let Some(screen) = go {
+        if let Some(screen) = answer.go {
             cx.go(screen);
         }
+        // "Open in Identity": the same choice as the menu's, unless it is the one worked as.
+        if let Some(id) = answer.act_as
+            && wallet.identity.as_ref().map(|i| &i.id) != Some(&id)
+        {
+            cx.send(Command::ChooseIdentity { id });
+        }
+        // The related operation: its card in place of this one (AC-D4).
+        if let Some(id) = answer.open {
+            forget_note(ui.ctx());
+            open_card(ui.ctx(), id);
+        }
         // "Send again": the Send screen with the same recipient and amount.
-        if let Some((to, amount)) = again {
+        if let Some((to, amount)) = answer.again {
             cx.pay_again(Source::Core, to, amount);
         }
     }
@@ -488,18 +511,18 @@ fn counterparty(act: &Activity) -> Option<(&'static str, String, Option<String>)
     }
 }
 
-/// The card's own Core detail (FEAT-0005a), for the Core lines it is drawn for: a payment in,
-/// out, and a transfer between own addresses. Other lines keep their card as it was until 5b.
-fn core_detail(act: &Activity) -> Option<&Detail> {
-    let core = matches!(
-        act.kind,
-        ActivityKind::Received { .. }
-            | ActivityKind::Sent { .. }
-            | ActivityKind::SelfTransfer { .. }
-    );
-    (core && act.chain == Chain::Core)
-        .then_some(act.detail.as_deref())
-        .flatten()
+/// The card's detail (FEAT-0005) for the lines it is drawn for: on Core a payment in, out and a
+/// transfer between own addresses; a Platform operation and an asset lock when the core knows
+/// more than the row. Other lines keep the plain card.
+fn card_detail(act: &Activity) -> Option<&Detail> {
+    let drawn = act.chain != Chain::Core
+        || matches!(
+            act.kind,
+            ActivityKind::Received { .. }
+                | ActivityKind::Sent { .. }
+                | ActivityKind::SelfTransfer { .. }
+        );
+    drawn.then_some(act.detail.as_deref()).flatten()
 }
 
 /// One line of «From» or «To»: the value (an address in mono, or words) and a muted line under
@@ -517,6 +540,38 @@ impl Side {
             value: address.to_owned(),
             mono: true,
             sub: Some(tr!("this wallet's address").into()),
+        }
+    }
+
+    /// Words, or a name, with a muted line.
+    fn words(value: impl Into<String>, sub: Option<String>) -> Self {
+        Side {
+            value: value.into(),
+            mono: false,
+            sub,
+        }
+    }
+
+    /// An identity of this wallet: its name when it has one, and whose credits (mockups 03-05).
+    fn identity(r: &IdentityRef) -> Self {
+        let short = text::short_address(&r.id);
+        let your = tr!("your identity");
+        let credits = tr!("credits");
+        match &r.name {
+            Some(name) => Side::words(
+                format!("{} · {your}", crate::i18n::own(&format!("@{name}"))),
+                Some(format!("{short} · {credits}")),
+            ),
+            None => Side::words(format!("{short} · {your}"), Some(credits.into())),
+        }
+    }
+
+    /// Who was on the other side, as the row names them: an address in mono.
+    fn payee(who: &str, sub: Option<String>) -> Self {
+        Side {
+            value: who.to_owned(),
+            mono: !who.starts_with('@') && !who.contains('…'),
+            sub,
         }
     }
 }
@@ -561,16 +616,376 @@ fn sides(act: &Activity, detail: &Detail, book: &[SavedAddress]) -> (Vec<Side>, 
             }
             (from, own_to())
         }
+        // A payout names the identity withdrawn from once it is paired with the withdrawal.
+        ActivityKind::Received { .. } if detail.identity.is_some() => (
+            detail.identity.iter().map(Side::identity).collect(),
+            own_to(),
+        ),
         ActivityKind::Received { from } => {
-            let from = from.iter().map(|who| Side {
-                value: who.clone(),
-                mono: false,
-                sub: None,
-            });
+            let from = from.iter().map(|who| Side::words(who.clone(), None));
             (from.collect(), own_to())
+        }
+        _ => platform_sides(act, detail),
+    }
+}
+
+/// «From» and «To» of a Platform operation or an asset lock (mockups 03-07): the identity it was
+/// done as, when it is known, and where it went.
+fn platform_sides(act: &Activity, detail: &Detail) -> (Vec<Side>, Vec<Side>) {
+    let mine = || {
+        detail
+            .identity
+            .iter()
+            .map(Side::identity)
+            .collect::<Vec<_>>()
+    };
+    let one = |side: Side| vec![side];
+    let pool = || Side::words(tr!("This wallet's private pool"), None);
+    match &act.kind {
+        ActivityKind::NameRegistered { label } => (
+            mine(),
+            one(Side::words(
+                "Dash Platform · DPNS",
+                Some(format!(tr!("domain document “{}.dash”"), label)),
+            )),
+        ),
+        ActivityKind::ProfileSaved => (
+            mine(),
+            one(Side::words(
+                "Dash Platform · DashPay",
+                Some(tr!("profile document").into()),
+            )),
+        ),
+        ActivityKind::ContactRequest { to, .. } | ActivityKind::CreditTransfer { to } => {
+            (mine(), one(Side::payee(to, None)))
+        }
+        ActivityKind::ContactRequestIn { from, .. } => (one(Side::payee(from, None)), mine()),
+        // The Core address, ours when the core says it is (FEAT-0009).
+        ActivityKind::Withdrawal { to, .. } if act.flow == evolite_api::Flow::Between => {
+            (mine(), one(Side::own(to)))
+        }
+        ActivityKind::Withdrawal { to, .. } => (mine(), one(Side::payee(to, None))),
+        ActivityKind::PoolSent => (one(pool()), Vec::new()),
+        ActivityKind::PoolReceived => (Vec::new(), one(pool())),
+        ActivityKind::Shielded { from } => {
+            let source = if detail.identity.is_some() {
+                mine()
+            } else {
+                from.as_deref()
+                    .or_else(|| shield_source(act.layers))
+                    .map(|f| Side::words(f, None))
+                    .into_iter()
+                    .collect()
+            };
+            (source, one(pool()))
+        }
+        ActivityKind::TopUp { .. } => {
+            let from = Side::words(tr!("Core · this wallet"), Some(tr!("asset lock").into()));
+            let to = if detail.identity.is_some() {
+                mine()
+            } else {
+                counterparty(act)
+                    .map(|(_, who, note)| Side::words(who, note))
+                    .into_iter()
+                    .collect()
+            };
+            (one(from), to)
         }
         _ => (Vec::new(), Vec::new()),
     }
+}
+
+/// Where a shield found by the pool's scan came from: the scan says it in the line's layers.
+fn shield_source(layers: u8) -> Option<&'static str> {
+    use evolite_api::layer;
+    use evolite_core::layers::{FROM_CORE, FROM_CREDITS, FROM_PLATFORM_ADDRESS};
+    if layers & layer::CORE != 0 {
+        Some(FROM_CORE)
+    } else if layers & layer::IDENTITY != 0 {
+        Some(FROM_CREDITS)
+    } else if layers & layer::PLATFORM_ADDRESS != 0 {
+        Some(FROM_PLATFORM_ADDRESS)
+    } else {
+        None
+    }
+}
+
+/// The line under the proof (FEAT-0005 item 7): what became of the operation elsewhere.
+#[derive(Clone, Copy, PartialEq, Debug)]
+enum Related<'a> {
+    /// Finished by Platform and its payout seen on Core: the payout's card.
+    Paid {
+        block: Option<u32>,
+        payout: Option<&'a Activity>,
+    },
+    /// Finished by Platform; this wallet has not seen the payout (not one of its addresses, or
+    /// not synced that far): nothing to open.
+    PaidByPlatform,
+    /// Not paid yet, as far as the last proved read knows.
+    Waiting,
+    /// Core did not confirm the payout in time: Platform signs it again by itself.
+    Retrying,
+    /// The Withdrawals contract's last word: too small for Core, the credits not returned.
+    NotPaid,
+    /// The withdrawal a payout came from.
+    Withdrawal(&'a Activity),
+    /// An asset lock Platform did not take.
+    NotAdded { creates: bool },
+}
+
+/// Which line the operation gets, if any. «Paid» only as the core paired them: by the document's
+/// index and script (AC-T4), never from the status alone once a payout is linked.
+fn related<'a>(
+    act: &Activity,
+    detail: &Detail,
+    linked: Option<&'a Activity>,
+) -> Option<Related<'a>> {
+    match &act.kind {
+        ActivityKind::Withdrawal { status, .. } => match (status, detail.payout) {
+            (Some(WithdrawalState::Complete), Some(p)) => Some(Related::Paid {
+                block: p.block,
+                payout: linked,
+            }),
+            (Some(WithdrawalState::Complete), None) => Some(Related::PaidByPlatform),
+            (Some(WithdrawalState::Expired), _) => Some(Related::Retrying),
+            (Some(WithdrawalState::Failed), _) => Some(Related::NotPaid),
+            _ => Some(Related::Waiting),
+        },
+        ActivityKind::Received { .. } => linked.map(Related::Withdrawal),
+        ActivityKind::TopUp {
+            credits: evolite_api::Credits::NotAdded,
+            creates,
+            ..
+        } => Some(Related::NotAdded { creates: *creates }),
+        _ => None,
+    }
+}
+
+/// The related line, drawn with a `line` outline; only one that leads somewhere is a button.
+fn related_row(
+    ui: &mut Ui,
+    a: &mut Assets,
+    (icon, color): (&str, egui::Color32),
+    title: &str,
+    sub: Option<&str>,
+    opens: bool,
+) -> egui::Response {
+    const PAD: f32 = 14.0;
+    const ICON: f32 = 16.0;
+    const GAP: f32 = 10.0;
+    let p = a.p;
+    let width = ui.available_width();
+    let wrap = (width - 2.0 * PAD - ICON - GAP - if opens { ICON + GAP } else { 0.0 }).max(40.0);
+    let painter = ui.painter().clone();
+    let title_galley = painter.layout(
+        crate::i18n::t(title).into_owned(),
+        sans(13.0, Weight::Medium),
+        p.text,
+        wrap,
+    );
+    let sub_galley = sub.map(|s| {
+        painter.layout(
+            crate::i18n::t(s).into_owned(),
+            sans(12.0, Weight::Regular),
+            p.muted,
+            wrap,
+        )
+    });
+    let text_height = title_galley.size().y + sub_galley.as_ref().map_or(0.0, |g| 2.0 + g.size().y);
+    let sense = if opens {
+        egui::Sense::click()
+    } else {
+        egui::Sense::hover()
+    };
+    let (rect, resp) = ui.allocate_exact_size(egui::vec2(width, text_height + 24.0), sense);
+    let spoken = match sub {
+        Some(sub) => format!(
+            "{} · {}",
+            crate::i18n::spoken(title),
+            crate::i18n::spoken(sub)
+        ),
+        None => crate::i18n::spoken(title),
+    };
+    if opens {
+        crate::components::named(&resp, egui::WidgetType::Button, true, &spoken);
+    } else {
+        resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, &spoken));
+    }
+    let lit = opens && (resp.hovered() || resp.has_focus());
+    painter.rect_stroke(
+        rect.shrink(0.5),
+        egui::CornerRadius::same(12),
+        Stroke::new(1.0, if lit { p.text } else { p.line }),
+        egui::StrokeKind::Inside,
+    );
+    let icon_rect = egui::Rect::from_center_size(
+        egui::pos2(rect.left() + PAD + ICON / 2.0, rect.center().y),
+        egui::vec2(ICON, ICON),
+    );
+    a.icons.icon(icon, color, &p, ICON).paint_at(ui, icon_rect);
+    let x = icon_rect.right() + GAP;
+    let top = rect.center().y - text_height / 2.0;
+    let sub_y = top + title_galley.size().y + 2.0;
+    painter.galley(egui::pos2(x, top), title_galley, p.text);
+    if let Some(sub) = sub_galley {
+        painter.galley(egui::pos2(x, sub_y), sub, p.muted);
+    }
+    if opens {
+        let chevron = egui::Rect::from_center_size(
+            egui::pos2(rect.right() - PAD - ICON / 2.0, rect.center().y),
+            egui::vec2(ICON, ICON),
+        );
+        a.icons
+            .icon("chevron-right", p.muted, &p, ICON)
+            .paint_at(ui, chevron);
+    }
+    resp.on_hover_cursor(if opens {
+        egui::CursorIcon::PointingHand
+    } else {
+        egui::CursorIcon::Default
+    })
+}
+
+/// «Amount · when» of the operation a related line points at.
+fn amount_and_when(act: &Activity, now: DateTime<Local>) -> String {
+    format!(
+        "{} · {}",
+        text::signed_amount(act.amount),
+        text::when(act.at, now)
+    )
+}
+
+/// Draws [`Related`]: the identifier of the card to open, or that the Identity screen was asked.
+fn related_block(
+    ui: &mut Ui,
+    a: &mut Assets,
+    act: &Activity,
+    related: Related,
+    now: DateTime<Local>,
+    answer: &mut CardAnswer,
+) {
+    let p = a.p;
+    let to = match &act.kind {
+        ActivityKind::Withdrawal { to, .. } => text::short_address(to),
+        _ => String::new(),
+    };
+    match related {
+        Related::Paid { block, payout } => {
+            let title = match block {
+                Some(b) => format!(tr!("Paid · block {}"), text::group_thousands(b as i64)),
+                None => tr!("Paid out").into(),
+            };
+            let sub = payout
+                .map(|l| format!("{} · {}", text::activity_title(l), amount_and_when(l, now)));
+            let row = related_row(
+                ui,
+                a,
+                ("receive", p.text),
+                &title,
+                sub.as_deref(),
+                payout.is_some(),
+            );
+            if row.clicked() {
+                answer.open = payout.map(|l| l.id);
+            }
+        }
+        Related::PaidByPlatform => {
+            related_row(
+                ui,
+                a,
+                ("check", p.muted),
+                tr!("Paid by Platform"),
+                None,
+                false,
+            );
+        }
+        Related::Waiting => {
+            let sub = format!(
+                tr!("DASH arrive at {} as a separate Core operation, usually within an hour"),
+                to
+            );
+            related_row(
+                ui,
+                a,
+                ("pending", p.muted),
+                tr!("Waiting for the Platform payout"),
+                Some(&sub),
+                false,
+            );
+        }
+        Related::Retrying => {
+            related_row(
+                ui,
+                a,
+                ("pending", p.muted),
+                tr!("The payout is being retried"),
+                Some(tr!(
+                    "Core did not confirm the payout in time. Platform signs it again on its own; you don't need to do anything."
+                )),
+                false,
+            );
+        }
+        Related::NotPaid => {
+            related_row(
+                ui,
+                a,
+                ("warning", p.danger),
+                tr!("Platform will not pay this out"),
+                Some(tr!(
+                    "The amount is too small for the Core network to accept. The credits are not returned."
+                )),
+                false,
+            );
+        }
+        Related::Withdrawal(line) => {
+            let title = text::activity_title(line);
+            let sub = amount_and_when(line, now);
+            if related_row(ui, a, ("send", p.text), &title, Some(&sub), true).clicked() {
+                answer.open = Some(line.id);
+            }
+        }
+        Related::NotAdded { creates } => {
+            let color = crate::components::attention_color(&p);
+            let sub = if creates {
+                tr!(
+                    "The identity's creation was interrupted. You can continue it on the Identity screen; the DASH are not lost"
+                )
+            } else {
+                tr!(
+                    "The top-up was interrupted. You can continue it on the Identity screen; the DASH are not lost"
+                )
+            };
+            let row = related_row(
+                ui,
+                a,
+                ("warning", color),
+                tr!("The credits are not added yet"),
+                Some(sub),
+                true,
+            );
+            if row.clicked() {
+                answer.go = Some(crate::screens::Screen::Identity);
+                answer.closed = true;
+            }
+        }
+    }
+}
+
+/// The part of the amount that went on, apart from the fee, under the word for it: what a
+/// withdrawal takes out and what goes into the pool (mockups 04, 07).
+fn amount_part(act: &Activity) -> Option<(&'static str, Duffs)> {
+    let label = match act.kind {
+        ActivityKind::Withdrawal { .. } => tr!("Withdrawn"),
+        ActivityKind::Shielded { .. } => tr!("Into the pool"),
+        _ => return None,
+    };
+    // A shield found by the scan is the amount itself, positive; the journal's has its fee in.
+    let part = if act.amount > 0 {
+        act.amount
+    } else {
+        -act.amount - act.fee.unwrap_or(0)
+    };
+    (part > 0).then_some((label, part))
 }
 
 /// The label column of the «From → To» panel, and the gap after it.
@@ -660,17 +1075,19 @@ fn side_summaries(detail: &Detail, to: &[Side]) -> [Side; 2] {
     ]
 }
 
-/// The Core card's body under the amount (FEAT-0005a, mockups 01, 02): what a transfer between
-/// own addresses did, «From → To» in a raised panel, the parts of the amount, when, the proof
-/// in words and, when part of it was not kept, one line that says so (FR-6).
-fn core_body(
+/// The card's body under the amount (FEAT-0005, mockups 01-08): what a transfer between own
+/// addresses did, «From → To» in a raised panel, the parts of the amount, when, the proof in
+/// words, what became of it elsewhere and, when part of it was not kept, one line that says so
+/// (FR-6).
+fn detail_body(
     ui: &mut Ui,
     a: &mut Assets,
     act: &Activity,
     detail: &Detail,
-    now: DateTime<Local>,
-    book: &[SavedAddress],
+    around: &Around,
+    answer: &mut CardAnswer,
 ) {
+    let (now, book) = (around.now, around.book);
     let p = a.p;
     let words = sans(13.0, Weight::Medium);
     let value = mono(13.0, Weight::Medium);
@@ -735,6 +1152,9 @@ fn core_body(
             value.clone(),
         );
     }
+    if let Some((label, part)) = amount_part(act) {
+        kv_row(ui, &p, label, &crate::format::amount(part), value.clone());
+    }
     if let Some(fee) = act.fee {
         // Already inside the amount above: shown as a size, not a second debit.
         kv_row(
@@ -744,6 +1164,21 @@ fn core_body(
             &crate::format::amount(fee),
             value.clone(),
         );
+    }
+    // An asset lock: the Core transaction's proof is the chip; the credits are apart, red when
+    // Platform did not add them (BUG-57).
+    if let Some((credits, bad)) = text::activity_credits(act) {
+        let color = if bad { p.danger } else { p.text };
+        // How many, when this computer made the top-up (FR-3).
+        let said = match detail.credits_added.filter(|_| !bad) {
+            Some(added) => format!(tr!("{} were added"), crate::format::amount(added)),
+            None => credits.to_owned(),
+        };
+        kv_row_in(ui, &p, tr!("Credits"), &said, words.clone(), color);
+    }
+    // Where a contact request stands; a withdrawal Platform gave up on says so here.
+    if let Some(status) = shown_status(act) {
+        kv_row(ui, &p, tr!("Status"), status, words.clone());
     }
     kv_row(ui, &p, tr!("When"), &text::date_time(act.at, now), words);
     match detail.confirm {
@@ -761,12 +1196,15 @@ fn core_body(
                     ),
                 ),
             };
-            ui.horizontal_top(|ui| {
-                ui.spacing_mut().item_spacing.x = 8.0;
-                // Accent: this is what was checked (AC-D3).
-                ui.add(a.icons.icon(icon, p.accent, &p, 16.0));
-                ui.add(egui::Label::new(txt(&said, 13.0, Weight::Regular, p.text)).wrap());
-            });
+            proof_line(ui, a, icon, &said);
+        }
+        None if act.proof == Proof::Proved && act.chain != Chain::Core => {
+            proof_line(
+                ui,
+                a,
+                "confirmed",
+                tr!("Proved by Platform: the answer matches the GroveDB proof"),
+            );
         }
         // In a block not locked yet: the chip says so, the block is still worth a line.
         None => {
@@ -780,6 +1218,9 @@ fn core_body(
                 );
             }
         }
+    }
+    if let Some(line) = related(act, detail, around.linked) {
+        related_block(ui, a, act, line, now, answer);
     }
     if detail.incomplete {
         ui.horizontal_top(|ui| {
@@ -795,6 +1236,27 @@ fn core_body(
                 .wrap(),
             );
         });
+    }
+}
+
+/// What proved it, in words: accent, this is what was checked (AC-D3).
+fn proof_line(ui: &mut Ui, a: &mut Assets, icon: &str, said: &str) {
+    let p = a.p;
+    ui.horizontal_top(|ui| {
+        ui.spacing_mut().item_spacing.x = 8.0;
+        ui.add(a.icons.icon(icon, p.accent, &p, 16.0));
+        ui.add(egui::Label::new(txt(said, 13.0, Weight::Regular, p.text)).wrap());
+    });
+}
+
+/// The status said in words, where the card has no better line for it: a withdrawal's states
+/// are the related line.
+fn shown_status(act: &Activity) -> Option<&'static str> {
+    match act.kind {
+        ActivityKind::ContactRequest { .. } | ActivityKind::ContactRequestIn { .. } => {
+            text::activity_status(act)
+        }
+        _ => None,
     }
 }
 
@@ -878,33 +1340,55 @@ fn follow_focus(ui: &Ui) {
     }
 }
 
-/// What the card asks for: closed, the payment to make again, the screen to go to, the note
-/// to write (FEAT-0003).
-type CardAnswer = (
-    bool,
-    Option<(String, Duffs)>,
-    Option<crate::screens::Screen>,
-    Option<Command>,
-);
+/// What the card asks for.
+#[derive(Default)]
+struct CardAnswer {
+    closed: bool,
+    /// The payment to make again.
+    again: Option<(String, Duffs)>,
+    go: Option<crate::screens::Screen>,
+    /// The note to write (FEAT-0003).
+    note: Option<Command>,
+    /// The related operation whose card to open instead (FEAT-0005).
+    open: Option<u64>,
+    /// The identity to work as (FEAT-0005 FR-7).
+    act_as: Option<String>,
+}
+
+/// What the card reads besides its operation.
+struct Around<'a> {
+    now: DateTime<Local>,
+    book: &'a [SavedAddress],
+    /// The operation [`Detail::link`] points at, when it is in the history.
+    linked: Option<&'a Activity>,
+    identities: &'a [IdentityChoice],
+}
+
+/// The identity «Open in Identity» goes to: one of this wallet's, and not on a card that already
+/// offers the Identity screen for a lock to continue.
+fn identity_to_open<'a>(act: &'a Activity, identities: &[IdentityChoice]) -> Option<&'a str> {
+    let not_added = matches!(
+        act.kind,
+        ActivityKind::TopUp {
+            credits: evolite_api::Credits::NotAdded,
+            ..
+        }
+    );
+    let id = card_detail(act)?.identity.as_ref()?.id.as_str();
+    (!not_added && identities.iter().any(|c| c.id == id)).then_some(id)
+}
 
 /// 24 · Operation details: what and where, how much and its status, when, the fee and the block,
 /// with whom, and the txid to copy or look up; "Send again" for a payment out, "Open in
 /// Contacts" for a request to us not answered, "Continue on the Identity screen" for an asset
 /// lock whose credits did not come (BUG-57). Whether it closed, the payment to make again when
 /// asked, and the screen asked for.
-fn card(
-    ui: &mut Ui,
-    a: &mut Assets,
-    act: &Activity,
-    now: DateTime<Local>,
-    book: &[SavedAddress],
-) -> CardAnswer {
+fn card(ui: &mut Ui, a: &mut Assets, act: &Activity, around: &Around) -> CardAnswer {
+    let (now, book) = (around.now, around.book);
     let repeat = again(act);
-    let mut note = None;
+    let mut answer = CardAnswer::default();
     // A note edited in place: Escape and a click outside are its own, the card stays (AC-D4).
     let editing = note_edit(ui.ctx()).is_some_and(|e| !act.key.is_empty() && e.key == act.key);
-    let mut paid_again = None;
-    let mut go = None;
     let answer_there = matches!(
         act.kind,
         ActivityKind::ContactRequestIn {
@@ -919,6 +1403,12 @@ fn card(
             ..
         }
     );
+    let footer = Footer {
+        answer_there,
+        not_added,
+        repeat: &repeat,
+        identity: identity_to_open(act, around.identities),
+    };
     let closed = dialog_with_header_held(
         ui,
         a,
@@ -949,21 +1439,25 @@ fn card(
                         status_chip(ui, a, act.proof);
                     });
                 });
-                if let Some(detail) = core_detail(act) {
-                    // FEAT-0005a (mockups 01, 02): from where to where, the parts of the amount,
+                if let Some(detail) = card_detail(act) {
+                    // FEAT-0005 (mockups 01-08): from where to where, the parts of the amount,
                     // when, and what proved it in words. The chain is in the header and the block
                     // in the proof's line.
-                    core_body(ui, a, act, detail, now, book);
+                    detail_body(ui, a, act, detail, around, &mut answer);
                 } else {
                     plain_body(ui, a, act, now, book, not_added);
                 }
                 // The person's note, between the related operation and the txid (FEAT-0005 item 9,
                 // FEAT-0003); none where no note can be kept.
                 if !act.key.is_empty() {
-                    note = note_block(ui, a, act);
+                    answer.note = note_block(ui, a, act);
                 }
                 if let Some(txid) = &act.txid {
                     txid_block(ui, a, act, txid);
+                }
+                // The Platform document's id, in place of a state transition's (AC-A5).
+                if let Some(id) = card_detail(act).and_then(|d| d.document.as_deref()) {
+                    document_block(ui, a, act, id);
                 }
             };
             // The first frame only measures: without the area, or its height there is wrong.
@@ -994,18 +1488,11 @@ fn card(
                     egui::vec2(width, used.height()),
                 ));
             }
-            card_footer(
-                ui,
-                a,
-                answer_there,
-                not_added,
-                &repeat,
-                &mut go,
-                &mut paid_again,
-            )
+            card_footer(ui, a, &footer, &mut answer)
         },
     );
-    (closed, paid_again, go, note)
+    answer.closed |= closed;
+    answer
 }
 
 /// The card's header: the operation's icon, what it is, where and when.
@@ -1162,16 +1649,99 @@ fn txid_block(ui: &mut Ui, a: &mut Assets, act: &Activity, txid: &str) {
     );
 }
 
-/// The buttons under the card. Whether it closes.
-fn card_footer(
-    ui: &mut Ui,
-    a: &mut Assets,
+/// The system contract and document type of the document a line wrote: what Platform Explorer's
+/// page of a document asks for.
+fn document_of(kind: &ActivityKind) -> Option<(&'static str, &'static str)> {
+    match kind {
+        ActivityKind::NameRegistered { .. } => {
+            Some(("GWRSAVFMjXx8HpQFaNJMqBV7MBgMK4br5UESsB4S31Ec", "domain"))
+        }
+        ActivityKind::ProfileSaved => {
+            Some(("Bwr4WHCPz5rFVAD87RqTs3izo4zpzwsEdKPWUT1NS1C7", "profile"))
+        }
+        ActivityKind::Withdrawal { .. } => {
+            Some(("4fJLR2GYTPFdomuTVvNy3VRrvWgvkKPzqehEBpNf2nk6", "withdrawal"))
+        }
+        _ => None,
+    }
+}
+
+/// Platform Explorer's page of a document, on the network of this run.
+fn platform_explorer(kind: &ActivityKind, id: &str) -> Option<String> {
+    let (contract, doc_type) = document_of(kind)?;
+    let site = match evolite_core::network::current() {
+        evolite_api::Network::Testnet => "https://testnet.platform-explorer.com",
+        evolite_api::Network::Mainnet => "https://platform-explorer.com",
+    };
+    Some(format!(
+        "{site}/document/{id}?contract-id={contract}&document-type-name={doc_type}"
+    ))
+}
+
+/// The Platform document's id (AC-A5, AC-T6): to copy, or to look up in the explorer, only by
+/// the button.
+fn document_block(ui: &mut Ui, a: &mut Assets, act: &Activity, id: &str) {
+    let p = a.p;
+    ui.vertical(|ui| {
+        ui.spacing_mut().item_spacing.y = 6.0;
+        mono_block(ui, &p, tr!("Document ID"), id, None);
+        ui.add_space(4.0);
+        let copy_id = egui::Id::new("copy-document").with(act.id);
+        let label = if crate::clipboard::just_copied(ui.ctx(), copy_id) {
+            tr!("Copied")
+        } else {
+            tr!("Copy the ID")
+        };
+        let url = platform_explorer(&act.kind, id);
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 12.0;
+            if button(ui, a, label, ButtonKind::Secondary, None).clicked() {
+                crate::clipboard::copy_answered(ui.ctx(), id.to_string(), copy_id);
+            }
+            if let Some(url) = &url
+                && button(
+                    ui,
+                    a,
+                    tr!("Open in the Platform explorer"),
+                    ButtonKind::Secondary,
+                    None,
+                )
+                .on_hover_text(url.clone())
+                .clicked()
+            {
+                crate::links::open(url);
+            }
+        });
+        if url.is_some() {
+            notice(
+                ui,
+                a,
+                "shield",
+                p.accent,
+                tr!(
+                    "The explorer opens only when you click. The explorer's site learns this computer's address and which operation you look at, so evolite opens it only by the button. You can simply copy the ID."
+                ),
+            );
+        }
+    });
+}
+
+/// What the buttons under the card offer.
+struct Footer<'a> {
     answer_there: bool,
     not_added: bool,
-    repeat: &Option<(String, Duffs)>,
-    go: &mut Option<crate::screens::Screen>,
-    paid_again: &mut Option<(String, Duffs)>,
-) -> bool {
+    repeat: &'a Option<(String, Duffs)>,
+    identity: Option<&'a str>,
+}
+
+/// The buttons under the card. Whether it closes.
+fn card_footer(ui: &mut Ui, a: &mut Assets, footer: &Footer, answer: &mut CardAnswer) -> bool {
+    let Footer {
+        answer_there,
+        not_added,
+        repeat,
+        identity,
+    } = *footer;
     let mut close = false;
     // The action on the right, «Close» on its left: as in every dialog (designer review №8).
     let footer_top = ui.cursor().top();
@@ -1182,7 +1752,7 @@ fn card_footer(
         if answer_there
             && button(ui, a, tr!("Open in Contacts"), ButtonKind::Secondary, None).clicked()
         {
-            *go = Some(crate::screens::Screen::Contacts);
+            answer.go = Some(crate::screens::Screen::Contacts);
             close = true;
         }
         if not_added
@@ -1195,17 +1765,24 @@ fn card_footer(
             )
             .clicked()
         {
-            *go = Some(crate::screens::Screen::Identity);
+            answer.go = Some(crate::screens::Screen::Identity);
             close = true;
         }
-        if let Some(repeat) = &repeat
+        if let Some(id) = identity
+            && button(ui, a, tr!("Open in Identity"), ButtonKind::Secondary, None).clicked()
+        {
+            answer.act_as = Some(id.to_owned());
+            answer.go = Some(crate::screens::Screen::Identity);
+            close = true;
+        }
+        if let Some(repeat) = repeat
                     && button(ui, a, tr!("Send again"), ButtonKind::Secondary, None)
                         .on_hover_text(
                             crate::i18n::t(tr!("The same amount to the same recipient — we show everything again before signing"),)
                         .into_owned())
                         .clicked()
                 {
-                    *paid_again = Some(repeat.clone());
+                    answer.again = Some(repeat.clone());
                     close = true;
                 }
     });
@@ -1272,10 +1849,108 @@ mod card_tests {
             .collect()
     }
 
-    /// FEAT-0005a: «From → To» per kind. A payment out — this wallet's coins and how many
-    /// inputs, then the payee as before (a contact's line); a transfer between own addresses —
-    /// each address of ours once; a payment in — its sender, then our address it came to; no
-    /// detail or another kind — no panel.
+    fn withdrawal(status: Option<WithdrawalState>) -> Activity {
+        let mut act = sent("", None);
+        act.kind = ActivityKind::Withdrawal {
+            to: "yA".into(),
+            status,
+        };
+        act.chain = Chain::Platform;
+        act
+    }
+
+    /// АРХ-2: what a withdrawal's line says follows the document's status and whether the core
+    /// paired a payout; a status alone never makes a link.
+    #[test]
+    fn a_withdrawal_is_paid_only_as_the_core_paired_it() {
+        use WithdrawalState::*;
+        let payout = sent("", None);
+        let none = Detail::default();
+        let paid = Detail {
+            payout: Some(evolite_api::Payout { block: Some(9) }),
+            ..Detail::default()
+        };
+        for s in [None, Some(Queued), Some(Pooled), Some(Broadcasted)] {
+            assert_eq!(related(&withdrawal(s), &none, None), Some(Related::Waiting));
+        }
+        assert_eq!(
+            related(&withdrawal(Some(Complete)), &none, None),
+            Some(Related::PaidByPlatform)
+        );
+        assert_eq!(
+            related(&withdrawal(Some(Complete)), &paid, Some(&payout)),
+            Some(Related::Paid {
+                block: Some(9),
+                payout: Some(&payout)
+            })
+        );
+        assert_eq!(
+            related(&withdrawal(Some(Expired)), &none, None),
+            Some(Related::Retrying)
+        );
+        assert_eq!(
+            related(&withdrawal(Some(Failed)), &paid, Some(&payout)),
+            Some(Related::NotPaid),
+            "the last word is the document's"
+        );
+        assert!(shown_status(&withdrawal(Some(Failed))).is_none());
+    }
+
+    /// FR-9: the identity's name and id and the document's id find the line.
+    #[test]
+    fn the_search_finds_the_identity_and_the_document() {
+        let mut act = withdrawal(None);
+        act.detail = Some(Box::new(Detail {
+            identity: Some(IdentityRef {
+                id: "HFZQabc".into(),
+                name: Some("werner555".into()),
+            }),
+            document: Some("9FpDoc".into()),
+            ..Detail::default()
+        }));
+        for q in ["werner555", "hfzqabc", "9fpdoc"] {
+            assert!(
+                crate::screens::activity_filters::matches_query(&act, q, &[]),
+                "{q}"
+            );
+        }
+        assert!(!crate::screens::activity_filters::matches_query(
+            &act,
+            "nothing",
+            &[]
+        ));
+    }
+
+    /// FR-7: only one of this wallet's identities opens, and not over «Continue».
+    #[test]
+    fn open_in_identity_is_for_this_wallets_own() {
+        let choice = IdentityChoice {
+            id: "me".into(),
+            name: None,
+            slot: 0,
+        };
+        let mut act = withdrawal(None);
+        act.detail = Some(Box::new(Detail {
+            identity: Some(IdentityRef {
+                id: "me".into(),
+                name: None,
+            }),
+            ..Detail::default()
+        }));
+        assert_eq!(
+            identity_to_open(&act, std::slice::from_ref(&choice)),
+            Some("me")
+        );
+        assert_eq!(identity_to_open(&act, &[]), None);
+        act.kind = ActivityKind::TopUp {
+            identity: "@x".into(),
+            creates: false,
+            credits: evolite_api::Credits::NotAdded,
+        };
+        assert_eq!(identity_to_open(&act, &[choice]), None);
+    }
+
+    /// FEAT-0005a: «From → To» per kind.
     #[test]
     fn from_and_to_follow_the_kind() {
         let out = with(sent("@bob", Some("yLcBz")), &["yA", "yB", "yA"], &[]);
@@ -1307,10 +1982,11 @@ mod card_tests {
         // No receiving output listed: the line's own address.
         assert_eq!(values(&to), [("yD", own)]);
 
-        assert!(core_detail(&sent("@bob", None)).is_none(), "no detail");
-        let mut platform = with(sent("@bob", None), &[], &[]);
-        platform.chain = Chain::Platform;
-        assert!(core_detail(&platform).is_none(), "5a draws Core lines only");
+        assert!(card_detail(&sent("@bob", None)).is_none(), "no detail");
+        // A kind the card has no body for on Core stays plain.
+        let mut other = with(sent("@bob", None), &[], &[]);
+        other.kind = ActivityKind::PlatformReceived;
+        assert!(card_detail(&other).is_none());
     }
 
     #[test]

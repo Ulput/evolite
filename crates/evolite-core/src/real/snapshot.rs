@@ -4,6 +4,88 @@ use super::*;
 use key_wallet::managed_account::transaction_record::TransactionRecord;
 use platform_wallet::{ManagedIdentity, PlatformWallet};
 
+/// An identity of this wallet by its id, as a card names it.
+fn identity_ref(identities: &[IdentityChoice], id: &str) -> Option<IdentityRef> {
+    identities.iter().find(|c| c.id == id).map(|c| IdentityRef {
+        id: c.id.clone(),
+        name: c.name.clone(),
+    })
+}
+
+/// Whether a lock's line names this identity ([`identity::lock_line`]: `@name`, or its id).
+fn lock_names(c: &IdentityChoice, shown: &str) -> bool {
+    match &c.name {
+        Some(name) => shown.strip_prefix('@') == Some(name.as_str()),
+        None => shown == c.id,
+    }
+}
+
+/// The identity the wallet works as now (base58): the one a journal entry is written for (FR-5).
+pub(in crate::real) async fn acting_identity(wallet: &PlatformWallet) -> Option<String> {
+    let state = wallet.state().await;
+    let id = wallet.wallet_id();
+    let mine: Vec<_> = state
+        .identity_manager
+        .managed_identities()
+        .filter(|m| m.wallet_id == Some(id) && m.identity_index.is_some())
+        .collect();
+    let slot = chain::shown_slot(id, mine.iter().filter_map(|m| m.identity_index));
+    mine.into_iter()
+        .find(|m| m.identity_index == slot)
+        .map(|m| m.identity.id().to_string(Encoding::Base58))
+}
+
+/// The private pool's own lines get a card of their own (FR-3, frame 7): their direction is
+/// their kind. A payment out of the pool does not keep its recipient, and says so once (FR-6).
+fn describe_pool_lines(history: &mut [Activity]) {
+    for act in history.iter_mut().filter(|a| a.detail.is_none()) {
+        let incomplete = match act.kind {
+            ActivityKind::PoolSent => true,
+            ActivityKind::PoolReceived | ActivityKind::Shielded { .. } => false,
+            _ => continue,
+        };
+        if act.chain == evolite_api::Chain::Platform {
+            act.detail = Some(Box::new(Detail {
+                incomplete,
+                ..Detail::default()
+            }));
+        }
+    }
+}
+
+/// Puts on an asset lock's line what [`identity::lock_line`] found: whom it was for, whether
+/// Platform took it, and for a card how many credits a top-up from this computer added (FR-3)
+/// and which identity to open (AC-T5). The amount is asked of the status just set, not of the
+/// `Unknown` the line was built with.
+pub(super) fn say_the_lock(
+    act: &mut Activity,
+    (who, made, taken): (String, bool, Credits),
+    top_ups: &HashMap<String, Duffs>,
+    identities: &[IdentityChoice],
+) {
+    let ActivityKind::TopUp {
+        identity,
+        creates,
+        credits,
+    } = &mut act.kind
+    else {
+        return;
+    };
+    if identity.is_empty() {
+        *identity = who;
+    }
+    (*creates, *credits) = (made, taken);
+    let Some(detail) = act.detail.as_deref_mut() else {
+        return;
+    };
+    if *credits == Credits::Added {
+        detail.credits_added = act.txid.as_deref().and_then(|t| top_ups.get(t)).copied();
+    }
+    if let Some(c) = identities.iter().find(|c| lock_names(c, identity)) {
+        detail.identity = identity_ref(identities, &c.id);
+    }
+}
+
 /// The asset locks platform-wallet tracks, by txid.
 async fn tracked_locks(wallet: &PlatformWallet) -> HashMap<String, identity::Tracked> {
     turn::timed("tracked_locks", wallet.asset_locks().list_tracked_locks())
@@ -210,6 +292,7 @@ impl Real {
             // Not connected yet (a start): what the file keeps, not nothing (BUG-103).
             history.extend(self.pool_history.kept());
         }
+        describe_pool_lines(&mut history);
         // Sends on Platform shown from "Sign" until their own lines are here (BUG-12).
         let mut history = self
             .platform_sending
@@ -390,6 +473,7 @@ impl Real {
         let lost_block = self
             .mined
             .recall(&mut all, self.chain.status().chainlock_height);
+        let unlocks = convert::asset_unlocks(&all);
         let records = self.activity_lines(&all);
         let paid_at: HashMap<String, Timestamp> =
             records.iter().map(|(t, a)| (t.clone(), a.at)).collect();
@@ -431,6 +515,9 @@ impl Real {
             .apply(records);
         let answered = answered_requests(&mine);
         self.add_platform_lines(&mut history, &identities, &names, &answered);
+        platform_history::link_payouts(&mut history, &self.journal.entries(), &unlocks, |id| {
+            identity_ref(&identities, id)
+        });
         // Coins, and the addresses holding them (the overview counts those).
         let utxos = convert::coins_once(&state.core_wallet);
         let holding: std::collections::HashSet<_> =
@@ -587,6 +674,15 @@ impl Real {
                 identities.len() > 1,
                 named,
             );
+            // The card names the identity as the wallet knows it now (AC-T5).
+            if let Some(detail) = line.detail.as_deref_mut()
+                && let Some(known) = detail
+                    .identity
+                    .as_ref()
+                    .and_then(|i| identity_ref(identities, &i.id))
+            {
+                detail.identity = Some(known);
+            }
             if let ActivityKind::ContactRequestIn { state, .. } = &mut line.kind {
                 *state = settle_incoming(
                     *state,
@@ -659,32 +755,27 @@ impl Real {
         // "Transfer to Platform" says whom — the identity it registered or tops up — and
         // whether Platform took it (BUG-57).
         let tracked = tracked_locks(&wallet).await;
+        let top_ups = self.journal.top_ups();
         let waiting = self
             .waiting_locks(&wallet, unfinished, unfinished_top_up)
             .await;
         for act in history.iter_mut() {
-            if let (
-                ActivityKind::TopUp {
-                    identity,
-                    creates,
-                    credits,
-                },
-                Some(txid),
-            ) = (&mut act.kind, act.txid.as_deref())
-            {
-                let (who, made, taken) = identity::lock_line(
-                    txid,
-                    lock_fors.get(txid).copied(),
-                    tracked.get(txid).copied(),
-                    self.consumed_locks.contains(txid),
-                    waiting.contains(txid),
-                    identities,
-                );
-                if identity.is_empty() {
-                    *identity = who;
-                }
-                (*creates, *credits) = (made, taken);
-            }
+            let Some(txid) = act
+                .txid
+                .clone()
+                .filter(|_| matches!(act.kind, ActivityKind::TopUp { .. }))
+            else {
+                continue;
+            };
+            let line = identity::lock_line(
+                &txid,
+                lock_fors.get(&txid).copied(),
+                tracked.get(&txid).copied(),
+                self.consumed_locks.contains(&txid),
+                waiting.contains(&txid),
+                identities,
+            );
+            say_the_lock(act, line, &top_ups, identities);
         }
     }
 

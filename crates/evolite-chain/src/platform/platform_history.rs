@@ -52,6 +52,11 @@ pub struct IdentityMarks {
     /// The profile's `$revision` last read.
     #[serde(default)]
     pub profile_revision: u64,
+    /// The withdrawals were read with their `transactionIndex`. Marks written before it was
+    /// kept say no: everything is read again once, or a finished withdrawal (whose
+    /// `$updatedAt` no longer moves) could never find its payout (FEAT-0005b).
+    #[serde(default)]
+    pub withdrawal_indexes: bool,
 }
 
 impl Marks {
@@ -158,7 +163,11 @@ pub async fn read(
             new.profile_revision = revision;
         }
         // Withdrawals: by `$updatedAt` from the mark on, page by page.
-        let mut from = mark.withdrawals_updated_at;
+        let mut from = if mark.withdrawal_indexes {
+            mark.withdrawals_updated_at
+        } else {
+            0
+        };
         loop {
             let q = query(&withdrawals, "withdrawal", "$ownerId", me, Some(from))?;
             let page = fetch(&sdk, q).await?;
@@ -176,6 +185,7 @@ pub async fn read(
             }
         }
         new.withdrawals_updated_at = from;
+        new.withdrawal_indexes = true;
     }
     Ok((entries, next))
 }
@@ -293,6 +303,9 @@ fn withdrawal(doc: &Document, identity: &str) -> Option<Entry> {
         .get("status")
         .and_then(|s| s.as_integer::<u64>())
         .and_then(WithdrawalStatus::of);
+    entry.transaction_index = props
+        .get("transactionIndex")
+        .and_then(|i| i.as_integer::<u64>());
     entry.block = doc.created_at_block_height();
     Some(entry)
 }
@@ -345,6 +358,54 @@ impl Requests {
             out.push(entry);
         }
         out
+    }
+}
+
+/// Pairs each finished withdrawal with its payout on Core (FEAT-0005 АРХ-2, AC-T4), by the only
+/// proof there is: the document's `transactionIndex` equals the asset unlock's index and the
+/// output goes to the document's address (`outputScript` as the address the entry keeps; one
+/// address per script). Never by amount or time. Both lines then point at each other; the
+/// withdrawal says it was paid and the payout names the identity. `unlocks`: the index of each
+/// asset unlock of the wallet, by txid. `identity`: an identity of the wallet as the card names
+/// it. A withdrawal Platform has not finished, as far as the last proved read knows, stays
+/// waiting even if a matching unlock is here.
+pub fn link_payouts(
+    history: &mut [evolite_api::Activity],
+    entries: &[Entry],
+    unlocks: &std::collections::HashMap<String, u64>,
+    identity: impl Fn(&str) -> Option<evolite_api::IdentityRef>,
+) {
+    let finished: std::collections::HashMap<(u64, &str), &Entry> = entries
+        .iter()
+        .filter(|e| e.status == Some(WithdrawalStatus::Complete))
+        .filter_map(|e| match &e.what {
+            What::Withdrawal { to } => Some(((e.transaction_index?, to.as_str()), e)),
+            _ => None,
+        })
+        .collect();
+    let mut paid = std::collections::HashMap::new();
+    for act in history.iter_mut() {
+        let index = act.txid.as_deref().and_then(|t| unlocks.get(t));
+        let (Some(index), Some(to)) = (index, act.address.as_deref()) else {
+            continue;
+        };
+        let Some(entry) = finished.get(&(*index, to)) else {
+            continue;
+        };
+        let Some(line) = entry.line.map(crate::journal::line_key) else {
+            continue;
+        };
+        paid.insert(line.clone(), (act.key.clone(), act.block));
+        let detail = act.detail.get_or_insert_default();
+        detail.link = Some(line);
+        detail.identity = entry.identity.as_deref().and_then(&identity);
+    }
+    for act in history.iter_mut() {
+        if let Some((payout, block)) = paid.remove(&act.key) {
+            let detail = act.detail.get_or_insert_default();
+            detail.link = Some(payout);
+            detail.payout = Some(evolite_api::Payout { block });
+        }
     }
 }
 
@@ -487,6 +548,125 @@ fn contact_request(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use evolite_api::{Activity, ActivityKind, Chain, Flow, Proof};
+
+    fn withdrawal(line: u64, index: Option<u64>, status: WithdrawalStatus, to: &str) -> Entry {
+        Entry {
+            at: 1_000,
+            what: What::Withdrawal { to: to.into() },
+            spent: 500,
+            moved: 500,
+            identity: Some("me".into()),
+            key: Some(format!("wd:{line}")),
+            source: Source::Network,
+            status: Some(status),
+            line: Some(line),
+            transaction_index: index,
+            ..Default::default()
+        }
+    }
+
+    fn line_of(entry: &Entry) -> Activity {
+        crate::journal::activity(entry)
+    }
+
+    fn payout(txid: &str, to: &str, block: u32) -> Activity {
+        Activity {
+            id: 7,
+            kind: ActivityKind::Received { from: None },
+            chain: Chain::Core,
+            at: 1_000,
+            amount: 500,
+            proof: Proof::ChainLock,
+            txid: Some(txid.into()),
+            fee: None,
+            block: Some(block),
+            address: Some(to.into()),
+            layers: 0,
+            flow: Flow::In,
+            key: format!("core:{txid}"),
+            note: None,
+            detail: None,
+        }
+    }
+
+    fn named(id: &str) -> Option<evolite_api::IdentityRef> {
+        Some(evolite_api::IdentityRef {
+            id: id.into(),
+            name: Some("kestrel".into()),
+        })
+    }
+
+    fn link_of(act: &Activity) -> Option<&str> {
+        act.detail.as_deref().and_then(|d| d.link.as_deref())
+    }
+
+    /// AC-T4: two withdrawals of one amount, one day, one address go to their own payouts, by
+    /// the index alone; the payouts name the identity.
+    #[test]
+    fn equal_withdrawals_find_their_own_payouts_by_index() {
+        use WithdrawalStatus::Complete;
+        let entries = [
+            withdrawal(1, Some(10), Complete, "yA"),
+            withdrawal(2, Some(11), Complete, "yA"),
+        ];
+        let mut history = vec![
+            line_of(&entries[0]),
+            line_of(&entries[1]),
+            payout("t11", "yA", 200),
+            payout("t10", "yA", 100),
+        ];
+        let unlocks = [("t10".to_string(), 10), ("t11".to_string(), 11)].into();
+        link_payouts(&mut history, &entries, &unlocks, named);
+        assert_eq!(link_of(&history[0]), Some("core:t10"));
+        assert_eq!(link_of(&history[1]), Some("core:t11"));
+        assert_eq!(link_of(&history[3]), Some(history[0].key.as_str()));
+        assert_eq!(link_of(&history[2]), Some(history[1].key.as_str()));
+        let paid = history[0].detail.as_deref().and_then(|d| d.payout);
+        assert_eq!(paid, Some(evolite_api::Payout { block: Some(100) }));
+        let from = history[3]
+            .detail
+            .as_deref()
+            .and_then(|d| d.identity.clone());
+        assert_eq!(from.and_then(|i| i.name).as_deref(), Some("kestrel"));
+    }
+
+    /// AC-T4: an index that is another one's, an address that is not the document's, a document
+    /// without an index or not finished by the last proved read: no pair, however alike.
+    #[test]
+    fn nothing_pairs_without_the_same_index_and_address() {
+        use WithdrawalStatus::{Broadcasted, Complete};
+        let cases = [
+            (withdrawal(1, Some(99), Complete, "yA"), "wrong index"),
+            (withdrawal(1, Some(10), Complete, "yB"), "wrong address"),
+            (withdrawal(1, None, Complete, "yA"), "no index read"),
+            (withdrawal(1, Some(10), Broadcasted, "yA"), "not finished"),
+        ];
+        for (entry, why) in cases {
+            let mut history = vec![line_of(&entry), payout("t10", "yA", 100)];
+            let unlocks = [("t10".to_string(), 10)].into();
+            link_payouts(&mut history, std::slice::from_ref(&entry), &unlocks, named);
+            assert_eq!(link_of(&history[0]), None, "{why}");
+            assert_eq!(link_of(&history[1]), None, "{why}");
+            assert_eq!(
+                history[0].detail.as_deref().and_then(|d| d.payout),
+                None,
+                "{why}"
+            );
+        }
+    }
+
+    /// A file of marks from before the index was kept asks for every withdrawal once.
+    #[test]
+    fn marks_from_before_the_index_read_the_withdrawals_again() {
+        let old = r#"{"version":1,"identities":{"me":{"withdrawalsUpdatedAt":77}}}"#;
+        let marks: Marks = serde_json::from_str(old).expect("reads");
+        let me = &marks.identities["me"];
+        assert_eq!(
+            (me.withdrawals_updated_at, me.withdrawal_indexes),
+            (77, false)
+        );
+    }
 
     /// "Sync again" removes the marks; a missing or unreadable file reads everything again.
     #[test]
@@ -501,6 +681,7 @@ mod tests {
             IdentityMarks {
                 withdrawals_updated_at: 42,
                 profile_revision: 3,
+                withdrawal_indexes: true,
             },
         );
         marks.save(&path).unwrap();

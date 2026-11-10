@@ -379,7 +379,8 @@ pub fn activity_status(a: &Activity) -> Option<&'static str> {
             WithdrawalState::Queued | WithdrawalState::Pooled => tr!("In the queue"),
             WithdrawalState::Broadcasted => tr!("Being paid out"),
             WithdrawalState::Complete => tr!("Paid out"),
-            WithdrawalState::Expired => tr!("Expired"),
+            WithdrawalState::Expired => tr!("Retrying the payout"),
+            WithdrawalState::Failed => tr!("Not paid out"),
         },
         ActivityKind::ContactRequestIn { state, .. } => match state {
             RequestState::Waiting => tr!("Waiting for an answer"),

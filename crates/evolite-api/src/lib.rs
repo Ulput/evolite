@@ -173,6 +173,8 @@ pub enum WithdrawalState {
     /// Paid out on Core.
     Complete,
     Expired,
+    /// Terminal: the payout can never be mined by Core (the Withdrawals contract, v2).
+    Failed,
 }
 
 /// Where a contact request to us stands, as DashPay says it.
@@ -236,9 +238,39 @@ pub struct Detail {
     /// The wallet's own addresses that got coins and how much each, change not included (the
     /// customer, designer-16): a payment in, a transfer between own addresses.
     pub own_to: Vec<(String, Duffs)>,
+    /// The identity of this wallet it was done as (a Platform operation, the identity a payout
+    /// was withdrawn from), or the one an asset lock is for.
+    pub identity: Option<IdentityRef>,
+    /// The Platform document it wrote, base58 (AC-A5): to copy and to look up outside evolite.
+    /// `None` where the operation writes none or its id was not kept.
+    pub document: Option<String>,
+    /// [`Activity::key`] of the operation paired with it: a withdrawal and its payout on Core,
+    /// each pointing at the other.
+    pub link: Option<String>,
+    /// A withdrawal Platform finished and whose payout this wallet has seen on Core.
+    pub payout: Option<Payout>,
+    /// What Platform added to the identity for this asset lock, when it was topped up from this
+    /// computer; `None` for an older, restored or foreign one: the card then says only whether.
+    pub credits_added: Option<Duffs>,
     /// Something the card needs was not kept or could not be worked out (FR-6): it says so in
     /// one line instead of drawing empty ones.
     pub incomplete: bool,
+}
+
+/// An identity of this wallet, as a card names it.
+#[derive(Clone, PartialEq, Debug)]
+pub struct IdentityRef {
+    /// Base58.
+    pub id: String,
+    /// Its main DPNS name, without the `@`.
+    pub name: Option<String>,
+}
+
+/// A withdrawal's payout seen on Core.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct Payout {
+    /// The Core block it is in; `None` while it is out of one.
+    pub block: Option<u32>,
 }
 
 /// What proved a Core operation, as its card says it.

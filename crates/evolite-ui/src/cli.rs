@@ -176,6 +176,10 @@ pub const PRESETS: &[&str] = &[
     "overview", "hidden", "units", "remind", "wallet-menu", "wallet-switch", "overview-syncing",
     "activity", "activity-card", "activity-filters", "activity-filters-empty",
     "activity-card-self", "activity-card-received",
+    "activity-card-name", "activity-card-withdrawal-waiting", "activity-card-withdrawal-paid",
+    "activity-card-payout", "activity-card-lock-not-added", "activity-card-shield",
+    "activity-card-old", "activity-card-pool-sent", "activity-card-pool-received",
+    "activity-card-top-up",
     "activity-notes", "activity-search-note", "activity-notes-unreadable", "activity-card-note",
     "activity-card-add-note", "activity-card-note-edit", "activity-card-note-error",
     "send-note", "send-note-limit", "send-confirm-note", "delete-notes",
@@ -248,6 +252,16 @@ fn dev_args<'a>(
                 | "activity-filters-empty"
                 | "activity-card-self"
                 | "activity-card-received"
+                | "activity-card-name"
+                | "activity-card-withdrawal-waiting"
+                | "activity-card-withdrawal-paid"
+                | "activity-card-payout"
+                | "activity-card-lock-not-added"
+                | "activity-card-shield"
+                | "activity-card-old"
+                | "activity-card-pool-sent"
+                | "activity-card-pool-received"
+                | "activity-card-top-up"
                 | "activity-notes"
                 | "activity-search-note"
                 | "activity-notes-unreadable"

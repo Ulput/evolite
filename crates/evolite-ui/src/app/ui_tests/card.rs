@@ -110,15 +110,243 @@ fn a_payment_in_names_the_sender_and_our_address() {
     );
 }
 
-/// The neighbour: a Platform operation's card is as it was (5b changes it) — its «Where» row
-/// stays and no «From» panel comes.
+/// The neighbour: a Platform line the core says nothing more of keeps the plain card — its
+/// «Where» row stays and no «From» panel comes.
 #[test]
-fn a_platform_card_keeps_its_rows() {
+fn a_line_without_detail_keeps_its_rows() {
     let (_turn, mut kit) = demo_app("activity", "en");
     kit.run_steps(2);
-    crate::screens::open_card(&kit.ctx, 7);
+    crate::screens::open_card(&kit.ctx, 5);
     shown(&mut kit, "Where: Platform");
     assert!(!any_starts(&kit, "From:"));
+}
+
+/// The button whose name starts with `start`.
+fn press(kit: &mut Kit, start: &str) {
+    wait_for(kit, start, |kit| any_starts(kit, start));
+    kit.query_all_by(|n| {
+        n.role() == Role::Button && n.label().is_some_and(|l| l.starts_with(start))
+    })
+    .last()
+    .expect("the button")
+    .click();
+    kit.run_steps(3);
+}
+
+/// Mockup 03, AC-A2, AC-T6: a name says which identity registered it, where it went and what
+/// proved it; its document's id is copied with feedback, and nothing is opened by itself.
+#[test]
+fn a_name_says_its_identity_and_copies_its_document_id() {
+    let (_turn, mut kit) = demo_app("activity-card-name", "en");
+    wait_for(&mut kit, "the identity", |kit| {
+        any_starts(kit, "From: @satoshi · your identity")
+    });
+    shown(
+        &mut kit,
+        "To: Dash Platform · DPNS · domain document “nakamoto-dev.dash”",
+    );
+    shown(
+        &mut kit,
+        "Proved by Platform: the answer matches the GroveDB proof",
+    );
+    shown(&mut kit, "7Yd3kQw9nV2mRt6pLx4Hs8Fc1Bz5Jg3AeU6tNq2PvWk");
+    assert!(!any_starts(&kit, "Where:"));
+    press(&mut kit, "Copy the ID");
+    wait_for(&mut kit, "Copied", |kit| has_text(kit, "Copied"));
+    assert!(crate::links::opened().is_empty(), "no explorer by itself");
+    press(&mut kit, "Open in the Platform explorer");
+    let opened = crate::links::opened();
+    assert_eq!(opened.len(), 1);
+    assert!(
+        opened[0].ends_with(
+            "/document/7Yd3kQw9nV2mRt6pLx4Hs8Fc1Bz5Jg3AeU6tNq2PvWk?contract-id=GWRSAVFMjXx8HpQFaNJMqBV7MBgMK4br5UESsB4S31Ec&document-type-name=domain"
+        ),
+        "{opened:?}"
+    );
+}
+
+/// Mockup 04, AC-A3: not paid yet — it says so and leads nowhere.
+#[test]
+fn a_withdrawal_not_paid_waits_and_opens_nothing() {
+    let (_turn, mut kit) = demo_app("activity-card-withdrawal-waiting", "en");
+    wait_for(&mut kit, "waiting", |kit| {
+        any_starts(kit, "Waiting for the Platform payout")
+    });
+    shown(
+        &mut kit,
+        &format!("Withdrawn: {}", format::amount(1_000_000)),
+    );
+    shown(&mut kit, &format!("Fee: {}", format::amount(215_053)));
+    assert!(
+        kit.query_all_by(|n| {
+            n.role() == Role::Button
+                && n.label()
+                    .is_some_and(|l| l.starts_with("Waiting for the Platform"))
+        })
+        .next()
+        .is_none(),
+        "not a button"
+    );
+}
+
+/// How the payout's card names its withdrawal; the row behind the card has no amount in its name.
+fn back_to_the_withdrawal() -> String {
+    format!(
+        "Credit withdrawal to {} · {} · ",
+        crate::text::short_address("yXk3Tq9mD8vJw2RfL6pN4sB7cH1eZ5aG9f2c"),
+        crate::text::signed_amount(-40_000_000)
+    )
+}
+
+/// Mockup 05, AC-A3, AC-T11, AC-D4: the paid withdrawal's line opens its payout, whose line
+/// leads back; each names the identity.
+#[test]
+fn a_paid_withdrawal_and_its_payout_open_each_other() {
+    let (_turn, mut kit) = demo_app("activity-card-withdrawal-paid", "en");
+    let paid = format!("Paid · block {}", group_thousands(1_283_802));
+    press(&mut kit, &paid);
+    let back = back_to_the_withdrawal();
+    wait_for(&mut kit, "the payout's card", |kit| any_starts(kit, &back));
+    assert!(any_starts(&kit, "From: @satoshi · your identity"));
+    press(&mut kit, &back);
+    wait_for(&mut kit, "the withdrawal again", |kit| {
+        any_starts(kit, &paid)
+    });
+}
+
+/// The same with the keyboard: Enter on the line opens it (AC-D4).
+#[test]
+fn enter_on_the_related_line_opens_it() {
+    let (_turn, mut kit) = demo_app("activity-card-withdrawal-paid", "en");
+    let paid = format!("Paid · block {}", group_thousands(1_283_802));
+    wait_for(&mut kit, "the line", |kit| any_starts(kit, &paid));
+    tab_to(&mut kit, &paid);
+    enter(&mut kit);
+    let back = back_to_the_withdrawal();
+    wait_for(&mut kit, "the payout's card", |kit| any_starts(kit, &back));
+}
+
+/// AC-T5: «Open in Identity» works as the operation's identity, by the menu's command, and goes
+/// to the Identity screen.
+#[test]
+fn open_in_identity_switches_to_that_identity() {
+    let (_turn, mut kit) = demo_app("activity-card-name", "en");
+    wait_for(&mut kit, "the identity", |kit| {
+        any_starts(kit, "From: @satoshi · your identity")
+    });
+    let wallet = |kit: &Kit| {
+        kit.state()
+            .snapshot
+            .clone()
+            .and_then(|s| s.wallet)
+            .expect("wallet")
+    };
+    let other = wallet(&kit)
+        .identities
+        .iter()
+        .map(|c| c.id.clone())
+        .find(|id| wallet(&kit).identity.is_some_and(|i| &i.id != id))
+        .expect("a second identity");
+    let app = kit.state_mut();
+    if let Some(w) = app.snapshot.as_mut().and_then(|s| s.wallet.as_mut()) {
+        for d in w.activity.iter_mut().filter_map(|a| a.detail.as_mut()) {
+            if let Some(i) = d.identity.as_mut() {
+                i.id = other.clone();
+            }
+        }
+    }
+    kit.run_steps(2);
+    press(&mut kit, "Open in Identity");
+    wait_for(&mut kit, "the Identity screen", |kit| {
+        kit.state().screen == crate::screens::Screen::Identity
+    });
+    wait_for(&mut kit, "the other identity", |kit| {
+        kit.state()
+            .snapshot
+            .as_ref()
+            .and_then(|s| s.wallet.as_ref())
+            .and_then(|w| w.identity.as_ref())
+            .is_some_and(|i| i.id == other)
+    });
+}
+
+/// Mockup 06, BUG-57: a lock not taken says so in red's words and its line continues it.
+#[test]
+fn a_lock_not_added_leads_to_the_identity_screen() {
+    let (_turn, mut kit) = demo_app("activity-card-lock-not-added", "en");
+    shown(&mut kit, "From: Core · this wallet · asset lock");
+    wait_for(&mut kit, "the identity", |kit| {
+        any_starts(kit, "To: @satoshi · your identity")
+    });
+    shown(&mut kit, "Credits: not added");
+    assert!(
+        !any_starts(&kit, "Open in Identity"),
+        "«Continue» is the way"
+    );
+    press(&mut kit, "The credits are not added yet");
+    wait_for(&mut kit, "the Identity screen", |kit| {
+        kit.state().screen == crate::screens::Screen::Identity
+    });
+}
+
+/// Mockup 07: what went into the pool apart from the fee, from whom and to where.
+#[test]
+fn a_shield_shows_the_part_and_the_fee_apart() {
+    let (_turn, mut kit) = demo_app("activity-card-shield", "en");
+    shown(&mut kit, "To: This wallet's private pool");
+    shown(
+        &mut kit,
+        &format!("Into the pool: {}", format::amount(248_788_300)),
+    );
+    shown(&mut kit, &format!("Fee: {}", format::amount(1_211_700)));
+    assert!(
+        !any_starts(&kit, "Copy the ID"),
+        "a shield writes no document"
+    );
+}
+
+/// FR-3: the pool's own lines say which way the money went; a payment out says it does not keep
+/// its recipient.
+#[test]
+fn the_pools_lines_say_their_direction() {
+    let (_turn, mut kit) = demo_app("activity-card-pool-sent", "en");
+    shown(&mut kit, "From: This wallet's private pool");
+    shown(
+        &mut kit,
+        "Part of the details of this operation was not saved",
+    );
+    let (_turn2, mut kit) = {
+        drop(kit);
+        drop(_turn);
+        demo_app("activity-card-pool-received", "en")
+    };
+    shown(&mut kit, "To: This wallet's private pool");
+    assert!(!any_starts(&kit, "Part of the details"));
+}
+
+/// FR-3: a top-up from this computer says how much it added.
+#[test]
+fn a_top_up_says_how_much_was_added() {
+    let (_turn, mut kit) = demo_app("activity-card-top-up", "en");
+    shown(
+        &mut kit,
+        &format!("Credits: {} were added", format::amount(49_990_000)),
+    );
+    assert!(!any_starts(&kit, "Part of the details"));
+}
+
+/// Mockup 08, AC-A6: an old entry draws no empty rows and says so once.
+#[test]
+fn an_old_entry_has_no_empty_rows_and_one_line() {
+    let (_turn, mut kit) = demo_app("activity-card-old", "en");
+    shown(
+        &mut kit,
+        "Part of the details of this operation was not saved",
+    );
+    shown(&mut kit, "To: @bob");
+    assert!(!any_starts(&kit, "From:"));
+    assert!(!any_starts(&kit, "Copy the ID"));
+    assert!(!any_starts(&kit, "Open in Identity"));
 }
 
 /// Review r1 should 1: a screen reader hears «From» of a Core payment in the interface's

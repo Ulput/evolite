@@ -11,8 +11,10 @@
 //! older build reads a newer file and the other way round.
 
 use evolite_api::{
-    Activity, ActivityKind, Chain, Duffs, Proof, RequestState, Timestamp, WithdrawalState,
+    Activity, ActivityKind, Chain, Detail, Duffs, IdentityRef, Proof, RequestState, Timestamp,
+    WithdrawalState,
 };
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Mutex;
 
@@ -35,6 +37,8 @@ pub enum WithdrawalStatus {
     Broadcasted,
     Complete,
     Expired,
+    /// The Withdrawals contract v2: the payout can never be mined by Core.
+    Failed,
 }
 
 impl WithdrawalStatus {
@@ -45,6 +49,7 @@ impl WithdrawalStatus {
             2 => Self::Broadcasted,
             3 => Self::Complete,
             4 => Self::Expired,
+            5 => Self::Failed,
             _ => return None,
         })
     }
@@ -58,6 +63,7 @@ impl WithdrawalStatus {
             Self::Broadcasted => WithdrawalState::Broadcasted,
             Self::Complete => WithdrawalState::Complete,
             Self::Expired => WithdrawalState::Expired,
+            Self::Failed => WithdrawalState::Failed,
         }
     }
 }
@@ -151,6 +157,10 @@ pub struct Entry {
     /// How a contact request stands (both ways), from the last read of DashPay.
     #[serde(default)]
     pub reply: Option<Reply>,
+    /// A withdrawal's `transactionIndex`: the index of its asset unlock on Core, written by
+    /// Platform when the withdrawal is pooled (FEAT-0005 АРХ-2).
+    #[serde(default)]
+    pub transaction_index: Option<u64>,
 }
 
 impl Default for Entry {
@@ -169,6 +179,7 @@ impl Default for Entry {
             line: None,
             theirs: false,
             reply: None,
+            transaction_index: None,
         }
     }
 }
@@ -214,6 +225,7 @@ pub fn merge(local: &mut Vec<Entry>, network: Vec<Entry>) -> bool {
                 }
                 entry.status = found.status.or(entry.status);
                 entry.reply = found.reply.or(entry.reply);
+                entry.transaction_index = found.transaction_index.or(entry.transaction_index);
                 entry.block = found.block.or(entry.block);
                 // An entry read before keeps up with what the document says now.
                 if entry.source == Source::Network {
@@ -270,6 +282,8 @@ fn give_lines(entries: &mut [Entry]) -> bool {
 
 pub struct Journal {
     path: PathBuf,
+    /// What each top-up from this computer added, read once ([`Journal::top_ups`]).
+    top_ups: Mutex<Option<HashMap<String, Duffs>>>,
     /// Read once, then kept up to date with what is written.
     entries: Mutex<Option<Kept>>,
 }
@@ -285,6 +299,7 @@ impl Journal {
     pub fn new(path: PathBuf) -> Self {
         Self {
             path,
+            top_ups: Mutex::new(None),
             entries: Mutex::new(None),
         }
     }
@@ -333,6 +348,33 @@ impl Journal {
             self.write(kept)?;
         }
         Ok(changed)
+    }
+
+    /// What each top-up from this computer added to the identity, in duffs, by the txid of its
+    /// lock (FR-3): `top-up-credits.json` beside the journal, not an entry of it, as a top-up is
+    /// a Core line and an entry would show as a second one. Nothing kept reads as empty.
+    pub fn top_ups(&self) -> HashMap<String, Duffs> {
+        let mut kept = self.top_ups.lock().unwrap_or_else(|e| e.into_inner());
+        kept.get_or_insert_with(|| {
+            crate::json_file::read(&self.top_ups_path())
+                .ok()
+                .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+                .unwrap_or_default()
+        })
+        .clone()
+    }
+
+    /// Keeps what the top-up by the lock `txid` added. A file that cannot be written loses only
+    /// this amount: the card then says «added» without it.
+    pub fn keep_top_up(&self, txid: &str, added: Duffs) {
+        let mut all = self.top_ups();
+        all.insert(txid.to_owned(), added);
+        let _ = crate::json_file::save(&self.top_ups_path(), &all);
+        *self.top_ups.lock().unwrap_or_else(|e| e.into_inner()) = Some(all);
+    }
+
+    fn top_ups_path(&self) -> PathBuf {
+        self.path.with_file_name("top-up-credits.json")
     }
 
     /// What the last entry of a kind (`kind`) cost in fees, in duffs; `None` before the first
@@ -423,13 +465,42 @@ pub fn activity(entry: &Entry) -> Activity {
         address: None,
         layers,
         flow,
-        key: entry
-            .line
-            .map(|line| format!("platform:{line:016x}"))
-            .unwrap_or_default(),
-        detail: None,
+        key: entry.line.map(line_key).unwrap_or_default(),
+        detail: Some(Box::new(detail_of(entry))),
         note: None,
     }
+}
+
+/// The card's part of an entry (FEAT-0005b): the identity it was done as and the document it
+/// wrote. A kind done as an identity that names none was written before that was kept (FR-6): a
+/// shield can come from a Platform address, which is no identity.
+fn detail_of(entry: &Entry) -> Detail {
+    let identity = entry.identity.as_ref().map(|id| IdentityRef {
+        id: id.clone(),
+        name: None,
+    });
+    Detail {
+        incomplete: identity.is_none() && !matches!(entry.what, What::Shield { .. }),
+        identity,
+        document: entry.key.as_deref().and_then(document_id).map(Into::into),
+        ..Detail::default()
+    }
+}
+
+/// The id of the document in a line's key (АРХ-1): `dpns:<id>`, `wd:<id>`, `profile:<id>:<rev>`.
+/// A contact request's key is the pair of identities, not a document's id (AC-T6): none.
+fn document_id(key: &str) -> Option<&str> {
+    let (kind, rest) = key.split_once(':')?;
+    match kind {
+        "dpns" | "wd" => Some(rest),
+        "profile" => rest.split(':').next(),
+        _ => None,
+    }
+}
+
+/// [`Activity::key`] of a line with this id.
+pub fn line_key(line: u64) -> String {
+    format!("platform:{line:016x}")
 }
 
 /// What Platform took for an entry, when that is known: the balance was read before and after
@@ -564,6 +635,71 @@ mod tests {
         What::Name {
             label: label.into(),
         }
+    }
+
+    /// FEAT-0005b: the card's part of an entry. A file from before the identity was kept reads
+    /// as it did and its line says so once (AC-T1, FR-6); a read entry names its identity and
+    /// its document, a contact request's pair of ids is no document's (AC-T6).
+    #[test]
+    fn an_entry_gives_its_identity_and_document() {
+        let old = r#"[{"at":5,"what":{"Name":{"label":"a"}},"spent":9}]"#;
+        let entries: Vec<Entry> = serde_json::from_str(old).expect("an old file reads");
+        assert_eq!(entries[0].transaction_index, None);
+        let line = activity(&entries[0]);
+        let d = line.detail.as_deref().expect("detail");
+        assert!(d.incomplete && d.identity.is_none() && d.document.is_none());
+
+        let keyed = |key: &str| {
+            let mut e = read(5, name("a"), key);
+            e.line = Some(1);
+            let line = activity(&e);
+            let d = line.detail.expect("detail");
+            assert!(!d.incomplete);
+            assert_eq!(d.identity.expect("named").id, "me");
+            d.document
+        };
+        assert_eq!(keyed("dpns:Abc").as_deref(), Some("Abc"));
+        assert_eq!(keyed("wd:Abc").as_deref(), Some("Abc"));
+        assert_eq!(keyed("profile:Abc:3").as_deref(), Some("Abc"));
+        assert_eq!(keyed("cr:Me:Them"), None);
+        assert_eq!(keyed("cri:Them:Me"), None);
+    }
+
+    /// FR-3: what a top-up added survives a restart, beside the journal.
+    #[test]
+    fn a_top_ups_amount_survives_a_restart() {
+        let dir = std::env::temp_dir().join(format!("evolite-topups-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let path = dir.join("platform-history.json");
+        let journal = Journal::new(path.clone());
+        assert!(journal.top_ups().is_empty(), "no file, nothing");
+        journal.keep_top_up("aa", 42_298);
+        assert_eq!(journal.top_ups().get("aa"), Some(&42_298));
+        assert_eq!(Journal::new(path).top_ups().get("aa"), Some(&42_298));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A shield from a Platform address has no identity to name: nothing is missing.
+    #[test]
+    fn a_shield_without_an_identity_is_whole() {
+        let line = activity(&here(5, What::Shield { from: "a".into() }, 9));
+        assert!(!line.detail.expect("detail").incomplete);
+    }
+
+    /// The index read from the document is kept by a merge; a later read without it keeps it.
+    #[test]
+    fn a_merge_keeps_the_withdrawals_index() {
+        let to = || What::Withdrawal { to: "yA".into() };
+        let doc = |index| {
+            let mut e = read(5, to(), "wd:1");
+            e.transaction_index = index;
+            e
+        };
+        let mut local = Vec::new();
+        merge(&mut local, vec![doc(None)]);
+        merge(&mut local, vec![doc(Some(10))]);
+        merge(&mut local, vec![doc(None)]);
+        assert_eq!(local[0].transaction_index, Some(10));
     }
 
     /// BUG-58: reading the same documents again changes nothing and adds nothing.

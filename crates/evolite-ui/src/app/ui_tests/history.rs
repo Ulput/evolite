@@ -491,12 +491,32 @@ fn a_top_up_without_credits_says_so_and_leads_to_identity() {
     );
 }
 
+/// These tests look for one line by its words: without the demo's lock not added (FEAT-0005,
+/// mockup 06), which says the same, and with the list short enough to show it.
+fn with_the_demos_first_lines(kit: &mut Kit) {
+    wait_for(kit, "the demo's history", |kit| {
+        kit.state()
+            .snapshot
+            .as_ref()
+            .is_some_and(|s| s.wallet.is_some())
+    });
+    if let Some(w) = kit
+        .state_mut()
+        .snapshot
+        .as_mut()
+        .and_then(|s| s.wallet.as_mut())
+    {
+        w.activity.retain(|a| a.id <= 17);
+    }
+}
+
 /// BUG-57: once «Continue» went through, the same line says so at once — no red, «added» in
 /// the card, no way to continue — on History and on Overview's latest operations.
 #[test]
 fn a_top_up_that_finishes_stops_saying_not_added() {
     use evolite_api::Credits;
     let (_turn, mut kit) = demo_app("activity", "en");
+    with_the_demos_first_lines(&mut kit);
     kit.state_mut().history.filters.layer = 4;
     with_op(&mut kit, &lock(false, Credits::NotAdded));
     assert!(says(&kit, " · credits not added"));
@@ -530,6 +550,7 @@ fn a_top_up_that_finishes_stops_saying_not_added() {
 fn an_identity_creation_is_not_called_a_top_up() {
     use evolite_api::Credits;
     let (_turn, mut kit) = demo_app("activity", "ru");
+    with_the_demos_first_lines(&mut kit);
     kit.state_mut().history.filters.layer = 4;
     with_op(&mut kit, &lock(true, Credits::Added));
     assert!(says(&kit, "Создание identity @werner555 · "), "the row");

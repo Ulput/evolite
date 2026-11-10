@@ -210,7 +210,29 @@ fn core_detail(
         own_from: from.iter().map(|a| a.to_string()).collect(),
         own_to: to.iter().map(|(a, v)| (a.to_string(), *v)).collect(),
         incomplete: false,
+        ..Detail::default()
     }))
+}
+
+/// The card of a Platform operation (FEAT-0005b): the identity it was done as and its document.
+fn platform_detail(document: Option<&str>) -> Option<Box<Detail>> {
+    Some(Box::new(Detail {
+        identity: Some(IdentityRef {
+            id: PEOPLE[0].id.into(),
+            name: Some("satoshi".into()),
+        }),
+        document: document.map(Into::into),
+        ..Detail::default()
+    }))
+}
+
+/// The two lines of a paid withdrawal, each pointing at the other.
+fn linked(mut detail: Option<Box<Detail>>, to: u64, payout: Option<u32>) -> Option<Box<Detail>> {
+    if let Some(d) = detail.as_deref_mut() {
+        d.link = Some(format!("demo:{to}"));
+        d.payout = payout.map(|block| Payout { block: Some(block) });
+    }
+    detail
 }
 
 /// The example wallet from the Figma screens, with times relative to `t`.
@@ -313,18 +335,27 @@ pub fn demo_wallet(t: Timestamp) -> Wallet {
                     Proof::ChainLock,
                 )
             },
-            act(
-                4,
-                TopUp {
-                    identity: "@satoshi".into(),
-                    creates: false,
-                    credits: Credits::Added,
+            Activity {
+                detail: {
+                    let mut d = platform_detail(None);
+                    if let Some(d) = d.as_deref_mut() {
+                        d.credits_added = Some(49_990_000);
+                    }
+                    d
                 },
-                Chain::CoreToPlatform,
-                day + 2 * hour,
-                -50_000_000,
-                Proof::ChainLock,
-            ),
+                ..act(
+                    4,
+                    TopUp {
+                        identity: "@satoshi".into(),
+                        creates: false,
+                        credits: Credits::Added,
+                    },
+                    Chain::CoreToPlatform,
+                    day + 2 * hour,
+                    -50_000_000,
+                    Proof::ChainLock,
+                )
+            },
             act(
                 5,
                 AppSignIn {
@@ -335,16 +366,21 @@ pub fn demo_wallet(t: Timestamp) -> Wallet {
                 -20_000,
                 Proof::Proved,
             ),
-            act(
-                6,
-                Shielded { from: None },
-                Chain::Platform,
-                2 * day,
-                -250_000_000,
-                Proof::Proved,
-            ),
+            Activity {
+                fee: Some(1_211_700),
+                detail: platform_detail(None),
+                ..act(
+                    6,
+                    Shielded { from: None },
+                    Chain::Platform,
+                    2 * day,
+                    -250_000_000,
+                    Proof::Proved,
+                )
+            },
             Activity {
                 note: Some(tr!("Rent for November").into()),
+                detail: platform_detail(None),
                 ..act(
                     7,
                     CreditTransfer { to: "@bob".into() },
@@ -406,6 +442,12 @@ pub fn demo_wallet(t: Timestamp) -> Wallet {
             // To the wallet's own Core address: a move between own balances.
             Activity {
                 flow: Flow::Between,
+                fee: Some(215_053),
+                detail: linked(
+                    platform_detail(Some("9Fp2Lc7Vx4Qm8Tz1Ks6Rb3Hn5Wy2Dj7GaE4uN8oPtYi")),
+                    19,
+                    Some(1_283_802),
+                ),
                 ..act(
                     12,
                     Withdrawal {
@@ -418,36 +460,52 @@ pub fn demo_wallet(t: Timestamp) -> Wallet {
                     Proof::Proved,
                 )
             },
-            act(
-                13,
-                NameRegistered {
-                    label: "nakamoto-dev".into(),
-                },
-                Chain::Platform,
-                9 * day,
-                -100_000,
-                Proof::Proved,
-            ),
-            act(
-                14,
-                ContactRequest {
-                    to: "@bob".into(),
-                    accepting: false,
-                    ours: None,
-                },
-                Chain::Platform,
-                10 * day,
-                -10_000,
-                Proof::Proved,
-            ),
-            act(
-                15,
-                ProfileSaved,
-                Chain::Platform,
-                11 * day,
-                -5_000,
-                Proof::Proved,
-            ),
+            Activity {
+                fee: Some(100_000),
+                detail: platform_detail(Some("7Yd3kQw9nV2mRt6pLx4Hs8Fc1Bz5Jg3AeU6tNq2PvWk")),
+                ..act(
+                    13,
+                    NameRegistered {
+                        label: "nakamoto-dev".into(),
+                    },
+                    Chain::Platform,
+                    9 * day,
+                    -100_000,
+                    Proof::Proved,
+                )
+            },
+            Activity {
+                fee: Some(10_000),
+                // Written before the identity was kept (FEAT-0005, mockup 08).
+                detail: Some(Box::new(Detail {
+                    incomplete: true,
+                    ..Detail::default()
+                })),
+                ..act(
+                    14,
+                    ContactRequest {
+                        to: "@bob".into(),
+                        accepting: false,
+                        ours: None,
+                    },
+                    Chain::Platform,
+                    10 * day,
+                    -10_000,
+                    Proof::Proved,
+                )
+            },
+            Activity {
+                fee: Some(5_000),
+                detail: platform_detail(Some("3Hq8sLm2Xv7Rk4Pz9Ty6Nb1Cf5Wd8Ga2Ej7Uo4KrMi")),
+                ..act(
+                    15,
+                    ProfileSaved,
+                    Chain::Platform,
+                    11 * day,
+                    -5_000,
+                    Proof::Proved,
+                )
+            },
             act(
                 16,
                 Received { from: None },
@@ -477,6 +535,112 @@ pub fn demo_wallet(t: Timestamp) -> Wallet {
                     3 * day,
                     -226,
                     Proof::ChainLock,
+                )
+            },
+            // FEAT-0005b: a withdrawal Platform has not paid, the payout of line 12 and a lock
+            // whose credits did not come (mockups 04, 05, 06).
+            Activity {
+                fee: Some(215_053),
+                detail: platform_detail(Some("5Rt8Wn3Kc6Ym2Bq9Ld4Xp7Hs1Fv8Zg3Ja6Eo2UkNiPy")),
+                ..act(
+                    18,
+                    Withdrawal {
+                        to: "yQ6LmP9kR3tV7wN2xB5cH8sD4fG1aZ73Mu4".into(),
+                        status: Some(WithdrawalState::Queued),
+                    },
+                    Chain::Platform,
+                    7 * day,
+                    -1_215_053,
+                    Proof::Proved,
+                )
+            },
+            Activity {
+                txid: Some(
+                    "4b7f2e91c3a8d6054e1f7b29a6c3d8e0f5a2b19c7d3e6f40812ab5cd9e7f1036".into(),
+                ),
+                block: Some(1_283_802),
+                address: Some("yXk3Tq9mD8vJw2RfL6pN4sB7cH1eZ5aG9f2c".into()),
+                detail: linked(
+                    {
+                        let mut d = core_detail(
+                            Proof::ChainLock,
+                            Some(1_283_802),
+                            &[],
+                            &[("yXk3Tq9mD8vJw2RfL6pN4sB7cH1eZ5aG9f2c", 39_784_947)],
+                        );
+                        if let (Some(d), Some(p)) = (d.as_deref_mut(), platform_detail(None)) {
+                            d.identity = p.identity;
+                        }
+                        d
+                    },
+                    12,
+                    None,
+                ),
+                ..act(
+                    19,
+                    Received {
+                        from: Some(tr!("withdrawal from Platform").into()),
+                    },
+                    Chain::Core,
+                    6 * day - hour,
+                    39_784_947,
+                    Proof::ChainLock,
+                )
+            },
+            Activity {
+                txid: Some(
+                    "e0c13b7a924f6d08a1b5c7e2d3f4968071a2b3c4d5e6f708192a3b4c5d6e7f80".into(),
+                ),
+                fee: Some(263),
+                block: Some(1_283_410),
+                detail: {
+                    let mut d = core_detail(
+                        Proof::ChainLock,
+                        Some(1_283_410),
+                        &["yMXp7gU4uQ4mVQ4V1V3H6cPCXxWfNrsW3d"],
+                        &[],
+                    );
+                    if let (Some(d), Some(p)) = (d.as_deref_mut(), platform_detail(None)) {
+                        d.identity = p.identity;
+                    }
+                    d
+                },
+                ..act(
+                    20,
+                    TopUp {
+                        identity: "@satoshi".into(),
+                        creates: false,
+                        credits: Credits::NotAdded,
+                    },
+                    Chain::CoreToPlatform,
+                    8 * day,
+                    -50_000_263,
+                    Proof::ChainLock,
+                )
+            },
+            Activity {
+                detail: Some(Box::new(Detail {
+                    incomplete: true,
+                    ..Detail::default()
+                })),
+                ..act(
+                    21,
+                    PoolSent,
+                    Chain::Platform,
+                    9 * day,
+                    -20_000_000,
+                    Proof::Proved,
+                )
+            },
+            Activity {
+                detail: Some(Box::new(Detail::default())),
+                ..act(
+                    22,
+                    PoolReceived,
+                    Chain::Platform,
+                    9 * day + hour,
+                    15_000_000,
+                    Proof::Proved,
                 )
             },
         ],

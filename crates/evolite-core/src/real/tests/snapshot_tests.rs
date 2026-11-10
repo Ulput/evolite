@@ -213,3 +213,59 @@ async fn the_pools_lines_do_not_wait_for_the_pool() {
     let shown = core.snapshot().await.wallet.expect("open").activity;
     assert_eq!(shown.iter().map(|a| a.id).collect::<Vec<_>>(), vec![7]);
 }
+
+/// FEAT-0005b, FR-3: a lock's line is built with `Credits::Unknown`; the amount a top-up added
+/// follows the status [`say_the_lock`] has just set, and is not claimed for a lock Platform did
+/// not take. The card opens the identity the line names.
+#[test]
+fn a_lock_takes_its_amount_from_the_status_it_has_just_got() {
+    let unknown = || Activity {
+        id: 1,
+        kind: ActivityKind::TopUp {
+            identity: String::new(),
+            creates: false,
+            credits: Credits::Unknown,
+        },
+        chain: evolite_api::Chain::CoreToPlatform,
+        at: 1,
+        amount: -500,
+        proof: Proof::ChainLock,
+        txid: Some("aa".into()),
+        fee: None,
+        block: None,
+        address: None,
+        layers: 0,
+        flow: evolite_api::Flow::Between,
+        key: "core:aa".into(),
+        note: None,
+        detail: Some(Box::default()),
+    };
+    let top_ups: HashMap<String, Duffs> = [("aa".to_string(), 42_298)].into();
+    let mine = [IdentityChoice {
+        id: "HFZ".into(),
+        name: Some("werner".into()),
+        slot: 0,
+    }];
+    let card = |act: &Activity| act.detail.as_deref().cloned().unwrap_or_default();
+
+    let mut added = unknown();
+    say_the_lock(
+        &mut added,
+        ("@werner".into(), false, Credits::Added),
+        &top_ups,
+        &mine,
+    );
+    assert_eq!(card(&added).credits_added, Some(42_298));
+    assert_eq!(card(&added).identity.map(|i| i.id).as_deref(), Some("HFZ"));
+
+    for credits in [Credits::NotAdded, Credits::Unknown] {
+        let mut line = unknown();
+        say_the_lock(
+            &mut line,
+            ("@werner".into(), false, credits),
+            &top_ups,
+            &mine,
+        );
+        assert_eq!(card(&line).credits_added, None, "{credits:?}");
+    }
+}

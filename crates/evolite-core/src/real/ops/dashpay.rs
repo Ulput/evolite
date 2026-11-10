@@ -103,6 +103,7 @@ impl Real {
                 let wallet = loaded(&chain, &id).await?;
                 match job {
                     ContactJob::Accept => {
+                        let acting = acting_identity(&wallet).await;
                         let before = chain.first_identity_credits(&wallet, false).await;
                         chain
                             .accept_contact(&wallet, &keys, from)
@@ -114,6 +115,7 @@ impl Real {
                             what: journal::What::ContactRequest { to: who },
                             spent: spent_credits(before, after).unwrap_or(0),
                             moved: 0,
+                            identity: acting,
                             ..Default::default()
                         });
                         Ok(())
@@ -184,6 +186,7 @@ impl Real {
                     None => None,
                 };
                 let wallet = loaded(&chain, &id).await?;
+                let acting = acting_identity(&wallet).await;
                 let before = chain.first_identity_credits(&wallet, false).await;
                 chain
                     .save_profile(&wallet, &keys, display, about, avatar)
@@ -195,6 +198,7 @@ impl Real {
                     what: journal::What::Profile,
                     spent: spent_credits(before, after).unwrap_or(0),
                     moved: 0,
+                    identity: acting,
                     ..Default::default()
                 });
                 Ok(())

@@ -435,6 +435,24 @@ pub fn own_outputs(
     changed
 }
 
+/// The index of each asset unlock among `records`, by txid: what Platform wrote into the
+/// withdrawal it pays (FEAT-0005 АРХ-2).
+pub fn asset_unlocks(records: &[TransactionRecord]) -> std::collections::HashMap<String, u64> {
+    records
+        .iter()
+        .filter(|r| r.transaction_type == TransactionType::AssetUnlock)
+        .filter_map(|r| unlock_index(&r.transaction).map(|index| (r.txid.to_string(), index)))
+        .collect()
+}
+
+fn unlock_index(tx: &key_wallet::dashcore::Transaction) -> Option<u64> {
+    use key_wallet::dashcore::blockdata::transaction::special_transaction::TransactionPayload;
+    match &tx.special_transaction_payload {
+        Some(TransactionPayload::AssetUnlockPayloadType(p)) => Some(p.base.index),
+        _ => None,
+    }
+}
+
 /// `instant_verified`: the InstantLock of the transaction was verified ([`proof`]).
 pub fn activity(record: &TransactionRecord, seen: Timestamp, instant_verified: bool) -> Activity {
     let net = net_once(record);
@@ -542,6 +560,7 @@ fn detail_of(
         own_from,
         own_to,
         incomplete,
+        ..Detail::default()
     }
 }
 
@@ -2416,6 +2435,51 @@ mod detail_tests {
         )
     }
 
+    /// FEAT-0005 АРХ-2: an asset unlock gives the index Platform wrote into its withdrawal; any
+    /// other transaction gives none.
+    #[test]
+    fn an_asset_unlock_gives_its_index() {
+        use key_wallet::dashcore::blockdata::transaction::special_transaction::TransactionPayload;
+        use key_wallet::dashcore::blockdata::transaction::special_transaction::asset_unlock::{
+            qualified_asset_unlock::AssetUnlockPayload, request_info::AssetUnlockRequestInfo,
+            unqualified_asset_unlock::AssetUnlockBasePayload,
+        };
+        let mut unlock = record(
+            tx(&[], &[(7, 100_000)]),
+            TransactionContext::Mempool,
+            TransactionDirection::Incoming,
+            vec![],
+            vec![output(0, OutputRole::Received, 100_000, 7)],
+            100_000,
+        );
+        unlock.transaction_type = TransactionType::AssetUnlock;
+        unlock.transaction.special_transaction_payload = Some(
+            TransactionPayload::AssetUnlockPayloadType(AssetUnlockPayload {
+                base: AssetUnlockBasePayload {
+                    version: 1,
+                    index: 4_321,
+                    fee: 0,
+                },
+                request_info: AssetUnlockRequestInfo {
+                    request_height: 1,
+                    quorum_hash: key_wallet::dashcore::QuorumHash::all_zeros(),
+                },
+                quorum_sig: key_wallet::dashcore::bls_sig_utils::BLSSignature::from([0; 96]),
+            }),
+        );
+        let plain = record(
+            tx(&[(1, 0)], &[(8, 5)]),
+            TransactionContext::Mempool,
+            TransactionDirection::Outgoing,
+            vec![input(0, 10, 5)],
+            vec![],
+            -5,
+        );
+        let found = asset_unlocks(&[unlock.clone(), plain]);
+        assert_eq!(found.len(), 1);
+        assert_eq!(found.get(&unlock.txid.to_string()), Some(&4_321));
+    }
+
     fn detail(line: &Activity) -> &Detail {
         line.detail.as_deref().expect("a Core line has its detail")
     }
@@ -2451,6 +2515,7 @@ mod detail_tests {
                 own_from: vec![address(5).to_string()],
                 own_to: vec![(address(7).to_string(), 100_000)],
                 incomplete: false,
+                ..Detail::default()
             }
         );
     }

@@ -24,8 +24,8 @@ pub use evolite_common::network;
 #[cfg(feature = "real")]
 use evolite_common::phrase_check;
 #[cfg(feature = "real")]
-pub(crate) use evolite_common::{PASSWORD_NEEDED, dpns, layers};
-pub use evolite_common::{attempts, bip39, diag, note_text};
+pub(crate) use evolite_common::{PASSWORD_NEEDED, dpns};
+pub use evolite_common::{attempts, bip39, diag, layers, note_text};
 #[cfg(any(feature = "demo", not(feature = "real"), test))]
 use evolite_demo as mock;
 /// The password the demo core refuses (the UI tests' "Wrong password").
