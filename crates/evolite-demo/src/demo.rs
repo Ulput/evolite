@@ -273,6 +273,7 @@ pub fn demo_wallet(t: Timestamp) -> Wallet {
             platform_address: 73_400_000,
             shielded: 250_000_000,
             credits_read: true,
+            credits_checked: true,
             platform_address_read: true,
         },
         activity: vec![

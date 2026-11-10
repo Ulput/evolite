@@ -451,3 +451,33 @@ fn the_unread_pool_presets_show_what_they_say() {
         assert!(has_words(&kit, "Left: —"), "{preset}");
     }
 }
+
+/// BUG-115: on Overview, credits kept from an earlier run and not checked in this one say so,
+/// without the count of identities; checked, the tile is as before.
+#[test]
+fn credits_not_checked_yet_say_so_without_the_count() {
+    let (_turn, mut kit) = demo_app("overview", "en");
+    kit.run_steps(3);
+    let checked = |kit: &mut Kit, checked: bool| {
+        for _ in 0..3 {
+            if let Some(w) = kit
+                .state_mut()
+                .snapshot
+                .as_mut()
+                .and_then(|s| s.wallet.as_mut())
+            {
+                w.balances.credits_checked = checked;
+            }
+            kit.run_steps(1);
+        }
+    };
+    checked(&mut kit, false);
+    assert!(
+        has_text(&kit, "DASH · not checked yet"),
+        "the credits' line"
+    );
+    assert!(!has_text(&kit, "DASH · 2 identities"), "no count yet");
+    checked(&mut kit, true);
+    assert!(has_text(&kit, "DASH · 2 identities"));
+    assert!(!has_text(&kit, "DASH · not checked yet"));
+}

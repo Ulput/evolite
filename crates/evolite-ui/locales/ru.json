@@ -1500,5 +1500,8 @@
   "This identity was created on another computer or its result was not kept here, so evolite does not know whether Platform added the credits. The DASH left Core for good. The identity's credits are on the Identity screen.": "Создание identity сделано не на этом компьютере или его итог здесь не сохранился, поэтому evolite не знает, зачислила ли Platform кредиты. DASH с Core списаны окончательно. Сколько кредитов у identity — на экране Identity.",
   "The network checks a reserve before it writes: with less than ≈ {} on the identity it may refuse. Less is charged.": "Сеть сначала проверяет запас: если на identity меньше ≈ {}, она может отказать. Списывается меньше.",
   "Fee, about": "Комиссия, примерно",
-  "The pool: the last known balance, still checking": "Пул — последний известный баланс, ещё проверяем"
+  "The pool: the last known balance, still checking": "Пул — последний известный баланс, ещё проверяем",
+  "Credits and the pool: the last known balance, still checking": "Кредиты и пул — последний известный баланс, ещё проверяем",
+  "Credits: the last known balance, still checking": "Кредиты — последний известный баланс, ещё проверяем",
+  "{} credits\nnot checked yet": "{} кредитов\nещё не проверено"
 }

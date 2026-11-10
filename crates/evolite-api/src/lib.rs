@@ -310,6 +310,10 @@ pub struct Balances {
     /// `all_credits` and `credits` are known: an identity is known here, or the search for them
     /// ended with none. `false`: «—», not a 0 (BUG-91).
     pub credits_read: bool,
+    /// The credits were read from Platform in this run, every identity's, and the search for
+    /// the identities ended (BUG-115). `credits_read` without it: what the store kept from an
+    /// earlier run, not checked yet.
+    pub credits_checked: bool,
     /// `platform_address` is known: Platform answered this run, or the store holds an earlier
     /// read that found credits there. `false`: «—», not a 0 (BUG-91).
     pub platform_address_read: bool,
@@ -322,9 +326,10 @@ impl Balances {
         self.core + self.all_credits + self.platform_address + self.shielded
     }
 
-    /// Whether every part of [`Self::total`] other than Core is known (BUG-91).
+    /// Whether every part of [`Self::total`] other than Core is known (BUG-91): the credits checked
+    /// in this run, not only kept from an earlier one (BUG-115).
     pub fn platform_known(&self) -> bool {
-        self.credits_read && self.platform_address_read
+        self.credits_read && self.credits_checked && self.platform_address_read
     }
 }
 

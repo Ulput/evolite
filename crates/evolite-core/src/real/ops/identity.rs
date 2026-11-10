@@ -440,6 +440,9 @@ impl Real {
         let complete = self.identities_complete.clone();
         let refresh = self.refresher();
         let stale = self.balances_stale.clone();
+        // A new search: the credits are checked again, all of them (BUG-115).
+        let checked = self.credits_checked.clone();
+        checked.store(false, Ordering::Relaxed);
         found.store(false, Ordering::Relaxed);
         complete.store(false, Ordering::Relaxed);
         set_search(&search, IdentitySearch::Searching);
@@ -476,6 +479,7 @@ impl Real {
                         id,
                         live.clone(),
                         stale.clone(),
+                        checked.clone(),
                         refresh.clone(),
                     ));
                 }

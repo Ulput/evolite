@@ -188,6 +188,16 @@ fn balance_cards(
     } else {
         format!(tr!("{unit} in Platform credits"), unit = unit)
     };
+    // Not checked in this run: no name and no count either, they may change once it is (BUG-115).
+    let credits = credits_amount(b);
+    let (credits_title, credits_line) = match credits {
+        CardAmount::Now(_) => (credits_title.as_str(), credits_line),
+        CardAmount::Earlier(_) => (
+            tr!("Credits"),
+            format!(tr!("{unit} · not checked yet"), unit = unit),
+        ),
+        CardAmount::Unknown => (tr!("Credits"), tr!("Not known yet").to_owned()),
+    };
     let pool_detail = match pool {
         CardAmount::Now(_) => format!(tr!("{unit} · only you see it"), unit = unit),
         CardAmount::Earlier(_) => format!(tr!("{unit} · not checked yet"), unit = unit),
@@ -200,16 +210,7 @@ fn balance_cards(
     };
     let cards: [(&str, &str, CardAmount, &str); 4] = [
         ("core", "Core", core, &core_line),
-        (
-            "credits",
-            &credits_title,
-            CardAmount::platform(b.credits_read, b.all_credits),
-            if b.credits_read {
-                &credits_line
-            } else {
-                tr!("Not known yet")
-            },
-        ),
+        ("credits", credits_title, credits, &credits_line),
         (
             "platform-address",
             tr!("Platform address"),
@@ -368,6 +369,16 @@ fn latest_operations(
     });
 }
 
+/// The credits' tile (BUG-115), by the pool's rule: checked in this run, the amount; kept from
+/// an earlier run, that amount dim; nothing known, or a kept 0, none.
+pub(super) fn credits_amount(b: &evolite_api::Balances) -> CardAmount {
+    match (b.credits_read, b.credits_checked, b.all_credits) {
+        (true, true, duffs) => CardAmount::Now(duffs),
+        (true, false, duffs) if duffs > 0 => CardAmount::Earlier(duffs),
+        _ => CardAmount::Unknown,
+    }
+}
+
 /// The private pool's tile (BUG-66, the designer's improvement 1): read in this run
 /// (`checked_at`), its amount; not read yet, the amount the pool's store already gives (dim),
 /// or none — a 0 before the first read is not known, it is not there yet.
@@ -414,6 +425,29 @@ fn total_line(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// BUG-115: credits kept from an earlier run are dim until checked; nothing known, or a kept 0,
+    /// is not known.
+    #[test]
+    fn credits_kept_from_before_are_dim_until_checked() {
+        let b = |read, checked, all_credits| evolite_api::Balances {
+            core: 0,
+            core_as_of: None,
+            core_addresses: 0,
+            credits: all_credits,
+            all_credits,
+            platform_address: 0,
+            shielded: 0,
+            credits_read: read,
+            credits_checked: checked,
+            platform_address_read: true,
+        };
+        assert_eq!(credits_amount(&b(true, true, 47)), CardAmount::Now(47));
+        assert_eq!(credits_amount(&b(true, true, 0)), CardAmount::Now(0));
+        assert_eq!(credits_amount(&b(true, false, 47)), CardAmount::Earlier(47));
+        assert_eq!(credits_amount(&b(true, false, 0)), CardAmount::Unknown);
+        assert_eq!(credits_amount(&b(false, false, 47)), CardAmount::Unknown);
+    }
 
     /// BUG-66: no 0 for the pool before it is read; what the store has is shown dim.
     #[test]

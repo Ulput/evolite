@@ -205,6 +205,7 @@ impl Real {
         // reading that follows a lookup stops too.
         self.discovery_run.fetch_add(1, Ordering::Relaxed);
         self.balances_stale.notify_one();
+        self.credits_checked.store(false, Ordering::Relaxed);
         // The right words of an unanswered phrase check go with the keys.
         self.phrase_check = None;
         // An app's request is not answered after the next unlock with what was shown before.

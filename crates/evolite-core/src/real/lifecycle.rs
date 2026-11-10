@@ -105,6 +105,7 @@ impl Real {
             identity_search: Default::default(),
             discovery_run: Default::default(),
             balances_stale: Default::default(),
+            credits_checked: Arc::new(AtomicBool::new(false)),
             phrase_check: None,
             stored_history: Vec::new(),
             consumed_locks: std::collections::HashSet::new(),

@@ -486,12 +486,12 @@ impl Chain {
     /// The store's balance is only what the last run of the app saw, and other apps (or other
     /// runs of this one) spend and top up the same identities. `all`: every identity, else only
     /// the one the interface shows (one query, not one per identity). Answers how many
-    /// were read.
+    /// were read and how many were asked (BUG-115: all of them read is a check of the credits).
     pub async fn refresh_balances(
         &self,
         wallet: &PlatformWallet,
         all: bool,
-    ) -> Result<usize, String> {
+    ) -> Result<(usize, usize), String> {
         let ids: Vec<Identifier> = {
             let state = wallet.state().await;
             let mine: Vec<_> = of_wallet(&state.identity_manager, wallet.wallet_id()).collect();
@@ -514,7 +514,7 @@ impl Chain {
         }
         match failed {
             Some(why) if read == 0 && !ids.is_empty() => Err(why),
-            _ => Ok(read),
+            _ => Ok((read, ids.len())),
         }
     }
 

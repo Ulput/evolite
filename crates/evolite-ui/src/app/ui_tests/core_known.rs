@@ -193,6 +193,7 @@ fn a_core_amount_is_as_sure_as_core() {
         platform_address: 0,
         shielded: 0,
         credits_read: true,
+        credits_checked: true,
         platform_address_read: true,
     };
     assert_eq!(CardAmount::core(&b), CardAmount::Now(5));
@@ -246,12 +247,16 @@ fn the_total_is_unknown_until_platform_is_read() {
         platform_address: 0,
         shielded: 0,
         credits_read: false,
+        credits_checked: false,
         platform_address_read: false,
     };
     assert_eq!(CardAmount::total(&b), CardAmount::Unknown);
     b.credits_read = true;
     assert_eq!(CardAmount::total(&b), CardAmount::Unknown);
     b.platform_address_read = true;
+    // BUG-115: credits kept from an earlier run, not checked in this one: no total yet.
+    assert_eq!(CardAmount::total(&b), CardAmount::Unknown);
+    b.credits_checked = true;
     assert_eq!(CardAmount::total(&b), CardAmount::Now(17));
 }
 

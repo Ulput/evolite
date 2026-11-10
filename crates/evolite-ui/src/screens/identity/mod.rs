@@ -755,6 +755,16 @@ enum CreditsAction {
     Transfer,
 }
 
+/// The line under the credits' amount: how many credits and what they pay for; kept from an
+/// earlier run and not checked in this one, that instead (BUG-115).
+fn credits_note(credits: &str, operations: &str, checked: bool) -> String {
+    if checked {
+        format!(tr!("{} credits\n≈ {} operations"), credits, operations)
+    } else {
+        format!(tr!("{} credits\nnot checked yet"), credits)
+    }
+}
+
 /// The credits card. Returns the tile clicked, if any.
 fn credits(
     ui: &mut Ui,
@@ -779,11 +789,17 @@ fn credits(
                 crate::components::amount_toggle(ui, a, false);
             });
         });
+        // Kept from an earlier run, not checked in this one: dimmed (BUG-115).
+        let color = if balances.credits_checked {
+            p.text
+        } else {
+            p.text.gamma_multiply(0.6)
+        };
         crate::components::amount_label(
             ui,
             &crate::format::amount(duffs),
             mono(28.0, Weight::Medium),
-            p.text,
+            color,
         );
         // The credits and the operations they pay for give the balance away: hidden with it.
         let credits = if crate::format::display().hide {
@@ -793,9 +809,10 @@ fn credits(
         };
         let operations = operations(duffs, fees);
         ui.label(
-            egui::RichText::new(crate::i18n::t(&format!(
-                tr!("{} credits\n≈ {} operations"),
-                credits, operations
+            egui::RichText::new(crate::i18n::t(&credits_note(
+                &credits,
+                &operations,
+                balances.credits_checked,
             )))
             .font(mono(12.0, Weight::Regular))
             .color(p.muted),
@@ -969,6 +986,19 @@ mod tests {
     };
     use evolite_api::CoreError;
     use evolite_api::IdentitySearch;
+
+    /// BUG-115: credits kept from an earlier run say they are not checked, not what they pay for.
+    #[test]
+    fn credits_not_checked_yet_say_so_on_the_identity_card() {
+        assert_eq!(
+            super::credits_note("475 002", "4", true),
+            "475 002 credits\n≈ 4 operations"
+        );
+        assert_eq!(
+            super::credits_note("475 002", "4", false),
+            "475 002 credits\nnot checked yet"
+        );
+    }
     use evolite_api::UnfinishedTopUp;
 
     /// FEAT-0014 (analyst-44), review r1 should 7 (mutation B4): the banner waits for the

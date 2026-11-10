@@ -92,11 +92,13 @@ fn the_core_source_says_when_its_balance_was_checked() {
     let balance = crate::format::balance(386_574_464);
     let core = view(Source::Core);
     assert_eq!(source_detail(&core, None, None), balance);
-    // The accessibility name of a «From» card is its title: the words are checked here.
+    // The accessibility name of a «From» card is its title: the words are checked here. Credits
+    // not known are no 0 (BUG-91); kept from an earlier run they are the amount, dimmed (BUG-115).
     assert_eq!(
         source_line(
             &SourceView {
                 read: false,
+                duffs: 0,
                 ..view(Source::Credits)
             },
             None,
@@ -1272,4 +1274,46 @@ fn max_waits_for_a_balance_to_be_read() {
     assert!(form.amount.is_empty(), "{}", form.amount);
     form.follow_source(&pool_source(931_274, true));
     assert!(!form.amount.is_empty());
+}
+
+/// The credits' «From» card with `duffs`, checked in this run or not.
+fn credits_source(duffs: Duffs, read: bool) -> SourceView {
+    SourceView {
+        source: Source::Credits,
+        title: "Credits",
+        icon: "credits",
+        ..pool_source(duffs, read)
+    }
+}
+
+/// BUG-115: credits kept from an earlier run, not checked in this one, are the pool's case: the
+/// amount dimmed and said under the row, with the pool's in one line when both are.
+#[test]
+fn credits_kept_from_before_are_dim_and_said_under_the_row() {
+    use evolite_api::CoreAsOf;
+    let kept = credits_source(47_500_250, false);
+    assert_eq!(
+        source_line(&kept, None, None),
+        crate::format::balance(47_500_250)
+    );
+    assert!(source_dim(&kept));
+    assert_eq!(
+        source_line(&credits_source(0, false), None, None),
+        "Not known yet"
+    );
+    assert_eq!(
+        sources_caption(None, None, &[kept]).as_deref(),
+        Some("Credits: the last known balance, still checking")
+    );
+    let both = [
+        credits_source(47_500_250, false),
+        pool_source(931_274, false),
+    ];
+    assert_eq!(
+        sources_caption(Some(CoreAsOf::Checked(1)), Some("5 min ago"), &both),
+        Some(
+            "Core · 5 min ago · Credits and the pool: the last known balance, still checking"
+                .into()
+        )
+    );
 }

@@ -351,6 +351,9 @@ struct Real {
     discovery_run: Arc<std::sync::atomic::AtomicU64>,
     /// Woken after a write: the identities' credit balances are read from Platform again.
     balances_stale: Arc<tokio::sync::Notify>,
+    /// Every identity's credits were read from Platform in this run (BUG-115): what the store
+    /// kept from before is checked.
+    credits_checked: Arc<AtomicBool>,
     /// "Check the phrase" asked and not answered yet: the questions and their right words.
     phrase_check: Option<(Vec<PhraseQuestion>, crate::phrase_check::Answers)>,
     /// The wallet's history as the store keeps it (one record per transaction), and when it

@@ -198,7 +198,7 @@ pub(super) fn sources(w: &Wallet, to: &str, amount: Duffs) -> [SourceView; 3] {
             fee: credits,
             max_fee: credits,
             withdrawal: credits_to_core(to).then(|| Withdrawal::of(&w.fees)),
-            read: w.balances.credits_read,
+            read: w.balances.credits_checked,
             note_icon: "confirmed",
             note: tr!("A credit transfer is confirmed by a Platform proof in a couple of seconds."),
         },
@@ -247,14 +247,14 @@ pub(super) fn as_of_caption(
     }
 }
 
-/// What a «From» card says: a balance not read yet is not a 0 — credits not read are not known
-/// (BUG-91), nor is a pool with nothing kept from before (BUG-113).
+/// What a «From» card says: a balance not read yet is not a 0 — with nothing kept from before it
+/// is not known (BUG-91, BUG-113, BUG-115); kept, it is shown dimmed ([`source_dim`]).
 pub(super) fn source_line(
     s: &SourceView,
     as_of: Option<evolite_api::CoreAsOf>,
     line: Option<&str>,
 ) -> String {
-    if !s.read && (s.source == Source::Credits || s.duffs == 0) {
+    if !s.read && s.duffs == 0 {
         return tr!("Not known yet").to_owned();
     }
     source_detail(s, as_of, line)
@@ -287,19 +287,26 @@ pub(super) fn from_layout(width: f32, cards: &[CardWidths]) -> Vec<CardColumn> {
 
 /// Whether a «From» card shows its amount dimmed: the last known one, not read in this run.
 pub(super) fn source_dim(s: &SourceView) -> bool {
-    s.source == Source::Pool && !s.read && s.duffs > 0
+    !s.read && s.duffs > 0
 }
 
-/// The one line under the row of sources: Core's last check and a pool not read yet.
+/// The one line under the row of sources: Core's last check, then credits and the pool kept from
+/// before and not read yet, in one line (BUG-113, BUG-115).
 pub(super) fn sources_caption(
     as_of: Option<evolite_api::CoreAsOf>,
     line: Option<&str>,
     all: &[SourceView],
 ) -> Option<String> {
-    let pool = all
-        .iter()
-        .any(source_dim)
-        .then(|| tr!("The pool: the last known balance, still checking").to_owned());
+    let kept = |source| all.iter().any(|s| s.source == source && source_dim(s));
+    let pool = match (kept(Source::Credits), kept(Source::Pool)) {
+        (true, true) => Some(tr!(
+            "Credits and the pool: the last known balance, still checking"
+        )),
+        (true, false) => Some(tr!("Credits: the last known balance, still checking")),
+        (false, true) => Some(tr!("The pool: the last known balance, still checking")),
+        (false, false) => None,
+    }
+    .map(str::to_owned);
     match (as_of_caption(as_of, line), pool) {
         (Some(core), Some(pool)) => Some(format!("{core} · {pool}")),
         (core, pool) => core.or(pool),

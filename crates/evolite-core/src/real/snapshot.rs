@@ -319,13 +319,20 @@ impl Real {
             .filter(|c| c.name.is_none())
             .map(|c| c.identity_id.clone())
             .collect();
-        let credits_read = credits_known(
-            !identities.is_empty(),
-            &self
+        let (credits_read, credits_checked) = {
+            let search = self
                 .identity_search
                 .lock()
-                .unwrap_or_else(|e| e.into_inner()),
-        );
+                .unwrap_or_else(|e| e.into_inner());
+            (
+                credits_known(!identities.is_empty(), &search),
+                credits_checked(
+                    self.credits_checked.load(Ordering::Relaxed),
+                    !identities.is_empty(),
+                    &search,
+                ),
+            )
+        };
         self.ask_names(unnamed);
         self.contacts = contacts.clone();
         let (nfts, nfts_status) = self.shown_nfts(shown.as_ref().map(|(identity, _, _)| identity));
@@ -366,6 +373,7 @@ impl Real {
                     .as_ref()
                     .map_or(0, |p| identity::credits_as_duffs(p.credits)),
                 credits_read,
+                credits_checked,
                 platform_address_read: platform_address_known(
                     self.chain.status().platform_address_read,
                     platform_credits,
@@ -1097,24 +1105,29 @@ impl Real {
 
 /// Keeps the identities' credit balances as Platform has them, while `live` holds:
 /// at once, then after each write (`stale`) or every [`BALANCES_EVERY`]. The shown identity is
-/// read each time, all of them at first and every [`BALANCES_ALL_EVERY`] times.
+/// read each time, all of them at first and every [`BALANCES_ALL_EVERY`] times. `checked` is
+/// raised once a round has read them all (BUG-115).
 pub(super) async fn keep_balances_fresh(
     chain: Arc<Chain>,
     id: WalletId,
     live: impl Fn() -> bool,
     stale: Arc<tokio::sync::Notify>,
+    checked: Arc<AtomicBool>,
     refresh: impl Fn(),
 ) {
     let mut round = 0u32;
     while live() {
         let all = round.is_multiple_of(BALANCES_ALL_EVERY);
         round = round.wrapping_add(1);
-        if let Some(wallet) = chain.wallet(&id).await
-            && turn::timed("refresh_balances", chain.refresh_balances(&wallet, all))
-                .await
-                .is_ok()
-        {
-            refresh();
+        if let Some(wallet) = chain.wallet(&id).await {
+            let result =
+                turn::timed("refresh_balances", chain.refresh_balances(&wallet, all)).await;
+            if round_reads_all(all, &result) && live() {
+                checked.store(true, Ordering::Relaxed);
+            }
+            if result.is_ok() {
+                refresh();
+            }
         }
         tokio::select! {
             _ = stale.notified() => {}
@@ -1129,6 +1142,19 @@ fn credits_known(has_identities: bool, search: &IdentitySearch) -> bool {
     has_identities || *search == IdentitySearch::Done
 }
 
+/// Whether the credits shown were checked in this run (BUG-115): every identity's read from
+/// Platform (`read_all`) or there is none (`has_identities` false), and the search for them over,
+/// so no other one is coming.
+fn credits_checked(read_all: bool, has_identities: bool, search: &IdentitySearch) -> bool {
+    (read_all || !has_identities) && *search == IdentitySearch::Done
+}
+
+/// Whether a round of [`keep_balances_fresh`] read every identity's credits: one of all of them
+/// (`all`), none failed. `result`: how many it read and how many it asked.
+fn round_reads_all(all: bool, result: &Result<(usize, usize), String>) -> bool {
+    all && matches!(result, Ok((read, asked)) if read == asked)
+}
+
 /// Whether the Platform address's balance is known (BUG-91): Platform answered this run, or the
 /// store holds credits from an earlier read. A stored 0 is what an unread address has as well.
 fn platform_address_known(answered_this_run: bool, stored_credits: u64) -> bool {
@@ -1137,8 +1163,32 @@ fn platform_address_known(answered_this_run: bool, stored_credits: u64) -> bool 
 
 #[cfg(test)]
 mod platform_known_tests {
-    use super::{credits_known, platform_address_known};
+    use super::{credits_checked, credits_known, platform_address_known, round_reads_all};
     use evolite_api::IdentitySearch::{Done, Failed, Searching};
+
+    /// BUG-115: the credits kept in the store are not checked until Platform was asked for every
+    /// identity this run and the search ended; a failed search leaves them unchecked.
+    #[test]
+    fn credits_are_checked_once_every_identity_was_read_and_the_search_ended() {
+        assert!(credits_checked(true, true, &Done));
+        assert!(!credits_checked(true, true, &Searching));
+        assert!(!credits_checked(true, true, &Failed("no".into())));
+        assert!(!credits_checked(false, true, &Done), "kept, not read");
+        assert!(
+            credits_checked(false, false, &Done),
+            "none found: nothing to check"
+        );
+        assert!(!credits_checked(false, false, &Searching));
+    }
+
+    /// BUG-115: only a round of all of them with none failed reads them all.
+    #[test]
+    fn a_round_reads_all_only_when_it_asked_all_and_none_failed() {
+        assert!(round_reads_all(true, &Ok((3, 3))));
+        assert!(!round_reads_all(true, &Ok((2, 3))), "one failed");
+        assert!(!round_reads_all(false, &Ok((1, 1))), "the shown one only");
+        assert!(!round_reads_all(true, &Err("no".into())));
+    }
 
     #[test]
     fn credits_are_known_once_an_identity_is_or_the_search_ended() {
