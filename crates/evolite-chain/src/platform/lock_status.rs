@@ -223,8 +223,8 @@ impl LockStatuses {
         batch
     }
 
-    /// Keeps what Platform proved; true when anything the card shows changed.
-    pub fn answered(&self, txid: &str, told: Told) -> bool {
+    /// Keeps what Platform proved.
+    pub fn answered(&self, txid: &str, told: Told) {
         let mut state = self.state();
         self.load(&mut state);
         match told.answer {
@@ -241,7 +241,6 @@ impl LockStatuses {
                 state.this_run.insert(txid.to_owned(), answer);
             }
         }
-        true
     }
 
     /// A request, or one lock of it, failed at `now` (R-5): nothing is concluded; these locks
@@ -253,6 +252,13 @@ impl LockStatuses {
         }
         state.not_before = Some(now + RETRY);
     }
+}
+
+/// Whether Platform is asked about a lock with these credits (R-1 and the review's Should 1):
+/// one nothing is known of, and one not added, which may have been used from another device
+/// since. Its «Continue» then goes; a proved «not seen» keeps it.
+pub fn worth_asking(credits: Credits) -> bool {
+    matches!(credits, Credits::Unknown | Credits::NotAdded)
 }
 
 /// Whether a lock has a Core proof to ask about (R-1): an InstantLock or a ChainLock, or a block
@@ -353,6 +359,27 @@ mod tests {
             credits_of(Answer::NotSeen, false, false, true),
             Credits::NotAdded,
             "Identity offers to continue it"
+        );
+    }
+
+    /// Should 1 (review r1): a lock not added is asked too; one added, or already answered,
+    /// is not. Spent elsewhere, it is used; not seen, Identity still offers to continue it.
+    #[test]
+    fn a_lock_not_added_is_asked_too() {
+        assert!(worth_asking(Credits::Unknown));
+        assert!(worth_asking(Credits::NotAdded));
+        for done in [
+            Credits::Added,
+            Credits::Used,
+            Credits::UsedPartly { left: 1 },
+            Credits::NotReceived,
+        ] {
+            assert!(!worth_asking(done), "{done:?}");
+        }
+        assert_eq!(credits_of(Answer::Spent, false, false, true), Credits::Used);
+        assert_eq!(
+            credits_of(Answer::NotSeen, false, false, true),
+            Credits::NotAdded
         );
     }
 

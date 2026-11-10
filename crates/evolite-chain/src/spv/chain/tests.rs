@@ -700,6 +700,64 @@ fn live_spv_proved_read() {
         .unwrap();
 }
 
+/// FEAT-0016 AC-T2: Platform's proved answer about a lock spent long ago (kestrel7's, seen
+/// spent by the architect's probe) and about an outpoint nobody made, with quorum keys from
+/// our own SPV masternode list. Read-only, no phrase. Not run in the usual suites.
+/// `cargo test -p evolite-chain live_lock_status_reads_spent_and_unseen -- --ignored --nocapture`
+#[test]
+#[ignore = "live: reads testnet"]
+fn live_lock_status_reads_spent_and_unseen() {
+    std::thread::Builder::new()
+        .stack_size(16 << 20)
+        .spawn(|| {
+            tokio::runtime::Builder::new_multi_thread()
+                .enable_all()
+                .thread_stack_size(8 << 20)
+                .build()
+                .unwrap()
+                .block_on(lock_status_read())
+        })
+        .unwrap()
+        .join()
+        .unwrap();
+}
+
+async fn lock_status_read() {
+    use crate::platform::lock_status::{Answer, read};
+    let dir = std::env::temp_dir().join("evolite-live-provider");
+    let paths = ChainPaths {
+        spv: dir.join("spv"),
+        store: dir.join("platform-wallet.db"),
+        core_node: dir.join("core-node.txt"),
+    };
+    let chain = Chain::default();
+    chain
+        .start(&paths, Arc::new(|_: &SyncStatus| {}))
+        .await
+        .expect("chain starts");
+    let started = Instant::now();
+    while !chain.platform_ready() {
+        assert!(
+            started.elapsed() < Duration::from_secs(30 * 60),
+            "not ready: {:?}",
+            chain.status()
+        );
+        tokio::time::sleep(Duration::from_secs(2)).await;
+    }
+    let spent = "7bc7dc8603948607f4a085569f0b0352fe982aceb4aa3a0f056cfe220c01ffc7";
+    let nobody = "f00df00df00df00df00df00df00df00df00df00df00df00df00df00df00df00d";
+    let told = read(&chain, &[(spent.into(), false), (nobody.into(), false)])
+        .await
+        .expect("a proved answer");
+    let answer = |txid: &str| {
+        told.iter()
+            .find(|(lock, _)| lock.0 == txid)
+            .map(|(_, t)| t.clone().expect("this lock read").answer)
+    };
+    assert_eq!(answer(spent), Some(Answer::Spent));
+    assert_eq!(answer(nobody), Some(Answer::NotSeen));
+}
+
 /// Jembe's gifts of a holder on testnet (`EVOLITE_TEST_NAME` in `.env.test.local`, who got
 /// copies at the release): read with proofs, every picture checked against its `imageHash`.
 /// Read-only, no phrase.

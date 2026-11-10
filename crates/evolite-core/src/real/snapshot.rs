@@ -787,10 +787,15 @@ impl Real {
                 identities,
             );
             // What the wallet does not know, Platform may have proved (FEAT-0016).
-            if taken == Credits::Unknown
+            // A lock not added is asked too: it may have been used from another device since
+            // (FEAT-0016 r1 Should 1).
+            if lock_status::worth_asking(taken)
                 && lock_status::core_proved(act.proof, act.block, chainlocked)
             {
-                match self.lock_status.credits(&txid, made, false) {
+                match self
+                    .lock_status
+                    .credits(&txid, made, taken == Credits::NotAdded)
+                {
                     Some(answer) => taken = answer,
                     None => no_answer.push((txid.clone(), made)),
                 }
