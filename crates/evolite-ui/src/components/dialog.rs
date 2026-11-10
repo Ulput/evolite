@@ -45,7 +45,7 @@ pub fn dialog_with_header(
     header: impl FnOnce(&mut Ui, &mut Assets),
     body: impl FnOnce(&mut Ui, &mut Assets) -> bool,
 ) -> bool {
-    dialog_with_header_held(ui, a, id, width, false, header, body)
+    header_dialog(ui, a, id, width, false, Align::Center, header, body)
 }
 
 /// [`dialog_with_header`] that Escape and a click outside do not close while `held`: something
@@ -57,6 +57,23 @@ pub fn dialog_with_header_held(
     id: &str,
     width: f32,
     held: bool,
+    header: impl FnOnce(&mut Ui, &mut Assets),
+    body: impl FnOnce(&mut Ui, &mut Assets) -> bool,
+) -> bool {
+    // The operation's card, its only user: a title of two lines keeps the cross at the top
+    // (BUG-114).
+    header_dialog(ui, a, id, width, held, Align::Min, header, body)
+}
+
+/// The dialogs with a header: the cross stands at `cross` of the header's height.
+#[allow(clippy::too_many_arguments)]
+fn header_dialog(
+    ui: &mut Ui,
+    a: &mut Assets,
+    id: &str,
+    width: f32,
+    held: bool,
+    cross: Align,
     header: impl FnOnce(&mut Ui, &mut Assets),
     body: impl FnOnce(&mut Ui, &mut Assets) -> bool,
 ) -> bool {
@@ -85,8 +102,8 @@ pub fn dialog_with_header_held(
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 10.0;
             header(ui, a);
-            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                if close_cross(ui, a, 20.0).clicked() {
+            ui.with_layout(Layout::right_to_left(cross), |ui| {
+                if close_cross(ui, a, CROSS).clicked() {
                     close = true;
                 }
             });
@@ -102,6 +119,10 @@ pub fn dialog_with_header_held(
     place.keep(&ctx, id, response.response.rect);
     response.inner || (!held && response.should_close())
 }
+
+/// The size of a dialog's close cross: a header that lays out its own title keeps clear of it
+/// (BUG-114).
+pub const CROSS: f32 = 20.0;
 
 /// «×» of a dialog or a closable notice: the muted close icon at `size`, «Close» on hover and
 /// for a screen reader.

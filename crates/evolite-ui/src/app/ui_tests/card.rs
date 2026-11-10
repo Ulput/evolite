@@ -480,13 +480,12 @@ fn cross_and_close(kit: &Kit) -> (egui::Rect, egui::Rect) {
 
 /// The whole card is in the window, its frame too: egui keeps the cross and «Close» on screen
 /// even when the dialog's edge is cut off, so the dialog's padding is counted around them. The
-/// cross stands in the middle of the 48 px row of the header.
+/// cross stands at the top of the header (BUG-114).
 fn assert_inside(kit: &Kit, window: egui::Rect) {
     const PADDING: f32 = 24.0;
-    const HALF_THE_HEADER: f32 = 24.0;
     let (cross, close) = cross_and_close(kit);
     assert!(
-        cross.center().y - HALF_THE_HEADER - PADDING >= window.top(),
+        cross.top() - PADDING >= window.top(),
         "the card's top edge: the cross {cross:?} of {window:?}"
     );
     assert!(
@@ -690,7 +689,10 @@ fn turn_wheel(kit: &mut Kit, by: f32, draw: impl FnOnce(&mut Kit)) {
 /// only just fits (5 px from the window's edges).
 #[test]
 fn an_ordinary_card_at_1024_by_768_does_not_scroll() {
-    for lang in ["en", "ru", "uk", "es", "fr", "pt-BR"] {
+    // Not es and pt-BR: their title of a transfer between own addresses takes two lines now
+    // that it keeps 12 px from the cross (BUG-114), and the card scrolls by one line, as AC-D7
+    // allows.
+    for lang in ["en", "ru", "uk", "fr"] {
         let (_turn, mut kit) = demo_app("activity-card-self", lang);
         let copy_txid = crate::i18n::spoken("Copy txid");
         wait_for(&mut kit, "«Copy txid»", |kit| {
@@ -883,6 +885,90 @@ fn the_bar_of_a_long_card_stands_beside_the_lines() {
         down.top() < at.top() - 50.0,
         "the bar is not there: {down:?}"
     );
+}
+
+/// BUG-114: an operation whose @name is long — DPNS allows 63 characters.
+const LONG_NAME: &str = "@qa-kestrel-1108b-with-a-name-long-enough-to-reach-the-cross";
+
+/// The card's title and its close cross, once the card of a contact request from
+/// [`LONG_NAME`] is up: the title is the header's node naming the name (the row behind the
+/// card is as wide as the list), the cross the topmost «Close».
+fn title_and_cross(kit: &mut Kit) -> (egui::Rect, egui::Rect) {
+    wait_for(kit, "the history", |kit| {
+        kit.state()
+            .snapshot
+            .as_ref()
+            .is_some_and(|s| s.wallet.is_some())
+    });
+    if let Some(w) = kit
+        .state_mut()
+        .snapshot
+        .as_mut()
+        .and_then(|s| s.wallet.as_mut())
+        && let Some(line) = w.activity.iter_mut().find(|a| a.id == 14)
+    {
+        line.kind = evolite_api::ActivityKind::ContactRequest {
+            to: LONG_NAME.into(),
+            accepting: true,
+            ours: None,
+        };
+    }
+    crate::screens::open_card(&kit.ctx, 14);
+    let name = &LONG_NAME[1..20];
+    wait_for(kit, "the card", |kit| {
+        kit.query_all_by(|n| {
+            n.role() == Role::Button
+                && n.label().as_deref() == Some(&*crate::i18n::spoken(tr!("Close")))
+        })
+        .next()
+        .is_some()
+    });
+    kit.run_steps(3);
+    let cross = kit
+        .query_all_by(|n| {
+            n.role() == Role::Button
+                && n.label().as_deref() == Some(&*crate::i18n::spoken(tr!("Close")))
+        })
+        .map(|n| n.rect())
+        .min_by(|a, b| a.top().total_cmp(&b.top()))
+        .expect("the cross");
+    let title = kit
+        .query_all_by(|n| {
+            n.label().is_some_and(|l| l.contains(name))
+                || n.value().is_some_and(|v| v.contains(name))
+        })
+        .map(|n| n.rect())
+        .filter(|r| r.width() < 470.0 && r.top() < cross.bottom() + 40.0)
+        .min_by(|a, b| a.top().total_cmp(&b.top()))
+        .expect("the title");
+    (title, cross)
+}
+
+/// BUG-114: at 1024 wide a long title keeps 12 px from the close cross and takes at most two
+/// lines, in ru, de (longer words) and ar (the cross on the left).
+#[test]
+fn a_long_title_stays_clear_of_the_cross() {
+    for lang in ["ru", "de", "ar"] {
+        let (turn, mut kit) = demo_app("activity", lang);
+        let (title, cross) = title_and_cross(&mut kit);
+        if lang == "ar" {
+            assert!(
+                title.left() >= cross.right() + 12.0 - 0.5,
+                "{lang}: title {title:?}, cross {cross:?}"
+            );
+        } else {
+            assert!(
+                title.right() + 12.0 <= cross.left() + 0.5,
+                "{lang}: title {title:?}, cross {cross:?}"
+            );
+        }
+        assert!(
+            title.height() <= 2.0 * 28.0,
+            "{lang}: two lines at most, {title:?}"
+        );
+        drop(kit);
+        drop(turn);
+    }
 }
 
 /// FEAT-0016, R-3: a lock Platform proved used says so, muted, with no red and no way to

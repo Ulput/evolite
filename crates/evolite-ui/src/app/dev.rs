@@ -51,6 +51,9 @@ pub(super) struct DevState {
     pub(super) notes_error: Option<evolite_api::NotesError>,
     /// Tests only: every Core card says that part of its details was not saved (FEAT-0005a, FR-6).
     pub(super) incomplete_details: bool,
+    /// `--screen activity-card-long-title`: the demo's contact request is from a name long
+    /// enough to reach the card's close cross (BUG-114).
+    long_name: bool,
     /// The unlock presets of FEAT-0002: the wallets' wrong passwords as the core would send them.
     pause_preset: Option<PausePreset>,
     /// The clock the screens read, stopped at the start: a countdown in a screenshot shows
@@ -154,6 +157,7 @@ impl DevState {
                 None
             },
             incomplete_details: false,
+            long_name: dev.preset("activity-card-long-title"),
             notes_error: dev
                 .preset("activity-notes-unreadable")
                 .then_some(evolite_api::NotesError::PutAside),
@@ -300,6 +304,16 @@ impl App {
                 d.incomplete = true;
             }
         }
+        if self.dev.long_name
+            && let Some(w) = self.snapshot.as_mut().and_then(|s| s.wallet.as_mut())
+            && let Some(line) = w.activity.iter_mut().find(|a| a.id == 14)
+        {
+            line.kind = evolite_api::ActivityKind::ContactRequest {
+                to: "@qa-kestrel-1108b-with-a-name-long-enough-to-reach-the-cross".into(),
+                accepting: true,
+                ours: None,
+            };
+        }
         if let Some(pp) = &self.dev.pause_preset
             && let Some(s) = self.snapshot.as_mut()
         {
@@ -391,6 +405,7 @@ impl App {
             ("activity-card-pool-sent", 21),
             ("activity-card-pool-received", 22),
             ("activity-card-top-up", 4),
+            ("activity-card-long-title", 14),
             ("activity-card-lock-used", 23),
             ("activity-card-lock-partly", 24),
             ("activity-card-lock-not-received", 25),

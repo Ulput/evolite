@@ -181,6 +181,7 @@ pub const PRESETS: &[&str] = &[
     "activity-card-old", "activity-card-pool-sent", "activity-card-pool-received",
     "activity-card-top-up", "activity-card-lock-used", "activity-card-lock-partly",
     "activity-card-lock-not-received", "activity-card-lock-unknown",
+    "activity-card-long-title",
     "activity-notes", "activity-search-note", "activity-notes-unreadable", "activity-card-note",
     "activity-card-add-note", "activity-card-note-edit", "activity-card-note-error",
     "send-note", "send-note-limit", "send-confirm-note", "delete-notes",
@@ -263,6 +264,7 @@ fn dev_args<'a>(
                 | "activity-card-pool-sent"
                 | "activity-card-pool-received"
                 | "activity-card-top-up"
+                | "activity-card-long-title"
                 | "activity-card-lock-used"
                 | "activity-card-lock-partly"
                 | "activity-card-lock-not-received"

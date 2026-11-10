@@ -1522,15 +1522,13 @@ fn card_header(
     let p = a.p;
     let (boxr, _) = ui.allocate_exact_size(egui::vec2(48.0, 48.0), egui::Sense::hover());
     paint_icon_box(ui, a, boxr, 12, text::activity_icon(act), 22.0, p.ink);
+    // Up to the cross, which the dialog puts after the header, less 12 (BUG-114).
+    let cross = crate::components::CROSS + ui.spacing().item_spacing.x;
+    let width = (ui.available_width() - cross - TITLE_GAP).max(80.0);
     ui.vertical(|ui| {
         ui.spacing_mut().item_spacing.y = 2.0;
         ui.add_space(4.0);
-        ui.label(txt(
-            &text::activity_title_in(act, book),
-            20.0,
-            Weight::Bold,
-            p.text,
-        ));
+        card_title(ui, &p, &text::activity_title_in(act, book), width);
         ui.label(txt(
             &format!("{} · {}", text::chain(act.chain), text::when(act.at, now)),
             14.0,
@@ -1538,6 +1536,149 @@ fn card_header(
             p.muted,
         ));
     });
+}
+
+/// Between the card's title and its close cross (BUG-114).
+const TITLE_GAP: f32 = 12.0;
+
+/// The card's title in at most two lines of `width`, read in full by a screen reader (BUG-114).
+/// Lines are cut in reading order and each is shaped for display apart, so Arabic stays right.
+fn card_title(ui: &mut Ui, p: &crate::theme::Palette, title: &str, width: f32) {
+    let font = sans(20.0, Weight::Bold);
+    let painter = ui.painter().clone();
+    let shown = |s: &str| crate::i18n::visual(s).replace(['\u{2068}', '\u{2069}'], "");
+    let galley = |s: &str| painter.layout_no_wrap(shown(s), font.clone(), p.text);
+    let logical = crate::i18n::t_in(crate::i18n::current(), title).into_owned();
+    let lines = fit_title(&logical, width, |s| galley(s).size().x);
+    let galleys: Vec<_> = lines.iter().map(|l| galley(l)).collect();
+    let size = galleys.iter().fold(egui::Vec2::ZERO, |s, g| {
+        egui::vec2(s.x.max(g.size().x), s.y + g.size().y)
+    });
+    let (rect, resp) = ui.allocate_exact_size(size, egui::Sense::hover());
+    let spoken = crate::i18n::spoken(title);
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, &spoken));
+    let mut y = rect.top();
+    for g in galleys {
+        let h = g.size().y;
+        painter.galley(egui::pos2(rect.left(), y), g, p.text);
+        y += h;
+    }
+}
+
+/// Splits `title` into at most two lines no wider than `width` by `measure` (BUG-114): words
+/// fill a line in order; an @name is never broken — it moves whole to the next line, and one
+/// that does not fit a line alone keeps its start and end around «…» (the end at least
+/// [`NAME_END`] characters). What is left after the second line ends it with «…».
+fn fit_title(title: &str, width: f32, measure: impl Fn(&str) -> f32) -> Vec<String> {
+    let fits = |s: &str| measure(s) <= width;
+    let mut lines: Vec<String> = Vec::new();
+    let mut line = String::new();
+    let mut rest = String::new();
+    for word in title.split(' ').filter(|w| !w.is_empty()) {
+        if lines.len() == 2 {
+            rest.push(' ');
+            rest.push_str(word);
+            continue;
+        }
+        let joined = if line.is_empty() {
+            word.to_owned()
+        } else {
+            format!("{line} {word}")
+        };
+        if fits(&joined) {
+            line = joined;
+            continue;
+        }
+        if !line.is_empty() {
+            lines.push(std::mem::take(&mut line));
+            if lines.len() == 2 {
+                rest.push(' ');
+                rest.push_str(word);
+                continue;
+            }
+        }
+        line = if fits(word) {
+            word.to_owned()
+        } else if is_name(word) {
+            middle_fit(word, &fits)
+        } else {
+            end_fit(word, "", &fits)
+        };
+    }
+    if !line.is_empty() {
+        if lines.len() == 2 {
+            rest = format!(" {line}{rest}");
+        } else {
+            lines.push(line);
+        }
+    }
+    if !rest.is_empty()
+        && let Some(last) = lines.last_mut()
+    {
+        *last = end_fit(last, &rest, &fits);
+    }
+    lines
+}
+
+/// The fewest characters kept at the end of a shortened @name: names often differ only there
+/// (`-1108b`, `-1108c`), the designer's rule for BUG-114.
+const NAME_END: usize = 6;
+
+fn is_name(word: &str) -> bool {
+    word.trim_start_matches(['\u{2068}', '\u{2069}'])
+        .starts_with('@')
+}
+
+/// `name` with its middle replaced by «…» so that it fits: as much of both ends as fits, the
+/// two halves balanced, the end never shorter than [`NAME_END`]. Its own-words marks stay.
+fn middle_fit(name: &str, fits: &impl Fn(&str) -> bool) -> String {
+    let (open, close) = (name.starts_with('\u{2068}'), name.ends_with('\u{2069}'));
+    let bare: Vec<char> = name
+        .chars()
+        .filter(|c| !matches!(c, '\u{2068}' | '\u{2069}'))
+        .collect();
+    let wrap = |s: String| {
+        let mut out = String::new();
+        if open {
+            out.push('\u{2068}');
+        }
+        out.push_str(&s);
+        if close {
+            out.push('\u{2069}');
+        }
+        out
+    };
+    let cut = |kept: usize| {
+        let tail = (kept / 2).max(NAME_END).min(kept);
+        let head = kept - tail;
+        let mut s: String = bare[..head].iter().collect();
+        s.push('…');
+        s.extend(&bare[bare.len() - tail..]);
+        s
+    };
+    for kept in (1..bare.len()).rev() {
+        let s = wrap(cut(kept));
+        if fits(&s) {
+            return s;
+        }
+    }
+    wrap(cut(NAME_END.min(bare.len())))
+}
+
+/// `line` followed by what does not fit (`rest`), ended with «…» where it is cut.
+fn end_fit(line: &str, rest: &str, fits: &impl Fn(&str) -> bool) -> String {
+    let whole = format!("{line}{rest}");
+    if rest.is_empty() && fits(&whole) {
+        return whole;
+    }
+    let chars: Vec<char> = whole.chars().collect();
+    for n in (1..=chars.len().min(line.chars().count() + rest.chars().count())).rev() {
+        let s: String = chars[..n].iter().collect::<String>().trim_end().to_owned() + "…";
+        if fits(&s) {
+            return s;
+        }
+    }
+    "…".into()
 }
 
 /// The lines of an operation that is not a Core payment.
@@ -2032,6 +2173,71 @@ mod card_tests {
             Some((tr!("To"), "@bob".to_string(), None))
         );
         assert_eq!(counterparty(&sent("", None)), None);
+    }
+}
+
+#[cfg(test)]
+mod title_tests {
+    use super::*;
+
+    /// One unit per character: easy to reason about.
+    fn width(s: &str) -> f32 {
+        s.chars()
+            .filter(|c| !matches!(c, '\u{2068}' | '\u{2069}'))
+            .count() as f32
+    }
+
+    fn fit(title: &str, w: f32) -> Vec<String> {
+        fit_title(title, w, width)
+    }
+
+    /// One line when it fits.
+    #[test]
+    fn a_short_title_is_one_line() {
+        assert_eq!(fit("Top-up of @bob", 20.0), ["Top-up of @bob"]);
+    }
+
+    /// The @name moves whole to the second line rather than break.
+    #[test]
+    fn the_name_moves_whole_to_the_second_line() {
+        assert_eq!(
+            fit("Your request was accepted: @qa-kestrel-1108b", 30.0),
+            ["Your request was accepted:", "@qa-kestrel-1108b"]
+        );
+    }
+
+    /// A name too long for a line keeps its start and end; the end has at least six characters,
+    /// so -1108b and -1108c stay apart (the designer's rule).
+    #[test]
+    fn a_name_too_long_keeps_its_start_and_its_end() {
+        let lines = fit("From @qa-kestrel-1108b-with-a-name-long-enough", 14.0);
+        assert_eq!(lines[0], "From");
+        let name = &lines[1];
+        assert!(width(name) <= 14.0, "{name}");
+        assert!(name.starts_with("@qa") && name.contains('…'), "{name}");
+        assert!(name.ends_with("enough"), "the end, six characters: {name}");
+        // Even in a very narrow line the end keeps six characters.
+        let narrow = fit("@qa-kestrel-1108c", 8.0);
+        assert!(narrow[0].ends_with("-1108c"), "{narrow:?}");
+    }
+
+    /// At most two lines; what is left ends the second with «…».
+    #[test]
+    fn never_more_than_two_lines() {
+        let lines = fit("one two three four five six seven eight nine ten", 10.0);
+        assert_eq!(lines.len(), 2, "{lines:?}");
+        assert!(lines.iter().all(|l| width(l) <= 10.0), "{lines:?}");
+        assert!(lines[1].ends_with('…'), "{lines:?}");
+    }
+
+    /// The own-words marks around a name stay when it is shortened: Arabic keeps its order.
+    #[test]
+    fn a_marked_name_keeps_its_marks() {
+        let lines = fit("\u{2068}@qa-kestrel-1108b-with-a-long-name\u{2069}", 12.0);
+        assert!(
+            lines[0].starts_with('\u{2068}') && lines[0].ends_with('\u{2069}'),
+            "{lines:?}"
+        );
     }
 }
 
