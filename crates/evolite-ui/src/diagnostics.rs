@@ -146,14 +146,156 @@ pub fn screen_name(screen: crate::screens::Screen) -> &'static str {
 pub struct FrameWatch {
     screen: Option<&'static str>,
     last_slow: Option<std::time::Instant>,
+    /// When the screen shown was opened, a wheel turned since, and the scroll causes told.
+    opened: Option<std::time::Instant>,
+    wheel_here: bool,
+    told: Vec<&'static str>,
+}
+
+/// How long after a screen opens its scroll input goes to the journal (BUG-71).
+const SCROLL_WATCH: std::time::Duration = std::time::Duration::from_secs(1);
+
+/// The kinds of input in a frame that can scroll a screen (BUG-71).
+#[derive(Clone, Copy, Debug, Default)]
+pub struct ScrollInput {
+    /// A wheel event in this frame.
+    pub raw_wheel: bool,
+    /// Scroll egui hands out this frame, from the wheel's smoothing.
+    pub smooth_wheel: bool,
+    pub drag: bool,
+    pub accesskit_scroll: bool,
+    pub accesskit_focus: bool,
+    /// Tab, an arrow, Page Up or Down, Home, End or Space.
+    pub key: bool,
+    /// Text typed, pasted or deleted: a focused field then scrolls to its cursor.
+    pub text: bool,
+    /// Our code asked for a scroll (`scroll_to_me`, `scroll_to_rect`, [`ask_scroll`]). Set by
+    /// [`Self::of_frame`].
+    pub scroll_asked: bool,
+    /// A text field with focus took text, and so scrolls to its cursor. Set by
+    /// [`Self::of_frame`].
+    pub typing: bool,
+}
+
+/// Where [`ask_scroll`] marks this frame.
+fn asked_id() -> egui::Id {
+    egui::Id::new("diag-scroll-asked")
+}
+
+/// BUG-71: our code is about to ask egui to scroll to something; the journal hears of it while a
+/// screen is new.
+pub fn ask_scroll(ctx: &egui::Context) {
+    ctx.data_mut(|d| d.insert_temp(asked_id(), true));
+}
+
+impl ScrollInput {
+    /// This frame's input, with the scrolls our code or a focused field asked for since the last.
+    pub fn of_frame(ctx: &egui::Context) -> Self {
+        let mut seen = ctx.input(Self::of);
+        seen.scroll_asked = ctx.data_mut(|d| d.remove_temp::<bool>(asked_id()).unwrap_or(false));
+        seen.typing = seen.text && ctx.memory(|m| m.focused().is_some());
+        seen
+    }
+
+    pub fn of(i: &egui::InputState) -> Self {
+        use egui::accesskit::Action;
+        let mut seen = Self {
+            smooth_wheel: i.smooth_scroll_delta != egui::Vec2::ZERO,
+            drag: i.pointer.is_decidedly_dragging(),
+            ..Default::default()
+        };
+        for event in &i.events {
+            match event {
+                egui::Event::MouseWheel { .. } => seen.raw_wheel = true,
+                egui::Event::AccessKitActionRequest(request) => match request.action {
+                    Action::Focus => seen.accesskit_focus = true,
+                    Action::ScrollIntoView
+                    | Action::ScrollDown
+                    | Action::ScrollUp
+                    | Action::ScrollLeft
+                    | Action::ScrollRight
+                    | Action::ScrollToPoint
+                    | Action::SetScrollOffset => seen.accesskit_scroll = true,
+                    _ => {}
+                },
+                egui::Event::Key {
+                    key, pressed: true, ..
+                } => {
+                    use egui::Key::*;
+                    if matches!(
+                        key,
+                        Tab | ArrowUp | ArrowDown | PageUp | PageDown | Home | End | Space
+                    ) {
+                        seen.key = true;
+                    }
+                    if matches!(key, Backspace | Delete) {
+                        seen.text = true;
+                    }
+                }
+                egui::Event::Text(_) | egui::Event::Paste(_) => seen.text = true,
+                _ => {}
+            }
+        }
+        seen
+    }
 }
 
 impl FrameWatch {
     pub fn screen(&mut self, name: &'static str) {
+        self.screen_at(name, std::time::Instant::now());
+    }
+
+    fn screen_at(&mut self, name: &'static str, now: std::time::Instant) {
         if self.screen != Some(name) {
             self.screen = Some(name);
+            self.opened = Some(now);
+            self.wheel_here = false;
+            self.told.clear();
             diag::record(Record::Screen { name });
         }
+    }
+
+    /// BUG-71: the input of this frame that can scroll the screen, to the journal while it is
+    /// new, each cause once.
+    pub fn scroll_input(&mut self, seen: ScrollInput) {
+        let Some(screen) = self.screen else {
+            return;
+        };
+        for cause in self.new_causes(seen, std::time::Instant::now()) {
+            diag::record(Record::ScrollMoved { screen, cause });
+        }
+    }
+
+    /// The causes in `seen` not told yet for this screen, while it is in its first second.
+    fn new_causes(&mut self, seen: ScrollInput, now: std::time::Instant) -> Vec<&'static str> {
+        if self
+            .opened
+            .is_none_or(|at| now.duration_since(at) >= SCROLL_WATCH)
+        {
+            return Vec::new();
+        }
+        if seen.raw_wheel {
+            self.wheel_here = true;
+        }
+        let causes = [
+            (seen.raw_wheel, "wheel"),
+            // Smoothing of a turn that began before the screen opened.
+            (seen.smooth_wheel && !self.wheel_here, "wheel_before"),
+            (seen.drag, "drag"),
+            (seen.accesskit_scroll, "accesskit_scroll"),
+            (seen.accesskit_focus, "accesskit_focus"),
+            (seen.key, "key"),
+            (seen.scroll_asked, "scroll_asked"),
+            (seen.typing, "typing"),
+        ];
+        let mut new = Vec::new();
+        for (on, cause) in causes {
+            if on && !self.told.contains(&cause) {
+                self.told.push(cause);
+                new.push(cause);
+            }
+        }
+        new
     }
 
     /// A frame of `took`: noted past 250 ms, once in 10 s at most.
@@ -174,6 +316,56 @@ impl FrameWatch {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// BUG-71: in a screen's first second each kind of scroll input is told once; a turn of the
+    /// wheel from before it opened is told apart from one on it; after that second, nothing.
+    #[test]
+    fn scroll_input_is_told_once_each_in_a_screens_first_second() {
+        let t0 = std::time::Instant::now();
+        let at = |ms| t0 + std::time::Duration::from_millis(ms);
+        let mut watch = FrameWatch::default();
+        watch.screen_at("activity", t0);
+        let smooth = ScrollInput {
+            smooth_wheel: true,
+            ..Default::default()
+        };
+        assert_eq!(watch.new_causes(smooth, at(50)), ["wheel_before"]);
+        assert!(watch.new_causes(smooth, at(80)).is_empty(), "once");
+        let turned = ScrollInput {
+            raw_wheel: true,
+            smooth_wheel: true,
+            key: true,
+            ..Default::default()
+        };
+        assert_eq!(watch.new_causes(turned, at(100)), ["wheel", "key"]);
+        // Review r1 P3: our scroll requests and typing are told apart.
+        let asked = ScrollInput {
+            scroll_asked: true,
+            typing: true,
+            ..Default::default()
+        };
+        assert_eq!(watch.new_causes(asked, at(120)), ["scroll_asked", "typing"]);
+        let late = ScrollInput {
+            drag: true,
+            ..Default::default()
+        };
+        assert!(
+            watch.new_causes(late, at(1_200)).is_empty(),
+            "after a second"
+        );
+        watch.screen_at("identity", at(1_300));
+        let turned_here = ScrollInput {
+            raw_wheel: true,
+            smooth_wheel: true,
+            ..Default::default()
+        };
+        assert_eq!(
+            watch.new_causes(turned_here, at(1_350)),
+            ["wheel"],
+            "a turn on this screen is no turn from before"
+        );
+        assert_eq!(watch.new_causes(smooth, at(1_400)), Vec::<&str>::new());
+    }
 
     #[test]
     fn knows_the_system_and_the_build() {

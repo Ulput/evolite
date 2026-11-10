@@ -861,3 +861,99 @@ fn history_after_a_scrolled_send_form_opens_at_the_new_payment() {
     with_new_payment(&mut kit);
     history_opens_on_the_new_payment(&mut kit);
 }
+
+/// BUG-71, a guard: an accessibility client (Windows UI Automation) asks to scroll the rail's
+/// «History» into view as it clicks it. egui hands such a target to the next scroll area that
+/// ends in the pass, here History's list; it must still open at the top.
+#[test]
+fn history_opens_at_the_top_when_the_rail_button_is_scrolled_into_view() {
+    let (_turn, mut kit) = demo_app("send", "en");
+    with_new_payment(&mut kit);
+    let (target_node, target_tree) = kit
+        .get_by_role_and_label(Role::Button, "History")
+        .accesskit_node()
+        .locate();
+    kit.event(egui::Event::AccessKitActionRequest(
+        egui::accesskit::ActionRequest {
+            target_node,
+            target_tree,
+            action: egui::accesskit::Action::ScrollIntoView,
+            data: None,
+        },
+    ));
+    history_opens_on_the_new_payment(&mut kit);
+    for _ in 0..3 {
+        kit.event(egui::Event::AccessKitActionRequest(
+            egui::accesskit::ActionRequest {
+                target_node,
+                target_tree,
+                action: egui::accesskit::Action::ScrollIntoView,
+                data: None,
+            },
+        ));
+        kit.run_steps(2);
+    }
+    let header = button(&kit, "Export CSV").rect().bottom();
+    let rows = history_rows(&kit);
+    let (first, rect) = rows.first().expect("rows in History");
+    assert!(
+        rect.top() >= header,
+        "after scroll-into-view on the open History: «{first}» {} < {header}",
+        rect.top()
+    );
+}
+
+/// BUG-71: the wheel turned over «Send», then «History» chosen at once while the pointer stays
+/// where it was (as UI Automation clicks, or a quick hand): egui's smoothing goes on delivering
+/// that scroll for a moment, and it must not land on History, which opens at the top.
+#[test]
+fn a_wheel_still_running_does_not_scroll_the_screen_just_opened() {
+    let (_turn, mut kit) = demo_app("send", "en");
+    kit.set_size(egui::vec2(1024.0, 480.0));
+    with_new_payment(&mut kit);
+    kit.hover_at(egui::pos2(600.0, 440.0));
+    kit.event(egui::Event::MouseWheel {
+        unit: egui::MouseWheelUnit::Point,
+        delta: egui::vec2(0.0, -600.0),
+        phase: egui::TouchPhase::Move,
+        modifiers: Default::default(),
+    });
+    kit.get_by_role_and_label(Role::Button, "History")
+        .click_accesskit();
+    kit.run_steps(6);
+    assert_eq!(kit.state().screen, Screen::Activity);
+    let header = button(&kit, "Export CSV").rect().bottom();
+    let rows = history_rows(&kit);
+    let (first, rect) = rows.first().expect("rows in History");
+    assert!(
+        rect.top() >= header,
+        "the top row «{first}» is above the list's top: {} < {header}",
+        rect.top()
+    );
+}
+
+/// BUG-71, the other side: a scroll the person starts on the screen just opened is theirs.
+#[test]
+fn a_wheel_turned_on_the_screen_just_opened_scrolls_it() {
+    let (_turn, mut kit) = demo_app("send", "en");
+    kit.set_size(egui::vec2(1024.0, 480.0));
+    kit.get_by_role_and_label(Role::Button, "History").click();
+    kit.run_steps(4);
+    let before = history_rows(&kit)
+        .first()
+        .map(|(_, r)| r.top())
+        .expect("rows");
+    kit.hover_at(egui::pos2(600.0, 400.0));
+    kit.event(egui::Event::MouseWheel {
+        unit: egui::MouseWheelUnit::Point,
+        delta: egui::vec2(0.0, -300.0),
+        phase: egui::TouchPhase::Move,
+        modifiers: Default::default(),
+    });
+    kit.run_steps(6);
+    let after = history_rows(&kit).first().map(|(_, r)| r.top());
+    assert!(
+        after.is_none_or(|top| top < before - 100.0),
+        "the wheel scrolled the list at once: {before} → {after:?}"
+    );
+}

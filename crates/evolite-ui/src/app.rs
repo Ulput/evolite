@@ -1423,6 +1423,9 @@ impl eframe::App for App {
         }
         self.watch
             .screen(crate::diagnostics::screen_name(self.screen));
+        // BUG-71: what can scroll a screen just opened, to the journal.
+        self.watch
+            .scroll_input(crate::diagnostics::ScrollInput::of_frame(ui.ctx()));
         self.watch.frame(frame_started.elapsed());
         // A screen with the phrase on it keeps the window out of screenshots and recordings
         // from this very frame; the window comes back once no such screen is drawn.

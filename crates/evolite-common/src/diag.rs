@@ -81,6 +81,12 @@ pub enum Record {
     Screen {
         name: &'static str,
     },
+    /// BUG-71: in the first second of a screen, a kind of input that can scroll it came. Both are
+    /// names fixed in the code: the screen's and the input's.
+    ScrollMoved {
+        screen: &'static str,
+        cause: &'static str,
+    },
     SlowFrame {
         ms: u64,
     },
@@ -175,6 +181,9 @@ impl Record {
             Record::Vault { state } => json!({"k": "vault", "state": state}),
             Record::Art { reason } => json!({"k": "art", "reason": reason}),
             Record::Screen { name } => json!({"k": "screen", "name": name}),
+            Record::ScrollMoved { screen, cause } => {
+                json!({"k": "scroll_moved", "screen": screen, "cause": cause})
+            }
             Record::SlowFrame { ms } => json!({"k": "slow_frame", "ms": ms}),
             Record::SlowStep { step, ms } => json!({"k": "slow_step", "step": step, "ms": ms}),
             Record::StuckStep { step, ms } => {
@@ -531,6 +540,22 @@ mod tests {
         assert_eq!(timestamp(UNIX_EPOCH), "1970-01-01T00:00:00.000Z");
         assert_eq!(civil(19_723), (2024, 1, 1));
         assert_eq!(civil(11_016), (2000, 2, 29));
+    }
+
+    /// BUG-71: a scroll line is the screen and the cause, names of the code, nothing else.
+    #[test]
+    fn a_scroll_line_is_the_screen_and_the_cause_only() {
+        let record = Record::ScrollMoved {
+            screen: "activity",
+            cause: "wheel_before",
+        };
+        let fields = record.fields();
+        let mut names: Vec<_> = fields.as_object().unwrap().keys().cloned().collect();
+        names.sort();
+        assert_eq!(names, ["cause", "k", "screen"], "{fields}");
+        assert_eq!(fields["k"], "scroll_moved");
+        let line: serde_json::Value = serde_json::from_str(&record.line(UNIX_EPOCH)).unwrap();
+        assert_eq!(line.as_object().unwrap().len(), 4, "{line}");
     }
 
     #[test]

@@ -664,6 +664,7 @@ fn payment_answer(ui: &mut Ui, a: &mut Assets, form: &SendForm, v: &FormView) {
                 None => {}
             });
     if reveal {
+        crate::diagnostics::ask_scroll(ui.ctx());
         answer.response.scroll_to_me(Some(Align::Center));
     }
 }

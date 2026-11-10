@@ -1351,6 +1351,7 @@ fn follow_focus(ui: &Ui) {
     if let Some(widget) = focus.and_then(|id| ui.ctx().read_response(id))
         && widget.interact_rect != widget.rect
     {
+        crate::diagnostics::ask_scroll(ui.ctx());
         ui.scroll_to_rect(widget.rect.expand(AIR), None);
     }
 }
