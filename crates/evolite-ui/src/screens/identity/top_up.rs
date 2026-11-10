@@ -137,11 +137,16 @@ pub(super) fn top_up_dialog(
                 ui,
                 &p,
                 tr!("On the identity after"),
-                &format!(
-                    tr!("{} · ≈ {} operations"),
-                    crate::format::balance(after),
-                    operations(after, fees)
-                ),
+                // Reckoned from the credits: «—» until they are checked in this run (BUG-116).
+                &if wallet.balances.credits_checked {
+                    format!(
+                        tr!("{} · ≈ {} operations"),
+                        crate::format::balance(after),
+                        operations(after, fees)
+                    )
+                } else {
+                    "—".to_string()
+                },
                 value,
             );
             notice(

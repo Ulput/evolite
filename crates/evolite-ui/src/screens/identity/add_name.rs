@@ -82,7 +82,8 @@ pub(super) fn add_name_dialog(
             );
             // Not an error before anything was tried (calm states CS-1): what is missing, muted,
             // and the way to it.
-            let short = read && credits < needed;
+            // Kept credits not checked in this run claim no lack (BUG-116).
+            let short = read && wallet.balances.credits_checked && credits < needed;
             credits_state(ui, &p, read, short, needed, credits, &mut top_up);
             name_answer(ui, a, form);
             let ask = wallet.password_each_send && form.result.is_none();

@@ -1278,11 +1278,10 @@ fn balance_warning(credits: Option<Duffs>, needed: Duffs) -> Option<String> {
     })
 }
 
-/// The identity's credits, once read.
+/// The identity's credits, once read and checked in this run: kept ones claim no lack
+/// (BUG-116).
 fn known_credits(wallet: &Wallet) -> Option<Duffs> {
-    wallet
-        .balances
-        .credits_read
+    (wallet.balances.credits_read && wallet.balances.credits_checked)
         .then_some(wallet.balances.credits)
 }
 

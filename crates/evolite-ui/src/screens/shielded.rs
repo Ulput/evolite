@@ -542,7 +542,9 @@ fn shield_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut PoolStat
                     && !unread(source);
                 shield_amount_field(ui, &p, state, &cost, *source, say_limits);
             }
-            shield_cost_lines(ui, &p, &cost, source, resume, preview);
+            // From credits not checked in this run, what is left is not said (BUG-116).
+            let checked = wallet.balances.credits_checked;
+            shield_cost_lines(ui, &p, &cost, source, resume, preview, checked);
             if let Some(fraction) = state.progress {
                 proof_progress(ui, a, fraction);
             }
@@ -668,6 +670,7 @@ fn shield_cost_lines(
     source: &ShieldSource,
     resume: Option<Duffs>,
     preview: Option<(Duffs, Duffs)>,
+    credits_checked: bool,
 ) {
     let p = *p;
     let value = mono(13.0, Weight::Medium);
@@ -698,6 +701,7 @@ fn shield_cost_lines(
     // Platform meters a shield from addresses, and Core's fee depends on the coins: an
     // estimate there; from credits the rest is exact.
     let left_text = preview.map_or("—".to_string(), |(left, _)| match source {
+        ShieldSource::Credits if !credits_checked => "—".to_string(),
         ShieldSource::Credits => crate::format::balance(left),
         _ => format!("≈ {}", crate::format::balance(left)),
     });

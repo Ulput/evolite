@@ -482,6 +482,96 @@ fn credits_not_checked_yet_say_so_without_the_count() {
     assert!(!has_text(&kit, "DASH · not checked yet"));
 }
 
+/// BUG-116: the snapshot's credits, checked in this run or not.
+fn credits_checked_as(kit: &mut Kit, checked: bool) {
+    for _ in 0..3 {
+        if let Some(w) = kit
+            .state_mut()
+            .snapshot
+            .as_mut()
+            .and_then(|s| s.wallet.as_mut())
+        {
+            w.balances.credits_checked = checked;
+        }
+        kit.run_steps(1);
+    }
+}
+
+/// BUG-116: «On the identity after» of a top-up is reckoned from the credits: until they are
+/// checked in this run it says «—», not a sum built on the kept balance.
+#[test]
+fn a_top_up_says_what_will_be_on_the_identity_only_once_credits_are_checked() {
+    let (_turn, mut kit) = demo_app("identity", "en");
+    kit.state_mut().identity.top_up = Some(Default::default());
+    credits_checked_as(&mut kit, false);
+    assert!(has_text(&kit, "On the identity after: —"), "not checked");
+    credits_checked_as(&mut kit, true);
+    assert!(!has_text(&kit, "On the identity after: —"));
+    assert!(has_words(&kit, "On the identity after: "));
+}
+
+/// BUG-116: «Left in credits» of a move into the pool, the same.
+#[test]
+fn a_move_into_the_pool_says_what_is_left_only_once_credits_are_checked() {
+    let (_turn, mut kit) = demo_app("shielded", "en");
+    kit.state_mut().pool = crate::screens::shielded::PoolState {
+        shielding: true,
+        from: 0,
+        amount: "0.1".into(),
+        ..Default::default()
+    };
+    credits_checked_as(&mut kit, false);
+    assert!(has_text(&kit, "Left in credits: —"), "not checked");
+    credits_checked_as(&mut kit, true);
+    assert!(!has_text(&kit, "Left in credits: —"));
+    assert!(has_words(&kit, "Left in credits: "));
+}
+
+/// BUG-116: the snapshot's credits set to `credits`, checked or not.
+fn credits_as(kit: &mut Kit, credits: evolite_api::Duffs, checked: bool) {
+    for _ in 0..3 {
+        if let Some(w) = kit
+            .state_mut()
+            .snapshot
+            .as_mut()
+            .and_then(|s| s.wallet.as_mut())
+        {
+            w.balances.credits = credits;
+            w.balances.credits_checked = checked;
+        }
+        kit.run_steps(1);
+    }
+}
+
+/// BUG-116 (the designer): Add name, Add contact and Profile claim no lack of credits while the
+/// credits are not checked in this run; once checked, a real lack is said as before.
+#[test]
+fn no_lack_of_credits_is_claimed_before_they_are_checked() {
+    let lacks = [
+        ("add-name", "Not enough credits for the name"),
+        (
+            "add-contact",
+            "The network checks a reserve before it writes",
+        ),
+    ];
+    for (preset, lack) in lacks {
+        let (turn, mut kit) = demo_app(preset, "en");
+        kit.run_steps(3);
+        credits_as(&mut kit, 1, false);
+        assert!(!has_words(&kit, lack), "{preset}: not checked yet");
+        credits_as(&mut kit, 1, true);
+        assert!(has_words(&kit, lack), "{preset}: checked and short");
+        drop(kit);
+        drop(turn);
+    }
+    // Profile says nothing of the credits it has, checked or not.
+    let (_turn, mut kit) = demo_app("edit-profile", "en");
+    kit.run_steps(3);
+    credits_as(&mut kit, 1, false);
+    assert!(!has_words(&kit, "Not enough credits"));
+    assert!(!has_words(&kit, "The network checks a reserve"));
+}
+
 /// BUG-112: from the pool to an @name the form says once, under the recipient, that the pool
 /// cannot pay a name, promises nothing about privacy, shows no fee, and the button says why.
 #[test]
