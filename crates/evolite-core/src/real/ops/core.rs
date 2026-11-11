@@ -135,6 +135,9 @@ impl Real {
             Source::Core => {}
             Source::Credits => return self.send_credits(payment, id, to, amount, note),
             Source::Pool => return self.send_from_pool(payment, to, amount, note),
+            Source::PlatformAddress => {
+                return self.send_from_addresses(payment, id, to, amount, note);
+            }
         }
         let payee = self.core_payee(to)?;
         // A contact is paid only to the address the last look before signing showed.

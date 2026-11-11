@@ -321,6 +321,8 @@ impl Mock {
                             result: Ok(())
                         }
                     );
+                    // So does a payment from the Platform addresses (FEAT-0015).
+                    changed |= matches!(event, Event::Sent { result: Ok(_), .. });
                     event
                 }
             },
@@ -570,6 +572,19 @@ impl Mock {
         if bad_amount {
             return op.refused(CoreError::BadAmount);
         }
+        if let Spend::Send {
+            id,
+            from: Source::PlatformAddress,
+            to,
+            amount,
+            ..
+        } = &op
+        {
+            return Event::Sent {
+                id: *id,
+                result: self.pay_from_addresses(to, *amount),
+            };
+        }
         let why = match op {
             Spend::Shield { .. } => {
                 self.shield_started = Some(Instant::now());
@@ -690,6 +705,110 @@ impl Mock {
             },
         );
         Ok(())
+    }
+
+    /// A payment from the Platform addresses in the demo (FEAT-0015), as the real core makes
+    /// it: the recipient chooses the operation; a foreign Core address or name is refused; the
+    /// addresses give what [`address_plan`] says, the line goes into the history.
+    fn pay_from_addresses(&mut self, to: &str, amount: Duffs) -> Result<SentPayment, CoreError> {
+        use evolite_api::address_plan::{
+            AddressMove, AddressRefusal, CREDITS_PER_DUFF, address_plan, duffs_up, move_for,
+        };
+        let wallet = self
+            .snapshot
+            .wallet
+            .as_mut()
+            .ok_or(CoreError::NotAvailable(NO_WALLET.into()))?;
+        if amount <= 0 {
+            return Err(CoreError::BadAmount);
+        }
+        let to = to.trim();
+        let kind = move_for(to);
+        let line_kind = match kind {
+            AddressMove::Transfer if to.starts_with("tdash1") => {
+                ActivityKind::AddressSent { to: to.to_owned() }
+            }
+            AddressMove::Transfer => return Err(CoreError::BadAddress),
+            AddressMove::Withdraw if !to.starts_with('y') => return Err(CoreError::BadAddress),
+            AddressMove::Withdraw if to != wallet.core_address => {
+                return Err(CoreError::NotAvailable(
+                    tr!("From a Platform address to Core: only to this wallet's addresses").into(),
+                ));
+            }
+            AddressMove::Withdraw => ActivityKind::AddressWithdrawal {
+                to: to.to_owned(),
+                status: Some(WithdrawalState::Queued),
+            },
+            AddressMove::TopUp => {
+                let label = to.trim_start_matches('@').to_lowercase();
+                let ours = wallet.identities.iter().any(|i| {
+                    i.name
+                        .as_deref()
+                        .is_some_and(|n| n.eq_ignore_ascii_case(&label))
+                });
+                if !ours {
+                    return Err(CoreError::NotAvailable(
+                        tr!("From a Platform address, only an identity of this wallet can be topped up")
+                            .into(),
+                    ));
+                }
+                ActivityKind::TopUp {
+                    identity: format!("@{label}"),
+                    creates: false,
+                    credits: Credits::Added,
+                }
+            }
+        };
+        let credits = (amount as u64).saturating_mul(CREDITS_PER_DUFF);
+        let plan =
+            address_plan(kind, credits, false, &wallet.platform_inputs).map_err(
+                |why| match why {
+                    AddressRefusal::NotEnough { .. } => CoreError::NotEnough,
+                    AddressRefusal::BelowLeast { .. } => CoreError::BadAmount,
+                },
+            )?;
+        for (i, gives) in &plan.inputs {
+            wallet.platform_inputs[*i] -= gives;
+        }
+        if let Some(payer) = plan.fee_payer {
+            wallet.platform_inputs[payer] -= plan.fee;
+        }
+        let left: u64 = wallet.platform_inputs.iter().sum();
+        wallet.balances.platform_address = (left / CREDITS_PER_DUFF) as Duffs;
+        if kind == AddressMove::TopUp {
+            wallet.balances.credits += amount;
+            wallet.balances.all_credits += amount;
+        }
+        let fee = duffs_up(plan.fee);
+        let line = wallet.activity.iter().map(|a| a.id).max().unwrap_or(0) + 1;
+        let chain = Chain::Platform;
+        let (layers, flow) = evolite_common::layers::of(&line_kind, chain);
+        wallet.activity.insert(
+            0,
+            Activity {
+                id: line,
+                kind: line_kind,
+                chain,
+                at: now(),
+                amount: -(amount + fee),
+                proof: Proof::Proved,
+                txid: None,
+                fee: Some(fee),
+                block: None,
+                address: None,
+                layers,
+                flow,
+                key: format!("demo:{line}"),
+                note: None,
+                detail: None,
+            },
+        );
+        Ok(SentPayment {
+            txid: String::new(),
+            amount,
+            fee,
+            relayed: true,
+        })
     }
 
     /// A demo wallet's password checked as the real core checks one (FEAT-0002): refused
@@ -1122,6 +1241,71 @@ mod tests {
                 ..
             }
         ));
+    }
+
+    /// FEAT-0015: the demo pays from its Platform addresses as the real core does: to a
+    /// Platform address and to its own Core address; a foreign Core address and a foreign
+    /// name are refused, nothing is taken.
+    #[test]
+    fn the_demo_pays_from_its_platform_addresses() {
+        let (mut m, tx, rx) = mock();
+        let send = |m: &mut Mock, to: &str, amount| {
+            m.handle(
+                Command::Spend {
+                    op: Spend::Send {
+                        id: 7,
+                        from: Source::PlatformAddress,
+                        to: to.into(),
+                        amount,
+                        note: None,
+                    },
+                    password: None,
+                },
+                &tx,
+            );
+            match rx.recv().unwrap() {
+                Event::Sent { id: 7, result } => result,
+                other => panic!("{other:?}"),
+            }
+        };
+        let held = |m: &Mock| -> u64 {
+            m.snapshot
+                .wallet
+                .as_ref()
+                .unwrap()
+                .platform_inputs
+                .iter()
+                .sum()
+        };
+        let before = held(&m);
+        let paid = send(&mut m, "tdash1qz8fexample", 1_000_000).expect("a transfer");
+        assert_eq!(paid.fee, 6_500, "one input and one output");
+        assert_eq!(before - held(&m), (1_000_000 + 6_500) * 1_000);
+        let line = &m.snapshot.wallet.as_ref().unwrap().activity[0];
+        assert!(matches!(line.kind, ActivityKind::AddressSent { .. }));
+        assert_eq!((line.amount, line.fee), (-1_006_500, Some(6_500)));
+
+        let own = m.snapshot.wallet.as_ref().unwrap().core_address.clone();
+        assert!(send(&mut m, &own, 10_000_000).is_ok(), "own Core address");
+        let before = held(&m);
+        for (to, why) in [
+            ("yForeignAddressxxxxxxxxxxxxxxxxxx", "foreign Core"),
+            ("@someone-else", "foreign name"),
+        ] {
+            assert!(
+                matches!(send(&mut m, to, 1_000_000), Err(CoreError::NotAvailable(_))),
+                "{why}"
+            );
+        }
+        assert_eq!(held(&m), before, "nothing taken");
+        assert_eq!(
+            send(&mut m, "tdash1qz8fexample", 1),
+            Err(CoreError::BadAmount)
+        );
+        assert_eq!(
+            send(&mut m, "tdash1qz8fexample", 1_000_000_000),
+            Err(CoreError::NotEnough)
+        );
     }
 
     /// One of each spend (R-27 AC-T1).

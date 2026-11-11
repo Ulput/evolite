@@ -8,6 +8,7 @@
 //! answer is not in the tree.
 
 mod add_name;
+mod addresses;
 mod amounts;
 mod as_known;
 mod bugs;

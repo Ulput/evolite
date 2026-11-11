@@ -186,7 +186,12 @@ pub const PRESETS: &[&str] = &[
     "activity-card-add-note", "activity-card-note-edit", "activity-card-note-error",
     "send-note", "send-note-limit", "send-confirm-note", "delete-notes",
     "send", "send-confirm", "send-contact", "send-book", "send-syncing", "send-qr-menu",
-    "send-qr-filled", "send-qr-error", "send-confirm-link", "send-pool-unread", "send-pool-unknown",
+    "send-qr-filled", "send-qr-error", "send-confirm-link",
+    "send-from-address", "address-withdraw-warning", "address-withdraw-foreign", "address-top-up",
+    "address-confirm",
+    "core-to-platform-address",
+    "address-top-up-foreign",
+    "send-pool-unread", "send-pool-unknown",
     "receive",
     "identity", "identity-unfinished", "identity-created", "top-up-stopped", "top-up-awaiting",
     "edit-profile",
@@ -281,10 +286,27 @@ fn dev_args<'a>(
         (
             None,
             Some(
-                "send" | "send-confirm" | "send-contact" | "send-book" | "send-syncing"
-                | "send-note" | "send-note-limit" | "send-confirm-note" | "send-qr-menu"
-                | "send-qr-filled" | "send-qr-error" | "send-confirm-link" | "send-pool-unread"
-                | "send-pool-unknown",
+                "send"
+                | "send-confirm"
+                | "send-contact"
+                | "send-book"
+                | "send-syncing"
+                | "send-note"
+                | "send-note-limit"
+                | "send-confirm-note"
+                | "send-qr-menu"
+                | "send-qr-filled"
+                | "send-qr-error"
+                | "send-confirm-link"
+                | "send-pool-unread"
+                | "send-pool-unknown"
+                | "send-from-address"
+                | "address-withdraw-warning"
+                | "address-withdraw-foreign"
+                | "address-top-up"
+                | "address-confirm"
+                | "core-to-platform-address"
+                | "address-top-up-foreign",
             ),
         ) => Screen::Send,
         (None, Some("receive")) => Screen::Receive,

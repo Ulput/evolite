@@ -227,7 +227,11 @@ pub(super) fn resolved(
 ) {
     let p = a.p;
     let contact = c.contact == Some(ContactState::Established);
+    // FEAT-0015 R-1а: from the Platform address a name that is not the wallet's own is no
+    // recipient; its card says only whose identity it is, in a plain frame.
+    let foreign = from == Source::PlatformAddress;
     let (goes, mark, icon, border) = match (from, contact) {
+        _ if foreign => ("", tr!("Name verified"), "confirmed", p.line),
         (Source::Core, true) => (
             tr!("the payment goes to a new address from the contact's key"),
             tr!("Name verified"),

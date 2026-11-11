@@ -473,9 +473,10 @@ fn counterparty(act: &Activity) -> Option<(&'static str, String, Option<String>)
             None if !to.is_empty() => Some((tr!("To"), to.clone(), None)),
             None => None,
         },
-        ActivityKind::CreditTransfer { to } | ActivityKind::Withdrawal { to, .. } => {
-            Some((tr!("To"), to.clone(), None))
-        }
+        ActivityKind::CreditTransfer { to }
+        | ActivityKind::Withdrawal { to, .. }
+        | ActivityKind::AddressSent { to }
+        | ActivityKind::AddressWithdrawal { to, .. } => Some((tr!("To"), to.clone(), None)),
         // Which identity of ours sent it, when the wallet has several (BUG-69).
         ActivityKind::ContactRequest { to, ours, .. } => Some((
             tr!("To"),

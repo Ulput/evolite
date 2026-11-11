@@ -180,7 +180,7 @@ fn a_payment_qr_fills_send() {
     assert_eq!(form.note, "Coffee");
     assert!(has_text(
         &kit,
-        "Filled in from a QR code: address and amount. Check the address before sending"
+        "Filled in from a QR code: the address and the amount. Check the address before sending"
     ));
 }
 
@@ -236,7 +236,7 @@ fn letters_that_are_not_ascii_can_be_typed_in_to() {
 #[test]
 fn the_filled_in_line_goes_when_to_changes() {
     const WORDS: &str =
-        "Filled in from a QR code: address and amount. Check the address before sending";
+        "Filled in from a QR code: the address and the amount. Check the address before sending";
     let (_turn, mut kit) = demo_app("send-qr-filled", "en");
     kit.run_steps(2);
     assert!(has_text(&kit, WORDS));

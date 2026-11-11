@@ -300,13 +300,33 @@ fn keys(ui: &Ui, menu: egui::Id, button: &Response, clip: bool, scanner: &mut Sc
 pub fn qr_note(ui: &mut Ui, a: &mut Assets, note: &QrNote) {
     let p = a.p;
     let (icon, color, line) = match note {
+        // Whole sentences: the catalogs have no single word «address», only its plural forms
+        // (QA pass, 2026-11-10: «Заполнено из QR-кода: address»).
         QrNote::Filled(what) => (
             "check",
             p.muted,
-            format!(
-                tr!("Filled in from a QR code: {}. Check the address before sending"),
-                what
-            ),
+            match *what {
+                "address" => {
+                    tr!("Filled in from a QR code: the address. Check the address before sending")
+                        .to_owned()
+                }
+                "address and amount" => tr!(
+                    "Filled in from a QR code: the address and the amount. Check the address before sending"
+                )
+                .to_owned(),
+                "name" => {
+                    tr!("Filled in from a QR code: the name. Check the address before sending")
+                        .to_owned()
+                }
+                "name and amount" => tr!(
+                    "Filled in from a QR code: the name and the amount. Check the address before sending"
+                )
+                .to_owned(),
+                other => format!(
+                    tr!("Filled in from a QR code: {}. Check the address before sending"),
+                    crate::i18n::t(other)
+                ),
+            },
         ),
         QrNote::Error(words) => ("warning", p.danger, words.to_string()),
     };

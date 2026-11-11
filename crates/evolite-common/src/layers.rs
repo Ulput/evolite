@@ -51,6 +51,8 @@ pub fn of(kind: &ActivityKind, chain: Chain) -> (u8, Flow) {
         SelfTransfer { .. } if chain == Chain::Platform => (POOL, Flow::Between),
         SelfTransfer { .. } => (CORE, Flow::Between),
         PlatformReceived => (PLATFORM_ADDRESS, Flow::In),
+        // An identity topped up from the wallet's Platform addresses (FEAT-0015): no Core in it.
+        TopUp { .. } if chain == Chain::Platform => (PLATFORM_ADDRESS | IDENTITY, Flow::Between),
         // An asset lock: Core to the identity it registers or tops up, or to the Platform
         // address (no identity and no registration).
         TopUp {
@@ -74,6 +76,10 @@ pub fn of(kind: &ActivityKind, chain: Chain) -> (u8, Flow) {
         AppSignIn { .. } | ContactRequest { .. } | ProfileSaved | NameRegistered { .. } => {
             (IDENTITY, Flow::Out)
         }
+        // From the wallet's Platform addresses (FEAT-0015): to anyone's Platform address, or to a
+        // Core address of this wallet only (R-3).
+        AddressSent { .. } => (PLATFORM_ADDRESS, Flow::Out),
+        AddressWithdrawal { .. } => (PLATFORM_ADDRESS | CORE, Flow::Between),
         // Costs nothing: someone asked us.
         ContactRequestIn { .. } => (IDENTITY, Flow::In),
     }
@@ -95,6 +101,10 @@ pub fn settle(act: &mut Activity, own: &Own) {
             } else {
                 Flow::Out
             };
+        }
+        // Between the wallet's own Platform addresses: only the fee leaves.
+        ActivityKind::AddressSent { to } if own.platform_address(to) => {
+            act.flow = Flow::Between;
         }
         ActivityKind::CreditTransfer { to } if own.identity(to) => {
             (act.layers, act.flow) = (IDENTITY, Flow::Between);

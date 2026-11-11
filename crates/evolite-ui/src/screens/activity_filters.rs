@@ -68,7 +68,11 @@ pub mod kind {
 pub fn kind_of(a: &Activity) -> u8 {
     use ActivityKind::*;
     match a.kind {
-        Received { .. } | Sent { .. } | PlatformReceived => kind::PAYMENTS,
+        Received { .. }
+        | Sent { .. }
+        | PlatformReceived
+        | AddressSent { .. }
+        | AddressWithdrawal { .. } => kind::PAYMENTS,
         SelfTransfer { .. } => kind::SELF_TRANSFER,
         TopUp { .. } | Withdrawal { .. } | CreditTransfer { .. } => kind::IDENTITY,
         NameRegistered { .. } => kind::NAMES,
@@ -265,6 +269,8 @@ pub fn matches_query(act: &Activity, q: &str, book: &[SavedAddress]) -> bool {
         | ActivityKind::Sent { to: who }
         | ActivityKind::CreditTransfer { to: who }
         | ActivityKind::Withdrawal { to: who, .. }
+        | ActivityKind::AddressSent { to: who }
+        | ActivityKind::AddressWithdrawal { to: who, .. }
         | ActivityKind::ContactRequest { to: who, .. }
         | ActivityKind::ContactRequestIn { from: who, .. }
         | ActivityKind::TopUp { identity: who, .. } => who.as_str(),

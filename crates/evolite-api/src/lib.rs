@@ -12,6 +12,8 @@ use std::fmt;
 use std::sync::Arc;
 use zeroize::Zeroizing;
 
+pub mod address_plan;
+
 /// 1 DASH = 100 000 000 duffs.
 pub type Duffs = i64;
 /// Unix time, seconds.
@@ -148,6 +150,16 @@ pub enum ActivityKind {
     /// A DPNS name registered for the identity (paid in credits).
     NameRegistered {
         label: String,
+    },
+    /// Sent from the wallet's Platform addresses to a Platform address (FEAT-0015 R-11).
+    AddressSent {
+        to: String,
+    },
+    /// Withdrawn from the wallet's Platform addresses to a Core address of this wallet; paid out
+    /// by Platform later. `status`: its document's, once read; `None` until then (FEAT-0015 R-11).
+    AddressWithdrawal {
+        to: String,
+        status: Option<WithdrawalState>,
     },
 }
 
@@ -949,6 +961,9 @@ pub struct Wallet {
     /// Fresh addresses to receive on.
     pub core_address: String,
     pub platform_address: String,
+    /// The credits on each of the wallet's Platform addresses, in the addresses' own order (as a
+    /// transition keeps them): what [`address_plan::address_plan`] chooses from (FEAT-0015).
+    pub platform_inputs: Vec<u64>,
     pub identity: Option<Identity>,
     pub pool: Pool,
     pub apps: Vec<ConnectedApp>,
@@ -1074,6 +1089,10 @@ pub enum Source {
     Core,
     Credits,
     Pool,
+    /// The wallet's Platform addresses (FEAT-0015): what they do is chosen by the recipient —
+    /// a Platform address (transfer), a Core address of this wallet (withdrawal), one of its
+    /// identities (top-up). Public on Platform, unlike the pool.
+    PlatformAddress,
 }
 
 /// Whether a DPNS name can be taken.

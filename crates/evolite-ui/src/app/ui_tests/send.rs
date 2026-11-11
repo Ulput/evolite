@@ -128,8 +128,11 @@ fn the_wallets_own_address_with_spaces_around_is_its_own() {
 #[test]
 fn the_sources_stay_in_one_row_of_equal_columns() {
     for (lang, names) in [
-        ("ru", ["Core", "Кредиты", "Приватный пул"]),
-        ("en", ["Core", "Credits", "Private pool"]),
+        ("ru", ["Core", "Кредиты", "Приватный пул", "Адрес Platform"]),
+        (
+            "en",
+            ["Core", "Credits", "Private pool", "Platform address"],
+        ),
     ] {
         let (_turn, mut kit) = demo_app("send", lang);
         for _ in 0..5 {
@@ -155,10 +158,10 @@ fn the_sources_stay_in_one_row_of_equal_columns() {
             })
             .map(|n| n.rect())
             .collect();
-        assert_eq!(cards.len(), 3, "{lang}: {names:?}: {cards:?}");
+        assert_eq!(cards.len(), 4, "{lang}: {names:?}: {cards:?}");
         let top = cards[0].top();
         assert!(
-            cards.iter().all(|r| (r.top() - top).abs() < 0.5),
+            even_rows(&cards) && top >= 0.0,
             "{lang}: one row: {cards:?}"
         );
         let width = cards[0].width();
@@ -185,7 +188,8 @@ fn every_source_lies_inside_the_from_panel() {
     ];
     for lang in ["ru", "en"] {
         let (_turn, mut kit) = demo_app("send", lang);
-        let names = ["Core", "Credits", "Private pool"].map(crate::i18n::spoken);
+        let names =
+            ["Core", "Credits", "Private pool", "Platform address"].map(crate::i18n::spoken);
         let from = crate::i18n::spoken("From");
         let hide = crate::i18n::spoken("Hide the amounts");
         for (core, credits, pool, as_of) in sets {
@@ -228,7 +232,7 @@ fn every_source_lies_inside_the_from_panel() {
                     })
                     .map(|n| n.rect())
                     .collect();
-                assert_eq!(cards.len(), 3, "{at}: {names:?}: {cards:?}");
+                assert_eq!(cards.len(), 4, "{at}: {names:?}: {cards:?}");
                 for r in &cards {
                     assert!(
                         r.left() >= left - 0.5 && r.right() <= right + 0.5,
@@ -243,7 +247,7 @@ fn every_source_lies_inside_the_from_panel() {
                 if !as_of {
                     let top = cards[0].top();
                     assert!(
-                        !one_row || cards.iter().all(|r| (r.top() - top).abs() < 0.5),
+                        !one_row || (even_rows(&cards) && top >= 0.0),
                         "{at}: one row: {cards:?}"
                     );
                     // The widest words with 14 px on the left and 16 on the right.
@@ -328,10 +332,11 @@ fn a_name_not_checkable_yet_says_why_on_send() {
     assert!(!has_words(&kit, "Checking the name in DPNS"));
 }
 
-/// BUG-67 in every interface language: the bug's balances at 1024 × 768 (the rail) stay in one
-/// row of three equal columns, whatever the words of the language, and with the Core balance
-/// «as of» yesterday too (its words under the row, not on the card). Before the fix Core's line
-/// took the cards to two rows or one column.
+/// BUG-67 in every interface language: the bug's balances at 1024 × 768 (the rail) stay in equal
+/// columns, whatever the words of the language, and with the Core balance «as of» yesterday too
+/// (its words under the row, not on the card). Before the fix Core's line took the cards to two
+/// rows or one column. Since FEAT-0015 there are four sources: one row, or two rows of two
+/// (AC-D10: 3 + 1 never).
 #[test]
 fn the_sources_stay_in_one_row_in_every_language() {
     let mut wrong = Vec::new();
@@ -354,7 +359,8 @@ fn the_sources_stay_in_one_row_in_every_language() {
             }
             kit.run_steps(1);
         }
-        let names = ["Core", "Credits", "Private pool"].map(crate::i18n::spoken);
+        let names =
+            ["Core", "Credits", "Private pool", "Platform address"].map(crate::i18n::spoken);
         let cards: Vec<_> = kit
             .query_all_by_role(Role::RadioButton)
             .filter(|n| {
@@ -364,8 +370,19 @@ fn the_sources_stay_in_one_row_in_every_language() {
             })
             .map(|n| n.rect())
             .collect();
-        let row = cards.len() == 3
-            && cards.iter().all(|r| (r.top() - cards[0].top()).abs() < 0.5)
+        // Rows by their top: all of one size (4, or 2 + 2), and every column one width.
+        let mut rows: Vec<(f32, usize)> = Vec::new();
+        for r in &cards {
+            match rows
+                .iter_mut()
+                .find(|(top, _)| (*top - r.top()).abs() < 0.5)
+            {
+                Some(row) => row.1 += 1,
+                None => rows.push((r.top(), 1)),
+            }
+        }
+        let row = cards.len() == 4
+            && rows.iter().all(|(_, n)| *n == rows[0].1)
             && cards
                 .iter()
                 .all(|r| (r.width() - cards[0].width()).abs() < 0.5);
@@ -379,4 +396,20 @@ fn the_sources_stay_in_one_row_in_every_language() {
         drop(turn);
     }
     assert!(wrong.is_empty(), "{wrong:#?}");
+}
+
+/// The «From» cards come in rows of one size: all four in one, or two of two (FEAT-0015
+/// AC-D10: three and one never).
+fn even_rows(cards: &[egui::Rect]) -> bool {
+    let mut rows: Vec<(f32, usize)> = Vec::new();
+    for r in cards {
+        match rows
+            .iter_mut()
+            .find(|(top, _)| (*top - r.top()).abs() < 0.5)
+        {
+            Some(row) => row.1 += 1,
+            None => rows.push((r.top(), 1)),
+        }
+    }
+    rows.iter().all(|(_, n)| *n == rows[0].1)
 }

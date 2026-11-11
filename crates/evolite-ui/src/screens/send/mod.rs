@@ -127,6 +127,7 @@ impl SendForm {
                 Source::Core => 0,
                 Source::Credits => 1,
                 Source::Pool => 2,
+                Source::PlatformAddress => 3,
             },
             recipient: to,
             ..Self::empty()

@@ -117,6 +117,20 @@ pub enum What {
     Shield {
         from: String,
     },
+    /// From the wallet's Platform addresses to a Platform address (FEAT-0015). Platform keeps
+    /// no history of an address: only this line says it happened (R-9).
+    AddressSent {
+        to: String,
+    },
+    /// From the wallet's Platform addresses to a Core address of this wallet; `key` is its
+    /// withdrawal document (`wd:<id>`), computed when it was signed.
+    AddressWithdrawal {
+        to: String,
+    },
+    /// One of the wallet's identities topped up from its Platform addresses (`@name` or id).
+    AddressTopUp {
+        identity: String,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -450,6 +464,16 @@ pub fn activity(entry: &Entry) -> Activity {
         What::Shield { from } => ActivityKind::Shielded {
             from: Some(from.clone()),
         },
+        What::AddressSent { to } => ActivityKind::AddressSent { to: to.clone() },
+        What::AddressWithdrawal { to } => ActivityKind::AddressWithdrawal {
+            to: to.clone(),
+            status: entry.status.map(WithdrawalStatus::shown),
+        },
+        What::AddressTopUp { identity } => ActivityKind::TopUp {
+            identity: identity.clone(),
+            creates: false,
+            credits: evolite_api::Credits::Added,
+        },
     };
     let (layers, flow) = evolite_common::layers::of(&kind, Chain::Platform);
     Activity {
@@ -520,7 +544,12 @@ fn fee_of(entry: &Entry) -> Option<Duffs> {
 fn moves_money(what: &What) -> bool {
     matches!(
         what,
-        What::Credits { .. } | What::Withdrawal { .. } | What::Shield { .. }
+        What::Credits { .. }
+            | What::Withdrawal { .. }
+            | What::Shield { .. }
+            | What::AddressSent { .. }
+            | What::AddressWithdrawal { .. }
+            | What::AddressTopUp { .. }
     )
 }
 
@@ -974,5 +1003,67 @@ mod tests {
             text.contains(r#""what":{"ContactRequest":{"to":"@bob"}}"#),
             "{text}"
         );
+    }
+
+    /// FEAT-0015 AC-T7: the operations from the Platform addresses keep what the history needs
+    /// (recipient, what left, what moved, the withdrawal's document), read back as they were
+    /// written; a file from before them still reads.
+    #[test]
+    fn the_addresses_operations_go_through_the_file() {
+        let entries = vec![
+            Entry {
+                at: 10,
+                what: What::AddressSent {
+                    to: "tdash1qq7x".into(),
+                },
+                spent: 6_600,
+                moved: 100,
+                ..Default::default()
+            },
+            Entry {
+                at: 11,
+                what: What::AddressWithdrawal { to: "yXk3".into() },
+                spent: 401_000,
+                moved: 1_000,
+                key: Some("wd:9Ab".into()),
+                ..Default::default()
+            },
+            Entry {
+                at: 12,
+                what: What::AddressTopUp {
+                    identity: "@kestrel7".into(),
+                },
+                spent: 1_500,
+                moved: 500,
+                ..Default::default()
+            },
+        ];
+        let text = serde_json::to_string(&entries).unwrap();
+        let back: Vec<Entry> = serde_json::from_str(&text).unwrap();
+        assert_eq!(back, entries);
+        let lines: Vec<ActivityKind> = back.iter().map(|e| activity(e).kind).collect();
+        assert_eq!(
+            lines[0],
+            ActivityKind::AddressSent {
+                to: "tdash1qq7x".into()
+            }
+        );
+        assert!(matches!(
+            lines[1],
+            ActivityKind::AddressWithdrawal { status: None, .. }
+        ));
+        assert!(
+            matches!(&lines[2], ActivityKind::TopUp { identity, creates: false, .. } if identity == "@kestrel7")
+        );
+        // The fee is what left beyond what moved; on Platform, proved.
+        let sent = activity(&back[0]);
+        assert_eq!(
+            (sent.amount, sent.fee, sent.chain),
+            (-6_600, Some(6_500), Chain::Platform)
+        );
+        // A file written before these kinds (only the old ones) reads as before.
+        let old = r#"[{"at":1,"what":{"Credits":{"to":"@bob"}},"spent":5,"moved":0}]"#;
+        let read: Vec<Entry> = serde_json::from_str(old).unwrap();
+        assert_eq!(read.len(), 1);
     }
 }

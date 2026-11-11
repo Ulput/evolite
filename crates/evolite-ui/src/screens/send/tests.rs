@@ -894,6 +894,7 @@ fn the_price_on_record_is_the_one_the_send_form_shows() {
         credits: 1_000,
         platform_address: 1_000,
         pool: 1_000,
+        platform_inputs: Vec::new(),
         first_name: false,
     };
     let send = |from, to: &str, amount| Spend::Send {
@@ -1316,6 +1317,34 @@ fn credits_kept_from_before_are_dim_and_said_under_the_row() {
                 .into()
         )
     );
+}
+
+/// FEAT-0015 review r1, Must 1: on mainnet «Platform address» is no source until its payments
+/// are proven live on testnet; the three others stand as before, in one row.
+#[test]
+fn mainnet_has_no_platform_address_source() {
+    use evolite_api::Network;
+    let all = [
+        Source::Core,
+        Source::Credits,
+        Source::Pool,
+        Source::PlatformAddress,
+    ];
+    let on =
+        |network| -> Vec<Source> { all.into_iter().filter(|s| shown_on(network, *s)).collect() };
+    assert_eq!(on(Network::Testnet), all);
+    assert_eq!(
+        on(Network::Mainnet),
+        [Source::Core, Source::Credits, Source::Pool]
+    );
+    // Three cards in one row of equal columns at the form's width, as before FEAT-0015.
+    let card = CardWidths {
+        words: 120.0,
+        with_icon: 148.0,
+    };
+    let columns = from_layout(474.0, &[card; 3]);
+    assert!(columns.iter().all(|c| c.width == columns[0].width));
+    assert!(3.0 * columns[0].width + 16.0 <= 474.0, "one row of three");
 }
 
 /// BUG-112: from the pool the line under the form says what the network sees, and that depends on

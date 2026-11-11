@@ -96,6 +96,8 @@ impl Real {
             names_asked: Default::default(),
             contacts: Vec::new(),
             identity_busy: Arc::new(AtomicBool::new(false)),
+            address_busy: Arc::new(AtomicBool::new(false)),
+            shown_address_inputs: Vec::new(),
             pool_wallet: Arc::new(std::sync::Mutex::new(None)),
             pool_busy: Arc::new(AtomicBool::new(false)),
             contact_accounts_for: Arc::new(std::sync::atomic::AtomicUsize::new(0)),

@@ -36,7 +36,7 @@ pub(super) fn confirm(
 ) {
     let p = a.p;
     let all = sources(cx.wallet(), form.recipient.trim(), amount);
-    let source = &all[form.source];
+    let source = &all[form.source.min(all.len() - 1)];
     let to = form.recipient.trim().to_string();
     let from_core = source.source == Source::Core;
     // Shown, and signed, only once the core has said where the payment goes.
@@ -104,9 +104,25 @@ pub(super) fn confirm(
                 sans(13.0, Weight::Medium),
             );
             recipient_lines(ui, &p, form, &look);
-            amount_lines(ui, &p, amount, source.fee, source.source == Source::Credits);
+            amount_lines(
+                ui,
+                &p,
+                amount,
+                source.fee,
+                matches!(source.source, Source::Credits | Source::PlatformAddress),
+            );
             if let Some(note) = form.note_shown() {
                 confirm_note(ui, a, &note, form.note_from_link());
+            }
+            // From the Platform addresses: public, unlike the pool (FEAT-0015 R-10, frame 7).
+            if source.source == Source::PlatformAddress {
+                crate::components::notice(
+                    ui,
+                    a,
+                    "eye",
+                    p.accent,
+                    tr!("The amount and both addresses will be visible to everyone on Platform."),
+                );
             }
             ui.label(txt(
                 tr!("A payment cannot be undone."),

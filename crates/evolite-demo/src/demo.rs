@@ -725,6 +725,9 @@ pub fn demo_wallet(t: Timestamp) -> Wallet {
         ],
         core_address: "yXk3Tq9mD8vJw2RfL6pN4sB7cH1eZ5aG9f2c".into(),
         platform_address: "tdash1qq7x4m9n2r8v5k3j6h0w4p2s8d5f7g9l3c0zq".into(),
+        // The 0,734 DASH on two addresses (credits, in the addresses' own order): «Max» and a
+        // payment from both show how the fee grows with the inputs.
+        platform_inputs: vec![13_400_000_000, 60_000_000_000],
         identity: Some(Identity {
             id: PEOPLE[0].id.into(),
             created_at: t - 17 * day,

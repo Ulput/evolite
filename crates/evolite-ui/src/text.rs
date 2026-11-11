@@ -307,6 +307,15 @@ pub fn activity_title(a: &Activity) -> String {
         ActivityKind::PlatformReceived => tr!("Received at the Platform address").into(),
         // An asset lock: an identity's creation or top-up (BUG-57); one the wallet cannot place
         // goes to Platform, nothing more is known.
+        // From the wallet's Platform addresses (FEAT-0015 R-11).
+        ActivityKind::TopUp { identity, .. } if a.chain == Chain::Platform => format!(
+            tr!("Top-up of {} from the Platform address"),
+            identity_in_line(identity)
+        ),
+        ActivityKind::AddressSent { .. } => tr!("Sent from the Platform address").into(),
+        ActivityKind::AddressWithdrawal { .. } => {
+            tr!("Withdrawn to Core from the Platform address").into()
+        }
         ActivityKind::TopUp {
             identity,
             creates: true,
@@ -373,6 +382,10 @@ pub fn activity_title(a: &Activity) -> String {
 pub fn activity_status(a: &Activity) -> Option<&'static str> {
     Some(match &a.kind {
         ActivityKind::Withdrawal {
+            status: Some(status),
+            ..
+        }
+        | ActivityKind::AddressWithdrawal {
             status: Some(status),
             ..
         } => match status {
@@ -532,6 +545,8 @@ pub fn activity_icon(a: &Activity) -> &'static str {
         ActivityKind::CreditTransfer { .. } => "transfer",
         ActivityKind::Shielded { .. } => "shield",
         ActivityKind::Withdrawal { .. } => "send",
+        ActivityKind::AddressSent { .. } => "platform-address",
+        ActivityKind::AddressWithdrawal { .. } => "withdraw",
         ActivityKind::ContactRequest { .. } | ActivityKind::ContactRequestIn { .. } => "contacts",
         ActivityKind::ProfileSaved => "identity",
         ActivityKind::NameRegistered { .. } => "identity",

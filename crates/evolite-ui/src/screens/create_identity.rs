@@ -1066,6 +1066,7 @@ mod tests {
             credits: 0,
             platform_address: 0,
             pool: 0,
+            platform_inputs: Vec::new(),
             first_name: false,
         };
         for (name, named) in [(Some("bob".to_string()), true), (None, false)] {

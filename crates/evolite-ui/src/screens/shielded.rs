@@ -1316,6 +1316,7 @@ mod pool_line_tests {
             credits: 0,
             platform_address: 0,
             pool: 0,
+            platform_inputs: Vec::new(),
             first_name: false,
         };
         for source in [

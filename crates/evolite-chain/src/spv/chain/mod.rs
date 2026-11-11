@@ -7,6 +7,7 @@
 //! Proofs of Platform data are checked against quorum keys from this SPV client's own verified
 //! masternode list ([`SpvContextProvider`]), not a server's.
 
+pub mod addresses;
 mod contacts;
 mod identities;
 mod store_read;

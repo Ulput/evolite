@@ -174,10 +174,22 @@ pub(super) fn credits_fee(fees: &evolite_api::Fees, to: &str) -> Duffs {
 
 /// `to`: the recipient typed, which decides what a payment from credits or the pool costs;
 /// `amount`: the amount typed (0: none yet), which decides what a payment from Core costs.
-pub(super) fn sources(w: &Wallet, to: &str, amount: Duffs) -> [SourceView; 3] {
+pub(super) fn sources(w: &Wallet, to: &str, amount: Duffs) -> Vec<SourceView> {
+    sources_on(evolite_core::network::current(), w, to, amount)
+}
+
+/// [`sources`] on `network`: on mainnet without «Platform address» until its payments are proven
+/// live on testnet (FEAT-0015 review r1, Must 1).
+pub(super) fn sources_on(
+    network: evolite_api::Network,
+    w: &Wallet,
+    to: &str,
+    amount: Duffs,
+) -> Vec<SourceView> {
     let credits = credits_fee(&w.fees, to);
     let pool = super::super::shielded::pool_fee(&w.fees, to);
-    [
+    let (address, address_max) = address_fees(w, to, amount);
+    let mut all = vec![
         SourceView {
             source: Source::Core,
             icon: "core",
@@ -216,7 +228,47 @@ pub(super) fn sources(w: &Wallet, to: &str, amount: Duffs) -> [SourceView; 3] {
                 "From the pool: the amount and the recipient are not visible on the network."
             ),
         },
-    ]
+        // FEAT-0015: what the addresses do is chosen by the recipient; public, unlike the pool
+        // (R-10).
+        SourceView {
+            source: Source::PlatformAddress,
+            icon: "platform-address",
+            title: tr!("Platform address"),
+            duffs: w.balances.platform_address,
+            fee: address,
+            max_fee: address_max,
+            withdrawal: None,
+            // Not checked in this run: its last known balance, dimmed (BUG-113), as the others.
+            read: w.balances.platform_address_read,
+            note_icon: "eye",
+            note: tr!(
+                "Amounts on a Platform address are visible to everyone. For privacy, use the private pool."
+            ),
+        },
+    ];
+    all.retain(|s| shown_on(network, s.source));
+    all
+}
+
+/// Whether `source` is offered on `network`: «Platform address» not on mainnet until its payments
+/// are proven live on testnet (FEAT-0015 review r1, Must 1). One place to change then.
+pub(super) fn shown_on(network: evolite_api::Network, source: Source) -> bool {
+    !(network == evolite_api::Network::Mainnet && source == Source::PlatformAddress)
+}
+
+/// What a payment of `amount` duffs from the Platform addresses to `to` costs, by the plan the
+/// core signs (FEAT-0015 R-7), and the fee «Max» leaves room for: the balance less what «Max»
+/// gets. With no plan possible (nothing typed, too little): the fee of one address paying.
+pub(super) fn address_fees(w: &Wallet, to: &str, amount: Duffs) -> (Duffs, Duffs) {
+    use evolite_api::address_plan::{CREDITS_PER_DUFF, address_plan, duffs_up, move_for};
+    let kind = move_for(to);
+    let credits = (amount.max(0) as u64).saturating_mul(CREDITS_PER_DUFF);
+    let fee = address_plan(kind, credits, false, &w.platform_inputs)
+        .map_or_else(|_| duffs_up(kind.fee(1)), |plan| duffs_up(plan.fee));
+    let max_fee = address_plan(kind, 0, true, &w.platform_inputs).map_or(fee, |plan| {
+        w.balances.platform_address - (plan.receives / CREDITS_PER_DUFF) as Duffs
+    });
+    (fee, max_fee)
 }
 
 /// The line under a source's title: its balance; for Core not known yet in this sync, only that
@@ -274,7 +326,13 @@ pub(super) struct CardWidths {
 /// answer for the panel is one for each row, two plus one included.
 pub(super) fn from_layout(width: f32, cards: &[CardWidths]) -> Vec<CardColumn> {
     let widest = |f: fn(&CardWidths) -> f32| cards.iter().map(f).fold(0.0, f32::max);
-    let column = from_columns(width, cards.len(), widest(|c| c.words));
+    let mut column = from_columns(width, cards.len(), widest(|c| c.words));
+    // Four sources: one row of four, or two rows of two — never three and one (FEAT-0015
+    // AC-D10).
+    let per_row = ((width + 8.0) / (column + 8.0)).floor() as usize;
+    if cards.len() == 4 && per_row == 3 {
+        column = ((width - 8.0) / 2.0).floor();
+    }
     let icon = column >= widest(|c| c.with_icon);
     cards
         .iter()

@@ -362,6 +362,7 @@ impl Real {
         let mut shown_wallet = Wallet {
             password_each_send: self.password_each_send,
             notes_error,
+            platform_inputs: self.shown_address_inputs.clone(),
             balances: Balances {
                 core,
                 core_as_of,
@@ -440,6 +441,9 @@ impl Real {
         let platform = turn::timed("platform_address", self.chain.platform_address(&wallet))
             .await
             .ok();
+        // What a payment from the addresses plans with on the form (FEAT-0015).
+        self.shown_address_inputs =
+            turn::timed("address_inputs", self.chain.address_inputs(&wallet)).await;
         let unfinished =
             turn::timed("unfinished_identity", self.unfinished_identity(&wallet)).await;
         let unfinished_top_up =

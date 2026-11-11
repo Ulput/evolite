@@ -93,7 +93,10 @@ fn line(a: &Activity, own: &Own) -> Option<Line> {
         ActivityKind::SelfTransfer { .. }
         | ActivityKind::TopUp { .. }
         | ActivityKind::Shielded { .. } => true,
-        ActivityKind::Withdrawal { to, .. } | ActivityKind::CreditTransfer { to } => own.is(to),
+        ActivityKind::Withdrawal { to, .. }
+        | ActivityKind::CreditTransfer { to }
+        | ActivityKind::AddressSent { to }
+        | ActivityKind::AddressWithdrawal { to, .. } => own.is(to),
         ActivityKind::Sent { to } => own.is(to),
         _ => false,
     };

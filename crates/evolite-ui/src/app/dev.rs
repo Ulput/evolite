@@ -491,6 +491,45 @@ impl App {
             } else if preset("send-book") {
                 self.send.recipient.clear();
             }
+            // FEAT-0015: paying from the Platform addresses: a transfer, a withdrawal costing much of
+            // its amount, one to a foreign Core address, a top-up of the identity, the last look.
+            let from_address = [
+                (
+                    "send-from-address",
+                    "tdash1qqmz8fh2wl5c9u4hyrq3m4n0t7k2vx6s4u6aznp",
+                    5_000_000,
+                ),
+                (
+                    "address-confirm",
+                    "tdash1qqmz8fh2wl5c9u4hyrq3m4n0t7k2vx6s4u6aznp",
+                    5_000_000,
+                ),
+                (
+                    "address-withdraw-warning",
+                    "yXk3Tq9mD8vJw2RfL6pN4sB7cH1eZ5aG9f2c",
+                    2_000_000,
+                ),
+                (
+                    "address-withdraw-foreign",
+                    "yMrDQWqicXKL8xdJg23oYVVqKNtm5AwvXQ",
+                    2_000_000,
+                ),
+                ("address-top-up", "@satoshi", 1_000_000),
+                ("address-top-up-foreign", "@alice", 1_000_000),
+            ];
+            if let Some((name, to, amount)) = from_address.into_iter().find(|(n, ..)| preset(n)) {
+                self.send.replace(screens::send::SendForm::paying(
+                    evolite_api::Source::PlatformAddress,
+                    to.into(),
+                ));
+                self.send.amount = crate::format::input_text(amount);
+                self.send.suggested = Some(amount);
+                self.send.confirming = name == "address-confirm";
+            }
+            // Core to someone else's Platform address (frame 15): the way there from elsewhere.
+            if preset("core-to-platform-address") {
+                self.send.recipient = "tdash1qqmz8fh2wl5c9u4hyrq3m4n0t7k2vx6s4u6aznp".into();
+            }
             // `--screen send-pool-unread` / `send-pool-unknown`: from the pool, to an address: the card,
             // the line under the row, «Left» and the button (BUG-113).
             if preset("send-pool-unread") || preset("send-pool-unknown") {

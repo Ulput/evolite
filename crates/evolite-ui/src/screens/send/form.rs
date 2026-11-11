@@ -16,7 +16,7 @@ pub(super) struct FormView<'a> {
     pub(super) left: Option<Duffs>,
     pub(super) synced: bool,
     pub(super) problem: Option<AmountProblem>,
-    pub(super) unavailable: Option<&'static str>,
+    pub(super) unavailable: Option<String>,
     /// From the pool to an @name, which it cannot pay (BUG-112): said once, under the recipient.
     pub(super) pool_to_name: bool,
     pub(super) resolved_name: Option<ResolvedName>,
@@ -35,6 +35,58 @@ pub(super) struct FormView<'a> {
     pub(super) summary_to: String,
     pub(super) summary_note: Option<String>,
     pub(super) sent_to: String,
+    /// The «Platform address» card (FEAT-0015 AC-D15): a source, or, empty, a button that
+    /// fills the address from elsewhere; not known yet, neither.
+    pub(super) address_card: AddressCard,
+    /// The wallet's own Platform address, and the source that fills it while it is empty: the
+    /// credits, or the pool without an identity (frame 14a).
+    pub(super) own_platform_address: String,
+    pub(super) fills_address: usize,
+    /// From the Platform address to an @name that is not one of the wallet's identities (R-1а):
+    /// said once under the recipient, nothing to pay, the reason under the buttons.
+    pub(super) address_foreign_name: bool,
+}
+
+/// What the «Platform address» card of «From» is (FEAT-0015, the customer's change of
+/// 2026-11-07).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum AddressCard {
+    /// It can pay: a source like the others.
+    Source,
+    /// Too little to spend: dimmed; a click fills it (frame 06, 14a).
+    Empty,
+    /// Its balance not checked yet: dimmed, a click does nothing (frame 10).
+    NotKnown,
+}
+
+impl AddressCard {
+    pub(super) fn of(w: &Wallet) -> Self {
+        use evolite_api::address_plan::{AddressMove, MIN_INPUT};
+        if !w.balances.platform_address_read {
+            AddressCard::NotKnown
+        } else if w
+            .platform_inputs
+            .iter()
+            .all(|credits| *credits < MIN_INPUT + AddressMove::Transfer.fee(1))
+        {
+            AddressCard::Empty
+        } else {
+            AddressCard::Source
+        }
+    }
+
+    /// The tooltip, on hover and on the keyboard's focus.
+    fn hint(self) -> Option<&'static str> {
+        match self {
+            AddressCard::Source => None,
+            AddressCard::Empty => Some(tr!(
+                "There is no money on the Platform address to spend yet. Click the card to top up the address."
+            )),
+            AddressCard::NotKnown => Some(tr!(
+                "The Platform address balance is not checked yet. You can spend from it after the check, usually a few seconds after the sync."
+            )),
+        }
+    }
 }
 
 /// What the form asks of the core and the app once it is drawn.
@@ -57,11 +109,19 @@ impl<'a> FormView<'a> {
         // (BUG-77); a payment waits for the sync all the same.
         let core_as_of = cx.wallet().balances.core_as_of;
         let core_as_of_line = crate::text::core_as_of(core_as_of, cx.now);
+        // A source the list no longer has (on mainnet, «Platform address»): the first.
+        if form.source >= all.len() {
+            form.source = 0;
+        }
         let source = &all[form.source];
         form.follow_source(source);
         // An address for Core is checked as it is typed, so a typo shows before the password.
-        let typed_address =
-            source.source == Source::Core && !typed.is_empty() && !typed.starts_with('@');
+        // A Platform address is no Core payee (FEAT-0015, frame 15): not asked of the core.
+        let platform_typed = typed.to_ascii_lowercase().starts_with("tdash1");
+        let typed_address = source.source == Source::Core
+            && !typed.is_empty()
+            && !typed.starts_with('@')
+            && !platform_typed;
         if typed_address && typed != form.previewed {
             cx.send(Command::PreviewPayment { to: typed.clone() });
             form.previewed = typed.clone();
@@ -93,11 +153,15 @@ impl<'a> FormView<'a> {
                 "The private pool connects after syncing with Platform — usually a minute."
             )),
             // A private address in a DashPay profile is an open question.
+            Source::Core if platform_typed => Some(tr!(
+                "Someone else's Platform address: you can't send to it from Core directly"
+            )),
             Source::Pool if typed.starts_with('@') => Some(tr!(
                 "You can't send from the pool to an @name. Enter an evolite private address, a Platform address or a Core address, or choose another source."
             )),
             _ => None,
-        };
+        }
+        .map(str::to_owned);
         let pool_to_name =
             source.source == Source::Pool && pool_route(&typed) == Some(PoolRoute::Name);
         let to = recipient(form);
@@ -105,6 +169,21 @@ impl<'a> FormView<'a> {
             Recipient::Name(n) => Some((*n).clone()),
             _ => None,
         };
+        // From the Platform addresses (FEAT-0015): what the recipient makes of it and what it
+        // may not be (R-3, R-1а), and a withdrawal that would not reach Core.
+        let unavailable = unavailable.or_else(|| {
+            (source.source == Source::PlatformAddress)
+                .then(|| {
+                    address_refusal(
+                        cx.wallet(),
+                        &typed,
+                        resolved_name.as_ref(),
+                        amount,
+                        source.fee,
+                    )
+                })
+                .flatten()
+        });
         // Credits to the wallet's own identity would only cost the fee.
         let to_self = all[form.source].source == Source::Credits
             && resolved_name.as_ref().is_some_and(|n| {
@@ -149,7 +228,18 @@ impl<'a> FormView<'a> {
         let own = own_address(cx.wallet(), &typed);
         // The kind of the last payment signed, for its answer: "To" may be cleared or new by then.
         let sent_to = form.sent_to.trim().to_string();
+        let address_card = AddressCard::of(cx.wallet());
+        let own_platform_address = cx.wallet().platform_address.clone();
+        let fills_address = if cx.wallet().identity.is_some() { 1 } else { 2 };
+        let address_foreign_name = source.source == Source::PlatformAddress
+            && resolved_name
+                .as_ref()
+                .is_some_and(|n| !cx.wallet().identities.iter().any(|i| i.id == n.identity_id));
         FormView {
+            address_card,
+            own_platform_address,
+            fills_address,
+            address_foreign_name,
             all,
             source,
             core_as_of,
@@ -236,6 +326,11 @@ pub(super) fn form_card(
             }
         });
         recipient_state(ui, a, form, v, asked);
+        if v.source.source == Source::Core
+            && v.recipient_label.to_ascii_lowercase().starts_with("tdash1")
+        {
+            platform_from_core(ui, a, form, v);
+        }
         if let (true, Some(name)) = (v.not_contact, &v.resolved_name) {
             contact_first(ui, a, form, v, name, asked);
             return;
@@ -245,13 +340,8 @@ pub(super) fn form_card(
         kv_row(
             ui,
             &p,
-            tr!("Network fee"),
-            // Nothing to pay for a payment that cannot be made (BUG-112).
-            &if v.pool_to_name {
-                "—".to_owned()
-            } else {
-                crate::format::amount(v.source.fee)
-            },
+            fee_label(v),
+            &fee_value(v),
             mono(13.0, Weight::Regular),
         );
         route_notice(ui, a, v);
@@ -288,6 +378,30 @@ fn source_cards(ui: &mut Ui, a: &mut Assets, form: &mut SendForm, v: &FormView) 
             let columns = from_layout(ui.available_width(), &widths);
             for (i, ((s, detail), column)) in all.iter().zip(&details).zip(columns).enumerate() {
                 let selected = i == form.source;
+                // FEAT-0015: an address with nothing to spend is no source; dimmed, it fills
+                // the address from the credits (or the pool) instead (frames 06, 14a, 10).
+                let hint = (s.source == Source::PlatformAddress)
+                    .then(|| v.address_card.hint())
+                    .flatten();
+                if let Some(hint) = hint {
+                    let resp = ui
+                        .scope(|ui| {
+                            ui.multiply_opacity(0.45);
+                            option_card_in(ui, a, s.icon, s.title, detail, selected, column)
+                        })
+                        .inner;
+                    let words = crate::i18n::t(hint).into_owned();
+                    if resp.has_focus() {
+                        resp.show_tooltip_text(words.clone());
+                    }
+                    let resp = resp.on_hover_text(words);
+                    if resp.clicked() && v.address_card == AddressCard::Empty {
+                        form.source = v.fills_address;
+                        form.recipient = v.own_platform_address.clone();
+                        form.result = None;
+                    }
+                    continue;
+                }
                 // The last known amount, not read in this run, is dimmed (BUG-113).
                 let card = if source_dim(s) {
                     option_card_dim_in
@@ -317,7 +431,7 @@ fn recipient_state(
     recipient_lines(ui, a, form, v, asked);
     // Said once, right under the recipient, not under the amount (BUG-112).
     if v.pool_to_name
-        && let Some(why) = v.unavailable
+        && let Some(why) = v.unavailable.as_deref()
     {
         crate::components::attention_notice(ui, a, why);
     }
@@ -337,7 +451,22 @@ fn recipient_lines(
     let (resolved_name, name_problem) = (&v.resolved_name, &v.name_problem);
     let (address_problem, book) = (&v.address_problem, &v.book);
     if let Some(name) = &resolved_name {
-        resolved(ui, a, name, all[form.source].source, &mut asked.commands);
+        // `resolved` says a name is no recipient when given the Platform address (R-1а); the
+        // wallet's own identity there is topped up, as from the credits.
+        let from = match all[form.source].source {
+            Source::PlatformAddress if !v.address_foreign_name => Source::Credits,
+            other => other,
+        };
+        resolved(ui, a, name, from, &mut asked.commands);
+        if v.address_foreign_name {
+            crate::components::attention_notice(
+                ui,
+                a,
+                tr!(
+                    "From the Platform address you can only top up your own identity. To pay this person, enter their Platform address."
+                ),
+            );
+        }
         if to_self {
             crate::components::attention_line(
                 ui,
@@ -483,7 +612,7 @@ fn contact_first(
 fn amount_row(ui: &mut Ui, form: &mut SendForm, v: &FormView, p: &crate::theme::Palette) {
     let p = *p;
     let source = v.source;
-    let (unavailable, problem) = (v.unavailable, v.problem);
+    let (unavailable, problem) = (v.unavailable.as_deref(), v.problem);
     ui.vertical(|ui| {
         ui.spacing_mut().item_spacing.y = 6.0;
         field_label(ui, &p, tr!("Amount"));
@@ -499,7 +628,8 @@ fn amount_row(ui: &mut Ui, form: &mut SendForm, v: &FormView, p: &crate::theme::
         if resp.changed() || all {
             form.result = None;
         }
-        if let Some(why) = unavailable.filter(|_| !v.pool_to_name) {
+        // R-1а and BUG-112 are said under the recipient, once.
+        if let Some(why) = unavailable.filter(|_| !v.address_foreign_name && !v.pool_to_name) {
             ui.add(egui::Label::new(txt(why, 12.0, Weight::Regular, p.muted)).wrap());
         } else if let Some(problem) = problem {
             ui.add(
@@ -518,6 +648,9 @@ fn amount_row(ui: &mut Ui, form: &mut SendForm, v: &FormView, p: &crate::theme::
 /// How the money travels: a withdrawal arrives later than a payment.
 fn route_notice(ui: &mut Ui, a: &mut Assets, v: &FormView) {
     let p = a.p;
+    if v.source.source == Source::PlatformAddress {
+        return address_notice(ui, a, v);
+    }
     // Credits or the pool to a Core address are a withdrawal: they arrive later, not in seconds;
     // from the pool, the line says what the network sees, which depends on the recipient (BUG-112).
     if let Some((icon, text)) = route_line(v.source, &v.recipient_label) {
@@ -525,11 +658,185 @@ fn route_notice(ui: &mut Ui, a: &mut Assets, v: &FormView) {
     }
 }
 
+/// The fee's label: from the Platform addresses, Platform's or a withdrawal's (FEAT-0015).
+fn fee_label(v: &FormView) -> &'static str {
+    use evolite_api::address_plan::{AddressMove, move_for};
+    match (v.source.source, move_for(&v.recipient_label)) {
+        (Source::PlatformAddress, AddressMove::Withdraw) => tr!("Withdrawal fee"),
+        (Source::PlatformAddress, _) => tr!("Platform fee"),
+        _ => tr!("Network fee"),
+    }
+}
+
+/// The fee: from the credits and the Platform addresses an estimate, «≈», as Platform meters
+/// them (BUG-108).
+fn fee_value(v: &FormView) -> String {
+    // Nothing to pay for a payment that cannot be made (R-1а, BUG-112).
+    if v.address_foreign_name || v.pool_to_name {
+        return "—".into();
+    }
+    let fee = crate::format::amount(v.source.fee);
+    if matches!(v.source.source, Source::Credits | Source::PlatformAddress) {
+        format!("≈ {fee}")
+    } else {
+        fee
+    }
+}
+
+/// Why a payment from the Platform addresses cannot be made as typed (FEAT-0015), before the
+/// core is asked: too little on the addresses, a Core address not this wallet's (R-3), a name
+/// not one of its identities (R-1а), a withdrawal that would not reach Core (UC-4).
+pub(super) fn address_refusal(
+    w: &Wallet,
+    typed: &str,
+    resolved: Option<&ResolvedName>,
+    amount: Option<Duffs>,
+    fee: Duffs,
+) -> Option<String> {
+    use evolite_api::address_plan::{AddressMove, MIN_INPUT, move_for};
+    let kind = move_for(typed);
+    if w.platform_inputs
+        .iter()
+        .all(|credits| *credits < MIN_INPUT + kind.fee(1))
+    {
+        return Some(
+            tr!("The Platform address holds less than the minimum to spend. Top it up.").into(),
+        );
+    }
+    if typed.trim().is_empty() {
+        return None;
+    }
+    match kind {
+        AddressMove::Withdraw if !own_address(w, typed) => Some(format!(
+            "{}. {}.",
+            crate::i18n::t(tr!(
+                "From a Platform address to Core: only to this wallet's addresses"
+            )),
+            crate::i18n::t(tr!(
+                "To pay this Core address, choose Core as the source. Or send to the recipient's Platform address"
+            ))
+        )),
+        AddressMove::Withdraw if amount.is_some_and(|a| a <= fee) => Some(format!(
+            tr!("The amount must be above ≈ {}"),
+            crate::format::amount(fee)
+        )),
+        AddressMove::TopUp => resolved
+            .filter(|n| !w.identities.iter().any(|i| i.id == n.identity_id))
+            .map(|_| {
+                tr!("From the Platform address you can only top up your own identity. To pay this person, enter their Platform address.")
+                    .into()
+            }),
+        _ => None,
+    }
+}
+
+/// From the Platform addresses: what the payment is, by the recipient (UC-1), and a withdrawal
+/// that costs much of its amount (UC-4, analyst-47: above 10 %).
+fn address_notice(ui: &mut Ui, a: &mut Assets, v: &FormView) {
+    use evolite_api::address_plan::{AddressMove, move_for};
+    let p = a.p;
+    let to = v.recipient_label.trim();
+    notice(ui, a, v.source.note_icon, p.accent, v.source.note);
+    if to.is_empty() || v.unavailable.is_some() {
+        return;
+    }
+    match move_for(to) {
+        AddressMove::Transfer => notice(
+            ui,
+            a,
+            "platform-address",
+            p.accent,
+            &format!(
+                "{} · {}",
+                crate::i18n::t(tr!("Transfer to a Platform address")),
+                crate::i18n::t(tr!(
+                    "Someone else's address · the money arrives at once, no queue"
+                ))
+            ),
+        ),
+        AddressMove::TopUp => notice(
+            ui,
+            a,
+            "top-up",
+            p.accent,
+            &format!(
+                tr!("Top up the credits of {} · your identity"),
+                crate::i18n::own(to)
+            ),
+        ),
+        AddressMove::Withdraw => {
+            let fee = v.source.fee;
+            match v.amount {
+                Some(amount) if fee.saturating_mul(10) > amount => notice(
+                    ui,
+                    a,
+                    "warning",
+                    p.danger,
+                    &format!(
+                        tr!(
+                            "A withdrawal to Core costs ≈ {}: that is {}% of the amount. It is cheaper to move it to an identity or the private pool first."
+                        ),
+                        crate::format::amount(fee),
+                        (fee.saturating_mul(100) / amount.max(1)).max(1)
+                    ),
+                ),
+                _ => notice(
+                    ui,
+                    a,
+                    "withdraw",
+                    p.accent,
+                    &format!(
+                        "{} · {}",
+                        crate::i18n::t(tr!("Withdrawal to Core · this wallet's address")),
+                        crate::i18n::t(tr!(
+                            "Platform withdraws through a queue: the DASH usually reach Core within an hour"
+                        ))
+                    ),
+                ),
+            }
+        }
+    }
+}
+
+/// Core to a Platform address (FEAT-0015 frame 15, AC-D14): not possible directly; the way
+/// there from the credits or from the wallet's own Platform address, the recipient kept.
+fn platform_from_core(ui: &mut Ui, a: &mut Assets, form: &mut SendForm, v: &FormView) {
+    let p = a.p;
+    crate::components::notice(
+        ui,
+        a,
+        "platform-address",
+        p.accent,
+        tr!("Send from credits or from your Platform address: the money arrives at once."),
+    );
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = 12.0;
+        if button(ui, a, tr!("Send from credits ›"), ButtonKind::Ghost, None).clicked() {
+            form.source = 1;
+            form.result = None;
+        }
+        if v.address_card == AddressCard::Source
+            && v.all.iter().any(|s| s.source == Source::PlatformAddress)
+            && button(
+                ui,
+                a,
+                tr!("Send from the Platform address ›"),
+                ButtonKind::Ghost,
+                None,
+            )
+            .clicked()
+        {
+            form.source = 3;
+            form.result = None;
+        }
+    });
+}
+
 /// "Check and send", and what is still missing for it.
 fn send_row(ui: &mut Ui, a: &mut Assets, form: &mut SendForm, v: &FormView, asked: &mut Asked) {
     let p = a.p;
     let source = v.source;
-    let (amount, problem, unavailable) = (v.amount, v.problem, v.unavailable);
+    let (amount, problem, unavailable) = (v.amount, v.problem, v.unavailable.as_deref());
     let (target_known, synced, checking) = (v.target_known, v.synced, v.checking);
     // A balance not read yet waits like the sync (BUG-113): the pool is read after it.
     let synced = synced && source.read;
@@ -566,6 +873,8 @@ fn send_row(ui: &mut Ui, a: &mut Assets, form: &mut SendForm, v: &FormView, aske
         Some(tr!("Enter the amount"))
     } else if checking {
         Some(tr!("Checking the recipient…"))
+    } else if v.address_foreign_name {
+        Some(tr!("Enter your own identity or a Platform address"))
     } else {
         None
     };
@@ -688,16 +997,24 @@ pub(super) fn summary_card(ui: &mut Ui, p: &crate::theme::Palette, v: &FormView,
                 summary_to,
                 sans(13.0, Weight::Medium),
             );
-            // Nothing is paid until the name is a contact, nor from the pool to a name (BUG-112).
+            // Nothing is paid until the name is a contact, nor from the pool to a name (BUG-112),
+            // nor from the Platform address to a foreign name (R-1а).
             let (amount, fee, left) = if v.pool_to_name {
                 (amount, None, None)
-            } else if not_contact {
+            } else if not_contact || v.address_foreign_name {
                 (None, None, source.read.then_some(source.duffs))
             } else {
                 (amount, Some(source.fee), left.filter(|l| *l >= 0))
             };
             kv_row(ui, p, tr!("Amount"), &dash(amount), value.clone());
-            kv_row(ui, p, tr!("Fee"), &dash(fee), value.clone());
+            // Platform meters credits and address payments: an estimate there, as in the last look
+            // (BUG-108, the QA pass of 2026-11-10).
+            let about = matches!(source.source, Source::Credits | Source::PlatformAddress);
+            let fee_text = match fee {
+                Some(fee) if about => format!("≈ {}", crate::format::amount(fee)),
+                _ => dash(fee),
+            };
+            kv_row(ui, p, tr!("Fee"), &fee_text, value.clone());
             kv_row(
                 ui,
                 p,

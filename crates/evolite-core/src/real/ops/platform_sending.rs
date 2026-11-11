@@ -109,6 +109,17 @@ pub fn credits_line(what: &What) -> ActivityKind {
             status: None,
         },
         What::Credits { to, .. } => ActivityKind::CreditTransfer { to: to.clone() },
+        // From the Platform addresses (FEAT-0015): as the journal's line will show it.
+        What::AddressSent { to } => ActivityKind::AddressSent { to: to.clone() },
+        What::AddressWithdrawal { to } => ActivityKind::AddressWithdrawal {
+            to: to.clone(),
+            status: None,
+        },
+        What::AddressTopUp { identity } => ActivityKind::TopUp {
+            identity: identity.clone(),
+            creates: false,
+            credits: evolite_api::Credits::Added,
+        },
         // Not a send; never asked for.
         other => {
             debug_assert!(false, "not a send of credits: {other:?}");
@@ -126,6 +137,9 @@ fn same_kind(sent: &ActivityKind, line: &ActivityKind) -> bool {
         (K::PoolSent, K::PoolSent | K::SelfTransfer { .. }) => true,
         (K::CreditTransfer { to: a, .. }, K::CreditTransfer { to: b, .. }) => a == b,
         (K::Withdrawal { to: a, .. }, K::Withdrawal { to: b, .. }) => a == b,
+        (K::AddressSent { to: a }, K::AddressSent { to: b }) => a == b,
+        (K::AddressWithdrawal { to: a, .. }, K::AddressWithdrawal { to: b, .. }) => a == b,
+        (K::TopUp { identity: a, .. }, K::TopUp { identity: b, .. }) => a == b,
         _ => false,
     }
 }

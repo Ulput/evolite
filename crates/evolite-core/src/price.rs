@@ -12,6 +12,8 @@ pub struct Seen {
     pub credits: Duffs,
     pub platform_address: Duffs,
     pub pool: Duffs,
+    /// The credits on each Platform address, in their own order (FEAT-0015).
+    pub platform_inputs: Vec<u64>,
     /// The identity shown has no name yet: its first costs more (`Fees::name_price`).
     pub first_name: bool,
 }
@@ -24,6 +26,7 @@ impl Seen {
             credits: wallet.balances.credits,
             platform_address: wallet.balances.platform_address,
             pool: wallet.balances.shielded,
+            platform_inputs: wallet.platform_inputs.clone(),
             first_name: wallet
                 .identity
                 .as_ref()
@@ -106,6 +109,28 @@ pub fn declared(op: &Spend, seen: &Seen, app_cost: Duffs) -> Declared {
         } => {
             let price = pool_price(fees, to);
             of("send_pool", price, covers(seen.pool, *amount, price))
+        }
+        // The plan the form shows (FEAT-0015 R-7): its fee, and whether the addresses carry it.
+        Spend::Send {
+            from: Source::PlatformAddress,
+            to,
+            amount,
+            ..
+        } => {
+            use evolite_api::address_plan::{AddressMove, address_plan, duffs_up, move_for};
+            let kind = move_for(to);
+            let credits = ((*amount).max(0) as u64)
+                .saturating_mul(evolite_api::address_plan::CREDITS_PER_DUFF);
+            let (price, enough) = match address_plan(kind, credits, false, &seen.platform_inputs) {
+                Ok(plan) => (duffs_up(plan.fee), true),
+                Err(_) => (duffs_up(kind.fee(1)), false),
+            };
+            let what = match kind {
+                AddressMove::Transfer => "address_transfer",
+                AddressMove::Withdraw => "address_withdraw",
+                AddressMove::TopUp => "address_top_up",
+            };
+            of(what, price, enough)
         }
         Spend::TopUpIdentity { amount } => {
             let price = fees.top_up_on_top().saturating_add(fees.core_payment);
@@ -268,6 +293,7 @@ pub(crate) mod tests {
             credits: balance,
             platform_address: balance,
             pool: balance,
+            platform_inputs: vec![balance.max(0) as u64 * 1_000],
             first_name: false,
         }
     }

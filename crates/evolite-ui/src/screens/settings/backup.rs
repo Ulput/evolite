@@ -26,6 +26,11 @@ const WHAT_COMES_BACK: &str = tr!("What the phrase brings back");
 const COMES_BACK: &str = tr!(
     "Core money, credits and the private pool; identities and names; DashPay contacts and profile. evolite reads again from the network the history of Core payments, names, contact requests, the profile, withdrawals and the pool."
 );
+/// FEAT-0015 R-9 (frame 9): Platform keeps only the balance of an address, so a restore brings back
+/// the money on the Platform addresses but not their earlier operations.
+const ADDRESS_BACK: &str = tr!(
+    "Its balance comes back, but not its earlier operations: the network keeps only the balance of an address."
+);
 pub const KEPT_HERE: &str = tr!("Kept only on this computer");
 pub const KEPT_HERE_TEXT: &str = tr!(
     "Payment notes, the address book and settings, as well as records of credit transfers, app sign-ins and exact Platform fees. The phrase does not bring them back."
@@ -108,7 +113,11 @@ pub(super) fn backup(
         a,
         "info",
         p.muted,
-        &[(WHAT_COMES_BACK, COMES_BACK), (KEPT_HERE, KEPT_HERE_TEXT)],
+        &[
+            (WHAT_COMES_BACK, COMES_BACK),
+            (tr!("Platform address"), ADDRESS_BACK),
+            (KEPT_HERE, KEPT_HERE_TEXT),
+        ],
     );
     match clicked {
         Some(0) => state.phrase_dialog = true,

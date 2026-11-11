@@ -331,6 +331,11 @@ struct Real {
     contacts: Vec<Contact>,
     /// An identity is being made or finished: its lock is not "unfinished" meanwhile.
     identity_busy: Arc<AtomicBool>,
+    /// A payment from the Platform addresses is on its way: one at a time (FEAT-0015 R-2).
+    address_busy: Arc<AtomicBool>,
+    /// The credits on each Platform address as the last snapshot showed them: the plan the
+    /// last look showed is made from these (FEAT-0015).
+    shown_address_inputs: Vec<u64>,
     /// The wallet whose shielded pool is connected (or being connected) in this run.
     pool_wallet: Arc<std::sync::Mutex<Option<WalletId>>>,
     /// A pool move (its proof) is under way: one at a time.

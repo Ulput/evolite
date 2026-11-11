@@ -547,22 +547,7 @@ mod imp {
         wallet: &PlatformWallet,
         keys: &key_wallet::Wallet,
     ) -> Result<simple_signer::signer::SimpleSigner, String> {
-        let state = wallet.state().await;
-        let account = state
-            .core_wallet
-            .platform_payment_managed_account_at_index(PAYMENT_ACCOUNT)
-            .ok_or(tr!("The wallet has no Platform addresses"))?;
-        let mut signer = simple_signer::signer::SimpleSigner::default();
-        for info in account.addresses.addresses.values() {
-            let Ok(address) = key_wallet::PlatformP2PKHAddress::from_address_info(info) else {
-                continue;
-            };
-            let key = keys
-                .derive_private_key(&info.path)
-                .map_err(|e| e.to_string())?;
-            signer.add_address_key(address.to_bytes(), *key.to_bytes());
-        }
-        Ok(signer)
+        crate::spv::chain::addresses::address_signer(wallet, keys).await
     }
 
     /// The rows newest first, as platform-wallet orders them for display: notes found by the
