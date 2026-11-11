@@ -23,11 +23,13 @@ use platform_wallet::SpvRuntime;
 use crate::sync::SyncStatus;
 
 /// The system contracts served from the protocol's own definitions. Withdrawals: the proof of a
-/// withdrawal from the shielded pool is checked against it.
-const SYSTEM: [SystemDataContract; 3] = [
+/// withdrawal from the shielded pool is checked against it. AppConnect (protocol 14): the
+/// `loginKeyResponse` of an App Connect v2 sign-in (FEAT-0023).
+const SYSTEM: [SystemDataContract; 4] = [
     SystemDataContract::DPNS,
     SystemDataContract::Dashpay,
     SystemDataContract::Withdrawals,
+    SystemDataContract::AppConnect,
 ];
 
 /// Core block height at which Platform activated on testnet (the `mn_rr` locked height), as in
@@ -206,6 +208,13 @@ mod tests {
         assert!(Arc::ptr_eq(&contract, &again));
         let dashpay = SystemDataContract::Dashpay.id();
         assert!(system_contract(&cache, &dashpay, v14).unwrap().is_some());
+        // FEAT-0023: App Connect v2 publishes its response in this one.
+        let app_connect = SystemDataContract::AppConnect.id();
+        assert!(
+            system_contract(&cache, &app_connect, v14)
+                .unwrap()
+                .is_some()
+        );
         let withdrawals = SystemDataContract::Withdrawals.id();
         assert!(
             system_contract(&cache, &withdrawals, v14)

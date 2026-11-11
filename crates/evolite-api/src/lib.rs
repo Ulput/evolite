@@ -647,14 +647,171 @@ pub struct Pool {
     pub connecting: bool,
 }
 
+/// An app signed in by App Connect v2 (FEAT-0023), connected or disconnected.
 #[derive(Clone, PartialEq, Debug)]
 pub struct ConnectedApp {
+    /// The app's contract, base58.
     pub id: String,
+    /// As the sign-in showed it: the contract owner's `@name`, else the app's own words.
     pub name: String,
+    /// What the app calls itself: its own words, not checked (R-8).
+    pub label: String,
     pub domain: String,
-    /// The app key on the identity; `None` when the app only reads the name.
-    pub key: Option<(u32, KeyLevel, Vec<String>)>,
     pub last_used: Timestamp,
+    /// The session keys of the sign-in, each with its limits.
+    pub session: Vec<SessionKey>,
+    /// When it was disconnected: its keys are disabled, and only the record on this computer
+    /// is left ([`Command::ForgetApp`] removes it).
+    pub disconnected_at: Option<Timestamp>,
+}
+
+/// What an App Connect v2 key is bound to (Platform's contract bounds), ids in base58.
+#[derive(Clone, PartialEq, Debug)]
+pub enum AppBinding {
+    Contract {
+        id: String,
+    },
+    DocumentType {
+        contract: String,
+        name: String,
+    },
+    /// A group of contracts its owner may add to later.
+    Group {
+        id: String,
+    },
+    /// DashPay's `profile`, the one document type of another owner an app may ask for.
+    DashPayProfile,
+}
+
+/// The connection a sign-in renews (the same `CONNECTION_ID`): its primary key as it stands.
+#[derive(Clone, PartialEq, Debug)]
+pub struct Renewal {
+    pub budget: Duffs,
+    /// What Platform last said was spent; `None` until read.
+    pub spent: Option<Duffs>,
+    pub until: Timestamp,
+}
+
+/// Why an app's link is refused, for the person to read (FEAT-0023, E1–E3). Nothing was spent.
+#[derive(Clone, PartialEq, Debug)]
+pub enum AppLinkRefusal {
+    /// Another version than App Connect v2: `v` is what the link says (`"1"` for v1).
+    Version { v: String },
+    /// Older than 10 minutes, or too far ahead.
+    Stale,
+    /// For the main network, where App Connect v2 is not on yet.
+    Mainnet,
+    /// For another network: its code (`t`, `d`, …).
+    OtherNetwork { n: String },
+    /// The app's contract is one of Platform's own.
+    SystemContract,
+    /// The app's contract is not on the network.
+    NoContract,
+    /// A contract or group of another owner, or another app's documents.
+    OthersContract,
+    /// An encryption key for a contract that keeps none.
+    NoEncryptionKeys,
+    /// A field evolite does not know.
+    UnknownField,
+    /// The network's protocol is older than 14: keys with a budget and an end are not taken.
+    OldNetwork,
+    /// Not well formed.
+    Malformed,
+}
+
+/// Where a session key stands.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum SessionKeyState {
+    Live,
+    /// Its end passed: Platform refuses what it signs, but it is not disabled.
+    Expired,
+    Disabled,
+}
+
+/// One session key of an App Connect v2 sign-in.
+#[derive(Clone, PartialEq, Debug)]
+pub struct SessionKey {
+    pub id: u32,
+    pub level: KeyLevel,
+    pub binding: AppBinding,
+    pub budget: Duffs,
+    pub expires_at: Timestamp,
+    pub state: SessionKeyState,
+    /// What is left of the budget, as Platform last said ([`Command::ReadAppBudgets`]); `None`
+    /// until read.
+    pub remaining: Option<Duffs>,
+}
+
+/// One session key an App Connect v2 app asks for, as the wallet offers it.
+#[derive(Clone, PartialEq, Debug)]
+pub struct SessionOffer {
+    pub binding: AppBinding,
+    pub level: KeyLevel,
+    /// What the app proposed; `None`: nothing.
+    pub proposed_budget: Option<Duffs>,
+    pub proposed_expiry: Option<Timestamp>,
+    /// What the wallet offers: the proposal within its limits, its defaults where there is none.
+    pub budget: Duffs,
+    pub expires_at: Timestamp,
+    /// The wallet changed the app's proposal to fit its limits.
+    pub changed: bool,
+    /// The first key is the primary one: declining it declines the request.
+    pub primary: bool,
+}
+
+/// One encryption key an App Connect v2 app asks for.
+#[derive(Clone, PartialEq, Debug)]
+pub struct EncryptionOffer {
+    pub contract: String,
+    /// Encryption (`true`) or decryption.
+    pub encryption: bool,
+    /// The app gets it: a new key added, or the identity's own current one; `false`: the
+    /// identity has a key for it the wallet cannot send.
+    pub given: bool,
+    /// A new key is added for it.
+    pub added: bool,
+}
+
+/// The wallet's limits on a session key, for the dialog: caps and presets.
+#[derive(Clone, PartialEq, Debug)]
+pub struct SessionLimits {
+    pub max_budget: Duffs,
+    pub budget_presets: Vec<Duffs>,
+    /// Seconds.
+    pub min_term: i64,
+    pub max_term: i64,
+    pub term_presets_days: Vec<i64>,
+}
+
+impl SessionLimits {
+    /// The wallet's policy (analyst-72's recommendation, as DashPay 11.9.2 and the DIP have it,
+    /// and the customer's decision of 2026-11-11): what the app asks for, at most 5 DASH and a
+    /// year and at least an hour; 5 DASH and 90 days where it names nothing. The person can
+    /// only lower them.
+    pub const MAX_BUDGET: Duffs = 500_000_000;
+    pub const DEFAULT_BUDGET: Duffs = Self::MAX_BUDGET;
+    pub const BUDGET_PRESETS: [Duffs; 4] = [10_000_000, 50_000_000, 200_000_000, 500_000_000];
+    pub const DEFAULT_TERM_DAYS: i64 = 90;
+    pub const MAX_TERM_DAYS: i64 = 365;
+    pub const MIN_TERM_SECS: i64 = 60 * 60;
+    pub const TERM_PRESETS_DAYS: [i64; 3] = [30, 90, 365];
+
+    pub fn wallet() -> Self {
+        Self {
+            max_budget: Self::MAX_BUDGET,
+            budget_presets: Self::BUDGET_PRESETS.to_vec(),
+            min_term: Self::MIN_TERM_SECS,
+            max_term: Self::MAX_TERM_DAYS * 24 * 60 * 60,
+            term_presets_days: Self::TERM_PRESETS_DAYS.to_vec(),
+        }
+    }
+}
+
+/// The person's answer to an App Connect v2 request: per asked session key, `None` to leave it
+/// out (never the primary one) or the limits chosen.
+#[derive(Clone, PartialEq, Debug)]
+pub struct SessionGrant {
+    pub keys: Vec<Option<(Duffs, Timestamp)>>,
 }
 
 #[derive(Clone, PartialEq, Debug)]
@@ -1136,42 +1293,33 @@ pub struct AppRequest {
 
 #[derive(Clone, PartialEq, Debug)]
 pub enum AppRequestKind {
-    /// App Connect (`dash-key:`): add an identity key limited to the app's contract.
-    Connect {
-        contract_id: String,
-        /// The contract exists on Platform (checked by proof).
-        contract_found: bool,
+    /// App Connect v2 (`dashpay://connect` or `dash-key:` with `v=2`): session keys bound to the
+    /// app's contracts, each with a budget and an end, and its encryption keys. Checked against
+    /// Platform before it is shown; answered with [`Spend::ApproveApp`] and a [`SessionGrant`].
+    Connect2 {
+        /// The app's contract, base58.
+        app_id: String,
+        /// What the app calls itself: its own words, not checked.
+        label: String,
+        /// The contract owner's identity (base58) and `@name`, if it has one.
+        owner: String,
+        owner_name: Option<String>,
+        /// The identity signing in, as shown (`@name` or base58).
         identity: String,
-        key_id: u32,
-        level: KeyLevel,
-        contract_name: String,
+        sessions: Vec<SessionOffer>,
+        encryption: Vec<EncryptionOffer>,
+        limits: SessionLimits,
+        /// R-6: the identity has no key of the new kind yet; after this sign-in old Yappr and
+        /// DashPay (11.9.1 and earlier) cannot read it any more.
+        breaks_old_clients: bool,
+        /// A sign-in again with the same connection (`CONNECTION_ID`): its earlier session keys
+        /// are disabled in the same update.
+        renews: Option<Renewal>,
+        /// When the app made the request (Unix seconds).
+        created_at: Timestamp,
+        /// The host the app asks to return to, if any (only a hint to the app).
+        callback_host: Option<String>,
         cost: Duffs,
-    },
-    /// `dash-st:`: sign one state transition, shown as decoded by the wallet.
-    Sign {
-        action: String,
-        contract: String,
-        contract_id: String,
-        document_type: String,
-        identity: String,
-        key_id: u32,
-        level: KeyLevel,
-        /// The document's fields as they will be signed.
-        fields: Vec<(String, String)>,
-        cost: Duffs,
-        credits_after: Duffs,
-        /// The serialized transition, for "Show the bytes".
-        bytes_hex: String,
-    },
-    /// Sign-in by code (`dash-kx:`): both screens must show the same code. Only the demo has it:
-    /// no app uses such a link yet.
-    KeyExchange {
-        identity: String,
-        device: String,
-        /// Six digits shown as two groups.
-        code: String,
-        channel_encrypted: bool,
-        request_signed: bool,
     },
 }
 
@@ -1321,16 +1469,24 @@ pub enum Command {
         on: bool,
         password: Option<Password>,
     },
-    /// Forget a connected app. Answered with `Done { what: DoneWhat::Disconnect }`.
-    DisconnectApp {
+    /// Read what is left of the budgets of app `id`'s session keys from Platform. Answered with
+    /// a new snapshot (`ConnectedApp::session`), or an error event if Platform cannot be asked.
+    ReadAppBudgets {
+        id: String,
+    },
+    /// Remove a disconnected app from the list: only the record on this computer, so no
+    /// password and nothing spent (its keys stay disabled on the identity). Answered with
+    /// `Done { what: DoneWhat::ForgetApp }`.
+    ForgetApp {
         id: String,
     },
     /// Is this DPNS label free? Answered with [`Event::NameChecked`].
     CheckName {
         label: String,
     },
-    /// A link or QR text from an app (`dash-key:`, `dash-st:`, key exchange). Answered with
-    /// [`Event::AppRequest`] or an error.
+    /// A link or QR text from an app (App Connect v2: `dashpay://connect`, or `dash-key:` with
+    /// `v=2` on testnet). Answered with [`Event::AppRequest`] or an error; a v1 link
+    /// (`dash-key:` v1, `dash-st:`) is refused with words of its own.
     OpenAppLink {
         text: String,
     },
@@ -1518,14 +1674,27 @@ pub enum Spend {
         about: String,
         avatar_url: Option<String>,
     },
-    /// Do what an app asked ([`Event::AppRequest`]): sign its document or add its key.
-    /// `Done { what: DoneWhat::App }`.
-    ApproveApp { id: u64 },
+    /// Do what an app asked ([`Event::AppRequest`]): an App Connect v2 sign-in (`Connect2`)
+    /// with the person's `grant`. `Done { what: DoneWhat::App }`.
+    ApproveApp {
+        id: u64,
+        grant: Option<SessionGrant>,
+    },
     /// Give an NFT to `to`. `Done { what: DoneWhat::Gift }`.
     GiftNft { id: String, to: String },
+    /// Disconnect app `id`: its session keys disabled (never its encryption keys) in an
+    /// IdentityUpdate the identity pays for, so it passes the password gate (BUG-42); its
+    /// response deleted. `Done { what: DoneWhat::Disconnect }`.
+    DisconnectApp { id: String },
 }
 
 impl Spend {
+    /// Whether it asks for the wallet's password whatever "Password for every send" says: an App
+    /// Connect v2 sign-in, which cannot be undone for the identity (FEAT-0023 round 4, R-6).
+    pub fn asks_password_always(&self) -> bool {
+        matches!(self, Spend::ApproveApp { grant: Some(_), .. })
+    }
+
     /// The `what` of the operation's `Done` (or `"send"` for [`Event::Sent`]).
     pub fn what(&self) -> DoneWhat {
         match self {
@@ -1540,6 +1709,7 @@ impl Spend {
             Spend::SaveProfile { .. } => DoneWhat::Profile,
             Spend::ApproveApp { .. } => DoneWhat::App,
             Spend::GiftNft { .. } => DoneWhat::Gift,
+            Spend::DisconnectApp { .. } => DoneWhat::Disconnect,
         }
     }
 
@@ -1586,6 +1756,8 @@ pub enum CoreError {
     },
     /// This system cannot close the picture renderer in, so no picture from outside is drawn.
     PicturesOff(PicturesOff),
+    /// An app's link is refused before anything is shown or spent (FEAT-0023).
+    AppLink(AppLinkRefusal),
 }
 
 /// Why no picture from outside is drawn on this system.
@@ -1605,6 +1777,10 @@ pub enum PicturesOff {
 pub enum DoneWhat {
     AddressBook,
     App,
+    /// `ReadAppBudgets`: the app's session keys were read (the new snapshot shows them).
+    AppBudgets,
+    /// `ForgetApp`: a disconnected app left the list.
+    ForgetApp,
     Contact,
     CoreNode,
     Create,
@@ -1637,6 +1813,8 @@ impl DoneWhat {
         match self {
             Self::AddressBook => "address-book",
             Self::App => "app",
+            Self::AppBudgets => "app-budgets",
+            Self::ForgetApp => "forget-app",
             Self::Contact => "contact",
             Self::CoreNode => "core-node",
             Self::Create => "create",

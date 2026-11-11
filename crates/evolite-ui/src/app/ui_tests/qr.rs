@@ -123,7 +123,7 @@ fn an_apps_qr_opens_its_request() {
         has_text(kit, "This is not a Dash app request")
     });
     assert!(kit.state().requests.open.is_none());
-    pick("dash-key:yappr?contract=6Hk2Ft9wQmRz8LpXcV4nB7sYd3Ke1JaPu5W9q&key=MEDIUM");
+    pick("dashpay://connect?v=2&n=t&r=AQ");
     button(&kit, "Scan QR").click();
     kit.run_steps(2);
     menu_ready(&mut kit);

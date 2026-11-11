@@ -1,6 +1,6 @@
 //! The example wallet from the Figma screens and the staged first sync it shows.
 
-use super::answers::{PEOPLE, demo_contacts};
+use super::answers::{PEOPLE, demo_apps, demo_contacts};
 use evolite_api::*;
 use evolite_art::Stored;
 use evolite_render::Packing;
@@ -833,33 +833,7 @@ pub fn demo_wallet(t: Timestamp) -> Wallet {
                 ),
             ],
         },
-        apps: vec![
-            ConnectedApp {
-                id: "yappr".into(),
-                name: "Yappr".into(),
-                domain: "yappr.app".into(),
-                key: Some((3, KeyLevel::Medium, vec!["Yappr".into()])),
-                last_used: t - 30 * min,
-            },
-            ConnectedApp {
-                id: "jembe".into(),
-                name: "Jembe".into(),
-                domain: "jembe.app".into(),
-                key: Some((
-                    4,
-                    KeyLevel::High,
-                    vec!["jembe".into(), "jembe-private".into()],
-                )),
-                last_used: t - day,
-            },
-            ConnectedApp {
-                id: "dashnotes".into(),
-                name: "DashNotes".into(),
-                domain: "notes.example".into(),
-                key: None,
-                last_used: t - 3 * day,
-            },
-        ],
+        apps: demo_apps(t, day, min),
         contacts: demo_contacts(t),
         unfinished_identity: None,
         unfinished_top_up: None,

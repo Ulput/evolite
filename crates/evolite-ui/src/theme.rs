@@ -613,10 +613,9 @@ pub fn scroll_style() -> egui::style::ScrollStyle {
 
 /// Least widths of the cells of `components::grid` (responsive spec 2026-11-06, «Минимальные
 /// ширины»): a balance tile (Overview, the pool), an NFT card (195, not 200: three in
-/// Collection at 1280 — the designer, 2026-11-07), an app card.
+/// Collection at 1280 — the designer, 2026-11-07).
 pub const TILE_MIN_W: f32 = 200.0;
 pub const NFT_MIN_W: f32 = 195.0;
-pub const APP_CARD_MIN_W: f32 = 240.0;
 
 /// The smallest window (responsive spec §1; the customer, 2026-11-07, дизайнер-26): 1280 × 720
 /// at 150 % is 853 wide; 440 is 1366 × 768 at 150 % less the taskbar and the title bar.

@@ -763,7 +763,13 @@ impl App {
                 | Event::PhraseAccepted(_)
                 | Event::Progress { .. }
                 | Event::Done {
-                    what: DoneWhat::Create | DoneWhat::Lock | DoneWhat::Rescan | DoneWhat::Send,
+                    what: DoneWhat::Create
+                        | DoneWhat::Lock
+                        | DoneWhat::Rescan
+                        | DoneWhat::Send
+                        // The new snapshot shows what was read (FEAT-0023; its card is round 4's).
+                        | DoneWhat::AppBudgets
+                        | DoneWhat::ForgetApp,
                     ..
                 } => {}
             }
@@ -1078,6 +1084,7 @@ impl eframe::App for App {
             self.create_identity.password.forget();
             self.create_identity.confirming = false;
             self.requests.password.forget();
+            self.requests.disconnect_password.forget();
             #[cfg(demo_core)]
             self.collection.password.forget();
         }

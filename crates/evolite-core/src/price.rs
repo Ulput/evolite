@@ -205,14 +205,19 @@ pub fn declared(op: &Spend, seen: &Seen, app_cost: Duffs) -> Declared {
             fees.nft_transfer,
             covers(seen.credits, 0, fees.nft_transfer),
         ),
+        // One IdentityUpdate that disables the session keys.
+        Spend::DisconnectApp { .. } => of(
+            "disconnect_app",
+            fees.add_key,
+            covers(seen.credits, 0, fees.add_key),
+        ),
     }
 }
 
 /// The cost an app's request showed.
 pub fn app_cost(kind: &AppRequestKind) -> Duffs {
     match kind {
-        AppRequestKind::Connect { cost, .. } | AppRequestKind::Sign { cost, .. } => *cost,
-        AppRequestKind::KeyExchange { .. } => 0,
+        AppRequestKind::Connect2 { cost, .. } => *cost,
     }
 }
 
@@ -230,6 +235,7 @@ pub fn reason(error: &CoreError) -> &'static str {
         | CoreError::BadName
         | CoreError::NameNotFound
         | CoreError::BadLink
+        | CoreError::AppLink(_)
         | CoreError::BadPhrase => "bad_input",
         CoreError::TooManyTries { .. } | CoreError::PicturesOff(_) => "refused",
     }
@@ -345,11 +351,12 @@ pub(crate) mod tests {
                 about: String::new(),
                 avatar_url: None,
             },
-            Spend::ApproveApp { id: 7 },
+            Spend::ApproveApp { id: 7, grant: None },
             Spend::GiftNft {
                 id: "nft".into(),
                 to: "@bob".into(),
             },
+            Spend::DisconnectApp { id: "app".into() },
         ]
     }
 
@@ -381,8 +388,16 @@ pub(crate) mod tests {
 
     #[test]
     fn an_apps_price_is_the_one_its_request_showed() {
-        let d = declared(&Spend::ApproveApp { id: 7 }, &seen(100), 42);
+        let d = declared(&Spend::ApproveApp { id: 7, grant: None }, &seen(100), 42);
         assert_eq!((d.what, d.declared), ("approve_app", 42));
+    }
+
+    /// FEAT-0023: disconnecting an app is one IdentityUpdate, priced and named as such.
+    #[test]
+    fn a_disconnect_costs_one_identity_update() {
+        let op = Spend::DisconnectApp { id: "app".into() };
+        let d = declared(&op, &seen(100), 0);
+        assert_eq!((d.what, d.declared), ("disconnect_app", fees().add_key));
     }
 
     /// The code says what happened; the network's words (with an address, a name, a host) stay out.

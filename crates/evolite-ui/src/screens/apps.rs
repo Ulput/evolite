@@ -1,89 +1,244 @@
-//! 10 · Apps: apps allowed to sign in as the identity, and the three ways an app can
-//! ask the wallet for something. The list comes from the core; "Disconnect" asks the core to
-//! remove the app's key.
+//! 10 · Apps (FEAT-0023 round 4, L1/L2): the apps signed in as the identity by App Connect v2,
+//! each with what it may do, how much of its limit is spent and until when; «Renew» and
+//! «Disconnect»; the disconnected ones below with «Remove from the list». How much is left
+//! comes from Platform (R-3): asked once a visit.
 
-use super::app_requests::{self, AppRequests};
+use super::app_requests::{self, AppRequests, app_label};
+use super::connect2::{self, binding_title};
 use super::txt;
 use crate::components::{
-    Assets, ButtonKind, GridSpec, button, button_enabled, card, grid, inner, page_header,
-    paint_letter_box,
+    Assets, ButtonKind, attention_color, button, button_enabled, card, inner, notice,
+    notice_closable, page_header, paint_letter_box,
 };
 use crate::context::Ctx;
 use crate::text;
-use crate::theme::{APP_CARD_MIN_W, Weight, mono, sans};
-use chrono::{DateTime, Local};
-use egui::{Align2, Margin, Rect, Sense, Ui, pos2, vec2};
-use evolite_api::ConnectedApp;
+use crate::theme::Weight;
+use egui::{CornerRadius, Margin, Sense, Stroke, Ui, vec2};
+use evolite_api::{ConnectedApp, SessionKey, SessionKeyState, Timestamp};
 
-/// An example link for each way, so the dialogs can be seen without a real app (the demo).
+/// An example link, so the request can be seen without a real app (the demo).
 #[cfg(demo_core)]
-const EXAMPLES: [&str; 3] = [
-    "dash-key:yappr?contract=6Hk2Ft9wQmRz8LpXcV4nB7sYd3Ke1JaPu5W9q&key=MEDIUM",
-    "dash-kx:jembe?session=8f3a",
-    "dash-st:jembe?transition=0201a4c3e9f0",
-];
+const EXAMPLE: &str = "dashpay://connect?v=2&n=t&r=AQ";
 
-const WAYS: [(&str, &str, &str); 3] = [
-    (
-        "app-connect",
-        "App Connect",
-        tr!(
-            "The app shows a QR or a dash-key: link — evolite answers the sign-in, and by a second dash-st: link adds the app's keys to the identity."
-        ),
-    ),
-    (
-        "key",
-        tr!("Sign in by code"),
-        tr!("A key exchange over an encrypted channel; the codes on both screens must match."),
-    ),
-    (
-        "sign",
-        tr!("Signing by link"),
-        tr!(
-            "dash-st: — the app asks to sign one operation; you see exactly what and what it costs."
-        ),
-    ),
-];
+/// Where a connection stands, by its keys (the design's table).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AppState {
+    Active,
+    /// A key's budget is used up: the app can write nothing more.
+    UsedUp,
+    /// The primary key's end has passed.
+    Expired(Timestamp),
+    Disconnected,
+}
 
-/// "today, 14:20", "yesterday", "3 days ago", then the date.
-fn last_used(at: i64, now: DateTime<Local>) -> String {
-    let days = (now.timestamp() - at) / 86_400;
-    match days {
-        2..=6 => text::plural(days as u32, tr!("day ago"), tr!("days ago")),
-        _ => text::when(at, now),
+pub fn state_of(app: &ConnectedApp) -> AppState {
+    if app.disconnected_at.is_some() {
+        return AppState::Disconnected;
+    }
+    if app.session.iter().any(|k| k.remaining == Some(0)) {
+        return AppState::UsedUp;
+    }
+    match app.session.first() {
+        Some(k) if k.state == SessionKeyState::Expired => AppState::Expired(k.expires_at),
+        _ => AppState::Active,
     }
 }
 
-/// What the app may do: the identity, its key and the contracts it signs for.
-fn access(app: &ConnectedApp, identity: Option<&str>) -> String {
-    let who = identity.map_or_else(|| "identity".to_string(), |n| format!("@{n}"));
-    match &app.key {
-        Some((id, level, contracts)) => {
-            let docs = match contracts.len() {
-                // A key without a contract binding: documents of any app.
-                0 => tr!("documents of any app").to_string(),
-                1 => format!(tr!("documents of contract {}"), contracts[0]),
-                _ => format!(tr!("{}'s documents"), contracts.join(", ")),
-            };
-            format!(
-                tr!("{who} · key #{id} {} · {docs}"),
-                text::key_level(*level),
-                who = who,
-                id = id,
-                docs = docs
-            )
-        }
-        None => format!(
-            tr!("{who} · the app's keys are not on the identity yet"),
-            who = who
+/// «Spent X of Y · until Z» of a key; «—» for X until Platform was asked.
+fn spent_line(key: &SessionKey, now: chrono::DateTime<chrono::Local>) -> String {
+    let spent = key.remaining.map_or_else(
+        || "—".to_owned(),
+        |left| crate::format::short_number(key.budget - left),
+    );
+    format!(
+        tr!("Spent {} of {} · until {}"),
+        spent,
+        format!(
+            "{} {}",
+            crate::format::short_number(key.budget),
+            crate::format::unit_name()
         ),
+        text::date_short(key.expires_at, now)
+    )
+}
+
+/// The spent part of a key's budget, 0 until read.
+fn spent_fraction(key: &SessionKey) -> f32 {
+    match key.remaining {
+        Some(left) if key.budget > 0 => (key.budget - left) as f32 / key.budget as f32,
+        _ => 0.0,
     }
+}
+
+/// A 4 px bar in `color` (the design: text when active, accent when used up, muted after).
+fn bar(ui: &mut Ui, track: egui::Color32, color: egui::Color32, fraction: f32) {
+    let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), 4.0), Sense::hover());
+    ui.painter().rect_filled(rect, CornerRadius::same(2), track);
+    let mut done = rect;
+    done.set_width(rect.width() * fraction.clamp(0.0, 1.0));
+    ui.painter().rect_filled(done, CornerRadius::same(2), color);
+}
+
+/// A state chip: quiet for «Active» and «Disconnected», an accent border otherwise; never red.
+fn state_chip(ui: &mut Ui, a: &mut Assets, state: AppState, now: chrono::DateTime<chrono::Local>) {
+    let p = a.p;
+    let (icon, words, accent) = match state {
+        AppState::Active => ("check", crate::i18n::t(tr!("Active")).into_owned(), false),
+        AppState::UsedUp => (
+            "warning",
+            crate::i18n::t(tr!("Limit used up")).into_owned(),
+            true,
+        ),
+        AppState::Expired(at) => (
+            "calendar",
+            format!(tr!("Expired on {}"), text::date_short(at, now)),
+            true,
+        ),
+        AppState::Disconnected => (
+            "close",
+            crate::i18n::t(tr!("Disconnected")).into_owned(),
+            false,
+        ),
+    };
+    let color = if accent { attention_color(&p) } else { p.muted };
+    egui::Frame::new()
+        .fill(if accent { p.surface } else { p.raised })
+        .stroke(Stroke::new(if accent { 1.0 } else { 0.0 }, color))
+        .corner_radius(CornerRadius::same(10))
+        .inner_margin(Margin::symmetric(10, 4))
+        .show(ui, |ui| {
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = 6.0;
+                ui.add(a.icons.icon(icon, color, &p, 14.0));
+                ui.label(txt(&words, 12.0, Weight::Medium, color));
+            });
+        });
+}
+
+/// What one card asks for.
+#[derive(Default)]
+struct CardAnswer {
+    renew: bool,
+    disconnect: bool,
+    remove: bool,
+}
+
+/// One app's card (L1; L2 when disconnected).
+fn app_card(
+    ui: &mut Ui,
+    a: &mut Assets,
+    app: &ConnectedApp,
+    who: &str,
+    now: chrono::DateTime<chrono::Local>,
+) -> CardAnswer {
+    let p = a.p;
+    let state = state_of(app);
+    let label = if app.label.is_empty() {
+        app_label(&app.name)
+    } else {
+        app.label.clone()
+    };
+    let mut answer = CardAnswer::default();
+    let total = ui.available_width();
+    card(&p, Margin::same(20)).show(ui, |ui| {
+        ui.set_width(inner(total, 20));
+        ui.spacing_mut().item_spacing.y = 10.0;
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 12.0;
+            let (logo, _) = ui.allocate_exact_size(vec2(40.0, 40.0), Sense::hover());
+            paint_letter_box(ui, &p, logo, &label);
+            ui.vertical(|ui| {
+                ui.spacing_mut().item_spacing.y = 2.0;
+                ui.label(txt(&label, 15.0, Weight::SemiBold, p.text));
+                let under = match app.disconnected_at {
+                    Some(at) => format!(
+                        tr!("disconnected on {} · the keys on the identity are disabled"),
+                        text::date_short(at, now)
+                    ),
+                    None => {
+                        let contract = format!(tr!("contract {}"), text::short_address(&app.id));
+                        format!(
+                            "{} · {} · {}",
+                            crate::i18n::t(tr!("what the app calls itself")),
+                            crate::i18n::t(&contract),
+                            who
+                        )
+                    }
+                };
+                ui.label(txt(&under, 12.0, Weight::Regular, p.muted));
+            });
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                state_chip(ui, a, state, now);
+            });
+        });
+        if state != AppState::Disconnected {
+            for key in &app.session {
+                ui.horizontal(|ui| {
+                    ui.label(txt(
+                        &binding_title(&key.binding, &label),
+                        13.0,
+                        Weight::Regular,
+                        p.text,
+                    ));
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        ui.label(txt(&spent_line(key, now), 12.0, Weight::Regular, p.muted));
+                    });
+                });
+                let color = match state {
+                    AppState::UsedUp => attention_color(&p),
+                    AppState::Expired(_) => p.muted,
+                    _ => p.text,
+                };
+                bar(ui, p.line, color, spent_fraction(key));
+            }
+            if state == AppState::UsedUp {
+                notice(
+                    ui,
+                    a,
+                    "info",
+                    p.muted,
+                    tr!("The app can no longer write anything in your name. Renew the connection to set a new limit."),
+                );
+            }
+        }
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 12.0;
+            match state {
+                AppState::Disconnected => {
+                    if button(ui, a, tr!("Remove from the list"), ButtonKind::Ghost, None).clicked()
+                    {
+                        answer.remove = true;
+                    }
+                }
+                _ => {
+                    if button(ui, a, tr!("Renew"), ButtonKind::Secondary, None).clicked() {
+                        answer.renew = true;
+                    }
+                    if button(ui, a, tr!("Disconnect"), ButtonKind::Ghost, None)
+                        .on_hover_text(
+                            crate::i18n::t(&format!(
+                                tr!("{} will no longer be able to sign in as {who}"),
+                                label,
+                                who = who
+                            ))
+                            .into_owned(),
+                        )
+                        .clicked()
+                    {
+                        answer.disconnect = true;
+                    }
+                }
+            }
+        });
+    });
+    answer
 }
 
 pub fn apps(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, requests: &mut AppRequests) {
     let p = a.p;
     let wallet = cx.wallet();
     let name = wallet.identity.as_ref().and_then(|i| i.name());
+    let who = name.map_or_else(|| "identity".to_string(), |n| format!("@{n}"));
     let now = cx.now;
     ui.spacing_mut().item_spacing.y = 22.0;
     // «Scan QR» (UC-4): an app's link goes where «Paste a link» sends it; a picture may also be
@@ -104,6 +259,13 @@ pub fn apps(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, requests: &mut AppRequest
             Err(why) => requests.qr_error = why,
         }
     }
+    // R-3: what is left comes from Platform, asked once a visit for each connected app.
+    for app in wallet.apps.iter().filter(|a| a.disconnected_at.is_none()) {
+        if requests.budgets_asked.insert(app.id.clone()) {
+            cx.send(evolite_api::Command::ReadAppBudgets { id: app.id.clone() });
+        }
+    }
+    let mut scan_now = false;
     page_header(ui, a, tr!("Apps"), None, |ui, a| {
         let scanning = requests.scanner.busy();
         let scan = button_enabled(ui, a, tr!("Scan QR"), ButtonKind::Primary, None, !scanning);
@@ -120,13 +282,46 @@ pub fn apps(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, requests: &mut AppRequest
         crate::components::drop_overlay(ui.ctx(), a, screen);
     }
 
-    egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
-        ui.spacing_mut().item_spacing.y = 22.0;
+    let connected: Vec<&ConnectedApp> = wallet
+        .apps
+        .iter()
+        .filter(|a| a.disconnected_at.is_none())
+        .collect();
+    let disconnected: Vec<&ConnectedApp> = wallet
+        .apps
+        .iter()
+        .filter(|a| a.disconnected_at.is_some())
+        .collect();
+    // `--screen apps-…` (dev-tools): a dialog of the list open, or the list at its end.
+    let mut to_end = false;
+    if !wallet.apps.is_empty()
+        && let Some(preset) = requests.preset.take()
+    {
+        let name = |a: &ConnectedApp| a.label.clone();
+        match (preset, connected.first(), disconnected.first()) {
+            ("renew", Some(app), _) => {
+                let line = app.session.first().map(|k| spent_line(k, now));
+                requests.renewing = Some((name(app), line.unwrap_or_default()));
+            }
+            ("disconnect", Some(app), _) => {
+                requests.disconnecting = Some((app.id.clone(), name(app)));
+            }
+            ("remove", _, Some(app)) => requests.removing = Some((app.id.clone(), name(app))),
+            ("to-end", ..) => to_end = true,
+            _ => {}
+        }
+    }
+    let mut list = egui::ScrollArea::vertical().auto_shrink(false);
+    if to_end {
+        list = list.vertical_scroll_offset(10_000.0);
+    }
+    list.show(ui, |ui| {
+        ui.spacing_mut().item_spacing.y = 16.0;
         let total = ui.available_width();
         ui.add(
             egui::Label::new(
                 txt(
-                    tr!("Dash Platform apps you let sign in as your identity. An app's key signs documents in your name (fees come from the credits), but cannot transfer credits or DASH."),
+                    tr!("Apps on Dash Platform you allowed to sign in as your identity. Each connection has its own spending limit and period; the app cannot spend more."),
                     14.0,
                     Weight::Regular,
                     p.muted,
@@ -135,21 +330,29 @@ pub fn apps(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, requests: &mut AppRequest
             )
             .wrap(),
         );
-
-        card(&p, Margin::ZERO).show(ui, |ui| {
-            ui.set_width(inner(total, 0));
-            ui.spacing_mut().item_spacing.y = 0.0;
-            if wallet.apps.is_empty() {
+        // The demo's example: a real app gives a real link.
+        #[cfg(demo_core)]
+        if cx.snap.demo
+            && crate::components::text_action(ui, a, "link", tr!("Show an example")).clicked()
+        {
+            cx.send(evolite_api::Command::OpenAppLink {
+                text: EXAMPLE.to_string(),
+            });
+        }
+        if let Some(done) = requests.connected.clone() {
+            let answer = notice_closable(ui, a, "confirmed", &done, "", None);
+            if answer.closed {
+                requests.connected = None;
+            }
+        }
+        if wallet.apps.is_empty() {
+            card(&p, Margin::ZERO).show(ui, |ui| {
+                ui.set_width(inner(total, 0));
                 ui.add_space(32.0);
                 // With the next step (designer review №17): the app's link is the way in.
                 ui.vertical_centered(|ui| {
                     ui.spacing_mut().item_spacing.y = 12.0;
-                    ui.label(txt(
-                        tr!("No connected apps"),
-                        14.0,
-                        Weight::Regular,
-                        p.muted,
-                    ));
+                    ui.label(txt(tr!("No connected apps"), 14.0, Weight::Regular, p.muted));
                     ui.label(txt(
                         tr!("To connect one, paste the link the app shows."),
                         13.0,
@@ -161,145 +364,72 @@ pub fn apps(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, requests: &mut AppRequest
                     }
                 });
                 ui.add_space(32.0);
+            });
+        }
+        for (title, apps) in [
+            (format!(tr!("Connected · {}"), connected.len()), &connected),
+            (format!(tr!("Disconnected · {}"), disconnected.len()), &disconnected),
+        ] {
+            if apps.is_empty() {
+                continue;
             }
-            for (i, app) in wallet.apps.iter().enumerate() {
-                if i > 0 {
-                    let (line, _) =
-                        ui.allocate_exact_size(vec2(ui.available_width(), 1.0), Sense::hover());
-                    ui.painter().rect_filled(line, 0, p.line);
-                }
-                let who = name.map_or_else(|| "identity".to_string(), |n| format!("@{n}"));
-                if app_row(
-                    ui,
-                    a,
-                    app,
-                    &access(app, name),
-                    &last_used(app.last_used, now),
-                    &who,
-                ) {
+            ui.label(txt(
+                &title,
+                13.0,
+                Weight::SemiBold,
+                p.muted,
+            ));
+            for app in apps.iter() {
+                let answer = app_card(ui, a, app, &who, now);
+                let label = if app.label.is_empty() {
+                    app_label(&app.name)
+                } else {
+                    app.label.clone()
+                };
+                if answer.disconnect {
                     // It disables keys and costs credits: asked once more first.
-                    requests.disconnecting = Some((app.id.clone(), app.name.clone()));
+                    requests.disconnecting = Some((app.id.clone(), label.clone()));
                     requests.disconnect_result = None;
                 }
-            }
-        });
-
-        // Three explanations side by side while each is at least an app card wide, else two,
-        // else one under another (responsive spec R4). The cards of a row are as tall as the
-        // tallest one (designer review №17) in the very frame they are drawn: no height is
-        // kept from the last frame and no frame is asked for again.
-        let spec = GridSpec {
-            min_w: APP_CARD_MIN_W,
-            gap: vec2(16.0, 16.0),
-            max_cols: 3,
-            even: false,
-        };
-        grid(ui, WAYS.len(), spec, |ui, i, w, cell| {
-            let (icon, title, text) = WAYS[i];
-            #[cfg(demo_core)]
-            let example = EXAMPLES[i];
-            cell.card(ui, card(&p, Margin::same(18)), |ui| {
-                ui.set_width(inner(w, 18));
-                ui.spacing_mut().item_spacing.y = 8.0;
-                ui.horizontal(|ui| {
-                    ui.spacing_mut().item_spacing.x = 8.0;
-                    ui.add(a.icons.icon(icon, p.text, &p, 18.0));
-                    ui.label(txt(title, 14.0, Weight::SemiBold, p.text));
-                });
-                ui.add(
-                    egui::Label::new(
-                        txt(text, 12.0, Weight::Regular, p.muted).line_height(Some(18.0)),
-                    )
-                    .wrap(),
-                );
-                // The examples are the demo's: a real app gives a real link.
-                #[cfg(demo_core)]
-                if cx.snap.demo
-                    && crate::components::text_action(ui, a, "link", tr!("Show an example"))
-                        .clicked()
-                {
-                    cx.send(evolite_api::Command::OpenAppLink {
-                        text: example.to_string(),
-                    });
+                if answer.renew {
+                    let line = app
+                        .session
+                        .first()
+                        .map(|k| spent_line(k, now))
+                        .unwrap_or_default();
+                    requests.renewing = Some((label.clone(), line));
                 }
-            });
-        });
+                if answer.remove {
+                    requests.removing = Some((app.id.clone(), label));
+                }
+            }
+        }
     });
+    if let Some((app, line)) = requests.renewing.clone() {
+        let mut closed = false;
+        match connect2::renew_how(ui, a, &app, &line, &mut closed) {
+            Some(true) => requests.pasting = true,
+            Some(false) => scan_now = true,
+            None => {}
+        }
+        if closed {
+            requests.renewing = None;
+        }
+    }
+    if scan_now {
+        requests.scanner.open_menu(ui.ctx());
+    }
+    if let Some((id, app)) = requests.removing.clone() {
+        let mut closed = false;
+        if connect2::remove_dialog(ui, a, &app, &mut closed) {
+            cx.send(evolite_api::Command::ForgetApp { id });
+        }
+        if closed {
+            requests.removing = None;
+        }
+    }
     app_requests::show(ui, a, cx, requests);
     app_requests::disconnect_dialog(ui, a, cx, requests);
-}
-
-/// One connected app: logo letter, name and domain, what it may do, last sign-in, "Disconnect".
-/// `who`: the identity it signs in as. Returns true when "Disconnect" was clicked.
-fn app_row(
-    ui: &mut Ui,
-    a: &mut Assets,
-    app: &ConnectedApp,
-    access: &str,
-    last: &str,
-    who: &str,
-) -> bool {
-    let p = a.p;
-    let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), 77.0), Sense::hover());
-    let cy = rect.center().y;
-    let logo = Rect::from_min_size(pos2(rect.left() + 20.0, cy - 22.0), vec2(44.0, 44.0));
-    paint_letter_box(ui, &p, logo, &app.name);
-    let painter = ui.painter();
-    let x = logo.right() + 16.0;
-    let name = painter.text(
-        pos2(x, cy - 2.0),
-        Align2::LEFT_BOTTOM,
-        crate::i18n::t(&app.name),
-        sans(15.0, Weight::SemiBold),
-        p.text,
-    );
-    painter.text(
-        pos2(name.right() + 8.0, name.center().y),
-        Align2::LEFT_CENTER,
-        crate::i18n::t(&app.domain),
-        mono(12.0, Weight::Regular),
-        p.muted,
-    );
-    painter.text(
-        pos2(x, cy + 2.0),
-        Align2::LEFT_TOP,
-        crate::i18n::t(access),
-        sans(13.0, Weight::Regular),
-        p.muted,
-    );
-
-    let button_rect = Rect::from_min_size(
-        pos2(rect.right() - 20.0 - 112.0, cy - 20.5),
-        vec2(112.0, 41.0),
-    );
-    let last_x = button_rect.left() - 16.0;
-    painter.text(
-        pos2(last_x, cy - 1.0),
-        Align2::RIGHT_BOTTOM,
-        crate::i18n::t(tr!("last sign-in")),
-        sans(11.0, Weight::Regular),
-        p.muted,
-    );
-    painter.text(
-        pos2(last_x, cy + 1.0),
-        Align2::RIGHT_TOP,
-        crate::i18n::t(last),
-        sans(13.0, Weight::Medium),
-        p.text,
-    );
-    // A child UI: placing the button must not move the parent's cursor.
-    let mut child = ui.new_child(egui::UiBuilder::new().max_rect(button_rect));
-    let ui = &mut child;
-    button(ui, a, tr!("Disconnect"), ButtonKind::Ghost, Some(112.0))
-        .on_hover_text(
-            crate::i18n::t(&format!(
-                tr!("{} will no longer be able to sign in as {who}"),
-                app.name,
-                who = who
-            ))
-            .into_owned(),
-        )
-        .clicked()
 }
 
 /// What a QR brings to «Apps» (UC-4, AC-T8): an app's link, else why not (`None`: the file
@@ -321,6 +451,7 @@ fn app_link_from_qr(scanned: &crate::qr_scan::Scanned) -> Result<String, Option<
 #[cfg(test)]
 mod tests {
     use super::*;
+    use evolite_api::{AppBinding, CoreError, KeyLevel};
 
     #[test]
     fn only_an_app_link_from_a_qr_goes_to_the_core() {
@@ -330,8 +461,8 @@ mod tests {
             kind,
         };
         assert_eq!(
-            app_link_from_qr(&found("dash-key:yappr", Kind::AppLink)),
-            Ok("dash-key:yappr".into())
+            app_link_from_qr(&found("dashpay://connect?v=2", Kind::AppLink)),
+            Ok("dashpay://connect?v=2".into())
         );
         for other in [
             found("yXk3Tq9mD8vJw2RfL6pN4sB7cH1eZ5aG9f", Kind::Address),
@@ -349,39 +480,67 @@ mod tests {
         );
         assert_eq!(app_link_from_qr(&Scanned::Cancelled), Err(None));
     }
-    use evolite_api::{CoreError, KeyLevel};
 
-    fn app(key: Option<(u32, KeyLevel, Vec<String>)>) -> ConnectedApp {
-        ConnectedApp {
-            id: "C".into(),
-            name: "@yappr".into(),
-            domain: String::new(),
-            key,
-            last_used: 0,
+    fn key(remaining: Option<i64>, state: SessionKeyState) -> SessionKey {
+        SessionKey {
+            id: 6,
+            level: KeyLevel::High,
+            binding: AppBinding::Group { id: "G".into() },
+            budget: 50_000_000,
+            expires_at: 1_000,
+            state,
+            remaining,
         }
     }
 
+    fn app(session: Vec<SessionKey>, disconnected_at: Option<i64>) -> ConnectedApp {
+        ConnectedApp {
+            id: "C".into(),
+            name: "@yappr".into(),
+            label: "Yappr".into(),
+            domain: String::new(),
+            last_used: 0,
+            session,
+            disconnected_at,
+        }
+    }
+
+    /// The design's table: active, used up (any key at 0), expired (the primary key's end),
+    /// disconnected first of all.
     #[test]
-    fn says_what_an_app_key_can_sign() {
-        // The real core's keys are unbound: not "only its documents".
+    fn a_connection_is_active_used_up_expired_or_disconnected() {
+        use SessionKeyState::{Expired, Live};
         assert_eq!(
-            access(&app(Some((6, KeyLevel::High, Vec::new()))), Some("bob")),
-            format!(
-                "@bob · key #6 {} · documents of any app",
-                text::key_level(KeyLevel::High)
-            )
-        );
-        assert!(
-            access(
-                &app(Some((4, KeyLevel::Medium, vec!["jembe".into()]))),
-                None
-            )
-            .ends_with("documents of contract jembe")
+            state_of(&app(vec![key(Some(1), Live)], None)),
+            AppState::Active
         );
         assert_eq!(
-            access(&app(None), Some("bob")),
-            "@bob · the app's keys are not on the identity yet"
+            state_of(&app(vec![key(None, Live)], None)),
+            AppState::Active,
+            "not read"
         );
+        assert_eq!(
+            state_of(&app(vec![key(Some(1), Live), key(Some(0), Live)], None)),
+            AppState::UsedUp
+        );
+        assert_eq!(
+            state_of(&app(vec![key(Some(9), Expired)], None)),
+            AppState::Expired(1_000)
+        );
+        assert_eq!(
+            state_of(&app(vec![key(Some(0), Live)], Some(5))),
+            AppState::Disconnected
+        );
+    }
+
+    #[test]
+    fn spent_is_what_platform_says_is_gone() {
+        assert_eq!(
+            spent_fraction(&key(Some(48_000_000), SessionKeyState::Live)),
+            0.04
+        );
+        assert_eq!(spent_fraction(&key(None, SessionKeyState::Live)), 0.0);
+        assert_eq!(spent_fraction(&key(Some(0), SessionKeyState::Live)), 1.0);
     }
 
     #[test]

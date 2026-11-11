@@ -201,14 +201,12 @@ fn hidden_balances_read_dots_in_the_dialogs() {
         "unshield",
         "top-up",
         "create-identity",
-        "sign",
         "delete",
     ] {
         let (_turn, mut kit) = demo_app(preset, "en");
         let seen = balances(&kit);
-        // An app's request shows the credits after it, not a balance of the wallet.
         assert!(
-            preset == "sign" || seen.iter().any(|b| shows(&kit, b)),
+            seen.iter().any(|b| shows(&kit, b)),
             "{preset}: a balance is seen at first"
         );
         kit.state_mut().settings.flip_hide_amounts();
@@ -226,18 +224,6 @@ fn hidden_balances_read_dots_in_the_dialogs() {
         shows(&kit, "•••• DASH · ≈ •••• operations"),
         "top-up: operations hidden"
     );
-    drop(kit);
-    drop(_turn);
-    // An app's request: its cost stays, the credits after it hide.
-    let (_turn, mut kit) = demo_app("sign", "en");
-    assert!(!shows(&kit, "Credits after: ••••"), "sign: seen at first");
-    kit.state_mut().settings.flip_hide_amounts();
-    kit.run_steps(3);
-    assert!(
-        shows(&kit, "Credits after: ••••"),
-        "sign: credits after hidden"
-    );
-    assert!(!shows(&kit, "Cost: ≈ ••••"), "sign: the cost stays");
 }
 
 /// «Core has {} now» under «No identity yet» hides the Core balance too.

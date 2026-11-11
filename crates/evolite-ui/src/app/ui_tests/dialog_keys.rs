@@ -356,89 +356,39 @@ fn check_the_payment_shows_its_ring_and_a_click_signs_at_once() {
     wait_for(&mut kit, "the payment after a click", sent);
 }
 
-/// «Allow sign-in» is asked by a site, not by the person: the dialog opens on «Decline» with its
-/// ring, and Enter declines. Only Tab to «Allow sign-in» and Enter on it allows.
+/// A sign-in is asked by a site, not by the person (rule b′): Enter in the password field
+/// never connects, however ready the dialog is; only «Connect» itself does (FEAT-0023 round 4).
 #[test]
 fn enter_cannot_allow_an_app_to_sign_in() {
     use crate::screens::app_requests::Consent;
     let (_turn, mut kit) = demo_app("connect", "en");
     wait_for(&mut kit, "the sign-in request", |kit| {
-        enabled_button(kit, "Allow sign-in")
+        kit.state().requests.open.is_some()
     });
+    kit.run_steps(3);
+    kit.query_all_by_role(Role::PasswordInput)
+        .next()
+        .expect("the password field")
+        .click();
     kit.run_steps(2);
-    assert_eq!(
-        focused(&kit).as_deref(),
-        Some("Decline"),
-        "the focus on opening"
-    );
-    assert!(
-        ring_around(&kit, last_button(&kit, "Decline")),
-        "the ring on «Decline»"
-    );
+    kit.query_all_by_role(Role::PasswordInput)
+        .next()
+        .expect("the password field")
+        .type_text("any");
+    kit.run_steps(2);
+    assert!(enabled_button(&kit, "Connect"), "ready");
     for _ in 0..2 {
         enter(&mut kit);
     }
     assert!(
-        kit.state().requests.consent == Consent::Asking,
+        kit.state().requests.consent == Consent::Asking && kit.state().requests.open.is_some(),
         "Enter allowed the sign-in"
     );
-    drop(kit);
-    drop(_turn);
-
-    let (_turn, mut kit) = demo_app("connect", "en");
-    wait_for(&mut kit, "the sign-in request", |kit| {
-        enabled_button(kit, "Allow sign-in")
+    kit.query_all_by_role_and_label(Role::Button, "Connect")
+        .last()
+        .expect("«Connect»")
+        .click();
+    wait_for(&mut kit, "the sign-in done", |kit| {
+        kit.state().requests.connected.is_some()
     });
-    kit.run_steps(2);
-    tab(&mut kit, false);
-    assert_eq!(
-        focused(&kit).as_deref(),
-        Some("Allow sign-in"),
-        "Tab from «Decline»"
-    );
-    enter(&mut kit);
-    assert!(
-        kit.state().requests.consent != Consent::Asking,
-        "Tab and Enter on «Allow sign-in» allows"
-    );
-}
-
-/// Review r2, must: an app's «Sign the operation» is asked by the app and spends credits, so it
-/// is a destructive row like the sign-in: the focus on «Decline», Enter twice signs nothing;
-/// Tab to «Sign» and Enter signs.
-#[test]
-fn enter_cannot_sign_an_apps_operation() {
-    use crate::screens::app_requests::Consent;
-    let (_turn, mut kit) = demo_app("sign", "en");
-    wait_for(&mut kit, "the signing request", |kit| {
-        enabled_button(kit, "Sign")
-    });
-    kit.run_steps(2);
-    assert_eq!(
-        focused(&kit).as_deref(),
-        Some("Decline"),
-        "the focus on opening"
-    );
-    for _ in 0..2 {
-        enter(&mut kit);
-    }
-    assert!(
-        kit.state().requests.consent == Consent::Asking,
-        "Enter signed the app's operation"
-    );
-    drop(kit);
-    drop(_turn);
-
-    let (_turn, mut kit) = demo_app("sign", "en");
-    wait_for(&mut kit, "the signing request", |kit| {
-        enabled_button(kit, "Sign")
-    });
-    kit.run_steps(2);
-    tab(&mut kit, false);
-    assert_eq!(focused(&kit).as_deref(), Some("Sign"), "Tab from «Decline»");
-    enter(&mut kit);
-    assert!(
-        kit.state().requests.consent != Consent::Asking,
-        "Tab and Enter on «Sign» signs"
-    );
 }

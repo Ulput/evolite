@@ -51,6 +51,11 @@ fn texts_are_sorted_into_what_evolite_takes() {
     assert_eq!(classify("@satoshi"), Kind::Name);
     assert_eq!(classify("dash-key:yappr?key=MEDIUM"), Kind::AppLink);
     assert_eq!(classify("dash-st:jembe"), Kind::AppLink);
+    assert_eq!(
+        classify("dashpay://connect?v=2&n=t&r=AQ"),
+        Kind::AppLink,
+        "App Connect v2 (FEAT-0023)"
+    );
     for other in [
         "https://example.com",
         "@a",

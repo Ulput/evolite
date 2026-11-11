@@ -339,6 +339,7 @@ impl Real {
         let apps = app_jobs::shown_apps(
             &self.apps.all(),
             shown.as_ref().map(|(identity, _, _)| identity.id.as_str()),
+            &self.app_reads.lock().unwrap_or_else(|e| e.into_inner()),
         );
         self.name_contact_lines(id, &mut history, &mut contacts)
             .await;

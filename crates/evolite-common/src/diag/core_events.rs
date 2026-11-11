@@ -26,7 +26,8 @@ pub fn command_name(command: &Command) -> &'static str {
         Command::ResolveName { .. } => "resolve_name",
         Command::Spend { op, .. } => spend(op),
         Command::SetPasswordEachSend { .. } => "set_password_each_send",
-        Command::DisconnectApp { .. } => "disconnect_app",
+        Command::ReadAppBudgets { .. } => "read_app_budgets",
+        Command::ForgetApp { .. } => "forget_app",
         Command::CheckName { .. } => "check_name",
         Command::OpenAppLink { .. } => "open_app_link",
         Command::DeclineApp { .. } => "decline_app",
@@ -73,6 +74,7 @@ fn spend(op: &Spend) -> &'static str {
         Spend::SaveProfile { .. } => "save_profile",
         Spend::ApproveApp { .. } => "approve_app",
         Spend::GiftNft { .. } => "gift_nft",
+        Spend::DisconnectApp { .. } => "disconnect_app",
     }
 }
 
@@ -92,6 +94,7 @@ pub fn error_kind(error: &CoreError) -> &'static str {
         CoreError::BadLink => "bad_link",
         CoreError::TooManyTries { .. } => "too_many_tries",
         CoreError::PicturesOff(_) => "pictures_off",
+        CoreError::AppLink(_) => "app_link",
     }
 }
 

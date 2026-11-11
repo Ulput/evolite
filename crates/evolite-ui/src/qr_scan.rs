@@ -73,7 +73,11 @@ pub fn classify(text: &str) -> Kind {
     if crate::payment_uri::is_link(text) {
         return Kind::Uri;
     }
-    if lower.starts_with("dash-key:") || lower.starts_with("dash-st:") {
+    // An App Connect v2 sign-in, or a v1 link the core refuses in words of its own.
+    if lower.starts_with("dashpay://connect")
+        || lower.starts_with("dash-key:")
+        || lower.starts_with("dash-st:")
+    {
         return Kind::AppLink;
     }
     if let Some(name) = text.strip_prefix('@') {

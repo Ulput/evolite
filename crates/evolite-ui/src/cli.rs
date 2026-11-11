@@ -110,7 +110,7 @@ pub struct DevLaunch {
     pub preset: Option<String>,
     /// Onboarding steps open filled in as in Figma.
     pub onboarding: Option<Onboarding>,
-    /// `connect`, `sign`, `exchange`: the Apps screen with that request open.
+    /// `connect`: the Apps screen with an App Connect v2 request open.
     pub example_link: Option<&'static str>,
     /// `--screenshot <file.png>`: save the window after a few frames and quit.
     pub screenshot: Option<String>,
@@ -202,7 +202,8 @@ pub const PRESETS: &[&str] = &[
     "create-identity", "creating", "create-identity-nameless", "create-identity-confirm",
     "create-identity-short", "create-identity-unchecked",
     "shielded", "shield", "shield-core", "unshield", "unshield-identity", "pool-address",
-    "apps", "connect", "sign", "exchange",
+    "apps", "connect", "connect-limits", "connect-renew", "refused-v1", "refused-stale",
+    "refused-mainnet", "apps-disconnected", "apps-renew", "apps-disconnect", "apps-remove",
     "collection", "gift",
     "probe",
     "settings", "phrase", "check-phrase", "appearance", "appearance-rate", "change-password",
@@ -236,9 +237,12 @@ fn dev_args<'a>(
         _ => None,
     };
     let example_link = match preset {
-        Some("connect") => Some("dash-key:yappr"),
-        Some("sign") => Some("dash-st:jembe"),
-        Some("exchange") => Some("dash-kx:jembe"),
+        Some("connect" | "connect-limits") => Some("dashpay://connect?v=2&n=t&r=AQ"),
+        // The demo core reads these words in its links (FEAT-0023 round 4 shots).
+        Some("connect-renew") => Some("dashpay://connect?v=2&n=t&r=AQ&renew"),
+        Some("refused-v1") => Some("dash-key:3mJr7AoUXx2Wqd?n=t&v=1"),
+        Some("refused-stale") => Some("dashpay://connect?v=2&n=t&r=AQ&stale"),
+        Some("refused-mainnet") => Some("dashpay://connect?v=2&n=m&r=AQ"),
         _ => None,
     };
     let screen = match (&onboarding, preset) {
@@ -350,7 +354,14 @@ fn dev_args<'a>(
                 | "pool-address",
             ),
         ) => Screen::Shielded,
-        (None, Some("apps" | "connect" | "sign" | "exchange")) => Screen::Apps,
+        (
+            None,
+            Some(
+                "apps" | "connect" | "connect-limits" | "connect-renew" | "refused-v1"
+                | "refused-stale" | "refused-mainnet" | "apps-disconnected" | "apps-renew"
+                | "apps-disconnect" | "apps-remove",
+            ),
+        ) => Screen::Apps,
         (None, Some("collection" | "gift")) => Screen::Collection,
         (None, Some("probe")) => Screen::Probe,
         (
@@ -513,10 +524,10 @@ mod tests {
         let l = launch("--screen shield --theme light");
         assert_eq!(l.screen, Screen::Shielded);
         assert!(l.dev.preset("shield") && !l.dev.preset("gift") && !l.dark);
-        let l = launch("--screen sign");
+        let l = launch("--screen connect");
         assert_eq!(
             (l.screen, l.dev.example_link),
-            (Screen::Apps, Some("dash-st:jembe"))
+            (Screen::Apps, Some("dashpay://connect?v=2&n=t&r=AQ"))
         );
         // A value of another flag is not a preset.
         assert!(!launch("--data-dir shield").dev.preset("shield"));

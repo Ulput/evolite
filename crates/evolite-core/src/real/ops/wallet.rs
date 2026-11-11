@@ -434,11 +434,14 @@ impl Real {
     /// "Password for every send" (BUG-42, R-27), before anything of a spend is checked, locked
     /// or signed: when the wallet asks for it, no password is a refusal and a wrong one is
     /// [`CoreError::WrongPassword`]. The attempt counter and the pauses are FEAT-0004's, here.
+    /// `always`: this spend asks for the password whatever the setting (an App Connect v2
+    /// sign-in, which cannot be undone for the identity: FEAT-0023 round 4).
     pub(in crate::real) async fn spend_gate(
         &self,
         password: Option<&Password>,
+        always: bool,
     ) -> Result<(), CoreError> {
-        if !self.password_each_send {
+        if !self.password_each_send && !always {
             return Ok(());
         }
         match password {

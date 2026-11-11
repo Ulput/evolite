@@ -118,7 +118,14 @@ impl Real {
                     result: Err(e),
                 },
             },
-            Spend::ApproveApp { id } => match self.answer_app(id, true) {
+            Spend::DisconnectApp { id } => match self.disconnect_app(&id) {
+                Ok(()) => return (None, true),
+                Err(e) => Event::Done {
+                    what: DoneWhat::Disconnect,
+                    result: Err(e),
+                },
+            },
+            Spend::ApproveApp { id, grant } => match self.answer_app(id, true, grant) {
                 // The answer comes from the background task.
                 Ok(true) => return (None, true),
                 Ok(false) => Event::Done {
@@ -213,19 +220,27 @@ impl Real {
                 Ok(()) => return (None, false),
                 Err(e) => Event::PaymentPreview { to, result: Err(e) },
             },
-            // As the demo answers it: `app` is the answer to a request on screen, and a
-            // disconnect is not one.
-            Command::DisconnectApp { id } => match self.disconnect_app(&id) {
-                Ok(()) => return (None, true),
+            Command::ForgetApp { id } => match self.forget_app(&id) {
+                Ok(()) => return (None, false),
                 Err(e) => Event::Done {
-                    what: DoneWhat::Disconnect,
+                    what: DoneWhat::ForgetApp,
+                    result: Err(e),
+                },
+            },
+            Command::ReadAppBudgets { id } => match self.read_app_budgets(&id) {
+                Ok(()) => return (None, false),
+                Err(e) => Event::Done {
+                    what: DoneWhat::AppBudgets,
                     result: Err(e),
                 },
             },
             // Every spend passes the one gate first (R-27): refused, it is answered as the
             // operation's own failure, and nothing of it was checked, locked or signed.
             Command::Spend { op, password } => {
-                if let Err(why) = self.spend_gate(password.as_ref()).await {
+                if let Err(why) = self
+                    .spend_gate(password.as_ref(), op.asks_password_always())
+                    .await
+                {
                     return (Some(op.refused(why)), true);
                 }
                 self.prices.begin(&op, now());
@@ -240,7 +255,7 @@ impl Real {
                 result: self.set_password_each_send(on, password.as_ref()).await,
             },
             // Turning a request down spends nothing: no password.
-            Command::DeclineApp { id } => match self.answer_app(id, false) {
+            Command::DeclineApp { id } => match self.answer_app(id, false, None) {
                 Ok(_) => Event::Done {
                     what: DoneWhat::App,
                     result: Ok(()),

@@ -647,6 +647,39 @@ async fn the_setting_goes_off_only_with_the_password() {
     assert!(core.password_each_send && security::load(&core.paths.root, &core.wallet));
 }
 
+/// FEAT-0023 round 4: an App Connect v2 sign-in cannot be undone for the identity (R-6), so it
+/// asks for the wallet's password even with "password for every send" off: none is refused,
+/// a wrong one too; the right one gets past the gate to the request itself.
+#[tokio::test]
+async fn a_v2_sign_in_asks_for_the_password_whatever_the_setting() {
+    let mut core = opened("v2-gate", "right");
+    core.password_each_send = false;
+    let approve = |password: Option<&str>| Command::Spend {
+        op: Spend::ApproveApp {
+            id: 7,
+            grant: Some(SessionGrant { keys: Vec::new() }),
+        },
+        password: password.map(pw),
+    };
+    let refused = |why| {
+        debug(&Some(Event::Done {
+            what: DoneWhat::App,
+            result: Err(why),
+        }))
+    };
+    assert_eq!(
+        debug(&core.handle(approve(None)).await.0),
+        refused(CoreError::NotAvailable(crate::PASSWORD_NEEDED.into()))
+    );
+    assert_eq!(
+        debug(&core.handle(approve(Some("wrong"))).await.0),
+        refused(CoreError::WrongPassword)
+    );
+    // Past the gate: the request was never shown, so it is out of date.
+    let past = debug(&core.handle(approve(Some("right"))).await.0);
+    assert!(past.contains("out of date"), "{past}");
+}
+
 #[tokio::test(start_paused = true)]
 async fn locks_after_the_idle_time_only_when_open() {
     let mut core = core_with_vault("idle", "pw");
@@ -666,4 +699,61 @@ async fn locks_after_the_idle_time_only_when_open() {
     core.auto_lock = None;
     tokio::time::advance(Duration::from_secs(10_000)).await;
     assert!(!core.idle_too_long(), "\"on close\": never by time");
+}
+
+/// FEAT-0023 r3 review, Should 2: a request kept open past its 10 minutes is not answered at
+/// «Connect» — refused as out of date before anything is derived, signed or sent.
+#[tokio::test]
+async fn a_v2_request_kept_open_too_long_is_refused_at_approve() {
+    use crate::real::ops::app_connect2::Connect2Job;
+    use evolite_chain::app_connect_v2::{AuthBinding, Bounds, Carrier, Level, Link, Request};
+    let mut core = opened("v2-stale", "right");
+    let made = (now() as u64).saturating_sub(11 * 60) * 1_000;
+    let link = Link {
+        request: Request {
+            app_ephemeral: [2; 33],
+            app_id: [1; 32],
+            label: "Yappr".into(),
+            identity_hint: None,
+            auth: vec![AuthBinding {
+                bounds: Bounds::SingleContract([1; 32]),
+                level: Level::High,
+                total_budget: 0,
+                expires_at: 0,
+            }],
+            connection_id: None,
+            enc: Vec::new(),
+            renew: false,
+            created_at: made,
+        },
+        carrier: Carrier::Connect,
+        callback: None,
+    };
+    core.app_requests.lock().unwrap().insert(
+        7,
+        crate::real::AppJob::Connect2(Box::new(Connect2Job {
+            link,
+            name: "@yappr".into(),
+            identity: [3; 32],
+        })),
+    );
+    let end = now() + 30 * 24 * 60 * 60;
+    let (event, _) = core
+        .handle(Command::Spend {
+            op: Spend::ApproveApp {
+                id: 7,
+                grant: Some(SessionGrant {
+                    keys: vec![Some((10_000_000, end))],
+                }),
+            },
+            password: Some(pw("right")),
+        })
+        .await;
+    assert_eq!(
+        debug(&event),
+        debug(&Some(Event::Done {
+            what: DoneWhat::App,
+            result: Err(CoreError::AppLink(AppLinkRefusal::Stale)),
+        }))
+    );
 }

@@ -11,6 +11,7 @@ mod add_name;
 mod addresses;
 mod alignment;
 mod amounts;
+mod app_connect;
 mod as_known;
 mod bugs;
 mod calm_states;

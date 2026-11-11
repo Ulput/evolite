@@ -1,5 +1,5 @@
 //! What the mock answers by rules, as the real core will: DPNS names (taken, contested,
-//! free) and app links (dash-key:, dash-st:, dash-kx:).
+//! free) and app links (App Connect v2; v1 refused).
 
 use evolite_api::*;
 
@@ -148,6 +148,189 @@ pub fn check_name(label: &str) -> Result<NameCheck, CoreError> {
     })
 }
 
+/// Yappr's App Connect v2 request as its profile describes it (FEAT-0023): its contract group
+/// at CRITICAL for 0.5 DASH and 90 days, DashPay `profile` at HIGH for 0.01 DASH and 90 days,
+/// and an encryption key of its own contract.
+/// `renews`: a sign-in again with the connection of the demo's Yappr (R2).
+fn connect2_example(identity: String, wallet: &Wallet, renews: bool) -> AppRequestKind {
+    let day = 24 * 60 * 60;
+    let end = evolite_common::now() + 90 * day;
+    let offer = |binding, level, budget, primary| SessionOffer {
+        binding,
+        level,
+        proposed_budget: Some(budget),
+        proposed_expiry: Some(end),
+        budget,
+        expires_at: end,
+        changed: false,
+        primary,
+    };
+    AppRequestKind::Connect2 {
+        app_id: "6Hk2Ft9wQmRz8LpXcV4nB7sYd3Ke1JaPu5W9q".into(),
+        label: "Yappr".into(),
+        owner: "4Qp7Fs2wQmRz8LpXcV4nB7sYd3Ke1JaPu5W9q".into(),
+        owner_name: Some("yappr".into()),
+        identity,
+        sessions: vec![
+            offer(
+                AppBinding::Group {
+                    id: "8Gr4Up9wQmRz8LpXcV4nB7sYd3Ke1JaPu5W9q".into(),
+                },
+                KeyLevel::Critical,
+                50_000_000,
+                true,
+            ),
+            offer(AppBinding::DashPayProfile, KeyLevel::High, 1_000_000, false),
+        ],
+        encryption: vec![EncryptionOffer {
+            contract: "6Hk2Ft9wQmRz8LpXcV4nB7sYd3Ke1JaPu5W9q".into(),
+            encryption: true,
+            given: true,
+            added: true,
+        }],
+        limits: SessionLimits::wallet(),
+        // A renewal: the identity already has keys of the new kind, so no warning (R2).
+        breaks_old_clients: !renews,
+        renews: renews.then_some(Renewal {
+            budget: 50_000_000,
+            spent: Some(2_000_000),
+            until: end,
+        }),
+        created_at: evolite_common::now() - 60,
+        callback_host: Some("yap.pr".into()),
+        cost: wallet.fees.add_key * 3 + wallet.fees.document_write,
+    }
+}
+
+/// The app a demo v2 sign-in leaves, with the limits the person chose.
+pub fn connected_v2(asked: &AppRequestKind, grant: &SessionGrant) -> Option<ConnectedApp> {
+    let AppRequestKind::Connect2 {
+        app_id, sessions, ..
+    } = asked;
+    if grant.keys.len() != sessions.len() || grant.keys.first()?.is_none() {
+        return None;
+    }
+    let session = sessions
+        .iter()
+        .zip(&grant.keys)
+        .enumerate()
+        .filter_map(|(i, (offer, chosen))| {
+            let (budget, expires_at) = (*chosen)?;
+            Some(SessionKey {
+                id: 6 + i as u32,
+                level: offer.level,
+                binding: offer.binding.clone(),
+                budget,
+                expires_at,
+                state: SessionKeyState::Live,
+                remaining: None,
+            })
+        })
+        .collect();
+    Some(ConnectedApp {
+        id: app_id.clone(),
+        name: "@yappr".into(),
+        label: "Yappr".into(),
+        domain: "yap.pr".into(),
+        last_used: evolite_common::now(),
+        session,
+        disconnected_at: None,
+    })
+}
+
+/// The Apps screen's examples (Figma L1, L2): Yappr active, Pasta Notes with its limit used up,
+/// Dash Forum past its end, and Jembe disconnected.
+pub fn demo_apps(t: Timestamp, day: Timestamp, min: Timestamp) -> Vec<ConnectedApp> {
+    let key = |id, binding, budget, left, end, state| SessionKey {
+        id,
+        level: KeyLevel::High,
+        binding,
+        budget,
+        expires_at: end,
+        state,
+        remaining: Some(left),
+    };
+    let write = |id: &str| AppBinding::Group { id: id.into() };
+    let app = |id: &str, name: &str, last_used, session, disconnected_at| ConnectedApp {
+        id: id.into(),
+        name: format!("@{}", name.to_lowercase().replace(' ', "")),
+        label: name.into(),
+        domain: String::new(),
+        last_used,
+        session,
+        disconnected_at,
+    };
+    use SessionKeyState::{Disabled, Expired, Live};
+    vec![
+        app(
+            "6Hk2Ft9wQmRz8LpXcV4nB7sYd3Ke1JaPu5W9q",
+            "Yappr",
+            t - 30 * min,
+            vec![
+                key(
+                    6,
+                    write("8Gr4Up9wQmRz8LpXcV4nB7sYd3Ke1JaPu5W9q"),
+                    50_000_000,
+                    48_000_000,
+                    t + 90 * day,
+                    Live,
+                ),
+                key(
+                    7,
+                    AppBinding::DashPayProfile,
+                    1_000_000,
+                    1_000_000,
+                    t + 90 * day,
+                    Live,
+                ),
+            ],
+            None,
+        ),
+        app(
+            "9QaEt4mT7wZp2KcV8nB3sYd6Lf1JaHur2Lk",
+            "Pasta Notes",
+            t - day,
+            vec![key(
+                8,
+                write("5Pn7Gq2wQmRz8LpXcV4nB7sYd3Ke1JaPu5W9q"),
+                10_000_000,
+                0,
+                t + 21 * day,
+                Live,
+            )],
+            None,
+        ),
+        app(
+            "3vNmQ8wZp2KcV8nB3sYd6Lf1JaHu5L48sTd",
+            "Dash Forum",
+            t - 12 * day,
+            vec![key(
+                9,
+                write("7Df3Gq2wQmRz8LpXcV4nB7sYd3Ke1JaPu5W9q"),
+                50_000_000,
+                47_000_000,
+                t - 10 * day,
+                Expired,
+            )],
+            None,
+        ),
+        app(
+            "9xQeR4mT7wZp2KcV8nB3sYd6Lf1JaHu5L4tN",
+            "Jembe",
+            t - 8 * day,
+            vec![key(
+                5,
+                write("2Jb4Gq2wQmRz8LpXcV4nB7sYd3Ke1JaPu5W9q"),
+                10_000_000,
+                9_000_000,
+                t + 60 * day,
+                Disabled,
+            )],
+            Some(t - 3 * day),
+        ),
+    ]
+}
+
 /// What an app link asks, decoded as the real core would (the examples from Figma 11–13).
 pub fn app_request(id: u64, text: &str, wallet: &Wallet) -> Result<AppRequest, CoreError> {
     let identity = wallet
@@ -159,52 +342,28 @@ pub fn app_request(id: u64, text: &str, wallet: &Wallet) -> Result<AppRequest, C
             tr!("An identity is needed first").into(),
         ))?;
     let text = text.trim();
-    let kind = if text.starts_with("dash-key:") {
-        AppRequestKind::Connect {
-            contract_id: "6Hk2Ft9wQmRz8LpXcV4nB7sYd3Ke1JaPu5W9q".into(),
-            contract_found: true,
-            identity,
-            // A new key: the next after the identity's #0–#4.
-            key_id: 5,
-            level: KeyLevel::Medium,
-            contract_name: "Yappr".into(),
-            cost: wallet.fees.add_key,
-        }
-    } else if text.starts_with("dash-st:") {
-        AppRequestKind::Sign {
-            action: tr!("Create a document").into(),
-            contract: "jembe".into(),
-            contract_id: "9xQeR4mT7wZp2KcV8nB3sYd6Lf1JaHu5L4tN".into(),
-            document_type: "jam".into(),
-            identity,
-            key_id: 4,
-            level: KeyLevel::High,
-            fields: vec![(
-                "text".into(),
-                tr!("“The first jam from evolite. Signed on a computer, checked by light.”").into(),
-            )],
-            cost: 4_000,
-            credits_after: wallet.balances.credits - 4_000,
-            bytes_hex: "0201a4c3…e9f0".into(),
-        }
-    } else if text.starts_with("dash-kx:") {
-        AppRequestKind::KeyExchange {
-            identity,
-            device: tr!("Jembe on the phone").into(),
-            code: "482917".into(),
-            channel_encrypted: true,
-            request_signed: true,
-        }
+    let v2 = text.to_ascii_lowercase().starts_with("dashpay://connect")
+        || (text.starts_with("dash-key:") && text.split(['?', '&']).any(|p| p == "v=2"));
+    // The refusals as the real core gives them (E2, E3), for the screens' examples.
+    if v2 && text.contains("&stale") {
+        return Err(CoreError::AppLink(AppLinkRefusal::Stale));
+    }
+    if v2 && text.contains("n=m") {
+        return Err(CoreError::AppLink(AppLinkRefusal::Mainnet));
+    }
+    let kind = if v2 {
+        connect2_example(identity, wallet, text.contains("&renew"))
+    } else if text.starts_with("dash-key:") || text.starts_with("dash-st:") {
+        // As the real core: App Connect v1 is not supported (the customer, 2026-11-11).
+        return Err(CoreError::AppLink(AppLinkRefusal::Version {
+            v: "1".into(),
+        }));
     } else {
         return Err(CoreError::BadLink);
     };
-    let app = match &kind {
-        AppRequestKind::Connect { .. } => "Yappr",
-        _ => "Jembe",
-    };
     Ok(AppRequest {
         id,
-        app: app.into(),
+        app: "@yappr".into(),
         kind,
     })
 }

@@ -61,8 +61,7 @@ use dpp::identity::accessors::IdentityGettersV0;
 use dpp::platform_value::string_encoding::Encoding;
 use dpp::prelude::Identifier;
 use evolite_chain::{
-    app_connect, chain, convert, dashpay, identity, mined, nfts, platform_history, pool, store,
-    sync, turn,
+    chain, convert, dashpay, identity, mined, nfts, platform_history, pool, store, sync, turn,
 };
 use evolite_local::{
     address_book, attempts, connected_apps, contact_addresses, core_balance, folders,
@@ -409,20 +408,14 @@ struct Real {
     /// App requests shown and not answered yet, by request id.
     app_requests: Arc<std::sync::Mutex<HashMap<u64, AppJob>>>,
     next_app_request: Arc<std::sync::atomic::AtomicU64>,
+    /// What Platform last said of App Connect v2 session keys (`ReadAppBudgets`).
+    app_reads: Arc<std::sync::Mutex<ops::app_connect2::Reads>>,
 }
 
-/// What an app's request asks, as checked when its link was opened.
+/// What an app's request asks, as checked when its link was opened: App Connect v2 only
+/// (FEAT-0023; v1 is not supported).
 enum AppJob {
-    /// `dash-key:`: answer the sign-in.
-    SignIn {
-        request: app_connect::KeyRequest,
-        name: String,
-        /// The identity the request showed in «Sign in as» (BUG-29).
-        identity: [u8; 32],
-    },
-    /// `dash-st:`: add the keys of the sign-in to this app (contract, generation); the app's
-    /// `identity` is the one the request was shown for.
-    AddKeys { app: connected_apps::App },
+    Connect2(Box<ops::app_connect2::Connect2Job>),
 }
 
 /// Where a Core payment goes. A name is paid only as a DashPay contact: to the addresses of

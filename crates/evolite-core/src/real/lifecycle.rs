@@ -125,6 +125,7 @@ impl Real {
             apps: Arc::new(connected_apps::ConnectedApps::new(paths_apps)),
             app_requests: Default::default(),
             next_app_request: Default::default(),
+            app_reads: Default::default(),
         }
     }
 

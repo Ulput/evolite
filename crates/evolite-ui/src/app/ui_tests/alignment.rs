@@ -457,20 +457,14 @@ fn card_around(kit: &Kit, inside: egui::Rect) -> egui::Rect {
         .unwrap_or_else(|| panic!("a card around {inside:?}"))
 }
 
-/// Item 6, AC-D3: the cards of one row are one height — Contacts' «How it works» and Apps' —
-/// in en, ru and de at 1024 wide.
+/// Item 6, AC-D3: the cards of one row are one height — Contacts' «How it works» — in en, ru and
+/// de at 1024 wide. (Apps' row of three went with FEAT-0023 round 4: the approved L1 has none.)
 #[test]
 fn the_cards_of_a_row_are_one_height() {
-    let rows: [(&str, [&str; 3]); 2] = [
-        (
-            "contacts",
-            ["Contact request", "Payments to the contact", "Profile"],
-        ),
-        (
-            "apps",
-            ["App Connect", "Sign in by code", "Signing by link"],
-        ),
-    ];
+    let rows: [(&str, [&str; 3]); 1] = [(
+        "contacts",
+        ["Contact request", "Payments to the contact", "Profile"],
+    )];
     for lang in ["en", "ru", "de"] {
         for (preset, titles) in rows {
             let (_turn, mut kit) = demo_app(preset, lang);

@@ -20,6 +20,53 @@ pub struct App {
     pub keys: Option<(u32, u32)>,
     /// Unix seconds of the last sign-in.
     pub last_used: i64,
+    /// An App Connect v2 sign-in (FEAT-0023); `None` for one of the older kind. Files written
+    /// before it read as `None`.
+    #[serde(default)]
+    pub session: Option<Session>,
+}
+
+/// What an App Connect v2 sign-in left: its session keys with their limits, the connection the
+/// app named (a sign-in again with it disables these keys), and the response's values (deleting
+/// an `indexOnly` document needs them). All public.
+#[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct Session {
+    /// `CONNECTION_ID`, hex.
+    pub connection: Option<String>,
+    pub keys: Vec<SessionKey>,
+    pub response: Option<Response>,
+    /// What the app calls itself (its own words, R-8).
+    #[serde(default)]
+    pub label: String,
+    /// Unix seconds of "Disconnect": the keys are disabled, the record stays until "Remove from
+    /// the list".
+    #[serde(default)]
+    pub disconnected_at: Option<i64>,
+}
+
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SessionKey {
+    pub id: u32,
+    pub critical: bool,
+    /// The binding: `contract`, `document_type` or `group`, with its id (base58) and, for a
+    /// document type, its name.
+    pub kind: String,
+    pub target: String,
+    #[serde(default)]
+    pub document_type: Option<String>,
+    /// Credits.
+    pub budget: u64,
+    /// Block time, milliseconds.
+    pub expires_at: u64,
+}
+
+/// The `loginKeyResponse` as published: its id (base58) and its three values (hex).
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct Response {
+    pub document: String,
+    pub app_key_hash: String,
+    pub wallet_ephemeral: String,
+    pub payload: String,
 }
 
 pub struct ConnectedApps {
@@ -91,6 +138,7 @@ mod tests {
             generation: 0,
             keys: None,
             last_used,
+            session: None,
         }
     }
 
@@ -123,6 +171,56 @@ mod tests {
                 .get("C1", "I1")
                 .is_none()
         );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// FEAT-0023: a file from before App Connect v2 still reads, and a v2 sign-in comes back as
+    /// it was kept.
+    #[test]
+    fn an_older_file_reads_and_a_v2_session_is_kept() {
+        let dir = std::env::temp_dir().join(format!("evolite-apps-v2-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("connected-apps.json");
+        std::fs::write(
+            &path,
+            r#"[{"contract":"C1","name":"@yappr","identity":"I1","generation":2,"keys":[6,7],"last_used":9}]"#,
+        )
+        .unwrap();
+        let old = ConnectedApps::new(path.clone()).get("C1", "I1").unwrap();
+        assert_eq!(
+            (old.generation, old.keys, old.session),
+            (2, Some((6, 7)), None)
+        );
+
+        let session = Session {
+            connection: Some("00112233445566778899aabbccddeeff".into()),
+            keys: vec![SessionKey {
+                id: 8,
+                critical: true,
+                kind: "group".into(),
+                target: "G1".into(),
+                document_type: None,
+                budget: 50_000_000_000,
+                expires_at: 1_800_000_000_000,
+            }],
+            response: Some(Response {
+                document: "D1".into(),
+                app_key_hash: "aa".repeat(20),
+                wallet_ephemeral: "02".repeat(33),
+                payload: "ff".repeat(60),
+            }),
+            label: "Yappr".into(),
+            disconnected_at: Some(11),
+        };
+        ConnectedApps::new(path.clone())
+            .put(App {
+                session: Some(session.clone()),
+                ..app("C2", "I1", 10)
+            })
+            .unwrap();
+        let again = ConnectedApps::new(path).get("C2", "I1").unwrap();
+        assert_eq!(again.session, Some(session));
         let _ = std::fs::remove_dir_all(&dir);
     }
 

@@ -268,10 +268,12 @@ fn every_spend() -> Vec<Spend> {
             about: String::new(),
             avatar_url: None,
         },
-        Spend::ApproveApp { id: 7 },
+        Spend::ApproveApp { id: 7, grant: None },
         Spend::GiftNft {
             id: "nft".into(),
             to: "@alice".into(),
         },
+        // FEAT-0023: an IdentityUpdate the identity pays for, so behind the password (BUG-42).
+        Spend::DisconnectApp { id: "app".into() },
     ]
 }

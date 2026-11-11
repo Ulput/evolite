@@ -2,6 +2,7 @@
 //! commands, or the small state those commands keep.
 
 pub(super) mod addresses;
+pub(super) mod app_connect2;
 pub(super) mod app_jobs;
 pub(super) mod avatars;
 pub(super) mod core;

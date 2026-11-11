@@ -117,13 +117,13 @@ pub(super) fn about(ui: &mut Ui, a: &mut Assets, state: &mut SettingsState) {
             (
                 tr!("Implemented"),
                 tr!(
-                    "Core: receive, send, history, your own node. Platform: identities, DPNS names, credits, Platform address. DashPay contacts and profile, the private pool, app sign-in and signing by link, the Jembe NFT collection, mainnet by a launch flag"
+                    "Core: receive, send, history, your own node. Platform: identities, DPNS names, credits, Platform address. DashPay contacts and profile, the private pool, app sign-in by App Connect v2 with a spending limit and a period, the Jembe NFT collection, mainnet by a launch flag"
                 ),
                 Control::Text("", false),
             ),
             (
                 tr!("Not yet"),
-                tr!("Giving, selling and receiving NFTs by link; sign-in by code (dash-kx:)"),
+                tr!("Giving, selling and receiving NFTs by link"),
                 Control::Text("", false),
             ),
         ],

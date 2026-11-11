@@ -27,14 +27,6 @@ fn platform_addresses_only_of_the_network_in_force() {
     assert!(test.starts_with(hrp_of(Testnet)) && !test.starts_with(hrp_of(Mainnet)));
 }
 
-#[test]
-fn app_links_name_the_network_in_force() {
-    use evolite_api::Network::{Mainnet, Testnet};
-    assert_eq!(app_connect::link_network(Testnet), Some("t"));
-    // The key-exchange contract is testnet's: no app sign-in on mainnet yet.
-    assert_eq!(app_connect::link_network(Mainnet), None);
-}
-
 /// BUG-93 review must 1, should 5: `top_up_identity` itself refuses an amount whose lock
 /// Platform would not take, before anything else; the least amount gets as far as the network.
 #[tokio::test]
@@ -115,7 +107,10 @@ fn counts_what_a_write_cost_in_duffs() {
 async fn a_disconnect_is_not_taken_for_an_answer_to_a_request() {
     let mut core = core_with_vault("disconnect", "pw");
     let (event, _) = core
-        .handle(Command::DisconnectApp { id: "app".into() })
+        .handle(Command::Spend {
+            op: Spend::DisconnectApp { id: "app".into() },
+            password: Some(pw("pw")),
+        })
         .await;
     assert!(matches!(
         event,
@@ -137,17 +132,34 @@ async fn app_links_are_checked_before_anything_is_signed() {
         event,
         Some(Event::AppRequest(Err(CoreError::BadLink)))
     ));
+    // FEAT-0023: App Connect v1 is not supported; its links say so, whatever they hold.
+    for v1 in [
+        "dash-key:3mJr7AoUXx2Wqd?n=t&v=1",
+        "dash-key:3mJr7AoUXx2Wqd?n=m&v=1",
+        "dash-st:0201a4c3e9f0",
+    ] {
+        let (event, _) = core.handle(request(v1)).await;
+        match event {
+            // Told as another version (E1): v1, as the link says, or 1 for dash-st:.
+            Some(Event::AppRequest(Err(CoreError::AppLink(AppLinkRefusal::Version { v })))) => {
+                assert_eq!(v, "1", "{v1}")
+            }
+            other => panic!("{v1}: {other:?}"),
+        }
+    }
     let (event, _) = core
-        .handle(request("dash-key:3mJr7AoUXx2Wqd?n=m&v=1"))
+        .handle(request("dash-key:3mJr7AoUXx2Wqd?n=m&v=2"))
         .await;
     assert!(matches!(
         event,
-        Some(Event::AppRequest(Err(CoreError::NotAvailable(_))))
+        Some(Event::AppRequest(Err(CoreError::AppLink(
+            AppLinkRefusal::Mainnet
+        ))))
     ));
     // Declining is always answered; approving a request never shown is refused.
     let answer = |id, approve| match approve {
         true => Command::Spend {
-            op: Spend::ApproveApp { id },
+            op: Spend::ApproveApp { id, grant: None },
             password: Some(pw("pw")),
         },
         false => Command::DeclineApp { id },

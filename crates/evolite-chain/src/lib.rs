@@ -13,7 +13,7 @@ mod platform;
 mod spv;
 pub mod store;
 
-pub use apps::{app_chain, app_connect};
+pub use apps::{app_chain, app_chain_v2, app_connect_v2};
 pub use platform::{dashpay, identity, lock_status, nfts, platform_history, pool};
 pub use spv::{chain, mined, provider, sync, turn};
 pub use store::store_refusal;

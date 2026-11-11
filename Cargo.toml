@@ -27,7 +27,7 @@ publish = false
 dash-spv = { git = "https://github.com/dashpay/rust-dashcore", rev = "aca020263990a86a15cc1d97ae2cbf965d488db5" }
 key-wallet = { git = "https://github.com/dashpay/rust-dashcore", rev = "aca020263990a86a15cc1d97ae2cbf965d488db5" }
 key-wallet-manager = { git = "https://github.com/dashpay/rust-dashcore", rev = "aca020263990a86a15cc1d97ae2cbf965d488db5" }
-dash-sdk = { git = "https://github.com/dashpay/platform", rev = "575d961fe0c54bd7e01a3cf3823494e58c6c4fdb", default-features = false, features = ["dpns-contract", "dashpay-contract", "wallet"] }
+dash-sdk = { git = "https://github.com/dashpay/platform", rev = "575d961fe0c54bd7e01a3cf3823494e58c6c4fdb", default-features = false, features = ["dpns-contract", "dashpay-contract", "app-connect-contract", "wallet"] }
 # dash-sdk turns its gRPC client on only in its default features.
 dapi-grpc = { git = "https://github.com/dashpay/platform", rev = "575d961fe0c54bd7e01a3cf3823494e58c6c4fdb", default-features = false, features = ["client"] }
 dpp = { git = "https://github.com/dashpay/platform", rev = "575d961fe0c54bd7e01a3cf3823494e58c6c4fdb", default-features = false, features = ["ed25519-dalek"] }

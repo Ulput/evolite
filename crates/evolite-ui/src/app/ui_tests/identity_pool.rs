@@ -415,15 +415,15 @@ fn a_new_identity_asks_for_at_least_what_platform_takes() {
     );
 }
 
-/// Responsive spec R4: the cards of every row of a grid — Overview's tiles, the explanations of
-/// Apps, the pool's two cards — are one height in the very first frame of the screen, at the
+/// Responsive spec R4: the cards of every row of a grid — Overview's tiles and
+/// the pool's two cards — are one height in the very first frame of the screen, at the
 /// four widths of the spec, left to right and mirrored (`ar`); and Overview's four tiles stand
 /// 4 in a row or 2 by 2, never 3 and 1.
 #[test]
 fn grid_rows_are_one_height_in_the_first_frame_at_every_width() {
     for lang in ["en", "ar"] {
         for width in [800.0, 1024.0, 1280.0, 1600.0] {
-            for screen in [Screen::Overview, Screen::Apps, Screen::Shielded] {
+            for screen in [Screen::Overview, Screen::Shielded] {
                 let (_turn, mut kit) = demo_app("overview", lang);
                 kit.set_size(egui::vec2(width, 900.0));
                 kit.run_steps(2);

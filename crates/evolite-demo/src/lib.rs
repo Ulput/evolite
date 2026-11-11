@@ -59,6 +59,8 @@ struct Mock {
     /// When the staged proof for "Hide in the pool" started.
     shield_started: Option<Instant>,
     next_request: u64,
+    /// The last App Connect v2 request shown, to approve (FEAT-0023).
+    asked_v2: Option<(u64, AppRequestKind)>,
     /// The pictures of the wallet's NFTs, by key ([`Nft::art`]).
     gallery: HashMap<String, evolite_art::Stored>,
     /// `None` in tests: no worker process.
@@ -229,13 +231,39 @@ impl Mock {
                     },
                 }
             }
-            Command::DisconnectApp { id } => {
+            // A key the demo has not read yet has used 40% of its budget; one read keeps its own.
+            Command::ForgetApp { id } => {
+                let result = match &mut self.snapshot.wallet {
+                    Some(wallet)
+                        if wallet
+                            .apps
+                            .iter()
+                            .any(|a| a.id == id && a.disconnected_at.is_some()) =>
+                    {
+                        wallet.apps.retain(|a| a.id != id);
+                        changed = true;
+                        Ok(())
+                    }
+                    _ => Err(CoreError::NotAvailable(
+                        tr!("Disconnect the app first: its keys are still on").into(),
+                    )),
+                };
+                Event::Done {
+                    what: DoneWhat::ForgetApp,
+                    result,
+                }
+            }
+            Command::ReadAppBudgets { id } => {
                 if let Some(wallet) = &mut self.snapshot.wallet {
-                    wallet.apps.retain(|app| app.id != id);
+                    for app in wallet.apps.iter_mut().filter(|a| a.id == id) {
+                        for key in app.session.iter_mut().filter(|k| k.remaining.is_none()) {
+                            key.remaining = Some(key.budget * 6 / 10);
+                        }
+                    }
                     changed = true;
                 }
                 Event::Done {
-                    what: DoneWhat::Disconnect,
+                    what: DoneWhat::AppBudgets,
                     result: Ok(()),
                 }
             }
@@ -301,6 +329,15 @@ impl Mock {
                     Some(wallet) => app_request(self.next_request, &text, wallet),
                     None => Err(CoreError::NotAvailable(NO_WALLET.into())),
                 };
+                if let Ok(
+                    asked @ AppRequest {
+                        kind: AppRequestKind::Connect2 { .. },
+                        ..
+                    },
+                ) = &request
+                {
+                    self.asked_v2 = Some((asked.id, asked.kind.clone()));
+                }
                 Event::AppRequest(request)
             }
             Command::DeclineApp { .. } => Event::Done {
@@ -309,23 +346,25 @@ impl Mock {
             },
             // The same gate as the real core's, in memory: the demo wallets take any password
             // but an empty one and [`WRONG_PASSWORD`].
-            Command::Spend { op, password } => match self.spend_gate(password.as_ref()) {
-                Err(why) => op.refused(why),
-                Ok(()) => {
-                    let event = self.spend(op);
-                    // A new identity changes the wallet (FEAT-0014).
-                    changed |= matches!(
-                        event,
-                        Event::Done {
-                            what: DoneWhat::Identity,
-                            result: Ok(())
-                        }
-                    );
-                    // So does a payment from the Platform addresses (FEAT-0015).
-                    changed |= matches!(event, Event::Sent { result: Ok(_), .. });
-                    event
+            Command::Spend { op, password } => {
+                match self.spend_gate(password.as_ref(), op.asks_password_always()) {
+                    Err(why) => op.refused(why),
+                    Ok(()) => {
+                        let event = self.spend(op);
+                        // A new identity or a v2 sign-in changes the wallet (FEAT-0014, FEAT-0023).
+                        changed |= matches!(
+                            event,
+                            Event::Done {
+                                what: DoneWhat::Identity | DoneWhat::App | DoneWhat::Disconnect,
+                                result: Ok(())
+                            }
+                        );
+                        // So does a payment from the Platform addresses (FEAT-0015).
+                        changed |= matches!(event, Event::Sent { result: Ok(_), .. });
+                        event
+                    }
                 }
-            },
+            }
             Command::SetPasswordEachSend { on, password } => {
                 let result = match &mut self.snapshot.wallet {
                     None => Err(CoreError::NotAvailable(NO_WALLET.into())),
@@ -546,11 +585,12 @@ impl Mock {
 
     /// Before anything of a spend: with "password for every send" on, a password (any but an
     /// empty one, as the demo's unlock); without one the spend is refused.
-    fn spend_gate(&self, password: Option<&Password>) -> Result<(), CoreError> {
+    /// `always`: as the real core, a spend that asks whatever the setting (FEAT-0023).
+    fn spend_gate(&self, password: Option<&Password>, always: bool) -> Result<(), CoreError> {
         let Some(wallet) = &self.snapshot.wallet else {
             return Err(CoreError::NotAvailable(NO_WALLET.into()));
         };
-        if !wallet.password_each_send {
+        if !wallet.password_each_send && !always {
             return Ok(());
         }
         match password {
@@ -608,6 +648,31 @@ impl Mock {
             Spend::TopUpFromPool { .. } => {
                 tr!("This is the mockup's example: there is nothing to top up with")
             }
+            // As the real core: the keys disabled, the record kept until "Remove from the list".
+            Spend::DisconnectApp { id } => {
+                if let Some(wallet) = &mut self.snapshot.wallet {
+                    for app in wallet.apps.iter_mut().filter(|a| a.id == id) {
+                        app.disconnected_at = Some(now());
+                        for key in &mut app.session {
+                            key.state = SessionKeyState::Disabled;
+                        }
+                    }
+                }
+                return Event::Done {
+                    what: DoneWhat::Disconnect,
+                    result: Ok(()),
+                };
+            }
+            Spend::ApproveApp {
+                id,
+                grant: Some(grant),
+            } => {
+                let result = self.approve_v2(id, &grant);
+                return Event::Done {
+                    what: DoneWhat::App,
+                    result,
+                };
+            }
             Spend::CreateIdentity { name, top_up } => {
                 let result = self.create_identity(name.as_deref(), top_up);
                 return Event::Done {
@@ -618,6 +683,31 @@ impl Mock {
             _ => NO_WALLET,
         };
         op.refused(CoreError::NotAvailable(why.into()))
+    }
+
+    /// "Allow" on the demo's App Connect v2 request: the app joins the list with the keys and
+    /// limits chosen, as the real core keeps it once Platform has the keys and the response.
+    fn approve_v2(&mut self, id: u64, grant: &SessionGrant) -> Result<(), CoreError> {
+        let stale = || {
+            CoreError::NotAvailable(
+                tr!("The request is out of date: open the app's link again").into(),
+            )
+        };
+        let (asked_id, asked) = self.asked_v2.take().ok_or_else(stale)?;
+        if asked_id != id {
+            return Err(stale());
+        }
+        let app = answers::connected_v2(&asked, grant).ok_or(CoreError::NotAvailable(
+            tr!("The app's first access cannot be left out: decline the request instead").into(),
+        ))?;
+        let wallet = self
+            .snapshot
+            .wallet
+            .as_mut()
+            .ok_or(CoreError::NotAvailable(NO_WALLET.into()))?;
+        wallet.apps.retain(|a| a.id != app.id);
+        wallet.apps.insert(0, app);
+        Ok(())
     }
 
     /// "Create an identity" in the demo (FEAT-0014): the next slot gets an identity with the
@@ -908,6 +998,7 @@ pub fn run(
         sync_started: None,
         shield_started: None,
         next_request: 0,
+        asked_v2: None,
         gallery: demo_art(),
         artist: Some(Artist::start(out.clone(), wake.clone(), art)),
         adding_from: None,
@@ -960,6 +1051,7 @@ mod tests {
             sync_started: None,
             shield_started: None,
             next_request: 0,
+            asked_v2: None,
             gallery: demo_art(),
             artist: None,
             adding_from: None,
@@ -1359,11 +1451,12 @@ mod tests {
                 about: String::new(),
                 avatar_url: None,
             },
-            Spend::ApproveApp { id: 1 },
+            Spend::ApproveApp { id: 1, grant: None },
             Spend::GiftNft {
                 id: "x".into(),
                 to: "@alice".into(),
             },
+            Spend::DisconnectApp { id: "app".into() },
         ]
     }
 
@@ -1534,44 +1627,86 @@ mod tests {
         assert_eq!(check_name("ab"), Err(CoreError::BadName));
     }
 
-    /// The keys the Apps screen names are the identity's own, and a sign-in asks
-    /// for a key the identity does not have yet.
-    #[test]
-    fn app_keys_are_the_identitys_keys() {
-        let wallet = demo_wallet(0);
-        let identity = wallet.identity.as_ref().unwrap();
-        let has = |id: u32| identity.keys.iter().any(|k| k.id == id);
-        for app in &wallet.apps {
-            if let Some((id, level, _)) = &app.key {
-                let key = identity.keys.iter().find(|k| k.id == *id);
-                assert!(key.is_some_and(|k| k.level == *level), "{}", app.name);
-            }
-        }
-        match app_request(1, "dash-key:abc", &wallet).unwrap().kind {
-            AppRequestKind::Connect { key_id, .. } => assert!(!has(key_id), "a new key"),
-            other => panic!("{other:?}"),
-        }
-        match app_request(2, "dash-st:abc", &wallet).unwrap().kind {
-            AppRequestKind::Sign { key_id, .. } => assert!(has(key_id), "an existing key signs"),
-            other => panic!("{other:?}"),
-        }
-    }
-
+    /// FEAT-0023: v2 links are read, App Connect v1 ones refused in words of their own.
     #[test]
     fn decodes_app_links_and_refuses_others() {
         let wallet = demo_wallet(0);
         assert!(matches!(
-            app_request(1, "dash-key:abc", &wallet).unwrap().kind,
-            AppRequestKind::Connect { .. }
+            app_request(1, "dash-key:abc?n=t&v=2", &wallet)
+                .unwrap()
+                .kind,
+            AppRequestKind::Connect2 { .. }
         ));
-        assert!(matches!(
-            app_request(2, "dash-st:abc", &wallet).unwrap().kind,
-            AppRequestKind::Sign { .. }
-        ));
+        for v1 in ["dash-key:abc", "dash-st:abc"] {
+            match app_request(2, v1, &wallet) {
+                Err(CoreError::AppLink(AppLinkRefusal::Version { v })) => assert_eq!(v, "1"),
+                other => panic!("{v1}: {other:?}"),
+            }
+        }
         assert_eq!(
             app_request(3, "https://evil.example", &wallet),
             Err(CoreError::BadLink)
         );
+    }
+
+    /// FEAT-0023: the demo walks an App Connect v2 sign-in as the real core does: the request
+    /// with the wallet's limits, «Allow» with the person's limits (never without the primary
+    /// key), the app in the list with its session keys, and what is left of their budgets.
+    #[test]
+    fn a_v2_sign_in_goes_from_the_request_to_the_apps_list() {
+        let (mut m, tx, rx) = mock();
+        let events = || rx.try_iter().collect::<Vec<_>>();
+        let opened = |events: Vec<Event>| {
+            events.into_iter().find_map(|e| match e {
+                Event::AppRequest(Ok(r)) => Some(r),
+                _ => None,
+            })
+        };
+        let done = |events: Vec<Event>| {
+            events.into_iter().find_map(|e| match e {
+                Event::Done {
+                    what: DoneWhat::App,
+                    result,
+                } => Some(result),
+                _ => None,
+            })
+        };
+        let approve = |id, keys| Command::Spend {
+            op: Spend::ApproveApp {
+                id,
+                grant: Some(SessionGrant { keys }),
+            },
+            password: Some(Password::new("any".into())),
+        };
+        let link = |text: &str| Command::OpenAppLink { text: text.into() };
+        m.handle(link("dashpay://connect?v=2&n=t&r=AQ"), &tx);
+        let request = opened(events()).expect("a request");
+        let AppRequestKind::Connect2 {
+            sessions, limits, ..
+        } = &request.kind;
+        assert_eq!(limits, &SessionLimits::wallet());
+        assert!(sessions[0].primary && !sessions[1].primary);
+        let end = evolite_common::now() + 30 * 24 * 60 * 60;
+        m.handle(approve(request.id, vec![None, Some((1_000_000, end))]), &tx);
+        assert!(
+            matches!(done(events()), Some(Err(CoreError::NotAvailable(_)))),
+            "not without the primary key"
+        );
+        // Refused, the request is gone: it is opened again, as the real core asks.
+        m.handle(link("dash-key:abc?n=t&v=2"), &tx);
+        let again = opened(events()).expect("a v2 dash-key: request");
+        assert!(matches!(again.kind, AppRequestKind::Connect2 { .. }));
+        m.handle(approve(again.id, vec![Some((20_000_000, end)), None]), &tx);
+        assert_eq!(done(events()), Some(Ok(())));
+        let app = m.snapshot.wallet.as_ref().unwrap().apps[0].clone();
+        assert_eq!(app.session.len(), 1, "the profile key was left out");
+        assert_eq!(
+            (app.session[0].budget, app.session[0].expires_at),
+            (20_000_000, end)
+        );
+        m.handle(Command::ReadAppBudgets { id: app.id.clone() }, &tx);
+        let read = &m.snapshot.wallet.as_ref().unwrap().apps[0].session[0];
+        assert_eq!(read.remaining, Some(12_000_000));
     }
 
     #[test]

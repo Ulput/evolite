@@ -118,7 +118,7 @@ impl PriceWatch {
             return;
         };
         let app_cost = match op {
-            Spend::ApproveApp { id } => watch.app_costs.get(id).copied().unwrap_or(0),
+            Spend::ApproveApp { id, .. } => watch.app_costs.get(id).copied().unwrap_or(0),
             _ => 0,
         };
         let declared = price::declared(op, seen, app_cost);
@@ -344,18 +344,25 @@ mod tests {
         watch.ended(&Event::AppRequest(Ok(evolite_api::AppRequest {
             id: 7,
             app: "yappr".into(),
-            kind: evolite_api::AppRequestKind::Connect {
-                contract_id: String::new(),
-                contract_found: true,
+            kind: evolite_api::AppRequestKind::Connect2 {
+                app_id: String::new(),
+                label: String::new(),
+                owner: String::new(),
+                owner_name: None,
                 identity: String::new(),
-                key_id: 1,
-                level: evolite_api::KeyLevel::Medium,
-                contract_name: String::new(),
+                sessions: Vec::new(),
+                encryption: Vec::new(),
+                limits: evolite_api::SessionLimits::wallet(),
+                breaks_old_clients: false,
+                renews: None,
+                created_at: 0,
+                callback_host: None,
                 cost: 77,
             },
         })));
-        watch.begin(&Spend::ApproveApp { id: 7 }, 1);
-        let record = watch.ended(&Spend::ApproveApp { id: 7 }.refused(CoreError::BadLink));
+        watch.begin(&Spend::ApproveApp { id: 7, grant: None }, 1);
+        let record =
+            watch.ended(&Spend::ApproveApp { id: 7, grant: None }.refused(CoreError::BadLink));
         assert!(
             matches!(record, Some(Record::Price { declared: 77, .. })),
             "{record:?}"

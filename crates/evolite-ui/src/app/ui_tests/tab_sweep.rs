@@ -53,7 +53,7 @@ fn sweep(preset: &str) -> Vec<String> {
             kit.state().vault == Some(evolite_api::VaultState::Unlocked)
         });
     }
-    if matches!(preset, "connect" | "sign" | "exchange") {
+    if preset == "connect" {
         wait_for(&mut kit, "the app's request", |kit| {
             kit.ctx.memory(|m| m.top_modal_layer()).is_some()
         });

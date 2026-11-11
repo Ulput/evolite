@@ -14,11 +14,8 @@ pub fn progress_bar(ui: &mut Ui, p: &Palette, fraction: f32) {
 #[derive(Clone, Copy, PartialEq)]
 pub enum Mark {
     Yes,
-    No,
     /// Running now: sync icon, the text in SemiBold.
     Now,
-    /// Waiting for the user: a pending icon, the text in SemiBold.
-    Waiting,
     /// Not reached yet: everything muted.
     Later,
 }
@@ -30,9 +27,7 @@ pub fn check_line(ui: &mut Ui, a: &mut Assets, mark: Mark, text: &str) -> Rect {
     let cy = rect.center().y;
     let (icon, icon_color, color, weight) = match mark {
         Mark::Yes => ("check", p.text, p.text, Weight::Regular),
-        Mark::No => ("close", p.muted, p.muted, Weight::Regular),
         Mark::Now => ("sync", p.text, p.text, Weight::SemiBold),
-        Mark::Waiting => ("pending", p.muted, p.text, Weight::SemiBold),
         Mark::Later => (
             "pending",
             p.muted.gamma_multiply(0.7),

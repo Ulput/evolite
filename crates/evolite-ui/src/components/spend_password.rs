@@ -132,6 +132,7 @@ pub fn wrong_text(what: Option<DoneWhat>) -> &'static str {
         Some(DoneWhat::Profile) => tr!("Wrong password — the profile was not saved."),
         Some(DoneWhat::App) => tr!("Wrong password — the app's request was not signed."),
         Some(DoneWhat::Gift) => tr!("Wrong password — the NFT was not given."),
+        Some(DoneWhat::Disconnect) => tr!("Wrong password — the app was not disconnected."),
         None => tr!("Wrong password — the setting stays on."),
         Some(_) => tr!("Wrong password — the operation did not happen."),
     }
@@ -230,11 +231,12 @@ mod tests {
                 about: String::new(),
                 avatar_url: None,
             },
-            Spend::ApproveApp { id: 1 },
+            Spend::ApproveApp { id: 1, grant: None },
             Spend::GiftNft {
                 id: "a".into(),
                 to: "@a".into(),
             },
+            Spend::DisconnectApp { id: "app".into() },
         ];
         let general = wrong_text(Some(DoneWhat::Lock));
         for op in every {

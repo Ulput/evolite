@@ -377,6 +377,18 @@ impl App {
         if let Some(link) = dev.example_link {
             self.core.send(Command::OpenAppLink { text: link.into() });
         }
+        // FEAT-0023 round 4: the request at its end (A1b), and the list's dialogs (R1, D1, D2)
+        // or its disconnected part (L2).
+        self.requests.body_to_end = preset("connect-limits") || preset("connect-renew");
+        self.requests.preset = [
+            ("apps-renew", "renew"),
+            ("apps-disconnect", "disconnect"),
+            ("apps-remove", "remove"),
+            ("apps-disconnected", "to-end"),
+        ]
+        .into_iter()
+        .find(|(name, _)| preset(name))
+        .map(|(_, what)| what);
         // `--screen activity-card`: History with an operation's card open (24).
         if preset("activity-card") && !real_shot {
             screens::open_card(ctx, 3);

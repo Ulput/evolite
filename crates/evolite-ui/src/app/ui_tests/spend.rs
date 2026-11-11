@@ -8,7 +8,7 @@ use std::time::{Duration, Instant};
 /// The last step of each spend (the step whose button spends): its preset, and the button to
 /// press when the preset stops one step before it. `shield` is not here: its preset shows the
 /// proof part-way, when nothing is asked any more; `shield-core` is the same step.
-const SPENDS: [(&str, &str, Option<&str>); 17] = [
+const SPENDS: [(&str, &str, Option<&str>); 16] = [
     ("Send", "send-confirm", None),
     ("AddContact (Send)", "send-contact", None),
     ("TopUpIdentity", "top-up", None),
@@ -27,8 +27,7 @@ const SPENDS: [(&str, &str, Option<&str>); 17] = [
     ("AddContact", "add-contact", None),
     ("AcceptContact", "contacts", Some("Accept")),
     ("SaveProfile", "edit-profile", None),
-    ("ApproveApp (key)", "connect", None),
-    ("ApproveApp (document)", "sign", None),
+    ("DisconnectApp", "apps", Some("Disconnect")),
     ("GiftNft", "gift", None),
 ];
 

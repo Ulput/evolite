@@ -4,6 +4,7 @@
 pub mod app_requests;
 pub mod apps;
 pub mod collection;
+pub mod connect2;
 pub mod contacts;
 pub mod create_identity;
 pub mod delete_wallet;

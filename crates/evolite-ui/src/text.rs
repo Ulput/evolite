@@ -66,6 +66,20 @@ pub fn date_long(at: Timestamp) -> String {
     date(local(at), &MONTHS, true)
 }
 
+/// A day as a date field takes it: "dd.mm.yyyy", local time (FEAT-0023's «Your date»).
+pub fn date_input(at: Timestamp) -> String {
+    local(at).format("%d.%m.%Y").to_string()
+}
+
+/// The end of the day typed as "dd.mm.yyyy" (23:59:59 local time), as Unix seconds.
+pub fn date_from_input(text: &str) -> Option<Timestamp> {
+    let day = crate::screens::activity_filters::parse_date(text)?;
+    let end = day.and_hms_opt(23, 59, 59)?;
+    end.and_local_timezone(Local)
+        .earliest()
+        .map(|t| t.timestamp())
+}
+
 /// Whether an operation has a time of its own. A note found by reading the shielded pool has
 /// none (`at = 0`): that is said in words, never shown as 1 January 1970 (BUG-47).
 pub fn known(at: Timestamp) -> bool {
@@ -666,6 +680,10 @@ pub fn error_text(e: &CoreError) -> String {
         CoreError::BadLink => tr!("this is not an app link evolite knows").into(),
         CoreError::TooManyTries { .. } => tr!("too many wrong passwords").into(),
         CoreError::PicturesOff(_) => tr!("not drawn on this system").into(),
+        CoreError::AppLink(why) => crate::screens::connect2::refusal_words(why, "app")
+            .1
+            .trim_end_matches('.')
+            .to_owned(),
         CoreError::Failed(why) => failure(why).into(),
     }
 }
