@@ -19,14 +19,22 @@ pub(super) fn appearance(
     heading(ui, &p, tr!("Appearance and language"), None);
     let width = ui.available_width();
     let w = (width - 2.0 * 16.0) / 3.0;
+    let themes = [
+        (ThemeChoice::Dark, tr!("Dark")),
+        (ThemeChoice::Light, tr!("Light")),
+        (ThemeChoice::System, tr!("Match the system")),
+    ];
+    // One height for the three: the longest name in a narrow window takes two lines
+    // (FEAT-0034 item 10), and every card grows with it.
+    let h = themes
+        .iter()
+        .flat_map(|(_, label)| [true, false].map(|on| theme_name(ui, label, on, w, p.text)))
+        .map(|g| THEME_PREVIEW + g.size().y + 26.0)
+        .fold(136.0, f32::max);
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 16.0;
-        for (choice, label) in [
-            (ThemeChoice::Dark, tr!("Dark")),
-            (ThemeChoice::Light, tr!("Light")),
-            (ThemeChoice::System, tr!("Match the system")),
-        ] {
-            if theme_card(ui, a, choice, label, state.theme == choice, w).clicked() {
+        for (choice, label) in themes {
+            if theme_card(ui, a, choice, label, state.theme == choice, vec2(w, h)).clicked() {
                 state.theme = choice;
             }
         }
@@ -213,6 +221,26 @@ pub(super) fn lang_dialog(ui: &mut Ui, a: &mut Assets, state: &mut SettingsState
     }
 }
 
+/// From a theme card's top to the bottom of its preview: 10 of padding and 84 of preview.
+const THEME_PREVIEW: f32 = 10.0 + 84.0;
+
+/// A theme card's name, wrapped 16 px inside a card `width` wide, after the 14 + 16 + 8 of the
+/// icon on its left.
+fn theme_name(
+    ui: &Ui,
+    label: &str,
+    on: bool,
+    width: f32,
+    color: egui::Color32,
+) -> std::sync::Arc<egui::Galley> {
+    ui.painter().layout(
+        crate::i18n::t(label).into_owned(),
+        sans(13.0, if on { Weight::SemiBold } else { Weight::Medium }),
+        color,
+        width - 38.0 - 16.0,
+    )
+}
+
 /// A theme preview: a little window in that theme's colours, a tick on the chosen one.
 fn theme_card(
     ui: &mut Ui,
@@ -220,11 +248,12 @@ fn theme_card(
     choice: ThemeChoice,
     label: &str,
     on: bool,
-    width: f32,
+    size: egui::Vec2,
 ) -> Response {
     use crate::theme::{DARK, LIGHT};
     let p = a.p;
-    let (rect, resp) = ui.allocate_exact_size(vec2(width, 136.0), Sense::click());
+    let width = size.x;
+    let (rect, resp) = ui.allocate_exact_size(size, Sense::click());
     crate::components::named_choice(&resp, egui::WidgetType::RadioButton, on, label);
     let stroke = if on {
         Stroke::new(2.0, p.ink)
@@ -281,7 +310,12 @@ fn theme_card(
             let _ = right;
         }
     }
-    let y = preview.bottom() + 21.0;
+    // The name and its icon in the middle of what is under the preview (21 px with one line).
+    let color = if on { p.text } else { p.muted };
+    let name = theme_name(ui, label, on, width, color);
+    let y = preview.bottom() + (rect.bottom() - preview.bottom()) / 2.0;
+    let top = y - name.size().y / 2.0;
+    let first_line = name.rows.first().map_or(16.0, |r| r.rect().height());
     let icon = match (on, choice) {
         (true, _) => "check",
         (false, ThemeChoice::Dark) => "theme-dark",
@@ -291,15 +325,13 @@ fn theme_card(
         .icon(icon, if on { p.text } else { p.muted }, &p, 16.0)
         .paint_at(
             ui,
-            Rect::from_min_size(pos2(rect.left() + 14.0, y - 8.0), vec2(16.0, 16.0)),
+            Rect::from_min_size(
+                pos2(rect.left() + 14.0, top + first_line / 2.0 - 8.0),
+                vec2(16.0, 16.0),
+            ),
         );
-    ui.painter().text(
-        pos2(rect.left() + 38.0, y),
-        Align2::LEFT_CENTER,
-        crate::i18n::t(label),
-        sans(13.0, if on { Weight::SemiBold } else { Weight::Medium }),
-        if on { p.text } else { p.muted },
-    );
+    ui.painter()
+        .galley(pos2(rect.left() + 38.0, top), name, color);
     resp.on_hover_cursor(CursorIcon::PointingHand)
 }
 

@@ -260,29 +260,82 @@ fn filter_row(
     total: usize,
 ) {
     let p = a.p;
-    ui.horizontal(|ui| {
-        ui.spacing_mut().item_spacing.x = 8.0;
-        for (i, label) in [
-            tr!("All"),
-            "Core",
-            "Platform",
-            tr!("Private pool"),
-            "Identity",
-        ]
+    let gap = 8.0;
+    let pills_w = LAYER_PILLS
         .iter()
-        .enumerate()
-        {
-            if pill(ui, &p, label, h.filters.layer == i).clicked() {
-                h.filters.layer = i;
-            }
+        .map(|l| crate::components::pill_width(ui, l))
+        .sum::<f32>()
+        + gap * (LAYER_PILLS.len() - 1) as f32;
+    // At 1024 with the rail the search narrows; «Filters» stays (the designer's rule).
+    let search_width = if ui.available_width() - pills_w - gap < 560.0 {
+        200.0
+    } else {
+        272.0
+    };
+    let right_w = search_width + 28.0 + gap + filters_width(ui, h.filters.chips().len());
+    // In a narrow window the pills take a row of their own over the search and «Filters», not
+    // running under them (FEAT-0034 item 9).
+    if pills_w + gap + right_w > ui.available_width() {
+        filter_band(ui, Layout::left_to_right(Align::Center), |ui| {
+            layer_pills(ui, &p, h);
+        });
+        filter_band(ui, Layout::right_to_left(Align::Center), |ui| {
+            search_and_filters(ui, a, cx, h, shown, total, search_width);
+        });
+    } else {
+        filter_band(ui, Layout::left_to_right(Align::Center), |ui| {
+            layer_pills(ui, &p, h);
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                search_and_filters(ui, a, cx, h, shown, total, search_width);
+            });
+        });
+    }
+}
+
+/// The filter row's layer pills, by [`activity_filters::LAYERS`]' order.
+const LAYER_PILLS: [&str; 5] = [
+    tr!("All"),
+    "Core",
+    "Platform",
+    tr!("Private pool"),
+    "Identity",
+];
+
+/// The height of the filter row: the search's, so the pills and «Filters» (34) are centred on
+/// it from the start. egui centres a widget by the row's height when the widget is placed; the
+/// pills went in first and the search made the row taller after them (FEAT-0034 item 2).
+const FILTER_ROW: f32 = 42.0;
+
+/// One band of the filter row, [`FILTER_ROW`] high, its items centred on it.
+fn filter_band(ui: &mut Ui, layout: Layout, add: impl FnOnce(&mut Ui)) {
+    ui.allocate_ui_with_layout(egui::vec2(ui.available_width(), FILTER_ROW), layout, |ui| {
+        ui.set_min_height(FILTER_ROW);
+        ui.spacing_mut().item_spacing.x = 8.0;
+        add(ui);
+    });
+}
+
+fn layer_pills(ui: &mut Ui, p: &crate::theme::Palette, h: &mut History) {
+    for (i, label) in LAYER_PILLS.iter().enumerate() {
+        if pill(ui, p, label, h.filters.layer == i).clicked() {
+            h.filters.layer = i;
         }
-        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-            // At 1024 with the rail the search narrows; «Filters» stays (the designer's rule).
-            let search_width = if ui.available_width() < 560.0 {
-                200.0
-            } else {
-                272.0
-            };
+    }
+}
+
+/// The search and «Filters», right to left, with the panel under «Filters» when it is open.
+fn search_and_filters(
+    ui: &mut Ui,
+    a: &mut Assets,
+    cx: &Ctx,
+    h: &mut History,
+    shown: &[usize],
+    total: usize,
+    search_width: f32,
+) {
+    let p = a.p;
+    {
+        {
             egui::Frame::new()
                 .fill(p.raised)
                 .stroke(Stroke::new(1.0, p.field_line))
@@ -316,8 +369,8 @@ fn filter_row(
                     resp.request_focus();
                 }
             }
-        });
-    });
+        }
+    }
 }
 
 /// The notes file could not be used: why.
@@ -469,23 +522,38 @@ fn shown_of(n: usize, of: usize) -> String {
     )
 }
 
+/// «Filters», with how many are on.
+fn filters_label(on: usize) -> String {
+    let words = crate::i18n::t(tr!("Filters")).into_owned();
+    if on > 0 {
+        format!("{words} {on}")
+    } else {
+        words
+    }
+}
+
+/// How wide [`filters_button`] is with `on` filters on.
+fn filters_width(ui: &Ui, on: usize) -> f32 {
+    let text_w = ui
+        .painter()
+        .layout_no_wrap(
+            filters_label(on),
+            sans(13.0, Weight::SemiBold),
+            egui::Color32::WHITE,
+        )
+        .size()
+        .x;
+    16.0 + 16.0 + 6.0 + text_w + 14.0
+}
+
 /// `history/filters-button`: a pill with the filter icon and how many filters are on; raised
 /// while its panel is open. Its name says the number too (AC-T10).
 fn filters_button(ui: &mut Ui, a: &mut Assets, on: usize, open: bool) -> egui::Response {
     let p = a.p;
-    let words = crate::i18n::t(tr!("Filters")).into_owned();
-    let label = if on > 0 {
-        format!("{words} {on}")
-    } else {
-        words
-    };
+    let label = filters_label(on);
     let font = sans(13.0, Weight::SemiBold);
-    let text_w = ui
-        .painter()
-        .layout_no_wrap(label.clone(), font.clone(), p.text)
-        .size()
-        .x;
-    let size = egui::vec2(16.0 + 16.0 + 6.0 + text_w + 14.0, 33.0);
+    // As high as the pills beside it (FEAT-0034 item 2).
+    let size = egui::vec2(filters_width(ui, on), crate::components::PILL_HEIGHT);
     let (rect, resp) = ui.allocate_exact_size(size, egui::Sense::click());
     let color = if open || on > 0 || resp.hovered() {
         p.text

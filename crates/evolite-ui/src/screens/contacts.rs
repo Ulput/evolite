@@ -294,34 +294,33 @@ pub fn contacts(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut ContactsS
             list(ui, a, total, &known, now, state, &mut asked);
         }
 
-        // Three explanations side by side, or one under another when narrow.
-        let per_row = if total >= 760.0 { 3 } else { 1 };
-        let w = (total - 16.0 * (per_row - 1) as f32) / per_row as f32;
-        for chunk in HOW.chunks(per_row) {
-            ui.horizontal_top(|ui| {
-                ui.spacing_mut().item_spacing.x = 16.0;
-                for (icon, title, body) in chunk {
-                    card(&p, Margin::same(18)).show(ui, |ui| {
-                        ui.set_width(inner(w, 18));
-                        ui.vertical(|ui| {
-                            ui.spacing_mut().item_spacing.y = 8.0;
-                            ui.horizontal(|ui| {
-                                ui.spacing_mut().item_spacing.x = 8.0;
-                                ui.add(a.icons.icon(icon, p.text, &p, 18.0));
-                                ui.label(txt(title, 14.0, Weight::SemiBold, p.text));
-                            });
-                            ui.add(
-                                egui::Label::new(
-                                    txt(body, 12.0, Weight::Regular, p.muted)
-                                        .line_height(Some(18.0)),
-                                )
-                                .wrap(),
-                            );
-                        });
-                    });
-                }
+        // Three explanations side by side from about 760 px, else one under another. The
+        // cards of a row are as tall as the tallest (FEAT-0034 item 6), as on Apps.
+        let spec = crate::components::GridSpec {
+            // 3 × 242 + 2 × 16 = 758: three a row from about 760 px, as before.
+            min_w: 242.0,
+            gap: egui::vec2(16.0, 16.0),
+            max_cols: 3,
+            even: true,
+        };
+        crate::components::grid(ui, HOW.len(), spec, |ui, i, w, cell| {
+            let (icon, title, body) = HOW[i];
+            cell.card(ui, card(&p, Margin::same(18)), |ui| {
+                ui.set_width(inner(w, 18));
+                ui.spacing_mut().item_spacing.y = 8.0;
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = 8.0;
+                    ui.add(a.icons.icon(icon, p.text, &p, 18.0));
+                    ui.label(txt(title, 14.0, Weight::SemiBold, p.text));
+                });
+                ui.add(
+                    egui::Label::new(
+                        txt(body, 12.0, Weight::Regular, p.muted).line_height(Some(18.0)),
+                    )
+                    .wrap(),
+                );
             });
-        }
+        });
         privacy_link(ui, a, state);
     });
 

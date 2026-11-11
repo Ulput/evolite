@@ -12,7 +12,7 @@ use crate::context::Ctx;
 use crate::text;
 use crate::theme::{TILE_MIN_W, Weight, mono, sans};
 use egui::{
-    Align, Align2, CornerRadius, CursorIcon, Layout, Margin, Rect, Sense, Stroke, StrokeKind, Ui,
+    Align, Color32, CornerRadius, CursorIcon, Layout, Margin, Rect, Sense, Stroke, StrokeKind, Ui,
     pos2, vec2,
 };
 use evolite_api::{CoreError, DoneWhat, Duffs, Fees, Pool, ShieldSource, Source, Spend, Wallet};
@@ -227,7 +227,7 @@ pub fn shielded(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut PoolState
             // One height for all: the tallest line under a title decides (one or two lines).
             let h = ACTIONS
                 .iter()
-                .map(|(_, _, sub)| action_height(ui, sub, w))
+                .map(|(_, title, sub)| action_height(ui, title, sub, w))
                 .fold(62.0, f32::max);
             grid(ui, ACTIONS.len(), spec, |ui, i, w, _| {
                 let (icon, title, sub) = ACTIONS[i];
@@ -394,17 +394,67 @@ fn how(ui: &mut Ui, a: &mut Assets, width: f32, cell: &mut RowCell) {
     });
 }
 
+/// The words of a quick action laid out in a tile `width` wide: the title and the line under
+/// it, each wrapped at the tile's inner right edge.
+pub(crate) struct ActionText {
+    pub title: std::sync::Arc<egui::Galley>,
+    pub sub: std::sync::Arc<egui::Galley>,
+    /// From the tile's left edge to where the words start.
+    pub left: f32,
+}
+
+impl ActionText {
+    pub fn new(
+        ctx: &egui::Context,
+        title: &str,
+        sub: &str,
+        width: f32,
+        color: (Color32, Color32),
+    ) -> Self {
+        let left = 16.0 + 34.0 + 12.0;
+        // 16 to the right edge, as on the left (FEAT-0034 item 5).
+        let text_w = width - left - 16.0;
+        let title = ctx.fonts_mut(|f| {
+            f.layout(
+                crate::i18n::t(title).into_owned(),
+                sans(14.0, Weight::SemiBold),
+                color.0,
+                text_w,
+            )
+        });
+        let sub = ctx.fonts_mut(|f| {
+            f.layout(
+                crate::i18n::t(sub).into_owned(),
+                sans(12.0, Weight::Regular),
+                color.1,
+                text_w,
+            )
+        });
+        ActionText { title, sub, left }
+    }
+
+    /// Padding 14 + the title's line(s) + gap 2 + the wrapped line(s) + padding 14.
+    pub fn height(&self) -> f32 {
+        28.0 + self.title.size().y + 2.0 + self.sub.size().y
+    }
+}
+
+/// The quick actions of the pool with their titles and lines, for a test.
+#[cfg(all(test, demo_core, feature = "dev-tools"))]
+pub(crate) fn actions() -> impl Iterator<Item = (&'static str, &'static str)> {
+    ACTIONS.iter().map(|(_, title, sub)| (*title, *sub))
+}
+
 /// A quick action: surface, radius 14, icon in a raised 34 px box, title and a line under it.
-/// Padding 14 + title 17 + gap 2 + the wrapped line(s) + padding 14.
-fn action_height(ui: &Ui, sub: &str, width: f32) -> f32 {
-    let text_w = width - 16.0 - 34.0 - 12.0 - 12.0;
-    let line = ui.painter().layout(
-        crate::i18n::t(sub).into_owned(),
-        sans(12.0, Weight::Regular),
-        egui::Color32::WHITE,
-        text_w,
-    );
-    28.0 + 17.0 + 2.0 + line.size().y
+fn action_height(ui: &Ui, title: &str, sub: &str, width: f32) -> f32 {
+    ActionText::new(
+        ui.ctx(),
+        title,
+        sub,
+        width,
+        (Color32::WHITE, Color32::WHITE),
+    )
+    .height()
 }
 
 fn action(
@@ -441,23 +491,15 @@ fn action(
         vec2(34.0, 34.0),
     );
     crate::components::paint_icon_box(ui, a, boxr, 12, icon, 18.0, p.ink);
-    let x = boxr.right() + 12.0;
-    let max_w = rect.right() - 12.0 - x;
+    let words = ActionText::new(ui.ctx(), title, sub, rect.width(), (p.text, p.muted));
+    let x = rect.left() + words.left;
     let painter = ui.painter();
-    painter.text(
-        pos2(x, rect.top() + 14.0),
-        Align2::LEFT_TOP,
-        crate::i18n::t(title),
-        sans(14.0, Weight::SemiBold),
-        p.text,
-    );
-    let line = painter.layout(
-        crate::i18n::t(sub).into_owned(),
-        sans(12.0, Weight::Regular),
-        p.muted,
-        max_w,
-    );
-    painter.galley(pos2(x, rect.top() + 14.0 + 17.0 + 2.0), line, p.muted);
+    let title_h = words.title.size().y;
+    // The title and its line stand on the tile's middle as one block, as the icon does: in a
+    // row as tall as its tallest tile a short one's words do not hug the top (designer's r1).
+    let top = rect.center().y - (title_h + 2.0 + words.sub.size().y) / 2.0;
+    painter.galley(pos2(x, top), words.title, p.text);
+    painter.galley(pos2(x, top + title_h + 2.0), words.sub, p.muted);
     if !enabled {
         // Faded like a disabled button.
         ui.painter()

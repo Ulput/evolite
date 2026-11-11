@@ -105,11 +105,20 @@ pub fn status_chip_of(ui: &mut Ui, a: &mut Assets, proof: Proof, core: bool) -> 
     resp.on_hover_text(crate::i18n::t(hint).into_owned())
 }
 
-/// A filter pill: ink when on, surface with a 1 px line when off. 33 px high.
+/// The height of a pill and of the buttons that stand in a row with pills («Filters»): one
+/// height, so a row of them stands on one axis (FEAT-0034 item 2).
+pub const PILL_HEIGHT: f32 = 34.0;
+
+/// How wide [`pill`] is with `label`.
+pub fn pill_width(ui: &Ui, label: &str) -> f32 {
+    text_width(ui, label, sans(13.0, Weight::SemiBold)) + 28.0
+}
+
+/// A filter pill: ink when on, surface with a 1 px line when off. [`PILL_HEIGHT`] high.
 pub fn pill(ui: &mut Ui, p: &Palette, label: &str, on: bool) -> Response {
     let font = sans(13.0, Weight::SemiBold);
-    let w = text_width(ui, label, font.clone()) + 28.0;
-    let (rect, resp) = ui.allocate_exact_size(vec2(w, 33.0), Sense::click());
+    let w = pill_width(ui, label);
+    let (rect, resp) = ui.allocate_exact_size(vec2(w, PILL_HEIGHT), Sense::click());
     let (fill, stroke, color) = if on {
         (p.ink, Stroke::NONE, p.on_ink)
     } else {
@@ -126,7 +135,7 @@ pub fn pill(ui: &mut Ui, p: &Palette, label: &str, on: bool) -> Response {
 }
 
 /// The pill that adds one more to a row of [`pill`]s (FEAT-0014, «+ New identity»): a dashed
-/// muted line, a plus and the words 12 SemiBold, 33 px high as a pill. `name` is what a screen
+/// muted line, a plus and the words 12 SemiBold, as high as a pill. `name` is what a screen
 /// reader hears. Off (`enabled` false): at 45 %, no click and no Tab stop; the caller says why
 /// in words beside it.
 pub fn add_pill(ui: &mut Ui, a: &mut Assets, label: &str, name: &str, enabled: bool) -> Response {
@@ -139,7 +148,7 @@ pub fn add_pill(ui: &mut Ui, a: &mut Assets, label: &str, name: &str, enabled: b
     } else {
         Sense::hover()
     };
-    let (rect, resp) = ui.allocate_exact_size(vec2(w, 33.0), sense);
+    let (rect, resp) = ui.allocate_exact_size(vec2(w, PILL_HEIGHT), sense);
     named(&resp, egui::WidgetType::Button, enabled, name);
     let over = enabled && (resp.hovered() || resp.has_focus());
     let fade = |c: Color32| if enabled { c } else { c.gamma_multiply(0.45) };

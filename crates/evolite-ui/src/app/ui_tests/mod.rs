@@ -9,6 +9,7 @@
 
 mod add_name;
 mod addresses;
+mod alignment;
 mod amounts;
 mod as_known;
 mod bugs;

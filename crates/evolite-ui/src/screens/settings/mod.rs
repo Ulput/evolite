@@ -28,7 +28,7 @@ use crate::components::Assets;
 use crate::context::Ctx;
 use crate::prefs::Prefs;
 use crate::theme::{Weight, sans};
-use egui::{Align2, CornerRadius, CursorIcon, Rect, Response, Sense, Ui, pos2, vec2};
+use egui::{CornerRadius, CursorIcon, Rect, Response, Sense, Ui, pos2, vec2};
 use evolite_api::{Command, CoreError, FiatRate, Phrase, PhraseQuestion, Timestamp};
 use std::time::Instant;
 use zeroize::{Zeroize, Zeroizing};
@@ -629,7 +629,27 @@ pub fn settings(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut SettingsS
 
 fn section_item(ui: &mut Ui, a: &mut Assets, icon: &str, label: &str, on: bool) -> Response {
     let p = a.p;
-    let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 38.0), Sense::click());
+    // The name ends 12 px inside the item, as it starts 12 px in before the icon, and a long
+    // one takes two lines (designer, FEAT-0034). Measured in the bolder weight too, so the item
+    // does not change height when it is chosen.
+    let width = ui.available_width();
+    let text_w = width - 12.0 - 18.0 - 10.0 - 12.0;
+    let ctx = ui.ctx().clone();
+    let layout = |weight: Weight, color: egui::Color32| {
+        ctx.fonts_mut(|f| {
+            f.layout(
+                crate::i18n::t(label).into_owned(),
+                sans(14.0, weight),
+                color,
+                text_w,
+            )
+        })
+    };
+    let height = [Weight::SemiBold, Weight::Medium]
+        .map(|w| layout(w, p.text).size().y + 20.0)
+        .into_iter()
+        .fold(38.0, f32::max);
+    let (rect, resp) = ui.allocate_exact_size(vec2(width, height), Sense::click());
     crate::components::named_choice(&resp, egui::WidgetType::SelectableLabel, on, label);
     if on || resp.hovered() {
         ui.painter()
@@ -645,13 +665,10 @@ fn section_item(ui: &mut Ui, a: &mut Assets, icon: &str, label: &str, on: bool) 
         vec2(18.0, 18.0),
     );
     a.icons.icon(icon, color, &p, 18.0).paint_at(ui, icon_rect);
-    ui.painter().text(
-        pos2(icon_rect.right() + 10.0, rect.center().y),
-        Align2::LEFT_CENTER,
-        crate::i18n::t(label),
-        sans(14.0, if on { Weight::SemiBold } else { Weight::Medium }),
-        color,
-    );
+    let name = layout(if on { Weight::SemiBold } else { Weight::Medium }, color);
+    let top = rect.center().y - name.size().y / 2.0;
+    ui.painter()
+        .galley(pos2(icon_rect.right() + 10.0, top), name, color);
     resp.on_hover_cursor(CursorIcon::PointingHand)
 }
 

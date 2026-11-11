@@ -90,9 +90,13 @@ fn row(ui: &mut Ui, a: &mut Assets, title: &str, sub: &str, control: Control) ->
                 ui.style_mut().interaction.selectable_labels = false;
             }
             ui.set_width(ui.available_width());
-            // Several buttons in a narrow window go under the text, not squeeze it.
-            if matches!(control, Control::Buttons(..))
-                && ui.available_width() - control_width(ui, &control) - 20.0 < 300.0
+            // Several buttons, or a choice of several, in a narrow window go under the text, not
+            // squeeze it (FEAT-0034 item 10: a column a few words wide broke the number format's
+            // line before its colon).
+            if matches!(
+                control,
+                Control::Buttons(..) | Control::Segmented(..) | Control::SegmentedWithOff(..)
+            ) && ui.available_width() - control_width(ui, &control) - 20.0 < 300.0
             {
                 ui.spacing_mut().item_spacing.y = 12.0;
                 ui.vertical(|ui| {
@@ -115,6 +119,8 @@ fn row(ui: &mut Ui, a: &mut Assets, title: &str, sub: &str, control: Control) ->
                                 clicked = true;
                             }
                         }
+                    } else {
+                        clicked = draw_control(ui, a, title, control);
                     }
                 });
                 return;

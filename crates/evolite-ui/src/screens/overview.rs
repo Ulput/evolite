@@ -94,6 +94,8 @@ fn total_block(
             ui.label(txt(tr!("Total"), 13.0, Weight::Medium, p.muted));
             crate::components::amount_toggle(ui, a, false);
         });
+        // The total keeps 6 px from the eye's hover (designer's r1).
+        ui.add_space(3.0);
         // A part not known yet leaves no sum to say, and no rate to apply to one (BUG-91).
         let sum = CardAmount::total(b).known();
         let total = sum.map_or_else(|| "—".to_owned(), crate::format::amount);

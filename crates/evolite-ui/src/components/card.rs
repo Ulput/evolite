@@ -52,7 +52,8 @@ pub fn kv_row_in(
 }
 
 /// [`kv_row`] with the icon of [`amount_toggle`] right after the label (BUG-73: «Payments» of
-/// a contact, «From the Core wallet» in a dialog): 28 high, the value on the right.
+/// a contact, «From the Core wallet» in a dialog): as high as a [`kv_row`], the toggle taking
+/// only its icon's 16 px in the row (FEAT-0034), the value on the right.
 pub fn kv_row_eye(ui: &mut Ui, a: &mut Assets, label: &str, value: &str, value_font: FontId) {
     let color = a.p.text;
     kv_row_eye_in(ui, a, label, value, value_font, color);

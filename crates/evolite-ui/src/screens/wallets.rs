@@ -92,10 +92,12 @@ pub fn settings_line(w: &WalletEntry, snap: &Snapshot, now: DateTime<Local>) -> 
             .and_then(|wallet| wallet.identity.as_ref())
             .and_then(|i| i.names.iter().find(|n| n.primary).or(i.names.first()));
         if let Some(name) = name {
-            parts.push(part(&format!(
-                tr!("identity {}"),
-                format!("@{}", name.label)
-            )));
+            // One unit on its line: a break inside it left «@name» alone on the next one
+            // (FEAT-0034 item 7). egui never breaks a line at a no-break space.
+            parts.push(
+                part(&format!(tr!("identity {}"), format!("@{}", name.label)))
+                    .replace(' ', "\u{a0}"),
+            );
         }
     } else if let Some(at) = w.last_opened {
         parts.push(part(&format!(tr!("last opened {}"), text::when(at, now))));
@@ -239,12 +241,16 @@ fn wallet_menu(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, anchor: Rect, menu: &m
                     );
                     // The app's one «Hide amounts», as an icon with its words in the tooltip
                     // (FEAT-0007): the open wallet's line below says its balance.
-                    let eye = Rect::from_min_size(
-                        pos2(head.right() - 4.0 - 28.0, head.top()),
-                        vec2(28.0, 28.0),
+                    // On the header's middle: the toggle takes only its icon's 16 px from the top
+                    // of its place, its 28 px of hover around them (FEAT-0034 r1 Must 1).
+                    let eye = Rect::from_center_size(
+                        pos2(head.right() - 4.0 - 14.0, head.center().y),
+                        vec2(28.0, 16.0),
                     );
                     let mut eye_ui = ui.new_child(egui::UiBuilder::new().max_rect(eye));
                     crate::components::amount_toggle(&mut eye_ui, a, true);
+                    // The first wallet keeps 6 px from the eye's hover (designer's r1).
+                    ui.add_space(2.0);
                     for w in &snap.wallets {
                         let (row, resp) = ui.allocate_exact_size(vec2(302.0, 47.0), Sense::click());
                         let own = crate::i18n::own(&w.name);

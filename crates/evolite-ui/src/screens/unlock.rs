@@ -275,8 +275,30 @@ pub(super) fn pause_lines(
         pause::plate(ui, a, secs, pause_end.unwrap_or_default());
         return;
     }
-    if let Some(error) = error {
-        ui.label(txt(error, 12.0, Weight::Regular, a.p.danger));
+    // The error's line is kept from the start, empty, so that «Wrong password» moves nothing
+    // under it when it comes (FEAT-0034 item 8).
+    match error {
+        Some(error) => {
+            ui.label(txt(error, 12.0, Weight::Regular, a.p.danger));
+        }
+        None => {
+            // As tall as the error's own label would be.
+            let line = egui::WidgetText::from(txt(
+                tr!("Wrong password"),
+                12.0,
+                Weight::Regular,
+                a.p.danger,
+            ))
+            .into_galley(
+                ui,
+                Some(egui::TextWrapMode::Extend),
+                f32::INFINITY,
+                egui::TextStyle::Body,
+            )
+            .size()
+            .y;
+            ui.allocate_space(egui::vec2(0.0, line));
+        }
     }
     if let Some(warning) = pause::warning(wrong_tries) {
         pause::warning_line(ui, a, &warning);

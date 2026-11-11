@@ -145,7 +145,9 @@ pub fn switch_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut Switc
                     None,
                     None,
                 );
-                ui.add_space(10.0);
+                // The line kept for the error is the gap to the note, about 23 px, not added to
+                // a gap of its own (designer, FEAT-0034 item 8 r1).
+                ui.add_space(-4.0);
                 match paused {
                     Some(secs) => {
                         pause::plate(ui, a, secs, pause_end.unwrap_or_default());

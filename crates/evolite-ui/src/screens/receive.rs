@@ -253,7 +253,17 @@ pub fn receive(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut ReceiveForm
                 ui.vertical(|ui| {
                     ui.set_width(ui.available_width());
                     ui.spacing_mut().item_spacing.y = 16.0;
-                    ui.label(txt(&t.label, 13.0, Weight::Medium, p.muted));
+                    // Its letters, not the air of the font's ascent above them, start at the
+                    // QR's top edge (FEAT-0034 item 4).
+                    let label = egui::WidgetText::from(txt(&t.label, 13.0, Weight::Medium, p.muted))
+                        .into_galley(
+                            ui,
+                            Some(egui::TextWrapMode::Wrap),
+                            ui.available_width(),
+                            egui::TextStyle::Body,
+                        );
+                    ui.add_space(-ink_top(&label));
+                    ui.add(egui::Label::new(label));
                     if ready {
                         ui.add(
                             egui::Label::new(
@@ -377,7 +387,9 @@ pub fn receive(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut ReceiveForm
                         crate::components::amount_toggle(ui, a, true);
                     },
                     |ui, a| {
-                        ui.add_space(-2.0);
+                        // 1 px less than the card's 10: the first row keeps 6 px from the eye's
+                        // hover (designer's r1).
+                        ui.add_space(-1.0);
                         for old in past.iter().take(PAST_SHOWN) {
                             let shown = crate::format::balance(old.received);
                             // A click copies it: "Copied" stands in the line under it for a moment.
@@ -476,10 +488,42 @@ pub(crate) fn past_addresses(history: &[Activity], current: &str) -> Vec<PastAdd
     out
 }
 
+/// How far below a galley's top its highest letter starts: the font's ascent leaves a few
+/// points of air above the letters, which a top edge next to them shows (FEAT-0034 item 4).
+pub(crate) fn ink_top(galley: &egui::Galley) -> f32 {
+    galley
+        .rows
+        .first()
+        .and_then(|row| {
+            row.row
+                .glyphs
+                .iter()
+                .filter(|g| g.uv_rect.size.y > 0.0)
+                .map(|g| row.pos.y + g.pos.y + g.uv_rect.offset.y)
+                .min_by(f32::total_cmp)
+        })
+        .unwrap_or(0.0)
+        .max(0.0)
+}
+
+/// Where a test finds the QR card (or its empty place): it is painted, with no node of its own.
+#[cfg(test)]
+pub(crate) fn qr_rect_id() -> egui::Id {
+    egui::Id::new("receive-qr-rect")
+}
+
+fn note_qr_rect(ui: &Ui, rect: Rect) {
+    #[cfg(test)]
+    ui.ctx().data_mut(|d| d.insert_temp(qr_rect_id(), rect));
+    #[cfg(not(test))]
+    let _ = (ui, rect);
+}
+
 /// Where the QR card stands while there is no address yet: the same size, empty (BUG-74 №1).
 pub(crate) fn qr_waiting(ui: &mut Ui, p: &crate::theme::Palette) {
     let side = 261.0 + 40.0;
     let (rect, _) = ui.allocate_exact_size(vec2(side, side), Sense::hover());
+    note_qr_rect(ui, rect);
     ui.painter().rect(
         rect,
         CornerRadius::same(16),
@@ -494,6 +538,7 @@ pub(crate) fn qr_waiting(ui: &mut Ui, p: &crate::theme::Palette) {
 pub(crate) fn qr_card(ui: &mut Ui, p: &crate::theme::Palette, payload: &str) {
     let side = 261.0;
     let (rect, _) = ui.allocate_exact_size(vec2(side + 40.0, side + 40.0), Sense::hover());
+    note_qr_rect(ui, rect);
     // Right to left the card moves, the code is not mirrored: a mirrored QR may not scan.
     crate::rtl::keep(ui.ctx(), rect);
     let painter = ui.painter();

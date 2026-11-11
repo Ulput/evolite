@@ -360,8 +360,19 @@ pub fn amount_toggle(ui: &mut Ui, a: &mut Assets, compact: bool) -> Response {
         ("eye-off", tr!("Hide the amounts"))
     };
     let font = sans(12.0, Weight::Medium);
-    let size = vec2(amount_toggle_width(ui, compact), 28.0);
-    let (rect, resp) = ui.allocate_exact_size(size, Sense::click());
+    // It takes only its icon's height in the row, so a label placed before it keeps the row's
+    // centre: egui centres a widget by the row's height when the widget is placed, and a 28 px
+    // toggle made the row taller after the label was set, 5 px above the toggle's middle
+    // (FEAT-0034 item 1). Its hover and its click stand 4 px around its icon (designer's r1).
+    let width = amount_toggle_width(ui, compact);
+    let (place, placed) = ui.allocate_exact_size(vec2(width, ICON), Sense::hover());
+    let hover_w = if compact {
+        ICON + 2.0 * OVERHANG
+    } else {
+        width
+    };
+    let rect = Rect::from_center_size(place.center(), vec2(hover_w, ICON + 2.0 * OVERHANG));
+    let resp = ui.interact(rect, placed.id.with("amount-toggle"), Sense::click());
     named(&resp, egui::WidgetType::Button, true, label);
     let over = resp.hovered() || resp.has_focus();
     let color = if over { p.text } else { p.muted };
@@ -403,6 +414,12 @@ pub fn amount_toggle(ui: &mut Ui, a: &mut Assets, compact: bool) -> Response {
     }
     resp.on_hover_cursor(CursorIcon::PointingHand)
 }
+
+/// The height [`amount_toggle`] takes in its row: its icon's.
+const ICON: f32 = 16.0;
+/// How far its hover and its click reach past its icon, up and down (and to the sides when
+/// compact): 4 px, so that what stands next to it keeps more room (designer's r1).
+const OVERHANG: f32 = 4.0;
 
 /// How wide [`amount_toggle`] is now (its words change with the setting).
 pub fn amount_toggle_width(ui: &Ui, compact: bool) -> f32 {
