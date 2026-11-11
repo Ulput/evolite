@@ -776,6 +776,7 @@ mod tests {
             to: wallet.core_address.clone(),
             amount: 10_000,
             note: None,
+            rate: None,
         }));
         let sent = wait_for(&core, 3, |e| match e {
             Event::Sent { result: r, .. } => Some(r.clone()),
@@ -811,6 +812,7 @@ mod tests {
             to,
             amount,
             note: None,
+            rate: None,
         }));
         let mut first_shown = None;
         let mut sent = None;
@@ -1701,6 +1703,7 @@ mod tests {
             to,
             amount: 10_000,
             note: None,
+            rate: None,
         }));
         let sent = wait_for(&core, 3, |e| match e {
             Event::Sent { result: r, .. } => Some(r.clone()),
@@ -1825,6 +1828,7 @@ mod tests {
                 to: to.clone(),
                 amount: 10_000,
                 note: None,
+                rate: None,
             }));
             let sent = wait_for(&core, 3, |e| match e {
                 Event::Sent { result: r, .. } => Some(r.clone()),
@@ -2163,6 +2167,7 @@ mod tests {
                 to: to.clone(),
                 amount: 10_000,
                 note: None,
+                rate: None,
             }));
             let sent = wait_for(&core, 3, |e| match e {
                 Event::Sent { result: r, .. } => Some(r.clone()),
@@ -3090,6 +3095,7 @@ mod tests {
             to: ready.core_address.clone(),
             amount: 300_000,
             note: None,
+            rate: None,
         }));
         let sent = wait_for(&core, 15, |e| match e {
             Event::Sent { result: r, .. } => Some(r.clone()),

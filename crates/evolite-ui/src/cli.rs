@@ -192,7 +192,9 @@ pub const PRESETS: &[&str] = &[
     "core-to-platform-address",
     "address-top-up-foreign",
     "send-pool-unread", "send-pool-unknown",
-    "receive",
+    "send-fiat", "send-fiat-confirm", "send-fiat-stale",
+    "receive", "receive-fiat",
+    "activity-fiat", "activity-card-fiat", "activity-card-fiat-old",
     "identity", "identity-unfinished", "identity-created", "top-up-stopped", "top-up-awaiting",
     "edit-profile",
     "top-up", "add-name",
@@ -274,6 +276,9 @@ fn dev_args<'a>(
                 | "activity-card-lock-partly"
                 | "activity-card-lock-not-received"
                 | "activity-card-lock-unknown"
+                | "activity-fiat"
+                | "activity-card-fiat"
+                | "activity-card-fiat-old"
                 | "activity-notes"
                 | "activity-search-note"
                 | "activity-notes-unreadable"
@@ -306,10 +311,13 @@ fn dev_args<'a>(
                 | "address-top-up"
                 | "address-confirm"
                 | "core-to-platform-address"
-                | "address-top-up-foreign",
+                | "address-top-up-foreign"
+                | "send-fiat"
+                | "send-fiat-confirm"
+                | "send-fiat-stale",
             ),
         ) => Screen::Send,
-        (None, Some("receive")) => Screen::Receive,
+        (None, Some("receive" | "receive-fiat")) => Screen::Receive,
         (
             None,
             Some(

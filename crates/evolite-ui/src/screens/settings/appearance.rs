@@ -92,7 +92,7 @@ pub(super) fn appearance(
         (
             tr!("Fiat rate"),
             tr!(
-                "The rate comes from rates.ctx.com (as in DashPay): the service sees your IP. Every 30 minutes"
+                "The rate comes from rates.ctx.com (as in DashPay): the service sees your IP and when you ask. Every 30 minutes and while Send or Request an amount is open"
             ),
             Control::Toggle(&mut rate),
         ),

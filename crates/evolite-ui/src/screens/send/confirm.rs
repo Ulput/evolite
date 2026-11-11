@@ -31,7 +31,7 @@ pub(super) fn confirm(
     a: &mut Assets,
     cx: &mut Ctx,
     form: &mut SendForm,
-    amount: Duffs,
+    (amount, rate): (Duffs, Option<&super::currency::Rate>),
     ask_password: bool,
 ) {
     let p = a.p;
@@ -107,9 +107,9 @@ pub(super) fn confirm(
             amount_lines(
                 ui,
                 &p,
-                amount,
-                source.fee,
+                (amount, source.fee),
                 matches!(source.source, Source::Credits | Source::PlatformAddress),
+                rate,
             );
             if let Some(note) = form.note_shown() {
                 confirm_note(ui, a, &note, form.note_from_link());
@@ -182,7 +182,7 @@ pub(super) fn confirm(
         },
     );
     if send_now {
-        sign_and_send(cx, form, source.source, to, amount, ask_password);
+        sign_and_send(cx, form, (source.source, to), (amount, rate), ask_password);
     }
     if closed {
         form.confirming = false;
@@ -319,9 +319,16 @@ pub(super) fn fee_lines(amount: Duffs, fee: Duffs, about: bool) -> (&'static str
 }
 
 /// The amount, the fee and the two together. `about`: see [`fee_lines`].
-fn amount_lines(ui: &mut Ui, p: &crate::theme::Palette, amount: Duffs, fee: Duffs, about: bool) {
+/// With «Fiat rate» on, each in the currency under it, smaller (R-2, frame 4).
+fn amount_lines(
+    ui: &mut Ui,
+    p: &crate::theme::Palette,
+    (amount, fee_duffs): (Duffs, Duffs),
+    about: bool,
+    rate: Option<&super::currency::Rate>,
+) {
     let value = mono(13.0, Weight::Medium);
-    let (label, fee, total) = fee_lines(amount, fee, about);
+    let (label, fee, total) = fee_lines(amount, fee_duffs, about);
     kv_row(
         ui,
         p,
@@ -329,7 +336,13 @@ fn amount_lines(ui: &mut Ui, p: &crate::theme::Palette, amount: Duffs, fee: Duff
         &crate::format::amount(amount),
         value.clone(),
     );
+    if let Some(line) = super::currency::confirm_line(rate, amount) {
+        small_right(ui, p, &line);
+    }
     kv_row(ui, p, label, &fee, value.clone());
+    if let Some(line) = super::currency::fee_line(rate, fee_duffs) {
+        small_right(ui, p, &line);
+    }
     divider(ui, p);
     kv_row(ui, p, tr!("In total"), &total, value);
 }
@@ -372,9 +385,8 @@ fn password_field(ui: &mut Ui, p: &crate::theme::Palette, form: &mut SendForm) {
 fn sign_and_send(
     cx: &mut Ctx,
     form: &mut SendForm,
-    from: Source,
-    to: String,
-    amount: Duffs,
+    (from, to): (Source, String),
+    (amount, rate): (Duffs, Option<&super::currency::Rate>),
     ask_password: bool,
 ) {
     form.sent_to = to.clone();
@@ -387,6 +399,8 @@ fn sign_and_send(
             to,
             amount,
             note: form.note_to_send().map(evolite_api::NoteText),
+            // The rate «Summary» showed (АРХ-2): the core keeps it only if still fresh.
+            rate: rate.map(super::currency::Rate::for_core),
         },
         password: ask_password.then(|| Password::new(form.password.to_string())),
     });

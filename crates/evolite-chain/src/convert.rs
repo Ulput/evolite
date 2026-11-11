@@ -512,6 +512,7 @@ pub fn activity(record: &TransactionRecord, seen: Timestamp, instant_verified: b
         flow,
         detail: Some(Box::new(detail)),
         note: None,
+        rate: None,
     }
 }
 
@@ -1445,6 +1446,7 @@ mod tests {
             key: String::new(),
             detail: None,
             note: None,
+            rate: None,
         };
         let contact = |id: &str, name: Option<&str>| Contact {
             identity_id: id.into(),
@@ -1504,6 +1506,7 @@ mod tests {
             key: String::new(),
             detail: None,
             note: None,
+            rate: None,
         };
         let mut h = vec![
             at(Some(900), Proof::InBlock),

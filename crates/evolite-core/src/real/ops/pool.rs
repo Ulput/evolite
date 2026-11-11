@@ -256,7 +256,7 @@ impl Real {
         payment: u64,
         to: &str,
         amount: Duffs,
-        note: Option<String>,
+        kept: Kept,
     ) -> Result<(), CoreError> {
         enum To {
             Private,
@@ -309,9 +309,14 @@ impl Real {
                 });
                 // Its line (and so its key) comes with the pool's store: the note waits for it,
                 // encrypted, after a restart too (FEAT-0003).
-                if let (Ok(_), Some(text)) = (&sent, note) {
+                if sent.is_ok() && !kept.is_empty() {
                     keep_note(notes, move |n| {
-                        n.set_pending(notes::Pending::Pool, amount, signed, text)
+                        n.set_pending(
+                            notes::Pending::Pool,
+                            (amount, signed),
+                            kept.note,
+                            kept.rate.as_ref(),
+                        )
                     })
                     .await;
                 }

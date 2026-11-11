@@ -123,20 +123,23 @@ impl Real {
         from: Source,
         to: &str,
         amount: Duffs,
-        note: Option<NoteText>,
+        (note, rate): (Option<NoteText>, Option<FiatRate>),
     ) -> Result<(), CoreError> {
         let open = self
             .unlocked
             .as_ref()
             .ok_or(CoreError::NotAvailable(tr!("The wallet is locked").into()))?;
         let id = open.id;
-        let note = send_note(note)?;
+        let kept = Kept {
+            note: send_note(note)?,
+            rate: self.payment_rate(rate),
+        };
         match from {
             Source::Core => {}
-            Source::Credits => return self.send_credits(payment, id, to, amount, note),
-            Source::Pool => return self.send_from_pool(payment, to, amount, note),
+            Source::Credits => return self.send_credits(payment, id, to, amount, kept),
+            Source::Pool => return self.send_from_pool(payment, to, amount, kept),
             Source::PlatformAddress => {
-                return self.send_from_addresses(payment, id, to, amount, note);
+                return self.send_from_addresses(payment, id, to, amount, kept);
             }
         }
         let payee = self.core_payee(to)?;
@@ -231,13 +234,10 @@ impl Real {
                     Err(_) => outgoing::Answer::Refused,
                 },
             );
-            // Taken (or maybe taken, with its txid): the note goes with the txid (AC-T3).
-            if let (Ok(paid), Some(text)) = (&paid, note) {
+            // Taken (or maybe taken, with its txid): the note and the rate go with the txid (AC-T3).
+            if let (Ok(paid), false) = (&paid, kept.is_empty()) {
                 let key = format!("core:{}", paid.txid);
-                keep_note(notes, move |n| {
-                    let _ = n.set(&key, Some(text));
-                })
-                .await;
+                keep_note(notes, move |n| kept.into_notes(n, &key)).await;
             }
             let result = paid
                 .map(|paid| SentPayment {

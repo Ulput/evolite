@@ -94,6 +94,14 @@ pub struct Rate {
     pub price: i64,
     /// "USD", "EUR", "RUB".
     pub currency: [u8; 3],
+    /// When the core got it: older than 5 minutes, no typing in the currency (FEAT-0008).
+    pub at: evolite_api::Timestamp,
+}
+
+impl Rate {
+    pub fn code(&self) -> &str {
+        std::str::from_utf8(&self.currency).unwrap_or("")
+    }
 }
 
 /// Everything about amounts the person chose in Settings.
@@ -347,6 +355,43 @@ pub fn fiat(duffs: i64) -> Option<String> {
     ))
 }
 
+/// «1 234,56 USD»: hundredths of the currency in the chosen format. The code is never
+/// translated (AC-T11).
+pub fn fiat_text(cents: i128, currency: &str) -> String {
+    let (thousands, decimal) = display().style.marks();
+    let abs = cents.unsigned_abs();
+    let sign = if cents < 0 { "−" } else { "" };
+    let whole = grouped((abs / 100).min(u64::MAX as u128) as u64, Some(thousands));
+    format!("{sign}{whole}{decimal}{:02} {currency}", abs % 100)
+}
+
+/// `duffs` in the currency at `price` (FEAT-0008, R-6): «≈ 25,00 USD», «< 0,01 USD» below half
+/// a cent (AC-T2), «≈ •••• USD» with «Hide amounts» (AC-T9).
+pub fn about(duffs: i64, price: i64, currency: &str) -> String {
+    if display().hide {
+        return format!("≈ •••• {currency}");
+    }
+    if evolite_api::fiat::below_a_cent(duffs, price) {
+        return format!("< {}", fiat_text(if duffs < 0 { -1 } else { 1 }, currency));
+    }
+    match evolite_api::fiat::cents_of(duffs, price) {
+        Some(cents) => format!("≈ {}", fiat_text(cents, currency)),
+        None => "—".into(),
+    }
+}
+
+/// An amount in the currency as its field shows it: «25,00», no thousands marks.
+pub fn fiat_input_text(cents: i128) -> String {
+    let (_, decimal) = display().style.marks();
+    let abs = cents.unsigned_abs();
+    format!("{}{decimal}{:02}", abs / 100, abs % 100)
+}
+
+/// An amount typed in the currency, in hundredths, read as [`parse_amount`] reads one.
+pub fn parse_fiat(input: &str) -> Option<i128> {
+    parse_typed(input, 2).map(i128::from)
+}
+
 /// A price (hundred-millionths) to the cent in the chosen format: "47,96".
 pub fn rate_number(price: i64) -> String {
     let cents = (price.unsigned_abs() + 500_000) / 1_000_000;
@@ -422,9 +467,12 @@ fn parse_units(input: &str, decimals: u32, decimal_marks: &[char]) -> Option<i64
 /// "1,234.56" (or "1.234,56") the thousands mark only groups three digits: "0,25" there is refused,
 /// not read as 25 — a misread amount is money sent.
 pub fn parse_amount(input: &str) -> Option<i64> {
-    let d = display();
-    let decimals = d.unit.decimals();
-    let (group, decimal) = d.style.marks();
+    parse_typed(input, display().unit.decimals())
+}
+
+/// A number typed with `decimals` places in the chosen number format: see [`parse_amount`].
+fn parse_typed(input: &str, decimals: u32) -> Option<i64> {
+    let (group, decimal) = display().style.marks();
     if group.is_whitespace() {
         // Spaces between thousands: a comma or a dot before decimals, as typed.
         return if decimals == 0 {
@@ -728,6 +776,7 @@ mod tests {
             rate: Some(Rate {
                 price: 4_796_150_000,
                 currency: *b"USD",
+                at: 0,
             }),
             ..Display::default()
         });

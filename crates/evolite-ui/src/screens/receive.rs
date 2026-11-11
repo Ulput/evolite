@@ -3,15 +3,15 @@
 
 use super::txt;
 use crate::components::{
-    Assets, ButtonKind, TxRow, amount_field, button_enabled, field_label, notice, option_card,
-    page_header, tx_row_clickable,
+    Assets, ButtonKind, TxRow, button_enabled, field_label, notice, option_card, page_header,
+    tx_row_clickable,
 };
 use crate::context::Ctx;
 use crate::format::DUFFS_PER_DASH;
 use crate::text::short_address;
 use crate::theme::{Weight, mono};
 use egui::{Color32, CornerRadius, Rect, Sense, Stroke, StrokeKind, Ui, pos2, vec2};
-use evolite_api::{Activity, ActivityKind, Chain, Network, Wallet};
+use evolite_api::{Activity, ActivityKind, Chain, Duffs, Network, Wallet};
 
 struct Target {
     icon: &'static str,
@@ -86,6 +86,10 @@ fn targets(w: &Wallet, network: Network) -> Vec<Target> {
 pub struct ReceiveForm {
     pub target: usize,
     pub amount: String,
+    /// «Request an amount» in the currency of «Fiat rate» (FEAT-0008, UC-2): the unit is
+    /// kept for the session; the text typed in it.
+    pub in_currency: bool,
+    pub fiat: String,
 }
 
 impl ReceiveForm {
@@ -93,6 +97,24 @@ impl ReceiveForm {
     /// empty — what was typed (a mistake too) does not wait there (BUG-39 №10).
     pub fn leave(&mut self) {
         self.amount.clear();
+        self.fiat.clear();
+    }
+
+    /// Whether «Request an amount» is on screen: a target with a `dash:` link (Core).
+    pub fn requesting(&self, w: &Wallet, network: Network) -> bool {
+        let all = targets(w, network);
+        all.get(self.target.min(all.len().saturating_sub(1)))
+            .is_some_and(|t| t.uri)
+    }
+
+    /// The amount asked for, in duffs: typed in the currency it is the DASH it buys at `rate`,
+    /// rounded down (R-3); the link and the QR carry DASH only (AC-T10).
+    fn requested(&self, rate: Option<&crate::fiat_lines::Rate>) -> Option<Duffs> {
+        let typed = match rate.filter(|r| self.in_currency && r.fresh) {
+            Some(rate) => rate.dash_text(&self.fiat)?,
+            None => self.amount.clone(),
+        };
+        crate::format::parse_amount(&typed).filter(|d| *d > 0)
     }
 }
 
@@ -120,6 +142,73 @@ pub fn payment_uri(address: &str, duffs: Option<i64>) -> String {
     }
 }
 
+/// «Request an amount» with, while «Fiat rate» is on, the unit switch and by which rate
+/// (frame 5); an old rate takes the currency away and says since when (UC-6).
+fn request_field(
+    ui: &mut Ui,
+    p: &crate::theme::Palette,
+    form: &mut ReceiveForm,
+    rate: Option<&crate::fiat_lines::Rate>,
+    amount: Option<Duffs>,
+) {
+    let typing = form.in_currency && rate.is_some_and(|r| r.fresh);
+    let unit = rate.map(|r| crate::components::UnitChoice {
+        currency: &r.code,
+        in_currency: &mut form.in_currency,
+        off: (!r.fresh).then_some(tr!("The rate is older than 5 minutes")),
+    });
+    let text = if typing {
+        &mut form.fiat
+    } else {
+        &mut form.amount
+    };
+    let field = crate::components::amount_field_in(ui, p, "receive-amount", text, false, unit);
+    // The amount keeps its meaning across the switch (behaviour 1).
+    if field.switched
+        && let Some(rate) = rate
+    {
+        if typing {
+            form.amount = rate.dash_text(&form.fiat).unwrap_or_default();
+        } else {
+            form.fiat = rate.currency_text(&form.amount);
+        }
+    }
+    let Some(rate) = rate else {
+        return;
+    };
+    let muted = |ui: &mut Ui, line: &str| {
+        ui.add(egui::Label::new(txt(line, 12.0, Weight::Regular, p.muted)).wrap());
+    };
+    if !rate.fresh {
+        muted(
+            ui,
+            &format!(
+                tr!(
+                    "The rate has not been updated since {}: input in {} is unavailable until it updates"
+                ),
+                crate::fiat_lines::clock(rate.at),
+                rate.code
+            ),
+        );
+    } else if typing && let Some(amount) = amount {
+        let dash = format!(
+            "{} {}",
+            crate::format::number(amount, false),
+            crate::format::unit_name()
+        );
+        muted(
+            ui,
+            &format!(
+                tr!("≈ {} by the rate {} · updated {}"),
+                dash,
+                rate.price_text(),
+                crate::fiat_lines::clock(rate.at)
+            ),
+        );
+        muted(ui, tr!("The QR code and the link get the amount in DASH"));
+    }
+}
+
 pub fn receive(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut ReceiveForm) {
     let p = a.p;
     let all = targets(cx.wallet(), cx.snap.network);
@@ -142,7 +231,8 @@ pub fn receive(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut ReceiveForm
             });
 
             let t = &all[form.target];
-            let amount = crate::format::parse_amount(&form.amount).filter(|d| *d > 0);
+            let rate = crate::fiat_lines::Rate::now(cx.now.timestamp());
+            let amount = form.requested(rate.as_ref());
             let uri = payment_uri(&t.value, amount);
             // No address yet (the keys are being read): no QR and nothing to copy — a QR without
             // its address says nothing of what it holds (BUG-74 №1).
@@ -242,8 +332,13 @@ pub fn receive(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut ReceiveForm
                         ui.vertical(|ui| {
                             ui.spacing_mut().item_spacing.y = 6.0;
                             field_label(ui, &p, tr!("Request an amount (optional)"));
-                            amount_field(ui, &p, "receive-amount", &mut form.amount, false);
-                            if !form.amount.trim().is_empty() && amount.is_none() {
+                            request_field(ui, &p, form, rate.as_ref(), amount);
+                            let typed = if form.in_currency && rate.as_ref().is_some_and(|r| r.fresh) {
+                                &form.fiat
+                            } else {
+                                &form.amount
+                            };
+                            if !typed.trim().is_empty() && amount.is_none() {
                                 ui.label(txt(
                                     tr!("Enter an amount, e.g. 0.25"),
                                     12.0,
@@ -313,6 +408,7 @@ pub fn receive(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut ReceiveForm
                                     quiet: false,
  core_chip: false,
                                     note: None,
+                                    fiat: None,
                                 },
                             );
                             if row
@@ -440,6 +536,37 @@ mod tests {
     use super::{PastAddress, past_addresses, payment_uri};
     use evolite_api::{Activity, ActivityKind, Chain, Proof};
 
+    /// FEAT-0008 AC-T10: 25 USD at 30.78 ask for 0.81221572 DASH; the link carries DASH only.
+    #[test]
+    fn a_request_in_the_currency_links_the_dash_it_buys() {
+        crate::format::set_display(crate::format::Display {
+            style: crate::format::NumberStyle::CommaDot,
+            ..Default::default()
+        });
+        let rate = crate::fiat_lines::Rate {
+            price: 3_078_000_000,
+            code: "USD".into(),
+            at: 0,
+            fresh: true,
+        };
+        let form = super::ReceiveForm {
+            in_currency: true,
+            fiat: "25".into(),
+            ..Default::default()
+        };
+        assert_eq!(
+            payment_uri("yX", form.requested(Some(&rate))),
+            "dash:yX?amount=0.81221572"
+        );
+        // An old rate: the currency is not used; the DASH field (empty) is.
+        let old = crate::fiat_lines::Rate {
+            fresh: false,
+            ..rate
+        };
+        assert_eq!(payment_uri("yX", form.requested(Some(&old))), "dash:yX");
+        crate::format::set_display(Default::default());
+    }
+
     #[test]
     fn builds_bip21_links() {
         assert_eq!(payment_uri("yX", None), "dash:yX");
@@ -466,6 +593,7 @@ mod tests {
             key: String::new(),
             detail: None,
             note: None,
+            rate: None,
         };
         let received = || ActivityKind::Received { from: None };
         let history = [
@@ -525,6 +653,7 @@ mod tests {
             key: String::new(),
             detail: None,
             note: None,
+            rate: None,
         }];
         assert_eq!(
             past_addresses(&history, "yNow"),

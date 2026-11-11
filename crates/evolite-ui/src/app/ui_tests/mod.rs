@@ -18,6 +18,7 @@ mod contacts_privacy;
 mod core_known;
 mod dialog_keys;
 mod dialogs;
+mod fiat;
 mod focus;
 mod history;
 mod identity_pool;

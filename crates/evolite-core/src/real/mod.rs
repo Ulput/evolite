@@ -298,6 +298,8 @@ struct Real {
     /// "Fiat rate": the price fetched last, and the task fetching it.
     fiat: Arc<std::sync::Mutex<Option<FiatRate>>>,
     fiat_task: Option<tokio::task::JoinHandle<()>>,
+    /// «Fiat rate»'s currency while it is on: a payment's rate must be in it (FEAT-0008).
+    fiat_currency: Option<String>,
     /// "Disk space": bytes of the data folder, and when they were counted.
     disk: Option<(tokio::time::Instant, u64)>,
     /// The Core and DAPI nodes, and when they were asked.
@@ -394,6 +396,9 @@ struct Real {
     /// wallet, `None` once it locks (a lock, a switch, "Add a wallet"). Shared with the sends
     /// in flight, which keep their note once the network takes them.
     notes: Arc<std::sync::Mutex<Option<notes::Notes>>>,
+    /// Which history lines this unlock has seen, for the rate of operations first seen
+    /// (FEAT-0008, R-4); reset when the notes open.
+    first_seen: std::sync::Mutex<FirstSeen>,
     /// Core addresses the person named, to pay again.
     address_book: address_book::AddressBook,
     /// The address shown in the last look before paying each contact (by identity): a payment

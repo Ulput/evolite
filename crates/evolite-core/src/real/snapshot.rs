@@ -930,6 +930,9 @@ impl Real {
             });
             let _ = turn::timed("notes_bind", bound).await;
         }
+        let caught_up = coins_known(&self.chain.status(), true);
+        let first = self.first_seen_keys(history, caught_up);
+        self.rate_first_seen(first).await;
         match self
             .notes
             .lock()
@@ -939,6 +942,7 @@ impl Real {
             Some(notes) => {
                 for line in history.iter_mut().filter(|a| !a.key.is_empty()) {
                     line.note = notes.get(&line.key).map(str::to_owned);
+                    line.rate = notes.rate(&line.key);
                 }
                 notes.trouble()
             }

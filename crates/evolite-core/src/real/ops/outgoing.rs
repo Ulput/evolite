@@ -132,6 +132,7 @@ impl Outgoing {
                     .unwrap_or_default(),
                 detail: None,
                 note: None,
+                rate: None,
             }
         }));
         shown
@@ -159,6 +160,7 @@ mod tests {
             key: String::new(),
             detail: None,
             note: None,
+            rate: None,
         }
     }
 

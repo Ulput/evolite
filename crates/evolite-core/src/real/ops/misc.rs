@@ -46,6 +46,7 @@ impl Real {
             task.abort();
         }
         let slot = self.fiat.clone();
+        self.fiat_currency = currency.clone();
         let Some(currency) = currency else {
             *slot.lock().unwrap_or_else(|e| e.into_inner()) = None;
             return;

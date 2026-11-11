@@ -586,6 +586,7 @@ mod tests {
             flow: Flow::In,
             key: format!("core:{txid}"),
             note: None,
+            rate: None,
             detail: None,
         }
     }

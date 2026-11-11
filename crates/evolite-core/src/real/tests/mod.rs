@@ -235,6 +235,7 @@ fn every_spend() -> Vec<Spend> {
             to: "yMrDQWqicXKL8xdJg23oYVVqKNtm5AwvXQ".into(),
             amount: 10_000,
             note: None,
+            rate: None,
         },
         Spend::TopUpIdentity { amount: 10_000 },
         Spend::ResumeTopUp,

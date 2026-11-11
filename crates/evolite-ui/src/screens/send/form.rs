@@ -45,6 +45,8 @@ pub(super) struct FormView<'a> {
     /// From the Platform address to an @name that is not one of the wallet's identities (R-1а):
     /// said once under the recipient, nothing to pay, the reason under the buttons.
     pub(super) address_foreign_name: bool,
+    /// «Fiat rate» on and a price from the core (FEAT-0008); fresh or not.
+    pub(super) rate: Option<super::currency::Rate>,
 }
 
 /// What the «Platform address» card of «From» is (FEAT-0015, the customer's change of
@@ -115,6 +117,9 @@ impl<'a> FormView<'a> {
         }
         let source = &all[form.source];
         form.follow_source(source);
+        // «Max» may have put a new amount there: the currency shows it too (FEAT-0008).
+        let rate = super::currency::Rate::now(cx.now.timestamp());
+        form.sync_currency(rate.as_ref());
         // An address for Core is checked as it is typed, so a typo shows before the password.
         // A Platform address is no Core payee (FEAT-0015, frame 15): not asked of the core.
         let platform_typed = typed.to_ascii_lowercase().starts_with("tdash1");
@@ -143,7 +148,11 @@ impl<'a> FormView<'a> {
         // Not before the wallet knows all its coins: the core would refuse, and a balance
         // still syncing is no basis for a payment (nor for saying it is too small).
         let synced = crate::text::coins_known(cx.snap.sync.stage);
-        let problem = form_problem(&form.amount, source, synced);
+        let problem = if form.currency_not_an_amount(rate.as_ref()) {
+            Some(AmountProblem::NotAnAmount)
+        } else {
+            form_problem(&form.amount, source, synced)
+        };
         // A source that cannot pay at all says why, not "more than there is".
         let unavailable = match source.source {
             Source::Credits if cx.wallet().identity.is_none() => Some(tr!(
@@ -236,6 +245,7 @@ impl<'a> FormView<'a> {
                 .as_ref()
                 .is_some_and(|n| !cx.wallet().identities.iter().any(|i| i.id == n.identity_id));
         FormView {
+            rate,
             address_card,
             own_platform_address,
             fills_address,
@@ -616,8 +626,29 @@ fn amount_row(ui: &mut Ui, form: &mut SendForm, v: &FormView, p: &crate::theme::
     ui.vertical(|ui| {
         ui.spacing_mut().item_spacing.y = 6.0;
         field_label(ui, &p, tr!("Amount"));
-        let field = amount_field(ui, &p, "send-amount", &mut form.amount, true);
+        let rate = v.rate.as_ref();
+        let typing_currency = form.typing_currency(rate);
+        let unit = rate.map(|r| crate::components::UnitChoice {
+            currency: &r.code,
+            in_currency: &mut form.in_currency,
+            off: (!r.fresh).then_some(tr!("The rate is older than 5 minutes")),
+        });
+        // Typed in the currency, the field holds that text; the amount in DASH comes from it.
+        let text = if typing_currency {
+            &mut form.fiat
+        } else {
+            &mut form.amount
+        };
+        let field = crate::components::amount_field_in(ui, &p, "send-amount", text, true, unit);
         let (resp, all) = (field.response, field.all);
+        if field.switched {
+            form.switched_unit();
+        } else if resp.changed()
+            && typing_currency
+            && let Some(rate) = rate
+        {
+            form.typed_currency(rate);
+        }
         if resp.changed() && !all {
             form.max = false;
         }
@@ -641,6 +672,10 @@ fn amount_row(ui: &mut Ui, form: &mut SendForm, v: &FormView, p: &crate::theme::
                 ))
                 .wrap(),
             );
+        }
+        // By which rate (frames 1–3), «Fiat rate» on only (R-1).
+        if let Some(line) = super::currency::field_line(form, rate, v.amount) {
+            ui.add(egui::Label::new(txt(&line, 12.0, Weight::Regular, p.muted)).wrap());
         }
     });
 }
@@ -1007,6 +1042,12 @@ pub(super) fn summary_card(ui: &mut Ui, p: &crate::theme::Palette, v: &FormView,
                 (amount, Some(source.fee), left.filter(|l| *l >= 0))
             };
             kv_row(ui, p, tr!("Amount"), &dash(amount), value.clone());
+            // «≈ 25,00 USD» under it, smaller (R-2, frame 1).
+            if let Some(line) =
+                amount.and_then(|d| super::currency::summary_line(v.rate.as_ref(), d))
+            {
+                small_right(ui, p, &line);
+            }
             // Platform meters credits and address payments: an estimate there, as in the last look
             // (BUG-108, the QA pass of 2026-11-10).
             let about = matches!(source.source, Source::Credits | Source::PlatformAddress);
@@ -1038,5 +1079,12 @@ pub(super) fn summary_card(ui: &mut Ui, p: &crate::theme::Palette, v: &FormView,
                 )
                 .wrap(),
             );
+    });
+}
+
+/// A small muted line on the right, under a row's value: an amount in the currency.
+pub(super) fn small_right(ui: &mut Ui, p: &crate::theme::Palette, line: &str) {
+    ui.with_layout(Layout::top_down(Align::Max), |ui| {
+        ui.label(txt(line, 12.0, Weight::Regular, p.muted));
     });
 }

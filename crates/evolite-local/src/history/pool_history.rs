@@ -174,6 +174,7 @@ impl Saved {
             key: format!("pool:{:016x}", self.id),
             detail: None,
             note: None,
+            rate: None,
         }
     }
 }
@@ -201,6 +202,7 @@ mod tests {
             key: format!("pool:{id:016x}"),
             detail: None,
             note: None,
+            rate: None,
         }
     }
 

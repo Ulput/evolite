@@ -38,6 +38,7 @@ mod components;
 mod context;
 mod csv_export;
 mod diagnostics;
+mod fiat_lines;
 mod focus;
 mod format;
 mod i18n;

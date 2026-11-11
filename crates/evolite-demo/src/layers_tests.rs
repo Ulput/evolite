@@ -22,6 +22,7 @@ fn line(kind: ActivityKind, chain: Chain) -> Activity {
         key: String::new(),
         detail: None,
         note: None,
+        rate: None,
     }
 }
 

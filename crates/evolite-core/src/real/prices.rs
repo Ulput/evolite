@@ -238,6 +238,7 @@ mod tests {
             to: "@bob".into(),
             amount: 100,
             note: None,
+            rate: None,
         };
         watch.begin(&op, 1_000);
         watch.journal.add(Entry {
@@ -310,6 +311,7 @@ mod tests {
             to: "yAddress".into(),
             amount: 100,
             note: None,
+            rate: None,
         };
         watch.begin(&op, 1);
         let record = watch.ended(&Event::Sent {
@@ -398,6 +400,7 @@ mod tests {
             to: "yAddress".into(),
             amount: 1,
             note: None,
+            rate: None,
         };
         watch.begin(&name, 1);
         watch.begin(&unshield, 1);

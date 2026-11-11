@@ -421,6 +421,7 @@ mod tests {
             key: String::new(),
             detail: None,
             note: None,
+            rate: None,
         }
     }
 

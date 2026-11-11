@@ -259,6 +259,7 @@ pub fn demo_wallet(t: Timestamp) -> Wallet {
             key: format!("demo:{id}"),
             detail: None,
             note: None,
+            rate: None,
         }
     };
     use ActivityKind::*;
@@ -288,6 +289,13 @@ pub fn demo_wallet(t: Timestamp) -> Wallet {
             // Earlier receive addresses of ours: "Receive" lists them.
             Activity {
                 address: Some("yPq8RkT2vW6nX4mB9cJ3hL7sD5fG1aZ8e4k".into()),
+                // The rate kept when it came (FEAT-0008): the card says it and today's apart;
+                // the other lines have none, as operations from before the setting.
+                rate: Some(evolite_api::FiatRate {
+                    currency: "USD".into(),
+                    price: 3_078_000_000,
+                    at: t - 3 * hour,
+                }),
                 detail: core_detail(
                     Proof::InstantLock,
                     None,

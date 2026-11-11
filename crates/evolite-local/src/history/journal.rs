@@ -492,6 +492,7 @@ pub fn activity(entry: &Entry) -> Activity {
         key: entry.line.map(line_key).unwrap_or_default(),
         detail: Some(Box::new(detail_of(entry))),
         note: None,
+        rate: None,
     }
 }
 

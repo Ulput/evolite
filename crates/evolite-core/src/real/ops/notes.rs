@@ -15,6 +15,84 @@ impl Real {
                 .await
                 .ok();
         *self.notes.lock().unwrap_or_else(|e| e.into_inner()) = notes;
+        *self.first_seen.lock().unwrap_or_else(|e| e.into_inner()) = FirstSeen::default();
+    }
+
+    /// The keys of `history` that get the rate now as operations first seen in this unlock
+    /// (R-4, AC-T6). Every line known until the wallet first knows all its coins counts as
+    /// known at the unlock: what a sync finds (an old or restored wallet's history) gets none.
+    /// Lines older than [`RECENT`] neither: the rate of now is not theirs.
+    pub(in crate::real) fn first_seen_keys(
+        &self,
+        history: &[Activity],
+        caught_up: bool,
+    ) -> Vec<String> {
+        let Some(rate) = self.fiat.lock().unwrap_or_else(|e| e.into_inner()).clone() else {
+            return Vec::new();
+        };
+        let now = now();
+        let mut seen = self.first_seen.lock().unwrap_or_else(|e| e.into_inner());
+        let keys = history
+            .iter()
+            .map(|a| a.key.as_str())
+            .filter(|k| !k.is_empty());
+        if !seen.settled {
+            seen.at_unlock.extend(keys.map(str::to_owned));
+            seen.settled = caught_up;
+            return Vec::new();
+        }
+        let recent = history
+            .iter()
+            .filter(|a| a.at != 0 && now - a.at <= RECENT)
+            .map(|a| a.key.as_str());
+        let notes = self.notes.lock().unwrap_or_else(|e| e.into_inner());
+        let Some(notes) = notes.as_ref() else {
+            return Vec::new();
+        };
+        let FirstSeen {
+            at_unlock, seen, ..
+        } = &mut *seen;
+        evolite_api::fiat::first_seen_rates(
+            recent,
+            at_unlock,
+            seen,
+            |k| notes.rate(k).is_some(),
+            Some(&rate),
+            now,
+        )
+    }
+}
+
+/// How old a line may be and still get the rate of now as first seen (FEAT-0008).
+const RECENT: Timestamp = 60 * 60;
+
+/// The history lines this unlock has seen (FEAT-0008, R-4).
+#[derive(Default)]
+pub(in crate::real) struct FirstSeen {
+    /// The keys known before the wallet first knew all its coins.
+    at_unlock: std::collections::HashSet<String>,
+    /// That moment has passed: keys not in [`Self::at_unlock`] are new.
+    settled: bool,
+    /// When each new key was first seen.
+    seen: HashMap<String, Timestamp>,
+}
+
+impl Real {
+    /// Keeps `rate` for operations first seen, off the loop's thread.
+    pub(in crate::real) async fn rate_first_seen(&self, keys: Vec<String>) {
+        let Some(rate) = self.fiat.lock().unwrap_or_else(|e| e.into_inner()).clone() else {
+            return;
+        };
+        if keys.is_empty() {
+            return;
+        }
+        let notes = self.notes.clone();
+        let kept = tokio::task::spawn_blocking(move || {
+            if let Some(notes) = notes.lock().unwrap_or_else(|e| e.into_inner()).as_mut() {
+                let _ = notes.set_rates(&keys, &rate, false);
+            }
+        });
+        let _ = turn::timed("notes_rates", kept).await;
     }
 
     /// `Command::SetNote`: the note of an operation of the history, written off the loop's
@@ -64,6 +142,39 @@ pub(in crate::real) fn send_note(note: Option<NoteText>) -> Result<Option<String
         None => Ok(None),
         Some(note) => crate::note_text::kept(&note.0)
             .map_err(|_| CoreError::NotAvailable(crate::note_text::TOO_LONG.into())),
+    }
+}
+
+/// What a payment keeps on this computer once the network took it: the person's note and the
+/// rate of the time it was signed (FEAT-0008, АРХ-2). Neither is ever sent or logged.
+#[derive(Default)]
+pub(in crate::real) struct Kept {
+    pub note: Option<String>,
+    pub rate: Option<FiatRate>,
+}
+
+impl Kept {
+    pub fn is_empty(&self) -> bool {
+        self.note.is_none() && self.rate.is_none()
+    }
+
+    /// Into the notes under the operation's `key`; a failed write keeps what it can.
+    pub fn into_notes(self, notes: &mut notes::Notes, key: &str) {
+        if let Some(text) = self.note {
+            let _ = notes.set(key, Some(text));
+        }
+        if let Some(rate) = &self.rate {
+            let _ = notes.set_rates(&[key.to_owned()], rate, true);
+        }
+    }
+}
+
+impl Real {
+    /// The rate a payment keeps (АРХ-2): the one «Summary» showed, else the core's own, if it
+    /// is in the setting's currency and fresh; nothing with «Fiat rate» off (AC-T1).
+    pub(in crate::real) fn payment_rate(&self, shown: Option<FiatRate>) -> Option<FiatRate> {
+        let own = self.fiat.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        evolite_api::fiat::payment_rate(shown, own.as_ref(), self.fiat_currency.as_deref(), now())
     }
 }
 

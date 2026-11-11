@@ -36,6 +36,7 @@ fn with_undated(kit: &mut Kit) {
                 key: String::new(),
                 detail: None,
                 note: None,
+                rate: None,
             });
         }
         kit.run_steps(1);
@@ -183,6 +184,7 @@ fn platform_op(id: u64, kind: ActivityKind, amount: i64) -> Activity {
         key: String::new(),
         detail: None,
         note: None,
+        rate: None,
     }
 }
 
@@ -395,6 +397,7 @@ fn lock(creates: bool, credits: evolite_api::Credits) -> Activity {
         key: String::new(),
         detail: None,
         note: None,
+        rate: None,
     }
 }
 

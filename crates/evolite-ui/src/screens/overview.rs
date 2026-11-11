@@ -360,6 +360,7 @@ fn latest_operations(
                     quiet: text::credits_quiet(act),
                     core_chip: text::core_chip(act),
                     note: act.note.as_deref(),
+                    fiat: None,
                 },
             );
             if row.clicked() {

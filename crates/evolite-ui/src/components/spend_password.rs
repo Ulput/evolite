@@ -149,6 +149,7 @@ mod tests {
             to: "@alice".into(),
             amount: 1,
             note: None,
+            rate: None,
         }
     }
 

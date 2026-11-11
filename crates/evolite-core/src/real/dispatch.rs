@@ -12,7 +12,8 @@ impl Real {
                 to,
                 amount,
                 note,
-            } => match self.send(id, from, &to, amount, note).await {
+                rate,
+            } => match self.send(id, from, &to, amount, (note, rate)).await {
                 // The answer comes from the broadcast task.
                 Ok(()) => return (None, true),
                 Err(e) => Event::Sent { id, result: Err(e) },

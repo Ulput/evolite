@@ -13,6 +13,7 @@ use std::sync::Arc;
 use zeroize::Zeroizing;
 
 pub mod address_plan;
+pub mod fiat;
 
 /// 1 DASH = 100 000 000 duffs.
 pub type Duffs = i64;
@@ -239,6 +240,9 @@ pub struct Activity {
     pub key: String,
     /// What the person wrote to it, only on this computer ([`Command::SetNote`]).
     pub note: Option<String>,
+    /// The rate at the time of the operation (FEAT-0008, R-4): kept beside its note, only on
+    /// this computer; `None` for operations from before the rate was on, or with it off.
+    pub rate: Option<FiatRate>,
     /// What the operation's card says beyond the row (FEAT-0005); `None` where the core knows
     /// nothing more. Boxed: the snapshot clones every row each frame.
     pub detail: Option<Box<Detail>>,
@@ -1073,7 +1077,8 @@ pub enum WalletOrigin {
 }
 
 /// The price of one DASH from the rate service (Settings → "Fiat rate").
-#[derive(Clone, PartialEq, Debug)]
+/// `Debug` names the currency only: the price and its time stay out of logs (FEAT-0008, AC-T9).
+#[derive(Clone, PartialEq)]
 pub struct FiatRate {
     /// "USD", "EUR", "RUB".
     pub currency: String,
@@ -1081,6 +1086,14 @@ pub struct FiatRate {
     pub price: i64,
     /// When the core got it.
     pub at: Timestamp,
+}
+
+impl fmt::Debug for FiatRate {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("FiatRate")
+            .field("currency", &self.currency)
+            .finish_non_exhaustive()
+    }
 }
 
 /// Where a payment comes from on the Send screen.
@@ -1462,6 +1475,9 @@ pub enum Spend {
         /// The person's note to the payment (FEAT-0003): kept with the operation once
         /// the network took it, only on this computer; never sent.
         note: Option<NoteText>,
+        /// The rate «Summary» showed (FEAT-0008, АРХ-2): the core keeps it with the operation
+        /// only if its currency is the setting's and it is at most 5 minutes old. Never logged.
+        rate: Option<FiatRate>,
     },
     /// Lock `amount` duffs on Core and add them to the shown identity's credits.
     /// `Done { what: DoneWhat::TopUp }`.

@@ -71,6 +71,8 @@ pub struct TxRow<'a> {
     /// The person's note to the operation (FEAT-0003), quoted after the line and cut with «…»
     /// before the status; its own direction kept.
     pub note: Option<&'a str>,
+    /// The amount in the currency of «Fiat rate», grey under it (FEAT-0008, frame 6).
+    pub fiat: Option<&'a str>,
 }
 
 /// row/transaction: 54 px; icon box 36, title and line under it, status chip, amount in mono.
@@ -96,7 +98,10 @@ fn tx_row_sensed(ui: &mut Ui, a: &mut Assets, row: &TxRow, sense: Sense) -> egui
     } else {
         egui::WidgetType::Label
     };
-    let mut name = format!("{} · {} · {}", row.title, amount, row.detail);
+    let mut name = match row.fiat {
+        Some(fiat) => format!("{} · {} · {} · {}", row.title, amount, fiat, row.detail),
+        None => format!("{} · {} · {}", row.title, amount, row.detail),
+    };
     if let Some(alert) = row.alert {
         name = format!("{name} · {alert}");
     }
@@ -122,14 +127,26 @@ fn tx_row_sensed(ui: &mut Ui, a: &mut Assets, row: &TxRow, sense: Sense) -> egui
     paint_icon_box(ui, a, boxr, 10, row.icon, 18.0, p.ink);
 
     let amount_right = rect.right() - 16.0;
+    // With the currency under it, the amount goes up as the title does.
+    let amount_y = if row.fiat.is_some() { cy - 8.0 } else { cy };
     paint_text(
         ui,
-        pos2(amount_right, cy),
+        pos2(amount_right, amount_y),
         Align2::RIGHT_CENTER,
         amount,
         mono(14.0, Weight::Medium),
         p.text,
     );
+    if let Some(fiat) = row.fiat {
+        paint_text(
+            ui,
+            pos2(amount_right, cy + 10.0),
+            Align2::RIGHT_CENTER,
+            fiat,
+            mono(12.0, Weight::Regular),
+            p.muted,
+        );
+    }
 
     // The chip sits left of a 150 px amount column, as in Figma.
     let mut text_right = amount_right - 150.0;

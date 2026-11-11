@@ -2,7 +2,10 @@
 //! on this computer, encrypted, in `wallets/<network>/<id>/notes.enc` (AC-T1).
 //!
 //! - The file: `{"format":"evolite/notes/v1","nonce":<hex, 12 bytes>,"ciphertext":<hex>}`;
-//!   inside, JSON `{"<key>": {"text": "...", "updated": <unix>}, ...}`.
+//!   inside, JSON `{"<key>": {"text": "...", "rate"?: {...}, "updated": <unix>}, ...}`.
+//!   `rate` is the rate at the time of the operation (FEAT-0008, АРХ-1), only while «Fiat
+//!   rate» is on; an entry may have a rate and an empty text. `text` is always written, so
+//!   an older evolite still reads the file.
 //! - AES-256-GCM with a fresh nonce for every write; the associated data is the format and the
 //!   wallet id, so one wallet's file does not open as another's.
 //! - The key: HKDF-SHA256 of the phrase's BIP-39 seed, salted with the wallet id, info
@@ -24,7 +27,7 @@
 
 use aes_gcm::aead::{Aead, KeyInit, Payload};
 use aes_gcm::{Aes256Gcm, Nonce};
-use evolite_api::{Activity, ActivityKind, Duffs, Timestamp};
+use evolite_api::{Activity, ActivityKind, Duffs, FiatRate, Timestamp};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use zeroize::{Zeroize, Zeroizing};
@@ -56,8 +59,40 @@ struct Envelope {
 /// One note. Its text is zeroed when dropped: a lock leaves none in memory.
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
 struct Note {
+    /// Empty where the entry only keeps a rate.
+    #[serde(default)]
     text: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    rate: Option<Rate>,
     updated: Timestamp,
+}
+
+/// The rate at the time of an operation, as the file keeps it (FEAT-0008).
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
+struct Rate {
+    currency: String,
+    price: i64,
+    at: Timestamp,
+}
+
+impl From<&FiatRate> for Rate {
+    fn from(r: &FiatRate) -> Self {
+        Self {
+            currency: r.currency.clone(),
+            price: r.price,
+            at: r.at,
+        }
+    }
+}
+
+impl From<&Rate> for FiatRate {
+    fn from(r: &Rate) -> Self {
+        Self {
+            currency: r.currency.clone(),
+            price: r.price,
+            at: r.at,
+        }
+    }
 }
 
 impl Drop for Note {
@@ -259,7 +294,43 @@ impl Notes {
     }
 
     pub fn get(&self, key: &str) -> Option<&str> {
-        self.all.get(key).map(|n| n.text.as_str())
+        self.all
+            .get(key)
+            .map(|n| n.text.as_str())
+            .filter(|t| !t.is_empty())
+    }
+
+    /// The rate kept at the time of the operation `key` (FEAT-0008).
+    pub fn rate(&self, key: &str) -> Option<FiatRate> {
+        self.all.get(key)?.rate.as_ref().map(FiatRate::from)
+    }
+
+    /// Keeps `rate` for each of `keys` (one write for all): a payment's own rate
+    /// (`replace`) takes the place of one kept before; an operation first seen keeps the first
+    /// it got (AC-T6). The text of a note there stays.
+    pub fn set_rates(
+        &mut self,
+        keys: &[String],
+        rate: &FiatRate,
+        replace: bool,
+    ) -> Result<(), NoteError> {
+        let mut all = self.all.clone();
+        let mut changed = false;
+        for key in keys.iter().filter(|k| !k.is_empty()) {
+            if !all.contains_key(key) && all.len() >= MAX_NOTES {
+                return Err(NoteError::TooMany);
+            }
+            let note = all.entry(key.clone()).or_insert_with(|| Note {
+                text: String::new(),
+                rate: None,
+                updated: now(),
+            });
+            if replace || note.rate.is_none() {
+                note.rate = Some(rate.into());
+                changed = true;
+            }
+        }
+        if changed { self.write(all) } else { Ok(()) }
     }
 
     /// Whether any operation has a note (a send's note waiting for its line too).
@@ -281,19 +352,31 @@ impl Notes {
                 if !all.contains_key(key) && all.len() >= MAX_NOTES {
                     return Err(NoteError::TooMany);
                 }
+                let rate = all.get(key).and_then(|n| n.rate.clone());
                 all.insert(
                     key.to_owned(),
                     Note {
                         text,
+                        rate,
                         updated: now(),
                     },
                 );
             }
-            None => {
-                if all.remove(key).is_none() {
-                    return Ok(());
+            // No note: an entry that also keeps a rate stays with the rate alone.
+            None => match all.get_mut(key) {
+                None => return Ok(()),
+                Some(note) if note.rate.is_some() => {
+                    if note.text.is_empty() {
+                        return Ok(());
+                    }
+                    note.text.zeroize();
+                    note.text = String::new();
+                    note.updated = now();
                 }
-            }
+                Some(_) => {
+                    all.remove(key);
+                }
+            },
         }
         self.write(all)
     }
@@ -310,10 +393,24 @@ impl Notes {
         Ok(())
     }
 
-    /// The note of a send out of the pool, kept until its line is in the history.
-    pub fn set_pending(&mut self, kind: Pending, amount: Duffs, at: Timestamp, text: String) {
+    /// The note and the rate of a send out of the pool, kept until its line is in the history
+    /// and gone with it if it never comes.
+    pub fn set_pending(
+        &mut self,
+        kind: Pending,
+        (amount, at): (Duffs, Timestamp),
+        text: Option<String>,
+        rate: Option<&FiatRate>,
+    ) {
         let key = format!("pending:{}:{amount}:{at}", kind.name());
-        if let Err(e) = self.set(&key, Some(text)) {
+        let mut kept = match text {
+            Some(text) => self.set(&key, Some(text)),
+            None => Ok(()),
+        };
+        if let (Ok(()), Some(rate)) = (&kept, rate) {
+            kept = self.set_rates(&[key], rate, true);
+        }
+        if let Err(e) = kept {
             evolite_common::diag::record(evolite_common::diag::Record::Storage {
                 file: "notes.enc".into(),
                 op: "notes pending",
@@ -379,11 +476,15 @@ impl Notes {
                         && kind.is(&a.kind)
                         && a.at >= at - CLOCK_SLACK
                         && -a.amount >= amount
-                        && !all.contains_key(&a.key)
+                        && all.get(&a.key).is_none_or(|n| n.text.is_empty())
                 })
                 .min_by_key(|a| a.at);
             if let Some(line) = line {
-                if let Some(note) = all.remove(&key) {
+                if let Some(mut note) = all.remove(&key) {
+                    // A rate it got as an operation first seen gives way to the payment's own.
+                    if note.rate.is_none() {
+                        note.rate = all.get(&line.key).and_then(|n| n.rate.clone());
+                    }
                     all.insert(line.key.clone(), note);
                 }
                 changed = true;
@@ -474,6 +575,7 @@ mod tests {
             key: key.into(),
             detail: None,
             note: None,
+            rate: None,
         }
     }
 
@@ -623,6 +725,7 @@ mod tests {
                 Note {
                     text: "x".into(),
                     updated: 0,
+                    rate: None,
                 },
             );
         }
@@ -663,7 +766,7 @@ mod tests {
         let path = dir.join("notes.enc");
         let at = now();
         let mut notes = Notes::open(path.clone(), &seed(1), WALLET);
-        notes.set_pending(Pending::Pool, 50_000, at, "rent".into());
+        notes.set_pending(Pending::Pool, (50_000, at), Some("rent".into()), None);
         // Not there yet: an older pool send and a credit transfer are not it.
         notes.bind(&[
             line("pool:01", ActivityKind::PoolSent, at - 3600, -50_100),
@@ -707,7 +810,7 @@ mod tests {
             notes.set("core:aa", Some("new".into())),
             Err(NoteError::NotRead)
         );
-        notes.set_pending(Pending::Pool, 1, now(), "rent".into());
+        notes.set_pending(Pending::Pool, (1, now()), Some("rent".into()), None);
         notes.bind(&[line("pool:01", ActivityKind::PoolSent, now(), -2)]);
         assert_eq!(std::fs::read(path.join("inside")).unwrap(), b"kept");
         assert!(!path.with_extension("enc.tmp").exists());
@@ -757,6 +860,7 @@ mod tests {
             Note {
                 text: "rent".into(),
                 updated: 1_700_000_000,
+                rate: None,
             },
         )]);
         let file = String::from_utf8(notes.encrypt_with(&all, [7; 12])).unwrap();
@@ -795,15 +899,25 @@ mod tests {
         ];
         let mut notes = Notes::open(dir.join("notes.enc"), &seed(1), WALLET);
         assert_eq!(notes.lines_to_bind(&history), None, "no note waits");
-        notes.set_pending(Pending::Pool, 70_000, t + 10 * 60, "later".into());
-        notes.set_pending(Pending::Pool, 50_000, t, "first".into());
+        notes.set_pending(
+            Pending::Pool,
+            (70_000, t + 10 * 60),
+            Some("later".into()),
+            None,
+        );
+        notes.set_pending(Pending::Pool, (50_000, t), Some("first".into()), None);
         let lines = notes.lines_to_bind(&history).expect("notes wait");
         let keys: Vec<&str> = lines.iter().map(|a| a.key.as_str()).collect();
         assert_eq!(keys, ["pool:slack", "pool:after", "pool:late"]);
         // The same binding as over the whole history.
         let mut whole = Notes::open(dir.join("whole.enc"), &seed(1), WALLET);
-        whole.set_pending(Pending::Pool, 70_000, t + 10 * 60, "later".into());
-        whole.set_pending(Pending::Pool, 50_000, t, "first".into());
+        whole.set_pending(
+            Pending::Pool,
+            (70_000, t + 10 * 60),
+            Some("later".into()),
+            None,
+        );
+        whole.set_pending(Pending::Pool, (50_000, t), Some("first".into()), None);
         notes.bind(&lines);
         whole.bind(&history);
         assert_eq!(notes.get("pool:slack"), Some("first"));
@@ -819,9 +933,136 @@ mod tests {
     fn a_send_that_never_came_lets_its_note_go_after_a_week() {
         let dir = dir("expired");
         let mut notes = Notes::open(dir.join("notes.enc"), &seed(1), WALLET);
-        notes.set_pending(Pending::Pool, 1, now() - PENDING_WAIT - 1, "old".into());
+        notes.set_pending(
+            Pending::Pool,
+            (1, now() - PENDING_WAIT - 1),
+            Some("old".into()),
+            None,
+        );
         notes.bind(&[]);
         assert!(!notes.any());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+    fn usd(price: i64) -> FiatRate {
+        FiatRate {
+            currency: "USD".into(),
+            price,
+            at: 1_700_000_000,
+        }
+    }
+
+    /// The inner JSON as the file keeps it, for what is and is not in it.
+    fn inner(path: &Path) -> serde_json::Value {
+        let notes = Notes::open(path.to_owned(), &seed(1), WALLET);
+        let bytes = std::fs::read(path).unwrap();
+        let all = notes.decrypt(&bytes).unwrap();
+        serde_json::to_value(&all).unwrap()
+    }
+
+    #[test]
+    fn a_rate_is_kept_beside_the_note_and_read_back() {
+        let dir = dir("rate");
+        let path = dir.join("notes.enc");
+        let mut notes = Notes::open(path.clone(), &seed(1), WALLET);
+        notes
+            .set_rates(&["core:aa".into()], &usd(3_078_000_000), true)
+            .unwrap();
+        // A rate alone is no note.
+        assert_eq!(notes.get("core:aa"), None);
+        notes.set("core:aa", Some("rent".into())).unwrap();
+        let back = Notes::open(path.clone(), &seed(1), WALLET);
+        assert_eq!(back.get("core:aa"), Some("rent"));
+        assert_eq!(back.rate("core:aa"), Some(usd(3_078_000_000)));
+        // The note gone, the rate stays; `text` is always written, for an older evolite.
+        notes.set("core:aa", None).unwrap();
+        let json = inner(&path);
+        assert_eq!(json["core:aa"]["text"], "");
+        assert_eq!(json["core:aa"]["rate"]["price"], 3_078_000_000i64);
+        assert_eq!(notes.rate("core:aa"), Some(usd(3_078_000_000)));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn a_rate_first_seen_never_changes_but_a_payments_own_takes_its_place() {
+        let dir = dir("rate-once");
+        let mut notes = Notes::open(dir.join("notes.enc"), &seed(1), WALLET);
+        let key = vec!["platform:01".to_owned()];
+        notes.set_rates(&key, &usd(1), false).unwrap();
+        notes.set_rates(&key, &usd(2), false).unwrap();
+        assert_eq!(notes.rate("platform:01"), Some(usd(1)), "AC-T6: once");
+        notes.set_rates(&key, &usd(3), true).unwrap();
+        assert_eq!(notes.rate("platform:01"), Some(usd(3)));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn notes_without_rates_have_no_rate_field() {
+        // AC-T1: with «Fiat rate» off nothing writes a rate, and the file has none.
+        let dir = dir("no-rate");
+        let path = dir.join("notes.enc");
+        let mut notes = Notes::open(path.clone(), &seed(1), WALLET);
+        notes.set("core:aa", Some("one".into())).unwrap();
+        assert!(inner(&path)["core:aa"].get("rate").is_none());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn a_file_of_before_the_rate_still_opens() {
+        // A v1 file written before FEAT-0008: `text` and `updated` only.
+        let dir = dir("old-file");
+        let path = dir.join("notes.enc");
+        let notes = Notes::open(path.clone(), &seed(1), WALLET);
+        let mut old = BTreeMap::new();
+        old.insert(
+            "core:aa".to_owned(),
+            serde_json::json!({"text": "old", "updated": 1}),
+        );
+        let plain = serde_json::to_vec(&old).unwrap();
+        let cipher = Aes256Gcm::new_from_slice(notes.key.as_ref()).unwrap();
+        let nonce = [7u8; 12];
+        let ciphertext = cipher
+            .encrypt(
+                Nonce::from_slice(&nonce),
+                Payload {
+                    msg: &plain,
+                    aad: &associated_data(WALLET),
+                },
+            )
+            .unwrap();
+        let envelope = serde_json::to_vec(&Envelope {
+            format: FORMAT.into(),
+            nonce: hex(&nonce),
+            ciphertext: hex(&ciphertext),
+        })
+        .unwrap();
+        std::fs::write(&path, envelope).unwrap();
+        let back = Notes::open(path, &seed(1), WALLET);
+        assert!(!back.unreadable());
+        assert_eq!(back.get("core:aa"), Some("old"));
+        assert_eq!(back.rate("core:aa"), None);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn a_pool_sends_rate_waits_with_it_and_goes_with_it() {
+        let dir = dir("rate-pending");
+        let mut notes = Notes::open(dir.join("notes.enc"), &seed(1), WALLET);
+        let t = now();
+        notes.set_pending(Pending::Pool, (50_000, t), None, Some(&usd(9)));
+        // Its line came and got the rate of a first seen operation: the payment's own wins.
+        let line = line("pool:7", ActivityKind::PoolSent, t + 5, -60_000);
+        notes.set_rates(&["pool:7".into()], &usd(1), false).unwrap();
+        notes.bind(std::slice::from_ref(&line));
+        assert_eq!(notes.rate("pool:7"), Some(usd(9)));
+        // One that never comes goes with its rate (AC-T5).
+        notes.set_pending(
+            Pending::Pool,
+            (1, t - PENDING_WAIT - 1),
+            None,
+            Some(&usd(9)),
+        );
+        notes.bind(&[]);
+        assert!(!notes.all.keys().any(|k| k.starts_with("pending:")));
         std::fs::remove_dir_all(dir).unwrap();
     }
 }

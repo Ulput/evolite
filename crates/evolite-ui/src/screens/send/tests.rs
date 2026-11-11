@@ -349,6 +349,7 @@ fn paid(to: &str, at: Timestamp, amount: Duffs) -> Activity {
         key: String::new(),
         detail: None,
         note: None,
+        rate: None,
     }
 }
 
@@ -903,6 +904,7 @@ fn the_price_on_record_is_the_one_the_send_form_shows() {
         to: to.into(),
         amount,
         note: None,
+        rate: None,
     };
     let price = |op: &Spend| declared(op, &seen, 0).declared;
     let private = format!("tdash1{}", "z".repeat(70));

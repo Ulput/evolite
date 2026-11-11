@@ -307,6 +307,7 @@ pub(crate) mod tests {
             to: to.into(),
             amount: 100,
             note: None::<NoteText>,
+            rate: None,
         };
         vec![
             send(Source::Core, "yAddress"),

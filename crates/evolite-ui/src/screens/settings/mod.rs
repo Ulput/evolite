@@ -360,6 +360,7 @@ impl SettingsState {
             Some(crate::format::Rate {
                 price: f.price,
                 currency: f.currency.as_bytes().try_into().ok()?,
+                at: f.at,
             })
         });
         crate::format::Display {

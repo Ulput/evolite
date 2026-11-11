@@ -1123,6 +1123,7 @@ mod lock_tests {
             flow: Flow::Between,
             key: String::new(),
             note: None,
+            rate: None,
             detail: None,
         }
     }

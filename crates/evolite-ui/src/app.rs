@@ -63,6 +63,9 @@ pub struct App {
     vault: Option<VaultState>,
     /// What the core was last told of "New address…" and "Fiat rate".
     core_told: Option<(bool, Option<&'static str>)>,
+    /// When the rate was last asked for because Send or «Request an amount» needed it
+    /// (FEAT-0008, AC-T4).
+    rate_asked: Option<evolite_api::Timestamp>,
     /// For `on_exit`, which gets no context: the copied phrase is wiped there too.
     egui_ctx: Option<egui::Context>,
     /// The data folder; `None` in the demo. Its `settings.json` holds the app's settings, each
@@ -242,6 +245,7 @@ impl App {
             adding_back: None,
             named: Default::default(),
             core_told: None,
+            rate_asked: None,
             notifier: Default::default(),
             seen: None,
             chosen_identity: None,
@@ -345,6 +349,29 @@ impl App {
     }
 
     /// The part of [`Self::tell_core_settings`] a switch changes in Settings.
+    /// «Fiat rate» on and Send or «Request an amount» open: the rate is asked for again once it
+    /// is older than 4 minutes, at most once in 4 minutes (the architect, 2026-11-07; the
+    /// customer, analyst-107). The same command as the setting's: it restarts the 30-minute
+    /// round with a fetch now. Nothing is asked with the setting off or the screens closed.
+    fn rate_to_ask(&self, snapshot: &evolite_api::Snapshot) -> Option<(i64, Command)> {
+        let currency = self.settings.fiat_currency()?;
+        let open = match (self.screen, &snapshot.wallet) {
+            (Screen::Send, Some(_)) => true,
+            (Screen::Receive, Some(w)) => self.receive.requesting(w, snapshot.network),
+            _ => false,
+        };
+        let now = chrono::Local::now().timestamp();
+        let at = snapshot.fiat.as_ref().map(|f| f.at);
+        evolite_api::fiat::ask_now(open, at, self.rate_asked, now).then(|| {
+            (
+                now,
+                Command::FiatRate {
+                    currency: Some(currency.to_owned()),
+                },
+            )
+        })
+    }
+
     fn core_settings(&self) -> (bool, Option<&'static str>) {
         (
             self.settings.is_on("new-address"),
@@ -1071,6 +1098,10 @@ impl eframe::App for App {
             self.core_told = Some((fresh, currency));
         }
         crate::format::set_display(self.settings.display(snapshot.fiat.as_ref()));
+        if let Some((now, ask)) = self.rate_to_ask(snapshot) {
+            self.rate_asked = Some(now);
+            self.core.send(ask);
+        }
         if std::mem::take(&mut self.settings.restart) && !crate::is_demo(snapshot) {
             start_again(ui.ctx());
         }

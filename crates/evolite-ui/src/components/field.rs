@@ -163,10 +163,20 @@ pub fn text_area(
         .inner
 }
 
-/// What the amount field reports back: the edit and whether "Max" was pressed.
+/// What the amount field reports back: the edit, whether "Max" was pressed and whether the
+/// unit was switched.
 pub struct AmountResponse {
     pub response: Response,
     pub all: bool,
+    pub switched: bool,
+}
+
+/// The unit switch of an amount field (FEAT-0008, `field/unit-switch`): the amount's unit or
+/// the currency of «Fiat rate». `off`: why the currency cannot be chosen now.
+pub struct UnitChoice<'a> {
+    pub currency: &'a str,
+    pub in_currency: &'a mut bool,
+    pub off: Option<&'a str>,
 }
 
 /// input/amount: a DASH amount in mono 20 with the unit and, when `with_all`, a "Max" button
@@ -178,9 +188,25 @@ pub fn amount_field(
     value: &mut String,
     with_all: bool,
 ) -> AmountResponse {
-    let mut all = false;
+    amount_field_in(ui, p, id, value, with_all, None)
+}
+
+/// [`amount_field`] with, when `unit` is given, the switch between the unit and the currency
+/// in place of the unit's name; the placeholder is then in the unit chosen.
+pub fn amount_field_in(
+    ui: &mut Ui,
+    p: &Palette,
+    id: &str,
+    value: &mut String,
+    with_all: bool,
+    unit: Option<UnitChoice<'_>>,
+) -> AmountResponse {
+    let (mut all, mut switched) = (false, false);
     // The placeholder in the chosen unit and format: "0,0000", "0.0000", "0.00", "0".
-    let hint = crate::format::input_text(0);
+    let hint = match &unit {
+        Some(u) if *u.in_currency => crate::format::fiat_input_text(0),
+        _ => crate::format::input_text(0),
+    };
     let response = text_field(ui, p, id, value, &hint, FieldKind::Amount, |ui| {
         if with_all {
             all = super::mini_button(ui, p, tr!("Max")).clicked();
@@ -188,13 +214,84 @@ pub fn amount_field(
             // As tall as the "Max" button, so every amount field is the same height.
             ui.allocate_exact_size(vec2(0.0, 27.0), Sense::hover());
         }
-        ui.label(
-            egui::RichText::new(crate::i18n::t(crate::format::unit_name()))
-                .font(mono(13.0, Weight::Regular))
-                .color(p.muted),
-        );
+        match unit {
+            Some(unit) => switched = unit_switch(ui, p, unit),
+            None => {
+                ui.label(
+                    egui::RichText::new(crate::i18n::t(crate::format::unit_name()))
+                        .font(mono(13.0, Weight::Regular))
+                        .color(p.muted),
+                );
+            }
+        }
     });
-    AmountResponse { response, all }
+    AmountResponse {
+        response,
+        all,
+        switched,
+    }
+}
+
+/// `field/unit-switch`: «DASH | USD», 24 high on `raised`, the chosen one on `ink`. Each half
+/// is a radio button by name for a screen reader, reached by Tab; the arrows switch. Whether
+/// it switched.
+fn unit_switch(ui: &mut Ui, p: &Palette, unit: UnitChoice<'_>) -> bool {
+    let font = sans(12.0, Weight::SemiBold);
+    let names = [crate::format::unit_name(), unit.currency];
+    let widths = names.map(|n| text_width(ui, n, font.clone()) + 16.0);
+    let (rect, _) = ui.allocate_exact_size(vec2(widths[0] + widths[1] + 4.0, 24.0), Sense::hover());
+    ui.painter()
+        .rect_filled(rect, CornerRadius::same(7), p.raised);
+    let mut x = rect.left() + 2.0;
+    let mut switched = false;
+    let mut responses = Vec::new();
+    for (i, (name, w)) in names.iter().zip(widths).enumerate() {
+        let item = Rect::from_min_size(pos2(x, rect.top() + 2.0), vec2(w, 20.0));
+        x += w;
+        let off = i == 1 && unit.off.is_some();
+        let on = *unit.in_currency == (i == 1);
+        let sense = if off { Sense::hover() } else { Sense::click() };
+        let resp = ui.interact(item, ui.id().with(("unit-switch", i)), sense);
+        resp.widget_info(|| {
+            egui::WidgetInfo::selected(egui::WidgetType::RadioButton, !off, on, *name)
+        });
+        if on {
+            ui.painter().rect_filled(item, CornerRadius::same(6), p.ink);
+        }
+        let color = match (on, off) {
+            (true, _) => p.on_ink,
+            (false, true) => p.muted.gamma_multiply(0.45),
+            (false, false) => p.muted,
+        };
+        // Codes and unit names are not translated and not mirrored (AC-T11).
+        ui.painter().text(
+            item.center(),
+            Align2::CENTER_CENTER,
+            *name,
+            font.clone(),
+            color,
+        );
+        let resp = match unit.off.filter(|_| off) {
+            Some(why) => resp
+                .on_hover_cursor(CursorIcon::NotAllowed)
+                .on_hover_text(crate::i18n::t(why).into_owned()),
+            None => resp.on_hover_cursor(CursorIcon::PointingHand),
+        };
+        if resp.clicked() && !on {
+            switched = true;
+        }
+        responses.push(resp);
+    }
+    let arrows = responses.iter().any(Response::has_focus)
+        && ui
+            .input(|i| i.key_pressed(egui::Key::ArrowLeft) || i.key_pressed(egui::Key::ArrowRight));
+    if arrows && (unit.off.is_none() || *unit.in_currency) {
+        switched = true;
+    }
+    if switched {
+        *unit.in_currency = !*unit.in_currency;
+    }
+    switched
 }
 
 #[cfg(test)]

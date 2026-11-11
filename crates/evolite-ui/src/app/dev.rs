@@ -44,6 +44,8 @@ pub(super) struct DevState {
     top_up_preset: Option<bool>,
     /// `--screen overview-syncing` / `send-syncing`: the screen while the sync still runs.
     syncing_preset: bool,
+    /// `--screen send-fiat-stale`: the rate older than 5 minutes (FEAT-0008, frame 3).
+    stale_rate_preset: bool,
     /// `--screen send-pool-unread` / `send-pool-unknown`: Send from the pool before its first read
     /// in this run, with the amount kept from before (`true`) or none (BUG-113).
     pool_preset: Option<bool>,
@@ -149,6 +151,7 @@ impl DevState {
                 None
             },
             syncing_preset: dev.preset("overview-syncing") || dev.preset("send-syncing"),
+            stale_rate_preset: dev.preset("send-fiat-stale"),
             pool_preset: if dev.preset("send-pool-unread") {
                 Some(true)
             } else if dev.preset("send-pool-unknown") {
@@ -236,6 +239,11 @@ impl App {
     /// A new snapshot: `--screen identity-unfinished` gives it a stopped creation, and `--open`
     /// opens what it asked for once the real wallet has it.
     pub(super) fn dev_snapshot(&mut self, ctx: &egui::Context) {
+        if self.dev.stale_rate_preset
+            && let Some(rate) = self.snapshot.as_mut().and_then(|s| s.fiat.as_mut())
+        {
+            rate.at = chrono::Local::now().timestamp() - 2 * 60 * 60;
+        }
         if self.dev.unfinished_preset
             && let Some(w) = self.snapshot.as_mut().and_then(|s| s.wallet.as_mut())
         {
@@ -393,6 +401,13 @@ impl App {
         if preset("activity-card-received") && !real_shot {
             screens::open_card(ctx, 8);
         }
+        // FEAT-0008: a card with the rate kept (frame 7) and one without (frame 8).
+        if preset("activity-card-fiat") && !real_shot {
+            screens::open_card(ctx, 2);
+        }
+        if preset("activity-card-fiat-old") && !real_shot {
+            screens::open_card(ctx, 3);
+        }
         // FEAT-0005b: the demo's Platform lines (mockups 03-08).
         for (name, line) in [
             ("activity-card-name", 13),
@@ -532,6 +547,23 @@ impl App {
             }
             // `--screen send-pool-unread` / `send-pool-unknown`: from the pool, to an address: the card,
             // the line under the row, «Left» and the button (BUG-113).
+            // FEAT-0008: 25 USD typed (frame 1), its last look (frame 4), an old rate (frame 3).
+            if preset("send-fiat") || preset("send-fiat-confirm") || preset("send-fiat-stale") {
+                self.send.recipient = "yXk3Tq9mD8vJw2RfL6pN4sB7cH1eZ5aG9f".into();
+                self.send.in_currency = true;
+                self.send.fiat = "25".into();
+                self.send.fiat_typed = true;
+                self.send.amount.clear();
+                self.send.suggested = None;
+                self.send.confirming = preset("send-fiat-confirm");
+                if preset("send-fiat-stale") {
+                    self.send.amount = crate::format::input_text(25_000_000);
+                }
+            }
+            if preset("receive-fiat") {
+                self.receive.in_currency = true;
+                self.receive.fiat = "25".into();
+            }
             if preset("send-pool-unread") || preset("send-pool-unknown") {
                 self.send.source = 2;
                 self.send.recipient = "yXk3Tq9mD8vJw2RfL6pN4sB7cH1eZ5aG9f".into();
@@ -739,6 +771,20 @@ impl App {
         }
         // `--screen language`: Appearance with the language picker open.
         self.settings.lang_picker = dev.preset("language");
+        // FEAT-0008: «Fiat rate» on, USD, for the amounts in the currency.
+        let fiat = [
+            "send-fiat",
+            "send-fiat-confirm",
+            "send-fiat-stale",
+            "receive-fiat",
+            "activity-fiat",
+            "activity-card-fiat",
+            "activity-card-fiat-old",
+        ];
+        if fiat.iter().any(|p| dev.preset(p)) {
+            self.settings.set("fiat-rate", true);
+            self.settings.fiat_currency = 0;
+        }
         if dev.preset("units") || dev.preset("appearance-rate") {
             self.settings.unit = 1;
             self.settings.number_style = 2;

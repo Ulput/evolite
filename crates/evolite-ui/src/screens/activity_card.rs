@@ -1166,6 +1166,7 @@ fn detail_body(
             value.clone(),
         );
     }
+    fiat_block(ui, &p, act, now);
     // An asset lock: the Core transaction's proof is the chip; the credits are apart, red when
     // Platform did not add them (BUG-57).
     credits_lines(ui, a, act, detail.credits_added);
@@ -1721,6 +1722,7 @@ fn plain_body(
             value.clone(),
         );
     }
+    fiat_block(ui, &p, act, now);
     if let Some(block) = act.block {
         kv_row(
             ui,
@@ -1995,6 +1997,7 @@ mod card_tests {
             key: String::new(),
             detail: None,
             note: None,
+            rate: None,
         }
     }
 
@@ -2265,6 +2268,7 @@ mod again_tests {
             key: String::new(),
             detail: None,
             note: None,
+            rate: None,
         }
     }
 
@@ -2308,5 +2312,30 @@ mod again_tests {
             crate::text::activity_title_in(&out("yBBB", Some("yBBB"), -1, None), &book),
             "Sent · Exchange"
         );
+    }
+}
+
+/// «In currency» under the fee (FEAT-0008, frames 7–8): at the rate kept when the operation
+/// was seen, and now; at today's alone, said so, where none was kept. Not with «Fiat rate» off.
+fn fiat_block(
+    ui: &mut Ui,
+    p: &crate::theme::Palette,
+    act: &evolite_api::Activity,
+    now: chrono::DateTime<chrono::Local>,
+) {
+    let Some(block) = crate::fiat_lines::card(act, now) else {
+        return;
+    };
+    kv_row(
+        ui,
+        p,
+        tr!("In currency"),
+        &block.value,
+        mono(13.0, Weight::Medium),
+    );
+    for line in &block.lines {
+        ui.with_layout(egui::Layout::top_down(egui::Align::Max), |ui| {
+            ui.add(egui::Label::new(txt(line, 12.0, Weight::Regular, p.muted)).wrap());
+        });
     }
 }

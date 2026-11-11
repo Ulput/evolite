@@ -4,6 +4,7 @@
 //! signs it, then the network's answer.
 
 mod confirm;
+mod currency;
 mod form;
 mod note;
 mod recipient;
@@ -17,8 +18,8 @@ use source::*;
 
 use super::txt;
 use crate::components::{
-    Assets, ButtonKind, CardColumn, FieldKind, amount_field, button, button_enabled, card, dialog,
-    divider, field_label, from_columns, kv_row, notice, option_card_dim_in, option_card_in,
+    Assets, ButtonKind, CardColumn, FieldKind, button, button_enabled, card, dialog, divider,
+    field_label, from_columns, kv_row, notice, option_card_dim_in, option_card_in,
     option_card_width, page_header, pill, text_field,
 };
 use crate::context::Ctx;
@@ -106,6 +107,15 @@ pub struct SendForm {
     /// The amount a `dash:` link brought, the same way: the next code takes it away unless
     /// the person changed it.
     pub link_amount: Option<Duffs>,
+    /// The amount is typed in the currency of «Fiat rate» (FEAT-0008): kept for the session,
+    /// through a lock too (behaviour 2–3).
+    pub in_currency: bool,
+    /// What the field holds in the currency, and the amount in DASH it was last in step with.
+    pub fiat: String,
+    pub fiat_for: String,
+    /// The amount was typed in the currency: the amount in DASH follows the rate until the
+    /// last look (R-3).
+    pub fiat_typed: bool,
 }
 
 impl SendForm {
@@ -141,11 +151,13 @@ impl SendForm {
         let last_payment = self.last_payment;
         let last_answered = self.last_answered;
         let sent_to = std::mem::take(&mut self.sent_to);
+        let in_currency = self.in_currency;
         *self = SendForm {
             waiting,
             last_payment,
             last_answered,
             sent_to,
+            in_currency,
             ..next
         };
     }
@@ -478,6 +490,10 @@ impl Default for SendForm {
             qr_about: String::new(),
             link_note: None,
             link_amount: None,
+            in_currency: false,
+            fiat: String::new(),
+            fiat_for: String::new(),
+            fiat_typed: false,
         }
     }
 }
@@ -488,6 +504,7 @@ pub fn send(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut SendForm) {
     // A refusal has just come: its line under the buttons is brought into view, once.
     let reveal = std::mem::take(&mut form.reveal_result);
     crate::format::fill_suggested(&mut form.amount, &mut form.suggested);
+    form.sync_currency(currency::Rate::now(cx.now.timestamp()).as_ref());
     ui.spacing_mut().item_spacing.y = 24.0;
     page_header(ui, a, tr!("Send"), None, |_, _| {});
 
@@ -568,7 +585,7 @@ pub fn send(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut SendForm) {
     if form.confirming
         && let Some(amount) = view.amount.or(signed)
     {
-        confirm(ui, a, cx, form, amount, ask_password);
+        confirm(ui, a, cx, form, (amount, view.rate.as_ref()), ask_password);
     }
 }
 

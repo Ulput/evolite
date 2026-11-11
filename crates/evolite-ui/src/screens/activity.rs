@@ -452,6 +452,7 @@ fn operation_row(ui: &mut Ui, a: &mut Assets, cx: &Ctx, act: &Activity, day: &mu
             quiet: text::credits_quiet(act),
             core_chip: text::core_chip(act),
             note: act.note.as_deref(),
+            fiat: crate::fiat_lines::row(act).as_deref(),
         },
     );
     if row.clicked() {
@@ -861,6 +862,7 @@ mod tests {
             key: String::new(),
             detail: None,
             note: None,
+            rate: None,
         }
     }
 

@@ -165,3 +165,97 @@ async fn a_deleted_wallets_notes_go_with_its_folder() {
     assert!(!restored.any() && !restored.unreadable());
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+fn usd(price: i64, at: Timestamp) -> FiatRate {
+    FiatRate {
+        currency: "USD".into(),
+        price,
+        at,
+    }
+}
+
+/// FEAT-0008 AC-T5: a payment keeps the rate «Summary» showed if it is fresh and in the
+/// setting's currency, else the core's own, else none; with «Fiat rate» off none at all; a
+/// payment refused before it leaves keeps nothing; a kept rate goes under the operation's key.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_payment_keeps_the_shown_rate_only_when_it_may() {
+    let mut core = core_with_vault("notes-rate", "pw");
+    assert_eq!(core.unlock(&pw("pw")).await, Ok(()));
+    let now = now();
+    assert_eq!(core.payment_rate(Some(usd(1, now))), None, "off: none");
+    core.fiat_currency = Some("USD".into());
+    assert_eq!(core.payment_rate(Some(usd(1, now))), Some(usd(1, now)));
+    assert_eq!(core.payment_rate(Some(usd(1, now - 301))), None);
+    let eur = FiatRate {
+        currency: "EUR".into(),
+        ..usd(1, now)
+    };
+    assert_eq!(core.payment_rate(Some(eur)), None);
+    *core.fiat.lock().unwrap() = Some(usd(2, now));
+    assert_eq!(
+        core.payment_rate(Some(usd(1, now - 301))),
+        Some(usd(2, now)),
+        "the core's own"
+    );
+    let refused = core
+        .send(0, Source::Credits, "@a_b", 1_000, (None, Some(usd(1, now))))
+        .await;
+    assert_eq!(refused, Err(CoreError::BadName));
+    assert!(!core.notes.lock().unwrap().as_ref().unwrap().any());
+    let kept = Kept {
+        note: None,
+        rate: Some(usd(3, now)),
+    };
+    kept.into_notes(core.notes.lock().unwrap().as_mut().unwrap(), "core:aa");
+    let notes = core.notes.lock().unwrap();
+    let notes = notes.as_ref().unwrap();
+    assert_eq!(notes.rate("core:aa"), Some(usd(3, now)));
+    assert_eq!(notes.get("core:aa"), None, "a rate is no note");
+}
+
+fn line(key: &str, at: Timestamp) -> Activity {
+    Activity {
+        id: 1,
+        kind: ActivityKind::Received { from: None },
+        chain: evolite_api::Chain::Core,
+        at,
+        amount: 1_000,
+        proof: Proof::Proved,
+        txid: None,
+        fee: None,
+        block: None,
+        address: None,
+        layers: evolite_api::layer::CORE,
+        flow: evolite_api::Flow::In,
+        key: key.into(),
+        detail: None,
+        note: None,
+        rate: None,
+    }
+}
+
+/// FEAT-0008 AC-T6 on two snapshots: what the wallet knew until it first knew all its coins
+/// (an old or restored wallet's history, found by the sync) gets no rate; a line first seen
+/// after that gets the rate of now once, and keeps it.
+#[tokio::test(flavor = "multi_thread")]
+async fn only_operations_first_seen_after_the_sync_get_the_rate() {
+    let mut core = core_with_vault("notes-first-seen", "pw");
+    assert_eq!(core.unlock(&pw("pw")).await, Ok(()));
+    let now = now();
+    *core.fiat.lock().unwrap() = Some(usd(3_078_000_000, now));
+    let mut history = vec![line("core:old", now - 86_400)];
+    assert!(core.first_seen_keys(&history, false).is_empty());
+    // The sync finds a recent one before it is done: known at the unlock all the same.
+    history.push(line("core:found", now - 60));
+    assert!(core.first_seen_keys(&history, true).is_empty());
+    history.push(line("core:new", now));
+    let first = core.first_seen_keys(&history, true);
+    assert_eq!(first, vec!["core:new".to_owned()]);
+    core.rate_first_seen(first).await;
+    assert!(core.first_seen_keys(&history, true).is_empty(), "once");
+    let notes = core.notes.lock().unwrap();
+    let notes = notes.as_ref().unwrap();
+    assert_eq!(notes.rate("core:new"), Some(usd(3_078_000_000, now)));
+    assert_eq!(notes.rate("core:old"), None);
+    assert_eq!(notes.rate("core:found"), None);
+}

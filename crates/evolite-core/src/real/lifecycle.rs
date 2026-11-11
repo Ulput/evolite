@@ -42,6 +42,7 @@ impl Real {
             wallet,
             index,
             notes: Arc::default(),
+            first_seen: Default::default(),
             attempts,
             pending_origin: wallets::Origin::Created,
             switch_to: None,
@@ -83,6 +84,7 @@ impl Real {
             fresh_receive: true,
             fiat: Default::default(),
             fiat_task: None,
+            fiat_currency: None,
             disk: None,
             nodes: None,
             // The settings' default until the interface sends its own.

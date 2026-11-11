@@ -72,7 +72,7 @@ impl Real {
         id: WalletId,
         to: &str,
         amount: Duffs,
-        note: Option<String>,
+        kept: Kept,
     ) -> Result<(), CoreError> {
         let credits = positive_credits(amount)?;
         let to = address_to(to)?;
@@ -191,12 +191,9 @@ impl Real {
                     key: document,
                     ..Default::default()
                 });
-                if let (Some(line), Some(text)) = (line, note) {
+                if let Some(line) = line.filter(|_| !kept.is_empty()) {
                     let key = format!("platform:{line:016x}");
-                    keep_note(notes, move |n| {
-                        let _ = n.set(&key, Some(text));
-                    })
-                    .await;
+                    keep_note(notes, move |n| kept.into_notes(n, &key)).await;
                 }
                 Ok::<Duffs, CoreError>(spent - moved)
             }

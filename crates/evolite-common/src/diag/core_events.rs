@@ -217,6 +217,7 @@ mod tests {
                 to: "yMrDQWqicXKL8xdJg23oYVVqKNtm5AwvXQ".into(),
                 amount: 25_000_000,
                 note: Some(NoteText("For the logo ZQX".into())),
+                rate: None,
             },
             password: Some(Password::new("hunter2".into())),
         });

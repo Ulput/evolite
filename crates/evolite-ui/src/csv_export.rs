@@ -245,6 +245,7 @@ mod tests {
             key: String::new(),
             detail: None,
             note: None,
+            rate: None,
         }
     }
 
@@ -289,6 +290,59 @@ mod tests {
         assert_eq!(with, without);
         assert!(!with.contains("secret-note-7f3a") && !with.contains("logo"));
         assert_eq!(with.lines().next().unwrap().split(',').count(), 12);
+    }
+
+    /// FEAT-0008 AC-T7 (R-7): the rates kept change nothing in the file, with «Fiat rate» on
+    /// or off: byte for byte the same 12 columns.
+    #[test]
+    fn rates_stay_out_of_the_file() {
+        let ops = |rate: Option<evolite_api::FiatRate>| {
+            vec![
+                Activity {
+                    rate: rate.clone(),
+                    ..act(
+                        ActivityKind::Received { from: None },
+                        Chain::Core,
+                        1,
+                        1_000_000,
+                        "aa",
+                    )
+                },
+                Activity {
+                    rate,
+                    ..with_fee(
+                        act(
+                            ActivityKind::Sent { to: "yX".into() },
+                            Chain::Core,
+                            2,
+                            -50_226,
+                            "bb",
+                        ),
+                        226,
+                    )
+                },
+            ]
+        };
+        let without = taxbit(&ops(None), &Own::default());
+        let rate = evolite_api::FiatRate {
+            currency: "USD".into(),
+            price: 3_078_000_000,
+            at: 1,
+        };
+        for on in [false, true] {
+            crate::format::set_display(crate::format::Display {
+                rate: on.then_some(crate::format::Rate {
+                    price: rate.price,
+                    currency: *b"USD",
+                    at: 1,
+                }),
+                ..Default::default()
+            });
+            let with = taxbit(&ops(Some(rate.clone())), &Own::default());
+            assert_eq!(with.as_bytes(), without.as_bytes());
+            assert!(!with.contains("USD") && !with.contains("30.78"));
+        }
+        crate::format::set_display(Default::default());
     }
 
     fn with_fee(mut a: Activity, fee: Duffs) -> Activity {

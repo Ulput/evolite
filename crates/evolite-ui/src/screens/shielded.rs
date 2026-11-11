@@ -305,6 +305,7 @@ pub fn shielded(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut PoolState
                                 quiet: false,
  core_chip: false,
                                 note: op.note.as_deref(),
+                                fiat: None,
                             },
                         );
                     }

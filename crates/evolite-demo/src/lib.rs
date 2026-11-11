@@ -577,13 +577,22 @@ impl Mock {
             from: Source::PlatformAddress,
             to,
             amount,
+            rate,
             ..
         } = &op
         {
-            return Event::Sent {
-                id: *id,
-                result: self.pay_from_addresses(to, *amount),
-            };
+            let result = self.pay_from_addresses(to, *amount);
+            // The payment keeps the rate «Summary» showed, as the real core does (АРХ-2).
+            if result.is_ok()
+                && let Some(line) = self
+                    .snapshot
+                    .wallet
+                    .as_mut()
+                    .and_then(|w| w.activity.first_mut())
+            {
+                line.rate = rate.clone();
+            }
+            return Event::Sent { id: *id, result };
         }
         let why = match op {
             Spend::Shield { .. } => {
@@ -701,6 +710,7 @@ impl Mock {
                 // Stable as the demo's other keys (FEAT-0003).
                 key: format!("demo:{line}"),
                 note: None,
+                rate: None,
                 detail: None,
             },
         );
@@ -800,6 +810,7 @@ impl Mock {
                 flow,
                 key: format!("demo:{line}"),
                 note: None,
+                rate: None,
                 detail: None,
             },
         );
@@ -1229,6 +1240,7 @@ mod tests {
                     to: "@alice".into(),
                     amount: 1,
                     note: None,
+                    rate: None,
                 },
                 password: None,
             },
@@ -1258,6 +1270,7 @@ mod tests {
                         to: to.into(),
                         amount,
                         note: None,
+                        rate: None,
                     },
                     password: None,
                 },
@@ -1317,6 +1330,7 @@ mod tests {
                 to: "@alice".into(),
                 amount: 1,
                 note: None,
+                rate: None,
             },
             Spend::TopUpIdentity { amount: 1 },
             Spend::ResumeTopUp,
