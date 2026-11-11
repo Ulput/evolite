@@ -1243,9 +1243,9 @@ impl eframe::App for App {
                         let visit = self.visits.of(self.screen);
                         ui.push_id(("screen", visit), |ui| match self.screen {
                             Screen::Overview => {
-                                egui::ScrollArea::vertical()
-                                    .auto_shrink(false)
-                                    .show(ui, |ui| {
+                                let out = egui::ScrollArea::vertical().auto_shrink(false).show(
+                                    ui,
+                                    |ui| {
                                         screens::settings::check_reminder(
                                             ui,
                                             a,
@@ -1254,7 +1254,9 @@ impl eframe::App for App {
                                             remind,
                                         );
                                         screens::overview(ui, a, &mut cx)
-                                    });
+                                    },
+                                );
+                                crate::diagnostics::screen_offset(out.state.offset.y);
                             }
                             Screen::Activity => {
                                 screens::activity(ui, a, &mut cx, &mut self.history)
@@ -1426,6 +1428,7 @@ impl eframe::App for App {
         // BUG-71: what can scroll a screen just opened, to the journal.
         self.watch
             .scroll_input(crate::diagnostics::ScrollInput::of_frame(ui.ctx()));
+        self.watch.scroll_offset();
         self.watch.frame(frame_started.elapsed());
         // A screen with the phrase on it keeps the window out of screenshots and recordings
         // from this very frame; the window comes back once no such screen is drawn.

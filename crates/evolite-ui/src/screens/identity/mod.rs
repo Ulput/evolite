@@ -225,7 +225,7 @@ pub fn identity(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut IdentityS
         asked.push(Command::FindIdentities);
     }
 
-    egui::ScrollArea::vertical()
+    let out = egui::ScrollArea::vertical()
         .auto_shrink(false)
         .show(ui, |ui| {
             ui.spacing_mut().item_spacing.y = 20.0;
@@ -259,6 +259,7 @@ pub fn identity(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut IdentityS
                 }
             });
         });
+    crate::diagnostics::screen_offset(out.state.offset.y);
     if state.editing.is_some() {
         edit_profile(
             ui,

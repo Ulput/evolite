@@ -87,6 +87,12 @@ pub enum Record {
         screen: &'static str,
         cause: &'static str,
     },
+    /// BUG-71: in its first second, before the person scrolled it, a screen's main area left its
+    /// top by `px` points. The screen's name and a number.
+    ScrollShift {
+        screen: &'static str,
+        px: u32,
+    },
     SlowFrame {
         ms: u64,
     },
@@ -183,6 +189,9 @@ impl Record {
             Record::Screen { name } => json!({"k": "screen", "name": name}),
             Record::ScrollMoved { screen, cause } => {
                 json!({"k": "scroll_moved", "screen": screen, "cause": cause})
+            }
+            Record::ScrollShift { screen, px } => {
+                json!({"k": "scroll_shift", "screen": screen, "px": px})
             }
             Record::SlowFrame { ms } => json!({"k": "slow_frame", "ms": ms}),
             Record::SlowStep { step, ms } => json!({"k": "slow_step", "step": step, "ms": ms}),
@@ -540,6 +549,23 @@ mod tests {
         assert_eq!(timestamp(UNIX_EPOCH), "1970-01-01T00:00:00.000Z");
         assert_eq!(civil(19_723), (2024, 1, 1));
         assert_eq!(civil(11_016), (2000, 2, 29));
+    }
+
+    /// BUG-71: a shift line is the screen's name and a number of points, nothing else.
+    #[test]
+    fn a_shift_line_is_the_screen_and_the_points_only() {
+        let record = Record::ScrollShift {
+            screen: "activity",
+            px: 78,
+        };
+        let fields = record.fields();
+        let mut names: Vec<_> = fields.as_object().unwrap().keys().cloned().collect();
+        names.sort();
+        assert_eq!(names, ["k", "px", "screen"], "{fields}");
+        assert_eq!(fields["k"], "scroll_shift");
+        assert_eq!(fields["px"], 78);
+        let line: serde_json::Value = serde_json::from_str(&record.line(UNIX_EPOCH)).unwrap();
+        assert_eq!(line.as_object().unwrap().len(), 4, "{line}");
     }
 
     /// BUG-71: a scroll line is the screen and the cause, names of the code, nothing else.

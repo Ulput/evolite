@@ -150,10 +150,25 @@ pub struct FrameWatch {
     opened: Option<std::time::Instant>,
     wheel_here: bool,
     told: Vec<&'static str>,
+    /// The person scrolled this screen (wheel, drag, keys): a shift since is theirs.
+    own_scroll: bool,
+    /// The shift of this screen is told.
+    shift_told: bool,
 }
 
 /// How long after a screen opens its scroll input goes to the journal (BUG-71).
 const SCROLL_WATCH: std::time::Duration = std::time::Duration::from_secs(1);
+
+thread_local! {
+    /// The main scroll area's offset from its top, as the screen drawn last reported it.
+    static SCREEN_OFFSET: std::cell::Cell<f32> = const { std::cell::Cell::new(0.0) };
+}
+
+/// BUG-71: the screen's main scroll area is `y` points below its top. Called once a frame by the
+/// screens that have one; a number in a cell, nothing allocated.
+pub fn screen_offset(y: f32) {
+    SCREEN_OFFSET.with(|o| o.set(y));
+}
 
 /// The kinds of input in a frame that can scroll a screen (BUG-71).
 #[derive(Clone, Copy, Debug, Default)]
@@ -251,6 +266,9 @@ impl FrameWatch {
             self.opened = Some(now);
             self.wheel_here = false;
             self.told.clear();
+            self.own_scroll = false;
+            self.shift_told = false;
+            SCREEN_OFFSET.with(|o| o.set(0.0));
             diag::record(Record::Screen { name });
         }
     }
@@ -277,6 +295,9 @@ impl FrameWatch {
         if seen.raw_wheel {
             self.wheel_here = true;
         }
+        if seen.raw_wheel || seen.drag || seen.key {
+            self.own_scroll = true;
+        }
         let causes = [
             (seen.raw_wheel, "wheel"),
             // Smoothing of a turn that began before the screen opened.
@@ -298,6 +319,30 @@ impl FrameWatch {
         new
     }
 
+    /// BUG-71: the screen's main area left its top by itself while new: to the journal, once.
+    pub fn scroll_offset(&mut self) {
+        let Some(screen) = self.screen else {
+            return;
+        };
+        let offset = SCREEN_OFFSET.with(std::cell::Cell::get);
+        if let Some(px) = self.shift(offset, std::time::Instant::now()) {
+            diag::record(Record::ScrollShift { screen, px });
+        }
+    }
+
+    /// The points to tell for `offset`: in the screen's first second, before the person scrolled
+    /// it, a whole point or more, once a visit.
+    fn shift(&mut self, offset: f32, now: std::time::Instant) -> Option<u32> {
+        let new = self
+            .opened
+            .is_some_and(|at| now.duration_since(at) < SCROLL_WATCH);
+        if !new || self.own_scroll || self.shift_told || offset < 1.0 {
+            return None;
+        }
+        self.shift_told = true;
+        Some(offset.round() as u32)
+    }
+
     /// A frame of `took`: noted past 250 ms, once in 10 s at most.
     pub fn frame(&mut self, took: std::time::Duration) {
         let slow = took >= std::time::Duration::from_millis(250);
@@ -316,6 +361,32 @@ impl FrameWatch {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// BUG-71: a screen that leaves its top by itself in its first second is told once, with how
+    /// far; not when the person scrolled it, not after that second, not a stray fraction.
+    #[test]
+    fn a_screen_that_moves_by_itself_while_new_is_told_once() {
+        let t0 = std::time::Instant::now();
+        let at = |ms| t0 + std::time::Duration::from_millis(ms);
+        let mut watch = FrameWatch::default();
+        watch.screen_at("activity", t0);
+        assert_eq!(watch.shift(0.4, at(10)), None, "a fraction");
+        assert_eq!(watch.shift(78.4, at(50)), Some(78));
+        assert_eq!(watch.shift(90.0, at(60)), None, "once");
+        watch.screen_at("overview", at(100));
+        assert_eq!(watch.shift(40.0, at(1_200)), None, "after a second");
+        watch.screen_at("identity", at(1_300));
+        let turned = ScrollInput {
+            raw_wheel: true,
+            ..Default::default()
+        };
+        watch.new_causes(turned, at(1_310));
+        assert_eq!(
+            watch.shift(120.0, at(1_320)),
+            None,
+            "the person scrolled it"
+        );
+    }
 
     /// BUG-71: in a screen's first second each kind of scroll input is told once; a turn of the
     /// wheel from before it opened is told apart from one on it; after that second, nothing.

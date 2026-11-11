@@ -114,7 +114,7 @@ pub fn activity(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, h: &mut History) {
         list = list.vertical_scroll_offset(0.0);
     }
     let filtered = !chips.is_empty();
-    list.show(ui, |ui| {
+    let out = list.show(ui, |ui| {
         ui.spacing_mut().item_spacing.y = 2.0;
         if shown.is_empty() {
             ui.add_space(40.0);
@@ -126,6 +126,7 @@ pub fn activity(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, h: &mut History) {
             operation_row(ui, a, cx, act, &mut day);
         }
     });
+    crate::diagnostics::screen_offset(out.state.offset.y);
     card_window(ui, a, cx);
 }
 
