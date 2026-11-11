@@ -437,12 +437,14 @@ impl Chain {
             Ok((txid, _, fee)) => Ok(Paid {
                 txid: txid.to_string(),
                 fee,
+                sent: amount,
                 relayed: true,
             }),
             Err(platform_wallet::PlatformWalletError::TransactionBroadcastUnconfirmed(_)) => {
                 Ok(Paid {
                     txid: String::new(),
                     fee: 0,
+                    sent: amount,
                     relayed: false,
                 })
             }

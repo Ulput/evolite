@@ -230,6 +230,7 @@ fn debug(event: &Option<Event>) -> String {
 fn every_spend() -> Vec<Spend> {
     vec![
         Spend::Send {
+            coins: None,
             id: 0,
             from: Source::Core,
             to: "yMrDQWqicXKL8xdJg23oYVVqKNtm5AwvXQ".into(),

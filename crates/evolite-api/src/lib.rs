@@ -13,6 +13,7 @@ use std::sync::Arc;
 use zeroize::Zeroizing;
 
 pub mod address_plan;
+pub mod coin_plan;
 pub mod fiat;
 
 /// 1 DASH = 100 000 000 duffs.
@@ -1253,6 +1254,71 @@ impl fmt::Debug for FiatRate {
     }
 }
 
+/// A coin of the wallet's Core balance (FEAT-0013): one unspent output it may pay with.
+#[derive(Clone, PartialEq, Debug)]
+pub struct Coin {
+    /// `txid:vout`, as the journal and CSV write a transaction.
+    pub outpoint: String,
+    pub value: Duffs,
+    /// The address it is on.
+    pub address: String,
+    /// It came to a DashPay account: from whom (their name, else their short id).
+    pub from_contact: Option<String>,
+    pub state: CoinState,
+    /// When it came, if the wallet knows.
+    pub at: Option<Timestamp>,
+}
+
+/// Whether a coin can go into a payment now (R-4).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum CoinState {
+    /// In a block, or InstantSend-locked by a lock checked in this run.
+    Final,
+    /// Not in a block and no checked InstantLock yet (BUG-111): not spendable as final.
+    Unconfirmed,
+    /// Held by a payment on its way.
+    Reserved,
+}
+
+/// The coins a Core payment may take (FEAT-0013, the customer's path 2, the architect's
+/// answer of 2026-11-11).
+#[derive(Clone, PartialEq)]
+pub enum CoinChoice {
+    Within {
+        /// The outpoints (`txid:vout`) chosen.
+        coins: Vec<String>,
+        /// «Max»: every chosen coin, no change; the amount is what is left after the fee.
+        /// Else the payment takes what it needs from them, largest first.
+        all: bool,
+    },
+}
+
+impl CoinChoice {
+    pub fn outpoints(&self) -> &[String] {
+        match self {
+            CoinChoice::Within { coins, .. } => coins,
+        }
+    }
+
+    pub fn all(&self) -> bool {
+        match self {
+            CoinChoice::Within { all, .. } => *all,
+        }
+    }
+}
+
+/// The count only: no outpoint in a log (R-11).
+impl fmt::Debug for CoinChoice {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "Within({} coins, all: {})",
+            self.outpoints().len(),
+            self.all()
+        )
+    }
+}
+
 /// Where a payment comes from on the Send screen.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Source {
@@ -1521,6 +1587,12 @@ pub enum Command {
     PreviewPayment {
         to: String,
     },
+    /// The open wallet's Core coins for «Coins» on Send (FEAT-0013): read from the wallet, no
+    /// network (R-14). Answered with [`Event::Coins`] carrying the same `ask`: the form keeps
+    /// only the answer to its last ask (a wallet switch, a lock, a dialog opened again).
+    ListCoins {
+        ask: u64,
+    },
     /// Look for the phrase's identities on Platform again, now. The answer is in
     /// [`Wallet::identity_search`].
     FindIdentities,
@@ -1634,6 +1706,9 @@ pub enum Spend {
         /// The rate «Summary» showed (FEAT-0008, АРХ-2): the core keeps it with the operation
         /// only if its currency is the setting's and it is at most 5 minutes old. Never logged.
         rate: Option<FiatRate>,
+        /// From Core only: the coins the payment may take, chosen by the person (FEAT-0013);
+        /// `None`, the wallet chooses as before (R-2).
+        coins: Option<CoinChoice>,
     },
     /// Lock `amount` duffs on Core and add them to the shown identity's credits.
     /// `Done { what: DoneWhat::TopUp }`.
@@ -1894,6 +1969,11 @@ pub enum Event {
     PaymentPreview {
         to: String,
         result: Result<String, CoreError>,
+    },
+    /// The answer to `ListCoins` (FEAT-0013): the coins a Core payment may be made of.
+    Coins {
+        ask: u64,
+        result: Result<Vec<Coin>, CoreError>,
     },
     /// The answer to `AskPhraseCheck`: the words to pick, or why not (a wrong password).
     PhraseCheck(Result<Vec<PhraseQuestion>, CoreError>),

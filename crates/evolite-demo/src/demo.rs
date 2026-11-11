@@ -1119,3 +1119,86 @@ pub fn staged_sync(elapsed: f32) -> SyncInfo {
         dapi_nodes: demo_dapi(),
     }
 }
+
+/// The example wallet's Core coins (FEAT-0013): as many duffs as its Core balance, in every
+/// state «Coins» shows — final, one from a contact, dust (hidden by default), one not confirmed
+/// yet and one held by a payment on its way.
+pub fn demo_coins(t: Timestamp) -> Vec<Coin> {
+    let coin = |n: u8, value: Duffs, address: &str, state, ago: Option<Timestamp>| Coin {
+        outpoint: format!("{}:{}", format!("{n:02x}").repeat(32), n % 3),
+        value,
+        address: address.into(),
+        from_contact: None,
+        state,
+        at: ago.map(|ago| t - ago),
+    };
+    let day = 24 * 60 * 60;
+    vec![
+        coin(
+            1,
+            500_000_000,
+            "yMrDQWqicXKL8xdJg23oYVVqKNtm5AwvXQ",
+            CoinState::Final,
+            Some(40 * day),
+        ),
+        coin(
+            2,
+            250_000_000,
+            "yPq8RkT2vW6nX4mB9cJ3hL7sD5fG1aZ8e4k",
+            CoinState::Final,
+            Some(9 * day),
+        ),
+        coin(
+            3,
+            50_000_000,
+            "yXk3Tq9mD8vJw2RfL6pN4sB7cH1eZ5aG9f2c",
+            CoinState::Final,
+            Some(2 * day),
+        ),
+        coin(
+            4,
+            25_000_000,
+            "yPq8RkT2vW6nX4mB9cJ3hL7sD5fG1aZ8e4k",
+            CoinState::Final,
+            Some(3 * 60 * 60),
+        ),
+        Coin {
+            from_contact: Some("@alice".into()),
+            ..coin(
+                5,
+                10_000_000,
+                "yTq2Lm8Rk4Vx9Pw3Bn7Hc5Jd1Fs6Gz0Aa",
+                CoinState::Final,
+                Some(day),
+            )
+        },
+        coin(
+            6,
+            4_050_000,
+            "yMrDQWqicXKL8xdJg23oYVVqKNtm5AwvXQ",
+            CoinState::Final,
+            None,
+        ),
+        coin(
+            7,
+            50_000,
+            "yXk3Tq9mD8vJw2RfL6pN4sB7cH1eZ5aG9f2c",
+            CoinState::Final,
+            Some(20 * day),
+        ),
+        coin(
+            8,
+            1_200_000,
+            "yPq8RkT2vW6nX4mB9cJ3hL7sD5fG1aZ8e4k",
+            CoinState::Unconfirmed,
+            Some(60),
+        ),
+        coin(
+            9,
+            900_000,
+            "yMrDQWqicXKL8xdJg23oYVVqKNtm5AwvXQ",
+            CoinState::Reserved,
+            Some(5 * day),
+        ),
+    ]
+}

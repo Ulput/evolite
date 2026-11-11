@@ -123,7 +123,7 @@ impl Real {
         from: Source,
         to: &str,
         amount: Duffs,
-        (note, rate): (Option<NoteText>, Option<FiatRate>),
+        (note, rate, coins): (Option<NoteText>, Option<FiatRate>, Option<CoinChoice>),
     ) -> Result<(), CoreError> {
         let open = self
             .unlocked
@@ -134,6 +134,10 @@ impl Real {
             note: send_note(note)?,
             rate: self.payment_rate(rate),
         };
+        // Coins are chosen for a payment from Core only (FEAT-0013, R-1).
+        if coins.is_some() && from != Source::Core {
+            return Err(CoreError::NotAvailable(tr!("Check the selection.").into()));
+        }
         match from {
             Source::Core => {}
             Source::Credits => return self.send_credits(payment, id, to, amount, kept),
@@ -171,6 +175,9 @@ impl Real {
             return Err(CoreError::NotSynced);
         }
         let wallet = loaded(&self.chain, &id).await?;
+        if let Some(choice) = &coins {
+            self.chosen_can_pay(&wallet, choice, &payee, amount).await?;
+        }
         core_pays(&wallet, amount).await?;
         coins_settled(
             &wallet.state().await.core_wallet,
@@ -208,7 +215,9 @@ impl Real {
         tokio::spawn(async move {
             let paid = match (&payee, shown) {
                 (CorePayee::Address(address), _) => {
-                    chain.pay(&wallet, &keys, address, amount).await
+                    chain
+                        .pay(&wallet, &keys, address, amount, coins.as_ref())
+                        .await
                 }
                 (CorePayee::Contact(to), shown) => {
                     let shown = shown.unwrap_or_default();
@@ -242,7 +251,8 @@ impl Real {
             let result = paid
                 .map(|paid| SentPayment {
                     txid: paid.txid,
-                    amount: amount as Duffs,
+                    // «Max» of chosen coins: what was left of them after the fee.
+                    amount: paid.sent as Duffs,
                     fee: paid.fee as Duffs,
                     relayed: paid.relayed,
                 })
@@ -301,6 +311,10 @@ pub(in crate::real) fn core_covers(
 
 /// A failed Core payment or asset lock, in the interface's terms.
 pub(in crate::real) fn core_failure(text: String) -> CoreError {
+    // The chosen coins refused it before anything was sent: the reason as it is (FEAT-0013).
+    if let Some(reason) = text.strip_prefix(evolite_chain::coins::REFUSED) {
+        return CoreError::NotAvailable(reason.to_owned());
+    }
     if text.contains(chain::name_credits_unknown_text()) {
         CoreError::NotAvailable(chain::name_credits_unknown_text().into())
     } else if text.to_lowercase().contains("insufficient") {
@@ -373,4 +387,116 @@ pub(in crate::real) fn payment_fee(coin_values: Vec<u64>, amount: Duffs) -> Duff
     let mut estimate = fees(coin_values.len());
     estimate.core_coins = convert::core_coins(coin_values);
     estimate.core_payment_for(amount)
+}
+
+impl Real {
+    /// Whether the chosen coins can make this payment, before anything is built (FEAT-0013): not
+    /// to a contact (R-1), each still a final coin of the paying accounts (UC-4), at most 500
+    /// (R-12), and below «Max» enough for the amount and the fee, with how much is short.
+    async fn chosen_can_pay(
+        &self,
+        wallet: &platform_wallet::PlatformWallet,
+        choice: &CoinChoice,
+        payee: &CorePayee,
+        amount: u64,
+    ) -> Result<(), CoreError> {
+        if matches!(payee, CorePayee::Contact(_)) {
+            return Err(CoreError::NotAvailable(
+                tr!("The wallet chooses the coins for a payment to a contact.").into(),
+            ));
+        }
+        let payable = convert::payable_coins(&wallet.state().await.core_wallet, |txid| {
+            self.chain.instant_lock_verified(txid)
+        });
+        let set = evolite_chain::coins::within(payable, choice.outpoints())
+            .map_err(|e| core_failure(evolite_chain::coins::refusal(&e)))?;
+        // The form's own plan (`coin_plan`), with the fees of this wallet's coins.
+        let values: Vec<u64> = set.iter().map(|u| u.value()).collect();
+        let mut fees = fees(values.len());
+        fees.core_coins = convert::core_coins(values.clone());
+        let values: Vec<Duffs> = values.into_iter().map(|v| v as Duffs).collect();
+        match evolite_api::coin_plan::coin_plan(&values, amount as Duffs, choice.all(), |k| {
+            fees.core_fee_for_inputs(k)
+        }) {
+            Ok(_) => Ok(()),
+            Err(short) => {
+                let short = format!(tr!("{} short"), dash_text(short as u64));
+                Err(CoreError::NotAvailable(format!(
+                    "{short}. {}",
+                    tr!("Tick more coins or lower the amount.")
+                )))
+            }
+        }
+    }
+
+    /// `ListCoins`: the coins of the accounts a Core payment pays from, with their state, from
+    /// the wallet alone (R-14).
+    pub(in crate::real) async fn list_coins(&self) -> Result<Vec<Coin>, CoreError> {
+        let id = self
+            .unlocked
+            .as_ref()
+            .ok_or(CoreError::NotAvailable(tr!("The wallet is locked").into()))?
+            .id;
+        let wallet = loaded(&self.chain, &id).await?;
+        let state = wallet.state().await;
+        let names = |friend: &[u8; 32]| {
+            let id = dpp::prelude::Identifier::from(*friend).to_string(Encoding::Base58);
+            Some(
+                self.contacts
+                    .iter()
+                    .find(|c| c.identity_id == id)
+                    .and_then(|c| c.name.clone())
+                    .map_or_else(
+                        || format!("{}…", &id[..id.len().min(8)]),
+                        |name| format!("@{name}"),
+                    ),
+            )
+        };
+        let accounts = &state.core_wallet.accounts;
+        let mut coins: Vec<(&key_wallet::Utxo, Option<String>)> = Vec::new();
+        for account in accounts
+            .standard_bip44_accounts
+            .get(&0)
+            .into_iter()
+            .chain(accounts.standard_bip32_accounts.get(&0))
+        {
+            coins.extend(account.utxos.values().map(|u| (u, None)));
+        }
+        for (key, account) in &accounts.dashpay_receival_accounts {
+            let from = names(&key.friend_identity_id);
+            coins.extend(account.utxos.values().map(|u| (u, from.clone())));
+        }
+        // When it came: the block's time of the wallet's record of its transaction, else none.
+        let times: HashMap<key_wallet::dashcore::Txid, Timestamp> = state
+            .core_wallet
+            .transaction_history()
+            .into_iter()
+            .chain(self.stored_history.iter())
+            .filter_map(|r| {
+                r.context
+                    .block_info()
+                    .map(|b| (r.txid, b.timestamp() as Timestamp))
+            })
+            .collect();
+        let at = |txid: &key_wallet::dashcore::Txid| times.get(txid).copied();
+        Ok(evolite_chain::coins::listed(
+            coins,
+            |txid| self.chain.instant_lock_verified(txid),
+            at,
+        ))
+    }
+}
+
+/// `0.0012 DASH`: an amount in a sentence of the core, a dot before the decimals and no trailing
+/// zeros (the interface formats its own amounts).
+fn dash_text(duffs: u64) -> String {
+    let mut fraction = format!("{:08}", duffs % 100_000_000);
+    while fraction.ends_with('0') {
+        fraction.pop();
+    }
+    if fraction.is_empty() {
+        format!("{} DASH", duffs / 100_000_000)
+    } else {
+        format!("{}.{fraction} DASH", duffs / 100_000_000)
+    }
 }

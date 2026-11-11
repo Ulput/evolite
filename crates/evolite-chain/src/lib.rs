@@ -7,6 +7,7 @@
 extern crate evolite_common;
 
 mod apps;
+pub mod coins;
 pub mod convert;
 pub mod network;
 mod platform;

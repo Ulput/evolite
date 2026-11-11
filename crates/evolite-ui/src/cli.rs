@@ -193,6 +193,8 @@ pub const PRESETS: &[&str] = &[
     "address-top-up-foreign",
     "send-pool-unread", "send-pool-unknown",
     "send-fiat", "send-fiat-confirm", "send-fiat-stale",
+    "send-coins", "send-coins-chosen", "send-coins-name", "send-coins-confirm", "coins-manual",
+    "coins-auto", "coins-not-enough", "coins-spent", "send-lookalike",
     "receive", "receive-fiat",
     "activity-fiat", "activity-card-fiat", "activity-card-fiat-old",
     "identity", "identity-unfinished", "identity-created", "top-up-stopped", "top-up-awaiting",
@@ -318,7 +320,16 @@ fn dev_args<'a>(
                 | "address-top-up-foreign"
                 | "send-fiat"
                 | "send-fiat-confirm"
-                | "send-fiat-stale",
+                | "send-fiat-stale"
+                | "send-coins"
+                | "send-coins-chosen"
+                | "send-coins-name"
+                | "send-coins-confirm"
+                | "coins-manual"
+                | "coins-auto"
+                | "coins-not-enough"
+                | "coins-spent"
+                | "send-lookalike",
             ),
         ) => Screen::Send,
         (None, Some("receive" | "receive-fiat")) => Screen::Receive,

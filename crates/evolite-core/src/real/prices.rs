@@ -233,6 +233,7 @@ mod tests {
         let (watch, dir) = watch();
         seen_by(&watch, 10_000);
         let op = Spend::Send {
+            coins: None,
             id: 9,
             from: Source::Credits,
             to: "@bob".into(),
@@ -306,6 +307,7 @@ mod tests {
         let (watch, dir) = watch();
         seen_by(&watch, 10_000);
         let op = Spend::Send {
+            coins: None,
             id: 3,
             from: Source::Core,
             to: "yAddress".into(),
@@ -402,6 +404,7 @@ mod tests {
         let name = Spend::AddName { name: "a".into() };
         let unshield = Spend::Unshield { amount: 1 };
         let send = |id| Spend::Send {
+            coins: None,
             id,
             from: Source::Core,
             to: "yAddress".into(),

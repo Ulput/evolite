@@ -1120,7 +1120,10 @@ async fn instant_lock_verified() {
         .next_receive_address_for_account(0)
         .await
         .expect("an address");
-    let paid = chain.pay(&wallet, &keys, &to, 10_000).await.expect("paid");
+    let paid = chain
+        .pay(&wallet, &keys, &to, 10_000, None)
+        .await
+        .expect("paid");
     println!("paid {} relayed {}", paid.txid, paid.relayed);
     let txid: key_wallet::dashcore::Txid = paid.txid.parse().unwrap();
     let started = Instant::now();
@@ -1558,13 +1561,13 @@ async fn a_payment_takes_no_coin_with_an_unverified_instant_lock() {
     let to = address.clone();
     assert!(
         chain
-            .funded_payment(&wallet, &keys, &to, 5_000_000)
+            .funded_payment(&wallet, &keys, &to, 5_000_000, None)
             .await
             .is_err(),
         "only the coin with the unverified lock could pay this"
     );
     let signed = chain
-        .funded_payment(&wallet, &keys, &to, 500_000)
+        .funded_payment(&wallet, &keys, &to, 500_000, None)
         .await
         .expect("the mined coin pays this");
     let spent: Vec<_> = signed
@@ -1578,7 +1581,7 @@ async fn a_payment_takes_no_coin_with_an_unverified_instant_lock() {
     chain.instant_locks.insert(unverified.outpoint.txid);
     assert!(
         chain
-            .funded_payment(&wallet, &keys, &to, 5_000_000)
+            .funded_payment(&wallet, &keys, &to, 5_000_000, None)
             .await
             .is_ok(),
         "verified, it counts"

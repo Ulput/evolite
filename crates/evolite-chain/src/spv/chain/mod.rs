@@ -238,6 +238,9 @@ pub fn top_up_identity_unknown_text() -> &'static str {
 pub struct Paid {
     pub txid: String,
     pub fee: u64,
+    /// What the recipient gets: the amount asked, or with «Max» of chosen coins what is left of
+    /// them after the fee (FEAT-0013).
+    pub sent: u64,
     /// The broadcaster saw the network accept it; `false`: maybe sent, not resent.
     pub relayed: bool,
 }
@@ -782,25 +785,55 @@ impl Chain {
         self.manager().await.ok()?.get_wallet(id).await
     }
 
-    /// The payment to `to`, built and signed, not sent.
+    /// The payment to `to`, built and signed, not sent. With `chosen` (FEAT-0013) only those
+    /// coins are candidates — largest first, or with `all` every one of them and no change — and
+    /// the signed transaction is checked against them before anything is sent (R-6, АРХ-2).
     async fn funded_payment(
         &self,
         wallet: &PlatformWallet,
         keys: &key_wallet::Wallet,
         to: &Address,
         amount: u64,
+        chosen: Option<&evolite_api::CoinChoice>,
     ) -> Result<platform_wallet::SignedCoreTransaction, String> {
+        use key_wallet::wallet::managed_wallet_info::coin_selection::SelectionStrategy;
         // The candidates are ours to give, and the accounts only keep the books (`true`): left to
         // itself the builder takes any coin marked locked, verified or not (BUG-111).
         let coins = crate::convert::payable_coins(&wallet.state().await.core_wallet, |txid| {
             self.instant_lock_verified(txid)
         });
-        let builder = payment_builder(to, amount).add_inputs(coins);
-        wallet
+        let builder = match chosen {
+            None => payment_builder(to, amount).add_inputs(coins),
+            Some(choice) => {
+                let coins = crate::coins::within(coins, choice.outpoints())
+                    .map_err(|e| crate::coins::refusal(&e))?;
+                payment_builder(to, amount)
+                    .add_inputs(coins)
+                    .set_selection_strategy(if choice.all() {
+                        SelectionStrategy::All
+                    } else {
+                        SelectionStrategy::LargestFirst
+                    })
+            }
+        };
+        let signed = wallet
             .core()
             .finalize_transaction_with_options(builder, &SEND_FUNDING_SOURCES, 0, keys, true)
             .await
-            .map_err(|e| e.to_string())
+            .map_err(|e| e.to_string())?;
+        if let Some(choice) = chosen {
+            let tx = signed.transaction();
+            let inputs: Vec<_> = tx.input.iter().map(|i| i.previous_output).collect();
+            // «Max»: `amount` is the set less the fee shown; less than that means a higher fee.
+            let kept = crate::coins::inputs_kept(&inputs, choice.outpoints(), choice.all())
+                && paid_to(tx, to) >= amount;
+            if !kept {
+                // Not sent: the coins it reserved go back at once.
+                wallet.core().abandon_transaction(&signed).await;
+                return Err(crate::coins::refusal(&crate::coins::ChoiceError::Changed));
+            }
+        }
+        Ok(signed)
     }
 
     /// Builds, signs (with `keys`) and broadcasts a payment to `to`, of final coins only
@@ -813,20 +846,26 @@ impl Chain {
         keys: &key_wallet::Wallet,
         to: &Address,
         amount: u64,
+        chosen: Option<&evolite_api::CoinChoice>,
     ) -> Result<Paid, String> {
-        let signed = self.funded_payment(wallet, keys, to, amount).await?;
+        let signed = self
+            .funded_payment(wallet, keys, to, amount, chosen)
+            .await?;
         let fee = signed.fee();
         let txid = signed.transaction().txid().to_string();
+        let sent = paid_to(signed.transaction(), to);
         match wallet.core().broadcast_finalized_transaction(&signed).await {
             Ok(_) => Ok(Paid {
                 txid,
                 fee,
+                sent,
                 relayed: true,
             }),
             Err(platform_wallet::PlatformWalletError::TransactionBroadcastUnconfirmed(_)) => {
                 Ok(Paid {
                     txid,
                     fee,
+                    sent,
                     relayed: false,
                 })
             }
@@ -863,6 +902,16 @@ async fn tear_down(manager: &Manager) {
     for id in manager.wallet_ids().await {
         let _ = manager.remove_wallet(&id).await;
     }
+}
+
+/// What `tx` pays to `to`.
+fn paid_to(tx: &key_wallet::dashcore::Transaction, to: &Address) -> u64 {
+    let script = to.script_pubkey();
+    tx.output
+        .iter()
+        .filter(|o| o.script_pubkey == script)
+        .map(|o| o.value)
+        .sum()
 }
 
 /// key-wallet's id of the wallet a phrase makes (from its root public key; not secret).

@@ -13,7 +13,8 @@ impl Real {
                 amount,
                 note,
                 rate,
-            } => match self.send(id, from, &to, amount, (note, rate)).await {
+                coins,
+            } => match self.send(id, from, &to, amount, (note, rate, coins)).await {
                 // The answer comes from the broadcast task.
                 Ok(()) => return (None, true),
                 Err(e) => Event::Sent { id, result: Err(e) },
@@ -216,6 +217,10 @@ impl Real {
                     },
                 }
             }
+            Command::ListCoins { ask } => Event::Coins {
+                ask,
+                result: self.list_coins().await,
+            },
             Command::PreviewPayment { to } => match self.preview_payment(to.clone()) {
                 Ok(()) => return (None, false),
                 Err(e) => Event::PaymentPreview { to, result: Err(e) },

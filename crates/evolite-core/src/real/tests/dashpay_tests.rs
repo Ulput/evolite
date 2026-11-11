@@ -213,7 +213,7 @@ async fn a_contact_is_paid_only_to_the_address_shown() {
         last_payment: None,
     }];
     assert!(matches!(
-        core.send(0, Source::Core, "@bob", 1_000, (None, None))
+        core.send(0, Source::Core, "@bob", 1_000, (None, None, None))
             .await,
         Err(CoreError::NotAvailable(_))
     ));
@@ -225,7 +225,7 @@ async fn a_contact_is_paid_only_to_the_address_shown() {
             Source::Core,
             "F5teLR3Vq4JjzQA7jgdGjZQvJbKpMubbu5dsC4MJd1Eh",
             1_000,
-            (None, None),
+            (None, None, None),
         )
         .await,
         Err(CoreError::NotAvailable(_))

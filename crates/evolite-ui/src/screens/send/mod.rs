@@ -3,6 +3,7 @@
 //! "Check and send" shows the payment once more (the full address) before the core
 //! signs it, then the network's answer.
 
+mod coins;
 mod confirm;
 mod currency;
 mod form;
@@ -88,6 +89,8 @@ pub struct SendForm {
     /// signing), and its answer: the address the payment will go to.
     pub previewed: String,
     pub preview: Option<Result<String, CoreError>>,
+    /// «Coins» (FEAT-0013): the coins chosen for a payment from Core, and the dialog.
+    pub coins: coins::CoinPick,
     /// "Note · only for you" (FEAT-0003): kept with the payment on this computer, never sent.
     pub note: String,
     /// The last change was cut to what a note holds: N4 shows until the next change.
@@ -228,6 +231,10 @@ impl SendForm {
                 self.signed.clear();
                 self.link_amount = None;
                 self.link_note = None;
+            }
+            // The chosen coins were this payment's (R-9).
+            if result.is_ok() {
+                self.coins.reset();
             }
         } else if result.is_err() && self.max {
             // An earlier payment's refusal gives nothing back to send a second time (BUG-92 r2).
@@ -482,6 +489,7 @@ impl Default for SendForm {
             contact_password: Default::default(),
             previewed: String::new(),
             preview: None,
+            coins: Default::default(),
             note: String::new(),
             note_cut: false,
             signed_note: String::new(),
@@ -585,8 +593,16 @@ pub fn send(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut SendForm) {
     if form.confirming
         && let Some(amount) = view.amount.or(signed)
     {
-        confirm(ui, a, cx, form, (amount, view.rate.as_ref()), ask_password);
+        confirm(
+            ui,
+            a,
+            cx,
+            form,
+            (amount, view.rate.as_ref(), view.coin_plan),
+            ask_password,
+        );
     }
+    coins::coins_dialog(ui, a, form, &view);
 }
 
 #[cfg(test)]

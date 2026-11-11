@@ -308,6 +308,7 @@ pub(crate) mod tests {
     /// so a new variant does not build until it says its price; this list is checked against it.
     pub(crate) fn every_spend() -> Vec<Spend> {
         let send = |from, to: &str| Spend::Send {
+            coins: None,
             id: 1,
             from,
             to: to.into(),

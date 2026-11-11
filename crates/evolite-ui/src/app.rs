@@ -572,6 +572,7 @@ impl App {
                 } => screens::activity::on_note_done(ctx, result),
                 Event::Sent { id, result } => self.send.on_sent(*id, result),
                 Event::PaymentPreview { to, result } => self.send.on_preview(to, result),
+                Event::Coins { ask, result } => self.send.on_coins(*ask, result),
                 Event::Done {
                     what: DoneWhat::Gift,
                     result,

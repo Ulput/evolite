@@ -201,6 +201,7 @@ mod tests {
     fn debug_names_the_currency_only() {
         let rate = usd(3_078_123_456, 1_700_000_123);
         let send = crate::Spend::Send {
+            coins: None,
             id: 1,
             from: crate::Source::Core,
             to: "yX".into(),

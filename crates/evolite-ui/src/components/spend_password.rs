@@ -145,6 +145,7 @@ mod tests {
 
     fn send() -> Spend {
         Spend::Send {
+            coins: None,
             id: 0,
             from: Source::Core,
             to: "@alice".into(),

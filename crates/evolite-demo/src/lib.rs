@@ -172,6 +172,14 @@ impl Mock {
                 let result = answers::preview(&to, contacts);
                 Event::PaymentPreview { to, result }
             }
+            // The example's coins in every state (FEAT-0013): without a wallet, none.
+            Command::ListCoins { ask } => Event::Coins {
+                ask,
+                result: match &self.snapshot.wallet {
+                    Some(_) => Ok(demo::demo_coins(now())),
+                    None => Err(CoreError::NotAvailable(NO_WALLET.into())),
+                },
+            },
             // The address book is kept on this computer: the mock can keep it too (in memory).
             Command::SaveAddress { address, label } => {
                 let label = label.trim().to_owned();
@@ -1327,6 +1335,7 @@ mod tests {
         m.handle(
             Command::Spend {
                 op: Spend::Send {
+                    coins: None,
                     id: 0,
                     from: Source::Core,
                     to: "@alice".into(),
@@ -1357,6 +1366,7 @@ mod tests {
             m.handle(
                 Command::Spend {
                     op: Spend::Send {
+                        coins: None,
                         id: 7,
                         from: Source::PlatformAddress,
                         to: to.into(),
@@ -1417,6 +1427,7 @@ mod tests {
     fn every_spend() -> Vec<Spend> {
         vec![
             Spend::Send {
+                coins: None,
                 id: 0,
                 from: Source::Core,
                 to: "@alice".into(),

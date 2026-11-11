@@ -31,10 +31,18 @@ pub(super) fn confirm(
     a: &mut Assets,
     cx: &mut Ctx,
     form: &mut SendForm,
-    (amount, rate): (Duffs, Option<&super::currency::Rate>),
+    (amount, rate, coin_plan): (
+        Duffs,
+        Option<&super::currency::Rate>,
+        Option<Result<evolite_api::coin_plan::CoinPlan, Duffs>>,
+    ),
     ask_password: bool,
 ) {
     let p = a.p;
+    // Chosen coins (FEAT-0013): what the payment takes from them; one gone since — said, and
+    // nothing signed (R-6, R-10).
+    let coins_gone = form.coins.gone(&form.coins.chosen.clone());
+    let coin_plan = coin_plan.and_then(Result::ok);
     let all = sources(cx.wallet(), form.recipient.trim(), amount);
     let source = &all[form.source.min(all.len() - 1)];
     let to = form.recipient.trim().to_string();
@@ -67,7 +75,7 @@ pub(super) fn confirm(
                 .filter(|act| act.amount < 0)
                 .filter_map(|act| act.address.as_deref()),
         );
-        crate::text::lookalike(&to, known).map(crate::text::grouped)
+        crate::text::lookalike(&to, known).map(str::to_owned)
     };
     let signing = form.signing.is_some();
     // A slow answer does not hold the dialog for ever: the form says it is awaited.
@@ -92,25 +100,54 @@ pub(super) fn confirm(
         420.0,
         |ui, a| {
             ui.spacing_mut().item_spacing.y = 14.0;
-            kv_row(
-                ui,
-                &p,
-                tr!("From"),
-                &format!(
+            let from = match &coin_plan {
+                // «Core · 2 of 3 coins»; all taken: «Core · 3 coins» (P1).
+                Some(plan) if plan.taken < form.coins.chosen.len() => format!(
+                    tr!("Core · {} of {} coins"),
+                    plan.taken,
+                    form.coins.chosen.len()
+                ),
+                Some(plan) => format!(tr!("Core · {} coins"), plan.taken),
+                None => format!(
                     "{} · {}",
                     source.title,
                     crate::format::balance(source.duffs)
                 ),
-                sans(13.0, Weight::Medium),
-            );
+            };
+            kv_row(ui, &p, tr!("From"), &from, sans(13.0, Weight::Medium));
             recipient_lines(ui, &p, form, &look);
-            amount_lines(
-                ui,
-                &p,
-                (amount, source.fee),
-                matches!(source.source, Source::Credits | Source::PlatformAddress),
-                rate,
-            );
+            match &coin_plan {
+                Some(plan) => coin_amount_lines(ui, a, form, (amount, plan), rate),
+                None => amount_lines(
+                    ui,
+                    &p,
+                    (amount, source.fee),
+                    matches!(source.source, Source::Credits | Source::PlatformAddress),
+                    rate,
+                ),
+            }
+            if let Some(plan) = &coin_plan {
+                if plan.dust_to_fee {
+                    ui.label(txt(
+                        &format!(
+                            tr!("The change is under {} and goes to the fee."),
+                            crate::format::amount(evolite_api::coin_plan::DUST)
+                        ),
+                        12.0,
+                        Weight::Regular,
+                        p.muted,
+                    ));
+                }
+                let mut taken = form.coins.chosen_coins();
+                taken.sort_by_key(|c| std::cmp::Reverse(c.value));
+                taken.truncate(plan.taken);
+                if let Some(note) = super::coins::linked_note(&taken) {
+                    crate::components::notice(ui, a, "info", p.muted, &note);
+                }
+            }
+            if let Some(outpoint) = &coins_gone {
+                super::coins::spent_banner(ui, a, &form.coins.coin_name(outpoint));
+            }
             if let Some(note) = form.note_shown() {
                 confirm_note(ui, a, &note, form.note_from_link());
             }
@@ -156,7 +193,8 @@ pub(super) fn confirm(
                 }
                 let ready = !signing
                     && (!ask_password || !form.password.is_empty())
-                    && (!from_core || address.is_some());
+                    && (!from_core || address.is_some())
+                    && coins_gone.is_none();
                 let clicked = button_enabled(
                     ui,
                     a,
@@ -212,93 +250,86 @@ fn recipient_lines(ui: &mut Ui, p: &crate::theme::Palette, form: &SendForm, look
         address,
     } = *look;
     ui.vertical(|ui| {
-                ui.spacing_mut().item_spacing.y = 6.0;
-                field_label(ui, p, tr!("Recipient"));
-                // An address in groups of four: compared with the one meant, group by group.
-                let shown_to = if to.starts_with('@') {
-                    to.clone()
-                } else {
-                    crate::text::grouped(to)
-                };
-                let who = match resolved.as_ref().and_then(|n| n.display.as_deref()) {
-                    Some(display) => format!("{shown_to} · {display}"),
-                    None => shown_to,
-                };
-                ui.add(
-                    egui::Label::new(
-                        egui::RichText::new(crate::i18n::t(&who))
-                            .font(mono(14.0, Weight::Medium))
-                            .color(p.text),
-                    )
-                    .wrap(),
-                );
-                if let Some(similar) = &lookalike {
+        ui.spacing_mut().item_spacing.y = 6.0;
+        field_label(ui, p, tr!("Recipient"));
+        // A name as it is; an address solid, as Dash writes it, in Mono Medium and
+        // one colour (FEAT-0035, the designer: no heavier ends).
+        if to.starts_with('@') {
+            let who = match resolved.as_ref().and_then(|n| n.display.as_deref()) {
+                Some(display) => format!("{to} · {display}"),
+                None => to.clone(),
+            };
+            ui.add(
+                egui::Label::new(
+                    egui::RichText::new(crate::i18n::t(&who))
+                        .font(mono(14.0, Weight::Medium))
+                        .color(p.text),
+                )
+                .wrap(),
+            );
+        } else {
+            let marked = lookalike
+                .as_deref()
+                .map(|similar| crate::text::differing(to, similar))
+                .unwrap_or_default();
+            ui.add(
+                egui::Label::new(address_job(
+                    to,
+                    15.0,
+                    (p.text, Some(p.danger)),
+                    Weight::Medium,
+                    &marked,
+                ))
+                .wrap(),
+            );
+        }
+        if let Some(similar) = &lookalike {
+            lookalike_warning(ui, p, to, similar);
+        }
+        if from_core {
+            match (&address, &form.preview) {
+                // The recipient's own address is above already (FEAT-0035, the designer):
+                // only a contact's, from its key, is said here.
+                (Some(address), _) if *address != *to => {
+                    // A contact (by name or id) is paid to an address of its key.
+                    let line = format!(
+                        tr!("to an address from the contact's key: {address}"),
+                        address = address
+                    );
                     ui.add(
-                        egui::Label::new(txt(
-                            &format!(
-                                tr!("Careful: this address only looks like {} that you paid or saved before — the middle is different. Compare it character by character."),
-                                similar
-                            ),
-                            12.0,
-                            Weight::Medium,
-                            p.danger,
-                        ))
+                        egui::Label::new(
+                            egui::RichText::new(crate::i18n::t(&line))
+                                .font(mono(12.0, Weight::Regular))
+                                .color(p.muted),
+                        )
                         .wrap(),
                     );
                 }
-                if from_core {
-                    match (&address, &form.preview) {
-                        (Some(address), _) => {
-                            // A contact (by name or id) is paid to an address of its key.
-                            let line = if *address != *to {
-                                format!(
-                                    tr!("to an address from the contact's key: {address}"),
-                                    address = crate::text::grouped(address)
-                                )
-                            } else {
-                                format!(
-                                    tr!("to address {address}"),
-                                    address = crate::text::grouped(address)
-                                )
-                            };
-                            ui.add(
-                                egui::Label::new(
-                                    egui::RichText::new(crate::i18n::t(&line))
-                                        .font(mono(12.0, Weight::Regular))
-                                        .color(p.muted),
-                                )
-                                .wrap(),
-                            );
-                        }
-                        (None, Some(Err(e))) => {
-                            ui.add(
-                                egui::Label::new(txt(
-                                    &send_error(e),
-                                    12.0,
-                                    Weight::Regular,
-                                    p.danger,
-                                ))
-                                .wrap(),
-                            );
-                        }
-                        (None, _) => {
-                            ui.label(txt(
-                                tr!("Finding the address the payment goes to…"),
-                                12.0,
-                                Weight::Regular,
-                                p.muted,
-                            ));
-                        }
-                    }
-                } else if let Some(name) = &resolved {
+                (Some(_), _) => {}
+                (None, Some(Err(e))) => {
+                    ui.add(
+                        egui::Label::new(txt(&send_error(e), 12.0, Weight::Regular, p.danger))
+                            .wrap(),
+                    );
+                }
+                (None, _) => {
                     ui.label(txt(
-                        &format!(tr!("identity {} gets the credits"), name.identity_id),
+                        tr!("Finding the address the payment goes to…"),
                         12.0,
                         Weight::Regular,
                         p.muted,
                     ));
                 }
-            });
+            }
+        } else if let Some(name) = &resolved {
+            ui.label(txt(
+                &format!(tr!("identity {} gets the credits"), name.identity_id),
+                12.0,
+                Weight::Regular,
+                p.muted,
+            ));
+        }
+    });
 }
 
 /// What the last look says of the fee: its label, the fee and the total. `about`: Platform meters
@@ -345,6 +376,143 @@ fn amount_lines(
     }
     divider(ui, p);
     kv_row(ui, p, tr!("In total"), &total, value);
+}
+
+/// [`amount_lines`] of a payment from chosen coins (P1): the amount, the inputs it takes, the
+/// fee at most, the change, the total.
+fn coin_amount_lines(
+    ui: &mut Ui,
+    a: &mut Assets,
+    form: &SendForm,
+    (amount, plan): (Duffs, &evolite_api::coin_plan::CoinPlan),
+    rate: Option<&super::currency::Rate>,
+) {
+    let p = a.p;
+    let value = mono(13.0, Weight::Medium);
+    let (label, fee, total) = fee_lines(amount, plan.fee, false);
+    kv_row(
+        ui,
+        &p,
+        tr!("Amount"),
+        &crate::format::amount(amount),
+        value.clone(),
+    );
+    if let Some(line) = super::currency::confirm_line(rate, amount) {
+        small_right(ui, &p, &line);
+    }
+    super::coins::confirm_inputs(ui, a, form, plan);
+    kv_row(ui, &p, label, &fee, value.clone());
+    if plan.change > 0 {
+        kv_row(
+            ui,
+            &p,
+            tr!("Change, to your address"),
+            &crate::format::amount(plan.change),
+            value.clone(),
+        );
+    }
+    divider(ui, &p);
+    kv_row(ui, &p, tr!("In total"), &total, value);
+}
+
+/// An address solid (FEAT-0035), in one `weight` and one colour (the designer, 2026-11-11: no
+/// heavier ends); the characters at `marked` underlined, and in `colors.1` when given. It stays
+/// whole on its line and breaks by characters only when longer than the line (egui wraps a
+/// word longer than the row inside it). Left to right in every language: never mirrored.
+fn address_job(
+    address: &str,
+    size: f32,
+    (color, marked_color): (egui::Color32, Option<egui::Color32>),
+    weight: Weight,
+    marked: &[usize],
+) -> egui::text::LayoutJob {
+    let mut job = egui::text::LayoutJob::default();
+    append_address(
+        &mut job,
+        address,
+        size,
+        (color, marked_color),
+        weight,
+        marked,
+    );
+    job
+}
+
+/// [`address_job`] appended to `job`.
+fn append_address(
+    job: &mut egui::text::LayoutJob,
+    address: &str,
+    size: f32,
+    (color, marked_color): (egui::Color32, Option<egui::Color32>),
+    weight: Weight,
+    marked: &[usize],
+) {
+    for (i, c) in address.chars().enumerate() {
+        let mark = marked.contains(&i);
+        let format = egui::TextFormat {
+            font_id: mono(size, weight),
+            color: match (mark, marked_color) {
+                (true, Some(c)) => c,
+                _ => color,
+            },
+            underline: if mark {
+                egui::Stroke::new(1.0, marked_color.unwrap_or(color))
+            } else {
+                egui::Stroke::NONE
+            },
+            ..Default::default()
+        };
+        job.append(&c.to_string(), 0.0, format);
+    }
+}
+
+/// The look-alike warning with the earlier address in it, in reading order for a screen reader.
+pub(super) fn lookalike_spoken(similar: &str) -> String {
+    crate::i18n::spoken(&format!(
+        tr!(
+            "Careful: this address only looks like {} that you paid or saved before — the middle is different. Compare it character by character."
+        ),
+        similar
+    ))
+}
+
+/// «Careful: this address only looks like …» (FEAT-0035): the earlier address solid, the
+/// characters where it differs from the recipient's underlined. A screen reader hears the
+/// sentence, the recipient's address and where they differ, not the colours.
+fn lookalike_warning(ui: &mut Ui, p: &crate::theme::Palette, to: &str, similar: &str) {
+    const MARK: &str = "\u{E000}";
+    let sentence = crate::i18n::t(&format!(
+        tr!("Careful: this address only looks like {} that you paid or saved before — the middle is different. Compare it character by character."),
+        MARK
+    ))
+    .into_owned();
+    let (before, after) = sentence.split_once(MARK).unwrap_or((&sentence, ""));
+    let words = || egui::TextFormat {
+        font_id: sans(12.0, Weight::Medium),
+        color: p.danger,
+        ..Default::default()
+    };
+    let mut job = egui::text::LayoutJob::default();
+    job.append(before, 0.0, words());
+    let marked = crate::text::differing(similar, to);
+    append_address(
+        &mut job,
+        similar,
+        12.0,
+        (p.danger, None),
+        Weight::Regular,
+        &marked,
+    );
+    job.append(after, 0.0, words());
+    let resp = ui.add(egui::Label::new(job).wrap());
+    // For a screen reader the sentence in reading order (`spoken`), not as drawn: `t` has
+    // Arabic in visual order, which would be read backwards (r1 Should 1).
+    let said = format!(
+        "{} · {to} · {}",
+        lookalike_spoken(similar),
+        crate::text::positions(&crate::text::differing(to, similar))
+    );
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, &said));
 }
 
 /// The wallet's password, asked in the last look.
@@ -394,6 +562,8 @@ fn sign_and_send(
     form.last_payment += 1;
     cx.send(Command::Spend {
         op: Spend::Send {
+            // The coins chosen, «Max» spending them all (FEAT-0013); none: the wallet chooses.
+            coins: form.coins.choice(form.max),
             id: form.last_payment,
             from,
             to,

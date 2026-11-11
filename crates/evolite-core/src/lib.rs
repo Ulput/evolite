@@ -771,6 +771,7 @@ mod tests {
         assert!(wallet.balances.core > 20_000, "the test wallet needs coins");
 
         core.send(spend(Spend::Send {
+            coins: None,
             id: 0,
             from: evolite_api::Source::Core,
             to: wallet.core_address.clone(),
@@ -807,6 +808,7 @@ mod tests {
         let before: Vec<u64> = wallet.activity.iter().map(|a| a.id).collect();
         let started = Instant::now();
         core.send(spend(Spend::Send {
+            coins: None,
             id: 0,
             from,
             to,
@@ -1698,6 +1700,7 @@ mod tests {
         .expect("the address the payment goes to");
         println!("preview: {to} -> {address}");
         core.send(spend(Spend::Send {
+            coins: None,
             id: 0,
             from: evolite_api::Source::Core,
             to,
@@ -1823,6 +1826,7 @@ mod tests {
             let first = preview(&core, &to);
             println!("{to}: paying {first}");
             core.send(spend(Spend::Send {
+                coins: None,
                 id: 0,
                 from: evolite_api::Source::Core,
                 to: to.clone(),
@@ -2162,6 +2166,7 @@ mod tests {
         let second = format!("@{}", test_name("EVOLITE_TEST_NAME_2"));
         for to in [ready.platform_address.clone(), second] {
             core.send(spend(Spend::Send {
+                coins: None,
                 id: 0,
                 from: evolite_api::Source::Credits,
                 to: to.clone(),
@@ -3090,6 +3095,7 @@ mod tests {
         assert!(ready.balances.shielded > 500_000, "the pool needs funds");
         let started = Instant::now();
         core.send(spend(Spend::Send {
+            coins: None,
             id: 0,
             from: evolite_api::Source::Pool,
             to: ready.core_address.clone(),

@@ -8,6 +8,7 @@
 //! answer is not in the tree.
 
 mod add_name;
+mod address_solid;
 mod addresses;
 mod alignment;
 mod amounts;
@@ -16,6 +17,7 @@ mod as_known;
 mod bugs;
 mod calm_states;
 mod card;
+mod coins;
 mod contacts_privacy;
 mod core_known;
 mod dialog_keys;

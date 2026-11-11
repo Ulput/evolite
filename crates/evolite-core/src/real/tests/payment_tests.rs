@@ -64,29 +64,29 @@ async fn credits_refuse_bad_payees_before_asking_the_network() {
     let testnet = address(crate::network::dash());
     assert!(testnet.starts_with("tdash1"), "{testnet}");
     assert_eq!(
-        core.send(0, Source::Credits, &mainnet, 1_000, (None, None))
+        core.send(0, Source::Credits, &mainnet, 1_000, (None, None, None))
             .await,
         Err(CoreError::BadAddress)
     );
     assert_eq!(
-        core.send(0, Source::Credits, "@a_b", 1_000, (None, None))
+        core.send(0, Source::Credits, "@a_b", 1_000, (None, None, None))
             .await,
         Err(CoreError::BadName)
     );
     assert_eq!(
-        core.send(0, Source::Credits, &testnet, 0, (None, None))
+        core.send(0, Source::Credits, &testnet, 0, (None, None, None))
             .await,
         Err(CoreError::BadAmount)
     );
     // A good payee gets as far as the network: proofs cannot be checked yet.
     assert_eq!(
-        core.send(0, Source::Credits, &testnet, 1_000, (None, None))
+        core.send(0, Source::Credits, &testnet, 1_000, (None, None, None))
             .await,
         Err(CoreError::NotSynced)
     );
     // From Core a Platform address is refused with the reason, not as a bad address.
     assert!(matches!(
-        core.send(0, Source::Core, &testnet, 1_000, (None, None))
+        core.send(0, Source::Core, &testnet, 1_000, (None, None, None))
             .await,
         Err(CoreError::NotAvailable(_))
     ));
@@ -237,13 +237,16 @@ async fn a_dust_payment_is_refused_before_it_is_built() {
     let mut core = core_with_vault("dust", "pw");
     assert_eq!(core.unlock(&pw("pw")).await, Ok(()));
     const TO: &str = "yMrDQWqicXKL8xdJg23oYVVqKNtm5AwvXQ";
-    let below = core.send(0, Source::Core, TO, 545, (None, None)).await;
+    let below = core
+        .send(0, Source::Core, TO, 545, (None, None, None))
+        .await;
     assert!(
         matches!(&below, Err(CoreError::NotAvailable(why)) if why.contains("too small")),
         "{below:?}"
     );
     assert_eq!(
-        core.send(0, Source::Core, TO, 546, (None, None)).await,
+        core.send(0, Source::Core, TO, 546, (None, None, None))
+            .await,
         Err(CoreError::NotSynced)
     );
 }
@@ -422,6 +425,7 @@ fn a_coin_with_an_unverified_instant_lock_waits() {
 async fn a_refused_payment_says_its_number_back() {
     let send = |id, password| Command::Spend {
         op: Spend::Send {
+            coins: None,
             id,
             from: Source::Core,
             to: "yMrDQWqicXKL8xdJg23oYVVqKNtm5AwvXQ".into(),

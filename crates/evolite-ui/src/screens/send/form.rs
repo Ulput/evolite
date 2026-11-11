@@ -45,6 +45,11 @@ pub(super) struct FormView<'a> {
     /// From the Platform address to an @name that is not one of the wallet's identities (R-1а):
     /// said once under the recipient, nothing to pay, the reason under the buttons.
     pub(super) address_foreign_name: bool,
+    /// The wallet's fees, for the plan of a payment from chosen coins (FEAT-0013).
+    pub(super) fees: evolite_api::Fees,
+    /// A payment from chosen coins (FEAT-0013): what it takes, or how much is short.
+    pub(super) coin_plan: Option<Result<evolite_api::coin_plan::CoinPlan, Duffs>>,
+    pub(super) coins_chosen: usize,
     /// «Fiat rate» on and a price from the core (FEAT-0008); fresh or not.
     pub(super) rate: Option<super::currency::Rate>,
 }
@@ -116,7 +121,13 @@ impl<'a> FormView<'a> {
             form.source = 0;
         }
         let source = &all[form.source];
+        let fees = cx.wallet().fees.clone();
+        // Chosen coins are this form's for a payment from Core to an address (R-9).
+        if source.source != Source::Core || form.recipient.trim().starts_with('@') {
+            form.coins.reset();
+        }
         form.follow_source(source);
+        form.follow_coins_max(&fees);
         // «Max» may have put a new amount there: the currency shows it too (FEAT-0008).
         let rate = super::currency::Rate::now(cx.now.timestamp());
         form.sync_currency(rate.as_ref());
@@ -171,6 +182,28 @@ impl<'a> FormView<'a> {
             _ => None,
         }
         .map(str::to_owned);
+        // Chosen coins that cannot make it: how much is short, or that the choice is stale.
+        let coin_plan = (!form.coins.chosen.is_empty()).then(|| {
+            super::coins::plan(
+                &form.coins.chosen_coins(),
+                amount.unwrap_or(0),
+                form.max,
+                &fees,
+            )
+        });
+        let unavailable = unavailable.or_else(|| {
+            if form.coins.gone(&form.coins.chosen.clone()).is_some() {
+                Some(tr!("Check the selection.").to_owned())
+            } else if let (Some(Err(short)), Some(_)) = (&coin_plan, amount) {
+                Some(format!(
+                    "{}. {}",
+                    format!(tr!("{} short"), crate::format::amount(*short)),
+                    tr!("Tick more coins or lower the amount.")
+                ))
+            } else {
+                None
+            }
+        });
         let pool_to_name =
             source.source == Source::Pool && pool_route(&typed) == Some(PoolRoute::Name);
         let to = recipient(form);
@@ -246,6 +279,9 @@ impl<'a> FormView<'a> {
                 .is_some_and(|n| !cx.wallet().identities.iter().any(|i| i.id == n.identity_id));
         FormView {
             rate,
+            fees,
+            coin_plan,
+            coins_chosen: form.coins.chosen.len(),
             address_card,
             own_platform_address,
             fills_address,
@@ -304,6 +340,7 @@ pub(super) fn form_card(
             });
         });
         source_cards(ui, a, form, v);
+        super::coins::coins_row(ui, a, form, v, asked);
         ui.vertical(|ui| {
             ui.spacing_mut().item_spacing.y = 6.0;
             field_label(ui, &p, tr!("To"));
@@ -655,6 +692,7 @@ fn amount_row(ui: &mut Ui, form: &mut SendForm, v: &FormView, p: &crate::theme::
         if all {
             form.max = true;
             form.follow_source(source);
+            form.follow_coins_max(&v.fees);
         }
         if resp.changed() || all {
             form.result = None;
@@ -919,6 +957,11 @@ fn send_row(ui: &mut Ui, a: &mut Assets, form: &mut SendForm, v: &FormView, aske
         if button_enabled(ui, a, label, kind, None, ready).clicked() {
             form.confirming = true;
             form.result = None;
+            // Chosen coins are read again for the last look: one spent meanwhile is said
+            // there and the payment waits (R-10).
+            if !form.coins.chosen.is_empty() {
+                asked.commands.push(form.coins.ask_again());
+            }
             // From Core the last look shows where the money goes: the address, or the
             // contact's next address from its key, as the core will pay it.
             form.preview = None;
@@ -1024,7 +1067,15 @@ pub(super) fn summary_card(ui: &mut Ui, p: &crate::theme::Palette, v: &FormView,
             ui.label(txt(tr!("Summary"), 16.0, Weight::SemiBold, p.text));
             let value = mono(13.0, Weight::Medium);
             let dash = |d: Option<i64>| d.map_or("—".into(), crate::format::amount);
-            kv_row(ui, p, tr!("From"), source.title, sans(13.0, Weight::Medium));
+            // From chosen coins: «Core · of 3 coins», never a promise that all go (AC-D1).
+            let from = match &v.coin_plan {
+                Some(_) => format!(
+                    tr!("Core · of {} coins"),
+                    v.coins_chosen
+                ),
+                None => source.title.to_owned(),
+            };
+            kv_row(ui, p, tr!("From"), &from, sans(13.0, Weight::Medium));
             kv_row(
                 ui,
                 p,
@@ -1055,7 +1106,29 @@ pub(super) fn summary_card(ui: &mut Ui, p: &crate::theme::Palette, v: &FormView,
                 Some(fee) if about => format!("≈ {}", crate::format::amount(fee)),
                 _ => dash(fee),
             };
-            kv_row(ui, p, tr!("Fee"), &fee_text, value.clone());
+            // From chosen coins the fee and the change are estimates: how many coins the wallet
+            // takes is known once the payment is built (F2).
+            match &v.coin_plan {
+                Some(Ok(plan)) => {
+                    kv_row(
+                        ui,
+                        p,
+                        tr!("Fee"),
+                        &format!("≈ {}", crate::format::amount(plan.fee)),
+                        value.clone(),
+                    );
+                    if plan.change > 0 {
+                        kv_row(
+                            ui,
+                            p,
+                            tr!("Change back"),
+                            &format!("≈ {}", crate::format::amount(plan.change)),
+                            value.clone(),
+                        );
+                    }
+                }
+                _ => kv_row(ui, p, tr!("Fee"), &fee_text, value.clone()),
+            }
             kv_row(
                 ui,
                 p,

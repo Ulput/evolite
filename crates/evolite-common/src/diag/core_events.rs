@@ -35,6 +35,7 @@ pub fn command_name(command: &Command) -> &'static str {
         Command::RevealPhrase { .. } => "reveal_phrase",
         Command::HideRequest { .. } => "hide_request",
         Command::PreviewPayment { .. } => "preview_payment",
+        Command::ListCoins { .. } => "list_coins",
         Command::FindIdentities => "find_identities",
         Command::RefreshNfts => "refresh_nfts",
         Command::ChooseIdentity { .. } => "choose_identity",
@@ -139,6 +140,8 @@ pub fn answer(event: &Event) -> Option<Record> {
         Event::NameChecked { result, .. } => ("name_checked", outcome(result)),
         Event::AppRequest(r) => ("app_request", outcome(r)),
         Event::PaymentPreview { result, .. } => ("payment_preview", outcome(result)),
+        // What the coins are stays out: no outpoint, address or amount (FEAT-0013, R-11).
+        Event::Coins { result, .. } => ("coins", outcome(result)),
         Event::PhraseCheck(r) => ("phrase_check", outcome(r)),
         Event::PhraseChecked { wrong } => (
             "phrase_checked",
@@ -215,6 +218,7 @@ mod tests {
     fn a_command_is_its_name_and_nothing_of_what_it_carries() {
         let record = command(&Command::Spend {
             op: Spend::Send {
+                coins: None,
                 id: 0,
                 from: Source::Core,
                 to: "yMrDQWqicXKL8xdJg23oYVVqKNtm5AwvXQ".into(),

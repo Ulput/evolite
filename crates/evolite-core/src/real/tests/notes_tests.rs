@@ -198,7 +198,13 @@ async fn a_payment_keeps_the_shown_rate_only_when_it_may() {
         "the core's own"
     );
     let refused = core
-        .send(0, Source::Credits, "@a_b", 1_000, (None, Some(usd(1, now))))
+        .send(
+            0,
+            Source::Credits,
+            "@a_b",
+            1_000,
+            (None, Some(usd(1, now)), None),
+        )
         .await;
     assert_eq!(refused, Err(CoreError::BadName));
     assert!(!core.notes.lock().unwrap().as_ref().unwrap().any());

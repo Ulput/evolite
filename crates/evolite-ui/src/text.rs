@@ -184,15 +184,40 @@ pub fn day(at: Timestamp, now: DateTime<Local>) -> String {
     }
 }
 
-/// An address in groups of four ("yXk3 Tq9m D8vJ …"), to compare with the one meant: only
-/// for the eye, never copied this way.
-pub fn grouped(address: &str) -> String {
-    let chars: Vec<char> = address.chars().collect();
-    chars
-        .chunks(4)
-        .map(|c| c.iter().collect::<String>())
+/// Where `address` differs from `other`, by character (0-based), for the look-alike warning
+/// (FEAT-0035): another length is another address altogether — every character differs.
+pub fn differing(address: &str, other: &str) -> Vec<usize> {
+    let (a, b): (Vec<char>, Vec<char>) = (address.chars().collect(), other.chars().collect());
+    if a.len() != b.len() {
+        return (0..a.len()).collect();
+    }
+    a.iter()
+        .zip(&b)
+        .enumerate()
+        .filter(|(_, (x, y))| x != y)
+        .map(|(i, _)| i)
+        .collect()
+}
+
+/// The positions of [`differing`] as a person counts them: «7–9, 12» (from 1, runs joined).
+pub fn positions(at: &[usize]) -> String {
+    let mut runs: Vec<(usize, usize)> = Vec::new();
+    for &i in at {
+        match runs.last_mut() {
+            Some((_, end)) if *end + 1 == i => *end = i,
+            _ => runs.push((i, i)),
+        }
+    }
+    runs.iter()
+        .map(|&(a, b)| {
+            if a == b {
+                format!("{}", a + 1)
+            } else {
+                format!("{}–{}", a + 1, b + 1)
+            }
+        })
         .collect::<Vec<_>>()
-        .join(" ")
+        .join(", ")
 }
 
 /// A known address that `address` only looks like: the same first and last four characters,
@@ -890,10 +915,31 @@ mod tests {
         assert!(!when(now.timestamp() - 3600 * 24 * 40, now).contains("unknown"));
     }
 
+    /// FEAT-0035: where two addresses differ — in the middle, at the ends, in several places;
+    /// another length marks the whole address.
     #[test]
-    fn an_address_in_groups_and_its_lookalikes() {
+    fn where_two_addresses_differ() {
         let mine = "yXk3Tq9mD8vJw2RfL6pN4sB7cH1eZ5a9f2c";
-        assert_eq!(grouped("yXk3Tq9mD8"), "yXk3 Tq9m D8");
+        assert!(differing(mine, mine).is_empty());
+        let middle = "yXk3Tq9mD8vJw2RfL6pN4sB7cH1eZ5a9f2c".replacen("D8v", "Q0q", 1);
+        assert_eq!(differing(&middle, mine), vec![8, 9, 10]);
+        assert_eq!(positions(&differing(&middle, mine)), "9–11");
+        // The first and last five characters too.
+        let ends = format!("Z{}Z", &mine[1..mine.len() - 1]);
+        assert_eq!(differing(&ends, mine), vec![0, mine.len() - 1]);
+        assert_eq!(
+            positions(&differing(&ends, mine)),
+            format!("1, {}", mine.len())
+        );
+        // Several places.
+        assert_eq!(positions(&[3, 4, 10, 20, 21, 22]), "4–5, 11, 21–23");
+        // Another length: all of it.
+        assert_eq!(differing("yXk3Tq9m", mine), (0..8).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn an_address_and_its_lookalikes() {
+        let mine = "yXk3Tq9mD8vJw2RfL6pN4sB7cH1eZ5a9f2c";
         // Planted: the same four characters at each end, another middle.
         let planted = "yXk3AAAAAAAAAAAAAAAAAAAAAAAAAAAA9f2c";
         assert_eq!(lookalike(planted, [mine, "yNw3aE6u"]), Some(mine));

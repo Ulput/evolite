@@ -559,6 +559,59 @@ impl App {
             }
             // `--screen send-pool-unread` / `send-pool-unknown`: from the pool, to an address: the card,
             // the line under the row, «Left» and the button (BUG-113).
+            // FEAT-0013: «Coins» on Send (F1–F3, P1) and its dialog (CC1–CC4), over the demo's
+            // coins (`evolite_demo::demo::demo_coins`: n-th coin `<n repeated>:<n % 3>`).
+            let coin = |n: u8| format!("{}:{}", format!("{n:02x}").repeat(32), n % 3);
+            let coins_preset = [
+                ("send-coins", &[][..], 0, false),
+                ("send-coins-chosen", &[5u8, 6, 7][..], 12_000_000, false),
+                ("send-coins-name", &[][..], 5_000_000, false),
+                ("send-coins-confirm", &[5u8, 6, 7][..], 12_000_000, false),
+                ("coins-manual", &[4u8, 5][..], 5_000_000, true),
+                ("coins-auto", &[][..], 5_000_000, true),
+                ("coins-not-enough", &[6u8, 7][..], 20_000_000, true),
+                ("coins-spent", &[6u8, 9][..], 5_000_000, true),
+            ];
+            if let Some((name, chosen, amount, dialog)) =
+                coins_preset.into_iter().find(|(n, ..)| preset(n))
+            {
+                self.send.recipient = if name == "send-coins-name" {
+                    "@alice".into()
+                } else {
+                    "yXk3Tq9mD8vJw2RfL6pN4sB7cH1eZ5aG9f".into()
+                };
+                // As a suggestion, so the field writes it in the screen's number format (the
+                // preset runs before the language's marks are set).
+                self.send.suggested = (amount > 0).then_some(amount);
+                self.send.amount = if amount > 0 {
+                    crate::format::input_text(amount)
+                } else {
+                    String::new()
+                };
+                let set: std::collections::BTreeSet<String> =
+                    chosen.iter().map(|n| coin(*n)).collect();
+                if dialog {
+                    self.send.coins.dialog = true;
+                    self.send.coins.manual = name != "coins-auto";
+                    self.send.coins.ticked = set;
+                } else {
+                    self.send.coins.chosen = set;
+                }
+                self.send.confirming = name == "send-coins-confirm";
+                self.core.send(self.send.coins.ask_again());
+            }
+            // FEAT-0035 (ADR2): the last look of a payment to an address only like the
+            // address book's «Workshop rent» — characters 9–11 differ.
+            if preset("send-lookalike") {
+                self.send.recipient = LOOKALIKE.into();
+                // As a suggestion, so the field writes it in the screen's number format.
+                self.send.amount = crate::format::input_text(1_000_000);
+                self.send.suggested = Some(1_000_000);
+                self.send.confirming = true;
+                self.core.send(Command::PreviewPayment {
+                    to: LOOKALIKE.into(),
+                });
+            }
             // FEAT-0008: 25 USD typed (frame 1), its last look (frame 4), an old rate (frame 3).
             if preset("send-fiat") || preset("send-fiat-confirm") || preset("send-fiat-stale") {
                 self.send.recipient = "yXk3Tq9mD8vJw2RfL6pN4sB7cH1eZ5aG9f".into();
@@ -831,3 +884,7 @@ impl App {
         }
     }
 }
+
+/// `--screen send-lookalike`: the demo address book's «Workshop rent»
+/// (`yNk2Hc8pWq4mR7vT3sLb9XeJ6uZa5Df1Gh`) with characters 9–11 changed (FEAT-0035).
+pub(crate) const LOOKALIKE: &str = "yNk2Hc8pQQQmR7vT3sLb9XeJ6uZa5Df1Gh";
