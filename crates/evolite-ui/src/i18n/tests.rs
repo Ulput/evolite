@@ -172,14 +172,18 @@ fn english_and_text_without_words_stay_as_they_are() {
 }
 
 #[test]
-fn arabic_is_joined_and_put_in_visual_order() {
-    // "سلام" (salam): four letters, joined; drawn left to right they come last first.
-    let shown = visual("سلام");
-    assert_ne!(shown, "سلام", "joined forms and reversed");
+fn an_arabic_word_goes_to_egui_as_it_is_written() {
+    // BUG-117: egui shapes and joins a word itself (HarfBuzz) and turns it right to left; one
+    // Arabic word goes to it in logical order, with its own letters, not joined forms.
+    assert_eq!(visual("سلام"), "سلام");
     assert!(
-        shown.chars().all(|c| !matches!(c, 'س' | 'ل' | 'ا' | 'م')),
-        "presentation forms: {shown:?}"
+        !visual("نسيت كلمة المرور؟")
+            .chars()
+            .any(|c| ('\u{FB50}'..='\u{FEFF}').contains(&c)),
+        "no presentation forms"
     );
+    // Two words: their order is bidi's, right to left; each word's letters as written.
+    assert_eq!(visual("محفظة جديدة"), "جديدة محفظة");
     // Numbers inside Arabic keep their own order.
     assert!(visual("المبلغ 1234 DASH").contains("1234"));
     assert_eq!(visual("Send 1 DASH"), "Send 1 DASH", "no Arabic, untouched");
@@ -415,4 +419,169 @@ fn an_abbreviation_at_the_end_takes_no_second_point() {
         de.translate("5 min left.").as_deref(),
         Some("5 Min. übrig.")
     );
+}
+
+/// BUG-117: what the screen shows of `text` in the Arabic interface, left to right: the text as
+/// [`visual`] gives it to egui, laid out by epaint (which shapes each run of one font with
+/// HarfBuzz) in Inter with the app's Noto Sans Arabic, as `(char, x)` of each glyph by `x`.
+/// Joined forms (U+FE80…) are read as their letters.
+fn drawn(text: &str) -> Vec<(char, f32)> {
+    use egui::epaint::text::{FontData, FontDefinitions, Fonts, TextOptions};
+    use egui::{Color32, FontFamily, FontId};
+    use std::sync::Arc;
+    set(Lang::Ar);
+    let shown = visual(text).into_owned();
+    let mut defs = FontDefinitions::empty();
+    defs.font_data.insert(
+        "latin".into(),
+        Arc::new(FontData::from_static(include_bytes!(
+            "../../assets/fonts/Inter-latin-400.ttf"
+        ))),
+    );
+    defs.font_data.insert(
+        "arabic".into(),
+        Arc::new(FontData::from_static(include_bytes!(
+            "../../assets/fonts/NotoSansArabic-arabic-400.ttf"
+        ))),
+    );
+    defs.families.insert(
+        FontFamily::Proportional,
+        vec!["latin".into(), "arabic".into()],
+    );
+    let mut fonts = Fonts::new(TextOptions::default(), defs);
+    let mut view = fonts.with_pixels_per_point(1.0);
+    let galley = view.layout_no_wrap(
+        shown,
+        FontId::new(20.0, FontFamily::Proportional),
+        Color32::WHITE,
+    );
+    set(Lang::En);
+    let mut glyphs: Vec<(char, f32)> = galley.rows[0]
+        .glyphs
+        .iter()
+        .map(|g| (letter(g.chr), g.pos.x))
+        .collect();
+    glyphs.sort_by(|a, b| a.1.total_cmp(&b.1));
+    glyphs
+}
+
+/// The letter a joined form (Arabic Presentation Forms-B, U+FE80…U+FEF4) stands for.
+fn letter(c: char) -> char {
+    // Each letter's forms in a row from U+FE80: isolated, final, and for joining ones initial
+    // and medial.
+    const FORMS: [(char, u32); 35] = [
+        ('ء', 1),
+        ('آ', 2),
+        ('أ', 2),
+        ('ؤ', 2),
+        ('إ', 2),
+        ('ئ', 4),
+        ('ا', 2),
+        ('ب', 4),
+        ('ة', 2),
+        ('ت', 4),
+        ('ث', 4),
+        ('ج', 4),
+        ('ح', 4),
+        ('خ', 4),
+        ('د', 2),
+        ('ذ', 2),
+        ('ر', 2),
+        ('ز', 2),
+        ('س', 4),
+        ('ش', 4),
+        ('ص', 4),
+        ('ض', 4),
+        ('ط', 4),
+        ('ظ', 4),
+        ('ع', 4),
+        ('غ', 4),
+        ('ف', 4),
+        ('ق', 4),
+        ('ك', 4),
+        ('ل', 4),
+        ('م', 4),
+        ('ن', 4),
+        ('ه', 4),
+        ('و', 2),
+        ('ى', 2),
+    ];
+    let mut at = 0xFE80;
+    for (base, n) in FORMS {
+        if (at..at + n).contains(&(c as u32)) {
+            return base;
+        }
+        at += n;
+    }
+    if (0xFEF1..0xFEF5).contains(&(c as u32)) {
+        return 'ي';
+    }
+    c
+}
+
+/// Where the letters `word` are drawn, right to left as an Arabic reader goes: each one's `x`.
+fn reads_right_to_left(glyphs: &[(char, f32)], word: &str) -> bool {
+    let xs: Vec<f32> = word
+        .chars()
+        .map(|c| {
+            glyphs
+                .iter()
+                .find(|(g, _)| *g == c)
+                .unwrap_or_else(|| panic!("«{c}» drawn: {glyphs:?}"))
+                .1
+        })
+        .collect();
+    xs.windows(2).all(|w| w[0] > w[1])
+}
+
+/// BUG-117: an Arabic word is drawn right to left, its first letter rightmost. egui shapes it
+/// (HarfBuzz turns a right-to-left run around), so [`visual`] must not turn it too.
+#[test]
+fn an_arabic_word_is_drawn_from_the_right() {
+    for word in ["محفظة", "إضافة", "كلمة"] {
+        let glyphs = drawn(word);
+        assert!(
+            reads_right_to_left(&glyphs, word),
+            "«{word}» drawn as {:?}",
+            glyphs.iter().map(|g| g.0).collect::<String>()
+        );
+    }
+}
+
+/// BUG-117: in an Arabic sentence the words follow one another from the right, each read from
+/// its right; a Latin word, an amount or an address inside stays left to right.
+#[test]
+fn mixed_arabic_and_latin_keep_both_directions() {
+    let text = "Platform في أرصدة DASH 12.5";
+    let glyphs = drawn(text);
+    let at = |word: &str| -> f32 {
+        let seq: Vec<char> = word.chars().collect();
+        let chars: Vec<char> = glyphs.iter().map(|g| g.0).collect();
+        let i = chars
+            .windows(seq.len())
+            .position(|w| w == seq.as_slice())
+            .unwrap_or_else(|| panic!("«{word}» left to right in {chars:?}"));
+        glyphs[i].1
+    };
+    // The Latin pieces read left to right as they are.
+    let (platform, dash, amount) = (at("Platform"), at("DASH"), at("12.5"));
+    for word in ["في", "أرصدة"] {
+        assert!(reads_right_to_left(&glyphs, word), "«{word}»: {glyphs:?}");
+    }
+    // A right-to-left paragraph: «Platform» first, so rightmost; then «في», «أرصدة», and
+    // «DASH 12.5» leftmost, one left-to-right piece (a number after a Latin word goes with it).
+    let fi = glyphs.iter().find(|g| g.0 == 'ف').unwrap().1;
+    let arsida = glyphs.iter().find(|g| g.0 == 'أ').unwrap().1;
+    assert!(
+        platform > fi && fi > arsida && arsida > amount && amount > dash,
+        "{glyphs:?}"
+    );
+
+    // An address inside an Arabic sentence: whole, left to right, after «إلى» to its left.
+    let address = "yXk3Tq9mD8vJw2Rf";
+    let glyphs = drawn(&format!("أرسل إلى {address}"));
+    let chars: String = glyphs.iter().map(|g| g.0).collect();
+    assert!(chars.contains(address), "{chars:?}");
+    // «ل» is in «إلى» too: the first three letters are enough.
+    assert!(reads_right_to_left(&glyphs, "أرس"), "{chars:?}");
 }

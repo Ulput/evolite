@@ -597,3 +597,119 @@ fn from_the_pool_an_at_name_says_so_once_and_promises_nothing() {
     assert!(has_words(&kit, "Network fee: —"));
     assert!(has_words(&kit, "Fee: —"));
 }
+
+/// The painted text shapes of the frame, nested ones included.
+fn painted_galleys(kit: &Kit) -> Vec<std::sync::Arc<egui::Galley>> {
+    fn walk(shape: &egui::Shape, out: &mut Vec<std::sync::Arc<egui::Galley>>) {
+        match shape {
+            egui::Shape::Text(t) => out.push(t.galley.clone()),
+            egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, out)),
+            _ => {}
+        }
+    }
+    let mut out = Vec::new();
+    for c in &kit.output().shapes {
+        walk(&c.shape, &mut out);
+    }
+    out
+}
+
+/// What a line looks like on screen: its letters as drawn, left to right by `x`. None of what
+/// does not advance: the dots and marks Noto Sans Arabic draws as glyphs of their own, the
+/// zero-width copies epaint adds after a right-to-left run. Spaces are left out.
+fn ink_left_to_right(ctx: &egui::Context, text: &str) -> String {
+    let galley = ctx.fonts_mut(|f| {
+        f.layout_no_wrap(
+            text.to_owned(),
+            crate::theme::sans(13.0, crate::theme::Weight::Regular),
+            egui::Color32::WHITE,
+        )
+    });
+    let mut glyphs: Vec<(char, f32)> = galley
+        .rows
+        .iter()
+        .flat_map(|r| r.row.glyphs.iter().map(move |g| (g, r.pos.x)))
+        .filter(|(g, _)| g.advance_width > 0.0 && !g.uv_rect.is_nothing() && !g.chr.is_whitespace())
+        .map(|(g, x)| (g.chr, x + g.pos.x))
+        .collect();
+    glyphs.sort_by(|a, b| a.1.total_cmp(&b.1));
+    glyphs.into_iter().map(|g| g.0).collect()
+}
+
+/// BUG-117 r2: a contact's line in Arabic that starts with a Latin @name and has a date and
+/// numbers in it is drawn as written: in the Arabic interface it reads from the right, «@alice-7»
+/// rightmost and left to right, each Arabic word right to left, «24» and «4» whole — every letter
+/// once. Cut to a narrow room, it loses whole words at its end (the left) and ends with «…».
+/// Contacts cut the line by reading back the laid-out row and turning it to visual order again:
+/// the row's text has epaint's copies of each Arabic run, so letters came out doubled and mixed.
+#[test]
+fn a_contact_line_starting_with_latin_is_drawn_as_written_in_arabic() {
+    let (_turn, mut kit) = demo_app("contacts", "ar");
+    kit.run_steps(2);
+    let ctx = kit.ctx.clone();
+    let line = "@alice-7 · اتصال مع 24 أكتوبر · 4 دفعات";
+    let font = crate::theme::sans(13.0, crate::theme::Weight::Regular);
+    // Left to right on screen: «دفعات» drawn from the right, «4», «·», «أكتوبر», «24», «مع»,
+    // «اتصال», «·», «@alice-7».
+    let whole = "تاعفد4·ربوتكأ24عملاصتا·@alice-7";
+    let wide = crate::screens::contacts::about_shown(&ctx, line, font.clone(), 1000.0);
+    assert_eq!(ink_left_to_right(&ctx, &wide), whole, "drawn: {wide:?}");
+    let narrow = crate::screens::contacts::about_shown(&ctx, line, font, 150.0);
+    let ink = ink_left_to_right(&ctx, &narrow);
+    let kept = ink
+        .strip_prefix('…')
+        .unwrap_or_else(|| panic!("no «…» on the left: {ink:?}"));
+    assert!(
+        kept.len() < whole.len() && whole.ends_with(kept) && kept.ends_with("@alice-7"),
+        "cut: {ink:?}"
+    );
+}
+
+/// BUG-117 r2, on the screen: every contact's line in Arabic is drawn as its words put in visual
+/// order once — Bob's and Alice's lines begin with a Latin name, Kate (without a profile name
+/// here) has her @name at the end.
+#[test]
+fn contact_lines_in_arabic_are_drawn_as_their_words() {
+    let (_turn, mut kit) = demo_app("contacts", "ar");
+    for _ in 0..3 {
+        let wallet = kit
+            .state_mut()
+            .snapshot
+            .as_mut()
+            .and_then(|s| s.wallet.as_mut())
+            .expect("a wallet");
+        for c in &mut wallet.contacts {
+            if c.name.as_deref() == Some("kate") {
+                c.profile.display = None;
+            }
+        }
+        kit.run_steps(1);
+    }
+    kit.set_size(egui::vec2(1600.0, 1200.0));
+    kit.run_steps(6);
+    let contacts = kit
+        .state()
+        .snapshot
+        .as_ref()
+        .and_then(|s| s.wallet.as_ref())
+        .expect("a wallet")
+        .contacts
+        .clone();
+    assert!(contacts.len() >= 3, "the demo's contacts");
+    let drawn: Vec<String> = painted_galleys(&kit)
+        .iter()
+        .map(|g| g.text().to_owned())
+        .collect();
+    for c in &contacts {
+        let about = crate::screens::contacts::about_line(c, chrono::Local::now());
+        let want = crate::i18n::t(&about).into_owned();
+        assert!(
+            drawn.contains(&want),
+            "{about:?} should be drawn as {want:?}; drawn: {:?}",
+            drawn
+                .iter()
+                .filter(|d| d.chars().any(|ch| ('\u{0600}'..='\u{06FF}').contains(&ch)))
+                .collect::<Vec<_>>()
+        );
+    }
+}

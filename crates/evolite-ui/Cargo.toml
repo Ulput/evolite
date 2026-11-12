@@ -58,7 +58,6 @@ arboard = { version = "3", default-features = false, features = ["image-data", "
 sha2 = { version = "0.10", default-features = false }
 chrono = "0.4.45"
 zeroize = "1"
-ar-reshaper = "1.5"
 unicode-bidi = "0.3"
 
 [target.'cfg(windows)'.dependencies]

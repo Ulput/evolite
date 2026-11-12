@@ -157,7 +157,7 @@ pub fn shown_name(contact: &Contact) -> String {
 }
 
 /// The line under a contact's name: who they are to us.
-fn about_line(c: &Contact, now: DateTime<Local>) -> String {
+pub(crate) fn about_line(c: &Contact, now: DateTime<Local>) -> String {
     let display = c.profile.display.as_deref();
     match c.state {
         ContactState::Incoming => match display {
@@ -181,6 +181,24 @@ fn about_line(c: &Contact, now: DateTime<Local>) -> String {
             }
         }
     }
+}
+
+/// The line under a contact's name as drawn, at most `room` wide: whole, or cut at a word with
+/// "…" (in reading order, so in Arabic the left end goes: BUG-117).
+pub(crate) fn about_shown(
+    ctx: &egui::Context,
+    about: &str,
+    font: egui::FontId,
+    room: f32,
+) -> String {
+    crate::i18n::t_fitted(about, |shown| {
+        let width = ctx.fonts_mut(|f| {
+            f.layout_no_wrap(shown.to_owned(), font.clone(), egui::Color32::PLACEHOLDER)
+                .size()
+                .x
+        });
+        width <= room
+    })
 }
 
 /// The small label and value on the right of a row.
@@ -447,22 +465,15 @@ fn row(
     );
     // The line under the name stops before the right column.
     let room = (label_rect.left().min(right - 140.0) - x - 16.0).max(80.0);
-    let line = ui.painter().layout(
-        crate::i18n::t(&about_line(c, now)).into_owned(),
-        sans(13.0, Weight::Regular),
-        p.muted,
-        room,
-    );
-    let first_row = line.rows.first().map(|r| r.text()).unwrap_or_default();
-    let shown = if line.rows.len() > 1 {
-        format!("{}…", first_row.trim_end())
-    } else {
-        first_row
-    };
     ui.painter().text(
         pos2(x, cy + 2.0),
         Align2::LEFT_TOP,
-        crate::i18n::t(&shown),
+        about_shown(
+            ui.ctx(),
+            &about_line(c, now),
+            sans(13.0, Weight::Regular),
+            room,
+        ),
         sans(13.0, Weight::Regular),
         p.muted,
     );

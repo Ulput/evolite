@@ -257,6 +257,29 @@ pub fn t(text: &str) -> Cow<'_, str> {
     unmarked(shown)
 }
 
+/// `text` as [`t`] gives it, or, when `fits` says it is too long, cut at a word with "…": words
+/// go from its end in reading order, before Arabic is put in visual order. Never cut text read
+/// back from a laid-out row: its glyphs are in visual order, and epaint adds zero-width copies
+/// of each right-to-left run, so such text turned again came out with letters doubled and
+/// mixed (BUG-117).
+pub fn t_fitted(text: &str, fits: impl Fn(&str) -> bool) -> String {
+    let whole = t(text).into_owned();
+    if fits(&whole) {
+        return whole;
+    }
+    let said = t_in(current(), text).into_owned();
+    let words: Vec<&str> = said.split(' ').collect();
+    let cut = |n: usize| {
+        let kept = words[..n].join(" ");
+        unmarked(visual(&format!("{}…", kept.trim_end_matches([' ', '·'])))).into_owned()
+    };
+    (1..words.len())
+        .rev()
+        .map(cut)
+        .find(|shown| fits(shown))
+        .unwrap_or_else(|| cut(1))
+}
+
 /// `text` in the current language for a screen reader: translated, in reading order.
 pub fn spoken(text: &str) -> String {
     unmarked(t_in(current(), text)).into_owned()
@@ -352,13 +375,19 @@ fn isolate_names(line: &str) -> Cow<'_, str> {
     Cow::Owned(out)
 }
 
-/// Arabic as egui can draw it: the letters in their joined forms (egui does not shape), and
-/// each line reordered from logical to visual order by the Unicode bidi algorithm — so an
-/// Arabic sentence reads right to left with numbers, addresses and `@names` inside it still
-/// left to right. In the Arabic interface a line with Arabic is a right-to-left paragraph even
-/// when it starts with a Latin word ("Platform في أرصدة DASH" reads from "DASH"); elsewhere
-/// (an Arabic name on an English screen) its first letter decides. Text without Arabic is left
-/// as it is. Remembered, since a frame asks again.
+/// Arabic as egui can draw it. egui does not reorder a line (no bidi), but it does shape: epaint
+/// cuts a line into runs by the font each character comes from (`segment_into_runs`, by font
+/// face, not by script) and gives each run to HarfBuzz, which joins the letters by the font's
+/// own tables and, for an Arabic run, turns it around into visual order. So here each line is
+/// reordered from logical to visual order by the Unicode bidi algorithm — an Arabic sentence
+/// reads right to left with numbers, addresses and `@names` inside it still left to right —
+/// and then every run of Arabic characters (the ones Noto Sans Arabic draws: Inter has none)
+/// is put back in logical order, for HarfBuzz to turn once (BUG-117: turned twice, each word's
+/// letters were drawn backwards). When egui does bidi itself, `the glyph order` tests in
+/// `tests.rs` fail and this has to go. In the Arabic interface a line with Arabic is a
+/// right-to-left paragraph even when it starts with a Latin word ("Platform في أرصدة DASH":
+/// «Platform» rightmost); elsewhere (an Arabic name on an English screen) its first letter
+/// decides. Text without Arabic is left as it is. Remembered, since a frame asks again.
 pub fn visual(text: &str) -> Cow<'_, str> {
     if !text.chars().any(is_arabic) {
         return Cow::Borrowed(text);
@@ -377,7 +406,7 @@ pub fn visual(text: &str) -> Cow<'_, str> {
     let out = text
         .split('\n')
         .map(|line| {
-            let shaped = ar_reshaper::reshape_line(isolate_names(line));
+            let shaped = isolate_names(line);
             let info = unicode_bidi::BidiInfo::new(&shaped, level);
             // A bracket or quote inside right-to-left text is drawn as its mirror image (bidi
             // rule L4), or "(Argon2)" would read ")Argon2("; mirrors are of one bidi class, so
@@ -402,7 +431,7 @@ pub fn visual(text: &str) -> Cow<'_, str> {
         .join("\n");
     // The isolates have done their work in the reordering: none is drawn (egui has no glyph
     // for them), whoever draws the result.
-    let out = out.replace([OWN_START, OWN_END], "");
+    let out = arabic_runs_in_logical_order(&out.replace([OWN_START, OWN_END], ""));
     SEEN.with(|s| {
         let mut s = s.borrow_mut();
         if s.len() > 5_000 {
@@ -411,6 +440,25 @@ pub fn visual(text: &str) -> Cow<'_, str> {
         s.insert(key, out.clone());
     });
     Cow::Owned(out)
+}
+
+/// `shown` (in visual order) with each run of Arabic characters turned back to logical order:
+/// such a run is one run of one font for epaint, and HarfBuzz turns it into visual order
+/// itself. Bidi turned a right-to-left run character by character, marks included, so turning
+/// it back character by character gives the logical order exactly.
+fn arabic_runs_in_logical_order(shown: &str) -> String {
+    let mut out = String::with_capacity(shown.len());
+    let mut run: Vec<char> = Vec::new();
+    for c in shown.chars() {
+        if is_arabic(c) {
+            run.push(c);
+            continue;
+        }
+        out.extend(run.drain(..).rev());
+        out.push(c);
+    }
+    out.extend(run.drain(..).rev());
+    out
 }
 
 /// `text` in `lang`, before any reordering for display.
