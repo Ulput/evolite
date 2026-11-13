@@ -621,7 +621,11 @@ fn a_new_form_keeps_the_payment_number() {
 #[test]
 fn a_withdrawal_opens_from_credits_to_the_address() {
     let form = SendForm::paying(Source::Credits, "yTFDD75uEcLgEGN8QYPKKvVE69jqf6vMw2".into());
-    assert_eq!(form.source, 1, "Credits");
+    assert_eq!(
+        form.want,
+        Some(Source::Credits),
+        "Credits, wherever it stands"
+    );
     assert_eq!(form.recipient, "yTFDD75uEcLgEGN8QYPKKvVE69jqf6vMw2");
     assert!(form.amount.is_empty(), "the amount is the person's to type");
 }

@@ -226,12 +226,6 @@ fn our_flow(tx: &Transaction, history: &impl History) -> (u64, u64) {
 /// outputs, so a session of two on testnet would not be seen; the history and the count of rounds
 /// use this one.
 pub fn is_mixing(tx: &Transaction, history: &impl History) -> bool {
-    if tx.input.is_empty()
-        || tx.input.len() != tx.output.len()
-        || !tx.output.iter().all(|o| is_denominated(o.value))
-    {
-        return false;
-    }
     let ours_in: Vec<u64> = tx
         .input
         .iter()
@@ -243,8 +237,20 @@ pub fn is_mixing(tx: &Transaction, history: &impl History) -> bool {
             history.is_ours(&prev.script_pubkey).then_some(prev.value)
         })
         .collect();
-    let (debit, credit) = our_flow(tx, history);
-    !ours_in.is_empty() && ours_in.iter().all(|v| is_denominated(*v)) && debit == credit
+    let (_, credit) = our_flow(tx, history);
+    mixing_shape(tx, &ours_in, credit)
+}
+
+/// [`is_mixing`] from what the wallet knows of `tx` itself: the values of its own inputs
+/// (`ours_in`) and what its own outputs got (`ours_out`). The history line uses it on a record's
+/// details, with no other transaction at hand.
+pub fn mixing_shape(tx: &Transaction, ours_in: &[u64], ours_out: u64) -> bool {
+    !tx.input.is_empty()
+        && tx.input.len() == tx.output.len()
+        && tx.output.iter().all(|o| is_denominated(o.value))
+        && !ours_in.is_empty()
+        && ours_in.iter().all(|v| is_denominated(*v))
+        && ours_in.iter().sum::<u64>() == ours_out
 }
 
 #[cfg(test)]

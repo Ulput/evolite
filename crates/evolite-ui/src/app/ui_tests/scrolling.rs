@@ -20,6 +20,13 @@ fn screen_places(kit: &Kit) -> Vec<f32> {
         .collect()
 }
 
+/// The pointer off the tiles the wheel left it over: the «Mixed» tile's tip (FEAT-0030) is no
+/// place on the screen.
+fn pointer_away(kit: &mut Kit) {
+    kit.hover_at(egui::pos2(MENU + 1.0, 1.0));
+    kit.run_steps(3);
+}
+
 /// One notch of `by` points with the pointer at `x`, half way down the window.
 fn wheel_at(kit: &mut Kit, x: f32, by: f32) {
     kit.hover_at(egui::pos2(x, 300.0));
@@ -162,6 +169,7 @@ fn the_overview_after_a_lock_opens_at_the_top() {
         },
         |k| k.state().screen == Screen::Overview,
     );
+    pointer_away(&mut kit);
     assert_eq!(screen_places(&kit), top);
 }
 
@@ -190,5 +198,6 @@ fn another_wallet_opens_at_the_top() {
             .is_some_and(|s| s.wallets.iter().any(|w| w.open && w.id == "5e6f7a8b"))
     });
     kit.run_steps(6);
+    pointer_away(&mut kit);
     assert_eq!(screen_places(&kit), top);
 }

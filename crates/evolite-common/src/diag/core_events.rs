@@ -105,6 +105,8 @@ pub fn error_kind(error: &CoreError) -> &'static str {
         CoreError::TooManyTries { .. } => "too_many_tries",
         CoreError::PicturesOff(_) => "pictures_off",
         CoreError::AppLink(_) => "app_link",
+        // The excess itself stays out (FEAT-0030 AC-T11).
+        CoreError::MixedExcess { .. } => "mixed_excess",
     }
 }
 

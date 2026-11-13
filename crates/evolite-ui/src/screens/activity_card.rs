@@ -516,6 +516,8 @@ fn card_detail(act: &Activity) -> Option<&Detail> {
             ActivityKind::Received { .. }
                 | ActivityKind::Sent { .. }
                 | ActivityKind::SelfTransfer { .. }
+                | ActivityKind::Mixing { .. }
+                | ActivityKind::IntoMixing
         );
     drawn.then_some(act.detail.as_deref()).flatten()
 }
@@ -602,7 +604,9 @@ fn sides(act: &Activity, detail: &Detail, book: &[SavedAddress]) -> (Vec<Side>, 
             });
             (vec![from], to.into_iter().collect())
         }
-        ActivityKind::SelfTransfer { .. } => {
+        ActivityKind::SelfTransfer { .. }
+        | ActivityKind::Mixing { .. }
+        | ActivityKind::IntoMixing => {
             let mut from: Vec<Side> = Vec::new();
             for address in &detail.own_from {
                 if !from.iter().any(|s| &s.value == address) {
@@ -1438,7 +1442,7 @@ fn card_header(
         ui.add_space(4.0);
         card_title(ui, &p, &text::activity_title_in(act, book), width);
         ui.label(txt(
-            &text::with_date(text::chain(act.chain), &text::when(act.at, now)),
+            &text::with_date(&text::row_place(act), &text::when(act.at, now)),
             14.0,
             Weight::Medium,
             p.muted,
@@ -1609,7 +1613,13 @@ fn plain_body(
         &text::date_time(act.at, now),
         words.clone(),
     );
-    kv_row(ui, &p, tr!("Where"), text::chain(act.chain), words.clone());
+    // A payment from «Mixed» and mixing itself name their source (designer, H1).
+    let where_ = if text::source(act) == text::chain(act.chain) {
+        tr!("Where")
+    } else {
+        tr!("Source")
+    };
+    kv_row(ui, &p, where_, text::source(act), words.clone());
     if let Some(status) = text::activity_status(act) {
         kv_row(ui, &p, tr!("Status"), status, words.clone());
     }

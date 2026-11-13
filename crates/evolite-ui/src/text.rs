@@ -317,6 +317,31 @@ pub fn group_thousands(n: i64) -> String {
     out
 }
 
+/// Where a line's money was, for its row and card (FEAT-0030 A3): «Mixed» for a payment from
+/// mixed coins and for mixing itself, else its chain.
+pub fn source(act: &Activity) -> &'static str {
+    use evolite_api::layer::{CORE, MIXED};
+    if act.chain == Chain::Core && act.layers & MIXED != 0 && act.layers & CORE == 0 {
+        tr!("Mixed")
+    } else {
+        chain(act.chain)
+    }
+}
+
+/// The words before the time in a line's row: what a mixing line did (designer, H1), else its
+/// [`source`].
+pub fn row_place(act: &Activity) -> String {
+    match act.kind {
+        ActivityKind::Mixing { fee } if fee > 0 => format!(
+            tr!("A mixing round: {amount} went to the fee"),
+            amount = crate::format::amount(fee)
+        ),
+        ActivityKind::Mixing { .. } => tr!("A mixing round: the balance did not change").into(),
+        ActivityKind::IntoMixing => tr!("Between your own: coins split into denominations").into(),
+        _ => source(act).into(),
+    }
+}
+
 /// Our fonts have no "→", so an asset lock reads "Core to Platform".
 pub fn chain(c: Chain) -> &'static str {
     match c {
@@ -360,6 +385,9 @@ pub fn activity_title(a: &Activity) -> String {
         ActivityKind::Sent { to } if to.is_empty() => tr!("Sent").into(),
         ActivityKind::Sent { to } => format!(tr!("Sent {}"), short_address(to)),
         ActivityKind::SelfTransfer { .. } => tr!("Transfer between own addresses").into(),
+        // FEAT-0030 AC-A7: made in DashPay or Dash Core; evolite does not mix yet.
+        ActivityKind::Mixing { .. } => tr!("Mixing (CoinJoin)").into(),
+        ActivityKind::IntoMixing => tr!("Into mixing").into(),
         ActivityKind::PlatformReceived => tr!("Received at the Platform address").into(),
         // An asset lock: an identity's creation or top-up (BUG-57); one the wallet cannot place
         // goes to Platform, nothing more is known.
@@ -601,6 +629,7 @@ pub fn activity_icon(a: &Activity) -> &'static str {
         ActivityKind::Sent { .. } | ActivityKind::PoolSent => "send",
         ActivityKind::TopUp { .. } => "top-up",
         ActivityKind::SelfTransfer { .. } => "transfer",
+        ActivityKind::Mixing { .. } | ActivityKind::IntoMixing => "mixed",
         ActivityKind::AppSignIn { .. } => "app-connect",
         ActivityKind::CreditTransfer { .. } => "transfer",
         ActivityKind::Shielded { .. } => "shield",
@@ -704,6 +733,28 @@ pub fn name_problem(e: &CoreError) -> (String, bool) {
 
 /// What went wrong, in words a person reads: never the core's debug form. The words of the
 /// network or a library behind a failure are for [`error_details`], not this line.
+/// A payment from «Mixed» refused for its excess (FEAT-0030 AC-A12, АРХ-9а), in the analyst's
+/// words: too large, with an amount that has none; or changed since the review, to confirm again.
+pub fn mixed_excess_words(
+    excess: evolite_api::Duffs,
+    suggested: Option<evolite_api::Duffs>,
+) -> String {
+    let excess = crate::format::amount(excess);
+    match suggested {
+        Some(suggested) => format!(
+            tr!(
+                "The excess {excess} is too large: mixed coins give no change. Change the amount to {suggested}."
+            ),
+            excess = excess,
+            suggested = crate::format::amount(suggested)
+        ),
+        None => format!(
+            tr!("The excess has changed: {excess} now. Confirm again."),
+            excess = excess
+        ),
+    }
+}
+
 pub fn error_text(e: &CoreError) -> String {
     match e {
         // The core's reasons are written for people already.
@@ -730,6 +781,7 @@ pub fn error_text(e: &CoreError) -> String {
             .1
             .trim_end_matches('.')
             .to_owned(),
+        CoreError::MixedExcess { excess, suggested } => mixed_excess_words(*excess, *suggested),
         CoreError::Failed(why) => failure(why).into(),
     }
 }

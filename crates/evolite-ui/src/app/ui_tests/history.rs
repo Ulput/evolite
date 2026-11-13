@@ -53,7 +53,7 @@ fn says(kit: &Kit, part: &str) -> bool {
 fn an_operation_without_a_time_is_not_dated_1970() {
     let (_turn, mut kit) = demo_app("activity", "en");
     // The pool's operations only: a short list, all of it on screen.
-    kit.state_mut().history.filters.layer = 3;
+    kit.state_mut().history.filters.layer = 4;
     with_undated(&mut kit);
     assert!(has_text(&kit, "NO DATE"), "the day header");
     assert!(
@@ -186,7 +186,7 @@ fn requests_to_us_and_withdrawals_say_how_they_stand() {
     use evolite_api::{RequestState, WithdrawalState};
     let (_turn, mut kit) = demo_app("activity", "en");
     // Identity operations: a short list, all of it on screen.
-    kit.state_mut().history.filters.layer = 4;
+    kit.state_mut().history.filters.layer = 5;
     let waiting = 0x5858_0001;
     with_ops(
         &mut kit,
@@ -455,7 +455,7 @@ fn with_new_payment(kit: &mut Kit) {
 fn a_top_up_without_credits_says_so_and_leads_to_identity() {
     use evolite_api::Credits;
     let (_turn, mut kit) = demo_app("activity", "en");
-    kit.state_mut().history.filters.layer = 4;
+    kit.state_mut().history.filters.layer = 5;
     with_op(&mut kit, &lock(false, Credits::NotAdded));
     assert!(says(&kit, "Top-up of @werner555 · "), "the row's title");
     assert!(says(&kit, " · credits not added"), "the row says it");
@@ -508,7 +508,7 @@ fn a_top_up_that_finishes_stops_saying_not_added() {
     use evolite_api::Credits;
     let (_turn, mut kit) = demo_app("activity", "en");
     with_the_demos_first_lines(&mut kit);
-    kit.state_mut().history.filters.layer = 4;
+    kit.state_mut().history.filters.layer = 5;
     with_op(&mut kit, &lock(false, Credits::NotAdded));
     assert!(says(&kit, " · credits not added"));
     with_op(&mut kit, &lock(false, Credits::Added));
@@ -543,7 +543,7 @@ fn an_identity_creation_is_not_called_a_top_up() {
     use evolite_api::Credits;
     let (_turn, mut kit) = demo_app("activity", "ru");
     with_the_demos_first_lines(&mut kit);
-    kit.state_mut().history.filters.layer = 4;
+    kit.state_mut().history.filters.layer = 5;
     with_op(&mut kit, &lock(true, Credits::Added));
     assert!(says(&kit, "Создание identity @werner555 · "), "the row");
     assert!(!says(&kit, "Пополнение @werner555"));

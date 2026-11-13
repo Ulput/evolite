@@ -516,6 +516,101 @@ pub fn activity(record: &TransactionRecord, seen: Timestamp, instant_verified: b
     }
 }
 
+/// The addresses of the wallet's CoinJoin accounts, which [`mark_mixing`] tells mixing lines by.
+pub fn coinjoin_addresses(
+    info: &key_wallet::wallet::managed_wallet_info::ManagedWalletInfo,
+) -> std::collections::HashSet<Address> {
+    use key_wallet::managed_account::managed_account_trait::ManagedAccountTrait;
+    use key_wallet::wallet::managed_wallet_info::wallet_info_interface::WalletInfoInterface;
+    info.accounts()
+        .coinjoin_accounts
+        .values()
+        .flat_map(|a| a.keys().managed_account_type().all_addresses())
+        .collect()
+}
+
+/// A Core line of the history as FEAT-0030 A3 shows it, from the record's own details
+/// (`coinjoin`: the wallet's CoinJoin addresses, [`coinjoin_addresses`]):
+/// - a mixing round ([`evolite_coinjoin::mixing_shape`]; key-wallet's own mark needs 3
+///   participants) — «Mixing (CoinJoin)», its fee what left the wallet (none as a rule);
+/// - a collateral a session took from a CoinJoin address — the same, its fee what was taken;
+/// - the preparation: ordinary coins of ours into denominations on CoinJoin addresses, nothing to
+///   anyone else — «Into mixing»;
+/// - a payment from CoinJoin coins — «Sent» as it was, in the «Mixed» layer instead of Core.
+///
+/// Anything else keeps what [`activity`] made of it.
+pub fn mark_mixing(
+    act: &mut Activity,
+    record: &TransactionRecord,
+    coinjoin: &std::collections::HashSet<Address>,
+) {
+    use evolite_api::layer::MIXED;
+    use evolite_coinjoin::{is_collateral, is_denominated};
+    if coinjoin.is_empty() || record.transaction_type != TransactionType::Standard {
+        return;
+    }
+    let on_coinjoin = |a: Option<&Address>| a.is_some_and(|a| coinjoin.contains(a));
+    let ours_in: Vec<u64> = record.input_details.iter().map(|d| d.value).collect();
+    let owned: Vec<_> = record
+        .output_details
+        .iter()
+        .filter(|o| matches!(o.role, OutputRole::Received | OutputRole::Change))
+        .collect();
+    let ours_out: u64 = owned.iter().map(|o| o.value).sum();
+    let paid_out = record
+        .output_details
+        .iter()
+        .any(|o| o.role == OutputRole::Sent);
+    let any_coinjoin_in = record
+        .input_details
+        .iter()
+        .any(|d| coinjoin.contains(&d.address));
+    let from_coinjoin = !record.input_details.is_empty()
+        && record
+            .input_details
+            .iter()
+            .all(|d| coinjoin.contains(&d.address));
+    let spent: u64 = ours_in.iter().sum();
+    let kind = if evolite_coinjoin::mixing_shape(&record.transaction, &ours_in, ours_out) {
+        Some(ActivityKind::Mixing { fee: 0 })
+    } else if from_coinjoin
+        && ours_in.iter().all(|v| is_collateral(*v))
+        && owned.iter().all(|o| is_collateral(o.value))
+        && spent > ours_out
+    {
+        Some(ActivityKind::Mixing {
+            fee: (spent - ours_out) as Duffs,
+        })
+    } else if !paid_out
+        && !record.input_details.is_empty()
+        && !any_coinjoin_in
+        && owned
+            .iter()
+            .any(|o| on_coinjoin(o.address.as_ref()) && is_denominated(o.value))
+        && owned.iter().all(|o| {
+            !on_coinjoin(o.address.as_ref()) || is_denominated(o.value) || is_collateral(o.value)
+        })
+    {
+        Some(ActivityKind::IntoMixing)
+    } else {
+        None
+    };
+    match kind {
+        Some(kind) => {
+            (act.layers, act.flow) = crate::layers::of(&kind, act.chain);
+            if let ActivityKind::Mixing { fee } = kind {
+                act.fee = (fee > 0).then_some(fee);
+            }
+            act.address = None;
+            act.kind = kind;
+        }
+        None if from_coinjoin && matches!(act.kind, ActivityKind::Sent { .. }) => {
+            act.layers = MIXED;
+        }
+        None => {}
+    }
+}
+
 /// What proved a Core operation, in the card's words (FEAT-0005 AC-T3): an InstantLock only as
 /// [`proof`] gives it — verified (BUG-26); a ChainLock with its block. Nothing for the mempool or
 /// a block not locked yet: the chip says that.
@@ -853,11 +948,31 @@ pub fn mixed_coins(
         .collect()
 }
 
+/// The coins of the CoinJoin accounts that have not been through all the rounds, with how many
+/// they have (FEAT-0030 AC-A6): «Coins» lists them apart, and a payment takes them only alone.
+pub fn unfinished_coins(
+    info: &key_wallet::wallet::managed_wallet_info::ManagedWalletInfo,
+    verified: impl Fn(&key_wallet::dashcore::Txid) -> bool,
+) -> Vec<(key_wallet::Utxo, u8)> {
+    mixed_coins(info, verified)
+        .into_iter()
+        .filter(|c| !c.rounds.fully_mixed())
+        .map(|c| {
+            let rounds = match c.rounds {
+                evolite_coinjoin::Rounds::Mixed(n) => n,
+                _ => 0,
+            };
+            (c.utxo, rounds)
+        })
+        .collect()
+}
+
 /// «Mixed» on the overview (FEAT-0030 AC-T3): `None` when the CoinJoin accounts hold nothing.
 pub fn mixed_balance(coins: &[MixedCoin]) -> Option<Mixed> {
     if coins.is_empty() {
         return None;
     }
+    let count = coins.iter().filter(|c| c.spendable).count();
     let (spendable, unfinished) = coins.iter().fold((0, 0), |(s, u), c| {
         let value = c.utxo.value() as Duffs;
         if c.spendable {
@@ -870,6 +985,11 @@ pub fn mixed_balance(coins: &[MixedCoin]) -> Option<Mixed> {
         spendable,
         unfinished,
         rounds_needed: evolite_coinjoin::FULLY_MIXED_ROUNDS,
+        max: if count == 0 {
+            0
+        } else {
+            (spendable - crate::mixed_pay::usual_fee(count) as Duffs).max(0)
+        },
     })
 }
 
@@ -3157,6 +3277,7 @@ mod coinjoin_tests {
                 spendable: 0,
                 unfinished: D as Duffs,
                 rounds_needed: 4,
+                max: 0,
             })
         );
         assert_eq!(mixed_balance(&[]), None, "nothing on the account: no tile");
@@ -3225,6 +3346,7 @@ mod coinjoin_tests {
                 spendable: D as Duffs,
                 unfinished: 2 * D as Duffs,
                 rounds_needed: 4,
+                max: D as Duffs - crate::mixed_pay::usual_fee(1) as Duffs,
             })
         );
     }
@@ -3282,6 +3404,149 @@ mod coinjoin_tests {
         let bound = if cfg!(debug_assertions) { 2_000 } else { 50 };
         println!("AC-T8: 1 000 mixing transactions counted in {took:?} (bound {bound} ms)");
         assert!(took.as_millis() <= bound, "{took:?} over {bound} ms");
+    }
+
+    /// A history line of `tx` with these inputs of ours (input index, value, address) and outputs
+    /// (index, role, address, value), as A3 shows it.
+    fn line_of(
+        info: &ManagedWalletInfo,
+        tx: Transaction,
+        ins: Vec<(u32, u64, Address)>,
+        outs: Vec<(u32, OutputRole, Address, u64)>,
+    ) -> Activity {
+        use key_wallet::managed_account::transaction_record::{InputDetail, OutputDetail};
+        let spent: i64 = ins.iter().map(|(_, v, _)| *v as i64).sum();
+        let got: i64 = outs
+            .iter()
+            .filter(|o| o.1 != OutputRole::Sent)
+            .map(|o| o.3 as i64)
+            .sum();
+        let direction = if outs.iter().any(|o| o.1 == OutputRole::Sent) {
+            TransactionDirection::Outgoing
+        } else if ins.is_empty() {
+            TransactionDirection::Incoming
+        } else {
+            TransactionDirection::Internal
+        };
+        let r = TransactionRecord::new(
+            tx,
+            key_wallet::account::AccountType::CoinJoin { index: 0 },
+            TransactionContext::Mempool,
+            TransactionType::Standard,
+            direction,
+            ins.into_iter()
+                .map(|(index, value, address)| InputDetail {
+                    index,
+                    value,
+                    address,
+                })
+                .collect(),
+            outs.into_iter()
+                .map(|(index, role, address, value)| OutputDetail {
+                    index,
+                    role,
+                    address: Some(address),
+                    value,
+                })
+                .collect(),
+            got - spent,
+        );
+        let mut act = activity(&r, 0, false);
+        mark_mixing(&mut act, &r, &coinjoin_addresses(info));
+        act
+    }
+
+    /// AC-T9, A3: a round of two (key-wallet's mark misses it) and a taken collateral are
+    /// «Mixing (CoinJoin)» in «Mixed» alone; the preparation is «Into mixing», Core to «Mixed»; a
+    /// payment from CoinJoin coins stays «Sent», in «Mixed» instead of Core; an ordinary payment
+    /// is not touched.
+    #[test]
+    fn mixing_lines_are_told_by_their_own_details() {
+        use evolite_api::layer::{CORE, MIXED};
+        let info = info();
+        let core_at = address(&info, false, 0);
+        let cj: Vec<Address> = (0..4).map(|n| address(&info, true, n)).collect();
+        let mut txs = Txs::default();
+        let tx = |txs: &mut Txs, ins: usize, outs: Vec<(u64, Address)>| {
+            let inputs = (0..ins).map(|n| foreign(200 + n as u8)).collect();
+            txs.tx(inputs, outs);
+            txs.made.last().unwrap().clone()
+        };
+
+        let round = tx(&mut txs, 2, vec![(D, cj[1].clone()), (D, other(1))]);
+        let act = line_of(
+            &info,
+            round,
+            vec![(1, D, cj[0].clone())],
+            vec![(0, OutputRole::Received, cj[1].clone(), D)],
+        );
+        assert_eq!(act.kind, ActivityKind::Mixing { fee: 0 });
+        assert_eq!(
+            (act.layers, act.flow, act.amount),
+            (MIXED, Flow::Between, 0)
+        );
+
+        let collateral = tx(&mut txs, 1, vec![(10_000, cj[3].clone())]);
+        let act = line_of(
+            &info,
+            collateral,
+            vec![(0, 20_000, cj[2].clone())],
+            vec![(0, OutputRole::Received, cj[3].clone(), 10_000)],
+        );
+        assert_eq!(act.kind, ActivityKind::Mixing { fee: 10_000 });
+        assert_eq!(
+            (act.layers, act.fee, act.amount),
+            (MIXED, Some(10_000), -10_000)
+        );
+
+        let prep = tx(
+            &mut txs,
+            1,
+            vec![
+                (D, cj[0].clone()),
+                (D, cj[1].clone()),
+                (4_790_000, core_at.clone()),
+            ],
+        );
+        let act = line_of(
+            &info,
+            prep,
+            vec![(0, 5_000_000, core_at.clone())],
+            vec![
+                (0, OutputRole::Received, cj[0].clone(), D),
+                (1, OutputRole::Received, cj[1].clone(), D),
+                (2, OutputRole::Change, core_at.clone(), 4_790_000),
+            ],
+        );
+        assert_eq!(act.kind, ActivityKind::IntoMixing);
+        assert_eq!((act.layers, act.flow), (CORE | MIXED, Flow::Between));
+
+        let pay = tx(&mut txs, 2, vec![(150_000, other(9))]);
+        let act = line_of(
+            &info,
+            pay.clone(),
+            vec![(0, D, cj[0].clone()), (1, D, cj[1].clone())],
+            vec![(0, OutputRole::Sent, other(9), 150_000)],
+        );
+        assert!(
+            matches!(act.kind, ActivityKind::Sent { .. }),
+            "{:?}",
+            act.kind
+        );
+        assert_eq!((act.layers, act.flow), (MIXED, Flow::Out));
+
+        let act = line_of(
+            &info,
+            pay,
+            vec![(0, 300_000, core_at.clone())],
+            vec![(0, OutputRole::Sent, other(9), 150_000)],
+        );
+        assert!(
+            matches!(act.kind, ActivityKind::Sent { .. }),
+            "{:?}",
+            act.kind
+        );
+        assert_eq!(act.layers, CORE, "an ordinary payment stays Core");
     }
 }
 

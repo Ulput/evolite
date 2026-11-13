@@ -127,17 +127,21 @@ pub struct GridSpec {
     pub gap: egui::Vec2,
     /// At most this many columns, however wide.
     pub max_cols: usize,
-    /// Only a count of columns that divides the cells: four tiles stand 4, 2 by 2 or one
-    /// under another, never 3 and 1.
-    pub even: bool,
+    /// No cell alone in the last row (the architect, 2026-11-13, designer-49): of the columns
+    /// that fit, those that leave the last row more than one cell (or one column), the fewest
+    /// rows, and of those the fewest columns — five tiles stand 3 and 2, four 4 or 2 by 2.
+    pub balanced: bool,
 }
 
 /// How many columns of [`GridSpec`] `spec` hold `n` cells in `width`.
 pub fn grid_columns(width: f32, n: usize, spec: GridSpec) -> usize {
     let most = n.min(spec.max_cols).max(1);
     let fit = (((width + spec.gap.x) / (spec.min_w + spec.gap.x)).floor() as usize).clamp(1, most);
-    if spec.even {
-        (1..=fit).rev().find(|c| n.is_multiple_of(*c)).unwrap_or(1)
+    if spec.balanced {
+        (1..=fit)
+            .filter(|c| *c == 1 || n % c != 1)
+            .min_by_key(|c| (n.div_ceil(*c), *c))
+            .unwrap_or(1)
     } else {
         fit
     }
@@ -445,7 +449,7 @@ mod tests {
         min_w: 200.0,
         gap: egui::Vec2::new(16.0, 16.0),
         max_cols: 4,
-        even: true,
+        balanced: true,
     };
 
     /// Responsive spec R4: as many columns of the least width as fit, at most the cells or
@@ -458,9 +462,15 @@ mod tests {
         assert_eq!(grid_columns(415.0, 4, TILES), 1);
         assert_eq!(grid_columns(5000.0, 4, TILES), 4, "max_cols");
         assert_eq!(grid_columns(10.0, 4, TILES), 1, "one at the least");
+        // The architect's checks (designer-49): no tile alone in the last row.
+        let fit = |k: f32| k * 200.0 + (k - 1.0) * 16.0;
+        assert_eq!(grid_columns(fit(4.0), 5, TILES), 3, "5 at 4: 3 + 2");
+        assert_eq!(grid_columns(fit(4.0), 6, TILES), 3, "6 at 4: 3 + 3");
+        assert_eq!(grid_columns(fit(2.0), 3, TILES), 1, "3 at 2: one column");
+        assert_eq!(grid_columns(fit(3.0), 5, TILES), 3, "5 at 3: 3 + 2");
         let apps = GridSpec {
             min_w: 240.0,
-            even: false,
+            balanced: false,
             max_cols: 3,
             ..TILES
         };
@@ -472,7 +482,7 @@ mod tests {
         let nfts = GridSpec {
             min_w: crate::theme::NFT_MIN_W,
             max_cols: 6,
-            even: false,
+            balanced: false,
             ..TILES
         };
         assert_eq!(grid_columns(618.0, 5, nfts), 3, "3 x 195 + 2 x 16 = 617");
@@ -495,7 +505,7 @@ mod tests {
         let mut out = ctx.run_ui(egui::RawInput::default(), |ui| {
             ui.allocate_ui(vec2(700.0, 4000.0), |ui| {
                 let spec = GridSpec {
-                    even: false,
+                    balanced: false,
                     ..TILES
                 };
                 cols = grid(ui, 5, spec, |ui, i, w, cell| {

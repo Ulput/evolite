@@ -444,8 +444,12 @@ fn grid_rows_are_one_height_in_the_first_frame_at_every_width() {
                     "{screen:?} {lang} {width}: no row in {cards:?}"
                 );
                 if screen == Screen::Overview {
+                    // Five tiles with the mixed coins (FEAT-0030): 3 and 2, never a tile alone
+                    // in a row under others (designer-49).
+                    let alone = in_rows.values().filter(|n| **n == 1).count();
                     assert!(
-                        in_rows.values().all(|n| [1, 2, 4].contains(n)),
+                        in_rows.values().all(|n| [1, 2, 3, 4].contains(n))
+                            && (alone == 0 || alone == in_rows.len()),
                         "{lang} {width}: tiles in rows of {in_rows:?}"
                     );
                 }
@@ -461,7 +465,11 @@ fn grid_rows_are_one_height_in_the_first_frame_at_every_width() {
 fn a_wide_amount_takes_a_smaller_font_in_its_tile() {
     let (_turn, mut kit) = demo_app("overview", "en");
     let duffs = 23_456_789_012;
-    with_wallet(&mut kit, |w| w.balances.core = duffs);
+    // Four tiles: without the mixed coins (FEAT-0030 adds a fifth).
+    with_wallet(&mut kit, |w| {
+        w.balances.core = duffs;
+        w.balances.mixed = None;
+    });
     let shown = crate::format::number(duffs, false);
     let amount = kit
         .query_all(By::new().role(Role::Label).value(&shown))
@@ -489,7 +497,11 @@ fn a_wide_amount_takes_a_smaller_font_in_its_tile() {
 /// label inside it (the title is 13, the detail 12). `core` puts that balance into the wallet.
 fn tile_amounts(core: i64) -> Vec<egui::Rect> {
     let (_turn, mut kit) = demo_app("overview", "en");
-    with_wallet(&mut kit, |w| w.balances.core = core);
+    // Four tiles: without the mixed coins (FEAT-0030 adds a fifth).
+    with_wallet(&mut kit, |w| {
+        w.balances.core = core;
+        w.balances.mixed = None;
+    });
     let shown = crate::format::number(core, false);
     let amount = kit
         .query_all(By::new().role(Role::Label).value(&shown))
@@ -549,7 +561,10 @@ fn a_four_digit_balance_is_shortened_in_its_tile_and_said_in_full() {
     const FULL: &str = "1,234.56789012 DASH";
     let (_turn, mut kit) = demo_app("overview", "en");
     kit.set_size(egui::vec2(WINDOW, 800.0));
-    with_wallet(&mut kit, |w| w.balances.core = CORE);
+    with_wallet(&mut kit, |w| {
+        w.balances.core = CORE;
+        w.balances.mixed = None;
+    });
     let node = kit
         .query_all(By::new().role(Role::Label))
         .find(|n| n.value().is_some_and(|v| v.starts_with("≈ 1,234.")))

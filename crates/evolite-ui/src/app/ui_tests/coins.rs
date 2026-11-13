@@ -1,6 +1,6 @@
 //! FEAT-0013: «Coins» on Send and its dialog, on the demo core's coins
 //! (`evolite_demo::demo::demo_coins`: 9 coins, one dust, one not confirmed, one held by a
-//! payment on its way, one from @alice).
+//! payment on its way, one from @alice; and 3 of the mixing account not fully mixed, FEAT-0030).
 
 use super::*;
 
@@ -20,7 +20,7 @@ fn the_coins_row_is_for_core_only_and_automatic_by_default() {
     let (_turn, mut kit) = demo_app("send-coins", "en");
     kit.run_steps(3);
     assert!(shows(&kit, "Coins: automatic"));
-    kit.state_mut().send.source = 1;
+    kit.state_mut().send.pick(evolite_api::Source::Credits);
     kit.run_steps(2);
     assert!(!shows(&kit, "Coins: automatic"), "credits: no row");
 }
@@ -43,7 +43,10 @@ fn a_payment_to_a_name_lets_the_wallet_choose() {
 fn ticked_coins_are_applied_and_dust_is_hidden() {
     let (_turn, mut kit) = demo_app("coins-manual", "en");
     coins_in(&mut kit);
-    assert!(shows(&kit, "Chosen 2 of 9"));
+    assert!(
+        shows(&kit, "Chosen 2 of 12"),
+        "9 and 3 not fully mixed (FEAT-0030)"
+    );
     assert!(shows(&kit, "1 hidden"), "the 0.0005 coin");
     button(&kit, "Apply").click();
     kit.run_steps(3);

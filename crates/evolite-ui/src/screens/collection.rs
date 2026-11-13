@@ -208,7 +208,7 @@ pub fn collection(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut Collect
                     min_w: NFT_MIN_W,
                     gap: vec2(16.0, 16.0),
                     max_cols: 6,
-                    even: false,
+                    balanced: false,
                 };
                 crate::components::grid(ui, shown.len(), spec, |ui, k, card_w, _| {
                     let i = shown[k];

@@ -279,6 +279,8 @@ fn overview_total_is_a_dash_until_platform_is_read() {
             b.shielded = 40_000;
             b.credits_read = read;
             b.platform_address_read = read;
+            // No mixed coins here (FEAT-0030): the sum is of these.
+            b.mixed = None;
         }
     };
     shown_with(&mut kit, parts(false), "no sum while unread", |k| {

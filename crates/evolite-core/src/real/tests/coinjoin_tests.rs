@@ -98,7 +98,7 @@ async fn mixed_coins_go_only_to_a_dash_address() {
     };
     assert!(refused(
         core.preview_mixed("@bob", 100_000).await,
-        "a payment to a contact comes later"
+        "only to a Core address"
     ));
     let platform = PlatformAddress::P2pkh([7; 20]).to_bech32m_string(key_wallet::Network::Testnet);
     assert!(refused(
@@ -142,9 +142,13 @@ fn the_excess_is_quoted_and_must_be_agreed_to() {
     assert_eq!(confirm.rule, MixedExcess::Confirm);
     assert_eq!(confirm.suggested, None);
     assert!(ops::mixed::excess_agreed(&confirm, confirm.excess).is_ok());
-    assert!(
-        ops::mixed::excess_agreed(&confirm, 0).is_err(),
-        "not agreed"
+    assert_eq!(
+        ops::mixed::excess_agreed(&confirm, 0),
+        Err(CoreError::MixedExcess {
+            excess: confirm.excess,
+            suggested: None
+        }),
+        "not agreed: the excess it would be now, to confirm again"
     );
     assert!(
         ops::mixed::excess_agreed(&confirm, confirm.excess - 1).is_err(),
@@ -159,5 +163,51 @@ fn the_excess_is_quoted_and_must_be_agreed_to() {
     let refuse = ops::mixed::quote(&plan(9_000_000, 226, 10_000_100), 1_000_000);
     assert_eq!(refuse.rule, MixedExcess::Refuse);
     assert_eq!(refuse.suggested, Some(10_000_100 - 226));
-    assert!(ops::mixed::excess_agreed(&refuse, refuse.excess).is_err());
+    assert_eq!(
+        ops::mixed::excess_agreed(&refuse, refuse.excess),
+        Err(CoreError::MixedExcess {
+            excess: refuse.excess,
+            suggested: refuse.suggested
+        }),
+        "over the bound: refused with the amount that has no excess"
+    );
+}
+
+/// The screens and the demo say and answer a payment from «Mixed» by the thresholds of
+/// `evolite_coinjoin` (АРХ-9а): they build without that crate and keep a copy in `evolite-api`.
+#[test]
+fn the_screens_burn_an_excess_by_the_cores_thresholds() {
+    use evolite_chain::coinjoin::{EXCESS_FREE, EXCESS_FREE_PERCENT, EXCESS_MAX};
+    assert_eq!(
+        (
+            evolite_api::MIXED_EXCESS_FREE,
+            evolite_api::MIXED_EXCESS_FREE_PERCENT,
+            evolite_api::MIXED_EXCESS_MAX
+        ),
+        (
+            EXCESS_FREE as Duffs,
+            EXCESS_FREE_PERCENT as Duffs,
+            EXCESS_MAX as Duffs
+        )
+    );
+}
+
+/// FEAT-0030 screens review r1, P3 2: `Spend::Send` from «Mixed» is refused before anything is
+/// read — mixed coins go only as `Spend::SendMixed`, with their excess agreed (АРХ-9а).
+#[tokio::test]
+async fn an_ordinary_payment_from_mixed_is_refused() {
+    let mut core = opened("mixed-as-send", "pw-mixed");
+    let result = core
+        .send(
+            1,
+            Source::Mixed,
+            "yMrDQWqicXKL8xdJg23oYVVqKNtm5AwvXQ",
+            10_000,
+            (None, None, None),
+        )
+        .await;
+    assert!(
+        matches!(&result, Err(CoreError::NotAvailable(why)) if why.contains("from mixed coins")),
+        "{result:?}"
+    );
 }

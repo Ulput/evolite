@@ -147,10 +147,11 @@ const WRONG_SAID: &str = "Wrong password — the payment is not signed.";
 /// Before the fix the dialog closed and the line stood below the window's edge.
 #[test]
 fn a_wrong_password_stays_in_the_last_look_with_the_error_at_the_field() {
-    for source in 0..3 {
+    use evolite_api::Source;
+    for source in [Source::Core, Source::Credits, Source::Pool] {
         let (turn, mut kit) = demo_app("send-confirm", "en");
         ask_every_time(&mut kit);
-        kit.state_mut().send.source = source;
+        kit.state_mut().send.pick(source);
         kit.run_steps(3);
         sign_with(&mut kit, evolite_core::DEMO_WRONG_PASSWORD);
         wait_for(&mut kit, "the core's answer", |kit| {
@@ -159,10 +160,17 @@ fn a_wrong_password_stays_in_the_last_look_with_the_error_at_the_field() {
         });
         kit.run_steps(3);
         let send = &kit.state().send;
-        assert!(send.confirming, "source {source}: the dialog closed");
-        assert!(send.result.is_none(), "source {source}: {:?}", send.result);
-        assert!(!send.amount.is_empty(), "source {source}: the amount gone");
-        assert!(has_text(&kit, WRONG_SAID), "source {source}: the line");
+        assert!(send.confirming, "source {source:?}: the dialog closed");
+        assert!(
+            send.result.is_none(),
+            "source {source:?}: {:?}",
+            send.result
+        );
+        assert!(
+            !send.amount.is_empty(),
+            "source {source:?}: the amount gone"
+        );
+        assert!(has_text(&kit, WRONG_SAID), "source {source:?}: the line");
         drop(kit);
         drop(turn);
     }

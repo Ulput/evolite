@@ -142,6 +142,12 @@ impl Real {
             Source::Core => {}
             Source::Credits => return self.send_credits(payment, id, to, amount, kept),
             Source::Pool => return self.send_from_pool(payment, to, amount, kept),
+            // FEAT-0030: mixed coins go as `Spend::SendMixed`, with their excess agreed.
+            Source::Mixed => {
+                return Err(CoreError::NotAvailable(
+                    tr!("Check the payment again: it is from mixed coins").into(),
+                ));
+            }
             Source::PlatformAddress => {
                 return self.send_from_addresses(payment, id, to, amount, kept);
             }
@@ -405,10 +411,22 @@ impl Real {
                 tr!("The wallet chooses the coins for a payment to a contact.").into(),
             ));
         }
-        let payable = convert::payable_coins(&wallet.state().await.core_wallet, |txid| {
-            self.chain.instant_lock_verified(txid)
-        });
-        let set = evolite_chain::coins::within(payable, choice.outpoints())
+        let (payable, unfinished) = {
+            let state = wallet.state().await;
+            let verified =
+                |txid: &key_wallet::dashcore::Txid| self.chain.instant_lock_verified(txid);
+            let unfinished: Vec<_> = convert::unfinished_coins(&state.core_wallet, verified)
+                .into_iter()
+                .map(|(u, _)| u)
+                .filter(|u| !u.is_locked && convert::coin_is_final(u, verified))
+                .collect();
+            (
+                convert::payable_coins(&state.core_wallet, verified),
+                unfinished,
+            )
+        };
+        // Not fully mixed coins only alone (FEAT-0030 AC-A6).
+        let (set, _) = evolite_chain::coins::within_apart(payable, unfinished, choice.outpoints())
             .map_err(|e| core_failure(evolite_chain::coins::refusal(&e)))?;
         // The form's own plan (`coin_plan`), with the fees of this wallet's coins.
         let values: Vec<u64> = set.iter().map(|u| u.value()).collect();
@@ -479,11 +497,27 @@ impl Real {
             })
             .collect();
         let at = |txid: &key_wallet::dashcore::Txid| times.get(txid).copied();
-        Ok(evolite_chain::coins::listed(
-            coins,
-            |txid| self.chain.instant_lock_verified(txid),
-            at,
-        ))
+        let verified = |txid: &key_wallet::dashcore::Txid| self.chain.instant_lock_verified(txid);
+        let mut listed = evolite_chain::coins::listed(coins, verified, at);
+        // The mixing account's coins that have not been through all the rounds, after the others
+        // (FEAT-0030 AC-A6). Fully mixed ones are spent from «Mixed», not here.
+        let unfinished = convert::unfinished_coins(&state.core_wallet, verified);
+        let rounds: HashMap<String, (u8, u8)> = unfinished
+            .iter()
+            .map(|(u, r)| {
+                (
+                    evolite_chain::coins::outpoint_text(&u.outpoint),
+                    (*r, evolite_chain::coinjoin::FULLY_MIXED_ROUNDS),
+                )
+            })
+            .collect();
+        let mut apart =
+            evolite_chain::coins::listed(unfinished.iter().map(|(u, _)| (u, None)), verified, at);
+        for coin in &mut apart {
+            coin.mixing = rounds.get(&coin.outpoint).copied();
+        }
+        listed.extend(apart);
+        Ok(listed)
     }
 }
 

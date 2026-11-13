@@ -386,3 +386,68 @@ fn a_new_opening_shows_the_middle_from_its_top() {
     assert!(focused(&kit).is_some(), "no focus on opening");
     assert_eq!(dialog.offset, 0.0, "the middle moved to the focus");
 }
+
+/// FEAT-0030 screens review r1, P3 1 (a guard for BUG-126): in Arabic a field in the scrolling
+/// middle of a dialog keeps its Latin text left to right in its place, the cursor after the
+/// last letter. The RTL mirror keeps a field only when the clip egui painted it with is the one
+/// `rtl::text_edit` reckons, to the last bit: an egui that rounds it otherwise would mirror the
+/// field — the cursor would jump to the text's first letter.
+#[test]
+fn a_field_in_a_scrolling_middle_keeps_its_text_left_to_right_in_arabic() {
+    const TYPED: &str = "yXk3Tq9mD8";
+    let (_turn, mut kit) = demo_app("edit-profile", "ar");
+    settle(&mut kit);
+    at(&mut kit, SMALLEST);
+    let view = seen(&kit).scrolled.expect("the middle scrolls");
+    let field = in_dialog(&kit, Role::TextInput)
+        .into_iter()
+        .find(|r| view.contains_rect(*r))
+        .expect("a field in the middle");
+    kit.query_all_by_role(Role::TextInput)
+        .find(|n| n.rect() == field)
+        .expect("the field's node")
+        .click();
+    kit.run_steps(2);
+    kit.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::A);
+    kit.run_steps(1);
+    kit.query_all_by_role(Role::TextInput)
+        .find(|n| n.rect() == field)
+        .expect("the field's node")
+        .type_text(TYPED);
+    kit.run_steps(3);
+    assert!(seen(&kit).scrolled.is_some(), "still scrolling");
+    let mut text = None;
+    let mut cursors = Vec::new();
+    fn walk(
+        s: &egui::Shape,
+        text: &mut Option<egui::Rect>,
+        cursors: &mut Vec<f32>,
+        field: egui::Rect,
+    ) {
+        match s {
+            egui::Shape::Text(t) if t.galley.job.text == TYPED => {
+                *text = Some(t.visual_bounding_rect())
+            }
+            egui::Shape::LineSegment { points: [a, b], .. }
+                if a.x == b.x && b.y - a.y > 8.0 && field.contains(*a) =>
+            {
+                cursors.push(a.x)
+            }
+            egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, text, cursors, field)),
+            _ => {}
+        }
+    }
+    for c in &kit.output().shapes {
+        walk(&c.shape, &mut text, &mut cursors, field.expand(2.0));
+    }
+    let text = text.expect("the typed text painted");
+    assert!(
+        field.expand(1.0).contains_rect(text),
+        "the text {text:?} in its field {field:?}"
+    );
+    let cursor = cursors.first().copied().expect("the cursor");
+    assert!(
+        (cursor - text.max.x).abs() < 4.0,
+        "the cursor at {cursor} after the last letter ({text:?}), not reflected to the first"
+    );
+}

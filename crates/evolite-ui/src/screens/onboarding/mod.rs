@@ -73,7 +73,6 @@ pub struct Onboarding {
     restore_hidden: bool,
     focused: Option<usize>,
     paste_error: bool,
-    coinjoin_ok: bool,
     /// The new phrase from the core, and how long it was asked to be.
     phrase: Option<Phrase>,
     asked_len: Option<usize>,
@@ -115,7 +114,6 @@ impl Onboarding {
             restore_hidden: false,
             focused: None,
             paste_error: false,
-            coinjoin_ok: false,
             phrase: None,
             asked_len: None,
             scan: None,
@@ -158,7 +156,6 @@ impl Onboarding {
             o.restore_words.push("about".into());
         }
         o.focused = Some(5);
-        o.coinjoin_ok = true;
         o
     }
 

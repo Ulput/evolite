@@ -804,11 +804,38 @@ impl Chain {
         let coins = crate::convert::payable_coins(&wallet.state().await.core_wallet, |txid| {
             self.instant_lock_verified(txid)
         });
+        // Coins of the mixing account not fully mixed go only alone, chosen by hand (FEAT-0030
+        // AC-A6); then that account signs them too, and the change goes to the first source.
+        let mut sources = SEND_FUNDING_SOURCES.to_vec();
         let builder = match chosen {
             None => payment_builder(to, amount).add_inputs(coins),
             Some(choice) => {
-                let coins = crate::coins::within(coins, choice.outpoints())
-                    .map_err(|e| crate::coins::refusal(&e))?;
+                let unfinished: Vec<_> = {
+                    let state = wallet.state().await;
+                    crate::convert::unfinished_coins(&state.core_wallet, |txid| {
+                        self.instant_lock_verified(txid)
+                    })
+                    .into_iter()
+                    .map(|(u, _)| u)
+                    .filter(|u| {
+                        !u.is_locked
+                            && crate::convert::coin_is_final(
+                                u,
+                                |txid: &key_wallet::dashcore::Txid| {
+                                    self.instant_lock_verified(txid)
+                                },
+                            )
+                    })
+                    .collect()
+                };
+                let (coins, mixing) =
+                    crate::coins::within_apart(coins, unfinished, choice.outpoints())
+                        .map_err(|e| crate::coins::refusal(&e))?;
+                if mixing {
+                    sources.push(
+                        key_wallet::wallet::managed_wallet_info::transaction_building::AccountTypePreference::CoinJoin,
+                    );
+                }
                 payment_builder(to, amount)
                     .add_inputs(coins)
                     .set_selection_strategy(if choice.all() {
@@ -820,7 +847,7 @@ impl Chain {
         };
         let signed = wallet
             .core()
-            .finalize_transaction_with_options(builder, &SEND_FUNDING_SOURCES, 0, keys, true)
+            .finalize_transaction_with_options(builder, &sources, 0, keys, true)
             .await
             .map_err(|e| e.to_string())?;
         if let Some(choice) = chosen {

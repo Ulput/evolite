@@ -49,6 +49,9 @@ pub(super) struct DevState {
     /// `--screen send-confirm-tall` / `edit-profile-password`: «Password for every send» on, so
     /// the dialog asks for it (BUG-122: the tallest form of each).
     password_preset: bool,
+    /// `--screen overview-mixed-unchecked` (FEAT-0030 O2): Core, and «Mixed» with it, last checked an
+    /// hour ago.
+    core_unchecked_preset: bool,
     /// `--screen send-fiat-stale`: the rate older than 5 minutes (FEAT-0008, frame 3).
     stale_rate_preset: bool,
     /// `--screen send-pool-unread` / `send-pool-unknown`: Send from the pool before its first read
@@ -173,7 +176,11 @@ impl DevState {
             },
             tokens_preset: TOKEN_STATES.into_iter().find(|name| dev.preset(name)),
             syncing_preset: dev.preset("overview-syncing") || dev.preset("send-syncing"),
-            password_preset: dev.preset("send-confirm-tall") || dev.preset("edit-profile-password"),
+            password_preset: dev.preset("send-confirm-tall")
+                || dev.preset("edit-profile-password")
+                || dev.preset("send-mixed-agree")
+                || dev.preset("send-mixed-changed"),
+            core_unchecked_preset: dev.preset("overview-mixed-unchecked"),
             stale_rate_preset: dev.preset("send-fiat-stale"),
             pool_preset: if dev.preset("send-pool-unread") {
                 Some(true)
@@ -317,6 +324,13 @@ impl App {
         }
         // `--screen overview-syncing` / `send-syncing`: in the middle of the block filters, as a
         // restored wallet on testnet is for minutes.
+        if self.dev.core_unchecked_preset
+            && let Some(w) = self.snapshot.as_mut().and_then(|s| s.wallet.as_mut())
+        {
+            w.balances.core_as_of = Some(evolite_api::CoreAsOf::Checked(
+                chrono::Utc::now().timestamp() - 60 * 60,
+            ));
+        }
         if self.dev.syncing_preset
             && let Some(s) = self.snapshot.as_mut()
         {
@@ -443,6 +457,10 @@ impl App {
             f.flow = Some(evolite_api::Flow::In);
             f.period = screens::activity_filters::Period::Days(30);
             self.history.open = true;
+        }
+        // FEAT-0030 H1: History on «Mixed».
+        if preset("activity-mixed") {
+            self.history.filters.layer = 2;
         }
         if preset("activity-filters-empty") {
             let f = &mut self.history.filters;
@@ -616,6 +634,9 @@ impl App {
                 ("coins-auto", &[][..], 5_000_000, true),
                 ("coins-not-enough", &[6u8, 7][..], 20_000_000, true),
                 ("coins-spent", &[6u8, 9][..], 5_000_000, true),
+                // FEAT-0030 CC-M1, CC-M2: a coin not fully mixed alone, and with an ordinary one.
+                ("coins-mixed", &[10u8][..], 500_000, true),
+                ("coins-mixed-refused", &[4u8, 10][..], 500_000, true),
             ];
             if let Some((name, chosen, amount, dialog)) =
                 coins_preset.into_iter().find(|(n, ..)| preset(n))
@@ -643,6 +664,7 @@ impl App {
                 if dialog {
                     self.send.coins.dialog = true;
                     self.send.coins.manual = name != "coins-auto";
+                    self.send.coins.reveal_group = true;
                     self.send.coins.ticked = set;
                 } else {
                     self.send.coins.chosen = set;
@@ -679,8 +701,44 @@ impl App {
                 self.receive.in_currency = true;
                 self.receive.fiat = "25".into();
             }
+            // FEAT-0030 S1: from «Mixed» to an address; the demo's two 0.100001 coins pay it with an
+            // excess under 0.001 DASH and 1 %, shown in the summary.
+            if preset("send-mixed") {
+                self.send.pick(evolite_api::Source::Mixed);
+                self.send.recipient = "yXk3Tq9mD8vJw2RfL6pN4sB7cH1eZ5aG9f".into();
+                self.send.suggested = Some(19_990_000);
+                self.send.amount = crate::format::input_text(19_990_000);
+            }
+            // The rest of FEAT-0030's frames: S2 to a name, S3 an excess over 0.01 DASH, and the
+            // last look — P1 a small excess, P2 one to agree to (the password asked), P2b the core
+            // found another, P4 the core refused.
+            let mixed_presets = [
+                ("send-mixed-name", "@alice", 19_990_000, false),
+                ("send-mixed-refused", "", 15_000_000, false),
+                ("send-mixed-confirm", "", 19_990_000, true),
+                ("send-mixed-agree", "", 19_500_000, true),
+                ("send-mixed-changed", "", 19_500_000, true),
+                ("send-mixed-refused-confirm", "", 15_000_000, true),
+            ];
+            if let Some((name, to, amount, confirming)) =
+                mixed_presets.into_iter().find(|(n, ..)| preset(n))
+            {
+                self.send.pick(evolite_api::Source::Mixed);
+                self.send.recipient = if to.is_empty() {
+                    "yXk3Tq9mD8vJw2RfL6pN4sB7cH1eZ5aG9f".into()
+                } else {
+                    to.into()
+                };
+                self.send.suggested = Some(amount);
+                self.send.amount = crate::format::input_text(amount);
+                self.send.confirming = confirming;
+                if name == "send-mixed-changed" {
+                    // As after the core's answer to a payment with another excess agreed.
+                    self.send.mixed.changed = Some(499_860);
+                }
+            }
             if preset("send-pool-unread") || preset("send-pool-unknown") {
-                self.send.source = 2;
+                self.send.pick(evolite_api::Source::Pool);
                 self.send.recipient = "yXk3Tq9mD8vJw2RfL6pN4sB7cH1eZ5aG9f".into();
             }
         }

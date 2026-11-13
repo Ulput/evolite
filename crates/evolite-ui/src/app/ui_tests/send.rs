@@ -144,6 +144,8 @@ fn the_sources_stay_in_one_row_of_equal_columns() {
                 // The other two long as well: the widest the row gets.
                 w.balances.credits = 123_456_789;
                 w.balances.shielded = 98_765_432;
+                // The four sources of FEAT-0015; five with mixed coins (FEAT-0030), apart.
+                w.balances.mixed = None;
             },
             |_| true,
         );
@@ -213,6 +215,7 @@ fn every_source_lies_inside_the_from_panel() {
                         });
                         wl.balances.credits = credits;
                         wl.balances.shielded = pool;
+                        wl.balances.mixed = None;
                     },
                     |_| true,
                 );
@@ -350,6 +353,7 @@ fn the_sources_stay_in_one_row_in_every_language() {
                 w.balances.core_as_of = Some(evolite_api::CoreAsOf::Checked(
                     chrono::Utc::now().timestamp() - 86_400,
                 ));
+                w.balances.mixed = None;
             },
             |_| true,
         );
@@ -406,4 +410,58 @@ fn even_rows(cards: &[egui::Rect]) -> bool {
         }
     }
     rows.iter().all(|(_, n)| *n == rows[0].1)
+}
+
+/// Every piece of text painted with `text` (as the interface draws it, [`crate::i18n::t`]), by
+/// where it is drawn.
+fn painted_rects(kit: &Kit, text: &str) -> Vec<egui::Rect> {
+    fn walk(shape: &egui::Shape, text: &str, out: &mut Vec<egui::Rect>) {
+        match shape {
+            egui::Shape::Text(t) if t.galley.job.text == text => out.push(t.visual_bounding_rect()),
+            egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, text, out)),
+            _ => {}
+        }
+    }
+    let mut out = Vec::new();
+    for c in &kit.output().shapes {
+        walk(&c.shape, text, &mut out);
+    }
+    out
+}
+
+/// BUG-126: in Arabic the labels of «Check the payment» stay inside the dialog. «الرسوم، بحد
+/// أقصى» («Fee, at most») stood past its right edge over the form behind: the address in «To»
+/// behind the dialog is kept left to right, and a label that fell inside its place was moved with
+/// it instead of being mirrored. The dialog stands in the middle of the window and the form at its
+/// top, so the window's height brings each label of the dialog over the field in turn.
+#[test]
+fn the_last_looks_labels_stay_inside_the_dialog_in_arabic() {
+    // From chosen coins (FEAT-0013 P1), as the bug was seen.
+    let (_turn, mut kit) = demo_app("send-coins-confirm", "ar");
+    let sign = crate::i18n::spoken("Sign and send");
+    wait_for(&mut kit, "«Sign and send»", |kit| {
+        kit.query_by_label(&sign).is_some()
+    });
+    let mut wrong = Vec::new();
+    for h in (640..=860).step_by(4) {
+        kit.set_size(egui::vec2(1024.0, h as f32));
+        kit.run_steps(3);
+        let Some(dialog) = kit
+            .ctx
+            .memory(|m| m.area_rect(egui::Id::new("send-confirm")))
+        else {
+            wrong.push(format!("{h}: no dialog"));
+            continue;
+        };
+        // Words only the last look has (the form behind says «Network fee», «Amount», «From»).
+        for label in ["Fee, at most", "In total", "Change, to your address"] {
+            let shown = crate::i18n::t(label).into_owned();
+            for r in painted_rects(&kit, &shown) {
+                if !dialog.expand(0.5).contains_rect(r) {
+                    wrong.push(format!("{h}: «{label}» at {r:?}, the dialog {dialog:?}"));
+                }
+            }
+        }
+    }
+    assert!(wrong.is_empty(), "{wrong:#?}");
 }

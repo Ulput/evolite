@@ -184,13 +184,13 @@ impl Mock {
                     None => Err(CoreError::NotAvailable(NO_WALLET.into())),
                 },
             },
-            // FEAT-0030: the example has no mixed coins yet (their preset comes with the screen).
-            Command::PreviewMixed { ask, .. } => Event::MixedPreview {
+            // FEAT-0030: the example's mixed coins, as the real core plans them.
+            Command::PreviewMixed { ask, amount, .. } => Event::MixedPreview {
                 ask,
-                result: Err(match &self.snapshot.wallet {
-                    Some(_) => CoreError::NotEnough,
-                    None => CoreError::NotAvailable(NO_WALLET.into()),
-                }),
+                result: match &self.snapshot.wallet {
+                    Some(_) => demo::mixed_quote(amount),
+                    None => Err(CoreError::NotAvailable(NO_WALLET.into())),
+                },
             },
             // The address book is kept on this computer: the mock can keep it too (in memory).
             Command::SaveAddress { address, label } => {
@@ -1228,7 +1228,13 @@ mod tests {
 
     #[test]
     fn demo_balances_add_up_to_the_figma_total() {
-        assert_eq!(demo_wallet(0).balances.total(), 1_284_600_000);
+        // Figma's 12.846, and the coins mixed in DashPay (FEAT-0030, O1: «Total» counts them).
+        let b = demo_wallet(0).balances;
+        let mixed = b.mixed.expect("the demo's mixed coins");
+        assert_eq!(
+            b.total(),
+            1_284_600_000 + mixed.spendable + mixed.unfinished
+        );
     }
 
     #[test]

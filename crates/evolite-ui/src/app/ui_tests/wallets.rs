@@ -265,7 +265,7 @@ fn a_lock_starts_history_from_all() {
         open_wallet(kit).as_deref() == Some("a1b2c3d4")
     });
     kit.state_mut().history.filters = Filters {
-        layer: 2,
+        layer: 3,
         status: Some(Status::Confirmed),
         period: Period::Days(7),
         ..Filters::default()
@@ -307,7 +307,7 @@ fn another_wallet_starts_history_from_all() {
     kit.state_mut().history.query = "bob".into();
     kit.run_steps(2);
     assert!(
-        has_text(&kit, "Shown 1 of 25"),
+        has_text(&kit, "Shown 1 of 29"),
         "the Sending payment to @bob"
     );
     kit.state_mut().core.send(Command::SwitchWallet {

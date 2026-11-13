@@ -2,7 +2,7 @@
 //! ([`Activity::layers`], [`Activity::flow`], FEAT-0009 R-1 and R-2): the screens cannot tell
 //! a shield's source, a lock's target or whose address a withdrawal paid; the core can.
 
-use evolite_api::layer::{CORE, IDENTITY, PLATFORM_ADDRESS, POOL};
+use evolite_api::layer::{CORE, IDENTITY, MIXED, PLATFORM_ADDRESS, POOL};
 use evolite_api::{Activity, ActivityKind, Chain, Flow, Wallet};
 
 /// The label a shield from an identity's credits is kept with (the journal's `Shield::from`).
@@ -50,6 +50,9 @@ pub fn of(kind: &ActivityKind, chain: Chain) -> (u8, Flow) {
         // The pool's own transfer to a private address of ours is on Platform.
         SelfTransfer { .. } if chain == Chain::Platform => (POOL, Flow::Between),
         SelfTransfer { .. } => (CORE, Flow::Between),
+        // FEAT-0030: a round stays within «Mixed»; the preparation moves Core into it.
+        Mixing { .. } => (MIXED, Flow::Between),
+        IntoMixing => (CORE | MIXED, Flow::Between),
         PlatformReceived => (PLATFORM_ADDRESS, Flow::In),
         // An identity topped up from the wallet's Platform addresses (FEAT-0015): no Core in it.
         TopUp { .. } if chain == Chain::Platform => (PLATFORM_ADDRESS | IDENTITY, Flow::Between),

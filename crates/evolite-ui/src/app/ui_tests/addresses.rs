@@ -113,7 +113,8 @@ fn an_empty_platform_address_card_fills_the_address() {
     empty(&mut kit);
     enter(&mut kit);
     assert_eq!(kit.state().send.recipient, own, "its own address in «To»");
-    assert_eq!(kit.state().send.source, 1, "from the credits");
+    // Core, «Mixed» (the demo has mixed coins, FEAT-0030), the credits.
+    assert_eq!(kit.state().send.source, 2, "from the credits");
 }
 
 /// AC-D14 (frame 15): from Core to a Platform address there is no direct way; the form says
@@ -129,7 +130,8 @@ fn core_to_a_platform_address_offers_the_ways_there() {
     let to = kit.state().send.recipient.clone();
     button(&kit, "Send from the Platform address ›").click();
     kit.run_steps(3);
-    assert_eq!(kit.state().send.source, 3);
+    // Core, «Mixed», credits, the pool, the Platform address (FEAT-0030).
+    assert_eq!(kit.state().send.source, 4);
     assert_eq!(kit.state().send.recipient, to);
 }
 

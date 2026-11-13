@@ -578,8 +578,8 @@ impl App {
                 Event::Sent { id, result } => self.send.on_sent(*id, result),
                 Event::PaymentPreview { to, result } => self.send.on_preview(to, result),
                 Event::Coins { ask, result } => self.send.on_coins(*ask, result),
-                // FEAT-0030: «Mixed» on Send comes with its screen (after QA21); nothing asks yet.
-                Event::MixedPreview { .. } => {}
+                // FEAT-0030: the plan of a payment from «Mixed».
+                Event::MixedPreview { ask, result } => self.send.on_mixed_preview(*ask, result),
                 Event::Done {
                     what: DoneWhat::Gift,
                     result,

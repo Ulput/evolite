@@ -317,7 +317,7 @@ pub fn contacts(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut ContactsS
             min_w: 242.0,
             gap: egui::vec2(16.0, 16.0),
             max_cols: 3,
-            even: true,
+            balanced: true,
         };
         crate::components::grid(ui, HOW.len(), spec, |ui, i, w, cell| {
             let (icon, title, body) = HOW[i];

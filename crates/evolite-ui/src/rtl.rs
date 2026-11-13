@@ -44,10 +44,21 @@ fn on_id() -> Id {
     Id::new("rtl-on")
 }
 
-/// Keeps `rect` left to right inside: it moves to its mirrored place as a whole.
-pub fn keep(ctx: &Context, rect: Rect) {
+/// Keeps `rect` left to right inside: it moves to its mirrored place as a whole. Only what `ui`
+/// paints there (with its clip): a dialog over the place, another layer, is mirrored as always
+/// (BUG-126: a label of «Check the payment» over the address in «To» behind it went with the
+/// address, past the dialog's edge).
+pub fn keep(ui: &Ui, rect: Rect) {
+    keep_clipped(ui.ctx(), rect, ui.clip_rect());
+}
+
+/// [`keep`] of what is painted with `clip`.
+fn keep_clipped(ctx: &Context, rect: Rect, clip: Rect) {
     if ctx.data(|d| d.get_temp::<bool>(on_id())) == Some(true) {
-        ctx.data_mut(|d| d.get_temp_mut_or_default::<Vec<Rect>>(keep_id()).push(rect));
+        ctx.data_mut(|d| {
+            d.get_temp_mut_or_default::<Vec<(Rect, Rect)>>(keep_id())
+                .push((rect, clip))
+        });
     }
 }
 
@@ -57,7 +68,9 @@ pub fn text_edit(ui: &mut Ui, edit: egui::TextEdit<'_>) -> egui::Response {
     let out = edit.show(ui);
     let text = Rect::from_min_size(out.galley_pos, out.galley.size());
     // The cursor is a little wider and taller than the line it stands in.
-    keep(ui.ctx(), text.expand2(vec2(3.0, 4.0)));
+    // egui paints a field's text and cursor clipped to its inside (`TextEdit::show`).
+    let clip = ui.clip_rect().intersect(out.text_clip_rect.expand(1.0));
+    keep_clipped(ui.ctx(), text.expand2(vec2(3.0, 4.0)), clip);
     // Its label above is its name for a screen reader (BUG-41).
     crate::a11y::take_field_name(ui, &out.response.response);
     // In a dialog: the first field takes the focus when it opens, Enter goes on from it.
@@ -92,7 +105,7 @@ impl egui::Plugin for Mirror {
 
     fn output_hook(&mut self, ctx: &Context, output: &mut FullOutput) {
         let kept = ctx
-            .data_mut(|d| d.remove_temp::<Vec<Rect>>(keep_id()))
+            .data_mut(|d| d.remove_temp::<Vec<(Rect, Rect)>>(keep_id()))
             .unwrap_or_default();
         if !self.on {
             return;
@@ -102,8 +115,9 @@ impl egui::Plugin for Mirror {
             kept,
         };
         for clipped in &mut output.shapes {
-            clipped.clip_rect = m.rect(clipped.clip_rect);
-            m.shape(&mut clipped.shape);
+            let clip = clipped.clip_rect;
+            clipped.clip_rect = m.rect(clip);
+            m.shape(&mut clipped.shape, clip);
         }
         if let Some(ime) = &mut output.platform_output.ime {
             ime.rect = m.rect(ime.rect);
@@ -126,7 +140,8 @@ impl egui::Plugin for Mirror {
 
 struct Mirroring {
     axis: f32,
-    kept: Vec<Rect>,
+    /// The places kept left to right ([`keep`]), each with the clip of what was painted there.
+    kept: Vec<(Rect, Rect)>,
 }
 
 impl Mirroring {
@@ -147,10 +162,11 @@ impl Mirroring {
         vec2(self.axis - r.max.x - r.min.x, 0.0)
     }
 
-    fn shape(&self, shape: &mut Shape) {
+    /// `shape`, painted with `clip` (before mirroring).
+    fn shape(&self, shape: &mut Shape, clip: Rect) {
         if let Shape::Vec(shapes) = shape {
             for s in shapes {
-                self.shape(s);
+                self.shape(s, clip);
             }
             return;
         }
@@ -159,9 +175,9 @@ impl Mirroring {
             && let Some(kept) = self
                 .kept
                 .iter()
-                .find(|k| k.expand(1.0).contains_rect(bounds))
+                .find(|(k, kept_clip)| *kept_clip == clip && k.expand(1.0).contains_rect(bounds))
         {
-            shape.translate(self.shift(*kept));
+            shape.translate(self.shift(kept.0));
             return;
         }
         match shape {
@@ -261,10 +277,16 @@ mod tests {
     use egui::epaint::{RectShape, Stroke, StrokeKind};
     use egui::{Color32, pos2};
 
+    /// The clip of the kept place and of what is painted there.
+    const CLIP: Rect = Rect::from_min_max(pos2(0.0, 0.0), pos2(1000.0, 600.0));
+
     fn mirroring() -> Mirroring {
         Mirroring {
             axis: 1000.0,
-            kept: vec![Rect::from_min_max(pos2(100.0, 0.0), pos2(300.0, 50.0))],
+            kept: vec![(
+                Rect::from_min_max(pos2(100.0, 0.0), pos2(300.0, 50.0)),
+                CLIP,
+            )],
         }
     }
 
@@ -282,7 +304,7 @@ mod tests {
             Stroke::NONE,
             StrokeKind::Inside,
         ));
-        mirroring().shape(&mut shape);
+        mirroring().shape(&mut shape, CLIP);
         let Shape::Rect(r) = shape else {
             panic!("a rect")
         };
@@ -296,7 +318,7 @@ mod tests {
     #[test]
     fn a_chevron_drawn_as_a_path_points_the_other_way() {
         let mut shape = Shape::line_segment([pos2(500.0, 0.0), pos2(510.0, 10.0)], Stroke::NONE);
-        mirroring().shape(&mut shape);
+        mirroring().shape(&mut shape, CLIP);
         let Shape::LineSegment { points, .. } = shape else {
             panic!("a line")
         };
@@ -311,12 +333,29 @@ mod tests {
             0,
             Color32::BLACK,
         );
-        mirroring().shape(&mut shape);
+        mirroring().shape(&mut shape, CLIP);
         let Shape::Rect(r) = shape else {
             panic!("a rect")
         };
         // The card 100..300 stands at 700..900; the module 10 px into it.
         assert_eq!(r.rect.min, pos2(710.0, 10.0));
+    }
+
+    /// BUG-126: what another layer paints over a kept place (a dialog over a text field) is mirrored,
+    /// not moved with the place.
+    #[test]
+    fn a_kept_place_keeps_only_its_own() {
+        let over = Rect::from_min_max(pos2(120.0, 0.0), pos2(400.0, 300.0));
+        let mut shape = Shape::rect_filled(
+            Rect::from_min_size(pos2(110.0, 10.0), vec2(5.0, 5.0)),
+            0,
+            Color32::BLACK,
+        );
+        mirroring().shape(&mut shape, over);
+        let Shape::Rect(r) = shape else {
+            panic!("a rect")
+        };
+        assert_eq!(r.rect.min, pos2(885.0, 10.0), "mirrored: 1000 - 115");
     }
 
     /// A frame of 800 × 600 points in a context that reads right to left.

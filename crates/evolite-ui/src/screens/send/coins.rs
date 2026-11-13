@@ -55,6 +55,9 @@ pub struct CoinPick {
     pub ask: u64,
     /// The core's answer to it.
     pub coins: Option<Result<Vec<Coin>, CoreError>>,
+    /// The dialog has just opened: a ticked coin of the group not fully mixed is brought into
+    /// view once (FEAT-0030 CC-M1), as a spent one is put first.
+    pub reveal_group: bool,
 }
 
 impl CoinPick {
@@ -171,11 +174,15 @@ fn chosen_line(coins: &[&Coin]) -> String {
 }
 
 /// Where a coin came from: this wallet, or «from @contact», in the interface language (the
-/// line it goes into is not looked up as a whole).
+/// line it goes into is not looked up as a whole). A coin not fully mixed says its rounds
+/// (FEAT-0030 CC-M1).
 fn whose(coin: &Coin) -> String {
-    let words = match &coin.from_contact {
-        Some(who) => format!(tr!("from @{}"), who.trim_start_matches('@')),
-        None => tr!("this wallet").into(),
+    let words = match (&coin.from_contact, coin.mixing) {
+        (_, Some((done, needed))) => {
+            format!(tr!("{r} of {rounds} rounds"), r = done, rounds = needed)
+        }
+        (Some(who), None) => format!(tr!("from @{}"), who.trim_start_matches('@')),
+        (None, None) => tr!("this wallet").into(),
     };
     crate::i18n::t(&words).into_owned()
 }
@@ -258,6 +265,7 @@ pub(super) fn coins_row(
         form.coins.ticked = form.coins.chosen.clone();
         form.coins.manual = !form.coins.chosen.is_empty();
         form.coins.dialog = true;
+        form.coins.reveal_group = true;
         asked.commands.push(form.coins.ask_again());
     }
     let note = if to_name {
@@ -286,8 +294,8 @@ pub(super) fn coins_dialog(ui: &mut Ui, a: &mut Assets, form: &mut SendForm, v: 
     let fees = v.fees.clone();
     let amount = v.amount.unwrap_or(0);
     let mut apply = false;
-    // Why «Apply» is off, as the middle found: for the footer.
-    let mut why_not: Option<String> = None;
+    // What the footer says, and whether «Apply» is off, as the middle found.
+    let mut foot = Foot::Fine;
     let open = crate::components::dialog_with_footer(
         ui,
         a,
@@ -299,13 +307,35 @@ pub(super) fn coins_dialog(ui: &mut Ui, a: &mut Assets, form: &mut SendForm, v: 
             let p = a.p;
             if part == crate::components::Part::Footer {
                 // The footer (BUG-122): always in the window.
-                let reason = why_not.clone();
+                let (note, color, icon, off) = match &foot {
+                    Foot::Fine => (
+                        tr!("The wallet takes only the ticked coins it needs.").to_owned(),
+                        p.muted,
+                        None,
+                        false,
+                    ),
+                    Foot::Off(reason) => (reason.clone(), p.muted, None, true),
+                    // FEAT-0030 CC-M1, CC-M2.
+                    Foot::Unfinished => (
+                        tr!("You are spending coins that are not fully mixed: part of their history can be traced.")
+                            .to_owned(),
+                        p.accent,
+                        Some("warning"),
+                        false,
+                    ),
+                    Foot::MixedWithOrdinary => (
+                        tr!("Coins that are not fully mixed and ordinary coins cannot be spent in one payment.")
+                            .to_owned(),
+                        p.danger,
+                        None,
+                        true,
+                    ),
+                };
                 let mut cancel = false;
+                // The buttons first, from the right; the words in what is left, 16 from them, on
+                // two lines if need be (the designer, FEAT-0030 CC-M1: in ru they ran under «Cancel»).
+                // In a row: a bare right-to-left layout would take the footer's whole height.
                 ui.horizontal(|ui| {
-                    let note = reason.clone().unwrap_or_else(|| {
-                        tr!("The wallet takes only the ticked coins it needs.").into()
-                    });
-                    ui.add(egui::Label::new(txt(&note, 12.0, Weight::Regular, p.muted)).wrap());
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                         apply = crate::components::button_enabled(
                             ui,
@@ -313,7 +343,7 @@ pub(super) fn coins_dialog(ui: &mut Ui, a: &mut Assets, form: &mut SendForm, v: 
                             tr!("Apply"),
                             ButtonKind::Primary,
                             None,
-                            reason.is_none(),
+                            !off,
                         )
                         .clicked();
                         cancel = crate::components::button(
@@ -324,6 +354,20 @@ pub(super) fn coins_dialog(ui: &mut Ui, a: &mut Assets, form: &mut SendForm, v: 
                             None,
                         )
                         .clicked();
+                        ui.add_space(16.0 - ui.spacing().item_spacing.x);
+                        ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
+                            ui.horizontal_top(|ui| {
+                                if let Some(icon) = icon {
+                                    ui.add(a.icons.icon(icon, color, &p, 14.0));
+                                }
+                                ui.add(crate::components::para(
+                                    &note,
+                                    12.0,
+                                    Weight::Regular,
+                                    color,
+                                ));
+                            });
+                        });
                     });
                 });
                 return !(apply || cancel);
@@ -345,7 +389,7 @@ pub(super) fn coins_dialog(ui: &mut Ui, a: &mut Assets, form: &mut SendForm, v: 
                     pick.ticked.clear();
                 }
             }
-            let mut reason: Option<String> = None;
+            let mut reason = Foot::Fine;
             if !pick.manual {
                 ui.add(
                     egui::Label::new(txt(
@@ -359,7 +403,7 @@ pub(super) fn coins_dialog(ui: &mut Ui, a: &mut Assets, form: &mut SendForm, v: 
             } else {
                 reason = manual_part(ui, a, pick, amount, &fees);
             }
-            why_not = reason;
+            foot = reason;
             false
         },
     );
@@ -376,20 +420,42 @@ pub(super) fn coins_dialog(ui: &mut Ui, a: &mut Assets, form: &mut SendForm, v: 
     }
 }
 
-/// The hand-picked part of the dialog: its bar, what is ticked, the list. Why «Apply» is off,
-/// if it is.
+/// What the dialog's footer says.
+#[derive(Clone, PartialEq, Debug)]
+enum Foot {
+    /// The usual note; «Apply» on.
+    Fine,
+    /// Why «Apply» is off.
+    Off(String),
+    /// Only coins of the mixing account not fully mixed are ticked: a warning, «Apply» on
+    /// (FEAT-0030 CC-M1).
+    Unfinished,
+    /// Those with ordinary ones: refused, «Apply» off (CC-M2).
+    MixedWithOrdinary,
+}
+
+/// The ticked coins by kind (FEAT-0030 AC-A6): (any ordinary, any not fully mixed).
+fn kinds(ticked: &[&Coin]) -> (bool, bool) {
+    (
+        ticked.iter().any(|c| c.mixing.is_none()),
+        ticked.iter().any(|c| c.mixing.is_some()),
+    )
+}
+
+/// The hand-picked part of the dialog: its bar, what is ticked, the list, and the group of coins
+/// not fully mixed (FEAT-0030 AC-A6). What the footer says.
 fn manual_part(
     ui: &mut Ui,
     a: &mut Assets,
     pick: &mut CoinPick,
     amount: Duffs,
     fees: &evolite_api::Fees,
-) -> Option<String> {
+) -> Foot {
     let p = a.p;
     let listed: Vec<Coin> = pick.listed().to_vec();
     let small_hidden = listed
         .iter()
-        .filter(|c| c.value < SMALL && !pick.ticked.contains(&c.outpoint))
+        .filter(|c| c.mixing.is_none() && c.value < SMALL && !pick.ticked.contains(&c.outpoint))
         .count();
     ui.horizontal(|ui| {
         if crate::components::mini_button(ui, &p, pick.order.words()).clicked() {
@@ -421,6 +487,7 @@ fn manual_part(
     let total: Duffs = ticked.iter().map(|c| c.value).sum();
     let planned = (!ticked.is_empty() && amount > 0).then(|| plan(&ticked, amount, false, fees));
     let gone = pick.gone(&pick.ticked);
+    let (ordinary, unfinished) = kinds(&ticked);
     let mut reason = None;
     if let Some(outpoint) = &gone {
         spent_banner(ui, a, &pick.coin_name(outpoint));
@@ -455,14 +522,21 @@ fn manual_part(
                     }
                     _ if !ticked.is_empty() => {
                         // «2 addresses», by the language's plural (CLDR); the payment only
-                        // once there is an amount.
-                        let addresses = crate::i18n::t(&crate::text::plural(
-                            CoinPick::addresses(&ticked) as u32,
-                            tr!("address"),
-                            tr!("addresses"),
-                        ))
-                        .into_owned();
-                        let line = if amount > 0 {
+                        // once there is an amount. Coins of the mixing account say where they
+                        // are instead (FEAT-0030 CC-M1, CC-M2).
+                        let words = match (ordinary, unfinished) {
+                            (true, true) => tr!("ordinary and not fully mixed").to_owned(),
+                            (false, true) => tr!("from the mixing account").to_owned(),
+                            _ => crate::text::plural(
+                                CoinPick::addresses(&ticked) as u32,
+                                tr!("address"),
+                                tr!("addresses"),
+                            ),
+                        };
+                        let addresses = crate::i18n::t(&words).into_owned();
+                        // Coins of the mixing account: their words alone (CC-M1, CC-M2), the row is
+                        // too narrow for the payment too.
+                        let line = if amount > 0 && !unfinished {
                             format!(
                                 "{addresses} · {}",
                                 crate::i18n::t(&format!(
@@ -484,7 +558,10 @@ fn manual_part(
             });
         });
     if reason.is_none() {
-        if pick.ticked.len() > MAX_COINS {
+        if ordinary && unfinished {
+            // Refused before anything else: the ticks stay, the person unticks (CC-M2).
+            reason = Some(String::new());
+        } else if pick.ticked.len() > MAX_COINS {
             reason = Some(tr!("At most 500 coins in one payment: untick some.").into());
         } else if matches!(planned, Some(Err(_))) {
             reason = Some(tr!("Tick more coins or lower the amount.").into());
@@ -495,8 +572,12 @@ fn manual_part(
     // The list: largest first by default; small ones hidden unless ticked (R-13).
     let mut shown: Vec<&Coin> = listed
         .iter()
+        .filter(|c| c.mixing.is_none())
         .filter(|c| pick.show_small || c.value >= SMALL || pick.ticked.contains(&c.outpoint))
         .collect();
+    // The mixing account's coins not fully mixed, after them, all shown (CC-M1).
+    let mut group: Vec<&Coin> = listed.iter().filter(|c| c.mixing.is_some()).collect();
+    group.sort_by_key(|c| std::cmp::Reverse(c.value));
     match pick.order {
         Order::Largest => shown.sort_by_key(|c| std::cmp::Reverse(c.value)),
         Order::Smallest => shown.sort_by_key(|c| c.value),
@@ -524,8 +605,59 @@ fn manual_part(
                     now,
                 );
             }
+            if !group.is_empty() {
+                if pick.reveal_group && group.iter().any(|c| pick.ticked.contains(&c.outpoint)) {
+                    ui.scroll_to_cursor(Some(Align::TOP));
+                    pick.reveal_group = false;
+                }
+                unfinished_heading(ui, a, &group);
+                for coin in group {
+                    coin_row(
+                        ui,
+                        a,
+                        pick,
+                        coin,
+                        gone.as_deref() == Some(&coin.outpoint),
+                        now,
+                    );
+                }
+            }
         });
-    reason
+    match reason {
+        Some(r) if r.is_empty() => Foot::MixedWithOrdinary,
+        Some(r) => Foot::Off(r),
+        None if unfinished => Foot::Unfinished,
+        None => Foot::Fine,
+    }
+}
+
+/// The heading of the group of coins not fully mixed (FEAT-0030 CC-M1): «Not mixed yet · 3 coins
+/// · 0.03 DASH» and why they go apart.
+fn unfinished_heading(ui: &mut Ui, a: &mut Assets, group: &[&Coin]) {
+    let p = a.p;
+    let total: Duffs = group.iter().map(|c| c.value).sum();
+    ui.add_space(8.0);
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = 8.0;
+        ui.add(a.icons.icon("mixed", p.muted, &p, 16.0));
+        ui.label(txt(
+            &format!(
+                "{} · {} · {}",
+                tr!("Not mixed yet"),
+                crate::text::plural(group.len() as u32, tr!("coin"), tr!("coins")),
+                crate::format::amount(total)
+            ),
+            13.0,
+            Weight::SemiBold,
+            p.text,
+        ));
+    });
+    ui.add(crate::components::para(
+        tr!("These coins are in the mixing account but have not passed all rounds. Spend them only apart from ordinary coins: together they would show the link."),
+        12.0,
+        Weight::Regular,
+        p.muted,
+    ));
 }
 
 /// `ab12cd…:1`.
@@ -822,6 +954,7 @@ mod tests {
             from_contact: None,
             state,
             at: None,
+            mixing: None,
         }
     }
 

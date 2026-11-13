@@ -45,6 +45,8 @@ pub mod layer {
     pub const PLATFORM_ADDRESS: u8 = 4;
     /// The shielded pool.
     pub const POOL: u8 = 8;
+    /// The CoinJoin account's coins, «Mixed» (FEAT-0030 AC-A7).
+    pub const MIXED: u8 = 16;
 }
 
 /// Which way an operation moved money, for the wallet as a whole (FEAT-0009 R-2).
@@ -103,6 +105,14 @@ pub enum ActivityKind {
     SelfTransfer {
         moved: Duffs,
     },
+    /// A mixing round of the CoinJoin account, made in DashPay or Dash Core (FEAT-0030 A3): the
+    /// wallet's denominations in, as many out. `fee`: what it lost (0, or a collateral).
+    Mixing {
+        fee: Duffs,
+    },
+    /// The wallet's coins split into denominations on its CoinJoin account (the preparation for
+    /// mixing, made in DashPay or Dash Core): a move between its own coins (FEAT-0030 A3).
+    IntoMixing,
     /// Platform address received DASH.
     PlatformReceived,
     /// An asset lock for an identity's credits (or for the Platform address when `identity`
@@ -359,6 +369,15 @@ pub struct MixedQuote {
     pub suggested: Option<Duffs>,
 }
 
+/// АРХ-9а's thresholds, as the screens and the demo use them: an excess up to this (0.001 DASH)
+/// is paid with the fee without asking. `evolite_coinjoin` holds the core's own; a test of
+/// `evolite-core` keeps the two the same.
+pub const MIXED_EXCESS_FREE: Duffs = 100_000;
+/// ... and up to this share of the amount, in percent.
+pub const MIXED_EXCESS_FREE_PERCENT: Duffs = 1;
+/// The most a payment from «Mixed» burns, confirmed (0.01 DASH).
+pub const MIXED_EXCESS_MAX: Duffs = 1_000_000;
+
 /// What the core does with the excess of a payment from «Mixed» (АРХ-9а).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum MixedExcess {
@@ -380,6 +399,9 @@ pub struct Mixed {
     pub unfinished: Duffs,
     /// The rounds that make a coin fully mixed.
     pub rounds_needed: u8,
+    /// What «Max» sends from «Mixed» (AC-A4): `spendable` less the usual fee of spending every one
+    /// of those coins, with no change. 0 with none.
+    pub max: Duffs,
 }
 
 impl Balances {
@@ -1321,6 +1343,10 @@ pub struct Coin {
     pub state: CoinState,
     /// When it came, if the wallet knows.
     pub at: Option<Timestamp>,
+    /// A coin of the mixing account that has not been through all the rounds (FEAT-0030 AC-A6):
+    /// the rounds it has (0 for one that is no denomination) and those a coin needs. It goes only
+    /// with others like it.
+    pub mixing: Option<(u8, u8)>,
 }
 
 /// Whether a coin can go into a payment now (R-4).
@@ -1377,6 +1403,9 @@ impl fmt::Debug for CoinChoice {
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Source {
     Core,
+    /// The CoinJoin account's fully mixed coins (FEAT-0030): paid with [`Spend::SendMixed`], to a
+    /// Core address only, no change.
+    Mixed,
     Credits,
     Pool,
     /// The wallet's Platform addresses (FEAT-0015): what they do is chosen by the recipient —
@@ -1940,6 +1969,14 @@ pub enum CoreError {
     PicturesOff(PicturesOff),
     /// An app's link is refused before anything is shown or spent (FEAT-0023).
     AppLink(AppLinkRefusal),
+    /// A payment from «Mixed» is not sent because of its excess (FEAT-0030 АРХ-9а, AC-A12): with
+    /// `suggested`, the excess is over the bound and `suggested` is an amount the same coins pay
+    /// without one; without, the excess is not the one agreed to (a coin changed since the review)
+    /// and `excess` is the one it would be now.
+    MixedExcess {
+        excess: Duffs,
+        suggested: Option<Duffs>,
+    },
 }
 
 /// Why no picture from outside is drawn on this system.

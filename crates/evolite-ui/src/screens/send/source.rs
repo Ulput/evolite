@@ -246,6 +246,10 @@ pub(super) fn sources_on(
             ),
         },
     ];
+    // FEAT-0030: «Mixed» right after Core, only while the CoinJoin accounts hold something.
+    if let Some(mixed) = super::mixed::mixed_source(w) {
+        all.insert(1, mixed);
+    }
     all.retain(|s| shown_on(network, s.source));
     all
 }
@@ -283,6 +287,11 @@ pub(super) fn source_detail(
         (Some(line), Source::Core) if as_of == Some(evolite_api::CoreAsOf::NotYet) => {
             line.to_owned()
         }
+        // «Mixed» is as sure as Core (O2).
+        (Some(line), Source::Mixed) if as_of == Some(evolite_api::CoreAsOf::NotYet) => {
+            line.to_owned()
+        }
+        (_, Source::Mixed) => super::mixed::card_line(s),
         _ => crate::format::balance(s.duffs),
     }
 }
@@ -328,10 +337,15 @@ pub(super) fn from_layout(width: f32, cards: &[CardWidths]) -> Vec<CardColumn> {
     let widest = |f: fn(&CardWidths) -> f32| cards.iter().map(f).fold(0.0, f32::max);
     let mut column = from_columns(width, cards.len(), widest(|c| c.words));
     // Four sources: one row of four, or two rows of two — never three and one (FEAT-0015
-    // AC-D10).
+    // AC-D10); five (FEAT-0030): three and two, not four and one.
     let per_row = ((width + 8.0) / (column + 8.0)).floor() as usize;
-    if cards.len() == 4 && per_row == 3 {
-        column = ((width - 8.0) / 2.0).floor();
+    let fewer = match (cards.len(), per_row) {
+        (4, 3) => Some(2.0),
+        (5, 4) => Some(3.0),
+        _ => None,
+    };
+    if let Some(k) = fewer {
+        column = ((width - 8.0 * (k - 1.0)) / k).floor();
     }
     let icon = column >= widest(|c| c.with_icon);
     cards

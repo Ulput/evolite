@@ -7,12 +7,14 @@ mod coins;
 mod confirm;
 mod currency;
 mod form;
+mod mixed;
 mod note;
 mod recipient;
 mod source;
 
 use confirm::*;
 use form::*;
+use mixed::*;
 pub use note::*;
 use recipient::*;
 use source::*;
@@ -34,7 +36,11 @@ use evolite_api::{
 use zeroize::{Zeroize, Zeroizing};
 
 pub struct SendForm {
+    /// The source chosen, as its place in the list on screen ([`sources`]).
     pub source: usize,
+    /// A source asked for by its kind: the list depends on the wallet (FEAT-0030: «Mixed» after
+    /// Core only with mixed coins), so it is found there on the next frame.
+    pub want: Option<Source>,
     pub recipient: String,
     pub amount: String,
     /// The example amount in `amount` until the person changes it (`format::fill_suggested`).
@@ -91,6 +97,8 @@ pub struct SendForm {
     pub preview: Option<Result<String, CoreError>>,
     /// «Coins» (FEAT-0013): the coins chosen for a payment from Core, and the dialog.
     pub coins: coins::CoinPick,
+    /// «Mixed» (FEAT-0030): the core's plan for the amount typed, and the excess agreed to.
+    pub mixed: mixed::MixedPay,
     /// "Note · only for you" (FEAT-0003): kept with the payment on this computer, never sent.
     pub note: String,
     /// The last change was cut to what a note holds: N4 shows until the next change.
@@ -139,15 +147,16 @@ impl SendForm {
     /// address), "Transfer" (credits, the recipient to type).
     pub fn paying(source: Source, to: String) -> Self {
         Self {
-            source: match source {
-                Source::Core => 0,
-                Source::Credits => 1,
-                Source::Pool => 2,
-                Source::PlatformAddress => 3,
-            },
+            want: Some(source),
             recipient: to,
             ..Self::empty()
         }
+    }
+
+    /// Pay from `source`, wherever it stands in the list: on the next frame.
+    pub fn pick(&mut self, source: Source) {
+        self.want = Some(source);
+        self.result = None;
     }
 
     /// `next` in place of this form. Payments still with the network stay counted: the form
@@ -240,12 +249,26 @@ impl SendForm {
             // The chosen coins were this payment's (R-9).
             if result.is_ok() {
                 self.coins.reset();
+                // And the excess agreed to (FEAT-0030).
+                self.mixed.reset();
             }
         } else if result.is_err() && self.max {
             // An earlier payment's refusal gives nothing back to send a second time (BUG-92 r2).
             // «Max» would fill the amount again; an amount typed since is the person's.
             self.max = false;
             self.amount.clear();
+        }
+        // FEAT-0030: the core built another excess than the one agreed (P2b), or one too large
+        // (P4). Nothing was sent: the last look again, with the core's new plan.
+        if last && let Err(CoreError::MixedExcess { excess, suggested }) = result {
+            self.mixed.changed = suggested.is_none().then_some(*excess);
+            self.mixed.revealed = None;
+            self.mixed.agreed = None;
+            self.mixed.ask_again();
+            self.confirming = true;
+            self.signing = None;
+            self.result = None;
+            return;
         }
         if held && matches!(result, Err(CoreError::WrongPassword)) {
             // Nothing was sent: the dialog stays, the error at its field, the password to correct.
@@ -433,6 +456,15 @@ impl SendForm {
         }
     }
 
+    /// The core's plan for a payment from «Mixed» (FEAT-0030).
+    pub fn on_mixed_preview(
+        &mut self,
+        ask: u64,
+        result: &Result<evolite_api::MixedQuote, CoreError>,
+    ) {
+        self.mixed.on_preview(ask, result);
+    }
+
     /// Where a payment goes, asked for the last look or while an address is typed.
     pub fn on_preview(&mut self, to: &str, result: &Result<String, CoreError>) {
         if to == self.previewed {
@@ -468,6 +500,7 @@ impl Default for SendForm {
     fn default() -> Self {
         Self {
             source: 0,
+            want: None,
             recipient: "@alice".into(),
             amount: crate::format::input_text(25_000_000),
             suggested: Some(25_000_000),
@@ -495,6 +528,7 @@ impl Default for SendForm {
             previewed: String::new(),
             preview: None,
             coins: Default::default(),
+            mixed: Default::default(),
             note: String::new(),
             note_cut: false,
             signed_note: String::new(),
@@ -552,7 +586,15 @@ pub fn send(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut SendForm) {
     } else {
         crate::format::parse_amount(&form.amount).unwrap_or(0)
     };
-    let all = sources(cx.wallet(), &typed, for_fee);
+    let mut all = sources(cx.wallet(), &typed, for_fee);
+    // «Mixed»: the fee of the core's plan for this very amount (FEAT-0030).
+    let typed_amount = crate::format::parse_amount(&form.amount).unwrap_or(0);
+    apply_quote(
+        &mut all,
+        form.mixed
+            .quote_for(&typed, typed_amount)
+            .and_then(|q| q.as_ref().ok()),
+    );
     let view = FormView::of(cx, form, &all, typed, ask_password, reveal);
     let mut asked = Asked::default();
 

@@ -221,7 +221,7 @@ pub fn shielded(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut PoolState
                 min_w: TILE_MIN_W,
                 gap: vec2(20.0, 12.0),
                 max_cols: 4,
-                even: true,
+                balanced: true,
             };
             let (_, w) = grid_layout(total, ACTIONS.len(), spec);
             // One height for all: the tallest line under a title decides (one or two lines).

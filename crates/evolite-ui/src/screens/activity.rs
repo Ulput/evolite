@@ -298,9 +298,11 @@ fn filter_row(
 }
 
 /// The filter row's layer pills, by [`activity_filters::LAYERS`]' order.
-const LAYER_PILLS: [&str; 5] = [
+const LAYER_PILLS: [&str; 6] = [
     tr!("All"),
     "Core",
+    // FEAT-0030 A3: mixing and payments from mixed coins.
+    tr!("Mixed"),
     "Platform",
     tr!("Private pool"),
     "Identity",
@@ -482,7 +484,7 @@ fn operation_row(ui: &mut Ui, a: &mut Assets, cx: &Ctx, act: &Activity, day: &mu
     }
     let mut detail = format!(
         "{} · {}",
-        text::chain(act.chain),
+        text::row_place(act),
         text::time_of_day(act.at, cx.now)
     );
     // How a withdrawal or a request to us stands, and which identity of ours it

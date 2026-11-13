@@ -260,6 +260,8 @@ fn with_credits(kit: &mut Kit, shown: i64, all: i64) {
         |w| {
             w.balances.credits = shown;
             w.balances.all_credits = all;
+            // The credits' sum alone: no mixed coins here (FEAT-0030).
+            w.balances.mixed = None;
         },
         |_| true,
     );
@@ -345,7 +347,7 @@ fn the_last_look_says_about_for_credits_and_at_most_for_core() {
         row(kit, "Fee, at most: ", "")
     });
     assert!(!row(&kit, "In total: ", "≈"), "from Core, no estimate");
-    kit.state_mut().send.source = 1;
+    kit.state_mut().send.pick(evolite_api::Source::Credits);
     kit.run_steps(3);
     assert!(row(&kit, "Fee, about: ", "≈"), "from credits");
     assert!(row(&kit, "In total: ", "≈"), "and the total");
@@ -394,7 +396,7 @@ fn the_pool_not_read_yet_leaves_nothing_and_waits() {
             |_| true,
         );
     };
-    kit.state_mut().send.source = 2;
+    kit.state_mut().send.pick(evolite_api::Source::Pool);
     kit.state_mut().send.recipient = "yXk3Tq9mD8vJw2RfL6pN4sB7cH1eZ5aG9f".into();
     kit.state_mut().send.amount = "5".into();
     unread(&mut kit);
@@ -409,7 +411,7 @@ fn the_pool_not_read_yet_leaves_nothing_and_waits() {
 fn a_payment_from_core_does_not_wait_for_the_pool() {
     let (_turn, mut kit) = demo_app("send", "en");
     kit.run_steps(3);
-    kit.state_mut().send.source = 0;
+    kit.state_mut().send.pick(evolite_api::Source::Core);
     kit.state_mut().send.recipient = "yXk3Tq9mD8vJw2RfL6pN4sB7cH1eZ5aG9f".into();
     kit.state_mut().send.amount = "0.01".into();
     let ready = |kit: &Kit| {
@@ -562,7 +564,7 @@ fn no_lack_of_credits_is_claimed_before_they_are_checked() {
 fn from_the_pool_an_at_name_says_so_once_and_promises_nothing() {
     let (_turn, mut kit) = demo_app("send", "en");
     kit.run_steps(3);
-    kit.state_mut().send.source = 2;
+    kit.state_mut().send.pick(evolite_api::Source::Pool);
     kit.state_mut().send.recipient = "@alice".into();
     kit.run_steps(4);
     assert!(has_text(

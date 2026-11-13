@@ -41,7 +41,7 @@ pub(super) struct FormView<'a> {
     /// The wallet's own Platform address, and the source that fills it while it is empty: the
     /// credits, or the pool without an identity (frame 14a).
     pub(super) own_platform_address: String,
-    pub(super) fills_address: usize,
+    pub(super) fills_address: Source,
     /// From the Platform address to an @name that is not one of the wallet's identities (R-1а):
     /// said once under the recipient, nothing to pay, the reason under the buttons.
     pub(super) address_foreign_name: bool,
@@ -52,6 +52,14 @@ pub(super) struct FormView<'a> {
     pub(super) coins_chosen: usize,
     /// «Fiat rate» on and a price from the core (FEAT-0008); fresh or not.
     pub(super) rate: Option<super::currency::Rate>,
+    /// From «Mixed» (FEAT-0030): the core's plan for this amount and recipient, once it gave it.
+    pub(super) mixed_quote: Option<Result<evolite_api::MixedQuote, CoreError>>,
+    /// The core refuses its excess (AC-A12): the excess and the amount that burns nothing.
+    pub(super) mixed_refused: Option<(Duffs, Duffs)>,
+    /// «Mixed» has no fully mixed coin yet: its card is dimmed with this (S2).
+    pub(super) mixed_hint: Option<String>,
+    /// «Mixed» to a name or to Platform: its refusal is about the recipient, said under «To» (S2).
+    pub(super) mixed_to_recipient: bool,
 }
 
 /// What the «Platform address» card of «From» is (FEAT-0015, the customer's change of
@@ -116,6 +124,12 @@ impl<'a> FormView<'a> {
         // (BUG-77); a payment waits for the sync all the same.
         let core_as_of = cx.wallet().balances.core_as_of;
         let core_as_of_line = crate::text::core_as_of(core_as_of, cx.now);
+        // A source asked for by its kind; one the list does not have stays where it was.
+        if let Some(want) = form.want.take()
+            && let Some(i) = all.iter().position(|s| s.source == want)
+        {
+            form.source = i;
+        }
         // A source the list no longer has (on mainnet, «Platform address»): the first.
         if form.source >= all.len() {
             form.source = 0;
@@ -153,9 +167,32 @@ impl<'a> FormView<'a> {
             _ => None,
         };
         let amount = crate::format::parse_amount(&form.amount).filter(|d| *d > 0);
+        // From «Mixed» (FEAT-0030): the core plans each amount and recipient; a name or Platform
+        // is refused before it is asked.
+        let to_core = !typed.is_empty() && !typed.starts_with('@') && !platform_typed;
+        if source.source == Source::Mixed
+            && to_core
+            && let Some(amount) = amount
+            && let Some(ask) = form.mixed.ask(&typed, amount)
+        {
+            cx.send(ask);
+        }
+        let mixed_quote = (source.source == Source::Mixed)
+            .then(|| form.mixed.quote_for(&typed, amount.unwrap_or(0)).cloned())
+            .flatten();
+        let mixed_refused = super::mixed::refused(mixed_quote.as_ref());
+        let mixed_hint = super::mixed::card_hint(cx.wallet());
+        let mixed_to_recipient =
+            source.source == Source::Mixed && (typed.starts_with('@') || platform_typed);
+        // What the payment takes from «Mixed»: the excess too, which goes to the miners.
+        // (A refused plan's too: «Left» as the summary shows it, S3.)
+        let excess = match &mixed_quote {
+            Some(Ok(q)) => q.excess,
+            _ => 0,
+        };
         let left = amount
             .filter(|_| source.read)
-            .map(|d| crate::format::left_after(source.duffs, d, source.fee));
+            .map(|d| crate::format::left_after(source.duffs, d + excess, source.fee));
         // Not before the wallet knows all its coins: the core would refuse, and a balance
         // still syncing is no basis for a payment (nor for saying it is too small).
         let synced = crate::text::coins_known(cx.snap.sync.stage);
@@ -165,7 +202,11 @@ impl<'a> FormView<'a> {
             form_problem(&form.amount, source, synced)
         };
         // A source that cannot pay at all says why, not "more than there is".
+        let mixed_refusal = (source.source == Source::Mixed)
+            .then(|| super::mixed::refusal(&typed, mixed_quote.as_ref(), source.duffs, amount))
+            .flatten();
         let unavailable = match source.source {
+            Source::Mixed => mixed_refusal.as_deref(),
             Source::Credits if cx.wallet().identity.is_none() => Some(tr!(
                 "Only an identity has credits, and the wallet has none yet: make one on the “Identity” screen."
             )),
@@ -272,12 +313,20 @@ impl<'a> FormView<'a> {
         let sent_to = form.sent_to.trim().to_string();
         let address_card = AddressCard::of(cx.wallet());
         let own_platform_address = cx.wallet().platform_address.clone();
-        let fills_address = if cx.wallet().identity.is_some() { 1 } else { 2 };
+        let fills_address = if cx.wallet().identity.is_some() {
+            Source::Credits
+        } else {
+            Source::Pool
+        };
         let address_foreign_name = source.source == Source::PlatformAddress
             && resolved_name
                 .as_ref()
                 .is_some_and(|n| !cx.wallet().identities.iter().any(|i| i.id == n.identity_id));
         FormView {
+            mixed_quote,
+            mixed_refused,
+            mixed_hint,
+            mixed_to_recipient,
             rate,
             fees,
             coin_plan,
@@ -382,7 +431,7 @@ pub(super) fn form_card(
             contact_first(ui, a, form, v, name, asked);
             return;
         }
-        amount_row(ui, form, v, &p);
+        amount_row(ui, a, form, v);
         note_field(ui, a, form);
         kv_row(
             ui,
@@ -427,10 +476,13 @@ fn source_cards(ui: &mut Ui, a: &mut Assets, form: &mut SendForm, v: &FormView) 
                 let selected = i == form.source;
                 // FEAT-0015: an address with nothing to spend is no source; dimmed, it fills
                 // the address from the credits (or the pool) instead (frames 06, 14a, 10).
-                let hint = (s.source == Source::PlatformAddress)
-                    .then(|| v.address_card.hint())
-                    .flatten();
-                if let Some(hint) = hint {
+                // FEAT-0030: «Mixed» with no fully mixed coin yet, the same way (S2).
+                let hint = match s.source {
+                    Source::PlatformAddress => v.address_card.hint().map(str::to_owned),
+                    Source::Mixed => v.mixed_hint.clone(),
+                    _ => None,
+                };
+                if let Some(hint) = hint.as_deref() {
                     let resp = ui
                         .scope(|ui| {
                             ui.multiply_opacity(0.45);
@@ -442,10 +494,12 @@ fn source_cards(ui: &mut Ui, a: &mut Assets, form: &mut SendForm, v: &FormView) 
                         resp.show_tooltip_text(words.clone());
                     }
                     let resp = resp.on_hover_text(words);
-                    if resp.clicked() && v.address_card == AddressCard::Empty {
-                        form.source = v.fills_address;
+                    if resp.clicked()
+                        && s.source == Source::PlatformAddress
+                        && v.address_card == AddressCard::Empty
+                    {
+                        form.pick(v.fills_address);
                         form.recipient = v.own_platform_address.clone();
-                        form.result = None;
                     }
                     continue;
                 }
@@ -464,6 +518,13 @@ fn source_cards(ui: &mut Ui, a: &mut Assets, form: &mut SendForm, v: &FormView) 
         if let Some(caption) = sources_caption(core_as_of, core_as_of_line.as_deref(), all) {
             ui.add(egui::Label::new(txt(&caption, 12.0, Weight::Regular, p.muted)).wrap());
         }
+        // «Mixed»: why it gives no change and pays only Core, where the source is chosen (the
+        // designer, S1): a plain line, not a banner at the bottom of the form.
+        if let Some(s) = all.get(form.source).filter(|s| s.source == Source::Mixed) {
+            ui.add(
+                crate::components::para(s.note, 12.0, Weight::Regular, p.muted).line_height(18.0),
+            );
+        }
     });
 }
 
@@ -476,6 +537,18 @@ fn recipient_state(
     asked: &mut Asked,
 ) {
     recipient_lines(ui, a, form, v, asked);
+    // From «Mixed» to a name or to Platform: the reason is about the recipient (S2).
+    if v.mixed_to_recipient
+        && let Some(why) = v.unavailable.as_deref()
+    {
+        let p = a.p;
+        ui.add(crate::components::para(
+            why,
+            12.0,
+            Weight::Regular,
+            p.danger,
+        ));
+    }
     // Said once, right under the recipient, not under the amount (BUG-112).
     if v.pool_to_name
         && let Some(why) = v.unavailable.as_deref()
@@ -656,8 +729,8 @@ fn contact_first(
 }
 
 /// The amount, and what is wrong with it.
-fn amount_row(ui: &mut Ui, form: &mut SendForm, v: &FormView, p: &crate::theme::Palette) {
-    let p = *p;
+fn amount_row(ui: &mut Ui, a: &mut Assets, form: &mut SendForm, v: &FormView) {
+    let p = a.p;
     let source = v.source;
     let (unavailable, problem) = (v.unavailable.as_deref(), v.problem);
     ui.vertical(|ui| {
@@ -697,8 +770,13 @@ fn amount_row(ui: &mut Ui, form: &mut SendForm, v: &FormView, p: &crate::theme::
         if resp.changed() || all {
             form.result = None;
         }
-        // R-1а and BUG-112 are said under the recipient, once.
-        if let Some(why) = unavailable.filter(|_| !v.address_foreign_name && !v.pool_to_name) {
+        // R-1а and BUG-112 are said under the recipient, once. From «Mixed», an excess too large
+        // to burn has its own block with the amount that burns nothing (AC-A12, S3).
+        if let Some(refused) = v.mixed_refused {
+            super::mixed::refusal_block(ui, a, form, refused);
+        } else if let Some(why) = unavailable
+            .filter(|_| !v.address_foreign_name && !v.pool_to_name && !v.mixed_to_recipient)
+        {
             ui.add(egui::Label::new(txt(why, 12.0, Weight::Regular, p.muted)).wrap());
         } else if let Some(problem) = problem {
             ui.add(
@@ -721,6 +799,10 @@ fn amount_row(ui: &mut Ui, form: &mut SendForm, v: &FormView, p: &crate::theme::
 /// How the money travels: a withdrawal arrives later than a payment.
 fn route_notice(ui: &mut Ui, a: &mut Assets, v: &FormView) {
     let p = a.p;
+    // «Mixed» says it under «From» (FEAT-0030 S1).
+    if v.source.source == Source::Mixed {
+        return;
+    }
     if v.source.source == Source::PlatformAddress {
         return address_notice(ui, a, v);
     }
@@ -893,8 +975,7 @@ fn platform_from_core(ui: &mut Ui, a: &mut Assets, form: &mut SendForm, v: &Form
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 12.0;
         if button(ui, a, tr!("Send from credits ›"), ButtonKind::Ghost, None).clicked() {
-            form.source = 1;
-            form.result = None;
+            form.pick(Source::Credits);
         }
         if v.address_card == AddressCard::Source
             && v.all.iter().any(|s| s.source == Source::PlatformAddress)
@@ -907,8 +988,7 @@ fn platform_from_core(ui: &mut Ui, a: &mut Assets, form: &mut SendForm, v: &Form
             )
             .clicked()
         {
-            form.source = 3;
-            form.result = None;
+            form.pick(Source::PlatformAddress);
         }
     });
 }
@@ -921,8 +1001,20 @@ fn send_row(ui: &mut Ui, a: &mut Assets, form: &mut SendForm, v: &FormView, aske
     let (target_known, synced, checking) = (v.target_known, v.synced, v.checking);
     // A balance not read yet waits like the sync (BUG-113): the pool is read after it.
     let synced = synced && source.read;
-    let ready =
-        amount.is_some() && problem.is_none() && unavailable.is_none() && target_known && synced;
+    // From «Mixed» the core's plan for this amount comes first (FEAT-0030): its excess is shown
+    // before the password, and one too large is refused.
+    let mixed_waiting = source.source == Source::Mixed
+        && unavailable.is_none()
+        && amount.is_some()
+        && v.mixed_quote.is_none();
+    let mixed_ok =
+        source.source != Source::Mixed || super::mixed::usable(v.mixed_quote.as_ref()).is_some();
+    let ready = amount.is_some()
+        && problem.is_none()
+        && unavailable.is_none()
+        && target_known
+        && synced
+        && mixed_ok;
     // From the pool to a name the button is outlined and says what to change (BUG-112).
     let kind = if v.pool_to_name {
         ButtonKind::Secondary
@@ -954,6 +1046,8 @@ fn send_row(ui: &mut Ui, a: &mut Assets, form: &mut SendForm, v: &FormView, aske
         Some(tr!("Enter the amount"))
     } else if checking {
         Some(tr!("Checking the recipient…"))
+    } else if mixed_waiting {
+        Some(tr!("Counting the mixed coins…"))
     } else if v.address_foreign_name {
         Some(tr!("Enter your own identity or a Platform address"))
     } else {
@@ -1076,11 +1170,14 @@ pub(super) fn summary_card(ui: &mut Ui, p: &crate::theme::Palette, v: &FormView,
             let value = mono(13.0, Weight::Medium);
             let dash = |d: Option<i64>| d.map_or("—".into(), crate::format::amount);
             // From chosen coins: «Core · of 3 coins», never a promise that all go (AC-D1).
+            let mixed = super::mixed::usable(v.mixed_quote.as_ref());
             let from = match &v.coin_plan {
                 Some(_) => format!(
                     tr!("Core · of {} coins"),
                     v.coins_chosen
                 ),
+                // «Mixed · 2 coins» once the core planned it (FEAT-0030 S1).
+                None if source.source == Source::Mixed => super::mixed::summary_from(mixed),
                 None => source.title.to_owned(),
             };
             kv_row(ui, p, tr!("From"), &from, sans(13.0, Weight::Medium));
@@ -1136,6 +1233,21 @@ pub(super) fn summary_card(ui: &mut Ui, p: &crate::theme::Palette, v: &FormView,
                     }
                 }
                 _ => kv_row(ui, p, tr!("Fee"), &fee_text, value.clone()),
+            }
+            // The excess the coins give to the miners, over dust (FEAT-0030 S1), and as it is when
+            // too large (S3).
+            let excess = match v.mixed_refused {
+                Some((excess, _)) => Some(excess),
+                None => mixed.and_then(super::mixed::shown_excess),
+            };
+            if let Some(excess) = excess.filter(|_| source.source == Source::Mixed) {
+                kv_row(
+                    ui,
+                    p,
+                    tr!("Excess · to miners"),
+                    &crate::format::amount(excess),
+                    value.clone(),
+                );
             }
             kv_row(
                 ui,

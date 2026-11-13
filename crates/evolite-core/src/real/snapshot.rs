@@ -496,7 +496,8 @@ impl Real {
             .mined
             .recall(&mut all, self.chain.status().chainlock_height);
         let unlocks = convert::asset_unlocks(&all);
-        let records = self.activity_lines(&all);
+        let coinjoin = convert::coinjoin_addresses(&state.core_wallet);
+        let records = self.activity_lines(&all, &coinjoin);
         let paid_at: HashMap<String, Timestamp> =
             records.iter().map(|(t, a)| (t.clone(), a.at)).collect();
         // The interface shows one identity: the first slot of the phrase, with its
@@ -620,7 +621,11 @@ impl Real {
     }
 
     /// One history line per record, by its txid.
-    fn activity_lines(&self, all: &[TransactionRecord]) -> Vec<(String, Activity)> {
+    fn activity_lines(
+        &self,
+        all: &[TransactionRecord],
+        coinjoin: &std::collections::HashSet<key_wallet::dashcore::Address>,
+    ) -> Vec<(String, Activity)> {
         let now = now();
         let tip = self.chain.status().headers.map_or(0, |h| h.height);
         all.iter()
@@ -633,7 +638,10 @@ impl Real {
                     None => self.mempool.first_seen(&txid, now, tip),
                 };
                 let verified = self.chain.instant_lock_verified(&r.txid);
-                (txid, activity(r, seen, verified))
+                let mut line = activity(r, seen, verified);
+                // FEAT-0030 A3: mixing rounds, the preparation, payments from «Mixed».
+                convert::mark_mixing(&mut line, r, coinjoin);
+                (txid, line)
             })
             .collect()
     }

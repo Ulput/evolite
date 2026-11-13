@@ -11,7 +11,9 @@ use evolite_api::{Activity, ActivityKind, Duffs, FiatRate, Timestamp};
 fn worth(act: &Activity) -> Duffs {
     let fee = act.fee.unwrap_or(0);
     match act.kind {
-        ActivityKind::SelfTransfer { .. } => fee,
+        ActivityKind::SelfTransfer { .. }
+        | ActivityKind::Mixing { .. }
+        | ActivityKind::IntoMixing => fee,
         _ if act.amount < 0 => act.amount.saturating_neg().saturating_sub(fee).max(0),
         _ => act.amount,
     }
@@ -88,10 +90,14 @@ pub fn card(act: &Activity, now: DateTime<Local>) -> Option<CardLines> {
         }
     };
     // The fee in the currency only here and in the last look, never in the row.
-    if let Some(fee) = act
-        .fee
-        .filter(|_| !matches!(act.kind, ActivityKind::SelfTransfer { .. }))
-    {
+    if let Some(fee) = act.fee.filter(|_| {
+        !matches!(
+            act.kind,
+            ActivityKind::SelfTransfer { .. }
+                | ActivityKind::Mixing { .. }
+                | ActivityKind::IntoMixing
+        )
+    }) {
         let rate = act.rate.as_ref().unwrap_or(&current);
         lines.push(format!("{} {}", tr!("Fee"), about(rate, fee)));
     }

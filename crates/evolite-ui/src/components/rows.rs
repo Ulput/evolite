@@ -433,6 +433,29 @@ pub fn balance_card_in(
     detail: &str,
     width: f32,
 ) {
+    balance_card_at_most(
+        ui,
+        a,
+        cell,
+        (icon, title),
+        (amount, font, None),
+        detail,
+        width,
+    );
+}
+
+/// [`balance_card_in`] whose amount shows at most `decimals` decimals, «≈» and the full amount
+/// in its tooltip when it has more (R4; the designer, FEAT-0030: denominations give long
+/// fractions).
+pub fn balance_card_at_most(
+    ui: &mut Ui,
+    a: &mut Assets,
+    cell: &mut RowCell,
+    (icon, title): (&str, &str),
+    (amount, font, decimals): (CardAmount, FontId, Option<usize>),
+    detail: &str,
+    width: f32,
+) {
     let p = a.p;
     let frame = card(
         &p,
@@ -451,7 +474,7 @@ pub fn balance_card_in(
                 a,
                 icon,
                 title,
-                (amount, font),
+                (amount, font, decimals),
                 detail,
                 width - TILE_INSIDE,
             )
@@ -485,7 +508,7 @@ fn balance_card_body(
     a: &mut Assets,
     icon: &str,
     title: &str,
-    (amount, font): (CardAmount, FontId),
+    (amount, font, decimals): (CardAmount, FontId, Option<usize>),
     detail: &str,
     room: f32,
 ) {
@@ -503,6 +526,7 @@ fn balance_card_body(
         });
         let fitted = fit_tile_amount(amount, |text| {
             super::text_width(ui, text, font.clone()) <= room
+                && decimals.is_none_or(|most| decimals_in(text) <= most)
         });
         tile_amount_label(ui, amount, &fitted, font, amount.color(&p));
         ui.label(
@@ -511,6 +535,14 @@ fn balance_card_body(
                 .color(p.muted),
         );
     }
+}
+
+/// The decimals `text`, a number as the interface writes it, shows.
+fn decimals_in(text: &str) -> usize {
+    let (_, mark) = crate::i18n::separators();
+    text.rsplit_once(mark).map_or(0, |(_, after)| {
+        after.chars().filter(char::is_ascii_digit).count()
+    })
 }
 
 /// What a tile shows of its amount ([`fit_tile_amount`]).
@@ -608,8 +640,12 @@ fn tile_amount_label(
     };
     let resp = ui.add(label.sense(Sense::FOCUSABLE));
     let full = crate::format::amount(duffs);
-    ui.ctx()
-        .accesskit_node_builder(resp.id, |node| node.set_description(full.clone()));
+    // A Tab stop has a name: the amount as shown (a label's words are only its value for egui).
+    let name = crate::i18n::spoken(&text);
+    ui.ctx().accesskit_node_builder(resp.id, |node| {
+        node.set_label(name.clone());
+        node.set_description(full.clone());
+    });
     if resp.has_focus() && !resp.hovered() {
         resp.show_tooltip_text(full.clone());
     }

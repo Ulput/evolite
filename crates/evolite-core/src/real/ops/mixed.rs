@@ -5,20 +5,15 @@
 use crate::real::*;
 use evolite_chain::mixed_pay::{self, MixedPlan, MixedShort};
 
-/// To a contact or by `@name` (AC-T7): platform-wallet builds those payments from its own coins.
-const NOT_TO_CONTACT: &str =
-    tr!("Mixed coins go only to a Dash address for now: a payment to a contact comes later");
+/// To a contact or by `@name` (AC-T7, AC-A5): platform-wallet builds those payments from its own
+/// coins. The analyst's words.
+const NOT_TO_CONTACT: &str = tr!("From mixed coins you can pay only to a Core address for now.");
 
-/// To a Platform address, an identity or the pool (AC-T7): an asset lock would join the coins.
-const NOT_TO_PLATFORM: &str =
-    tr!("Mixed coins do not go to Platform: an asset lock would join them together again");
-
-/// АРХ-9а: over 0.01 DASH of excess is refused before the password.
-const EXCESS_TOO_LARGE: &str =
-    tr!("These mixed coins would burn more than 0.01 DASH: change the amount");
-
-/// The excess agreed to is not the one the payment would burn now (a coin spent or settled since).
-const EXCESS_CHANGED: &str = tr!("The excess changed since the review — check the payment again");
+/// To a Platform address, an identity or the pool (AC-T7, AC-A5): an asset lock would join the
+/// coins. The analyst's words.
+const NOT_TO_PLATFORM: &str = tr!(
+    "Mixed coins do not go to Platform: a top-up would put them into one transaction and show they are yours."
+);
 
 impl Real {
     /// The Dash address a payment from «Mixed» goes to: never a contact, a name or Platform.
@@ -191,14 +186,17 @@ pub(in crate::real) fn quote(plan: &MixedPlan, amount: u64) -> MixedQuote {
 /// Whether the person agreed to the excess `quote` burns (АРХ-9а): never over the bound; a
 /// larger one only when `accepted` is that very excess; a small one when agreed or not asked.
 pub(in crate::real) fn excess_agreed(quote: &MixedQuote, accepted: Duffs) -> Result<(), CoreError> {
+    let changed = CoreError::MixedExcess {
+        excess: quote.excess,
+        suggested: None,
+    };
     match quote.rule {
-        MixedExcess::Refuse => Err(CoreError::NotAvailable(EXCESS_TOO_LARGE.into())),
-        MixedExcess::Confirm if accepted != quote.excess => {
-            Err(CoreError::NotAvailable(EXCESS_CHANGED.into()))
-        }
-        MixedExcess::Free if accepted != 0 && accepted != quote.excess => {
-            Err(CoreError::NotAvailable(EXCESS_CHANGED.into()))
-        }
+        MixedExcess::Refuse => Err(CoreError::MixedExcess {
+            excess: quote.excess,
+            suggested: quote.suggested,
+        }),
+        MixedExcess::Confirm if accepted != quote.excess => Err(changed),
+        MixedExcess::Free if accepted != 0 && accepted != quote.excess => Err(changed),
         _ => Ok(()),
     }
 }

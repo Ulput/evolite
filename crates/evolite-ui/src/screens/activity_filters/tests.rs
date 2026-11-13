@@ -217,7 +217,7 @@ fn the_filters_go_together() {
     };
     assert_eq!(kept(&types, ""), [3, 4]);
     // The layer pill by the money moved: the lock is in Core and in Identity.
-    for (pill, lines) in [(1, vec![0, 1, 2, 4]), (4, vec![3, 4]), (3, vec![])] {
+    for (pill, lines) in [(1, vec![0, 1, 2, 4]), (5, vec![3, 4]), (4, vec![])] {
         let f = Filters {
             layer: pill,
             ..Filters::default()
@@ -241,7 +241,7 @@ fn the_filters_go_together() {
 /// top-up (AC-A1).
 #[test]
 fn each_layer_pill_keeps_what_moves_any_of_its_balances() {
-    use layer::{CORE, IDENTITY, PLATFORM_ADDRESS, POOL};
+    use layer::{CORE, IDENTITY, MIXED, PLATFORM_ADDRESS, POOL};
     let now = now();
     let t = at(2026, 10, 20, 12, 0);
     let lock = |identity: &str| ActivityKind::TopUp {
@@ -306,14 +306,32 @@ fn each_layer_pill_keeps_what_moves_any_of_its_balances() {
             POOL,
             Flow::In,
         ),
+        // FEAT-0030: a mixing round stays in «Mixed»; the preparation moves Core into it.
+        line(
+            ActivityKind::Mixing { fee: 0 },
+            t,
+            0,
+            Proof::ChainLock,
+            MIXED,
+            Flow::Between,
+        ),
+        line(
+            ActivityKind::IntoMixing,
+            t,
+            -1,
+            Proof::ChainLock,
+            CORE | MIXED,
+            Flow::Between,
+        ),
     ];
-    assert_eq!(LAYERS.len(), 5, "a pill added: give it its lines here");
+    assert_eq!(LAYERS.len(), 6, "a pill added: give it its lines here");
     for (pill, lines) in [
-        (0, vec![0, 1, 2, 3, 4, 5, 6]),
-        (1, vec![0, 3, 4]),
-        (2, vec![1, 2, 3, 4, 5]),
-        (3, vec![5, 6]),
-        (4, vec![1, 3, 5]),
+        (0, vec![0, 1, 2, 3, 4, 5, 6, 7, 8]),
+        (1, vec![0, 3, 4, 8]),
+        (2, vec![7, 8]),
+        (3, vec![1, 2, 3, 4, 5]),
+        (4, vec![5, 6]),
+        (5, vec![1, 3, 5]),
     ] {
         let f = Filters {
             layer: pill,

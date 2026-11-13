@@ -278,6 +278,17 @@ fn every_spend() -> Vec<Spend> {
             rate: None,
             accept_excess: 0,
         },
+        // FEAT-0030: «Mixed» as an ordinary payment, which the core refuses (it goes as
+        // `SendMixed`) — but only past the password.
+        Spend::Send {
+            coins: None,
+            id: 0,
+            from: Source::Mixed,
+            to: "yMrDQWqicXKL8xdJg23oYVVqKNtm5AwvXQ".into(),
+            amount: 10_000,
+            note: None,
+            rate: None,
+        },
         Spend::TopUpFromPool { amount: 10_000 },
         Spend::AddContact {
             name: "alice".into(),

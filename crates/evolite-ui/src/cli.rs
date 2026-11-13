@@ -195,6 +195,9 @@ pub const PRESETS: &[&str] = &[
     "send-fiat", "send-fiat-confirm", "send-fiat-stale",
     "send-coins", "send-coins-chosen", "send-coins-name", "send-coins-confirm", "coins-manual",
     "coins-auto", "coins-not-enough", "coins-spent", "send-lookalike", "send-confirm-tall",
+    "overview-mixed", "send-mixed", "coins-mixed", "coins-mixed-refused", "activity-mixed",
+    "overview-mixed-unchecked", "send-mixed-name", "send-mixed-refused", "send-mixed-confirm",
+    "send-mixed-agree", "send-mixed-changed", "send-mixed-refused-confirm",
     "receive", "receive-fiat",
     "activity-fiat", "activity-card-fiat", "activity-card-fiat-old",
     "identity", "identity-unfinished", "identity-created", "top-up-stopped", "top-up-awaiting",
@@ -258,8 +261,16 @@ fn dev_args<'a>(
         (
             None,
             Some(
-                "overview" | "hidden" | "units" | "remind" | "wallet-menu" | "wallet-switch"
-                | "wallet-switch-wait" | "overview-syncing",
+                "overview"
+                | "hidden"
+                | "units"
+                | "remind"
+                | "wallet-menu"
+                | "wallet-switch"
+                | "wallet-switch-wait"
+                | "overview-syncing"
+                | "overview-mixed"
+                | "overview-mixed-unchecked",
             ),
         ) => Screen::Overview,
         (
@@ -267,6 +278,7 @@ fn dev_args<'a>(
             Some(
                 "activity"
                 | "activity-card"
+                | "activity-mixed"
                 | "activity-filters"
                 | "activity-filters-empty"
                 | "activity-long-note"
@@ -335,7 +347,16 @@ fn dev_args<'a>(
                 | "coins-not-enough"
                 | "coins-spent"
                 | "send-lookalike"
-                | "send-confirm-tall",
+                | "send-confirm-tall"
+                | "send-mixed"
+                | "send-mixed-name"
+                | "send-mixed-refused"
+                | "send-mixed-confirm"
+                | "send-mixed-agree"
+                | "send-mixed-changed"
+                | "send-mixed-refused-confirm"
+                | "coins-mixed"
+                | "coins-mixed-refused",
             ),
         ) => Screen::Send,
         (None, Some("receive" | "receive-fiat")) => Screen::Receive,

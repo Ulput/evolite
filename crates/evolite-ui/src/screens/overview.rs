@@ -2,9 +2,9 @@
 
 use super::{Screen, txt};
 use crate::components::{
-    Assets, ButtonKind, CardAmount, GridSpec, TxRow, amount_label, balance_card_in, button,
-    button_enabled, chip, grid, grid_layout, page_header, status_chip, tile_amount_font,
-    tx_row_clickable,
+    Assets, ButtonKind, CardAmount, GridSpec, TxRow, amount_label, balance_card_at_most,
+    balance_card_in, button, button_enabled, chip, grid, grid_layout, page_header, status_chip,
+    tile_amount_font, tx_row_clickable,
 };
 use crate::context::Ctx;
 use crate::text::{self};
@@ -210,7 +210,31 @@ fn balance_cards(
     } else {
         tr!("Not known yet").to_owned()
     };
-    let cards: [(&str, &str, CardAmount, &str); 4] = [
+    // FEAT-0030: «Mixed» right after Core, only while the CoinJoin accounts hold something;
+    // as sure as Core, whose sync it comes with (O2).
+    let mixed = b.mixed.map(|m| {
+        let amount = CardAmount::as_core(b, m.spendable);
+        let line = match amount {
+            CardAmount::Now(_) if m.unfinished > 0 => {
+                // Two pieces, each translated on its own.
+                // Four decimals, «≈» when there are more (the designer, R4): denominations give
+                // long fractions; the tile's tip has the whole.
+                let (number, exact) = crate::format::rounded_number(m.unfinished, 4);
+                let number = if exact {
+                    number
+                } else {
+                    format!("≈ {number}")
+                };
+                let not_yet = format!(tr!("not mixed yet {amount}"), amount = number);
+                format!("{unit} · {not_yet}")
+            }
+            CardAmount::Now(_) => unit.to_string(),
+            CardAmount::Earlier(_) => format!(tr!("{unit} · not checked yet"), unit = unit),
+            CardAmount::Unknown => tr!("Not known yet").to_owned(),
+        };
+        (amount, line)
+    });
+    let mut cards: Vec<(&str, &str, CardAmount, &str)> = vec![
         ("core", "Core", core, &core_line),
         ("credits", credits_title, credits, &credits_line),
         (
@@ -221,13 +245,17 @@ fn balance_cards(
         ),
         ("shielded", tr!("Private pool"), pool, &pool_detail),
     ];
+    if let Some((amount, line)) = &mixed {
+        cards.insert(1, ("mixed", tr!("Mixed"), *amount, line));
+    }
     // Four cards in a row while each is at least a tile wide, else two by two, else one under
-    // another (responsive spec R4); a row's cards are one height in the first frame.
+    // another (responsive spec R4); five 3 and 2, never 4 and 1 (designer-49). A row's cards are
+    // one height in the first frame.
     let spec = GridSpec {
         min_w: TILE_MIN_W,
         gap: vec2(16.0, 16.0),
         max_cols: 4,
-        even: true,
+        balanced: true,
     };
     // One amount size for each row, 24 or 20, decided before the row is drawn (the designer,
     // 2026-11-07): the cells as `grid` lays them out in this very width.
@@ -242,8 +270,67 @@ fn balance_cards(
     grid(ui, cards.len(), spec, |ui, i, w, cell| {
         let (icon, title, amount, detail) = &cards[i];
         let font = fonts[i / cols].clone();
-        balance_card_in(ui, a, cell, (icon, title), (*amount, font), detail, w);
+        if *icon == "mixed" {
+            // At most 4 decimals, the whole in the tooltip (the designer, R4).
+            balance_card_at_most(
+                ui,
+                a,
+                cell,
+                (icon, title),
+                (*amount, font, Some(4)),
+                detail,
+                w,
+            );
+            mixed_tip(ui, b.mixed.map(|m| m.unfinished).filter(|u| *u > 0));
+        } else {
+            balance_card_in(ui, a, cell, (icon, title), (*amount, font), detail, w);
+        }
     });
+}
+
+/// The «Mixed» tile says where its coins come from, on hover and on Tab focus (FEAT-0030 O1):
+/// a stop of its own, named for a screen reader. `ui` is the tile's cell, drawn.
+fn mixed_tip(ui: &mut Ui, unfinished: Option<evolite_api::Duffs>) {
+    let rect = ui.min_rect();
+    let resp = ui.interact(
+        rect,
+        ui.id().with("mixed-tile"),
+        egui::Sense::focusable_noninteractive(),
+    );
+    let words = crate::i18n::t(tr!(
+        "Coins mixed in DashPay or Dash Core. evolite does not mix coins yet, but you can spend these: on Send, choose Mixed."
+    ))
+    .into_owned();
+    // The whole of what the tile shows to four decimals.
+    let words = match unfinished {
+        Some(u) => format!(
+            "{words}
+{}",
+            crate::i18n::t(&format!(
+                tr!("not mixed yet {amount}"),
+                amount = crate::format::amount(u)
+            ))
+        ),
+        None => words,
+    };
+    // A label's words are its value for egui: the stop's name is set here, the tip its description.
+    let name = crate::i18n::spoken(tr!("Mixed"));
+    let tip = crate::i18n::spoken(&words);
+    crate::components::named(&resp, egui::WidgetType::Label, true, &name);
+    ui.ctx().accesskit_node_builder(resp.id, |node| {
+        node.set_label(name.clone());
+        node.set_description(tip.clone());
+    });
+    // Under its tile, no wider: a wide tip was pushed left onto the rail at 800 (the designer, O1S).
+    let width = rect.width();
+    let tip = |ui: &mut Ui| {
+        ui.set_max_width(width);
+        ui.add(egui::Label::new(words.clone()).wrap());
+    };
+    if resp.has_focus() && !resp.hovered() {
+        resp.show_tooltip_ui(tip);
+    }
+    resp.on_hover_ui(tip);
 }
 
 /// Top up, shield, withdraw.
@@ -343,7 +430,7 @@ fn latest_operations(
             ));
         }
         for act in wallet.activity.iter().take(5) {
-            let detail = text::with_date(text::chain(act.chain), &text::when(act.at, cx.now));
+            let detail = text::with_date(&text::row_place(act), &text::when(act.at, cx.now));
             // The same card as in History.
             let row = tx_row_clickable(
                 ui,

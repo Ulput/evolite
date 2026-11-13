@@ -91,6 +91,15 @@ pub fn declared(op: &Spend, seen: &Seen, app_cost: Duffs) -> Declared {
         }
         // FEAT-0030: the usual fee plus the excess the person agreed to burn, against the fully
         // mixed coins (the core checks the coins themselves too: `NotEnough`).
+        // `Spend::Send` from «Mixed» is refused (it goes as `SendMixed`): priced the same.
+        Spend::Send {
+            from: Source::Mixed,
+            amount,
+            ..
+        } => {
+            let price = fees.core_payment_for(*amount);
+            of("send_mixed", price, covers(seen.mixed, *amount, price))
+        }
         Spend::SendMixed {
             amount,
             accept_excess,
@@ -260,7 +269,9 @@ pub fn reason(error: &CoreError) -> &'static str {
         | CoreError::BadLink
         | CoreError::AppLink(_)
         | CoreError::BadPhrase => "bad_input",
-        CoreError::TooManyTries { .. } | CoreError::PicturesOff(_) => "refused",
+        CoreError::TooManyTries { .. }
+        | CoreError::PicturesOff(_)
+        | CoreError::MixedExcess { .. } => "refused",
     }
 }
 

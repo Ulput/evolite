@@ -31,6 +31,7 @@ mod layout;
 mod loading;
 mod login;
 mod low_menu;
+mod mixed;
 mod new_identity;
 mod notes;
 mod onboarding;

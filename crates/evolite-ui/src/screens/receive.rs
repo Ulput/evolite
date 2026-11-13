@@ -539,7 +539,7 @@ pub(crate) fn qr_card(ui: &mut Ui, p: &crate::theme::Palette, payload: &str) {
     let (rect, _) = ui.allocate_exact_size(vec2(side + 40.0, side + 40.0), Sense::hover());
     note_qr_rect(ui, rect);
     // Right to left the card moves, the code is not mirrored: a mirrored QR may not scan.
-    crate::rtl::keep(ui.ctx(), rect);
+    crate::rtl::keep(ui, rect);
     let painter = ui.painter();
     painter.rect(
         rect,

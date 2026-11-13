@@ -276,7 +276,14 @@ pub fn demo_wallet(t: Timestamp) -> Wallet {
             credits_read: true,
             credits_checked: true,
             platform_address_read: true,
-            mixed: None,
+            // FEAT-0030: coins mixed in DashPay — 1.2 DASH through 4 rounds, three not yet
+            // ([`demo_coins`]).
+            mixed: Some(evolite_api::Mixed {
+                spendable: MIXED_SPENDABLE.iter().sum::<Duffs>(),
+                unfinished: 3 * 1_000_010,
+                rounds_needed: 4,
+                max: MIXED_SPENDABLE.iter().sum::<Duffs>() - mixed_fee(MIXED_SPENDABLE.len()),
+            }),
         },
         activity: vec![
             act(
@@ -731,6 +738,53 @@ pub fn demo_wallet(t: Timestamp) -> Wallet {
                     Proof::ChainLock,
                 )
             },
+            // FEAT-0030 A3: coins mixed in DashPay — the preparation, two rounds (one with its
+            // collateral taken) and a payment from «Mixed».
+            Activity {
+                address: Some("yZr4Kp8Wm2Nq6Tv1Bx9Hd3Lc7Fs5Gj0Aa".into()),
+                fee: Some(2_200),
+                layers: evolite_api::layer::MIXED,
+                ..act(
+                    29,
+                    Sent {
+                        to: "yZr4Kp8Wm2Nq6Tv1Bx9Hd3Lc7Fs5Gj0Aa".into(),
+                    },
+                    Chain::Core,
+                    15 * day - 3 * hour,
+                    -10_002_200,
+                    Proof::ChainLock,
+                )
+            },
+            Activity {
+                fee: Some(10_000),
+                ..act(
+                    26,
+                    Mixing { fee: 10_000 },
+                    Chain::Core,
+                    15 * day,
+                    -10_000,
+                    Proof::ChainLock,
+                )
+            },
+            act(
+                27,
+                Mixing { fee: 0 },
+                Chain::Core,
+                15 * day + 2 * hour,
+                0,
+                Proof::ChainLock,
+            ),
+            Activity {
+                fee: Some(374),
+                ..act(
+                    28,
+                    IntoMixing,
+                    Chain::Core,
+                    16 * day,
+                    -374,
+                    Proof::ChainLock,
+                )
+            },
         ],
         core_address: "yXk3Tq9mD8vJw2RfL6pN4sB7cH1eZ5aG9f2c".into(),
         platform_address: "tdash1qq7x4m9n2r8v5k3j6h0w4p2s8d5f7g9l3c0zq".into(),
@@ -1135,6 +1189,7 @@ pub fn demo_coins(t: Timestamp) -> Vec<Coin> {
         from_contact: None,
         state,
         at: ago.map(|ago| t - ago),
+        mixing: None,
     };
     let day = 24 * 60 * 60;
     vec![
@@ -1204,5 +1259,89 @@ pub fn demo_coins(t: Timestamp) -> Vec<Coin> {
             CoinState::Reserved,
             Some(5 * day),
         ),
+        // FEAT-0030 AC-A6: the mixing account's coins not through all the rounds yet.
+        Coin {
+            mixing: Some((2, 4)),
+            ..coin(
+                10,
+                1_000_010,
+                "yCj7Qw3Er5Ty9Ui1Op2As4Df6Gh8Jk0Lz",
+                CoinState::Final,
+                Some(15 * day),
+            )
+        },
+        Coin {
+            mixing: Some((3, 4)),
+            ..coin(
+                11,
+                1_000_010,
+                "yCj2Mn4Bv6Cx8Za1Sd3Fg5Hj7Kl9Qw0Er",
+                CoinState::Final,
+                Some(15 * day),
+            )
+        },
+        Coin {
+            mixing: Some((0, 4)),
+            ..coin(
+                12,
+                1_000_010,
+                "yCj9Po8Iu7Yt6Re5Wq4As3Df2Gh1Jk0Lm",
+                CoinState::Final,
+                Some(16 * day),
+            )
+        },
     ]
+}
+
+/// The example's fully mixed coins (FEAT-0030): what «Mixed» pays from — 1.00001 and twice
+/// 0.100001 DASH.
+pub const MIXED_SPENDABLE: [Duffs; 3] = [100_001_000, 10_000_100, 10_000_100];
+
+/// The usual fee of a payment from `n` mixed coins, one output and no change: 1 duff a byte.
+pub fn mixed_fee(n: usize) -> Duffs {
+    (10 + 148 * n + 34) as Duffs
+}
+
+/// The demo's answer to `PreviewMixed` (FEAT-0030 AC-A3, AC-A12): the coins of
+/// [`MIXED_SPENDABLE`] that pay `amount` and the fee with the least excess, and what is done with
+/// that excess. The fee is a transaction's usual one at 1 duff a byte.
+pub fn mixed_quote(amount: Duffs) -> Result<MixedQuote, CoreError> {
+    if amount <= 0 {
+        return Err(CoreError::BadAmount);
+    }
+    let fee = mixed_fee;
+    let best = (1..1u32 << MIXED_SPENDABLE.len())
+        .map(|set| {
+            let taken: Vec<Duffs> = (0..MIXED_SPENDABLE.len())
+                .filter(|i| set & (1 << i) != 0)
+                .map(|i| MIXED_SPENDABLE[i])
+                .collect();
+            (taken.iter().sum::<Duffs>(), taken.len())
+        })
+        .filter(|(sum, n)| *sum >= amount + fee(*n))
+        .min_by_key(|(sum, n)| sum - amount - fee(*n));
+    let Some((sum, n)) = best else {
+        return Err(CoreError::NotEnough);
+    };
+    let excess = sum - amount - fee(n);
+    let (free, percent, max) = (
+        MIXED_EXCESS_FREE,
+        MIXED_EXCESS_FREE_PERCENT,
+        MIXED_EXCESS_MAX,
+    );
+    let rule = if excess > max {
+        MixedExcess::Refuse
+    } else if excess > free || excess * 100 > amount * percent {
+        MixedExcess::Confirm
+    } else {
+        MixedExcess::Free
+    };
+    Ok(MixedQuote {
+        amount,
+        fee: fee(n),
+        excess,
+        rule,
+        coins: n as u32,
+        suggested: (rule == MixedExcess::Refuse).then_some(sum - fee(n)),
+    })
 }

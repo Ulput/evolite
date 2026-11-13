@@ -9,9 +9,10 @@ use evolite_api::{Activity, ActivityKind, Credits, Flow, Proof, SavedAddress};
 
 /// The layer pills, in their order: «All», «Core», «Platform» (everything on Platform: the
 /// identity and the Platform address), «Private pool», «Identity».
-pub const LAYERS: [u8; 5] = [
+pub const LAYERS: [u8; 6] = [
     0,
     layer::CORE,
+    layer::MIXED,
     layer::IDENTITY | layer::PLATFORM_ADDRESS,
     layer::POOL,
     layer::IDENTITY,
@@ -73,7 +74,8 @@ pub fn kind_of(a: &Activity) -> u8 {
         | PlatformReceived
         | AddressSent { .. }
         | AddressWithdrawal { .. } => kind::PAYMENTS,
-        SelfTransfer { .. } => kind::SELF_TRANSFER,
+        // FEAT-0030: a mixing round and the preparation are moves between the wallet's own coins.
+        SelfTransfer { .. } | Mixing { .. } | IntoMixing => kind::SELF_TRANSFER,
         TopUp { .. } | Withdrawal { .. } | CreditTransfer { .. } => kind::IDENTITY,
         NameRegistered { .. } => kind::NAMES,
         ContactRequest { .. } | ContactRequestIn { .. } | ProfileSaved => kind::CONTACTS,

@@ -27,6 +27,9 @@ pub enum ChoiceError {
     /// The signed payment did not take what was chosen, or would pay less than asked: not sent
     /// (R-6).
     Changed,
+    /// Coins of the mixing account not fully mixed together with ordinary ones (FEAT-0030 AC-A6):
+    /// together they would show the link.
+    MixedWithOrdinary,
 }
 
 /// What an error string of a payment refused for its coins starts with: the core says the rest
@@ -38,6 +41,10 @@ pub fn refusal(e: &ChoiceError) -> String {
     let words = match e {
         ChoiceError::Empty | ChoiceError::Changed => tr!("Check the selection.").to_owned(),
         ChoiceError::TooMany(_) => tr!("At most 500 coins in one payment: untick some.").to_owned(),
+        ChoiceError::MixedWithOrdinary => {
+            tr!("Coins that are not fully mixed and ordinary coins cannot be spent in one payment.")
+                .to_owned()
+        }
         ChoiceError::Gone(outpoint) => format!(
             tr!(
                 "The coin {} is already spent, perhaps by a payment from another device. Untick it and check the selection before you go on."
@@ -81,6 +88,26 @@ pub fn within(payable: Vec<Utxo>, chosen: &[String]) -> Result<Vec<Utxo>, Choice
         return Err(ChoiceError::Gone(gone));
     }
     Ok(coins)
+}
+
+/// [`within`] over two kinds of coin (FEAT-0030 AC-A6): the ordinary payable ones and
+/// `unfinished`, the mixing account's final coins that have not been through all the rounds. The
+/// chosen coins must all be of one kind; `true` with them when they are the unfinished ones.
+pub fn within_apart(
+    ordinary: Vec<Utxo>,
+    unfinished: Vec<Utxo>,
+    chosen: &[String],
+) -> Result<(Vec<Utxo>, bool), ChoiceError> {
+    let of_mixing: HashSet<String> = unfinished
+        .iter()
+        .map(|u| outpoint_text(&u.outpoint))
+        .collect();
+    let n = chosen.iter().filter(|o| of_mixing.contains(*o)).count();
+    match n {
+        0 => within(ordinary, chosen).map(|c| (c, false)),
+        n if n == chosen.len() => within(unfinished, chosen).map(|c| (c, true)),
+        _ => Err(ChoiceError::MixedWithOrdinary),
+    }
 }
 
 /// Whether a signed payment's inputs are what the person chose (R-6, АРХ-2): each one of the
@@ -129,6 +156,7 @@ pub fn listed<'a>(
                 CoinState::Unconfirmed
             },
             at: at(&u.outpoint.txid),
+            mixing: None,
         })
         .collect();
     // Largest first, as the dialog opens (DDW's default).
@@ -256,5 +284,28 @@ mod tests {
         assert_eq!(list[1].from_contact.as_deref(), Some("@alice"));
         assert_eq!(list[2].at, Some(1_700_000_000));
         assert_eq!(list[2].outpoint, outpoint_text(&final_one.outpoint));
+    }
+
+    /// FEAT-0030 AC-A6: not fully mixed coins go only with others like them; a choice of both
+    /// kinds is refused before anything is built.
+    #[test]
+    fn unfinished_mixed_coins_go_apart_from_ordinary_ones() {
+        let ordinary = vec![coin(1, 10, true), coin(2, 20, true)];
+        let unfinished = vec![coin(3, 100_001, true), coin(4, 100_001, true)];
+        let (coins, mixing) =
+            within_apart(ordinary.clone(), unfinished.clone(), &texts(&ordinary)).unwrap();
+        assert_eq!((texts(&coins), mixing), (texts(&ordinary), false));
+        let (coins, mixing) = within_apart(
+            ordinary.clone(),
+            unfinished.clone(),
+            &texts(&unfinished[..1]),
+        )
+        .unwrap();
+        assert_eq!((texts(&coins), mixing), (texts(&unfinished[..1]), true));
+        let both = vec![texts(&ordinary)[0].clone(), texts(&unfinished)[0].clone()];
+        assert_eq!(
+            within_apart(ordinary, unfinished, &both),
+            Err(ChoiceError::MixedWithOrdinary)
+        );
     }
 }

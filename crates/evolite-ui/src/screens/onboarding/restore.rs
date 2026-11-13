@@ -2,7 +2,7 @@
 
 use super::txt;
 use super::{Flow, Onboarding, Step, actions, heading};
-use crate::components::{Assets, card, checkbox, inner, notice, segmented, text_action, warning};
+use crate::components::{Assets, card, inner, notice, segmented, text_action};
 use crate::context::Ctx;
 use crate::theme::{Weight, mono, sans};
 use egui::{
@@ -430,6 +430,20 @@ pub(super) fn found(ui: &mut Ui, a: &mut Assets, o: &mut Onboarding) {
         core_value,
         false,
     )];
+    // FEAT-0030 R1: coins after CoinJoin, apart from Core and spendable from «Mixed».
+    if let Some((addresses, duffs)) = scan.coinjoin {
+        rows.push((
+            "mixed",
+            tr!("Mixed coins").into(),
+            format!(
+                "{} · {}",
+                crate::text::plural(addresses, tr!("address"), tr!("addresses")),
+                tr!("CoinJoin account")
+            ),
+            Some(dash(duffs)),
+            false,
+        ));
+    }
     if let Some(id) = &scan.identity_id {
         rows.push((
             "identity",
@@ -508,35 +522,19 @@ pub(super) fn found(ui: &mut Ui, a: &mut Assets, o: &mut Onboarding) {
             }
         }
     });
-    let coinjoin = scan.coinjoin.is_some();
-    if let Some((addresses, duffs)) = scan.coinjoin {
-        warning(
+    // Nothing to agree to any more: the coins are not lost, only apart (FEAT-0030 R1).
+    if scan.coinjoin.is_some() {
+        notice(
             ui,
             a,
-            &format!(
-                tr!(
-                    "This wallet had coins after CoinJoin ({addresses} addresses, {}). evolite does not support CoinJoin: these coins are visible and spendable, but there is no mixing, and spending them may link them to the other addresses."
-                ),
-                dash(duffs),
-                addresses = addresses
+            "info",
+            p.muted,
+            tr!(
+                "Mixed coins will be shown apart, on the “Mixed” tile, and you can spend them. evolite does not mix coins yet."
             ),
         );
-        checkbox(
-            ui,
-            a,
-            &mut o.coinjoin_ok,
-            tr!("Understood, continue without CoinJoin"),
-        );
     }
-    if actions(
-        ui,
-        a,
-        None,
-        tr!("Set the password"),
-        o.coinjoin_ok || !coinjoin,
-    )
-    .1
-    {
+    if actions(ui, a, None, tr!("Set the password"), true).1 {
         o.next();
     }
 }

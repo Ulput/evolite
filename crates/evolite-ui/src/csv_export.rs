@@ -105,7 +105,13 @@ fn line(a: &Activity, own: &Own) -> Option<Line> {
         // its amount is the fee; otherwise nothing known was spent.
         let fee = match a.fee {
             Some(fee) if fee > 0 => fee,
-            _ if matches!(a.kind, ActivityKind::SelfTransfer { .. }) => -a.amount,
+            _ if matches!(
+                a.kind,
+                ActivityKind::SelfTransfer { .. } | ActivityKind::IntoMixing
+            ) =>
+            {
+                -a.amount
+            }
             _ => 0,
         };
         return (fee > 0).then_some(Line::Expense(fee));
