@@ -175,3 +175,37 @@ fn a_transfer_to_the_wallets_own_platform_address_says_it_is_ours() {
         assert!(has_words(&kit, "this wallet's address"), "{typed}");
     }
 }
+
+/// BUG-143: from Core, the wallet's own Platform address is not «Someone else's»: the plate
+/// says it is this wallet's, and the ways there stay. Typed in capitals too (QA21 r1 P3 1).
+#[test]
+fn from_core_the_wallets_own_platform_address_is_not_someone_elses() {
+    let (_turn, mut kit) = demo_app("core-to-platform-address", "en");
+    wait_for(&mut kit, "the plate", |kit| {
+        has_words(kit, "you can't send to it from Core directly")
+    });
+    let own = kit
+        .state()
+        .snapshot
+        .as_ref()
+        .and_then(|s| s.wallet.as_ref())
+        .map(|w| w.platform_address.clone())
+        .expect("the demo's Platform address");
+    for typed in [own.clone(), own.to_ascii_uppercase()] {
+        kit.state_mut().send.recipient = typed.clone();
+        kit.run_steps(3);
+        assert_eq!(kit.state().send.source, 0, "from Core");
+        assert!(
+            has_words(
+                &kit,
+                "This wallet's Platform address: you can't send to it from Core directly"
+            ),
+            "{typed}"
+        );
+        assert!(!has_words(&kit, "Someone else's"), "{typed}");
+        assert!(
+            has_words(&kit, "Send from the Platform address ›"),
+            "{typed}: the way there"
+        );
+    }
+}

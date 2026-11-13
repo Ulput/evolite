@@ -116,7 +116,11 @@ impl Chain {
     }
 
     /// The same, proved now: what a payment plans with, so a stale sync gives neither a
-    /// refusal nor another choice of addresses.
+    /// refusal nor another choice of addresses. What it proves goes into the wallet's own
+    /// balances too (BUG-141): a stale one there — the form planned 0.00287511 on a fresh copy
+    /// of the data, the proof said less — is corrected at once, so the tile, the snapshot and
+    /// the form show what the core plans with, instead of «enough» on the form and «not
+    /// enough» after the password.
     pub async fn address_balances_now(
         &self,
         wallet: &PlatformWallet,
@@ -136,9 +140,16 @@ impl Chain {
             return Ok(Vec::new());
         }
         let sdk = self.sdk().await?;
-        let proved: AddressInfos = AddressInfo::fetch_many(sdk.as_ref(), known)
-            .await
-            .map_err(|e| e.to_string())?;
+        let (proved, metadata): (AddressInfos, _) =
+            AddressInfo::fetch_many_with_metadata(sdk.as_ref(), known, None)
+                .await
+                .map_err(|e| e.to_string())?;
+        // Pinned at the proof's height, as platform-wallet does after its own transfer: a later
+        // sync delta at or below it is not applied again on top.
+        wallet
+            .platform()
+            .reconcile_address_infos(&proved, metadata.height, "balances proved before a payment")
+            .await;
         let mut found: Vec<(PlatformAddress, u64)> = proved
             .into_iter()
             .map(|(address, info)| (address, info.map_or(0, |i| i.balance)))

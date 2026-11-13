@@ -66,6 +66,8 @@ struct Waiting {
     started: Timestamp,
     declared: price::Declared,
     line: Option<Line>,
+    /// The balance the core judged the spend by, when it read one anew (BUG-141).
+    held: Option<Duffs>,
 }
 
 #[derive(Default)]
@@ -134,7 +136,21 @@ impl PriceWatch {
             started,
             declared,
             line: Line::of(op),
+            held: None,
         });
+    }
+
+    /// Payment `payment` was judged by `duffs` the core read anew (BUG-141): its record says so,
+    /// beside what the form had planned with.
+    pub(super) fn held(&self, payment: u64, duffs: Duffs) {
+        let mut watch = self.lock();
+        if let Some(waiting) = watch
+            .waiting
+            .iter_mut()
+            .find(|w| w.answer == Answer::Sent(payment))
+        {
+            waiting.held = Some(duffs);
+        }
     }
 
     /// An answer going to the window: the record of the spend it ends, if any.
@@ -174,6 +190,7 @@ impl PriceWatch {
             actual,
             enough: spend.declared.enough,
             reason: failure.map_or("ok", price::reason),
+            held: spend.held,
         })
     }
 
@@ -228,6 +245,38 @@ mod tests {
         }
     }
 
+    /// BUG-141: a payment from the Platform addresses refused «not enough» after the password,
+    /// though the form planned it from enough: its record says the balance the core judged by,
+    /// beside the price the form promised — only that amount, of that payment.
+    #[test]
+    fn a_refusal_says_the_balance_the_core_judged_by() {
+        let (watch, dir) = watch();
+        seen_by(&watch, 10_000);
+        let op = Spend::Send {
+            coins: None,
+            id: 11,
+            from: Source::PlatformAddress,
+            to: "tdash1qq7x4m9n2r8v5k3j6h0w4p2s8d5f7g9l3c0zq".into(),
+            amount: 100_000,
+            note: None,
+            rate: None,
+        };
+        watch.begin(&op, 1_000);
+        // Another payment's balance is not this one's.
+        watch.held(12, 9);
+        watch.held(11, 2_875);
+        let record = watch.ended(&Event::Sent {
+            id: 11,
+            result: Err(CoreError::NotEnough),
+        });
+        let Some(Record::Price { held, reason, .. }) = record else {
+            panic!("no record: {record:?}");
+        };
+        assert_eq!(reason, "not_enough");
+        assert_eq!(held, Some(2_875));
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
     #[test]
     fn a_line_in_the_history_is_the_actual_price() {
         let (watch, dir) = watch();
@@ -266,6 +315,7 @@ mod tests {
                 actual: Some(2_899),
                 enough: true,
                 reason: "ok",
+                held: None,
             })
         );
         let _ = std::fs::remove_dir_all(dir);

@@ -147,13 +147,16 @@ pub enum Record {
     },
     /// A spend's price (TECH-price-check): the kind of spend, what the form promised, what was
     /// taken (`None`: not known, or refused), whether the balance covered the promise, and `ok` or
-    /// the refusal's code. Only the price: no address, name, amount or text of the network.
+    /// the refusal's code; and the balance the core judged it by when it read one anew (`held`,
+    /// BUG-141: the form may have planned from a balance the core then proved smaller). Only the
+    /// price and that balance: no address, name, amount sent or text of the network.
     Price {
         what: &'static str,
         declared: evolite_api::Duffs,
         actual: Option<evolite_api::Duffs>,
         enough: bool,
         reason: &'static str,
+        held: Option<evolite_api::Duffs>,
     },
 }
 
@@ -231,9 +234,10 @@ impl Record {
                 actual,
                 enough,
                 reason,
+                held,
             } => json!({
                 "k": "price", "what": what, "declared": declared, "actual": actual,
-                "enough": enough, "reason": reason,
+                "enough": enough, "reason": reason, "held": held,
             }),
         }
     }
@@ -630,6 +634,7 @@ mod tests {
             actual: None,
             enough: true,
             reason: "not_enough",
+            held: Some(2_875),
         }
         .line(UNIX_EPOCH);
         let value: serde_json::Value = serde_json::from_str(&line).unwrap();
@@ -642,7 +647,9 @@ mod tests {
         keys.sort_unstable();
         assert_eq!(
             keys,
-            ["actual", "declared", "enough", "k", "reason", "t", "what"],
+            [
+                "actual", "declared", "enough", "held", "k", "reason", "t", "what"
+            ],
             "{line}"
         );
         assert_eq!(value["k"], "price");

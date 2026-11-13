@@ -216,7 +216,19 @@ impl<'a> FormView<'a> {
             Source::Pool if cx.wallet().pool.address.is_none() => Some(tr!(
                 "The private pool connects after syncing with Platform — usually a minute."
             )),
-            // A private address in a DashPay profile is an open question.
+            // A private address in a DashPay profile is an open question. The wallet's own
+            // Platform address is not «someone else's» (BUG-143): bech32m in capitals is the same
+            // address, as in the notice from the Platform address (QA21 r1 P3 1).
+            Source::Core
+                if platform_typed
+                    && typed
+                        .trim()
+                        .eq_ignore_ascii_case(cx.wallet().platform_address.trim()) =>
+            {
+                Some(tr!(
+                    "This wallet's Platform address: you can't send to it from Core directly"
+                ))
+            }
             Source::Core if platform_typed => Some(tr!(
                 "Someone else's Platform address: you can't send to it from Core directly"
             )),

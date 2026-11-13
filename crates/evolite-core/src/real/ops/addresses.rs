@@ -63,6 +63,13 @@ fn refusal(why: evolite_api::address_plan::AddressRefusal) -> CoreError {
     }
 }
 
+/// The credits on the addresses, in whole duffs: what the journal's price line says the core
+/// judged a payment by (BUG-141). Rounded down, as a balance that covers is said.
+fn held_duffs(credits: &[u64]) -> Duffs {
+    let total: u64 = credits.iter().sum();
+    (total / evolite_api::address_plan::CREDITS_PER_DUFF) as Duffs
+}
+
 impl Real {
     /// `amount` duffs from the Platform addresses to `to`. Answered with [`Event::Sent`] for
     /// payment `payment`, once Platform has taken it.
@@ -112,6 +119,7 @@ impl Real {
         let dirty = self.dirty.clone();
         let journal = self.journal.clone();
         let notes = self.notes.clone();
+        let prices = self.prices.clone();
         // In the history as "being sent" until the journal has its line (BUG-12).
         let what = match &to {
             AddressTo::Platform(to) => journal::What::AddressSent { to: to.clone() },
@@ -165,6 +173,9 @@ impl Real {
                     .await
                     .map_err(read_failure)?;
                 let credits_now: Vec<u64> = balances.iter().map(|(_, c)| *c).collect();
+                // The journal's price line says what the core judged by, beside what the form
+                // planned with (BUG-141): only the amount.
+                prices.held(payment, held_duffs(&credits_now));
                 let plan = address_plan(kind, credits, false, &credits_now).map_err(refusal)?;
                 if !fee_still_shown(&plan, shown_fee) {
                     return Err(CoreError::NotAvailable(
@@ -284,5 +295,19 @@ mod tests {
         assert!(!fee_still_shown(&plan(7_000_000), Some(6_500_000)));
         // Nothing shown could be planned (a stale cache): the fresh plan decides.
         assert!(fee_still_shown(&plan(7_000_000), None));
+    }
+}
+
+#[cfg(test)]
+mod held_tests {
+    use super::held_duffs;
+
+    /// BUG-141: the balance in the journal is whole duffs of all the addresses' credits,
+    /// rounded down.
+    #[test]
+    fn the_held_balance_is_whole_duffs_of_all_the_addresses() {
+        assert_eq!(held_duffs(&[]), 0);
+        assert_eq!(held_duffs(&[2_875_110_000]), 2_875_110);
+        assert_eq!(held_duffs(&[1_999, 1_000]), 2);
     }
 }

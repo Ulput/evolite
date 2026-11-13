@@ -15,8 +15,9 @@
 //! not spent: only its fee is, one "Expense" line of the fee (as DashPay writes a transfer
 //! to itself). The other half of such a move — the payout of a withdrawal, the note the
 //! wallet made in the pool — is no line. Operations the network may still drop (being sent,
-//! unconfirmed) are left out. An operation without a time of its own has an empty date and
-//! goes last (BUG-47).
+//! unconfirmed) are left out, and so is one without a time of its own: no date can be given to
+//! it, and a line without one is refused by a tax import (BUG-128; before, an empty date, last,
+//! BUG-47).
 
 use evolite_api::{Activity, ActivityKind, Duffs, Proof, Timestamp, Wallet};
 use std::collections::HashSet;
@@ -85,6 +86,12 @@ fn line(a: &Activity, own: &Own) -> Option<Line> {
     if matches!(a.proof, Proof::Sending | Proof::Unconfirmed) {
         return None;
     }
+    // No time of its own (a note the pool's scan found: neither its time nor its block can be
+    // known): a tax import refuses a line without a date or files it in the wrong year
+    // (BUG-128). The note above History says such operations are left out.
+    if !crate::text::known(a.at) {
+        return None;
+    }
     let inside = match &a.kind {
         // The other half of a move inside the wallet: the payout of a withdrawal, the note a
         // shield made in the pool. Its fee is on the first half.
@@ -125,8 +132,8 @@ fn line(a: &Activity, own: &Own) -> Option<Line> {
 
 /// How many lines of the file these operations make (BUG-100): not every operation is one.
 /// [`line`] answers no line for one not final yet, the other half of a move inside the wallet,
-/// one with no amount (a contact request, a saved profile, an app's sign-in) and a move inside
-/// the wallet whose fee is not known.
+/// one with no amount (a contact request, a saved profile, an app's sign-in), a move inside
+/// the wallet whose fee is not known and one without a time of its own (BUG-128).
 pub fn lines<'a>(activity: impl IntoIterator<Item = &'a Activity>, own: &Own) -> usize {
     activity
         .into_iter()
@@ -140,7 +147,7 @@ pub fn taxbit(activity: &[Activity], own: &Own) -> String {
         .iter()
         .filter_map(|a| Some((a, line(a, own)?)))
         .collect();
-    // Oldest first; without a time, last.
+    // Oldest first (an operation without a time is no line, BUG-128).
     rows.sort_by_key(|(a, _)| (!crate::text::known(a.at), a.at));
     let mut out = String::from(HEADER);
     out.push('\n');
@@ -638,33 +645,38 @@ mod tests {
         );
     }
 
-    /// BUG-47: a note found in the pool has no time: an empty date, after everything dated —
-    /// not 1970 at the top.
+    /// BUG-128 (was BUG-47's empty date): a note found in the pool has no time — the scan cannot
+    /// know when it came, nor its block — and a tax import refuses a line without a date or
+    /// puts it in the wrong year. So it is no line of the file, counted out as the others left
+    /// out are (BUG-100), and the note above History says so. Never 1970 either.
     #[test]
-    fn an_operation_without_a_time_has_no_date_and_goes_last() {
-        let csv = taxbit(
-            &[
-                act(
-                    ActivityKind::PoolReceived,
-                    Chain::Platform,
-                    0,
-                    1_000_000,
-                    "",
-                ),
-                act(
-                    ActivityKind::Received { from: None },
-                    Chain::Core,
-                    1_762_300_000,
-                    5_000_000,
-                    "aa",
-                ),
-            ],
-            &Own::default(),
+    fn an_operation_without_a_time_is_no_line() {
+        let ops = [
+            act(
+                ActivityKind::PoolReceived,
+                Chain::Platform,
+                0,
+                1_000_000,
+                "",
+            ),
+            act(
+                ActivityKind::Received { from: None },
+                Chain::Core,
+                1_762_300_000,
+                5_000_000,
+                "aa",
+            ),
+        ];
+        let csv = taxbit(&ops, &Own::default());
+        let rows: Vec<&str> = csv.lines().skip(1).collect();
+        assert_eq!(rows.len(), 1, "{csv}");
+        assert!(rows[0].ends_with(",aa"), "{csv}");
+        assert!(
+            !csv.lines().any(|l| l.starts_with(',')),
+            "a line without a date: {csv}"
         );
-        let lines: Vec<&str> = csv.lines().skip(1).collect();
-        assert!(lines[0].ends_with(",aa"), "{csv}");
-        assert_eq!(lines[1], ",Income,,DASH,evolite,0.01,DASH,evolite,,,,");
         assert!(!csv.contains("1970"));
+        assert_eq!(lines(&ops, &Own::default()), 1, "the count says the same");
     }
 
     #[test]

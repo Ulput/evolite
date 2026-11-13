@@ -828,7 +828,7 @@ fn date_fields(ui: &mut Ui, a: &mut Assets, h: &mut History) {
 /// In the export question and under the export's answer, when the file holds fewer lines than
 /// there are operations (BUG-100).
 pub const LEFT_OUT: &str = tr!(
-    "Not every operation becomes a line of the file: those not final yet, the second half of a transfer between your own balances and those with no amount or an unknown fee are left out."
+    "Not every operation becomes a line of the file: those not final yet, the second half of a transfer between your own balances and those with no amount, an unknown fee or an unknown time are left out."
 );
 
 /// What the export question answered this frame.
