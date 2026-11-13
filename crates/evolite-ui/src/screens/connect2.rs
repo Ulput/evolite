@@ -9,8 +9,8 @@
 use super::app_requests::{AppRequests, Consent, Pick};
 use super::txt;
 use crate::components::{
-    Assets, ButtonKind, FieldKind, attention_color, button, button_enabled, checkbox, dialog,
-    kv_row, notice, segmented, text_field,
+    Assets, ButtonKind, FieldKind, Part, attention_color, button, button_enabled, checkbox,
+    dialog_with_footer, kv_row, notice, segmented, text_field,
 };
 use crate::context::Ctx;
 use crate::text;
@@ -376,281 +376,290 @@ pub fn request(
         None => tr!("Connect an app").to_string(),
     };
     let mut pick = None;
-    let closed = dialog(
+    // The dev presets that show the end of the request.
+    if state.body_to_end {
+        crate::components::dialog_middle_at_end(ui.ctx(), "app-connect-v2");
+    }
+    let closed = dialog_with_footer(
         ui,
         a,
         "app-connect-v2",
         "app-connect",
         &title,
         560.0,
-        |ui, a| {
+        |ui, a, part| {
             let p = a.p;
             ui.spacing_mut().item_spacing.y = 12.0;
-            // Everything between the title and the password scrolls (BUG-90).
-            let room = (ui.ctx().content_rect().height() - 330.0).max(140.0);
-            let mut body = egui::ScrollArea::vertical()
-                .id_salt("app-connect-v2-body")
-                .auto_shrink([false, true])
-                .max_height(room);
-            if state.body_to_end {
-                body = body.stick_to_bottom(true);
-            }
-            body.show(ui, |ui| {
-                ui.spacing_mut().item_spacing.y = 12.0;
-                ui.horizontal(|ui| {
-                    crate::components::network_chip(ui, a, cx.snap.network);
-                    ui.label(txt(
-                        &format!(
-                            tr!("App Connect v2 · request made {} ago"),
-                            age(now.timestamp() - created_at)
-                        ),
-                        12.0,
-                        Weight::Regular,
-                        p.muted,
-                    ));
-                });
-                // The app: its own words, and who owns its contract (R-8).
-                Frame::new()
-                    .stroke(Stroke::new(1.0, p.line))
-                    .corner_radius(12)
-                    .inner_margin(Margin::same(14))
-                    .show(ui, |ui| {
-                        ui.set_width(ui.available_width());
-                        ui.horizontal_top(|ui| {
-                            let (logo, _) =
-                                ui.allocate_exact_size(egui::vec2(40.0, 40.0), egui::Sense::hover());
-                            crate::components::paint_letter_box(ui, &p, logo, app);
-                            ui.vertical(|ui| {
-                                ui.spacing_mut().item_spacing.y = 2.0;
-                                ui.label(txt(app, 15.0, Weight::SemiBold, p.text));
-                                ui.label(txt(
-                                    tr!("what the app calls itself"),
-                                    12.0,
-                                    Weight::Regular,
-                                    p.muted,
-                                ));
-                                let owner = owner_name
-                                    .as_ref()
-                                    .map_or_else(|| text::short_address(owner), |n| format!("@{n}"));
-                                ui.label(txt(
-                                    &format!(
-                                        tr!("contract {} · owner {}"),
-                                        text::short_address(app_id),
-                                        owner
-                                    ),
-                                    12.0,
-                                    Weight::Regular,
-                                    p.muted,
-                                ));
-                            });
-                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Min), |ui| {
-                                crate::components::chip(
-                                    ui,
-                                    a,
-                                    "confirmed",
-                                    tr!("Contract found"),
-                                    false,
-                                );
-                            });
-                        });
-                    });
-                // BUG-29 (c): a row of text, the identity of «Work as»; with more than one, where
-                // to change it.
-                section(ui, a, tr!("Sign in as"));
-                ui.label(txt(identity, 14.0, Weight::Medium, p.text));
-                if cx.wallet().identities.len() > 1 {
-                    ui.add(crate::components::para(
-                        tr!("Signs in with the identity chosen in “Work as”; you can change it there."),
-                        12.0,
-                        Weight::Regular,
-                        p.muted,
-                    ));
+            if part == Part::Footer {
+                // Pinned: the password and the buttons (asked always: this cannot be undone). The
+                // app asks, not the person: Enter in the field never connects (rule b′, BUG-30).
+                if state.consent == Consent::Asking {
+                    state.password.field(ui, &p, "app-request-password", true);
                 }
-                section(ui, a, tr!("The app will be able to"));
-                let limit = state.choice.limit(limits).unwrap_or(0);
-                // What each optional key would get now: its ask, or less when the limit is small.
-                let shares = split(sessions, &state.choice.kept, limit, 0);
-                for (i, offer) in sessions.iter().enumerate() {
-                    if offer.primary {
-                        can_line(
-                            ui,
-                            a,
-                            "check",
-                            &binding_words(&offer.binding, app),
-                            Some(&format!(
-                                tr!("fees come from the {} credits, within the limit below"),
-                                identity
-                            )),
-                            false,
-                        );
+                let end = state.choice.end(limits, now.timestamp());
+                let limit = state.choice.limit(limits);
+                let fits =
+                    limit.is_some_and(|l| split(sessions, &state.choice.kept, l, 0).is_some());
+                let ready = state.password.ready(true) && end.is_some() && limit.is_some() && fits;
+                let yes = if renews.is_some() {
+                    tr!("Renew")
+                } else {
+                    tr!("Connect")
+                };
+                crate::components::button_row_destructive_if(ui, true, |ui| match state.consent {
+                    Consent::Asking => {
+                        if button(ui, a, tr!("Decline"), ButtonKind::Ghost, None).clicked() {
+                            pick = Some(Pick::No);
+                        }
+                        if button_enabled(ui, a, yes, ButtonKind::Primary, None, ready).clicked() {
+                            pick = Some(Pick::Yes);
+                        }
+                    }
+                    Consent::Sending => {
+                        button_enabled(ui, a, tr!("Decline"), ButtonKind::Ghost, None, false);
+                        button_enabled(ui, a, tr!("Sending…"), ButtonKind::Primary, None, false);
+                    }
+                    Consent::Sent | Consent::Failed => {
+                        if button(ui, a, tr!("Close"), ButtonKind::Primary, None).clicked() {
+                            pick = Some(Pick::Close);
+                        }
+                    }
+                });
+                if state.consent == Consent::Asking {
+                    let why = if !state.password.ready(true) {
+                        Some(tr!("Enter the password"))
+                    } else if limit.is_none() {
+                        Some(tr!("Choose a limit of at most 5 DASH"))
+                    } else if end.is_none() {
+                        Some(tr!("Choose a date between an hour and a year from now"))
+                    } else if !fits {
+                        Some(tr!("The limit is less than the app needs"))
                     } else {
-                        let mut on = state.choice.kept[i];
-                        let up_to = shares
-                            .as_ref()
-                            .and_then(|g| g.keys[i].map(|(b, _)| b))
-                            .unwrap_or(offer.budget);
-                        // The line under it as close as under the primary key, not the body's
-                        // 12 px (the designer's r4 note 3).
+                        None
+                    };
+                    if let Some(why) = why {
+                        ui.label(txt(why, 12.0, Weight::Regular, p.muted));
+                    }
+                }
+                if let Some(Err(e)) = &state.result
+                    && !state.password.is_wrong()
+                {
+                    crate::components::error_notice(
+                        ui,
+                        a,
+                        &text::failed(tr!("Not connected"), e),
+                        text::error_details(e).as_deref(),
+                    );
+                }
+                return false;
+            }
+            ui.horizontal(|ui| {
+                crate::components::network_chip(ui, a, cx.snap.network);
+                ui.label(txt(
+                    &format!(
+                        tr!("App Connect v2 · request made {} ago"),
+                        age(now.timestamp() - created_at)
+                    ),
+                    12.0,
+                    Weight::Regular,
+                    p.muted,
+                ));
+            });
+            // The app: its own words, and who owns its contract (R-8).
+            Frame::new()
+                .stroke(Stroke::new(1.0, p.line))
+                .corner_radius(12)
+                .inner_margin(Margin::same(14))
+                .show(ui, |ui| {
+                    ui.set_width(ui.available_width());
+                    ui.horizontal_top(|ui| {
+                        let (logo, _) =
+                            ui.allocate_exact_size(egui::vec2(40.0, 40.0), egui::Sense::hover());
+                        crate::components::paint_letter_box(ui, &p, logo, app);
                         ui.vertical(|ui| {
                             ui.spacing_mut().item_spacing.y = 2.0;
-                            checkbox(ui, a, &mut on, &binding_words(&offer.binding, app));
-                            ui.horizontal(|ui| {
-                                ui.add_space(32.0);
-                                ui.label(txt(
-                                    &format!(
-                                        tr!("up to {} from the same limit · you can leave it off"),
-                                        dash(up_to)
-                                    ),
-                                    12.0,
-                                    Weight::Regular,
-                                    p.muted,
-                                ));
-                            });
+                            ui.label(txt(app, 15.0, Weight::SemiBold, p.text));
+                            ui.label(txt(
+                                tr!("what the app calls itself"),
+                                12.0,
+                                Weight::Regular,
+                                p.muted,
+                            ));
+                            let owner = owner_name
+                                .as_ref()
+                                .map_or_else(|| text::short_address(owner), |n| format!("@{n}"));
+                            ui.label(txt(
+                                &format!(
+                                    tr!("contract {} · owner {}"),
+                                    text::short_address(app_id),
+                                    owner
+                                ),
+                                12.0,
+                                Weight::Regular,
+                                p.muted,
+                            ));
                         });
-                        state.choice.kept[i] = on;
-                    }
-                }
-                can_line(ui, a, "close", tr!("Transfer credits and DASH"), None, true);
-                can_line(ui, a, "close", tr!("See the phrase and other keys"), None, true);
-                for enc in encryption.iter().filter(|e| e.added) {
-                    let EncryptionOffer { contract, .. } = enc;
-                    let whose = if contract == app_id { app.to_owned() } else { text::short_address(contract) };
-                    wrapped(
-                        ui,
-                        &format!(
-                            tr!("evolite also adds an encryption key for {} messages; it spends nothing."),
-                            whose
-                        ),
-                        12.0,
-                        p.muted,
-                    );
-                }
-                crate::components::divider(ui, &p);
-                section(ui, a, tr!("Spending limit, DASH"));
-                let mut items: Vec<String> = limits.budget_presets.iter().map(|&d| number(d)).collect();
-                items.push(crate::i18n::t(tr!("Your amount")).into_owned());
-                let refs: Vec<&str> = items.iter().map(String::as_str).collect();
-                segmented(ui, &p, &refs, &mut state.choice.budget, false);
-                if state.choice.budget >= limits.budget_presets.len() {
-                    crate::a11y::name_next_field(ui, tr!("Your amount"));
-                    text_field(
-                        ui,
-                        &p,
-                        "app-connect-amount",
-                        &mut state.choice.amount,
-                        "0.25",
-                        FieldKind::Amount,
-                        |_| {},
-                    );
-                }
-                section(ui, a, tr!("Period"));
-                let mut items: Vec<String> = limits
-                    .term_presets_days
-                    .iter()
-                    .map(|&d| match d {
-                        365 => crate::i18n::t(tr!("1 year")).into_owned(),
-                        d => text::plural(d as u32, tr!("day"), tr!("days")),
-                    })
-                    .collect();
-                items.push(crate::i18n::t(tr!("Your date")).into_owned());
-                let refs: Vec<&str> = items.iter().map(String::as_str).collect();
-                segmented(ui, &p, &refs, &mut state.choice.term, false);
-                if state.choice.term >= limits.term_presets_days.len() {
-                    crate::a11y::name_next_field(ui, tr!("Your date"));
-                    text_field(
-                        ui,
-                        &p,
-                        "app-connect-date",
-                        &mut state.choice.date,
-                        tr!("dd.mm.yyyy"),
-                        FieldKind::Text,
-                        |_| {},
-                    );
-                }
-                wrapped(ui, &explanation(sessions, now), 12.0, p.muted);
-                match renews {
-                    Some(old) => renewal_note(ui, a, app, old),
-                    None if *breaks_old_clients => permanent(ui, a, identity),
-                    None => {}
-                }
-                kv_row(
-                    ui,
-                    &p,
-                    if renews.is_some() {
-                        tr!("New keys and disabling the old ones")
-                    } else {
-                        tr!("Adding keys")
-                    },
-                    &format!("≈ {}", dash(*cost)),
-                    mono(13.0, Weight::Medium),
-                );
-                kv_row(
-                    ui,
-                    &p,
-                    tr!("Pays"),
-                    &format!(tr!("{} · credits"), identity),
-                    mono(13.0, Weight::Medium),
-                );
-            });
-            // Pinned: the password and the buttons (asked always: this cannot be undone). The
-            // app asks, not the person: Enter in the field never connects (rule b′, BUG-30).
-            if state.consent == Consent::Asking {
-                state.password.field(ui, &p, "app-request-password", true);
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Min), |ui| {
+                            crate::components::chip(
+                                ui,
+                                a,
+                                "confirmed",
+                                tr!("Contract found"),
+                                false,
+                            );
+                        });
+                    });
+                });
+            // BUG-29 (c): a row of text, the identity of «Work as»; with more than one, where
+            // to change it.
+            section(ui, a, tr!("Sign in as"));
+            ui.label(txt(identity, 14.0, Weight::Medium, p.text));
+            if cx.wallet().identities.len() > 1 {
+                ui.add(crate::components::para(
+                    tr!("Signs in with the identity chosen in “Work as”; you can change it there."),
+                    12.0,
+                    Weight::Regular,
+                    p.muted,
+                ));
             }
-            let end = state.choice.end(limits, now.timestamp());
-            let limit = state.choice.limit(limits);
-            let fits = limit.is_some_and(|l| split(sessions, &state.choice.kept, l, 0).is_some());
-            let ready = state.password.ready(true) && end.is_some() && limit.is_some() && fits;
-            let yes = if renews.is_some() {
-                tr!("Renew")
-            } else {
-                tr!("Connect")
-            };
-            crate::components::button_row_destructive_if(ui, true, |ui| match state.consent {
-                Consent::Asking => {
-                    if button(ui, a, tr!("Decline"), ButtonKind::Ghost, None).clicked() {
-                        pick = Some(Pick::No);
-                    }
-                    if button_enabled(ui, a, yes, ButtonKind::Primary, None, ready).clicked() {
-                        pick = Some(Pick::Yes);
-                    }
-                }
-                Consent::Sending => {
-                    button_enabled(ui, a, tr!("Decline"), ButtonKind::Ghost, None, false);
-                    button_enabled(ui, a, tr!("Sending…"), ButtonKind::Primary, None, false);
-                }
-                Consent::Sent | Consent::Failed => {
-                    if button(ui, a, tr!("Close"), ButtonKind::Primary, None).clicked() {
-                        pick = Some(Pick::Close);
-                    }
-                }
-            });
-            if state.consent == Consent::Asking {
-                let why = if !state.password.ready(true) {
-                    Some(tr!("Enter the password"))
-                } else if limit.is_none() {
-                    Some(tr!("Choose a limit of at most 5 DASH"))
-                } else if end.is_none() {
-                    Some(tr!("Choose a date between an hour and a year from now"))
-                } else if !fits {
-                    Some(tr!("The limit is less than the app needs"))
+            section(ui, a, tr!("The app will be able to"));
+            let limit = state.choice.limit(limits).unwrap_or(0);
+            // What each optional key would get now: its ask, or less when the limit is small.
+            let shares = split(sessions, &state.choice.kept, limit, 0);
+            for (i, offer) in sessions.iter().enumerate() {
+                if offer.primary {
+                    can_line(
+                        ui,
+                        a,
+                        "check",
+                        &binding_words(&offer.binding, app),
+                        Some(&format!(
+                            tr!("fees come from the {} credits, within the limit below"),
+                            identity
+                        )),
+                        false,
+                    );
                 } else {
-                    None
-                };
-                if let Some(why) = why {
-                    ui.label(txt(why, 12.0, Weight::Regular, p.muted));
+                    let mut on = state.choice.kept[i];
+                    let up_to = shares
+                        .as_ref()
+                        .and_then(|g| g.keys[i].map(|(b, _)| b))
+                        .unwrap_or(offer.budget);
+                    // The line under it as close as under the primary key, not the body's
+                    // 12 px (the designer's r4 note 3).
+                    ui.vertical(|ui| {
+                        ui.spacing_mut().item_spacing.y = 2.0;
+                        checkbox(ui, a, &mut on, &binding_words(&offer.binding, app));
+                        ui.horizontal(|ui| {
+                            ui.add_space(32.0);
+                            ui.label(txt(
+                                &format!(
+                                    tr!("up to {} from the same limit · you can leave it off"),
+                                    dash(up_to)
+                                ),
+                                12.0,
+                                Weight::Regular,
+                                p.muted,
+                            ));
+                        });
+                    });
+                    state.choice.kept[i] = on;
                 }
             }
-            if let Some(Err(e)) = &state.result
-                && !state.password.is_wrong()
-            {
-                crate::components::error_notice(
+            can_line(ui, a, "close", tr!("Transfer credits and DASH"), None, true);
+            can_line(
+                ui,
+                a,
+                "close",
+                tr!("See the phrase and other keys"),
+                None,
+                true,
+            );
+            for enc in encryption.iter().filter(|e| e.added) {
+                let EncryptionOffer { contract, .. } = enc;
+                let whose = if contract == app_id {
+                    app.to_owned()
+                } else {
+                    text::short_address(contract)
+                };
+                wrapped(
                     ui,
-                    a,
-                    &text::failed(tr!("Not connected"), e),
-                    text::error_details(e).as_deref(),
+                    &format!(
+                        tr!(
+                            "evolite also adds an encryption key for {} messages; it spends nothing."
+                        ),
+                        whose
+                    ),
+                    12.0,
+                    p.muted,
                 );
             }
+            crate::components::divider(ui, &p);
+            section(ui, a, tr!("Spending limit, DASH"));
+            let mut items: Vec<String> = limits.budget_presets.iter().map(|&d| number(d)).collect();
+            items.push(crate::i18n::t(tr!("Your amount")).into_owned());
+            let refs: Vec<&str> = items.iter().map(String::as_str).collect();
+            segmented(ui, &p, &refs, &mut state.choice.budget, false);
+            if state.choice.budget >= limits.budget_presets.len() {
+                crate::a11y::name_next_field(ui, tr!("Your amount"));
+                text_field(
+                    ui,
+                    &p,
+                    "app-connect-amount",
+                    &mut state.choice.amount,
+                    "0.25",
+                    FieldKind::Amount,
+                    |_| {},
+                );
+            }
+            section(ui, a, tr!("Period"));
+            let mut items: Vec<String> = limits
+                .term_presets_days
+                .iter()
+                .map(|&d| match d {
+                    365 => crate::i18n::t(tr!("1 year")).into_owned(),
+                    d => text::plural(d as u32, tr!("day"), tr!("days")),
+                })
+                .collect();
+            items.push(crate::i18n::t(tr!("Your date")).into_owned());
+            let refs: Vec<&str> = items.iter().map(String::as_str).collect();
+            segmented(ui, &p, &refs, &mut state.choice.term, false);
+            if state.choice.term >= limits.term_presets_days.len() {
+                crate::a11y::name_next_field(ui, tr!("Your date"));
+                text_field(
+                    ui,
+                    &p,
+                    "app-connect-date",
+                    &mut state.choice.date,
+                    tr!("dd.mm.yyyy"),
+                    FieldKind::Text,
+                    |_| {},
+                );
+            }
+            wrapped(ui, &explanation(sessions, now), 12.0, p.muted);
+            match renews {
+                Some(old) => renewal_note(ui, a, app, old),
+                None if *breaks_old_clients => permanent(ui, a, identity),
+                None => {}
+            }
+            kv_row(
+                ui,
+                &p,
+                if renews.is_some() {
+                    tr!("New keys and disabling the old ones")
+                } else {
+                    tr!("Adding keys")
+                },
+                &format!("≈ {}", dash(*cost)),
+                mono(13.0, Weight::Medium),
+            );
+            kv_row(
+                ui,
+                &p,
+                tr!("Pays"),
+                &format!(tr!("{} · credits"), identity),
+                mono(13.0, Weight::Medium),
+            );
             false
         },
     );
@@ -739,31 +748,35 @@ pub fn refusal_words(why: &AppLinkRefusal, app: &str) -> (String, String, String
 /// `again` the person asks to paste another link.
 pub fn refusal(ui: &mut Ui, a: &mut Assets, why: &AppLinkRefusal, again: &mut bool) -> bool {
     let (title, body, hint) = refusal_words(why, tr!("app"));
-    dialog(
+    dialog_with_footer(
         ui,
         a,
         "app-link-refused",
         "warning",
         &title,
         470.0,
-        |ui, a| {
+        |ui, a, part| {
             let p = a.p;
+            if part == Part::Footer {
+                // The footer (BUG-122): always in the window.
+                let mut close = false;
+                crate::components::button_row(ui, |ui| {
+                    if matches!(why, AppLinkRefusal::Stale)
+                        && button(ui, a, tr!("Paste another"), ButtonKind::Ghost, None).clicked()
+                    {
+                        *again = true;
+                        close = true;
+                    }
+                    if button(ui, a, tr!("Got it"), ButtonKind::Primary, None).clicked() {
+                        close = true;
+                    }
+                });
+                return close;
+            }
             ui.spacing_mut().item_spacing.y = 14.0;
             wrapped(ui, &body, 14.0, p.text);
             notice(ui, a, "info", p.muted, &hint);
-            let mut close = false;
-            crate::components::button_row(ui, |ui| {
-                if matches!(why, AppLinkRefusal::Stale)
-                    && button(ui, a, tr!("Paste another"), ButtonKind::Ghost, None).clicked()
-                {
-                    *again = true;
-                    close = true;
-                }
-                if button(ui, a, tr!("Got it"), ButtonKind::Primary, None).clicked() {
-                    close = true;
-                }
-            });
-            close
+            false
         },
     )
 }
@@ -778,15 +791,33 @@ pub fn renew_how(
     closed: &mut bool,
 ) -> Option<bool> {
     let mut pick = None;
-    *closed = dialog(
+    *closed = dialog_with_footer(
         ui,
         a,
         "app-renew",
         "import",
         &format!(tr!("Renew the {} connection"), app),
         470.0,
-        |ui, a| {
+        |ui, a, part| {
             let p = a.p;
+            if part == Part::Footer {
+                // The footer (BUG-122): always in the window.
+                let mut close = false;
+                crate::components::button_row(ui, |ui| {
+                    if button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked() {
+                        close = true;
+                    }
+                    if button(ui, a, tr!("Scan QR"), ButtonKind::Secondary, None).clicked() {
+                        pick = Some(false);
+                        close = true;
+                    }
+                    if button(ui, a, tr!("Paste a link"), ButtonKind::Primary, None).clicked() {
+                        pick = Some(true);
+                        close = true;
+                    }
+                });
+                return close;
+            }
             ui.spacing_mut().item_spacing.y = 12.0;
             wrapped(
                 ui,
@@ -808,21 +839,7 @@ pub fn renew_how(
                 p.text,
             );
             kv_row(ui, &p, tr!("Now"), now_line, mono(13.0, Weight::Medium));
-            let mut close = false;
-            crate::components::button_row(ui, |ui| {
-                if button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked() {
-                    close = true;
-                }
-                if button(ui, a, tr!("Scan QR"), ButtonKind::Secondary, None).clicked() {
-                    pick = Some(false);
-                    close = true;
-                }
-                if button(ui, a, tr!("Paste a link"), ButtonKind::Primary, None).clicked() {
-                    pick = Some(true);
-                    close = true;
-                }
-            });
-            close
+            false
         },
     );
     pick
@@ -832,15 +849,37 @@ pub fn renew_how(
 /// Returns true to remove; `closed` when the dialog goes.
 pub fn remove_dialog(ui: &mut Ui, a: &mut Assets, app: &str, closed: &mut bool) -> bool {
     let mut remove = false;
-    *closed = dialog(
+    *closed = dialog_with_footer(
         ui,
         a,
         "app-remove",
         "close",
         tr!("Remove from the list?"),
         470.0,
-        |ui, a| {
+        |ui, a, part| {
             let p = a.p;
+            if part == Part::Footer {
+                // The footer (BUG-122): always in the window.
+                let mut close = false;
+                crate::components::button_row(ui, |ui| {
+                    if button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked() {
+                        close = true;
+                    }
+                    if button(
+                        ui,
+                        a,
+                        tr!("Remove from the list"),
+                        ButtonKind::Primary,
+                        None,
+                    )
+                    .clicked()
+                    {
+                        remove = true;
+                        close = true;
+                    }
+                });
+                return close;
+            }
             ui.spacing_mut().item_spacing.y = 12.0;
             wrapped(
                 ui,
@@ -862,25 +901,7 @@ pub fn remove_dialog(ui: &mut Ui, a: &mut Assets, app: &str, closed: &mut bool) 
                     "Disabled keys stay on the identity forever: that is how the network works. Nothing is spent, no password is needed."
                 ),
             );
-            let mut close = false;
-            crate::components::button_row(ui, |ui| {
-                if button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked() {
-                    close = true;
-                }
-                if button(
-                    ui,
-                    a,
-                    tr!("Remove from the list"),
-                    ButtonKind::Primary,
-                    None,
-                )
-                .clicked()
-                {
-                    remove = true;
-                    close = true;
-                }
-            });
-            close
+            false
         },
     );
     remove

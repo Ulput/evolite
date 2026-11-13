@@ -11,7 +11,7 @@ use crate::components::{
 };
 #[cfg(demo_core)]
 use crate::components::{
-    FieldKind, button_enabled, dialog, field_label, password_asked, text_field,
+    FieldKind, Part, button_enabled, dialog_with_footer, field_label, password_asked, text_field,
 };
 use crate::context::Ctx;
 use crate::text;
@@ -618,7 +618,7 @@ fn gift_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut Collection
     };
     let fee = wallet.fees.nft_transfer;
     let title = format!(tr!("Give “{}”"), crate::i18n::own(&nft.name));
-    let closed = dialog(ui, a, "gift-dialog", "nft", &title, 464.0, |ui, a| {
+    let closed = dialog_with_footer(ui, a, "gift-dialog", "nft", &title, 464.0, |ui, a, part| {
         let mut close = false;
         let name = state
             .recipient
@@ -636,6 +636,50 @@ fn gift_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut Collection
         } else {
             None
         };
+        if part == Part::Footer {
+            // The footer (BUG-122): always in the window.
+            let ask = password_asked(cx.snap);
+            state.password.settle(state.result.as_ref());
+            let entered = state.password.field(ui, &p, "gift-password", ask);
+            crate::components::button_row_spend(ui, |ui| {
+                if button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked() {
+                    close = true;
+                }
+                let ready = !state.recipient.trim().is_empty()
+                    && error.is_none()
+                    && state.password.ready(ask);
+                if button_enabled(ui, a, tr!("Give"), ButtonKind::Primary, None, ready).clicked()
+                    || (entered && ready)
+                {
+                    let op = Spend::GiftNft {
+                        id: nft.id.clone(),
+                        to: state.recipient.trim().to_string(),
+                    };
+                    cx.send(state.password.command(op, ask));
+                    state.result = None;
+                }
+            });
+            match state.result.as_ref().filter(|_| !state.password.is_wrong()) {
+                Some(Ok(())) => {
+                    crate::components::notice(ui, a, "confirmed", p.accent, tr!("NFT transferred."))
+                }
+                Some(Err(CoreError::NotAvailable(why))) => crate::components::notice(
+                    ui,
+                    a,
+                    "info",
+                    p.muted,
+                    &format!(tr!("{why}. The NFT is still yours."), why = why),
+                ),
+                Some(Err(e)) => crate::components::error_notice(
+                    ui,
+                    a,
+                    &crate::text::failed(tr!("Not transferred"), e),
+                    crate::text::error_details(e).as_deref(),
+                ),
+                None => {}
+            }
+            return close;
+        }
         ui.vertical(|ui| {
             ui.spacing_mut().item_spacing.y = 6.0;
             field_label(ui, &p, tr!("Recipient"));
@@ -672,46 +716,7 @@ fn gift_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut Collection
             &format!("≈ {}", crate::format::amount(fee)),
             mono(13.0, Weight::Medium),
         );
-        let ask = password_asked(cx.snap);
-        state.password.settle(state.result.as_ref());
-        let entered = state.password.field(ui, &p, "gift-password", ask);
-        crate::components::button_row_spend(ui, |ui| {
-            if button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked() {
-                close = true;
-            }
-            let ready =
-                !state.recipient.trim().is_empty() && error.is_none() && state.password.ready(ask);
-            if button_enabled(ui, a, tr!("Give"), ButtonKind::Primary, None, ready).clicked()
-                || (entered && ready)
-            {
-                let op = Spend::GiftNft {
-                    id: nft.id.clone(),
-                    to: state.recipient.trim().to_string(),
-                };
-                cx.send(state.password.command(op, ask));
-                state.result = None;
-            }
-        });
-        match state.result.as_ref().filter(|_| !state.password.is_wrong()) {
-            Some(Ok(())) => {
-                crate::components::notice(ui, a, "confirmed", p.accent, tr!("NFT transferred."))
-            }
-            Some(Err(CoreError::NotAvailable(why))) => crate::components::notice(
-                ui,
-                a,
-                "info",
-                p.muted,
-                &format!(tr!("{why}. The NFT is still yours."), why = why),
-            ),
-            Some(Err(e)) => crate::components::error_notice(
-                ui,
-                a,
-                &crate::text::failed(tr!("Not transferred"), e),
-                crate::text::error_details(e).as_deref(),
-            ),
-            None => {}
-        }
-        close
+        false
     });
     if closed {
         state.gifting = false;

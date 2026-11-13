@@ -19,9 +19,9 @@ use source::*;
 
 use super::txt;
 use crate::components::{
-    Assets, ButtonKind, CardColumn, FieldKind, button, button_enabled, card, dialog, divider,
-    field_label, from_columns, kv_row, notice, option_card_dim_in, option_card_in,
-    option_card_width, page_header, pill, text_field,
+    Assets, ButtonKind, CardColumn, FieldKind, button, button_enabled, card, divider, field_label,
+    from_columns, kv_row, notice, option_card_dim_in, option_card_in, option_card_width,
+    page_header, pill, text_field,
 };
 use crate::context::Ctx;
 use crate::text::{name_problem, short_address};

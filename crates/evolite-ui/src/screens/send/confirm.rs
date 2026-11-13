@@ -1,6 +1,7 @@
 //! The last look before signing.
 
 use super::*;
+use crate::components::{Part, dialog_with_footer};
 
 /// How long the last look waits for the core's answer to its password before closing all the same
 /// (BUG-92). The check is quick; a right password is answered only once the network has the
@@ -91,15 +92,55 @@ pub(super) fn confirm(
         address: &address,
     };
     let mut send_now = false;
-    let closed = dialog(
+    let closed = dialog_with_footer(
         ui,
         a,
         "send-confirm",
         "send",
         tr!("Check the payment"),
         420.0,
-        |ui, a| {
+        |ui, a, part| {
             ui.spacing_mut().item_spacing.y = 14.0;
+            if part == Part::Footer {
+                // Enter in the password field signs, as the button does: the row presses its
+                // primary (`components::button_row`).
+                if ask_password {
+                    password_field(ui, &p, form);
+                }
+                let mut close = false;
+                crate::components::button_row_spend(ui, |ui| {
+                    // It is with the core: nothing to cancel any more, only its answer to wait
+                    // for.
+                    if !signing && button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked() {
+                        close = true;
+                    }
+                    let ready = !signing
+                        && (!ask_password || !form.password.is_empty())
+                        && (!from_core || address.is_some())
+                        && coins_gone.is_none();
+                    let clicked = button_enabled(
+                        ui,
+                        a,
+                        if signing {
+                            tr!("Sending…")
+                        } else {
+                            tr!("Sign and send")
+                        },
+                        ButtonKind::Primary,
+                        None,
+                        ready,
+                    )
+                    .clicked();
+                    if ready && clicked {
+                        send_now = true;
+                        // With a password its answer decides, when it can only be this
+                        // payment's: `Event::Sent` says not whose it is, so with another still
+                        // unanswered the dialog closes and the answers go to the form (BUG-92 r1).
+                        close = !ask_password || form.waiting > 0;
+                    }
+                });
+                return close || timed_out;
+            }
             let from = match &coin_plan {
                 // «Core · 2 of 3 coins»; all taken: «Core · 3 coins» (P1).
                 Some(plan) if plan.taken < form.coins.chosen.len() => format!(
@@ -180,43 +221,7 @@ pub(super) fn confirm(
                     ),
                 );
             }
-            // Enter in the password field signs, as the button does: the row presses its
-            // primary (`components::button_row`).
-            if ask_password {
-                password_field(ui, &p, form);
-            }
-            let mut close = false;
-            crate::components::button_row_spend(ui, |ui| {
-                // It is with the core: nothing to cancel any more, only its answer to wait for.
-                if !signing && button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked() {
-                    close = true;
-                }
-                let ready = !signing
-                    && (!ask_password || !form.password.is_empty())
-                    && (!from_core || address.is_some())
-                    && coins_gone.is_none();
-                let clicked = button_enabled(
-                    ui,
-                    a,
-                    if signing {
-                        tr!("Sending…")
-                    } else {
-                        tr!("Sign and send")
-                    },
-                    ButtonKind::Primary,
-                    None,
-                    ready,
-                )
-                .clicked();
-                if ready && clicked {
-                    send_now = true;
-                    // With a password its answer decides, when it can only be this payment's:
-                    // `Event::Sent` says not whose it is, so with another still unanswered the
-                    // dialog closes and the answers go to the form (BUG-92 r1).
-                    close = !ask_password || form.waiting > 0;
-                }
-            });
-            close || timed_out
+            false
         },
     );
     if send_now {

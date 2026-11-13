@@ -3,10 +3,10 @@
 
 use super::txt;
 use crate::components::{
-    Assets, ButtonKind, CardAmount, GridSpec, RowCell, SpendPassword, TxRow, amount_field, button,
-    button_enabled, button_row, card, dialog, error_notice, field_label, grid, grid_layout, inner,
-    kv_row, list_card, notice, page_header, password_asked, progress_bar, segmented_with_off,
-    select_row, tx_row,
+    Assets, ButtonKind, CardAmount, GridSpec, Part, RowCell, SpendPassword, TxRow, amount_field,
+    button, button_enabled, button_row, card, dialog_with_footer, error_notice, field_label, grid,
+    grid_layout, inner, kv_row, list_card, notice, page_header, password_asked, progress_bar,
+    segmented_with_off, select_row, tx_row,
 };
 use crate::context::Ctx;
 use crate::text;
@@ -520,17 +520,53 @@ fn shield_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut PoolStat
         ShieldSource::Core => text::core_amount(&wallet.balances, core, now),
         _ => CardAmount::platform(!unread(source), balance).balance(),
     };
-    let closed = dialog(
+    // What the middle planned, for the footer's button: whether it continues a stopped shield,
+    // whether there is something to shield, how much and from where.
+    let mut planned = None;
+    let closed = dialog_with_footer(
         ui,
         a,
         "shield-dialog",
         "shield",
         tr!("Shield into the private pool"),
         462.0,
-        |ui, a| {
+        |ui, a, part| {
             let p = a.p;
-            let mut close = false;
             let busy = state.progress.is_some();
+            if part == Part::Footer {
+                // The footer (BUG-122): the password and the buttons, always in the window.
+                let Some((resume, can, amount, source)) = planned else {
+                    return false;
+                };
+                let mut close = false;
+                let ask = password_asked(cx.snap) && !busy;
+                let entered = state.password.field(ui, &p, "shield-password", ask);
+                crate::components::button_row_spend(ui, |ui| {
+                    if button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked() {
+                        close = true;
+                    }
+                    let ready = !busy && can && state.password.ready(ask);
+                    let label = match (busy, resume) {
+                        (true, _) => tr!("Shielding…"),
+                        (false, true) => tr!("Continue"),
+                        (false, false) => tr!("Shield"),
+                    };
+                    if (button_enabled(ui, a, label, ButtonKind::Primary, None, ready).clicked()
+                        || (entered && ready))
+                        && let Some(amount) = amount
+                    {
+                        let op = Spend::Shield {
+                            from: source,
+                            amount,
+                        };
+                        state.continuing = resume;
+                        cx.send(state.password.command(op, ask));
+                        state.progress = Some(0.0);
+                        state.result = None;
+                    }
+                });
+                return close;
+            }
             let (source, _, _, balance) = &sources[state.from.min(sources.len() - 1)];
             shield_source_rows(ui, a, state, &sources, busy, &shown, &unread);
             // A move running or just done has its coins gone already (BUG-101): its typed amount
@@ -581,33 +617,8 @@ fn shield_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut PoolStat
                 proof_progress(ui, a, fraction);
             }
             shield_answer(ui, a, state);
-            let ask = password_asked(cx.snap) && !busy;
-            let entered = state.password.field(ui, &p, "shield-password", ask);
-            crate::components::button_row_spend(ui, |ui| {
-                if button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked() {
-                    close = true;
-                }
-                let ready = !busy && preview.is_some() && state.password.ready(ask);
-                let label = match (busy, resume) {
-                    (true, _) => tr!("Shielding…"),
-                    (false, Some(_)) => tr!("Continue"),
-                    (false, None) => tr!("Shield"),
-                };
-                if (button_enabled(ui, a, label, ButtonKind::Primary, None, ready).clicked()
-                    || (entered && ready))
-                    && let Some(amount) = amount
-                {
-                    let op = Spend::Shield {
-                        from: *source,
-                        amount,
-                    };
-                    state.continuing = resume.is_some();
-                    cx.send(state.password.command(op, ask));
-                    state.progress = Some(0.0);
-                    state.result = None;
-                }
-            });
-            close
+            planned = Some((resume.is_some(), preview.is_some(), amount, *source));
+            false
         },
     );
     if closed {
@@ -833,17 +844,52 @@ fn unshield_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut PoolSt
     // Without an identity only the Platform address is there.
     let to_identity = state.unshield_to_identity && identity.is_some();
     let fee = unshield_fee(&wallet.fees, to_identity);
-    let closed = dialog(
+    // What the middle reckoned, for the footer's button: whether the amount fits, and which.
+    let mut planned = None;
+    let closed = dialog_with_footer(
         ui,
         a,
         "unshield-dialog",
         "unshield",
         tr!("Unshield from the pool"),
         462.0,
-        |ui, a| {
+        |ui, a, part| {
             let p = a.p;
-            let mut close = false;
             let busy = state.progress.is_some();
+            if part == Part::Footer {
+                // The footer (BUG-122): the password and the buttons, always in the window.
+                let Some((fits, amount)) = planned else {
+                    return false;
+                };
+                let mut close = false;
+                let ask = password_asked(cx.snap) && !busy;
+                let entered = state.password.field(ui, &p, "unshield-password", ask);
+                crate::components::button_row_spend(ui, |ui| {
+                    if button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked() {
+                        close = true;
+                    }
+                    let ready = !busy && fits && state.password.ready(ask);
+                    let label = if busy {
+                        tr!("Unshielding…")
+                    } else {
+                        tr!("Unshield")
+                    };
+                    if (button_enabled(ui, a, label, ButtonKind::Primary, None, ready).clicked()
+                        || (entered && ready))
+                        && let Some(amount) = amount
+                    {
+                        let op = if to_identity {
+                            Spend::TopUpFromPool { amount }
+                        } else {
+                            Spend::Unshield { amount }
+                        };
+                        cx.send(state.password.command(op, ask));
+                        state.progress = Some(0.0);
+                        state.result = None;
+                    }
+                });
+                return close;
+            }
             ui.vertical(|ui| {
                 ui.spacing_mut().item_spacing.y = 8.0;
                 field_label(ui, &p, tr!("Where to"));
@@ -966,33 +1012,8 @@ fn unshield_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut PoolSt
                 ),
                 None => {}
             }
-            let ask = password_asked(cx.snap) && !busy;
-            let entered = state.password.field(ui, &p, "unshield-password", ask);
-            crate::components::button_row_spend(ui, |ui| {
-                if button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked() {
-                    close = true;
-                }
-                let ready = !busy && left.is_some_and(|l| l >= 0) && state.password.ready(ask);
-                let label = if busy {
-                    tr!("Unshielding…")
-                } else {
-                    tr!("Unshield")
-                };
-                if (button_enabled(ui, a, label, ButtonKind::Primary, None, ready).clicked()
-                    || (entered && ready))
-                    && let Some(amount) = amount
-                {
-                    let op = if to_identity {
-                        Spend::TopUpFromPool { amount }
-                    } else {
-                        Spend::Unshield { amount }
-                    };
-                    cx.send(state.password.command(op, ask));
-                    state.progress = Some(0.0);
-                    state.result = None;
-                }
-            });
-            close
+            planned = Some((left.is_some_and(|l| l >= 0), amount));
+            false
         },
     );
     if closed {
@@ -1032,16 +1053,35 @@ fn unshield_fee(fees: &Fees, to_identity: bool) -> Duffs {
 
 /// "Private address": the wallet's Orchard address, as a QR code and text to copy.
 fn address_dialog(ui: &mut Ui, a: &mut Assets, state: &mut PoolState, address: &str) {
-    let closed = dialog(
+    let closed = dialog_with_footer(
         ui,
         a,
         "pool-address-dialog",
         "receive",
         tr!("Private address"),
         462.0,
-        |ui, a| {
+        |ui, a, part| {
             let p = a.p;
-            let mut close = false;
+            if part == Part::Footer {
+                let mut close = false;
+                button_row(ui, |ui| {
+                    if button(ui, a, tr!("Close"), ButtonKind::Ghost, None).clicked() {
+                        close = true;
+                    }
+                    // Copied like any address (wiped later), with "Copied" for a moment
+                    // (BUG-39 №1).
+                    let copy_id = egui::Id::new("pool-address-copy");
+                    let label = if crate::clipboard::just_copied(ui.ctx(), copy_id) {
+                        tr!("Copied")
+                    } else {
+                        tr!("Copy")
+                    };
+                    if button(ui, a, label, ButtonKind::Primary, None).clicked() {
+                        crate::clipboard::copy_answered(ui.ctx(), address.to_owned(), copy_id);
+                    }
+                });
+                return close;
+            }
             ui.vertical_centered(|ui| {
                 super::receive::qr_card(ui, &p, address);
             });
@@ -1062,22 +1102,7 @@ fn address_dialog(ui: &mut Ui, a: &mut Assets, state: &mut PoolState, address: &
                     "Transfers to this address go straight into the pool: only you see the amount and the sender."
                 ),
             );
-            button_row(ui, |ui| {
-                if button(ui, a, tr!("Close"), ButtonKind::Ghost, None).clicked() {
-                    close = true;
-                }
-                // Copied like any address (wiped later), with "Copied" for a moment (BUG-39 №1).
-                let copy_id = egui::Id::new("pool-address-copy");
-                let label = if crate::clipboard::just_copied(ui.ctx(), copy_id) {
-                    tr!("Copied")
-                } else {
-                    tr!("Copy")
-                };
-                if button(ui, a, label, ButtonKind::Primary, None).clicked() {
-                    crate::clipboard::copy_answered(ui.ctx(), address.to_owned(), copy_id);
-                }
-            });
-            close
+            false
         },
     );
     if closed {

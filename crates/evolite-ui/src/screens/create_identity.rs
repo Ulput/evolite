@@ -6,9 +6,10 @@
 
 use super::txt;
 use crate::components::{
-    Assets, ButtonKind, CardAmount, CardColumn, FieldKind, SpendPassword, StepState, amount_field,
-    button, button_enabled, card, dialog, divider, field_label, inner, kv_row, notice,
-    numbered_step_at, option_card_in, option_card_width, page_header, password_asked, text_field,
+    Assets, ButtonKind, CardAmount, CardColumn, FieldKind, Part, SpendPassword, StepState,
+    amount_field, button, button_enabled, card, dialog_with_footer, divider, field_label, inner,
+    kv_row, notice, numbered_step_at, option_card_in, option_card_width, page_header,
+    password_asked, text_field,
 };
 use crate::context::Ctx;
 use crate::text::name_problem;
@@ -711,21 +712,25 @@ impl Steps {
 /// «Hide» or «×» closes the window only — the creation goes on, and its steps stay in «What
 /// happens». True when closed.
 fn creating_steps(ui: &mut Ui, a: &mut Assets, title: &str, steps: &Steps) -> bool {
-    dialog(
+    dialog_with_footer(
         ui,
         a,
         "create-identity-steps",
         "identity",
         title,
         440.0,
-        |ui, a| {
+        |ui, a, part| {
+            if part == Part::Footer {
+                // The footer (BUG-122): always in the window.
+                let mut hide = false;
+                crate::components::button_row(ui, |ui| {
+                    hide = button(ui, a, tr!("Hide"), ButtonKind::Secondary, None).clicked();
+                });
+                return hide;
+            }
             ui.spacing_mut().item_spacing.y = 14.0;
             steps.draw(ui, a);
-            let mut hide = false;
-            crate::components::button_row(ui, |ui| {
-                hide = button(ui, a, tr!("Hide"), ButtonKind::Secondary, None).clicked();
-            });
-            hide
+            false
         },
     )
 }
@@ -782,14 +787,41 @@ fn check_new_identity(
         chosen,
     } = can;
     let mut create = false;
-    let closed = dialog(
+    let closed = dialog_with_footer(
         ui,
         a,
         "create-identity-confirm",
         "identity",
         tr!("Check the new identity"),
         440.0,
-        |ui, a| {
+        |ui, a, part| {
+            if part == Part::Footer {
+                // The footer (BUG-122): always in the window.
+                // In a dialog Enter in the field presses the row's primary (`button_row_spend`).
+                form.password.field(ui, &p, "create-identity-password", ask);
+                let mut close = false;
+                crate::components::button_row_spend(ui, |ui| {
+                    if button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked() {
+                        close = true;
+                    }
+                    let ready = form_ready && form.password.ready(ask);
+                    if button_enabled(
+                        ui,
+                        a,
+                        tr!("Sign and create"),
+                        ButtonKind::Primary,
+                        None,
+                        ready,
+                    )
+                    .clicked()
+                        && ready
+                    {
+                        create = true;
+                        close = true;
+                    }
+                });
+                return close;
+            }
             ui.spacing_mut().item_spacing.y = 14.0;
             let value = mono(13.0, Weight::Medium);
             kv_row(
@@ -878,30 +910,7 @@ fn check_new_identity(
                 None => tr!("Without a name nobody finds it by @name or adds it to DashPay contacts. You can add a name later on the Identity screen.").into(),
             };
             notice(ui, a, "eye", p.muted, &public);
-            // In a dialog Enter in the field presses the row's primary (`button_row_spend`).
-            form.password.field(ui, &p, "create-identity-password", ask);
-            let mut close = false;
-            crate::components::button_row_spend(ui, |ui| {
-                if button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked() {
-                    close = true;
-                }
-                let ready = form_ready && form.password.ready(ask);
-                if button_enabled(
-                    ui,
-                    a,
-                    tr!("Sign and create"),
-                    ButtonKind::Primary,
-                    None,
-                    ready,
-                )
-                .clicked()
-                    && ready
-                {
-                    create = true;
-                    close = true;
-                }
-            });
-            close
+            false
         },
     );
     if create {

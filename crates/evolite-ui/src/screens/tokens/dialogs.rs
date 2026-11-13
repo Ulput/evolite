@@ -5,8 +5,9 @@
 
 use super::{TokensState, id_line, issuer, sender, shown_name, state};
 use crate::components::{
-    Assets, ButtonKind, FieldKind, SpendPassword, button, button_enabled, button_row,
-    button_row_spend, card, dialog, field_label, kv_row, notice, password_asked, text_field, txt,
+    Assets, ButtonKind, FieldKind, Part, SpendPassword, button, button_enabled, button_row,
+    button_row_spend, card, dialog_with_footer, field_label, kv_row, notice, password_asked,
+    text_field, txt,
 };
 use crate::context::Ctx;
 use crate::theme::{Weight, mono, sans};
@@ -186,15 +187,98 @@ pub(super) fn send_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, tokens: &mu
     } else {
         tr!("Send a token")
     };
-    let closed = dialog(
+    let closed = dialog_with_footer(
         ui,
         a,
         "token-send",
         "token",
         title,
         dialog_width(ui),
-        |ui, a| {
-            let mut close = false;
+        |ui, a, part| {
+            if part == Part::Footer {
+                // The footer (BUG-122): each step's buttons, and the password of the review,
+                // always in the window.
+                let mut close = false;
+                if !form.review {
+                    button_row(ui, |ui| {
+                        if button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked() {
+                            close = true;
+                        }
+                        let ready = problem.is_none()
+                            && form.to_problem.is_none()
+                            && form.checking.is_none()
+                            && !form.to.trim().is_empty()
+                            && amount.is_some_and(|a| a > 0);
+                        if button_enabled(ui, a, tr!("Check"), ButtonKind::Primary, None, ready)
+                            .clicked()
+                        {
+                            let to = form.to.trim().to_owned();
+                            if to.starts_with('@') {
+                                // The name is asked of the network before the review (R-3).
+                                resolve = Some(to);
+                            } else {
+                                form.recipient = Some((state::short(&to), to));
+                                form.review = true;
+                            }
+                        }
+                    });
+                    if form.checking.is_some() {
+                        ui.label(txt(
+                            tr!("Checking the recipient…"),
+                            12.0,
+                            Weight::Regular,
+                            p.muted,
+                        ));
+                    }
+                } else {
+                    let amount = amount.unwrap_or(0);
+                    let (_, to_id) = form.recipient.clone().unwrap_or_default();
+                    // The wallet's password, as for every spend (R-6, BUG-42).
+                    form.password.field(ui, &p, "token-password", ask);
+                    match form.result.as_ref().filter(|_| !form.password.is_wrong()) {
+                        Some(Ok(())) => {
+                            notice(ui, a, "confirmed", p.accent, tr!("The token is sent."));
+                            button_row(ui, |ui| {
+                                if button(ui, a, tr!("Done"), ButtonKind::Primary, None).clicked() {
+                                    close = true;
+                                }
+                            });
+                            return close;
+                        }
+                        Some(Err(e)) => crate::components::error_notice(
+                            ui,
+                            a,
+                            &crate::text::failed(tr!("Not sent"), e),
+                            crate::text::error_details(e).as_deref(),
+                        ),
+                        None => {}
+                    }
+                    button_row_spend(ui, |ui| {
+                        if button(ui, a, tr!("Back"), ButtonKind::Ghost, None).clicked() {
+                            form.review = false;
+                            form.result = None;
+                        }
+                        let ready = !form.waiting && form.password.ready(ask) && problem.is_none();
+                        if button_enabled(
+                            ui,
+                            a,
+                            tr!("Sign and send"),
+                            ButtonKind::Primary,
+                            None,
+                            ready,
+                        )
+                        .clicked()
+                        {
+                            send = Some(Spend::SendToken {
+                                token_id: row.info.token_id.clone(),
+                                to: to_id.clone(),
+                                amount,
+                            });
+                        }
+                    });
+                }
+                return close;
+            }
             ui.spacing_mut().item_spacing.y = 10.0;
             let value = sans(13.0, Weight::Medium);
             let number = mono(13.0, Weight::Medium);
@@ -329,36 +413,6 @@ pub(super) fn send_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, tokens: &mu
                     p.muted,
                     tr!("The transfer and token balances are visible to everyone on the network."),
                 );
-                button_row(ui, |ui| {
-                    if button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked() {
-                        close = true;
-                    }
-                    let ready = problem.is_none()
-                        && form.to_problem.is_none()
-                        && form.checking.is_none()
-                        && !form.to.trim().is_empty()
-                        && amount.is_some_and(|a| a > 0);
-                    if button_enabled(ui, a, tr!("Check"), ButtonKind::Primary, None, ready)
-                        .clicked()
-                    {
-                        let to = form.to.trim().to_owned();
-                        if to.starts_with('@') {
-                            // The name is asked of the network before the review (R-3).
-                            resolve = Some(to);
-                        } else {
-                            form.recipient = Some((state::short(&to), to));
-                            form.review = true;
-                        }
-                    }
-                });
-                if form.checking.is_some() {
-                    ui.label(txt(
-                        tr!("Checking the recipient…"),
-                        12.0,
-                        Weight::Regular,
-                        p.muted,
-                    ));
-                }
             } else {
                 let amount = amount.unwrap_or(0);
                 let (to_name, to_id) = form.recipient.clone().unwrap_or_default();
@@ -429,51 +483,8 @@ pub(super) fn send_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, tokens: &mu
                         "The transfer cannot be undone. It and token balances are visible to everyone on the network."
                     ),
                 );
-                // The wallet's password, as for every spend (R-6, BUG-42).
-                form.password.field(ui, &p, "token-password", ask);
-                match form.result.as_ref().filter(|_| !form.password.is_wrong()) {
-                    Some(Ok(())) => {
-                        notice(ui, a, "confirmed", p.accent, tr!("The token is sent."));
-                        button_row(ui, |ui| {
-                            if button(ui, a, tr!("Done"), ButtonKind::Primary, None).clicked() {
-                                close = true;
-                            }
-                        });
-                        return close;
-                    }
-                    Some(Err(e)) => crate::components::error_notice(
-                        ui,
-                        a,
-                        &crate::text::failed(tr!("Not sent"), e),
-                        crate::text::error_details(e).as_deref(),
-                    ),
-                    None => {}
-                }
-                button_row_spend(ui, |ui| {
-                    if button(ui, a, tr!("Back"), ButtonKind::Ghost, None).clicked() {
-                        form.review = false;
-                        form.result = None;
-                    }
-                    let ready = !form.waiting && form.password.ready(ask) && problem.is_none();
-                    if button_enabled(
-                        ui,
-                        a,
-                        tr!("Sign and send"),
-                        ButtonKind::Primary,
-                        None,
-                        ready,
-                    )
-                    .clicked()
-                    {
-                        send = Some(Spend::SendToken {
-                            token_id: row.info.token_id.clone(),
-                            to: to_id.clone(),
-                            amount,
-                        });
-                    }
-                });
             }
-            close
+            false
         },
     );
     if let Some(name) = resolve {
@@ -680,17 +691,42 @@ pub(super) fn add_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, tokens: &mut
     };
     let mut ask = None;
     let mut track = None;
-    let closed = dialog(
+    // Enter in the token's field, for the footer's «Find».
+    let mut enter = false;
+    let closed = dialog_with_footer(
         ui,
         a,
         "token-add",
         "token",
         tr!("Add a token"),
         dialog_width(ui),
-        |ui, a| {
-            let mut close = false;
+        |ui, a, part| {
+            if part == Part::Footer {
+                // The footer (BUG-122): always in the window.
+                let mut close = false;
+                if let Some(e) = &add.failed {
+                    crate::components::error_notice(
+                        ui,
+                        a,
+                        &crate::text::failed(tr!("Not added"), e),
+                        crate::text::error_details(e).as_deref(),
+                    );
+                }
+                button_row(ui, |ui| {
+                    if button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked() {
+                        close = true;
+                    }
+                    let ready = !add.query.trim().is_empty() && add.asked.is_none();
+                    if button_enabled(ui, a, tr!("Find"), ButtonKind::Primary, None, ready)
+                        .clicked()
+                        || (enter && ready)
+                    {
+                        ask = add_command(&add.query);
+                    }
+                });
+                return close;
+            }
             ui.spacing_mut().item_spacing.y = 10.0;
-            let mut enter = false;
             ui.vertical(|ui| {
                 ui.spacing_mut().item_spacing.y = 6.0;
                 field_label(ui, &p, tr!("Token id, contract id or a word"));
@@ -746,26 +782,7 @@ pub(super) fn add_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, tokens: &mut
                 ),
                 None => {}
             }
-            if let Some(e) = &add.failed {
-                crate::components::error_notice(
-                    ui,
-                    a,
-                    &crate::text::failed(tr!("Not added"), e),
-                    crate::text::error_details(e).as_deref(),
-                );
-            }
-            button_row(ui, |ui| {
-                if button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked() {
-                    close = true;
-                }
-                let ready = !add.query.trim().is_empty() && add.asked.is_none();
-                if button_enabled(ui, a, tr!("Find"), ButtonKind::Primary, None, ready).clicked()
-                    || (enter && ready)
-                {
-                    ask = add_command(&add.query);
-                }
-            });
-            close
+            false
         },
     );
     if let Some(command) = ask {

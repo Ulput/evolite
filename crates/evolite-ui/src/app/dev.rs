@@ -46,6 +46,9 @@ pub(super) struct DevState {
     tokens_preset: Option<&'static str>,
     /// `--screen overview-syncing` / `send-syncing`: the screen while the sync still runs.
     syncing_preset: bool,
+    /// `--screen send-confirm-tall` / `edit-profile-password`: «Password for every send» on, so
+    /// the dialog asks for it (BUG-122: the tallest form of each).
+    password_preset: bool,
     /// `--screen send-fiat-stale`: the rate older than 5 minutes (FEAT-0008, frame 3).
     stale_rate_preset: bool,
     /// `--screen send-pool-unread` / `send-pool-unknown`: Send from the pool before its first read
@@ -170,6 +173,7 @@ impl DevState {
             },
             tokens_preset: TOKEN_STATES.into_iter().find(|name| dev.preset(name)),
             syncing_preset: dev.preset("overview-syncing") || dev.preset("send-syncing"),
+            password_preset: dev.preset("send-confirm-tall") || dev.preset("edit-profile-password"),
             stale_rate_preset: dev.preset("send-fiat-stale"),
             pool_preset: if dev.preset("send-pool-unread") {
                 Some(true)
@@ -305,6 +309,11 @@ impl App {
             && let Some(s) = self.snapshot.as_mut()
         {
             tokens_state(s, name);
+        }
+        if self.dev.password_preset
+            && let Some(w) = self.snapshot.as_mut().and_then(|s| s.wallet.as_mut())
+        {
+            w.password_each_send = true;
         }
         // `--screen overview-syncing` / `send-syncing`: in the middle of the block filters, as a
         // restored wallet on testnet is for minutes.
@@ -601,6 +610,8 @@ impl App {
                 ("send-coins-chosen", &[5u8, 6, 7][..], 12_000_000, false),
                 ("send-coins-name", &[][..], 5_000_000, false),
                 ("send-coins-confirm", &[5u8, 6, 7][..], 12_000_000, false),
+                // BUG-122: the tallest last look — coins, the password, a look-alike address.
+                ("send-confirm-tall", &[5u8, 6, 7][..], 12_000_000, false),
                 ("coins-manual", &[4u8, 5][..], 5_000_000, true),
                 ("coins-auto", &[][..], 5_000_000, true),
                 ("coins-not-enough", &[6u8, 7][..], 20_000_000, true),
@@ -611,6 +622,11 @@ impl App {
             {
                 self.send.recipient = if name == "send-coins-name" {
                     "@alice".into()
+                } else if name == "send-confirm-tall" {
+                    self.core.send(Command::PreviewPayment {
+                        to: LOOKALIKE.into(),
+                    });
+                    LOOKALIKE.into()
                 } else {
                     "yXk3Tq9mD8vJw2RfL6pN4sB7cH1eZ5aG9f".into()
                 };
@@ -631,7 +647,7 @@ impl App {
                 } else {
                     self.send.coins.chosen = set;
                 }
-                self.send.confirming = name == "send-coins-confirm";
+                self.send.confirming = matches!(name, "send-coins-confirm" | "send-confirm-tall");
                 self.core.send(self.send.coins.ask_again());
             }
             // FEAT-0035 (ADR2): the last look of a payment to an address only like the
@@ -676,7 +692,7 @@ impl App {
             self.send.scanner.clip_picture = Some(true);
         }
         // `--screen edit-profile` opens 23 over Identity.
-        if preset("edit-profile") && !real_shot {
+        if (preset("edit-profile") || preset("edit-profile-password")) && !real_shot {
             self.identity.editing = Some(screens::identity::ProfileForm {
                 display: "Satoshi Nakamoto".into(),
                 about: tr!("I write about Dash Platform and collect generative NFTs. Pay through a DashPay contact — that way each payment goes to a new address.").into(),

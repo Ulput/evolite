@@ -1,6 +1,7 @@
 //! Topping up credits: the dialog, what it says of a top-up under way, its errors.
 
 use super::*;
+use crate::components::{Part, dialog_with_footer};
 
 /// "Top up the identity": DASH from Core into the identity's credits, what it costs and what
 /// it gives. Closing the window does not stop a top-up that is running.
@@ -28,15 +29,45 @@ pub(super) fn top_up_dialog(
     let fee = fees.core_payment;
     let running = state.topping_up;
     let mut send = None;
-    let close = dialog(
+    // What the middle reckoned of the amount, for the footer's button.
+    let mut checked = (None, false, false);
+    let close = dialog_with_footer(
         ui,
         a,
         "top-up",
         "top-up",
         tr!("Top up the identity"),
         464.0,
-        |ui, a| {
+        |ui, a, part| {
             let p = a.p;
+            if part == Part::Footer {
+                // The footer (BUG-122): the password and the buttons, always in the window.
+                let (amount, too_much, too_little) = checked;
+                let ask = wallet.password_each_send && running.is_none();
+                let entered = state.top_up_password.field(ui, &p, "top-up-password", ask);
+                let mut close = false;
+                crate::components::button_row_spend(ui, |ui| {
+                    if button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked() {
+                        close = true;
+                    }
+                    let label = match (running, amount) {
+                        (Some(_), _) => tr!("Topping up…").to_string(),
+                        (None, Some(d)) => format!(tr!("Top up by {}"), dash(d)),
+                        (None, None) => tr!("Top up").to_string(),
+                    };
+                    let ready = running.is_none()
+                        && amount.is_some()
+                        && !too_much
+                        && !too_little
+                        && state.top_up_password.ready(ask);
+                    if button_enabled(ui, a, &label, ButtonKind::Primary, None, ready).clicked()
+                        || (entered && ready)
+                    {
+                        send = amount;
+                    }
+                });
+                return close;
+            }
             ui.add(
                 crate::components::para(
                         &format!(
@@ -168,30 +199,8 @@ pub(super) fn top_up_dialog(
                 (None, Some((duffs, result))) => top_up_answer(ui, a, *duffs, result),
                 (None, None) => {}
             }
-            let ask = wallet.password_each_send && running.is_none();
-            let entered = state.top_up_password.field(ui, &p, "top-up-password", ask);
-            let mut close = false;
-            crate::components::button_row_spend(ui, |ui| {
-                if button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked() {
-                    close = true;
-                }
-                let label = match (running, amount) {
-                    (Some(_), _) => tr!("Topping up…").to_string(),
-                    (None, Some(d)) => format!(tr!("Top up by {}"), dash(d)),
-                    (None, None) => tr!("Top up").to_string(),
-                };
-                let ready = running.is_none()
-                    && amount.is_some()
-                    && !too_much
-                    && !too_little
-                    && state.top_up_password.ready(ask);
-                if button_enabled(ui, a, &label, ButtonKind::Primary, None, ready).clicked()
-                    || (entered && ready)
-                {
-                    send = amount;
-                }
-            });
-            close
+            checked = (amount, too_much, too_little);
+            false
         },
     );
     if let Some(amount) = send {

@@ -4,8 +4,8 @@ use super::parts::{Control, group, heading};
 use super::txt;
 use super::{PhraseCheckForm, SettingsState};
 use crate::components::{
-    Assets, ButtonKind, FieldKind, button, button_enabled, button_row, dialog, field_label, notice,
-    pill, text_field,
+    Assets, ButtonKind, FieldKind, Part, button, button_enabled, button_row, dialog,
+    dialog_with_footer, field_label, notice, pill, text_field,
 };
 use crate::context::Ctx;
 use crate::text;
@@ -378,15 +378,96 @@ pub(super) fn phrase_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &m
     } else if left.is_some() {
         ui.ctx().request_repaint_after(Duration::from_secs(1));
     }
-    let closed = dialog(
+    let closed = dialog_with_footer(
         ui,
         a,
         "phrase-dialog",
         "seed",
         tr!("Show the phrase"),
         442.0,
-        |ui, a| {
-            let mut close = false;
+        |ui, a, part| {
+            if part == Part::Footer {
+                // The footer (BUG-122): always in the window.
+                let mut close = false;
+                ui.vertical(|ui| {
+                    ui.spacing_mut().item_spacing.y = 6.0;
+                    // another wallet's phrase asks that wallet's password.
+                    let other = state
+                        .phrase_wallet
+                        .as_ref()
+                        .and_then(|id| cx.snap.wallets.iter().find(|w| &w.id == id && !w.open));
+                    match other {
+                        Some(w) => field_label(
+                            ui,
+                            &p,
+                            &format!(tr!("Password of “{}”"), crate::i18n::own(&w.name)),
+                        ),
+                        None => field_label(ui, &p, tr!("Wallet password")),
+                    }
+                    if text_field(
+                        ui,
+                        &p,
+                        "phrase-password",
+                        &mut state.password,
+                        "",
+                        FieldKind::Password,
+                        |_| {},
+                    )
+                    .changed()
+                    {
+                        state.revealed = None;
+                        state.revealed_at = None;
+                    }
+                    let answer = match &state.revealed {
+                        Some(Err(CoreError::NotAvailable(why))) => {
+                            Some((format!(tr!("{why}. No phrase."), why = why), p.muted))
+                        }
+                        Some(Err(CoreError::WrongPassword)) => {
+                            Some((tr!("Wrong password").to_string(), p.danger))
+                        }
+                        Some(Err(e)) => {
+                            Some((crate::text::failed(tr!("It did not work"), e), p.danger))
+                        }
+                        Some(Ok(phrase)) => Some((phrase.words().join(" "), p.text)),
+                        None => None,
+                    };
+                    if let Some((line, color)) = answer {
+                        ui.label(txt(&line, 12.0, Weight::Regular, color));
+                    }
+                    if let Some(left) = left.filter(|l| !l.is_zero()) {
+                        ui.label(txt(
+                            &format!(tr!("Hides in {} s"), left.as_secs() + 1),
+                            12.0,
+                            Weight::Regular,
+                            p.muted,
+                        ));
+                    }
+                });
+                button_row(ui, |ui| {
+                    if button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked() {
+                        close = true;
+                    }
+                    let ready = !state.password.is_empty();
+                    if button_enabled(
+                        ui,
+                        a,
+                        tr!("Show for 60 seconds"),
+                        ButtonKind::Primary,
+                        None,
+                        ready,
+                    )
+                    .clicked()
+                    {
+                        cx.send(Command::RevealPhrase {
+                            password: Password::new(state.password.to_string()),
+                            wallet: state.phrase_wallet.clone(),
+                        });
+                        state.revealed = None;
+                        state.revealed_at = None;
+                    }
+                });
+                return close;
+            }
             notice(
                 ui,
                 a,
@@ -396,84 +477,7 @@ pub(super) fn phrase_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &m
                     "Make sure nobody sees or records the screen. evolite never asks for the phrase — not in a chat, by mail or in apps."
                 ),
             );
-            ui.vertical(|ui| {
-                ui.spacing_mut().item_spacing.y = 6.0;
-                // another wallet's phrase asks that wallet's password.
-                let other = state
-                    .phrase_wallet
-                    .as_ref()
-                    .and_then(|id| cx.snap.wallets.iter().find(|w| &w.id == id && !w.open));
-                match other {
-                    Some(w) => field_label(
-                        ui,
-                        &p,
-                        &format!(tr!("Password of “{}”"), crate::i18n::own(&w.name)),
-                    ),
-                    None => field_label(ui, &p, tr!("Wallet password")),
-                }
-                if text_field(
-                    ui,
-                    &p,
-                    "phrase-password",
-                    &mut state.password,
-                    "",
-                    FieldKind::Password,
-                    |_| {},
-                )
-                .changed()
-                {
-                    state.revealed = None;
-                    state.revealed_at = None;
-                }
-                let answer = match &state.revealed {
-                    Some(Err(CoreError::NotAvailable(why))) => {
-                        Some((format!(tr!("{why}. No phrase."), why = why), p.muted))
-                    }
-                    Some(Err(CoreError::WrongPassword)) => {
-                        Some((tr!("Wrong password").to_string(), p.danger))
-                    }
-                    Some(Err(e)) => {
-                        Some((crate::text::failed(tr!("It did not work"), e), p.danger))
-                    }
-                    Some(Ok(phrase)) => Some((phrase.words().join(" "), p.text)),
-                    None => None,
-                };
-                if let Some((line, color)) = answer {
-                    ui.label(txt(&line, 12.0, Weight::Regular, color));
-                }
-                if let Some(left) = left.filter(|l| !l.is_zero()) {
-                    ui.label(txt(
-                        &format!(tr!("Hides in {} s"), left.as_secs() + 1),
-                        12.0,
-                        Weight::Regular,
-                        p.muted,
-                    ));
-                }
-            });
-            button_row(ui, |ui| {
-                if button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked() {
-                    close = true;
-                }
-                let ready = !state.password.is_empty();
-                if button_enabled(
-                    ui,
-                    a,
-                    tr!("Show for 60 seconds"),
-                    ButtonKind::Primary,
-                    None,
-                    ready,
-                )
-                .clicked()
-                {
-                    cx.send(Command::RevealPhrase {
-                        password: Password::new(state.password.to_string()),
-                        wallet: state.phrase_wallet.clone(),
-                    });
-                    state.revealed = None;
-                    state.revealed_at = None;
-                }
-            });
-            close
+            false
         },
     );
     if closed {

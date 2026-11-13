@@ -5,8 +5,8 @@
 
 use super::txt;
 use crate::components::{
-    Assets, ButtonKind, FieldKind, SpendPassword, button, button_enabled, button_row, dialog,
-    error_notice, field_label, kv_row, notice, password_asked, text_field,
+    Assets, ButtonKind, FieldKind, Part, SpendPassword, button, button_enabled, button_row,
+    dialog_with_footer, error_notice, field_label, kv_row, notice, password_asked, text_field,
 };
 use crate::context::Ctx;
 use crate::text;
@@ -276,16 +276,65 @@ pub fn disconnect_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut 
         return;
     };
     let cost = cx.wallet().fees.add_key;
-    let closed = dialog(
+    let closed = dialog_with_footer(
         ui,
         a,
         "app-disconnect",
         "lock",
         &format!(tr!("Disconnect {}"), app_label(&name)),
         462.0,
-        |ui, a| {
+        |ui, a, part| {
             let p = a.p;
-            let mut close = false;
+            if part == Part::Footer {
+                // The footer (BUG-122): always in the window.
+                let mut close = false;
+                let ask = password_asked(cx.snap);
+                let entered = !state.disconnect_waiting
+                    && state
+                        .disconnect_password
+                        .field(ui, &p, "app-disconnect-password", ask);
+                let ready = state.disconnect_password.ready(ask);
+                if let Some(Err(e)) = state
+                    .disconnect_result
+                    .as_ref()
+                    .filter(|_| !state.disconnect_password.is_wrong())
+                {
+                    error_notice(
+                        ui,
+                        a,
+                        &text::failed(tr!("Not disconnected"), e),
+                        text::error_details(e).as_deref(),
+                    );
+                }
+                // The keys cannot be turned back on: «Cancel» first (the designer's rule b′).
+                crate::components::button_row_destructive(ui, |ui| {
+                    if button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked() {
+                        close = true;
+                    }
+                    let label = if state.disconnect_waiting {
+                        tr!("Disconnecting…")
+                    } else {
+                        tr!("Disconnect")
+                    };
+                    if button_enabled(
+                        ui,
+                        a,
+                        label,
+                        ButtonKind::Danger,
+                        None,
+                        !state.disconnect_waiting && ready,
+                    )
+                    .clicked()
+                        || (entered && ready)
+                    {
+                        let op = Spend::DisconnectApp { id: id.clone() };
+                        cx.send(state.disconnect_password.command(op, ask));
+                        state.disconnect_waiting = true;
+                        state.disconnect_result = None;
+                    }
+                });
+                return close;
+            }
             ui.add(
                 crate::components::para(
                         &format!(
@@ -330,52 +379,7 @@ pub fn disconnect_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut 
                 &format!(tr!("{} · credits"), pays),
                 mono(13.0, Weight::Medium),
             );
-            let ask = password_asked(cx.snap);
-            let entered = !state.disconnect_waiting
-                && state
-                    .disconnect_password
-                    .field(ui, &p, "app-disconnect-password", ask);
-            let ready = state.disconnect_password.ready(ask);
-            if let Some(Err(e)) = state
-                .disconnect_result
-                .as_ref()
-                .filter(|_| !state.disconnect_password.is_wrong())
-            {
-                error_notice(
-                    ui,
-                    a,
-                    &text::failed(tr!("Not disconnected"), e),
-                    text::error_details(e).as_deref(),
-                );
-            }
-            // The keys cannot be turned back on: «Cancel» first (the designer's rule b′).
-            crate::components::button_row_destructive(ui, |ui| {
-                if button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked() {
-                    close = true;
-                }
-                let label = if state.disconnect_waiting {
-                    tr!("Disconnecting…")
-                } else {
-                    tr!("Disconnect")
-                };
-                if button_enabled(
-                    ui,
-                    a,
-                    label,
-                    ButtonKind::Danger,
-                    None,
-                    !state.disconnect_waiting && ready,
-                )
-                .clicked()
-                    || (entered && ready)
-                {
-                    let op = Spend::DisconnectApp { id: id.clone() };
-                    cx.send(state.disconnect_password.command(op, ask));
-                    state.disconnect_waiting = true;
-                    state.disconnect_result = None;
-                }
-            });
-            close
+            false
         },
     );
     if closed && !state.disconnect_waiting {
@@ -387,16 +391,33 @@ pub fn disconnect_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut 
 
 /// "Paste a link": an App Connect v2 link from an app (`dashpay://connect`, or `dash-key:` v2).
 fn paste_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut AppRequests) {
-    let closed = dialog(
+    let closed = dialog_with_footer(
         ui,
         a,
         "app-link",
         "link",
         tr!("Paste a link"),
         462.0,
-        |ui, a| {
+        |ui, a, part| {
             let p = a.p;
-            let mut close = false;
+            if part == Part::Footer {
+                // The footer (BUG-122): always in the window.
+                let mut close = false;
+                button_row(ui, |ui| {
+                    if button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked() {
+                        close = true;
+                    }
+                    let ready = !state.link.trim().is_empty();
+                    if button_enabled(ui, a, tr!("Open"), ButtonKind::Primary, None, ready)
+                        .clicked()
+                    {
+                        cx.send(Command::OpenAppLink {
+                            text: state.link.clone(),
+                        });
+                    }
+                });
+                return close;
+            }
             ui.vertical(|ui| {
                 ui.spacing_mut().item_spacing.y = 6.0;
                 field_label(ui, &p, tr!("Link from an app"));
@@ -429,18 +450,7 @@ fn paste_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut AppReques
                 p.muted,
                 tr!("evolite decodes the link itself and shows exactly what the app asks for."),
             );
-            button_row(ui, |ui| {
-                if button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked() {
-                    close = true;
-                }
-                let ready = !state.link.trim().is_empty();
-                if button_enabled(ui, a, tr!("Open"), ButtonKind::Primary, None, ready).clicked() {
-                    cx.send(Command::OpenAppLink {
-                        text: state.link.clone(),
-                    });
-                }
-            });
-            close
+            false
         },
     );
     if closed {

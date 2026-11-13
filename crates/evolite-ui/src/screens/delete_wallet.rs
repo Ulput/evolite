@@ -5,8 +5,8 @@
 
 use super::txt;
 use crate::components::{
-    Assets, ButtonKind, CardAmount, FieldKind, button, button_enabled, button_row, checkbox,
-    dialog, field_label, notice, text_field,
+    Assets, ButtonKind, CardAmount, FieldKind, Part, button, button_enabled, button_row, checkbox,
+    dialog_with_footer, field_label, notice, text_field,
 };
 use crate::context::Ctx;
 use crate::theme::Weight;
@@ -90,153 +90,169 @@ pub fn delete_dialog(
     } else {
         tr!("Delete the wallet from the computer")
     };
-    let closed = dialog(ui, a, "delete-wallet", "trash", title, 470.0, |ui, a| {
-        let mut close = false;
-        // What the phrase brings back, read before deleting rather than after (BUG-58): the
-        // first line, or the second after the password's in «Forgot the password?» (designer,
-        // 2026-11-06).
-        let stays = crate::screens::settings::STAYS_ON_NETWORK;
-        let lines: &[&str] = if form.forgot {
-            &[
-                tr!(
-                    "The password cannot be recovered: it encrypts the phrase on this computer. Delete the wallet from here and restore it — or another one — from the phrase."
-                ),
-                stays,
-            ]
-        } else {
-            &[stays]
-        };
-        if let Some(balances) = balance.filter(|_| !form.forgot) {
-            // The total counts Core: as sure as Core is (BUG-80), never a 0 not known yet.
-            let total = CardAmount::total(balances);
-            ui.horizontal(|ui| {
-                ui.label(txt(tr!("Balance"), 13.0, Weight::Regular, p.muted));
-                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    ui.label(
-                        egui::RichText::new(crate::text::core_amount(balances, total, now))
-                            .font(crate::theme::mono(13.0, Weight::Medium))
-                            .color(total.color(&p)),
-                    );
+    let closed = dialog_with_footer(
+        ui,
+        a,
+        "delete-wallet",
+        "trash",
+        title,
+        470.0,
+        |ui, a, part| {
+            if part == Part::Footer {
+                return delete_footer(ui, a, cx, form);
+            }
+            // What the phrase brings back, read before deleting rather than after (BUG-58): the
+            // first line, or the second after the password's in «Forgot the password?» (designer,
+            // 2026-11-06).
+            let stays = crate::screens::settings::STAYS_ON_NETWORK;
+            let lines: &[&str] = if form.forgot {
+                &[
+                    tr!(
+                        "The password cannot be recovered: it encrypts the phrase on this computer. Delete the wallet from here and restore it — or another one — from the phrase."
+                    ),
+                    stays,
+                ]
+            } else {
+                &[stays]
+            };
+            if let Some(balances) = balance.filter(|_| !form.forgot) {
+                // The total counts Core: as sure as Core is (BUG-80), never a 0 not known yet.
+                let total = CardAmount::total(balances);
+                ui.horizontal(|ui| {
+                    ui.label(txt(tr!("Balance"), 13.0, Weight::Regular, p.muted));
+                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                        ui.label(
+                            egui::RichText::new(crate::text::core_amount(balances, total, now))
+                                .font(crate::theme::mono(13.0, Weight::Medium))
+                                .color(total.color(&p)),
+                        );
+                    });
                 });
-            });
-        }
-        for line in lines {
-            ui.add(crate::components::para(line, 13.0, Weight::Regular, p.text));
-        }
-        // The wallet has payment notes: they go with it for good (FEAT-0003, AC-D7).
-        if notes {
-            notice(ui, a, "document", p.danger, DELETES_NOTES);
-        }
-        if unfinished {
-            notice(
+            }
+            for line in lines {
+                ui.add(crate::components::para(line, 13.0, Weight::Regular, p.text));
+            }
+            // The wallet has payment notes: they go with it for good (FEAT-0003, AC-D7).
+            if notes {
+                notice(ui, a, "document", p.danger, DELETES_NOTES);
+            }
+            if unfinished {
+                notice(
+                    ui,
+                    a,
+                    "warning",
+                    p.danger,
+                    tr!(
+                        "Some DASH are locked for an unfinished identity creation or top-up — it can be finished after restoring from the phrase."
+                    ),
+                );
+            }
+            // And what it does not (BUG-58).
+            crate::components::notice_parts(
                 ui,
                 a,
-                "warning",
-                p.danger,
-                tr!(
-                    "Some DASH are locked for an unfinished identity creation or top-up — it can be finished after restoring from the phrase."
-                ),
+                "info",
+                p.muted,
+                &[(
+                    crate::screens::settings::KEPT_HERE,
+                    crate::screens::settings::KEPT_HERE_TEXT,
+                )],
             );
-        }
-        // And what it does not (BUG-58).
-        crate::components::notice_parts(
-            ui,
-            a,
-            "info",
-            p.muted,
-            &[(
-                crate::screens::settings::KEPT_HERE,
-                crate::screens::settings::KEPT_HERE_TEXT,
-            )],
-        );
-        let has = if form.forgot {
-            tr!("I have this wallet's recovery phrase")
-        } else {
-            tr!("The phrase is written down and checked")
-        };
-        checkbox(ui, a, &mut form.has_phrase, has);
-        if !form.forgot {
-            ui.vertical(|ui| {
-                ui.spacing_mut().item_spacing.y = 6.0;
-                match &form.other {
-                    Some((_, name)) => field_label(
-                        ui,
-                        &p,
-                        &format!(tr!("Password of “{}”"), crate::i18n::own(name)),
-                    ),
-                    None => field_label(ui, &p, tr!("Password")),
-                }
-                if text_field(
-                    ui,
-                    &p,
-                    "delete-password",
-                    &mut form.password,
-                    "",
-                    FieldKind::Password,
-                    |_| {},
-                )
-                .changed()
-                {
-                    form.result = None;
-                }
-            });
-        }
-        ui.vertical(|ui| {
-            ui.spacing_mut().item_spacing.y = 6.0;
-            field_label(ui, &p, tr!("Type “delete”"));
-            text_field(
-                ui,
-                &p,
-                "delete-word",
-                &mut form.word,
-                WORD,
-                FieldKind::Text,
-                |_| {},
-            );
-        });
-        let error = match &form.result {
-            Some(Err(CoreError::WrongPassword)) => Some(tr!("Wrong password").to_owned()),
-            Some(Err(CoreError::NotAvailable(why) | CoreError::Failed(why))) => {
-                Some(format!("{why}."))
-            }
-            Some(Err(_)) => Some(tr!("Could not delete the wallet").to_owned()),
-            _ => None,
-        };
-        if let Some(error) = error {
-            ui.add(crate::components::para(
-                &error,
-                12.0,
-                Weight::Regular,
-                p.danger,
-            ));
-        }
-        button_row(ui, |ui| {
-            if button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked() {
-                close = true;
-            }
-            let label = if form.waiting {
-                tr!("Deleting…")
+            let has = if form.forgot {
+                tr!("I have this wallet's recovery phrase")
             } else {
-                tr!("Delete from the computer")
+                tr!("The phrase is written down and checked")
             };
-            if button_enabled(ui, a, label, ButtonKind::Danger, None, form.ready()).clicked() {
-                // The password goes to the core and is wiped here at once.
-                let password = (!form.forgot).then(|| Password::new(form.password.to_string()));
-                form.password.zeroize();
-                cx.send(Command::DeleteWallet {
-                    password,
-                    wallet: form.other.as_ref().map(|(id, _)| id.clone()),
-                });
-                form.waiting = true;
-                form.result = None;
-            }
-        });
-        close
-    });
+            checkbox(ui, a, &mut form.has_phrase, has);
+            false
+        },
+    );
     if closed {
         form.password.zeroize();
     }
     closed && !form.waiting
+}
+
+/// The dialog's footer (BUG-122): the password, the word, what went wrong and the buttons, always
+/// in the window. Whether it closed.
+fn delete_footer(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut DeleteForm) -> bool {
+    let p = a.p;
+    let mut close = false;
+    if !form.forgot {
+        ui.vertical(|ui| {
+            ui.spacing_mut().item_spacing.y = 6.0;
+            match &form.other {
+                Some((_, name)) => field_label(
+                    ui,
+                    &p,
+                    &format!(tr!("Password of “{}”"), crate::i18n::own(name)),
+                ),
+                None => field_label(ui, &p, tr!("Password")),
+            }
+            if text_field(
+                ui,
+                &p,
+                "delete-password",
+                &mut form.password,
+                "",
+                FieldKind::Password,
+                |_| {},
+            )
+            .changed()
+            {
+                form.result = None;
+            }
+        });
+    }
+    ui.vertical(|ui| {
+        ui.spacing_mut().item_spacing.y = 6.0;
+        field_label(ui, &p, tr!("Type “delete”"));
+        text_field(
+            ui,
+            &p,
+            "delete-word",
+            &mut form.word,
+            WORD,
+            FieldKind::Text,
+            |_| {},
+        );
+    });
+    let error = match &form.result {
+        Some(Err(CoreError::WrongPassword)) => Some(tr!("Wrong password").to_owned()),
+        Some(Err(CoreError::NotAvailable(why) | CoreError::Failed(why))) => Some(format!("{why}.")),
+        Some(Err(_)) => Some(tr!("Could not delete the wallet").to_owned()),
+        _ => None,
+    };
+    if let Some(error) = error {
+        ui.add(crate::components::para(
+            &error,
+            12.0,
+            Weight::Regular,
+            p.danger,
+        ));
+    }
+    button_row(ui, |ui| {
+        if button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked() {
+            close = true;
+        }
+        let label = if form.waiting {
+            tr!("Deleting…")
+        } else {
+            tr!("Delete from the computer")
+        };
+        if button_enabled(ui, a, label, ButtonKind::Danger, None, form.ready()).clicked() {
+            // The password goes to the core and is wiped here at once.
+            let password = (!form.forgot).then(|| Password::new(form.password.to_string()));
+            form.password.zeroize();
+            cx.send(Command::DeleteWallet {
+                password,
+                wallet: form.other.as_ref().map(|(id, _)| id.clone()),
+            });
+            form.waiting = true;
+            form.result = None;
+        }
+    });
+    close
 }
 
 #[cfg(test)]

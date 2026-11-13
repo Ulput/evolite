@@ -194,11 +194,11 @@ pub const PRESETS: &[&str] = &[
     "send-pool-unread", "send-pool-unknown",
     "send-fiat", "send-fiat-confirm", "send-fiat-stale",
     "send-coins", "send-coins-chosen", "send-coins-name", "send-coins-confirm", "coins-manual",
-    "coins-auto", "coins-not-enough", "coins-spent", "send-lookalike",
+    "coins-auto", "coins-not-enough", "coins-spent", "send-lookalike", "send-confirm-tall",
     "receive", "receive-fiat",
     "activity-fiat", "activity-card-fiat", "activity-card-fiat-old",
     "identity", "identity-unfinished", "identity-created", "top-up-stopped", "top-up-awaiting",
-    "edit-profile",
+    "edit-profile", "edit-profile-password",
     "top-up", "add-name",
     "contacts", "add-contact", "contact-profile", "my-qr",
     "create-identity", "creating", "create-identity-nameless", "create-identity-confirm",
@@ -334,7 +334,8 @@ fn dev_args<'a>(
                 | "coins-auto"
                 | "coins-not-enough"
                 | "coins-spent"
-                | "send-lookalike",
+                | "send-lookalike"
+                | "send-confirm-tall",
             ),
         ) => Screen::Send,
         (None, Some("receive" | "receive-fiat")) => Screen::Receive,
@@ -347,6 +348,7 @@ fn dev_args<'a>(
                 | "top-up-stopped"
                 | "top-up-awaiting"
                 | "edit-profile"
+                | "edit-profile-password"
                 | "top-up"
                 | "add-name",
             ),

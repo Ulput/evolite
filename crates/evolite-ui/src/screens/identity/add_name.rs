@@ -1,6 +1,7 @@
 //! Registering another name: the dialog and its errors.
 
 use super::*;
+use crate::components::{Part, dialog_with_footer};
 
 /// "Add a name": one more DPNS name for this identity, checked live like on "Create an
 /// identity" and paid from its credits. A contested name cannot be taken here: masternodes
@@ -24,6 +25,8 @@ pub(super) fn add_name_dialog(
     let needed = wallet.fees.name_credits_needed();
     let credits = wallet.balances.credits;
     let read = wallet.balances.credits_read;
+    // Kept credits not checked in this run claim no lack (BUG-116).
+    let short = read && wallet.balances.credits_checked && credits < needed;
     // The name goes to the core once per change; the answer comes back as an event.
     let label = form.name.trim().trim_start_matches('@').to_lowercase();
     if label.len() >= 3 && label != form.asked {
@@ -41,15 +44,43 @@ pub(super) fn add_name_dialog(
     };
     let mut register = false;
     let mut top_up = false;
-    let close = dialog(
+    let close = dialog_with_footer(
         ui,
         a,
         "add-name",
         "username",
         tr!("Add a name"),
         464.0,
-        |ui, a| {
+        |ui, a, part| {
             let p = a.p;
+            if part == Part::Footer {
+                // The footer (BUG-122): always in the window.
+                let ask = wallet.password_each_send && form.result.is_none();
+                let entered = form.password.field(ui, &p, "add-name-password", ask);
+                let mut close = false;
+                button_row(ui, |ui| {
+                    if button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked() {
+                        close = true;
+                    }
+                    let ready = matches!(check, Some(Ok(NameCheck::Available)))
+                        && read
+                        && !short
+                        && !form.waiting
+                        && form.result.is_none()
+                        && form.password.ready(ask);
+                    let label = if form.waiting {
+                        tr!("Writing…")
+                    } else {
+                        tr!("Register")
+                    };
+                    if button_enabled(ui, a, label, ButtonKind::Primary, None, ready).clicked()
+                        || (entered && ready)
+                    {
+                        register = true;
+                    }
+                });
+                return close;
+            }
             ui.add(
                 crate::components::para(
                         &format!(
@@ -79,35 +110,9 @@ pub(super) fn add_name_dialog(
             );
             // Not an error before anything was tried (calm states CS-1): what is missing, muted,
             // and the way to it.
-            // Kept credits not checked in this run claim no lack (BUG-116).
-            let short = read && wallet.balances.credits_checked && credits < needed;
             credits_state(ui, &p, read, short, needed, credits, &mut top_up);
             name_answer(ui, a, form);
-            let ask = wallet.password_each_send && form.result.is_none();
-            let entered = form.password.field(ui, &p, "add-name-password", ask);
-            let mut close = false;
-            button_row(ui, |ui| {
-                if button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked() {
-                    close = true;
-                }
-                let ready = matches!(check, Some(Ok(NameCheck::Available)))
-                    && read
-                    && !short
-                    && !form.waiting
-                    && form.result.is_none()
-                    && form.password.ready(ask);
-                let label = if form.waiting {
-                    tr!("Writing…")
-                } else {
-                    tr!("Register")
-                };
-                if button_enabled(ui, a, label, ButtonKind::Primary, None, ready).clicked()
-                    || (entered && ready)
-                {
-                    register = true;
-                }
-            });
-            close
+            false
         },
     );
     if register {

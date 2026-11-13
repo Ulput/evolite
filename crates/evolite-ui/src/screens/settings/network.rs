@@ -3,8 +3,8 @@
 use super::parts::{Control, group, heading};
 use super::{NodeForm, SettingsState};
 use crate::components::{
-    Assets, ButtonKind, FieldKind, button, button_enabled, button_row, dialog, field_label, notice,
-    segmented, text_field,
+    Assets, ButtonKind, FieldKind, Part, button, button_enabled, button_row, dialog_with_footer,
+    field_label, notice, segmented, text_field,
 };
 use crate::context::Ctx;
 use crate::screens::txt;
@@ -234,15 +234,24 @@ pub fn nodes_dialog(ui: &mut Ui, a: &mut Assets, cx: &Ctx, tab: &mut super::Node
     let sync = &cx.snap.sync;
     let now = cx.now.timestamp();
     let p = a.p;
-    dialog(
+    dialog_with_footer(
         ui,
         a,
         "nodes-dialog",
         "peers",
         tr!("Nodes"),
         560.0,
-        |ui, a| {
-            let mut close = false;
+        |ui, a, part| {
+            if part == Part::Footer {
+                // The footer (BUG-122): always in the window.
+                let mut close = false;
+                button_row(ui, |ui| {
+                    if button(ui, a, tr!("Close"), ButtonKind::Ghost, None).clicked() {
+                        close = true;
+                    }
+                });
+                return close;
+            }
             let mut i = usize::from(*tab == NodesTab::Platform);
             segmented(ui, &p, &["Core", "Platform (DAPI)"], &mut i, false);
             *tab = if i == 0 {
@@ -305,12 +314,7 @@ pub fn nodes_dialog(ui: &mut Ui, a: &mut Assets, cx: &Ctx, tab: &mut super::Node
                         ui.add_space(6.0);
                     }
                 });
-            button_row(ui, |ui| {
-                if button(ui, a, tr!("Close"), ButtonKind::Ghost, None).clicked() {
-                    close = true;
-                }
-            });
-            close
+            false
         },
     )
 }

@@ -286,15 +286,48 @@ pub(super) fn coins_dialog(ui: &mut Ui, a: &mut Assets, form: &mut SendForm, v: 
     let fees = v.fees.clone();
     let amount = v.amount.unwrap_or(0);
     let mut apply = false;
-    let open = crate::components::dialog(
+    // Why «Apply» is off, as the middle found: for the footer.
+    let mut why_not: Option<String> = None;
+    let open = crate::components::dialog_with_footer(
         ui,
         a,
         "send-coins",
         "filter",
         tr!("Coins for the payment"),
         640.0,
-        |ui, a| {
+        |ui, a, part| {
             let p = a.p;
+            if part == crate::components::Part::Footer {
+                // The footer (BUG-122): always in the window.
+                let reason = why_not.clone();
+                let mut cancel = false;
+                ui.horizontal(|ui| {
+                    let note = reason.clone().unwrap_or_else(|| {
+                        tr!("The wallet takes only the ticked coins it needs.").into()
+                    });
+                    ui.add(egui::Label::new(txt(&note, 12.0, Weight::Regular, p.muted)).wrap());
+                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                        apply = crate::components::button_enabled(
+                            ui,
+                            a,
+                            tr!("Apply"),
+                            ButtonKind::Primary,
+                            None,
+                            reason.is_none(),
+                        )
+                        .clicked();
+                        cancel = crate::components::button(
+                            ui,
+                            a,
+                            tr!("Cancel"),
+                            ButtonKind::Ghost,
+                            None,
+                        )
+                        .clicked();
+                    });
+                });
+                return !(apply || cancel);
+            }
             let pick = &mut form.coins;
             ui.spacing_mut().item_spacing.y = 12.0;
             let mut mode = usize::from(pick.manual);
@@ -326,29 +359,8 @@ pub(super) fn coins_dialog(ui: &mut Ui, a: &mut Assets, form: &mut SendForm, v: 
             } else {
                 reason = manual_part(ui, a, pick, amount, &fees);
             }
-            ui.add_space(4.0);
-            let mut cancel = false;
-            ui.horizontal(|ui| {
-                let note = reason.clone().unwrap_or_else(|| {
-                    tr!("The wallet takes only the ticked coins it needs.").into()
-                });
-                ui.add(egui::Label::new(txt(&note, 12.0, Weight::Regular, p.muted)).wrap());
-                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    apply = crate::components::button_enabled(
-                        ui,
-                        a,
-                        tr!("Apply"),
-                        ButtonKind::Primary,
-                        None,
-                        reason.is_none(),
-                    )
-                    .clicked();
-                    cancel =
-                        crate::components::button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None)
-                            .clicked();
-                });
-            });
-            !(apply || cancel)
+            why_not = reason;
+            false
         },
     );
     if apply {

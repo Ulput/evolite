@@ -32,22 +32,6 @@ pub fn low(height: f32) -> bool {
 /// The fade's height: it reaches up over the last whole item (the designer, FEAT-0036 row 3).
 const FADE: f32 = 24.0;
 
-/// A fade of [`FADE`] from clear to `color` with its bottom on the bottom of `view`: the list
-/// goes on below. Only painted, so the item under it stays clickable. Its rect.
-fn fade_up(ui: &Ui, view: egui::Rect, color: egui::Color32) -> egui::Rect {
-    let band = egui::Rect::from_min_max(egui::pos2(view.left(), view.bottom() - FADE), view.max);
-    let mut mesh = egui::Mesh::default();
-    let clear = egui::Color32::TRANSPARENT;
-    mesh.colored_vertex(band.left_top(), clear);
-    mesh.colored_vertex(band.right_top(), clear);
-    mesh.colored_vertex(band.left_bottom(), color);
-    mesh.colored_vertex(band.right_bottom(), color);
-    mesh.add_triangle(0, 1, 2);
-    mesh.add_triangle(1, 3, 2);
-    ui.painter().add(egui::Shape::mesh(mesh));
-    band
-}
-
 #[cfg(test)]
 fn more_id() -> egui::Id {
     egui::Id::new("evolite-menu-more-below")
@@ -172,8 +156,8 @@ pub fn sidebar(
     // More below the edge: a fade into the menu's colour at the bottom of the list, gone once
     // it is scrolled to its end (FEAT-0036 row 3).
     let view = shown.inner_rect;
-    let more = shown.state.offset.y + view.height() < shown.content_size.y - 0.5;
-    let fade = more.then(|| fade_up(ui, view, p.surface));
+    let more = crate::components::more_below(&shown);
+    let fade = more.then(|| crate::components::fade_up(ui, view, p.surface, FADE));
     #[cfg(test)]
     ui.data_mut(|d| d.insert_temp(more_id(), fade));
     #[cfg(not(test))]

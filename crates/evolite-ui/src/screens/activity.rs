@@ -846,15 +846,28 @@ fn export_question(
     filters: &Filters,
 ) -> Ask {
     let mut go = false;
-    let closed = crate::components::dialog(
+    let closed = crate::components::dialog_with_footer(
         ui,
         a,
         "history-export-filtered",
         "export-csv",
         tr!("Export CSV"),
         440.0,
-        |ui, a| {
+        |ui, a, part| {
             let p = a.p;
+            if part == crate::components::Part::Footer {
+                // The footer (BUG-122): always in the window.
+                let mut close = false;
+                button_row(ui, |ui| {
+                    if button(ui, a, tr!("Export"), ButtonKind::Primary, None).clicked() {
+                        go = true;
+                    }
+                    if button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked() {
+                        close = true;
+                    }
+                });
+                return close || go;
+            }
             ui.label(txt(
                 tr!("Filters are on. What to export?"),
                 14.0,
@@ -895,16 +908,7 @@ fn export_question(
                     p.muted,
                 ));
             }
-            let mut close = false;
-            button_row(ui, |ui| {
-                if button(ui, a, tr!("Export"), ButtonKind::Primary, None).clicked() {
-                    go = true;
-                }
-                if button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked() {
-                    close = true;
-                }
-            });
-            close || go
+            false
         },
     );
     if go {

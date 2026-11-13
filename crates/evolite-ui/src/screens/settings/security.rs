@@ -5,8 +5,8 @@
 use super::parts::{Control, group, heading};
 use super::{PasswordChange, SettingsState};
 use crate::components::{
-    Assets, ButtonKind, FieldKind, button, button_enabled, button_row, dialog, field_label, notice,
-    text_field,
+    Assets, ButtonKind, FieldKind, Part, button, button_enabled, button_row, dialog,
+    dialog_with_footer, field_label, notice, text_field,
 };
 use crate::context::Ctx;
 use crate::screens::onboarding::{missing, missing_line, strength};
@@ -264,14 +264,32 @@ fn each_off_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut Settin
     };
     let p = a.p;
     let mut turn_off = false;
-    let closed = dialog(
+    let closed = dialog_with_footer(
         ui,
         a,
         "password-each-send-off",
         "lock",
         tr!("Payments without the password"),
         440.0,
-        |ui, a| {
+        |ui, a, part| {
+            if part == Part::Footer {
+                // The footer (BUG-122): always in the window.
+                let entered = form.field(ui, &p, "password-each-send-off", true);
+                let ready = form.ready(true);
+                let mut close = false;
+                button_row(ui, |ui| {
+                    if button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked() {
+                        close = true;
+                    }
+                    if button_enabled(ui, a, tr!("Turn off"), ButtonKind::Primary, None, ready)
+                        .clicked()
+                        || (entered && ready)
+                    {
+                        turn_off = true;
+                    }
+                });
+                return close;
+            }
             ui.spacing_mut().item_spacing.y = 14.0;
             ui.label(txt(
                 tr!(
@@ -281,21 +299,7 @@ fn each_off_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut Settin
                 Weight::Regular,
                 p.text,
             ));
-            let entered = form.field(ui, &p, "password-each-send-off", true);
-            let ready = form.ready(true);
-            let mut close = false;
-            button_row(ui, |ui| {
-                if button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked() {
-                    close = true;
-                }
-                if button_enabled(ui, a, tr!("Turn off"), ButtonKind::Primary, None, ready)
-                    .clicked()
-                    || (entered && ready)
-                {
-                    turn_off = true;
-                }
-            });
-            close
+            false
         },
     );
     if turn_off {

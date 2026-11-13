@@ -12,7 +12,7 @@ pub use top_up::*;
 use super::{Screen, txt};
 use crate::components::{
     Assets, ButtonKind, CardAmount, FieldKind, RowCell, SpendPassword, amount_field, avatar,
-    button, button_enabled, button_row, card, chip, dialog, divider, field_label, inner, kv_row,
+    button, button_enabled, button_row, card, chip, divider, field_label, inner, kv_row,
     list_card_in, notice, page_header, pill, text_action, text_field, two_columns,
 };
 use crate::context::Ctx;

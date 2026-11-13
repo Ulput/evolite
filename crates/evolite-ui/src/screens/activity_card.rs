@@ -3,8 +3,8 @@
 
 use super::txt;
 use crate::components::{
-    Assets, ButtonKind, button, button_enabled, button_row, dialog_with_header_held, field_label,
-    kv_row, kv_row_in, notice, paint_icon_box, text_action,
+    Assets, ButtonKind, Part, button, button_enabled, button_row, dialog_with_header_held,
+    field_label, kv_row, kv_row_in, notice, paint_icon_box, text_action,
 };
 use crate::context::Ctx;
 use crate::text::{self};
@@ -1277,59 +1277,10 @@ fn mono_block(
     });
 }
 
-/// The height of the card's row of buttons, measured last frame.
-fn footer_id() -> egui::Id {
-    card_id().with("footer")
-}
-
 /// The operation the card's scrolled part last showed: another one, or a new opening, starts at
 /// the top.
 fn body_of_id() -> egui::Id {
     card_id().with("body-of")
-}
-
-/// The widget that had the focus when the card's scrolled part was last drawn.
-fn focus_seen_id() -> egui::Id {
-    card_id().with("focus-seen")
-}
-
-/// The most the card's scrolled part can take: the window less the dialog's margins, the header
-/// drawn above it and the buttons under it. `footer` already has the gap between the two.
-fn body_room(ui: &Ui) -> f32 {
-    // From the edges of the window. A card that fits must not scroll: the ordinary one at
-    // 1024×768 stands 14 from them in English, 5 in ru, uk, es, fr and pt-BR.
-    const MARGIN: f32 = 4.0;
-    const PADDING: f32 = 50.0; // the dialog's 24 above and below, and its stroke
-    const FIRST_FRAME_FOOTER: f32 = 56.0;
-    const AT_LEAST: f32 = 96.0;
-    let footer = ui
-        .data(|d| d.get_temp::<f32>(footer_id()))
-        .unwrap_or(FIRST_FRAME_FOOTER);
-    let above = ui.cursor().top() - ui.min_rect().top();
-    let window = ui.ctx().content_rect().height();
-    (window - 2.0 * MARGIN - PADDING - above - footer).max(AT_LEAST)
-}
-
-/// Brings into the visible part what the focus has just come to, so that Tab never lands on a
-/// button below the fold and Enter never presses it blind. Called at the end of the scrolled
-/// part; only a widget cut by its clip moves it, which the header's cross and the row of buttons
-/// never are. Only on a change of focus, so the wheel can still leave a focused widget behind.
-fn follow_focus(ui: &Ui) {
-    const AIR: f32 = 12.0; // the note field's frame comes into view with it
-    let focus = ui.memory(|m| m.focused());
-    let seen = ui
-        .data(|d| d.get_temp::<Option<egui::Id>>(focus_seen_id()))
-        .flatten();
-    if focus == seen {
-        return;
-    }
-    ui.data_mut(|d| d.insert_temp(focus_seen_id(), focus));
-    if let Some(widget) = focus.and_then(|id| ui.ctx().read_response(id))
-        && widget.interact_rect != widget.rect
-    {
-        crate::diagnostics::ask_scroll(ui.ctx());
-        ui.scroll_to_rect(widget.rect.expand(AIR), None);
-    }
 }
 
 /// What the card asks for.
@@ -1402,6 +1353,11 @@ fn card(ui: &mut Ui, a: &mut Assets, act: &Activity, around: &Around) -> CardAns
         identity: identity_to_open(act, around.identities),
         open_identity: text::credits_quiet(act),
     };
+    // Another operation in the card, or a new opening: its middle starts at the top.
+    if ui.data(|d| d.get_temp::<u64>(body_of_id())) != Some(act.id) {
+        ui.data_mut(|d| d.insert_temp(body_of_id(), act.id));
+        crate::components::dialog_middle_to_top(ui.ctx(), "activity-card");
+    }
     let closed = dialog_with_header_held(
         ui,
         a,
@@ -1411,11 +1367,10 @@ fn card(ui: &mut Ui, a: &mut Assets, act: &Activity, around: &Around) -> CardAns
         |ui, a| {
             card_header(ui, a, act, now, book);
         },
-        |ui, a| {
+        |ui, a, part| {
             let p = a.p;
             // Everything but the header and the buttons scrolls, so neither is ever out of the
-            // window, however long the operation is (AC-D7, BUG-90).
-            let room = body_room(ui);
+            // window, however long the operation is (AC-D7, BUG-90; every dialog's, BUG-122).
             let mut content = |ui: &mut Ui, a: &mut Assets| {
                 ui.horizontal(|ui| {
                     crate::components::amount_label(
@@ -1453,35 +1408,11 @@ fn card(ui: &mut Ui, a: &mut Assets, act: &Activity, around: &Around) -> CardAns
                     document_block(ui, a, act, id);
                 }
             };
-            // The first frame only measures: without the area, or its height there is wrong.
-            if ui.is_sizing_pass() {
-                content(ui, a);
-            } else {
-                // The lines are as wide with a bar as without: egui widens an area to its
-                // content, so the bar's gutter goes into the dialog's side padding. In a child
-                // [`Ui`], or the dialog would grow by the gutter.
-                let width = ui.available_width();
-                let mut wider = ui.new_child(egui::UiBuilder::new().id_salt("activity-card-place"));
-                let mut area = egui::ScrollArea::vertical()
-                    .id_salt("activity-card-body")
-                    .auto_shrink([false, true])
-                    .max_height(room);
-                if ui.data(|d| d.get_temp::<u64>(body_of_id())) != Some(act.id) {
-                    ui.data_mut(|d| d.insert_temp(body_of_id(), act.id));
-                    area = area.vertical_scroll_offset(0.0);
-                }
-                area.show(&mut wider, |ui| {
-                    ui.set_max_width(width);
-                    content(ui, a);
-                    follow_focus(ui);
-                });
-                let used = wider.min_rect();
-                ui.advance_cursor_after_rect(egui::Rect::from_min_size(
-                    used.min,
-                    egui::vec2(width, used.height()),
-                ));
+            match part {
+                Part::Middle => content(ui, a),
+                Part::Footer => return card_footer(ui, a, &footer, &mut answer),
             }
-            card_footer(ui, a, &footer, &mut answer)
+            false
         },
     );
     answer.closed |= closed;
@@ -1879,7 +1810,6 @@ fn card_footer(ui: &mut Ui, a: &mut Assets, footer: &Footer, answer: &mut CardAn
     } = *footer;
     let mut close = false;
     // The action on the right, «Close» on its left: as in every dialog (designer review №8).
-    let footer_top = ui.cursor().top();
     button_row(ui, |ui| {
         if button(ui, a, tr!("Close"), ButtonKind::Ghost, None).clicked() {
             close = true;
@@ -1927,8 +1857,6 @@ fn card_footer(ui: &mut Ui, a: &mut Assets, footer: &Footer, answer: &mut CardAn
                     close = true;
                 }
     });
-    let footer = ui.cursor().top() - footer_top;
-    ui.data_mut(|d| d.insert_temp(footer_id(), footer));
     close
 }
 

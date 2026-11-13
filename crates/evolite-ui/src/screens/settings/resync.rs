@@ -3,7 +3,8 @@
 //! opens; the app then starts itself again.
 
 use crate::components::{
-    Assets, ButtonKind, button, button_enabled, button_row_destructive, dialog, kv_row,
+    Assets, ButtonKind, Part, button, button_enabled, button_row_destructive, dialog_with_footer,
+    kv_row,
 };
 use crate::context::Ctx;
 use crate::text;
@@ -34,15 +35,45 @@ pub(super) fn resync_dialog(
     form: &mut ResyncForm,
 ) -> bool {
     let p = a.p;
-    dialog(
+    dialog_with_footer(
         ui,
         a,
         "resync",
         "sync",
         tr!("Sync again"),
         470.0,
-        |ui, a| {
-            let mut close = false;
+        |ui, a, part| {
+            if part == Part::Footer {
+                // The footer (BUG-122): always in the window.
+                let mut close = false;
+                if let Some(error) = &form.error {
+                    ui.add(crate::components::para(
+                        &text::error_text(error),
+                        12.0,
+                        Weight::Regular,
+                        p.danger,
+                    ));
+                }
+                // It restarts the app and takes 10–20 minutes: «Cancel» first (the designer's rule b′).
+                button_row_destructive(ui, |ui| {
+                    if button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked() {
+                        close = true;
+                    }
+                    let label = if form.waiting {
+                        tr!("Preparing…")
+                    } else {
+                        tr!("Sync again")
+                    };
+                    if button_enabled(ui, a, label, ButtonKind::Primary, None, !form.waiting)
+                        .clicked()
+                    {
+                        cx.send(Command::Resync);
+                        form.waiting = true;
+                        form.error = None;
+                    }
+                });
+                return close;
+            }
             ui.add(
             crate::components::para(
                 tr!("evolite downloads the headers and block filters again and finds the coins and history from the wallet's creation date. Keys, identities, names and contacts are not touched."),
@@ -81,32 +112,7 @@ pub(super) fn resync_dialog(
                 Weight::Regular,
                 p.muted,
             ));
-            if let Some(error) = &form.error {
-                ui.add(crate::components::para(
-                    &text::error_text(error),
-                    12.0,
-                    Weight::Regular,
-                    p.danger,
-                ));
-            }
-            // It restarts the app and takes 10–20 minutes: «Cancel» first (the designer's rule b′).
-            button_row_destructive(ui, |ui| {
-                if button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked() {
-                    close = true;
-                }
-                let label = if form.waiting {
-                    tr!("Preparing…")
-                } else {
-                    tr!("Sync again")
-                };
-                if button_enabled(ui, a, label, ButtonKind::Primary, None, !form.waiting).clicked()
-                {
-                    cx.send(Command::Resync);
-                    form.waiting = true;
-                    form.error = None;
-                }
-            });
-            close
+            false
         },
     ) && !form.waiting
 }

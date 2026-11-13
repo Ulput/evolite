@@ -5,8 +5,9 @@
 
 use super::txt;
 use crate::components::{
-    Assets, ButtonKind, FieldKind, SpendPassword, avatar, button, button_enabled, button_row, card,
-    dialog, dialog_with_header, field_label, inner, kv_row, notice, page_header, text_field,
+    Assets, ButtonKind, FieldKind, Part, SpendPassword, avatar, button, button_enabled, button_row,
+    card, dialog_with_footer, dialog_with_header_and_footer, field_label, inner, kv_row, notice,
+    page_header, text_field,
 };
 use crate::context::Ctx;
 use crate::text::{self, name_problem, plural, short_id};
@@ -532,7 +533,7 @@ fn profile_dialog(
 ) {
     let name = shown_name(c);
     let mut pay = false;
-    let close = dialog_with_header(
+    let close = dialog_with_header_and_footer(
         ui,
         a,
         "contact-profile",
@@ -565,8 +566,24 @@ fn profile_dialog(
                 .on_hover_text(crate::i18n::t(&c.identity_id).into_owned());
             });
         },
-        |ui, a| {
+        |ui, a, part| {
             let p = a.p;
+            if part == Part::Footer {
+                // The footer (BUG-122): always in the window.
+                let mut close = false;
+                button_row(ui, |ui| {
+                    if button(ui, a, tr!("Close"), ButtonKind::Ghost, None).clicked() {
+                        close = true;
+                    }
+                    if c.state == ContactState::Established
+                        && button(ui, a, tr!("Send"), ButtonKind::Primary, None).clicked()
+                    {
+                        pay = true;
+                        close = true;
+                    }
+                });
+                return close;
+            }
             about_block(ui, a, &c.profile);
             let value = mono(13.0, Weight::Medium);
             let state_line = match c.state {
@@ -620,19 +637,7 @@ fn profile_dialog(
                     c.handle()
                 ),
             );
-            let mut close = false;
-            button_row(ui, |ui| {
-                if button(ui, a, tr!("Close"), ButtonKind::Ghost, None).clicked() {
-                    close = true;
-                }
-                if c.state == ContactState::Established
-                    && button(ui, a, tr!("Send"), ButtonKind::Primary, None).clicked()
-                {
-                    pay = true;
-                    close = true;
-                }
-            });
-            close
+            false
         },
     );
     if pay {
@@ -714,15 +719,59 @@ fn add_contact(
     let ask = crate::components::password_asked(cx.snap);
     let password = &mut state.password;
     let mut send = false;
-    let close = dialog(
+    let mut found_ready = false;
+    let close = dialog_with_footer(
         ui,
         a,
         "add-contact",
         "contacts",
         tr!("Add a contact"),
         464.0,
-        |ui, a| {
+        |ui, a, part| {
             let p = a.p;
+            if part == Part::Footer {
+                // The footer (BUG-122): always in the window.
+                if let Some(Err(e)) = &result
+                    && !password.is_wrong()
+                {
+                    crate::components::error_notice(
+                        ui,
+                        a,
+                        &contact_error(e),
+                        crate::text::error_details(e).as_deref(),
+                    );
+                }
+                let entered = password.field(ui, &p, "add-contact-password", ask);
+                public_line(
+                    ui,
+                    a,
+                    tr!(
+                        "The request, and the fact that you are contacts, are visible to everyone and can't be deleted. The addresses for payments between you are hidden."
+                    ),
+                );
+                let ready = found_ready && !waiting && password.ready(ask);
+                let mut close = false;
+                button_row(ui, |ui| {
+                    if button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked() {
+                        close = true;
+                    }
+                    let label = if waiting {
+                        tr!("Sending…")
+                    } else {
+                        tr!("Send the request")
+                    };
+                    if button_enabled(ui, a, label, ButtonKind::Primary, None, ready).clicked()
+                        || (entered && ready)
+                    {
+                        send = true;
+                    }
+                });
+                // A picture dragged over the dialog: the overlay covers it (Figma 10).
+                if crate::qr_scan::dragging_picture(ui.ctx()) {
+                    crate::components::drop_overlay(ui.ctx(), a, ui.min_rect().expand(12.0));
+                }
+                return close;
+            }
             ui.vertical(|ui| {
                 ui.spacing_mut().item_spacing.y = 6.0;
                 field_label(ui, &p, tr!("Name in DPNS"));
@@ -844,46 +893,9 @@ fn add_contact(
                 ),
             );
             reserve_notice(ui, &p, wallet);
-            if let Some(Err(e)) = &result
-                && !password.is_wrong()
-            {
-                crate::components::error_notice(
-                    ui,
-                    a,
-                    &contact_error(e),
-                    crate::text::error_details(e).as_deref(),
-                );
-            }
-            let entered = password.field(ui, &p, "add-contact-password", ask);
-            public_line(
-                ui,
-                a,
-                tr!(
-                    "The request, and the fact that you are contacts, are visible to everyone and can't be deleted. The addresses for payments between you are hidden."
-                ),
-            );
-            let ready = ready && !waiting && password.ready(ask);
-            let mut close = false;
-            button_row(ui, |ui| {
-                if button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked() {
-                    close = true;
-                }
-                let label = if waiting {
-                    tr!("Sending…")
-                } else {
-                    tr!("Send the request")
-                };
-                if button_enabled(ui, a, label, ButtonKind::Primary, None, ready).clicked()
-                    || (entered && ready)
-                {
-                    send = true;
-                }
-            });
-            // A picture dragged over the dialog: the overlay covers it (Figma 10).
-            if crate::qr_scan::dragging_picture(ui.ctx()) {
-                crate::components::drop_overlay(ui.ctx(), a, ui.min_rect().expand(12.0));
-            }
-            close
+            // Whether the name found can be asked, for the footer's button.
+            found_ready = ready;
+            false
         },
     );
     if send {
@@ -942,8 +954,27 @@ fn my_qr(ui: &mut Ui, a: &mut Assets, wallet: &Wallet, open: &mut bool) {
     let link = crate::payment_uri::my_link(&wallet.core_address, name);
     let title = format!(tr!("My QR · @{}"), name);
     let copy_id = egui::Id::new("my-qr-copy").with(&link);
-    let closed = dialog(ui, a, "my-qr", "scan", &title, 440.0, |ui, a| {
+    let closed = dialog_with_footer(ui, a, "my-qr", "scan", &title, 440.0, |ui, a, part| {
         let p = a.p;
+        if part == Part::Footer {
+            // The footer (BUG-122): always in the window.
+            let mut close = false;
+            button_row(ui, |ui| {
+                if button(ui, a, tr!("Close"), ButtonKind::Ghost, None).clicked() {
+                    close = true;
+                }
+                let copied = crate::clipboard::just_copied(ui.ctx(), copy_id);
+                let label = if copied {
+                    tr!("Copied")
+                } else {
+                    tr!("Copy the link")
+                };
+                if button(ui, a, label, ButtonKind::Secondary, None).clicked() {
+                    crate::clipboard::copy_answered(ui.ctx(), link.clone(), copy_id);
+                }
+            });
+            return close;
+        }
         ui.add(
             crate::components::para(
                 tr!("Show this code: DashPay or evolite opens a payment to you. It holds your name and your current receiving address."),
@@ -969,22 +1000,7 @@ fn my_qr(ui: &mut Ui, a: &mut Assets, wallet: &Wallet, open: &mut bool) {
             &crate::i18n::own(&format!("@{name}")),
             sans(13.0, Weight::SemiBold),
         );
-        let mut close = false;
-        button_row(ui, |ui| {
-            if button(ui, a, tr!("Close"), ButtonKind::Ghost, None).clicked() {
-                close = true;
-            }
-            let copied = crate::clipboard::just_copied(ui.ctx(), copy_id);
-            let label = if copied {
-                tr!("Copied")
-            } else {
-                tr!("Copy the link")
-            };
-            if button(ui, a, label, ButtonKind::Secondary, None).clicked() {
-                crate::clipboard::copy_answered(ui.ctx(), link.clone(), copy_id);
-            }
-        });
-        close
+        false
     });
     if closed {
         *open = false;
@@ -1013,14 +1029,53 @@ fn accept_dialog(
     let waiting = state.waiting;
     let ask = state.ask;
     let mut accept = false;
-    let closed = dialog(
+    let closed = dialog_with_footer(
         ui,
         a,
         "accept-contact",
         "contacts",
         tr!("Accept the request"),
         440.0,
-        |ui, a| {
+        |ui, a, part| {
+            if part == Part::Footer {
+                // The footer (BUG-122): always in the window.
+                if let Some(Err(e)) = &state.result
+                    && !state.password.is_wrong()
+                {
+                    crate::components::error_notice(
+                        ui,
+                        a,
+                        &contact_error(e),
+                        crate::text::error_details(e).as_deref(),
+                    );
+                }
+                let entered = state.password.field(ui, &p, "accept-contact-password", ask);
+                public_line(
+                    ui,
+                    a,
+                    tr!(
+                        "Your answer makes you contacts: everyone can see it, and it can't be deleted. The addresses for payments between you are hidden."
+                    ),
+                );
+                let ready = !waiting && state.password.ready(ask);
+                let mut close = false;
+                button_row(ui, |ui| {
+                    if button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked() {
+                        close = true;
+                    }
+                    let label = if waiting {
+                        tr!("Sending…")
+                    } else {
+                        tr!("Accept")
+                    };
+                    if button_enabled(ui, a, label, ButtonKind::Primary, None, ready).clicked()
+                        || (entered && ready)
+                    {
+                        accept = true;
+                    }
+                });
+                return close;
+            }
             ui.spacing_mut().item_spacing.y = 14.0;
             ui.add(crate::components::para(
                 &format!(
@@ -1033,42 +1088,7 @@ fn accept_dialog(
                 p.text,
             ));
             reserve_notice(ui, &p, wallet);
-            if let Some(Err(e)) = &state.result
-                && !state.password.is_wrong()
-            {
-                crate::components::error_notice(
-                    ui,
-                    a,
-                    &contact_error(e),
-                    crate::text::error_details(e).as_deref(),
-                );
-            }
-            let entered = state.password.field(ui, &p, "accept-contact-password", ask);
-            public_line(
-                ui,
-                a,
-                tr!(
-                    "Your answer makes you contacts: everyone can see it, and it can't be deleted. The addresses for payments between you are hidden."
-                ),
-            );
-            let ready = !waiting && state.password.ready(ask);
-            let mut close = false;
-            button_row(ui, |ui| {
-                if button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked() {
-                    close = true;
-                }
-                let label = if waiting {
-                    tr!("Sending…")
-                } else {
-                    tr!("Accept")
-                };
-                if button_enabled(ui, a, label, ButtonKind::Primary, None, ready).clicked()
-                    || (entered && ready)
-                {
-                    accept = true;
-                }
-            });
-            close
+            false
         },
     );
     if accept {
@@ -1156,15 +1176,25 @@ fn privacy_dialog(ui: &mut Ui, a: &mut Assets, state: &mut ContactsState) {
             "The payment keys are encrypted, and each payment goes to a new address: the requests do not link the payments. Blockchain analysis may still link them."
         ),
     ];
-    let closed = dialog(
+    let closed = dialog_with_footer(
         ui,
         a,
         "contacts-privacy",
         "info",
         tr!("Contact privacy"),
         520.0,
-        |ui, a| {
+        |ui, a, part| {
             let p = a.p;
+            if part == Part::Footer {
+                // The footer (BUG-122): always in the window.
+                let mut close = false;
+                button_row(ui, |ui| {
+                    if button(ui, a, tr!("Got it"), ButtonKind::Primary, None).clicked() {
+                        close = true;
+                    }
+                });
+                return close;
+            }
             ui.vertical(|ui| {
                 ui.spacing_mut().item_spacing.y = 10.0;
                 for point in POINTS {
@@ -1178,13 +1208,7 @@ fn privacy_dialog(ui: &mut Ui, a: &mut Assets, state: &mut ContactsState) {
                     });
                 }
             });
-            let mut close = false;
-            button_row(ui, |ui| {
-                if button(ui, a, tr!("Got it"), ButtonKind::Primary, None).clicked() {
-                    close = true;
-                }
-            });
-            close
+            false
         },
     );
     if closed {

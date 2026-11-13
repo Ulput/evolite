@@ -1,6 +1,7 @@
 //! Editing the profile: the form and its dialog.
 
 use super::*;
+use crate::components::{Part, dialog_with_footer};
 
 /// 23 · Edit profile: the picture's link, the name and "Bio", what writing it costs.
 pub(super) fn edit_profile(
@@ -19,15 +20,63 @@ pub(super) fn edit_profile(
         .name()
         .map_or_else(|| "identity".to_string(), |n| format!("@{n}"));
     let mut save = false;
-    let close = dialog(
+    let close = dialog_with_footer(
         ui,
         a,
         "edit-profile",
         "identity",
         tr!("DashPay profile"),
         464.0,
-        |ui, a| {
+        |ui, a, part| {
             let p = a.p;
+            if part == Part::Footer {
+                // The footer (BUG-122): what went wrong, the password and the buttons, always
+                // in the window.
+                let url = form.avatar_url.trim();
+                let url_ok = url.is_empty() || url.starts_with("https://");
+                if let Some(Err(e)) = &form.result
+                    && !form.password.is_wrong()
+                {
+                    notice(
+                        ui,
+                        a,
+                        "warning",
+                        p.danger,
+                        &super::super::contacts::contact_error(e),
+                    );
+                }
+                let entered = form.password.field(ui, &p, "profile-password", ask);
+                let ready = url_ok && !form.waiting && form.password.ready(ask);
+                let mut close = false;
+                let changed = form.changes(id.profile.as_ref());
+                button_row(ui, |ui| {
+                    // Why «Save» is off: a write costs credits, the same profile again buys
+                    // nothing.
+                    if !changed && !form.waiting {
+                        ui.label(txt(
+                            tr!("Nothing has changed yet"),
+                            12.0,
+                            Weight::Regular,
+                            p.muted,
+                        ));
+                    }
+                    if button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked() {
+                        close = true;
+                    }
+                    let label = if form.waiting {
+                        tr!("Saving…")
+                    } else {
+                        tr!("Save")
+                    };
+                    if button_enabled(ui, a, label, ButtonKind::Primary, None, ready && changed)
+                        .clicked()
+                        || (entered && ready && changed)
+                    {
+                        save = true;
+                    }
+                });
+                return close;
+            }
             let count =
                 |n: usize, max: usize| format!(tr!("{n} of {max} characters"), n = n, max = max);
             ui.horizontal(|ui| {
@@ -147,47 +196,7 @@ pub(super) fn edit_profile(
                     p.danger,
                 ));
             }
-            if let Some(Err(e)) = &form.result
-                && !form.password.is_wrong()
-            {
-                notice(
-                    ui,
-                    a,
-                    "warning",
-                    p.danger,
-                    &super::super::contacts::contact_error(e),
-                );
-            }
-            let entered = form.password.field(ui, &p, "profile-password", ask);
-            let ready = url_ok && !form.waiting && form.password.ready(ask);
-            let mut close = false;
-            let changed = form.changes(id.profile.as_ref());
-            button_row(ui, |ui| {
-                // Why «Save» is off: a write costs credits, the same profile again buys nothing.
-                if !changed && !form.waiting {
-                    ui.label(txt(
-                        tr!("Nothing has changed yet"),
-                        12.0,
-                        Weight::Regular,
-                        p.muted,
-                    ));
-                }
-                if button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked() {
-                    close = true;
-                }
-                let label = if form.waiting {
-                    tr!("Saving…")
-                } else {
-                    tr!("Save")
-                };
-                if button_enabled(ui, a, label, ButtonKind::Primary, None, ready && changed)
-                    .clicked()
-                    || (entered && ready && changed)
-                {
-                    save = true;
-                }
-            });
-            close
+            false
         },
     );
     if save {

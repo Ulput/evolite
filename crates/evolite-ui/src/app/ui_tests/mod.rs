@@ -21,6 +21,7 @@ mod coins;
 mod contacts_privacy;
 mod core_known;
 mod dialog_keys;
+mod dialog_scroll;
 mod dialogs;
 mod fiat;
 mod focus;
