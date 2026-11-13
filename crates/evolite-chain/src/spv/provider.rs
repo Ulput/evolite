@@ -94,6 +94,22 @@ fn system_contract(
     Ok(Some(contract))
 }
 
+/// The configuration of token `token_id` from the contracts registered (FEAT-0019 АРХ-2): the SDK
+/// asks for it to check a token transition's proof, and the contract, proved when it came in, has it.
+fn token_configuration(
+    registered: &HashMap<Identifier, Arc<DataContract>>,
+    token_id: &Identifier,
+) -> Option<dpp::data_contract::TokenConfiguration> {
+    use dpp::data_contract::accessors::v1::DataContractV1Getters;
+    registered.values().find_map(|contract| {
+        contract
+            .tokens()
+            .iter()
+            .find(|(position, _)| contract.token_id(**position).as_ref() == Some(token_id))
+            .map(|(_, config)| config.clone())
+    })
+}
+
 impl ContextProvider for SpvContextProvider {
     fn get_data_contract(
         &self,
@@ -120,9 +136,12 @@ impl ContextProvider for SpvContextProvider {
 
     fn get_token_configuration(
         &self,
-        _token_id: &Identifier,
+        token_id: &Identifier,
     ) -> Result<Option<dpp::data_contract::TokenConfiguration>, ContextProviderError> {
-        Ok(None)
+        Ok(token_configuration(
+            &self.registered.lock().unwrap_or_else(|e| e.into_inner()),
+            token_id,
+        ))
     }
 
     fn get_quorum_public_key(
@@ -224,5 +243,28 @@ mod tests {
         // Anything else is not a system contract here.
         let other = Identifier::from([7u8; 32]);
         assert!(system_contract(&cache, &other, v14).unwrap().is_none());
+    }
+}
+
+#[cfg(test)]
+mod token_tests {
+    use super::*;
+    use crate::platform::tokens::info::test_contract;
+
+    #[test]
+    fn a_registered_contract_answers_for_its_tokens() {
+        let contract = Arc::new(test_contract(
+            [3; 32],
+            [9; 32],
+            &[("coffee", 2), ("stamp", 0)],
+        ));
+        let registered = HashMap::from([(contract.id(), contract)]);
+        let stamp: Identifier = dpp::tokens::calculate_token_id(&[3; 32], 1).into();
+        let config = token_configuration(&registered, &stamp).expect("the stamp's configuration");
+        use dpp::data_contract::associated_token::token_configuration::accessors::v0::TokenConfigurationV0Getters;
+        use dpp::data_contract::associated_token::token_configuration_convention::accessors::v0::TokenConfigurationConventionV0Getters;
+        assert_eq!(config.conventions().decimals(), 0);
+        let unknown: Identifier = dpp::tokens::calculate_token_id(&[4; 32], 0).into();
+        assert!(token_configuration(&registered, &unknown).is_none());
     }
 }

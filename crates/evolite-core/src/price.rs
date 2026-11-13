@@ -205,6 +205,14 @@ pub fn declared(op: &Spend, seen: &Seen, app_cost: Duffs) -> Declared {
             fees.nft_transfer,
             covers(seen.credits, 0, fees.nft_transfer),
         ),
+        // The token itself is not credits: only the fee comes from them. A token transfer is a
+        // batch transition as a document write is. Until AC-T9 measures its own fee, twice a
+        // document write: the estimate must not be below what is taken (part 3 review r1, answer 3).
+        Spend::SendToken { .. } => of(
+            "send_token",
+            fees.document_write.saturating_mul(2),
+            covers(seen.credits, 0, fees.document_write.saturating_mul(2)),
+        ),
         // One IdentityUpdate that disables the session keys.
         Spend::DisconnectApp { .. } => of(
             "disconnect_app",
@@ -356,6 +364,11 @@ pub(crate) mod tests {
             Spend::GiftNft {
                 id: "nft".into(),
                 to: "@bob".into(),
+            },
+            Spend::SendToken {
+                token_id: "token".into(),
+                to: "@bob".into(),
+                amount: 100,
             },
             Spend::DisconnectApp { id: "app".into() },
         ]

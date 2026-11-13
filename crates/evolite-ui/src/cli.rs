@@ -207,6 +207,10 @@ pub const PRESETS: &[&str] = &[
     "apps", "connect", "connect-limits", "connect-renew", "refused-v1", "refused-stale",
     "refused-mainnet", "apps-disconnected", "apps-renew", "apps-disconnect", "apps-remove",
     "collection", "gift",
+    "tokens", "tokens-first-search", "tokens-pause", "tokens-no-network", "tokens-refresh-failed",
+    "tokens-empty", "tokens-send", "tokens-review", "tokens-add", "tokens-mainnet",
+    "tokens-send-address", "tokens-send-more", "tokens-send-credits", "tokens-send-unknown",
+    "tokens-add-one", "tokens-add-many", "tokens-add-none",
     "probe",
     "settings", "phrase", "check-phrase", "appearance", "appearance-rate", "change-password",
     "security", "backup", "notifications", "own-node", "nodes", "nodes-dapi", "about",
@@ -375,6 +379,28 @@ fn dev_args<'a>(
             ),
         ) => Screen::Apps,
         (None, Some("collection" | "gift")) => Screen::Collection,
+        (
+            None,
+            Some(
+                "tokens"
+                | "tokens-first-search"
+                | "tokens-pause"
+                | "tokens-no-network"
+                | "tokens-refresh-failed"
+                | "tokens-empty"
+                | "tokens-send"
+                | "tokens-review"
+                | "tokens-add"
+                | "tokens-mainnet"
+                | "tokens-send-address"
+                | "tokens-send-more"
+                | "tokens-send-credits"
+                | "tokens-send-unknown"
+                | "tokens-add-one"
+                | "tokens-add-many"
+                | "tokens-add-none",
+            ),
+        ) => Screen::Tokens,
         (None, Some("probe")) => Screen::Probe,
         (
             None,

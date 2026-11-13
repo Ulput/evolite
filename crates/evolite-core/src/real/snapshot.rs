@@ -363,6 +363,10 @@ impl Real {
         let mut shown_wallet = Wallet {
             password_each_send: self.password_each_send,
             notes_error,
+            tokens: self.shown_tokens(
+                shown.as_ref().map(|(identity, _, _)| identity.id.as_str()),
+                identities.iter().map(|c| c.id.clone()).collect(),
+            ),
             platform_inputs: self.shown_address_inputs.clone(),
             balances: Balances {
                 core,

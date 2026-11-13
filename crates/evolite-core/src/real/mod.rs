@@ -74,6 +74,8 @@ use vault::{KdfParams, VaultError, VaultMeta};
 /// What the real wallet does not do yet (Platform itself is connected, these are not).
 const NO_GIFTS: &str =
     tr!("An NFT cannot be given from evolite yet: transfers come in later versions");
+/// FEAT-0019 part 1: the API is there, the real core's tokens come in part 3.
+const NO_TOKENS: &str = tr!("Tokens cannot be read or sent from evolite yet");
 const NO_VAULT: &str = tr!("There is no wallet on this computer");
 /// The vault's network label; mainnet only behind an explicit flag, which does not exist yet.
 /// The network written into the vault: a vault of another network does not open here.
@@ -136,6 +138,8 @@ pub struct Paths {
     pub pool: PathBuf,
     /// Apps signed in as an identity ([`connected_apps::ConnectedApps`]).
     pub connected_apps: PathBuf,
+    /// The tokens the wallet follows and their proved contracts (FEAT-0019), `tokens.json`.
+    pub tokens: PathBuf,
     /// The person's payment notes, encrypted ([`notes::Notes`], FEAT-0003): only here; a
     /// resync keeps them, deleting the wallet deletes them with its folder.
     pub notes: PathBuf,
@@ -172,6 +176,7 @@ impl Paths {
             core_balance: wallets.join("core-balance.json"),
             pool: wallets.join("shielded-pool.db"),
             connected_apps: wallets.join("connected-apps.json"),
+            tokens: wallets.join("tokens.json"),
             notes: wallets.join("notes.enc"),
         }
     }
@@ -320,6 +325,8 @@ struct Real {
     avatars: avatars::Avatars,
     /// The identity's NFTs from Platform, with their pictures.
     nfts: nfts::Nfts,
+    /// The tokens: what the searches found and the wallet's `tokens.json` (FEAT-0019).
+    tokens: ops::tokens::TokenState,
     /// The sandboxed renderer; `None` in tests.
     artist: Option<crate::art::Artist>,
     /// Where each wallet's picture cache is (`<base>/<id>`): another wallet's deleted with it.

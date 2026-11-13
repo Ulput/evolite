@@ -20,7 +20,7 @@ const TIMED_OUT: &str = "timed out";
 /// while it waits for a quorum key (`provider.rs`, `block_in_place`), and a timer wrapped around
 /// that `poll` would be looked at only once it returned. The read writes nothing, so one that
 /// outlives its limit harms nothing.
-async fn read_within<T: Send + 'static>(
+pub(in crate::real) async fn read_within<T: Send + 'static>(
     wait: Duration,
     read: impl Future<Output = Result<T, String>> + Send + 'static,
 ) -> Result<T, String> {
@@ -91,7 +91,7 @@ async fn when_ready(
 impl Real {
     /// Answers `question` once Platform can be asked ([`Chain::until_platform_ready`]), the one
     /// wait of the name lookups, with `give_up` after [`LISTS_WAIT`].
-    fn answer_when_platform_ready(
+    pub(in crate::real) fn answer_when_platform_ready(
         &self,
         step: &'static str,
         give_up: Event,

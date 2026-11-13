@@ -42,6 +42,8 @@ pub(super) struct DevState {
     /// `--screen top-up-stopped` / `top-up-awaiting`: Identity with a cut-short top-up, to
     /// continue or (Platform already took it) awaiting its ChainLock (BUG-7).
     top_up_preset: Option<bool>,
+    /// `--screen tokens-*` (FEAT-0019): the search or the network as that frame of the design shows it.
+    tokens_preset: Option<&'static str>,
     /// `--screen overview-syncing` / `send-syncing`: the screen while the sync still runs.
     syncing_preset: bool,
     /// `--screen send-fiat-stale`: the rate older than 5 minutes (FEAT-0008, frame 3).
@@ -108,6 +110,19 @@ impl PausePreset {
     }
 }
 
+/// The `--screen` presets of the tokens screen that change the snapshot (design T1, T5, T4, T4b,
+/// T3, T7).
+const TOKEN_STATES: [&str; 8] = [
+    "tokens-review",
+    "tokens-send-credits",
+    "tokens-first-search",
+    "tokens-pause",
+    "tokens-no-network",
+    "tokens-refresh-failed",
+    "tokens-empty",
+    "tokens-mainnet",
+];
+
 /// What `--screen create-identity-short` / `create-identity-unchecked` do to Core.
 #[derive(Clone, Copy)]
 enum CorePreset {
@@ -153,6 +168,7 @@ impl DevState {
             } else {
                 None
             },
+            tokens_preset: TOKEN_STATES.into_iter().find(|name| dev.preset(name)),
             syncing_preset: dev.preset("overview-syncing") || dev.preset("send-syncing"),
             stale_rate_preset: dev.preset("send-fiat-stale"),
             pool_preset: if dev.preset("send-pool-unread") {
@@ -284,6 +300,11 @@ impl App {
                 locked: 50_000_000,
                 awaiting_chain_lock,
             });
+        }
+        if let Some(name) = self.dev.tokens_preset
+            && let Some(s) = self.snapshot.as_mut()
+        {
+            tokens_state(s, name);
         }
         // `--screen overview-syncing` / `send-syncing`: in the middle of the block filters, as a
         // restored wallet on testnet is for minutes.
@@ -714,6 +735,52 @@ impl App {
                 ..Default::default()
             }
         };
+        // `--screen tokens-send*` / `tokens-review` / `tokens-add*`: the tokens screen's dialogs
+        // (design T6, T6b and its refusals; «Add a token» and its results), over the demo's Evo
+        // Coffee. A name in «To» is asked of the demo core, as «Check» asks it.
+        let send_preset = [
+            ("tokens-send", "", ""),
+            ("tokens-review", "@alice", "5"),
+            (
+                "tokens-send-address",
+                "yNk2Hc8pWq4mR7vT3sLb9XeJ6uZa5Df1Gh",
+                "5",
+            ),
+            ("tokens-send-more", "@alice", "1000"),
+            ("tokens-send-credits", "@alice", "5"),
+            ("tokens-send-unknown", "@nobody-here", "5"),
+        ]
+        .into_iter()
+        .find(|(name, _, _)| preset(name));
+        if let Some((name, to, amount)) = send_preset {
+            let mut send = screens::tokens::SendState::new(DEMO_TOKEN);
+            if !real_shot {
+                send.to = to.into();
+                send.amount = amount.into();
+                if matches!(name, "tokens-review" | "tokens-send-unknown") {
+                    send.checking = Some(to.into());
+                    self.core.send(Command::ResolveName { name: to.into() });
+                }
+            }
+            self.tokens.sending = Some(send);
+        }
+        let add_preset = [
+            ("tokens-add", ""),
+            ("tokens-add-one", DEMO_TOKEN),
+            ("tokens-add-many", "coffee"),
+            ("tokens-add-none", "nothing"),
+        ]
+        .into_iter()
+        .find(|(name, _)| preset(name));
+        if let Some((_, query)) = add_preset {
+            match screens::tokens::AddState::asking(query).filter(|_| !real_shot) {
+                Some((add, command)) => {
+                    self.core.send(command);
+                    self.tokens.adding = Some(add);
+                }
+                None => self.tokens.adding = Some(screens::tokens::AddState::default()),
+            }
+        }
         // `--screen gift` opens the collection with the gift dialog.
         self.collection.gifting = preset("gift");
         // `--screen phrase` opens 17 over Backup, `--screen appearance` that section.
@@ -901,3 +968,60 @@ impl App {
 /// `--screen send-lookalike`: the demo address book's «Workshop rent»
 /// (`yNk2Hc8pWq4mR7vT3sLb9XeJ6uZa5Df1Gh`) with characters 9–11 changed (FEAT-0035).
 pub(crate) const LOOKALIKE: &str = "yNk2Hc8pQQQmR7vT3sLb9XeJ6uZa5Df1Gh";
+
+/// The demo's Evo Coffee: the token the send presets open (`evolite-demo`, `tokens.rs`).
+const DEMO_TOKEN: &str = "7Hq2Wd9kLm4Np8Rs3Tv6Xy1Zb5Cf2Gh7Jk9Mn4Pq8Rs";
+
+/// What a `tokens-*` preset does to the snapshot.
+fn tokens_state(s: &mut evolite_api::Snapshot, name: &str) {
+    use evolite_api::tokens::{SearchState, TokenSearch};
+    if name == "tokens-mainnet" {
+        s.network = evolite_api::Network::Mainnet;
+        return;
+    }
+    let Some(w) = s.wallet.as_mut() else {
+        return;
+    };
+    // T6b: the wallet's password asked as for every spend with «Password for every send» on.
+    if name == "tokens-review" {
+        w.password_each_send = true;
+        return;
+    }
+    // T6 refused: the identity's credits do not cover the fee.
+    if name == "tokens-send-credits" {
+        w.balances.credits = 10;
+        return;
+    }
+    let at = chrono::Local::now().timestamp();
+    let first = |state| TokenSearch {
+        state,
+        checked: 1_840,
+        total: Some(4_175),
+        left_secs: Some(60),
+        done: None,
+        failed: false,
+    };
+    match name {
+        "tokens-first-search" => {
+            w.tokens.rows.clear();
+            w.tokens.search = first(SearchState::Running);
+        }
+        "tokens-pause" => {
+            w.tokens.rows.clear();
+            w.tokens.search = first(SearchState::Paused { until: at + 42 });
+        }
+        "tokens-no-network" => {
+            w.tokens.rows.clear();
+            w.tokens.search = TokenSearch {
+                left_secs: None,
+                ..first(SearchState::NoNetwork)
+            };
+        }
+        "tokens-refresh-failed" => {
+            w.tokens.search.state = SearchState::NoNetwork;
+            w.tokens.search.failed = true;
+        }
+        "tokens-empty" => w.tokens.rows.clear(),
+        _ => {}
+    }
+}

@@ -41,7 +41,7 @@ fn rhythm(kit: &Kit) -> (f32, f32, f32) {
 /// 40 apart.
 #[test]
 fn in_800_by_600_all_ten_items_are_in_view() {
-    let (_turn, kit) = menu_at("en", egui::vec2(800.0, 600.0), 1);
+    let (_turn, kit) = menu_at("en", egui::vec2(800.0, 600.0), 0);
     let last = item(&kit, "Tokens");
     assert!(
         last.bottom() <= 600.0 - FOOTER_LOW + 0.5,
@@ -64,7 +64,7 @@ fn in_800_by_600_all_ten_items_are_in_view() {
 /// it into view (and the fade goes at the end of the list), and so does Tab.
 #[test]
 fn in_800_by_440_the_fade_shows_and_the_last_item_is_reached() {
-    let (_turn, mut kit) = menu_at("en", egui::vec2(800.0, 440.0), 1);
+    let (_turn, mut kit) = menu_at("en", egui::vec2(800.0, 440.0), 0);
     let end = 440.0 - FOOTER_LOW;
     assert!(item(&kit, "Tokens").bottom() > end, "past the edge");
     assert_eq!(menu_more_below(&kit.ctx), Some(true), "the fade");
@@ -94,7 +94,7 @@ fn in_800_by_440_the_fade_shows_and_the_last_item_is_reached() {
 /// AC-D4 by the keyboard: Tab reaches the last item and brings it into view.
 #[test]
 fn in_800_by_440_tab_brings_the_last_item_into_view() {
-    let (_turn, mut kit) = menu_at("en", egui::vec2(800.0, 440.0), 1);
+    let (_turn, mut kit) = menu_at("en", egui::vec2(800.0, 440.0), 0);
     tab_to(&mut kit, "Tokens");
     kit.run_steps(30);
     let end = 440.0 - FOOTER_LOW;
@@ -152,7 +152,7 @@ fn from_640_high_the_menu_is_as_before() {
 /// AC-T 6: right to left the menu is mirrored and the fade is still at the bottom of its list.
 #[test]
 fn right_to_left_the_fade_is_at_the_bottom_too() {
-    let (_turn, mut kit) = menu_at("ar", egui::vec2(800.0, 440.0), 2);
+    let (_turn, mut kit) = menu_at("ar", egui::vec2(800.0, 440.0), 1);
     assert_eq!(menu_more_below(&kit.ctx), Some(true));
     tab_to(&mut kit, "Votes");
     kit.run_steps(30);
@@ -163,7 +163,7 @@ fn right_to_left_the_fade_is_at_the_bottom_too() {
 /// over the last whole item («Contacts» in 800×440), which stays clickable under it.
 #[test]
 fn the_fade_lies_over_the_last_whole_item_and_lets_it_be_clicked() {
-    let (_turn, mut kit) = menu_at("en", egui::vec2(800.0, 440.0), 1);
+    let (_turn, mut kit) = menu_at("en", egui::vec2(800.0, 440.0), 0);
     let fade = menu_fade(&kit.ctx).flatten().expect("the fade");
     assert_eq!(fade.height(), 24.0);
     // The list ends 12 px over the sync card; the panel's 1 px border lies under the footer.

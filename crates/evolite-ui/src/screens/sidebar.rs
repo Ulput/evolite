@@ -70,8 +70,7 @@ pub(crate) fn menu_fade(ctx: &egui::Context) -> Option<Option<egui::Rect>> {
     ctx.data(|d| d.get_temp::<Option<egui::Rect>>(more_id()))
 }
 
-/// Tests: `n` more menu items after [`NAV`], as «Tokens» (FEAT-0019) and «Votes» (FEAT-0026)
-/// will be, before they are in.
+/// Tests: `n` more menu items after [`NAV`], as «Votes» (FEAT-0026) will be, before it is in.
 #[cfg(all(test, demo_core, feature = "dev-tools"))]
 pub(crate) fn add_menu_items(ctx: &egui::Context, n: usize) {
     ctx.data_mut(|d| d.insert_temp(extra_id(), n));
@@ -80,13 +79,10 @@ pub(crate) fn add_menu_items(ctx: &egui::Context, n: usize) {
 #[cfg(test)]
 fn more_items(ctx: &egui::Context) -> Vec<(Screen, &'static str, &'static str)> {
     let n = ctx.data(|d| d.get_temp::<usize>(extra_id())).unwrap_or(0);
-    [
-        (Screen::Collection, "nft", "Tokens"),
-        (Screen::Collection, "nft", "Votes"),
-    ]
-    .into_iter()
-    .take(n)
-    .collect()
+    [(Screen::Collection, "nft", "Votes")]
+        .into_iter()
+        .take(n)
+        .collect()
 }
 
 /// Sidebar 248 px (a rail of 76 px below 1280, `theme::Breakpoint`): logo, the wallet switcher

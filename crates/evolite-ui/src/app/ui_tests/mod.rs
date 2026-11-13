@@ -42,6 +42,7 @@ mod settings_apps;
 mod spend;
 mod sync;
 mod tab_sweep;
+mod tokens;
 mod wallets;
 
 use super::App;

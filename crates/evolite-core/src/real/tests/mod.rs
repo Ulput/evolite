@@ -12,6 +12,7 @@ mod notes_tests;
 mod payment_tests;
 mod snapshot_tests;
 mod start_tests;
+mod token_tests;
 mod wallet_tests;
 
 const PHRASE: &str =

@@ -14,4 +14,6 @@ pub(super) mod notes;
 pub(super) mod outgoing;
 pub(super) mod platform_sending;
 pub(super) mod pool;
+pub(super) mod token_search;
+pub(super) mod tokens;
 pub(super) mod wallet;

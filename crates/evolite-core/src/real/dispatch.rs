@@ -46,6 +46,15 @@ impl Real {
                     result: Err(e),
                 },
             },
+            Spend::SendToken {
+                token_id,
+                to,
+                amount,
+            } => match self.send_token(token_id, to, amount) {
+                // The answer comes from the background task.
+                Event::Progress { .. } => return (None, true),
+                refused => refused,
+            },
             Spend::GiftNft { .. } => Event::Done {
                 what: DoneWhat::Gift,
                 result: Err(CoreError::NotAvailable(NO_GIFTS.into())),
@@ -362,6 +371,10 @@ impl Real {
             Command::RenameWallet { id, name, color } => {
                 return self.rename_wallet(id, name, color);
             }
+            Command::FindToken { id } => return self.find_token(id),
+            Command::SearchTokens { keyword } => return self.search_tokens(keyword),
+            Command::TrackToken { token_id, on } => return self.track_token(token_id, on),
+            Command::FindMyTokens => return self.find_my_tokens(true),
         };
         (Some(event), true)
     }

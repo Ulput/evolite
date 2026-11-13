@@ -133,6 +133,7 @@ pub fn screen_name(screen: crate::screens::Screen) -> &'static str {
         Shielded => "shielded",
         Apps => "apps",
         Collection => "collection",
+        Tokens => "tokens",
         Settings => "settings",
         CreateIdentity => "create_identity",
         Onboarding(_) => "onboarding",

@@ -195,6 +195,12 @@ fn write_digits(
     }
 }
 
+/// The thousands mark and the decimal mark of the chosen number format (FEAT-0019: token amounts
+/// are written and typed with them too).
+pub fn number_marks() -> (char, char) {
+    display().style.marks()
+}
+
 /// The number alone in the chosen unit and format: "12,8460", "12 846,00", "1 284 600 000".
 pub fn number(duffs: i64, signed: bool) -> String {
     let d = display();

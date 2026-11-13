@@ -15,6 +15,7 @@ pub mod receive;
 pub mod send;
 pub mod settings;
 pub mod shielded;
+pub mod tokens;
 pub mod unlock;
 
 pub mod activity;
@@ -54,6 +55,8 @@ pub enum Screen {
     Shielded,
     Apps,
     Collection,
+    /// FEAT-0019: the identity's Dash Platform tokens; on mainnet it only explains (R-9).
+    Tokens,
     Settings,
     /// 07: opened from Identity; the sidebar keeps Identity lit.
     CreateIdentity,
@@ -64,7 +67,7 @@ pub enum Screen {
     Probe,
 }
 
-pub const NAV: [(Screen, &str, &str); 9] = [
+pub const NAV: [(Screen, &str, &str); 10] = [
     (Screen::Overview, "home", tr!("Overview")),
     (Screen::Send, "send", tr!("Send")),
     (Screen::Receive, "receive", tr!("Receive")),
@@ -75,6 +78,8 @@ pub const NAV: [(Screen, &str, &str); 9] = [
     (Screen::Shielded, "shielded", tr!("Private pool")),
     (Screen::Apps, "apps", tr!("Apps")),
     (Screen::Collection, "nft", tr!("Collection")),
+    // Last, after «Collection» (designer-47: new items go to the end).
+    (Screen::Tokens, "token", tr!("Tokens")),
 ];
 
 pub(crate) use crate::components::txt;

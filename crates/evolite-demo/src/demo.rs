@@ -769,10 +769,12 @@ pub fn demo_wallet(t: Timestamp) -> Wallet {
                     kind: KeyKind::Ecdsa,
                     decrypts: false,
                 },
+                // evolite's key 2: AUTHENTICATION, CRITICAL, as the real core shows it; platform-wallet
+                // signs token transfers with it (FEAT-0019).
                 IdentityKey {
                     id: 2,
                     level: KeyLevel::Critical,
-                    purpose: KeyPurpose::Transfers,
+                    purpose: KeyPurpose::Documents,
                     kind: KeyKind::Ecdsa,
                     decrypts: false,
                 },
@@ -841,6 +843,7 @@ pub fn demo_wallet(t: Timestamp) -> Wallet {
         // click (Settings → Security turns it on).
         password_each_send: false,
         notes_error: None,
+        tokens: crate::tokens::demo_tokens(t),
         identity_search: IdentitySearch::Done,
         // Two identities, so the Identity screen shows its choice.
         address_book: vec![

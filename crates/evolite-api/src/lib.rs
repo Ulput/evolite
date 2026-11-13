@@ -15,6 +15,8 @@ use zeroize::Zeroizing;
 pub mod address_plan;
 pub mod coin_plan;
 pub mod fiat;
+/// Platform tokens (FEAT-0019).
+pub mod tokens;
 
 /// 1 DASH = 100 000 000 duffs.
 pub type Duffs = i64;
@@ -1154,6 +1156,9 @@ pub struct Wallet {
     /// What was wrong with the notes file when the wallet opened, if anything: the history
     /// shows no notes from it (FEAT-0003, E2).
     pub notes_error: Option<NotesError>,
+    /// Platform tokens of the identity the interface shows, and the wallet's search for them
+    /// (FEAT-0019). [`tokens::Tokens::off`] on mainnet (R-9).
+    pub tokens: tokens::Tokens,
 }
 
 /// Why the history shows no notes from the file there (FEAT-0003, E2).
@@ -1686,6 +1691,27 @@ pub enum Command {
         name: String,
         color: u8,
     },
+    /// "Add token": the token by its id, or every token of a contract by the contract's id (one
+    /// field takes both), read with a proof. Answered with [`Event::TokenFound`]; nothing is
+    /// added until [`Command::TrackToken`]. Testnet only (FEAT-0019 R-9).
+    FindToken {
+        id: String,
+    },
+    /// "Add token" by a word: tokens whose contract has `keyword` (an exact match, lower case,
+    /// 3–50 characters). Answered with [`Event::TokenFound`].
+    SearchTokens {
+        keyword: String,
+    },
+    /// Keep the token in the wallet's list (`on`), or take it out — a found one is hidden and
+    /// not shown again by the search. Its balance stays where it is. Local, in the wallet's
+    /// folder. Answered with `Done { what: DoneWhat::Token }`.
+    TrackToken {
+        token_id: String,
+        on: bool,
+    },
+    /// "Find my tokens": go through the network's contracts again now (UC-1а). Only the
+    /// snapshots answer ([`Wallet::tokens`]'s search).
+    FindMyTokens,
 }
 
 /// Everything that spends: Core DASH, credits or the pool. Only through [`Command::Spend`], so
@@ -1757,6 +1783,15 @@ pub enum Spend {
     },
     /// Give an NFT to `to`. `Done { what: DoneWhat::Gift }`.
     GiftNft { id: String, to: String },
+    /// Send `amount` (in the token's smallest units) of `token_id` from the identity the
+    /// interface shows to `to` (an `@name` or an identity id). The fee is in that identity's
+    /// credits. No note in stage 1. Answered with `Done { what: DoneWhat::SendToken }`; the
+    /// sender's balance is taken from the transfer's proved answer.
+    SendToken {
+        token_id: String,
+        to: String,
+        amount: tokens::TokenAmount,
+    },
     /// Disconnect app `id`: its session keys disabled (never its encryption keys) in an
     /// IdentityUpdate the identity pays for, so it passes the password gate (BUG-42); its
     /// response deleted. `Done { what: DoneWhat::Disconnect }`.
@@ -1784,6 +1819,7 @@ impl Spend {
             Spend::SaveProfile { .. } => DoneWhat::Profile,
             Spend::ApproveApp { .. } => DoneWhat::App,
             Spend::GiftNft { .. } => DoneWhat::Gift,
+            Spend::SendToken { .. } => DoneWhat::SendToken,
             Spend::DisconnectApp { .. } => DoneWhat::Disconnect,
         }
     }
@@ -1874,8 +1910,10 @@ pub enum DoneWhat {
     Rescan,
     Resync,
     Send,
+    SendToken,
     Shield,
     Switch,
+    Token,
     TopUp,
     Unlock,
     Unshield,
@@ -1908,8 +1946,10 @@ impl DoneWhat {
             Self::Rescan => "rescan",
             Self::Resync => "resync",
             Self::Send => "send",
+            Self::SendToken => "send-token",
             Self::Shield => "shield",
             Self::Switch => "switch",
+            Self::Token => "token",
             Self::TopUp => "top-up",
             Self::Unlock => "unlock",
             Self::Unshield => "unshield",
@@ -1981,6 +2021,12 @@ pub enum Event {
     /// that did not match (the right word is not told).
     PhraseChecked {
         wrong: Option<usize>,
+    },
+    /// The answer to [`Command::FindToken`] or [`Command::SearchTokens`]: the tokens found for
+    /// `query` (the id or the keyword asked), each read with a proof; empty: none.
+    TokenFound {
+        query: String,
+        result: Result<Vec<tokens::TokenInfo>, CoreError>,
     },
 }
 

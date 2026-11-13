@@ -38,6 +38,7 @@ impl Real {
         let password_each_send = security::load(&paths.root, &wallet);
         let attempts =
             attempts::Attempts::read(&paths.root, index.wallets.iter().map(|r| r.id.as_str()));
+        let tokens = ops::tokens::TokenState::new(&paths.tokens, &paths.root);
         Self {
             wallet,
             index,
@@ -92,6 +93,7 @@ impl Real {
             last_touch: tokio::time::Instant::now(),
             avatars: Default::default(),
             nfts: Default::default(),
+            tokens,
             artist: None,
             art_base: None,
             names: Default::default(),

@@ -48,6 +48,8 @@ pub struct App {
     pool: screens::shielded::PoolState,
     requests: screens::app_requests::AppRequests,
     collection: screens::collection::CollectionState,
+    /// FEAT-0019: the tokens screen, its dialogs and their answers.
+    tokens: screens::tokens::TokensState,
     settings: screens::settings::SettingsState,
     create_identity: screens::create_identity::CreateIdentityForm,
     unlock: screens::unlock::UnlockForm,
@@ -219,6 +221,7 @@ impl App {
             contacts: Default::default(),
             pool: Default::default(),
             collection: Default::default(),
+            tokens: Default::default(),
             settings: screens::settings::SettingsState::new(launch.dark, Section::Network, false),
             create_identity: Default::default(),
             #[cfg(feature = "dev-tools")]
@@ -495,6 +498,7 @@ impl App {
         self.requests = Default::default();
         self.create_identity = Default::default();
         self.collection.forget_wallet();
+        self.tokens.forget_wallet();
         screens::activity::forget(ctx);
         // FEAT-0009 R-5: another wallet starts from «All».
         self.history = Default::default();
@@ -550,6 +554,7 @@ impl App {
                         self.send.resolution = Some(result.clone());
                     }
                     self.contacts.on_resolved(name, result);
+                    self.tokens.on_resolved(name, result);
                 }
                 Event::Done {
                     what: DoneWhat::Contact,
@@ -773,6 +778,16 @@ impl App {
                         | DoneWhat::ForgetApp,
                     ..
                 } => {}
+                // FEAT-0019: the tokens screen's dialogs.
+                Event::TokenFound { query, result } => self.tokens.on_found(query, result),
+                Event::Done {
+                    what: DoneWhat::Token,
+                    result,
+                } => self.tokens.on_tracked(result),
+                Event::Done {
+                    what: DoneWhat::SendToken,
+                    result,
+                } => self.tokens.on_sent(result),
             }
             if let Some(o) = &mut self.onboarding {
                 o.on_event(&event);
@@ -1083,6 +1098,7 @@ impl eframe::App for App {
             self.create_identity.confirming = false;
             self.requests.password.forget();
             self.requests.disconnect_password.forget();
+            self.tokens.forget_wallet();
             #[cfg(demo_core)]
             self.collection.password.forget();
         }
@@ -1318,6 +1334,9 @@ impl eframe::App for App {
                                 &mut cx,
                                 &mut self.collection,
                             ),
+                            Screen::Tokens => {
+                                screens::tokens::tokens(ui, a, &mut cx, &mut self.tokens)
+                            }
                             Screen::Settings => {
                                 screens::settings::settings(ui, a, &mut cx, &mut self.settings)
                             }

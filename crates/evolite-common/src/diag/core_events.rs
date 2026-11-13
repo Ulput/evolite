@@ -54,6 +54,11 @@ pub fn command_name(command: &Command) -> &'static str {
         Command::CancelAddWallet => "cancel_add_wallet",
         Command::SetNote { .. } => "set_note",
         Command::RenameWallet { .. } => "rename_wallet",
+        // Which token, and the word looked for, stay off the journal.
+        Command::FindToken { .. } => "find_token",
+        Command::SearchTokens { .. } => "search_tokens",
+        Command::TrackToken { .. } => "track_token",
+        Command::FindMyTokens => "find_my_tokens",
     }
 }
 
@@ -75,6 +80,7 @@ fn spend(op: &Spend) -> &'static str {
         Spend::SaveProfile { .. } => "save_profile",
         Spend::ApproveApp { .. } => "approve_app",
         Spend::GiftNft { .. } => "gift_nft",
+        Spend::SendToken { .. } => "send_token",
         Spend::DisconnectApp { .. } => "disconnect_app",
     }
 }
@@ -147,6 +153,7 @@ pub fn answer(event: &Event) -> Option<Record> {
             "phrase_checked",
             if wrong.is_some() { "wrong" } else { "ok" },
         ),
+        Event::TokenFound { result, .. } => ("token_found", outcome(result)),
     };
     Some(Record::Answer { what, outcome })
 }
@@ -240,6 +247,31 @@ mod tests {
         assert_eq!(note, Record::Command { name: "set_note" });
         let line = note.line(std::time::UNIX_EPOCH);
         assert!(!line.contains("ZQX") && !line.contains("ab12"), "{line}");
+        // FEAT-0019: no token id, recipient, amount or word looked for.
+        let send = command(&Command::Spend {
+            op: Spend::SendToken {
+                token_id: "7Hq2TokQZ".into(),
+                to: "@kestrel7".into(),
+                amount: 125_000,
+            },
+            password: Some(Password::new("hunter2".into())),
+        });
+        assert_eq!(send, Record::Command { name: "send_token" });
+        let search = command(&Command::SearchTokens {
+            keyword: "coffeeqz".into(),
+        });
+        assert_eq!(
+            search,
+            Record::Command {
+                name: "search_tokens"
+            }
+        );
+        for record in [send, search] {
+            let line = record.line(std::time::UNIX_EPOCH);
+            for secret in ["7Hq2", "kestrel7", "125000", "hunter2", "coffeeqz"] {
+                assert!(!line.contains(secret), "{line}");
+            }
+        }
     }
 
     #[test]

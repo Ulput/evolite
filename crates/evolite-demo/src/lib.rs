@@ -19,6 +19,7 @@ use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender};
 use std::time::{Duration, Instant};
 
 const NO_WALLET: &str = tr!("Prototype: there is no wallet behind the screens");
+const OFFLINE: &str = tr!("This is the mockup's example: it does not connect to the network");
 use evolite_common::PASSWORD_NEEDED;
 
 /// The one password the demo's unlock refuses, so the UI tests can see "Wrong password"
@@ -40,6 +41,7 @@ const DEMO_CHECK: [(usize, [&str; 3], usize); 4] = [
 
 mod answers;
 mod demo;
+mod tokens;
 
 use answers::{PEOPLE, app_request, check_name};
 use demo::{DEMO_PHRASE, demo_art, demo_wallet, demo_wallets, now, staged_sync, synced};
@@ -58,6 +60,8 @@ struct Mock {
     sync_started: Option<Instant>,
     /// When the staged proof for "Hide in the pool" started.
     shield_started: Option<Instant>,
+    /// When the staged "Find my tokens" started (FEAT-0019).
+    tokens_started: Option<Instant>,
     next_request: u64,
     /// The last App Connect v2 request shown, to approve (FEAT-0023).
     asked_v2: Option<(u64, AppRequestKind)>,
@@ -524,6 +528,32 @@ impl Mock {
                     result,
                 }
             }
+            // The example network's tokens (FEAT-0019 AC-T7); nothing is asked of a network.
+            Command::FindToken { id } => Event::TokenFound {
+                result: Ok(tokens::find(&id)),
+                query: id,
+            },
+            Command::SearchTokens { keyword } => Event::TokenFound {
+                result: Ok(tokens::search(&keyword)),
+                query: keyword,
+            },
+            Command::TrackToken { token_id, on } => {
+                let result = match &mut self.snapshot.wallet {
+                    Some(w) => tokens::track(&mut w.tokens, &token_id, on),
+                    None => Err(CoreError::NotAvailable(NO_WALLET.into())),
+                };
+                changed |= result.is_ok();
+                Event::Done {
+                    what: DoneWhat::Token,
+                    result,
+                }
+            }
+            Command::FindMyTokens => {
+                if self.snapshot.wallet.is_some() && self.tokens_started.is_none() {
+                    self.tokens_started = Some(Instant::now());
+                }
+                return changed;
+            }
             Command::Lock => Event::Done {
                 what: DoneWhat::Lock,
                 result: Err(CoreError::NotAvailable(NO_WALLET.into())),
@@ -955,6 +985,7 @@ impl Mock {
     }
 
     fn tick(&mut self, out: &Sender<Event>) -> bool {
+        let tokens = self.tick_tokens();
         // The proof for "Hide in the pool": about six seconds, then the honest "no wallet".
         if let Some(started) = self.shield_started {
             let fraction = (started.elapsed().as_secs_f32() / 6.0).min(1.0);
@@ -972,7 +1003,7 @@ impl Mock {
             }
         }
         let Some(started) = self.sync_started else {
-            return false;
+            return tokens;
         };
         let sync = staged_sync(started.elapsed().as_secs_f32());
         if sync.stage == SyncStage::Done {
@@ -980,7 +1011,26 @@ impl Mock {
         }
         let changed = sync != self.snapshot.sync;
         self.snapshot.sync = sync;
-        changed
+        changed || tokens
+    }
+
+    /// The staged "Find my tokens": the search's progress in the snapshot, then a whole pass.
+    fn tick_tokens(&mut self) -> bool {
+        let Some(started) = self.tokens_started else {
+            return false;
+        };
+        let Some(wallet) = &mut self.snapshot.wallet else {
+            self.tokens_started = None;
+            return false;
+        };
+        if tokens::step(
+            &mut wallet.tokens.search,
+            started.elapsed().as_secs_f32(),
+            now(),
+        ) {
+            self.tokens_started = None;
+        }
+        true
     }
 }
 
@@ -1005,6 +1055,7 @@ pub fn run(
         pending: None,
         sync_started: None,
         shield_started: None,
+        tokens_started: None,
         next_request: 0,
         asked_v2: None,
         gallery: demo_art(),
@@ -1024,7 +1075,9 @@ pub fn run(
             Err(RecvTimeoutError::Disconnected) => return,
         };
         // The staged sync and proof report on every tick while they run.
-        let staged = mock.sync_started.is_some() || mock.shield_started.is_some();
+        let staged = mock.sync_started.is_some()
+            || mock.shield_started.is_some()
+            || mock.tokens_started.is_some();
         let changed = changed | mock.tick(&out);
         if changed {
             send_snapshot(&mock);
@@ -1058,6 +1111,7 @@ mod tests {
             pending: None,
             sync_started: None,
             shield_started: None,
+            tokens_started: None,
             next_request: 0,
             asked_v2: None,
             gallery: demo_art(),
@@ -1329,6 +1383,61 @@ mod tests {
         assert_eq!(m.snapshot.wallet.as_ref().unwrap().identities.len(), 4);
     }
 
+    /// FEAT-0019 AC-T7: the example's tokens are added, found and searched again through the
+    /// commands, as the screens will use them; a token is never sent.
+    #[test]
+    fn the_demo_answers_the_token_commands() {
+        let (mut m, tx, rx) = mock();
+        let rows = |m: &Mock| m.snapshot.wallet.as_ref().unwrap().tokens.rows.len();
+        let before = rows(&m);
+        assert!(before > 0, "the example identity has tokens");
+        m.handle(
+            Command::SearchTokens {
+                keyword: "coffee".into(),
+            },
+            &tx,
+        );
+        let Event::TokenFound {
+            query,
+            result: Ok(found),
+        } = rx.recv().unwrap()
+        else {
+            panic!("a list of tokens");
+        };
+        assert_eq!((query.as_str(), found.len()), ("coffee", 2));
+        let stamp = found
+            .iter()
+            .find(|t| evolite_api::tokens::name_in(t, "en") == "Coffee Club Stamp")
+            .unwrap();
+        assert!(m.handle(
+            Command::TrackToken {
+                token_id: stamp.token_id.clone(),
+                on: true,
+            },
+            &tx,
+        ));
+        assert_eq!(done(&rx), (DoneWhat::Token, Ok(())));
+        assert_eq!(rows(&m), before + 1);
+        m.handle(Command::FindMyTokens, &tx);
+        assert!(m.tick(&tx), "the search's progress is in the snapshot");
+        assert_eq!(
+            m.snapshot.wallet.as_ref().unwrap().tokens.search.state,
+            evolite_api::tokens::SearchState::Running
+        );
+        let refused = m.spend(Spend::SendToken {
+            token_id: stamp.token_id.clone(),
+            to: "@alice".into(),
+            amount: 1,
+        });
+        assert!(matches!(
+            refused,
+            Event::Done {
+                what: DoneWhat::SendToken,
+                result: Err(CoreError::NotAvailable(_))
+            }
+        ));
+    }
+
     #[test]
     fn never_pretends_to_send() {
         let (mut m, tx, rx) = mock();
@@ -1471,6 +1580,11 @@ mod tests {
                 to: "@alice".into(),
             },
             Spend::DisconnectApp { id: "app".into() },
+            Spend::SendToken {
+                token_id: "x".into(),
+                to: "@alice".into(),
+                amount: 1,
+            },
         ]
     }
 
