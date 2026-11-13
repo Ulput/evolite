@@ -96,7 +96,7 @@ fn a_too_large_excess_is_refused_with_the_amount_that_burns_nothing() {
     let (_turn, mut kit) = mixed_form(15_000_000);
     assert!(has_words(&kit, "is too large: mixed coins give no change"));
     assert!(!ready(&kit));
-    let suggested = crate::format::number(19_999_860, false);
+    let suggested = crate::format::amount(19_999_860);
     let use_it = format!("Use {suggested}");
     button(&kit, &use_it).click();
     kit.run_steps(2);
@@ -394,7 +394,7 @@ fn a_low_form_brings_the_refusal_into_view() {
     let (_turn, mut kit) = demo_app("send-mixed-refused", "en");
     kit.set_size(egui::vec2(800.0, 440.0));
     kit.state_mut().send.mixed.refusal_revealed = None;
-    let link = format!("Use {}", crate::format::number(19_999_860, false));
+    let link = format!("Use {}", crate::format::amount(19_999_860));
     wait_for(&mut kit, "the link", |kit| {
         kit.query_all_by_label(&link).next().is_some()
     });

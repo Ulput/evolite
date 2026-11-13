@@ -196,6 +196,7 @@ pub const PRESETS: &[&str] = &[
     "send-coins", "send-coins-chosen", "send-coins-name", "send-coins-confirm", "coins-manual",
     "coins-auto", "coins-not-enough", "coins-spent", "send-lookalike", "send-confirm-tall",
     "overview-mixed", "send-mixed", "coins-mixed", "coins-mixed-refused", "activity-mixed",
+    "send-unsignable", "send-unsignable-short",
     "overview-mixed-unchecked", "send-mixed-name", "send-mixed-refused", "send-mixed-confirm",
     "send-mixed-agree", "send-mixed-changed", "send-mixed-refused-confirm",
     "receive", "receive-fiat",
@@ -349,6 +350,8 @@ fn dev_args<'a>(
                 | "send-lookalike"
                 | "send-confirm-tall"
                 | "send-mixed"
+                | "send-unsignable"
+                | "send-unsignable-short"
                 | "send-mixed-name"
                 | "send-mixed-refused"
                 | "send-mixed-confirm"

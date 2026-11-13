@@ -224,8 +224,9 @@ pub(super) fn refusal_block(
         );
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 16.0;
-            let number = crate::format::number(suggested, false);
-            if link(ui, &p, &format!(tr!("Use {suggested}"), suggested = number)).clicked()
+            // With its unit, as the analyst's {suggested} is (the designer).
+            let shown = crate::format::amount(suggested);
+            if link(ui, &p, &format!(tr!("Use {suggested}"), suggested = shown)).clicked()
             {
                 form.amount = crate::format::input_text(suggested);
                 form.suggested = None;

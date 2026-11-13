@@ -60,6 +60,9 @@ pub(super) struct FormView<'a> {
     pub(super) mixed_hint: Option<String>,
     /// «Mixed» to a name or to Platform: its refusal is about the recipient, said under «To» (S2).
     pub(super) mixed_to_recipient: bool,
+    /// BUG-142 AC-142-2: `unavailable` is the amount past what can be spent: the button's reason,
+    /// in `danger` like «Not enough for the amount and the fee» (the designer).
+    pub(super) unsignable_short: bool,
 }
 
 /// What the «Platform address» card of «From» is (FEAT-0015, the customer's change of
@@ -267,6 +270,20 @@ impl<'a> FormView<'a> {
                 })
                 .flatten()
         });
+        // BUG-142 AC-142-2: within the balance, but not within what can be signed for now.
+        let mut unsignable_short = false;
+        let unavailable = unavailable.or_else(|| {
+            let unsignable = fees.core_unsignable;
+            let amount = amount.filter(|_| source.source == Source::Core && unsignable > 0)?;
+            let spendable = source.duffs - unsignable;
+            (amount <= source.duffs && amount.saturating_add(source.fee) > spendable).then(|| {
+                unsignable_short = true;
+                format!(
+                    tr!("Not enough to spend: {amount} of the balance can't be spent yet."),
+                    amount = crate::format::balance(unsignable)
+                )
+            })
+        });
         // Credits to the wallet's own identity would only cost the fee.
         let to_self = all[form.source].source == Source::Credits
             && resolved_name.as_ref().is_some_and(|n| {
@@ -327,6 +344,7 @@ impl<'a> FormView<'a> {
             mixed_refused,
             mixed_hint,
             mixed_to_recipient,
+            unsignable_short,
             rate,
             fees,
             coin_plan,
@@ -777,7 +795,17 @@ fn amount_row(ui: &mut Ui, a: &mut Assets, form: &mut SendForm, v: &FormView) {
         } else if let Some(why) = unavailable
             .filter(|_| !v.address_foreign_name && !v.pool_to_name && !v.mixed_to_recipient)
         {
-            ui.add(egui::Label::new(txt(why, 12.0, Weight::Regular, p.muted)).wrap());
+            if v.unsignable_short {
+                // It wraps at 800 and in Arabic: in reading order (BUG-119).
+                ui.add(crate::components::para(
+                    why,
+                    12.0,
+                    Weight::Regular,
+                    p.danger,
+                ));
+            } else {
+                ui.add(egui::Label::new(txt(why, 12.0, Weight::Regular, p.muted)).wrap());
+            }
         } else if let Some(problem) = problem {
             ui.add(
                 egui::Label::new(txt(
@@ -789,11 +817,44 @@ fn amount_row(ui: &mut Ui, a: &mut Assets, form: &mut SendForm, v: &FormView) {
                 .wrap(),
             );
         }
+        // BUG-142 AC-142-1: why «Max» is less than the balance, from Core only, while nothing else
+        // is said here.
+        if source.source == Source::Core
+            && v.fees.core_unsignable > 0
+            && unavailable.is_none()
+            && problem.is_none()
+        {
+            ui.add(crate::components::para(
+                &unsignable_hint(v.fees.core_unsignable),
+                12.0,
+                Weight::Regular,
+                p.muted,
+            ));
+        }
         // By which rate (frames 1–3), «Fiat rate» on only (R-1).
         if let Some(line) = super::currency::field_line(form, rate, v.amount) {
             ui.add(egui::Label::new(txt(&line, 12.0, Weight::Regular, p.muted)).wrap());
         }
     });
+}
+
+/// BUG-142 AC-142-1: a part of the Core balance no payment can sign for yet, in words. Two pieces,
+/// each translated: the second, when it clears, is easy to drop (the analyst).
+fn unsignable_hint(unsignable: Duffs) -> String {
+    let lang = crate::i18n::current();
+    let first = format!(
+        tr!(
+            "{amount} of the balance can't be spent yet: the wallet is still taking in these coins, usually money from a contact."
+        ),
+        amount = crate::format::balance(unsignable)
+    );
+    let when = tr!("This normally clears after the next sync.");
+    // In reading order, each in the language: `para` lays the sentence out (BUG-119).
+    format!(
+        "{} {}",
+        crate::i18n::t_in(lang, &first),
+        crate::i18n::t_in(lang, when)
+    )
 }
 
 /// How the money travels: a withdrawal arrives later than a payment.

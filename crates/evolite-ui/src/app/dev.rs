@@ -49,6 +49,9 @@ pub(super) struct DevState {
     /// `--screen send-confirm-tall` / `edit-profile-password`: «Password for every send» on, so
     /// the dialog asks for it (BUG-122: the tallest form of each).
     password_preset: bool,
+    /// `--screen send-unsignable` / `send-unsignable-short` (BUG-142): 0.001 DASH of Core no payment
+    /// can sign for yet.
+    unsignable_preset: bool,
     /// `--screen overview-mixed-unchecked` (FEAT-0030 O2): Core, and «Mixed» with it, last checked an
     /// hour ago.
     core_unchecked_preset: bool,
@@ -181,6 +184,7 @@ impl DevState {
                 || dev.preset("send-mixed-agree")
                 || dev.preset("send-mixed-changed"),
             core_unchecked_preset: dev.preset("overview-mixed-unchecked"),
+            unsignable_preset: dev.preset("send-unsignable") || dev.preset("send-unsignable-short"),
             stale_rate_preset: dev.preset("send-fiat-stale"),
             pool_preset: if dev.preset("send-pool-unread") {
                 Some(true)
@@ -324,6 +328,11 @@ impl App {
         }
         // `--screen overview-syncing` / `send-syncing`: in the middle of the block filters, as a
         // restored wallet on testnet is for minutes.
+        if self.dev.unsignable_preset
+            && let Some(w) = self.snapshot.as_mut().and_then(|s| s.wallet.as_mut())
+        {
+            w.fees.core_unsignable = 100_000;
+        }
         if self.dev.core_unchecked_preset
             && let Some(w) = self.snapshot.as_mut().and_then(|s| s.wallet.as_mut())
         {
@@ -703,6 +712,19 @@ impl App {
             }
             // FEAT-0030 S1: from «Mixed» to an address; the demo's two 0.100001 coins pay it with an
             // excess under 0.001 DASH and 1 %, shown in the summary.
+            // BUG-142: from Core with a part not to sign for; `-short` asks for the whole balance less
+            // the fee, more than can be spent.
+            if preset("send-unsignable") || preset("send-unsignable-short") {
+                self.send.pick(evolite_api::Source::Core);
+                self.send.recipient = "yXk3Tq9mD8vJw2RfL6pN4sB7cH1eZ5aG9f".into();
+                let amount = if preset("send-unsignable-short") {
+                    841_199_000
+                } else {
+                    10_000_000
+                };
+                self.send.suggested = Some(amount);
+                self.send.amount = crate::format::input_text(amount);
+            }
             if preset("send-mixed") {
                 self.send.pick(evolite_api::Source::Mixed);
                 self.send.recipient = "yXk3Tq9mD8vJw2RfL6pN4sB7cH1eZ5aG9f".into();

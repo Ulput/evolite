@@ -1004,24 +1004,62 @@ pub fn coin_is_final(
 }
 
 /// The coins a payment may take: of the accounts of `SEND_FUNDING_SOURCES` at index 0, each once,
-/// and final ([`coin_is_final`]). Coins of another account could not be signed for.
+/// and final ([`coin_is_final`]). Coins of another account could not be signed for. Nor a
+/// coin its account does not derive the address of (BUG-142, [`unsignable`]): a copy another
+/// account holds as its own is taken instead.
 pub fn payable_coins(
     info: &key_wallet::wallet::managed_wallet_info::ManagedWalletInfo,
     verified: impl Fn(&key_wallet::dashcore::Txid) -> bool,
 ) -> Vec<key_wallet::Utxo> {
+    use key_wallet::account::ManagedAccountTrait;
+    let mut seen = std::collections::HashSet::new();
+    send_accounts(info)
+        .flat_map(|account| {
+            account
+                .utxos
+                .values()
+                .filter(move |u| account.address_derivation_path(&u.address).is_some())
+        })
+        .filter(|utxo| coin_is_final(utxo, &verified) && seen.insert(utxo.outpoint))
+        .cloned()
+        .collect()
+}
+
+/// What of the Core balance no payment can sign for now (BUG-142): coins held only by an account
+/// that does not derive their address — a contact's coin the store's early load filed in
+/// account 0 (BUG-65) before its DashPay account has it. platform-wallet finds no key for them;
+/// «Max» from Core leaves them out until the account that owns them holds them.
+pub fn unsignable(info: &key_wallet::wallet::managed_wallet_info::ManagedWalletInfo) -> Duffs {
+    use key_wallet::account::ManagedAccountTrait;
+    let signable: std::collections::HashSet<_> = send_accounts(info)
+        .flat_map(|account| {
+            account
+                .utxos
+                .values()
+                .filter(|u| account.address_derivation_path(&u.address).is_some())
+                .map(|u| u.outpoint)
+        })
+        .collect();
+    coins_once(info)
+        .into_iter()
+        .filter(|u| !signable.contains(&u.outpoint))
+        .map(|u| u.value() as Duffs)
+        .sum()
+}
+
+/// The accounts a Core payment pays from (`SEND_FUNDING_SOURCES` at index 0): BIP44 and BIP32
+/// account 0 and every DashPay receiving account.
+fn send_accounts(
+    info: &key_wallet::wallet::managed_wallet_info::ManagedWalletInfo,
+) -> impl Iterator<Item = &key_wallet::managed_account::ManagedCoreFundsAccount> {
     use key_wallet::wallet::managed_wallet_info::wallet_info_interface::WalletInfoInterface;
     let accounts = info.accounts();
-    let mut seen = std::collections::HashSet::new();
     accounts
         .standard_bip44_accounts
         .get(&0)
         .into_iter()
         .chain(accounts.standard_bip32_accounts.get(&0))
         .chain(accounts.dashpay_receival_accounts.values())
-        .flat_map(|account| account.utxos.values())
-        .filter(|utxo| coin_is_final(utxo, &verified) && seen.insert(utxo.outpoint))
-        .cloned()
-        .collect()
 }
 
 /// The wallet's Core balance as the snapshot shows it and payments check it: the coins of
@@ -1055,6 +1093,7 @@ pub fn fees(coins: usize) -> Fees {
     Fees {
         core_payment: fee_rate().calculate_fee(estimate_tx_size(coins.max(1), 1, true)) as Duffs,
         // The coins themselves: [`core_coins`], once the wallet's are read.
+        core_unsignable: 0,
         core_coins: Vec::new(),
         credit_transfer: CREDIT_TRANSFER,
         credit_transfer_to_address: CREDIT_TRANSFER_TO_ADDRESS,
@@ -3228,6 +3267,44 @@ mod coinjoin_tests {
             );
             OutPoint::new(txid, 0)
         }
+    }
+
+    /// BUG-142: a contact's coin the store's early load filed in account 0 (BUG-65), at an address
+    /// that account does not derive, is the wallet's (the balance counts it) but no payment can
+    /// sign for it: platform-wallet finds no derivation path, and «Max» from Core failed with
+    /// «no derivation path for selected input address». A payment is offered only the coins
+    /// whose account derives their address, and «Max» leaves the others out.
+    #[test]
+    fn a_coin_its_account_cannot_sign_for_is_not_payable() {
+        let mut info = info();
+        let own = address(&info, false, 0);
+        let mine = utxo(
+            OutPoint::new(Txid::from_byte_array([1; 32]), 0),
+            5_000_000,
+            &own,
+        );
+        let filed = utxo(
+            OutPoint::new(Txid::from_byte_array([2; 32]), 0),
+            100_000,
+            &other(42),
+        );
+        {
+            let account = info
+                .accounts_mut()
+                .standard_bip44_accounts
+                .get_mut(&0)
+                .unwrap();
+            account.utxos.insert(mine.outpoint, mine.clone());
+            account.utxos.insert(filed.outpoint, filed.clone());
+        }
+        assert_eq!(core_balance(&info), 5_100_000, "the wallet's all the same");
+        let payable = payable_coins(&info, |_| true);
+        assert_eq!(
+            payable.iter().map(|u| u.outpoint).collect::<Vec<_>>(),
+            vec![mine.outpoint],
+            "only what can be signed for"
+        );
+        assert_eq!(unsignable(&info), 100_000);
     }
 
     /// AC-T2, BUG-121 p. 1: a coin of the CoinJoin account is no Core coin — not in the balance,

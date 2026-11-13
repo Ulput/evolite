@@ -143,6 +143,8 @@ struct WalletRead {
     addresses: usize,
     /// The coins' values for the fee of a payment (BUG-55).
     coin_values: Vec<u64>,
+    /// What of the balance no payment can sign for yet (BUG-142).
+    unsignable: Duffs,
     history: Vec<Activity>,
     shown: Option<ShownIdentity>,
     platform: Option<(String, u64)>,
@@ -271,6 +273,7 @@ impl Real {
             coins,
             addresses,
             coin_values,
+            unsignable,
             mut history,
             shown,
             platform,
@@ -288,6 +291,7 @@ impl Real {
         let (pool, unfinished_shield, connecting_pool) = self.read_pool(id).await;
         let mut fees = turn::timed("fees_now", self.fees_now(coins)).await;
         fees.core_coins = convert::core_coins(coin_values);
+        fees.core_unsignable = unsignable;
         // The pool's own operations are in the history too (only the owner sees them), and a
         // Core asset lock made for the pool says so instead of "Transfer to Platform".
         if let Some(pool) = &pool {
@@ -557,6 +561,7 @@ impl Real {
             coins: utxos.len(),
             addresses: holding.len(),
             coin_values: utxos.iter().map(|u| u.value()).collect(),
+            unsignable: convert::unsignable(&state.core_wallet),
             history,
             shown,
             platform,

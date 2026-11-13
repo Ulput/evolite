@@ -196,7 +196,8 @@ pub(super) fn sources_on(
             title: "Core",
             duffs: w.balances.core,
             fee: w.fees.core_payment_for(amount),
-            max_fee: w.fees.core_payment,
+            // «Max» leaves out the coins no payment can sign for yet (BUG-142).
+            max_fee: w.fees.core_payment + w.fees.core_unsignable,
             withdrawal: None,
             read: true,
             note_icon: "instantsend",

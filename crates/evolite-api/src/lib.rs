@@ -1016,6 +1016,10 @@ pub struct Fees {
     /// The wallet's spendable Core coins, largest first, each with the fee of a payment (with
     /// change) spending it and every coin before it (BUG-55). Empty when not known.
     pub core_coins: Vec<CoreCoin>,
+    /// What of the Core balance no payment can sign for yet (BUG-142): a contact's coin filed in
+    /// account 0 by the store's early load before its own account holds it. «Max» from Core leaves
+    /// it out.
+    pub core_unsignable: Duffs,
     /// The most a transfer of credits to an identity costs (what "Fee, at most" says), and to a
     /// Platform address (Platform meters both; a new address stores a row).
     pub credit_transfer: Duffs,
@@ -2154,6 +2158,7 @@ mod tests {
         let coin = |value, fee| CoreCoin { value, fee };
         let mut fees = Fees {
             core_payment: 522,
+            core_unsignable: 0,
             core_coins: Vec::new(),
             credit_transfer: 0,
             credit_transfer_to_address: 0,

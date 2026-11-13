@@ -299,6 +299,7 @@ pub(crate) mod tests {
     pub(crate) fn fees() -> Fees {
         Fees {
             core_payment: 11,
+            core_unsignable: 0,
             core_coins: Vec::new(),
             credit_transfer: 12,
             credit_transfer_to_address: 33,

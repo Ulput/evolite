@@ -465,3 +465,118 @@ fn the_last_looks_labels_stay_inside_the_dialog_in_arabic() {
     }
     assert!(wrong.is_empty(), "{wrong:#?}");
 }
+
+/// BUG-142: «Max» from Core leaves out a coin no payment can sign for yet (a contact's coin the
+/// store filed in account 0): with it, the payment failed to build.
+#[test]
+fn max_from_core_leaves_out_a_coin_that_cannot_be_signed_for() {
+    let (_turn, mut kit) = demo_app("send", "en");
+    show_wallet_edited(
+        &mut kit,
+        4,
+        "a coin not to sign for",
+        |w| w.fees.core_unsignable = 100_000,
+        |_| true,
+    );
+    let (core, fee) = {
+        let w = kit
+            .state()
+            .snapshot
+            .as_ref()
+            .and_then(|s| s.wallet.as_ref())
+            .expect("the demo wallet");
+        (w.balances.core, w.fees.core_payment)
+    };
+    kit.state_mut().send.pick(evolite_api::Source::Core);
+    kit.state_mut().send.max = true;
+    kit.run_steps(4);
+    assert_eq!(
+        crate::format::parse_amount(&kit.state().send.amount),
+        Some(core - fee - 100_000)
+    );
+}
+
+/// BUG-142 AC-142-1…5: from Core, a part of the balance no payment can sign for yet is said
+/// under the amount, hidden with «Hide amounts»; an amount within the balance but past it is
+/// refused in its words; other sources say nothing; it goes when the part is 0.
+#[test]
+fn a_part_of_core_that_cannot_be_signed_for_is_said_under_the_amount() {
+    let hint = "of the balance can't be spent yet: the wallet is still taking in these coins";
+    let (_turn, mut kit) = demo_app("send", "en");
+    let unsignable = |n: i64| move |w: &mut evolite_api::Wallet| w.fees.core_unsignable = n;
+    show_wallet_edited(
+        &mut kit,
+        4,
+        "a part not to sign for",
+        unsignable(100_000),
+        |_| true,
+    );
+    kit.state_mut().send.pick(evolite_api::Source::Core);
+    kit.state_mut().send.amount = "0.01".into();
+    kit.run_steps(4);
+    let part = crate::format::amount(100_000);
+    assert!(has_words(&kit, &format!("{part} {hint}")), "AC-142-1");
+    assert!(has_words(&kit, "This normally clears after the next sync."));
+    // AC-142-4: hidden with the amounts.
+    kit.state_mut().settings.turn_on("hide-amounts");
+    kit.run_steps(4);
+    assert!(
+        has_words(&kit, &format!("•••• DASH {hint}")) && !has_words(&kit, &part),
+        "AC-142-4"
+    );
+    kit.state_mut().settings.set("hide-amounts", false);
+    // AC-142-2: within the balance, past what can be spent.
+    let (core, fee) = {
+        let w = kit
+            .state()
+            .snapshot
+            .as_ref()
+            .and_then(|s| s.wallet.as_ref())
+            .expect("the demo wallet");
+        (w.balances.core, w.fees.core_payment)
+    };
+    kit.state_mut().send.amount = crate::format::input_text(core - fee);
+    kit.run_steps(4);
+    assert!(
+        has_words(
+            &kit,
+            &format!("Not enough to spend: {part} of the balance can't be spent yet.")
+        ),
+        "AC-142-2"
+    );
+    // The button's reason, in `danger` (the designer).
+    let danger = crate::theme::DARK.danger;
+    let mut colors = Vec::new();
+    fn walk(s: &egui::Shape, out: &mut Vec<egui::Color32>) {
+        match s {
+            egui::Shape::Text(t) if t.galley.job.text.starts_with("Not enough to spend") => {
+                out.extend(
+                    t.galley
+                        .job
+                        .sections
+                        .iter()
+                        .map(|section| section.format.color),
+                );
+            }
+            egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, out)),
+            _ => {}
+        }
+    }
+    for c in &kit.output().shapes {
+        walk(&c.shape, &mut colors);
+    }
+    assert!(
+        !colors.is_empty() && colors.iter().all(|c| *c == danger),
+        "in danger: {colors:?}"
+    );
+    // AC-142-5: not from the credits.
+    kit.state_mut().send.amount = "0.01".into();
+    kit.state_mut().send.pick(evolite_api::Source::Credits);
+    kit.run_steps(4);
+    assert!(!has_words(&kit, hint), "AC-142-5");
+    // AC-142-3: the part taken in, the line goes.
+    kit.state_mut().send.pick(evolite_api::Source::Core);
+    show_wallet_edited(&mut kit, 4, "taken in", unsignable(0), |_| true);
+    kit.run_steps(4);
+    assert!(!has_words(&kit, hint), "AC-142-3");
+}
