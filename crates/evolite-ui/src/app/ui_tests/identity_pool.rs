@@ -361,12 +361,15 @@ fn a_new_identity_asks_for_at_least_what_platform_takes() {
             })
             .is_some_and(|b| !b.accesskit_node().is_disabled())
     };
-    // The demo core may send its own snapshot first: the fees are set again until they stay.
-    let shown = |kit: &mut Kit, amount: &str| {
+    // The demo core may send its own snapshot first: the fees are set again before every frame,
+    // and only frames drawn from them count. What the form says is waited for (BUG-120b): the
+    // first such frame may still lack the core's other answers under load. A form that never
+    // says it fails on PATIENCE, naming what it waited for.
+    let shown = |kit: &mut Kit, amount: &str, expected: (bool, bool), what: &str| {
         show_edited(
             kit,
             1,
-            "the fees kept",
+            what,
             |app| {
                 app.create_identity.amount = amount.to_owned();
                 if let Some(w) = app.snapshot.as_mut().and_then(|s| s.wallet.as_mut()) {
@@ -375,24 +378,34 @@ fn a_new_identity_asks_for_at_least_what_platform_takes() {
                     w.fees.identity_lock_min = 241_000;
                 }
             },
-            |_| true,
+            |kit| {
+                let fees_kept = kit
+                    .state()
+                    .snapshot
+                    .as_ref()
+                    .and_then(|s| s.wallet.as_ref())
+                    .is_some_and(|w| w.fees.identity_lock_min == 241_000);
+                fees_kept && (has_text(kit, &least), create_on(kit)) == expected
+            },
         );
-        (has_text(kit, &least), create_on(kit))
     };
-    assert_eq!(
-        shown(&mut kit, "0.0001"),
+    shown(
+        &mut kit,
+        "0.0001",
         (true, false),
-        "0.0001 is too little: the hint, «Create» off"
+        "0.0001 is too little: the hint, «Create» off",
     );
-    assert_eq!(
-        shown(&mut kit, "0.00074"),
+    shown(
+        &mut kit,
+        "0.00074",
         (true, false),
-        "just under the least: the hint, «Create» off"
+        "just under the least: the hint, «Create» off",
     );
-    assert_eq!(
-        shown(&mut kit, "0.00075"),
+    shown(
+        &mut kit,
+        "0.00075",
         (false, true),
-        "the least is enough: no hint, «Create» on"
+        "the least is enough: no hint, «Create» on",
     );
 }
 

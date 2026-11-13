@@ -9,8 +9,7 @@ async fn a_wallet_is_made_while_the_chain_starts() {
     core.pending = Some((Zeroizing::new(PHRASE.into()), false));
     core.birth_hint = Some(777);
     core.starting = Some(tokio::spawn(std::future::pending::<bool>()));
-    let made =
-        tokio::time::timeout(Duration::from_secs(20), core.create(&pw("Second-wallet-7"))).await;
+    let made = tokio::time::timeout(PATIENCE, core.create(&pw("Second-wallet-7"))).await;
     assert_eq!(
         made.ok(),
         Some(Ok(())),
@@ -27,10 +26,10 @@ async fn a_wallet_is_made_while_the_chain_starts() {
 async fn a_settled_start_is_taken_once() {
     let mut core = core_with_vault("start-settled", "pw");
     core.starting = Some(tokio::spawn(async { false }));
-    core.start_settled(Duration::from_secs(5)).await;
+    core.start_settled(PATIENCE).await;
     assert!(core.starting.is_none() && core.leftovers && !core.start_tried);
     assert!(!core.start_ended().await);
-    core.start_settled(Duration::from_secs(5)).await;
+    core.start_settled(PATIENCE).await;
     // A start that does not end in time is left to the loop.
     core.starting = Some(tokio::spawn(std::future::pending::<bool>()));
     core.start_settled(Duration::from_millis(10)).await;
@@ -71,9 +70,7 @@ async fn going_back_from_adding_reads_the_store_at_once() {
         }
     };
     assert!(
-        tokio::time::timeout(Duration::from_secs(20), opened)
-            .await
-            .is_ok(),
+        tokio::time::timeout(PATIENCE, opened).await.is_ok(),
         "the store opens while the adding chain still starts"
     );
     assert!(!back.chain.running(), "the SPV client waits");
@@ -89,11 +86,7 @@ async fn going_back_from_adding_reads_the_store_at_once() {
     back.chain.retire();
     let _ = release.send(());
     let started = back.starting.take().unwrap();
-    assert!(
-        tokio::time::timeout(Duration::from_secs(20), started)
-            .await
-            .is_ok()
-    );
+    assert!(tokio::time::timeout(PATIENCE, started).await.is_ok());
     assert!(next.wait_for(|s| *s).await.is_ok());
     assert!(!back.chain.running());
     back.chain.stop().await;
@@ -124,11 +117,7 @@ async fn a_store_held_before_is_not_opened_ahead() {
     back.chain.retire();
     let _ = release.send(());
     let started = back.starting.take().unwrap();
-    assert!(
-        tokio::time::timeout(Duration::from_secs(20), started)
-            .await
-            .is_ok()
-    );
+    assert!(tokio::time::timeout(PATIENCE, started).await.is_ok());
     assert!(!back.chain.store_open());
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -242,20 +231,30 @@ async fn a_wallet_made_while_adding_stops_the_parked_chain_first() {
     assert!(adding.parked.is_none());
     assert!(chain.retired(), "a start of it waiting in line is not made");
     assert_eq!(count(&adding.chain.starts), 1, "its own start is asked");
+    // What must not happen yet is given a moment to happen; load only shortens what this
+    // sees, it cannot fail a right core. The start before is held, so nothing may stop.
     tokio::time::sleep(Duration::from_millis(300)).await;
-    assert!(chain.store_open(), "the start before is waited for");
-    let mut next = adding.stopped.clone().unwrap();
-    assert!(!*next.borrow());
-    let _ = release.send(());
     let started = adding.starting.take().unwrap();
     assert!(
-        tokio::time::timeout(Duration::from_secs(20), started)
-            .await
-            .is_ok()
+        !started.is_finished(),
+        "the new start waits for the one before"
     );
-    assert_eq!(count(&chain.stops), 1, "the parked chain is stopped");
-    assert!(!chain.store_open());
-    assert!(next.wait_for(|s| *s).await.is_ok());
+    assert!(chain.store_open(), "the start before is waited for");
+    assert_eq!(count(&chain.stops), 0);
+    let next = adding.stopped.clone().unwrap();
+    assert!(!*next.borrow());
+    let _ = release.send(());
+    // What must happen is waited for, as long as a loaded machine needs (BUG-120b).
+    until("the parked chain stopped", || {
+        count(&chain.stops) == 1 && !chain.store_open()
+    })
+    .await;
+    until("the next core told", || *next.borrow()).await;
+    assert!(
+        tokio::time::timeout(PATIENCE, started).await.is_ok(),
+        "the new start ends"
+    );
+    assert_eq!(count(&chain.stops), 1, "the parked chain is stopped once");
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -275,11 +274,7 @@ async fn another_wallet_after_adding_stops_the_parked_chain() {
     let _ = release.send(());
     assert!(!Arc::ptr_eq(&third.chain, &chain));
     let started = third.starting.take().unwrap();
-    assert!(
-        tokio::time::timeout(Duration::from_secs(20), started)
-            .await
-            .is_ok()
-    );
+    assert!(tokio::time::timeout(PATIENCE, started).await.is_ok());
     assert_eq!(count(&chain.stops), 1);
     assert!(!chain.store_open() && chain.retired());
     let _ = std::fs::remove_dir_all(&dir);
@@ -314,7 +309,7 @@ async fn a_parked_chain_that_did_not_start_is_started_again() {
             .and_then(|p| p.starting.as_ref())
             .is_some_and(|t| t.is_finished())
     };
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+    let deadline = tokio::time::Instant::now() + PATIENCE;
     while !finished() && tokio::time::Instant::now() < deadline {
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
@@ -360,11 +355,7 @@ async fn a_wallet_made_while_adding_is_born_at_the_parked_chains_tip() {
     assert_eq!(adding.saved.as_ref().map(|m| m.birth_height), Some(900));
     let _ = release.send(());
     let started = adding.starting.take().unwrap();
-    assert!(
-        tokio::time::timeout(Duration::from_secs(20), started)
-            .await
-            .is_ok()
-    );
+    assert!(tokio::time::timeout(PATIENCE, started).await.is_ok());
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -403,11 +394,7 @@ async fn a_switch_still_stops_the_chain_before() {
     let _ = release.send(());
     assert!(to.parked.is_none() && chain.retired());
     let started = to.starting.take().unwrap();
-    assert!(
-        tokio::time::timeout(Duration::from_secs(20), started)
-            .await
-            .is_ok()
-    );
+    assert!(tokio::time::timeout(PATIENCE, started).await.is_ok());
     assert_eq!(count(&chain.stops), 1);
     assert!(!chain.store_open());
     assert_eq!(count(&to.chain.starts), 1);

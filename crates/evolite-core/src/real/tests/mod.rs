@@ -120,11 +120,7 @@ async fn opened_ahead(dir: &std::path::Path) -> (Real, Real, tokio::sync::onesho
             tokio::time::sleep(Duration::from_millis(20)).await;
         }
     };
-    assert!(
-        tokio::time::timeout(Duration::from_secs(20), opened)
-            .await
-            .is_ok()
-    );
+    assert!(tokio::time::timeout(PATIENCE, opened).await.is_ok());
     (adding, back, release)
 }
 
@@ -167,13 +163,28 @@ fn lists_in(chain: &Chain) {
     });
 }
 
-/// Waits up to five seconds for `n` to reach `want` (a spawned ask).
+/// How long a test waits for what must happen: generous, so a loaded machine (a full check
+/// beside another build) only makes it slower, never red (BUG-120). A test that passes waits
+/// only as long as the thing takes.
+const PATIENCE: Duration = Duration::from_secs(60);
+
+/// Waits until `done` holds, up to [`PATIENCE`]; fails the test with `what` otherwise.
+async fn until(what: &str, mut done: impl FnMut() -> bool) {
+    let deadline = tokio::time::Instant::now() + PATIENCE;
+    while !done() {
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "{what}: not within {PATIENCE:?}"
+        );
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+}
+
+/// Waits up to [`PATIENCE`] for `n` to reach `want` (a spawned ask).
 async fn counted(n: &std::sync::atomic::AtomicUsize, want: usize) -> usize {
-    for _ in 0..50 {
-        if count(n) >= want {
-            break;
-        }
-        tokio::time::sleep(Duration::from_millis(100)).await;
+    let deadline = tokio::time::Instant::now() + PATIENCE;
+    while count(n) < want && tokio::time::Instant::now() < deadline {
+        tokio::time::sleep(Duration::from_millis(20)).await;
     }
     count(n)
 }
