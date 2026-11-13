@@ -3,6 +3,7 @@ resolver = "3"
 members = [
     "crates/evolite-chain",
     "crates/evolite-art",
+    "crates/evolite-coinjoin",
     "crates/evolite-demo",
     "crates/evolite-local",
     "crates/evolite-api",
@@ -24,7 +25,9 @@ publish = false
 # Platform's repository has paths over 260 characters (rs-sdk's test vectors): on Windows cargo
 # unpacks it only with `git config --global core.longpaths true`. See docs/platform.md.
 [workspace.dependencies]
-dash-spv = { git = "https://github.com/dashpay/rust-dashcore", rev = "aca020263990a86a15cc1d97ae2cbf965d488db5" }
+# The transaction types alone, for evolite-coinjoin (R-1: that crate depends on no evolite crate).
+dashcore = { git = "https://github.com/dashpay/rust-dashcore", rev = "aca020263990a86a15cc1d97ae2cbf965d488db5", default-features = false }
+dash-spv ={ git = "https://github.com/dashpay/rust-dashcore", rev = "aca020263990a86a15cc1d97ae2cbf965d488db5" }
 key-wallet = { git = "https://github.com/dashpay/rust-dashcore", rev = "aca020263990a86a15cc1d97ae2cbf965d488db5" }
 key-wallet-manager = { git = "https://github.com/dashpay/rust-dashcore", rev = "aca020263990a86a15cc1d97ae2cbf965d488db5" }
 dash-sdk = { git = "https://github.com/dashpay/platform", rev = "575d961fe0c54bd7e01a3cf3823494e58c6c4fdb", default-features = false, features = ["dpns-contract", "dashpay-contract", "app-connect-contract", "wallet"] }

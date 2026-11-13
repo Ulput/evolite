@@ -196,6 +196,7 @@ fn a_core_amount_is_as_sure_as_core() {
         credits_read: true,
         credits_checked: true,
         platform_address_read: true,
+        mixed: None,
     };
     assert_eq!(CardAmount::core(&b), CardAmount::Now(5));
     assert_eq!(CardAmount::total(&b), CardAmount::Now(12));
@@ -250,6 +251,7 @@ fn the_total_is_unknown_until_platform_is_read() {
         credits_read: false,
         credits_checked: false,
         platform_address_read: false,
+        mixed: None,
     };
     assert_eq!(CardAmount::total(&b), CardAmount::Unknown);
     b.credits_read = true;

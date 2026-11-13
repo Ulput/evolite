@@ -875,6 +875,60 @@ impl Chain {
         }
     }
 
+    /// Builds, signs (with `keys`) and broadcasts a payment of exactly `amount` to `to` from the
+    /// mixed coins of `plan` (FEAT-0030 phase A): the CoinJoin account alone, its other coins not
+    /// offered (`reservation_only`), at the fee rate that burns the excess
+    /// ([`crate::mixed_pay::burning_rate`]). The CoinJoin account has no change address, so
+    /// the builder cannot give change there. The signed transaction is checked
+    /// ([`crate::mixed_pay::check_signed`]) and abandoned, not sent, if it is not exactly that.
+    pub async fn pay_mixed(
+        &self,
+        wallet: &PlatformWallet,
+        keys: &key_wallet::Wallet,
+        to: &Address,
+        amount: u64,
+        plan: &crate::mixed_pay::MixedPlan,
+    ) -> Result<Paid, String> {
+        use key_wallet::wallet::managed_wallet_info::transaction_building::AccountTypePreference;
+        let rate = crate::mixed_pay::burning_rate(to, amount, plan)?;
+        let builder = crate::mixed_pay::mixed_builder(to, amount, &plan.coins, rate);
+        let signed = wallet
+            .core()
+            .finalize_transaction_with_options(
+                builder,
+                &[AccountTypePreference::CoinJoin],
+                0,
+                keys,
+                true,
+            )
+            .await
+            .map_err(|e| e.to_string())?;
+        if let Err(why) = crate::mixed_pay::check_signed(signed.transaction(), to, amount, plan) {
+            // Not sent: the coins it reserved go back at once.
+            wallet.core().abandon_transaction(&signed).await;
+            return Err(why);
+        }
+        let fee = signed.fee();
+        let txid = signed.transaction().txid().to_string();
+        match wallet.core().broadcast_finalized_transaction(&signed).await {
+            Ok(_) => Ok(Paid {
+                txid,
+                fee,
+                sent: amount,
+                relayed: true,
+            }),
+            Err(platform_wallet::PlatformWalletError::TransactionBroadcastUnconfirmed(_)) => {
+                Ok(Paid {
+                    txid,
+                    fee,
+                    sent: amount,
+                    relayed: false,
+                })
+            }
+            Err(e) => Err(e.to_string()),
+        }
+    }
+
     /// Stops the SPV client and the sync workers; the store and the SPV data stay for the next
     /// start.
     pub async fn stop(&self) {

@@ -440,6 +440,7 @@ mod tests {
             credits_read: read,
             credits_checked: checked,
             platform_address_read: true,
+            mixed: None,
         };
         assert_eq!(credits_amount(&b(true, true, 47)), CardAmount::Now(47));
         assert_eq!(credits_amount(&b(true, true, 0)), CardAmount::Now(0));

@@ -4,6 +4,7 @@ use super::*;
 use crate::network::{hrp_of, platform_address_on};
 
 mod balance_tests;
+mod coinjoin_tests;
 mod dashpay_tests;
 #[cfg(unix)]
 mod folder_tests;
@@ -269,6 +270,14 @@ fn every_spend() -> Vec<Spend> {
             amount: 10_000,
         },
         Spend::Unshield { amount: 10_000 },
+        Spend::SendMixed {
+            id: 0,
+            to: "yMrDQWqicXKL8xdJg23oYVVqKNtm5AwvXQ".into(),
+            amount: 10_000,
+            note: None,
+            rate: None,
+            accept_excess: 0,
+        },
         Spend::TopUpFromPool { amount: 10_000 },
         Spend::AddContact {
             name: "alice".into(),

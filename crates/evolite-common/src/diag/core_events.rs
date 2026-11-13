@@ -36,6 +36,8 @@ pub fn command_name(command: &Command) -> &'static str {
         Command::HideRequest { .. } => "hide_request",
         Command::PreviewPayment { .. } => "preview_payment",
         Command::ListCoins { .. } => "list_coins",
+        // Amount and address stay out (FEAT-0030 AC-T11).
+        Command::PreviewMixed { .. } => "preview_mixed",
         Command::FindIdentities => "find_identities",
         Command::RefreshNfts => "refresh_nfts",
         Command::ChooseIdentity { .. } => "choose_identity",
@@ -67,6 +69,7 @@ pub fn command_name(command: &Command) -> &'static str {
 fn spend(op: &Spend) -> &'static str {
     match op {
         Spend::Send { .. } => "send",
+        Spend::SendMixed { .. } => "send_mixed",
         Spend::TopUpIdentity { .. } => "top_up_identity",
         Spend::ResumeTopUp => "resume_top_up",
         Spend::CreateIdentity { .. } => "create_identity",
@@ -148,6 +151,8 @@ pub fn answer(event: &Event) -> Option<Record> {
         Event::PaymentPreview { result, .. } => ("payment_preview", outcome(result)),
         // What the coins are stays out: no outpoint, address or amount (FEAT-0013, R-11).
         Event::Coins { result, .. } => ("coins", outcome(result)),
+        // Neither the fee nor the excess nor the coins: only how it ended (FEAT-0030 AC-T11).
+        Event::MixedPreview { result, .. } => ("mixed_preview", outcome(result)),
         Event::PhraseCheck(r) => ("phrase_check", outcome(r)),
         Event::PhraseChecked { wrong } => (
             "phrase_checked",
@@ -308,6 +313,52 @@ mod tests {
                 reason,
                 "{text}"
             );
+        }
+    }
+
+    /// FEAT-0030 AC-T11: a payment from «Mixed» and its review are journalled by name and
+    /// outcome only — no address, amount, excess or coin.
+    #[test]
+    fn a_mixed_payment_is_journalled_without_amounts_or_coins() {
+        let send = command(&Command::Spend {
+            op: Spend::SendMixed {
+                id: 0,
+                to: "yMrDQWqicXKL8xdJg23oYVVqKNtm5AwvXQ".into(),
+                amount: 25_000_000,
+                note: Some(NoteText("For the logo ZQX".into())),
+                rate: None,
+                accept_excess: 41_999,
+            },
+            password: Some(Password::new("hunter2".into())),
+        });
+        assert_eq!(send, Record::Command { name: "send_mixed" });
+        let preview = command(&Command::PreviewMixed {
+            ask: 1,
+            to: "yMrDQWqicXKL8xdJg23oYVVqKNtm5AwvXQ".into(),
+            amount: 25_000_000,
+        });
+        assert_eq!(
+            preview,
+            Record::Command {
+                name: "preview_mixed"
+            }
+        );
+        let quoted = answer(&Event::MixedPreview {
+            ask: 1,
+            result: Ok(evolite_api::MixedQuote {
+                amount: 25_000_000,
+                fee: 374,
+                excess: 41_999,
+                rule: evolite_api::MixedExcess::Confirm,
+                coins: 3,
+                suggested: None,
+            }),
+        })
+        .expect("an answer");
+        for line in [send, preview, quoted].map(|r| r.line(std::time::UNIX_EPOCH)) {
+            for secret in ["yMrDQ", "25000000", "41999", "374", "hunter2", "ZQX"] {
+                assert!(!line.contains(secret), "{line}");
+            }
         }
     }
 }

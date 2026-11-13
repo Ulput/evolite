@@ -19,6 +19,20 @@ impl Real {
                 Ok(()) => return (None, true),
                 Err(e) => Event::Sent { id, result: Err(e) },
             },
+            Spend::SendMixed {
+                id,
+                to,
+                amount,
+                note,
+                rate,
+                accept_excess,
+            } => match self
+                .send_mixed(id, &to, amount, (note, rate, accept_excess))
+                .await
+            {
+                Ok(()) => return (None, true),
+                Err(e) => Event::Sent { id, result: Err(e) },
+            },
             Spend::CreateIdentity { name, top_up } => {
                 match self.create_identity(name.as_deref(), top_up).await {
                     // The answer comes from the background task.
@@ -229,6 +243,10 @@ impl Real {
             Command::ListCoins { ask } => Event::Coins {
                 ask,
                 result: self.list_coins().await,
+            },
+            Command::PreviewMixed { ask, to, amount } => Event::MixedPreview {
+                ask,
+                result: self.preview_mixed(&to, amount).await,
             },
             Command::PreviewPayment { to } => match self.preview_payment(to.clone()) {
                 Ok(()) => return (None, false),

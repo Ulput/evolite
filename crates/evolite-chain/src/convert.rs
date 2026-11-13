@@ -741,22 +741,136 @@ pub fn identity_lock_min(version: &dpp::version::PlatformVersion, keys: u64) -> 
     (credits.div_ceil(1000) + start) as Duffs
 }
 
-/// The wallet's unspent Core coins, each once (BUG-77, R-34): every funds-bearing account's,
-/// one per outpoint. platform-wallet's balance adds the accounts up, and the store's early load
-/// (BUG-65) puts a contact's DIP-15 coin whose owner it does not find into account 0
-/// («funds-account-fallback»); the filters then find it again in its own DashPay account, and
-/// the sum counted it twice (werner555: 3,9172 instead of 3,8657 DASH).
+/// The wallet's unspent Core coins, each once (BUG-77, R-34): the coins of every funds-bearing
+/// account but the CoinJoin ones, one per outpoint. platform-wallet's balance adds the accounts
+/// up, and the store's early load (BUG-65) puts a contact's DIP-15 coin whose owner it does not
+/// find into account 0 («funds-account-fallback»); the filters then find it again in its own
+/// DashPay account, and the sum counted it twice (werner555: 3,9172 instead of 3,8657 DASH).
+///
+/// The CoinJoin account's coins are not Core coins here (FEAT-0030 AC-T2, BUG-121): a payment
+/// never takes them (spending them with others undoes the mixing), so the Core balance, its
+/// checks and its coin steps leave them out too; [`mixed_coins`] has them.
 pub fn coins_once(
     info: &key_wallet::wallet::managed_wallet_info::ManagedWalletInfo,
 ) -> Vec<&key_wallet::Utxo> {
     use key_wallet::wallet::managed_wallet_info::wallet_info_interface::WalletInfoInterface;
+    let accounts = info.accounts();
     let mut seen = std::collections::HashSet::new();
-    info.accounts()
-        .all_funding_accounts()
-        .into_iter()
+    accounts
+        .standard_bip44_accounts
+        .values()
+        .chain(accounts.standard_bip32_accounts.values())
+        .chain(accounts.dashpay_receival_accounts.values())
         .flat_map(|account| account.utxos.values())
         .filter(|utxo| seen.insert(utxo.outpoint))
         .collect()
+}
+
+/// A coin of the CoinJoin account, with how far it is mixed (FEAT-0030 AC-T3).
+#[derive(Debug, Clone)]
+pub struct MixedCoin {
+    pub utxo: key_wallet::Utxo,
+    pub rounds: evolite_coinjoin::Rounds,
+    /// A denomination mixed at least [`evolite_coinjoin::FULLY_MIXED_ROUNDS`] times, and final
+    /// ([`coin_is_final`]): what «Mixed» may spend.
+    pub spendable: bool,
+}
+
+/// The wallet's own transactions and scripts, as evolite-coinjoin counts rounds over them.
+struct OwnHistory<'a> {
+    txs: std::collections::HashMap<
+        key_wallet::dashcore::Txid,
+        &'a key_wallet::dashcore::Transaction,
+    >,
+    ours: std::collections::HashSet<key_wallet::dashcore::ScriptBuf>,
+}
+
+impl evolite_coinjoin::History for OwnHistory<'_> {
+    fn transaction(
+        &self,
+        txid: &key_wallet::dashcore::Txid,
+    ) -> Option<&key_wallet::dashcore::Transaction> {
+        self.txs.get(txid).copied()
+    }
+    fn is_ours(&self, script: &key_wallet::dashcore::Script) -> bool {
+        self.ours.contains(script)
+    }
+}
+
+fn own_history(
+    info: &key_wallet::wallet::managed_wallet_info::ManagedWalletInfo,
+) -> OwnHistory<'_> {
+    use key_wallet::managed_account::managed_account_trait::ManagedAccountTrait;
+    use key_wallet::wallet::managed_wallet_info::wallet_info_interface::WalletInfoInterface;
+    let accounts = info.accounts().all_funding_accounts();
+    OwnHistory {
+        txs: accounts
+            .iter()
+            .flat_map(|a| a.transactions().values())
+            .map(|r| (r.transaction.txid(), &r.transaction))
+            .collect(),
+        ours: accounts
+            .iter()
+            .flat_map(|a| a.keys().managed_account_type().all_addresses())
+            .map(|address| address.script_pubkey())
+            .collect(),
+    }
+}
+
+/// The coins of the wallet's CoinJoin accounts, each once, with their rounds counted in one pass
+/// over the wallet's history (FEAT-0030 AC-T3, AC-T8): spendable when fully mixed and final
+/// (`verified`: the InstantLocks checked in this run, as [`coin_is_final`]).
+pub fn mixed_coins(
+    info: &key_wallet::wallet::managed_wallet_info::ManagedWalletInfo,
+    verified: impl Fn(&key_wallet::dashcore::Txid) -> bool,
+) -> Vec<MixedCoin> {
+    use key_wallet::wallet::managed_wallet_info::wallet_info_interface::WalletInfoInterface;
+    let mut seen = std::collections::HashSet::new();
+    let coins: Vec<&key_wallet::Utxo> = info
+        .accounts()
+        .coinjoin_accounts
+        .values()
+        .flat_map(|account| account.utxos.values())
+        .filter(|utxo| seen.insert(utxo.outpoint))
+        .collect();
+    if coins.is_empty() {
+        return Vec::new();
+    }
+    let history = own_history(info);
+    let mut counter = evolite_coinjoin::RoundCounter::new(&history);
+    coins
+        .into_iter()
+        .map(|utxo| {
+            let rounds = counter.rounds(&utxo.outpoint);
+            MixedCoin {
+                utxo: utxo.clone(),
+                rounds,
+                spendable: rounds.fully_mixed()
+                    && evolite_coinjoin::is_denominated(utxo.value())
+                    && coin_is_final(utxo, &verified),
+            }
+        })
+        .collect()
+}
+
+/// «Mixed» on the overview (FEAT-0030 AC-T3): `None` when the CoinJoin accounts hold nothing.
+pub fn mixed_balance(coins: &[MixedCoin]) -> Option<Mixed> {
+    if coins.is_empty() {
+        return None;
+    }
+    let (spendable, unfinished) = coins.iter().fold((0, 0), |(s, u), c| {
+        let value = c.utxo.value() as Duffs;
+        if c.spendable {
+            (s + value, u)
+        } else {
+            (s, u + value)
+        }
+    });
+    Some(Mixed {
+        spendable,
+        unfinished,
+        rounds_needed: evolite_coinjoin::FULLY_MIXED_ROUNDS,
+    })
 }
 
 /// Whether a coin can be spent as final: in a block, or InstantSend-locked by a lock whose signature
@@ -2892,6 +3006,282 @@ mod detail_cost {
              ({:.1} µs a line)",
             detail.as_secs_f64() * 1e6 / f64::from(LINES)
         );
+    }
+}
+
+/// FEAT-0030 phase A: the CoinJoin account's coins apart from Core.
+#[cfg(test)]
+mod coinjoin_tests {
+    use super::*;
+    use key_wallet::dashcore::hashes::Hash;
+    use key_wallet::dashcore::{OutPoint, Transaction, TxIn, TxOut, Txid};
+    use key_wallet::managed_account::managed_account_trait::ManagedAccountTrait;
+    use key_wallet::wallet::managed_wallet_info::ManagedWalletInfo;
+    use key_wallet::wallet::managed_wallet_info::wallet_info_interface::WalletInfoInterface;
+
+    const D: u64 = 100_001;
+
+    fn info() -> ManagedWalletInfo {
+        let keys = super::super::keys_of(
+            "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
+        )
+        .unwrap();
+        ManagedWalletInfo::from_wallet(&keys, 0)
+    }
+
+    /// The `n`-th address of the BIP44 account 0 or of the CoinJoin account 0.
+    fn address(info: &ManagedWalletInfo, coinjoin: bool, n: usize) -> Address {
+        let accounts = info.accounts();
+        let account = if coinjoin {
+            &accounts.coinjoin_accounts[&0]
+        } else {
+            &accounts.standard_bip44_accounts[&0]
+        };
+        account.keys().managed_account_type().all_addresses()[n].clone()
+    }
+
+    fn other(n: u8) -> Address {
+        Address::new(
+            key_wallet::Network::Testnet,
+            key_wallet::dashcore::address::Payload::PubkeyHash(
+                key_wallet::dashcore::PubkeyHash::from_byte_array([n; 20]),
+            ),
+        )
+    }
+
+    fn foreign(n: u8) -> OutPoint {
+        OutPoint::new(Txid::from_byte_array([n; 32]), 3)
+    }
+
+    fn utxo(outpoint: OutPoint, value: u64, at: &Address) -> key_wallet::Utxo {
+        let mut u = key_wallet::Utxo::new(
+            outpoint,
+            TxOut {
+                value,
+                script_pubkey: at.script_pubkey(),
+            },
+            at.clone(),
+            1_570_000,
+            false,
+        );
+        u.is_confirmed = true;
+        u
+    }
+
+    /// Made-up transactions of the wallet, kept for the records of the CoinJoin account.
+    #[derive(Default)]
+    struct Txs {
+        made: Vec<Transaction>,
+    }
+
+    impl Txs {
+        fn tx(&mut self, inputs: Vec<OutPoint>, outputs: Vec<(u64, Address)>) -> Txid {
+            let tx = Transaction {
+                version: 2,
+                lock_time: self.made.len() as u32 + 1,
+                input: inputs
+                    .into_iter()
+                    .map(|o| TxIn {
+                        previous_output: o,
+                        ..Default::default()
+                    })
+                    .collect(),
+                output: outputs
+                    .iter()
+                    .map(|(value, at)| TxOut {
+                        value: *value,
+                        script_pubkey: at.script_pubkey(),
+                    })
+                    .collect(),
+                special_transaction_payload: None,
+            };
+            let txid = tx.txid();
+            self.made.push(tx);
+            txid
+        }
+
+        /// One mixing round of `coin` with two strangers, ours to `to`.
+        fn round(&mut self, coin: OutPoint, to: &Address, n: u8) -> OutPoint {
+            let txid = self.tx(
+                vec![foreign(n), coin, foreign(n + 1)],
+                vec![(D, to.clone()), (D, other(n)), (D, other(n + 1))],
+            );
+            OutPoint::new(txid, 0)
+        }
+    }
+
+    /// AC-T2, BUG-121 p. 1: a coin of the CoinJoin account is no Core coin — not in the balance,
+    /// not among the coins a payment may take; «Mixed» has it. Red when `coins_once` takes every
+    /// funds account again.
+    #[test]
+    fn a_coinjoin_coin_is_not_core() {
+        let mut info = info();
+        let core_at = address(&info, false, 0);
+        let mixed_at = address(&info, true, 0);
+        let core = utxo(
+            OutPoint::new(Txid::from_byte_array([1; 32]), 0),
+            5_000_000,
+            &core_at,
+        );
+        let mixed = utxo(
+            OutPoint::new(Txid::from_byte_array([2; 32]), 0),
+            D,
+            &mixed_at,
+        );
+        {
+            let accounts = info.accounts_mut();
+            accounts
+                .standard_bip44_accounts
+                .get_mut(&0)
+                .unwrap()
+                .utxos
+                .insert(core.outpoint, core.clone());
+            accounts
+                .coinjoin_accounts
+                .get_mut(&0)
+                .unwrap()
+                .utxos
+                .insert(mixed.outpoint, mixed.clone());
+        }
+        assert_eq!(core_balance(&info), 5_000_000);
+        assert_eq!(coins_once(&info).len(), 1);
+        let payable = payable_coins(&info, |_| true);
+        assert!(payable.iter().all(|c| c.outpoint != mixed.outpoint));
+        let coins = mixed_coins(&info, |_| true);
+        assert_eq!(coins.len(), 1);
+        assert_eq!(coins[0].utxo.outpoint, mixed.outpoint);
+        // Not in the wallet's history: its rounds are not known, so it is not spendable.
+        assert_eq!(
+            mixed_balance(&coins),
+            Some(Mixed {
+                spendable: 0,
+                unfinished: D as Duffs,
+                rounds_needed: 4,
+            })
+        );
+        assert_eq!(mixed_balance(&[]), None, "nothing on the account: no tile");
+    }
+
+    /// AC-T3: of the CoinJoin account, only fully mixed final denominations are spendable; a coin
+    /// of 3 rounds, and one of 5 whose InstantLock was not verified, are unfinished.
+    #[test]
+    fn only_fully_mixed_final_coins_are_spendable() {
+        let mut info = info();
+        let funding_at = address(&info, false, 0);
+        let cj: Vec<Address> = (0..12).map(|n| address(&info, true, n)).collect();
+        let mut txs = Txs::default();
+        // Money in, the preparation (with change: 0 rounds), then rounds with two strangers.
+        let money = txs.tx(vec![foreign(100)], vec![(5_000_000, funding_at.clone())]);
+        let prep = txs.tx(
+            vec![OutPoint::new(money, 0)],
+            vec![
+                (D, cj[0].clone()),
+                (D, cj[1].clone()),
+                (4_700_000, funding_at.clone()),
+            ],
+        );
+        let mut four = OutPoint::new(prep, 0);
+        for (i, n) in [(2, 10), (3, 20), (4, 30), (5, 40)] {
+            four = txs.round(four, &cj[i], n);
+        }
+        let mut three = OutPoint::new(prep, 1);
+        for (i, n) in [(6, 50), (7, 60), (8, 70)] {
+            three = txs.round(three, &cj[i], n);
+        }
+        let unverified = txs.round(four, &cj[9], 80);
+        {
+            let account = info.accounts_mut().coinjoin_accounts.get_mut(&0).unwrap();
+            for t in txs.made {
+                let r = TransactionRecord::new(
+                    t,
+                    key_wallet::account::AccountType::CoinJoin { index: 0 },
+                    TransactionContext::Mempool,
+                    TransactionType::Standard,
+                    TransactionDirection::Internal,
+                    Vec::new(),
+                    Vec::new(),
+                    0,
+                );
+                account.transactions_mut().insert(r.txid, r);
+            }
+            account.utxos.insert(four, utxo(four, D, &cj[5]));
+            account.utxos.insert(three, utxo(three, D, &cj[8]));
+            let mut locked = utxo(unverified, D, &cj[9]);
+            locked.is_confirmed = false;
+            locked.is_instantlocked = true;
+            account.utxos.insert(unverified, locked);
+        }
+        let coins = mixed_coins(&info, |_| false);
+        let of = |o: OutPoint| coins.iter().find(|c| c.utxo.outpoint == o).unwrap();
+        assert_eq!(of(four).rounds, evolite_coinjoin::Rounds::Mixed(4));
+        assert!(of(four).spendable);
+        assert_eq!(of(three).rounds, evolite_coinjoin::Rounds::Mixed(3));
+        assert!(!of(three).spendable);
+        assert_eq!(of(unverified).rounds, evolite_coinjoin::Rounds::Mixed(5));
+        assert!(!of(unverified).spendable, "its InstantLock not verified");
+        assert_eq!(
+            mixed_balance(&coins),
+            Some(Mixed {
+                spendable: D as Duffs,
+                unfinished: 2 * D as Duffs,
+                rounds_needed: 4,
+            })
+        );
+    }
+
+    /// AC-T8: the rounds of a wallet with 1 000 mixing transactions are counted in one pass, each
+    /// outpoint once — within 50 ms in an optimised build. A debug build (the check's) is checked
+    /// against a loose bound only, 2 s: it shows a pass gone quadratic, not the 50 ms.
+    #[test]
+    fn mixed_coins_are_counted_fast() {
+        let mut info = info();
+        let funding_at = address(&info, false, 0);
+        let cj: Vec<Address> = (0..100).map(|n| address(&info, true, n)).collect();
+        let mut txs = Txs::default();
+        let mut finals = Vec::new();
+        // 250 coins through 4 rounds each: 1 000 mixing transactions, and their preparations.
+        for c in 0..250u32 {
+            let n = (c % 200) as u8;
+            let money = txs.tx(vec![foreign(n)], vec![(5_000_000, funding_at.clone())]);
+            let prep = txs.tx(
+                vec![OutPoint::new(money, 0)],
+                vec![
+                    (D, cj[(c % 100) as usize].clone()),
+                    (4_800_000, funding_at.clone()),
+                ],
+            );
+            let mut coin = OutPoint::new(prep, 0);
+            for r in 0..4u32 {
+                coin = txs.round(coin, &cj[((c + r + 1) % 100) as usize], n);
+            }
+            finals.push(coin);
+        }
+        {
+            let account = info.accounts_mut().coinjoin_accounts.get_mut(&0).unwrap();
+            for t in txs.made {
+                let r = TransactionRecord::new(
+                    t,
+                    key_wallet::account::AccountType::CoinJoin { index: 0 },
+                    TransactionContext::Mempool,
+                    TransactionType::Standard,
+                    TransactionDirection::Internal,
+                    Vec::new(),
+                    Vec::new(),
+                    0,
+                );
+                account.transactions_mut().insert(r.txid, r);
+            }
+            for coin in &finals {
+                account.utxos.insert(*coin, utxo(*coin, D, &cj[0]));
+            }
+        }
+        let started = std::time::Instant::now();
+        let coins = mixed_coins(&info, |_| true);
+        let took = started.elapsed();
+        assert_eq!(coins.iter().filter(|c| c.spendable).count(), 250);
+        let bound = if cfg!(debug_assertions) { 2_000 } else { 50 };
+        println!("AC-T8: 1 000 mixing transactions counted in {took:?} (bound {bound} ms)");
+        assert!(took.as_millis() <= bound, "{took:?} over {bound} ms");
     }
 }
 

@@ -12,6 +12,8 @@ pub struct Seen {
     pub credits: Duffs,
     pub platform_address: Duffs,
     pub pool: Duffs,
+    /// The fully mixed coins a payment from «Mixed» may spend (FEAT-0030).
+    pub mixed: Duffs,
     /// The credits on each Platform address, in their own order (FEAT-0015).
     pub platform_inputs: Vec<u64>,
     /// The identity shown has no name yet: its first costs more (`Fees::name_price`).
@@ -26,6 +28,7 @@ impl Seen {
             credits: wallet.balances.credits,
             platform_address: wallet.balances.platform_address,
             pool: wallet.balances.shielded,
+            mixed: wallet.balances.mixed.map_or(0, |m| m.spendable),
             platform_inputs: wallet.platform_inputs.clone(),
             first_name: wallet
                 .identity
@@ -85,6 +88,18 @@ pub fn declared(op: &Spend, seen: &Seen, app_cost: Duffs) -> Declared {
         } => {
             let price = fees.core_payment_for(*amount);
             of("send_core", price, covers(seen.core, *amount, price))
+        }
+        // FEAT-0030: the usual fee plus the excess the person agreed to burn, against the fully
+        // mixed coins (the core checks the coins themselves too: `NotEnough`).
+        Spend::SendMixed {
+            amount,
+            accept_excess,
+            ..
+        } => {
+            let price = fees
+                .core_payment_for(*amount)
+                .saturating_add(*accept_excess);
+            of("send_mixed", price, covers(seen.mixed, *amount, price))
         }
         Spend::Send {
             from: Source::Credits,
@@ -307,6 +322,7 @@ pub(crate) mod tests {
             credits: balance,
             platform_address: balance,
             pool: balance,
+            mixed: balance,
             platform_inputs: vec![balance.max(0) as u64 * 1_000],
             first_name: false,
         }
@@ -329,6 +345,14 @@ pub(crate) mod tests {
             send(Source::Credits, "@bob"),
             send(Source::Credits, "yAddress"),
             send(Source::Pool, "@bob"),
+            Spend::SendMixed {
+                id: 1,
+                to: "yAddress".into(),
+                amount: 100,
+                note: None,
+                rate: None,
+                accept_excess: 0,
+            },
             Spend::TopUpIdentity { amount: 100 },
             Spend::ResumeTopUp,
             Spend::CreateIdentity {

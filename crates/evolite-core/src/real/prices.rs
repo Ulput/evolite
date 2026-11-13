@@ -123,7 +123,7 @@ impl PriceWatch {
         };
         let declared = price::declared(op, seen, app_cost);
         let answer = match op {
-            Spend::Send { id, .. } => Answer::Sent(*id),
+            Spend::Send { id, .. } | Spend::SendMixed { id, .. } => Answer::Sent(*id),
             other => Answer::Done(other.what()),
         };
         if watch.waiting.len() >= MOST_WAITING {

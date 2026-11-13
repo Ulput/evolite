@@ -158,6 +158,8 @@ struct WalletRead {
     all_credits: Duffs,
     /// The wallet's own Core addresses (FEAT-0009: a withdrawal to one is a move between own).
     own_core: Vec<String>,
+    /// The CoinJoin account's coins, apart from Core (FEAT-0030 AC-T3).
+    mixed: Option<Mixed>,
 }
 
 impl Real {
@@ -280,6 +282,7 @@ impl Real {
             lock_fors,
             all_credits,
             own_core,
+            mixed,
         } = self.read_wallet(id).await;
         let (platform_address, platform_credits) = platform.unwrap_or_default();
         let (pool, unfinished_shield, connecting_pool) = self.read_pool(id).await;
@@ -384,6 +387,7 @@ impl Real {
                     self.chain.status().platform_address_read,
                     platform_credits,
                 ),
+                mixed,
             },
             activity: history,
             core_address: self
@@ -563,6 +567,10 @@ impl Real {
             lock_fors,
             all_credits,
             own_core,
+            // Rounds counted in one pass over the history (FEAT-0030 AC-T8).
+            mixed: convert::mixed_balance(&convert::mixed_coins(&state.core_wallet, |txid| {
+                self.chain.instant_lock_verified(txid)
+            })),
         }
     }
 

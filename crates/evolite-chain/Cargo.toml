@@ -15,6 +15,7 @@ test-support = []
 [dependencies]
 evolite-api = { path = "../evolite-api" }
 evolite-art = { path = "../evolite-art" }
+evolite-coinjoin = { path = "../evolite-coinjoin" }
 evolite-common = { path = "../evolite-common" }
 evolite-local = { path = "../evolite-local" }
 evolite-render = { path = "../evolite-render" }

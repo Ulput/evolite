@@ -895,6 +895,7 @@ fn the_price_on_record_is_the_one_the_send_form_shows() {
         credits: 1_000,
         platform_address: 1_000,
         pool: 1_000,
+        mixed: 0,
         platform_inputs: Vec::new(),
         first_name: false,
     };

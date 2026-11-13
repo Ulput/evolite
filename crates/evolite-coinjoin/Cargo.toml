@@ -1,0 +1,12 @@
+[package]
+name = "evolite-coinjoin"
+description = "CoinJoin for evolite: denominations and rounds of mixed coins (FEAT-0030). Depends on no evolite crate (R-1)."
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+dashcore = { workspace = true }
+
+[lints]
+workspace = true

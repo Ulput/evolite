@@ -336,13 +336,62 @@ pub struct Balances {
     /// `platform_address` is known: Platform answered this run, or the store holds an earlier
     /// read that found credits there. `false`: «—», not a 0 (BUG-91).
     pub platform_address_read: bool,
+    /// The coins of the CoinJoin account, mixed elsewhere (DashPay, Dash Core), apart from
+    /// `core` (FEAT-0030 phase A): `None` when the account holds nothing.
+    pub mixed: Option<Mixed>,
+}
+
+/// What a payment from «Mixed» costs (FEAT-0030 phase A, АРХ-9а): the recipient gets the amount
+/// exactly; the wallet gives `fee` + `excess` on top.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct MixedQuote {
+    pub amount: Duffs,
+    /// The usual fee of the transaction.
+    pub fee: Duffs,
+    /// What the chosen coins hold over the amount and the fee: mixed coins give no change, so
+    /// it goes to the miners with the fee.
+    pub excess: Duffs,
+    pub rule: MixedExcess,
+    /// The coins spent.
+    pub coins: u32,
+    /// With [`MixedExcess::Refuse`]: an amount the same coins pay with nothing burnt (their
+    /// value less the fee).
+    pub suggested: Option<Duffs>,
+}
+
+/// What the core does with the excess of a payment from «Mixed» (АРХ-9а).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum MixedExcess {
+    /// Small enough (≤ 0.001 DASH and ≤ 1 % of the amount): paid with the fee.
+    Free,
+    /// Larger, up to 0.01 DASH: sent only with this excess confirmed ([`Spend::SendMixed`]'s
+    /// `accept_excess`).
+    Confirm,
+    /// Over 0.01 DASH: refused; [`MixedQuote::suggested`] says an amount without excess.
+    Refuse,
+}
+
+/// The CoinJoin account's coins (FEAT-0030 AC-T3), in duffs.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct Mixed {
+    /// Fully mixed denominations, final: what «Mixed» spends.
+    pub spendable: Duffs,
+    /// The rest of the account: fewer rounds, collateral, not denominations, not final yet.
+    pub unfinished: Duffs,
+    /// The rounds that make a coin fully mixed.
+    pub rounds_needed: u8,
 }
 
 impl Balances {
-    /// Everything the wallet holds: Core, every identity's credits, the Platform address and
-    /// the pool. Choosing another identity does not change it.
+    /// Everything the wallet holds: Core, the CoinJoin account (FEAT-0030: apart from Core, but
+    /// the wallet's all the same), every identity's credits, the Platform address and the pool.
+    /// Choosing another identity does not change it.
     pub fn total(&self) -> Duffs {
-        self.core + self.all_credits + self.platform_address + self.shielded
+        self.core
+            + self.mixed.map_or(0, |m| m.spendable + m.unfinished)
+            + self.all_credits
+            + self.platform_address
+            + self.shielded
     }
 
     /// Whether every part of [`Self::total`] other than Core is known (BUG-91): the credits checked
@@ -1598,6 +1647,14 @@ pub enum Command {
     ListCoins {
         ask: u64,
     },
+    /// What a payment of `amount` to `to` from «Mixed» costs, for the review before the
+    /// password (FEAT-0030 phase A): read from the wallet, nothing reserved, nothing sent.
+    /// Answered with [`Event::MixedPreview`] carrying the same `ask`.
+    PreviewMixed {
+        ask: u64,
+        to: String,
+        amount: Duffs,
+    },
     /// Look for the phrase's identities on Platform again, now. The answer is in
     /// [`Wallet::identity_search`].
     FindIdentities,
@@ -1736,6 +1793,20 @@ pub enum Spend {
         /// `None`, the wallet chooses as before (R-2).
         coins: Option<CoinChoice>,
     },
+    /// Pay exactly `amount` to the Dash address `to` from «Mixed» (FEAT-0030 phase A): fully
+    /// mixed coins of the CoinJoin account only, never with other coins, no change. What the
+    /// coins hold over the amount and the fee goes with the fee ([`MixedQuote::excess`]).
+    /// Answered with [`Event::Sent`], as [`Spend::Send`].
+    SendMixed {
+        id: u64,
+        to: String,
+        amount: Duffs,
+        note: Option<NoteText>,
+        rate: Option<FiatRate>,
+        /// The excess the person saw and agreed to ([`MixedQuote::excess`]); the core builds
+        /// the payment again and refuses if it burns another excess than this one (АРХ-9а).
+        accept_excess: Duffs,
+    },
     /// Lock `amount` duffs on Core and add them to the shown identity's credits.
     /// `Done { what: DoneWhat::TopUp }`.
     TopUpIdentity { amount: Duffs },
@@ -1808,7 +1879,7 @@ impl Spend {
     /// The `what` of the operation's `Done` (or `"send"` for [`Event::Sent`]).
     pub fn what(&self) -> DoneWhat {
         match self {
-            Spend::Send { .. } => DoneWhat::Send,
+            Spend::Send { .. } | Spend::SendMixed { .. } => DoneWhat::Send,
             Spend::TopUpIdentity { .. } | Spend::ResumeTopUp => DoneWhat::TopUp,
             Spend::CreateIdentity { .. } | Spend::ResumeIdentity => DoneWhat::Identity,
             Spend::AddName { .. } => DoneWhat::Name,
@@ -1828,7 +1899,7 @@ impl Spend {
     /// there): the event its screen already waits for.
     pub fn refused(&self, why: CoreError) -> Event {
         match self {
-            Spend::Send { id, .. } => Event::Sent {
+            Spend::Send { id, .. } | Spend::SendMixed { id, .. } => Event::Sent {
                 id: *id,
                 result: Err(why),
             },
@@ -2014,6 +2085,11 @@ pub enum Event {
     Coins {
         ask: u64,
         result: Result<Vec<Coin>, CoreError>,
+    },
+    /// The answer to `PreviewMixed` (FEAT-0030).
+    MixedPreview {
+        ask: u64,
+        result: Result<MixedQuote, CoreError>,
     },
     /// The answer to `AskPhraseCheck`: the words to pick, or why not (a wrong password).
     PhraseCheck(Result<Vec<PhraseQuestion>, CoreError>),

@@ -1064,6 +1064,7 @@ mod tests {
             credits: 0,
             platform_address: 0,
             pool: 0,
+            mixed: 0,
             platform_inputs: Vec::new(),
             first_name: false,
         };

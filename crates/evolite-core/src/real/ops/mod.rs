@@ -9,6 +9,7 @@ pub(super) mod core;
 pub(super) mod dashpay;
 pub(super) mod identity;
 mod misc;
+pub(super) mod mixed;
 mod names;
 pub(super) mod notes;
 pub(super) mod outgoing;

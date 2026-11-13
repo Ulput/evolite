@@ -276,6 +276,7 @@ pub fn demo_wallet(t: Timestamp) -> Wallet {
             credits_read: true,
             credits_checked: true,
             platform_address_read: true,
+            mixed: None,
         },
         activity: vec![
             act(

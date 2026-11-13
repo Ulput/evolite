@@ -184,6 +184,14 @@ impl Mock {
                     None => Err(CoreError::NotAvailable(NO_WALLET.into())),
                 },
             },
+            // FEAT-0030: the example has no mixed coins yet (their preset comes with the screen).
+            Command::PreviewMixed { ask, .. } => Event::MixedPreview {
+                ask,
+                result: Err(match &self.snapshot.wallet {
+                    Some(_) => CoreError::NotEnough,
+                    None => CoreError::NotAvailable(NO_WALLET.into()),
+                }),
+            },
             // The address book is kept on this computer: the mock can keep it too (in memory).
             Command::SaveAddress { address, label } => {
                 let label = label.trim().to_owned();

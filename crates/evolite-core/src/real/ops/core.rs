@@ -12,7 +12,7 @@ const NOT_SETTLED: &str = tr!("Part of your balance is not confirmed yet: try ag
 impl Real {
     /// Who a Core payment to `to` goes to: a testnet address, or an established contact by name
     /// or — one without a name — by its identity id.
-    fn core_payee(&self, to: &str) -> Result<CorePayee, CoreError> {
+    pub(in crate::real) fn core_payee(&self, to: &str) -> Result<CorePayee, CoreError> {
         let by_id = self
             .contacts
             .iter()

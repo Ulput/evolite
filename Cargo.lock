@@ -2825,6 +2825,7 @@ dependencies = [
  "dpp",
  "evolite-api",
  "evolite-art",
+ "evolite-coinjoin",
  "evolite-common",
  "evolite-local",
  "evolite-render",
@@ -2844,6 +2845,13 @@ dependencies = [
  "simple-signer",
  "tokio",
  "zeroize",
+]
+
+[[package]]
+name = "evolite-coinjoin"
+version = "0.1.0"
+dependencies = [
+ "dashcore",
 ]
 
 [[package]]
