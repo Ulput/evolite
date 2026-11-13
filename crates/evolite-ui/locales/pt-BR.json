@@ -1,4 +1,5 @@
 {
+  "{} address will be linked on the network: anyone will see it has one owner.|{} addresses will be linked on the network: anyone will see they have one owner.": {"many":"Estes {} endereços ficarão ligados na rede: qualquer um verá que têm o mesmo dono.","one":"{} endereço ficará ligado na rede: qualquer um verá que tem um dono.","other":"Estes {} endereços ficarão ligados na rede: qualquer um verá que têm o mesmo dono."},
   "payment {} + fee": "pagamento {} + taxa",
   "Apply": "Aplicar",
   "At most 500 coins in one payment: untick some.": "No máximo 500 moedas por pagamento: desmarque algumas.",
@@ -27,7 +28,6 @@
   "The wallet picks the coins itself: largest first, as many as the amount and the fee need. This is usually cheaper.": "A carteira escolhe as moedas: as maiores primeiro, quantas o valor e a taxa pedirem. Costuma ser mais barato.",
   "The wallet takes only the ticked coins it needs.": "A carteira pega das marcadas só as necessárias.",
   "The wallet takes only the ticked coins the amount and the fee need. “Max” spends every ticked coin.": "A carteira pega das marcadas só as que o valor e a taxa pedem. «Tudo» gasta todas as marcadas.",
-  "These {} addresses will be linked on the network: anyone will see they have one owner.": "Estes {} endereços ficarão ligados na rede: qualquer um verá que têm o mesmo dono.",
   "Tick more coins or lower the amount.": "Marque mais moedas ou reduza o valor.",
   "already spent": "já gasta",
   "automatic": "automático",

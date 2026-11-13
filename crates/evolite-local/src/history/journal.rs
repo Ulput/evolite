@@ -541,6 +541,15 @@ fn fee_of(entry: &Entry) -> Option<Duffs> {
     }
 }
 
+/// A transfer from the wallet's Platform addresses to another address of its own (QA pass 21):
+/// what it moved stayed in the wallet, so the line is its fee alone, between own addresses.
+pub fn between_own_addresses(line: &mut Activity) {
+    if matches!(line.kind, ActivityKind::AddressSent { .. }) {
+        line.amount = -line.fee.unwrap_or(-line.amount);
+        line.flow = evolite_api::Flow::Between;
+    }
+}
+
 /// Whether a kind of entry sends money somewhere (so `spent` is more than the fee).
 fn moves_money(what: &What) -> bool {
     matches!(
@@ -557,6 +566,26 @@ fn moves_money(what: &What) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// QA pass 21 (3): 0,001 from one of the wallet's Platform addresses to another of its own: the
+    /// line is the fee alone, between own addresses — not «Sent −0,00109478».
+    #[test]
+    fn a_transfer_to_an_own_platform_address_is_its_fee_alone() {
+        let entry = Entry {
+            at: 1_794_431_677,
+            what: What::AddressSent {
+                to: "tdash1own".into(),
+            },
+            spent: 109_478,
+            moved: 100_000,
+            ..Default::default()
+        };
+        let mut line = activity(&entry);
+        between_own_addresses(&mut line);
+        assert_eq!(line.amount, -9_478);
+        assert_eq!(line.flow, evolite_api::Flow::Between);
+        assert_eq!(line.fee, Some(9_478));
+    }
 
     #[test]
     fn keeps_entries_across_loads() {

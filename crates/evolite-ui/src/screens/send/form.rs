@@ -814,19 +814,27 @@ fn address_notice(ui: &mut Ui, a: &mut Assets, v: &FormView) {
         return;
     }
     match move_for(to) {
-        AddressMove::Transfer => notice(
-            ui,
-            a,
-            "platform-address",
-            p.accent,
-            &format!(
-                "{} · {}",
-                crate::i18n::t(tr!("Transfer to a Platform address")),
+        AddressMove::Transfer => {
+            // The wallet's own address is not someone else's (QA pass 21). bech32m may be typed
+            // in capitals too, and is never valid in mixed case (QA21 r1 P3 1).
+            let whose = if to.eq_ignore_ascii_case(v.own_platform_address.trim()) {
+                crate::i18n::t(tr!("this wallet's address"))
+            } else {
                 crate::i18n::t(tr!(
                     "Someone else's address · the money arrives at once, no queue"
                 ))
-            ),
-        ),
+            };
+            notice(
+                ui,
+                a,
+                "platform-address",
+                p.accent,
+                &format!(
+                    "{} · {whose}",
+                    crate::i18n::t(tr!("Transfer to a Platform address"))
+                ),
+            )
+        }
         AddressMove::TopUp => notice(
             ui,
             a,

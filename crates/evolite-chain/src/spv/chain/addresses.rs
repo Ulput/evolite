@@ -275,27 +275,28 @@ mod tests {
     use dpp::version::PlatformVersion;
     use evolite_api::address_plan as plan;
 
-    /// The plan's constants are the protocol's at every version evolite may meet: the fee
-    /// formulas through dpp's own estimates, the limits from the version tables.
+    /// The plan's fees are never below the protocol's minimums at every version evolite may
+    /// meet (dpp's own estimates); since QA pass 21 they are above them, as Platform meters
+    /// more (AC-T3). The limits are the version tables'.
     #[test]
     fn the_plans_fees_and_limits_are_the_protocols() {
         let version = PlatformVersion::latest();
         for inputs in 1..=plan::MAX_INPUTS {
-            assert_eq!(
-                plan::AddressMove::Transfer.fee(inputs),
-                AddressFundsTransferTransition::estimate_min_fee(inputs, 1, version),
+            assert!(
+                plan::AddressMove::Transfer.fee(inputs)
+                    >= AddressFundsTransferTransition::estimate_min_fee(inputs, 1, version),
                 "transfer, {inputs} inputs"
             );
-            assert_eq!(
-                plan::AddressMove::Withdraw.fee(inputs),
-                AddressCreditWithdrawalTransition::estimate_min_fee(inputs, false, version),
+            assert!(
+                plan::AddressMove::Withdraw.fee(inputs)
+                    >= AddressCreditWithdrawalTransition::estimate_min_fee(inputs, false, version),
                 "withdrawal, {inputs} inputs"
             );
         }
         let min = &version.fee_version.state_transition_min_fees;
-        assert_eq!(
-            plan::AddressMove::TopUp.fee(3),
-            min.identity_topup_base_cost + 3 * min.address_funds_transfer_input_cost
+        assert!(
+            plan::AddressMove::TopUp.fee(3)
+                >= min.identity_topup_base_cost + 3 * min.address_funds_transfer_input_cost
         );
         let limits = &version.dpp.state_transitions.address_funds;
         assert_eq!(plan::MIN_INPUT, limits.min_input_amount);

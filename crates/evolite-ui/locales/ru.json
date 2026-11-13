@@ -1,4 +1,5 @@
 {
+  "{} address will be linked on the network: anyone will see it has one owner.|{} addresses will be linked on the network: anyone will see they have one owner.": {"few":"Эти {} адреса будут связаны в сети: любой увидит, что они одного владельца.","many":"Эти {} адресов будут связаны в сети: любой увидит, что они одного владельца.","one":"{} адрес будет связан в сети: любой увидит, что у него один владелец."},
   "payment {} + fee": "платёж {} + комиссия",
   "Apply": "Применить",
   "At most 500 coins in one payment: untick some.": "В одном платеже не больше 500 монет — снимите лишние.",
@@ -27,7 +28,6 @@
   "The wallet picks the coins itself: largest first, as many as the amount and the fee need. This is usually cheaper.": "Кошелёк сам выберет монеты: сначала крупные, сколько нужно на сумму и комиссию. Так платёж обычно дешевле.",
   "The wallet takes only the ticked coins it needs.": "Кошелёк возьмёт из отмеченных только нужные.",
   "The wallet takes only the ticked coins the amount and the fee need. “Max” spends every ticked coin.": "Кошелёк возьмёт из отмеченных только те, что нужны на сумму и комиссию. «Всё» потратит все отмеченные.",
-  "These {} addresses will be linked on the network: anyone will see they have one owner.": "Эти {} адреса будут связаны в сети: любой увидит, что они одного владельца.",
   "Tick more coins or lower the amount.": "Отметьте ещё монеты или уменьшите сумму.",
   "already spent": "уже потрачена",
   "automatic": "автоматически",

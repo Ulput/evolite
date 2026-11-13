@@ -1,4 +1,5 @@
 {
+  "{} address will be linked on the network: anyone will see it has one owner.|{} addresses will be linked on the network: anyone will see they have one owner.": {"other":"{} địa chỉ này sẽ bị liên kết trên mạng: ai cũng sẽ thấy chúng cùng một chủ."},
   "payment {} + fee": "thanh toán {} + phí",
   "Apply": "Áp dụng",
   "At most 500 coins in one payment: untick some.": "Tối đa 500 đồng trong một khoản thanh toán: hãy bỏ chọn bớt.",
@@ -27,7 +28,6 @@
   "The wallet picks the coins itself: largest first, as many as the amount and the fee need. This is usually cheaper.": "Ví tự chọn các đồng: lớn nhất trước, đủ cho số tiền và phí. Cách này thường rẻ hơn.",
   "The wallet takes only the ticked coins it needs.": "Ví chỉ lấy những đồng đã chọn cần thiết.",
   "The wallet takes only the ticked coins the amount and the fee need. “Max” spends every ticked coin.": "Ví chỉ lấy trong các đồng đã chọn những đồng cần cho số tiền và phí. «Tất cả» tiêu hết các đồng đã chọn.",
-  "These {} addresses will be linked on the network: anyone will see they have one owner.": "{} địa chỉ này sẽ bị liên kết trên mạng: ai cũng sẽ thấy chúng cùng một chủ.",
   "Tick more coins or lower the amount.": "Hãy chọn thêm đồng hoặc giảm số tiền.",
   "already spent": "đã tiêu",
   "automatic": "tự động",

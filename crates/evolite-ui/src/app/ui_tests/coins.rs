@@ -105,10 +105,7 @@ fn the_last_look_says_which_coins_go() {
     assert!(shows(&kit, "Core · 2 of 3 coins"));
     assert!(shows(&kit, "Inputs: 2 of 3"));
     assert!(shows(&kit, "not needed, stays in the wallet"));
-    assert!(shows(
-        &kit,
-        "These 2 addresses will be linked on the network"
-    ));
+    assert!(shows(&kit, "2 addresses will be linked on the network"));
     assert!(shows(&kit, "One coin came from @alice"));
 }
 

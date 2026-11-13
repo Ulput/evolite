@@ -1,4 +1,5 @@
 {
+  "{} address will be linked on the network: anyone will see it has one owner.|{} addresses will be linked on the network: anyone will see they have one owner.": {"one":"यह {} पता नेटवर्क पर जुड़ जाएगा: कोई भी देखेगा कि इसका एक मालिक है।","other":"ये {} पते नेटवर्क पर जुड़ जाएँगे: कोई भी देखेगा कि इनका मालिक एक है।"},
   "payment {} + fee": "भुगतान {} + शुल्क",
   "Apply": "लागू करें",
   "At most 500 coins in one payment: untick some.": "एक भुगतान में अधिकतम 500 कॉइन: कुछ का चुनाव हटाएँ।",
@@ -27,7 +28,6 @@
   "The wallet picks the coins itself: largest first, as many as the amount and the fee need. This is usually cheaper.": "वॉलेट खुद कॉइन चुनता है: बड़े पहले, जितने राशि और शुल्क के लिए चाहिए। यह आमतौर पर सस्ता होता है।",
   "The wallet takes only the ticked coins it needs.": "वॉलेट चुने हुए में से केवल ज़रूरी लेता है।",
   "The wallet takes only the ticked coins the amount and the fee need. “Max” spends every ticked coin.": "वॉलेट चुने हुए कॉइन में से केवल वही लेता है जो राशि और शुल्क के लिए चाहिए। «सब» सभी चुने हुए खर्च करता है।",
-  "These {} addresses will be linked on the network: anyone will see they have one owner.": "ये {} पते नेटवर्क पर जुड़ जाएँगे: कोई भी देखेगा कि इनका मालिक एक है।",
   "Tick more coins or lower the amount.": "और कॉइन चुनें या राशि घटाएँ।",
   "already spent": "पहले ही खर्च",
   "automatic": "अपने आप",

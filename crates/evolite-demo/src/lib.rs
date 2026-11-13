@@ -1394,11 +1394,14 @@ mod tests {
         };
         let before = held(&m);
         let paid = send(&mut m, "tdash1qz8fexample", 1_000_000).expect("a transfer");
-        assert_eq!(paid.fee, 6_500, "one input and one output");
-        assert_eq!(before - held(&m), (1_000_000 + 6_500) * 1_000);
+        let fee = evolite_api::address_plan::duffs_up(
+            evolite_api::address_plan::AddressMove::Transfer.fee(1),
+        );
+        assert_eq!(paid.fee, fee, "one input and one output");
+        assert_eq!(before - held(&m), (1_000_000 + fee as u64) * 1_000);
         let line = &m.snapshot.wallet.as_ref().unwrap().activity[0];
         assert!(matches!(line.kind, ActivityKind::AddressSent { .. }));
-        assert_eq!((line.amount, line.fee), (-1_006_500, Some(6_500)));
+        assert_eq!((line.amount, line.fee), (-(1_000_000 + fee), Some(fee)));
 
         let own = m.snapshot.wallet.as_ref().unwrap().core_address.clone();
         assert!(send(&mut m, &own, 10_000_000).is_ok(), "own Core address");

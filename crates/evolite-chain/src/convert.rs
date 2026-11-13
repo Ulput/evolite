@@ -2894,3 +2894,55 @@ mod detail_cost {
         );
     }
 }
+
+/// The wallet's own Platform addresses as text (`tdash1…`): every address of its Platform
+/// account, used or not — a transfer to one of them stays in the wallet (QA pass 21).
+pub fn own_platform_addresses(
+    info: &key_wallet::wallet::managed_wallet_info::ManagedWalletInfo,
+) -> std::collections::HashSet<String> {
+    info.first_platform_payment_managed_account()
+        .map(|account| {
+            account
+                .all_platform_addresses()
+                .into_iter()
+                .map(|a| {
+                    dpp::address_funds::PlatformAddress::P2pkh(a.to_bytes())
+                        .to_bech32m_string(crate::network::dash())
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Whether `to`, a recipient as it was typed, is one of `own` ([`own_platform_addresses`]).
+/// bech32m may be typed in capitals (QA21 r1 P3 1): a valid address is never in mixed case and
+/// its lowercase is the one spelling `own` holds; the network's prefix still has to match.
+pub fn is_own_platform_address(own: &std::collections::HashSet<String>, to: &str) -> bool {
+    let to = to.trim();
+    dpp::address_funds::PlatformAddress::from_bech32m_string(to).is_ok()
+        && own.contains(&to.to_ascii_lowercase())
+}
+
+#[cfg(test)]
+mod own_address_tests {
+    use super::is_own_platform_address;
+    use dpp::address_funds::PlatformAddress;
+
+    /// QA21 r1 P3 1: the wallet's address typed in capitals is still its own; mixed case is no
+    /// address at all, and another address is another's.
+    #[test]
+    fn an_own_platform_address_is_known_in_capitals_too() {
+        let text =
+            |seed: u8| PlatformAddress::P2pkh([seed; 20]).to_bech32m_string(crate::network::dash());
+        let own: std::collections::HashSet<String> = [text(7)].into();
+        let mine = text(7);
+        assert!(is_own_platform_address(&own, &mine));
+        assert!(is_own_platform_address(&own, &mine.to_ascii_uppercase()));
+        assert!(is_own_platform_address(&own, &format!("  {mine} ")));
+        let mut mixed = mine.clone();
+        mixed.replace_range(..1, &mine[..1].to_ascii_uppercase());
+        assert!(!is_own_platform_address(&own, &mixed), "{mixed}");
+        assert!(!is_own_platform_address(&own, &text(8)));
+        assert!(!is_own_platform_address(&own, "not an address"));
+    }
+}

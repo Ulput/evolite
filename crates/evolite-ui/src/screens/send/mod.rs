@@ -98,6 +98,9 @@ pub struct SendForm {
     /// The note of the last payment signed: cleared from the form with the amount, put back
     /// if the core refuses the payment (AC-A3).
     pub signed_note: String,
+    /// «Max» was on for the last payment signed: off while its answer comes (nothing fills the
+    /// amount from a balance it is leaving), back on if the core refuses (QA pass 21).
+    pub signed_max: bool,
     /// The QR button's menu and its scan (FEAT-0006).
     pub scanner: crate::qr_scan::Scanner,
     /// The line under «To» after a QR or a pasted `dash:` link, and the «To» it is about:
@@ -216,7 +219,9 @@ impl SendForm {
             // Not sent: the form has it again (AC-A3); sent: the core keeps the note with it.
             if result.is_err() && self.amount.is_empty() {
                 self.amount = std::mem::take(&mut self.signed);
+                self.max = self.signed_max;
             }
+            self.signed_max = false;
             if result.is_err() && self.note.is_empty() {
                 self.note = std::mem::take(&mut self.signed_note);
             } else {
@@ -493,6 +498,7 @@ impl Default for SendForm {
             note: String::new(),
             note_cut: false,
             signed_note: String::new(),
+            signed_max: false,
             scanner: Default::default(),
             qr: None,
             qr_about: String::new(),

@@ -1,4 +1,5 @@
 {
+  "{} address will be linked on the network: anyone will see it has one owner.|{} addresses will be linked on the network: anyone will see they have one owner.": {"other":"这 {} 个地址将在网络上被关联：任何人都能看出它们属于同一主人。"},
   "payment {} + fee": "付款 {} + 手续费",
   "Apply": "应用",
   "At most 500 coins in one payment: untick some.": "一笔付款最多 500 枚币：请取消一些选择。",
@@ -27,7 +28,6 @@
   "The wallet picks the coins itself: largest first, as many as the amount and the fee need. This is usually cheaper.": "钱包自行选择币：大额优先，按金额和手续费所需选取。这样通常更便宜。",
   "The wallet takes only the ticked coins it needs.": "钱包只从勾选的币中取所需的部分。",
   "The wallet takes only the ticked coins the amount and the fee need. “Max” spends every ticked coin.": "钱包只从勾选的币中取金额和手续费所需的部分。「全部」会花掉所有勾选的币。",
-  "These {} addresses will be linked on the network: anyone will see they have one owner.": "这 {} 个地址将在网络上被关联：任何人都能看出它们属于同一主人。",
   "Tick more coins or lower the amount.": "请勾选更多币或降低金额。",
   "already spent": "已花费",
   "automatic": "自动",

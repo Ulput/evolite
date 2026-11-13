@@ -1374,3 +1374,27 @@ fn from_the_pool_the_line_says_only_what_the_recipient_keeps_hidden() {
     );
     assert_eq!(pool_route("@alice"), Some(PoolRoute::Name));
 }
+
+/// QA pass 21 (6): a payment made with «Max» leaves no amount behind — not filled again from
+/// the balance while its answer comes, nor after it; a refusal gives the amount and «Max» back.
+#[test]
+fn a_payment_with_max_leaves_no_amount_behind() {
+    let mut form = SendForm::empty();
+    form.max = true;
+    form.amount = "0.19384471".into();
+    form.recipient = "yX".into();
+    form.take_for_signing("yX");
+    form.follow_max(30_000_000, 226, None);
+    assert!(form.amount.is_empty(), "refilled while the answer comes");
+    form.on_sent(form.last_payment, &sent());
+    form.follow_max(10_000_000, 226, None);
+    assert!(form.amount.is_empty() && !form.max, "{:?}", form.amount);
+    // Refused: what was signed is back, «Max» too.
+    form.max = true;
+    form.amount = "0.1".into();
+    form.recipient = "yX".into();
+    form.take_for_signing("yX");
+    form.on_sent(form.last_payment, &Err(CoreError::NotEnough));
+    assert_eq!(form.amount, "0.1");
+    assert!(form.max);
+}

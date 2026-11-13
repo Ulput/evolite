@@ -528,7 +528,13 @@ impl Real {
             .unwrap_or_else(|e| e.into_inner())
             .apply(records);
         let answered = answered_requests(&mine);
-        self.add_platform_lines(&mut history, &identities, &names, &answered);
+        let own_addresses = convert::own_platform_addresses(&state.core_wallet);
+        self.add_platform_lines(
+            &mut history,
+            (&identities, &own_addresses),
+            &names,
+            &answered,
+        );
         platform_history::link_payouts(&mut history, &self.journal.entries(), &unlocks, |id| {
             identity_ref(&identities, id)
         });
@@ -663,7 +669,7 @@ impl Real {
     fn add_platform_lines(
         &self,
         history: &mut Vec<Activity>,
-        identities: &[IdentityChoice],
+        (identities, own_addresses): (&[IdentityChoice], &std::collections::HashSet<String>),
         names: &HashMap<String, Option<String>>,
         answered: &HashMap<String, std::collections::HashSet<String>>,
     ) {
@@ -682,6 +688,12 @@ impl Real {
         };
         history.extend(self.journal.entries().iter().map(|entry| {
             let mut line = journal::activity(entry);
+            // To one of the wallet's own Platform addresses: only the fee left (QA pass 21).
+            if let ActivityKind::AddressSent { to } = &line.kind
+                && convert::is_own_platform_address(own_addresses, to)
+            {
+                journal::between_own_addresses(&mut line);
+            }
             platform_history::name_request_sides(
                 &mut line.kind,
                 entry,

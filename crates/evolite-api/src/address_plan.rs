@@ -3,20 +3,26 @@
 //! for the core, so that «Check the payment» shows the plan the core signs (R-7).
 //!
 //! Amounts here are **credits** (1 duff = 1 000 credits): an address holds credits, not duffs.
-//! The fees are the protocol's minimums (`state_transition_min_fees`); Platform may meter more,
-//! so a form says «about» (BUG-108). There is no change output: each address gives only what
+//! The fees are estimates of what Platform meters (processing and storage), not the protocol's
+//! minimums (`state_transition_min_fees`), which it charges above (QA pass 21, AC-T3: a top-up
+//! took 3 011 duffs against a minimum of 1 000, a transfer 9 478 against 6 500). Set from what
+//! testnet charged, with a margin, so the fee shown is not below the fee taken (BUG-108); the
+//! form still says «about». There is no change output: each address gives only what
 //! the plan takes from it, and the rest stays where it was.
 
 /// Credits in one duff.
 pub const CREDITS_PER_DUFF: u64 = 1_000;
-/// Each input address of an address transition.
-pub const INPUT_COST: u64 = 500_000;
-/// Each output of a transfer (at least one is counted).
-pub const OUTPUT_COST: u64 = 6_000_000;
+/// Each input address of an address transition (the protocol's minimum is 500 000: each input
+/// is a balance read, a signature checked and a balance written).
+pub const INPUT_COST: u64 = 1_000_000;
+/// Each output of a transfer (at least one is counted): with one input 10 500 000 credits, above
+/// the 9 478 000 testnet took for one (QA pass 21).
+pub const OUTPUT_COST: u64 = 9_500_000;
 /// The base of a withdrawal to Core.
 pub const WITHDRAWAL_COST: u64 = 400_000_000;
-/// The base of an identity's top-up from addresses.
-pub const TOP_UP_COST: u64 = 500_000;
+/// The base of an identity's top-up from addresses: with one input 3 500 000 credits, above the
+/// 3 011 000 testnet took (QA pass 21).
+pub const TOP_UP_COST: u64 = 2_500_000;
 /// The least an input may give.
 pub const MIN_INPUT: u64 = 100_000;
 /// The least an output may receive.
@@ -271,6 +277,31 @@ fn take(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// QA pass 21 (AC-T3): the fee shown is not below what Platform took. The journal of the pass:
+    /// a top-up of @kestrel7 from one address took 3 011 duffs, a transfer from one address to
+    /// another 9 478 (spent − moved); the estimates were 1 000 and 6 500.
+    #[test]
+    fn the_estimate_is_not_below_what_testnet_charged() {
+        assert!(
+            AddressMove::TopUp.fee(1) >= 3_011 * CREDITS_PER_DUFF,
+            "{}",
+            AddressMove::TopUp.fee(1)
+        );
+        assert!(
+            AddressMove::Transfer.fee(1) >= 9_478 * CREDITS_PER_DUFF,
+            "{}",
+            AddressMove::Transfer.fee(1)
+        );
+        // More inputs never cost less.
+        for kind in [
+            AddressMove::TopUp,
+            AddressMove::Transfer,
+            AddressMove::Withdraw,
+        ] {
+            assert!(kind.fee(2) > kind.fee(1));
+        }
+    }
 
     const DASH: u64 = 100_000_000 * CREDITS_PER_DUFF;
 

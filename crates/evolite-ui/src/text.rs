@@ -368,6 +368,10 @@ pub fn activity_title(a: &Activity) -> String {
             tr!("Top-up of {} from the Platform address"),
             identity_in_line(identity)
         ),
+        // To another address of the wallet's own: only its fee left (QA pass 21).
+        ActivityKind::AddressSent { .. } if a.flow == evolite_api::Flow::Between => {
+            tr!("Transfer between own addresses").into()
+        }
         ActivityKind::AddressSent { .. } => tr!("Sent from the Platform address").into(),
         ActivityKind::AddressWithdrawal { .. } => {
             tr!("Withdrawn to Core from the Platform address").into()
@@ -1207,6 +1211,22 @@ mod lock_tests {
             rate: None,
             detail: None,
         }
+    }
+
+    /// QA pass 21 (3): a transfer from the Platform addresses to another of the wallet's own is
+    /// named as one between own addresses; to someone else it stays «Sent».
+    #[test]
+    fn a_transfer_between_own_platform_addresses_is_named_so() {
+        let mut line = Activity {
+            kind: ActivityKind::AddressSent {
+                to: "tdash1own".into(),
+            },
+            chain: Chain::Platform,
+            ..lock(Credits::Added)
+        };
+        assert_eq!(activity_title(&line), "Transfer between own addresses");
+        line.flow = Flow::Out;
+        assert_eq!(activity_title(&line), "Sent from the Platform address");
     }
 
     /// R-3а, BUG-57: the chip names Core for every lock not known to be added; only a lock not

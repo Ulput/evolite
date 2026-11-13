@@ -1,4 +1,5 @@
 {
+  "{} address will be linked on the network: anyone will see it has one owner.|{} addresses will be linked on the network: anyone will see they have one owner.": {"few":"ستُربط هذه العناوين ({}) في الشبكة: سيرى أي شخص أن لها مالكًا واحدًا.","many":"ستُربط هذه العناوين ({}) في الشبكة: سيرى أي شخص أن لها مالكًا واحدًا.","one":"سيُربط هذا العنوان في الشبكة: سيرى أي شخص أن له مالكًا واحدًا.","other":"ستُربط هذه العناوين ({}) في الشبكة: سيرى أي شخص أن لها مالكًا واحدًا.","two":"سيُربط هذان العنوانان في الشبكة: سيرى أي شخص أن لهما مالكًا واحدًا.","zero":"ستُربط هذه العناوين ({}) في الشبكة: سيرى أي شخص أن لها مالكًا واحدًا."},
   "payment {} + fee": "الدفعة {} + الرسوم",
   "Apply": "تطبيق",
   "At most 500 coins in one payment: untick some.": "لا يزيد عدد العملات في الدفعة الواحدة عن 500 — ألغِ تحديد بعضها.",
@@ -27,7 +28,6 @@
   "The wallet picks the coins itself: largest first, as many as the amount and the fee need. This is usually cheaper.": "تختار المحفظة العملات بنفسها: الأكبر أولًا، بقدر ما يلزم للمبلغ والرسوم. وهذا أرخص عادةً.",
   "The wallet takes only the ticked coins it needs.": "تأخذ المحفظة من المحددة ما يلزم فقط.",
   "The wallet takes only the ticked coins the amount and the fee need. “Max” spends every ticked coin.": "تأخذ المحفظة من العملات المحددة ما يلزم فقط للمبلغ والرسوم. «الكل» ينفق كل المحددة.",
-  "These {} addresses will be linked on the network: anyone will see they have one owner.": "ستُربط هذه العناوين ({}) في الشبكة: سيرى أي شخص أن لها مالكًا واحدًا.",
   "Tick more coins or lower the amount.": "حدّد عملات أكثر أو خفّض المبلغ.",
   "already spent": "أُنفقت بالفعل",
   "automatic": "تلقائيًا",

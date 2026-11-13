@@ -1,4 +1,5 @@
 {
+  "{} address will be linked on the network: anyone will see it has one owner.|{} addresses will be linked on the network: anyone will see they have one owner.": {"one":"Bu {} adres ağda bağlanacak: herkes tek bir sahibi olduğunu görecek.","other":"Bu {} adres ağda bağlanacak: herkes tek bir sahibi olduğunu görecek."},
   "payment {} + fee": "ödeme {} + ücret",
   "Apply": "Uygula",
   "At most 500 coins in one payment: untick some.": "Bir ödemede en fazla 500 coin olur: bazılarının işaretini kaldırın.",
@@ -27,7 +28,6 @@
   "The wallet picks the coins itself: largest first, as many as the amount and the fee need. This is usually cheaper.": "Cüzdan coinleri kendisi seçer: önce büyükler, tutar ve ücret ne kadar gerektiriyorsa. Genellikle daha ucuzdur.",
   "The wallet takes only the ticked coins it needs.": "Cüzdan işaretlilerden yalnızca gerekenleri alır.",
   "The wallet takes only the ticked coins the amount and the fee need. “Max” spends every ticked coin.": "Cüzdan işaretli coinlerden yalnızca tutar ve ücret için gerekenleri alır. «Tümü» işaretlilerin hepsini harcar.",
-  "These {} addresses will be linked on the network: anyone will see they have one owner.": "Bu {} adres ağda bağlanacak: herkes tek bir sahibi olduğunu görecek.",
   "Tick more coins or lower the amount.": "Daha fazla coin işaretleyin veya tutarı düşürün.",
   "already spent": "zaten harcandı",
   "automatic": "otomatik",

@@ -549,6 +549,29 @@ fn password_field(ui: &mut Ui, p: &crate::theme::Palette, form: &mut SendForm) {
     });
 }
 
+impl SendForm {
+    /// What the form gives the payment just signed: the amount and the note leave it (not twice
+    /// by a second click), kept to put back if the core refuses.
+    fn let_go_of_payment(&mut self) {
+        self.signed = std::mem::take(&mut self.amount);
+        // «Max» goes with it: left on, it would fill the field again from the balance the
+        // payment is leaving, and «more than there is» once that balance drops (QA pass 21).
+        self.signed_max = std::mem::take(&mut self.max);
+        // And its note, which is this payment's only.
+        self.signed_note = std::mem::take(&mut self.note);
+        self.note_cut = false;
+    }
+
+    /// [`Self::let_go_of_payment`] of a payment to `to`, as [`sign_and_send`] does it, for tests.
+    #[cfg(test)]
+    pub(super) fn take_for_signing(&mut self, to: &str) {
+        self.sent_to = to.to_owned();
+        self.last_payment += 1;
+        self.waiting += 1;
+        self.let_go_of_payment();
+    }
+}
+
 /// The payment goes to the core, and the form lets go of it.
 fn sign_and_send(
     cx: &mut Ctx,
@@ -575,11 +598,7 @@ fn sign_and_send(
         password: ask_password.then(|| Password::new(form.password.to_string())),
     });
     form.waiting += 1;
-    // Not twice by a second click: the amount leaves the form with the payment.
-    form.signed = std::mem::take(&mut form.amount);
-    // And its note, which is this payment's only.
-    form.signed_note = std::mem::take(&mut form.note);
-    form.note_cut = false;
+    form.let_go_of_payment();
     // A wrong password is said here, at its field (BUG-92): the dialog waits for the answer.
     form.signing = (ask_password && form.waiting == 1).then(std::time::Instant::now);
     form.password_wrong = false;

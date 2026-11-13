@@ -763,9 +763,11 @@ pub(super) fn linked_note(coins: &[&Coin]) -> Option<String> {
     let addresses = CoinPick::addresses(coins);
     let mut lines = Vec::new();
     if addresses > 1 {
-        lines.push(format!(
-            tr!("These {} addresses will be linked on the network: anyone will see they have one owner."),
-            addresses
+        // The count's own plural form (QA pass 21: «7 адресов», not «7 адреса»).
+        lines.push(crate::text::plural(
+            addresses as u32,
+            tr!("address will be linked on the network: anyone will see it has one owner."),
+            tr!("addresses will be linked on the network: anyone will see they have one owner."),
         ));
         if let Some(who) = coins.iter().find_map(|c| c.from_contact.as_deref()) {
             lines.push(format!(
@@ -809,6 +811,19 @@ mod tests {
             state,
             at: None,
         }
+    }
+
+    /// QA pass 21 (5): «Эти 7 адресов», not «7 адреса» — the count's own plural form.
+    #[test]
+    fn the_linked_addresses_take_the_plural_of_their_count() {
+        let coins: Vec<Coin> = (1..=7).map(|n| coin(n, 10, CoinState::Final)).collect();
+        let refs: Vec<&Coin> = coins.iter().collect();
+        crate::i18n::set(crate::i18n::Lang::Ru);
+        let seven = linked_note(&refs).unwrap();
+        let two = linked_note(&refs[..2]).unwrap();
+        crate::i18n::set(crate::i18n::Lang::En);
+        assert!(seven.starts_with("Эти 7 адресов будут связаны"), "{seven}");
+        assert!(two.starts_with("Эти 2 адреса будут связаны"), "{two}");
     }
 
     #[test]

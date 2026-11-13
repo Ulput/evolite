@@ -75,7 +75,10 @@ fn a_payment_from_the_addresses_goes_through() {
     });
     assert_eq!(
         before - held(&kit),
-        5_000_000 + 6_500,
+        5_000_000
+            + evolite_api::address_plan::duffs_up(
+                evolite_api::address_plan::AddressMove::Transfer.fee(1)
+            ),
         "the amount and the fee"
     );
 }
@@ -146,4 +149,27 @@ fn a_foreign_name_from_the_platform_address_says_what_to_enter() {
     assert!(!has_words(&kit, "the owner's identity gets the credits"));
     assert!(has_words(&kit, "Platform fee: —"));
     assert!(!ready(&kit));
+}
+
+/// QA pass 21 (2): to the wallet's own Platform address the line says so — not «Someone else's
+/// address». Typed in capitals too, as bech32m allows (QA21 r1 P3 1).
+#[test]
+fn a_transfer_to_the_wallets_own_platform_address_says_it_is_ours() {
+    let (_turn, mut kit) = demo_app("send-from-address", "en");
+    let own = kit
+        .state()
+        .snapshot
+        .as_ref()
+        .and_then(|s| s.wallet.as_ref())
+        .map(|w| w.platform_address.clone())
+        .expect("the demo's Platform address");
+    for typed in [own.clone(), own.to_ascii_uppercase()] {
+        kit.state_mut().send.recipient = typed.clone();
+        kit.run_steps(3);
+        wait_for(&mut kit, "the line", |kit| {
+            has_words(kit, "Transfer to a Platform address")
+        });
+        assert!(!has_words(&kit, "Someone else's address"), "{typed}");
+        assert!(has_words(&kit, "this wallet's address"), "{typed}");
+    }
 }

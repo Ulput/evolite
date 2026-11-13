@@ -1,4 +1,5 @@
 {
+  "{} address will be linked on the network: anyone will see it has one owner.|{} addresses will be linked on the network: anyone will see they have one owner.": {"other":"この {} 件のアドレスはネットワーク上で結び付けられ、同じ所有者だと誰にでも分かります。"},
   "payment {} + fee": "支払い {} + 手数料",
   "Apply": "適用",
   "At most 500 coins in one payment: untick some.": "1 回の支払いは 500 コインまでです。いくつか選択を外してください。",
@@ -27,7 +28,6 @@
   "The wallet picks the coins itself: largest first, as many as the amount and the fee need. This is usually cheaper.": "ウォレットが自分でコインを選びます：大きい順に、金額と手数料に必要な分だけ。通常はこのほうが安くなります。",
   "The wallet takes only the ticked coins it needs.": "ウォレットは選択したコインのうち必要な分だけを使います。",
   "The wallet takes only the ticked coins the amount and the fee need. “Max” spends every ticked coin.": "ウォレットは選択したコインのうち、金額と手数料に必要な分だけを使います。「全額」は選択したすべてを使います。",
-  "These {} addresses will be linked on the network: anyone will see they have one owner.": "この {} 件のアドレスはネットワーク上で結び付けられ、同じ所有者だと誰にでも分かります。",
   "Tick more coins or lower the amount.": "コインを追加で選ぶか、金額を下げてください。",
   "already spent": "使用済み",
   "automatic": "自動",

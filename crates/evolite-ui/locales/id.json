@@ -1,4 +1,5 @@
 {
+  "{} address will be linked on the network: anyone will see it has one owner.|{} addresses will be linked on the network: anyone will see they have one owner.": {"other":"{} alamat ini akan terhubung di jaringan: siapa pun akan melihat pemiliknya sama."},
   "payment {} + fee": "pembayaran {} + biaya",
   "Apply": "Terapkan",
   "At most 500 coins in one payment: untick some.": "Paling banyak 500 koin per pembayaran: hapus centang sebagian.",
@@ -27,7 +28,6 @@
   "The wallet picks the coins itself: largest first, as many as the amount and the fee need. This is usually cheaper.": "Dompet memilih koin sendiri: terbesar dulu, sebanyak yang dibutuhkan jumlah dan biaya. Biasanya lebih murah.",
   "The wallet takes only the ticked coins it needs.": "Dompet hanya mengambil koin bercentang yang dibutuhkan.",
   "The wallet takes only the ticked coins the amount and the fee need. “Max” spends every ticked coin.": "Dompet hanya mengambil koin bercentang yang dibutuhkan jumlah dan biaya. «Semua» memakai semua yang dicentang.",
-  "These {} addresses will be linked on the network: anyone will see they have one owner.": "{} alamat ini akan terhubung di jaringan: siapa pun akan melihat pemiliknya sama.",
   "Tick more coins or lower the amount.": "Centang lebih banyak koin atau kurangi jumlahnya.",
   "already spent": "sudah terpakai",
   "automatic": "otomatis",

@@ -1,4 +1,5 @@
 {
+  "{} address will be linked on the network: anyone will see it has one owner.|{} addresses will be linked on the network: anyone will see they have one owner.": {"few":"Ці {} адреси буде пов'язано в мережі: будь-хто побачить, що вони одного власника.","many":"Ці {} адрес буде пов'язано в мережі: будь-хто побачить, що вони одного власника.","one":"{} адресу буде пов'язано в мережі: будь-хто побачить, що в неї один власник.","other":"Ці {} адреси буде пов'язано в мережі: будь-хто побачить, що вони одного власника."},
   "payment {} + fee": "платіж {} + комісія",
   "Apply": "Застосувати",
   "At most 500 coins in one payment: untick some.": "В одному платежі не більше 500 монет — зніміть зайві.",
@@ -27,7 +28,6 @@
   "The wallet picks the coins itself: largest first, as many as the amount and the fee need. This is usually cheaper.": "Гаманець сам вибере монети: спершу великі, скільки потрібно на суму й комісію. Так платіж зазвичай дешевший.",
   "The wallet takes only the ticked coins it needs.": "Гаманець візьме з позначених лише потрібні.",
   "The wallet takes only the ticked coins the amount and the fee need. “Max” spends every ticked coin.": "Гаманець візьме з позначених лише ті, що потрібні на суму й комісію. «Усе» витратить усі позначені.",
-  "These {} addresses will be linked on the network: anyone will see they have one owner.": "Ці адреси ({}) буде пов'язано в мережі: будь-хто побачить, що вони одного власника.",
   "Tick more coins or lower the amount.": "Позначте ще монети або зменште суму.",
   "already spent": "уже витрачено",
   "automatic": "автоматично",
