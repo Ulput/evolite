@@ -140,17 +140,7 @@ pub fn switcher(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, rail: bool, menu: &mu
     if !rail {
         let x = dot.right() + 10.0;
         let width = rect.right() - 36.0 - x;
-        let name =
-            ui.painter()
-                .layout_no_wrap(open.name.clone(), sans(14.0, Weight::SemiBold), p.text);
-        let name = elide(
-            ui,
-            name,
-            &open.name,
-            width,
-            sans(14.0, Weight::SemiBold),
-            p.text,
-        );
+        let name = name_galley(ui, &open.name, width, sans(14.0, Weight::SemiBold), p.text);
         ui.painter().galley(pos2(x, rect.top() + 9.0), name, p.text);
         crate::components::paint_text(
             ui,
@@ -179,21 +169,28 @@ pub fn switcher(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, rail: bool, menu: &mu
     }
 }
 
-/// A wallet's name cut with "…" to `width` (names are the person's, up to 24 characters).
-fn elide(
+/// A wallet's name laid out, cut with "…" to `width` (names are the person's, up to 24
+/// characters). Cut by characters in the order it was typed — a name may be one long word —
+/// and only then put in visual order: laid out as typed, an Arabic name with a number had the
+/// number on the wrong side (BUG-118). A name without Arabic is laid out as it is.
+fn name_galley(
     ui: &Ui,
-    galley: std::sync::Arc<egui::Galley>,
     name: &str,
     width: f32,
     font: egui::FontId,
     color: egui::Color32,
 ) -> std::sync::Arc<egui::Galley> {
+    let shown = |text: &str| crate::i18n::visual(text).into_owned();
+    let galley = ui
+        .painter()
+        .layout_no_wrap(shown(name), font.clone(), color);
     if galley.size().x <= width {
         return galley;
     }
     let chars: Vec<char> = name.chars().collect();
     for n in (1..chars.len()).rev() {
-        let cut: String = chars[..n].iter().collect::<String>() + "…";
+        let kept: String = chars[..n].iter().collect();
+        let cut = shown(&format!("{}…", kept.trim_end()));
         let g = ui.painter().layout_no_wrap(cut, font.clone(), color);
         if g.size().x <= width {
             return g;
@@ -265,14 +262,8 @@ fn wallet_menu(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, anchor: Rect, menu: &m
                         );
                         paint_wallet_dot(ui, dot, w);
                         let x = dot.right() + 10.0;
-                        let name = ui.painter().layout_no_wrap(
-                            w.name.clone(),
-                            sans(14.0, Weight::SemiBold),
-                            p.text,
-                        );
-                        let name = elide(
+                        let name = name_galley(
                             ui,
-                            name,
                             &w.name,
                             row.right() - 44.0 - x,
                             sans(14.0, Weight::SemiBold),
@@ -334,15 +325,14 @@ fn wallet_menu(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, anchor: Rect, menu: &m
                     }
                     ui.add_space(2.0);
                     // Wrapped in 282 px, as in Figma: two lines, the menu stays 320 wide.
-                    let galley = ui.painter().layout(
-                        crate::i18n::t(
-                            tr!("Another wallet opens with its own password; the current one gets locked."),
-                        )
-                        .into_owned(),
-                        sans(11.0, Weight::Regular),
-                        p.muted,
+                    let font = sans(11.0, Weight::Regular);
+                    let shown = crate::components::lines(
+                        ui.ctx(),
+                        tr!("Another wallet opens with its own password; the current one gets locked."),
+                        &font,
                         282.0,
                     );
+                    let galley = ui.painter().layout(shown, font, p.muted, 282.0);
                     let (foot, _) =
                         ui.allocate_exact_size(vec2(302.0, galley.size().y + 4.0), Sense::hover());
                     ui.painter().galley(
@@ -380,6 +370,58 @@ fn wallet_menu(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, anchor: Rect, menu: &m
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The glyphs of `name` as [`name_galley`] lays it out in the Arabic interface at `width`,
+    /// left to right (joined forms are other code points; digits and «…» are themselves), and
+    /// the galley's text.
+    fn drawn_name(name: &str, width: f32) -> (Vec<(char, f32)>, String) {
+        let ctx = egui::Context::default();
+        crate::theme::install_fonts(&ctx, crate::i18n::Lang::Ar, false);
+        crate::i18n::set(crate::i18n::Lang::Ar);
+        let mut laid = None;
+        for _ in 0..2 {
+            let mut out = ctx.run_ui(egui::RawInput::default(), |ui| {
+                laid = Some(name_galley(
+                    ui,
+                    name,
+                    width,
+                    sans(14.0, Weight::SemiBold),
+                    egui::Color32::WHITE,
+                ));
+            });
+            out.textures_delta.clear();
+        }
+        crate::i18n::set(crate::i18n::Lang::En);
+        let laid = laid.unwrap();
+        let mut glyphs: Vec<(char, f32)> = laid.rows[0]
+            .glyphs
+            .iter()
+            .filter(|g| g.advance_width > 0.0 && !g.chr.is_whitespace())
+            .map(|g| (g.chr, g.pos.x))
+            .collect();
+        glyphs.sort_by(|a, b| a.1.total_cmp(&b.1));
+        (glyphs, laid.job.text.clone())
+    }
+
+    /// BUG-118 (4): an Arabic wallet name with a number reads from the right, the number last
+    /// (leftmost); cut short, it keeps its start. The name was laid out as it was typed, without
+    /// visual order, so the number stood on the right.
+    #[test]
+    fn an_arabic_wallet_name_reads_from_the_right_whole_or_cut() {
+        let leftmost = |glyphs: &[(char, f32)]| glyphs.first().map(|g| g.0);
+        let (whole, _) = drawn_name("محفظة التوفير 2", 1000.0);
+        assert_eq!(leftmost(&whole), Some('2'), "{whole:?}");
+        let (cut, text) = drawn_name("محفظة التوفير العائلية 2", 70.0);
+        assert!(
+            text.contains("محفظة") && text.contains('…') && !text.contains('2'),
+            "cut to {text:?}"
+        );
+        assert_eq!(
+            leftmost(&cut),
+            Some('…'),
+            "«…» at the end, the left: {cut:?}"
+        );
+    }
 
     #[test]
     fn a_wallet_without_a_name_gets_one_by_its_place() {

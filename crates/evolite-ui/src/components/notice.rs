@@ -14,15 +14,7 @@ pub fn notice(ui: &mut Ui, a: &mut Assets, icon: &str, icon_color: Color32, text
             ui.horizontal_top(|ui| {
                 ui.spacing_mut().item_spacing.x = 10.0;
                 ui.add(a.icons.icon(icon, icon_color, &p, 18.0));
-                ui.add(
-                    egui::Label::new(
-                        egui::RichText::new(crate::i18n::t(text))
-                            .font(sans(13.0, Weight::Regular))
-                            .color(p.text)
-                            .line_height(Some(18.0)),
-                    )
-                    .wrap(),
-                );
+                ui.add(para(text, 13.0, Weight::Regular, p.text).line_height(18.0));
             });
         });
 }
@@ -64,8 +56,18 @@ pub fn notice_closable(
                     Layout::top_down(Align::Min),
                     |ui| {
                         ui.spacing_mut().item_spacing.y = 4.0;
-                        ui.add(egui::Label::new(txt(title, 13.0, Weight::SemiBold, p.text)).wrap());
-                        ui.add(egui::Label::new(txt(text, 12.0, Weight::Regular, p.muted)).wrap());
+                        ui.add(crate::components::para(
+                            title,
+                            13.0,
+                            Weight::SemiBold,
+                            p.text,
+                        ));
+                        ui.add(crate::components::para(
+                            text,
+                            12.0,
+                            Weight::Regular,
+                            p.muted,
+                        ));
                         if let Some((icon, label)) = action {
                             answer.action = text_action(ui, a, icon, label).clicked();
                         }
@@ -102,24 +104,8 @@ pub fn notice_parts(
                         if i > 0 {
                             ui.add_space(8.0);
                         }
-                        ui.add(
-                            egui::Label::new(
-                                egui::RichText::new(crate::i18n::t(heading))
-                                    .font(sans(13.0, Weight::SemiBold))
-                                    .color(p.text)
-                                    .line_height(Some(18.0)),
-                            )
-                            .wrap(),
-                        );
-                        ui.add(
-                            egui::Label::new(
-                                egui::RichText::new(crate::i18n::t(text))
-                                    .font(sans(13.0, Weight::Regular))
-                                    .color(p.text)
-                                    .line_height(Some(18.0)),
-                            )
-                            .wrap(),
-                        );
+                        ui.add(para(heading, 13.0, Weight::SemiBold, p.text).line_height(18.0));
+                        ui.add(para(text, 13.0, Weight::Regular, p.text).line_height(18.0));
                     }
                 });
             });
@@ -147,7 +133,7 @@ pub fn attention_line(ui: &mut Ui, a: &mut Assets, text: &str) {
     ui.horizontal_top(|ui| {
         ui.spacing_mut().item_spacing.x = 6.0;
         ui.add(a.icons.icon("warning", attention_color(&p), &p, 14.0));
-        ui.add(egui::Label::new(txt(text, 12.0, Weight::Regular, p.text)).wrap());
+        ui.add(crate::components::para(text, 12.0, Weight::Regular, p.text));
     });
 }
 
@@ -196,10 +182,7 @@ pub fn warning(ui: &mut Ui, a: &mut Assets, text: &str) {
                 ui.spacing_mut().item_spacing.x = 12.0;
                 ui.add(a.icons.icon("warning", p.muted, &p, 18.0));
                 ui.add(
-                    egui::Label::new(
-                        txt(text, 13.0, Weight::Regular, p.text).line_height(Some(19.5)),
-                    )
-                    .wrap(),
+                    crate::components::para(text, 13.0, Weight::Regular, p.text).line_height(19.5),
                 );
             });
         });

@@ -16,6 +16,11 @@ use evolite_api::SyncStage;
 pub const LOW_MENU: f32 = 640.0;
 /// The sidebar frame's border (`app.rs`).
 const PANEL_BORDER: f32 = 1.0;
+/// What a synced block line ends with when its block has a ChainLock. A no-break space after
+/// the «·»: a line too long breaks before «· ChainLock», which goes down whole, never leaving
+/// the «·» at the end of the first row, away from the word it introduces (BUG-119, design
+/// review).
+pub(crate) const CHAINLOCKED: &str = " ·\u{a0}ChainLock";
 /// A menu item's height in a low menu: 36, so 40 apart.
 pub const NAV_ITEM_LOW: f32 = 36.0;
 
@@ -244,11 +249,7 @@ pub fn sidebar(
         (
             tr!("Synced").to_string(),
             format!(tr!("block {}"), group_thousands(status.tip_height as i64))
-                + if status.chainlocked {
-                    " · ChainLock"
-                } else {
-                    ""
-                },
+                + if status.chainlocked { CHAINLOCKED } else { "" },
         )
     } else {
         (
@@ -285,12 +286,10 @@ pub fn sidebar(
         if compact {
             return;
         }
-        let detail = ui.painter().layout(
-            crate::i18n::t(&detail).into_owned(),
-            mono(11.0, Weight::Regular),
-            p.muted,
-            sync.right() - 12.0 - x,
-        );
+        let font = mono(11.0, Weight::Regular);
+        let wrap = sync.right() - 12.0 - x;
+        let shown = crate::components::lines(ui.ctx(), &detail, &font, wrap);
+        let detail = ui.painter().layout(shown, font, p.muted, wrap);
         ui.painter()
             .galley(egui::pos2(x, sync.top() + 31.0), detail, p.muted);
     }
@@ -441,11 +440,7 @@ fn rail_words(status: &evolite_api::SyncInfo) -> (String, String, bool) {
         );
     }
     if status.stage == SyncStage::Done {
-        let chainlock = if status.chainlocked {
-            " · ChainLock"
-        } else {
-            ""
-        };
+        let chainlock = if status.chainlocked { CHAINLOCKED } else { "" };
         return (
             tr!("Synced").to_string(),
             format!(tr!("block {}"), group_thousands(status.tip_height as i64)) + chainlock,

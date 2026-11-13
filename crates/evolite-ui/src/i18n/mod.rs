@@ -280,6 +280,93 @@ pub fn t_fitted(text: &str, fits: impl Fn(&str) -> bool) -> String {
         .unwrap_or_else(|| cut(1))
 }
 
+/// `text` as [`t`] gives it, broken into lines that each satisfy `fits` (given a line as it is
+/// drawn): words go into a line in reading order while it fits, and only then is each line put
+/// in visual order. egui wraps a line after it is reordered, so a right-to-left paragraph
+/// wrapped by egui put its end in the first line and its start in the last (BUG-119). A
+/// person's words marked by [`own`] are kept on one line; a word wider than a line alone gets
+/// a line of its own, for egui to break. Text that fits as it is comes back as [`t`] gives it.
+pub fn t_wrapped(text: &str, fits: impl Fn(&str) -> bool) -> String {
+    t_wrapped_rows(text, fits, usize::MAX)
+}
+
+/// [`t_wrapped`] in at most `rows` lines: when words are left over, the last line takes them and
+/// is cut at a word with «…», as [`t_fitted`] cuts — so the cut drops the end of the text, never
+/// its start (BUG-118: egui's own cut ended the row at its left, the start of an Arabic row).
+pub fn t_wrapped_rows(text: &str, fits: impl Fn(&str) -> bool, rows: usize) -> String {
+    if rows <= 1 {
+        // One row is [`t_fitted`]'s cut, which also cuts inside a person's words (a note).
+        return t_fitted(text, fits);
+    }
+    let whole = t(text).into_owned();
+    if fits(&whole) {
+        return whole;
+    }
+    let said = t_in(current(), text).into_owned();
+    let shown = |line: &str| unmarked(visual(line)).into_owned();
+    let mut lines = lines_in_reading_order(&said, |line| fits(&shown(line)));
+    if lines.len() > rows.max(1) {
+        let last = lines.split_off(rows.max(1) - 1).join(" ");
+        let words: Vec<&str> = words_keeping_own(&last);
+        let cut = |n: usize| {
+            let kept = words[..n].join(" ");
+            format!("{}…", kept.trim_end_matches([' ', '·']))
+        };
+        let fitted = (1..words.len())
+            .rev()
+            .map(cut)
+            .find(|line| fits(&shown(line)))
+            .unwrap_or_else(|| cut(1));
+        lines.push(fitted);
+    }
+    shown(&lines.join("\n"))
+}
+
+/// `said` (in reading order) broken into lines at its spaces, each satisfying `fits`, its own
+/// "\n" kept.
+fn lines_in_reading_order(said: &str, fits: impl Fn(&str) -> bool) -> Vec<String> {
+    let mut lines: Vec<String> = Vec::new();
+    for paragraph in said.split('\n') {
+        let mut line: Option<String> = None;
+        for word in words_keeping_own(paragraph) {
+            let Some(so_far) = line.take() else {
+                line = Some(word.to_owned());
+                continue;
+            };
+            let longer = format!("{so_far} {word}");
+            if fits(&longer) {
+                line = Some(longer);
+            } else {
+                lines.push(so_far);
+                line = Some(word.to_owned());
+            }
+        }
+        lines.push(line.unwrap_or_default());
+    }
+    lines
+}
+
+/// `paragraph` cut at its spaces, except the spaces inside a person's words marked by [`own`]:
+/// cut there, the isolate's start and end would land on different lines.
+fn words_keeping_own(paragraph: &str) -> Vec<&str> {
+    let mut words = Vec::new();
+    let mut start = 0;
+    let mut inside = 0usize;
+    for (i, c) in paragraph.char_indices() {
+        match c {
+            OWN_START => inside += 1,
+            OWN_END => inside = inside.saturating_sub(1),
+            ' ' if inside == 0 => {
+                words.push(&paragraph[start..i]);
+                start = i + 1;
+            }
+            _ => {}
+        }
+    }
+    words.push(&paragraph[start..]);
+    words
+}
+
 /// `text` in the current language for a screen reader: translated, in reading order.
 pub fn spoken(text: &str) -> String {
     unmarked(t_in(current(), text)).into_owned()
@@ -339,10 +426,72 @@ pub(crate) fn is_rtl_char(c: char) -> bool {
     is_arabic(c) || matches!(c, '\u{FB50}'..='\u{FDFF}' | '\u{FE70}'..='\u{FEFF}')
 }
 
+/// Each amount with its unit in `line` («0.0003 DASH», «1,250 mDASH», «30 000 duffs») as one
+/// left-to-right isolate, as [`isolate_names`] does with @names: in right-to-left text the
+/// number and the Latin unit stood as two runs, drawn «DASH 0.0003» (BUG-118, design review).
+/// Amounts already inside an isolate are left as they are.
+fn isolate_amounts(line: &str) -> Cow<'_, str> {
+    const UNITS: [&str; 3] = ["DASH", "mDASH", "duffs"];
+    if !UNITS.iter().any(|u| line.contains(u)) {
+        return Cow::Borrowed(line);
+    }
+    let chars: Vec<char> = line.chars().collect();
+    let separator = |c: char| matches!(c, '.' | ',' | '\u{a0}' | '\u{202f}');
+    let mut out = String::with_capacity(line.len() + 8);
+    let mut i = 0;
+    while i < chars.len() {
+        let c = chars[i];
+        let fresh = i == 0 || !(chars[i - 1].is_ascii_digit() || separator(chars[i - 1]));
+        let isolated = i > 0 && chars[i - 1] == OWN_START;
+        if !(c.is_ascii_digit() && fresh && !isolated) {
+            out.push(c);
+            i += 1;
+            continue;
+        }
+        // The number: digits, with separators between digits.
+        let mut end = i + 1;
+        while end < chars.len()
+            && (chars[end].is_ascii_digit()
+                || (separator(chars[end]) && chars.get(end + 1).is_some_and(char::is_ascii_digit)))
+        {
+            end += 1;
+        }
+        // Then a space and the unit, as a whole word.
+        let unit = chars
+            .get(end)
+            .filter(|s| matches!(s, ' ' | '\u{a0}'))
+            .and_then(|_| {
+                UNITS.iter().find(|u| {
+                    let after = end + 1 + u.chars().count();
+                    chars
+                        .get(end + 1..after)
+                        .is_some_and(|w| w.iter().copied().eq(u.chars()))
+                        && chars.get(after).is_none_or(|n| !n.is_alphanumeric())
+                })
+            });
+        match unit {
+            Some(u) => {
+                let after = end + 1 + u.chars().count();
+                out.push(OWN_START);
+                out.extend(&chars[i..after]);
+                out.push(OWN_END);
+                i = after;
+            }
+            None => {
+                out.extend(&chars[i..end]);
+                i = end;
+            }
+        }
+    }
+    Cow::Owned(out)
+}
+
 /// Each `@name` in `line` (a DPNS name: Latin letters, digits, `-`, `_`, `.` inside) as one
 /// left-to-right isolate, as [`own`] marks a person's words: in right-to-left text the bidi
 /// algorithm would otherwise give the neutral `@` the paragraph's direction and draw
-/// "alice@". Names already inside an isolate are left as they are.
+/// "alice@". Names already inside an isolate are left as they are. An `@` just before an
+/// isolate — a template's «@{}» filled with [`own`] words — goes inside it, with the name it
+/// belongs to: outside, it was as neutral as before (design review of BUG-119: «carol@»).
 fn isolate_names(line: &str) -> Cow<'_, str> {
     if !line.contains('@') {
         return Cow::Borrowed(line);
@@ -354,7 +503,14 @@ fn isolate_names(line: &str) -> Cow<'_, str> {
     while i < chars.len() {
         let c = chars[i];
         let isolated = i > 0 && chars[i - 1] == OWN_START;
-        if c == '@' && !isolated && chars.get(i + 1).is_some_and(|n| n.is_ascii_alphanumeric()) {
+        if c == '@' && chars.get(i + 1) == Some(&OWN_START) {
+            out.push(OWN_START);
+            out.push('@');
+            i += 2;
+        } else if c == '@'
+            && !isolated
+            && chars.get(i + 1).is_some_and(|n| n.is_ascii_alphanumeric())
+        {
             let mut end = i + 1;
             while end < chars.len() && name_char(chars[end]) {
                 end += 1;
@@ -406,7 +562,7 @@ pub fn visual(text: &str) -> Cow<'_, str> {
     let out = text
         .split('\n')
         .map(|line| {
-            let shaped = isolate_names(line);
+            let shaped = isolate_amounts(&isolate_names(line)).into_owned();
             let info = unicode_bidi::BidiInfo::new(&shaped, level);
             // A bracket or quote inside right-to-left text is drawn as its mirror image (bidi
             // rule L4), or "(Argon2)" would read ")Argon2("; mirrors are of one bidi class, so
@@ -498,6 +654,15 @@ pub fn separators_in(lang: Lang) -> (char, char) {
         Lang::Ru | Lang::Uk | Lang::Fr => ('\u{a0}', ','),
         Lang::De | Lang::Es | Lang::PtBr | Lang::Id | Lang::Tr | Lang::Vi => ('.', ','),
         Lang::En | Lang::ZhHans | Lang::Ja | Lang::Ko | Lang::Hi | Lang::Ar => (',', '.'),
+    }
+}
+
+/// What joins the items of a list in `lang` — a date and its time, word numbers «4–5, 11»:
+/// Arabic writes its own comma «،» (BUG-118); every other language «, ».
+pub fn list_comma(lang: Lang) -> &'static str {
+    match lang {
+        Lang::Ar => "، ",
+        _ => ", ",
     }
 }
 

@@ -333,7 +333,7 @@ pub fn qr_note(ui: &mut Ui, a: &mut Assets, note: &QrNote) {
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 6.0;
         ui.add(a.icons.icon(icon, color, &p, 14.0));
-        ui.add(egui::Label::new(txt(&line, 12.0, Weight::Regular, color)).wrap());
+        ui.add(crate::components::para(&line, 12.0, Weight::Regular, color));
     });
 }
 

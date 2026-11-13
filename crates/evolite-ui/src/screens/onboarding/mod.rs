@@ -355,10 +355,7 @@ fn heading(ui: &mut Ui, p: &Palette, title: &str, lead: &str) {
     ui.vertical(|ui| {
         ui.spacing_mut().item_spacing.y = 8.0;
         ui.label(txt(title, 28.0, Weight::Bold, p.text));
-        ui.add(
-            egui::Label::new(txt(lead, 15.0, Weight::Regular, p.muted).line_height(Some(22.5)))
-                .wrap(),
-        );
+        ui.add(crate::components::para(lead, 15.0, Weight::Regular, p.muted).line_height(22.5));
     });
 }
 

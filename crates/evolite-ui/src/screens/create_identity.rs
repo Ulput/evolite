@@ -457,7 +457,7 @@ fn name_section(ui: &mut Ui, a: &mut Assets, form: &mut CreateIdentityForm, v: &
                         .icon("check", if nameless { p.muted } else { p.text }, &p, 16.0),
                 );
             }
-            ui.add(egui::Label::new(txt(&line, 13.0, Weight::Regular, color)).wrap());
+            ui.add(crate::components::para(&line, 13.0, Weight::Regular, color));
         });
     }
     // About short contested names: hidden while there is no name to be one (frame 4).
@@ -696,16 +696,13 @@ impl Steps {
         numbered_step_at(ui, a, 4, &name_step, name_detail, state(4));
         divider(ui, &p);
         ui.add(
-            egui::Label::new(
-                txt(
+            crate::components::para(
                     tr!("If the connection drops after step 1, the money is not lost: evolite shows “Continue” here and finishes from the same place."),
                     12.0,
                     Weight::Regular,
                     p.muted,
                 )
-                .line_height(Some(18.0)),
-            )
-            .wrap(),
+                .line_height(18.0),
         );
     }
 }
@@ -858,18 +855,20 @@ fn check_new_identity(
                 &format!("≈ {}", dash(plan.total())),
                 value,
             );
-            ui.add(egui::Label::new(txt(fees_note(), 12.0, Weight::Regular, p.muted)).wrap());
+            ui.add(crate::components::para(
+                fees_note(),
+                12.0,
+                Weight::Regular,
+                p.muted,
+            ));
             ui.add(
-                egui::Label::new(
-                    txt(
+                crate::components::para(
                         tr!("The DASH are locked in Core for Platform. Once signed, this cannot be undone; if the connection drops, evolite continues from the same place."),
                         12.0,
                         Weight::Regular,
                         p.muted,
                     )
-                    .line_height(Some(18.0)),
-                )
-                .wrap(),
+                    .line_height(18.0),
             );
             let public = match &plan.label {
                 Some(label) => format!(
@@ -949,8 +948,7 @@ fn resume_card(
             , name = name),
         };
         ui.add(
-            egui::Label::new(txt(&what, 13.0, Weight::Regular, p.muted).line_height(Some(20.0)))
-                .wrap(),
+            crate::components::para(&what, 13.0, Weight::Regular, p.muted).line_height(20.0),
         );
         if let Some(Err(e)) = &form.result {
             let text = match (e, unfinished.locked) {
@@ -994,7 +992,7 @@ fn resume_card(
                 dash(needed),
                 has
             );
-            ui.add(egui::Label::new(txt(&text, 13.0, Weight::Regular, p.muted)).wrap());
+            ui.add(crate::components::para(&text, 13.0, Weight::Regular, p.muted));
             if let Some(id) = unfinished.identity.as_ref()
                 && button(ui, a, tr!("Top up"), ButtonKind::Secondary, None).clicked()
             {

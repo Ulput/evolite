@@ -177,7 +177,12 @@ fn request_field(
         return;
     };
     let muted = |ui: &mut Ui, line: &str| {
-        ui.add(egui::Label::new(txt(line, 12.0, Weight::Regular, p.muted)).wrap());
+        ui.add(crate::components::para(
+            line,
+            12.0,
+            Weight::Regular,
+            p.muted,
+        ));
     };
     if !rate.fresh {
         muted(
@@ -276,8 +281,7 @@ pub fn receive(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut ReceiveForm
                         );
                     } else {
                         ui.add(
-                            egui::Label::new(
-                                txt(
+                            crate::components::para(
                                     tr!(
                                         "Preparing the address from the wallet keys — no network needed, usually a second."
                                     ),
@@ -285,9 +289,7 @@ pub fn receive(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut ReceiveForm
                                     Weight::Regular,
                                     p.muted,
                                 )
-                                .line_height(Some(20.0)),
-                            )
-                            .wrap(),
+                                .line_height(20.0),
                         );
                     }
                     ui.horizontal(|ui| {
@@ -360,10 +362,7 @@ pub fn receive(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut ReceiveForm
                     }
                     notice(ui, a, t.note_icon, p.muted, t.note);
                     ui.add(
-                        egui::Label::new(
-                            txt(t.footer, 12.0, Weight::Regular, p.muted).line_height(Some(18.0)),
-                        )
-                        .wrap(),
+                        crate::components::para(t.footer, 12.0, Weight::Regular, p.muted).line_height(18.0),
                     );
                 });
             });

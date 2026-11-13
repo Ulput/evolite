@@ -174,7 +174,7 @@ impl Launch {
 pub const PRESETS: &[&str] = &[
     "create", "verify", "password", "restore", "dashpay", "sync", "sync-nodes",
     "overview", "hidden", "units", "remind", "wallet-menu", "wallet-switch", "overview-syncing",
-    "activity", "activity-card", "activity-filters", "activity-filters-empty",
+    "activity", "activity-card", "activity-filters", "activity-filters-empty", "activity-long-note",
     "activity-card-self", "activity-card-received",
     "activity-card-name", "activity-card-withdrawal-waiting", "activity-card-withdrawal-paid",
     "activity-card-payout", "activity-card-lock-not-added", "activity-card-shield",
@@ -265,6 +265,7 @@ fn dev_args<'a>(
                 | "activity-card"
                 | "activity-filters"
                 | "activity-filters-empty"
+                | "activity-long-note"
                 | "activity-card-self"
                 | "activity-card-received"
                 | "activity-card-name"

@@ -39,6 +39,9 @@ mod rtl;
 #[path = "../theme.rs"]
 mod theme;
 
+#[allow(dead_code, reason = "the installer uses only part of the app's module")]
+#[path = "../components/para.rs"]
+mod para;
 mod payload;
 mod plan;
 #[path = "../private_dir.rs"]

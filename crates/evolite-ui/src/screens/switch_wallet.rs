@@ -104,10 +104,7 @@ pub fn switch_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut Switc
                 ),
             };
             ui.add(
-                egui::Label::new(
-                    txt(&lead, 13.0, Weight::Regular, p.muted).line_height(Some(20.0)),
-                )
-                .wrap(),
+                crate::components::para(&lead, 13.0, Weight::Regular, p.muted).line_height(20.0),
             );
             ui.vertical(|ui| {
                 ui.spacing_mut().item_spacing.y = 6.0;

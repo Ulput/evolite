@@ -3,7 +3,6 @@
 //! (`mailto:`, no server, no password) or a folder with the report and the journal to attach.
 //! Nothing private goes in but what the person types — and a phrase is refused even then.
 
-use super::txt;
 use crate::components::{
     Assets, ButtonKind, FieldKind, button, button_enabled, button_row, checkbox, dialog,
     field_label, notice, segmented, text_area, text_field,
@@ -331,13 +330,12 @@ fn fields_step(ui: &mut Ui, a: &mut Assets, form: &mut ReportForm, room: f32) ->
                 ui.set_max_width(ui.available_width() - 14.0);
                 ui.spacing_mut().item_spacing.y = 14.0;
                 ui.add(
-                    egui::Label::new(txt(
+                    crate::components::para(
                         &format!(tr!("The email goes to the developers at {TO} from your mail app. You will see all of it before sending."), TO = TO),
                         13.0,
                         Weight::Regular,
                         p.muted,
-                    ))
-                    .wrap(),
+                    ),
                 );
                 let field = |ui: &mut Ui, label: &str, add: &mut dyn FnMut(&mut Ui)| {
                     ui.vertical(|ui| {
@@ -401,13 +399,12 @@ fn letter_step(
     let p = a.p;
     let (subject, body) = (subject(form), body(form, form.system.then_some(system)));
     ui.add(
-        egui::Label::new(txt(
+        crate::components::para(
             tr!("The whole email, as the recipient will see it. If everything is right, open it in your mail app or save it together with the journal."),
             13.0,
             Weight::Regular,
             p.muted,
-        ))
-        .wrap(),
+        ),
     );
     let preview = format!(
         tr!("To: {TO}\nSubject: {subject}\n\n{body}"),

@@ -229,7 +229,8 @@ fn arabic_mirrors_the_public_line_and_shows_the_privacy_dialog() {
     let start = |lang: &str| {
         let (_turn, mut kit) = demo_app("add-contact", lang);
         kit.run_steps(3);
-        let line = crate::i18n::t(ADD_LINE).into_owned();
+        // Two lines in Arabic: a screen reader hears them in reading order (BUG-119).
+        let line = crate::i18n::spoken(ADD_LINE);
         let rect = kit
             .query_all(By::new().role(Role::Label).value(&line))
             .next()
@@ -255,8 +256,13 @@ fn arabic_mirrors_the_public_line_and_shows_the_privacy_dialog() {
     kit.run_steps(3);
     assert!(kit.state().contacts.privacy, "not opened");
     for point in POINTS {
+        // As drawn when it is one line; in reading order when it takes more (BUG-119).
         let shown = crate::i18n::t(point).into_owned();
-        assert!(has_text(&kit, &shown), "missing: {point}");
+        let heard = crate::i18n::spoken(point);
+        assert!(
+            has_text(&kit, &shown) || has_text(&kit, &heard),
+            "missing: {point}"
+        );
     }
 }
 

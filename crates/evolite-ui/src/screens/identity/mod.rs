@@ -391,7 +391,7 @@ fn profile(
         match &id.profile {
             Some(profile) => super::contacts::about_block(ui, a, profile),
             None => {
-                ui.label(txt(
+                ui.add(crate::components::para(
                     tr!("No DashPay profile yet: your contacts will see the name, “About” and avatar."),
                     13.0,
                     Weight::Regular,
@@ -419,7 +419,7 @@ fn profile(
         );
         kv_row(ui, &p, tr!("Source"), &id.key_source, value);
         if let Some(line) = dashpay_android_line(id.slot) {
-            ui.add(egui::Label::new(txt(line, 12.0, Weight::Regular, p.muted)).wrap());
+            ui.add(crate::components::para(line, 12.0, Weight::Regular, p.muted));
         }
     });
 }
@@ -483,7 +483,7 @@ fn identity_choice(
         });
         // Why not, in words and without hovering (AC-D2), naming the identity to finish.
         if let Some(why) = &blocked {
-            ui.add(egui::Label::new(txt(why, 12.0, Weight::Regular, p.muted)).wrap());
+            ui.add(crate::components::para(why, 12.0, Weight::Regular, p.muted));
         }
     });
     if chose {
@@ -638,7 +638,7 @@ fn searching_for_identity(ui: &mut Ui, a: &mut Assets) {
         let resp = chip(ui, a, "pending", looking, false);
         crate::components::named(&resp, egui::WidgetType::Label, true, looking);
     });
-    ui.label(txt(
+    ui.add(crate::components::para(
         tr!("We check the answer against masternode lists — usually under a minute. Nothing to do here yet."),
         14.0,
         Weight::Regular,
@@ -652,7 +652,7 @@ fn searching_for_identity(ui: &mut Ui, a: &mut Assets) {
 fn no_identity(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, wallet: &Wallet, search_again: bool) {
     let p = a.p;
     let done = wallet.identity_search == IdentitySearch::Done;
-    ui.label(txt(
+    ui.add(crate::components::para(
         tr!("No identity yet. It is made from DASH on Core: a name, keys and credits for apps."),
         14.0,
         Weight::Regular,
@@ -666,7 +666,7 @@ fn no_identity(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, wallet: &Wallet, searc
     // amount to say, and the last checked one is not what Core has now.
     if let (true, CardAmount::Now(core)) = (done, CardAmount::core(&wallet.balances)) {
         let counted = cx.snap.sync.stage == evolite_api::SyncStage::Done;
-        ui.label(txt(
+        ui.add(crate::components::para(
             &format!(
                 tr!("At least ≈ {} is needed (name and creation) plus any amount for credits; Core has {} now."),
                 dash(least),
@@ -911,13 +911,12 @@ fn names(ui: &mut Ui, a: &mut Assets, id: &Identity, width: f32, cell: &mut RowC
             if id.names.is_empty() {
                 divider(ui, &p);
                 ui.add(
-                    egui::Label::new(txt(
+                    crate::components::para(
                         tr!("No names yet. With a name the identity can be found by @name and added to contacts."),
                         13.0,
                         Weight::Regular,
                         p.muted,
-                    ))
-                    .wrap(),
+                    ),
                 );
             }
         },

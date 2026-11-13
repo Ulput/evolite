@@ -205,7 +205,7 @@ fn node_form(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut NodeForm, sav
             )),
         };
         if let Some((line, color)) = line {
-            ui.add(egui::Label::new(txt(&line, 12.0, Weight::Regular, color)).wrap());
+            ui.add(crate::components::para(&line, 12.0, Weight::Regular, color));
         }
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 10.0;
@@ -277,7 +277,12 @@ pub fn nodes_dialog(ui: &mut Ui, a: &mut Assets, cx: &Ctx, tab: &mut super::Node
                     &sync.dapi_nodes,
                 ),
             };
-            ui.add(egui::Label::new(txt(&lead, 13.0, Weight::Regular, p.muted)).wrap());
+            ui.add(crate::components::para(
+                &lead,
+                13.0,
+                Weight::Regular,
+                p.muted,
+            ));
             if nodes.is_empty() {
                 ui.label(txt(
                     tr!("Looking for nodes…"),

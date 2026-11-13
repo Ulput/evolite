@@ -115,10 +115,7 @@ pub fn numbered_step_at(
             ui.spacing_mut().item_spacing.y = 2.0;
             ui.label(txt(title, 13.0, Weight::SemiBold, p.text));
             ui.add(
-                egui::Label::new(
-                    txt(detail, 12.0, Weight::Regular, p.muted).line_height(Some(17.0)),
-                )
-                .wrap(),
+                crate::components::para(detail, 12.0, Weight::Regular, p.muted).line_height(17.0),
             );
         });
     });

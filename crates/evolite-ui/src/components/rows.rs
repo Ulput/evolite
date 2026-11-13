@@ -168,11 +168,17 @@ fn tx_row_sensed(ui: &mut Ui, a: &mut Assets, row: &TxRow, sense: Sense) -> egui
     }
 
     let tx = boxr.right() + 14.0;
-    let title = ui.painter().layout_job(title_job(
-        &crate::i18n::t(row.title),
-        p.text,
-        text_right - 14.0 - tx,
-    ));
+    let title_w = text_right - 14.0 - tx;
+    // In Arabic broken in reading order first (BUG-119), measured with its mono codes.
+    let title_text = lines_measured(row.title, &sans(14.0, Weight::SemiBold), title_w, |line| {
+        ui.painter()
+            .layout_job(title_job(line, p.text, f32::INFINITY))
+            .size()
+            .x
+    });
+    let title = ui
+        .painter()
+        .layout_job(title_job(&title_text, p.text, title_w));
     ui.painter().galley(pos2(tx, cy - 17.0), title, p.text);
     let line = paint_text(
         ui,
@@ -218,7 +224,7 @@ fn tx_row_sensed(ui: &mut Ui, a: &mut Assets, row: &TxRow, sense: Sense) -> egui
         );
         let room = text_right - 14.0 - dot.right();
         if room > 0.0 {
-            let galley = ui.painter().layout_job(note_job(note, room, p.muted));
+            let galley = note_galley(ui, note, room, p.muted);
             ui.painter().galley(
                 pos2(dot.right(), cy + 9.0 - galley.size().y / 2.0),
                 galley,
@@ -234,11 +240,30 @@ pub fn quoted_note(note: &str) -> String {
     format!(tr!("“{}”"), crate::i18n::own(note))
 }
 
-/// A note as a history line shows it: one row, cut with «…» to `width`. egui keeps the laid-out
-/// text from frame to frame, so a long note is not measured anew each frame (AC-T9).
-fn note_job(note: &str, width: f32, color: Color32) -> egui::text::LayoutJob {
+/// A note as a history line shows it: one row, cut with «…» to `width`.
+pub(crate) fn note_galley(
+    ui: &Ui,
+    note: &str,
+    width: f32,
+    color: Color32,
+) -> std::sync::Arc<egui::Galley> {
+    // Arabic is cut by words from its end in reading order (BUG-118): egui's own cut keeps the
+    // left of the row, the end of an Arabic phrase. A word too long still meets egui's cut.
+    let shown = cut_to(
+        ui.ctx(),
+        &quoted_note(note),
+        &sans(12.0, Weight::Regular),
+        width,
+        1,
+    );
+    ui.painter().layout_job(note_job(shown, width, color))
+}
+
+/// A note laid out in one row, cut with «…» to `width`. egui keeps the laid-out text from frame
+/// to frame, so a long note is not measured anew each frame (AC-T9).
+fn note_job(shown: String, width: f32, color: Color32) -> egui::text::LayoutJob {
     let mut job = egui::text::LayoutJob::single_section(
-        crate::i18n::t(&quoted_note(note)).into_owned(),
+        shown,
         egui::TextFormat::simple(sans(12.0, Weight::Regular), color),
     );
     job.wrap = egui::text::TextWrapping {

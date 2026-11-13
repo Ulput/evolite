@@ -227,15 +227,12 @@ fn note_block(ui: &mut Ui, a: &mut Assets, act: &Activity) -> Option<Command> {
                             }
                         });
                     });
-                    ui.add(
-                        egui::Label::new(txt(
-                            &crate::i18n::own(note),
-                            14.0,
-                            Weight::Regular,
-                            p.text,
-                        ))
-                        .wrap(),
-                    );
+                    ui.add(crate::components::para(
+                        &crate::i18n::own(note),
+                        14.0,
+                        Weight::Regular,
+                        p.text,
+                    ));
                 });
             }
             None => {
@@ -324,22 +321,19 @@ fn note_block(ui: &mut Ui, a: &mut Assets, act: &Activity) -> Option<Command> {
                 ui.add(a.icons.icon("warning", p.danger, &p, 14.0));
                 ui.vertical(|ui| {
                     ui.spacing_mut().item_spacing.y = 4.0;
-                    ui.add(egui::Label::new(txt(why, 12.0, Weight::Medium, p.danger)).wrap());
+                    ui.add(crate::components::para(why, 12.0, Weight::Medium, p.danger));
                     if let Some(details) = details {
                         crate::components::details_line(ui, &p, details);
                     }
                 });
             });
         } else {
-            ui.add(
-                egui::Label::new(txt(
-                    tr!("Enter saves, Esc cancels. An empty note is deleted."),
-                    12.0,
-                    Weight::Regular,
-                    p.muted,
-                ))
-                .wrap(),
-            );
+            ui.add(crate::components::para(
+                tr!("Enter saves, Esc cancels. An empty note is deleted."),
+                12.0,
+                Weight::Regular,
+                p.muted,
+            ));
         }
         let kept = evolite_core::note_text::kept(&edit.text).ok().flatten();
         let deletes = kept.is_none() && note.is_some();
@@ -778,20 +772,13 @@ fn related_row(
     let width = ui.available_width();
     let wrap = (width - 2.0 * PAD - ICON - GAP - if opens { ICON + GAP } else { 0.0 }).max(40.0);
     let painter = ui.painter().clone();
-    let title_galley = painter.layout(
-        crate::i18n::t(title).into_owned(),
-        sans(13.0, Weight::Medium),
-        p.text,
-        wrap,
-    );
-    let sub_galley = sub.map(|s| {
-        painter.layout(
-            crate::i18n::t(s).into_owned(),
-            sans(12.0, Weight::Regular),
-            p.muted,
-            wrap,
-        )
-    });
+    let ctx = ui.ctx().clone();
+    let laid = |text: &str, font: egui::FontId, color| {
+        let shown = crate::components::lines(&ctx, text, &font, wrap);
+        painter.layout(shown, font, color, wrap)
+    };
+    let title_galley = laid(title, sans(13.0, Weight::Medium), p.text);
+    let sub_galley = sub.map(|s| laid(s, sans(12.0, Weight::Regular), p.muted));
     let text_height = title_galley.size().y + sub_galley.as_ref().map_or(0.0, |g| 2.0 + g.size().y);
     let sense = if opens {
         egui::Sense::click()
@@ -849,11 +836,7 @@ fn related_row(
 
 /// «Amount · when» of the operation a related line points at.
 fn amount_and_when(act: &Activity, now: DateTime<Local>) -> String {
-    format!(
-        "{} · {}",
-        text::signed_amount(act.amount),
-        text::when(act.at, now)
-    )
+    text::with_date(&text::signed_amount(act.amount), &text::when(act.at, now))
 }
 
 /// Draws [`Related`]: the identifier of the card to open, or that the Identity screen was asked.
@@ -1008,15 +991,16 @@ fn side_row(ui: &mut Ui, p: &crate::theme::Palette, label: &str, side: &Side) {
         sans(13.0, Weight::Medium)
     };
     let painter = ui.painter().clone();
-    let value = painter.layout(crate::i18n::t(&side.value).into_owned(), font, p.text, wrap);
-    let sub = side.sub.as_deref().map(|s| {
-        painter.layout(
-            crate::i18n::t(s).into_owned(),
-            sans(12.0, Weight::Regular),
-            p.muted,
-            wrap,
-        )
-    });
+    let ctx = ui.ctx().clone();
+    let laid = |text: &str, font: egui::FontId, color| {
+        let shown = crate::components::lines(&ctx, text, &font, wrap);
+        painter.layout(shown, font, color, wrap)
+    };
+    let value = laid(&side.value, font, p.text);
+    let sub = side
+        .sub
+        .as_deref()
+        .map(|s| laid(s, sans(12.0, Weight::Regular), p.muted));
     let height = value.size().y + sub.as_ref().map_or(0.0, |g| 2.0 + g.size().y);
     let (rect, resp) =
         ui.allocate_exact_size(egui::vec2(width, height.max(18.0)), egui::Sense::hover());
@@ -1097,18 +1081,15 @@ fn detail_body(
         _ => None,
     };
     if let Some(moved) = moved {
-        ui.add(
-            egui::Label::new(txt(
-                &format!(
-                    tr!("Moved {} inside the wallet: only the fee left it."),
-                    crate::format::balance(moved)
-                ),
-                13.0,
-                Weight::Regular,
-                p.muted,
-            ))
-            .wrap(),
-        );
+        ui.add(crate::components::para(
+            &format!(
+                tr!("Moved {} inside the wallet: only the fee left it."),
+                crate::format::balance(moved)
+            ),
+            13.0,
+            Weight::Regular,
+            p.muted,
+        ));
     }
     let (from, to) = sides(act, detail, book);
     if !from.is_empty() || !to.is_empty() {
@@ -1220,15 +1201,12 @@ fn detail_body(
         ui.horizontal_top(|ui| {
             ui.spacing_mut().item_spacing.x = 8.0;
             ui.add(a.icons.icon("info", p.muted, &p, 16.0));
-            ui.add(
-                egui::Label::new(txt(
-                    tr!("Part of the details of this operation was not saved"),
-                    13.0,
-                    Weight::Regular,
-                    p.muted,
-                ))
-                .wrap(),
-            );
+            ui.add(crate::components::para(
+                tr!("Part of the details of this operation was not saved"),
+                13.0,
+                Weight::Regular,
+                p.muted,
+            ));
         });
     }
 }
@@ -1239,7 +1217,7 @@ fn proof_line(ui: &mut Ui, a: &mut Assets, icon: &str, said: &str) {
     ui.horizontal_top(|ui| {
         ui.spacing_mut().item_spacing.x = 8.0;
         ui.add(a.icons.icon(icon, p.accent, &p, 16.0));
-        ui.add(egui::Label::new(txt(said, 13.0, Weight::Regular, p.text)).wrap());
+        ui.add(crate::components::para(said, 13.0, Weight::Regular, p.text));
     });
 }
 
@@ -1289,13 +1267,9 @@ fn mono_block(
         ui.spacing_mut().item_spacing.y = 6.0;
         field_label(ui, p, label);
         ui.add(
-            egui::Label::new(
-                egui::RichText::new(crate::i18n::t(value))
-                    .font(mono(12.0, Weight::Regular))
-                    .color(p.text)
-                    .line_height(Some(18.0)),
-            )
-            .wrap(),
+            crate::components::para(value, 12.0, Weight::Regular, p.text)
+                .font(mono(12.0, Weight::Regular))
+                .line_height(18.0),
         );
         if let Some(note) = note {
             ui.label(txt(note, 12.0, Weight::Regular, p.muted));
@@ -1533,7 +1507,7 @@ fn card_header(
         ui.add_space(4.0);
         card_title(ui, &p, &text::activity_title_in(act, book), width);
         ui.label(txt(
-            &format!("{} · {}", text::chain(act.chain), text::when(act.at, now)),
+            &text::with_date(text::chain(act.chain), &text::when(act.at, now)),
             14.0,
             Weight::Medium,
             p.muted,
@@ -2335,7 +2309,12 @@ fn fiat_block(
     );
     for line in &block.lines {
         ui.with_layout(egui::Layout::top_down(egui::Align::Max), |ui| {
-            ui.add(egui::Label::new(txt(line, 12.0, Weight::Regular, p.muted)).wrap());
+            ui.add(crate::components::para(
+                line,
+                12.0,
+                Weight::Regular,
+                p.muted,
+            ));
         });
     }
 }

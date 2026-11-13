@@ -305,7 +305,12 @@ fn empty(ui: &mut Ui, a: &mut Assets, status: &NftsStatus) -> bool {
             ui.spacing_mut().item_spacing.y = 8.0;
             ui.label(txt(title, 15.0, Weight::SemiBold, p.text));
             if !detail.is_empty() {
-                ui.add(egui::Label::new(txt(&detail, 13.0, Weight::Regular, p.muted)).wrap());
+                ui.add(crate::components::para(
+                    &detail,
+                    13.0,
+                    Weight::Regular,
+                    p.muted,
+                ));
             }
             if matches!(status, NftsStatus::Failed(_)) {
                 again = button(ui, a, tr!("Try again"), ButtonKind::Secondary, None).clicked();
@@ -376,14 +381,19 @@ fn nft_card(
     let x = rect.left() + 14.0;
     let y = art_rect.bottom() + 10.0;
     let painter = ui.painter();
-    let name = painter.layout_job(tile_name(&nft.name, rect.width() - 28.0, p.text));
+    let name = painter.layout_job(tile_name(
+        painter.ctx(),
+        &nft.name,
+        rect.width() - 28.0,
+        p.text,
+    ));
     let edition_y = y + name.size().y + 2.0;
     painter.galley(pos2(x, y), name, p.text);
     let edition = painter.text(
         pos2(x, edition_y),
         Align2::LEFT_TOP,
         crate::i18n::t(&edition(nft)),
-        mono(12.0, Weight::Medium),
+        crate::theme::figures(12.0, Weight::Medium),
         p.muted,
     );
     let origin = match &nft.origin {
@@ -396,9 +406,11 @@ fn nft_card(
     // The origin takes what the edition leaves and ends in "…" there: "No. 40 of 1000"
     // and "issue jembe" never run into each other.
     let room = (rect.right() - 14.0 - edition.right() - 10.0).max(0.0);
+    let font = sans(12.0, Weight::Regular);
+    // Arabic cut at a word in reading order, its start kept (BUG-118); egui cuts the rest.
     let mut job = egui::text::LayoutJob::single_section(
-        crate::i18n::t(&origin).into_owned(),
-        egui::TextFormat::simple(sans(12.0, Weight::Regular), p.muted),
+        crate::components::cut_to(painter.ctx(), &origin, &font, room, 1),
+        egui::TextFormat::simple(font, p.muted),
     );
     job.wrap = egui::text::TextWrapping::truncate_at_width(room);
     let origin = painter.layout_job(job);
@@ -415,10 +427,17 @@ const NAME_ROW: f32 = 20.0;
 
 /// A tile's name: two rows at most, then «…» (design review №24: one row cut «Кольцо с
 /// брилли…»); the whole of it is also on hover and in the details.
-fn tile_name(name: &str, width: f32, color: egui::Color32) -> egui::text::LayoutJob {
+fn tile_name(
+    ctx: &egui::Context,
+    name: &str,
+    width: f32,
+    color: egui::Color32,
+) -> egui::text::LayoutJob {
+    let font = sans(15.0, Weight::SemiBold);
+    // In Arabic: two lines in reading order, the second cut at a word (BUG-118, BUG-119).
     let mut job = egui::text::LayoutJob::single_section(
-        crate::i18n::t(name).into_owned(),
-        egui::TextFormat::simple(sans(15.0, Weight::SemiBold), color),
+        crate::components::cut_to(ctx, name, &font, width, 2),
+        egui::TextFormat::simple(font, color),
     );
     job.wrap = egui::text::TextWrapping {
         max_width: width,
@@ -472,15 +491,13 @@ fn detail(
                 };
                 ui.label(
                     egui::RichText::new(crate::i18n::t(&format!("{kind} · {}", edition(nft))))
-                        .font(mono(12.0, Weight::Regular))
+                        .font(crate::theme::figures(12.0, Weight::Regular))
                         .color(p.muted),
                 );
             });
             ui.add(
-                egui::Label::new(
-                    txt(&nft.description, 13.0, Weight::Regular, p.muted).line_height(Some(19.5)),
-                )
-                .wrap(),
+                crate::components::para(&nft.description, 13.0, Weight::Regular, p.muted)
+                    .line_height(19.5),
             );
             if nft.art_verified {
                 chip(
@@ -526,7 +543,7 @@ fn detail(
             kv_row(ui, &p, tr!("Owner"), &nft.owner, value.clone());
             match &nft.origin {
                 NftOrigin::Gift { from, at } => {
-                    let line = format!("{from} · {}", text::date_short(*at, now));
+                    let line = text::with_date(from, &text::date_short(*at, now));
                     kv_row(ui, &p, tr!("Gift from"), &line, value.clone());
                 }
                 // Platform may not keep when it changed hands: then no date is made up.
@@ -575,18 +592,15 @@ fn detail(
                         .on_disabled_hover_text(crate::i18n::t(SELL_LATER).into_owned());
                 });
                 if let Some(fee) = gift_fee {
-                    ui.add(
-                        egui::Label::new(txt(
-                            &format!(
-                                tr!("Transfer ≈ {} · a gift cannot be burned"),
-                                crate::format::amount(fee)
-                            ),
-                            12.0,
-                            Weight::Regular,
-                            p.muted,
-                        ))
-                        .wrap(),
-                    );
+                    ui.add(crate::components::para(
+                        &format!(
+                            tr!("Transfer ≈ {} · a gift cannot be burned"),
+                            crate::format::amount(fee)
+                        ),
+                        12.0,
+                        Weight::Regular,
+                        p.muted,
+                    ));
                 }
             }
         });
@@ -746,7 +760,7 @@ mod tests {
         for _ in 0..2 {
             let mut out = ctx.run_ui(egui::RawInput::default(), |ui| {
                 let color = egui::Color32::WHITE;
-                let job = super::tile_name(name, 160.0 - 28.0, color);
+                let job = super::tile_name(ui.ctx(), name, 160.0 - 28.0, color);
                 let mut cut = job.clone();
                 cut.wrap = egui::text::TextWrapping::truncate_at_width(160.0 - 28.0);
                 two = Some(ui.painter().layout_job(job));
@@ -759,6 +773,36 @@ mod tests {
         assert!(!two.elided, "two rows hold it");
         assert_eq!(two.rows.len(), 2);
         assert!(two.size().y <= 2.0 * super::NAME_ROW, "{}", two.size().y);
+    }
+
+    /// BUG-118 (4): an Arabic name too long for a tile's two rows keeps its start: the second
+    /// row ends with «…» after whole words, in reading order. egui's cut ended the second row at
+    /// its left — the start of that row's words in Arabic.
+    #[test]
+    fn a_long_arabic_tiles_name_keeps_its_start_on_two_rows() {
+        const NAME: &str = "خاتم ذهبي مرصع بالألماس من مجموعة الربيع النادرة جدا";
+        let ctx = egui::Context::default();
+        crate::theme::install_fonts(&ctx, crate::i18n::Lang::Ar, false);
+        crate::i18n::set(crate::i18n::Lang::Ar);
+        let mut laid = None;
+        for _ in 0..2 {
+            let mut out = ctx.run_ui(egui::RawInput::default(), |ui| {
+                let job = super::tile_name(ui.ctx(), NAME, 160.0 - 28.0, egui::Color32::WHITE);
+                laid = Some(ui.painter().layout_job(job));
+            });
+            out.textures_delta.clear();
+        }
+        crate::i18n::set(crate::i18n::Lang::En);
+        let laid = laid.unwrap();
+        let text = &laid.job.text;
+        let rows: Vec<&str> = text.split('\n').collect();
+        assert_eq!(rows.len(), 2, "{text:?}");
+        assert!(rows[0].contains("خاتم"), "the first word on top: {text:?}");
+        assert!(
+            rows[1].contains('…') && !text.contains("جدا"),
+            "the second row cut after whole words: {text:?}"
+        );
+        assert!(!laid.elided, "nothing left for egui to cut: {text:?}");
     }
 
     #[test]

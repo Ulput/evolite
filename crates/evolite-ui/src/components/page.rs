@@ -55,8 +55,18 @@ pub fn wheel_over_margins(ui: &Ui, panel: Rect, content: Rect) {
     }
 }
 
-/// "NETWORK", "TODAY": 11 mono Medium, uppercase, letter spacing 0.88.
+/// "NETWORK", "TODAY": 11 mono Medium, uppercase, letter spacing 0.88. In the Arabic interface
+/// 11 sans Medium as it is: the mono and its spacing set Arabic letters apart and broke words
+/// («اللغة  والتنسيق», BUG-118), and Arabic has no capitals.
 pub fn section_label(ui: &mut Ui, p: &Palette, text: &str) {
+    if crate::i18n::rtl() {
+        ui.label(
+            egui::RichText::new(crate::i18n::t(text))
+                .font(sans(11.0, Weight::Medium))
+                .color(p.muted),
+        );
+        return;
+    }
     ui.label(
         egui::RichText::new(crate::i18n::t(text).to_uppercase())
             .font(mono(11.0, Weight::Medium))

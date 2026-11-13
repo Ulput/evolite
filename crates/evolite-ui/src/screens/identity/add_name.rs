@@ -51,8 +51,7 @@ pub(super) fn add_name_dialog(
         |ui, a| {
             let p = a.p;
             ui.add(
-                egui::Label::new(
-                    txt(
+                crate::components::para(
                         &format!(
                             tr!("One more DPNS name for {me}: people can find you and pay you by it too.")
                         , me = me),
@@ -60,9 +59,7 @@ pub(super) fn add_name_dialog(
                         Weight::Regular,
                         p.muted,
                     )
-                    .line_height(Some(20.0)),
-                )
-                .wrap(),
+                    .line_height(20.0),
             );
             name_field(ui, &p, form, &label, &check);
             let value = mono(13.0, Weight::Medium);
@@ -177,7 +174,7 @@ fn name_field(
                 };
                 if let Some(line) = line {
                     ui.add(
-                        egui::Label::new(txt(&line, 12.0, Weight::Regular, color)).wrap(),
+                        crate::components::para(&line, 12.0, Weight::Regular, color),
                     );
                 }
             });
@@ -195,20 +192,15 @@ fn credits_state(
 ) {
     let p = *p;
     if !read {
-        ui.add(
-            egui::Label::new(txt(
-                &format!(
-                    "{}.",
-                    tr!(
-                        "The identity's credits are not read yet: nothing is charged until they are"
-                    )
-                ),
-                12.0,
-                Weight::Regular,
-                p.muted,
-            ))
-            .wrap(),
-        );
+        ui.add(crate::components::para(
+            &format!(
+                "{}.",
+                tr!("The identity's credits are not read yet: nothing is charged until they are")
+            ),
+            12.0,
+            Weight::Regular,
+            p.muted,
+        ));
     } else if short {
         ui.horizontal_wrapped(|ui| {
             ui.spacing_mut().item_spacing.x = 8.0;
@@ -227,13 +219,12 @@ fn credits_state(
             }
         });
         ui.add(
-                    egui::Label::new(txt(
+                    crate::components::para(
                         tr!("Platform wants this much before it writes a name; what the name does not use stays on the identity."),
                         12.0,
                         Weight::Regular,
                         p.muted,
-                    ))
-                    .wrap(),
+                    ),
                 );
     }
 }

@@ -38,8 +38,7 @@ pub(super) fn top_up_dialog(
         |ui, a| {
             let p = a.p;
             ui.add(
-                egui::Label::new(
-                    txt(
+                crate::components::para(
                         &format!(
                             tr!("DASH from Core become credits of {me}: they pay for writes to Platform — names, contacts, profile.")
                         , me = me),
@@ -47,9 +46,7 @@ pub(super) fn top_up_dialog(
                         Weight::Regular,
                         p.muted,
                     )
-                    .line_height(Some(20.0)),
-                )
-                .wrap(),
+                    .line_height(20.0),
             );
             ui.vertical(|ui| {
                 ui.spacing_mut().item_spacing.y = 8.0;

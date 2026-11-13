@@ -121,7 +121,7 @@ pub fn delete_dialog(
             });
         }
         for line in lines {
-            ui.add(egui::Label::new(txt(line, 13.0, Weight::Regular, p.text)).wrap());
+            ui.add(crate::components::para(line, 13.0, Weight::Regular, p.text));
         }
         // The wallet has payment notes: they go with it for good (FEAT-0003, AC-D7).
         if notes {
@@ -203,7 +203,12 @@ pub fn delete_dialog(
             _ => None,
         };
         if let Some(error) = error {
-            ui.add(egui::Label::new(txt(&error, 12.0, Weight::Regular, p.danger)).wrap());
+            ui.add(crate::components::para(
+                &error,
+                12.0,
+                Weight::Regular,
+                p.danger,
+            ));
         }
         button_row(ui, |ui| {
             if button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked() {

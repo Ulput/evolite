@@ -464,13 +464,12 @@ pub(super) fn rename_dialog(
             });
             ui.add_space(8.0);
             ui.add(
-                egui::Label::new(txt(
+                crate::components::para(
                     tr!("Only you see the name and colour: they are kept on this computer and never sent to the network."),
                     12.0,
                     Weight::Regular,
                     p.muted,
-                ))
-                .wrap(),
+                ),
             );
             ui.add_space(10.0);
             let ready = (1..=NAME_MAX).contains(&len) && !form.waiting;

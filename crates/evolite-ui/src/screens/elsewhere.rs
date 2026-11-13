@@ -24,13 +24,12 @@ pub fn elsewhere(ui: &mut Ui, a: &mut Assets) {
         ui.allocate_ui(egui::vec2(column, 0.0), |ui| {
             ui.spacing_mut().item_spacing.y = 16.0;
             ui.add(
-                egui::Label::new(txt(
+                crate::components::para(
                     tr!("Work in the first evolite window. Two copies on one data folder could damage the history and the phrase's vault, so nothing is open here — neither keys nor data."),
                     14.0,
                     Weight::Regular,
                     p.muted,
-                ))
-                .wrap(),
+                ),
             );
             notice(
                 ui,

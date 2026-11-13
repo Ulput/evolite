@@ -2,7 +2,6 @@
 //! show it: the warning before it, the plate with its countdown, the line after it. The core
 //! counts and refuses; this only shows the `wait_until` and `wrong_tries` it sends.
 
-use super::txt;
 use crate::components::Assets;
 use crate::i18n::{self, own};
 use crate::text::plural;
@@ -131,26 +130,22 @@ pub fn plate(ui: &mut Ui, a: &mut Assets, secs: u64, until: Timestamp) {
                 ui.vertical(|ui| {
                     ui.spacing_mut().item_spacing.y = 2.0;
                     ui.add(
-                        egui::Label::new(txt(
+                        crate::components::para(
                             tr!("Too many wrong passwords"),
                             13.0,
                             Weight::SemiBold,
                             p.text,
-                        ))
-                        .wrap(),
+                        ),
                     );
                     ui.add(egui::Label::new(countdown_line(secs, p.text)).wrap());
                     ui.add(
-                        egui::Label::new(
-                            txt(
+                        crate::components::para(
                                 tr!("Each new wrong password makes the pause longer. Nothing is deleted."),
                                 12.0,
                                 Weight::Regular,
                                 p.muted,
                             )
-                            .line_height(Some(17.0)),
-                        )
-                        .wrap(),
+                            .line_height(17.0),
                     );
                 });
             });
@@ -220,7 +215,12 @@ pub fn after_line(ui: &mut Ui, a: &mut Assets, text: &str) {
     ui.horizontal_top(|ui| {
         ui.spacing_mut().item_spacing.x = 6.0;
         ui.add(a.icons.icon("info", p.muted, &p, 16.0));
-        ui.add(egui::Label::new(txt(text, 12.0, Weight::Regular, p.muted)).wrap());
+        ui.add(crate::components::para(
+            text,
+            12.0,
+            Weight::Regular,
+            p.muted,
+        ));
     });
 }
 

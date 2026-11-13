@@ -6,7 +6,6 @@ use crate::components::{
     Assets, ButtonKind, button, button_enabled, button_row_destructive, dialog, kv_row,
 };
 use crate::context::Ctx;
-use crate::screens::txt;
 use crate::text;
 use crate::theme::{Weight, sans};
 use egui::Ui;
@@ -45,13 +44,12 @@ pub(super) fn resync_dialog(
         |ui, a| {
             let mut close = false;
             ui.add(
-            egui::Label::new(txt(
+            crate::components::para(
                 tr!("evolite downloads the headers and block filters again and finds the coins and history from the wallet's creation date. Keys, identities, names and contacts are not touched."),
                 13.0,
                 Weight::Regular,
                 p.text,
-            ))
-            .wrap(),
+            ),
         );
             let value = sans(13.0, Weight::Medium);
             // What is read again and what stays (BUG-58, decision B: Platform too).
@@ -77,25 +75,19 @@ pub(super) fn resync_dialog(
                 tr!("unavailable until it ends"),
                 value,
             );
-            ui.add(
-                egui::Label::new(txt(
-                    tr!("evolite restarts for this; enter your password after the restart."),
+            ui.add(crate::components::para(
+                tr!("evolite restarts for this; enter your password after the restart."),
+                12.0,
+                Weight::Regular,
+                p.muted,
+            ));
+            if let Some(error) = &form.error {
+                ui.add(crate::components::para(
+                    &text::error_text(error),
                     12.0,
                     Weight::Regular,
-                    p.muted,
-                ))
-                .wrap(),
-            );
-            if let Some(error) = &form.error {
-                ui.add(
-                    egui::Label::new(txt(
-                        &text::error_text(error),
-                        12.0,
-                        Weight::Regular,
-                        p.danger,
-                    ))
-                    .wrap(),
-                );
+                    p.danger,
+                ));
             }
             // It restarts the app and takes 10–20 minutes: «Cancel» first (the designer's rule b′).
             button_row_destructive(ui, |ui| {

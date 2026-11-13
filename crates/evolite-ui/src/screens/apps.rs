@@ -319,16 +319,13 @@ pub fn apps(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, requests: &mut AppRequest
         ui.spacing_mut().item_spacing.y = 16.0;
         let total = ui.available_width();
         ui.add(
-            egui::Label::new(
-                txt(
+            crate::components::para(
                     tr!("Apps on Dash Platform you allowed to sign in as your identity. Each connection has its own spending limit and period; the app cannot spend more."),
                     14.0,
                     Weight::Regular,
                     p.muted,
                 )
-                .line_height(Some(21.0)),
-            )
-            .wrap(),
+                .line_height(21.0),
         );
         // The demo's example: a real app gives a real link.
         #[cfg(demo_core)]

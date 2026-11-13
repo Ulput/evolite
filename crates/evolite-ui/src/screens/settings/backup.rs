@@ -222,7 +222,7 @@ pub(super) fn check_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mu
                     });
                 }
                 (None, Some(questions)) => {
-                    ui.label(txt(
+                    ui.add(crate::components::para(
                         tr!("Pick the words at these numbers. evolite does not show the phrase itself."),
                         13.0,
                         Weight::Regular,

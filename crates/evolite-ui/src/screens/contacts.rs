@@ -262,16 +262,13 @@ pub fn contacts(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut ContactsS
         ui.spacing_mut().item_spacing.y = 16.0;
         let total = ui.available_width();
         ui.add(
-            egui::Label::new(
-                txt(
-                    tr!("DashPay contacts: you exchanged requests. The requests themselves are public; the payment keys inside them are encrypted. Each payment goes to a new address from the contact's keys. A request is a write to Platform paid for by the identity's credits."),
-                    14.0,
-                    Weight::Regular,
-                    p.muted,
-                )
-                .line_height(Some(21.0)),
+            crate::components::para(
+                tr!("DashPay contacts: you exchanged requests. The requests themselves are public; the payment keys inside them are encrypted. Each payment goes to a new address from the contact's keys. A request is a write to Platform paid for by the identity's credits."),
+                14.0,
+                Weight::Regular,
+                p.muted,
             )
-            .wrap(),
+            .line_height(21.0),
         );
         state.forget_not_enough_after_top_up(
             known_credits(wallet),
@@ -332,10 +329,7 @@ pub fn contacts(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut ContactsS
                     ui.label(txt(title, 14.0, Weight::SemiBold, p.text));
                 });
                 ui.add(
-                    egui::Label::new(
-                        txt(body, 12.0, Weight::Regular, p.muted).line_height(Some(18.0)),
-                    )
-                    .wrap(),
+                    crate::components::para(body, 12.0, Weight::Regular, p.muted).line_height(18.0),
                 );
             });
         });
@@ -664,10 +658,7 @@ pub fn about_block(ui: &mut Ui, a: &mut Assets, profile: &Profile) {
     ui.vertical(|ui| {
         ui.spacing_mut().item_spacing.y = 6.0;
         ui.label(txt(tr!("Bio"), 12.0, Weight::Regular, p.muted));
-        ui.add(
-            egui::Label::new(txt(about, 14.0, Weight::Regular, p.text).line_height(Some(20.0)))
-                .wrap(),
-        );
+        ui.add(crate::components::para(about, 14.0, Weight::Regular, p.text).line_height(20.0));
     });
 }
 
@@ -954,13 +945,12 @@ fn my_qr(ui: &mut Ui, a: &mut Assets, wallet: &Wallet, open: &mut bool) {
     let closed = dialog(ui, a, "my-qr", "scan", &title, 440.0, |ui, a| {
         let p = a.p;
         ui.add(
-            egui::Label::new(txt(
+            crate::components::para(
                 tr!("Show this code: DashPay or evolite opens a payment to you. It holds your name and your current receiving address."),
                 13.0,
                 Weight::Regular,
                 p.muted,
-            ))
-            .wrap(),
+            ),
         );
         if wallet.core_address.is_empty() {
             super::receive::qr_waiting(ui, &p);
@@ -969,11 +959,8 @@ fn my_qr(ui: &mut Ui, a: &mut Assets, wallet: &Wallet, open: &mut bool) {
         }
         // The link whole, in Mono; in Arabic it keeps its own direction (`own`).
         ui.add(
-            egui::Label::new(
-                txt(&crate::i18n::own(&link), 12.0, Weight::Regular, p.text)
-                    .font(mono(12.0, Weight::Regular)),
-            )
-            .wrap(),
+            crate::components::para(&crate::i18n::own(&link), 12.0, Weight::Regular, p.text)
+                .font(mono(12.0, Weight::Regular)),
         );
         kv_row(
             ui,
@@ -1035,7 +1022,7 @@ fn accept_dialog(
         440.0,
         |ui, a| {
             ui.spacing_mut().item_spacing.y = 14.0;
-            ui.label(txt(
+            ui.add(crate::components::para(
                 &format!(
                     tr!("{who} becomes a contact: you can pay each other. The answer costs ≈ {fee} of the identity's credits."),
                     who = crate::i18n::own(&who),
@@ -1105,10 +1092,7 @@ fn public_line(ui: &mut Ui, a: &mut Assets, text: &str) {
     ui.horizontal_top(|ui| {
         ui.spacing_mut().item_spacing.x = 6.0;
         ui.add(a.icons.icon("info", p.muted, &p, 16.0));
-        ui.add(
-            egui::Label::new(txt(text, 12.0, Weight::Regular, p.muted).line_height(Some(17.0)))
-                .wrap(),
-        );
+        ui.add(crate::components::para(text, 12.0, Weight::Regular, p.muted).line_height(17.0));
     });
 }
 
@@ -1188,10 +1172,8 @@ fn privacy_dialog(ui: &mut Ui, a: &mut Assets, state: &mut ContactsState) {
                         ui.spacing_mut().item_spacing.x = 8.0;
                         ui.label(txt("•", 14.0, Weight::Regular, p.muted));
                         ui.add(
-                            egui::Label::new(
-                                txt(point, 14.0, Weight::Regular, p.text).line_height(Some(20.0)),
-                            )
-                            .wrap(),
+                            crate::components::para(point, 14.0, Weight::Regular, p.text)
+                                .line_height(20.0),
                         );
                     });
                 }
@@ -1250,28 +1232,22 @@ fn found_box(ui: &mut Ui, a: &mut Assets, found: &ResolvedName, asked: &mut Vec<
             });
             if let Some(about) = &profile.about {
                 ui.add(
-                    egui::Label::new(
-                        txt(&format!("«{about}»"), 12.0, Weight::Regular, p.muted)
-                            .line_height(Some(17.0)),
-                    )
-                    .wrap(),
+                    crate::components::para(&format!("«{about}»"), 12.0, Weight::Regular, p.muted)
+                        .line_height(17.0),
                 );
             }
             ui.add(
-                egui::Label::new(
-                    txt(
-                        &format!(
-                            tr!("identity {} · @{} verified by a Platform proof"),
-                            short_id(&found.identity_id),
-                            found.name
-                        ),
-                        12.0,
-                        Weight::Regular,
-                        p.muted,
-                    )
-                    .line_height(Some(17.0)),
+                crate::components::para(
+                    &format!(
+                        tr!("identity {} · @{} verified by a Platform proof"),
+                        short_id(&found.identity_id),
+                        found.name
+                    ),
+                    12.0,
+                    Weight::Regular,
+                    p.muted,
                 )
-                .wrap(),
+                .line_height(17.0),
             );
         });
 }
@@ -1302,7 +1278,12 @@ pub(super) fn reserve_warning(wallet: &Wallet) -> Option<String> {
 
 /// [`reserve_warning`] as a line of text.
 pub(super) fn reserve_line(ui: &mut Ui, p: &crate::theme::Palette, warning: &str) {
-    ui.add(egui::Label::new(txt(warning, 13.0, Weight::Regular, p.muted)).wrap());
+    ui.add(crate::components::para(
+        warning,
+        13.0,
+        Weight::Regular,
+        p.muted,
+    ));
 }
 
 /// [`reserve_line`] in a dialog, if the identity has too little.

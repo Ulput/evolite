@@ -56,6 +56,9 @@ pub(super) struct DevState {
     /// `--screen activity-card-long-title`: the demo's contact request is from a name long
     /// enough to reach the card's close cross (BUG-114).
     long_name: bool,
+    /// `--screen activity-long-note`: History with an Arabic note too long for its row, cut with
+    /// «…» at a word, its start kept (BUG-118).
+    long_note: bool,
     /// The unlock presets of FEAT-0002: the wallets' wrong passwords as the core would send them.
     pause_preset: Option<PausePreset>,
     /// The clock the screens read, stopped at the start: a countdown in a screenshot shows
@@ -161,6 +164,7 @@ impl DevState {
             },
             incomplete_details: false,
             long_name: dev.preset("activity-card-long-title"),
+            long_note: dev.preset("activity-long-note"),
             notes_error: dev
                 .preset("activity-notes-unreadable")
                 .then_some(evolite_api::NotesError::PutAside),
@@ -311,6 +315,15 @@ impl App {
             for d in w.activity.iter_mut().filter_map(|a| a.detail.as_mut()) {
                 d.incomplete = true;
             }
+        }
+        if self.dev.long_note
+            && let Some(w) = self.snapshot.as_mut().and_then(|s| s.wallet.as_mut())
+            && let Some(line) = w.activity.iter_mut().find(|a| a.note.is_some())
+        {
+            line.note = Some(
+                "مقابل تصميم الشعار والهوية البصرية الكاملة للمتجر الجديد في وسط المدينة · الفاتورة رقم 14"
+                    .into(),
+            );
         }
         if self.dev.long_name
             && let Some(w) = self.snapshot.as_mut().and_then(|s| s.wallet.as_mut())

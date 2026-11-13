@@ -233,12 +233,10 @@ fn theme_name(
     width: f32,
     color: egui::Color32,
 ) -> std::sync::Arc<egui::Galley> {
-    ui.painter().layout(
-        crate::i18n::t(label).into_owned(),
-        sans(13.0, if on { Weight::SemiBold } else { Weight::Medium }),
-        color,
-        width - 38.0 - 16.0,
-    )
+    let font = sans(13.0, if on { Weight::SemiBold } else { Weight::Medium });
+    let wrap = width - 38.0 - 16.0;
+    let shown = crate::components::lines(ui.ctx(), label, &font, wrap);
+    ui.painter().layout(shown, font, color, wrap)
 }
 
 /// A theme preview: a little window in that theme's colours, a tick on the chosen one.

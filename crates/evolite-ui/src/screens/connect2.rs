@@ -249,10 +249,7 @@ fn explanation(sessions: &[SessionOffer], now: DateTime<Local>) -> String {
 }
 
 fn wrapped(ui: &mut Ui, text: &str, size: f32, color: egui::Color32) {
-    ui.add(
-        egui::Label::new(txt(text, size, Weight::Regular, color).line_height(Some(size * 1.5)))
-            .wrap(),
-    );
+    ui.add(crate::components::para(text, size, Weight::Regular, color).line_height(size * 1.5));
 }
 
 fn section(ui: &mut Ui, a: &Assets, text: &str) {
@@ -462,7 +459,7 @@ pub fn request(
                 section(ui, a, tr!("Sign in as"));
                 ui.label(txt(identity, 14.0, Weight::Medium, p.text));
                 if cx.wallet().identities.len() > 1 {
-                    ui.label(txt(
+                    ui.add(crate::components::para(
                         tr!("Signs in with the identity chosen in “Work as”; you can change it there."),
                         12.0,
                         Weight::Regular,

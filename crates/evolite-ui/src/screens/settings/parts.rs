@@ -16,7 +16,12 @@ pub(super) fn heading(ui: &mut Ui, p: &Palette, title: &str, lead: Option<&str>)
         ui.spacing_mut().item_spacing.y = 4.0;
         ui.label(txt(title, 20.0, Weight::Bold, p.text));
         if let Some(lead) = lead {
-            ui.add(egui::Label::new(txt(lead, 13.0, Weight::Regular, p.muted)).wrap());
+            ui.add(crate::components::para(
+                lead,
+                13.0,
+                Weight::Regular,
+                p.muted,
+            ));
         }
     });
 }
@@ -103,10 +108,8 @@ fn row(ui: &mut Ui, a: &mut Assets, title: &str, sub: &str, control: Control) ->
                     ui.spacing_mut().item_spacing.y = 3.0;
                     ui.label(txt(title, 14.0, Weight::SemiBold, p.text));
                     ui.add(
-                        egui::Label::new(
-                            txt(sub, 12.0, Weight::Regular, p.muted).line_height(Some(17.4)),
-                        )
-                        .wrap(),
+                        crate::components::para(sub, 12.0, Weight::Regular, p.muted)
+                            .line_height(17.4),
                     );
                 });
                 ui.horizontal(|ui| {
@@ -134,10 +137,8 @@ fn row(ui: &mut Ui, a: &mut Assets, title: &str, sub: &str, control: Control) ->
                     ui.spacing_mut().item_spacing.y = 3.0;
                     ui.label(txt(title, 14.0, Weight::SemiBold, p.text));
                     ui.add(
-                        egui::Label::new(
-                            txt(sub, 12.0, Weight::Regular, p.muted).line_height(Some(17.4)),
-                        )
-                        .wrap(),
+                        crate::components::para(sub, 12.0, Weight::Regular, p.muted)
+                            .line_height(17.4),
                     );
                 });
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {

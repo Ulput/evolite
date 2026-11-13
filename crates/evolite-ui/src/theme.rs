@@ -128,6 +128,17 @@ pub fn mono(size: f32, weight: Weight) -> FontId {
     }
 }
 
+/// [`mono`] for a line of figures with words around them («No. 12 of 500», «3 notes · last
+/// checked …»), but [`sans`] in the Arabic interface: the mono sets Arabic letters apart and
+/// stretched its words (BUG-118).
+pub fn figures(size: f32, weight: Weight) -> FontId {
+    if crate::i18n::rtl() {
+        sans(size, weight)
+    } else {
+        mono(size, weight)
+    }
+}
+
 /// The named type scale (FEAT-0033): every text of the app takes one of these steps, not a size
 /// of its own. A step is a size, the line height of a paragraph in it (the designer's table: about 1.5 times the size), the
 /// face and the weight it is set in. Screens move to it one by one (FEAT-0033 step 2); until

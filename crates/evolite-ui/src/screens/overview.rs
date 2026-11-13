@@ -343,11 +343,7 @@ fn latest_operations(
             ));
         }
         for act in wallet.activity.iter().take(5) {
-            let detail = format!(
-                "{} · {}",
-                text::chain(act.chain),
-                text::when(act.at, cx.now)
-            );
+            let detail = text::with_date(text::chain(act.chain), &text::when(act.at, cx.now));
             // The same card as in History.
             let row = tx_row_clickable(
                 ui,

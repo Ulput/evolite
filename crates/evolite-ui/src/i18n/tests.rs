@@ -426,11 +426,31 @@ fn an_abbreviation_at_the_end_takes_no_second_point() {
 /// HarfBuzz) in Inter with the app's Noto Sans Arabic, as `(char, x)` of each glyph by `x`.
 /// Joined forms (U+FE80…) are read as their letters.
 fn drawn(text: &str) -> Vec<(char, f32)> {
-    use egui::epaint::text::{FontData, FontDefinitions, Fonts, TextOptions};
     use egui::{Color32, FontFamily, FontId};
-    use std::sync::Arc;
     set(Lang::Ar);
     let shown = visual(text).into_owned();
+    let mut fonts = app_fonts();
+    let mut view = fonts.with_pixels_per_point(1.0);
+    let galley = view.layout_no_wrap(
+        shown,
+        FontId::new(20.0, FontFamily::Proportional),
+        Color32::WHITE,
+    );
+    set(Lang::En);
+    let mut glyphs: Vec<(char, f32)> = galley.rows[0]
+        .glyphs
+        .iter()
+        .map(|g| (letter(g.chr), g.pos.x))
+        .collect();
+    glyphs.sort_by(|a, b| a.1.total_cmp(&b.1));
+    glyphs
+}
+
+/// Inter with the app's Noto Sans Arabic behind it, as the app's proportional family.
+fn app_fonts() -> egui::epaint::text::Fonts {
+    use egui::FontFamily;
+    use egui::epaint::text::{FontData, FontDefinitions, Fonts, TextOptions};
+    use std::sync::Arc;
     let mut defs = FontDefinitions::empty();
     defs.font_data.insert(
         "latin".into(),
@@ -448,21 +468,87 @@ fn drawn(text: &str) -> Vec<(char, f32)> {
         FontFamily::Proportional,
         vec!["latin".into(), "arabic".into()],
     );
-    let mut fonts = Fonts::new(TextOptions::default(), defs);
-    let mut view = fonts.with_pixels_per_point(1.0);
-    let galley = view.layout_no_wrap(
-        shown,
-        FontId::new(20.0, FontFamily::Proportional),
-        Color32::WHITE,
-    );
+    Fonts::new(TextOptions::default(), defs)
+}
+
+/// BUG-119: a paragraph is broken in reading order, and only then is each line turned into
+/// visual order: the first line holds the first words.
+#[test]
+fn a_paragraph_is_broken_in_reading_order() {
+    set(Lang::Ar);
+    let short = |line: &str| line.chars().count() <= 5;
+    let lines = t_wrapped("أ ب ت ث ج ح", short);
+    let kept = t_wrapped(&format!("أ {} ب", own("x y z")), short);
+    let whole = t_wrapped("أ ب ت", short);
     set(Lang::En);
-    let mut glyphs: Vec<(char, f32)> = galley.rows[0]
-        .glyphs
-        .iter()
-        .map(|g| (letter(g.chr), g.pos.x))
-        .collect();
-    glyphs.sort_by(|a, b| a.1.total_cmp(&b.1));
-    glyphs
+    assert_eq!(lines, "ت ب أ\nح ج ث");
+    assert_eq!(kept, "أ\nx y z\nب", "a person's words stay on one line");
+    assert_eq!(whole, "ت ب أ", "what fits is left as t gives it");
+    assert_eq!(t_wrapped("Two lines", |_| true), "Two lines");
+}
+
+/// BUG-119, as epaint draws it: an Arabic paragraph wrapped into three rows reads from the top
+/// row's right edge — its first word rightmost there — to the last row's left edge, and the
+/// short row is the last one. egui wrapped the line already in visual order, so the paragraph's
+/// end came first, in a row of one or two words.
+#[test]
+fn an_arabic_paragraph_reads_down_from_its_first_row() {
+    use egui::text::LayoutJob;
+    use egui::{Color32, FontFamily, FontId};
+    const TEXT: &str = "أضف جهة اتصال باسمها في المنصة ثم أرسل لها طلبا مدفوعا من رصيد هويتك وانتظر قبولها قبل الدفع";
+    let mut fonts = app_fonts();
+    let view = std::cell::RefCell::new(fonts.with_pixels_per_point(1.0));
+    let font = FontId::new(20.0, FontFamily::Proportional);
+    let width_of = |line: &str| {
+        view.borrow_mut()
+            .layout_no_wrap(line.to_owned(), font.clone(), Color32::WHITE)
+            .size()
+            .x
+    };
+    set(Lang::Ar);
+    let width = (width_of(&visual(TEXT)) / 2.6).floor();
+    let shown = t_wrapped(TEXT, |line| width_of(line) <= width);
+    set(Lang::En);
+    let galley = view.borrow_mut().layout_job(LayoutJob::simple(
+        shown.clone(),
+        font.clone(),
+        Color32::WHITE,
+        width,
+    ));
+    assert_eq!(galley.rows.len(), 3, "three rows: {shown:?}");
+    // Each row's letters by `x`, without the zero-width copies epaint adds after a right-to-left
+    // run.
+    let row_letters = |i: usize| -> Vec<char> {
+        let mut glyphs: Vec<(char, f32)> = galley.rows[i]
+            .glyphs
+            .iter()
+            .filter(|g| g.advance_width > 0.0 && !g.chr.is_whitespace())
+            .map(|g| (letter(g.chr), g.pos.x))
+            .collect();
+        glyphs.sort_by(|a, b| a.1.total_cmp(&b.1));
+        glyphs.into_iter().map(|g| g.0).collect()
+    };
+    let first = row_letters(0);
+    let last = row_letters(2);
+    assert_eq!(
+        first.last(),
+        Some(&'أ'),
+        "the first word rightmost in the top row: {first:?}"
+    );
+    assert_eq!(
+        last.first(),
+        Some(&'ع'),
+        "the last word leftmost in the last row: {last:?}"
+    );
+    let widths: Vec<f32> = galley.rows.iter().map(|r| r.rect().width()).collect();
+    assert!(
+        widths[2] < widths[0] && widths[2] < widths[1],
+        "the last row is the short one: {widths:?}"
+    );
+    assert!(
+        galley.rows.windows(2).all(|r| r[0].pos.y < r[1].pos.y),
+        "rows go down"
+    );
 }
 
 /// The letter a joined form (Arabic Presentation Forms-B, U+FE80…U+FEF4) stands for.
@@ -584,4 +670,31 @@ fn mixed_arabic_and_latin_keep_both_directions() {
     assert!(chars.contains(address), "{chars:?}");
     // «ل» is in «إلى» too: the first three letters are enough.
     assert!(reads_right_to_left(&glyphs, "أرس"), "{chars:?}");
+}
+
+/// BUG-119 (design review): an @name inside Arabic is drawn as it is written, «@carol» left to
+/// right with its @ on the left — the neutral @ between Arabic and Latin does not take the
+/// paragraph's direction. So in the middle of a line, at its end, and as the template's own
+/// place «@{}» filled with a name a person typed (`own`).
+#[test]
+fn an_at_name_inside_arabic_keeps_its_at_on_the_left() {
+    for text in [
+        "الهوية 9Pw3 · تم التحقق من @carol بإثبات من Platform".to_owned(),
+        // As «Add a contact» shows it, with the identity's short id.
+        "الهوية 9Pw3Ex6Rb2…9Ga2Ju6N · تم التحقق من @carol بإثبات من Platform".to_owned(),
+        "تم التحقق من @carol".to_owned(),
+        format!("تم التحقق من @{} بإثبات", own("carol")),
+        format!("@{} · تم التحقق من الاسم", own("carol")),
+    ] {
+        // Left to right on screen, spaces left out.
+        let ink: String = drawn(&text)
+            .iter()
+            .map(|g| g.0)
+            .filter(|c| !c.is_whitespace())
+            .collect();
+        assert!(
+            ink.contains("@carol"),
+            "«@carol» left to right in {text:?}: {ink}"
+        );
+    }
 }

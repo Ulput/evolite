@@ -333,7 +333,7 @@ fn phrase_problem(
             ));
         }
         (Err(bip39::PhraseError::Checksum), true) => {
-            ui.label(txt(
+            ui.add(crate::components::para(
                 tr!("The checksum does not match: check the order and spelling of the words"),
                 12.0,
                 Weight::Regular,

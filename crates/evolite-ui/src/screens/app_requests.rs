@@ -285,8 +285,7 @@ pub fn disconnect_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut 
             let p = a.p;
             let mut close = false;
             ui.add(
-                egui::Label::new(
-                    txt(
+                crate::components::para(
                         &format!(
                             tr!("The {name} keys on the identity will be disabled: the app can no longer sign with them. They cannot be turned back on — only signed in again.")
                         , name = name),
@@ -294,9 +293,7 @@ pub fn disconnect_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut 
                         Weight::Regular,
                         p.muted,
                     )
-                    .line_height(Some(21.0)),
-                )
-                .wrap(),
+                    .line_height(21.0),
             );
             // D1: the encryption key stays (DIP, "Disconnect").
             notice(

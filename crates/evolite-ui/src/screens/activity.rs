@@ -219,7 +219,12 @@ fn export_banner(
                 p.muted,
             ));
             if ui.data(|d| d.get_temp::<bool>(left_out_id()).unwrap_or(false)) {
-                ui.add(egui::Label::new(txt(LEFT_OUT, 12.0, Weight::Regular, p.muted)).wrap());
+                ui.add(crate::components::para(
+                    LEFT_OUT,
+                    12.0,
+                    Weight::Regular,
+                    p.muted,
+                ));
             }
             if button(ui, a, tr!("Show in folder"), ButtonKind::Ghost, None).clicked() {
                 // Explorer and Finder select the file; Linux file managers open its folder.
@@ -883,7 +888,12 @@ fn export_question(
                 (total, total_lines)
             };
             if lines != rows {
-                ui.add(egui::Label::new(txt(LEFT_OUT, 12.0, Weight::Regular, p.muted)).wrap());
+                ui.add(crate::components::para(
+                    LEFT_OUT,
+                    12.0,
+                    Weight::Regular,
+                    p.muted,
+                ));
             }
             let mut close = false;
             button_row(ui, |ui| {

@@ -636,14 +636,10 @@ fn section_item(ui: &mut Ui, a: &mut Assets, icon: &str, label: &str, on: bool) 
     let text_w = width - 12.0 - 18.0 - 10.0 - 12.0;
     let ctx = ui.ctx().clone();
     let layout = |weight: Weight, color: egui::Color32| {
-        ctx.fonts_mut(|f| {
-            f.layout(
-                crate::i18n::t(label).into_owned(),
-                sans(14.0, weight),
-                color,
-                text_w,
-            )
-        })
+        let font = sans(14.0, weight);
+        // Measured outside `fonts_mut`: `lines` takes the fonts itself.
+        let shown = crate::components::lines(&ctx, label, &font, text_w);
+        ctx.fonts_mut(|f| f.layout(shown, font, color, text_w))
     };
     let height = [Weight::SemiBold, Weight::Medium]
         .map(|w| layout(w, p.text).size().y + 20.0)

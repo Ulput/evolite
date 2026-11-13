@@ -156,6 +156,18 @@ pub fn time_of_day(at: Timestamp, now: DateTime<Local>) -> String {
     }
 }
 
+/// «before · date»: what a line says, then when (a date from [`when`] or [`date_short`]). In
+/// the Arabic interface the date goes in translated and isolated (`own`'s marks, which `t`
+/// takes off after reordering): a day number after a Latin word («Core · 8 نوفمبر») otherwise
+/// took that word's direction (bidi rule W7) and stood apart from its month (BUG-118).
+pub fn with_date(before: &str, date: &str) -> String {
+    if !crate::i18n::rtl() {
+        return format!("{before} · {date}");
+    }
+    let date = crate::i18n::t_in(crate::i18n::current(), date);
+    format!("{before} · {}", crate::i18n::own(&date))
+}
+
 /// "12 October 2026, 14:32" or "12 October 2026, just now" for an operation's card: put together
 /// here, so "just now" is in the interface language like the month (a sentence of a date and a
 /// time is no catalog's key).
@@ -168,7 +180,12 @@ fn date_time_in(lang: crate::i18n::Lang, at: Timestamp, now: DateTime<Local>) ->
         return crate::i18n::t_in(lang, tr!("unknown")).into_owned();
     }
     let time = time_of_day(at, now);
-    format!("{}, {}", date_long(at), crate::i18n::t_in(lang, &time))
+    format!(
+        "{}{}{}",
+        date_long(at),
+        crate::i18n::list_comma(lang),
+        crate::i18n::t_in(lang, &time)
+    )
 }
 
 /// A day header: "Today", "Yesterday", "27 October"; "No date" over operations without a time.
@@ -217,7 +234,7 @@ pub fn positions(at: &[usize]) -> String {
             }
         })
         .collect::<Vec<_>>()
-        .join(", ")
+        .join(crate::i18n::list_comma(crate::i18n::current()))
 }
 
 /// A known address that `address` only looks like: the same first and last four characters,
@@ -1217,6 +1234,33 @@ mod lock_tests {
                 credits == Credits::NotAdded,
                 "{credits:?}"
             );
+        }
+    }
+
+    /// BUG-118 (2): a date and its time, and a list of word numbers, are joined by the
+    /// language's own comma — «،» in Arabic. Every other language keeps exactly what it had:
+    /// «, » (the kickoff's condition, all 15 languages checked).
+    #[test]
+    fn dates_and_lists_take_the_languages_comma_and_only_arabic_changes() {
+        use crate::i18n::{Lang, set, t_in};
+        let now = Local.with_ymd_and_hms(2026, 11, 8, 23, 0, 0).unwrap();
+        let at = Local
+            .with_ymd_and_hms(2026, 11, 8, 22, 11, 0)
+            .unwrap()
+            .timestamp();
+        for lang in Lang::ALL {
+            set(lang);
+            let shown = date_time(at, now);
+            let list = positions(&[3, 4, 10]);
+            let before = format!("{}, {}", date_long(at), t_in(lang, "22:11"));
+            set(Lang::En);
+            if lang == Lang::Ar {
+                assert!(shown.contains("، 22:11") && !shown.contains(','), "{shown}");
+                assert_eq!(list, "4–5، 11");
+            } else {
+                assert_eq!(shown, before, "{lang:?}");
+                assert_eq!(list, "4–5, 11", "{lang:?}");
+            }
         }
     }
 }

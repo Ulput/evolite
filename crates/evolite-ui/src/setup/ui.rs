@@ -444,13 +444,10 @@ fn checkbox(
             }
             ui.vertical(|ui| {
                 ui.spacing_mut().item_spacing.y = 2.0;
-                ui.add(egui::Label::new(txt(label, 14.0, Weight::Medium, p.text)).wrap());
+                ui.add(crate::para::para(label, 14.0, Weight::Medium, p.text));
                 if let Some(sub) = sub {
                     ui.add(
-                        egui::Label::new(
-                            txt(sub, 12.0, Weight::Regular, p.muted).line_height(Some(17.0)),
-                        )
-                        .wrap(),
+                        crate::para::para(sub, 12.0, Weight::Regular, p.muted).line_height(17.0),
                     );
                 }
             });
@@ -505,12 +502,7 @@ fn notice(ui: &mut Ui, p: &Palette, icons: &mut Icons, icon: &str, text: &str, c
             ui.horizontal_top(|ui| {
                 ui.spacing_mut().item_spacing.x = 10.0;
                 ui.add(icons.icon(icon, color, p, 18.0));
-                ui.add(
-                    egui::Label::new(
-                        txt(text, 13.0, Weight::Regular, p.text).line_height(Some(18.0)),
-                    )
-                    .wrap(),
-                );
+                ui.add(crate::para::para(text, 13.0, Weight::Regular, p.text).line_height(18.0));
             });
         });
 }
@@ -520,10 +512,7 @@ fn heading(ui: &mut Ui, p: &Palette, title: &str, lead: Option<&str>) {
         ui.spacing_mut().item_spacing.y = 6.0;
         ui.label(txt(title, 20.0, Weight::SemiBold, p.text));
         if let Some(lead) = lead {
-            ui.add(
-                egui::Label::new(txt(lead, 13.0, Weight::Regular, p.muted).line_height(Some(19.0)))
-                    .wrap(),
-            );
+            ui.add(crate::para::para(lead, 13.0, Weight::Regular, p.muted).line_height(19.0));
         }
     });
 }
@@ -1031,21 +1020,18 @@ impl Setup {
             }
         });
         let target = self.target();
-        ui.add(
-            egui::Label::new(txt(
-                &fill(
-                    tr!("evolite goes to {}. Wallet data is always kept in {}."),
-                    &[
-                        &target.display().to_string(),
-                        &known.testnet_data().display().to_string(),
-                    ],
-                ),
-                12.0,
-                Weight::Regular,
-                p.muted,
-            ))
-            .wrap(),
-        );
+        ui.add(crate::para::para(
+            &fill(
+                tr!("evolite goes to {}. Wallet data is always kept in {}."),
+                &[
+                    &target.display().to_string(),
+                    &known.testnet_data().display().to_string(),
+                ],
+            ),
+            12.0,
+            Weight::Regular,
+            p.muted,
+        ));
         let program_disk = plan::disk_of(&self.disks, &target).cloned();
         let data_disk = plan::disk_of(&self.disks, &known.roaming).cloned();
         let letter = |d: &Option<Disk>| {
@@ -1381,8 +1367,8 @@ impl Setup {
                     ui.add(self.icons.icon("warning", Color32::WHITE, &p, 28.0));
                     ui.vertical(|ui| {
                         ui.spacing_mut().item_spacing.y = 4.0;
-                        ui.add(egui::Label::new(txt(tr!("Without the recovery phrase the money will be lost"), 18.0, Weight::Bold, Color32::WHITE)).wrap());
-                        ui.add(egui::Label::new(txt(tr!("The wallets' encrypted phrases are deleted with the data. A wallet can then be restored only from its written-down phrase of 12 or 24 words."), 13.0, Weight::Regular, Color32::WHITE).line_height(Some(18.0))).wrap());
+                        ui.add(crate::para::para(tr!("Without the recovery phrase the money will be lost"), 18.0, Weight::Bold, Color32::WHITE));
+                        ui.add(crate::para::para(tr!("The wallets' encrypted phrases are deleted with the data. A wallet can then be restored only from its written-down phrase of 12 or 24 words."), 13.0, Weight::Regular, Color32::WHITE).line_height(18.0));
                     });
                 });
             });
@@ -1469,14 +1455,7 @@ impl Setup {
             ),
             &[&self.size(self.data_bytes)],
         );
-        ui.add(
-            egui::Label::new(
-                RichText::new(i18n::visual(&total))
-                    .font(sans(12.0, Weight::Regular))
-                    .color(p.muted),
-            )
-            .wrap(),
-        );
+        ui.add(crate::para::para(&total, 12.0, Weight::Regular, p.muted));
         checkbox(
             ui,
             &p,
@@ -1602,7 +1581,7 @@ impl Setup {
             self.icons.icon("check", p.accent, &p, 32.0).paint_at(ui, Rect::from_center_size(r.center(), vec2(32.0, 32.0)));
             if installing {
                 ui.label(txt(tr!("evolite is installed"), 22.0, Weight::SemiBold, p.text));
-                ui.add(egui::Label::new(txt(tr!("The shortcut is in the Start menu. You can remove evolite in Settings → Apps."), 13.0, Weight::Regular, p.muted)).wrap());
+                ui.add(crate::para::para(tr!("The shortcut is in the Start menu. You can remove evolite in Settings → Apps."), 13.0, Weight::Regular, p.muted));
             } else {
                 ui.label(txt(tr!("evolite is removed"), 22.0, Weight::SemiBold, p.text));
                 let text = if self.delete_data && self.sure {
@@ -1611,7 +1590,7 @@ impl Setup {
                     let data = self.known.as_ref().map(|k| k.testnet_data().display().to_string()).unwrap_or_default();
                     fill(tr!("Removed: the program, shortcuts, the registry entry and the picture cache. Wallet data is kept in {}."), &[&data])
                 };
-                ui.add(egui::Label::new(RichText::new(i18n::visual(&text)).font(sans(13.0, Weight::Regular)).color(p.muted)).wrap());
+                ui.add(crate::para::para(&text, 13.0, Weight::Regular, p.muted));
             }
         });
         if installing {

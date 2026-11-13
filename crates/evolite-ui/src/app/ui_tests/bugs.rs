@@ -697,3 +697,232 @@ fn contact_lines_in_arabic_are_drawn_as_their_words() {
         );
     }
 }
+
+/// BUG-119: Contacts' explanation in Arabic takes several rows and is read down from the first:
+/// its first words are in the top row and its last word in the bottom one. egui wrapped the
+/// line already in visual order, so the top row held the paragraph's end and the bottom its
+/// start, with «جهات» alone in a short row.
+#[test]
+fn contacts_explanation_in_arabic_reads_down_from_its_first_row() {
+    const KEY: &str = "DashPay contacts: you exchanged requests. The requests themselves are public; the payment keys inside them are encrypted. Each payment goes to a new address from the contact's keys. A request is a write to Platform paid for by the identity's credits.";
+    let (_turn, mut kit) = demo_app("contacts", "ar");
+    kit.run_steps(4);
+    let said = crate::i18n::t_in(crate::i18n::Lang::Ar, KEY).into_owned();
+    let words: Vec<&str> = said.split(' ').collect();
+    let (first, last) = (words[0], words[words.len() - 1].trim_end_matches('.'));
+    assert!(
+        first.chars().any(crate::i18n::is_rtl_char),
+        "translated: {said}"
+    );
+    // The explanation as painted. Its rows are the lines broken before egui saw it — egui broke
+    // none of them again — so a row's words are its line's (an Arabic run keeps its letters in
+    // reading order in the text; epaint's row counts include the copies it adds, not the text's).
+    let galley = painted_galleys(&kit)
+        .into_iter()
+        .find(|g| {
+            let all = g.text();
+            all.contains("DashPay") && all.contains(first) && all.contains(last)
+        })
+        .expect("the explanation");
+    let rows: Vec<&str> = galley.text().split('\n').collect();
+    assert!(rows.len() > 1, "broken into lines before egui: {rows:?}");
+    assert_eq!(galley.rows.len(), rows.len(), "egui broke no line again");
+    assert!(
+        rows[0].contains(first),
+        "«{first}» in the top row: {rows:?}"
+    );
+    assert!(
+        rows[rows.len() - 1].contains(last),
+        "«{last}» in the bottom row: {rows:?}"
+    );
+}
+
+/// BUG-119 (design review): the sync card's line in Arabic, too long for one row in the wide
+/// menu, goes down with «· ChainLock» whole: no row ends with the «·» alone.
+#[test]
+fn the_synced_block_line_keeps_its_dot_with_chainlock() {
+    let (_turn, mut kit) = demo_app("contacts", "ar");
+    kit.set_size(egui::vec2(1600.0, 1000.0));
+    kit.run_steps(6);
+    let galley = painted_galleys(&kit)
+        .into_iter()
+        .find(|g| g.text().contains("ChainLock") && g.text().contains("1,"))
+        .expect("the sync card's block line");
+    // The «·» shares its row with «ChainLock» (where it stands in the row is the bidi's: in
+    // Arabic it is read first, so drawn right of the word).
+    for row in galley.text().split('\n') {
+        assert!(
+            !row.contains('·') || row.contains("ChainLock"),
+            "the «·» in a row without «ChainLock»: {:?}",
+            galley.text()
+        );
+    }
+}
+
+/// BUG-119 (design review): «Add a contact» in Arabic says under the found profile «… verified
+/// @carol …» with the @ on the left of the name, as written.
+#[test]
+fn the_found_name_on_add_contact_keeps_its_at_on_the_left_in_arabic() {
+    let (_turn, mut kit) = demo_app("add-contact", "ar");
+    kit.run_steps(6);
+    let galley = painted_galleys(&kit)
+        .into_iter()
+        .find(|g| g.text().contains("carol") && g.text().contains("Platform"))
+        .expect("the line under the profile");
+    // The glyphs as painted, left to right (not laid out again).
+    let mut glyphs: Vec<(char, f32)> = galley
+        .rows
+        .iter()
+        .flat_map(|r| r.row.glyphs.iter().map(move |g| (g, r.pos.x)))
+        .filter(|(g, _)| g.advance_width > 0.0 && !g.chr.is_whitespace())
+        .map(|(g, x)| (g.chr, x + g.pos.x))
+        .collect();
+    glyphs.sort_by(|a, b| a.1.total_cmp(&b.1));
+    let ink: String = glyphs.into_iter().map(|g| g.0).collect();
+    assert!(
+        ink.contains("@carol"),
+        "drawn {ink:?} from {:?}",
+        galley.text()
+    );
+}
+
+/// BUG-118 (3): Arabic is never drawn in the mono font or letter-spaced: section labels and the
+/// pool's line split Arabic words apart that way («اللغة  والتنسيق»), and so did a collection's
+/// «رقم 12 من 500» on its tiles and panel (design review). In English the section labels keep
+/// their mono with spacing 0.88.
+#[test]
+fn arabic_is_never_drawn_in_mono_or_letter_spaced() {
+    let is_mono = |f: &egui::FontId| {
+        f.family == egui::FontFamily::Monospace
+            || f.family == egui::FontFamily::Name("mono-500".into())
+    };
+    for preset in ["settings", "shielded", "activity", "collection"] {
+        let (_turn, mut kit) = demo_app(preset, "ar");
+        kit.run_steps(4);
+        for g in painted_galleys(&kit) {
+            for s in &g.job.sections {
+                let text = &g.job.text[s.byte_range.start.0..s.byte_range.end.0];
+                if !text.chars().any(crate::i18n::is_rtl_char) {
+                    continue;
+                }
+                assert!(
+                    !is_mono(&s.format.font_id) && s.format.extra_letter_spacing == 0.0,
+                    "{preset}: {text:?} in {:?}, spacing {}",
+                    s.format.font_id,
+                    s.format.extra_letter_spacing
+                );
+            }
+        }
+    }
+    let (_turn, mut kit) = demo_app("settings", "en");
+    kit.run_steps(4);
+    assert!(
+        painted_galleys(&kit)
+            .iter()
+            .any(|g| g
+                .job
+                .sections
+                .iter()
+                .any(|s| is_mono(&s.format.font_id) && s.format.extra_letter_spacing == 0.88)),
+        "the English section labels keep their mono"
+    );
+}
+
+/// `f` in the second frame of a context with the app's fonts, in the Arabic interface.
+fn in_arabic<T>(mut f: impl FnMut(&mut egui::Ui) -> T) -> T {
+    let ctx = egui::Context::default();
+    crate::theme::install_fonts(&ctx, crate::i18n::Lang::Ar, false);
+    crate::i18n::set(crate::i18n::Lang::Ar);
+    let mut out = None;
+    for _ in 0..2 {
+        let mut frame = ctx.run_ui(egui::RawInput::default(), |ui| out = Some(f(ui)));
+        frame.textures_delta.clear();
+    }
+    crate::i18n::set(crate::i18n::Lang::En);
+    out.expect("a frame")
+}
+
+/// BUG-118 (4): an Arabic note cut to the room in a history row keeps its start and ends with
+/// «…»: words go from its end, in reading order. egui's own cut kept the left of the line —
+/// the phrase's end in Arabic — and dropped its start.
+#[test]
+fn a_cut_arabic_note_keeps_its_first_words() {
+    const NOTE: &str = "ادفع لصاحب المتجر مقابل الطاولة الخشبية الكبيرة";
+    let galley =
+        in_arabic(|ui| crate::components::note_galley(ui, NOTE, 140.0, egui::Color32::WHITE));
+    let shown = &galley.job.text;
+    assert!(
+        shown.contains("ادفع") && shown.contains('…') && !shown.contains("الكبيرة"),
+        "cut to {shown:?}"
+    );
+    assert!(galley.size().x <= 140.5, "{}", galley.size().x);
+}
+
+/// BUG-118 (1): «Core · 8 نوفمبر» reads from the right: «Core», «·», then the date with its day
+/// first, right of its month. Without an isolate the day took the direction of the Latin word
+/// before it (bidi rule W7) and stood with «Core»: «نوفمبر … Core · 8».
+#[test]
+fn a_date_after_a_latin_word_keeps_its_day_with_its_month() {
+    let galley = in_arabic(|ui| {
+        let line = crate::text::with_date("Core", "8 نوفمبر");
+        ui.painter().layout_no_wrap(
+            crate::i18n::t(&line).into_owned(),
+            crate::theme::sans(14.0, crate::theme::Weight::Medium),
+            egui::Color32::WHITE,
+        )
+    });
+    let glyphs: Vec<(char, f32)> = galley.rows[0]
+        .glyphs
+        .iter()
+        .filter(|g| g.advance_width > 0.0 && !g.chr.is_whitespace())
+        .map(|g| (g.chr, g.pos.x))
+        .collect();
+    let x = |c: char| {
+        glyphs
+            .iter()
+            .find(|g| g.0 == c)
+            .unwrap_or_else(|| panic!("«{c}» drawn: {glyphs:?}"))
+            .1
+    };
+    let month = glyphs
+        .iter()
+        .filter(|g| crate::i18n::is_rtl_char(g.0))
+        .map(|g| g.1)
+        .fold(f32::MIN, f32::max);
+    assert!(
+        month < x('8') && x('8') < x('C'),
+        "drawn {:?}",
+        galley.job.text
+    );
+}
+
+/// BUG-118 (design review): an amount inside an Arabic sentence reads as the card writes it,
+/// «0.0003 DASH» left to right; its number and unit had turned around: «DASH 0.0003». The line
+/// under a gift's buttons on Collection.
+#[test]
+fn an_amount_inside_arabic_keeps_its_unit_after_the_number() {
+    let galley = in_arabic(|ui| {
+        let line = format!(
+            "Transfer ≈ {} · a gift cannot be burned",
+            crate::format::amount(30_000)
+        );
+        ui.painter().layout_no_wrap(
+            crate::i18n::t(&line).into_owned(),
+            crate::theme::sans(12.0, crate::theme::Weight::Regular),
+            egui::Color32::WHITE,
+        )
+    });
+    let mut glyphs: Vec<(char, f32)> = galley.rows[0]
+        .glyphs
+        .iter()
+        .filter(|g| g.advance_width > 0.0 && !g.chr.is_whitespace())
+        .map(|g| (g.chr, g.pos.x))
+        .collect();
+    glyphs.sort_by(|a, b| a.1.total_cmp(&b.1));
+    let ink: String = glyphs.into_iter().map(|g| g.0).collect();
+    assert!(
+        ink.contains("0.0003DASH"),
+        "drawn {ink:?} from {:?}",
+        galley.job.text
+    );
+}

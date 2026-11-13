@@ -979,7 +979,7 @@ impl eframe::App for App {
                 .frame(Frame::new().fill(p.danger).inner_margin(Margin::symmetric(16, 0)))
                 .show(ui, |ui| {
                     ui.centered_and_justified(|ui| {
-                        ui.label(txt(
+                        ui.add(crate::components::para(
                             tr!("Mainnet means real DASH. This is a test build of evolite: keep only small amounts here and check the address before every payment."),
                             13.0,
                             theme::Weight::SemiBold,
@@ -1000,15 +1000,12 @@ impl eframe::App for App {
                         .inner_margin(Margin::symmetric(16, 8)),
                 )
                 .show(ui, |ui| {
-                    ui.add(
-                        egui::Label::new(txt(
-                            what_to_do,
-                            13.0,
-                            theme::Weight::SemiBold,
-                            if p.dark { p.bg } else { egui::Color32::WHITE },
-                        ))
-                        .wrap(),
-                    );
+                    ui.add(crate::components::para(
+                        what_to_do,
+                        13.0,
+                        theme::Weight::SemiBold,
+                        if p.dark { p.bg } else { egui::Color32::WHITE },
+                    ));
                 });
         }
         // The data folder is another window's: nothing here but why.

@@ -365,9 +365,10 @@ fn balance(
                 );
             }
         }
+        // Mono sets Arabic letters apart («3 سجلات · آخر تحقق…», BUG-118): sans in Arabic.
         ui.label(
             egui::RichText::new(crate::i18n::t(&pool_line(pool, now)))
-                .font(mono(12.0, Weight::Regular))
+                .font(crate::theme::figures(12.0, Weight::Regular))
                 .color(p.muted),
         );
     });
@@ -384,10 +385,7 @@ fn how(ui: &mut Ui, a: &mut Assets, width: f32, cell: &mut RowCell) {
                 ui.spacing_mut().item_spacing.x = 10.0;
                 ui.add(a.icons.icon(icon, p.text, &p, 18.0));
                 ui.add(
-                    egui::Label::new(
-                        txt(text, 13.0, Weight::Regular, p.text).line_height(Some(19.0)),
-                    )
-                    .wrap(),
+                    crate::components::para(text, 13.0, Weight::Regular, p.text).line_height(19.0),
                 );
             });
         }
@@ -414,22 +412,13 @@ impl ActionText {
         let left = 16.0 + 34.0 + 12.0;
         // 16 to the right edge, as on the left (FEAT-0034 item 5).
         let text_w = width - left - 16.0;
-        let title = ctx.fonts_mut(|f| {
-            f.layout(
-                crate::i18n::t(title).into_owned(),
-                sans(14.0, Weight::SemiBold),
-                color.0,
-                text_w,
-            )
-        });
-        let sub = ctx.fonts_mut(|f| {
-            f.layout(
-                crate::i18n::t(sub).into_owned(),
-                sans(12.0, Weight::Regular),
-                color.1,
-                text_w,
-            )
-        });
+        // The lines are measured outside `fonts_mut`: `lines` takes the fonts itself.
+        let laid = |text: &str, font: egui::FontId, color: Color32| {
+            let shown = crate::components::lines(ctx, text, &font, text_w);
+            ctx.fonts_mut(|f| f.layout(shown, font, color, text_w))
+        };
+        let title = laid(title, sans(14.0, Weight::SemiBold), color.0);
+        let sub = laid(sub, sans(12.0, Weight::Regular), color.1);
         ActionText { title, sub, left }
     }
 
@@ -822,7 +811,7 @@ fn proof_progress(ui: &mut Ui, a: &mut Assets, fraction: f32) {
                 });
             });
             progress_bar(ui, &p, fraction);
-            ui.label(txt(
+            ui.add(crate::components::para(
                 tr!("Usually 10–30 seconds. The keys and the amount never leave the device."),
                 12.0,
                 Weight::Regular,
