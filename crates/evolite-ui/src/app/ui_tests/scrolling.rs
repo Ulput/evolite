@@ -39,7 +39,7 @@ fn the_wheel_over_the_side_margins_scrolls_the_screen() {
     for preset in ["overview", "send", "activity", "identity", "shielded"] {
         let (_turn, mut kit) = demo_app(preset, "en");
         kit.set_size(WIDE);
-        kit.run_steps(4);
+        settle(&mut kit);
         let top = screen_places(&kit);
         for x in [LEFT_MARGIN, RIGHT_EDGE] {
             wheel_at(&mut kit, x, -120.0);
@@ -59,7 +59,7 @@ fn the_wheel_over_the_side_margins_scrolls_the_screen() {
 fn the_wheel_elsewhere_leaves_the_screen_where_it_is() {
     let (_turn, mut kit) = demo_app("overview", "en");
     kit.set_size(WIDE);
-    kit.run_steps(4);
+    settle(&mut kit);
     let top = screen_places(&kit);
     wheel_at(&mut kit, 100.0, -120.0);
     assert_eq!(screen_places(&kit), top, "over the menu");
@@ -68,7 +68,7 @@ fn the_wheel_elsewhere_leaves_the_screen_where_it_is() {
 
     let (_turn, mut kit) = demo_app("shield", "en");
     kit.set_size(WIDE);
-    kit.run_steps(4);
+    settle(&mut kit);
     let top = screen_places(&kit);
     wheel_at(&mut kit, LEFT_MARGIN, -120.0);
     assert_eq!(screen_places(&kit), top, "under the dialog's backdrop");
@@ -80,7 +80,7 @@ const LOW: egui::Vec2 = egui::vec2(1024.0, 460.0);
 /// Overview scrolled down: where the words now stand are not where they stood.
 fn scroll_overview_down(kit: &mut Kit) {
     kit.set_size(LOW);
-    kit.run_steps(4);
+    settle(kit);
     let top = screen_places(kit);
     wheel_at(kit, 500.0, -250.0);
     assert_ne!(screen_places(kit), top, "the Overview did not scroll");
@@ -104,7 +104,7 @@ fn places_in_a_new_app(preset: &str, memory: Option<egui::Memory>) -> Vec<f32> {
     wait_for(&mut kit, "first snapshot", |kit| {
         kit.state().snapshot.is_some()
     });
-    kit.run_steps(6);
+    settle(&mut kit);
     screen_places(&kit)
 }
 
@@ -134,33 +134,34 @@ fn a_new_run_opens_every_screen_at_the_top() {
 fn the_overview_after_a_lock_opens_at_the_top() {
     let (_turn, mut kit) = demo_app("overview", "en");
     kit.set_size(LOW);
-    kit.run_steps(4);
+    settle(&mut kit);
     let top = screen_places(&kit);
     scroll_overview_down(&mut kit);
     let wallet = kit.state().snapshot.as_ref().and_then(|s| s.wallet.clone());
-    for _ in 0..10 {
-        if let Some(s) = kit.state_mut().snapshot.as_mut() {
-            s.vault = VaultState::Locked;
-            s.wallet = None;
-        }
-        kit.run_steps(1);
-        if kit.state().screen == Screen::Unlock {
-            break;
-        }
-    }
-    assert_eq!(kit.state().screen, Screen::Unlock);
-    for _ in 0..10 {
-        if let Some(s) = kit.state_mut().snapshot.as_mut() {
-            s.vault = VaultState::Unlocked;
-            s.wallet = wallet.clone();
-        }
-        kit.run_steps(1);
-        if kit.state().screen == Screen::Overview {
-            break;
-        }
-    }
-    assert_eq!(kit.state().screen, Screen::Overview);
-    kit.run_steps(4);
+    show_edited(
+        &mut kit,
+        1,
+        "the lock",
+        |app| {
+            if let Some(s) = app.snapshot.as_mut() {
+                s.vault = VaultState::Locked;
+                s.wallet = None;
+            }
+        },
+        |k| k.state().screen == Screen::Unlock,
+    );
+    show_edited(
+        &mut kit,
+        4,
+        "the Overview again",
+        |app| {
+            if let Some(s) = app.snapshot.as_mut() {
+                s.vault = VaultState::Unlocked;
+                s.wallet = wallet.clone();
+            }
+        },
+        |k| k.state().screen == Screen::Overview,
+    );
     assert_eq!(screen_places(&kit), top);
 }
 
@@ -175,7 +176,7 @@ fn another_wallet_opens_at_the_top() {
             .is_some_and(|s| s.wallets.iter().any(|w| w.open))
     });
     kit.set_size(LOW);
-    kit.run_steps(4);
+    settle(&mut kit);
     let top = screen_places(&kit);
     scroll_overview_down(&mut kit);
     kit.state_mut().core.send(Command::SwitchWallet {

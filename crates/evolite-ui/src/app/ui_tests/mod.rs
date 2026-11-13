@@ -85,14 +85,104 @@ pub(super) fn demo_app(preset: &str, lang: &str) -> (MutexGuard<'static, ()>, Ki
     (turn, kit)
 }
 
-/// Frames, without any input, until `done` (at most 10 s): the core answers on its own thread.
+/// How long a test waits for the demo core, which answers on its own thread. Generous: a check
+/// with several builds on the machine can keep that thread off the CPU for seconds (BUG-120).
+/// Waits are bounded by time, never by a count of frames: under load a frame takes longer, and
+/// a frame without load passes before the core has had a turn.
+pub(super) const PATIENCE: Duration = Duration::from_secs(20);
+
+/// Frames, without any input, until `done` (at most [`PATIENCE`]): the core answers on its own
+/// thread.
 pub(super) fn wait_for(kit: &mut Kit, what: &str, done: impl Fn(&Kit) -> bool) {
     let started = Instant::now();
     while !done(kit) {
-        assert!(started.elapsed() < Duration::from_secs(10), "no {what}");
+        assert!(started.elapsed() < PATIENCE, "no {what}");
         std::thread::sleep(Duration::from_millis(5));
         kit.step();
     }
+}
+
+/// Frames until the demo core has sent nothing new for half a second (at most [`PATIENCE`]):
+/// what a screen asked for when it opened has come and is drawn. For a test that reads the
+/// screen first and compares it later (BUG-120). Not for the staged first sync, which never
+/// stops before it is done.
+pub(super) fn settle(kit: &mut Kit) {
+    const QUIET: Duration = Duration::from_millis(500);
+    let started = Instant::now();
+    let mut quiet_since = Instant::now();
+    let mut last = kit.state().snapshot.clone();
+    while quiet_since.elapsed() < QUIET {
+        assert!(
+            started.elapsed() < PATIENCE,
+            "the demo core never went quiet"
+        );
+        std::thread::sleep(Duration::from_millis(5));
+        kit.step();
+        if kit.state().snapshot != last {
+            last = kit.state().snapshot.clone();
+            quiet_since = Instant::now();
+        }
+    }
+    // Drawn from the last snapshot and laid out.
+    kit.run_steps(2);
+}
+
+/// Puts `edit` into the app (most often its snapshot) and draws, until `frames` frames in a row
+/// were drawn from the edited snapshot and the last of them shows `seen` (at most
+/// [`PATIENCE`]); `edit` is put in again before each frame.
+///
+/// A snapshot from the demo core waiting when a frame starts puts the core's own values back over
+/// the test's. So the answers that came meanwhile are taken first, as a frame takes them, and
+/// only then `edit` is put in: a snapshot can beat it only in the instant between the two, and
+/// then the frame does not count (BUG-120). Checks made after the call see a frame drawn from
+/// the edit.
+pub(super) fn show_edited(
+    kit: &mut Kit,
+    frames: usize,
+    what: &str,
+    edit: impl Fn(&mut App),
+    seen: impl Fn(&Kit) -> bool,
+) {
+    let started = Instant::now();
+    let mut kept = 0;
+    loop {
+        let ctx = kit.ctx.clone();
+        kit.state_mut().take_events(&ctx);
+        edit(kit.state_mut());
+        let edited = kit.state().snapshot.clone();
+        kit.step();
+        kept = if kit.state().snapshot == edited {
+            kept + 1
+        } else {
+            0
+        };
+        if kept >= frames && seen(kit) {
+            return;
+        }
+        assert!(started.elapsed() < PATIENCE, "not shown: {what}");
+        std::thread::sleep(Duration::from_millis(2));
+    }
+}
+
+/// [`show_edited`] for the wallet in the snapshot (none: nothing to edit).
+pub(super) fn show_wallet_edited(
+    kit: &mut Kit,
+    frames: usize,
+    what: &str,
+    edit: impl Fn(&mut evolite_api::Wallet),
+    seen: impl Fn(&Kit) -> bool,
+) {
+    show_edited(
+        kit,
+        frames,
+        what,
+        |app| {
+            if let Some(w) = app.snapshot.as_mut().and_then(|s| s.wallet.as_mut()) {
+                edit(w);
+            }
+        },
+        seen,
+    );
 }
 
 /// The words of a label as drawn: a label node whose text is exactly `words`.

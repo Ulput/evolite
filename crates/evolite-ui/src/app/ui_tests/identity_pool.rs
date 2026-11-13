@@ -19,20 +19,10 @@ const PLAIN_TITLE: f32 = 25.0;
 /// The name in the profile card: margin 24 + line 1 + avatar 72 + gap 16.
 const NAME_IN_PROFILE: f32 = 113.0;
 
-/// Changes the wallet the app shows, and draws, a few times over: a snapshot of the demo core
-/// in between would undo it.
+/// Changes the wallet the app shows, and draws, three frames in a row: a snapshot of the demo
+/// core in between would undo it.
 pub(super) fn with_wallet(kit: &mut Kit, change: impl Fn(&mut Wallet)) {
-    for _ in 0..3 {
-        if let Some(wallet) = kit
-            .state_mut()
-            .snapshot
-            .as_mut()
-            .and_then(|s| s.wallet.as_mut())
-        {
-            change(wallet);
-        }
-        kit.run_steps(1);
-    }
+    show_wallet_edited(kit, 3, "the wallet changed", change, |_| true);
 }
 
 /// The shown identity's name, as the profile card writes it.
@@ -373,30 +363,21 @@ fn a_new_identity_asks_for_at_least_what_platform_takes() {
     };
     // The demo core may send its own snapshot first: the fees are set again until they stay.
     let shown = |kit: &mut Kit, amount: &str| {
-        for _ in 0..50 {
-            kit.state_mut().create_identity.amount = amount.to_owned();
-            if let Some(w) = kit
-                .state_mut()
-                .snapshot
-                .as_mut()
-                .and_then(|s| s.wallet.as_mut())
-            {
-                w.fees.name_regular = 65_000;
-                w.fees.identity_create = 175_000;
-                w.fees.identity_lock_min = 241_000;
-            }
-            kit.run_steps(1);
-            let kept = kit
-                .state()
-                .snapshot
-                .as_ref()
-                .and_then(|s| s.wallet.as_ref())
-                .is_some_and(|w| w.fees.identity_lock_min == 241_000);
-            if kept {
-                return (has_text(kit, &least), create_on(kit));
-            }
-        }
-        panic!("the fees did not stay");
+        show_edited(
+            kit,
+            1,
+            "the fees kept",
+            |app| {
+                app.create_identity.amount = amount.to_owned();
+                if let Some(w) = app.snapshot.as_mut().and_then(|s| s.wallet.as_mut()) {
+                    w.fees.name_regular = 65_000;
+                    w.fees.identity_create = 175_000;
+                    w.fees.identity_lock_min = 241_000;
+                }
+            },
+            |_| true,
+        );
+        (has_text(kit, &least), create_on(kit))
     };
     assert_eq!(
         shown(&mut kit, "0.0001"),

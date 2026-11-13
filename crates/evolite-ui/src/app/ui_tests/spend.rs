@@ -307,26 +307,25 @@ fn with_another_payment_unanswered_the_last_look_does_not_wait() {
 fn with_the_payment_in_history(kit: &mut Kit) {
     const ROW: u64 = 0x9292_9292;
     let amount = crate::format::parse_amount(&kit.state().send.amount).expect("an amount");
-    for _ in 0..3 {
-        let wallet = kit
-            .state_mut()
-            .snapshot
-            .as_mut()
-            .and_then(|s| s.wallet.as_mut())
-            .expect("a wallet");
-        if !wallet.activity.iter().any(|a| a.id == ROW) {
-            let mut row = wallet.activity[0].clone();
-            row.id = ROW;
-            row.kind = evolite_api::ActivityKind::Sent {
-                to: "@alice".into(),
-            };
-            row.at = chrono::Utc::now().timestamp();
-            row.amount = -amount;
-            row.proof = evolite_api::Proof::Sending;
-            wallet.activity.insert(0, row);
-        }
-        kit.run_steps(1);
-    }
+    show_wallet_edited(
+        kit,
+        3,
+        "the wallet edited",
+        |wallet| {
+            if !wallet.activity.iter().any(|a| a.id == ROW) {
+                let mut row = wallet.activity[0].clone();
+                row.id = ROW;
+                row.kind = evolite_api::ActivityKind::Sent {
+                    to: "@alice".into(),
+                };
+                row.at = chrono::Utc::now().timestamp();
+                row.amount = -amount;
+                row.proof = evolite_api::Proof::Sending;
+                wallet.activity.insert(0, row);
+            }
+        },
+        |_| true,
+    );
 }
 
 /// BUG-92 r1, should 1: a real repeat is warned of in the last look; the payment being signed,

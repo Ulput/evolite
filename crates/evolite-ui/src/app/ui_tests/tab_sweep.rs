@@ -48,7 +48,8 @@ fn sweep(preset: &str) -> Vec<String> {
     // An app's request is the demo core's answer to the preset's link, a moment after the
     // start: the round waits for its dialog (it once came in the middle of «exchange»).
     // The sync screen comes after the wallet is made: the demo core opens it a moment later.
-    if matches!(preset, "sync" | "sync-nodes") {
+    let staged = matches!(preset, "sync" | "sync-nodes");
+    if staged {
         wait_for(&mut kit, "the wallet made", |kit| {
             kit.state().vault == Some(evolite_api::VaultState::Unlocked)
         });
@@ -69,7 +70,21 @@ fn sweep(preset: &str) -> Vec<String> {
                 .is_some_and(|c| c.questions.is_some())
         });
     }
-    let start = place(&kit);
+    // A late answer of the demo core (what the screen asked for when it opened) redraws the
+    // screen under the round and may take the focus with it: seen under a loaded check (BUG-120,
+    // BUG-48 r2). Then the screen is let settle and its round starts again, once. The staged
+    // sync answers all the time; [`place`] stops its round where it moves on.
+    let snapshot = kit.state().snapshot.clone();
+    let answered = |k: &Kit| !staged && k.state().snapshot != snapshot;
+    round(&mut kit, preset, answered).unwrap_or_else(|| {
+        settle(&mut kit);
+        round(&mut kit, preset, |_| false).expect("a round")
+    })
+}
+
+/// One Tab round of `preset`; `None` when `moved` said, after a press, that the core answered.
+fn round(kit: &mut Kit, preset: &str, moved: impl Fn(&Kit) -> bool) -> Option<Vec<String>> {
+    let start = place(kit);
     let mut found: Vec<String> = Vec::new();
     let mut note = |problem: String| {
         let kind = problem
@@ -84,11 +99,14 @@ fn sweep(preset: &str) -> Vec<String> {
     let mut first: Option<egui::Id> = None;
     let mut last = String::from("the start");
     for press in 0..PRESSES {
-        tab(&mut kit, false);
-        if place(&kit) != start {
+        tab(kit, false);
+        if moved(kit) {
+            return None;
+        }
+        if place(kit) != start {
             println!(
                 "  ({preset}: went on by itself after «{last}»: {start} → {})",
-                place(&kit)
+                place(kit)
             );
             break;
         }
@@ -97,7 +115,7 @@ fn sweep(preset: &str) -> Vec<String> {
         let role = kit
             .query_by(|n| n.is_focused())
             .map(|n| format!("{:?}", n.accesskit_node().role()));
-        match (focused(&kit), role) {
+        match (focused(kit), role) {
             (None, _) => note(format!("{preset}: focus lost after «{last}»")),
             (Some(_), None) => note(format!(
                 "{preset}: focus on a widget missing from the tree after «{last}»"
@@ -114,7 +132,7 @@ fn sweep(preset: &str) -> Vec<String> {
             _ => {}
         }
     }
-    found
+    Some(found)
 }
 
 #[test]

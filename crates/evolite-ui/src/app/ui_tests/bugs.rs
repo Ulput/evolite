@@ -250,20 +250,19 @@ fn a_core_payment_costs_the_coins_it_takes() {
     assert_eq!(kit.state().send.amount, "8.41199478");
 }
 
-/// Sets the open wallet's credits: `shown` of the identity worked as, `all` of every one. Again
-/// for a few frames: a snapshot of the demo core in between would put its own back.
+/// Sets the open wallet's credits: `shown` of the identity worked as, `all` of every one, for
+/// three frames in a row: a snapshot of the demo core in between would put its own back.
 fn with_credits(kit: &mut Kit, shown: i64, all: i64) {
-    for _ in 0..3 {
-        let wallet = kit
-            .state_mut()
-            .snapshot
-            .as_mut()
-            .and_then(|s| s.wallet.as_mut())
-            .expect("a wallet");
-        wallet.balances.credits = shown;
-        wallet.balances.all_credits = all;
-        kit.run_steps(1);
-    }
+    show_wallet_edited(
+        kit,
+        3,
+        "the credits",
+        |w| {
+            w.balances.credits = shown;
+            w.balances.all_credits = all;
+        },
+        |_| true,
+    );
 }
 
 /// BUG-56 (the customer's decision): «Total» and the «Credits» card count every identity's
@@ -357,13 +356,22 @@ fn the_last_look_says_about_for_credits_and_at_most_for_core() {
 #[test]
 fn add_to_contacts_on_the_send_form_warns_below_the_balance_the_network_wants() {
     let (_turn, mut kit) = demo_app("send-contact", "en");
-    kit.run_steps(3);
     let warning = format!(
         "The network checks a reserve before it writes: with less than ≈ {} on the identity it may refuse. Less is charged.",
         crate::format::amount(230_000)
     );
-    with_credits(&mut kit, 126_042, 126_042);
-    assert!(has_text(&kit, &warning), "below it: said");
+    // The warning stands under the name once the demo core has found it (an answer of its own,
+    // not a snapshot): it is waited for, not counted in frames (BUG-120).
+    show_wallet_edited(
+        &mut kit,
+        3,
+        "below it: said",
+        |w| {
+            w.balances.credits = 126_042;
+            w.balances.all_credits = 126_042;
+        },
+        |k| has_text(k, &warning),
+    );
     with_credits(&mut kit, 230_000, 230_000);
     assert!(!has_text(&kit, &warning), "enough: not said");
 }
@@ -375,18 +383,16 @@ fn the_pool_not_read_yet_leaves_nothing_and_waits() {
     let (_turn, mut kit) = demo_app("send", "en");
     kit.run_steps(3);
     let unread = |kit: &mut Kit| {
-        for _ in 0..3 {
-            if let Some(w) = kit
-                .state_mut()
-                .snapshot
-                .as_mut()
-                .and_then(|s| s.wallet.as_mut())
-            {
+        show_wallet_edited(
+            kit,
+            3,
+            "the pool unread",
+            |w| {
                 w.pool.checked_at = None;
                 w.balances.shielded = 0;
-            }
-            kit.run_steps(1);
-        }
+            },
+            |_| true,
+        );
     };
     kit.state_mut().send.source = 2;
     kit.state_mut().send.recipient = "yXk3Tq9mD8vJw2RfL6pN4sB7cH1eZ5aG9f".into();
@@ -406,25 +412,21 @@ fn a_payment_from_core_does_not_wait_for_the_pool() {
     kit.state_mut().send.source = 0;
     kit.state_mut().send.recipient = "yXk3Tq9mD8vJw2RfL6pN4sB7cH1eZ5aG9f".into();
     kit.state_mut().send.amount = "0.01".into();
-    let mut ready = false;
-    for _ in 0..120 {
-        if let Some(w) = kit
-            .state_mut()
-            .snapshot
-            .as_mut()
-            .and_then(|s| s.wallet.as_mut())
-        {
+    let ready = |kit: &Kit| {
+        kit.query_all_by_role_and_label(Role::Button, "Check and send")
+            .any(|b| !b.accesskit_node().is_disabled())
+    };
+    show_wallet_edited(
+        &mut kit,
+        1,
+        "«Check and send» ready",
+        |w| {
             w.pool.checked_at = None;
             w.balances.shielded = 0;
-        }
-        kit.run_steps(1);
-        ready = kit
-            .query_all_by_role_and_label(Role::Button, "Check and send")
-            .any(|b| !b.accesskit_node().is_disabled());
-        if ready {
-            break;
-        }
-    }
+        },
+        ready,
+    );
+    let ready = ready(&kit);
     let unread = kit
         .state()
         .snapshot
@@ -458,19 +460,7 @@ fn the_unread_pool_presets_show_what_they_say() {
 fn credits_not_checked_yet_say_so_without_the_count() {
     let (_turn, mut kit) = demo_app("overview", "en");
     kit.run_steps(3);
-    let checked = |kit: &mut Kit, checked: bool| {
-        for _ in 0..3 {
-            if let Some(w) = kit
-                .state_mut()
-                .snapshot
-                .as_mut()
-                .and_then(|s| s.wallet.as_mut())
-            {
-                w.balances.credits_checked = checked;
-            }
-            kit.run_steps(1);
-        }
-    };
+    let checked = credits_checked_as;
     checked(&mut kit, false);
     assert!(
         has_text(&kit, "DASH · not checked yet"),
@@ -484,17 +474,13 @@ fn credits_not_checked_yet_say_so_without_the_count() {
 
 /// BUG-116: the snapshot's credits, checked in this run or not.
 fn credits_checked_as(kit: &mut Kit, checked: bool) {
-    for _ in 0..3 {
-        if let Some(w) = kit
-            .state_mut()
-            .snapshot
-            .as_mut()
-            .and_then(|s| s.wallet.as_mut())
-        {
-            w.balances.credits_checked = checked;
-        }
-        kit.run_steps(1);
-    }
+    show_wallet_edited(
+        kit,
+        3,
+        "the credits checked or not",
+        |w| w.balances.credits_checked = checked,
+        |_| true,
+    );
 }
 
 /// BUG-116: «On the identity after» of a top-up is reckoned from the credits: until they are
@@ -529,18 +515,16 @@ fn a_move_into_the_pool_says_what_is_left_only_once_credits_are_checked() {
 
 /// BUG-116: the snapshot's credits set to `credits`, checked or not.
 fn credits_as(kit: &mut Kit, credits: evolite_api::Duffs, checked: bool) {
-    for _ in 0..3 {
-        if let Some(w) = kit
-            .state_mut()
-            .snapshot
-            .as_mut()
-            .and_then(|s| s.wallet.as_mut())
-        {
+    show_wallet_edited(
+        kit,
+        3,
+        "the credits",
+        |w| {
             w.balances.credits = credits;
             w.balances.credits_checked = checked;
-        }
-        kit.run_steps(1);
-    }
+        },
+        |_| true,
+    );
 }
 
 /// BUG-116 (the designer): Add name, Add contact and Profile claim no lack of credits while the
@@ -671,22 +655,22 @@ fn a_contact_line_starting_with_latin_is_drawn_as_written_in_arabic() {
 #[test]
 fn contact_lines_in_arabic_are_drawn_as_their_words() {
     let (_turn, mut kit) = demo_app("contacts", "ar");
-    for _ in 0..3 {
-        let wallet = kit
-            .state_mut()
-            .snapshot
-            .as_mut()
-            .and_then(|s| s.wallet.as_mut())
-            .expect("a wallet");
-        for c in &mut wallet.contacts {
-            if c.name.as_deref() == Some("kate") {
-                c.profile.display = None;
-            }
-        }
-        kit.run_steps(1);
-    }
+    // What the screen asked for has come: no late snapshot puts Kate's profile name back.
+    settle(&mut kit);
     kit.set_size(egui::vec2(1600.0, 1200.0));
-    kit.run_steps(6);
+    show_wallet_edited(
+        &mut kit,
+        6,
+        "Kate without a profile name",
+        |w| {
+            for c in &mut w.contacts {
+                if c.name.as_deref() == Some("kate") {
+                    c.profile.display = None;
+                }
+            }
+        },
+        |_| true,
+    );
     let contacts = kit
         .state()
         .snapshot

@@ -485,22 +485,16 @@ fn core_as_of_shows(
     what: &str,
     seen: impl Fn(&Kit) -> bool,
 ) {
-    for _ in 0..50 {
-        if let Some(w) = kit
-            .state_mut()
-            .snapshot
-            .as_mut()
-            .and_then(|s| s.wallet.as_mut())
-        {
+    show_wallet_edited(
+        kit,
+        1,
+        what,
+        |w| {
             w.balances.core = core;
             w.balances.core_as_of = as_of;
-        }
-        kit.run_steps(1);
-        if seen(kit) {
-            return;
-        }
-    }
-    panic!("not shown: {what}");
+        },
+        seen,
+    );
 }
 
 /// BUG-77 (the designer's improvement 1): a Core balance not checked in this sync is the last

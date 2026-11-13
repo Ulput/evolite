@@ -135,20 +135,18 @@ fn the_sources_stay_in_one_row_of_equal_columns() {
         ),
     ] {
         let (_turn, mut kit) = demo_app("send", lang);
-        for _ in 0..5 {
-            if let Some(w) = kit
-                .state_mut()
-                .snapshot
-                .as_mut()
-                .and_then(|s| s.wallet.as_mut())
-            {
+        show_wallet_edited(
+            &mut kit,
+            5,
+            "the wallet edited",
+            |w| {
                 w.balances.core = 391_724_464;
                 // The other two long as well: the widest the row gets.
                 w.balances.credits = 123_456_789;
                 w.balances.shielded = 98_765_432;
-            }
-            kit.run_steps(1);
-        }
+            },
+            |_| true,
+        );
         let cards: Vec<_> = kit
             .query_all_by_role(Role::RadioButton)
             .filter(|n| {
@@ -204,22 +202,20 @@ fn every_source_lies_inside_the_from_panel() {
                 (1920.0, 1080.0, true),
             ] {
                 kit.set_size(egui::vec2(w, h));
-                for _ in 0..5 {
-                    if let Some(wl) = kit
-                        .state_mut()
-                        .snapshot
-                        .as_mut()
-                        .and_then(|s| s.wallet.as_mut())
-                    {
+                show_wallet_edited(
+                    &mut kit,
+                    5,
+                    "the wallet edited",
+                    |wl| {
                         wl.balances.core = core;
                         wl.balances.core_as_of = as_of.then(|| {
                             evolite_api::CoreAsOf::Checked(chrono::Utc::now().timestamp() - 86_400)
                         });
                         wl.balances.credits = credits;
                         wl.balances.shielded = pool;
-                    }
-                    kit.run_steps(1);
-                }
+                    },
+                    |_| true,
+                );
                 let at = format!("{lang} {w}×{h} {core}");
                 let left = words(&kit, &from).rect().left();
                 let right = button(&kit, &hide).rect().right();
@@ -343,22 +339,20 @@ fn the_sources_stay_in_one_row_in_every_language() {
     for lang in crate::i18n::Lang::ALL {
         let code = lang.code();
         let (turn, mut kit) = demo_app("send", code);
-        for _ in 0..5 {
-            if let Some(w) = kit
-                .state_mut()
-                .snapshot
-                .as_mut()
-                .and_then(|s| s.wallet.as_mut())
-            {
+        show_wallet_edited(
+            &mut kit,
+            5,
+            "the wallet edited",
+            |w| {
                 w.balances.core = 391_724_464;
                 w.balances.credits = 123_456_789;
                 w.balances.shielded = 98_765_432;
                 w.balances.core_as_of = Some(evolite_api::CoreAsOf::Checked(
                     chrono::Utc::now().timestamp() - 86_400,
                 ));
-            }
-            kit.run_steps(1);
-        }
+            },
+            |_| true,
+        );
         let names =
             ["Core", "Credits", "Private pool", "Platform address"].map(crate::i18n::spoken);
         let cards: Vec<_> = kit

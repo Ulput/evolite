@@ -9,37 +9,32 @@ use evolite_api::{Activity, ActivityKind, Chain, Proof};
 const UNDATED: u64 = 0x4747_4747;
 
 /// Puts a note found in the pool — an operation without a time of its own, as the real core
-/// gives it — into the wallet the app shows, and draws. Again for a few frames: a snapshot of
-/// the demo core in between would take it away.
+/// gives it — into the wallet the app shows, and draws, three frames in a row: a snapshot of the
+/// demo core in between would take it away.
 fn with_undated(kit: &mut Kit) {
-    for _ in 0..3 {
-        let wallet = kit
-            .state_mut()
-            .snapshot
-            .as_mut()
-            .and_then(|s| s.wallet.as_mut())
-            .expect("a wallet");
-        if !wallet.activity.iter().any(|a| a.id == UNDATED) {
-            wallet.activity.push(Activity {
-                id: UNDATED,
-                kind: ActivityKind::PoolReceived,
-                chain: Chain::Platform,
-                at: 0,
-                amount: 1_000_000,
-                proof: Proof::Proved,
-                txid: None,
-                fee: None,
-                block: None,
-                address: None,
-                layers: evolite_api::layer::POOL,
-                flow: evolite_api::Flow::In,
-                key: String::new(),
-                detail: None,
-                note: None,
-                rate: None,
-            });
-        }
-        kit.run_steps(1);
+    show_wallet_edited(kit, 3, "the undated note", undated, |_| true);
+}
+
+fn undated(wallet: &mut evolite_api::Wallet) {
+    if !wallet.activity.iter().any(|a| a.id == UNDATED) {
+        wallet.activity.push(Activity {
+            id: UNDATED,
+            kind: ActivityKind::PoolReceived,
+            chain: Chain::Platform,
+            at: 0,
+            amount: 1_000_000,
+            proof: Proof::Proved,
+            txid: None,
+            fee: None,
+            block: None,
+            address: None,
+            layers: evolite_api::layer::POOL,
+            flow: evolite_api::Flow::In,
+            key: String::new(),
+            detail: None,
+            note: None,
+            rate: None,
+        });
     }
 }
 
@@ -135,36 +130,31 @@ fn receive_forgets_the_requested_amount_on_leaving() {
 fn an_empty_pool_says_it_has_no_operations() {
     let (_turn, mut kit) = demo_app("shielded", "en");
     assert!(!has_text(&kit, "No operations in the pool yet"));
-    for _ in 0..3 {
-        if let Some(wallet) = kit
-            .state_mut()
-            .snapshot
-            .as_mut()
-            .and_then(|s| s.wallet.as_mut())
-        {
-            wallet.pool.operations.clear();
-        }
-        kit.run_steps(1);
-    }
+    show_wallet_edited(
+        &mut kit,
+        3,
+        "no operations in the pool",
+        |w| w.pool.operations.clear(),
+        |_| true,
+    );
     assert!(has_text(&kit, "No operations in the pool yet"));
 }
 
 /// Puts `ops` into the wallet the app shows, as [`with_undated`] does.
 fn with_ops(kit: &mut Kit, ops: &[Activity]) {
-    for _ in 0..3 {
-        let wallet = kit
-            .state_mut()
-            .snapshot
-            .as_mut()
-            .and_then(|s| s.wallet.as_mut())
-            .expect("a wallet");
-        for op in ops {
-            if !wallet.activity.iter().any(|a| a.id == op.id) {
-                wallet.activity.insert(0, op.clone());
+    show_wallet_edited(
+        kit,
+        3,
+        "the operations",
+        |wallet| {
+            for op in ops {
+                if !wallet.activity.iter().any(|a| a.id == op.id) {
+                    wallet.activity.insert(0, op.clone());
+                }
             }
-        }
-        kit.run_steps(1);
-    }
+        },
+        |_| true,
+    );
 }
 
 fn platform_op(id: u64, kind: ActivityKind, amount: i64) -> Activity {
@@ -404,17 +394,16 @@ fn lock(creates: bool, credits: evolite_api::Credits) -> Activity {
 /// Puts `op` into the shown wallet in place of the line with its id, for a few frames (the
 /// demo core's snapshots in between would take it away).
 fn with_op(kit: &mut Kit, op: &Activity) {
-    for _ in 0..3 {
-        let wallet = kit
-            .state_mut()
-            .snapshot
-            .as_mut()
-            .and_then(|s| s.wallet.as_mut())
-            .expect("a wallet");
-        wallet.activity.retain(|a| a.id != op.id);
-        wallet.activity.insert(0, op.clone());
-        kit.run_steps(1);
-    }
+    show_wallet_edited(
+        kit,
+        3,
+        "the wallet edited",
+        |wallet| {
+            wallet.activity.retain(|a| a.id != op.id);
+            wallet.activity.insert(0, op.clone());
+        },
+        |_| true,
+    );
 }
 
 /// The rows of History a screen reader sees (buttons «title · amount · detail»), top first.
@@ -437,27 +426,26 @@ const NEW_PAYMENT: u64 = 0x7171_7171;
 /// demo core never sends (`never_pretends_to_send`), so it is put into the wallet the app shows,
 /// again for a few frames: a snapshot of the demo core in between would take it away.
 fn with_new_payment(kit: &mut Kit) {
-    for _ in 0..3 {
-        let wallet = kit
-            .state_mut()
-            .snapshot
-            .as_mut()
-            .and_then(|s| s.wallet.as_mut())
-            .expect("a wallet");
-        if !wallet.activity.iter().any(|a| a.id == NEW_PAYMENT) {
-            let mut paid = wallet.activity[0].clone();
-            paid.id = NEW_PAYMENT;
-            paid.kind = ActivityKind::Sent {
-                to: "yNewPaymentAddress".into(),
-            };
-            paid.chain = Chain::Core;
-            paid.at = paid.at.max(1) + 60;
-            paid.amount = -71_717_171;
-            paid.proof = Proof::Mempool;
-            wallet.activity.insert(0, paid);
-        }
-        kit.run_steps(1);
-    }
+    show_wallet_edited(
+        kit,
+        3,
+        "the wallet edited",
+        |wallet| {
+            if !wallet.activity.iter().any(|a| a.id == NEW_PAYMENT) {
+                let mut paid = wallet.activity[0].clone();
+                paid.id = NEW_PAYMENT;
+                paid.kind = ActivityKind::Sent {
+                    to: "yNewPaymentAddress".into(),
+                };
+                paid.chain = Chain::Core;
+                paid.at = paid.at.max(1) + 60;
+                paid.amount = -71_717_171;
+                paid.proof = Proof::Mempool;
+                wallet.activity.insert(0, paid);
+            }
+        },
+        |_| true,
+    );
 }
 
 /// BUG-57: a top-up Platform has not credited is not «final» and nothing more: its row says in
@@ -765,25 +753,24 @@ fn with_the_csv_banner_on_the_list_still_scrolls() {
 #[test]
 fn the_export_question_counts_what_the_file_will_hold() {
     let (_turn, mut kit) = demo_app("activity", "en");
-    for _ in 0..3 {
-        let wallet = kit
-            .state_mut()
-            .snapshot
-            .as_mut()
-            .and_then(|s| s.wallet.as_mut())
-            .expect("a wallet");
-        if !wallet.activity.iter().any(|a| a.id == NEW_PAYMENT) {
-            let mut sending = wallet.activity[0].clone();
-            sending.id = NEW_PAYMENT;
-            sending.kind = ActivityKind::Sent {
-                to: "yNewPaymentAddress".into(),
-            };
-            sending.proof = Proof::Sending;
-            sending.amount = -71_717_171;
-            wallet.activity.insert(0, sending);
-        }
-        kit.run_steps(1);
-    }
+    show_wallet_edited(
+        &mut kit,
+        3,
+        "the wallet edited",
+        |wallet| {
+            if !wallet.activity.iter().any(|a| a.id == NEW_PAYMENT) {
+                let mut sending = wallet.activity[0].clone();
+                sending.id = NEW_PAYMENT;
+                sending.kind = ActivityKind::Sent {
+                    to: "yNewPaymentAddress".into(),
+                };
+                sending.proof = Proof::Sending;
+                sending.amount = -71_717_171;
+                wallet.activity.insert(0, sending);
+            }
+        },
+        |_| true,
+    );
     let (total, lines) = {
         let wallet = kit
             .state()

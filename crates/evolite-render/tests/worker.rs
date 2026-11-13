@@ -9,13 +9,22 @@ use image::{ImageFormat, Rgba, RgbaImage};
 
 const WORKER: &str = env!("CARGO_BIN_EXE_evolite-render-worker");
 
+/// A picture's deadline for the tests that are not about the deadline. The deadline counts the
+/// worker's start and its fonts, and a loaded check (several builds on the machine) once took
+/// longer than 3 s for that: three pictures came back `Timeout` (BUG-120). Generous, so only a
+/// worker that never answers reaches it.
+const PATIENT: Duration = Duration::from_secs(30);
+
 fn renderer(mode: Option<&str>) -> Renderer {
+    renderer_with(mode, PATIENT)
+}
+
+fn renderer_with(mode: Option<&str>, timeout: Duration) -> Renderer {
     let mut settings = Settings::new(
         WORKER.into(),
         mode.map(|m| vec![m.into()]).unwrap_or_default(),
     );
-    // A loaded macOS runner reads its fonts slowly; the deadline counts them.
-    settings.timeout = Duration::from_secs(if cfg!(target_os = "macos") { 10 } else { 3 });
+    settings.timeout = timeout;
     settings.memory = 256 * 1024 * 1024;
     Renderer::new(settings)
 }
@@ -43,7 +52,8 @@ fn pictures_go_through_the_worker() {
 
 #[test]
 fn a_hanging_worker_is_stopped_at_the_deadline() {
-    let mut r = renderer(Some("--test-hang"));
+    // The deadline itself is what is tested: short, and the hang is stopped soon after it.
+    let mut r = renderer_with(Some("--test-hang"), Duration::from_secs(3));
     let started = Instant::now();
     assert_eq!(r.render(&png()), Err(RenderError::Timeout));
     assert!(started.elapsed() < Duration::from_secs(20));
@@ -206,7 +216,7 @@ fn a_model_turns_inside_the_memory_cap() {
     )
     .unwrap();
     let mut settings = Settings::new(WORKER.into(), Vec::new());
-    settings.timeout = Duration::from_secs(10);
+    settings.timeout = PATIENT;
     let mut r = Renderer::new(settings);
     let art = r.render_at(&ring, 512).unwrap();
     assert_eq!((art.width, art.height), (512, 512));

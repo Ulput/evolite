@@ -24,16 +24,17 @@ fn shown_with(
     what: &str,
     seen: impl Fn(&Kit) -> bool,
 ) {
-    for _ in 0..50 {
-        if let Some(s) = kit.state_mut().snapshot.as_mut() {
-            change(s);
-        }
-        kit.run_steps(1);
-        if seen(kit) {
-            return;
-        }
-    }
-    panic!("not shown: {what}");
+    show_edited(
+        kit,
+        1,
+        what,
+        |app| {
+            if let Some(s) = app.snapshot.as_mut() {
+                change(s);
+            }
+        },
+        seen,
+    );
 }
 
 /// CS-1 №5: «Add a name» with too few credits says what is needed and what there is — not the

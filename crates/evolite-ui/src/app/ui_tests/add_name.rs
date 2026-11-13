@@ -30,21 +30,15 @@ fn shown_with(
     seen: impl Fn(&Kit) -> bool,
     what: &str,
 ) {
-    for _ in 0..80 {
-        if let Some(wallet) = kit
-            .state_mut()
-            .snapshot
-            .as_mut()
-            .and_then(|s| s.wallet.as_mut())
-        {
+    show_wallet_edited(
+        kit,
+        1,
+        what,
+        |wallet| {
             change(wallet);
-        }
-        kit.run_steps(1);
-        if seen(kit) {
-            return;
-        }
-    }
-    panic!("not seen: {what}");
+        },
+        seen,
+    );
 }
 
 /// The add-name form, its name checked as free, on an identity that holds `credits`.

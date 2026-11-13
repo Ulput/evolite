@@ -1,14 +1,15 @@
 //! BUG-60, BUG-61: what the sync says while it runs — a number only for a stage the core can
 //! count, and a name for the step after the masternode lists.
 
-use super::{Kit, demo_app, has_text, tab_to};
+use super::{Kit, demo_app, has_text, show_edited, tab_to};
 use crate::screens::sidebar::RailMark;
 use egui_kittest::kittest::{NodeT, Queryable};
 use evolite_api::SyncStage;
 
 /// Puts the sync at `stage`, `progress` into what the app shows, draws, and checks `seen` on that
-/// same frame — again (at most 50 frames) while it does not hold: a snapshot of the demo core
-/// (the staged first sync sends one each time it moves) may come first and put its own back.
+/// same frame — again while it does not hold. The staged first sync of the demo core sends a
+/// snapshot every 250 ms tick; under load every frame is longer than a tick (BUG-120): see
+/// [`show_edited`].
 fn shows(
     kit: &mut Kit,
     stage: SyncStage,
@@ -16,24 +17,35 @@ fn shows(
     what: &str,
     seen: impl Fn(&Kit) -> bool,
 ) {
-    for _ in 0..50 {
-        let sync = &mut kit.state_mut().snapshot.as_mut().expect("a snapshot").sync;
-        sync.stage = stage;
-        sync.progress = progress;
-        sync.core_peers = 3;
-        sync.error = None;
-        sync.minutes_left = None;
-        kit.run_steps(1);
-        let kept = kit
-            .state()
-            .snapshot
-            .as_ref()
-            .is_some_and(|s| s.sync.stage == stage && s.sync.progress == progress);
-        if kept && seen(kit) {
-            return;
-        }
-    }
-    panic!("not shown: {what}");
+    show_edited(
+        kit,
+        1,
+        what,
+        |app| {
+            let sync = &mut app.snapshot.as_mut().expect("a snapshot").sync;
+            sync.stage = stage;
+            sync.progress = progress;
+            sync.core_peers = 3;
+            sync.error = None;
+            sync.minutes_left = None;
+        },
+        seen,
+    );
+}
+
+/// The sync stopped at the filters with «No Core nodes answer», until `seen`.
+fn stopped(kit: &mut Kit, what: &str, seen: impl Fn(&Kit) -> bool) {
+    show_edited(
+        kit,
+        1,
+        what,
+        |app| {
+            let sync = &mut app.snapshot.as_mut().expect("a snapshot").sync;
+            sync.stage = SyncStage::Filters;
+            sync.error = Some("No Core nodes answer".into());
+        },
+        seen,
+    );
 }
 
 /// What the sync card in the sidebar says to a screen reader (a label: its words are its value): all of it, as painted.
@@ -240,18 +252,9 @@ fn with_the_systems_animations_off_the_rail_mark_stands_still() {
 fn a_stopped_sync_shows_in_the_rail() {
     let (_turn, mut kit) = demo_app("overview", "en");
     system_motion(&mut kit, true);
-    for _ in 0..50 {
-        let sync = &mut kit.state_mut().snapshot.as_mut().expect("a snapshot").sync;
-        sync.stage = SyncStage::Filters;
-        sync.error = Some("No Core nodes answer".into());
-        kit.run_steps(1);
-        if matches!(
-            rail_mark(&kit),
-            (RailMark::Block { stopped: true, .. }, false)
-        ) {
-            break;
-        }
-    }
+    stopped(&mut kit, "the stop in the rail", |k| {
+        matches!(rail_mark(k), (RailMark::Block { stopped: true, .. }, false))
+    });
     assert!(matches!(
         rail_mark(&kit),
         (RailMark::Block { stopped: true, .. }, false)
@@ -380,15 +383,9 @@ fn the_rail_status_is_polite_for_a_second_after_a_change() {
     );
     goes_quiet(&mut kit, SyncStage::Done, "the end");
     // A stop: the same stage with an error.
-    for _ in 0..50 {
-        let sync = &mut kit.state_mut().snapshot.as_mut().expect("a snapshot").sync;
-        sync.stage = SyncStage::Filters;
-        sync.error = Some("No Core nodes answer".into());
-        kit.run_steps(1);
-        if rail_status(&kit).starts_with("The sync stopped") {
-            break;
-        }
-    }
+    stopped(&mut kit, "the stop", |k| {
+        rail_status(k).starts_with("The sync stopped")
+    });
     assert!(polite(&kit), "polite at a stop: {:?}", rail_live(&kit));
     let mut frames = 0;
     while rail_live(&kit) != Some(Live::Off) {
@@ -409,15 +406,17 @@ fn a_refused_folder_is_said_in_words() {
     let text = "Sync cannot start: other users of this computer can write to the folder /home/a. Run chmod go-w '/home/a' in a terminal, and it starts by itself within a minute.";
     let (_turn, mut kit) = demo_app("overview", "en");
     system_motion(&mut kit, true);
-    for _ in 0..50 {
-        let sync = &mut kit.state_mut().snapshot.as_mut().expect("a snapshot").sync;
-        sync.error = Some("database ancestor /home/a is group/other-writable".into());
-        sync.folder_refused = Some(text.into());
-        kit.run_steps(1);
-        if rail_status(&kit).starts_with("The sync stopped") {
-            break;
-        }
-    }
+    show_edited(
+        &mut kit,
+        1,
+        "the refused folder",
+        |app| {
+            let sync = &mut app.snapshot.as_mut().expect("a snapshot").sync;
+            sync.error = Some("database ancestor /home/a is group/other-writable".into());
+            sync.folder_refused = Some(text.into());
+        },
+        |k| rail_status(k).starts_with("The sync stopped"),
+    );
     assert_eq!(rail_status(&kit), format!("The sync stopped · {text}"));
     assert!(
         kit.query_by_label(text).is_some(),

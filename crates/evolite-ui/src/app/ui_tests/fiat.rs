@@ -16,16 +16,17 @@ fn shown_with(
     what: &str,
     seen: impl Fn(&Kit) -> bool,
 ) {
-    for _ in 0..60 {
-        if let Some(s) = kit.state_mut().snapshot.as_mut() {
-            change(s);
-        }
-        kit.run_steps(1);
-        if seen(kit) {
-            return;
-        }
-    }
-    panic!("not seen: {what}");
+    show_edited(
+        kit,
+        1,
+        what,
+        |app| {
+            if let Some(s) = app.snapshot.as_mut() {
+                change(s);
+            }
+        },
+        seen,
+    );
 }
 
 fn usd_at(price: i64, at: i64) -> impl Fn(&mut Snapshot) {

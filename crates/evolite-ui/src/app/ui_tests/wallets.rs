@@ -273,15 +273,17 @@ fn a_lock_starts_history_from_all() {
     kit.state_mut().history.query = "bob".into();
     kit.run_steps(2);
     assert_ne!(kit.state().history.filters, Filters::default());
-    for _ in 0..5 {
-        if let Some(s) = kit.state_mut().snapshot.as_mut() {
-            s.vault = VaultState::Locked;
-        }
-        kit.run_steps(1);
-        if kit.state().history.filters == Filters::default() {
-            break;
-        }
-    }
+    show_edited(
+        &mut kit,
+        1,
+        "the filters dropped on the lock",
+        |app| {
+            if let Some(s) = app.snapshot.as_mut() {
+                s.vault = VaultState::Locked;
+            }
+        },
+        |k| k.state().history.filters == Filters::default(),
+    );
     assert_eq!(kit.state().history.filters, Filters::default());
     assert!(kit.state().history.query.is_empty());
 }

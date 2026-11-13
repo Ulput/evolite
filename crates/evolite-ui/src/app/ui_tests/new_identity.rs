@@ -8,20 +8,10 @@ use evolite_api::{CoreError, Wallet};
 
 const NEW: &str = "Create a new identity";
 
-/// Changes the wallet the app shows, and draws, a few times over: a snapshot of the demo core
-/// in between would undo it.
+/// Changes the wallet the app shows, and draws, three frames in a row: a snapshot of the demo
+/// core in between would undo it.
 fn with_wallet(kit: &mut Kit, change: impl Fn(&mut Wallet)) {
-    for _ in 0..3 {
-        if let Some(wallet) = kit
-            .state_mut()
-            .snapshot
-            .as_mut()
-            .and_then(|s| s.wallet.as_mut())
-        {
-            change(wallet);
-        }
-        kit.run_steps(1);
-    }
+    show_wallet_edited(kit, 3, "the wallet changed", change, |_| true);
 }
 
 /// A label or a name with `text` in it.
@@ -206,31 +196,20 @@ fn a_nameless_identity_asks_for_its_own_least_top_up() {
     wait_for(&mut kit, "«Create for …» on", |kit| {
         on(kit, "Create for ") == Some(true)
     });
-    let mut kept = false;
-    for _ in 0..50 {
-        kit.state_mut().create_identity.amount = "0.0006".to_owned();
-        if let Some(w) = kit
-            .state_mut()
-            .snapshot
-            .as_mut()
-            .and_then(|s| s.wallet.as_mut())
-        {
-            w.fees.name_regular = 65_000;
-            w.fees.identity_create = 175_000;
-            w.fees.identity_lock_min = 241_000;
-        }
-        kit.run_steps(1);
-        kept = kit
-            .state()
-            .snapshot
-            .as_ref()
-            .and_then(|s| s.wallet.as_ref())
-            .is_some_and(|w| w.fees.identity_lock_min == 241_000);
-        if kept {
-            break;
-        }
-    }
-    assert!(kept, "the fees did not stay");
+    show_edited(
+        &mut kit,
+        1,
+        "the fees kept",
+        |app| {
+            app.create_identity.amount = "0.0006".to_owned();
+            if let Some(w) = app.snapshot.as_mut().and_then(|s| s.wallet.as_mut()) {
+                w.fees.name_regular = 65_000;
+                w.fees.identity_create = 175_000;
+                w.fees.identity_lock_min = 241_000;
+            }
+        },
+        |_| true,
+    );
     assert!(has_text(
         &kit,
         &format!(
@@ -398,22 +377,22 @@ fn a_name_short_of_credits_says_to_top_up_and_continue() {
     let (_turn, mut kit) = demo_app("create-identity", "en");
     let text = "Not enough credits for the name. Top up this identity on the Identity screen, then press Continue.";
     let set = |kit: &mut Kit, locked| {
-        for _ in 0..3 {
-            kit.state_mut().create_identity.result = Some(Err(CoreError::NotEnough));
-            if let Some(w) = kit
-                .state_mut()
-                .snapshot
-                .as_mut()
-                .and_then(|s| s.wallet.as_mut())
-            {
-                w.unfinished_identity = Some(evolite_api::UnfinishedIdentity {
-                    locked,
-                    name: Some("satoshi-2026".into()),
-                    identity: None,
-                });
-            }
-            kit.run_steps(1);
-        }
+        show_edited(
+            kit,
+            3,
+            "the name refused",
+            |app| {
+                app.create_identity.result = Some(Err(CoreError::NotEnough));
+                if let Some(w) = app.snapshot.as_mut().and_then(|s| s.wallet.as_mut()) {
+                    w.unfinished_identity = Some(evolite_api::UnfinishedIdentity {
+                        locked,
+                        name: Some("satoshi-2026".into()),
+                        identity: None,
+                    });
+                }
+            },
+            |_| true,
+        );
     };
     set(&mut kit, None);
     assert!(has_text(&kit, text), "no lock waiting: the credits ran out");

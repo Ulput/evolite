@@ -180,12 +180,17 @@ fn a_lock_wipes_a_note_being_edited() {
     kit.run_steps(2);
     assert!(screens::activity::note_edit(&kit.ctx).is_some());
     // The demo core does not lock: the snapshot says it did, as the real core's would.
-    for _ in 0..3 {
-        if let Some(s) = kit.state_mut().snapshot.as_mut() {
-            s.vault = VaultState::Locked;
-        }
-        kit.run_steps(1);
-    }
+    show_edited(
+        &mut kit,
+        1,
+        "the note's edit dropped on the lock",
+        |app| {
+            if let Some(s) = app.snapshot.as_mut() {
+                s.vault = VaultState::Locked;
+            }
+        },
+        |k| screens::activity::note_edit(&k.ctx).is_none(),
+    );
     assert!(screens::activity::note_edit(&kit.ctx).is_none());
 }
 
