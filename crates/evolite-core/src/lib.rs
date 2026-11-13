@@ -185,6 +185,56 @@ mod tests {
     /// The password of the warm copy of the test wallet.
     const WARM_PASSWORD: &str = "evolite live tests";
 
+    /// The main checkout: `EVOLITE_MAIN_CHECKOUT`, or else found from this workspace. In a
+    /// worktree `.git` is a file `gitdir: <main>/.git/worktrees/<name>`; in the main checkout it
+    /// is the folder itself, and the workspace root is the answer.
+    fn main_checkout() -> std::path::PathBuf {
+        if let Some(dir) = std::env::var_os("EVOLITE_MAIN_CHECKOUT") {
+            return dir.into();
+        }
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let main = std::fs::read_to_string(root.join(".git"))
+            .ok()
+            .and_then(|git| {
+                let dir = std::path::PathBuf::from(git.trim().strip_prefix("gitdir:")?.trim());
+                let worktrees = dir.parent()?;
+                (worktrees.file_name()? == "worktrees").then_some(())?;
+                Some(worktrees.parent()?.parent()?.to_path_buf())
+            });
+        main.unwrap_or(root)
+    }
+
+    /// The QA password from `.test-identities` (never printed): this workspace's, or, since a
+    /// worktree has none, the main checkout's.
+    fn qa_password() -> String {
+        let file = |root: std::path::PathBuf| {
+            std::fs::read_to_string(root.join(".test-identities/qa-evolite-password.txt"))
+        };
+        file(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../.."))
+            .or_else(|_| file(main_checkout()))
+            .expect("the QA password file")
+            .trim()
+            .to_owned()
+    }
+
+    /// The QA data folder: `EVOLITE_QA_DATA`, or else `qa-data` next to the main checkout.
+    fn qa_data() -> std::path::PathBuf {
+        std::env::var_os("EVOLITE_QA_DATA")
+            .map(Into::into)
+            .or_else(|| main_checkout().parent().map(|reps| reps.join("qa-data")))
+            .expect("the QA data folder")
+    }
+
+    #[test]
+    fn the_main_checkout_is_found_from_a_worktree_too() {
+        // In a worktree `.git` is a file; the main checkout's is the repository itself.
+        assert!(
+            main_checkout().join(".git").is_dir(),
+            "{:?}",
+            main_checkout()
+        );
+    }
+
     /// A spend with the warm wallet's password: "password for every send" is on by default.
     fn spend(op: Spend) -> Command {
         Command::Spend {
@@ -910,23 +960,14 @@ mod tests {
         // «Кошелёк 2», where the customer saw it), opened with the QA password from its file.
         let qa = std::env::var("EVOLITE_B64_QA").is_ok();
         let password = if qa {
-            // A worktree has no `.test-identities`: then the main checkout's.
-            let here = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-                .join("../../.test-identities/qa-evolite-password.txt");
-            let main = std::path::Path::new(r"E:\reps\evolite-rust\.test-identities")
-                .join("qa-evolite-password.txt");
-            std::fs::read_to_string(&here)
-                .or_else(|_| std::fs::read_to_string(&main))
-                .expect("the QA password file")
-                .trim()
-                .to_owned()
+            qa_password()
         } else {
             WARM_PASSWORD.to_owned()
         };
         let core = if qa {
             let dir = std::env::temp_dir().join("evolite-live-b64-qa");
             let _ = std::fs::remove_dir_all(&dir);
-            copy_dir(std::path::Path::new(r"E:\reps\qa-data"), &dir).expect("a copy of qa-data");
+            copy_dir(&qa_data(), &dir).expect("a copy of qa-data");
             let core = Core::real(dir, ArtOptions::default(), || {});
             core.send(Command::Unlock {
                 password: Password::new(password.clone()),
@@ -1039,18 +1080,10 @@ mod tests {
     fn live_the_core_balance_shown_is_always_a_checked_one() {
         use evolite_api::CoreAsOf;
         const DOUBLE: i64 = 391_724_464;
-        let here = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../.test-identities/qa-evolite-password.txt");
-        let main = std::path::Path::new(r"E:\reps\evolite-rust\.test-identities")
-            .join("qa-evolite-password.txt");
-        let password = std::fs::read_to_string(&here)
-            .or_else(|_| std::fs::read_to_string(&main))
-            .expect("the QA password file")
-            .trim()
-            .to_owned();
+        let password = qa_password();
         let dir = std::env::temp_dir().join("evolite-live-b77-qa");
         let _ = std::fs::remove_dir_all(&dir);
-        copy_dir(std::path::Path::new(r"E:\reps\qa-data"), &dir).expect("a copy of qa-data");
+        copy_dir(&qa_data(), &dir).expect("a copy of qa-data");
         let core = Core::real(dir, ArtOptions::default(), || {});
         core.send(Command::Unlock {
             password: Password::new(password.clone()),
@@ -1144,21 +1177,13 @@ mod tests {
     #[test]
     #[ignore = "needs testnet access and the QA data folder"]
     fn live_a_start_again_rewinds_no_filters() {
-        let here = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../.test-identities/qa-evolite-password.txt");
-        let main = std::path::Path::new(r"E:\reps\evolite-rust\.test-identities")
-            .join("qa-evolite-password.txt");
-        let password = std::fs::read_to_string(&here)
-            .or_else(|_| std::fs::read_to_string(&main))
-            .expect("the QA password file")
-            .trim()
-            .to_owned();
+        let password = qa_password();
         let dir = std::env::temp_dir().join("evolite-live-b77w-qa");
         let first = dir.join("first-run.json");
         let again = first.exists();
         if !again {
             let _ = std::fs::remove_dir_all(&dir);
-            copy_dir(std::path::Path::new(r"E:\reps\qa-data"), &dir).expect("a copy of qa-data");
+            copy_dir(&qa_data(), &dir).expect("a copy of qa-data");
         }
         crate::diag::init(&dir.join("logs-b77w"));
         let started = Instant::now();
