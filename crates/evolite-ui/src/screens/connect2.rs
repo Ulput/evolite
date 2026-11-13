@@ -485,24 +485,29 @@ pub fn request(
                         );
                     } else {
                         let mut on = state.choice.kept[i];
-                        checkbox(ui, a, &mut on, &binding_words(&offer.binding, app));
-                        state.choice.kept[i] = on;
                         let up_to = shares
                             .as_ref()
                             .and_then(|g| g.keys[i].map(|(b, _)| b))
                             .unwrap_or(offer.budget);
-                        ui.horizontal(|ui| {
-                            ui.add_space(32.0);
-                            ui.label(txt(
-                                &format!(
-                                    tr!("up to {} from the same limit · you can leave it off"),
-                                    dash(up_to)
-                                ),
-                                12.0,
-                                Weight::Regular,
-                                p.muted,
-                            ));
+                        // The line under it as close as under the primary key, not the body's
+                        // 12 px (the designer's r4 note 3).
+                        ui.vertical(|ui| {
+                            ui.spacing_mut().item_spacing.y = 2.0;
+                            checkbox(ui, a, &mut on, &binding_words(&offer.binding, app));
+                            ui.horizontal(|ui| {
+                                ui.add_space(32.0);
+                                ui.label(txt(
+                                    &format!(
+                                        tr!("up to {} from the same limit · you can leave it off"),
+                                        dash(up_to)
+                                    ),
+                                    12.0,
+                                    Weight::Regular,
+                                    p.muted,
+                                ));
+                            });
                         });
+                        state.choice.kept[i] = on;
                     }
                 }
                 can_line(ui, a, "close", tr!("Transfer credits and DASH"), None, true);

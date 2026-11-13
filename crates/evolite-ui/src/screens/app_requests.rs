@@ -126,6 +126,8 @@ impl AppRequests {
             self.disconnecting = None;
             self.disconnect_result = None;
             self.disconnect_password.forget();
+            // «… connected: limit …» no longer holds; the list shows the app disconnected.
+            self.connected = None;
         } else {
             self.disconnect_result = Some(result);
         }
@@ -601,5 +603,21 @@ mod tests {
         set(Lang::Ru);
         assert_eq!(app_label("«yappr»"), "«yappr»");
         set(Lang::En);
+    }
+
+    /// FEAT-0023 round 5 (the coordinator's live pass): «Yappr connected: limit …» does not stay
+    /// above the list once an app is disconnected; a refused disconnect leaves it.
+    #[test]
+    fn a_disconnect_takes_the_connected_banner_away() {
+        let mut state = AppRequests {
+            connected: Some("Yappr connected: limit 0.51 DASH".into()),
+            disconnect_waiting: true,
+            ..AppRequests::default()
+        };
+        state.on_disconnected(Err(CoreError::WrongPassword));
+        assert!(state.connected.is_some(), "refused: nothing changed");
+        state.disconnect_waiting = true;
+        state.on_disconnected(Ok(()));
+        assert_eq!(state.connected, None);
     }
 }

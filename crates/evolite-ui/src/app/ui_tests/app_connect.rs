@@ -204,3 +204,65 @@ fn a_v1_link_is_refused_with_its_version() {
     kit.run_steps(2);
     assert!(kit.state().requests.refused.is_none());
 }
+
+/// The rect of the first node whose label or value starts with `words`.
+fn rect_of(kit: &Kit, words: &str) -> egui::Rect {
+    kit.query_all_by(|n| {
+        n.label().is_some_and(|l| l.starts_with(words))
+            || n.value().is_some_and(|v| v.starts_with(words))
+    })
+    .next()
+    .unwrap_or_else(|| panic!("«{words}»"))
+    .rect()
+}
+
+/// The room between the line starting with `under` and the nearest title above it starting with
+/// `title` (the list behind the dialog has the same titles).
+fn gap_above(kit: &Kit, under: &str, title: &str) -> f32 {
+    let line = rect_of(kit, under);
+    kit.query_all_by(|n| {
+        n.label().is_some_and(|l| l.starts_with(title))
+            || n.value().is_some_and(|v| v.starts_with(title))
+    })
+    .map(|n| n.rect())
+    .filter(|r| r.bottom() <= line.top() + 0.5 && (r.left() - line.left()).abs() < 60.0)
+    .map(|r| line.top() - r.bottom())
+    .min_by(f32::total_cmp)
+    .unwrap_or_else(|| panic!("«{title}» above «{under}»"))
+}
+
+/// A1, the designer's r4 note 3: the line under an optional key (with its checkbox) stands as
+/// close to its title as the line under the primary key does.
+#[test]
+fn the_line_under_each_key_is_as_close_to_its_title() {
+    let (_turn, mut kit) = demo_app("apps", "en");
+    open_request(&mut kit);
+    let primary = gap_above(&kit, "fees come from", "Write to");
+    let optional = gap_above(&kit, "up to ", "Change your DashPay profile");
+    assert!(
+        (primary - optional).abs() <= 2.0,
+        "under the primary key {primary} px, under the optional one {optional} px"
+    );
+}
+
+/// L1, the designer's r4 note 2: a state chip has its icon before its words, as every status
+/// in the app (the card's right-to-left row must not turn it round).
+#[test]
+fn a_state_chip_has_its_icon_before_its_words() {
+    let (_turn, mut kit) = demo_app("apps", "en");
+    kit.run_steps(3);
+    let words = rect_of(&kit, "Active");
+    let icon = kit
+        .query_all_by(|n| n.role() == Role::Image)
+        .map(|n| n.rect())
+        .find(|r| {
+            (r.center().y - words.center().y).abs() < 6.0 && (r.left() - words.right()).abs() < 30.0
+                || (r.center().y - words.center().y).abs() < 6.0
+                    && (words.left() - r.right()).abs() < 30.0
+        })
+        .expect("the chip's icon beside «Active»");
+    assert!(
+        icon.right() <= words.left(),
+        "the icon at {icon:?}, the words at {words:?}"
+    );
+}

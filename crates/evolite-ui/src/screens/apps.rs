@@ -109,8 +109,18 @@ fn state_chip(ui: &mut Ui, a: &mut Assets, state: AppState, now: chrono::DateTim
         .show(ui, |ui| {
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = 6.0;
-                ui.add(a.icons.icon(icon, color, &p, 14.0));
-                ui.label(txt(&words, 12.0, Weight::Medium, color));
+                // The card's row runs right to left, and so does this one inside it: the words
+                // go in first there, so that the icon stands before them, as in every status
+                // (the designer's r4 note 2).
+                let image = a.icons.icon(icon, color, &p, 14.0);
+                let words = txt(&words, 12.0, Weight::Medium, color);
+                if ui.layout().prefer_right_to_left() {
+                    ui.label(words);
+                    ui.add(image);
+                } else {
+                    ui.add(image);
+                    ui.label(words);
+                }
             });
         });
 }
