@@ -698,3 +698,68 @@ fn an_at_name_inside_arabic_keeps_its_at_on_the_left() {
         );
     }
 }
+
+/// BUG-125: «Core · 2 of 3 coins» in the Arabic interface reads right to left as «Core · 2 من 3
+/// عملات»: «Core» rightmost, as one left-to-right word, then 2, then 3. Without «Core» isolated,
+/// the bidi algorithm took «Core · 2» as one left-to-right run, and the 2 stood left of «Core».
+#[test]
+fn core_in_the_coins_line_is_its_own_left_to_right_run() {
+    use egui::{Color32, FontFamily, FontId};
+    set(Lang::Ar);
+    let shown = t("Core · 2 of 3 coins").into_owned();
+    let whole = t("Core · 3 coins").into_owned();
+    set(Lang::En);
+    assert!(
+        !shown.contains(['\u{2068}', '\u{2069}']),
+        "no isolate is drawn: {shown:?}"
+    );
+    let x_of = |text: String| {
+        let mut fonts = app_fonts();
+        let mut view = fonts.with_pixels_per_point(1.0);
+        let galley = view.layout_no_wrap(
+            text.clone(),
+            FontId::new(20.0, FontFamily::Proportional),
+            Color32::WHITE,
+        );
+        let glyphs: Vec<(char, f32)> = galley.rows[0]
+            .glyphs
+            .iter()
+            .map(|g| (letter(g.chr), g.pos.x))
+            .collect();
+        move |c: char| {
+            glyphs
+                .iter()
+                .find(|(g, _)| *g == c)
+                .map(|(_, x)| *x)
+                .unwrap_or_else(|| panic!("no «{c}» in {text:?}"))
+        }
+    };
+    let at = x_of(shown.clone());
+    assert!(at('C') < at('e'), "«Core» left to right: {shown:?}");
+    assert!(at('2') < at('C'), "2 after «Core», to its left: {shown:?}");
+    assert!(at('3') < at('2'), "3 after 2, to its left: {shown:?}");
+    let at = x_of(whole.clone());
+    assert!(at('3') < at('C'), "3 after «Core», to its left: {whole:?}");
+}
+
+/// BUG-125 r1, P3 1: the isolate around «Core» in ar's three coins lines is invisible in an
+/// editor and a diff, so the catalog writes it as escapes (U+2068, U+2069); and whatever
+/// writes the catalog next, each of the three keeps it.
+#[test]
+fn the_arabic_coins_lines_keep_core_isolated() {
+    let json = include_str!("../../locales/ar.json");
+    let catalog: serde_json::Value = serde_json::from_str(json).expect("ar.json");
+    for key in [
+        "Core · {} of {} coins",
+        "Core · {} coins",
+        "Core · of {} coins",
+    ] {
+        let value = catalog[key]
+            .as_str()
+            .unwrap_or_else(|| panic!("no «{key}»"));
+        assert!(
+            value.starts_with("\u{2068}Core\u{2069} "),
+            "«{key}»: {value:?}"
+        );
+    }
+}
