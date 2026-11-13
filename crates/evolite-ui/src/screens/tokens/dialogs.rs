@@ -522,6 +522,12 @@ impl AddState {
         Some((state, command))
     }
 
+    /// The last question asked has its answer (for the tests that wait for it).
+    #[cfg(all(test, demo_core, feature = "dev-tools"))]
+    pub fn answered(&self) -> bool {
+        self.asked.is_none() && self.found.is_some()
+    }
+
     pub fn on_found(&mut self, query: &str, result: &Result<Vec<TokenInfo>, CoreError>) {
         // The answer to the last question only; «not synced yet» is followed by the answer.
         if self.asked.as_deref() != Some(query) {

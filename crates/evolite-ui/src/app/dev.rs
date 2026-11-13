@@ -769,9 +769,17 @@ impl App {
             ("tokens-add-one", DEMO_TOKEN),
             ("tokens-add-many", "coffee"),
             ("tokens-add-none", "nothing"),
+            ("tokens-add-hidden", "coffee"),
         ]
         .into_iter()
         .find(|(name, _)| preset(name));
+        // `tokens-add-hidden`: Evo Coffee hidden first, so the search offers «Return to the list».
+        if preset("tokens-add-hidden") && !real_shot {
+            self.core.send(Command::TrackToken {
+                token_id: DEMO_TOKEN.into(),
+                on: false,
+            });
+        }
         if let Some((_, query)) = add_preset {
             match screens::tokens::AddState::asking(query).filter(|_| !real_shot) {
                 Some((add, command)) => {

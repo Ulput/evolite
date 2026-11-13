@@ -54,6 +54,35 @@ fn sweep(preset: &str) -> Vec<String> {
             kit.state().vault == Some(evolite_api::VaultState::Unlocked)
         });
     }
+    // The token presets that ask the demo core first (FEAT-0019): its answer before the round,
+    // or the dialog changes under it (a flaky round under load, 2026-11-13).
+    if preset == "tokens-review" {
+        wait_for(&mut kit, "the review", |kit| {
+            kit.state()
+                .tokens
+                .sending
+                .as_ref()
+                .is_some_and(|s| s.review)
+        });
+    }
+    if preset == "tokens-send-unknown" {
+        wait_for(&mut kit, "the name's refusal", |kit| {
+            kit.state()
+                .tokens
+                .sending
+                .as_ref()
+                .is_some_and(|s| s.to_problem.is_some())
+        });
+    }
+    if preset.starts_with("tokens-add-") {
+        wait_for(&mut kit, "the search's answer", |kit| {
+            kit.state()
+                .tokens
+                .adding
+                .as_ref()
+                .is_some_and(|a| a.answered())
+        });
+    }
     if preset == "connect" {
         wait_for(&mut kit, "the app's request", |kit| {
             kit.ctx.memory(|m| m.top_modal_layer()).is_some()
@@ -143,6 +172,11 @@ fn tab_never_loses_the_focus_on_any_screen() {
         println!("  {f}");
     }
     let new: Vec<&String> = found.iter().filter(|f| !known(f)).collect();
+    // One line each that the check's report keeps (it keeps «error» lines): the preset is named
+    // even when the round passes alone and fails only under load.
+    for f in &new {
+        eprintln!("error: Tab sweep: {f}");
+    }
     let fixed: Vec<&&str> = KNOWN
         .iter()
         .filter(|k| !found.iter().any(|f| kind(f) == kind(k)))
@@ -154,6 +188,10 @@ fn tab_never_loses_the_focus_on_any_screen() {
         .collect();
     assert!(
         new.is_empty() && fixed.is_empty(),
-        "new Tab problems: {new:#?}\nfixed, take them off KNOWN: {fixed:#?}"
+        "new Tab problems on {}: {new:#?}\nfixed, take them off KNOWN: {fixed:#?}",
+        new.iter()
+            .map(|f| f.split(':').next().unwrap_or(f))
+            .collect::<Vec<_>>()
+            .join(", ")
     );
 }

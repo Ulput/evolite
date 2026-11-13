@@ -210,7 +210,7 @@ pub const PRESETS: &[&str] = &[
     "tokens", "tokens-first-search", "tokens-pause", "tokens-no-network", "tokens-refresh-failed",
     "tokens-empty", "tokens-send", "tokens-review", "tokens-add", "tokens-mainnet",
     "tokens-send-address", "tokens-send-more", "tokens-send-credits", "tokens-send-unknown",
-    "tokens-add-one", "tokens-add-many", "tokens-add-none",
+    "tokens-add-one", "tokens-add-many", "tokens-add-none", "tokens-add-hidden",
     "probe",
     "settings", "phrase", "check-phrase", "appearance", "appearance-rate", "change-password",
     "security", "backup", "notifications", "own-node", "nodes", "nodes-dapi", "about",
@@ -398,7 +398,8 @@ fn dev_args<'a>(
                 | "tokens-send-unknown"
                 | "tokens-add-one"
                 | "tokens-add-many"
-                | "tokens-add-none",
+                | "tokens-add-none"
+                | "tokens-add-hidden",
             ),
         ) => Screen::Tokens,
         (None, Some("probe")) => Screen::Probe,
