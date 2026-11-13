@@ -44,7 +44,10 @@ fn demo_nfts(core: &Core) -> Vec<Nft> {
 /// Every `Art` answer for `art` until a whole one comes: (partial, picture) in order. Answers
 /// for other pictures stay in `backlog` for their turn.
 fn answers(core: &Core, backlog: &mut Vec<Event>, art: &str) -> Vec<(bool, Arc<Picture>)> {
-    let deadline = Instant::now() + Duration::from_secs(30);
+    // Generous: a loaded machine (a full check beside another build) only makes it slower,
+    // never red (it took over 30 s once, 5-14 s alone; as BUG-120). A passing run waits only as
+    // long as the picture takes.
+    let deadline = Instant::now() + Duration::from_secs(90);
     let mut got = Vec::new();
     loop {
         backlog.extend(core.events());

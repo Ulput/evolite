@@ -39,16 +39,12 @@ fn no_connected_apps_shows_the_next_step() {
                     .all(|a| a.session.iter().all(|k| k.remaining.is_some()))
             })
     });
-    if let Some(w) = kit
-        .state_mut()
-        .snapshot
-        .as_mut()
-        .and_then(|s| s.wallet.as_mut())
-    {
-        w.apps.clear();
-    }
-    kit.run_steps(3);
-    assert!(has_text(&kit, "No connected apps"));
+    // The apps cleared before every frame: a snapshot of the demo core in between put them back
+    // and moved the button under the click (flaky under load, as BUG-120).
+    let no_apps = |w: &mut evolite_api::Wallet| w.apps.clear();
+    show_wallet_edited(&mut kit, 3, "no connected apps", no_apps, |kit| {
+        has_text(kit, "No connected apps")
+    });
     assert!(has_text(
         &kit,
         "To connect one, paste the link the app shows."
@@ -62,8 +58,9 @@ fn no_connected_apps_shows_the_next_step() {
         .last()
         .expect("the empty card's button")
         .click();
-    kit.run_steps(3);
-    assert!(kit.state().requests.pasting, "the paste dialog opens");
+    show_wallet_edited(&mut kit, 1, "the paste dialog opens", no_apps, |kit| {
+        kit.state().requests.pasting
+    });
 }
 
 /// BUG-28: «Source code · GitHub ›» in About opens the repository in the browser, from its

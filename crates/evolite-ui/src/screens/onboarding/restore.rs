@@ -473,8 +473,12 @@ pub(super) fn found(ui: &mut Ui, a: &mut Assets, o: &mut Onboarding) {
     }
     // A person knows the wallet by its balances: hidden by the setting, the eye shows them
     // (FEAT-0007, the designer's decision for the found wallet).
-    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-        crate::components::amount_toggle(ui, a, false);
+    // In a row of its own: a right-to-left layout straight in the page takes all the height
+    // left, and the found wallet went below the window's edge (BUG-133).
+    ui.horizontal(|ui| {
+        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+            crate::components::amount_toggle(ui, a, false);
+        });
     });
     card(&p, Margin::ZERO).show(ui, |ui| {
         ui.set_width(inner(width, 0));

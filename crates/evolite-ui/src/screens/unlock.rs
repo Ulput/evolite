@@ -98,160 +98,166 @@ pub fn unlock(
     if paused.is_some() {
         form.error = None;
     }
-    ui.add_space(((ui.available_height() - height) / 2.0).max(24.0));
-    let content = ui.vertical_centered(|ui| {
-        ui.spacing_mut().item_spacing.y = 24.0;
-        ui.add(a.icons.logo(Logo::Stacked, &p, 96.0));
-        if several {
-            ui.label(txt(
-                tr!("Which wallet to open?"),
-                20.0,
-                Weight::Medium,
-                p.text,
-            ));
-            ui.add_space(-8.0);
-            ui.allocate_ui(vec2(column, 0.0), |ui| {
-                ui.spacing_mut().item_spacing.y = 8.0;
-                for w in &snap.wallets {
-                    let on = chosen_id.as_deref() == Some(w.id.as_str());
-                    if wallet_choice(ui, a, w, on, cx.now, column).clicked() && !on {
-                        form.chosen = Some(w.id.clone());
-                        form.password.zeroize();
-                        form.error = None;
-                        form.refused = None;
-                    }
-                }
-            });
-        } else {
-            ui.label(txt(tr!("Welcome back"), 24.0, Weight::Bold, p.text));
-        }
-        // The label on the left, over the field (Figma 28).
-        ui.allocate_ui_with_layout(
-            vec2(column, 0.0),
-            egui::Layout::top_down(egui::Align::Min),
-            |ui| {
-                ui.spacing_mut().item_spacing.y = 6.0;
-                match chosen.filter(|_| several) {
-                    Some(w) => field_label(
-                        ui,
-                        &p,
-                        &format!(tr!("Password of “{}”"), crate::i18n::own(&w.name)),
-                    ),
-                    None => field_label(ui, &p, tr!("Password")),
-                }
-                let field = text_field(
-                    ui,
-                    &p,
-                    "unlock-password",
-                    &mut form.password,
-                    "",
-                    FieldKind::Password,
-                    |_| {},
-                );
-                if field.changed() {
-                    form.error = None;
-                }
-                // The password is what this screen is for: typing starts at once, as when
-                // switching wallets.
-                if !form.waiting
-                    && form.forgot.is_none()
-                    && !field.has_focus()
-                    && form.password.is_empty()
-                {
-                    field.request_focus();
-                }
-                let entered = field.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter));
-                pause_lines(ui, a, form.error.as_deref(), wrong_tries, paused, pause_end);
-                if paused.is_some() {
-                    pause::tick(ui, cx.now);
-                }
-                ui.add_space(6.0);
-                // In a pause the typing stays, but nothing goes (FR-3).
-                let ready = !form.password.is_empty() && !form.waiting && paused.is_none();
-                let label = match (form.waiting, several) {
-                    (true, _) => opening_label(ui, form.waiting_since),
-                    (false, true) => tr!("Open").to_owned(),
-                    (false, false) => tr!("Open the wallet").to_owned(),
-                };
-                let mut button =
-                    button_enabled(ui, a, &label, ButtonKind::Primary, Some(column), ready);
-                if let Some(secs) = paused {
-                    button = pause::explain(ui, button, secs);
-                }
-                let clicked = button.clicked();
-                if ready && (clicked || entered) {
-                    // The password goes to the core and is wiped here at once.
-                    let password = Password::new(form.password.to_string());
-                    let other = chosen.filter(|w| !w.open);
-                    cx.send(match other {
-                        // Another wallet: the core checks its password before it locks this one.
-                        Some(w) => Command::SwitchWallet {
-                            id: w.id.clone(),
-                            password: Some(password),
-                        },
-                        None => Command::Unlock { password },
+    // A window too low for the screen scrolls it (BUG-127): «Open», the links under it and the
+    // foot stay within reach of the wheel. Centred in the window's height when it fits.
+    let room = ui.available_height();
+    let shown = egui::ScrollArea::vertical()
+        .id_salt("unlock-screen")
+        .auto_shrink([false, false])
+        .show(ui, |ui| {
+            ui.add_space(((room - height) / 2.0).max(24.0));
+            let content = ui.vertical_centered(|ui| {
+                ui.spacing_mut().item_spacing.y = 24.0;
+                ui.add(a.icons.logo(Logo::Stacked, &p, 96.0));
+                if several {
+                    ui.label(txt(
+                        tr!("Which wallet to open?"),
+                        20.0,
+                        Weight::Medium,
+                        p.text,
+                    ));
+                    ui.add_space(-8.0);
+                    ui.allocate_ui(vec2(column, 0.0), |ui| {
+                        ui.spacing_mut().item_spacing.y = 8.0;
+                        for w in &snap.wallets {
+                            let on = chosen_id.as_deref() == Some(w.id.as_str());
+                            if wallet_choice(ui, a, w, on, cx.now, column).clicked() && !on {
+                                form.chosen = Some(w.id.clone());
+                                form.password.zeroize();
+                                form.error = None;
+                                form.refused = None;
+                            }
+                        }
                     });
-                    form.password.zeroize();
-                    form.waiting = true;
-                    form.waiting_since = Some(ui.input(|i| i.time));
+                } else {
+                    ui.label(txt(tr!("Welcome back"), 24.0, Weight::Bold, p.text));
                 }
-            },
-        );
-        if !several {
-            ui.label(txt(
-                tr!("The password opens the phrase encrypted on this computer."),
-                13.0,
-                Weight::Regular,
-                p.muted,
-            ));
-        }
-        // Centred under the button (a text action lays out from the left).
-        let link = |text: &str, color| {
-            egui::Button::new(txt(text, 13.0, Weight::Medium, color)).frame(false)
-        };
-        if several {
-            ui.add_space(-12.0);
-            ui.horizontal(|ui| {
-                let w = crate::components::text_width(
-                    ui,
-                    tr!("Forgot the password? · Add wallet"),
-                    sans(13.0, Weight::Medium),
-                ) + 24.0;
-                ui.add_space(((ui.available_width() - w) / 2.0).max(0.0));
-                ui.spacing_mut().item_spacing.x = 8.0;
-                if ui
-                    .add(link(tr!("Forgot the password?"), p.muted))
-                    .on_hover_cursor(CursorIcon::PointingHand)
-                    .clicked()
+                // The label on the left, over the field (Figma 28).
+                ui.allocate_ui_with_layout(
+                    vec2(column, 0.0),
+                    egui::Layout::top_down(egui::Align::Min),
+                    |ui| {
+                        ui.spacing_mut().item_spacing.y = 6.0;
+                        match chosen.filter(|_| several) {
+                            Some(w) => field_label(
+                                ui,
+                                &p,
+                                &format!(tr!("Password of “{}”"), crate::i18n::own(&w.name)),
+                            ),
+                            None => field_label(ui, &p, tr!("Password")),
+                        }
+                        let field = text_field(
+                            ui,
+                            &p,
+                            "unlock-password",
+                            &mut form.password,
+                            "",
+                            FieldKind::Password,
+                            |_| {},
+                        );
+                        if field.changed() {
+                            form.error = None;
+                        }
+                        // The password is what this screen is for: typing starts at once, as when
+                        // switching wallets.
+                        if !form.waiting
+                            && form.forgot.is_none()
+                            && !field.has_focus()
+                            && form.password.is_empty()
+                        {
+                            field.request_focus();
+                        }
+                        let entered = field.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter));
+                        pause_lines(ui, a, form.error.as_deref(), wrong_tries, paused, pause_end);
+                        if paused.is_some() {
+                            pause::tick(ui, cx.now);
+                        }
+                        ui.add_space(6.0);
+                        // In a pause the typing stays, but nothing goes (FR-3).
+                        let ready = !form.password.is_empty() && !form.waiting && paused.is_none();
+                        let label = match (form.waiting, several) {
+                            (true, _) => opening_label(ui, form.waiting_since),
+                            (false, true) => tr!("Open").to_owned(),
+                            (false, false) => tr!("Open the wallet").to_owned(),
+                        };
+                        let mut button =
+                            button_enabled(ui, a, &label, ButtonKind::Primary, Some(column), ready);
+                        if let Some(secs) = paused {
+                            button = pause::explain(ui, button, secs);
+                        }
+                        let clicked = button.clicked();
+                        if ready && (clicked || entered) {
+                            // The password goes to the core and is wiped here at once.
+                            let password = Password::new(form.password.to_string());
+                            let other = chosen.filter(|w| !w.open);
+                            cx.send(match other {
+                                // Another wallet: the core checks its password before it locks this one.
+                                Some(w) => Command::SwitchWallet {
+                                    id: w.id.clone(),
+                                    password: Some(password),
+                                },
+                                None => Command::Unlock { password },
+                            });
+                            form.password.zeroize();
+                            form.waiting = true;
+                            form.waiting_since = Some(ui.input(|i| i.time));
+                        }
+                    },
+                );
+                if !several {
+                    ui.label(txt(
+                        tr!("The password opens the phrase encrypted on this computer."),
+                        13.0,
+                        Weight::Regular,
+                        p.muted,
+                    ));
+                }
+                // Centred under the button (a text action lays out from the left).
+                // Named in reading order for a screen reader: a plain button takes the words as
+                // drawn, in visual order in Arabic, read backwards (BUG-139).
+                let link = |ui: &mut Ui, text: &str, color| {
+                    let resp = ui
+                        .add(egui::Button::new(txt(text, 13.0, Weight::Medium, color)).frame(false))
+                        .on_hover_cursor(CursorIcon::PointingHand);
+                    crate::components::named(&resp, egui::WidgetType::Button, true, text);
+                    resp
+                };
+                if several {
+                    ui.add_space(-12.0);
+                    ui.horizontal(|ui| {
+                        let w = crate::components::text_width(
+                            ui,
+                            tr!("Forgot the password? · Add wallet"),
+                            sans(13.0, Weight::Medium),
+                        ) + 24.0;
+                        ui.add_space(((ui.available_width() - w) / 2.0).max(0.0));
+                        ui.spacing_mut().item_spacing.x = 8.0;
+                        if link(ui, tr!("Forgot the password?"), p.muted).clicked() {
+                            // The deletion is the open wallet's: another one chosen opens first.
+                            match chosen.filter(|w| !w.open) {
+                                Some(w) => cx.wallets(WalletRequest::ForgotOther(w.id.clone())),
+                                None => form.forgot = Some(DeleteForm::forgot()),
+                            }
+                        }
+                        ui.label(txt("·", 13.0, Weight::Medium, p.muted));
+                        if link(ui, tr!("Add wallet"), p.text).clicked() {
+                            cx.wallets(WalletRequest::Add(None));
+                        }
+                    });
+                } else if link(ui, tr!("Forgot the password? · Another wallet"), p.text).clicked()
                 {
-                    // The deletion is the open wallet's: another one chosen opens first.
-                    match chosen.filter(|w| !w.open) {
-                        Some(w) => cx.wallets(WalletRequest::ForgotOther(w.id.clone())),
-                        None => form.forgot = Some(DeleteForm::forgot()),
-                    }
+                    form.forgot = Some(DeleteForm::forgot());
                 }
-                ui.label(txt("·", 13.0, Weight::Medium, p.muted));
-                if ui
-                    .add(link(tr!("Add wallet"), p.text))
-                    .on_hover_cursor(CursorIcon::PointingHand)
-                    .clicked()
-                {
-                    cx.wallets(WalletRequest::Add(None));
-                }
+                // Figma 28's foot, as on the welcome screen: the network, the language and the theme,
+                // which can be changed before the password (BUG-53) — with one wallet too.
+                ui.add_space(24.0);
+                super::settings::language_and_theme(ui, a, cx.snap.network, settings);
             });
-        } else if ui
-            .add(link(tr!("Forgot the password? · Another wallet"), p.text))
-            .on_hover_cursor(CursorIcon::PointingHand)
-            .clicked()
-        {
-            form.forgot = Some(DeleteForm::forgot());
-        }
-        // Figma 28's foot, as on the welcome screen: the network, the language and the theme,
-        // which can be changed before the password (BUG-53) — with one wallet too.
-        ui.add_space(24.0);
-        super::settings::language_and_theme(ui, a, cx.snap.network, settings);
-    });
-    super::welcome::dash_evolution_logo(ui, a, content.response.rect.bottom());
+            // Room under the foot when scrolled to the end.
+            ui.add_space(24.0);
+            content.response.rect.bottom()
+        });
+    super::welcome::dash_evolution_logo(ui, a, shown.inner);
     // The wallet is locked: what it holds is not shown, nor what may be unfinished.
     if let Some(forgot) = &mut form.forgot
         && delete_dialog(ui, a, cx, forgot, None, false, false)

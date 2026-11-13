@@ -17,7 +17,14 @@ pub fn welcome(
     let p = a.p;
     let column = 440.0;
     let content_h = 536.0;
-    ui.add_space(((ui.available_height() - content_h) / 2.0).max(24.0));
+    // A window too low for the screen scrolls it (BUG-138, as the unlock screen, BUG-127): the
+    // third button and the foot stay within reach. Centred in the window's height when it fits.
+    let room = ui.available_height();
+    let shown = egui::ScrollArea::vertical()
+        .id_salt("welcome-screen")
+        .auto_shrink([false, false])
+        .show(ui, |ui| {
+    ui.add_space(((room - content_h) / 2.0).max(24.0));
     let content = ui.vertical_centered(|ui| {
         ui.spacing_mut().item_spacing.y = 28.0;
         // Figma 31: another wallet beside the ones here. Its top bar has the logo and the
@@ -79,7 +86,11 @@ pub fn welcome(
             super::settings::language_and_theme(ui, a, cx.snap.network, settings);
         }
     });
-    dash_evolution_logo(ui, a, content.response.rect.bottom());
+    // Room under the foot when scrolled to the end.
+    ui.add_space(24.0);
+    content.response.rect.bottom()
+        });
+    dash_evolution_logo(ui, a, shown.inner);
 }
 
 /// The Dash Evolution logo, alone and centred at the foot of the welcome and unlock screens:

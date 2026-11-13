@@ -928,3 +928,135 @@ fn an_amount_inside_arabic_keeps_its_unit_after_the_number() {
         galley.job.text
     );
 }
+
+/// The rect of the first widget named `name`, wholly inside the window: not only in the tree
+/// (BUG-133, BUG-127: the tree had them, the window did not).
+fn in_the_window(kit: &Kit, name: &str) -> bool {
+    let window = kit.ctx.content_rect();
+    kit.query_all_by(|n| n.label().as_deref() == Some(name) || n.value().as_deref() == Some(name))
+        .next()
+        .is_some_and(|n| window.contains_rect(n.rect()))
+}
+
+/// BUG-133: «We found your DashPay wallet» shows what it found under its subtitle — the found
+/// wallet's rows and «Set the password» are in the window. The eye beside the amounts took the
+/// whole height left (a right-to-left layout of its own), and pushed them below the edge.
+#[test]
+fn the_found_dashpay_wallet_is_in_the_window() {
+    let (_turn, mut kit) = demo_app("dashpay", "en");
+    let set = crate::i18n::spoken("Set the password");
+    wait_for(&mut kit, "the found wallet", |kit| {
+        kit.query_by_role_and_label(Role::Button, &set).is_some()
+    });
+    kit.run_steps(3);
+    // Under the found wallet's card (its rows are painted, not in the tree): in the window, the
+    // card above it is too.
+    assert!(in_the_window(&kit, &set), "«Set the password»");
+}
+
+/// BUG-127: «Which wallet to open?» in the smallest window (800×440): the wheel brings «Open»,
+/// «Add wallet» and the foot into the window. The screen did not scroll, and they stayed below
+/// its edge — the password could only be sent with Enter, and no wallet added.
+#[test]
+fn the_unlock_screen_scrolls_to_its_buttons_in_the_smallest_window() {
+    for lang in ["en", "ar"] {
+        let (_turn, mut kit) = demo_app("wallet-unlock", lang);
+        kit.set_size(egui::vec2(800.0, 440.0));
+        kit.run_steps(4);
+        let add = crate::i18n::spoken("Add wallet");
+        let open = crate::i18n::spoken("Open");
+        assert!(
+            !in_the_window(&kit, &add),
+            "{lang}: «Add wallet» fits without scrolling: the test shows nothing"
+        );
+        let centre = kit.ctx.content_rect().center();
+        for _ in 0..20 {
+            if in_the_window(&kit, &add) {
+                break;
+            }
+            kit.hover_at(centre);
+            kit.event(egui::Event::MouseWheel {
+                unit: egui::MouseWheelUnit::Point,
+                delta: egui::vec2(0.0, -120.0),
+                phase: egui::TouchPhase::Move,
+                modifiers: Default::default(),
+            });
+            kit.run_steps(3);
+        }
+        assert!(
+            in_the_window(&kit, &add),
+            "{lang}: the wheel never brought «Add wallet»"
+        );
+        assert!(in_the_window(&kit, &open), "{lang}: «Open»");
+    }
+}
+
+/// BUG-138: Welcome in the smallest window (800×440): the wheel brings «Import from DashPay» and
+/// the foot (network, language, theme) into the window. The screen did not scroll, and the third
+/// button stood cut at the edge with the foot below it.
+#[test]
+fn the_welcome_screen_scrolls_to_its_buttons_and_foot_in_the_smallest_window() {
+    for lang in ["en", "ar"] {
+        let (_turn, mut kit) = demo_app("welcome", lang);
+        kit.set_size(egui::vec2(800.0, 440.0));
+        kit.run_steps(4);
+        let import = crate::i18n::spoken("Import from DashPay");
+        let theme = crate::i18n::spoken("dark theme");
+        assert!(
+            !in_the_window(&kit, &theme),
+            "{lang}: the foot fits without scrolling: the test shows nothing"
+        );
+        let centre = kit.ctx.content_rect().center();
+        for _ in 0..20 {
+            if in_the_window(&kit, &theme) {
+                break;
+            }
+            kit.hover_at(centre);
+            kit.event(egui::Event::MouseWheel {
+                unit: egui::MouseWheelUnit::Point,
+                delta: egui::vec2(0.0, -120.0),
+                phase: egui::TouchPhase::Move,
+                modifiers: Default::default(),
+            });
+            kit.run_steps(3);
+        }
+        assert!(
+            in_the_window(&kit, &theme),
+            "{lang}: the wheel never brought the foot"
+        );
+        assert!(
+            in_the_window(&kit, &import),
+            "{lang}: «Import from DashPay»"
+        );
+    }
+}
+
+/// BUG-139: in Arabic the unlock screen's links are named for a screen reader in reading
+/// order, as `spoken` gives them — not with their words as drawn (visual order), which it read
+/// backwards («محفظة إضافة»). With several wallets and with one.
+#[test]
+fn the_unlock_links_are_named_in_reading_order() {
+    for (preset, links) in [
+        ("wallet-unlock", &["Forgot the password?", "Add wallet"][..]),
+        ("unlock", &["Forgot the password? · Another wallet"][..]),
+    ] {
+        let (_turn, mut kit) = demo_app(preset, "ar");
+        kit.run_steps(4);
+        for link in links {
+            let spoken = crate::i18n::spoken(link);
+            let drawn = crate::i18n::t(link).into_owned();
+            assert_ne!(
+                spoken, drawn,
+                "{link}: the same either way: the test shows nothing"
+            );
+            assert!(
+                kit.query_by_role_and_label(Role::Button, &spoken).is_some(),
+                "{preset}: no button named «{spoken}»"
+            );
+            assert!(
+                kit.query_by_role_and_label(Role::Button, &drawn).is_none(),
+                "{preset}: «{link}» named in visual order «{drawn}»"
+            );
+        }
+    }
+}
