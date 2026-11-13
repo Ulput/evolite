@@ -3,7 +3,7 @@
 
 use super::NAV;
 use super::Screen;
-use crate::components::{Assets, nav_item, network_chip};
+use crate::components::{Assets, NAV_ITEM, nav_item, network_chip};
 use crate::context::Ctx;
 use crate::icons::Logo;
 use crate::text::{self, group_thousands};
@@ -11,8 +11,82 @@ use crate::theme::{Weight, mono, sans};
 use egui::{Align, Layout, Stroke, Ui, vec2};
 use evolite_api::SyncStage;
 
+/// Below this height the menu is low (FEAT-0036): no logo at the top, items of
+/// [`NAV_ITEM_LOW`], the sync card of 44 px.
+pub const LOW_MENU: f32 = 640.0;
+/// The sidebar frame's border (`app.rs`).
+const PANEL_BORDER: f32 = 1.0;
+/// A menu item's height in a low menu: 36, so 40 apart.
+pub const NAV_ITEM_LOW: f32 = 36.0;
+
+/// Whether a menu `height` px high is low.
+pub fn low(height: f32) -> bool {
+    height < LOW_MENU
+}
+
+/// The fade's height: it reaches up over the last whole item (the designer, FEAT-0036 row 3).
+const FADE: f32 = 24.0;
+
+/// A fade of [`FADE`] from clear to `color` with its bottom on the bottom of `view`: the list
+/// goes on below. Only painted, so the item under it stays clickable. Its rect.
+fn fade_up(ui: &Ui, view: egui::Rect, color: egui::Color32) -> egui::Rect {
+    let band = egui::Rect::from_min_max(egui::pos2(view.left(), view.bottom() - FADE), view.max);
+    let mut mesh = egui::Mesh::default();
+    let clear = egui::Color32::TRANSPARENT;
+    mesh.colored_vertex(band.left_top(), clear);
+    mesh.colored_vertex(band.right_top(), clear);
+    mesh.colored_vertex(band.left_bottom(), color);
+    mesh.colored_vertex(band.right_bottom(), color);
+    mesh.add_triangle(0, 1, 2);
+    mesh.add_triangle(1, 3, 2);
+    ui.painter().add(egui::Shape::mesh(mesh));
+    band
+}
+
+#[cfg(test)]
+fn more_id() -> egui::Id {
+    egui::Id::new("evolite-menu-more-below")
+}
+
+#[cfg(test)]
+fn extra_id() -> egui::Id {
+    egui::Id::new("evolite-menu-extra-items")
+}
+
+/// Whether the menu's fade showed in the last frame (for tests); `None`: no menu drawn yet.
+#[cfg(all(test, demo_core, feature = "dev-tools"))]
+pub(crate) fn menu_more_below(ctx: &egui::Context) -> Option<bool> {
+    menu_fade(ctx).map(|fade| fade.is_some())
+}
+
+/// The rect of the menu's fade in the last frame (for tests): `Some(None)` when none showed.
+#[cfg(all(test, demo_core, feature = "dev-tools"))]
+pub(crate) fn menu_fade(ctx: &egui::Context) -> Option<Option<egui::Rect>> {
+    ctx.data(|d| d.get_temp::<Option<egui::Rect>>(more_id()))
+}
+
+/// Tests: `n` more menu items after [`NAV`], as «Tokens» (FEAT-0019) and «Votes» (FEAT-0026)
+/// will be, before they are in.
+#[cfg(all(test, demo_core, feature = "dev-tools"))]
+pub(crate) fn add_menu_items(ctx: &egui::Context, n: usize) {
+    ctx.data_mut(|d| d.insert_temp(extra_id(), n));
+}
+
+#[cfg(test)]
+fn more_items(ctx: &egui::Context) -> Vec<(Screen, &'static str, &'static str)> {
+    let n = ctx.data(|d| d.get_temp::<usize>(extra_id())).unwrap_or(0);
+    [
+        (Screen::Collection, "nft", "Tokens"),
+        (Screen::Collection, "nft", "Votes"),
+    ]
+    .into_iter()
+    .take(n)
+    .collect()
+}
+
 /// Sidebar 248 px (a rail of 76 px below 1280, `theme::Breakpoint`): logo, the wallet switcher
-/// (Figma 26), 9 items, sync widget, network and settings. `menu`: the wallet menu is open.
+/// (Figma 26), the items of [`NAV`], sync widget, network and settings. Below [`LOW_MENU`] high
+/// without the logo and with closer items. `menu`: the wallet menu is open.
 pub fn sidebar(
     ui: &mut Ui,
     a: &mut Assets,
@@ -26,28 +100,40 @@ pub fn sidebar(
     let status = &snap.sync;
     let network = snap.network;
     ui.spacing_mut().item_spacing.y = 4.0;
-    ui.add_space(24.0);
-    ui.horizontal(|ui| {
-        if rail {
-            ui.add_space((ui.available_width() - 36.0) / 2.0);
-            ui.add(a.icons.logo(Logo::Mark, &p, 36.0));
-        } else {
-            ui.add_space(8.0);
-            ui.add(a.icons.logo(Logo::Horizontal, &p, 35.0));
-        }
-    });
+    // The menu's own height, bands above it (mainnet, a refused folder) taken away: the whole
+    // panel, so it does not change with what is drawn and the menu never flickers at the edge.
+    let area = ui.max_rect();
+    // The panel's 1 px border, above and below, is not in `area` (`app.rs`, the sidebar's
+    // frame): with it, the menu in a window 640 px high is 640.
+    let compact = low(area.height() + 2.0 * PANEL_BORDER);
+    if compact {
+        // FEAT-0036: no logo at the top (the mark stays in the sync card, BUG-75); the switcher
+        // 20 px from the top.
+        ui.add_space(20.0);
+    } else {
+        ui.add_space(24.0);
+        ui.horizontal(|ui| {
+            if rail {
+                ui.add_space((ui.available_width() - 36.0) / 2.0);
+                ui.add(a.icons.logo(Logo::Mark, &p, 36.0));
+            } else {
+                ui.add_space(8.0);
+                ui.add(a.icons.logo(Logo::Horizontal, &p, 35.0));
+            }
+        });
+    }
     if snap.wallets.iter().any(|w| w.open) {
         // Figma 26: the switcher 87 px from the top, the items 4 px under it.
-        ui.add_space(if rail { 20.0 } else { 24.0 });
+        if !compact {
+            ui.add_space(if rail { 20.0 } else { 24.0 });
+        }
         super::wallets::switcher(ui, a, cx, rail, menu);
-    } else {
+    } else if !compact {
         ui.add_space(24.0);
     }
     // Footer pinned to the bottom: sync widget (74 px; 44 in a low window), 12 px, network and
     // settings (40 px), 20 px. The items scroll between, never under it: at 150 % on a laptop
     // the window is about 450 px high.
-    let area = ui.max_rect();
-    let compact = area.height() < 640.0;
     let sync_h = if compact { 44.0 } else { 74.0 };
     let footer = egui::Rect::from_min_max(
         egui::pos2(area.left(), area.bottom() - 60.0),
@@ -58,19 +144,39 @@ pub fn sidebar(
         egui::pos2(area.right(), footer.top() - 12.0),
     );
     let room = (sync.top() - 12.0 - ui.cursor().top()).max(40.0);
-    egui::ScrollArea::vertical()
+    #[allow(unused_mut)]
+    let mut items = NAV.to_vec();
+    #[cfg(test)]
+    items.extend(more_items(ui.ctx()));
+    let height = if compact { NAV_ITEM_LOW } else { NAV_ITEM };
+    let shown = egui::ScrollArea::vertical()
         .id_salt("nav")
         .max_height(room)
         .auto_shrink([false, true])
         .show(ui, |ui| {
-            for (screen, icon, label) in NAV {
+            for (screen, icon, label) in items {
                 let lit = screen == active
                     || (screen == Screen::Identity && active == Screen::CreateIdentity);
-                if nav_item(ui, a, icon, label, lit, rail).clicked() {
+                let resp = nav_item(ui, a, icon, label, lit, rail, height);
+                // Tab to an item under the edge brings it into view (FEAT-0036 AC-D4).
+                if resp.gained_focus() {
+                    crate::diagnostics::ask_scroll(ui.ctx());
+                    resp.scroll_to_me(None);
+                }
+                if resp.clicked() {
                     cx.go(screen);
                 }
             }
         });
+    // More below the edge: a fade into the menu's colour at the bottom of the list, gone once
+    // it is scrolled to its end (FEAT-0036 row 3).
+    let view = shown.inner_rect;
+    let more = shown.state.offset.y + view.height() < shown.content_size.y - 0.5;
+    let fade = more.then(|| fade_up(ui, view, p.surface));
+    #[cfg(test)]
+    ui.data_mut(|d| d.insert_temp(more_id(), fade));
+    #[cfg(not(test))]
+    let _ = fade;
     ui.scope_builder(
         egui::UiBuilder::new()
             .max_rect(footer)

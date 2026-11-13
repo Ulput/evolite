@@ -29,6 +29,7 @@ mod identity_pool;
 mod layout;
 mod loading;
 mod login;
+mod low_menu;
 mod new_identity;
 mod notes;
 mod onboarding;

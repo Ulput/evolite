@@ -3,7 +3,11 @@
 use super::prelude::*;
 use evolite_api::Proof;
 
-/// nav/default · nav/active: 40 px, radius 10, icon 20 + label 14. In the rail only the icon.
+/// A menu item's height; the sidebar gives 36 in a low window (FEAT-0036).
+pub const NAV_ITEM: f32 = 40.0;
+
+/// nav/default · nav/active: `height` px ([`NAV_ITEM`]), radius 10, icon 20 + label 14. In the
+/// rail only the icon.
 pub fn nav_item(
     ui: &mut Ui,
     a: &mut Assets,
@@ -11,9 +15,10 @@ pub fn nav_item(
     label: &str,
     active: bool,
     rail: bool,
+    height: f32,
 ) -> Response {
     let p = a.p;
-    let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 40.0), Sense::click());
+    let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), height), Sense::click());
     named_choice(&resp, egui::WidgetType::SelectableLabel, active, label);
     let hovered = resp.hovered();
     if active || hovered {

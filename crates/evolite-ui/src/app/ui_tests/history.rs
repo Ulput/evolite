@@ -940,6 +940,9 @@ fn a_wheel_still_running_does_not_scroll_the_screen_just_opened() {
 fn a_wheel_turned_on_the_screen_just_opened_scrolls_it() {
     let (_turn, mut kit) = demo_app("send", "en");
     kit.set_size(egui::vec2(1024.0, 480.0));
+    // A frame at the new size first: below 640 px high the menu's items move (FEAT-0036), and
+    // a click at where «History» stood before would land on another item.
+    kit.run_steps(2);
     kit.get_by_role_and_label(Role::Button, "History").click();
     kit.run_steps(4);
     let before = history_rows(&kit)

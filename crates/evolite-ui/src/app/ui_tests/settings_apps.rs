@@ -23,6 +23,22 @@ fn the_own_node_field_is_right_under_its_switch() {
 #[test]
 fn no_connected_apps_shows_the_next_step() {
     let (_turn, mut kit) = demo_app("apps", "en");
+    // The list asks the demo core for each connected app's budgets (R-3), and each answer is a
+    // snapshot with the apps in it: the list is emptied once all have come, or a late one fills
+    // it again (seen under a loaded check).
+    kit.run_steps(2);
+    wait_for(&mut kit, "the budgets read", |kit| {
+        kit.state()
+            .snapshot
+            .as_ref()
+            .and_then(|s| s.wallet.as_ref())
+            .is_some_and(|w| {
+                w.apps
+                    .iter()
+                    .filter(|a| a.disconnected_at.is_none())
+                    .all(|a| a.session.iter().all(|k| k.remaining.is_some()))
+            })
+    });
     if let Some(w) = kit
         .state_mut()
         .snapshot
