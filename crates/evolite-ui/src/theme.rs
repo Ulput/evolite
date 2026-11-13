@@ -527,17 +527,36 @@ pub fn install_fonts(ctx: &egui::Context, lang: crate::i18n::Lang, names: bool) 
     add("Mono-latin-500", font!("JetBrainsMono-latin-500.ttf"));
     add("Mono-cyrillic-500", font!("JetBrainsMono-cyrillic-500.ttf"));
 
-    // Arabic and Devanagari ship with the app, so they render the same on every OS.
+    // Arabic and Devanagari ship with the app, so they render the same on every OS. Arabic in
+    // Medium, SemiBold and Bold too, for the labels, headings and buttons that have that weight
+    // in every other language (BUG-124): Noto Sans Arabic 2.012, the Google Fonts statics, as
+    // the 400 is.
     add("Noto-arabic", font!("NotoSansArabic-arabic-400.ttf"));
+    add("Noto-arabic-500", font!("NotoSansArabic-500.ttf"));
+    add("Noto-arabic-600", font!("NotoSansArabic-600.ttf"));
+    add("Noto-arabic-700", font!("NotoSansArabic-700.ttf"));
     add(
         "Noto-devanagari",
         font!("NotoSansDevanagari-devanagari-400.ttf"),
     );
 
     let default_chain = fonts.families[&FontFamily::Proportional].clone();
+    // The Arabic face of a family's weight: Medium, SemiBold and Bold have their own, Regular
+    // the 400.
+    let arabic_of = |names: &[&str]| {
+        if names.iter().any(|n| n.ends_with("-700")) {
+            "Noto-arabic-700"
+        } else if names.iter().any(|n| n.ends_with("-600")) {
+            "Noto-arabic-600"
+        } else if names.iter().any(|n| n.ends_with("-500")) {
+            "Noto-arabic-500"
+        } else {
+            "Noto-arabic"
+        }
+    };
     let chain = |names: &[&str]| -> Vec<String> {
         let mut v: Vec<String> = names.iter().map(|s| s.to_string()).collect();
-        v.extend(["Noto-arabic".to_string(), "Noto-devanagari".to_string()]);
+        v.extend([arabic_of(names).to_string(), "Noto-devanagari".to_string()]);
         v.extend(extra.iter().map(|s| s.to_string()));
         // egui's own fonts as the last resort: maths and arrows (≈, →) that our subsets lack.
         v.extend(default_chain.iter().cloned());
@@ -704,6 +723,66 @@ pub fn content_rect(area: egui::Rect) -> egui::Rect {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// BUG-124: Arabic headings (Bold), buttons (SemiBold) and field labels (Medium) are drawn in
+    /// Noto Sans Arabic 700, 600 and 500, as Latin ones in Inter 700, 600 and 500: the 400 was the
+    /// only Arabic face, so they came out as thin as the body text. Body text keeps the 400.
+    #[test]
+    fn arabic_headings_and_buttons_take_the_bold_faces() {
+        let ctx = egui::Context::default();
+        install_fonts(&ctx, crate::i18n::Lang::Ar, false);
+        ctx.run_ui(egui::RawInput::default(), |_| {})
+            .textures_delta
+            .clear();
+        let heading = sans(20.0, Weight::Bold);
+        let button = sans(14.0, Weight::SemiBold);
+        let arabic_of = |id: &FontId| {
+            ctx.fonts(|f| {
+                f.definitions().families[&id.family]
+                    .iter()
+                    .find(|k| k.starts_with("Noto-arabic"))
+                    .cloned()
+            })
+        };
+        assert_eq!(arabic_of(&heading).as_deref(), Some("Noto-arabic-700"));
+        assert_eq!(arabic_of(&button).as_deref(), Some("Noto-arabic-600"));
+        let label = sans(12.0, Weight::Medium);
+        assert_eq!(arabic_of(&label).as_deref(), Some("Noto-arabic-500"));
+        assert_eq!(
+            arabic_of(&sans(14.0, Weight::Regular)).as_deref(),
+            Some("Noto-arabic")
+        );
+        // Each face is the weight it says.
+        let weight_class = |bytes: &[u8]| {
+            let tables = u16::from_be_bytes([bytes[4], bytes[5]]) as usize;
+            (0..tables)
+                .map(|i| &bytes[12 + 16 * i..28 + 16 * i])
+                .find(|t| &t[..4] == b"OS/2")
+                .map(|t| {
+                    let at = u32::from_be_bytes([t[8], t[9], t[10], t[11]]) as usize;
+                    u16::from_be_bytes([bytes[at + 4], bytes[at + 5]])
+                })
+        };
+        assert_eq!(weight_class(font!("NotoSansArabic-500.ttf")), Some(500));
+        assert_eq!(weight_class(font!("NotoSansArabic-600.ttf")), Some(600));
+        assert_eq!(weight_class(font!("NotoSansArabic-700.ttf")), Some(700));
+        // As drawn: the welcome back of the unlock screen, wider in each heavier face.
+        let width = |id: FontId| {
+            ctx.fonts_mut(|f| {
+                f.layout_no_wrap("مرحبًا بعودتك".into(), id, egui::Color32::WHITE)
+                    .size()
+                    .x
+            })
+        };
+        let regular = width(sans(20.0, Weight::Regular));
+        let medium = width(sans(20.0, Weight::Medium));
+        let semibold = width(sans(20.0, Weight::SemiBold));
+        let bold = width(heading);
+        assert!(
+            regular < medium && medium < semibold && semibold < bold,
+            "{regular} {medium} {semibold} {bold}"
+        );
+    }
 
     /// R2: the window's width class at the edges of the spec's table, the rail below 1280,
     /// margins 24 in C only, the content no wider than 1200 and in the middle.
