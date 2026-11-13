@@ -34,6 +34,7 @@ mod low_menu;
 mod new_identity;
 mod notes;
 mod onboarding;
+mod password_reveal;
 mod pause;
 mod pool_moves;
 mod qr;

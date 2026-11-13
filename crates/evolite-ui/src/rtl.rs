@@ -198,7 +198,14 @@ impl Mirroring {
 
     fn text(&self, text: &mut TextShape) {
         let r = text.galley.rect;
-        text.pos.x = self.axis - text.pos.x - r.min.x - r.max.x;
+        // One line goes where its ink's mirror image is. An Arabic word's glyphs can stand
+        // outside the galley's rect (its rect narrower than its ink): placed by the rect, the ink
+        // lost its inset on the far side — «عرض» 4 px from a field's frame (BUG-123).
+        let (left, right) = match ink_x(&text.galley) {
+            Some(ink) if text.galley.rows.len() < 2 => ink,
+            _ => (r.min.x, r.max.x),
+        };
+        text.pos.x = self.axis - text.pos.x - left - right;
         if text.angle != 0.0 || text.galley.rows.len() < 2 {
             return;
         }
@@ -216,6 +223,22 @@ impl Mirroring {
             }
         }
     }
+}
+
+/// Where a galley's glyphs are drawn, left and right, in its own coordinates; `None` without
+/// any (an empty line). Zero-width marks are left out.
+fn ink_x(galley: &egui::Galley) -> Option<(f32, f32)> {
+    galley
+        .rows
+        .iter()
+        .flat_map(|row| {
+            row.row
+                .glyphs
+                .iter()
+                .filter(|g| g.advance_width > 0.0)
+                .map(move |g| (row.pos.x + g.pos.x, row.pos.x + g.pos.x + g.advance_width))
+        })
+        .reduce(|(l, r), (gl, gr)| (l.min(gl), r.max(gr)))
 }
 
 /// Puts the rows of one wrapped right-to-left paragraph in reading order, top to bottom.
