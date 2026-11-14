@@ -28,7 +28,7 @@ mod probe;
 pub(crate) mod sidebar;
 pub mod switch_wallet;
 pub mod wallets;
-mod welcome;
+pub(crate) mod welcome;
 
 pub use activity::activity;
 #[cfg(feature = "dev-tools")]

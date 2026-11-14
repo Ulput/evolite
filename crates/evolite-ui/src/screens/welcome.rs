@@ -16,7 +16,21 @@ pub fn welcome(
 ) {
     let p = a.p;
     let column = 440.0;
-    let content_h = 536.0;
+    let low = low_window(ui);
+    let adding = cx.snap.adding_wallet;
+    // Below 640 px high the logo is compact (BUG-140).
+    let content_h = if low {
+        536.0 - (119.0 - COMPACT_LOGO)
+    } else {
+        536.0
+    };
+    // Figma 31: another wallet beside the ones here. Its top bar (`App`: «‹ Back to …», the
+    // logo, the network) floats over the window's top: the screen starts under it and never
+    // scrolls under it. In a low window the title was drawn under the bar's logo (BUG-149).
+    if adding {
+        let bar_bottom = ui.ctx().content_rect().top() + ADDING_BAR;
+        ui.add_space((bar_bottom - ui.cursor().top()).max(0.0));
+    }
     // A window too low for the screen scrolls it (BUG-138, as the unlock screen, BUG-127): the
     // third button and the foot stay within reach. Centred in the window's height when it fits.
     let room = ui.available_height();
@@ -24,14 +38,14 @@ pub fn welcome(
         .id_salt("welcome-screen")
         .auto_shrink([false, false])
         .show(ui, |ui| {
-    ui.add_space(((room - content_h) / 2.0).max(24.0));
+    let top = if low { LOW_TOP } else { ((room - content_h) / 2.0).max(24.0) };
+    ui.add_space(top);
     let content = ui.vertical_centered(|ui| {
         ui.spacing_mut().item_spacing.y = 28.0;
-        // Figma 31: another wallet beside the ones here. Its top bar has the logo and the
-        // network already (`App`), so neither is repeated here (designer review №23).
-        let adding = cx.snap.adding_wallet;
+        // The top bar has the logo and the network already, so neither is repeated here
+        // (designer review №23).
         if !adding {
-            ui.add(a.icons.logo(Logo::Stacked, &p, 119.0));
+            login_logo(ui, a, low, 119.0);
         }
         let (title, lead) = if adding {
             let names: Vec<String> = cx
@@ -90,8 +104,59 @@ pub fn welcome(
     ui.add_space(24.0);
     content.response.rect.bottom()
         });
+    more_below_fade(ui, a, &shown);
     dash_evolution_logo(ui, a, shown.inner);
 }
+
+/// Whether the window is low for the login screens (BUG-140): the menu's rule, below 640 px
+/// high (FEAT-0036).
+pub(crate) fn low_window(ui: &Ui) -> bool {
+    super::sidebar::low(ui.ctx().content_rect().height())
+}
+
+/// The top room of a login screen in a low window: 24, not centred (BUG-140).
+pub(crate) const LOW_TOP: f32 = 24.0;
+
+/// The compact logo's height: the mark's (BUG-140).
+pub(crate) const COMPACT_LOGO: f32 = 40.0;
+
+/// The logo at the top of a login screen: stacked at `height`; in a low window compact, the
+/// mark 40 with the word beside it in one line (the brand's horizontal lockup), ≈ 60 px less
+/// (BUG-140).
+pub(crate) fn login_logo(ui: &mut Ui, a: &mut Assets, low: bool, height: f32) -> egui::Response {
+    let p = a.p;
+    let logo = if low {
+        a.icons.logo(Logo::Horizontal, &p, COMPACT_LOGO)
+    } else {
+        a.icons.logo(Logo::Stacked, &p, height)
+    };
+    let resp = ui.add(logo);
+    #[cfg(test)]
+    ui.data_mut(|d| d.insert_temp(egui::Id::new("evolite-login-logo"), (resp.rect, low)));
+    resp
+}
+
+/// The fade's height at the foot of a login screen with more below (BUG-140, as the menu's and
+/// the dialogs').
+const LOW_FADE: f32 = 16.0;
+
+/// A fade into the window's colour at the bottom of a login screen while there is more below.
+pub(crate) fn more_below_fade<R>(
+    ui: &Ui,
+    a: &Assets,
+    shown: &egui::scroll_area::ScrollAreaOutput<R>,
+) {
+    let fade = crate::components::more_below(shown)
+        .then(|| crate::components::fade_up(ui, shown.inner_rect, a.p.bg, LOW_FADE));
+    #[cfg(test)]
+    ui.data_mut(|d| d.insert_temp(egui::Id::new("evolite-login-fade"), fade));
+    #[cfg(not(test))]
+    let _ = fade;
+}
+
+/// How far down the window the add-wallet top bar reaches (`App`: the logo at 18, 28 high; the
+/// back link at 22), with room under it (BUG-149).
+pub(crate) const ADDING_BAR: f32 = 62.0;
 
 /// The Dash Evolution logo, alone and centred at the foot of the welcome and unlock screens:
 /// the network the wallet stands on, under its own logo, never in the way. 40 px high (≈ 96

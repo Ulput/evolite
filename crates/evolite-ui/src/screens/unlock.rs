@@ -10,7 +10,6 @@ use crate::components::{
     text_field,
 };
 use crate::context::{Ctx, WalletRequest};
-use crate::icons::Logo;
 use crate::theme::{Weight, sans};
 use egui::{
     Align2, CornerRadius, CursorIcon, Key, Rect, Sense, Stroke, StrokeKind, Ui, pos2, vec2,
@@ -100,15 +99,30 @@ pub fn unlock(
     }
     // A window too low for the screen scrolls it (BUG-127): «Open», the links under it and the
     // foot stay within reach of the wheel. Centred in the window's height when it fits.
+    // Below 640 px high (BUG-140): the compact logo, 24 at the top, a fade while more is below.
+    let low = super::welcome::low_window(ui);
+    let height = if low {
+        height - (96.0 - super::welcome::COMPACT_LOGO)
+    } else {
+        height
+    };
     let room = ui.available_height();
     let shown = egui::ScrollArea::vertical()
         .id_salt("unlock-screen")
         .auto_shrink([false, false])
         .show(ui, |ui| {
-            ui.add_space(((room - height) / 2.0).max(24.0));
+            let top = if low {
+                super::welcome::LOW_TOP
+            } else {
+                ((room - height) / 2.0).max(24.0)
+            };
+            ui.add_space(top);
             let content = ui.vertical_centered(|ui| {
-                ui.spacing_mut().item_spacing.y = 24.0;
-                ui.add(a.icons.logo(Logo::Stacked, &p, 96.0));
+                // Below 640 px the gaps close up too: 12, not 24 (BUG-140: «Open» under three
+                // wallets in 800×440 is in sight; the designer's sum counts ≈ 60 px of gaps).
+                let gap = if low { 12.0 } else { 24.0 };
+                ui.spacing_mut().item_spacing.y = gap;
+                super::welcome::login_logo(ui, a, low, 96.0);
                 if several {
                     ui.label(txt(
                         tr!("Which wallet to open?"),
@@ -116,9 +130,11 @@ pub fn unlock(
                         Weight::Medium,
                         p.text,
                     ));
-                    ui.add_space(-8.0);
+                    // 8 under the title in a low window (the designer, BUG-140 review): the 4 more
+                    // are taken from the room above «Open», not from the error's line.
+                    ui.add_space(if low { -4.0 } else { -8.0 });
                     ui.allocate_ui(vec2(column, 0.0), |ui| {
-                        ui.spacing_mut().item_spacing.y = 8.0;
+                        ui.spacing_mut().item_spacing.y = if low { 6.0 } else { 8.0 };
                         for w in &snap.wallets {
                             let on = chosen_id.as_deref() == Some(w.id.as_str());
                             if wallet_choice(ui, a, w, on, cx.now, column).clicked() && !on {
@@ -172,7 +188,7 @@ pub fn unlock(
                         if paused.is_some() {
                             pause::tick(ui, cx.now);
                         }
-                        ui.add_space(6.0);
+                        ui.add_space(if low { 2.0 } else { 6.0 });
                         // In a pause the typing stays, but nothing goes (FR-3).
                         let ready = !form.password.is_empty() && !form.waiting && paused.is_none();
                         let label = match (form.waiting, several) {
@@ -257,6 +273,7 @@ pub fn unlock(
             ui.add_space(24.0);
             content.response.rect.bottom()
         });
+    super::welcome::more_below_fade(ui, a, &shown);
     super::welcome::dash_evolution_logo(ui, a, shown.inner);
     // The wallet is locked: what it holds is not shown, nor what may be unfinished.
     if let Some(forgot) = &mut form.forgot

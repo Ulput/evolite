@@ -30,6 +30,7 @@ mod identity_pool;
 mod layout;
 mod loading;
 mod login;
+mod low_login;
 mod low_menu;
 mod mixed;
 mod new_identity;

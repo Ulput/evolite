@@ -993,12 +993,13 @@ fn the_unlock_screen_scrolls_to_its_buttons_in_the_smallest_window() {
 
 /// BUG-138: Welcome in the smallest window (800×440): the wheel brings «Import from DashPay» and
 /// the foot (network, language, theme) into the window. The screen did not scroll, and the third
-/// button stood cut at the edge with the foot below it.
+/// button stood cut at the edge with the foot below it. Since BUG-140 (the compact logo) all of
+/// Welcome fits in 800×440: the wheel is checked in a window lower still.
 #[test]
 fn the_welcome_screen_scrolls_to_its_buttons_and_foot_in_the_smallest_window() {
     for lang in ["en", "ar"] {
         let (_turn, mut kit) = demo_app("welcome", lang);
-        kit.set_size(egui::vec2(800.0, 440.0));
+        kit.set_size(egui::vec2(800.0, 340.0));
         kit.run_steps(4);
         let import = crate::i18n::spoken("Import from DashPay");
         let theme = crate::i18n::spoken("dark theme");
