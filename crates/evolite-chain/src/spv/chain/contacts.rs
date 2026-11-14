@@ -298,9 +298,11 @@ impl Chain {
             .drain_pending_contact_crypto_verified(&crypto, None)
             .await
             .map_err(|e| e.to_string())?;
-        Ok(crate::convert::rehome_filed_coins(
-            &mut wallet.state_mut().await.core_wallet,
-        ))
+        let mut state = wallet.state_mut().await;
+        let moved = crate::convert::rehome_filed_coins(&mut state.core_wallet);
+        // And after the move: where a payment finds the coins from now on.
+        crate::diag::record(crate::convert::rehomed_record(&state.core_wallet, moved));
+        Ok(moved)
     }
 
     /// Builds the accounts of the keys every established contact gave us (DIP-15), all at once:
