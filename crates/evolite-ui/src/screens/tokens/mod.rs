@@ -364,7 +364,11 @@ fn mainnet(ui: &mut Ui, a: &mut Assets) {
     });
     // The screen's one Tab stop, read whole by a screen reader: without it Tab has nowhere to
     // go on this screen (the sweep over the presets).
-    let spoken = format!("{} · {}", crate::i18n::t(title), crate::i18n::t(words));
+    let spoken = format!(
+        "{} · {}",
+        crate::i18n::spoken(title),
+        crate::i18n::spoken(words)
+    );
     let resp = ui.interact(
         shown.response.rect,
         ui.id().with("tokens-mainnet"),

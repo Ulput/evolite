@@ -493,7 +493,8 @@ fn operation_row(ui: &mut Ui, a: &mut Assets, cx: &Ctx, act: &Activity, day: &mu
     .flatten()
     {
         detail.push_str(" · ");
-        detail.push_str(crate::i18n::t(&part).as_ref());
+        // In reading order: the row turns the whole line to visual order once (BUG-152).
+        detail.push_str(crate::i18n::t_in(crate::i18n::current(), &part).as_ref());
     }
     let row = tx_row_clickable(
         ui,
@@ -872,10 +873,14 @@ fn export_question(
                 Weight::Regular,
                 p.text,
             ));
+            // In reading order: the card turns the whole line to visual order once (BUG-152).
             let what = filters
                 .chips()
                 .into_iter()
-                .map(|c| crate::i18n::t(&activity_filters::chip_label(c)).into_owned())
+                .map(|c| {
+                    crate::i18n::t_in(crate::i18n::current(), &activity_filters::chip_label(c))
+                        .into_owned()
+                })
                 .collect::<Vec<_>>()
                 .join(" · ");
             let only = format!(
