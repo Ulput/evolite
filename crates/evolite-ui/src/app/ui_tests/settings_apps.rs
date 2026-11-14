@@ -54,13 +54,24 @@ fn no_connected_apps_shows_the_next_step() {
         .map(|n| n.rect())
         .collect();
     assert_eq!(pastes.len(), 2, "the header's and the empty card's");
-    kit.query_all_by_role_and_label(Role::Button, "Paste a link")
-        .last()
-        .expect("the empty card's button")
-        .click();
-    show_wallet_edited(&mut kit, 1, "the paste dialog opens", no_apps, |kit| {
-        kit.state().requests.pasting
-    });
+    // The click again, on the button where it stands now, until the dialog opens: the frame that
+    // takes the click can take a late snapshot of the demo core too (the app's own update), and
+    // the apps it brings back move the button from under it (BUG-164, a loaded check of dev).
+    let started = std::time::Instant::now();
+    while !kit.state().requests.pasting {
+        assert!(
+            started.elapsed() < PATIENCE,
+            "the paste dialog did not open"
+        );
+        show_wallet_edited(&mut kit, 3, "no connected apps", no_apps, |kit| {
+            has_text(kit, "No connected apps")
+        });
+        kit.query_all_by_role_and_label(Role::Button, "Paste a link")
+            .last()
+            .expect("the empty card's button")
+            .click();
+        show_wallet_edited(&mut kit, 1, "the click taken", no_apps, |_| true);
+    }
 }
 
 /// BUG-28: «Source code · GitHub ›» in About opens the repository in the browser, from its

@@ -105,10 +105,50 @@ fn sweep(preset: &str) -> Vec<String> {
     // sync answers all the time; [`place`] stops its round where it moves on.
     let snapshot = kit.state().snapshot.clone();
     let answered = |k: &Kit| !staged && k.state().snapshot != snapshot;
-    round(&mut kit, preset, answered).unwrap_or_else(|| {
+    let found = round(&mut kit, preset, answered).unwrap_or_else(|| {
         settle(&mut kit);
         round(&mut kit, preset, |_| false).expect("a round")
-    })
+    });
+    if found.is_empty() {
+        return found;
+    }
+    // A problem counts when a second round, the screen let settle, finds it too (BUG-164): a
+    // Tab problem of the screen's own shows every time, while a late answer of the demo core
+    // under a loaded check redraws the screen once («send-mixed-changed: focus lost after
+    // «Wallet password»», 1 of 8 sweeps run at once, after the wait for the focus).
+    settle(&mut kit);
+    let again = round(&mut kit, preset, |_| false).expect("a round");
+    let (confirmed, once): (Vec<_>, Vec<_>) = found
+        .into_iter()
+        .partition(|f| again.iter().any(|a| kind(a) == kind(f)));
+    // Not lost silently (BUG-164 r1, should 1): a problem only the first round found is printed,
+    // and the check script counts these lines in its report, so one that keeps coming back on a
+    // screen shows across checks. Written to stderr itself: libtest keeps an `eprintln!` of a
+    // test that passed to itself.
+    for finding in &once {
+        use std::io::Write as _;
+        let _ = writeln!(
+            std::io::stderr(),
+            "tab sweep: {preset}: once, not again: {finding}"
+        );
+    }
+    confirmed
+}
+
+/// How long a Tab's focus may take to land before it counts as lost (BUG-164).
+const FOCUS_SETTLES: std::time::Duration = std::time::Duration::from_millis(1500);
+
+/// After a press of Tab, frames until a widget has the focus, for at most [`FOCUS_SETTLES`] —
+/// by time, not by a count of frames (BUG-120). Under a loaded check the widget Tab moved to
+/// may be drawn a frame late (a menu or a hint area measured unseen on its first frame), and
+/// two frames were not always enough: «create: focus lost after «Hide»», «send-qr-menu: after
+/// «To»» failed 2 checks of 3 and passed alone (BUG-164). A focus really lost stays lost: egui
+/// gives it back to no one by itself.
+fn settle_focus(kit: &mut Kit) {
+    let until = std::time::Instant::now() + FOCUS_SETTLES;
+    while focused(kit).is_none() && std::time::Instant::now() < until {
+        kit.run_steps(1);
+    }
 }
 
 /// One Tab round of `preset`; `None` when `moved` said, after a press, that the core answered.
@@ -129,6 +169,7 @@ fn round(kit: &mut Kit, preset: &str, moved: impl Fn(&Kit) -> bool) -> Option<Ve
     let mut last = String::from("the start");
     for press in 0..PRESSES {
         tab(kit, false);
+        settle_focus(kit);
         if moved(kit) {
             return None;
         }
