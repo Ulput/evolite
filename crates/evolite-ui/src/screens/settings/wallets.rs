@@ -3,14 +3,15 @@
 
 use super::SettingsState;
 use super::parts::heading;
-use super::txt;
 use crate::components::{
     Assets, ButtonKind, FieldKind, button, button_enabled, button_row, card, dialog_with_header,
     field_label, inner, notice, paint_text, paint_wallet_dot, section_label, text_field,
 };
 use crate::context::{Ctx, WalletRequest};
 use crate::screens::onboarding::Flow;
-use crate::theme::{Weight, sans};
+use crate::theme::Weight;
+use crate::theme::type_scale::{BODY, HEADING, SMALL, UI};
+use crate::theme::{style, text};
 use egui::{Align2, CornerRadius, CursorIcon, Margin, Rect, Sense, Stroke, Ui, pos2, vec2};
 use evolite_api::{Command, CoreError};
 
@@ -113,7 +114,7 @@ pub(super) fn wallets(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut Set
                 }
                 let status_right = more.left() - 12.0;
                 let text_right = if w.open {
-                    let font = sans(14.0, Weight::Medium);
+                    let font = style(BODY.weight(Weight::Medium));
                     let label = paint_text(
                         ui,
                         pos2(status_right, row.center().y),
@@ -134,7 +135,7 @@ pub(super) fn wallets(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut Set
                     let w_btn = crate::components::text_width(
                         ui,
                         tr!("Open"),
-                        sans(14.0, Weight::SemiBold),
+                        style(BODY.weight(Weight::SemiBold)),
                     ) + 36.0;
                     let btn = Rect::from_min_size(
                         pos2(status_right - w_btn, row.center().y - 20.5),
@@ -156,15 +157,16 @@ pub(super) fn wallets(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut Set
                 };
                 let x = dot.right() + 14.0;
                 let max = (text_right - x).max(40.0);
-                let name =
-                    ui.painter()
-                        .layout(w.name.clone(), sans(15.0, Weight::SemiBold), p.text, max);
+                let name = ui.painter().layout(
+                    w.name.clone(),
+                    style(BODY.weight(Weight::SemiBold)),
+                    p.text,
+                    max,
+                );
                 ui.painter().galley(pos2(x, row.top() + 17.0), name, p.text);
                 let line = crate::i18n::t(&crate::screens::wallets::settings_line(w, snap, cx.now))
                     .into_owned();
-                let line = ui
-                    .painter()
-                    .layout(line, sans(12.0, Weight::Regular), p.muted, max);
+                let line = ui.painter().layout(line, style(SMALL), p.muted, max);
                 ui.painter()
                     .galley(pos2(x, row.top() + 40.0), line, p.muted);
                 if state.wallet_more.as_deref() == Some(w.id.as_str()) {
@@ -226,7 +228,7 @@ pub(super) fn wallets(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut Set
                     pos2(x, row.top() + 16.0),
                     Align2::LEFT_TOP,
                     title,
-                    sans(15.0, Weight::SemiBold),
+                    style(BODY.weight(Weight::SemiBold)),
                     p.text,
                 );
                 paint_text(
@@ -234,7 +236,7 @@ pub(super) fn wallets(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut Set
                     pos2(x, row.top() + 38.0),
                     Align2::LEFT_TOP,
                     sub,
-                    sans(12.0, Weight::Regular),
+                    style(SMALL),
                     p.muted,
                 );
                 a.icons.icon("chevron-right", p.muted, &p, 18.0).paint_at(
@@ -319,7 +321,7 @@ fn more_menu(
                             pos2(row.left() + 36.0, row.center().y),
                             Align2::LEFT_CENTER,
                             label,
-                            sans(13.0, Weight::Medium),
+                            style(UI.weight(Weight::Medium)),
                             color,
                         );
                         *slot = resp.on_hover_cursor(CursorIcon::PointingHand).clicked();
@@ -402,7 +404,7 @@ pub(super) fn rename_dialog(
                 Rect::from_center_size(boxr.center(), vec2(32.0, 32.0)),
                 &preview,
             );
-            ui.label(txt(&title, 20.0, Weight::Bold, p.text));
+            ui.label(text(&title, HEADING, p.text));
         },
         |ui, a| {
             let p = a.p;
@@ -423,15 +425,14 @@ pub(super) fn rename_dialog(
             }
             let len = form.name.trim().chars().count();
             if let Some(error) = &form.error {
-                ui.label(txt(error, 12.0, Weight::Regular, p.danger));
+                ui.label(text(error, SMALL, p.danger));
             } else if len > NAME_MAX {
-                ui.label(txt(
+                ui.label(text(
                     &format!(
                         tr!("No longer than {NAME_MAX} characters"),
                         NAME_MAX = NAME_MAX
                     ),
-                    12.0,
-                    Weight::Regular,
+                    SMALL,
                     p.danger,
                 ));
             }
@@ -465,11 +466,7 @@ pub(super) fn rename_dialog(
             ui.add_space(8.0);
             ui.add(
                 crate::components::para(
-                    tr!("Only you see the name and colour: they are kept on this computer and never sent to the network."),
-                    12.0,
-                    Weight::Regular,
-                    p.muted,
-                ),
+                    tr!("Only you see the name and colour: they are kept on this computer and never sent to the network."), SMALL.size, SMALL.weight, p.muted).line_height(SMALL.line),
             );
             ui.add_space(10.0);
             let ready = (1..=NAME_MAX).contains(&len) && !form.waiting;

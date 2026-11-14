@@ -10,8 +10,8 @@ use crate::components::{
 };
 use crate::context::Ctx;
 use crate::screens::onboarding::{missing, missing_line, strength};
-use crate::screens::txt;
-use crate::theme::Weight;
+use crate::theme::text;
+use crate::theme::type_scale::{BODY, SMALL};
 use egui::Ui;
 use evolite_api::{Command, CoreError, Password};
 use zeroize::Zeroize;
@@ -193,10 +193,10 @@ pub(super) fn password_dialog(
                     tr!("Good"),
                     tr!("Strong"),
                 ][level];
-                ui.label(txt(label, 12.0, Weight::Regular, p.muted));
+                ui.label(text(label, SMALL, p.muted));
             }
             if let Some(line) = missing_line(&change.new) {
-                ui.label(txt(&line, 12.0, Weight::Regular, p.muted));
+                ui.label(text(&line, SMALL, p.muted));
             }
             edited |= field(
                 ui,
@@ -218,7 +218,7 @@ pub(super) fn password_dialog(
                 _ => None,
             };
             if let Some(line) = answer {
-                ui.label(txt(&line, 12.0, Weight::Regular, p.danger));
+                ui.label(text(&line, SMALL, p.danger));
             }
             button_row(ui, |ui| {
                 if button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked() {
@@ -291,14 +291,10 @@ fn each_off_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut Settin
                 return close;
             }
             ui.spacing_mut().item_spacing.y = 14.0;
-            ui.label(txt(
+            ui.label(text(
                 tr!(
                     "While the wallet is unlocked, anyone at this computer could then send its money. Enter the wallet password to turn the check off."
-                ),
-                14.0,
-                Weight::Regular,
-                p.text,
-            ));
+                ), BODY, p.text));
             false
         },
     );

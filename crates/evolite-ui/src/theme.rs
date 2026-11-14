@@ -204,13 +204,20 @@ pub mod type_scale {
 
 /// The font of a step of the type scale (FEAT-0033): the one way a screen asks for a text's
 /// size once it has moved to the scale.
-#[allow(dead_code)] // Until the first screen moves to the scale (step 2).
 pub fn style(step: type_scale::Step) -> FontId {
     if step.mono {
         mono(step.size, step.weight)
     } else {
         sans(step.size, step.weight)
     }
+}
+
+/// A label's text in a step of the scale, translated: `components::txt` with a step instead of a
+/// size and a weight (FEAT-0033 step 2).
+pub fn text(s: &str, step: type_scale::Step, color: Color32) -> egui::RichText {
+    egui::RichText::new(crate::i18n::t(s))
+        .font(style(step))
+        .color(color)
 }
 
 macro_rules! font {

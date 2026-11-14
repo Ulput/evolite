@@ -1,7 +1,6 @@
 //! Backup: the phrase on paper, and 17 · Show the phrase behind the password.
 
 use super::parts::{Control, group, heading};
-use super::txt;
 use super::{PhraseCheckForm, SettingsState};
 use crate::components::{
     Assets, ButtonKind, FieldKind, Part, button, button_enabled, button_row, dialog,
@@ -10,6 +9,8 @@ use crate::components::{
 use crate::context::Ctx;
 use crate::text;
 use crate::theme::Weight;
+use crate::theme::text;
+use crate::theme::type_scale::{SMALL, UI};
 use egui::{Align, Layout, Ui};
 use evolite_api::{Command, CoreError, Password, Timestamp, Wallet, WalletOrigin};
 use std::time::Duration;
@@ -229,11 +230,7 @@ pub(super) fn check_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mu
                 }
                 (None, Some(questions)) => {
                     ui.add(crate::components::para(
-                        tr!("Pick the words at these numbers. evolite does not show the phrase itself."),
-                        13.0,
-                        Weight::Regular,
-                        p.muted,
-                    ));
+                        tr!("Pick the words at these numbers. evolite does not show the phrase itself."), UI.size, UI.weight, p.muted).line_height(UI.line));
                     for (q, question) in questions.iter().enumerate() {
                         ui.horizontal(|ui| {
                             ui.spacing_mut().item_spacing.x = 8.0;
@@ -242,10 +239,9 @@ pub(super) fn check_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mu
                                 Layout::left_to_right(Align::Center),
                                 |ui| {
                                     ui.set_min_width(92.0);
-                                    ui.label(txt(
+                                    ui.label(text(
                                         &format!(tr!("Word no. {}"), question.number),
-                                        13.0,
-                                        Weight::SemiBold,
+                                        UI.weight(Weight::SemiBold),
                                         p.text,
                                     ));
                                 },
@@ -325,7 +321,7 @@ pub(super) fn check_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mu
                             None => None,
                         };
                         if let Some(line) = line {
-                            ui.label(txt(&line, 12.0, Weight::Regular, p.danger));
+                            ui.label(text(&line, SMALL, p.danger));
                         }
                     });
                     button_row(ui, |ui| {
@@ -438,13 +434,12 @@ pub(super) fn phrase_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &m
                         None => None,
                     };
                     if let Some((line, color)) = answer {
-                        ui.label(txt(&line, 12.0, Weight::Regular, color));
+                        ui.label(text(&line, SMALL, color));
                     }
                     if let Some(left) = left.filter(|l| !l.is_zero()) {
-                        ui.label(txt(
+                        ui.label(text(
                             &format!(tr!("Hides in {} s"), left.as_secs() + 1),
-                            12.0,
-                            Weight::Regular,
+                            SMALL,
                             p.muted,
                         ));
                     }

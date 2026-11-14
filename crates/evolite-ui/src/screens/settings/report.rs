@@ -8,7 +8,8 @@ use crate::components::{
     field_label, notice, segmented, text_area, text_field,
 };
 use crate::context::Ctx;
-use crate::theme::{Weight, mono};
+use crate::theme::mono;
+use crate::theme::type_scale::{SMALL, UI};
 use egui::Ui;
 use std::path::{Path, PathBuf};
 
@@ -331,11 +332,7 @@ fn fields_step(ui: &mut Ui, a: &mut Assets, form: &mut ReportForm, room: f32) ->
                 ui.spacing_mut().item_spacing.y = 14.0;
                 ui.add(
                     crate::components::para(
-                        &format!(tr!("The email goes to the developers at {TO} from your mail app. You will see all of it before sending."), TO = TO),
-                        13.0,
-                        Weight::Regular,
-                        p.muted,
-                    ),
+                        &format!(tr!("The email goes to the developers at {TO} from your mail app. You will see all of it before sending."), TO = TO), UI.size, UI.weight, p.muted).line_height(UI.line),
                 );
                 let field = |ui: &mut Ui, label: &str, add: &mut dyn FnMut(&mut Ui)| {
                     ui.vertical(|ui| {
@@ -400,11 +397,7 @@ fn letter_step(
     let (subject, body) = (subject(form), body(form, form.system.then_some(system)));
     ui.add(
         crate::components::para(
-            tr!("The whole email, as the recipient will see it. If everything is right, open it in your mail app or save it together with the journal."),
-            13.0,
-            Weight::Regular,
-            p.muted,
-        ),
+            tr!("The whole email, as the recipient will see it. If everything is right, open it in your mail app or save it together with the journal."), UI.size, UI.weight, p.muted).line_height(UI.line),
     );
     let preview = format!(
         tr!("To: {TO}\nSubject: {subject}\n\n{body}"),
@@ -426,7 +419,7 @@ fn letter_step(
                     ui.add(
                         egui::Label::new(
                             egui::RichText::new(crate::i18n::t(&preview))
-                                .font(mono(12.0, Weight::Regular))
+                                .font(mono(SMALL.size, SMALL.weight))
                                 .color(p.text),
                         )
                         .wrap(),
