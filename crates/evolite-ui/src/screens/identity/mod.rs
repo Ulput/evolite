@@ -379,7 +379,7 @@ fn profile(
                         &resp,
                         egui::WidgetType::Button,
                         true,
-                        &format!("{} · {}", crate::i18n::t(tr!("Copy")), id.id),
+                        &format!("{} · {}", crate::i18n::spoken(tr!("Copy")), id.id),
                     );
                     if resp.clicked() {
                         crate::clipboard::copy(ui.ctx(), id.id.clone());

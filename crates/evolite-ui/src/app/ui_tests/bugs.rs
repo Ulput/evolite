@@ -1159,3 +1159,100 @@ fn the_search_count_in_arabic_is_drawn_right_to_left() {
         );
     }
 }
+
+/// A painted line's letters as the screen shows them, left to right by `x`: what
+/// [`ink_left_to_right`] reads of a laid-out text, here of what the frame drew.
+fn ink_of(galley: &egui::Galley) -> String {
+    let mut glyphs: Vec<(char, f32)> = galley
+        .rows
+        .iter()
+        .flat_map(|r| r.row.glyphs.iter().map(move |g| (g, r.pos.x)))
+        .filter(|(g, _)| g.advance_width > 0.0 && !g.uv_rect.is_nothing() && !g.chr.is_whitespace())
+        .map(|(g, x)| (g.chr, x + g.pos.x))
+        .collect();
+    glyphs.sort_by(|a, b| a.1.total_cmp(&b.1));
+    glyphs.into_iter().map(|g| g.0).collect()
+}
+
+/// BUG-152: in Arabic a line put together from pieces is drawn with each piece once in visual
+/// order — the history row's last piece, a withdrawal's state, at the row's left end and read
+/// right to left as itself; and «Filters are on. What to export?» lists the filters each drawn
+/// once, the first at the right. Measured on the glyphs the frame drew, by their `x`. A piece
+/// already in visual order (`t`), joined and turned again, came out in reading order.
+#[test]
+fn lines_of_pieces_in_arabic_turn_each_piece_once() {
+    use crate::i18n::{Lang, t_in, visual};
+    let (_turn, mut kit) = demo_app("activity", "ar");
+    kit.set_size(egui::vec2(1280.0, 1600.0));
+    settle(&mut kit);
+    let ctx = kit.ctx.clone();
+    let status = kit
+        .state()
+        .snapshot
+        .as_ref()
+        .and_then(|s| s.wallet.as_ref())
+        .and_then(|w| w.activity.iter().find_map(crate::text::activity_status))
+        .expect("a withdrawal with its state in the demo");
+    let piece = t_in(Lang::Ar, status).into_owned();
+    let once = ink_left_to_right(&ctx, &visual(&piece));
+    let twice = ink_left_to_right(&ctx, &piece);
+    assert_ne!(once, twice, "the test would show nothing");
+    let rows: Vec<String> = painted_galleys(&kit)
+        .iter()
+        .map(|g| ink_of(g))
+        .filter(|ink| ink.contains('·'))
+        .collect();
+    assert!(
+        rows.iter()
+            .any(|ink| ink.split('·').next() == Some(once.as_str())),
+        "«{piece}» drawn once at a row's left end; rows: {rows:#?}"
+    );
+    assert!(
+        !rows
+            .iter()
+            .any(|ink| ink.split('·').next() == Some(twice.as_str())),
+        "«{piece}» drawn in reading order"
+    );
+
+    drop((_turn, kit));
+    let (_turn, mut kit) = demo_app("activity-filters", "ar");
+    kit.set_size(egui::vec2(1280.0, 900.0));
+    settle(&mut kit);
+    kit.state_mut().history.export = Some(true);
+    kit.run_steps(4);
+    let ctx = kit.ctx.clone();
+    let chips: Vec<String> = kit
+        .state()
+        .history
+        .filters
+        .chips()
+        .into_iter()
+        .map(|c| t_in(Lang::Ar, &crate::screens::activity_filters::chip_label(c)).into_owned())
+        .collect();
+    assert!(chips.len() >= 2, "two filters at least: {chips:?}");
+    let want = ink_left_to_right(&ctx, &visual(&chips.join(" · ")));
+    let drawn: Vec<String> = painted_galleys(&kit).iter().map(|g| ink_of(g)).collect();
+    assert!(
+        drawn.contains(&want),
+        "the filters drawn once each, the first at the right: want {want:?}, drawn {drawn:#?}"
+    );
+}
+
+/// BUG-152: a screen reader hears a row put together from pieces in reading order — About's
+/// «Source code · GitHub» — not in the visual order it is drawn in. (A name is not drawn: no
+/// pixels to measure; the name is the reader's text itself. Identity's «Copy · <id>» is the
+/// same either way in Arabic, one word and an id, so it has no test.)
+#[test]
+fn names_of_pieces_in_arabic_are_in_reading_order() {
+    use crate::i18n::{spoken, t};
+    let (_turn, mut kit) = demo_app("about", "ar");
+    kit.run_steps(4);
+    let read = format!("{} · {}", spoken("Source code"), spoken("GitHub"));
+    let turned = format!("{} · {}", t("Source code"), t("GitHub"));
+    assert_ne!(read, turned, "the test would show nothing");
+    assert!(
+        kit.query_by_role_and_label(Role::Button, &read).is_some(),
+        "About: no row named «{read}»"
+    );
+    assert!(kit.query_by_role_and_label(Role::Button, &turned).is_none());
+}

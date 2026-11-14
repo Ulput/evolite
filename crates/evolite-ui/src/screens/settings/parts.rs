@@ -157,7 +157,11 @@ fn row(ui: &mut Ui, a: &mut Assets, title: &str, sub: &str, control: Control) ->
             &resp,
             egui::WidgetType::Button,
             true,
-            &format!("{} · {}", crate::i18n::t(title), crate::i18n::t(value)),
+            &format!(
+                "{} · {}",
+                crate::i18n::spoken(title),
+                crate::i18n::spoken(value)
+            ),
         );
         clicked |= resp.clicked();
     }
