@@ -57,9 +57,13 @@ fn the_language_in_the_login_foot_opens_the_language_dialog() {
             !kit.state().settings.lang_picker,
             "{screen}: open too early"
         );
+        // The screen as the demo core's late answers leave it: a click on a link that moved
+        // meanwhile missed it (flaky under load, BUG-144).
+        settle(&mut kit);
         link(&kit, "English").click();
-        kit.run_steps(3);
-        assert!(kit.state().settings.lang_picker, "{screen}: no dialog");
+        wait_for(&mut kit, &format!("{screen}: the dialog"), |kit| {
+            kit.state().settings.lang_picker
+        });
         assert!(
             has_text(&kit, "Interface language"),
             "{screen}: the dialog is not on screen"

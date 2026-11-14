@@ -336,8 +336,15 @@ pub(crate) fn frames(
 mod tests {
     use super::*;
 
+    /// The app's limits, with a render budget no loaded machine reaches: these tests count frames
+    /// and read pixels, and under load the app's 3 s gave fewer frames (BUG-144). What the
+    /// budget does is the budget test's
+    /// (`a_long_loop_is_cut_and_a_slow_one_gets_fewer_frames`, which sets its own: 1 ms).
     pub(super) fn limits() -> Limits {
-        Limits::default()
+        Limits {
+            max_render_ms: 60_000,
+            ..Limits::default()
+        }
     }
 
     pub(super) fn render(svg: &str) -> Art {

@@ -335,6 +335,13 @@ fn broken_pictures_are_drawn_within_the_limits_or_refused() {
     }));
     let mut contained: std::collections::BTreeMap<String, usize> = Default::default();
     let mut failures = Vec::new();
+    // The process finds its fonts once, before any case is timed: under load that one-off took
+    // 21 s inside the first SVG case, read as «slow» (BUG-144). Each case's own time is what the
+    // limit below guards.
+    let _ = render(
+        br#"<svg xmlns="http://www.w3.org/2000/svg" width="8" height="8"><text y="8">a</text></svg>"#,
+        &limits(),
+    );
     for (name, seed) in seeds() {
         let limits = Limits {
             raw_deflate: name.ends_with(".deflate"),

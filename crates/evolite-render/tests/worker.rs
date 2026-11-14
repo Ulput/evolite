@@ -78,8 +78,9 @@ fn an_answer_over_the_limits_is_refused() {
 fn the_memory_cap_ends_a_greedy_worker() {
     // A deadline far past what the cap takes even on a loaded machine: the check is how the
     // worker ended, not how fast. Without the cap it would wait here and answer `Timeout`.
+    // 20 s was reached once under a full check beside other builds (BUG-144): 90 now.
     let mut settings = Settings::new(WORKER.into(), vec!["--test-allocate".into()]);
-    settings.timeout = Duration::from_secs(20);
+    settings.timeout = Duration::from_secs(90);
     settings.memory = 256 * 1024 * 1024;
     let mut r = Renderer::new(settings);
     let started = Instant::now();
@@ -91,7 +92,7 @@ fn the_memory_cap_ends_a_greedy_worker() {
     // About 0.3 s quietly, 2.5 s more with Windows Error Reporting holding the dead process;
     // the bound only catches a worker that hung on to the very end.
     assert!(
-        started.elapsed() < Duration::from_secs(15),
+        started.elapsed() < Duration::from_secs(60),
         "{:?}",
         started.elapsed()
     );

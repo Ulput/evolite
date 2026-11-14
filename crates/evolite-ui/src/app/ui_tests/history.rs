@@ -426,26 +426,23 @@ const NEW_PAYMENT: u64 = 0x7171_7171;
 /// demo core never sends (`never_pretends_to_send`), so it is put into the wallet the app shows,
 /// again for a few frames: a snapshot of the demo core in between would take it away.
 fn with_new_payment(kit: &mut Kit) {
-    show_wallet_edited(
-        kit,
-        3,
-        "the wallet edited",
-        |wallet| {
-            if !wallet.activity.iter().any(|a| a.id == NEW_PAYMENT) {
-                let mut paid = wallet.activity[0].clone();
-                paid.id = NEW_PAYMENT;
-                paid.kind = ActivityKind::Sent {
-                    to: "yNewPaymentAddress".into(),
-                };
-                paid.chain = Chain::Core;
-                paid.at = paid.at.max(1) + 60;
-                paid.amount = -71_717_171;
-                paid.proof = Proof::Mempool;
-                wallet.activity.insert(0, paid);
-            }
-        },
-        |_| true,
-    );
+    show_wallet_edited(kit, 3, "the wallet edited", add_new_payment, |_| true);
+}
+
+/// The new payment on top of the wallet's history, once.
+fn add_new_payment(wallet: &mut evolite_api::Wallet) {
+    if !wallet.activity.iter().any(|a| a.id == NEW_PAYMENT) {
+        let mut paid = wallet.activity[0].clone();
+        paid.id = NEW_PAYMENT;
+        paid.kind = ActivityKind::Sent {
+            to: "yNewPaymentAddress".into(),
+        };
+        paid.chain = Chain::Core;
+        paid.at = paid.at.max(1) + 60;
+        paid.amount = -71_717_171;
+        paid.proof = Proof::Mempool;
+        wallet.activity.insert(0, paid);
+    }
 }
 
 /// BUG-57: a top-up Platform has not credited is not «final» and nothing more: its row says in
@@ -565,8 +562,15 @@ fn an_identity_creation_is_not_called_a_top_up() {
 /// The rail → History, and whether its top row is the new payment, in sight under the header.
 fn history_opens_on_the_new_payment(kit: &mut Kit) {
     kit.get_by_role_and_label(Role::Button, "History").click();
-    kit.run_steps(4);
-    assert_eq!(kit.state().screen, Screen::Activity);
+    // The payment kept in while History opens: a snapshot of the demo core in between took it
+    // out again, and the top row was an older one (flaky under load, BUG-144).
+    show_wallet_edited(
+        kit,
+        4,
+        "History with the new payment",
+        add_new_payment,
+        |kit| kit.state().screen == Screen::Activity,
+    );
     let header = button(kit, "Export CSV").rect().bottom();
     assert!(header > 0.0, "the header in sight: {header}");
     let rows = history_rows(kit);
