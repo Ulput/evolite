@@ -1509,7 +1509,7 @@
   "{} · only you see it": "{} · hanya Anda yang melihat",
   "{} · own node: {}": "{} · node sendiri: {}",
   "{} · restored on this computer {}": "{} · dipulihkan di komputer ini {}",
-  "{} · resync in Settings → Network and nodes": "{} · sinkronkan ulang di Pengaturan → Jaringan dan node",
+  "{} · resync in Settings › Network and nodes": "{} · sinkronkan ulang di Pengaturan › Jaringan dan node",
   "{} · the payment is confirmed and cannot be undone": "{} · pembayaran terkonfirmasi dan tidak bisa dibatalkan",
   "{} · the private pool in it is not checked yet": "{} · pool privat di dalamnya belum diperiksa",
   "{} · updated {}": "{} · diperbarui {}",

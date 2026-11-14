@@ -1519,7 +1519,7 @@
   "{} · only you see it": "{} · केवल आपको दिखता है",
   "{} · own node: {}": "{} · अपना नोड: {}",
   "{} · restored on this computer {}": "{} · {} को इस कंप्यूटर पर पुनर्स्थापित",
-  "{} · resync in Settings → Network and nodes": "{} · सेटिंग्स → नेटवर्क और नोड में फिर से सिंक करें",
+  "{} · resync in Settings › Network and nodes": "{} · सेटिंग्स › नेटवर्क और नोड में फिर से सिंक करें",
   "{} · the payment is confirmed and cannot be undone": "{} · भुगतान पुष्ट है, इसे वापस नहीं लिया जा सकता",
   "{} · the private pool in it is not checked yet": "{} · इसमें निजी पूल की अभी जाँच नहीं हुई",
   "{} · updated {}": "{} · {} को अपडेट",

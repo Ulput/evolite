@@ -1509,7 +1509,7 @@
   "{} · only you see it": "{} · chỉ bạn thấy",
   "{} · own node: {}": "{} · nút riêng: {}",
   "{} · restored on this computer {}": "{} · khôi phục trên máy tính này ngày {}",
-  "{} · resync in Settings → Network and nodes": "{} · đồng bộ lại trong Cài đặt → Mạng và nút",
+  "{} · resync in Settings › Network and nodes": "{} · đồng bộ lại trong Cài đặt › Mạng và nút",
   "{} · the payment is confirmed and cannot be undone": "{} · thanh toán đã xác nhận, không thể hoàn tác",
   "{} · the private pool in it is not checked yet": "{} · pool riêng tư trong đó chưa được kiểm tra",
   "{} · updated {}": "{} · cập nhật {}",

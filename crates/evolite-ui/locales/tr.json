@@ -1519,7 +1519,7 @@
   "{} · only you see it": "{} · yalnızca siz görürsünüz",
   "{} · own node: {}": "{} · kendi düğüm: {}",
   "{} · restored on this computer {}": "{} · {} tarihinde bu bilgisayarda geri yüklendi",
-  "{} · resync in Settings → Network and nodes": "{} · Ayarlar → Ağ ve düğümler'den yeniden eşitleyin",
+  "{} · resync in Settings › Network and nodes": "{} · Ayarlar › Ağ ve düğümler'den yeniden eşitleyin",
   "{} · the payment is confirmed and cannot be undone": "{} · ödeme onaylandı, geri alınamaz",
   "{} · the private pool in it is not checked yet": "{} · içindeki gizli havuz henüz kontrol edilmedi",
   "{} · updated {}": "{} · güncellendi {}",

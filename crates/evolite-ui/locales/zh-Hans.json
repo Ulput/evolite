@@ -1509,7 +1509,7 @@
   "{} · only you see it": "{} · 仅你可见",
   "{} · own node: {}": "{} · 自己的节点：{}",
   "{} · restored on this computer {}": "{} · 于 {} 在此电脑上恢复",
-  "{} · resync in Settings → Network and nodes": "{} · 在 设置 → 网络与节点 中重新同步",
+  "{} · resync in Settings › Network and nodes": "{} · 在 设置 › 网络与节点 中重新同步",
   "{} · the payment is confirmed and cannot be undone": "{} · 付款已确认，无法撤销",
   "{} · the private pool in it is not checked yet": "{} · 其中的私密池尚未核对",
   "{} · updated {}": "{} · 更新于 {}",

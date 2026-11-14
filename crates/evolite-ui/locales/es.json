@@ -1529,7 +1529,7 @@
   "{} · only you see it": "{} · solo lo ve usted",
   "{} · own node: {}": "{} · nodo propio: {}",
   "{} · restored on this computer {}": "{} · restaurada en este ordenador el {}",
-  "{} · resync in Settings → Network and nodes": "{} · vuelva a sincronizar en Ajustes → Red y nodos",
+  "{} · resync in Settings › Network and nodes": "{} · vuelva a sincronizar en Ajustes › Red y nodos",
   "{} · the payment is confirmed and cannot be undone": "{} · el pago está confirmado y no se puede deshacer",
   "{} · the private pool in it is not checked yet": "{} · el pool privado incluido aún no está comprobado",
   "{} · updated {}": "{} · actualizado {}",

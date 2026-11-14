@@ -1469,7 +1469,7 @@
   "{} · only you see it": "{} · видите только вы",
   "{} · own node: {}": "{} · свой узел: {}",
   "{} · restored on this computer {}": "{} · восстановлена на этом компьютере {}",
-  "{} · resync in Settings → Network and nodes": "{} · пересинхронизировать — Настройки → Сеть и узлы",
+  "{} · resync in Settings › Network and nodes": "{} · пересинхронизировать — Настройки › Сеть и узлы",
   "{} · the payment is confirmed and cannot be undone": "{} · платёж подтверждён, отменить его нельзя",
   "{} · the private pool in it is not checked yet": "{} · приватный пул в нём ещё не проверен",
   "{} · updated {}": "{} · обновлён {}",
