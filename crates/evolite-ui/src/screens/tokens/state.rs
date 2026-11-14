@@ -25,11 +25,16 @@ pub fn held_amount(amount: TokenAmount, decimals: u8) -> String {
 /// `amount` with the token's `decimals` in the chosen number format, thousands marked:
 /// «1 250,00», «12». No unit: the row shows the name beside it (R-4).
 pub fn written(amount: TokenAmount, decimals: u8) -> String {
+    plain_written(&amount_text(amount, decimals))
+}
+
+/// An amount kept as digits and a point («1250.00», [`amount_text`]) in the chosen number
+/// format: a History line keeps a token's amount so (BUG-145).
+pub fn plain_written(plain: &str) -> String {
     let (group, decimal) = crate::format::number_marks();
-    let plain = amount_text(amount, decimals);
     let (whole, fraction) = match plain.split_once('.') {
         Some((w, f)) => (w, Some(f)),
-        None => (plain.as_str(), None),
+        None => (plain, None),
     };
     let mut out = String::new();
     for (i, c) in whole.chars().enumerate() {

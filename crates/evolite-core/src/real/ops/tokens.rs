@@ -8,6 +8,7 @@ use std::sync::Mutex;
 use evolite_api::tokens::TokenInfo;
 use evolite_local::wallet_tokens::{Origin, Tracked, WalletTokens};
 
+use super::identity::own_line;
 use super::names::read_within;
 use crate::real::*;
 
@@ -600,6 +601,8 @@ impl Real {
                 "the token's contract is not read yet".into(),
             ));
         };
+        // BUG-145: the History line names the recipient as it was typed.
+        let to_shown = dashpay::shown(to.trim());
         let to = match recipient(&to) {
             Ok(to) => to,
             Err(e) => return refused(e),
@@ -615,6 +618,7 @@ impl Real {
             return refused(CoreError::NotAvailable(tr!("The keys are not open").into()));
         };
         let (chain, facts) = (self.chain.clone(), self.tokens.facts.clone());
+        let journal = self.journal.clone();
         let refresh = self.refresher();
         let known = facts.lock().unwrap_or_else(|e| e.into_inner()).clone();
         self.answer_later("task:send_token", async move {
@@ -640,6 +644,8 @@ impl Real {
                     move || async move { chain.token_facts(&me, &tokens).await }
                 };
                 check_before_signing(known, &me, &info, amount, read).await?;
+                // BUG-145: the fee, from the credits before and after.
+                let before = chain.first_identity_credits(&wallet, false).await;
                 let send = chain.send_token(
                     &wallet,
                     &keys,
@@ -658,6 +664,17 @@ impl Real {
                     &token.token_id,
                     balance,
                 );
+                let after = chain.first_identity_credits(&wallet, true).await;
+                journal.add(own_line(
+                    journal::Kind::TokenSent {
+                        token: token_label(&info),
+                        to: to_shown,
+                        amount: evolite_api::tokens::amount_text(amount, info.decimals),
+                    },
+                    before,
+                    after,
+                    Some(me),
+                ));
                 // A snapshot now: it shows the balance, or starts the read of it (BUG-146).
                 refresh();
                 Ok(())
@@ -672,6 +689,17 @@ impl Real {
             what: "send_token",
             fraction: 0.0,
         }
+    }
+}
+
+/// The token as the History line names it (BUG-145): the English name, else the first one, else
+/// the start of its id. The journal does not know the interface's language.
+fn token_label(info: &TokenInfo) -> String {
+    let name = dashpay::shown(evolite_api::tokens::name_in(info, "en"));
+    if name.is_empty() {
+        info.token_id.chars().take(8).collect()
+    } else {
+        name
     }
 }
 

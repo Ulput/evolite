@@ -175,6 +175,12 @@ pub struct Entry {
     /// Platform when the withdrawal is pooled (FEAT-0005 АРХ-2).
     #[serde(default)]
     pub transaction_index: Option<u64>,
+    /// What the entry really is when it is one of the kinds an older build does not know (BUG-145):
+    /// `what` then says `Credits` to the app or the recipient, which such a build shows as a
+    /// credit transfer of the fee, instead of failing to read the whole file and writing over it.
+    /// A kind of a newer build this one does not know reads as none, the same way.
+    #[serde(default, deserialize_with = "lenient")]
+    pub kind: Option<Kind>,
 }
 
 impl Default for Entry {
@@ -194,8 +200,108 @@ impl Default for Entry {
             theirs: false,
             reply: None,
             transaction_index: None,
+            kind: None,
         }
     }
+}
+
+/// The kinds of entry written under [`Entry::kind`] (BUG-145): spends of the identity's credits
+/// that are no transfer, kept apart so an older build can still read the file.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub enum Kind {
+    /// App Connect v2: an app's keys put on the identity, or renewed; `app` as it calls itself.
+    AppConnect {
+        app: String,
+        /// A sign-in again on the same connection: its keys replaced.
+        #[serde(default)]
+        renewal: bool,
+    },
+    /// App Connect v2: an app's keys disabled.
+    AppDisconnect { app: String },
+    /// A token sent: which, to whom and how much, in words. `spent` is the fee only.
+    TokenSent {
+        token: String,
+        to: String,
+        amount: String,
+    },
+    /// What an app spent from its keys' budgets, as Platform says: one entry an app a day.
+    AppSpent { app: String },
+}
+
+impl Kind {
+    /// Whom an older build names: the app, or the recipient.
+    fn named(&self) -> String {
+        match self {
+            Kind::AppConnect { app, .. } | Kind::AppDisconnect { app } | Kind::AppSpent { app } => {
+                app.clone()
+            }
+            Kind::TokenSent { to, .. } => to.clone(),
+        }
+    }
+}
+
+/// A kind this build does not know (a newer one's) reads as none, not as a broken file.
+fn lenient<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<Kind>, D::Error> {
+    let value: Option<serde_json::Value> = serde::Deserialize::deserialize(d)?;
+    Ok(value.and_then(|v| serde_json::from_value(v).ok()))
+}
+
+/// An entry of `kind`, written here: all of `spent` went to Platform (`moved` 0).
+pub fn entry_of(kind: Kind, at: Timestamp, spent: Duffs, identity: Option<String>) -> Entry {
+    Entry {
+        at,
+        what: What::Credits { to: kind.named() },
+        spent,
+        moved: 0,
+        identity,
+        kind: Some(kind),
+        ..Default::default()
+    }
+}
+
+/// Adds `delta` an app spent to the day's entry of that app for `identity`, or starts the day's
+/// entry (BUG-145 AC-T3): one line an app a day, timed at the last read. Days are UTC days.
+/// Returns whether anything changed.
+pub fn fold_app_spent(
+    entries: &mut Vec<Entry>,
+    app: &str,
+    identity: &str,
+    delta: Duffs,
+    at: Timestamp,
+) -> bool {
+    if delta <= 0 {
+        return false;
+    }
+    let day = |t: Timestamp| t.div_euclid(86_400);
+    let today = entries.iter_mut().find(|e| {
+        e.kind
+            == Some(Kind::AppSpent {
+                app: app.to_owned(),
+            })
+            && e.identity.as_deref() == Some(identity)
+            && day(e.at) == day(at)
+    });
+    match today {
+        Some(entry) => {
+            entry.spent += delta;
+            entry.at = entry.at.max(at);
+        }
+        None => {
+            let mut entry = entry_of(
+                Kind::AppSpent {
+                    app: app.to_owned(),
+                },
+                at,
+                delta,
+                Some(identity.to_owned()),
+            );
+            // The sum is Platform's, proved: not a write of this computer.
+            entry.source = Source::Network;
+            entries.push(entry);
+            give_lines(entries);
+        }
+    }
+    true
 }
 
 /// Puts what was read from Platform (`network`) into the entries (`local`): by the document's
@@ -350,6 +456,23 @@ impl Journal {
         line
     }
 
+    /// [`fold_app_spent`] into the file (BUG-145): what app `app` spent since the last read, as
+    /// `identity`, at `at`.
+    /// How many entries there are: a new one since an earlier count says a change of the credits
+    /// has its line (BUG-147).
+    pub fn count(&self) -> usize {
+        let mut entries = self.entries.lock().unwrap_or_else(|e| e.into_inner());
+        entries.get_or_insert_with(|| self.kept()).all.len()
+    }
+
+    pub fn add_app_spent(&self, app: &str, identity: &str, delta: Duffs, at: Timestamp) {
+        let mut entries = self.entries.lock().unwrap_or_else(|e| e.into_inner());
+        let kept = entries.get_or_insert_with(|| self.kept());
+        if fold_app_spent(&mut kept.all, app, identity, delta, at) {
+            let _ = self.write(kept);
+        }
+    }
+
     /// [`merge`]s what was read from Platform and writes the file when anything changed, or
     /// when an earlier write failed (what it held is in memory only). Returns whether it
     /// changed; an error while the file does not have every entry, so that what was read is not
@@ -441,38 +564,53 @@ fn line_id(entry: &Entry) -> u64 {
 /// An entry as a line of the history: on Platform, proved (it was written only once Platform
 /// accepted it, or read from a proved document).
 pub fn activity(entry: &Entry) -> Activity {
-    let kind = match &entry.what {
-        What::Credits { to } => ActivityKind::CreditTransfer { to: to.clone() },
-        What::Withdrawal { to } => ActivityKind::Withdrawal {
+    let kind = match (&entry.kind, &entry.what) {
+        (Some(Kind::AppConnect { app, renewal }), _) if *renewal => {
+            ActivityKind::AppRenewed { app: app.clone() }
+        }
+        (Some(Kind::AppConnect { app, .. }), _) => ActivityKind::AppSignIn { app: app.clone() },
+        (Some(Kind::AppDisconnect { app }), _) => {
+            ActivityKind::AppDisconnected { app: app.clone() }
+        }
+        (Some(Kind::TokenSent { token, to, amount }), _) => ActivityKind::TokenSent {
+            token: token.clone(),
             to: to.clone(),
-            status: entry.status.map(WithdrawalStatus::shown),
+            amount: amount.clone(),
         },
-        What::ContactRequest { to } if entry.theirs => ActivityKind::ContactRequestIn {
-            from: to.clone(),
-            ours: None,
-            state: entry.reply.unwrap_or(Reply::Waiting).shown(),
-        },
-        What::ContactRequest { to } => ActivityKind::ContactRequest {
-            to: to.clone(),
-            accepting: entry.reply == Some(Reply::Accepted),
-            ours: None,
-        },
-        What::Profile => ActivityKind::ProfileSaved,
-        What::Name { label } => ActivityKind::NameRegistered {
-            label: label.clone(),
-        },
-        What::Shield { from } => ActivityKind::Shielded {
-            from: Some(from.clone()),
-        },
-        What::AddressSent { to } => ActivityKind::AddressSent { to: to.clone() },
-        What::AddressWithdrawal { to } => ActivityKind::AddressWithdrawal {
-            to: to.clone(),
-            status: entry.status.map(WithdrawalStatus::shown),
-        },
-        What::AddressTopUp { identity } => ActivityKind::TopUp {
-            identity: identity.clone(),
-            creates: false,
-            credits: evolite_api::Credits::Added,
+        (Some(Kind::AppSpent { app }), _) => ActivityKind::AppSpent { app: app.clone() },
+        (None, what) => match what {
+            What::Credits { to } => ActivityKind::CreditTransfer { to: to.clone() },
+            What::Withdrawal { to } => ActivityKind::Withdrawal {
+                to: to.clone(),
+                status: entry.status.map(WithdrawalStatus::shown),
+            },
+            What::ContactRequest { to } if entry.theirs => ActivityKind::ContactRequestIn {
+                from: to.clone(),
+                ours: None,
+                state: entry.reply.unwrap_or(Reply::Waiting).shown(),
+            },
+            What::ContactRequest { to } => ActivityKind::ContactRequest {
+                to: to.clone(),
+                accepting: entry.reply == Some(Reply::Accepted),
+                ours: None,
+            },
+            What::Profile => ActivityKind::ProfileSaved,
+            What::Name { label } => ActivityKind::NameRegistered {
+                label: label.clone(),
+            },
+            What::Shield { from } => ActivityKind::Shielded {
+                from: Some(from.clone()),
+            },
+            What::AddressSent { to } => ActivityKind::AddressSent { to: to.clone() },
+            What::AddressWithdrawal { to } => ActivityKind::AddressWithdrawal {
+                to: to.clone(),
+                status: entry.status.map(WithdrawalStatus::shown),
+            },
+            What::AddressTopUp { identity } => ActivityKind::TopUp {
+                identity: identity.clone(),
+                creates: false,
+                credits: evolite_api::Credits::Added,
+            },
         },
     };
     let (layers, flow) = evolite_common::layers::of(&kind, Chain::Platform);
@@ -1095,5 +1233,145 @@ mod tests {
         let old = r#"[{"at":1,"what":{"Credits":{"to":"@bob"}},"spent":5,"moved":0}]"#;
         let read: Vec<Entry> = serde_json::from_str(old).unwrap();
         assert_eq!(read.len(), 1);
+    }
+
+    /// BUG-145 AC-T3: what an app spent, read twice in a day, is one line of the two; the next day
+    /// a new one; another app or identity its own.
+    #[test]
+    fn an_apps_spending_is_one_line_a_day() {
+        let day = 86_400;
+        let mut entries = Vec::new();
+        assert!(fold_app_spent(
+            &mut entries,
+            "Yappr",
+            "me",
+            1_000,
+            10 * day + 100
+        ));
+        assert!(fold_app_spent(
+            &mut entries,
+            "Yappr",
+            "me",
+            600,
+            10 * day + 5_000
+        ));
+        assert_eq!(entries.len(), 1, "one line for the day");
+        assert_eq!((entries[0].spent, entries[0].at), (1_600, 10 * day + 5_000));
+        assert_eq!(
+            entries[0].kind,
+            Some(Kind::AppSpent {
+                app: "Yappr".into()
+            })
+        );
+        assert_eq!(entries[0].source, Source::Network, "proved by Platform");
+        assert!(fold_app_spent(
+            &mut entries,
+            "Yappr",
+            "me",
+            300,
+            11 * day + 10
+        ));
+        assert!(fold_app_spent(
+            &mut entries,
+            "Other",
+            "me",
+            50,
+            11 * day + 20
+        ));
+        assert!(fold_app_spent(
+            &mut entries,
+            "Yappr",
+            "you",
+            70,
+            11 * day + 30
+        ));
+        assert_eq!(entries.len(), 4);
+        assert!(
+            !fold_app_spent(&mut entries, "Yappr", "me", 0, 11 * day + 40),
+            "nothing spent"
+        );
+        let line = activity(&entries[0]);
+        assert_eq!(
+            line.kind,
+            ActivityKind::AppSpent {
+                app: "Yappr".into()
+            }
+        );
+        assert_eq!(line.amount, -1_600);
+    }
+
+    /// BUG-145 AC-A1: a sign-in again on the same connection is «keys replaced»; an entry written
+    /// before renewals were kept reads as a first sign-in.
+    #[test]
+    fn a_renewal_reads_as_keys_replaced() {
+        let renewed = entry_of(
+            Kind::AppConnect {
+                app: "Yappr".into(),
+                renewal: true,
+            },
+            1,
+            18,
+            None,
+        );
+        assert_eq!(
+            activity(&renewed).kind,
+            ActivityKind::AppRenewed {
+                app: "Yappr".into()
+            }
+        );
+        let older: Kind = serde_json::from_str(r#"{"AppConnect":{"app":"Yappr"}}"#).unwrap();
+        assert_eq!(
+            activity(&entry_of(older, 1, 18, None)).kind,
+            ActivityKind::AppSignIn {
+                app: "Yappr".into()
+            }
+        );
+    }
+
+    /// BUG-145 AC-T4: an older file reads; a file with the new kinds reads, in an older build too,
+    /// as credit lines of the fee (it does not lose the file); a newer kind this build does not
+    /// know reads as none.
+    #[test]
+    fn the_new_kinds_leave_older_and_newer_builds_reading() {
+        let entry = entry_of(
+            Kind::TokenSent {
+                token: "evoliteQA".into(),
+                to: "@qa".into(),
+                amount: "12.34".into(),
+            },
+            100,
+            1_081,
+            None,
+        );
+        let text = serde_json::to_string(&vec![entry.clone()]).unwrap();
+        let back: Vec<Entry> = serde_json::from_str(&text).unwrap();
+        assert_eq!(back, vec![entry.clone()]);
+        assert_eq!(
+            activity(&back[0]).kind,
+            ActivityKind::TokenSent {
+                token: "evoliteQA".into(),
+                to: "@qa".into(),
+                amount: "12.34".into(),
+            }
+        );
+        // An older build: no `kind` field known — the line is a credit transfer to the recipient.
+        #[derive(serde::Deserialize)]
+        struct Older {
+            what: What,
+            spent: Duffs,
+            #[serde(default)]
+            moved: Duffs,
+        }
+        let older: Vec<Older> = serde_json::from_str(&text).expect("an older build reads it");
+        assert_eq!(older[0].what, What::Credits { to: "@qa".into() });
+        assert_eq!((older[0].spent, older[0].moved), (1_081, 0));
+        // A newer kind than this build knows.
+        let newer = text.replace("TokenSent", "SomethingLater");
+        let read: Vec<Entry> = serde_json::from_str(&newer).expect("a newer file reads");
+        assert_eq!(read[0].kind, None);
+        assert_eq!(
+            activity(&read[0]).kind,
+            ActivityKind::CreditTransfer { to: "@qa".into() }
+        );
     }
 }

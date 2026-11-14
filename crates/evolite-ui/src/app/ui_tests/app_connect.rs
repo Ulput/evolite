@@ -266,3 +266,24 @@ fn a_state_chip_has_its_icon_before_its_words() {
         "the icon at {icon:?}, the words at {words:?}"
     );
 }
+
+/// BUG-147 AC-T1: «Apps» asks for the connected apps' budgets on each visit, not once a run:
+/// opened, left and opened again, it asks again. While it stays open it asks again only after
+/// 30 s (the screen's own test of `budgets_due`).
+#[test]
+fn each_visit_of_apps_reads_the_budgets_again() {
+    let (_turn, mut kit) = demo_app("apps", "en");
+    wait_for(&mut kit, "the budgets asked on the first visit", |kit| {
+        !kit.state().requests.budgets_asked.is_empty()
+    });
+    kit.state_mut().screen = crate::screens::Screen::Overview;
+    kit.run_steps(2);
+    assert!(
+        kit.state().requests.budgets_asked.is_empty(),
+        "leaving «Apps» forgets what was asked"
+    );
+    kit.state_mut().screen = crate::screens::Screen::Apps;
+    wait_for(&mut kit, "the budgets asked on the second visit", |kit| {
+        !kit.state().requests.budgets_asked.is_empty()
+    });
+}

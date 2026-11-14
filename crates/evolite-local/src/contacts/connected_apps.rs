@@ -42,6 +42,10 @@ pub struct Session {
     /// the list".
     #[serde(default)]
     pub disconnected_at: Option<i64>,
+    /// What the app had spent of its keys' budgets at the last read, credits (BUG-145): the
+    /// next read's growth over it is a line in History. `None`: not read since this was kept.
+    #[serde(default)]
+    pub spent_seen: Option<u64>,
 }
 
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -212,6 +216,7 @@ mod tests {
             }),
             label: "Yappr".into(),
             disconnected_at: Some(11),
+            spent_seen: Some(42),
         };
         ConnectedApps::new(path.clone())
             .put(App {

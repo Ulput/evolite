@@ -786,6 +786,61 @@ pub fn demo_wallet(t: Timestamp) -> Wallet {
                     Proof::ChainLock,
                 )
             },
+            // BUG-145: the identity's spends on apps and tokens, by the credits they took.
+            Activity {
+                detail: platform_detail(None),
+                ..act(
+                    30,
+                    AppDisconnected {
+                        app: "Yappr".into(),
+                    },
+                    Chain::Platform,
+                    3 * day + 2 * hour,
+                    -6_600,
+                    Proof::Proved,
+                )
+            },
+            Activity {
+                detail: platform_detail(None),
+                ..act(
+                    31,
+                    TokenSent {
+                        token: "Evo Coffee".into(),
+                        to: "@alice".into(),
+                        amount: "12.34".into(),
+                    },
+                    Chain::Platform,
+                    3 * day + 5 * hour,
+                    -204_056,
+                    Proof::Proved,
+                )
+            },
+            Activity {
+                detail: platform_detail(None),
+                ..act(
+                    32,
+                    AppSpent {
+                        app: "Yappr".into(),
+                    },
+                    Chain::Platform,
+                    4 * day,
+                    -1_250,
+                    Proof::Proved,
+                )
+            },
+            Activity {
+                detail: platform_detail(None),
+                ..act(
+                    33,
+                    AppRenewed {
+                        app: "Yappr".into(),
+                    },
+                    Chain::Platform,
+                    4 * day + 3 * hour,
+                    -18_200,
+                    Proof::Proved,
+                )
+            },
         ],
         core_address: "yXk3Tq9mD8vJw2RfL6pN4sB7cH1eZ5aG9f2c".into(),
         platform_address: "tdash1qq7x4m9n2r8v5k3j6h0w4p2s8d5f7g9l3c0zq".into(),

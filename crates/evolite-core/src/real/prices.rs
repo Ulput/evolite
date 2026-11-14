@@ -26,6 +26,10 @@ enum Line {
     Profile,
     Name,
     Shield,
+    /// BUG-145: App Connect v2 sign-in, disconnect and a token sent.
+    AppConnect,
+    AppDisconnect,
+    TokenSent,
 }
 
 impl Line {
@@ -38,6 +42,9 @@ impl Line {
             Spend::AddContact { .. } | Spend::AcceptContact { .. } => Some(Line::ContactRequest),
             Spend::SaveProfile { .. } => Some(Line::Profile),
             Spend::AddName { .. } => Some(Line::Name),
+            Spend::ApproveApp { .. } => Some(Line::AppConnect),
+            Spend::DisconnectApp { .. } => Some(Line::AppDisconnect),
+            Spend::SendToken { .. } => Some(Line::TokenSent),
             Spend::Shield {
                 from: ShieldSource::Credits | ShieldSource::PlatformAddress,
                 ..
@@ -46,9 +53,17 @@ impl Line {
         }
     }
 
-    fn is(self, what: &What) -> bool {
+    /// The new kinds are written as `Credits` for older builds (BUG-145): told apart by `kind`.
+    fn is(self, entry: &Entry) -> bool {
+        match (&entry.kind, self) {
+            (Some(journal::Kind::AppConnect { .. }), Line::AppConnect)
+            | (Some(journal::Kind::AppDisconnect { .. }), Line::AppDisconnect)
+            | (Some(journal::Kind::TokenSent { .. }), Line::TokenSent) => return true,
+            (Some(_), _) => return false,
+            (None, _) => {}
+        }
         matches!(
-            (self, what),
+            (self, &entry.what),
             (
                 Line::Credits,
                 What::Credits { .. } | What::Withdrawal { .. }
@@ -90,7 +105,7 @@ pub(super) struct PriceWatch {
 fn cost_in_history(entries: &[Entry], line: Line, started: Timestamp) -> Option<Duffs> {
     let newest = entries
         .iter()
-        .filter(|e| e.source == journal::Source::Here && e.at >= started && line.is(&e.what))
+        .filter(|e| e.source == journal::Source::Here && e.at >= started && line.is(e))
         .max_by_key(|e| e.at)?;
     let fee = newest.spent.saturating_sub(newest.moved);
     (newest.spent > 0 && fee > 0).then_some(fee)
@@ -274,6 +289,56 @@ mod tests {
         };
         assert_eq!(reason, "not_enough");
         assert_eq!(held, Some(2_875));
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// BUG-145: a disconnect's actual price is its own line, not a credit transfer's, though both
+    /// are written as `Credits` for older builds; and a credit transfer does not take it.
+    #[test]
+    fn an_apps_line_is_its_own_actual_price() {
+        let (watch, dir) = watch();
+        seen_by(&watch, 10_000);
+        let disconnect = Spend::DisconnectApp { id: "app".into() };
+        watch.begin(&disconnect, 1_000);
+        watch.journal.add(journal::entry_of(
+            journal::Kind::AppDisconnect {
+                app: "Yappr".into(),
+            },
+            1_000,
+            6_600,
+            None,
+        ));
+        let record = watch.ended(&Event::Done {
+            what: DoneWhat::Disconnect,
+            result: Ok(()),
+        });
+        let Some(Record::Price { actual, .. }) = record else {
+            panic!("no record: {record:?}");
+        };
+        assert_eq!(actual, Some(6_600));
+        let send = Spend::Send {
+            coins: None,
+            id: 9,
+            from: Source::Credits,
+            to: "@bob".into(),
+            amount: 100,
+            note: None,
+            rate: None,
+        };
+        watch.begin(&send, 1_000);
+        let record = watch.ended(&Event::Sent {
+            id: 9,
+            result: Ok(SentPayment {
+                txid: String::new(),
+                amount: 100,
+                fee: 0,
+                relayed: true,
+            }),
+        });
+        let Some(Record::Price { actual, .. }) = record else {
+            panic!("no record: {record:?}");
+        };
+        assert_eq!(actual, None, "a transfer does not take the app's line");
         let _ = std::fs::remove_dir_all(dir);
     }
 

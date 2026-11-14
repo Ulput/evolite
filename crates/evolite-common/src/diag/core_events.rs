@@ -281,6 +281,26 @@ mod tests {
         }
     }
 
+    /// BUG-145 AC-T5: the app commands are their names only: no app, contract or label.
+    #[test]
+    fn an_apps_commands_are_names_only() {
+        let disconnect = command(&Command::Spend {
+            op: Spend::DisconnectApp {
+                id: "YapprQZ5contract".into(),
+            },
+            password: Some(Password::new("hunter2".into())),
+        });
+        let budgets = command(&Command::ReadAppBudgets {
+            id: "YapprQZ5contract".into(),
+        });
+        for record in [disconnect, budgets] {
+            let line = record.line(std::time::UNIX_EPOCH);
+            for secret in ["Yappr", "QZ5", "hunter2"] {
+                assert!(!line.contains(secret), "{line}");
+            }
+        }
+    }
+
     #[test]
     fn an_answer_is_its_kind_and_how_it_ended() {
         let done = Event::Done {

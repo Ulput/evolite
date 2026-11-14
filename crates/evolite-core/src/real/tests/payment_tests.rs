@@ -460,3 +460,26 @@ async fn a_refused_payment_says_its_number_back() {
         "{not_synced:?}"
     );
 }
+
+/// BUG-145 AC-T1: a write evolite signed gets a line with what it cost from the credits before
+/// and after; a refused or unsigned one gets none. The core has no stand-in chain, so the three
+/// writes (connect, disconnect, token transfer) share this and add the line only after it went
+/// through.
+#[test]
+fn an_own_spend_is_a_line_only_when_it_went_through() {
+    let kind = || journal::Kind::AppDisconnect {
+        app: "Yappr".into(),
+    };
+    let me = Some("Me".to_owned());
+    let done: Result<(), CoreError> = Ok(());
+    let line =
+        own_spend(&done, kind(), Some(5_000_000), Some(4_993_400), me.clone()).expect("a line");
+    assert_eq!(line.spent, 6);
+    assert_eq!(line.moved, 0);
+    assert_eq!(line.identity, me);
+    assert_eq!(line.kind, Some(kind()));
+    let refused: Result<(), CoreError> = Err(CoreError::Failed("signing".into()));
+    assert!(own_spend(&refused, kind(), Some(5_000_000), None, me.clone()).is_none());
+    // Balances not read: still the line, with nothing spent shown rather than a guess.
+    assert_eq!(own_line(kind(), None, Some(1), me).spent, 0);
+}

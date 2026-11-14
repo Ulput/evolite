@@ -274,7 +274,8 @@ fn the_found_wallet_has_its_eye() {
 
 /// The amounts of the operation rows on the screen, as a screen reader hears them: a row is
 /// «title · amount · detail» (`components::tx_row`). A title may have « · » of its own («Sent ·
-/// Exchange · withdrawal»): the amount is the first part in DASH.
+/// Exchange · withdrawal»): the amount is the first part in DASH. A token transfer's DASH is its
+/// credits fee, «fee 0.0020 DASH» on the second line (BUG-145 AC-A3): the fee is that amount.
 fn row_amounts(kit: &Kit) -> Vec<String> {
     kit.query_all_by(|n| n.label().is_some_and(|l| l.split(" · ").count() >= 3))
         .filter_map(|n| {
@@ -282,7 +283,7 @@ fn row_amounts(kit: &Kit) -> Vec<String> {
             label
                 .split(" · ")
                 .find(|part| part.ends_with(" DASH"))
-                .map(str::to_string)
+                .map(|part| part.strip_prefix("fee ").unwrap_or(part).to_string())
         })
         .collect()
 }

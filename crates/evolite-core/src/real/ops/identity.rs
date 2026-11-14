@@ -436,6 +436,11 @@ impl Real {
         let found = self.identities_found.clone();
         let complete = self.identities_complete.clone();
         let refresh = self.refresher();
+        let budgets = super::app_connect2::AppBudgets {
+            apps: self.apps.clone(),
+            reads: self.app_reads.clone(),
+            journal: self.journal.clone(),
+        };
         let stale = self.balances_stale.clone();
         let works = self.works.clone();
         // A new search: the credits are checked again, all of them (BUG-115).
@@ -481,6 +486,7 @@ impl Real {
                         stale.clone(),
                         checked.clone(),
                         refresh.clone(),
+                        budgets.clone(),
                         works.clone(),
                     ));
                 }
@@ -659,6 +665,35 @@ fn watch_creation(
 pub(in crate::real) fn spent_credits(before: Option<u64>, after: Option<u64>) -> Option<Duffs> {
     let spent = before?.checked_sub(after?)?;
     (spent > 0).then_some((spent / 1000) as Duffs)
+}
+
+/// The journal line of a Platform write evolite signed itself (BUG-145 AC-T1): what it cost from
+/// the credits before and after, or no line when the write failed: nothing was signed, or the
+/// network refused it.
+pub(in crate::real) fn own_spend<T, E>(
+    result: &Result<T, E>,
+    kind: journal::Kind,
+    before: Option<u64>,
+    after: Option<u64>,
+    acting: Option<String>,
+) -> Option<journal::Entry> {
+    result.as_ref().ok()?;
+    Some(own_line(kind, before, after, acting))
+}
+
+/// The line of a write that went through: [`own_spend`] for a caller that returned on a refusal.
+pub(in crate::real) fn own_line(
+    kind: journal::Kind,
+    before: Option<u64>,
+    after: Option<u64>,
+    acting: Option<String>,
+) -> journal::Entry {
+    journal::entry_of(
+        kind,
+        now(),
+        spent_credits(before, after).unwrap_or(0),
+        acting,
+    )
 }
 
 /// The first slot this computer remembers a name for (`names`, [`pending::PendingNames`])

@@ -482,11 +482,7 @@ fn operation_row(ui: &mut Ui, a: &mut Assets, cx: &Ctx, act: &Activity, day: &mu
         });
         ui.add_space(4.0);
     }
-    let mut detail = format!(
-        "{} · {}",
-        text::row_place(act),
-        text::time_of_day(act.at, cx.now)
-    );
+    let mut detail = format!("{} · {}", text::row_place(act), text::row_time(act, cx.now));
     // How a withdrawal or a request to us stands, and which identity of ours it
     // came to (BUG-58).
     for part in [
@@ -507,7 +503,7 @@ fn operation_row(ui: &mut Ui, a: &mut Assets, cx: &Ctx, act: &Activity, day: &mu
             title: &text::activity_title_in(act, &wallet.address_book),
             detail: &detail,
             proof: Some(act.proof),
-            amount: &text::signed_amount(act.amount),
+            amount: &text::row_amount(act),
             alert: text::activity_alert(act),
             quiet: text::credits_quiet(act),
             core_chip: text::core_chip(act),

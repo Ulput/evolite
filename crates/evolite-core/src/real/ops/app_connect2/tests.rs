@@ -43,6 +43,7 @@ fn app(keys: Vec<StoredKey>) -> App {
             response: None,
             label: "Yappr".into(),
             disconnected_at: None,
+            spent_seen: None,
         }),
     }
 }
@@ -287,4 +288,34 @@ fn the_return_link_is_named_by_its_host() {
     );
     assert_eq!(callback_host("http://yap.pr/"), None);
     assert_eq!(callback_host("https:///x"), None);
+}
+
+/// BUG-145 AC-T3: what an app spent is its keys' budgets less what Platform says is left; a
+/// key not read counts nothing, and with none read there is nothing to compare.
+#[test]
+fn an_apps_spending_is_its_budgets_less_what_is_left() {
+    let app = app(vec![stored(8, NOW_MS + 1), stored(9, NOW_MS + 1)]);
+    let mut reads = Reads::new();
+    assert_eq!(spent_by_reads(&app, &reads), None);
+    let left = |remaining| KeyRead {
+        remaining: Some(remaining),
+        disabled: false,
+    };
+    reads.insert(("C".into(), "I".into(), 8), left(49_999_000_000));
+    assert_eq!(spent_by_reads(&app, &reads), Some(1_000_000));
+    reads.insert(("C".into(), "I".into(), 9), left(49_999_500_000));
+    assert_eq!(spent_by_reads(&app, &reads), Some(1_500_000));
+}
+
+/// BUG-145 AC-T3: each read adds the growth since the last one, in whole duffs of the totals
+/// (nothing lost to rounding over many reads); a fall (renewal, a new budget) adds nothing and
+/// only moves the baseline; never read before, everything spent so far once.
+#[test]
+fn a_read_adds_only_what_was_spent_since_the_last() {
+    assert_eq!(app_spent_step(Some(0), 1_500), (1, 1_500));
+    assert_eq!(app_spent_step(Some(1_500), 2_600), (1, 2_600));
+    assert_eq!(app_spent_step(Some(2_600), 3_000), (1, 3_000));
+    assert_eq!(app_spent_step(Some(3_000), 3_000), (0, 3_000));
+    assert_eq!(app_spent_step(Some(3_000), 500), (0, 500));
+    assert_eq!(app_spent_step(None, 122_264_000), (122_264, 122_264_000));
 }

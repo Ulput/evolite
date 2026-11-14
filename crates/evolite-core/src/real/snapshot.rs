@@ -1231,6 +1231,7 @@ impl Real {
 /// at once, then after each write (`stale`) or every [`BALANCES_EVERY`]. The shown identity is
 /// read each time, all of them at first and every [`BALANCES_ALL_EVERY`] times. `checked` is
 /// raised once a round has read them all (BUG-115).
+#[allow(clippy::too_many_arguments)] // the round's handles, each its own Arc (BUG-147 budgets, works)
 pub(super) async fn keep_balances_fresh(
     chain: Arc<Chain>,
     id: WalletId,
@@ -1238,9 +1239,14 @@ pub(super) async fn keep_balances_fresh(
     stale: Arc<tokio::sync::Notify>,
     checked: Arc<AtomicBool>,
     refresh: impl Fn(),
+    budgets: ops::app_connect2::AppBudgets,
     works: Arc<super::works::Works>,
 ) {
     let mut round = 0u32;
+    // BUG-147: the credits and the journal's length at the last round, and when the connected
+    // apps' budgets were read last.
+    let mut seen = (None, budgets.journal.count());
+    let mut budgets_at: Option<std::time::Instant> = None;
     while live() {
         let all = round.is_multiple_of(BALANCES_ALL_EVERY);
         round = round.wrapping_add(1);
@@ -1254,6 +1260,16 @@ pub(super) async fn keep_balances_fresh(
                 checked.store(true, Ordering::Relaxed);
             }
             if result.is_ok() {
+                let now = (
+                    chain.first_identity_credits(&wallet, false).await,
+                    budgets.journal.count(),
+                );
+                let dropped = dropped_unexplained(seen, now);
+                seen = now;
+                if budgets_due(dropped, budgets_at.map(|at| at.elapsed())) {
+                    budgets.read_all(&chain).await;
+                    budgets_at = Some(std::time::Instant::now());
+                }
                 refresh();
             }
         }
@@ -1261,6 +1277,43 @@ pub(super) async fn keep_balances_fresh(
             _ = stale.notified() => {}
             _ = tokio::time::sleep(BALANCES_EVERY) => {}
         }
+    }
+}
+
+/// How often the connected apps' budgets are read while the wallet is open (BUG-147).
+const BUDGETS_EVERY: Duration = Duration::from_secs(600);
+
+/// Whether the shown identity's credits went down between two rounds with no new journal line to
+/// say why (BUG-147): an app spent from its keys' budget, most likely. `(credits, journal length)`.
+fn dropped_unexplained(before: (Option<u64>, usize), now: (Option<u64>, usize)) -> bool {
+    matches!((before.0, now.0), (Some(was), Some(is)) if is < was) && now.1 == before.1
+}
+
+/// Whether a round reads the connected apps' budgets (BUG-147): the credits went down unexplained,
+/// or the last read is [`BUDGETS_EVERY`] old, or there was none in this unlock.
+fn budgets_due(dropped: bool, since: Option<Duration>) -> bool {
+    dropped || since.is_none_or(|d| d >= BUDGETS_EVERY)
+}
+
+#[cfg(test)]
+mod budgets_due_tests {
+    use super::*;
+
+    /// BUG-147 AC-T2: credits down with no journal line read the budgets at once; down with a
+    /// line (evolite's own write) or up do not; otherwise once at the start and every 10 minutes.
+    #[test]
+    fn the_budgets_are_read_when_credits_fall_unexplained() {
+        assert!(dropped_unexplained((Some(1_000), 5), (Some(900), 5)));
+        assert!(!dropped_unexplained((Some(1_000), 5), (Some(900), 6)));
+        assert!(!dropped_unexplained((Some(1_000), 5), (Some(1_100), 5)));
+        assert!(!dropped_unexplained((None, 5), (Some(900), 5)));
+        assert!(!dropped_unexplained((Some(1_000), 5), (None, 5)));
+
+        let minute = Some(Duration::from_secs(60));
+        assert!(budgets_due(false, None));
+        assert!(!budgets_due(false, minute));
+        assert!(budgets_due(true, minute));
+        assert!(budgets_due(false, Some(BUDGETS_EVERY)));
     }
 }
 

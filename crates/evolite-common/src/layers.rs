@@ -76,9 +76,15 @@ pub fn of(kind: &ActivityKind, chain: Chain) -> (u8, Flow) {
         PoolSent => (POOL, Flow::Out),
         // Paid in credits by the identity; the payout is a line of its own (Core, received).
         Withdrawal { .. } | CreditTransfer { .. } => (IDENTITY, Flow::Out),
-        AppSignIn { .. } | ContactRequest { .. } | ProfileSaved | NameRegistered { .. } => {
-            (IDENTITY, Flow::Out)
-        }
+        // BUG-145: App Connect, a token sent, an app's own writes: credits leave the identity.
+        AppSignIn { .. }
+        | AppRenewed { .. }
+        | AppDisconnected { .. }
+        | TokenSent { .. }
+        | AppSpent { .. }
+        | ContactRequest { .. }
+        | ProfileSaved
+        | NameRegistered { .. } => (IDENTITY, Flow::Out),
         // From the wallet's Platform addresses (FEAT-0015): to anyone's Platform address, or to a
         // Core address of this wallet only (R-3).
         AddressSent { .. } => (PLATFORM_ADDRESS, Flow::Out),

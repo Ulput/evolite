@@ -129,6 +129,26 @@ pub enum ActivityKind {
     AppSignIn {
         app: String,
     },
+    /// App Connect v2 signed in again on the same connection: its keys replaced (BUG-145).
+    AppRenewed {
+        app: String,
+    },
+    /// App Connect v2: the app's session keys disabled (BUG-145).
+    AppDisconnected {
+        app: String,
+    },
+    /// A token sent (BUG-145): which and how much, in words, and to whom. The line's amount is the
+    /// fee in credits; the token is not DASH.
+    TokenSent {
+        token: String,
+        to: String,
+        amount: String,
+    },
+    /// What an app spent from its keys' budgets, as Platform says (BUG-145): one line an app a
+    /// day, timed when it was read.
+    AppSpent {
+        app: String,
+    },
     CreditTransfer {
         to: String,
     },

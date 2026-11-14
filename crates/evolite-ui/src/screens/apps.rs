@@ -44,22 +44,32 @@ pub fn state_of(app: &ConnectedApp) -> AppState {
     }
 }
 
-/// «Spent X of Y · until Z» of a key; «—» for X until Platform was asked.
+/// How often an open «Apps» asks for the budgets again, seconds (BUG-147).
+const BUDGETS_AGAIN: f64 = 30.0;
+
+/// Whether an app's budgets are asked for now: not yet in this visit, or [`BUDGETS_AGAIN`] ago.
+fn budgets_due(asked: Option<f64>, time: f64) -> bool {
+    asked.is_none_or(|at| time - at >= BUDGETS_AGAIN)
+}
+
+/// «Spent X of Y · until Z» of a key; until Platform was asked in this run, «checking» instead
+/// of X: never a 0 that is not one (BUG-147).
 fn spent_line(key: &SessionKey, now: chrono::DateTime<chrono::Local>) -> String {
-    let spent = key.remaining.map_or_else(
-        || "—".to_owned(),
-        |left| crate::format::short_number(key.budget - left),
+    let limit = format!(
+        "{} {}",
+        crate::format::short_number(key.budget),
+        crate::format::unit_name()
     );
-    format!(
-        tr!("Spent {} of {} · until {}"),
-        spent,
-        format!(
-            "{} {}",
-            crate::format::short_number(key.budget),
-            crate::format::unit_name()
+    let until = text::date_short(key.expires_at, now);
+    match key.remaining {
+        Some(left) => format!(
+            tr!("Spent {} of {} · until {}"),
+            crate::format::short_number(key.budget - left),
+            limit,
+            until
         ),
-        text::date_short(key.expires_at, now)
-    )
+        None => format!(tr!("Spent: checking… of {} · until {}"), limit, until),
+    }
 }
 
 /// The spent part of a key's budget, 0 until read.
@@ -269,11 +279,20 @@ pub fn apps(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, requests: &mut AppRequest
             Err(why) => requests.qr_error = why,
         }
     }
-    // R-3: what is left comes from Platform, asked once a visit for each connected app.
+    // R-3: what is left comes from Platform, asked on each visit for each connected app and again
+    // every [`BUDGETS_AGAIN`] while the screen is open (BUG-147).
+    let time = ui.input(|i| i.time);
+    let mut connected = false;
     for app in wallet.apps.iter().filter(|a| a.disconnected_at.is_none()) {
-        if requests.budgets_asked.insert(app.id.clone()) {
+        connected = true;
+        if budgets_due(requests.budgets_asked.get(&app.id).copied(), time) {
+            requests.budgets_asked.insert(app.id.clone(), time);
             cx.send(evolite_api::Command::ReadAppBudgets { id: app.id.clone() });
         }
+    }
+    if connected {
+        ui.ctx()
+            .request_repaint_after(std::time::Duration::from_secs_f64(BUDGETS_AGAIN));
     }
     let mut scan_now = false;
     page_header(ui, a, tr!("Apps"), None, |ui, a| {
@@ -565,5 +584,41 @@ mod tests {
         requests.disconnect_waiting = true;
         requests.on_disconnected(Ok(()));
         assert!(requests.disconnecting.is_none());
+    }
+}
+
+#[cfg(test)]
+mod budgets_due_tests {
+    use super::{budgets_due, spent_line};
+    use evolite_api::{AppBinding, KeyLevel, SessionKey, SessionKeyState};
+
+    /// BUG-147 AC-T3: a budget not read in this run is «checking», not «Spent 0»; once read,
+    /// the limit less what is left.
+    #[test]
+    fn an_unread_budget_is_checking_not_0() {
+        let now = chrono::Local::now();
+        let mut key = SessionKey {
+            id: 8,
+            level: KeyLevel::High,
+            binding: AppBinding::Group { id: "G".into() },
+            budget: 9_000_000,
+            expires_at: now.timestamp() + 86_400,
+            state: SessionKeyState::Live,
+            remaining: None,
+        };
+        let unread = spent_line(&key, now);
+        assert!(unread.starts_with("Spent: checking… of 0.09"), "{unread}");
+        key.remaining = Some(8_000_000);
+        let read = spent_line(&key, now);
+        assert!(read.starts_with("Spent 0.01 of 0.09"), "{read}");
+    }
+
+    /// BUG-147 AC-T1: asked at once on a visit, then not again for 30 s while the screen stays.
+    #[test]
+    fn an_open_apps_screen_asks_at_most_every_30_s() {
+        assert!(budgets_due(None, 12.0));
+        assert!(!budgets_due(Some(12.0), 12.5));
+        assert!(!budgets_due(Some(12.0), 41.9));
+        assert!(budgets_due(Some(12.0), 42.0));
     }
 }

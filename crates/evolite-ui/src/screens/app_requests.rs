@@ -52,8 +52,9 @@ pub struct AppRequests {
     pub connected: Option<String>,
     /// The banner the sign-in under way will leave when it is done.
     pub connecting: Option<String>,
-    /// The apps whose budgets were asked for in this visit of the screen.
-    pub budgets_asked: std::collections::HashSet<String>,
+    /// The apps whose budgets were asked for in this visit of the screen, and when (`egui` time,
+    /// seconds). Forgotten on leaving the screen, so each visit asks again (BUG-147).
+    pub budgets_asked: std::collections::HashMap<String, f64>,
     /// `--screen apps-…` (dev-tools): what to open once the list has its apps — `renew`,
     /// `disconnect`, `remove` or `to-end` (the list scrolled to the disconnected ones).
     pub preset: Option<&'static str>,

@@ -80,7 +80,11 @@ pub fn kind_of(a: &Activity) -> u8 {
         NameRegistered { .. } => kind::NAMES,
         ContactRequest { .. } | ContactRequestIn { .. } | ProfileSaved => kind::CONTACTS,
         Shielded { .. } | PoolReceived | PoolSent => kind::POOL,
-        AppSignIn { .. } => kind::APPS,
+        // BUG-145: what apps did with their keys and budgets; a token sent is the identity's.
+        AppSignIn { .. } | AppRenewed { .. } | AppDisconnected { .. } | AppSpent { .. } => {
+            kind::APPS
+        }
+        TokenSent { .. } => kind::IDENTITY,
     }
 }
 

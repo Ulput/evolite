@@ -954,3 +954,39 @@ fn a_wheel_turned_on_the_screen_just_opened_scrolls_it() {
         "the wheel scrolled the list at once: {before} → {after:?}"
     );
 }
+
+/// BUG-145 AC-T6 and the analyst's AC-A1–A4: the demo's History has a line of each spend on apps
+/// and tokens, and `--screen activity-apps` shows them on «Apps» and «Identity»: a token's amount on
+/// the second line in the language's number format, what an app spent as read.
+#[test]
+fn the_apps_spends_are_lines_of_history() {
+    let (_turn, mut kit) = demo_app("activity-apps", "en");
+    wait_for(&mut kit, "the apps' lines", |kit| {
+        has_words(kit, "Signed out of Yappr · keys disabled")
+    });
+    assert!(has_words(&kit, "Signed in to Yappr · keys added"));
+    assert!(has_words(&kit, "Signed in to Yappr · keys replaced"));
+    assert!(has_words(&kit, "Token transfer to @alice"));
+    // The token's amount on the right, never as DASH; the credits fee on the second line.
+    assert!(has_words(&kit, "−12.34 Evo\u{a0}Coffee"));
+    assert!(has_words(&kit, "fee 0."));
+    assert!(has_words(&kit, "Yappr spent from its limit"));
+    assert!(has_words(&kit, "as read at"));
+}
+
+/// BUG-145 AC-A7: «Hide amounts» hides a token's amount in its History line too.
+#[test]
+fn hidden_amounts_hide_a_token_sent() {
+    let (_turn, mut kit) = demo_app("activity-apps", "en");
+    wait_for(&mut kit, "the token's line", |kit| {
+        has_words(kit, "Token transfer to @alice")
+    });
+    kit.state_mut().settings.flip_hide_amounts();
+    kit.run_steps(3);
+    assert!(!has_words(&kit, "12.34"), "the token's amount hidden");
+    assert!(!has_words(&kit, "fee 0."), "the fee hidden");
+    assert!(
+        has_words(&kit, "Token transfer to @alice"),
+        "the line stays"
+    );
+}

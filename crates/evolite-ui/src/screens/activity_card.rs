@@ -1159,7 +1159,26 @@ fn detail_body(
     if let Some(status) = shown_status(act) {
         kv_row(ui, &p, tr!("Status"), status, words.clone());
     }
-    kv_row(ui, &p, tr!("When"), &text::date_time(act.at, now), words);
+    // What an app spent: the time of the read, and why no more is known (BUG-145 AC-A4).
+    let spent_by_app = matches!(act.kind, ActivityKind::AppSpent { .. });
+    let when = text::date_time(act.at, now);
+    let when = if spent_by_app {
+        format!(tr!("as read at {}"), when)
+    } else {
+        when
+    };
+    kv_row(ui, &p, tr!("When"), &when, words);
+    if spent_by_app {
+        notice(
+            ui,
+            a,
+            "info",
+            p.muted,
+            tr!(
+                "The amount is from the limit's remainder Platform confirmed. What exactly the app wrote, evolite does not see."
+            ),
+        );
+    }
     match detail.confirm {
         Some(confirm) => {
             let (icon, said) = match confirm {

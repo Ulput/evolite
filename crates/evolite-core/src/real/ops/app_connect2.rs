@@ -11,6 +11,7 @@ use std::sync::atomic::Ordering;
 
 use dpp::identity::IdentityPublicKey;
 use dpp::identity::identity_public_key::accessors::v0::IdentityPublicKeyGettersV0;
+use dpp::platform_value::string_encoding::Encoding;
 use dpp::prelude::Identifier;
 use evolite_api::*;
 use evolite_chain::app_chain_v2::{self, MIN_PROTOCOL, NewKey};
@@ -19,8 +20,10 @@ use evolite_chain::app_connect_v2::keys::{self as v2keys, SLOT};
 use evolite_chain::app_connect_v2::{self as v2, Bounds, EncBinding, Level, Part, Refusal, Status};
 use zeroize::Zeroizing;
 
+use super::identity::own_line;
 use crate::real::connected_apps::{App, Response as Stored, Session, SessionKey as StoredKey};
-use crate::real::{AppJob, Real, dashpay_failure, loaded, now};
+use crate::real::snapshot::acting_identity;
+use crate::real::{AppJob, Real, dashpay, dashpay_failure, journal, loaded, now};
 
 /// A v2 request shown and not answered yet.
 pub(in crate::real) struct Connect2Job {
@@ -219,6 +222,36 @@ pub(in crate::real) fn shown_session(
             }
         })
         .collect()
+}
+
+/// What app's session keys have spent of their budgets as last read, credits; `None` while no
+/// key of it was read. A key not read counts nothing.
+pub(in crate::real) fn spent_by_reads(app: &App, reads: &Reads) -> Option<u64> {
+    let session = app.session.as_ref()?;
+    let mut any = false;
+    let mut spent = 0u64;
+    for key in &session.keys {
+        let read = reads.get(&(app.contract.clone(), app.identity.clone(), key.id));
+        if let Some(left) = read.and_then(|r| r.remaining) {
+            any = true;
+            spent = spent.saturating_add(key.budget.saturating_sub(left));
+        }
+    }
+    any.then_some(spent)
+}
+
+/// BUG-145 AC-T3: what a read of the budgets adds to History, in duffs, and the new baseline. The
+/// growth of what was spent since `seen` is the line (whole duffs of the totals, so nothing is
+/// lost to rounding over many reads); a fall (a renewal, a new budget) is no line, only the new
+/// baseline. Not read before: everything spent so far, once.
+pub(in crate::real) fn app_spent_step(seen: Option<u64>, spent: u64) -> (Duffs, u64) {
+    let seen = seen.unwrap_or(0);
+    let line = if spent > seen {
+        duffs(spent) - duffs(seen)
+    } else {
+        0
+    };
+    (line, spent)
 }
 
 /// The connection a request renews: the kept, still connected sign-in of the same `CONNECTION_ID`,
@@ -465,9 +498,13 @@ impl Real {
         ))?;
         let (wallet_id, keys) = self.dashpay_ready()?;
         let (chain, apps, refresh) = (self.chain.clone(), self.apps.clone(), self.refresher());
+        let journal = self.journal.clone();
         self.answer_later("task:approve_connect2", async move {
             let result = async {
                 let wallet = loaded(&chain, &wallet_id).await?;
+                // BUG-145: what the update and the response cost, from the credits before and after.
+                let acting = acting_identity(&wallet).await;
+                let before = chain.first_identity_credits(&wallet, false).await;
                 let who = chain
                     .sign_in_identity(&wallet, &keys)
                     .await
@@ -596,6 +633,25 @@ impl Real {
                     .publish_connect_response(&wallet, &fresh, &response)
                     .await
                     .map_err(dashpay_failure)?;
+                let after = chain.first_identity_credits(&wallet, true).await;
+                // The app as it calls itself (R-8), else as the sign-in showed it; its own words
+                // cleaned (AC-A6).
+                let label = dashpay::shown(if request.label.trim().is_empty() {
+                    &job.name
+                } else {
+                    &request.label
+                });
+                // The same connection, still connected: its keys replaced (AC-A1).
+                let renewal = apps
+                    .get(&base58(&request.app_id), &base58(&me))
+                    .and_then(|app| renewal(&app, request.connection_id.as_ref(), &Reads::new()))
+                    .is_some();
+                // Reached only when every write went through: a refused one returned above.
+                let kind = journal::Kind::AppConnect {
+                    app: label,
+                    renewal,
+                };
+                journal.add(own_line(kind, before, after, acting));
                 apps.put(App {
                     contract: base58(&request.app_id),
                     name: job.name,
@@ -614,6 +670,8 @@ impl Real {
                         }),
                         label: request.label.clone(),
                         disconnected_at: None,
+                        // The new keys' budgets are unspent (BUG-145).
+                        spent_seen: Some(0),
                     }),
                 })
                 .map_err(CoreError::Failed)
@@ -638,6 +696,7 @@ impl Real {
             self.app_reads.clone(),
             self.refresher(),
         );
+        let journal = self.journal.clone();
         let contract = contract.to_owned();
         self.answer_later("task:read_app_budgets", async move {
             let result = async {
@@ -650,31 +709,7 @@ impl Real {
                 let app = apps.get(&contract, &me).ok_or(CoreError::NotAvailable(
                     tr!("This app is no longer in the list").into(),
                 ))?;
-                let ids: Vec<u32> = app
-                    .session
-                    .iter()
-                    .flat_map(|s| s.keys.iter().map(|k| k.id))
-                    .collect();
-                let budgets = chain
-                    .remaining_budgets(who.id, ids)
-                    .await
-                    .map_err(CoreError::Failed)?;
-                let mut reads = reads.lock().unwrap_or_else(|e| e.into_inner());
-                for (id, remaining) in budgets {
-                    let disabled = who
-                        .keys
-                        .iter()
-                        .find(|k| k.id() == id)
-                        .is_none_or(|k| k.disabled_at().is_some());
-                    reads.insert(
-                        (contract.clone(), me.clone(), id),
-                        KeyRead {
-                            remaining,
-                            disabled,
-                        },
-                    );
-                }
-                Ok(())
+                read_budgets(&chain, &app, Some(&who.keys), &reads, &apps, &journal).await
             }
             .await;
             refresh();
@@ -691,6 +726,104 @@ impl Real {
         });
         Ok(())
     }
+}
+
+/// What the core needs to read the connected apps' budgets by itself (BUG-147), so a card and
+/// History are right without opening «Apps».
+#[derive(Clone)]
+pub(in crate::real) struct AppBudgets {
+    pub apps: std::sync::Arc<crate::real::connected_apps::ConnectedApps>,
+    pub reads: std::sync::Arc<std::sync::Mutex<Reads>>,
+    pub journal: std::sync::Arc<journal::Journal>,
+}
+
+impl AppBudgets {
+    /// Reads the budgets of every app still connected; one that fails waits for the next time.
+    pub async fn read_all(&self, chain: &evolite_chain::chain::Chain) {
+        let connected = self.apps.all().into_iter().filter(|app| {
+            app.session
+                .as_ref()
+                .is_some_and(|s| s.disconnected_at.is_none() && !s.keys.is_empty())
+        });
+        for app in connected {
+            let read = read_budgets(chain, &app, None, &self.reads, &self.apps, &self.journal);
+            let _ = evolite_chain::turn::timed("read_app_budgets_auto", read).await;
+        }
+    }
+}
+
+/// The app as History names it: as it calls itself (R-8), else as the sign-in showed it.
+pub(in crate::real) fn app_label(app: &App) -> String {
+    dashpay::shown(
+        app.session
+            .as_ref()
+            .map(|s| s.label.trim())
+            .filter(|l| !l.is_empty())
+            .unwrap_or(&app.name),
+    )
+}
+
+/// Reads what is left of the budgets of `app`'s session keys and keeps it in `reads` (BUG-147),
+/// then puts what the app spent since the last read into History (BUG-145): one line an app a
+/// day. `keys`: the identity's keys if read just now, for which are disabled; without them a key
+/// stays as the last read found it.
+pub(in crate::real) async fn read_budgets(
+    chain: &evolite_chain::chain::Chain,
+    app: &App,
+    keys: Option<&[IdentityPublicKey]>,
+    reads: &std::sync::Mutex<Reads>,
+    apps: &crate::real::connected_apps::ConnectedApps,
+    journal: &journal::Journal,
+) -> Result<(), CoreError> {
+    let Some(session) = &app.session else {
+        return Ok(());
+    };
+    let identity = Identifier::from_string(&app.identity, Encoding::Base58)
+        .map_err(|e| CoreError::Failed(e.to_string()))?;
+    let ids = session.keys.iter().map(|k| k.id).collect();
+    let budgets = chain
+        .remaining_budgets(identity, ids)
+        .await
+        .map_err(CoreError::Failed)?;
+    let spent = {
+        let mut reads = reads.lock().unwrap_or_else(|e| e.into_inner());
+        for (id, remaining) in budgets {
+            let at = (app.contract.clone(), app.identity.clone(), id);
+            let disabled = match keys {
+                Some(keys) => keys
+                    .iter()
+                    .find(|k| k.id() == id)
+                    .is_none_or(|k| k.disabled_at().is_some()),
+                None => reads.get(&at).is_some_and(|r| r.disabled),
+            };
+            reads.insert(
+                at,
+                KeyRead {
+                    remaining,
+                    disabled,
+                },
+            );
+        }
+        spent_by_reads(app, &reads)
+    };
+    let Some(spent) = spent else {
+        return Ok(());
+    };
+    let (line, seen) = app_spent_step(session.spent_seen, spent);
+    if session.spent_seen == Some(seen) {
+        return Ok(());
+    }
+    // The baseline first: a line written twice would count the spend twice.
+    if let Some(mut kept) = apps.get(&app.contract, &app.identity) {
+        if let Some(s) = kept.session.as_mut() {
+            s.spent_seen = Some(seen);
+        }
+        apps.put(kept).map_err(CoreError::Failed)?;
+    }
+    if line > 0 {
+        journal.add_app_spent(&app_label(app), &app.identity, line, now());
+    }
+    Ok(())
 }
 
 /// "Disconnect" of a v2 sign-in, as `who` (read just now): its live session keys disabled

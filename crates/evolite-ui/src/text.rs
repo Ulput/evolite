@@ -338,7 +338,41 @@ pub fn row_place(act: &Activity) -> String {
         ),
         ActivityKind::Mixing { .. } => tr!("A mixing round: the balance did not change").into(),
         ActivityKind::IntoMixing => tr!("Between your own: coins split into denominations").into(),
+        // BUG-145 AC-A3 (FEAT-0019 R-17): a token sent has its amount on the right ([`row_amount`])
+        // and the credits fee here, hidden with the amounts (AC-A7).
+        ActivityKind::TokenSent { .. } => {
+            let fee = crate::format::amount(-act.amount);
+            let fee = if crate::format::display().hide {
+                crate::format::mask(&fee)
+            } else {
+                fee
+            };
+            format!(tr!("fee {}"), fee)
+        }
         _ => source(act).into(),
+    }
+}
+
+/// The amount on the right of a line's row: a token sent shows the token's amount, never as DASH
+/// (BUG-145 AC-A3, FEAT-0019 R-17); every other line its DASH amount. The token's name is one
+/// word to «Hide amounts», so a hidden row reads «••••», not half a name.
+pub fn row_amount(act: &Activity) -> String {
+    match &act.kind {
+        ActivityKind::TokenSent { token, amount, .. } => format!(
+            "−{} {}",
+            crate::screens::tokens::state::plain_written(amount),
+            token.replace(' ', "\u{a0}")
+        ),
+        _ => crate::format::signed_amount(act.amount),
+    }
+}
+
+/// The time in a line's row; what an app spent is as read, not as the app wrote (BUG-145 AC-A4).
+pub fn row_time(act: &Activity, now: DateTime<Local>) -> String {
+    let time = time_of_day(act.at, now);
+    match act.kind {
+        ActivityKind::AppSpent { .. } => format!(tr!("as read at {}"), time),
+        _ => time,
     }
 }
 
@@ -429,6 +463,18 @@ pub fn activity_title(a: &Activity) -> String {
         ActivityKind::AppSignIn { app } => {
             format!(tr!("Signed in to {app} · keys added"), app = app)
         }
+        // BUG-145 (the analyst, AC-A1–A3): in pairs with the sign-in; a token's amount is the
+        // second line ([`row_place`]), as a credit transfer names only whom.
+        ActivityKind::AppRenewed { app } => {
+            format!(tr!("Signed in to {app} · keys replaced"), app = app)
+        }
+        ActivityKind::AppDisconnected { app } => {
+            format!(tr!("Signed out of {app} · keys disabled"), app = app)
+        }
+        ActivityKind::TokenSent { to, .. } => {
+            format!(tr!("Token transfer to {}"), short_address(to))
+        }
+        ActivityKind::AppSpent { app } => format!(tr!("{app} spent from its limit"), app = app),
         ActivityKind::CreditTransfer { to } => {
             format!(tr!("Credit transfer to {}"), short_address(to))
         }
@@ -631,6 +677,10 @@ pub fn activity_icon(a: &Activity) -> &'static str {
         ActivityKind::SelfTransfer { .. } => "transfer",
         ActivityKind::Mixing { .. } | ActivityKind::IntoMixing => "mixed",
         ActivityKind::AppSignIn { .. } => "app-connect",
+        ActivityKind::AppRenewed { .. }
+        | ActivityKind::AppDisconnected { .. }
+        | ActivityKind::AppSpent { .. } => "app-connect",
+        ActivityKind::TokenSent { .. } => "token",
         ActivityKind::CreditTransfer { .. } => "transfer",
         ActivityKind::Shielded { .. } => "shield",
         ActivityKind::Withdrawal { .. } => "send",

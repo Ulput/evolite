@@ -200,7 +200,7 @@ pub const PRESETS: &[&str] = &[
     "overview-mixed-unchecked", "send-mixed-name", "send-mixed-refused", "send-mixed-confirm",
     "send-mixed-agree", "send-mixed-changed", "send-mixed-refused-confirm",
     "receive", "receive-fiat",
-    "activity-fiat", "activity-card-fiat", "activity-card-fiat-old",
+    "activity-fiat", "activity-card-fiat", "activity-card-fiat-old", "activity-apps",
     "identity", "identity-unfinished", "identity-created", "top-up-stopped", "top-up-awaiting",
     "edit-profile", "edit-profile-password",
     "top-up", "add-name",
@@ -305,6 +305,7 @@ fn dev_args<'a>(
                 | "activity-fiat"
                 | "activity-card-fiat"
                 | "activity-card-fiat-old"
+                | "activity-apps"
                 | "activity-notes"
                 | "activity-search-note"
                 | "activity-notes-unreadable"

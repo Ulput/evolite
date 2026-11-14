@@ -490,6 +490,12 @@ impl App {
             f.period = screens::activity_filters::Period::Days(30);
             self.history.open = true;
         }
+        // BUG-145: History on «Apps» and «Identity»: sign-ins, disconnects, what apps spent and
+        // tokens sent.
+        if preset("activity-apps") {
+            self.history.filters.kinds =
+                screens::activity_filters::kind::APPS | screens::activity_filters::kind::IDENTITY;
+        }
         // FEAT-0030 H1: History on «Mixed».
         if preset("activity-mixed") {
             self.history.filters.layer = 2;

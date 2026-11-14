@@ -8,8 +8,10 @@ use evolite_api::*;
 use evolite_chain::app_connect_v2;
 
 use super::app_connect2;
+use super::identity::own_spend;
 use crate::real::connected_apps::App;
-use crate::real::{AppJob, Real, loaded, now};
+use crate::real::snapshot::acting_identity;
+use crate::real::{AppJob, Real, journal, loaded, now};
 
 /// A request evolite no longer has.
 fn out_of_date() -> CoreError {
@@ -117,6 +119,7 @@ impl Real {
     pub(in crate::real) fn disconnect_app(&self, contract: &str) -> Result<(), CoreError> {
         let (wallet_id, keys) = self.dashpay_ready()?;
         let (chain, apps, refresh) = (self.chain.clone(), self.apps.clone(), self.refresher());
+        let journal = self.journal.clone();
         let contract = contract.to_owned();
         self.answer_later("task:disconnect_app", async move {
             let result = async {
@@ -132,7 +135,20 @@ impl Real {
                     .ok_or(CoreError::NotAvailable(
                         tr!("This app is no longer in the list").into(),
                     ))?;
-                app_connect2::disconnect(&chain, &wallet, &keys, who, &app, &apps).await
+                // BUG-145: what disabling the keys cost, from the credits before and after.
+                let acting = acting_identity(&wallet).await;
+                let before = chain.first_identity_credits(&wallet, false).await;
+                let done = app_connect2::disconnect(&chain, &wallet, &keys, who, &app, &apps).await;
+                let after = match done {
+                    Ok(()) => chain.first_identity_credits(&wallet, true).await,
+                    Err(_) => None,
+                };
+                let label = app_connect2::app_label(&app);
+                let kind = journal::Kind::AppDisconnect { app: label };
+                if let Some(line) = own_spend(&done, kind, before, after, acting) {
+                    journal.add(line);
+                }
+                done
             }
             .await;
             refresh();

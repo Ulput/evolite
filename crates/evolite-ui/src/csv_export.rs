@@ -577,6 +577,42 @@ mod tests {
         assert!(!csv.contains("Transfer"));
     }
 
+    /// BUG-145 AC-T2: a token sent is a line of its fee in credits only, as DASH spent; the token
+    /// and its amount are not DASH and stay out of the file. An app's spending from its limit is
+    /// an expense too.
+    #[test]
+    fn a_token_sent_is_its_fee_only() {
+        use ActivityKind as K;
+        let ops = vec![
+            act(
+                K::TokenSent {
+                    token: "evoliteQA".into(),
+                    to: "@werner555".into(),
+                    amount: "12.34".into(),
+                },
+                Chain::Platform,
+                300,
+                -204_056,
+                "",
+            ),
+            act(
+                K::AppSpent {
+                    app: "Yappr".into(),
+                },
+                Chain::Platform,
+                400,
+                -6_600,
+                "",
+            ),
+        ];
+        let csv = taxbit(&ops, &own());
+        let rows: Vec<&str> = csv.lines().skip(1).collect();
+        assert_eq!(rows.len(), 2, "{csv}");
+        assert!(rows[0].contains(",Expense,0.00204056,DASH,"), "{csv}");
+        assert!(rows[1].contains(",Expense,0.000066,DASH,"), "{csv}");
+        assert!(!csv.contains("12.34") && !csv.contains("evoliteQA") && !csv.contains("werner"));
+    }
+
     /// BUG-100: the count [`lines`] gives is exactly the file's, line for line; a non-final
     /// operation, the second half of a move and an operation without an amount are not counted.
     #[test]

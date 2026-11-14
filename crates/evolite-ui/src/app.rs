@@ -1470,6 +1470,10 @@ impl eframe::App for App {
             }
             self.screen = screen;
         }
+        // BUG-147: each visit of «Apps» asks for the budgets again, whichever way it was left.
+        if self.screen != Screen::Apps {
+            self.requests.budgets_asked.clear();
+        }
         // Settings → Appearance picks the theme; "Match the system" follows the OS.
         let dark = match self.settings.theme {
             ThemeChoice::Dark => true,
