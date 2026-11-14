@@ -204,7 +204,6 @@ pub mod type_scale {
 
 /// The font of a step of the type scale (FEAT-0033): the one way a screen asks for a text's
 /// size once it has moved to the scale.
-#[allow(dead_code)] // Until the first screen moves to the scale (step 2).
 pub fn style(step: type_scale::Step) -> FontId {
     if step.mono {
         mono(step.size, step.weight)

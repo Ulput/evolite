@@ -952,7 +952,6 @@
   "Switching…": "전환하는 중…",
   "Sync": "동기화",
   "Sync again": "다시 동기화",
-  "Sync · {}": "동기화 · {}",
   "Synced": "동기화됨",
   "Syncing": "동기화 중",
   "System": "시스템",
@@ -1406,7 +1405,6 @@
   "the renderer stopped": "렌더러가 멈췄습니다",
   "the service has no DASH rate in {}": "서비스에 {} 기준 DASH 환율이 없습니다",
   "the service sent an unreadable rate “{}”": "서비스가 알 수 없는 환율 «{}»을(를) 보냈습니다",
-  "the sync stopped": "동기화가 멈췄습니다",
   "the wallet is not loaded": "지갑이 로드되지 않았습니다",
   "the wallet is not loaded yet": "지갑이 아직 로드되지 않았습니다",
   "the wallet is not ready yet — wait for the sync": "지갑이 아직 준비되지 않았습니다 — 동기화를 기다리세요",
@@ -1757,7 +1755,6 @@
   "{} wallet|{} wallets": {
     "other": "지갑 {}개"
   },
-  "Sync · Platform": "동기화 · Platform",
   "identities": "신원",
   "names": "이름",
   "contacts": "연락처",
@@ -1776,5 +1773,9 @@
   "Spent: checking… of {} · until {}": "사용: 확인 중… {} 중 · {}까지",
   "Mainnet · beta": "Mainnet · 베타",
   "evolite did not start on {}. You are still on {}. Try switching again; if it fails again, close evolite and open it again.": "evolite가 {}에서 시작되지 않았습니다. 계속 {}에 있습니다. 다시 전환해 보세요. 또 안 되면 evolite를 닫았다가 다시 여세요.",
-  "Could not switch to {}": "{}(으)로 전환할 수 없습니다"
+  "Could not switch to {}": "{}(으)로 전환할 수 없습니다",
+  "Network nodes": "네트워크 노드",
+  "Masternode quorums": "마스터노드 쿼럼",
+  "Stopped": "멈춤",
+  "updated {}": "{} 업데이트"
 }

@@ -953,7 +953,6 @@
   "Switching…": "बदला जा रहा है…",
   "Sync": "सिंक",
   "Sync again": "फिर से सिंक करें",
-  "Sync · {}": "सिंक · {}",
   "Synced": "सिंक हो गया",
   "Syncing": "सिंक हो रहा है",
   "System": "सिस्टम",
@@ -1407,7 +1406,6 @@
   "the renderer stopped": "रेंडरर रुक गया",
   "the service has no DASH rate in {}": "सेवा के पास {} में DASH की दर नहीं है",
   "the service sent an unreadable rate “{}”": "सेवा ने अपठनीय दर «{}» भेजी",
-  "the sync stopped": "सिंक रुक गया",
   "the wallet is not loaded": "वॉलेट लोड नहीं है",
   "the wallet is not loaded yet": "वॉलेट अभी लोड नहीं हुआ",
   "the wallet is not ready yet — wait for the sync": "वॉलेट अभी तैयार नहीं — सिंक का इंतज़ार करें",
@@ -1769,7 +1767,6 @@
     "one": "{} वॉलेट",
     "other": "{} वॉलेट"
   },
-  "Sync · Platform": "सिंक · Platform",
   "identities": "पहचान",
   "names": "नाम",
   "contacts": "संपर्क",
@@ -1788,5 +1785,9 @@
   "Spent: checking… of {} · until {}": "ख़र्च: जाँच हो रही है… {} में से · {} तक",
   "Mainnet · beta": "Mainnet · बीटा",
   "evolite did not start on {}. You are still on {}. Try switching again; if it fails again, close evolite and open it again.": "evolite {} पर शुरू नहीं हुआ। आप अभी भी {} पर हैं। फिर से बदलकर देखें; फिर भी न हो तो evolite बंद करके दोबारा खोलें।",
-  "Could not switch to {}": "{} पर नहीं जा सके"
+  "Could not switch to {}": "{} पर नहीं जा सके",
+  "Network nodes": "नेटवर्क नोड",
+  "Masternode quorums": "मास्टरनोड कोरम",
+  "Stopped": "रुक गया",
+  "updated {}": "{} को अपडेट"
 }

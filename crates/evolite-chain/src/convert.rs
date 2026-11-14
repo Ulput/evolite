@@ -116,6 +116,8 @@ pub fn sync_info(s: &SyncStatus, wallet: bool) -> SyncInfo {
         core_nodes: Vec::new(),
         dapi_nodes: Vec::new(),
         platform: Vec::new(),
+        // The core notes when the tip grew.
+        tip_at: None,
     }
 }
 

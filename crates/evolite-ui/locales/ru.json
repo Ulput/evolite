@@ -913,7 +913,6 @@
   "Switching…": "Переключаем…",
   "Sync": "Синхронизация",
   "Sync again": "Пересинхронизировать",
-  "Sync · {}": "Синхронизация · {}",
   "Synced": "Синхронизировано",
   "Syncing": "Синхронизируется",
   "System": "Система",
@@ -1344,7 +1343,6 @@
   "the renderer stopped": "рендерер остановился",
   "the service has no DASH rate in {}": "у сервиса нет курса DASH в {}",
   "the service sent an unreadable rate “{}”": "сервис прислал непонятный курс «{}»",
-  "the sync stopped": "синхронизация остановилась",
   "the wallet is not loaded": "кошелёк не загружен",
   "the wallet is not loaded yet": "кошелёк ещё не загружен",
   "the wallet is not ready yet — wait for the sync": "кошелёк ещё не готов — подождите синхронизации",
@@ -1785,7 +1783,6 @@
     "few": "{} кошелька",
     "many": "{} кошельков"
   },
-  "Sync · Platform": "Синхронизация · Platform",
   "identities": "identity",
   "names": "имена",
   "contacts": "контакты",
@@ -1804,5 +1801,9 @@
   "Token transfer to {}": "Перевод токена {}",
   "Mainnet · beta": "Mainnet · бета",
   "evolite did not start on {}. You are still on {}. Try switching again; if it fails again, close evolite and open it again.": "evolite не запустился в {}. Вы остались в {}. Попробуйте сменить сеть ещё раз; если не выйдет — закройте evolite и откройте снова.",
-  "Could not switch to {}": "Не удалось перейти в {}"
+  "Could not switch to {}": "Не удалось перейти в {}",
+  "Network nodes": "Узлы сети",
+  "Masternode quorums": "Кворумы мастернод",
+  "Stopped": "Остановилась",
+  "updated {}": "обновлено {}"
 }

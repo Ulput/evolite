@@ -955,7 +955,6 @@
   "Switching…": "Перемикаємо…",
   "Sync": "Синхронізація",
   "Sync again": "Пересинхронізувати",
-  "Sync · {}": "Синхронізація · {}",
   "Synced": "Синхронізовано",
   "Syncing": "Синхронізується",
   "System": "Система",
@@ -1409,7 +1408,6 @@
   "the renderer stopped": "рендерер зупинився",
   "the service has no DASH rate in {}": "у сервісу немає курсу DASH у {}",
   "the service sent an unreadable rate “{}”": "сервіс надіслав незрозумілий курс «{}»",
-  "the sync stopped": "синхронізація зупинилася",
   "the wallet is not loaded": "гаманець не завантажено",
   "the wallet is not loaded yet": "гаманець ще не завантажено",
   "the wallet is not ready yet — wait for the sync": "гаманець ще не готовий — зачекайте синхронізації",
@@ -1793,7 +1791,6 @@
     "many": "{} гаманців",
     "other": "{} гаманця"
   },
-  "Sync · Platform": "Синхронізація · Platform",
   "identities": "identity",
   "names": "імена",
   "contacts": "контакти",
@@ -1812,5 +1809,9 @@
   "Spent: checking… of {} · until {}": "Витрачено: перевіряємо… з {} · до {}",
   "Mainnet · beta": "Mainnet · бета",
   "evolite did not start on {}. You are still on {}. Try switching again; if it fails again, close evolite and open it again.": "evolite не запустився в {}. Ви залишилися в {}. Спробуйте змінити мережу ще раз; якщо не вийде — закрийте evolite і відкрийте знову.",
-  "Could not switch to {}": "Не вдалося перейти в {}"
+  "Could not switch to {}": "Не вдалося перейти в {}",
+  "Network nodes": "Вузли мережі",
+  "Masternode quorums": "Кворуми мастернод",
+  "Stopped": "Зупинилася",
+  "updated {}": "оновлено {}"
 }

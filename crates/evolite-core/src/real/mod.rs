@@ -290,6 +290,8 @@ struct Real {
     wake: Arc<dyn Fn() + Send + Sync>,
     /// What the wallet catches up on Platform now (BUG-137): the snapshot's `SyncInfo::platform`.
     works: Arc<works::Works>,
+    /// The highest tip seen and when it was first seen (BUG-155): `SyncInfo::tip_at`.
+    tip_seen: std::sync::Mutex<(u32, Option<evolite_api::Timestamp>)>,
     /// A phrase between "new / typed" and "create wallet". Never leaves the core but to the
     /// onboarding screen that must show it.
     pending: Option<(Zeroizing<String>, bool)>,
