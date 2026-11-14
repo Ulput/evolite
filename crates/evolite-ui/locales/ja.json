@@ -952,7 +952,6 @@
   "Switching…": "切り替えています…",
   "Sync": "同期",
   "Sync again": "再同期",
-  "Sync · {}": "同期 · {}",
   "Synced": "同期済み",
   "Syncing": "同期中",
   "System": "システム",
@@ -1406,7 +1405,6 @@
   "the renderer stopped": "レンダラーが停止しました",
   "the service has no DASH rate in {}": "サービスに {} での DASH のレートがありません",
   "the service sent an unreadable rate “{}”": "サービスから読み取れないレート「{}」が届きました",
-  "the sync stopped": "同期が停止しました",
   "the wallet is not loaded": "ウォレットが読み込まれていません",
   "the wallet is not loaded yet": "ウォレットはまだ読み込まれていません",
   "the wallet is not ready yet — wait for the sync": "ウォレットはまだ準備ができていません — 同期をお待ちください",
@@ -1757,7 +1755,6 @@
   "{} wallet|{} wallets": {
     "other": "{} 個のウォレット"
   },
-  "Sync · Platform": "同期 · Platform",
   "identities": "アイデンティティ",
   "names": "名前",
   "contacts": "連絡先",
@@ -1776,5 +1773,9 @@
   "Spent: checking… of {} · until {}": "使用：確認中… {} のうち · {} まで",
   "Mainnet · beta": "Mainnet · ベータ",
   "evolite did not start on {}. You are still on {}. Try switching again; if it fails again, close evolite and open it again.": "evolite は {} で起動できませんでした。{} のままです。もう一度切り替えてください。それでもだめなら evolite を閉じて開き直してください。",
-  "Could not switch to {}": "{} に切り替えられませんでした"
+  "Could not switch to {}": "{} に切り替えられませんでした",
+  "Network nodes": "ネットワークノード",
+  "Masternode quorums": "クォーラム",
+  "Stopped": "停止",
+  "updated {}": "{} に更新"
 }

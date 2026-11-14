@@ -957,7 +957,6 @@
   "Switching…": "جارٍ التبديل…",
   "Sync": "المزامنة",
   "Sync again": "إعادة المزامنة",
-  "Sync · {}": "المزامنة · {}",
   "Synced": "تمت المزامنة",
   "Syncing": "جارٍ المزامنة",
   "System": "النظام",
@@ -1411,7 +1410,6 @@
   "the renderer stopped": "توقف العارض",
   "the service has no DASH rate in {}": "لا يوجد لدى الخدمة سعر DASH بعملة {}",
   "the service sent an unreadable rate “{}”": "أرسلت الخدمة سعرًا غير مفهوم «{}»",
-  "the sync stopped": "توقفت المزامنة",
   "the wallet is not loaded": "المحفظة غير محمّلة",
   "the wallet is not loaded yet": "المحفظة لم تُحمَّل بعد",
   "the wallet is not ready yet — wait for the sync": "المحفظة ليست جاهزة بعد — انتظر المزامنة",
@@ -1817,7 +1815,6 @@
     "many": "{} محفظةً",
     "other": "{} محفظة"
   },
-  "Sync · Platform": "المزامنة · Platform",
   "identities": "الهويات",
   "names": "الأسماء",
   "contacts": "جهات الاتصال",
@@ -1836,5 +1833,9 @@
   "Spent: checking… of {} · until {}": "أُنفق: جارٍ التحقق… من {} · حتى {}",
   "Mainnet · beta": "Mainnet · بيتا",
   "evolite did not start on {}. You are still on {}. Try switching again; if it fails again, close evolite and open it again.": "لم يبدأ evolite على {}. ما زلت على {}. حاول التبديل مرة أخرى؛ وإن لم ينجح، أغلق evolite وافتحه من جديد.",
-  "Could not switch to {}": "تعذّر الانتقال إلى {}"
+  "Could not switch to {}": "تعذّر الانتقال إلى {}",
+  "Network nodes": "عُقد الشبكة",
+  "Masternode quorums": "نصاب العُقد الرئيسية",
+  "Stopped": "توقفت",
+  "updated {}": "حُدّثت {}"
 }

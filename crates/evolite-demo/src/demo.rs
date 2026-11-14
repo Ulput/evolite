@@ -125,6 +125,8 @@ pub fn synced() -> SyncInfo {
         core_nodes: demo_nodes(),
         dapi_nodes: demo_dapi(),
         platform: Vec::new(),
+        // The tip came two and a half minutes ago (BUG-155: «updated …» in the tooltip).
+        tip_at: Some(now() - 150),
     }
 }
 
@@ -1241,6 +1243,8 @@ pub fn staged_sync(elapsed: f32) -> SyncInfo {
         core_nodes: demo_nodes(),
         dapi_nodes: demo_dapi(),
         platform: Vec::new(),
+        // The tip came two and a half minutes ago (BUG-155: «updated …» in the tooltip).
+        tip_at: Some(now() - 150),
     }
 }
 

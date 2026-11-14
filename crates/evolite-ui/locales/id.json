@@ -952,7 +952,6 @@
   "Switching…": "Beralih…",
   "Sync": "Sinkronisasi",
   "Sync again": "Sinkronkan ulang",
-  "Sync · {}": "Sinkronisasi · {}",
   "Synced": "Tersinkron",
   "Syncing": "Menyinkronkan",
   "System": "Sistem",
@@ -1406,7 +1405,6 @@
   "the renderer stopped": "renderer berhenti",
   "the service has no DASH rate in {}": "layanan tidak punya kurs DASH dalam {}",
   "the service sent an unreadable rate “{}”": "layanan mengirim kurs yang tidak terbaca «{}»",
-  "the sync stopped": "sinkronisasi berhenti",
   "the wallet is not loaded": "dompet belum dimuat",
   "the wallet is not loaded yet": "dompet belum dimuat",
   "the wallet is not ready yet — wait for the sync": "dompet belum siap — tunggu sinkronisasi",
@@ -1757,7 +1755,6 @@
   "{} wallet|{} wallets": {
     "other": "{} dompet"
   },
-  "Sync · Platform": "Sinkronisasi · Platform",
   "identities": "identitas",
   "names": "nama",
   "contacts": "kontak",
@@ -1776,5 +1773,9 @@
   "Spent: checking… of {} · until {}": "Terpakai: memeriksa… dari {} · sampai {}",
   "Mainnet · beta": "Mainnet · beta",
   "evolite did not start on {}. You are still on {}. Try switching again; if it fails again, close evolite and open it again.": "evolite tidak berjalan di {}. Anda tetap di {}. Coba beralih lagi; jika gagal lagi, tutup evolite lalu buka kembali.",
-  "Could not switch to {}": "Tidak bisa beralih ke {}"
+  "Could not switch to {}": "Tidak bisa beralih ke {}",
+  "Network nodes": "Node jaringan",
+  "Masternode quorums": "Kuorum masternode",
+  "Stopped": "Berhenti",
+  "updated {}": "diperbarui {}"
 }

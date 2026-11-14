@@ -952,7 +952,6 @@
   "Switching…": "Đang chuyển…",
   "Sync": "Đồng bộ",
   "Sync again": "Đồng bộ lại",
-  "Sync · {}": "Đồng bộ · {}",
   "Synced": "Đã đồng bộ",
   "Syncing": "Đang đồng bộ",
   "System": "Hệ thống",
@@ -1406,7 +1405,6 @@
   "the renderer stopped": "trình kết xuất đã dừng",
   "the service has no DASH rate in {}": "dịch vụ không có tỷ giá DASH theo {}",
   "the service sent an unreadable rate “{}”": "dịch vụ gửi tỷ giá không đọc được «{}»",
-  "the sync stopped": "đồng bộ đã dừng",
   "the wallet is not loaded": "ví chưa được tải",
   "the wallet is not loaded yet": "ví chưa được tải",
   "the wallet is not ready yet — wait for the sync": "ví chưa sẵn sàng — chờ đồng bộ",
@@ -1757,7 +1755,6 @@
   "{} wallet|{} wallets": {
     "other": "{} ví"
   },
-  "Sync · Platform": "Đồng bộ · Platform",
   "identities": "danh tính",
   "names": "tên",
   "contacts": "danh bạ",
@@ -1776,5 +1773,9 @@
   "Spent: checking… of {} · until {}": "Đã chi: đang kiểm tra… trên {} · đến {}",
   "Mainnet · beta": "Mainnet · beta",
   "evolite did not start on {}. You are still on {}. Try switching again; if it fails again, close evolite and open it again.": "evolite không khởi động được trên {}. Bạn vẫn ở {}. Hãy thử chuyển lại; nếu vẫn không được, hãy đóng evolite rồi mở lại.",
-  "Could not switch to {}": "Không chuyển được sang {}"
+  "Could not switch to {}": "Không chuyển được sang {}",
+  "Network nodes": "Nút mạng",
+  "Masternode quorums": "Quorum masternode",
+  "Stopped": "Đã dừng",
+  "updated {}": "cập nhật {}"
 }
