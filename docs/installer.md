@@ -129,6 +129,11 @@ on macOS too).
 | Linux (glibc) | built, tested (live install cycle included) and screenshotted in Docker (`linux-check/`); CI | cross-built in Docker (`aarch64-linux-gnu-gcc`), packed and tested under Docker Desktop's ARM emulation (live cycle included); CI on `ubuntu-24.04-arm` |
 | macOS 11+ | type-checked here; cross-built in CI on Apple silicon | type-checked here; built and tested in CI on `macos-15` |
 
+**Minimum Windows: Windows 10 1607 (2016) or newer.** The picture renderer starts inside its job
+(`PROC_THREAD_ATTRIBUTE_JOB_LIST`, BUG-168), which Windows has from 1607. On an older system the
+renderer cannot start: pictures say «not drawn» and the rest of the app works. Windows 10 1507 and
+1511 have had no updates since 2017. The download page says the same (BUG-168 review).
+
 Packed Linux installers of 2026-11-01 (release, not stripped): x86_64 132.2 MB (installer
 27.3 MB, program 105.0 MB), ARM64 123.4 MB (installer 25.5 MB, program 97.9 MB).
 

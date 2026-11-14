@@ -32,9 +32,15 @@ const SYSTEM: [SystemDataContract; 4] = [
     SystemDataContract::AppConnect,
 ];
 
-/// Core block height at which Platform activated on testnet (the `mn_rr` locked height), as in
-/// the SDK's own trusted provider.
-const TESTNET_ACTIVATION_HEIGHT: CoreBlockHeight = 1_090_319;
+/// Core block height at which Platform activated (the `mn_rr` locked height) on `network`, as the
+/// SDK's own trusted provider and Dash Evo Tool have it (R-6). It happened once: fixed, never
+/// asked of the network (an SPV client cannot ask it anyway).
+pub(crate) fn platform_activation_height(network: evolite_api::Network) -> CoreBlockHeight {
+    match network {
+        evolite_api::Network::Mainnet => 2_132_092,
+        evolite_api::Network::Testnet => 1_090_319,
+    }
+}
 
 /// System contracts by (id, protocol version), built on first use.
 type SystemContracts = Mutex<HashMap<(Identifier, u32), Arc<DataContract>>>;
@@ -173,7 +179,8 @@ impl ContextProvider for SpvContextProvider {
     }
 
     fn get_platform_activation_height(&self) -> Result<CoreBlockHeight, ContextProviderError> {
-        Ok(TESTNET_ACTIVATION_HEIGHT)
+        // The process's network, chosen once at the start (FEAT-0037).
+        Ok(platform_activation_height(crate::network::current()))
     }
 }
 
@@ -207,13 +214,27 @@ impl ContextProvider for NotYet {
     }
 
     fn get_platform_activation_height(&self) -> Result<CoreBlockHeight, ContextProviderError> {
-        Ok(TESTNET_ACTIVATION_HEIGHT)
+        // The process's network, chosen once at the start (FEAT-0037).
+        Ok(platform_activation_height(crate::network::current()))
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// R-6 AC-T1, AC-T2: Platform's activation height by network — mainnet 2 132 092, testnet
+    /// 1 090 319 — as `rs-sdk-trusted-context-provider/src/provider.rs` (platform 575d961) and
+    /// Dash Evo Tool (`a14473d`, `context_provider.rs`) give them; both providers, ours and the
+    /// stand-in while the SDK is built, say the process's network's.
+    #[test]
+    fn platform_activation_height_is_the_networks() {
+        use evolite_api::Network::{Mainnet, Testnet};
+        assert_eq!(platform_activation_height(Mainnet), 2_132_092);
+        assert_eq!(platform_activation_height(Testnet), 1_090_319);
+        let here = platform_activation_height(crate::network::current());
+        assert_eq!(NotYet.get_platform_activation_height().unwrap(), here);
+    }
 
     #[test]
     fn serves_system_contracts_at_the_asked_version() {
