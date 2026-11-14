@@ -80,12 +80,16 @@ pub fn withdrawal_document_id(first: &PlatformAddress, nonce: u32, script: &[u8]
 }
 
 impl Chain {
-    /// The credits on each of the wallet's Platform addresses, in their own order, as of the
-    /// last sync: what the form plans with.
-    pub async fn address_inputs(&self, wallet: &PlatformWallet) -> Vec<u64> {
+    /// Each of the wallet's Platform addresses (bech32m) with its credits, in their own order,
+    /// as of the last sync: what the form plans with (a transfer leaves its recipient out,
+    /// BUG-141).
+    pub async fn address_inputs(&self, wallet: &PlatformWallet) -> Vec<(String, u64)> {
         let mut found = wallet.platform().addresses_with_balances().await;
         found.sort_by_key(|(address, _)| *address);
-        found.into_iter().map(|(_, credits)| credits).collect()
+        found
+            .into_iter()
+            .map(|(address, credits)| (address.to_bech32m_string(crate::network::dash()), credits))
+            .collect()
     }
 
     /// Whether `address` is one of the wallet's own Core addresses, used or still to be (R-3).

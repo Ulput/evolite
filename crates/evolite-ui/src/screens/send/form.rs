@@ -934,6 +934,23 @@ pub(super) fn address_refusal(
     if typed.trim().is_empty() {
         return None;
     }
+    // To one of the wallet's own funded addresses: what that address holds does not pay (BUG-141,
+    // QA pass 23). More than the others carry is «more than there is» — said here, not shown as
+    // a fee (r1, should 1). Only when leaving the recipient out is what makes it too much.
+    if kind == AddressMove::Transfer
+        && let Some(amount) = amount.filter(|a| *a > 0)
+    {
+        use evolite_api::address_plan::{AddressRefusal, CREDITS_PER_DUFF, address_plan, plan_to};
+        let credits = (amount as u64).saturating_mul(CREDITS_PER_DUFF);
+        let (inputs, names) = (&w.platform_inputs, &w.platform_input_addresses);
+        if matches!(
+            plan_to(kind, credits, false, inputs, names, typed),
+            Err(AddressRefusal::NotEnough { .. })
+        ) && address_plan(kind, credits, false, inputs).is_ok()
+        {
+            return Some(tr!("More than there is in this balance").into());
+        }
+    }
     match kind {
         AddressMove::Withdraw if !own_address(w, typed) => Some(format!(
             "{}. {}.",

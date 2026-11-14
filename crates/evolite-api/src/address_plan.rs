@@ -157,6 +157,32 @@ pub fn address_plan(
     Err(AddressRefusal::NotEnough { most })
 }
 
+/// [`address_plan`] for a payment to `to`; `addresses` names each of `balances` (bech32m), in
+/// the same order. A transfer never takes the address it pays to as an input: Platform refuses
+/// «Output address cannot also be an input address» (BUG-141, QA pass 23). That address gives
+/// nothing and keeps all it holds; its place in the order stays, so the plan's indexes still
+/// name the same addresses. The same address in capitals is the same (bech32m). A withdrawal
+/// and a top-up have no address output: nothing is left out.
+pub fn plan_to(
+    kind: AddressMove,
+    amount: u64,
+    max: bool,
+    balances: &[u64],
+    addresses: &[String],
+    to: &str,
+) -> Result<AddressPlan, AddressRefusal> {
+    let mut balances = balances.to_vec();
+    if kind == AddressMove::Transfer {
+        let to = to.trim();
+        for (balance, address) in balances.iter_mut().zip(addresses) {
+            if address.trim().eq_ignore_ascii_case(to) {
+                *balance = 0;
+            }
+        }
+    }
+    address_plan(kind, amount, max, &balances)
+}
+
 /// Which of `chosen` (in the addresses' own order) keeps the fee: the largest, as platform-wallet's
 /// `plan_withdrawal` reserves it (the architect, 2026-11-10); a top-up's transition always takes
 /// it from its first input (`DeductFromInput(0)` in dpp), so there the first in that order.
@@ -397,6 +423,81 @@ mod tests {
                 chosen - amount
             );
         }
+    }
+
+    /// BUG-141, reopened in QA pass 23 (dev `ea0b9b4`): from the Platform address to the
+    /// wallet's own Platform address — the funded one, which Receive shows — Platform refused
+    /// «Output address cannot also be an input address»: the plan took the recipient as an input.
+    /// A transfer never pays from the address it pays to; that address keeps all it holds. The
+    /// same address in capitals is the same (bech32m). A withdrawal or a top-up has no address
+    /// output: nothing is left out there.
+    #[test]
+    fn a_transfer_never_pays_from_its_recipient() {
+        let to = "tdash1kr954recipientaddress".to_string();
+        let other = "tdash1qqotheraddress".to_string();
+        let balances = [DASH / 2, DASH / 10];
+        let addresses = [to.clone(), other.clone()];
+        for typed in [to.clone(), to.to_ascii_uppercase()] {
+            let plan = plan_to(
+                AddressMove::Transfer,
+                DASH / 20,
+                false,
+                &balances,
+                &addresses,
+                &typed,
+            )
+            .unwrap();
+            assert!(
+                plan.inputs.iter().all(|(i, _)| *i != 0),
+                "{typed}: the recipient is an input: {plan:?}"
+            );
+            assert_eq!(plan.receives, DASH / 20);
+            // «Max» to it: all of the others, none of it.
+            let all = plan_to(
+                AddressMove::Transfer,
+                0,
+                true,
+                &balances,
+                &addresses,
+                &typed,
+            )
+            .unwrap();
+            assert_eq!(all.inputs, [(1, DASH / 10)], "{typed}");
+        }
+        // More than the others hold: not enough, though the recipient holds plenty.
+        assert!(matches!(
+            plan_to(
+                AddressMove::Transfer,
+                DASH / 5,
+                false,
+                &balances,
+                &addresses,
+                &to
+            ),
+            Err(AddressRefusal::NotEnough { .. })
+        ));
+        // To another address the largest pays, as before.
+        let elsewhere = plan_to(
+            AddressMove::Transfer,
+            DASH / 20,
+            false,
+            &balances,
+            &addresses,
+            "tdash1qqsomeoneelse",
+        )
+        .unwrap();
+        assert_eq!(elsewhere.fee_payer, Some(0));
+        // A top-up of an identity has no address output: the largest still pays.
+        let top_up = plan_to(
+            AddressMove::TopUp,
+            DASH / 20,
+            false,
+            &balances,
+            &addresses,
+            &to,
+        )
+        .unwrap();
+        assert!(top_up.inputs.iter().any(|(i, _)| *i == 0));
     }
 
     #[test]

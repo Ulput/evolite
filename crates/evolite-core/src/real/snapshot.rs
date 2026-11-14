@@ -401,7 +401,12 @@ impl Real {
                 shown.as_ref().map(|(identity, _, _)| identity.id.as_str()),
                 identities.iter().map(|c| c.id.clone()).collect(),
             ),
-            platform_inputs: self.shown_address_inputs.clone(),
+            platform_inputs: self.shown_address_inputs.iter().map(|(_, c)| *c).collect(),
+            platform_input_addresses: self
+                .shown_address_inputs
+                .iter()
+                .map(|(a, _)| a.clone())
+                .collect(),
             balances: Balances {
                 core,
                 core_as_of,

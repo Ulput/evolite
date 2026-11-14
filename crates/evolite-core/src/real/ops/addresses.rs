@@ -4,7 +4,7 @@
 //! from the addresses at a time (R-2): each input's nonce goes up with it.
 
 use crate::real::*;
-use evolite_api::address_plan::{AddressMove, AddressPlan, address_plan, duffs_up, move_for};
+use evolite_api::address_plan::{AddressMove, AddressPlan, duffs_up, move_for, plan_to};
 use evolite_chain::chain::addresses::{AddressPaid, AddressPayee};
 
 /// Where a payment from the addresses goes, as read from what was typed.
@@ -82,6 +82,8 @@ impl Real {
         kept: Kept,
     ) -> Result<(), CoreError> {
         let credits = positive_credits(amount)?;
+        // As typed: a transfer never pays from the address it pays to (BUG-141, QA pass 23).
+        let typed = to.trim().to_owned();
         let to = address_to(to)?;
         let kind = match &to {
             AddressTo::Platform(_) => AddressMove::Transfer,
@@ -92,7 +94,9 @@ impl Real {
             return Err(CoreError::NotSynced);
         }
         // The plan the last look showed: the one the snapshot's balances give.
-        let shown_fee = address_plan(kind, credits, false, &self.shown_address_inputs)
+        let (shown_names, shown_credits): (Vec<String>, Vec<u64>) =
+            self.shown_address_inputs.iter().cloned().unzip();
+        let shown_fee = plan_to(kind, credits, false, &shown_credits, &shown_names, &typed)
             .ok()
             .map(|plan| plan.fee);
         let keys = self
@@ -173,10 +177,15 @@ impl Real {
                     .await
                     .map_err(read_failure)?;
                 let credits_now: Vec<u64> = balances.iter().map(|(_, c)| *c).collect();
+                let names_now: Vec<String> = balances
+                    .iter()
+                    .map(|(a, _)| a.to_bech32m_string(crate::network::dash()))
+                    .collect();
                 // The journal's price line says what the core judged by, beside what the form
                 // planned with (BUG-141): only the amount.
                 prices.held(payment, held_duffs(&credits_now));
-                let plan = address_plan(kind, credits, false, &credits_now).map_err(refusal)?;
+                let plan = plan_to(kind, credits, false, &credits_now, &names_now, &typed)
+                    .map_err(refusal)?;
                 if !fee_still_shown(&plan, shown_fee) {
                     return Err(CoreError::NotAvailable(
                         tr!("The fee has grown since the last look: check the payment again")

@@ -1250,6 +1250,9 @@ pub struct Wallet {
     /// The credits on each of the wallet's Platform addresses, in the addresses' own order (as a
     /// transition keeps them): what [`address_plan::address_plan`] chooses from (FEAT-0015).
     pub platform_inputs: Vec<u64>,
+    /// The address (bech32m) of each of [`Self::platform_inputs`], in the same order: a transfer never
+    /// pays from the address it pays to ([`address_plan::plan_to`], BUG-141).
+    pub platform_input_addresses: Vec<String>,
     pub identity: Option<Identity>,
     pub pool: Pool,
     pub apps: Vec<ConnectedApp>,

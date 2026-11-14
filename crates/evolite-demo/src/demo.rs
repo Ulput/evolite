@@ -847,6 +847,11 @@ pub fn demo_wallet(t: Timestamp) -> Wallet {
         // The 0,734 DASH on two addresses (credits, in the addresses' own order): «Max» and a
         // payment from both show how the fee grows with the inputs.
         platform_inputs: vec![13_400_000_000, 60_000_000_000],
+        // The first is the address Receive shows (as in QA pass 23, BUG-141).
+        platform_input_addresses: vec![
+            "tdash1qq7x4m9n2r8v5k3j6h0w4p2s8d5f7g9l3c0zq".into(),
+            "tdash1qz8fexample".into(),
+        ],
         identity: Some(Identity {
             id: PEOPLE[0].id.into(),
             created_at: t - 17 * day,

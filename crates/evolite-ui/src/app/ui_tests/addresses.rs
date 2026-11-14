@@ -209,3 +209,63 @@ fn from_core_the_wallets_own_platform_address_is_not_someone_elses() {
         );
     }
 }
+
+/// BUG-141, QA pass 23, review r1 should 1: to the demo's own Receive address — itself funded,
+/// as in QA's wallet — from the Platform address. More than the other address holds is «More
+/// than there is in this balance» before the password, and the fee row says one input's fee,
+/// not the recipient's balance; «Max» gives all the other address holds less the plan's fee.
+#[test]
+fn to_its_own_funded_address_the_fee_is_the_plans_and_max_is_the_others() {
+    use evolite_api::address_plan::{AddressMove, duffs_up};
+    let (_turn, mut kit) = demo_app("send-from-address", "en");
+    settle(&mut kit);
+    let (own, other) = {
+        let w = kit
+            .state()
+            .snapshot
+            .as_ref()
+            .unwrap()
+            .wallet
+            .as_ref()
+            .unwrap();
+        assert_eq!(
+            w.platform_input_addresses[0], w.platform_address,
+            "Receive's is funded"
+        );
+        (
+            w.platform_address.clone(),
+            (w.platform_inputs[1] / 1_000) as i64,
+        )
+    };
+    let one_input = format!(
+        "≈ {}",
+        crate::format::amount(duffs_up(AddressMove::Transfer.fee(1)))
+    );
+    kit.state_mut().send.recipient = own;
+    kit.state_mut().send.amount = crate::format::input_text(other + 1_000_000);
+    kit.state_mut().send.max = false;
+    wait_for(&mut kit, "«more than there is»", |kit| {
+        has_words(kit, "More than there is in this balance")
+    });
+    assert!(
+        has_words(&kit, &one_input),
+        "the fee row says one input's fee {one_input}"
+    );
+    assert!(
+        !kit.query_all_by_role_and_label(Role::Button, "Check and send")
+            .next()
+            .is_some_and(|b| !b.accesskit_node().is_disabled()),
+        "nothing to sign"
+    );
+    button(&kit, "Max").click();
+    wait_for(&mut kit, "«Max»", |kit| kit.state().send.max);
+    kit.run_steps(3);
+    let max = other - duffs_up(AddressMove::Transfer.fee(1));
+    assert_eq!(
+        kit.state().send.amount,
+        crate::format::input_text(max),
+        "all the other address holds less the plan's fee"
+    );
+    assert!(has_words(&kit, &one_input), "the fee row in «Max»");
+    assert!(!has_words(&kit, "More than there is in this balance"));
+}

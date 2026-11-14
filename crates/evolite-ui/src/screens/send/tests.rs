@@ -902,6 +902,7 @@ fn the_price_on_record_is_the_one_the_send_form_shows() {
         pool: 1_000,
         mixed: 0,
         platform_inputs: Vec::new(),
+        platform_input_addresses: Vec::new(),
         first_name: false,
     };
     let send = |from, to: &str, amount| Spend::Send {

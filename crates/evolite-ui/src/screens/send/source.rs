@@ -265,12 +265,16 @@ pub(super) fn shown_on(network: evolite_api::Network, source: Source) -> bool {
 /// core signs (FEAT-0015 R-7), and the fee «Max» leaves room for: the balance less what «Max»
 /// gets. With no plan possible (nothing typed, too little): the fee of one address paying.
 pub(super) fn address_fees(w: &Wallet, to: &str, amount: Duffs) -> (Duffs, Duffs) {
-    use evolite_api::address_plan::{CREDITS_PER_DUFF, address_plan, duffs_up, move_for};
+    use evolite_api::address_plan::{CREDITS_PER_DUFF, duffs_up, move_for, plan_to};
     let kind = move_for(to);
     let credits = (amount.max(0) as u64).saturating_mul(CREDITS_PER_DUFF);
-    let fee = address_plan(kind, credits, false, &w.platform_inputs)
+    // A transfer never pays from the address it pays to (BUG-141, QA pass 23).
+    let (inputs, names) = (&w.platform_inputs, &w.platform_input_addresses);
+    // The plan's own fee; with no plan, one address's. More than the other addresses carry is
+    // said by `form::address_refusal`, not counted as a fee (BUG-141 r1, should 1).
+    let fee = plan_to(kind, credits, false, inputs, names, to)
         .map_or_else(|_| duffs_up(kind.fee(1)), |plan| duffs_up(plan.fee));
-    let max_fee = address_plan(kind, 0, true, &w.platform_inputs).map_or(fee, |plan| {
+    let max_fee = plan_to(kind, 0, true, inputs, names, to).map_or(fee, |plan| {
         w.balances.platform_address - (plan.receives / CREDITS_PER_DUFF) as Duffs
     });
     (fee, max_fee)

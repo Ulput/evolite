@@ -858,7 +858,7 @@ impl Mock {
     /// addresses give what [`address_plan`] says, the line goes into the history.
     fn pay_from_addresses(&mut self, to: &str, amount: Duffs) -> Result<SentPayment, CoreError> {
         use evolite_api::address_plan::{
-            AddressMove, AddressRefusal, CREDITS_PER_DUFF, address_plan, duffs_up, move_for,
+            AddressMove, AddressRefusal, CREDITS_PER_DUFF, duffs_up, move_for, plan_to,
         };
         let wallet = self
             .snapshot
@@ -906,13 +906,18 @@ impl Mock {
             }
         };
         let credits = (amount as u64).saturating_mul(CREDITS_PER_DUFF);
-        let plan =
-            address_plan(kind, credits, false, &wallet.platform_inputs).map_err(
-                |why| match why {
-                    AddressRefusal::NotEnough { .. } => CoreError::NotEnough,
-                    AddressRefusal::BelowLeast { .. } => CoreError::BadAmount,
-                },
-            )?;
+        let plan = plan_to(
+            kind,
+            credits,
+            false,
+            &wallet.platform_inputs,
+            &wallet.platform_input_addresses,
+            to,
+        )
+        .map_err(|why| match why {
+            AddressRefusal::NotEnough { .. } => CoreError::NotEnough,
+            AddressRefusal::BelowLeast { .. } => CoreError::BadAmount,
+        })?;
         for (i, gives) in &plan.inputs {
             wallet.platform_inputs[*i] -= gives;
         }
@@ -1477,6 +1482,43 @@ mod tests {
                 ..
             }
         ));
+    }
+
+    /// BUG-141, QA pass 23: to the address Receive shows, which holds credits itself, the demo
+    /// pays from the other address and leaves that one as it was — as the real core plans it
+    /// (`plan_to`), and as Platform wants: an output address is never an input.
+    #[test]
+    fn to_its_own_funded_address_the_demo_pays_from_the_other() {
+        let (mut m, tx, rx) = mock();
+        let wallet = m.snapshot.wallet.as_ref().unwrap();
+        let own = wallet.platform_address.clone();
+        assert_eq!(
+            wallet.platform_input_addresses[0], own,
+            "Receive's is funded"
+        );
+        let before = wallet.platform_inputs.clone();
+        m.handle(
+            Command::Spend {
+                op: Spend::Send {
+                    coins: None,
+                    id: 9,
+                    from: Source::PlatformAddress,
+                    to: own,
+                    amount: 1_000_000,
+                    note: None,
+                    rate: None,
+                },
+                password: None,
+            },
+            &tx,
+        );
+        match rx.recv().unwrap() {
+            Event::Sent { id: 9, result } => assert!(result.is_ok(), "{result:?}"),
+            other => panic!("{other:?}"),
+        }
+        let after = &m.snapshot.wallet.as_ref().unwrap().platform_inputs;
+        assert_eq!(after[0], before[0], "the recipient gave nothing");
+        assert!(after[1] < before[1], "the other paid");
     }
 
     /// FEAT-0015: the demo pays from its Platform addresses as the real core does: to a

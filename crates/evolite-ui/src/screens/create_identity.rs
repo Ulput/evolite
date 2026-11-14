@@ -1075,6 +1075,7 @@ mod tests {
             pool: 0,
             mixed: 0,
             platform_inputs: Vec::new(),
+            platform_input_addresses: Vec::new(),
             first_name: false,
         };
         for (name, named) in [(Some("bob".to_string()), true), (None, false)] {
