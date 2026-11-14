@@ -238,3 +238,24 @@ fn an_email_a_version_and_a_short_hash_are_code() {
         assert_eq!(only(no), Vec::<String>::new(), "{no}");
     }
 }
+
+/// BUG-159 r1 Should 1: an @name is a name, not code, even when its letters are hex with digits
+/// («@cafe2024» looked like a short hash) or it is long enough for an id: the run right after
+/// «@» (or a full-width «＠») is skipped. The same letters without «@» are still a hash.
+#[test]
+fn an_at_name_is_never_code() {
+    let only = |text: &str| -> Vec<String> {
+        runs(text).into_iter().map(|r| text[r].to_owned()).collect()
+    };
+    for no in [
+        "@cafe2024",
+        "@dad1984 and @bob",
+        "＠cafe2024",
+        "paid by @satoshi7nakamoto2026abcdefghijk",
+    ] {
+        assert_eq!(only(no), Vec::<String>::new(), "{no}");
+    }
+    assert_eq!(only("commit cafe2024"), ["cafe2024"]);
+    // An e-mail keeps its name before the «@»: it is code as a whole.
+    assert_eq!(only("cafe2024@mail.example"), ["cafe2024@mail.example"]);
+}

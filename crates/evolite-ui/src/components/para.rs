@@ -251,7 +251,9 @@ pub fn address_runs(text: &str) -> Vec<std::ops::Range<usize>> {
         let inside = found
             .iter()
             .any(|f| f.start <= run.start && run.end <= f.end);
-        if !inside && address_like(&text[run.clone()]) {
+        // An @name is a name, whatever its letters (BUG-159 r1 Should 1: «@cafe2024» is no hash).
+        let at_name = text[..run.start].ends_with(['@', '＠']);
+        if !inside && !at_name && address_like(&text[run.clone()]) {
             found.push(run);
         }
     }
