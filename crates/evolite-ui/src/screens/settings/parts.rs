@@ -231,11 +231,13 @@ fn draw_control(ui: &mut Ui, a: &mut Assets, title: &str, control: Control) -> b
             } else {
                 sans(13.0, Weight::Medium)
             };
-            ui.label(
-                egui::RichText::new(crate::i18n::t(value))
-                    .font(font)
-                    .color(p.text),
-            );
+            // A mono value keeps a hash or a version mono and its words in Inter (BUG-154,
+            // BUG-159): «rust-dashcore aca0202».
+            if mono_value {
+                ui.label(crate::components::fig_txt(value, font, p.text));
+            } else {
+                ui.label(crate::components::txt(value, 13.0, Weight::Medium, p.text));
+            }
             false
         }
         Control::Locked => {

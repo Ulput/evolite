@@ -763,3 +763,88 @@ fn the_arabic_coins_lines_keep_core_isolated() {
         );
     }
 }
+
+/// What the app draws with the system's fonts, not its own: Chinese, Japanese and Korean (with
+/// their punctuation and full-width forms), and the Latin letters Inter's subsets lack
+/// (Vietnamese and Turkish: Latin Extended, its accents) — `theme::LATIN`.
+fn drawn_by_the_system(c: char) -> bool {
+    matches!(c as u32,
+        0x0100..=0x024F | 0x0300..=0x036F | 0x1E00..=0x1EFF |
+        0x1100..=0x11FF | 0x2E80..=0x9FFF | 0xA960..=0xA97F | 0xAC00..=0xD7FF | 0xF900..=0xFAFF
+        | 0xFE30..=0xFE4F | 0xFF00..=0xFFEF)
+}
+
+/// BUG-151: every character of every catalog — the app's and the installer's, the English keys
+/// too — is in the fonts that ship with evolite or egui's own, the chain a computer without the
+/// system's Latin font has; «→» was not, and was drawn as a box there. CJK scripts aside: those
+/// come from the system's own fonts by design.
+#[test]
+fn every_string_has_its_glyphs_in_the_fonts_that_ship() {
+    use std::collections::{BTreeMap, BTreeSet};
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("locales");
+    let mut text: BTreeMap<&'static str, (Lang, BTreeSet<char>)> = BTreeMap::new();
+    for dir in [root.clone(), root.join("setup")] {
+        for entry in std::fs::read_dir(&dir).expect("locales") {
+            let path = entry.unwrap().path();
+            let Some(lang) = path
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .and_then(Lang::from_code)
+            else {
+                continue;
+            };
+            let json: serde_json::Value =
+                serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+            for (key, value) in json.as_object().expect("a catalog") {
+                text.entry(Lang::En.code())
+                    .or_insert((Lang::En, BTreeSet::new()))
+                    .1
+                    .extend(key.chars());
+                let values: Vec<&str> = match value {
+                    serde_json::Value::String(s) => vec![s],
+                    serde_json::Value::Object(forms) => {
+                        forms.values().filter_map(|v| v.as_str()).collect()
+                    }
+                    _ => vec![],
+                };
+                let chars = &mut text.entry(lang.code()).or_insert((lang, BTreeSet::new())).1;
+                for v in values {
+                    chars.extend(v.chars());
+                }
+            }
+        }
+    }
+    assert_eq!(text.len(), 15, "every language");
+    let mut missing = Vec::new();
+    for (code, (lang, chars)) in &text {
+        let ctx = egui::Context::default();
+        ctx.set_fonts(crate::theme::definitions(*lang, false, false).0);
+        let input = egui::RawInput {
+            max_texture_side: Some(4096),
+            ..Default::default()
+        };
+        ctx.run_ui(input, |_| {}).textures_delta.clear();
+        for family in [
+            egui::FontFamily::Proportional,
+            egui::FontFamily::Name("inter-600".into()),
+        ] {
+            let font = egui::FontId::new(13.0, family.clone());
+            for &c in chars {
+                if c.is_whitespace() || c.is_control() || drawn_by_the_system(c) {
+                    continue;
+                }
+                // In right-to-left text a bracket or «›» is drawn as its mirror image.
+                for c in [c, mirror(c)] {
+                    if !ctx.fonts_mut(|f| f.has_glyph(&font, c)) {
+                        missing.push(format!("{code} {family:?}: {c:?} U+{:04X}", c as u32));
+                    }
+                }
+            }
+        }
+    }
+    assert!(
+        missing.is_empty(),
+        "no glyph in the shipped fonts:\n{}",
+        missing.join("\n")
+    );
+}

@@ -44,7 +44,7 @@ pub(super) struct DevState {
     top_up_preset: Option<bool>,
     /// `--screen fund-address-unfinished` / `-resume` / `-steps`: a funding of the Platform address whose
     /// lock is made and not taken yet (FEAT-0015 stage 2, frames 23, 24, 24b).
-    fund_unfinished_preset: bool,
+    pub(super) fund_unfinished_preset: bool,
     /// `--screen tokens-*` (FEAT-0019): the search or the network as that frame of the design shows it.
     tokens_preset: Option<&'static str>,
     /// `--screen overview-syncing` / `send-syncing`: the screen while the sync still runs.
@@ -352,6 +352,7 @@ impl App {
             w.unfinished_address_top_up = Some(evolite_api::UnfinishedAddressTopUp {
                 locked: 10_012_000,
                 address: w.platform_address.clone(),
+                holds_back: true,
             });
         }
         if let Some(name) = self.dev.tokens_preset
@@ -829,12 +830,19 @@ impl App {
             self.send.scanner.menu = true;
             self.send.scanner.clip_picture = Some(true);
         }
-        // `--screen edit-profile` opens 23 over Identity.
-        if (preset("edit-profile") || preset("edit-profile-password")) && !real_shot {
+        // `--screen edit-profile` opens 23 over Identity; `edit-profile-imgur-page` with a link
+        // to an Imgur album in it (FEAT-0018, frame AV2).
+        let imgur_page = preset("edit-profile-imgur-page");
+        if (preset("edit-profile") || preset("edit-profile-password") || imgur_page) && !real_shot {
             self.identity.editing = Some(screens::identity::ProfileForm {
                 display: "Satoshi Nakamoto".into(),
                 about: tr!("I write about Dash Platform and collect generative NFTs. Pay through a DashPay contact — that way each payment goes to a new address.").into(),
-                avatar_url: "https://ipfs.io/ipfs/bafybeigdyrz/satoshi.png".into(),
+                avatar_url: if imgur_page {
+                    "https://imgur.com/a/Xq3b9Tz"
+                } else {
+                    "https://ipfs.io/ipfs/bafybeigdyrz/satoshi.png"
+                }
+                .into(),
                 ..Default::default()
             });
         }
