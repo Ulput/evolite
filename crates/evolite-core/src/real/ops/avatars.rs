@@ -396,10 +396,12 @@ mod tests {
         assert!(!imgur_removed(&uri("https://i.imgur.com/a/removed.png")));
     }
 
-    /// FEAT-0018 AC-T1, live (reads four public addresses on i.imgur.com; uploads nothing):
+    /// FEAT-0018 AC-T1, live (reads five public addresses on i.imgur.com; uploads nothing):
     /// a picture there downloads by `ureq` without a User-Agent of ours, the same bytes under
-    /// another extension; without one it is Imgur's page, not a picture; a missing id is
-    /// Imgur's stand-in, refused in words.
+    /// another extension; without one it is Imgur's page, not a picture. A missing id of
+    /// Imgur's own length (7) is Imgur's stand-in, refused in words; one of another length
+    /// is sent to a page (`imgur.com/<id>`), «not a picture» (the coordinator's curl,
+    /// 2026-11-14).
     #[test]
     #[ignore = "needs the internet: reads public pictures on i.imgur.com"]
     fn live_imgur_direct_links() {
@@ -413,9 +415,14 @@ mod tests {
             "no extension: Imgur's page"
         );
         assert_eq!(
-            download("https://i.imgur.com/zzzzzzzzz9.png"),
+            download("https://i.imgur.com/zzzzzzz.png"),
             Err(REMOVED.into()),
-            "a missing id"
+            "a missing id of Imgur's length: the stand-in"
+        );
+        assert_eq!(
+            download("https://i.imgur.com/zzzzzzzzz9.png"),
+            Err(NOT_PICTURE.into()),
+            "a malformed id: Imgur's page"
         );
     }
 
