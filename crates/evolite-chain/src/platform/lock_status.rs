@@ -203,6 +203,28 @@ impl LockStatuses {
         self.state().wanted = locks;
     }
 
+    /// [`Self::want`] for locks the history does not ask about (FEAT-0015 AC-T6: a funding of
+    /// the address found on chain after a restore): added, not replacing.
+    pub fn want_also(&self, locks: Vec<Lock>) {
+        let mut state = self.state();
+        for lock in locks {
+            if !state.wanted.iter().any(|(txid, _)| *txid == lock.0) {
+                state.wanted.push(lock);
+            }
+        }
+    }
+
+    /// What Platform proved about `txid`, if it answered (in this run, or spent in an earlier
+    /// one).
+    pub fn answer(&self, txid: &str) -> Option<Answer> {
+        let mut state = self.state();
+        self.load(&mut state);
+        if state.spent.as_ref().is_some_and(|s| s.contains_key(txid)) {
+            return Some(Answer::Spent);
+        }
+        state.this_run.get(txid).copied()
+    }
+
     /// The next request to make at `now`, if one is due: locks not asked in this run, marked as
     /// asked.
     pub fn next_batch(&self, now: Instant) -> Vec<Lock> {
@@ -403,6 +425,34 @@ mod tests {
         assert_eq!(status.next_batch(now).len(), BATCH);
         assert_eq!(status.next_batch(now).len(), 2);
         assert!(status.next_batch(now).is_empty(), "all were asked");
+    }
+
+    /// FEAT-0015 AC-T6: a recovered funding of the address is asked about beside the history's
+    /// locks — added, not replacing them, once — and its answer is read back as given.
+    #[test]
+    fn a_recovered_funding_is_asked_beside_the_history() {
+        let status = LockStatuses::new(folder("also"));
+        let now = Instant::now();
+        status.want(vec![lock(&txid(1))]);
+        status.want_also(vec![lock(&txid(2)), lock(&txid(1))]);
+        assert_eq!(status.next_batch(now).len(), 2, "both, the first once");
+        assert_eq!(status.answer(&txid(2)), None, "not answered yet");
+        status.answered(
+            &txid(2),
+            Told {
+                answer: Answer::NotSeen,
+                identity: false,
+            },
+        );
+        assert_eq!(status.answer(&txid(2)), Some(Answer::NotSeen));
+        status.answered(
+            &txid(1),
+            Told {
+                answer: Answer::Spent,
+                identity: false,
+            },
+        );
+        assert_eq!(status.answer(&txid(1)), Some(Answer::Spent));
     }
 
     /// AC-T3: an error is no answer, and the next try waits ten minutes.

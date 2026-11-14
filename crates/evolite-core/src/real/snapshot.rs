@@ -501,11 +501,12 @@ impl Real {
             turn::timed("address_inputs", self.chain.address_inputs(&wallet)).await;
         let unfinished =
             turn::timed("unfinished_identity", self.unfinished_identity(&wallet)).await;
-        let unfinished_address_fund = turn::timed(
-            "unfinished_address_fund",
-            self.chain.unfinished_address_fund(&wallet),
-        )
-        .await;
+        // Made here and cut short, or found on chain after a restore and not seen by Platform
+        // (FEAT-0015 AC-T6).
+        let unfinished_address_fund =
+            turn::timed("unfinished_address_fund", self.waiting_fund(&wallet))
+                .await
+                .map(|(locked, _)| locked);
         let unfinished_top_up =
             turn::timed("unfinished_top_up", self.unfinished_top_up(&wallet)).await;
         let live_count = {
@@ -922,6 +923,20 @@ impl Real {
             say_the_lock(act, (who, made, taken), &top_ups, identities);
         }
         self.lock_status.want(no_answer);
+        // FEAT-0015 AC-T6: a funding of the address found on chain after a restore is asked
+        // about too — its «Continue» waits for Platform's proved «not seen».
+        let recovered = turn::timed(
+            "recovered_fund_locks",
+            self.chain.recovered_fund_locks(&wallet),
+        )
+        .await;
+        self.lock_status.want_also(
+            recovered
+                .into_iter()
+                .filter(|l| self.lock_status.answer(&l.txid).is_none())
+                .map(|l| (l.txid, false))
+                .collect(),
+        );
     }
 
     /// The locks Identity offers to continue, and only while it offers that: the same rules as

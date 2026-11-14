@@ -72,7 +72,7 @@ impl Real {
         let amount = positive_duffs(amount)? as Duffs;
         let (wallet, keys, to) = self.fund_ready().await?;
         // A cut-short funding is finished first, with the money already locked for it.
-        if self.chain.unfinished_address_fund(&wallet).await.is_some() {
+        if self.waiting_fund(&wallet).await.is_some() {
             return Err(CoreError::NotAvailable(
                 tr!("First finish the stopped top-up of the Platform address — its money is already locked").into(),
             ));
@@ -83,20 +83,37 @@ impl Real {
             convert::core_balance(&state.core_wallet) - convert::unsignable(&state.core_wallet)
         };
         let plan = fund_plan(amount, false, spendable, &fees).map_err(refusal)?;
-        self.fund_in_background(wallet, keys, to, plan.lock as u64)
+        self.fund_in_background(wallet, keys, to, plan.lock as u64, None)
     }
 
     /// Finishes the cut-short funding in the background with the lock already made: no new
     /// money. Refused when nothing waits (an earlier one went through: no second transition).
     pub(in crate::real) async fn resume_fund_address(&mut self) -> Result<(), CoreError> {
         let (wallet, keys, to) = self.fund_ready().await?;
-        if self.chain.unfinished_address_fund(&wallet).await.is_none() {
+        let Some((_, recovered)) = self.waiting_fund(&wallet).await else {
             return Err(CoreError::NotAvailable(
                 tr!("Nothing to continue: the top-up of the Platform address is already credited")
                     .into(),
             ));
+        };
+        self.fund_in_background(wallet, keys, to, 0, recovered)
+    }
+
+    /// The funding of the address that waits for «Continue», and the duffs it locked: one made
+    /// here and cut short, or — after a restore from the phrase — one found on chain that
+    /// Platform proved it has not seen (AC-T6, FEAT-0016); the latter with its out point.
+    pub(in crate::real) async fn waiting_fund(
+        &self,
+        wallet: &platform_wallet::PlatformWallet,
+    ) -> Option<(u64, Option<key_wallet::dashcore::OutPoint>)> {
+        if let Some(locked) = self.chain.unfinished_address_fund(wallet).await {
+            return Some((locked, None));
         }
-        self.fund_in_background(wallet, keys, to, 0)
+        let recovered = self.chain.recovered_fund_locks(wallet).await;
+        evolite_chain::chain::address_fund::recovered_unfinished(&recovered, |txid| {
+            self.lock_status.answer(txid)
+        })
+        .map(|l| (l.amount, Some(l.out_point)))
     }
 
     /// One funding at a time, as one asset lock at a time (an identity's too: they draw on the
@@ -107,6 +124,7 @@ impl Real {
         keys: key_wallet::Wallet,
         to: PlatformAddress,
         lock: u64,
+        recovered: Option<key_wallet::dashcore::OutPoint>,
     ) -> Result<(), CoreError> {
         if self.identity_busy.swap(true, Ordering::Relaxed) {
             return Err(CoreError::NotAvailable(
@@ -118,7 +136,7 @@ impl Real {
         let refresh = self.refresher();
         self.answer_later("task:fund_address", async move {
             let result = chain
-                .fund_address(&wallet, &keys, to, lock)
+                .fund_address(&wallet, &keys, to, lock, recovered)
                 .await
                 .map_err(identity_failure);
             busy.store(false, Ordering::Relaxed);
