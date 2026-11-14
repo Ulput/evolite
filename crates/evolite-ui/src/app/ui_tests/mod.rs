@@ -11,6 +11,7 @@ mod add_name;
 mod address_solid;
 mod addresses;
 mod alignment;
+mod amount_marks;
 mod amounts;
 mod app_connect;
 mod as_known;

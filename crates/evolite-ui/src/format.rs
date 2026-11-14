@@ -247,32 +247,9 @@ pub fn signed_amount(duffs: i64) -> String {
 /// DASH, "1.5" in duffs), and an amount without them: the line under the field says what is
 /// wrong instead of "enter an amount".
 pub fn too_precise(input: &str) -> bool {
-    if parse_amount(input).is_some() {
-        return false;
-    }
-    let d = display();
-    let decimals = d.unit.decimals() as usize;
-    let (group, decimal) = d.style.marks();
-    let marks: &[char] = if group.is_whitespace() {
-        &[',', '.']
-    } else {
-        &[decimal]
-    };
-    let text = input.trim();
-    let Some(at) = text.rfind(marks) else {
-        return false;
-    };
-    // The marks are ASCII: one byte each.
-    let fraction = &text[at + 1..];
-    if fraction.len() <= decimals || !fraction.chars().all(|c| c.is_ascii_digit()) {
-        return false;
-    }
-    let kept = if decimals == 0 {
-        &text[..at]
-    } else {
-        &text[..at + 1 + decimals]
-    };
-    parse_amount(kept).is_some()
+    // One number ([`typed_parts`]) with more decimals than the unit has.
+    typed_parts(input)
+        .is_some_and(|(_, fraction)| fraction.len() > display().unit.decimals() as usize)
 }
 
 /// What "Max" puts in an amount field: the chosen unit, no thousands marks.
@@ -282,11 +259,12 @@ pub fn input_text(duffs: i64) -> String {
 }
 
 /// A pill's label: the amount in the chosen unit and format, without trailing zeros — "0.1",
-/// "0,5", "1", "100" (mDASH).
+/// "0,5", "1", "100" (mDASH). No thousands marks, as in a field (BUG-161): a pill's «1,000» mDASH
+/// typed back would read as 1.
 pub fn short_number(duffs: i64) -> String {
     let d = display();
     let (_, decimal) = d.style.marks();
-    let text = write(duffs, d.unit, d.style, false, true);
+    let text = write(duffs, d.unit, d.style, false, false);
     if text.contains(decimal) {
         text.trim_end_matches('0')
             .trim_end_matches(decimal)
@@ -469,45 +447,56 @@ fn parse_units(input: &str, decimals: u32, decimal_marks: &[char]) -> Option<i64
         .checked_add(fraction)
 }
 
-/// What the user typed in an amount field, in the chosen unit and format, in duffs. With
-/// "1,234.56" (or "1.234,56") the thousands mark only groups three digits: "0,25" there is refused,
-/// not read as 25 — a misread amount is money sent.
+/// What the user typed in an amount field, in the chosen unit, in duffs: [`typed_parts`] read
+/// with the unit's decimals. "0,002" and "0.002" are 0.002 DASH in every language; "1,234.56"
+/// and "0,0,2" are refused, never read as another number — a misread amount is money sent
+/// (BUG-161: "0,002" in English was read as 2).
 pub fn parse_amount(input: &str) -> Option<i64> {
     parse_typed(input, display().unit.decimals())
 }
 
-/// A number typed with `decimals` places in the chosen number format: see [`parse_amount`].
-fn parse_typed(input: &str, decimals: u32) -> Option<i64> {
-    let (group, decimal) = display().style.marks();
-    if group.is_whitespace() {
-        // Spaces between thousands: a comma or a dot before decimals, as typed.
-        return if decimals == 0 {
-            parse_units(input, 0, &[])
-        } else {
-            parse_units(input, decimals, &[',', '.'])
-        };
-    }
-    // "1,234.56" or "1.234,56": the thousands mark only in groups of three.
+/// BUG-161: a typed number split at its decimal mark, by one rule in every language and number
+/// format: digits, spaces between them, and at most one comma or point, which is the decimal
+/// mark. A second mark (thousands marks, "1,234.56", "1.234,56", "0,0,2") makes it ambiguous: it
+/// is refused, the line under the field says so, and nothing is guessed. The fields are filled
+/// without thousands marks ([`input_text`]), so what the app puts there reads back the same.
+pub fn typed_parts(input: &str) -> Option<(String, String)> {
     let clean: String = input.chars().filter(|c| !c.is_whitespace()).collect();
-    let (whole, fraction) = match clean.split_once(decimal) {
-        Some((w, f)) => (w, Some(f)),
-        None => (clean.as_str(), None),
-    };
-    let mut groups = whole.split(group);
-    let first = groups.next().unwrap_or("");
-    let rest: Vec<&str> = groups.collect();
-    if !rest.is_empty() && (first.is_empty() || first.len() > 3) {
+    let mut parts = clean.split([',', '.']);
+    let whole = parts.next().unwrap_or("").to_owned();
+    let fraction = parts.next().unwrap_or("").to_owned();
+    let digits = |s: &str| s.chars().all(|c| c.is_ascii_digit());
+    if parts.next().is_some()
+        || (whole.is_empty() && fraction.is_empty())
+        || !digits(&whole)
+        || !digits(&fraction)
+    {
         return None;
     }
-    if rest.iter().any(|g| g.len() != 3) {
+    Some((whole, fraction))
+}
+
+/// A number typed with `decimals` places: see [`typed_parts`]. More digits after the mark than
+/// `decimals` is no amount ([`too_precise`] says why).
+fn parse_typed(input: &str, decimals: u32) -> Option<i64> {
+    let (whole, fraction) = typed_parts(input)?;
+    parse_units(&format!("{whole}.{fraction}"), decimals, &['.'])
+}
+
+/// The line under an amount field for text it cannot read as an amount (BUG-161): too many
+/// decimals, or not one number — a second mark, a letter. None when it reads, or is empty.
+pub fn amount_hint(input: &str) -> Option<String> {
+    if input.trim().is_empty() || parse_amount(input).is_some() {
         return None;
     }
-    let whole: String = whole.chars().filter(|c| *c != group).collect();
-    match fraction {
-        Some(f) if f.contains(group) => None,
-        Some(f) => parse_units(&format!("{whole}{decimal}{f}"), decimals, &[decimal]),
-        None => parse_units(&whole, decimals, &[decimal]),
-    }
+    Some(if too_precise(input) {
+        format!(
+            tr!("Too many digits after the decimal mark: the smallest amount is {}"),
+            amount(1)
+        )
+    } else {
+        tr!("Enter an amount, e.g. 0.25").to_owned()
+    })
 }
 
 #[cfg(test)]
@@ -666,18 +655,74 @@ mod tests {
         with(Unit::Dash, NumberStyle::Language);
     }
 
+    /// BUG-161: in English «0,002» was read as 2 DASH («0,002» passed as a thousands group). In
+    /// every interface language and number format, and in every unit: one comma or point is the
+    /// decimal mark; two marks are refused with a line under the field, never read as another
+    /// number; what the app writes into a field reads back the same; a fiat amount reads alike.
     #[test]
-    fn a_comma_groups_thousands_only_where_the_format_says_so() {
-        with(Unit::Dash, NumberStyle::CommaDot);
-        assert_eq!(parse_amount("1,234.5"), Some(123_450_000_000));
-        assert_eq!(parse_amount("0.25"), Some(25_000_000));
-        assert_eq!(parse_amount("1234"), Some(123_400_000_000));
-        // Not a thousands group: refused rather than read as 25 DASH.
-        for bad in ["0,25", "1,23", "1234,567", ",123", "1.2,3", "1.234,5"] {
-            assert_eq!(parse_amount(bad), None, "{bad}");
+    fn one_mark_is_decimal_and_two_are_refused_in_every_language_and_format() {
+        let styles = [
+            NumberStyle::Language,
+            NumberStyle::SpaceComma,
+            NumberStyle::CommaDot,
+        ];
+        for lang in crate::i18n::Lang::ALL {
+            crate::i18n::set(lang);
+            for style in styles {
+                with(Unit::Dash, style);
+                let at = format!("{lang:?} {style:?}");
+                for (typed, duffs) in [
+                    ("0,002", 200_000),
+                    ("0.002", 200_000),
+                    ("1,234", 123_400_000),
+                    ("1.234", 123_400_000),
+                    ("0,25", 25_000_000),
+                    (".5", 50_000_000),
+                    ("5.", 500_000_000),
+                    ("1234", 123_400_000_000),
+                    ("1 234,5", 123_450_000_000),
+                    ("0,00000001", 1),
+                ] {
+                    assert_eq!(parse_amount(typed), Some(duffs), "{at}: {typed}");
+                    assert_eq!(amount_hint(typed), None, "{at}: {typed}");
+                }
+                for bad in [
+                    "1,234.56",
+                    "1.234,56",
+                    "0,0,2",
+                    "1.234.567",
+                    "1,234,567",
+                    ",",
+                    ".",
+                    "1,2a",
+                    "--1",
+                    "1e3",
+                ] {
+                    assert_eq!(parse_amount(bad), None, "{at}: {bad}");
+                    assert!(
+                        amount_hint(bad).is_some(),
+                        "{at}: a line under the field for {bad}"
+                    );
+                }
+                assert_eq!(parse_fiat("0,02"), Some(2), "{at}: cents");
+                assert_eq!(parse_fiat("1,234.56"), None, "{at}: a fiat amount alike");
+                // Too many decimals is said as such.
+                assert!(too_precise("0,000000001"), "{at}");
+                assert_eq!(amount_hint(""), None, "{at}: an empty field says nothing");
+                // What "Max" and the defaults write reads back, in every unit.
+                for unit in [Unit::Dash, Unit::MilliDash, Unit::Duffs] {
+                    with(unit, style);
+                    for duffs in [1, 1_234_567, 123_456_700_000_001] {
+                        assert_eq!(
+                            parse_amount(&input_text(duffs)),
+                            Some(duffs),
+                            "{at} {unit:?}"
+                        );
+                    }
+                }
+            }
         }
-        // What "Max" writes reads back.
-        assert_eq!(parse_amount(&input_text(1_234_567)), Some(1_234_567));
+        crate::i18n::set(crate::i18n::Lang::En);
         with(Unit::Dash, NumberStyle::SpaceComma);
     }
 
@@ -759,10 +804,17 @@ mod tests {
     fn too_many_decimals_are_told_apart_from_a_wrong_amount() {
         with(Unit::Dash, NumberStyle::CommaDot);
         assert!(too_precise("0.000000018"));
-        assert!(too_precise("1,234.123456789"));
+        assert!(
+            too_precise("0,000000018"),
+            "a comma is a decimal mark too (BUG-161)"
+        );
+        assert!(
+            !too_precise("1,234.123456789"),
+            "two marks: not one number at all"
+        );
         assert!(!too_precise("0.00000001"), "a duff is fine");
         assert!(!too_precise("abc"));
-        assert!(!too_precise("0,25"), "a wrong mark, not too precise");
+        assert!(!too_precise("0,25"), "an amount");
         assert!(!too_precise("0.12a456789"));
         with(Unit::Dash, NumberStyle::SpaceComma);
         assert!(too_precise("0,000000018"));

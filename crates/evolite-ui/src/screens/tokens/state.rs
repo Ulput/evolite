@@ -28,6 +28,13 @@ pub fn written(amount: TokenAmount, decimals: u8) -> String {
     plain_written(&amount_text(amount, decimals))
 }
 
+/// What «All» puts in a token's amount field: the language's decimal mark and no thousands marks,
+/// so it reads back as typed (BUG-161: a second mark is refused), as `format::input_text` for DASH.
+pub fn input_written(amount: TokenAmount, decimals: u8) -> String {
+    let (_, decimal) = crate::format::number_marks();
+    amount_text(amount, decimals).replace('.', &decimal.to_string())
+}
+
 /// An amount kept as digits and a point («1250.00», [`amount_text`]) in the chosen number
 /// format: a History line keeps a token's amount so (BUG-145).
 pub fn plain_written(plain: &str) -> String {
@@ -50,34 +57,12 @@ pub fn plain_written(plain: &str) -> String {
     out
 }
 
-/// A typed amount in the chosen number format, in the token's smallest units. With spaces
-/// between thousands both a comma and a dot are a decimal mark, as for DASH; with a comma or a
-/// dot between thousands it groups exactly three digits.
+/// A typed amount in the token's smallest units, by the same rule as a DASH amount
+/// ([`crate::format::typed_parts`], BUG-161): one comma or point is the decimal mark in every
+/// language; a second mark is not a number, never read as another one.
 pub fn typed(input: &str, decimals: u8) -> Result<TokenAmount, AmountError> {
-    let (group, decimal) = crate::format::number_marks();
-    let clean: String = input.chars().filter(|c| !c.is_whitespace()).collect();
-    let plain = if group.is_whitespace() {
-        clean.replace(',', ".")
-    } else {
-        let (whole, fraction) = match clean.split_once(decimal) {
-            Some((w, f)) => (w, Some(f)),
-            None => (clean.as_str(), None),
-        };
-        let mut groups = whole.split(group);
-        let first = groups.next().unwrap_or("");
-        let rest: Vec<&str> = groups.collect();
-        if !rest.is_empty()
-            && (first.is_empty() || first.len() > 3 || rest.iter().any(|g| g.len() != 3))
-        {
-            return Err(AmountError::NotANumber);
-        }
-        let whole: String = whole.chars().filter(|c| *c != group).collect();
-        match fraction {
-            Some(f) => format!("{whole}.{f}"),
-            None => whole,
-        }
-    };
-    parse_amount(&plain, decimals)
+    let (whole, fraction) = crate::format::typed_parts(input).ok_or(AmountError::NotANumber)?;
+    parse_amount(&format!("{whole}.{fraction}"), decimals)
 }
 
 /// «7Hq2…9fLm»: an id in a row, as the mockups write it.
@@ -244,11 +229,38 @@ mod tests {
         assert_eq!(typed("0,001", 2), Err(AmountError::TooManyDecimals));
         crate::i18n::set(crate::i18n::Lang::En);
         assert_eq!(written(125_000, 2), "1,250.00");
-        assert_eq!(typed("1,250.5", 2), Ok(125_050));
-        assert!(
-            typed("1,25", 2).is_err(),
-            "a comma groups three digits in English"
-        );
+        // BUG-161: one mark is the decimal mark in English too; two are refused.
+        assert_eq!(typed("1,25", 2), Ok(125));
+        assert_eq!(typed("0,002", 3), Ok(2), "not 2 tokens");
+        assert_eq!(typed("1,250.5", 2), Err(AmountError::NotANumber));
+    }
+
+    /// BUG-161 for tokens: in every language «0,002» and «0.002» are the same amount, two marks
+    /// are not a number, and what «All» writes into the field reads back.
+    #[test]
+    fn a_token_amount_reads_alike_in_every_language() {
+        for lang in crate::i18n::Lang::ALL {
+            crate::i18n::set(lang);
+            crate::format::set_display(crate::format::Display::default());
+            for typed_text in ["0,002", "0.002", " 0 ,002"] {
+                assert_eq!(typed(typed_text, 3), Ok(2), "{lang:?} {typed_text}");
+            }
+            for bad in ["1,234.56", "1.234,56", "0,0,2", ","] {
+                assert_eq!(
+                    typed(bad, 3),
+                    Err(AmountError::NotANumber),
+                    "{lang:?} {bad}"
+                );
+            }
+            for (amount, decimals) in [(998_766, 2), (1_234_567_890, 8), (12, 0)] {
+                assert_eq!(
+                    typed(&input_written(amount, decimals), decimals),
+                    Ok(amount),
+                    "{lang:?}: «All» reads back"
+                );
+            }
+        }
+        crate::i18n::set(crate::i18n::Lang::En);
     }
 
     #[test]

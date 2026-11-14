@@ -193,7 +193,13 @@ pub fn amount_field(
     value: &mut String,
     with_all: bool,
 ) -> AmountResponse {
-    amount_field_in(ui, p, id, value, with_all, None)
+    let field = amount_field_in(ui, p, id, value, with_all, None);
+    // BUG-161: what cannot be read as one amount is said under the field, never guessed. «Send»
+    // and «Receive» (`amount_field_in`) say it in their own lines.
+    if let Some(hint) = crate::format::amount_hint(value) {
+        ui.label(super::txt(&hint, 12.0, Weight::Regular, p.danger));
+    }
+    field
 }
 
 /// [`amount_field`] with, when `unit` is given, the switch between the unit and the currency

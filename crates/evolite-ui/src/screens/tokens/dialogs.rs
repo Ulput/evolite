@@ -375,7 +375,7 @@ pub(super) fn send_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, tokens: &mu
                         },
                     );
                     if all {
-                        form.amount = state::written(balance, row.info.decimals);
+                        form.amount = state::input_written(balance, row.info.decimals);
                     }
                     let amount_problem = match &problem {
                         Some(state::FormProblem::Address | state::FormProblem::NoCredits)
