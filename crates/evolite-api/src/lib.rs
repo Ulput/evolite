@@ -15,6 +15,7 @@ use zeroize::Zeroizing;
 pub mod address_fund;
 pub mod address_plan;
 pub mod coin_plan;
+pub mod features;
 pub mod fiat;
 /// Platform tokens (FEAT-0019).
 pub mod tokens;

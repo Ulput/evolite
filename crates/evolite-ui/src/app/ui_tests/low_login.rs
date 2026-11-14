@@ -159,7 +159,13 @@ fn in_the_smallest_window_the_wallets_are_8_under_the_title() {
     for lang in ["en", "ru", "ar"] {
         let (_turn, kit) = at("wallet-unlock", lang, LOW);
         let first = kit
-            .query_all_by(|n| n.role() == Role::RadioButton)
+            // A wallet, not the network switch above (FEAT-0037): its segments name a network.
+            .query_all_by(|n| {
+                n.role() == Role::RadioButton
+                    && !n
+                        .label()
+                        .is_some_and(|l| l.contains("Testnet") || l.contains("Mainnet"))
+            })
             .map(|n| n.rect())
             .min_by(|a, b| a.top().total_cmp(&b.top()))
             .expect("a wallet");
@@ -177,5 +183,40 @@ fn in_the_smallest_window_the_wallets_are_8_under_the_title() {
             in_sight(&kit, &crate::i18n::spoken("Open")),
             "{lang}: «Open» below the edge"
         );
+    }
+}
+
+/// FEAT-0037 AC-D3, N3: on mainnet the «BETA» band takes 28 from the top, and in 800×440 «Open»
+/// under three wallets is still in sight without scrolling: below 640 px a wallet's row is 48
+/// and the password is 20 above «Open» (the designer's L1mS). In ru and ar too.
+#[test]
+fn on_mainnet_open_is_in_sight_under_the_band_in_the_smallest_window() {
+    for lang in ["en", "ru", "ar"] {
+        let (_turn, mut kit) = at("wallet-unlock", lang, LOW);
+        kit.state_mut().snapshot.as_mut().unwrap().network = evolite_api::Network::Mainnet;
+        kit.run_steps(4);
+        settle(&mut kit);
+        let open = crate::i18n::spoken("Open");
+        assert!(
+            in_sight(&kit, &open),
+            "{lang}: «{open}» below the edge under the band"
+        );
+        let rows: Vec<egui::Rect> = kit
+            .query_all_by(|n| {
+                n.role() == Role::RadioButton
+                    && !n
+                        .label()
+                        .is_some_and(|l| l.contains("Testnet") || l.contains("Mainnet"))
+            })
+            .map(|n| n.rect())
+            .collect();
+        assert_eq!(rows.len(), 3, "{lang}: three wallets");
+        for r in rows {
+            assert!(
+                (r.height() - 48.0).abs() < 0.5,
+                "{lang}: a row {} high",
+                r.height()
+            );
+        }
     }
 }

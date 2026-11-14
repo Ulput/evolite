@@ -32,24 +32,17 @@ pub(super) fn network(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut Set
             "evolite picks the nodes itself and checks everything they send. There is usually nothing to change here."
         )),
     );
-    // The network is chosen at the start (`--network mainnet`), never here: the control shows
-    // which one this run is on, and the other cannot be picked.
+    // Both networks can be picked (FEAT-0037, the customer's М3): the other one asks first,
+    // then evolite signs out of the wallet and opens that network's sign-in.
     let mainnet = cx.snap.network == evolite_api::Network::Mainnet;
     let mut net = usize::from(mainnet);
-    let (net_line, off) = if mainnet {
-        (
-            // No command lines here: a person does not start programs with flags.
-            tr!(
-                "Mainnet means real DASH. To go back to testnet, close evolite and open it as usual."
-            ),
-            [Some(tr!("Close evolite and open it as usual")), None],
+    let net_line = if mainnet {
+        tr!(
+            "Mainnet means real DASH; this is a beta. Switching signs you out of the wallet and opens the other network’s sign-in."
         )
     } else {
-        (
-            tr!(
-                "Testnet is for trying things out; its coins are worth nothing. Mainnet, with real DASH, is not switched on in this test build."
-            ),
-            [None, Some(tr!("Not in this test build"))],
+        tr!(
+            "Testnet is for trying things out; its coins are worth nothing. Switching signs you out of the wallet and opens the other network’s sign-in."
         )
     };
     let clicked = group(
@@ -60,7 +53,7 @@ pub(super) fn network(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut Set
             (
                 tr!("Network"),
                 net_line,
-                Control::SegmentedWithOff(&["Testnet", "Mainnet"], &mut net, &off),
+                Control::Segmented(&["Testnet", "Mainnet"], &mut net),
             ),
             (
                 tr!("Core nodes"),
@@ -74,6 +67,18 @@ pub(super) fn network(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut Set
             ),
         ],
     );
+    // N4: what this network does not have yet, from the network matrix (FEAT-0037).
+    if mainnet {
+        ui.add_space(24.0);
+        testnet_only(ui, a, cx.snap.network);
+    }
+    if net != usize::from(mainnet) {
+        state.switch_to = Some(if mainnet {
+            evolite_api::Network::Testnet
+        } else {
+            evolite_api::Network::Mainnet
+        });
+    }
     // the nodes behind the counts.
     match clicked {
         Some(1) => state.nodes = Some(super::NodesTab::Core),
@@ -357,6 +362,100 @@ fn clock(t: evolite_api::Timestamp) -> String {
     chrono::DateTime::from_timestamp(t, 0)
         .map(|d| d.with_timezone(&chrono::Local).format("%H:%M").to_string())
         .unwrap_or_default()
+}
+
+/// N4: «Testnet only for now» — what the network matrix leaves off on `network`, one row each,
+/// with what it is and a «testnet» chip. Help, not settings: the rows do not click.
+fn testnet_only(ui: &mut Ui, a: &mut Assets, network: evolite_api::Network) {
+    use evolite_api::features::{Feature, on};
+    let p = a.p;
+    // The Platform address's payments and top-ups are one row.
+    let rows: Vec<(&str, &str, &str)> = [
+        (
+            Feature::Tokens,
+            "token",
+            tr!("Tokens"),
+            tr!("Finding, balances and transfers of Dash Platform tokens"),
+        ),
+        (
+            Feature::Apps,
+            "apps",
+            tr!("Apps"),
+            tr!("Signing in to sites and apps with App Connect"),
+        ),
+        (
+            Feature::Collection,
+            "nft",
+            tr!("Collection"),
+            tr!("Jembe NFTs: their contract exists on testnet only"),
+        ),
+        (
+            Feature::PlatformAddressPayments,
+            "platform-address",
+            tr!("Payments from a Platform address"),
+            tr!("The address balance shows on the Overview; paying from it and topping it up from Core — testnet only for now"),
+        ),
+    ]
+    .into_iter()
+    .filter(|(feature, ..)| !on(*feature, network))
+    .map(|(_, icon, title, line)| (icon, title, line))
+    .collect();
+    if rows.is_empty() {
+        return;
+    }
+    ui.vertical(|ui| {
+        ui.spacing_mut().item_spacing.y = 8.0;
+        crate::components::section_label(ui, &p, tr!("Testnet only for now"));
+        ui.add(crate::components::para(
+            tr!("This mainnet version does without them for now; they come in later releases. On testnet everything works."),
+            12.0,
+            Weight::Regular,
+            p.muted,
+        ));
+        let width = ui.available_width();
+        crate::components::card(&p, egui::Margin::ZERO).show(ui, |ui| {
+            ui.set_width(width);
+            ui.spacing_mut().item_spacing.y = 0.0;
+            for (i, (icon, title, line)) in rows.into_iter().enumerate() {
+                if i > 0 {
+                    let (rule, _) = ui.allocate_exact_size(
+                        egui::vec2(ui.available_width(), 1.0),
+                        egui::Sense::hover(),
+                    );
+                    ui.painter().rect_filled(rule, 0, p.line);
+                }
+                egui::Frame::new()
+                    .inner_margin(egui::Margin::symmetric(16, 14))
+                    .show(ui, |ui| {
+                        ui.horizontal(|ui| {
+                            ui.spacing_mut().item_spacing.x = 12.0;
+                            let (tile, _) = ui
+                                .allocate_exact_size(egui::vec2(28.0, 28.0), egui::Sense::hover());
+                            crate::components::paint_icon_box(ui, a, tile, 7, icon, 16.0, p.muted);
+                            let text_w = (ui.available_width() - 100.0).max(160.0);
+                            ui.allocate_ui(egui::vec2(text_w, 0.0), |ui| {
+                                ui.vertical(|ui| {
+                                    ui.spacing_mut().item_spacing.y = 2.0;
+                                    ui.label(txt(title, 14.0, Weight::SemiBold, p.text));
+                                    ui.add(crate::components::para(
+                                        line,
+                                        12.0,
+                                        Weight::Regular,
+                                        p.muted,
+                                    ));
+                                });
+                            });
+                            ui.with_layout(
+                                egui::Layout::right_to_left(egui::Align::Center),
+                                |ui| {
+                                    crate::components::chip(ui, a, "testnet", "testnet", false);
+                                },
+                            );
+                        });
+                    });
+            }
+        });
+    });
 }
 
 #[cfg(test)]

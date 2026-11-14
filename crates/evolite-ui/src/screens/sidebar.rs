@@ -124,13 +124,27 @@ pub fn sidebar(
         egui::pos2(area.left(), area.bottom() - 60.0),
         egui::pos2(area.right(), area.bottom() - 20.0),
     );
+    // FEAT-0037 N3: the rail on mainnet has the network too, over Settings: a globe in a
+    // `danger` frame, 40 px and 8 above it (the wide menu has the chip beside Settings).
+    let rail_mainnet = rail && network == evolite_api::Network::Mainnet;
+    let net = rail_mainnet.then(|| {
+        egui::Rect::from_center_size(
+            egui::pos2(footer.right() - 20.0, footer.top() - 8.0 - 20.0),
+            vec2(40.0, 40.0),
+        )
+    });
+    let above = net.map_or(footer.top(), |r| r.top());
     let sync = egui::Rect::from_min_max(
-        egui::pos2(area.left(), footer.top() - 12.0 - sync_h),
-        egui::pos2(area.right(), footer.top() - 12.0),
+        egui::pos2(area.left(), above - 12.0 - sync_h),
+        egui::pos2(area.right(), above - 12.0),
     );
     let room = (sync.top() - 12.0 - ui.cursor().top()).max(40.0);
+    // What this network has (the network matrix, FEAT-0037).
     #[allow(unused_mut)]
-    let mut items = NAV.to_vec();
+    let mut items: Vec<_> = NAV
+        .into_iter()
+        .filter(|(screen, _, _)| super::shown_on(*screen, network))
+        .collect();
     #[cfg(test)]
     items.extend(more_items(ui.ctx()));
     let height = if compact { NAV_ITEM_LOW } else { NAV_ITEM };
@@ -193,6 +207,9 @@ pub fn sidebar(
             });
         },
     );
+    if let Some(rect) = net {
+        rail_network(ui, a, rect);
+    }
     let radius = egui::CornerRadius::same(12);
     ui.painter().rect(
         sync,
@@ -286,6 +303,39 @@ pub fn sidebar(
         let detail = ui.painter().layout(shown, font, p.muted, wrap);
         ui.painter()
             .galley(egui::pos2(x, sync.top() + 31.0), detail, p.muted);
+    }
+}
+
+/// The rail's network on mainnet (FEAT-0037 N3): a globe in a `danger` frame, «Mainnet · beta»
+/// on hover and on keyboard focus, and for the screen reader.
+fn rail_network(ui: &mut Ui, a: &mut Assets, rect: egui::Rect) {
+    let p = a.p;
+    let words = crate::i18n::t(tr!("Mainnet · beta")).into_owned();
+    let resp = ui.interact(
+        rect,
+        ui.id().with("rail-network"),
+        egui::Sense::hover() | egui::Sense::FOCUSABLE,
+    );
+    // Its name, not only its value: a Tab stop says what it is (the Tab sweep).
+    crate::components::named(&resp, egui::WidgetType::Label, true, tr!("Mainnet · beta"));
+    let spoken = crate::i18n::spoken(tr!("Mainnet · beta"));
+    ui.ctx()
+        .accesskit_node_builder(resp.id, |node| node.set_label(spoken));
+    ui.painter().rect(
+        rect,
+        10,
+        egui::Color32::TRANSPARENT,
+        Stroke::new(1.0, p.danger),
+        egui::StrokeKind::Inside,
+    );
+    a.icons.icon("mainnet", p.danger, &p, 20.0).paint_at(
+        ui,
+        egui::Rect::from_center_size(rect.center(), vec2(20.0, 20.0)),
+    );
+    if resp.has_focus() {
+        resp.show_tooltip_text(words);
+    } else {
+        resp.on_hover_text(words);
     }
 }
 

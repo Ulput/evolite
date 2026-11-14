@@ -143,6 +143,29 @@ pub fn report_start_failure(error: &eframe::Error, lang: crate::i18n::Lang) {
     show_message(&message);
 }
 
+/// The data folder is the other network's own (FEAT-0037 AC-T7): said, and nothing opened —
+/// opened as this network it would mix the two networks' wallets.
+pub fn refuse_wrong_folder(
+    dir: &std::path::Path,
+    network: evolite_api::Network,
+    lang: crate::i18n::Lang,
+) {
+    crate::i18n::set(lang);
+    // Network names are never translated; lowercase inside a sentence (the analyst, FEAT-0037).
+    let (here, theirs) = match network {
+        evolite_api::Network::Testnet => ("testnet", "mainnet"),
+        evolite_api::Network::Mainnet => ("mainnet", "testnet"),
+    };
+    let message = crate::i18n::t(&format!(
+        tr!("The folder {path} belongs to {network}, and evolite was started on {other}. Nothing was opened: start evolite on {network} or choose another folder."),
+        path = crate::i18n::own(&dir.display().to_string()),
+        network = theirs,
+        other = here
+    ))
+    .into_owned();
+    show_message(&message);
+}
+
 #[cfg(windows)]
 fn show_message(message: &str) {
     use windows_sys::Win32::UI::WindowsAndMessaging::{MB_ICONERROR, MB_OK, MessageBoxW};

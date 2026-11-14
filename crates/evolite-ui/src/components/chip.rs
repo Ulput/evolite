@@ -22,6 +22,114 @@ pub fn network_chip(ui: &mut Ui, a: &mut Assets, network: evolite_api::Network) 
     }
 }
 
+/// What a screen reader hears of a network in the switch: «Network: Testnet, 3 wallets», or
+/// «Network: Mainnet, no wallets» (FEAT-0037 AC-A8).
+pub fn network_spoken(name: &str, wallets: usize) -> String {
+    if wallets == 0 {
+        format!(tr!("Network: {}, no wallets"), name)
+    } else {
+        format!(
+            tr!("Network: {}, {}"),
+            name,
+            crate::text::plural(wallets as u32, tr!("wallet"), tr!("wallets"))
+        )
+    }
+}
+
+/// FEAT-0037 L1: the network switch of the sign-in screens — Testnet and Mainnet, each with its
+/// icon and how many wallets it has here (none: no number, 12 `muted`), the one open raised and
+/// SemiBold, in a track with a 1 px `line` as Settings' switches. `Some(the other)` when it is
+/// clicked; the one open does nothing.
+pub fn network_switch(
+    ui: &mut Ui,
+    a: &mut Assets,
+    here: evolite_api::Network,
+    wallets: [usize; 2],
+) -> Option<evolite_api::Network> {
+    use evolite_api::Network::{Mainnet, Testnet};
+    let p = a.p;
+    let items = [
+        (Testnet, "testnet", "Testnet", wallets[0]),
+        (Mainnet, "mainnet", "Mainnet", wallets[1]),
+    ];
+    let font = |on: bool| {
+        sans(
+            13.0,
+            if on {
+                Weight::SemiBold
+            } else {
+                Weight::Regular
+            },
+        )
+    };
+    let count_font = sans(12.0, Weight::Regular);
+    let widths: Vec<f32> = items
+        .iter()
+        .map(|(network, _, label, count)| {
+            let count = if *count > 0 {
+                6.0 + text_width(ui, &count.to_string(), count_font.clone())
+            } else {
+                0.0
+            };
+            10.0 + 14.0 + 6.0 + text_width(ui, label, font(*network == here)) + count + 10.0
+        })
+        .collect();
+    let total = 8.0 + widths.iter().sum::<f32>() + 4.0;
+    let (rect, _) = ui.allocate_exact_size(vec2(total, 36.0), Sense::hover());
+    ui.painter().rect(
+        rect,
+        CornerRadius::same(10),
+        p.bg,
+        Stroke::new(1.0, p.line),
+        StrokeKind::Inside,
+    );
+    let mut chosen = None;
+    let mut x = rect.left() + 4.0;
+    for ((network, icon, label, count), w) in items.into_iter().zip(widths) {
+        let item = Rect::from_min_size(pos2(x, rect.top() + 4.0), vec2(w, 28.0));
+        let on = network == here;
+        let resp = ui.interact(item, ui.id().with(("network-switch", icon)), Sense::click());
+        // A network's name is a name: not translated, its own run in Arabic (AC-A8).
+        let spoken = crate::i18n::spoken(&network_spoken(&crate::i18n::own(label), count));
+        resp.widget_info(|| {
+            egui::WidgetInfo::selected(egui::WidgetType::RadioButton, true, on, &spoken)
+        });
+        if on {
+            ui.painter()
+                .rect_filled(item, CornerRadius::same(7), p.raised);
+        }
+        let color = if on || resp.hovered() {
+            p.text
+        } else {
+            p.muted
+        };
+        let icon_at =
+            Rect::from_center_size(pos2(item.left() + 17.0, item.center().y), vec2(14.0, 14.0));
+        a.icons.icon(icon, color, &p, 14.0).paint_at(ui, icon_at);
+        let drawn = ui.painter().text(
+            pos2(item.left() + 30.0, item.center().y),
+            Align2::LEFT_CENTER,
+            label,
+            font(on),
+            color,
+        );
+        if count > 0 {
+            ui.painter().text(
+                pos2(drawn.right() + 6.0, item.center().y),
+                Align2::LEFT_CENTER,
+                count.to_string(),
+                count_font.clone(),
+                p.muted,
+            );
+        }
+        if !on && resp.on_hover_cursor(CursorIcon::PointingHand).clicked() {
+            chosen = Some(network);
+        }
+        x += w + 4.0;
+    }
+    chosen
+}
+
 fn chip_in(
     ui: &mut Ui,
     a: &mut Assets,
