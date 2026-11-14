@@ -30,6 +30,11 @@ impl Sandboxed {
             .is_ok()
     }
 
+    /// The worker's process id (BUG-168: a test follows it after its parent is gone).
+    pub fn id(&self) -> u32 {
+        self.child.lock().unwrap_or_else(|e| e.into_inner()).id()
+    }
+
     /// The exit code, once the worker has exited (a signal reads as 128 + its number).
     pub fn exit_code(&self) -> Option<u32> {
         use std::os::unix::process::ExitStatusExt;
