@@ -1689,5 +1689,8 @@
   "Remove": "削除",
   "{} network contract read|{} network contracts read": {
     "other": "ネットワークのコントラクトを {} 件読み込み済み"
-  }
+  },
+  "Checking balances: identity {} of {}": "残高を確認中: アイデンティティ {} / {}",
+  "Once the connection is back, the search goes on from the same place — no need to start over.": "接続が戻ると、検索は同じ場所から続きます — 最初からやり直す必要はありません。",
+  "evolite checks the network's contracts with proofs. You can leave this screen — the search goes on, and what it finds will appear here.": "evolite はネットワークのコントラクトを証明付きで確認します。この画面を離れても大丈夫です — 検索は続き、見つかったものはここに表示されます。"
 }

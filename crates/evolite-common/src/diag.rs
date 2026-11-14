@@ -174,6 +174,22 @@ pub enum Record {
         reason: &'static str,
         held: Option<evolite_api::Duffs>,
     },
+    /// A stage of the token search ended (BUG-136, the architect's measure): its name, fixed in
+    /// the code (`pages`, `ids`, `versions`, `contracts`, `balances`), its requests and its ms.
+    /// Counts only: no id, no token, no amount.
+    TokenSearchStage {
+        stage: &'static str,
+        requests: u32,
+        ms: u64,
+    },
+    /// A pass of the token search ended: the network's contracts, the token ids among them, the
+    /// identities whose balances were asked, and its ms. Counts only.
+    TokenSearchEnd {
+        contracts: u32,
+        tokens: u32,
+        identities: u32,
+        ms: u64,
+    },
 }
 
 impl Record {
@@ -273,6 +289,22 @@ impl Record {
             } => json!({
                 "k": "price", "what": what, "declared": declared, "actual": actual,
                 "enough": enough, "reason": reason, "held": held,
+            }),
+            Record::TokenSearchStage {
+                stage,
+                requests,
+                ms,
+            } => json!({
+                "k": "token_search_stage", "stage": stage, "requests": requests, "ms": ms,
+            }),
+            Record::TokenSearchEnd {
+                contracts,
+                tokens,
+                identities,
+                ms,
+            } => json!({
+                "k": "token_search_end", "contracts": contracts, "tokens": tokens,
+                "identities": identities, "ms": ms,
             }),
         }
     }
@@ -640,6 +672,40 @@ mod tests {
             assert_eq!(fields["ms"], 7);
             let line: serde_json::Value = serde_json::from_str(&record.line(UNIX_EPOCH)).unwrap();
             assert_eq!(line.as_object().unwrap().len(), 4, "{line}");
+        }
+    }
+
+    /// BUG-136: the token search's lines are counts and ms, nothing of the wallet.
+    #[test]
+    fn the_token_search_lines_are_counts_only() {
+        let stage = Record::TokenSearchStage {
+            stage: "pages",
+            requests: 42,
+            ms: 61_000,
+        };
+        let end = Record::TokenSearchEnd {
+            contracts: 4_190,
+            tokens: 1_322,
+            identities: 8,
+            ms: 150_000,
+        };
+        for (record, kind, names) in [
+            (
+                stage,
+                "token_search_stage",
+                &["k", "ms", "requests", "stage"][..],
+            ),
+            (
+                end,
+                "token_search_end",
+                &["contracts", "identities", "k", "ms", "tokens"][..],
+            ),
+        ] {
+            let fields = record.fields();
+            let mut keys: Vec<_> = fields.as_object().unwrap().keys().cloned().collect();
+            keys.sort();
+            assert_eq!(keys, names, "{fields}");
+            assert_eq!(fields["k"], kind);
         }
     }
 

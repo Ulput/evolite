@@ -1711,5 +1711,8 @@
     "one": "{} contrat du réseau lu",
     "many": "{} contrats du réseau lus",
     "other": "{} contrats du réseau lus"
-  }
+  },
+  "Checking balances: identity {} of {}": "Vérification des soldes : identité {} sur {}",
+  "Once the connection is back, the search goes on from the same place — no need to start over.": "Dès que la connexion revient, la recherche reprend au même endroit — inutile de recommencer.",
+  "evolite checks the network's contracts with proofs. You can leave this screen — the search goes on, and what it finds will appear here.": "evolite vérifie les contrats du réseau avec des preuves. Vous pouvez quitter cet écran — la recherche continue, et ce qu’elle trouve apparaîtra ici."
 }

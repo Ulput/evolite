@@ -7,7 +7,7 @@
 use std::future::Future;
 use std::time::Duration;
 
-use super::crawl::{Ask, Cache, Limits, Reply};
+use super::crawl::{Ask, Cache, Limits, Pass, Reply};
 use super::pace::{Pacer, Turn};
 
 /// How a step failed (see `chain::CrawlFailure`, which the real core maps to this).
@@ -36,15 +36,118 @@ pub const FAILURES: u32 = 3;
 /// The cache is written after this many answers, and when the pass ends.
 pub const SAVE_EVERY: u32 = 10;
 
+/// The stage of a pass (F): what its requests read.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Stage {
+    /// A first pass's pages of contracts with their bodies.
+    Pages,
+    /// The ids of the contracts.
+    Ids,
+    /// The versions of the contracts read.
+    Versions,
+    /// The contracts new or grown since.
+    Contracts,
+}
+
+impl Stage {
+    fn of(pass: &Pass) -> Option<Stage> {
+        match pass {
+            Pass::Idle => None,
+            Pass::Pages { .. } => Some(Stage::Pages),
+            Pass::Ids { .. } => Some(Stage::Ids),
+            Pass::Versions { .. } => Some(Stage::Versions),
+            Pass::Contracts => Some(Stage::Contracts),
+        }
+    }
+
+    /// Its name in the journal.
+    pub fn name(self) -> &'static str {
+        match self {
+            Stage::Pages => "pages",
+            Stage::Ids => "ids",
+            Stage::Versions => "versions",
+            Stage::Contracts => "contracts",
+        }
+    }
+}
+
 /// What the screen is told while the pass runs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Progress {
-    /// Ids read in this pass.
-    pub ids: u32,
-    /// Contracts still to read.
-    pub left: u32,
+    pub stage: Stage,
+    /// Contracts (ids, versions) done in this stage.
+    pub done: u32,
+    /// How many the stage has, once known; never less than `done`. `None` for a first pass's
+    /// pages: the network's count is unknown until the last page.
+    pub of: Option<u32>,
+    /// About how many requests the pass still makes, once they can be counted.
+    pub requests_left: Option<u32>,
+    /// Requests answered in this pass, and the ms since it began: its pace.
+    pub requests: u32,
+    pub ms: u64,
+    /// Requests answered in this stage, and the ms since it began (the journal's stage line).
+    pub stage_requests: u32,
+    pub stage_ms: u64,
     /// Paused by a node until this time (ms of the caller's clock).
     pub paused_until: Option<u64>,
+}
+
+/// One stage's count, from where it began.
+struct Tally {
+    stage: Stage,
+    done: u32,
+    of: Option<u32>,
+    requests: u32,
+    since: u64,
+}
+
+impl Tally {
+    /// The stage `cache` is in now, begun at `now`.
+    fn begin<P>(cache: &Cache<P>, now: u64) -> Option<Tally> {
+        let stage = Stage::of(&cache.pass)?;
+        let read = cache.ids.values().filter(|v| v.is_some()).count() as u32;
+        let of = match stage {
+            Stage::Pages => None,
+            Stage::Ids => Some(cache.ids.len() as u32),
+            Stage::Versions => Some(read),
+            Stage::Contracts => Some(cache.to_read.len() as u32),
+        };
+        Some(Tally {
+            stage,
+            done: 0,
+            of,
+            requests: 0,
+            since: now,
+        })
+    }
+}
+
+/// How many `ask` covers: what it counts towards its stage's `done`.
+fn counted<P>(ask: &Ask, reply: &Reply<P>) -> u32 {
+    let n = match (ask, reply) {
+        (_, Reply::Pages(page)) => page.len(),
+        (_, Reply::Ids(page)) => page.len(),
+        (Ask::Versions(ids) | Ask::Contracts(ids), _) => ids.len(),
+        _ => 0,
+    };
+    n as u32
+}
+
+/// The requests the pass still makes, as far as they can be counted now: none for pages.
+fn requests_left<P>(cache: &Cache<P>, tally: &Tally, limits: Limits) -> Option<u32> {
+    let per = |n: u32, by: usize| n.div_ceil(by.max(1) as u32);
+    let to_read = per(cache.to_read.len() as u32, limits.batch);
+    let read = cache.ids.values().filter(|v| v.is_some()).count() as u32;
+    let left = tally.of.unwrap_or(0).saturating_sub(tally.done);
+    match Stage::of(&cache.pass) {
+        None => Some(0),
+        Some(Stage::Pages) => None,
+        Some(Stage::Ids) => {
+            Some(per(left, limits.ids_page as usize) + per(read, limits.batch) + to_read)
+        }
+        Some(Stage::Versions) => Some(per(left, limits.batch) + to_read),
+        Some(Stage::Contracts) => Some(to_read),
+    }
 }
 
 /// Run the pass under way in `cache` (or begin one) until it is done, stopped or failed.
@@ -70,7 +173,9 @@ where
     let mut pacer = Pacer::new(vec![()], gap_ms);
     let mut failures = 0;
     let mut since_save = 0;
-    let mut ids = 0u32;
+    let began = now_ms();
+    let mut requests = 0u32;
+    let mut tally = Tally::begin(cache, began);
     let ended = loop {
         let Some(ask) = cache.ask(limits) else {
             break Ended::Done;
@@ -88,33 +193,45 @@ where
         }
         match step(ask.clone()).await {
             Ok(reply) => {
-                if let Reply::Ids(page) = &reply {
-                    ids = ids.saturating_add(page.len() as u32);
-                }
+                let n = counted(&ask, &reply);
                 if cache.take(&ask, reply, limits).is_err() {
                     failures += 1;
                 } else {
                     failures = 0;
+                    requests += 1;
                     since_save += 1;
                     if since_save >= SAVE_EVERY {
                         save(cache);
                         since_save = 0;
                     }
+                    if let Some(t) = tally.as_mut() {
+                        t.done = t.done.saturating_add(n);
+                        t.requests += 1;
+                        if t.stage == Stage::Contracts {
+                            // What was read, plus what is left to read.
+                            t.of = Some(t.done + cache.to_read.len() as u32);
+                        }
+                    }
                 }
-                progress(Progress {
-                    ids,
-                    left: cache.to_read.len() as u32,
-                    paused_until: None,
-                });
+                if let Some(t) = &tally {
+                    let now = now_ms();
+                    progress(told(t, cache, limits, (began, now, requests), None));
+                }
+                // A new stage begins its own count, told from its first answer on.
+                if let Some(stage) = Stage::of(&cache.pass)
+                    && tally.as_ref().is_none_or(|t| t.stage != stage)
+                {
+                    tally = Tally::begin(cache, now_ms());
+                }
             }
             Err(Failure::Slow(wait_for)) => {
                 let until = now_ms().saturating_add(wait_for.as_millis() as u64);
                 pacer.slow_down(&(), until);
-                progress(Progress {
-                    ids,
-                    left: cache.to_read.len() as u32,
-                    paused_until: pacer.all_paused_until(now_ms()),
-                });
+                if let Some(t) = &tally {
+                    let now = now_ms();
+                    let paused = pacer.all_paused_until(now);
+                    progress(told(t, cache, limits, (began, now, requests), paused));
+                }
             }
             Err(Failure::Failed(e)) => {
                 failures += 1;
@@ -130,6 +247,28 @@ where
     };
     save(cache);
     ended
+}
+
+/// What the screen is told: the stage's count and the pass's pace. `clock`: when the pass
+/// began, now, and the requests answered.
+fn told<P>(
+    tally: &Tally,
+    cache: &Cache<P>,
+    limits: Limits,
+    (began, now, requests): (u64, u64, u32),
+    paused_until: Option<u64>,
+) -> Progress {
+    Progress {
+        stage: tally.stage,
+        done: tally.done,
+        of: tally.of.map(|of| of.max(tally.done)),
+        requests_left: requests_left(cache, tally, limits),
+        requests,
+        ms: now.saturating_sub(began),
+        stage_requests: tally.requests,
+        stage_ms: now.saturating_sub(tally.since),
+        paused_until,
+    }
 }
 
 #[cfg(test)]
@@ -177,6 +316,18 @@ mod tests {
                 return Err(failure);
             }
             Ok(match ask {
+                Ask::Pages { after, limit } => Reply::Pages(
+                    self.contracts
+                        .iter()
+                        .filter(|(k, _)| after.is_none_or(|a| **k > a))
+                        .take(limit as usize)
+                        .map(|(k, v)| Read {
+                            id: *k,
+                            version: *v,
+                            tokens: (k[31] % 3 == 0).then(|| format!("T{}", k[31])),
+                        })
+                        .collect(),
+                ),
                 Ask::Ids { after, limit } => Reply::Ids(
                     self.contracts
                         .keys()
@@ -207,11 +358,11 @@ mod tests {
         cache: &mut Cache<String>,
         net: &Net,
         live: impl Fn() -> bool,
-    ) -> (Ended, Vec<Duration>, u32, Option<Progress>) {
+    ) -> (Ended, Vec<Duration>, u32, Vec<Progress>) {
         let clock = Cell::new(0u64);
         let waits = RefCell::new(Vec::new());
         let saves = Cell::new(0);
-        let last = Cell::new(None);
+        let seen = RefCell::new(Vec::new());
         let ended = futures_lite_block_on(pass(
             cache,
             LIMITS,
@@ -224,10 +375,10 @@ mod tests {
                 std::future::ready(())
             },
             live,
-            |p| last.set(Some(p)),
+            |p| seen.borrow_mut().push(p),
             |_| saves.set(saves.get() + 1),
         ));
-        (ended, waits.into_inner(), saves.get(), last.get())
+        (ended, waits.into_inner(), saves.get(), seen.into_inner())
     }
 
     /// The futures here are ready at once: one poll each.
@@ -246,21 +397,22 @@ mod tests {
     fn a_whole_pass_at_one_request_a_second() {
         let net = Net::new(7, Vec::new());
         let mut cache = Cache::default();
-        let (ended, waits, saves, last) = run(&mut cache, &net, || true);
+        let (ended, waits, saves, seen) = run(&mut cache, &net, || true);
         assert_eq!(ended, Ended::Done);
         assert_eq!(cache.passes, 1);
         assert_eq!(cache.tokens.len(), 2, "contracts 3 and 6");
-        // 3 pages of ids, 0 versions (nothing read before), 4 batches of contracts.
-        assert_eq!(net.asked.get(), 7);
+        // A first pass: 3 pages with their contracts (dev2-3), nothing else.
+        assert_eq!(net.asked.get(), 3);
         assert!(waits.iter().all(|w| *w <= Duration::from_secs(1)));
         let waited: Duration = waits.iter().sum();
         assert_eq!(
             waited,
-            Duration::from_secs(6),
+            Duration::from_secs(2),
             "one second between requests"
         );
         assert!(saves >= 1, "saved at the end");
-        assert_eq!(last.map(|p| (p.ids, p.left)), Some((7, 0)));
+        let last = seen.last().expect("progress");
+        assert_eq!((last.stage, last.done, last.of), (Stage::Pages, 7, None));
     }
 
     #[test]
@@ -287,7 +439,7 @@ mod tests {
         let net = Net::new(7, Vec::new());
         let (ended, _, _, _) = run(&mut cache, &net, || true);
         assert_eq!(ended, Ended::Done);
-        assert_eq!(net.asked.get(), 6, "the first page is not read again");
+        assert_eq!(net.asked.get(), 2, "the first page is not read again");
     }
 
     #[test]
@@ -309,5 +461,48 @@ mod tests {
             super::super::crawl::Pass::Idle,
             "a pass under way"
         );
+    }
+
+    /// F: the progress says the stage, how many it has done and of how many, once that is
+    /// known; never more done than in all (QA: «4 190 из 4 189»); and the requests left, once
+    /// they can be counted. A first pass's pages have no «of»: the network's count is unknown.
+    #[test]
+    fn the_progress_says_the_stage_and_its_count() {
+        let net = Net::new(7, Vec::new());
+        let mut cache = Cache::default();
+        let (_, _, _, seen) = run(&mut cache, &net, || true);
+        let pages: Vec<(Stage, u32, Option<u32>, Option<u32>)> = seen
+            .iter()
+            .map(|p| (p.stage, p.done, p.of, p.requests_left))
+            .collect();
+        assert_eq!(
+            pages,
+            [
+                (Stage::Pages, 3, None, None),
+                (Stage::Pages, 6, None, None),
+                (Stage::Pages, 7, None, Some(0)),
+            ]
+        );
+        assert_eq!(seen.last().map(|p| p.requests), Some(3));
+        // A later pass, two new contracts: ids, then versions, then the new ones.
+        let mut net = Net::new(9, Vec::new());
+        net.contracts.insert(id(3), 2);
+        let (ended, _, _, seen) = run(&mut cache, &net, || true);
+        assert_eq!(ended, Ended::Done);
+        for p in &seen {
+            assert!(p.of.is_some_and(|of| p.done <= of), "{p:?}");
+        }
+        let stages: Vec<Stage> = seen.iter().map(|p| p.stage).collect();
+        assert!(stages.contains(&Stage::Ids) && stages.contains(&Stage::Contracts));
+        let ids = seen.iter().rfind(|p| p.stage == Stage::Ids).unwrap();
+        assert_eq!((ids.done, ids.of), (9, Some(9)), "9 ids of 7 known before");
+        let read = seen.last().unwrap();
+        assert_eq!(read.stage, Stage::Contracts);
+        assert_eq!((read.done, read.of), (3, Some(3)), "8, 9 and the grown 3");
+        assert_eq!(read.requests_left, Some(0));
+        // Each stage says how many requests and how long it took, for the journal.
+        let versions = seen.iter().rfind(|p| p.stage == Stage::Versions).unwrap();
+        assert_eq!(versions.stage_requests, 4, "7 versions by 2");
+        assert!(versions.stage_ms >= 3_000, "a second between them");
     }
 }

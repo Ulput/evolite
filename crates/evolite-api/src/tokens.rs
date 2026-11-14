@@ -78,13 +78,26 @@ pub enum SearchState {
     Idle,
 }
 
+/// What a pass of the search is doing now (F, BUG-134/135).
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum SearchStage {
+    /// Reading the network's contracts: `checked` of `total`.
+    #[default]
+    Contracts,
+    /// Asking the balances of the tokens found, on identity `identity` of `of`.
+    Balances { identity: u32, of: u32 },
+}
+
 /// The search's progress and its last whole pass.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct TokenSearch {
     pub state: SearchState,
-    /// Contracts checked in the pass under way.
+    /// What the pass under way is doing.
+    pub stage: SearchStage,
+    /// Contracts checked in the stage under way.
     pub checked: u32,
-    /// All the network's contracts, once the list of their ids is read.
+    /// How many the stage has in all, once known; `None` while a first pass reads the network's
+    /// pages, whose count is unknown until the last one. Never less than `checked`.
     pub total: Option<u32>,
     /// About how long the pass still takes, once its pace is known.
     pub left_secs: Option<u32>,
@@ -100,6 +113,7 @@ impl TokenSearch {
     pub fn off() -> Self {
         TokenSearch {
             state: SearchState::Off,
+            stage: SearchStage::Contracts,
             checked: 0,
             total: None,
             left_secs: None,

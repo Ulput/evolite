@@ -8,6 +8,10 @@
 //! before are to be read. Then the latest versions of every contract read: a grown version is
 //! read again, with tokens or without, as an update may bring a token into a contract that had
 //! none (dpp `validate_update` v1; review r1, Should 1). Then the contracts to read, in batches.
+//!
+//! A first pass (nothing known yet) reads the pages with their contracts instead (dev2-3,
+//! `ids_only: false`): the ids and the contracts in one proved answer, about half the requests.
+//! There is nothing to ask the versions of, and nothing left to read after the pages.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -35,6 +39,8 @@ pub struct Known<P> {
 pub enum Pass {
     /// No pass under way.
     Idle,
+    /// A first pass: reading the pages of contracts, with their bodies, after `after`.
+    Pages { after: Option<Id> },
     /// Reading ids after `after` (`None`: from the first).
     Ids { after: Option<Id> },
     /// Asking the versions of the contracts read, after `after`.
@@ -61,7 +67,15 @@ pub struct Cache<P> {
 /// The next request.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Ask {
-    Ids { after: Option<Id>, limit: u32 },
+    /// A page of contracts with their bodies, after `after`.
+    Pages {
+        after: Option<Id>,
+        limit: u32,
+    },
+    Ids {
+        after: Option<Id>,
+        limit: u32,
+    },
     Versions(Vec<Id>),
     Contracts(Vec<Id>),
 }
@@ -77,6 +91,8 @@ pub struct Read<P> {
 /// The proved answer to an [`Ask`].
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Reply<P> {
+    /// Every contract of the page, in id order.
+    Pages(Vec<Read<P>>),
     Ids(Vec<Id>),
     Versions(Vec<(Id, u32)>),
     Contracts(Vec<Read<P>>),
@@ -99,10 +115,15 @@ impl<P> Default for Cache<P> {
 }
 
 impl<P> Cache<P> {
-    /// Start a pass, or go on with the one cut short.
+    /// Start a pass, or go on with the one cut short. With nothing known, the first pass reads
+    /// pages with their contracts; later ones ids, then versions, then what changed.
     pub fn begin(&mut self) {
         if self.pass == Pass::Idle {
-            self.pass = Pass::Ids { after: None };
+            self.pass = if self.ids.is_empty() {
+                Pass::Pages { after: None }
+            } else {
+                Pass::Ids { after: None }
+            };
         }
     }
 
@@ -110,6 +131,10 @@ impl<P> Cache<P> {
     pub fn ask(&self, limits: Limits) -> Option<Ask> {
         match &self.pass {
             Pass::Idle => None,
+            Pass::Pages { after } => Some(Ask::Pages {
+                after: *after,
+                limit: limits.ids_page,
+            }),
             Pass::Ids { after } => Some(Ask::Ids {
                 after: *after,
                 limit: limits.ids_page,
@@ -138,6 +163,24 @@ impl<P> Cache<P> {
             return Err(NotAsked);
         }
         match (asked, reply) {
+            (Ask::Pages { after, limit }, Reply::Pages(page)) => {
+                let after_asked = |r: &Read<P>| after.is_none_or(|a| r.id > a);
+                if page.len() > *limit as usize || !page.iter().all(after_asked) {
+                    return Err(NotAsked);
+                }
+                let last = page.iter().map(|r| r.id).max();
+                let full = page.len() == *limit as usize;
+                for r in page {
+                    self.ids.insert(r.id, Some(r.version));
+                    self.to_read.remove(&r.id);
+                    self.keep(r);
+                }
+                // A short page is the last one; nothing is left to ask the versions of.
+                self.pass = match last {
+                    Some(last) if full => Pass::Pages { after: Some(last) },
+                    _ => Pass::Contracts,
+                };
+            }
             (Ask::Ids { after, limit }, Reply::Ids(page)) => {
                 let after_asked = |id: &Id| after.is_none_or(|a| *id > a);
                 if page.len() > *limit as usize || !page.iter().all(after_asked) {
@@ -188,26 +231,31 @@ impl<P> Cache<P> {
                     if let Some(known) = self.ids.get_mut(&r.id) {
                         *known = Some(r.version);
                     }
-                    match r.tokens {
-                        Some(tokens) => {
-                            self.tokens.insert(
-                                r.id,
-                                Known {
-                                    version: r.version,
-                                    tokens,
-                                },
-                            );
-                        }
-                        None => {
-                            self.tokens.remove(&r.id);
-                        }
-                    }
+                    self.keep(r);
                 }
             }
             _ => return Err(NotAsked),
         }
         self.settle();
         Ok(())
+    }
+
+    /// A contract read: kept among those with tokens, or taken out of them.
+    fn keep(&mut self, r: Read<P>) {
+        match r.tokens {
+            Some(tokens) => {
+                self.tokens.insert(
+                    r.id,
+                    Known {
+                        version: r.version,
+                        tokens,
+                    },
+                );
+            }
+            None => {
+                self.tokens.remove(&r.id);
+            }
+        }
     }
 
     /// Past the stages with nothing left to ask; the pass ends when nothing is left to read.
@@ -265,9 +313,26 @@ mod tests {
             }
         }
 
+        fn read(&self, i: &Id) -> Read<String> {
+            let (version, tokens) = self.contracts[i].clone();
+            Read {
+                id: *i,
+                version,
+                tokens,
+            }
+        }
+
         fn answer(&mut self, ask: &Ask) -> Reply<String> {
             self.asked.push(ask.clone());
             match ask {
+                Ask::Pages { after, limit } => Reply::Pages(
+                    self.contracts
+                        .keys()
+                        .filter(|k| after.is_none_or(|a| **k > a))
+                        .take(*limit as usize)
+                        .map(|k| self.read(k))
+                        .collect(),
+                ),
                 Ask::Ids { after, limit } => Reply::Ids(
                     self.contracts
                         .keys()
@@ -281,19 +346,22 @@ mod tests {
                         .filter_map(|i| self.contracts.get(i).map(|c| (*i, c.0)))
                         .collect(),
                 ),
-                Ask::Contracts(ids) => Reply::Contracts(
-                    ids.iter()
-                        .map(|i| {
-                            let (version, tokens) = self.contracts[i].clone();
-                            Read {
-                                id: *i,
-                                version,
-                                tokens,
-                            }
-                        })
-                        .collect(),
-                ),
+                Ask::Contracts(ids) => Reply::Contracts(ids.iter().map(|i| self.read(i)).collect()),
             }
+        }
+
+        /// What was asked, by kind: pages, ids, versions, contracts.
+        fn kinds(&self) -> [usize; 4] {
+            let mut n = [0; 4];
+            for a in &self.asked {
+                n[match a {
+                    Ask::Pages { .. } => 0,
+                    Ask::Ids { .. } => 1,
+                    Ask::Versions(_) => 2,
+                    Ask::Contracts(_) => 3,
+                }] += 1;
+            }
+            n
         }
     }
 
@@ -312,8 +380,10 @@ mod tests {
         cache.tokens.values().map(|k| k.tokens.as_str()).collect()
     }
 
+    /// dev2-3: a first pass reads the pages of `getDataContractsByRange` with their contracts, so
+    /// the ids and the contracts come in one request: no list of ids, no versions, no batches.
     #[test]
-    fn a_first_pass_pages_through_every_id_and_keeps_the_contracts_with_tokens() {
+    fn a_first_pass_reads_pages_with_their_contracts() {
         let mut net = Net::new(7, &[2, 5, 7]);
         let mut cache = Cache::default();
         assert_eq!(cache.ask(LIMITS), None, "nothing before a pass begins");
@@ -322,34 +392,106 @@ mod tests {
         assert_eq!(cache.pass, Pass::Idle);
         assert_eq!(cache.passes, 1);
         assert_eq!(cache.ids.len(), 7);
+        assert!(cache.ids.values().all(|v| *v == Some(1)), "every one read");
         assert_eq!(found(&cache), ["T2", "T5", "T7"]);
         assert!(cache.to_read.is_empty());
-        // Pages of 3 after the last id: 1-3, 4-6, 7 (a short page ends the ids).
+        assert_eq!(net.kinds(), [3, 0, 0, 0], "three pages and nothing else");
+        // Pages of 3 after the last id: 1-3, 4-6, 7 (a short page ends them).
         let pages: Vec<Option<Id>> = net
             .asked
             .iter()
             .filter_map(|a| match a {
-                Ask::Ids { after, .. } => Some(*after),
+                Ask::Pages { after, .. } => Some(*after),
                 _ => None,
             })
             .collect();
         assert_eq!(pages, [None, Some(id(3)), Some(id(6))]);
-        // Every contract read once, two at a time.
-        let read: Vec<usize> = net
-            .asked
-            .iter()
-            .filter_map(|a| match a {
-                Ask::Contracts(ids) => Some(ids.len()),
-                _ => None,
+    }
+
+    /// A full last page is followed by an empty one, which ends the pages.
+    #[test]
+    fn an_empty_page_after_a_full_one_ends_the_pages() {
+        let mut net = Net::new(6, &[6]);
+        let mut cache = Cache::default();
+        cache.begin();
+        run(&mut cache, &mut net, 100);
+        assert_eq!(cache.passes, 1);
+        assert_eq!(found(&cache), ["T6"]);
+        assert_eq!(net.kinds(), [3, 0, 0, 0]);
+    }
+
+    /// Architect: a first pass cut short among the pages (a lock, no network) goes on from the
+    /// page after the last one taken; the pages taken are not read again, nothing is lost.
+    #[test]
+    fn a_first_pass_cut_among_the_pages_goes_on_from_the_next_page() {
+        let mut net = Net::new(8, &[2, 5, 7]);
+        let mut cache = Cache::default();
+        cache.begin();
+        run(&mut cache, &mut net, 1);
+        assert_eq!(cache.pass, Pass::Pages { after: Some(id(3)) });
+        assert_eq!(found(&cache), ["T2"], "the first page's token is kept");
+        let mut kept = cache.clone();
+        kept.begin();
+        assert_eq!(
+            kept.ask(LIMITS),
+            Some(Ask::Pages {
+                after: Some(id(3)),
+                limit: 3
             })
-            .collect();
-        assert_eq!(read, [2, 2, 2, 1]);
+        );
+        net.asked.clear();
+        run(&mut kept, &mut net, 100);
+        assert_eq!(found(&kept), ["T2", "T5", "T7"]);
+        assert_eq!(kept.passes, 1);
+        assert_eq!(net.kinds(), [2, 0, 0, 0], "pages 4-6 and 7-8 only");
+        assert_eq!(kept.ids.len(), 8);
+    }
+
+    /// A page that is not the one asked (an id at or before the cursor, or more than the limit)
+    /// is not taken.
+    #[test]
+    fn a_page_that_was_not_asked_is_not_taken() {
+        let mut net = Net::new(7, &[2]);
+        let mut cache = Cache::default();
+        cache.begin();
+        run(&mut cache, &mut net, 1);
+        let ask = cache.ask(LIMITS).expect("the second page");
+        let before = cache.clone();
+        let behind = Reply::Pages(vec![net.read(&id(2))]);
+        assert_eq!(cache.take(&ask, behind, LIMITS), Err(NotAsked));
+        let too_long = Reply::Pages((4..=7).map(|i| net.read(&id(i))).collect());
+        assert_eq!(cache.take(&ask, too_long, LIMITS), Err(NotAsked));
+        assert_eq!(cache, before);
+    }
+
+    /// A cache an older app left among its ids goes on as it began: by ids, then contracts.
+    #[test]
+    fn a_pass_begun_by_ids_goes_on_by_ids() {
+        let mut net = Net::new(7, &[2, 5, 7]);
+        let mut cache: Cache<String> = Cache {
+            ids: [(id(1), None), (id(2), None), (id(3), None)].into(),
+            to_read: [id(1), id(2), id(3)].into(),
+            pass: Pass::Ids { after: Some(id(3)) },
+            ..Cache::default()
+        };
+        cache.begin();
+        run(&mut cache, &mut net, 100);
+        assert_eq!(found(&cache), ["T2", "T5", "T7"]);
+        assert_eq!(cache.passes, 1);
+        assert_eq!(net.kinds()[0], 0, "no pages");
     }
 
     #[test]
     fn a_pass_cut_short_goes_on_from_its_last_id() {
-        let mut net = Net::new(7, &[2, 5, 7]);
+        // The second pass reads ids, then the new contracts.
+        let mut net = Net::new(4, &[2]);
         let mut cache = Cache::default();
+        cache.begin();
+        run(&mut cache, &mut net, 100);
+        for i in 5..=9 {
+            net.contracts
+                .insert(id(i), (1, (i % 2 == 1).then(|| format!("T{i}"))));
+        }
         cache.begin();
         run(&mut cache, &mut net, 1);
         assert_eq!(cache.pass, Pass::Ids { after: Some(id(3)) });
@@ -364,15 +506,28 @@ mod tests {
             })
         );
         run(&mut kept, &mut net, 100);
-        assert_eq!(found(&kept), ["T2", "T5", "T7"]);
-        assert_eq!(kept.passes, 1);
+        assert_eq!(found(&kept), ["T2", "T5", "T7", "T9"]);
+        assert_eq!(kept.passes, 2);
         // Cut short among the contracts: the ones read are not read again.
-        let mut net = Net::new(7, &[2, 5, 7]);
-        let mut cache = Cache::default();
+        let mut cache = kept.clone();
+        for i in 10..=14 {
+            net.contracts.insert(id(i), (1, None));
+        }
         cache.begin();
-        run(&mut cache, &mut net, 4);
+        loop {
+            let ask = cache.ask(LIMITS).expect("a pass");
+            let reply = net.answer(&ask);
+            cache.take(&ask, reply, LIMITS).unwrap();
+            if matches!(cache.ask(LIMITS), Some(Ask::Contracts(_))) {
+                break;
+            }
+        }
+        let ask = cache.ask(LIMITS).unwrap();
+        let reply = net.answer(&ask);
+        cache.take(&ask, reply, LIMITS).unwrap();
         assert_eq!(cache.pass, Pass::Contracts);
         let left = cache.to_read.len();
+        assert!(left > 0);
         let mut kept = cache.clone();
         kept.begin();
         let before = net.asked.len();
@@ -385,7 +540,7 @@ mod tests {
             })
             .sum();
         assert_eq!(read_after, left);
-        assert_eq!(found(&kept), ["T2", "T5", "T7"]);
+        assert_eq!(kept.passes, 3);
     }
 
     #[test]
@@ -459,8 +614,16 @@ mod tests {
             "a reply of another kind"
         );
         assert_eq!(cache, before);
-        // A contract the network did not ask about is not taken either.
-        run(&mut cache, &mut net, 3);
+        // A contract the network did not ask about is not taken either: a second pass, with
+        // new contracts to read after the ids and the versions.
+        run(&mut cache, &mut net, 100);
+        net.contracts.insert(id(8), (1, None));
+        cache.begin();
+        while !matches!(cache.ask(LIMITS), Some(Ask::Contracts(_)) | None) {
+            let ask = cache.ask(LIMITS).unwrap();
+            let reply = net.answer(&ask);
+            cache.take(&ask, reply, LIMITS).unwrap();
+        }
         if let Some(ask @ Ask::Contracts(_)) = cache.ask(LIMITS) {
             let stranger = Reply::Contracts(vec![Read {
                 id: id(99),

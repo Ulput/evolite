@@ -1700,5 +1700,8 @@
   "{} network contract read|{} network contracts read": {
     "one": "Ağın {} sözleşmesi okundu",
     "other": "Ağın {} sözleşmesi okundu"
-  }
+  },
+  "Checking balances: identity {} of {}": "Bakiyeler kontrol ediliyor: kimlik {}/{}",
+  "Once the connection is back, the search goes on from the same place — no need to start over.": "Bağlantı geri gelince arama aynı yerden sürer — baştan başlamak gerekmez.",
+  "evolite checks the network's contracts with proofs. You can leave this screen — the search goes on, and what it finds will appear here.": "evolite ağın sözleşmelerini kanıtlarla kontrol eder. Bu ekrandan çıkabilirsiniz — arama sürer ve bulunanlar burada görünür."
 }

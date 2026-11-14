@@ -1689,5 +1689,8 @@
   "Remove": "제거",
   "{} network contract read|{} network contracts read": {
     "other": "네트워크 컨트랙트 {}개 읽음"
-  }
+  },
+  "Checking balances: identity {} of {}": "잔액 확인 중: 신원 {}/{}",
+  "Once the connection is back, the search goes on from the same place — no need to start over.": "연결이 돌아오면 같은 지점부터 검색이 이어집니다 — 처음부터 다시 할 필요가 없습니다.",
+  "evolite checks the network's contracts with proofs. You can leave this screen — the search goes on, and what it finds will appear here.": "evolite가 네트워크의 컨트랙트를 증명과 함께 확인합니다. 이 화면을 떠나도 됩니다 — 검색은 계속되고, 찾은 것은 여기에 나타납니다."
 }

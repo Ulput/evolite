@@ -42,6 +42,7 @@ struct StoredKnown<P> {
 #[serde(tag = "at", rename_all = "snake_case")]
 enum StoredPass {
     Idle,
+    Pages { after: Option<String> },
     Ids { after: Option<String> },
     Versions { after: Option<String> },
     Contracts,
@@ -78,6 +79,9 @@ fn to_stored<P: Clone>(cache: &Cache<P>) -> Stored<P> {
         to_read: cache.to_read.iter().map(hex).collect(),
         pass: match &cache.pass {
             Pass::Idle => StoredPass::Idle,
+            Pass::Pages { after } => StoredPass::Pages {
+                after: after.as_ref().map(hex),
+            },
             Pass::Ids { after } => StoredPass::Ids {
                 after: after.as_ref().map(hex),
             },
@@ -124,6 +128,7 @@ fn from_stored<P>(stored: Stored<P>) -> Option<Cache<P>> {
         to_read: ids(stored.to_read)?,
         pass: match stored.pass {
             StoredPass::Idle => Pass::Idle,
+            StoredPass::Pages { after: a } => Pass::Pages { after: after(a)? },
             StoredPass::Ids { after: a } => Pass::Ids { after: after(a)? },
             StoredPass::Versions { after: a } => Pass::Versions { after: after(a)? },
             StoredPass::Contracts => Pass::Contracts,
@@ -190,6 +195,7 @@ mod tests {
         assert_eq!(load::<Vec<u16>>(&path), cache());
         for pass in [
             Pass::Idle,
+            Pass::Pages { after: Some(id(3)) },
             Pass::Ids { after: None },
             Pass::Versions { after: Some(id(2)) },
             Pass::Contracts,

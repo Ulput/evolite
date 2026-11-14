@@ -52,7 +52,7 @@ pub(in crate::real) struct TokenState {
     /// The search of the network for the wallet's tokens.
     pub(in crate::real) search: super::token_search::Search,
     /// The wallet's identities (base58), as of the last snapshot: whose tokens the search looks for.
-    identities: Mutex<Vec<String>>,
+    identities: Arc<Mutex<Vec<String>>>,
 }
 
 impl TokenState {
@@ -65,7 +65,7 @@ impl TokenState {
         let here = network == Network::Testnet;
         TokenState {
             search: super::token_search::Search::on(here, root),
-            identities: Mutex::default(),
+            identities: Arc::default(),
             seen: Arc::default(),
             facts: Arc::default(),
             reading: Arc::default(),
@@ -133,6 +133,17 @@ fn track(
 }
 
 impl TokenState {
+    /// The wallet's identities as the snapshots name them, for a task that asks at each request
+    /// (the search, C).
+    pub(in crate::real) fn identities_handle(&self) -> Arc<Mutex<Vec<String>>> {
+        self.identities.clone()
+    }
+
+    /// The last proved facts, for a task that makes them due ([`make_due`]).
+    pub(in crate::real) fn facts_handle(&self) -> Arc<Mutex<KnownFacts>> {
+        self.facts.clone()
+    }
+
     pub(in crate::real) fn identities(&self) -> Vec<String> {
         self.identities
             .lock()
@@ -175,9 +186,17 @@ impl Real {
             .tokens
             .identities
             .lock()
-            .unwrap_or_else(|e| e.into_inner()) = identities;
+            .unwrap_or_else(|e| e.into_inner()) = identities.clone();
         if self.tokens.search.due() {
             self.find_my_tokens(false);
+        }
+        // C: an identity found after the last pass is asked over the tokens it found; one found
+        // while a pass runs is asked at its end, and counted asked only then (review r1, P3 1).
+        if self.tokens.search.settled() {
+            let new = self.tokens.search.new_identities(&identities);
+            if !new.is_empty() {
+                self.balance_new_identities(new);
+            }
         }
         let tracked = file.all();
         let infos = self.tokens.infos(file, &tracked);
@@ -323,12 +342,7 @@ impl Real {
         let changed = result.is_ok();
         if changed {
             // A token just added is read with the next snapshot, not a minute later.
-            let mut facts = self.tokens.facts.lock().unwrap_or_else(|e| e.into_inner());
-            if let Some((_, at, _)) = facts.as_mut()
-                && let Some(earlier) = at.checked_sub(FACTS_EVERY)
-            {
-                *at = earlier;
-            }
+            make_due(&self.tokens.facts);
         }
         (
             Some(Event::Done {
@@ -770,7 +784,16 @@ mod untrack_tests {
 }
 
 /// The last proved facts the core keeps: of which identity, when read, and what.
-type KnownFacts = Option<(String, std::time::Instant, chain::TokenFacts)>;
+pub(in crate::real) type KnownFacts = Option<(String, std::time::Instant, chain::TokenFacts)>;
+
+/// The facts are read again with the next snapshot, not after [`FACTS_EVERY`].
+pub(in crate::real) fn make_due(facts: &Mutex<KnownFacts>) {
+    if let Some((_, at, _)) = facts.lock().unwrap_or_else(|e| e.into_inner()).as_mut()
+        && let Some(earlier) = at.checked_sub(FACTS_EVERY)
+    {
+        *at = earlier;
+    }
+}
 
 /// Review r1, Should 1: before signing, what the core already knows about `info` on
 /// `identity` — its balance, pause and freeze — must allow sending `amount`; Platform's refusal

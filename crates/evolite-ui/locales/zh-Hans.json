@@ -1689,5 +1689,8 @@
   "Remove": "移除",
   "{} network contract read|{} network contracts read": {
     "other": "已读取 {} 个网络合约"
-  }
+  },
+  "Checking balances: identity {} of {}": "正在检查余额：身份 {}/{}",
+  "Once the connection is back, the search goes on from the same place — no need to start over.": "连接恢复后，搜索会从同一位置继续 —— 无需从头开始。",
+  "evolite checks the network's contracts with proofs. You can leave this screen — the search goes on, and what it finds will appear here.": "evolite 用证明检查网络上的合约。你可以离开此页面 —— 搜索会继续，找到的内容会显示在这里。"
 }

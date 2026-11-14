@@ -202,6 +202,7 @@ pub fn demo_tokens(t: Timestamp) -> Tokens {
         rows,
         search: TokenSearch {
             state: SearchState::Idle,
+            stage: evolite_api::tokens::SearchStage::Contracts,
             checked: CONTRACTS,
             total: Some(CONTRACTS),
             left_secs: None,
@@ -279,6 +280,7 @@ pub fn step(search: &mut TokenSearch, secs: f32, now: Timestamp) -> bool {
     if fraction >= 1.0 {
         *search = TokenSearch {
             state: SearchState::Idle,
+            stage: evolite_api::tokens::SearchStage::Contracts,
             checked: CONTRACTS,
             total: Some(CONTRACTS),
             left_secs: None,

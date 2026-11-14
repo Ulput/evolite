@@ -1715,5 +1715,8 @@
     "one": "Прочитан {} контракт сети",
     "few": "Прочитано {} контракта сети",
     "many": "Прочитано {} контрактов сети"
-  }
+  },
+  "Checking balances: identity {} of {}": "Проверяем балансы: identity {} из {}",
+  "Once the connection is back, the search goes on from the same place — no need to start over.": "Как только связь вернётся, поиск продолжится с того же места — начинать сначала не придётся.",
+  "evolite checks the network's contracts with proofs. You can leave this screen — the search goes on, and what it finds will appear here.": "evolite проверяет контракты сети с доказательствами. Можно уйти с экрана — поиск продолжится, а найденное появится здесь."
 }

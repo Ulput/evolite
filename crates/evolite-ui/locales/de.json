@@ -1700,5 +1700,8 @@
   "{} network contract read|{} network contracts read": {
     "one": "{} Vertrag des Netzwerks gelesen",
     "other": "{} Verträge des Netzwerks gelesen"
-  }
+  },
+  "Checking balances: identity {} of {}": "Guthaben werden geprüft: Identität {} von {}",
+  "Once the connection is back, the search goes on from the same place — no need to start over.": "Sobald die Verbindung zurück ist, geht die Suche an derselben Stelle weiter — von vorn beginnen ist nicht nötig.",
+  "evolite checks the network's contracts with proofs. You can leave this screen — the search goes on, and what it finds will appear here.": "evolite prüft die Verträge des Netzes mit Beweisen. Sie können diesen Bildschirm verlassen — die Suche läuft weiter, und was sie findet, erscheint hier."
 }

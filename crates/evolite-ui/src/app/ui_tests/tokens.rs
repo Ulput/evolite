@@ -332,3 +332,26 @@ fn the_first_search_says_what_it_counts() {
     assert!(has_text(&kit, "Looking for your tokens on the network…"));
     assert!(has_text(&kit, "1,840 network contracts read"));
 }
+
+/// F and the design review of pass 22: each stage says what it does. The balances say which
+/// identity; a repeated search keeps the list and is not called the first; a first search stopped
+/// before the network's count is known makes up no total.
+#[test]
+fn every_stage_of_the_search_says_what_it_does() {
+    {
+        let (_turn, mut kit) = demo_app("tokens-balances", "en");
+        kit.run_steps(3);
+        assert!(has_text(&kit, "Checking balances: identity 3 of 8"));
+    }
+    {
+        let (_turn, mut kit) = demo_app("tokens-again", "en");
+        kit.run_steps(3);
+        assert!(has_text(&kit, "Looking for your tokens on the network…"));
+        assert!(!has_words(&kit, "The first search"), "not the first");
+        assert!(has_text(&kit, "Evo Coffee"), "the list stays");
+    }
+    let (_turn, mut kit) = demo_app("tokens-no-network-first", "en");
+    kit.run_steps(3);
+    assert!(has_text(&kit, "1,840 network contracts read"));
+    assert!(!has_words(&kit, "1,840 of 1,840"), "no total made up");
+}

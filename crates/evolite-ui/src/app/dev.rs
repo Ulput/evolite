@@ -121,11 +121,14 @@ impl PausePreset {
 
 /// The `--screen` presets of the tokens screen that change the snapshot (design T1, T5, T4, T4b,
 /// T3, T7).
-const TOKEN_STATES: [&str; 9] = [
+const TOKEN_STATES: [&str; 12] = [
     "tokens-review",
     "tokens-send-credits",
     "tokens-first-search",
     "tokens-first-count",
+    "tokens-balances",
+    "tokens-again",
+    "tokens-no-network-first",
     "tokens-pause",
     "tokens-no-network",
     "tokens-refresh-failed",
@@ -1100,6 +1103,7 @@ fn tokens_state(s: &mut evolite_api::Snapshot, name: &str) {
     let at = chrono::Local::now().timestamp();
     let first = |state| TokenSearch {
         state,
+        stage: evolite_api::tokens::SearchStage::Contracts,
         checked: 1_840,
         total: Some(4_175),
         left_secs: Some(60),
@@ -1118,6 +1122,34 @@ fn tokens_state(s: &mut evolite_api::Snapshot, name: &str) {
                 total: None,
                 left_secs: None,
                 ..first(SearchState::Running)
+            };
+        }
+        // F: after the contracts, the balances of what was found, identity by identity.
+        "tokens-balances" => {
+            w.tokens.rows.clear();
+            w.tokens.search = TokenSearch {
+                stage: evolite_api::tokens::SearchStage::Balances { identity: 3, of: 8 },
+                checked: 4_175,
+                total: Some(4_175),
+                left_secs: None,
+                ..first(SearchState::Running)
+            };
+        }
+        // A repeated search: the list stays, and it is not called the first (design review).
+        "tokens-again" => {
+            let done = w.tokens.search.done;
+            w.tokens.search = TokenSearch {
+                done,
+                ..first(SearchState::Running)
+            };
+        }
+        // T4 before the network's count is known: no total made up.
+        "tokens-no-network-first" => {
+            w.tokens.rows.clear();
+            w.tokens.search = TokenSearch {
+                total: None,
+                left_secs: None,
+                ..first(SearchState::NoNetwork)
             };
         }
         "tokens-pause" => {

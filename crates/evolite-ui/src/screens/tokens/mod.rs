@@ -18,7 +18,7 @@ use egui::{
     Align, CornerRadius, Layout, Margin, Rect, RichText, Sense, Stroke, StrokeKind, Ui, vec2,
 };
 use evolite_api::tokens::{
-    SearchState, Sender, TokenInfo, TokenOrigin, TokenRefusal, TokenRow, TokenSearch,
+    SearchStage, SearchState, Sender, TokenInfo, TokenOrigin, TokenRefusal, TokenRow, TokenSearch,
 };
 use evolite_api::{
     Command, CoreError, KeyKind, KeyLevel, KeyPurpose, Network, ResolvedName, Wallet,
@@ -118,20 +118,27 @@ pub(crate) fn issuer(info: &TokenInfo) -> String {
     }
 }
 
+/// `text` in the interface language, in reading order: for a line put together from pieces and
+/// drawn by `txt`, which turns it to visual order once. Pieces already in visual order (`t`),
+/// joined and turned again, swap places in Arabic (design review of perf).
+fn reading(text: &str) -> String {
+    crate::i18n::t_in(crate::i18n::current(), text).into_owned()
+}
+
 /// «id 7Hq2…9fLm · issued by @evo-lab» (+ «· added by hand»).
 pub(crate) fn id_line(info: &TokenInfo, by_hand: bool) -> String {
     // The pieces are translated here: the whole line is no catalog key.
-    let issued = crate::i18n::t(&format!(
+    // In reading order: `txt` turns the whole line to visual order once (design review of perf).
+    let issued = reading(&format!(
         tr!("issued by {}"),
         crate::i18n::own(&issuer(info))
-    ))
-    .into_owned();
+    ));
     // «id 7Hq2…q8Rs» one isolated left-to-right run, as @names are (BUG-119, design r3 R3-3).
     let id = crate::i18n::own(&format!("id {}", state::short(&info.token_id)));
     let mut line = format!("{id} · {issued}");
     if by_hand {
         line.push_str(" · ");
-        line.push_str(&crate::i18n::t(tr!("added by hand")));
+        line.push_str(&reading(tr!("added by hand")));
     }
     line
 }
@@ -161,7 +168,9 @@ fn tile(ui: &mut Ui, a: &mut Assets, icon: &str, color: egui::Color32) {
 }
 
 /// The search's bar: 6 high, the track `raised`, the part done in `fill`. `None`: the share is
-/// unknown (BUG-132), and a third of the track runs along it. With the system's animations off
+/// unknown (BUG-132), and a third of the track runs along it. In Arabic it runs from the right,
+/// as the fill grows from there: `rtl::Mirror` turns the whole frame over (design review of
+/// perf). With the system's animations off
 /// the track stays empty: a third standing still would read as a share (design review), and
 /// the line under it says how many were read.
 fn bar(ui: &mut Ui, track: egui::Color32, fill: egui::Color32, fraction: Option<f32>) {
@@ -431,28 +440,34 @@ fn identity_row(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx) {
 /// «1 840 of 4 175 contracts · about a minute left», or «1 840 network contracts read» while the
 /// network's count is unknown (BUG-132): the time only once the pace is known.
 pub(crate) fn progress_text(search: &TokenSearch) -> String {
+    // F (BUG-135): after the contracts, the balances of what was found, identity by identity.
+    if let SearchStage::Balances { identity, of } = search.stage {
+        return reading(&format!(
+            tr!("Checking balances: identity {} of {}"),
+            identity, of
+        ));
+    }
     let checked = crate::format::count(search.checked as u64);
     let mut line = match search.total {
-        Some(total) => crate::i18n::t(&format!(
+        // Never more checked than in all (QA: «4 190 of 4 189»).
+        Some(total) => reading(&format!(
             tr!("{} of {} contracts"),
             checked,
-            crate::format::count(total as u64)
-        ))
-        .into_owned(),
+            crate::format::count(total.max(search.checked) as u64)
+        )),
         // BUG-132: what is counted, while the network's count is unknown.
-        None => crate::i18n::t(&grouped_plural(
+        None => reading(&grouped_plural(
             search.checked,
             tr!("network contract read"),
             tr!("network contracts read"),
-        ))
-        .into_owned(),
+        )),
     };
     if let Some(left) = search.left_secs.filter(|s| *s > 0) {
         line.push_str(" · ");
         if left < 90 {
-            line.push_str(&crate::i18n::t(tr!("about a minute left")));
+            line.push_str(&reading(tr!("about a minute left")));
         } else {
-            line.push_str(&crate::i18n::t(&format!(
+            line.push_str(&reading(&format!(
                 tr!("about {} min left"),
                 left.div_ceil(60)
             )));
@@ -470,10 +485,49 @@ fn grouped_plural(n: u32, one: &str, other: &str) -> String {
 
 /// The share of the network's contracts checked; `None` while their count is unknown.
 fn checked_share(search: &TokenSearch) -> Option<f32> {
+    if let SearchStage::Balances { identity, of } = search.stage {
+        return Some(if of > 0 {
+            (identity as f32 / of as f32).clamp(0.0, 1.0)
+        } else {
+            1.0
+        });
+    }
     match search.total {
         Some(total) if total > 0 => Some((search.checked as f32 / total as f32).clamp(0.0, 1.0)),
         Some(_) => Some(0.0),
         None => None,
+    }
+}
+
+/// The words under «Looking for your tokens»: the time of a first search only (design review of
+/// pass 22: a repeated search was called the first).
+pub(crate) fn searching_words(search: &TokenSearch) -> &'static str {
+    if search.done.is_some() {
+        tr!(
+            "evolite checks the network's contracts with proofs. You can leave this screen — the search goes on, and what it finds will appear here."
+        )
+    } else {
+        tr!(
+            "The first search takes about 2 minutes: evolite checks the network's contracts with proofs. You can leave this screen — the search goes on, and what it finds will appear here."
+        )
+    }
+}
+
+/// T4's words: «Checked N of M» once M is known; before that, the line above says how many
+/// were read, and no total is made up.
+pub(crate) fn stopped_words(search: &TokenSearch) -> String {
+    let again = tr!(
+        "Once the connection is back, the search goes on from the same place — no need to start over."
+    );
+    match search.total {
+        Some(total) => format!(
+            tr!(
+                "Checked {} of {} contracts. Once the connection is back, the search goes on from the same place — no need to start over."
+            ),
+            crate::format::count(search.checked as u64),
+            crate::format::count(total.max(search.checked) as u64)
+        ),
+        None => again.to_owned(),
     }
 }
 
@@ -493,13 +547,7 @@ fn searching(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, search: &TokenSearch) {
                 p.text,
             ));
         });
-        para(
-            ui,
-            tr!("The first search takes about 2 minutes: evolite checks the network's contracts with proofs. You can leave this screen — the search goes on, and what it finds will appear here."),
-            12.0,
-            p.muted,
-            None,
-        );
+        para(ui, searching_words(search), 12.0, p.muted, None);
         bar(ui, p.raised, p.accent, checked_share(search));
         match search.state {
             SearchState::Paused { until } => {
@@ -548,20 +596,22 @@ fn no_network(ui: &mut Ui, a: &mut Assets, search: &TokenSearch) -> bool {
         });
         // The part checked stays shown, muted (review 3c).
         // Stopped: the bar stands, even while the share is unknown.
-        bar(ui, p.raised, p.muted, Some(checked_share(search).unwrap_or(0.0)));
-        ui.label(txt(&progress_text(&TokenSearch { left_secs: None, ..search.clone() }), 12.0, Weight::Regular, p.muted));
-        let total = search.total.unwrap_or(search.checked);
-        para(
+        bar(
             ui,
-            &format!(
-                tr!("Checked {} of {} contracts. Once the connection is back, the search goes on from the same place — no need to start over."),
-                crate::format::count(search.checked as u64),
-                crate::format::count(total as u64)
-            ),
-            12.0,
+            p.raised,
             p.muted,
-            None,
+            Some(checked_share(search).unwrap_or(0.0)),
         );
+        ui.label(txt(
+            &progress_text(&TokenSearch {
+                left_secs: None,
+                ..search.clone()
+            }),
+            12.0,
+            Weight::Regular,
+            p.muted,
+        ));
+        para(ui, &stopped_words(search), 12.0, p.muted, None);
         retry = button(ui, a, tr!("Retry now"), ButtonKind::Secondary, None).clicked();
     });
     retry
@@ -844,6 +894,7 @@ mod progress_tests {
     fn search(checked: u32, total: Option<u32>, left_secs: Option<u32>) -> TokenSearch {
         TokenSearch {
             state: SearchState::Running,
+            stage: evolite_api::tokens::SearchStage::Contracts,
             checked,
             total,
             left_secs,
@@ -893,5 +944,94 @@ mod progress_tests {
             "Прочитано 1\u{a0}842 контракта сети"
         );
         crate::i18n::set(crate::i18n::Lang::En);
+    }
+
+    /// F (BUG-135): while the balances are asked, the line says so and which identity.
+    #[test]
+    fn the_balances_stage_says_which_identity() {
+        let balances = TokenSearch {
+            stage: evolite_api::tokens::SearchStage::Balances { identity: 3, of: 8 },
+            ..search(4_190, Some(4_190), None)
+        };
+        crate::i18n::set(crate::i18n::Lang::En);
+        assert_eq!(
+            progress_text(&balances),
+            "Checking balances: identity 3 of 8"
+        );
+        assert_eq!(checked_share(&balances), Some(3.0 / 8.0));
+        crate::i18n::set(crate::i18n::Lang::Ru);
+        assert_eq!(
+            progress_text(&balances),
+            "Проверяем балансы: identity 3 из 8"
+        );
+        crate::i18n::set(crate::i18n::Lang::En);
+    }
+
+    /// Design review of pass 22 (QA's frame): never more checked than in all, «4 190 of 4 189».
+    #[test]
+    fn never_more_checked_than_in_all() {
+        crate::i18n::set(crate::i18n::Lang::En);
+        let n = crate::format::count(4_190);
+        assert_eq!(
+            progress_text(&search(4_190, Some(4_189), None)),
+            format!("{n} of {n} contracts")
+        );
+        assert_eq!(checked_share(&search(4_190, Some(4_189), None)), Some(1.0));
+    }
+
+    /// T4 while the network's count is unknown: no «Checked N of N» (the count is the line above).
+    #[test]
+    fn a_stopped_first_search_does_not_make_up_a_total() {
+        crate::i18n::set(crate::i18n::Lang::En);
+        assert_eq!(
+            stopped_words(&search(1_840, None, None)),
+            "Once the connection is back, the search goes on from the same place — no need to start over."
+        );
+        let n = |c| crate::format::count(c);
+        assert_eq!(
+            stopped_words(&search(1_840, Some(4_175), None)),
+            format!(
+                "Checked {} of {} contracts. Once the connection is back, the search goes on from the same place — no need to start over.",
+                n(1_840),
+                n(4_175)
+            )
+        );
+    }
+
+    /// Design review of pass 22 (QA's frame): a repeated search does not promise «the first
+    /// search takes about 2 minutes».
+    #[test]
+    fn a_repeated_search_is_not_called_the_first() {
+        let first = search(100, None, None);
+        assert!(searching_words(&first).starts_with("The first search"));
+        let again = TokenSearch {
+            done: Some((0, 4_175)),
+            ..first
+        };
+        assert!(
+            !searching_words(&again).contains("first"),
+            "{}",
+            searching_words(&again)
+        );
+    }
+
+    /// Design review of perf (ar): «N of M contracts · about a minute left» reads count first in
+    /// Arabic too. The line is put together in reading order and turned to visual order once,
+    /// where it is drawn; pieces already in visual order, joined and turned again, swapped places.
+    #[test]
+    fn the_progress_line_reads_count_first_in_arabic() {
+        use crate::i18n::{Lang, t, t_in};
+        crate::i18n::set(Lang::Ar);
+        let s = search(1_840, Some(4_175), Some(60));
+        let count = t_in(Lang::Ar, "1,840 of 4,175 contracts").into_owned();
+        let time = t_in(Lang::Ar, "about a minute left").into_owned();
+        assert!(
+            count.chars().any(crate::i18n::is_rtl_char),
+            "translated: {count}"
+        );
+        let drawn = t(&progress_text(&s)).into_owned();
+        let read = t(&format!("{count} · {time}")).into_owned();
+        crate::i18n::set(Lang::En);
+        assert_eq!(drawn, read);
     }
 }

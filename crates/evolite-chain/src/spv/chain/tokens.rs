@@ -303,11 +303,13 @@ fn failure(error: dash_sdk::Error) -> CrawlFailure {
 
 impl Chain {
     /// The proved answer to one step of the search ([`crawl::Ask`]). One request, no retries and
-    /// no ban: the search keeps its own pace ([`crate::platform::tokens::pace`]).
+    /// no ban: the search keeps its own pace ([`crate::platform::tokens::pace`]). With it, the
+    /// contracts read that carry tokens, as [`Found`]: the search follows the ones the wallet
+    /// holds from them, without reading them again (dev2-4).
     pub async fn crawl_step(
         &self,
         ask: &crate::platform::tokens::crawl::Ask,
-    ) -> Result<crate::platform::tokens::crawl::Reply<CrawlTokens>, CrawlFailure> {
+    ) -> Result<(crate::platform::tokens::crawl::Reply<CrawlTokens>, Found), CrawlFailure> {
         use crate::platform::tokens::crawl::{Ask, Read, Reply};
         use dash_sdk::RequestSettings;
         use dash_sdk::platform::FetchMany;
@@ -325,7 +327,41 @@ impl Chain {
         settings.ban_failed_address = Some(false);
         settings.retries = Some(0);
         let id = |bytes: &[u8; 32]| Identifier::from(*bytes);
-        match ask {
+        let mut found = Found::default();
+        // A contract read with its proof: what the crawl keeps of it, and its tokens found.
+        let mut read = |id: Identifier, contract: &DataContract| {
+            found.add(contract, None);
+            let tokens: Vec<String> = info::tokens_of(contract)
+                .into_iter()
+                .map(|t| t.token_id)
+                .collect();
+            Read {
+                id: id.to_buffer(),
+                version: contract.version(),
+                tokens: (!tokens.is_empty()).then_some(tokens),
+            }
+        };
+        let reply = match ask {
+            Ask::Pages { after, limit } => {
+                let query = DataContractsByRangeQuery {
+                    start: after.map(|a| DataContractsByRangeStart::After(id(&a))),
+                    limit: Some(*limit),
+                    ids_only: false,
+                };
+                let page = DataContractsByRange::fetch_with_settings(&sdk, query, settings)
+                    .await
+                    .map_err(failure)?
+                    .unwrap_or_default();
+                // Bodies only from the proved page: `verify_contracts_by_range` checked them.
+                let mut reads = Vec::with_capacity(page.0.len());
+                for (k, contract) in page.0 {
+                    let contract = contract.ok_or_else(|| {
+                        CrawlFailure::Failed("a page came without its contracts".into())
+                    })?;
+                    reads.push(read(k, &contract));
+                }
+                Reply::Pages(reads)
+            }
             Ask::Ids { after, limit } => {
                 let query = DataContractsByRangeQuery {
                     start: after.map(|a| DataContractsByRangeStart::After(id(&a))),
@@ -336,7 +372,7 @@ impl Chain {
                     .await
                     .map_err(failure)?
                     .unwrap_or_default();
-                Ok(Reply::Ids(page.0.keys().map(|k| k.to_buffer()).collect()))
+                Reply::Ids(page.0.keys().map(|k| k.to_buffer()).collect())
             }
             Ask::Versions(ids) => {
                 let ids: Vec<Identifier> = ids.iter().map(id).collect();
@@ -344,13 +380,13 @@ impl Chain {
                     DataContractLatestVersion::fetch_many_with_metadata(&sdk, ids, Some(settings))
                         .await
                         .map_err(failure)?;
-                Ok(Reply::Versions(
+                Reply::Versions(
                     versions
                         .0
                         .iter()
                         .filter_map(|(k, v)| Some((k.to_buffer(), v.as_ref()?.version)))
                         .collect(),
-                ))
+                )
             }
             Ask::Contracts(ids) => {
                 let ids: Vec<Identifier> = ids.iter().map(id).collect();
@@ -358,25 +394,15 @@ impl Chain {
                     DataContract::fetch_many_with_metadata(&sdk, ids, Some(settings))
                         .await
                         .map_err(failure)?;
-                Ok(Reply::Contracts(
+                Reply::Contracts(
                     contracts
                         .into_iter()
-                        .filter_map(|(k, contract)| {
-                            let contract = contract?;
-                            let tokens: Vec<String> = info::tokens_of(&contract)
-                                .into_iter()
-                                .map(|t| t.token_id)
-                                .collect();
-                            Some(Read {
-                                id: k.to_buffer(),
-                                version: contract.version(),
-                                tokens: (!tokens.is_empty()).then_some(tokens),
-                            })
-                        })
+                        .filter_map(|(k, contract)| Some(read(k, &contract?)))
                         .collect(),
-                ))
+                )
             }
-        }
+        };
+        Ok((reply, found))
     }
 }
 
