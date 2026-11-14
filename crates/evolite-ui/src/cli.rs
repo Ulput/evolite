@@ -138,6 +138,9 @@ pub struct DevLaunch {
     pub real_shot: bool,
     /// `--window <W>x<H>`: the window's size in points, for screenshots of small screens.
     pub window: Option<[f32; 2]>,
+    /// `--stop-after <step>`: the real core ends the process after that step of an operation,
+    /// for QA to continue it every time (BUG-160). `main` knows the steps.
+    pub stop_after: Option<String>,
 }
 
 #[cfg(feature = "dev-tools")]
@@ -502,6 +505,7 @@ fn dev_args<'a>(
             let (w, h) = s.split_once('x')?;
             Some([w.parse().ok()?, h.parse().ok()?])
         }),
+        stop_after: arg("--stop-after").map(str::to_owned),
     };
     (core, screen, dev)
 }
@@ -627,6 +631,16 @@ mod tests {
             launch("--network mainnet --data-dir /tmp/x").core,
             CoreChoice::Real(dir) if dir == std::path::Path::new("/tmp/x")
         ));
+    }
+
+    /// BUG-160: `--stop-after asset-lock` reaches `main` with the real core; nothing without it.
+    #[cfg(feature = "dev-tools")]
+    #[test]
+    fn a_stop_after_a_step_is_read() {
+        let l = launch("--data-dir /tmp/x --stop-after asset-lock");
+        assert!(matches!(l.core, CoreChoice::Real(_)));
+        assert_eq!(l.dev.stop_after.as_deref(), Some("asset-lock"));
+        assert_eq!(launch("--data-dir /tmp/x").dev.stop_after, None);
     }
 
     #[cfg(feature = "dev-tools")]

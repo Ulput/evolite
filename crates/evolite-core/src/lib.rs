@@ -50,6 +50,26 @@ pub mod price;
 #[cfg(feature = "real")]
 mod real;
 
+/// QA's deterministic interruptions (dev-tools only, BUG-160).
+#[cfg(feature = "dev-stops")]
+pub mod dev_stop {
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    static AFTER_ASSET_LOCK: AtomicBool = AtomicBool::new(false);
+
+    /// `--stop-after asset-lock`: a top-up of the Platform address from Core ends the process
+    /// once its lock is broadcast, proved and stored, before Platform is asked — a funding cut
+    /// short, every time, for «Continue» (FEAT-0015 AC-T5, AC-T6).
+    pub fn after_asset_lock() {
+        AFTER_ASSET_LOCK.store(true, Ordering::Relaxed);
+    }
+
+    #[cfg(feature = "real")]
+    pub(crate) fn wanted_after_asset_lock() -> bool {
+        AFTER_ASSET_LOCK.load(Ordering::Relaxed)
+    }
+}
+
 use evolite_api::{Command, Event};
 #[cfg(feature = "real")]
 use std::path::PathBuf;

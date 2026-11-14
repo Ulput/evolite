@@ -30,7 +30,7 @@ pool = ["real", "evolite-core/pool"]
 # Tools for screenshots and checks, off in the release: `--screen`, `--open`, `--screenshot`,
 # `--window`, `--demo`, `EVOLITE_SHOT_PASSWORD`, the Figma presets and the demo core beside
 # the real one. `cargo run --features dev-tools -- --screen overview`.
-dev-tools = ["evolite-core/demo"]
+dev-tools = ["evolite-core/demo", "evolite-core/dev-stops"]
 
 [dependencies]
 evolite-api = { path = "../evolite-api" }

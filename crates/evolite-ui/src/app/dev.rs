@@ -44,7 +44,7 @@ pub(super) struct DevState {
     top_up_preset: Option<bool>,
     /// `--screen fund-address-unfinished` / `-resume` / `-steps`: a funding of the Platform address whose
     /// lock is made and not taken yet (FEAT-0015 stage 2, frames 23, 24, 24b).
-    fund_unfinished_preset: bool,
+    pub(super) fund_unfinished_preset: bool,
     /// `--screen tokens-*` (FEAT-0019): the search or the network as that frame of the design shows it.
     tokens_preset: Option<&'static str>,
     /// `--screen overview-syncing` / `send-syncing`: the screen while the sync still runs.
@@ -352,6 +352,7 @@ impl App {
             w.unfinished_address_top_up = Some(evolite_api::UnfinishedAddressTopUp {
                 locked: 10_012_000,
                 address: w.platform_address.clone(),
+                holds_back: true,
             });
         }
         if let Some(name) = self.dev.tokens_preset
