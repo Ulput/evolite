@@ -1526,7 +1526,7 @@
   "{} · only you see it": "{} · nur für Sie sichtbar",
   "{} · own node: {}": "{} · eigener Knoten: {}",
   "{} · restored on this computer {}": "{} · auf diesem Computer wiederhergestellt am {}",
-  "{} · resync in Settings → Network and nodes": "{} · neu synchronisieren unter Einstellungen → Netz und Knoten",
+  "{} · resync in Settings › Network and nodes": "{} · neu synchronisieren unter Einstellungen › Netz und Knoten",
   "{} · the payment is confirmed and cannot be undone": "{} · die Zahlung ist bestätigt und lässt sich nicht rückgängig machen",
   "{} · the private pool in it is not checked yet": "{} · der private Pool darin ist noch nicht geprüft",
   "{} · updated {}": "{} · aktualisiert {}",

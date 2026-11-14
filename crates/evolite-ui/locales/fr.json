@@ -1536,7 +1536,7 @@
   "{} · only you see it": "{} · visible par vous seul",
   "{} · own node: {}": "{} · nœud personnel : {}",
   "{} · restored on this computer {}": "{} · restauré sur cet ordinateur le {}",
-  "{} · resync in Settings → Network and nodes": "{} · resynchronisez dans Paramètres → Réseau et nœuds",
+  "{} · resync in Settings › Network and nodes": "{} · resynchronisez dans Paramètres › Réseau et nœuds",
   "{} · the payment is confirmed and cannot be undone": "{} · le paiement est confirmé et ne peut pas être annulé",
   "{} · the private pool in it is not checked yet": "{} · le pool privé inclus n’est pas encore vérifié",
   "{} · updated {}": "{} · mis à jour {}",

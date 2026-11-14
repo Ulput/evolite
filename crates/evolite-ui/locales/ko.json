@@ -1516,7 +1516,7 @@
   "{} · only you see it": "{} · 나만 볼 수 있음",
   "{} · own node: {}": "{} · 내 노드: {}",
   "{} · restored on this computer {}": "{} · {} 이 컴퓨터에서 복원",
-  "{} · resync in Settings → Network and nodes": "{} · 설정 → 네트워크와 노드에서 다시 동기화",
+  "{} · resync in Settings › Network and nodes": "{} · 설정 › 네트워크와 노드에서 다시 동기화",
   "{} · the payment is confirmed and cannot be undone": "{} · 결제가 확인되어 취소할 수 없습니다",
   "{} · the private pool in it is not checked yet": "{} · 포함된 비공개 풀은 아직 확인되지 않았습니다",
   "{} · updated {}": "{} · {} 업데이트",

@@ -1566,7 +1566,7 @@
   "{} · only you see it": "{} · لا يراه سواك",
   "{} · own node: {}": "{} · عقدة خاصة: {}",
   "{} · restored on this computer {}": "{} · استُعيدت على هذا الحاسوب في {}",
-  "{} · resync in Settings → Network and nodes": "{} · أعد المزامنة من الإعدادات ← الشبكة والعُقد",
+  "{} · resync in Settings › Network and nodes": "{} · أعد المزامنة من الإعدادات › الشبكة والعُقد",
   "{} · the payment is confirmed and cannot be undone": "{} · تأكدت الدفعة ولا يمكن التراجع عنها",
   "{} · the private pool in it is not checked yet": "{} · المجمّع الخاص فيه لم يُتحقق منه بعد",
   "{} · updated {}": "{} · حُدّث {}",
