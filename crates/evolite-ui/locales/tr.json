@@ -953,7 +953,6 @@
   "Switching…": "Geçiliyor…",
   "Sync": "Eşitleme",
   "Sync again": "Yeniden eşitle",
-  "Sync · {}": "Eşitleme · {}",
   "Synced": "Eşitlendi",
   "Syncing": "Eşitleniyor",
   "System": "Sistem",
@@ -1407,7 +1406,6 @@
   "the renderer stopped": "çizici durdu",
   "the service has no DASH rate in {}": "serviste {} cinsinden DASH kuru yok",
   "the service sent an unreadable rate “{}”": "servis okunamayan bir kur gönderdi «{}»",
-  "the sync stopped": "eşitleme durdu",
   "the wallet is not loaded": "cüzdan yüklenmedi",
   "the wallet is not loaded yet": "cüzdan henüz yüklenmedi",
   "the wallet is not ready yet — wait for the sync": "cüzdan henüz hazır değil — eşitlemeyi bekleyin",
@@ -1769,7 +1767,6 @@
     "one": "{} cüzdan",
     "other": "{} cüzdan"
   },
-  "Sync · Platform": "Eşitleme · Platform",
   "identities": "kimlikler",
   "names": "adlar",
   "contacts": "kişiler",
@@ -1788,5 +1785,9 @@
   "Spent: checking… of {} · until {}": "Harcanan: kontrol ediliyor… / {} · {} tarihine kadar",
   "Mainnet · beta": "Mainnet · beta",
   "evolite did not start on {}. You are still on {}. Try switching again; if it fails again, close evolite and open it again.": "evolite {} üzerinde başlamadı. Hâlâ {} üzerindesiniz. Yeniden geçmeyi deneyin; yine olmazsa evolite'i kapatıp yeniden açın.",
-  "Could not switch to {}": "{} ağına geçilemedi"
+  "Could not switch to {}": "{} ağına geçilemedi",
+  "Network nodes": "Ağ düğümleri",
+  "Masternode quorums": "Kuorumlar",
+  "Stopped": "Durdu",
+  "updated {}": "güncellendi {}"
 }

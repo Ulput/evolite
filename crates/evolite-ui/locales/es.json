@@ -954,7 +954,6 @@
   "Switching…": "Cambiando…",
   "Sync": "Sincronización",
   "Sync again": "Volver a sincronizar",
-  "Sync · {}": "Sincronización · {}",
   "Synced": "Sincronizado",
   "Syncing": "Sincronizando",
   "System": "Sistema",
@@ -1408,7 +1407,6 @@
   "the renderer stopped": "el renderizador se detuvo",
   "the service has no DASH rate in {}": "el servicio no tiene tipo de DASH en {}",
   "the service sent an unreadable rate “{}”": "el servicio envió un tipo ilegible «{}»",
-  "the sync stopped": "la sincronización se detuvo",
   "the wallet is not loaded": "la cartera no está cargada",
   "the wallet is not loaded yet": "la cartera aún no está cargada",
   "the wallet is not ready yet — wait for the sync": "la cartera aún no está lista — espere a la sincronización",
@@ -1781,7 +1779,6 @@
     "many": "{} de carteras",
     "other": "{} carteras"
   },
-  "Sync · Platform": "Sincronización · Platform",
   "identities": "identidades",
   "names": "nombres",
   "contacts": "contactos",
@@ -1800,5 +1797,9 @@
   "Spent: checking… of {} · until {}": "Gastado: comprobando… de {} · hasta {}",
   "Mainnet · beta": "Mainnet · beta",
   "evolite did not start on {}. You are still on {}. Try switching again; if it fails again, close evolite and open it again.": "evolite no se inició en {}. Sigue en {}. Intente cambiar de nuevo; si vuelve a fallar, cierre evolite y ábralo otra vez.",
-  "Could not switch to {}": "No se pudo cambiar a {}"
+  "Could not switch to {}": "No se pudo cambiar a {}",
+  "Network nodes": "Nodos de la red",
+  "Masternode quorums": "Quórums",
+  "Stopped": "Detenida",
+  "updated {}": "actualizada {}"
 }

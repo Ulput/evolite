@@ -82,6 +82,7 @@ impl Real {
                     wake();
                 })
             }),
+            tip_seen: std::sync::Mutex::new((0, None)),
             dirty,
             wake,
             pending: None,

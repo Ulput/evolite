@@ -239,7 +239,17 @@ impl Real {
             shown.stage = SyncStage::Done;
             shown.progress = None;
         }
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_secs() as evolite_api::Timestamp);
+        shown.tip_at = self.tip_seen_at(shown.tip_height, now);
         shown
+    }
+
+    /// When the tip last grew (BUG-155 AC-A9): a higher `tip` than seen before is new at `now`.
+    fn tip_seen_at(&self, tip: u32, now: evolite_api::Timestamp) -> Option<evolite_api::Timestamp> {
+        let mut seen = self.tip_seen.lock().unwrap_or_else(|e| e.into_inner());
+        tip_seen(&mut seen, tip, now)
     }
 
     /// The wallets of this computer for the switcher, this core's marked open.
@@ -1576,5 +1586,44 @@ mod incoming_tests {
             Waiting,
             "a key without our side: nobody can tell"
         );
+    }
+}
+
+/// When the tip last grew (BUG-155 AC-A9), kept in `seen` (the highest tip and when it came):
+/// a higher `tip` is new at `now`; the same or a lower one (a reorg, a node behind) keeps the
+/// time. The first tip seen (from the store, at the start) is no new block:
+/// it has no time until the tip grows past it (review r1, P3 1).
+fn tip_seen(
+    seen: &mut (u32, Option<evolite_api::Timestamp>),
+    tip: u32,
+    now: evolite_api::Timestamp,
+) -> Option<evolite_api::Timestamp> {
+    if seen.0 == 0 {
+        seen.0 = tip;
+    } else if tip > seen.0 {
+        *seen = (tip, Some(now));
+    }
+    seen.1
+}
+
+#[cfg(test)]
+mod tip_seen_tests {
+    use super::tip_seen;
+
+    /// BUG-155 AC-A9: the time is the new tip's; it stays while the tip does, and a node behind
+    /// does not move it back.
+    #[test]
+    fn the_time_is_when_the_tip_grew() {
+        let mut seen = (0, None);
+        assert_eq!(tip_seen(&mut seen, 0, 100), None, "no tip yet");
+        assert_eq!(
+            tip_seen(&mut seen, 10, 200),
+            None,
+            "the first tip: from the store"
+        );
+        assert_eq!(tip_seen(&mut seen, 11, 300), Some(300), "a new block");
+        assert_eq!(tip_seen(&mut seen, 11, 400), Some(300), "the same tip");
+        assert_eq!(tip_seen(&mut seen, 9, 500), Some(300), "a node behind");
+        assert_eq!(tip_seen(&mut seen, 12, 600), Some(600));
     }
 }

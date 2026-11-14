@@ -964,6 +964,26 @@ pub fn sync_stage(stage: SyncStage) -> &'static str {
     }
 }
 
+/// A sync stage's short name, for the sidebar's card only (BUG-155, the analyst): it fits the
+/// card's 156 px column in every language, never cut. The tooltip, the reader and the sign-in's
+/// sync screen keep [`sync_stage`].
+pub fn sync_short(stage: SyncStage) -> &'static str {
+    match stage {
+        SyncStage::Connecting => tr!("Network nodes"),
+        SyncStage::Headers => tr!("Block headers"),
+        SyncStage::Masternodes => tr!("Masternode lists"),
+        SyncStage::Quorums => tr!("Masternode quorums"),
+        SyncStage::Filters => tr!("Block filters"),
+        SyncStage::Transactions => tr!("Your transactions"),
+        // What is checked now, as the other stages (the designer, BUG-155 r1): not translated,
+        // the works in the card's second line.
+        SyncStage::Platform => "Platform",
+        // Not translated (the analyst).
+        SyncStage::ChainLock => "ChainLock",
+        SyncStage::Done => tr!("Synced"),
+    }
+}
+
 /// "+0,2500 DASH", "−1,0000 DASH".
 pub fn signed_amount(duffs: i64) -> String {
     crate::format::signed_amount(duffs)

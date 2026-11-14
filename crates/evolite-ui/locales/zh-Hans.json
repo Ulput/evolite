@@ -952,7 +952,6 @@
   "Switching…": "正在切换…",
   "Sync": "同步",
   "Sync again": "重新同步",
-  "Sync · {}": "同步 · {}",
   "Synced": "已同步",
   "Syncing": "正在同步",
   "System": "系统",
@@ -1406,7 +1405,6 @@
   "the renderer stopped": "渲染器已停止",
   "the service has no DASH rate in {}": "该服务没有 DASH 兑 {} 的汇率",
   "the service sent an unreadable rate “{}”": "服务发送了无法识别的汇率“{}”",
-  "the sync stopped": "同步已停止",
   "the wallet is not loaded": "钱包未加载",
   "the wallet is not loaded yet": "钱包尚未加载",
   "the wallet is not ready yet — wait for the sync": "钱包尚未就绪——请等待同步",
@@ -1757,7 +1755,6 @@
   "{} wallet|{} wallets": {
     "other": "{} 个钱包"
   },
-  "Sync · Platform": "同步 · Platform",
   "identities": "身份",
   "names": "名称",
   "contacts": "联系人",
@@ -1776,5 +1773,9 @@
   "Spent: checking… of {} · until {}": "已花费：正在检查… / {} · 至 {}",
   "Mainnet · beta": "Mainnet · 测试版",
   "evolite did not start on {}. You are still on {}. Try switching again; if it fails again, close evolite and open it again.": "evolite 未能在 {} 上启动。您仍在 {} 上。请再试一次切换；如果仍然失败，请关闭 evolite 后重新打开。",
-  "Could not switch to {}": "无法切换到 {}"
+  "Could not switch to {}": "无法切换到 {}",
+  "Network nodes": "网络节点",
+  "Masternode quorums": "主节点仲裁",
+  "Stopped": "已停止",
+  "updated {}": "更新于 {}"
 }
