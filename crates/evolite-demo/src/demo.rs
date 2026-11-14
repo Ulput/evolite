@@ -955,6 +955,7 @@ pub fn demo_wallet(t: Timestamp) -> Wallet {
         contacts: demo_contacts(t),
         unfinished_identity: None,
         unfinished_top_up: None,
+        unfinished_address_top_up: None,
         // Off in the demo, as the setting was before the core kept it: its screens stay one
         // click (Settings → Security turns it on).
         password_each_send: false,
@@ -1180,6 +1181,8 @@ pub fn demo_wallet(t: Timestamp) -> Wallet {
             identity_create: 175_000,
             identity_lock_min: 241_000,
             top_up_lock_min: 50_500,
+            address_fund_on_top: evolite_api::address_fund::ADDRESS_FUND_ON_TOP,
+            address_fund_lock_min: 56_000,
             name_regular: 1_000_000,
             name_contested: 20_000_000,
             add_key: 10_000,

@@ -82,6 +82,21 @@ pub fn numbered_step_at(
     detail: &str,
     state: StepState,
 ) {
+    numbered_step_then(ui, a, n, title, detail, state, |_| {});
+}
+
+/// [`numbered_step_at`] with `below` drawn under the detail, in the step's column: an address in
+/// the monospace font, whose «x» between digits Inter would draw as «×» (FEAT-0015 stage 2,
+/// the designer).
+pub fn numbered_step_then(
+    ui: &mut Ui,
+    a: &mut Assets,
+    n: usize,
+    title: &str,
+    detail: &str,
+    state: StepState,
+    below: impl FnOnce(&mut Ui),
+) {
     let p = a.p;
     ui.horizontal_top(|ui| {
         ui.spacing_mut().item_spacing.x = 14.0;
@@ -117,6 +132,7 @@ pub fn numbered_step_at(
             ui.add(
                 crate::components::para(detail, 12.0, Weight::Regular, p.muted).line_height(17.0),
             );
+            below(ui);
         });
     });
 }

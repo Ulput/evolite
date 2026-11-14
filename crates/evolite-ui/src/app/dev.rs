@@ -42,6 +42,9 @@ pub(super) struct DevState {
     /// `--screen top-up-stopped` / `top-up-awaiting`: Identity with a cut-short top-up, to
     /// continue or (Platform already took it) awaiting its ChainLock (BUG-7).
     top_up_preset: Option<bool>,
+    /// `--screen fund-address-unfinished` / `-resume` / `-steps`: a funding of the Platform address whose
+    /// lock is made and not taken yet (FEAT-0015 stage 2, frames 23, 24, 24b).
+    fund_unfinished_preset: bool,
     /// `--screen tokens-*` (FEAT-0019): the search or the network as that frame of the design shows it.
     tokens_preset: Option<&'static str>,
     /// `--screen overview-syncing` / `send-syncing`: the screen while the sync still runs.
@@ -184,6 +187,9 @@ impl DevState {
             } else {
                 None
             },
+            fund_unfinished_preset: dev.preset("fund-address-unfinished")
+                || dev.preset("fund-address-resume")
+                || dev.preset("fund-address-steps"),
             tokens_preset: TOKEN_STATES.into_iter().find(|name| dev.preset(name)),
             syncing_preset: dev.preset("overview-syncing") || dev.preset("send-syncing"),
             platform_preset: if dev.preset("sync-platform") {
@@ -196,7 +202,9 @@ impl DevState {
             password_preset: dev.preset("send-confirm-tall")
                 || dev.preset("edit-profile-password")
                 || dev.preset("send-mixed-agree")
-                || dev.preset("send-mixed-changed"),
+                || dev.preset("send-mixed-changed")
+                || dev.preset("fund-address-review")
+                || dev.preset("fund-address-resume"),
             core_unchecked_preset: dev.preset("overview-mixed-unchecked"),
             unsignable_preset: dev.preset("send-unsignable") || dev.preset("send-unsignable-short"),
             stale_rate_preset: dev.preset("send-fiat-stale"),
@@ -328,6 +336,14 @@ impl App {
             w.unfinished_top_up = Some(evolite_api::UnfinishedTopUp {
                 locked: 50_000_000,
                 awaiting_chain_lock,
+            });
+        }
+        if self.dev.fund_unfinished_preset
+            && let Some(w) = self.snapshot.as_mut().and_then(|s| s.wallet.as_mut())
+        {
+            w.unfinished_address_top_up = Some(evolite_api::UnfinishedAddressTopUp {
+                locked: 10_012_000,
+                address: w.platform_address.clone(),
             });
         }
         if let Some(name) = self.dev.tokens_preset
@@ -656,6 +672,11 @@ impl App {
             if preset("core-to-platform-address") {
                 self.send.recipient = "tdash1qqmz8fh2wl5c9u4hyrq3m4n0t7k2vx6s4u6aznp".into();
             }
+            // FEAT-0015 stage 2 (frame 14): Core to the wallet's own Platform address — a top-up of it.
+            if preset("send-fund-own") {
+                self.send.recipient = "tdash1qq7x4m9n2r8v5k3j6h0w4p2s8d5f7g9l3c0zq".into();
+                self.send.amount = crate::format::input_text(10_000_000);
+            }
             // `--screen send-pool-unread` / `send-pool-unknown`: from the pool, to an address: the card,
             // the line under the row, «Left» and the button (BUG-113).
             // FEAT-0013: «Coins» on Send (F1–F3, P1) and its dialog (CC1–CC4), over the demo's
@@ -811,6 +832,21 @@ impl App {
         }
         // `--screen top-up` opens "Top up the identity" over Identity.
         self.identity.top_up = preset("top-up").then(screens::identity::TopUpForm::default);
+        // FEAT-0015 stage 2: the funding of the Platform address frame by frame (22–25).
+        if preset("fund-address") || preset("fund-address-review") {
+            self.fund_address.form = Some(screens::fund_address::FundForm {
+                review: preset("fund-address-review"),
+                ..Default::default()
+            });
+        }
+        if preset("fund-address-steps") {
+            self.fund_address.running = Some(10_000_000);
+            self.fund_address.steps_open = true;
+        }
+        self.fund_address.resume_open = preset("fund-address-resume");
+        if preset("fund-address-done") {
+            self.fund_address.result = Some((10_000_000, Ok(())));
+        }
         // `--screen add-name` opens "Add a name" with a name being checked.
         self.identity.adding_name = preset("add-name").then(|| screens::identity::NameForm {
             name: "satoshi-nakamoto-2026".into(),

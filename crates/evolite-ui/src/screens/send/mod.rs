@@ -630,6 +630,9 @@ pub fn send(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut SendForm) {
     for command in asked.commands {
         cx.send(command);
     }
+    if let Some(amount) = asked.fund {
+        cx.fund_address(amount);
+    }
     if asked.open_contacts {
         cx.go(super::Screen::Contacts);
     }

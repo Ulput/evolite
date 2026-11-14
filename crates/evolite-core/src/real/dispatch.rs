@@ -115,6 +115,21 @@ impl Real {
                     result: Err(e),
                 },
             },
+            // FEAT-0015 stage 2: the answer comes from the background task.
+            Spend::FundAddress { amount } => match self.fund_address(amount).await {
+                Ok(()) => return (None, true),
+                Err(e) => Event::Done {
+                    what: DoneWhat::FundAddress,
+                    result: Err(e),
+                },
+            },
+            Spend::ResumeFundAddress => match self.resume_fund_address().await {
+                Ok(()) => return (None, true),
+                Err(e) => Event::Done {
+                    what: DoneWhat::FundAddress,
+                    result: Err(e),
+                },
+            },
             Spend::Unshield { amount } => match self.unshield(amount) {
                 Ok(()) => Event::Progress {
                     what: "unshield",

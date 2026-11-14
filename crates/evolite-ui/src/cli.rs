@@ -189,7 +189,7 @@ pub const PRESETS: &[&str] = &[
     "send-qr-filled", "send-qr-error", "send-confirm-link",
     "send-from-address", "address-withdraw-warning", "address-withdraw-foreign", "address-top-up",
     "address-confirm",
-    "core-to-platform-address",
+    "core-to-platform-address", "send-fund-own",
     "address-top-up-foreign",
     "send-pool-unread", "send-pool-unknown",
     "send-fiat", "send-fiat-confirm", "send-fiat-stale",
@@ -197,6 +197,8 @@ pub const PRESETS: &[&str] = &[
     "coins-auto", "coins-not-enough", "coins-spent", "send-lookalike", "send-confirm-tall",
     "overview-mixed", "send-mixed", "coins-mixed", "coins-mixed-refused", "activity-mixed",
     "send-unsignable", "send-unsignable-short",
+    "fund-address", "fund-address-review", "fund-address-steps", "fund-address-unfinished",
+    "fund-address-resume", "fund-address-done",
     "overview-mixed-unchecked", "send-mixed-name", "send-mixed-refused", "send-mixed-confirm",
     "send-mixed-agree", "send-mixed-changed", "send-mixed-refused-confirm",
     "receive", "receive-fiat",
@@ -273,7 +275,13 @@ fn dev_args<'a>(
                 | "sync-platform"
                 | "sync-platform-short"
                 | "overview-mixed"
-                | "overview-mixed-unchecked",
+                | "overview-mixed-unchecked"
+                | "fund-address"
+                | "fund-address-review"
+                | "fund-address-steps"
+                | "fund-address-unfinished"
+                | "fund-address-resume"
+                | "fund-address-done",
             ),
         ) => Screen::Overview,
         (
@@ -338,6 +346,7 @@ fn dev_args<'a>(
                 | "address-top-up"
                 | "address-confirm"
                 | "core-to-platform-address"
+                | "send-fund-own"
                 | "address-top-up-foreign"
                 | "send-fiat"
                 | "send-fiat-confirm"

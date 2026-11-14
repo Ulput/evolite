@@ -907,6 +907,15 @@ async fn open_test_wallet(
     dir: &std::path::Path,
 ) -> (Chain, Arc<PlatformWallet>, key_wallet::Wallet) {
     let phrase = test_env("EVOLITE_TEST_PHRASE").expect("EVOLITE_TEST_PHRASE in .env.test.local");
+    open_wallet_of(dir, &phrase).await
+}
+
+/// Starts the chain on `dir`, opens the wallet of `phrase`, waits until coins and proofs are
+/// known.
+async fn open_wallet_of(
+    dir: &std::path::Path,
+    phrase: &str,
+) -> (Chain, Arc<PlatformWallet>, key_wallet::Wallet) {
     let paths = ChainPaths {
         // Headers and masternode lists from the other live tests: not fetched again.
         spv: std::env::temp_dir()
@@ -924,8 +933,8 @@ async fn open_test_wallet(
         .start(&paths, Arc::new(|_: &SyncStatus| {}))
         .await
         .expect("chain starts");
-    let (_, wallet) = chain.open_wallet(&phrase, 0).await.expect("wallet opens");
-    let keys = crate::keys_of(&phrase).expect("keys");
+    let (_, wallet) = chain.open_wallet(phrase, 0).await.expect("wallet opens");
+    let keys = crate::keys_of(phrase).expect("keys");
     let started = Instant::now();
     loop {
         let s = chain.status();
@@ -1589,4 +1598,159 @@ async fn a_payment_takes_no_coin_with_an_unverified_instant_lock() {
     drop(wallet);
     chain.stop().await;
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// The recovery phrase in the file `EVOLITE_PROBE_PHRASE_FILE` names: the first line (or a
+/// line's value after `=` or `:`) that is 12–24 lowercase words. Read by the probe's runner,
+/// never printed.
+fn probe_phrase() -> zeroize::Zeroizing<String> {
+    let path = std::env::var("EVOLITE_PROBE_PHRASE_FILE")
+        .expect("EVOLITE_PROBE_PHRASE_FILE: the file with the phrase of the wallet to spend from");
+    let text = zeroize::Zeroizing::new(std::fs::read_to_string(&path).expect("the phrase file"));
+    for line in text.lines() {
+        let value = line
+            .split_once('=')
+            .or_else(|| line.split_once(':'))
+            .map_or(line, |(_, v)| v)
+            .trim()
+            .trim_matches('"');
+        let words: Vec<&str> = value.split_whitespace().collect();
+        if [12, 15, 18, 21, 24].contains(&words.len())
+            && words
+                .iter()
+                .all(|w| w.chars().all(|c| c.is_ascii_lowercase()))
+        {
+            return zeroize::Zeroizing::new(words.join(" "));
+        }
+    }
+    panic!("no recovery phrase in the file EVOLITE_PROBE_PHRASE_FILE names");
+}
+
+/// FEAT-0015 stage 2, AC-T1: what Platform keeps of an asset lock that funds a Platform
+/// address (`AddressFundingFromAssetLock`, one output `None`: the address gets the lock less
+/// the fee). Measured twice, as the fee may differ: a new, empty address of the wallet (a new
+/// element in Platform's tree) and the wallet's address that already holds credits.
+///
+/// Spends from the Core coins of the phrase in `EVOLITE_PROBE_PHRASE_FILE` (the architect: not
+/// werner555, the live tests' `EVOLITE_TEST_PHRASE`, which is refused): two locks of
+/// `EVOLITE_PROBE_LOCK` duffs (default 60 000, just above Platform's admission threshold of
+/// 56 000 for one output), ≈ 0.0012 tDASH and two Core fees. The credits stay on the wallet's
+/// own addresses. Prints, per address, `lock`, `arrived` and `kept` in credits and duffs:
+/// `ADDRESS_FUND_ON_TOP` is the larger `kept`, with a margin.
+///
+/// `EVOLITE_PROBE_PHRASE_FILE=<path> cargo test -p evolite-chain live_address_funding_fee -- --ignored --nocapture`
+#[test]
+#[ignore = "live: spends ≈ 0.0012 tDASH of the phrase in EVOLITE_PROBE_PHRASE_FILE"]
+fn live_address_funding_fee() {
+    std::thread::Builder::new()
+        .stack_size(16 << 20)
+        .spawn(|| {
+            tokio::runtime::Builder::new_multi_thread()
+                .enable_all()
+                .thread_stack_size(8 << 20)
+                .build()
+                .unwrap()
+                .block_on(address_funding_fee())
+        })
+        .unwrap()
+        .join()
+        .unwrap();
+}
+
+async fn address_funding_fee() {
+    use dash_sdk::platform::FetchMany;
+    use dash_sdk::query_types::AddressInfo;
+    let phrase = probe_phrase();
+    if test_env("EVOLITE_TEST_PHRASE").is_some_and(|live| *live == *phrase) {
+        panic!("the probe does not spend from the live tests' wallet (werner555)");
+    }
+    let lock: u64 = std::env::var("EVOLITE_PROBE_LOCK")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(60_000);
+    let dir = std::env::temp_dir().join("evolite-live-fund-probe");
+    let (chain, wallet, keys) = open_wallet_of(&dir, &phrase).await;
+    let platform = wallet.platform();
+    let account = PlatformPaymentAccountKey {
+        account: 0,
+        key_class: 0,
+    };
+    // The address that already holds credits (the largest), and a new one.
+    let funded = platform
+        .addresses_with_balances()
+        .await
+        .into_iter()
+        .max_by_key(|(_, credits)| *credits)
+        .map(|(address, _)| address);
+    let fresh = platform
+        .next_unused_receive_address(account)
+        .await
+        .expect("a new Platform address");
+    let sdk = chain.sdk().await.expect("sdk");
+    let proved = |address: PlatformAddress| {
+        let sdk = sdk.clone();
+        async move {
+            let infos =
+                AddressInfo::fetch_many(sdk.as_ref(), std::collections::BTreeSet::from([address]))
+                    .await
+                    .expect("a proved read");
+            infos
+                .get(&address)
+                .and_then(|info| info.as_ref().map(|i| i.balance))
+                .unwrap_or(0)
+        }
+    };
+    let address_signer = super::addresses::address_signer(&wallet, &keys)
+        .await
+        .expect("address signer");
+    let lock_signer = identity::AssetLockSigner(keys.clone());
+    let mut targets = vec![("new address", fresh)];
+    match funded {
+        Some(address) if address != fresh => targets.push(("funded address", address)),
+        _ => println!("no funded address yet: the second lock goes to the one just funded"),
+    }
+    if targets.len() == 1 {
+        targets.push(("funded address", fresh));
+    }
+    println!("lock {lock} duffs per address");
+    let mut kept_most = 0u64;
+    for (what, address) in targets {
+        let before = proved(address).await;
+        let started = Instant::now();
+        let result = platform
+            .fund_from_asset_lock(
+                platform_wallet::AssetLockFunding::FromWalletBalance {
+                    amount_duffs: lock,
+                    account_index: 0,
+                },
+                0,
+                BTreeMap::from([(address, None)]),
+                Vec::new(),
+                &address_signer,
+                &lock_signer,
+                None,
+            )
+            .await;
+        if let Err(e) = result {
+            panic!(
+                "{what}: funding refused after {}s: {e}",
+                started.elapsed().as_secs()
+            );
+        }
+        let after = proved(address).await;
+        let arrived = after.saturating_sub(before);
+        let kept = (lock * 1_000).saturating_sub(arrived);
+        kept_most = kept_most.max(kept);
+        println!(
+            "price address_fund {what}: lock {} credits, arrived {arrived} credits, kept {kept} credits ({} duffs), {}s",
+            lock * 1_000,
+            kept.div_ceil(1_000),
+            started.elapsed().as_secs()
+        );
+    }
+    println!(
+        "the most Platform kept: {kept_most} credits = {} duffs; ADDRESS_FUND_ON_TOP is 12 000 duffs (measured 2026-11-14: 8 827 and 8 928)",
+        kept_most.div_ceil(1_000)
+    );
+    chain.stop().await;
 }

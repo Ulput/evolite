@@ -25,6 +25,9 @@ pub struct Ctx<'a> {
     pay: Option<Pay>,
     /// The Identity screen asked for with "Top up the identity" open.
     top_up: bool,
+    /// FEAT-0015 stage 2 (frame 14): «Check and top up» on Send — the review of a funding of the
+    /// Platform address for this amount, over the screen.
+    fund: Option<evolite_api::Duffs>,
     /// Something about the wallets of this computer the app does across frames.
     wallets: Option<WalletRequest>,
 }
@@ -60,6 +63,7 @@ impl<'a> Ctx<'a> {
             go,
             pay: None,
             top_up: false,
+            fund: None,
             wallets: None,
         }
     }
@@ -125,5 +129,16 @@ impl<'a> Ctx<'a> {
     /// Whether [`Self::top_up`] was asked this frame.
     pub fn take_top_up(&mut self) -> bool {
         std::mem::take(&mut self.top_up)
+    }
+
+    /// Opens «Check the top-up» (22b) of a funding of the Platform address that gets at least
+    /// `amount` (FEAT-0015 stage 2, frame 14).
+    pub fn fund_address(&mut self, amount: evolite_api::Duffs) {
+        self.fund = Some(amount);
+    }
+
+    /// What [`Self::fund_address`] asked for this frame.
+    pub fn take_fund(&mut self) -> Option<evolite_api::Duffs> {
+        self.fund.take()
     }
 }

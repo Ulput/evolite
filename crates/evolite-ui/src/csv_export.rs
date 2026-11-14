@@ -99,7 +99,8 @@ fn line(a: &Activity, own: &Own) -> Option<Line> {
         ActivityKind::Shielded { from: None } if a.amount >= 0 => return None,
         ActivityKind::SelfTransfer { .. }
         | ActivityKind::TopUp { .. }
-        | ActivityKind::Shielded { .. } => true,
+        | ActivityKind::Shielded { .. }
+        | ActivityKind::AddressFunded => true,
         ActivityKind::Withdrawal { to, .. }
         | ActivityKind::CreditTransfer { to }
         | ActivityKind::AddressSent { to }

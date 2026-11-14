@@ -152,6 +152,8 @@ struct WalletRead {
     platform: Option<(String, u64)>,
     unfinished: Option<UnfinishedIdentity>,
     unfinished_top_up: Option<UnfinishedTopUp>,
+    /// Duffs locked for a funding of the Platform address not taken yet (FEAT-0015 stage 2).
+    unfinished_address_fund: Option<u64>,
     lost_block: Option<mined::Lost>,
     /// How far the wallet's filters are: back where a rescan was asked, it has finished.
     synced: u32,
@@ -299,6 +301,7 @@ impl Real {
             platform,
             unfinished,
             unfinished_top_up,
+            unfinished_address_fund,
             lost_block,
             synced,
             identities,
@@ -308,6 +311,12 @@ impl Real {
             mixed,
         } = self.read_wallet(id).await;
         let (platform_address, platform_credits) = platform.unwrap_or_default();
+        // A funding of the address cut short: finished to the address the wallet shows, its own.
+        let unfinished_address_top_up =
+            unfinished_address_fund.map(|locked| evolite_api::UnfinishedAddressTopUp {
+                locked: locked as Duffs,
+                address: platform_address.clone(),
+            });
         let (pool, unfinished_shield, connecting_pool) = self.read_pool(id).await;
         let mut fees = turn::timed("fees_now", self.fees_now(coins)).await;
         fees.core_coins = convert::core_coins(coin_values);
@@ -440,6 +449,7 @@ impl Real {
             contacts,
             unfinished_identity: unfinished,
             unfinished_top_up,
+            unfinished_address_top_up,
             identities,
             address_book: self
                 .address_book
@@ -491,6 +501,11 @@ impl Real {
             turn::timed("address_inputs", self.chain.address_inputs(&wallet)).await;
         let unfinished =
             turn::timed("unfinished_identity", self.unfinished_identity(&wallet)).await;
+        let unfinished_address_fund = turn::timed(
+            "unfinished_address_fund",
+            self.chain.unfinished_address_fund(&wallet),
+        )
+        .await;
         let unfinished_top_up =
             turn::timed("unfinished_top_up", self.unfinished_top_up(&wallet)).await;
         let live_count = {
@@ -617,6 +632,7 @@ impl Real {
             platform,
             unfinished,
             unfinished_top_up,
+            unfinished_address_fund,
             lost_block,
             synced,
             identities,
@@ -850,6 +866,17 @@ impl Real {
                 };
                 // key-wallet's net for these locks counts the change but not the lock: what
                 // left Core is the lock and its fee.
+                act.amount = -(*locked as Duffs + act.fee.unwrap_or(0));
+            }
+        }
+        // FEAT-0015 stage 2 (AC-T7): a lock that funds the wallet's Platform address is «Transfer
+        // from Core to the Platform address», with what left Core, the lock and its fee.
+        let fund_locks =
+            turn::timed("address_fund_locks", self.chain.address_fund_locks(&wallet)).await;
+        for act in history.iter_mut() {
+            let locked = act.txid.as_ref().and_then(|t| fund_locks.get(t));
+            if let (ActivityKind::TopUp { .. }, Some(locked)) = (&act.kind, locked) {
+                act.kind = ActivityKind::AddressFunded;
                 act.amount = -(*locked as Duffs + act.fee.unwrap_or(0));
             }
         }

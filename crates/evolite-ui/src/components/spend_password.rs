@@ -122,6 +122,9 @@ pub fn wrong_text(what: Option<DoneWhat>) -> &'static str {
     match what {
         Some(DoneWhat::Send) => tr!("Wrong password — the payment was not sent."),
         Some(DoneWhat::TopUp) => tr!("Wrong password — the top-up did not happen."),
+        Some(DoneWhat::FundAddress) => {
+            tr!("Wrong password — the Platform address was not topped up.")
+        }
         Some(DoneWhat::Identity) => tr!("Wrong password — the identity was not created."),
         Some(DoneWhat::Name) => tr!("Wrong password — the name was not registered."),
         Some(DoneWhat::Shield) => tr!("Wrong password — nothing went into the pool."),
@@ -211,6 +214,8 @@ mod tests {
             send(),
             Spend::TopUpIdentity { amount: 1 },
             Spend::ResumeTopUp,
+            Spend::FundAddress { amount: 1 },
+            Spend::ResumeFundAddress,
             Spend::CreateIdentity {
                 name: Some("a".into()),
                 top_up: 1,

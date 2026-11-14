@@ -315,6 +315,8 @@ fn zero_fees() -> evolite_api::Fees {
         identity_create: 0,
         identity_lock_min: 0,
         top_up_lock_min: 50_500,
+        address_fund_on_top: 0,
+        address_fund_lock_min: 0,
         name_regular: 0,
         name_contested: 0,
         add_key: 0,

@@ -19,6 +19,9 @@ pub(super) struct FormView<'a> {
     pub(super) unavailable: Option<String>,
     /// From the pool to an @name, which it cannot pay (BUG-112): said once, under the recipient.
     pub(super) pool_to_name: bool,
+    /// From Core to the wallet's own Platform address (FEAT-0015 stage 2, frame 14): a funding of
+    /// the address, its plate and «Check and top up», not a payment.
+    pub(super) fund_own: bool,
     pub(super) resolved_name: Option<ResolvedName>,
     pub(super) to_self: bool,
     pub(super) target_known: bool,
@@ -112,6 +115,8 @@ impl AddressCard {
 pub(super) struct Asked {
     pub(super) commands: Vec<Command>,
     pub(super) open_contacts: bool,
+    /// «Check and top up» (FEAT-0015 stage 2, frame 14): the funding's review for this amount.
+    pub(super) fund: Option<Duffs>,
 }
 
 impl<'a> FormView<'a> {
@@ -208,8 +213,17 @@ impl<'a> FormView<'a> {
         let mixed_refusal = (source.source == Source::Mixed)
             .then(|| super::mixed::refusal(&typed, mixed_quote.as_ref(), source.duffs, amount))
             .flatten();
+        // FEAT-0015 stage 2 (frame 14): from Core to the wallet's own Platform address is a
+        // funding of the address — its plate and «Check and top up» — not «you can't» (BUG-143).
+        // Bech32m in capitals is the same address (QA21 r1 P3 1).
+        let fund_own = source.source == Source::Core
+            && platform_typed
+            && typed
+                .trim()
+                .eq_ignore_ascii_case(cx.wallet().platform_address.trim());
         let unavailable = match source.source {
             Source::Mixed => mixed_refusal.as_deref(),
+            Source::Core if fund_own => None,
             Source::Credits if cx.wallet().identity.is_none() => Some(tr!(
                 "Only an identity has credits, and the wallet has none yet: make one on the “Identity” screen."
             )),
@@ -378,6 +392,7 @@ impl<'a> FormView<'a> {
             problem,
             unavailable,
             pool_to_name,
+            fund_own,
             resolved_name,
             to_self,
             target_known,
@@ -453,6 +468,7 @@ pub(super) fn form_card(
         });
         recipient_state(ui, a, form, v, asked);
         if v.source.source == Source::Core
+            && !v.fund_own
             && v.recipient_label.to_ascii_lowercase().starts_with("tdash1")
         {
             platform_from_core(ui, a, form, v);
@@ -462,15 +478,24 @@ pub(super) fn form_card(
             return;
         }
         amount_row(ui, a, form, v);
-        note_field(ui, a, form);
-        kv_row(
-            ui,
-            &p,
-            fee_label(v),
-            &fee_value(v),
-            mono(13.0, Weight::Regular),
-        );
-        route_notice(ui, a, v);
+        // A funding of the own address carries no note, and its plate says how it is confirmed
+        // (frame 14).
+        if !v.fund_own {
+            note_field(ui, a, form);
+        }
+        // A funding of the own address says its fees in its own line (frame 14).
+        if !v.fund_own {
+            kv_row(
+                ui,
+                &p,
+                fee_label(v),
+                &fee_value(v),
+                mono(13.0, Weight::Regular),
+            );
+        }
+        if !v.fund_own {
+            route_notice(ui, a, v);
+        }
         send_row(ui, a, form, v, asked);
         payment_answer(ui, a, form, v);
     });
@@ -763,6 +788,21 @@ fn amount_row(ui: &mut Ui, a: &mut Assets, form: &mut SendForm, v: &FormView) {
     let p = a.p;
     let source = v.source;
     let (unavailable, problem) = (v.unavailable.as_deref(), v.problem);
+    // FEAT-0015 stage 2 (frame 14): what a payment to the wallet's own Platform address is.
+    if v.fund_own {
+        crate::components::notice_parts(
+            ui,
+            a,
+            "platform-address",
+            p.accent,
+            &[(
+                tr!("Top-up of your Platform address from Core"),
+                tr!(
+                    "Asset lock: DASH are locked on Core and credited to the address · InstantSend in seconds, otherwise ChainLock up to ~2.5 min"
+                ),
+            )],
+        );
+    }
     ui.vertical(|ui| {
         ui.spacing_mut().item_spacing.y = 6.0;
         field_label(ui, &p, tr!("Amount"));
@@ -846,6 +886,24 @@ fn amount_row(ui: &mut Ui, a: &mut Assets, form: &mut SendForm, v: &FormView) {
         // By which rate (frames 1–3), «Fiat rate» on only (R-1).
         if let Some(line) = super::currency::field_line(form, rate, v.amount) {
             ui.add(egui::Label::new(txt(&line, 12.0, Weight::Regular, p.muted)).wrap());
+        }
+        // FEAT-0015 stage 2 (frame 14): the funding's fees in one line, as its review counts them.
+        if v.fund_own
+            && let Some(amount) = v.amount
+        {
+            let spendable = (v.source.duffs - v.fees.core_unsignable).max(0);
+            let fees = match evolite_api::address_fund::fund_plan(amount, false, spendable, &v.fees)
+            {
+                Ok(plan) => plan.on_top + plan.core_fee,
+                Err(_) => v.fees.address_fund_on_top() + v.fees.core_payment,
+            };
+            crate::components::kv_row(
+                ui,
+                &p,
+                tr!("Core fee + processing on Platform"),
+                &format!("≈ {}", crate::format::amount(fees)),
+                crate::theme::mono(13.0, Weight::Medium),
+            );
         }
     });
 }
@@ -1143,6 +1201,24 @@ fn send_row(ui: &mut Ui, a: &mut Assets, form: &mut SendForm, v: &FormView, aske
     } else {
         None
     };
+    // FEAT-0015 stage 2 (frame 14): to the wallet's own Platform address, the funding's review
+    // (22b) with this amount, over this screen; the core checks it all again before the lock.
+    if v.fund_own {
+        let ready = amount.is_some() && problem.is_none() && synced;
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 10.0;
+            if button_enabled(ui, a, tr!("Check and top up"), kind, None, ready).clicked() {
+                asked.fund = amount;
+            }
+            if button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked() {
+                form.replace(SendForm::empty());
+            }
+        });
+        if let Some(missing) = missing {
+            ui.add(egui::Label::new(txt(missing, 12.0, Weight::Regular, p.muted)).wrap());
+        }
+        return;
+    }
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 10.0;
         let label = tr!("Check and send");
@@ -1253,6 +1329,23 @@ pub(super) fn summary_card(ui: &mut Ui, p: &crate::theme::Palette, v: &FormView,
     let source = v.source;
     let (amount, left, not_contact) = (v.amount, v.left, v.not_contact);
     let (summary_to, summary_note) = (&v.summary_to, &v.summary_note);
+    // FEAT-0015 stage 2 (frame 14): to the wallet's own Platform address, the funding's plan.
+    let fund = v
+        .fund_own
+        .then(|| {
+            let spendable = (source.duffs - v.fees.core_unsignable).max(0);
+            v.amount.and_then(|amount| {
+                evolite_api::address_fund::fund_plan(amount, false, spendable, &v.fees).ok()
+            })
+        })
+        .flatten();
+    let own_to = v.fund_own.then(|| {
+        format!(
+            tr!("own {}"),
+            crate::i18n::own(&crate::text::short_address(&v.own_platform_address))
+        )
+    });
+    let summary_to = own_to.as_ref().unwrap_or(summary_to);
     card(p, Margin::same(24)).show(ui, |ui| {
         ui.set_width(width);
             ui.spacing_mut().item_spacing.y = 14.0;
@@ -1288,6 +1381,15 @@ pub(super) fn summary_card(ui: &mut Ui, p: &crate::theme::Palette, v: &FormView,
                 (amount, Some(source.fee), left.filter(|l| *l >= 0))
             };
             kv_row(ui, p, tr!("Amount"), &dash(amount), value.clone());
+            if let Some(plan) = fund {
+                kv_row(
+                    ui,
+                    p,
+                    tr!("On the address, at least"),
+                    &crate::format::amount(plan.arrives_at_least),
+                    value.clone(),
+                );
+            }
             // «≈ 25,00 USD» under it, smaller (R-2, frame 1).
             if let Some(line) =
                 amount.and_then(|d| super::currency::summary_line(v.rate.as_ref(), d))
@@ -1297,6 +1399,14 @@ pub(super) fn summary_card(ui: &mut Ui, p: &crate::theme::Palette, v: &FormView,
             // Platform meters credits and address payments: an estimate there, as in the last look
             // (BUG-108, the QA pass of 2026-11-10).
             let about = matches!(source.source, Source::Credits | Source::PlatformAddress);
+            let (fee, about, left) = match fund {
+                Some(plan) => (
+                    Some(plan.on_top + plan.core_fee),
+                    true,
+                    Some(source.duffs - plan.total),
+                ),
+                None => (fee, about, left),
+            };
             let fee_text = match fee {
                 Some(fee) if about => format!("≈ {}", crate::format::amount(fee)),
                 _ => dash(fee),

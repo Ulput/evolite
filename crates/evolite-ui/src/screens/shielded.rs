@@ -1218,6 +1218,8 @@ pub(crate) mod tests {
             identity_create: 2_000,
             identity_lock_min: 241_000,
             top_up_lock_min: 50_500,
+            address_fund_on_top: 0,
+            address_fund_lock_min: 0,
             name_regular: 1_000_000,
             name_contested: 20_000_000,
             add_key: 10_000,

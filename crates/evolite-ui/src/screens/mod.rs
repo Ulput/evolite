@@ -8,6 +8,7 @@ pub mod connect2;
 pub mod contacts;
 pub mod create_identity;
 pub mod delete_wallet;
+pub mod fund_address;
 pub mod identity;
 pub mod onboarding;
 pub mod pause;

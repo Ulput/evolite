@@ -31,6 +31,18 @@ fn refused(password: &Password) -> bool {
     password.expose().is_empty() || password.expose() == WRONG_PASSWORD
 }
 
+/// `duffs` arrive on the demo's Platform address (FEAT-0015 stage 2): on its largest input,
+/// as one address of the wallet.
+fn credit_address(wallet: &mut Wallet, duffs: Duffs) {
+    let credits = (duffs.max(0) as u64).saturating_mul(1_000);
+    match wallet.platform_inputs.iter_mut().max() {
+        Some(largest) => *largest += credits,
+        None => wallet.platform_inputs.push(credits),
+    }
+    let all: u64 = wallet.platform_inputs.iter().sum();
+    wallet.balances.platform_address = (all / 1_000) as Duffs;
+}
+
 /// The demo's "Check the phrase": word number, choices, the right one's place.
 const DEMO_CHECK: [(usize, [&str; 3], usize); 4] = [
     (2, ["canvas", "cactus", "camera"], 0),
@@ -375,7 +387,10 @@ impl Mock {
                         changed |= matches!(
                             event,
                             Event::Done {
-                                what: DoneWhat::Identity | DoneWhat::App | DoneWhat::Disconnect,
+                                what: DoneWhat::Identity
+                                    | DoneWhat::App
+                                    | DoneWhat::Disconnect
+                                    | DoneWhat::FundAddress,
                                 result: Ok(())
                             }
                         );
@@ -726,6 +741,21 @@ impl Mock {
                     result,
                 };
             }
+            // FEAT-0015 stage 2 (AC-T10).
+            Spend::FundAddress { amount } => {
+                let result = self.fund_address(amount);
+                return Event::Done {
+                    what: DoneWhat::FundAddress,
+                    result,
+                };
+            }
+            Spend::ResumeFundAddress => {
+                let result = self.resume_fund_address();
+                return Event::Done {
+                    what: DoneWhat::FundAddress,
+                    result,
+                };
+            }
             _ => NO_WALLET,
         };
         op.refused(CoreError::NotAvailable(why.into()))
@@ -961,6 +991,76 @@ impl Mock {
             fee,
             relayed: true,
         })
+    }
+
+    /// «Top up the Platform address» in the demo (FEAT-0015 stage 2, AC-T10): the same plan
+    /// and refusals as the real core ([`evolite_api::address_fund::fund_plan`]); what leaves
+    /// Core is the lock and its fee, the address gets the amount, the line is «Transfer from
+    /// Core to the Platform address». Refused while one is stopped, as the real core refuses it.
+    fn fund_address(&mut self, amount: Duffs) -> Result<(), CoreError> {
+        use evolite_api::address_fund::{FundRefusal, fund_plan};
+        let wallet = self
+            .snapshot
+            .wallet
+            .as_mut()
+            .ok_or(CoreError::NotAvailable(NO_WALLET.into()))?;
+        if wallet.unfinished_address_top_up.is_some() {
+            return Err(CoreError::NotAvailable(
+                tr!("First finish the stopped top-up of the Platform address — its money is already locked").into(),
+            ));
+        }
+        let spendable = wallet.balances.core - wallet.fees.core_unsignable;
+        let plan = fund_plan(amount, false, spendable, &wallet.fees).map_err(|why| match why {
+            FundRefusal::BelowLeast { .. } => CoreError::BadAmount,
+            FundRefusal::NotEnough { .. } => CoreError::NotEnough,
+        })?;
+        wallet.balances.core -= plan.total;
+        credit_address(wallet, plan.arrives_at_least);
+        let line = wallet.activity.iter().map(|a| a.id).max().unwrap_or(0) + 1;
+        let kind = ActivityKind::AddressFunded;
+        let chain = Chain::Core;
+        let (layers, flow) = evolite_common::layers::of(&kind, chain);
+        wallet.activity.insert(
+            0,
+            Activity {
+                id: line,
+                kind,
+                chain,
+                at: now(),
+                amount: -plan.total,
+                proof: Proof::Proved,
+                txid: None,
+                fee: Some(plan.core_fee),
+                block: None,
+                address: None,
+                layers,
+                flow,
+                key: format!("demo:{line}"),
+                note: None,
+                rate: None,
+                detail: None,
+            },
+        );
+        Ok(())
+    }
+
+    /// «Continue the top-up» in the demo: the stopped funding's lock reaches the address, no new
+    /// money; refused when nothing is stopped.
+    fn resume_fund_address(&mut self) -> Result<(), CoreError> {
+        let wallet = self
+            .snapshot
+            .wallet
+            .as_mut()
+            .ok_or(CoreError::NotAvailable(NO_WALLET.into()))?;
+        let Some(unfinished) = wallet.unfinished_address_top_up.take() else {
+            return Err(CoreError::NotAvailable(
+                tr!("Nothing to continue: the top-up of the Platform address is already credited")
+                    .into(),
+            ));
+        };
+        let arrives = unfinished.locked - wallet.fees.address_fund_on_top();
+        credit_address(wallet, arrives.max(0));
+        Ok(())
     }
 
     /// A demo wallet's password checked as the real core checks one (FEAT-0002): refused
@@ -1605,6 +1705,8 @@ mod tests {
             },
             Spend::TopUpIdentity { amount: 1 },
             Spend::ResumeTopUp,
+            Spend::FundAddress { amount: 1 },
+            Spend::ResumeFundAddress,
             Spend::CreateIdentity {
                 name: Some("alice".into()),
                 top_up: 1,

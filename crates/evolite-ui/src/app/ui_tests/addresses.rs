@@ -176,14 +176,15 @@ fn a_transfer_to_the_wallets_own_platform_address_says_it_is_ours() {
     }
 }
 
-/// BUG-143: from Core, the wallet's own Platform address is not «Someone else's»: the plate
-/// says it is this wallet's, and the ways there stay. Typed in capitals too (QA21 r1 P3 1).
+/// BUG-143, then FEAT-0015 stage 2 (frame 14): from Core, the wallet's own Platform address is
+/// not «Someone else's» — it is a top-up of that address: «Check and top up», which opens the
+/// funding's review (22b) with the amount. Typed in capitals too (QA21 r1 P3 1).
 #[test]
 fn from_core_the_wallets_own_platform_address_is_not_someone_elses() {
     let (_turn, mut kit) = demo_app("core-to-platform-address", "en");
-    wait_for(&mut kit, "the plate", |kit| {
-        has_words(kit, "you can't send to it from Core directly")
-    });
+    // Tall enough for the plate, the fee line and «Check and top up» together.
+    kit.set_size(egui::vec2(1024.0, 1100.0));
+    settle(&mut kit);
     let own = kit
         .state()
         .snapshot
@@ -193,21 +194,36 @@ fn from_core_the_wallets_own_platform_address_is_not_someone_elses() {
         .expect("the demo's Platform address");
     for typed in [own.clone(), own.to_ascii_uppercase()] {
         kit.state_mut().send.recipient = typed.clone();
+        kit.state_mut().send.amount = crate::format::input_text(10_000_000);
         kit.run_steps(3);
         assert_eq!(kit.state().send.source, 0, "from Core");
-        assert!(
-            has_words(
-                &kit,
-                "This wallet's Platform address: you can't send to it from Core directly"
-            ),
-            "{typed}"
-        );
         assert!(!has_words(&kit, "Someone else's"), "{typed}");
         assert!(
-            has_words(&kit, "Send from the Platform address ›"),
-            "{typed}: the way there"
+            !has_words(&kit, "you can't send to it from Core directly"),
+            "{typed}: no refusal"
         );
+        wait_for(&mut kit, "«Check and top up»", |kit| {
+            kit.query_all_by_role_and_label(Role::Button, "Check and top up")
+                .next()
+                .is_some_and(|b| !b.accesskit_node().is_disabled())
+        });
     }
+    button(&kit, "Check and top up").click();
+    wait_for(&mut kit, "the funding's review", |kit| {
+        kit.state()
+            .fund_address
+            .form
+            .as_ref()
+            .is_some_and(|f| f.review)
+    });
+    // Drawn from the frame after the click (`App`).
+    kit.run_steps(3);
+    assert!(
+        kit.query_all_by_role_and_label(Role::Button, "Sign and top up")
+            .next()
+            .is_some(),
+        "22b over Send"
+    );
 }
 
 /// BUG-141, QA pass 23, review r1 should 1: to the demo's own Receive address — itself funded,

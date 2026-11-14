@@ -12,6 +12,7 @@ use std::fmt;
 use std::sync::Arc;
 use zeroize::Zeroizing;
 
+pub mod address_fund;
 pub mod address_plan;
 pub mod coin_plan;
 pub mod fiat;
@@ -195,6 +196,11 @@ pub enum ActivityKind {
         to: String,
         status: Option<WithdrawalState>,
     },
+    /// An asset lock on Core that funds the wallet's own Platform address (FEAT-0015 stage 2):
+    /// «Transfer from Core to the Platform address». The amount is what left Core, the lock and
+    /// its fee; a move between the wallet's own, so the arrival on the address is not a line of
+    /// its own (AC-T7).
+    AddressFunded,
 }
 
 /// Whether the DASH of an asset lock became credits on Platform, as far as the wallet knows
@@ -664,6 +670,16 @@ pub struct UnfinishedTopUp {
     pub awaiting_chain_lock: bool,
 }
 
+/// A funding of the wallet's Platform address from Core that Platform has not taken yet: the
+/// DASH are locked on Core for it (FEAT-0015 stage 2, R-8).
+#[derive(Clone, PartialEq, Debug)]
+pub struct UnfinishedAddressTopUp {
+    /// Duffs locked on Core for it.
+    pub locked: Duffs,
+    /// The Platform address (`tdash1…`) the lock is for.
+    pub address: String,
+}
+
 /// One word of "Check the phrase": its number in the phrase (from 1) and the words to pick from,
 /// the right one among them.
 #[derive(Clone, PartialEq, Debug)]
@@ -1091,6 +1107,13 @@ pub struct Fees {
     /// The least asset lock Platform takes to top an identity up: a smaller one is refused,
     /// its DASH stay locked and every next top-up waits for it (BUG-93 review, must 1).
     pub top_up_lock_min: Duffs,
+    /// What Platform keeps of a lock that funds the wallet's Platform address, paid on top of
+    /// the amount (FEAT-0015 stage 2): an upper estimate; what it does not need stays on the
+    /// address. Read through [`Fees::address_fund_on_top`](address_fund).
+    pub address_fund_on_top: Duffs,
+    /// The least asset lock Platform takes to fund a Platform address (one output), from the
+    /// protocol version: a smaller one is refused and its DASH stay locked.
+    pub address_fund_lock_min: Duffs,
     /// A DPNS name: a regular one, and a contested one (goes to a masternode vote).
     pub name_regular: Duffs,
     pub name_contested: Duffs,
@@ -1269,6 +1292,10 @@ pub struct Wallet {
     /// A top-up of the identity that Platform has not taken yet, or not provably.
     /// `ResumeTopUp` finishes it.
     pub unfinished_top_up: Option<UnfinishedTopUp>,
+    /// A funding of the Platform address from Core whose lock Platform has not taken yet
+    /// (FEAT-0015 stage 2). `ResumeFundAddress` finishes it; until then a new one is not
+    /// offered.
+    pub unfinished_address_top_up: Option<UnfinishedAddressTopUp>,
     pub identity_search: IdentitySearch,
     /// All the wallet's identities by slot; [`Wallet::identity`] is the chosen one.
     pub identities: Vec<IdentityChoice>,
@@ -1899,6 +1926,13 @@ pub enum Spend {
     /// Finish [`Wallet::unfinished_top_up`] with the lock already made, without locking more.
     /// `Done { what: DoneWhat::TopUp }`.
     ResumeTopUp,
+    /// Lock DASH on Core and credit the wallet's own Platform address with them (FEAT-0015
+    /// stage 2): the address gets at least `amount` duffs, Platform's processing is on top of it
+    /// ([`address_fund::fund_plan`]). `Done { what: DoneWhat::FundAddress }`.
+    FundAddress { amount: Duffs },
+    /// Finish [`Wallet::unfinished_address_top_up`] with the lock already made, without locking
+    /// more. `Done { what: DoneWhat::FundAddress }`.
+    ResumeFundAddress,
     /// Lock DASH on Core, create the identity in the phrase's next slot and register `name`;
     /// `None`: an identity without a name (FEAT-0014 R-7). Once made, the new identity is the
     /// chosen one. `Done { what: DoneWhat::Identity }`.
@@ -1967,6 +2001,7 @@ impl Spend {
         match self {
             Spend::Send { .. } | Spend::SendMixed { .. } => DoneWhat::Send,
             Spend::TopUpIdentity { .. } | Spend::ResumeTopUp => DoneWhat::TopUp,
+            Spend::FundAddress { .. } | Spend::ResumeFundAddress => DoneWhat::FundAddress,
             Spend::CreateIdentity { .. } | Spend::ResumeIdentity => DoneWhat::Identity,
             Spend::AddName { .. } => DoneWhat::Name,
             Spend::Shield { .. } => DoneWhat::Shield,
@@ -2080,6 +2115,8 @@ pub enum DoneWhat {
     Switch,
     Token,
     TopUp,
+    /// `FundAddress` / `ResumeFundAddress`: the Platform address funded from Core.
+    FundAddress,
     Unlock,
     Unshield,
     Wallet,
@@ -2116,6 +2153,7 @@ impl DoneWhat {
             Self::Switch => "switch",
             Self::Token => "token",
             Self::TopUp => "top-up",
+            Self::FundAddress => "fund-address",
             Self::Unlock => "unlock",
             Self::Unshield => "unshield",
             Self::Wallet => "wallet",
@@ -2222,6 +2260,8 @@ mod tests {
             identity_create: 0,
             identity_lock_min: 0,
             top_up_lock_min: 50_500,
+            address_fund_on_top: 0,
+            address_fund_lock_min: 0,
             name_regular: 0,
             name_contested: 0,
             add_key: 0,

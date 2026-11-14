@@ -438,6 +438,8 @@ pub fn activity_title(a: &Activity) -> String {
         ActivityKind::AddressWithdrawal { .. } => {
             tr!("Withdrawn to Core from the Platform address").into()
         }
+        // FEAT-0015 stage 2 (frame 26).
+        ActivityKind::AddressFunded => tr!("Transfer from Core to the Platform address").into(),
         ActivityKind::TopUp {
             identity,
             creates: true,
@@ -686,6 +688,7 @@ pub fn activity_icon(a: &Activity) -> &'static str {
         ActivityKind::Withdrawal { .. } => "send",
         ActivityKind::AddressSent { .. } => "platform-address",
         ActivityKind::AddressWithdrawal { .. } => "withdraw",
+        ActivityKind::AddressFunded => "top-up",
         ActivityKind::ContactRequest { .. } | ActivityKind::ContactRequestIn { .. } => "contacts",
         ActivityKind::ProfileSaved => "identity",
         ActivityKind::NameRegistered { .. } => "identity",

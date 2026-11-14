@@ -2,9 +2,9 @@
 
 use super::{Screen, txt};
 use crate::components::{
-    Assets, ButtonKind, CardAmount, GridSpec, TxRow, amount_label, balance_card_at_most,
-    balance_card_in, button, button_enabled, chip, grid, grid_layout, page_header, status_chip,
-    tile_amount_font, tx_row_clickable,
+    Assets, ButtonKind, CardAmount, GridSpec, TxRow, amount_label, balance_card_action,
+    balance_card_at_most, balance_card_in, button, button_enabled, chip, grid, grid_layout,
+    page_header, status_chip, tile_amount_font, tx_row_clickable,
 };
 use crate::context::Ctx;
 use crate::text::{self};
@@ -13,7 +13,12 @@ use egui::{Align, Layout, Ui, vec2};
 use evolite_api::{Duffs, Proof, Source, Timestamp};
 
 /// 02 · Overview: header, total, four balance cards, quick actions, recent activity.
-pub fn overview(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx) {
+pub fn overview(
+    ui: &mut Ui,
+    a: &mut Assets,
+    cx: &mut Ctx,
+    fund: &mut super::fund_address::FundAddressState,
+) {
     let p = a.p;
     let wallet = cx.wallet();
     let b = &wallet.balances;
@@ -49,8 +54,13 @@ pub fn overview(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx) {
             cx.go(Screen::Receive);
         }
     });
+    // FEAT-0015 stage 2: a funding of the Platform address under way, stopped or done (23–25).
+    super::fund_address::on_overview(ui, a, cx, fund);
+    let wallet = cx.wallet();
     total_block(ui, a, cx, wallet, &total_line, total_color, synced);
-    balance_cards(ui, a, wallet, pool, &as_of, unknown);
+    if balance_cards(ui, a, wallet, pool, &as_of, unknown, fund.may_start(wallet)) {
+        fund.open();
+    }
     quick_actions(ui, a, cx, wallet);
     latest_operations(ui, a, cx, wallet, synced);
     super::activity::card_window(ui, a, cx);
@@ -149,7 +159,8 @@ fn total_block(
     });
 }
 
-/// The four balance cards.
+/// The four balance cards. Whether «Top up from Core ›» on the Platform address tile was
+/// clicked; `may_fund`: it is active (FEAT-0015 stage 2).
 fn balance_cards(
     ui: &mut Ui,
     a: &mut Assets,
@@ -157,7 +168,9 @@ fn balance_cards(
     pool: CardAmount,
     as_of: &Option<String>,
     unknown: bool,
-) {
+    may_fund: bool,
+) -> bool {
+    let mut fund = false;
     let b = &wallet.balances;
     // The credits of every identity of the wallet, as «Total» counts them (BUG-56); the one
     // worked as has its own on Identity.
@@ -282,10 +295,24 @@ fn balance_cards(
                 w,
             );
             mixed_tip(ui, b.mixed.map(|m| m.unfinished).filter(|u| *u > 0));
+        } else if *icon == "platform-address" {
+            // FEAT-0015 stage 2 (21): «Top up from Core ›», dim while one is running or
+            // stopped (24).
+            fund |= balance_card_action(
+                ui,
+                a,
+                cell,
+                (icon, title),
+                (*amount, font),
+                detail,
+                w,
+                (tr!("Top up from Core ›"), may_fund),
+            );
         } else {
             balance_card_in(ui, a, cell, (icon, title), (*amount, font), detail, w);
         }
     });
+    fund
 }
 
 /// The «Mixed» tile says where its coins come from, on hover and on Tab focus (FEAT-0030 O1):

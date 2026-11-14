@@ -72,6 +72,8 @@ fn spend(op: &Spend) -> &'static str {
         Spend::SendMixed { .. } => "send_mixed",
         Spend::TopUpIdentity { .. } => "top_up_identity",
         Spend::ResumeTopUp => "resume_top_up",
+        Spend::FundAddress { .. } => "fund_address",
+        Spend::ResumeFundAddress => "resume_fund_address",
         Spend::CreateIdentity { .. } => "create_identity",
         Spend::ResumeIdentity => "resume_identity",
         Spend::AddName { .. } => "add_name",

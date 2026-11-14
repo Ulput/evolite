@@ -44,6 +44,8 @@ pub struct App {
     send: screens::send::SendForm,
     receive: screens::receive::ReceiveForm,
     identity: screens::identity::IdentityState,
+    /// FEAT-0015 stage 2: the Platform address funded from Core.
+    fund_address: screens::fund_address::FundAddressState,
     contacts: screens::contacts::ContactsState,
     pool: screens::shielded::PoolState,
     requests: screens::app_requests::AppRequests,
@@ -218,6 +220,7 @@ impl App {
             receive: Default::default(),
             requests: Default::default(),
             identity: Default::default(),
+            fund_address: Default::default(),
             contacts: Default::default(),
             pool: Default::default(),
             collection: Default::default(),
@@ -753,6 +756,10 @@ impl App {
                     what: DoneWhat::TopUp,
                     result,
                 } => self.identity.on_top_up_done(result),
+                Event::Done {
+                    what: DoneWhat::FundAddress,
+                    result,
+                } => self.fund_address.on_done(result),
                 Event::Art {
                     art,
                     side,
@@ -1092,6 +1099,7 @@ impl eframe::App for App {
             screens::activity::forget_note(ui.ctx());
             // And what was typed for a spend (BUG-42).
             self.identity.on_lock();
+            self.fund_address.on_lock();
             self.contacts.on_lock();
             // The lock ends the visit: the screen after it opens at the top (BUG-102).
             self.visits.forget();
@@ -1307,7 +1315,7 @@ impl eframe::App for App {
                                             &mut self.settings,
                                             remind,
                                         );
-                                        screens::overview(ui, a, &mut cx)
+                                        screens::overview(ui, a, &mut cx, &mut self.fund_address)
                                     },
                                 );
                                 crate::diagnostics::screen_offset(out.state.offset.y);
@@ -1361,6 +1369,39 @@ impl eframe::App for App {
             && screens::switch_wallet::switch_dialog(ui, &mut self.a, &mut cx, form)
         {
             self.switching = None;
+        }
+        // FEAT-0015 stage 2 (frame 14): «Check and top up» on Send opens the funding's review
+        // (22b) over the screen; signed, the Overview shows its steps (23). On the Overview the
+        // dialog is the Overview's own.
+        // Drawn from the next frame: in this one the click that asked for it would close it as a
+        // click outside.
+        let asked_now = cx.take_fund().map(|amount| {
+            self.fund_address.form = Some(screens::fund_address::FundForm {
+                amount: crate::format::input_text(amount),
+                suggested: None,
+                review: true,
+            });
+        });
+        if asked_now.is_none()
+            && self.screen != Screen::Overview
+            && self.fund_address.form.is_some()
+            && let Some(wallet) = cx.snap.wallet.clone()
+        {
+            let mut asked = Vec::new();
+            screens::fund_address::fund_dialog(
+                ui,
+                &mut self.a,
+                &mut self.fund_address,
+                &wallet,
+                cx.now,
+                &mut asked,
+            );
+            if !asked.is_empty() {
+                cx.go(Screen::Overview);
+            }
+            for command in asked {
+                cx.send(command);
+            }
         }
         let pay = cx.take_pay();
         if cx.take_top_up() {

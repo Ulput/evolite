@@ -820,6 +820,15 @@ pub fn top_up_lock_min(version: &dpp::version::PlatformVersion) -> Duffs {
     (min.identity_topup_base_cost.div_ceil(1000) + start) as Duffs
 }
 
+/// The least an asset lock may hold to fund a Platform address, in duffs, at protocol
+/// `version` (FEAT-0015 stage 2): dpp's own `calculate_min_required_fee` of the transition with
+/// no address inputs and one output — the asset lock's processing start and the output's cost.
+/// A smaller lock is refused and its DASH stay locked.
+pub fn address_fund_lock_min(version: &dpp::version::PlatformVersion) -> Duffs {
+    use dpp::state_transition::address_funding_from_asset_lock_transition::calculate_address_funding_from_asset_lock_min_required_fee as min_fee;
+    min_fee(0, 1, version).div_ceil(1000) as Duffs
+}
+
 /// The least an identity's asset lock may hold, in duffs, at protocol `version`: dpp's
 /// `calculate_min_required_fee_v1` of an identity create (protocol 3 on) with `keys` keys — the
 /// base cost, the asset lock's processing start and each key's.
@@ -1208,6 +1217,10 @@ pub fn fees(coins: usize) -> Fees {
         identity_lock_min: 241_000,
         // The same, at 15 ([`top_up_lock_min`]).
         top_up_lock_min: 50_500,
+        // FEAT-0015 stage 2: until measured, the architect's estimate; the threshold for one output at
+        // 15 ([`address_fund_lock_min`]).
+        address_fund_on_top: evolite_api::address_fund::ADDRESS_FUND_ON_TOP,
+        address_fund_lock_min: 56_000,
         // Metered like the documents above: what remains of an identity's lock is shown
         // with a margin ([`Fees::name_on_top`]).
         name_regular: NAME_REGULAR,
@@ -1287,6 +1300,7 @@ pub fn platform_fees(
     // An identity is made with six keys (`identity::new_identity_keys`).
     fees.identity_lock_min = identity_lock_min(version, 6);
     fees.top_up_lock_min = top_up_lock_min(version);
+    fees.address_fund_lock_min = address_fund_lock_min(version);
     fees.add_key = duffs(min.identity_update + min.identity_key_in_creation_cost);
 }
 
@@ -1470,6 +1484,21 @@ mod tests {
         assert_eq!(top_up_lock(40_500, &f), Some(50_500), "at the least");
         assert_eq!(top_up_lock(40_499, &f), None, "one duff below");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// FEAT-0015 stage 2 (the architect, дизайнер-51): the least lock that funds a Platform
+    /// address is 56 000 duffs at protocol 15 — 50 000 to start processing and 6 000 for the
+    /// one output — and what the form and the core see before the SDK is up is the same.
+    #[test]
+    fn the_least_lock_for_an_address_is_the_protocols() {
+        let v15 = dpp::version::PlatformVersion::get(15).unwrap();
+        assert_eq!(address_fund_lock_min(v15), 56_000);
+        assert_eq!(fees(0).address_fund_lock_min, 56_000);
+        assert_eq!(
+            fees(0).address_fund_least(),
+            44_000,
+            "«At least 0,00044 DASH to the address»"
+        );
     }
 
     /// BUG-93 review should 1: a `Continue` after a failed domain pays the preorder again

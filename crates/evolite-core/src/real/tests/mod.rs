@@ -253,6 +253,8 @@ fn every_spend() -> Vec<Spend> {
         },
         Spend::TopUpIdentity { amount: 10_000 },
         Spend::ResumeTopUp,
+        Spend::FundAddress { amount: 10_000 },
+        Spend::ResumeFundAddress,
         Spend::CreateIdentity {
             name: Some("satoshi-test".into()),
             top_up: 10_000,

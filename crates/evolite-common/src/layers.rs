@@ -89,6 +89,8 @@ pub fn of(kind: &ActivityKind, chain: Chain) -> (u8, Flow) {
         // Core address of this wallet only (R-3).
         AddressSent { .. } => (PLATFORM_ADDRESS, Flow::Out),
         AddressWithdrawal { .. } => (PLATFORM_ADDRESS | CORE, Flow::Between),
+        // From Core to the wallet's own Platform address (FEAT-0015 stage 2): a move between its own.
+        AddressFunded => (CORE | PLATFORM_ADDRESS, Flow::Between),
         // Costs nothing: someone asked us.
         ContactRequestIn { .. } => (IDENTITY, Flow::In),
     }
@@ -101,7 +103,9 @@ pub fn of(kind: &ActivityKind, chain: Chain) -> (u8, Flow) {
 /// made with (a shield the pool's scan found knows its source only there).
 pub fn settle(act: &mut Activity, own: &Own) {
     match &act.kind {
-        ActivityKind::TopUp { .. } | ActivityKind::Shielded { from: Some(_) } => {
+        ActivityKind::TopUp { .. }
+        | ActivityKind::Shielded { from: Some(_) }
+        | ActivityKind::AddressFunded => {
             (act.layers, act.flow) = of(&act.kind, act.chain);
         }
         ActivityKind::Withdrawal { to, .. } => {

@@ -25,6 +25,7 @@ mod dialog_scroll;
 mod dialogs;
 mod fiat;
 mod focus;
+mod fund_address;
 mod history;
 mod identity_pool;
 mod layout;

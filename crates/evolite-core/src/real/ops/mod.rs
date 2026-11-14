@@ -1,6 +1,7 @@
 //! What the real core does, by subject: each file holds the `impl Real` block of one group of
 //! commands, or the small state those commands keep.
 
+pub(super) mod address_fund;
 pub(super) mod addresses;
 pub(super) mod app_connect2;
 pub(super) mod app_jobs;

@@ -444,6 +444,66 @@ pub fn balance_card_in(
     );
 }
 
+/// [`balance_card_in`] with an action under its line (FEAT-0015 stage 2, frame 21: «Top up from
+/// Core ›», 12 SemiBold, the accent); dim and inactive when `enabled` is false (24). Whether it
+/// was clicked.
+#[allow(clippy::too_many_arguments)]
+pub fn balance_card_action(
+    ui: &mut Ui,
+    a: &mut Assets,
+    cell: &mut RowCell,
+    (icon, title): (&str, &str),
+    (amount, font): (CardAmount, FontId),
+    detail: &str,
+    width: f32,
+    (action, enabled): (&str, bool),
+) -> bool {
+    let p = a.p;
+    let frame = card(
+        &p,
+        Margin {
+            left: 20,
+            right: 20,
+            top: 18,
+            bottom: 18,
+        },
+    );
+    let mut clicked = false;
+    cell.card(ui, frame, |ui| {
+        ui.set_width(width - TILE_INSIDE);
+        ui.vertical(|ui| {
+            balance_card_body(
+                ui,
+                a,
+                icon,
+                title,
+                (amount, font, None),
+                detail,
+                width - TILE_INSIDE,
+            );
+            let color = if enabled {
+                p.accent
+            } else {
+                p.accent.gamma_multiply(0.45)
+            };
+            let resp = ui.add_enabled(
+                enabled,
+                egui::Button::new(
+                    egui::RichText::new(crate::i18n::t(action))
+                        .font(sans(12.0, Weight::SemiBold))
+                        .color(color),
+                )
+                .frame(false),
+            );
+            named(&resp, egui::WidgetType::Button, enabled, action);
+            clicked = resp
+                .on_hover_cursor(egui::CursorIcon::PointingHand)
+                .clicked();
+        });
+    });
+    clicked
+}
+
 /// [`balance_card_in`] whose amount shows at most `decimals` decimals, «≈» and the full amount
 /// in its tooltip when it has more (R4; the designer, FEAT-0030: denominations give long
 /// fractions).

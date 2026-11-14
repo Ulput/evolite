@@ -170,6 +170,12 @@ pub fn declared(op: &Spend, seen: &Seen, app_cost: Duffs) -> Declared {
             let price = fees.top_up_on_top().saturating_add(fees.core_payment);
             of("top_up", price, covers(seen.core, *amount, price))
         }
+        // FEAT-0015 stage 2: what is on top for Platform and the Core fee of the lock.
+        Spend::FundAddress { amount } => {
+            let core = fees.core_payment_for(amount.saturating_add(fees.address_fund_on_top()));
+            let price = fees.address_fund_on_top().saturating_add(core);
+            of("fund_address", price, covers(seen.core, *amount, price))
+        }
         Spend::CreateIdentity { name, top_up } => {
             let named = name.is_some();
             let core = fees.core_payment_for(fees.identity_lock_for(*top_up, named));
@@ -178,6 +184,7 @@ pub fn declared(op: &Spend, seen: &Seen, app_cost: Duffs) -> Declared {
         }
         // The lock is paid for already: nothing more was promised.
         Spend::ResumeTopUp => of("resume_top_up", 0, true),
+        Spend::ResumeFundAddress => of("resume_fund_address", 0, true),
         Spend::ResumeIdentity => of("resume_identity", 0, true),
         Spend::AddName { .. } => {
             let price = fees.name_price(seen.first_name);
@@ -320,6 +327,8 @@ pub(crate) mod tests {
             identity_create: 17,
             identity_lock_min: 18,
             top_up_lock_min: 19,
+            address_fund_on_top: 0,
+            address_fund_lock_min: 0,
             name_regular: 20,
             name_contested: 21,
             add_key: 22,
@@ -378,6 +387,8 @@ pub(crate) mod tests {
             },
             Spend::TopUpIdentity { amount: 100 },
             Spend::ResumeTopUp,
+            Spend::FundAddress { amount: 100 },
+            Spend::ResumeFundAddress,
             Spend::CreateIdentity {
                 name: Some("bob".into()),
                 top_up: 100,
