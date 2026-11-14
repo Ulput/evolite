@@ -258,7 +258,7 @@ fn a_stopped_sync_shows_in_the_rail() {
     ));
     assert_eq!(
         rail_status(&kit),
-        "The sync stopped · No Core nodes answer · resync in Settings → Network and nodes"
+        "The sync stopped · No Core nodes answer · resync in Settings › Network and nodes"
     );
 }
 

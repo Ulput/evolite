@@ -29,6 +29,7 @@ mod focus;
 mod fund_address;
 mod history;
 mod identity_pool;
+mod imgur;
 mod layout;
 mod loading;
 mod login;

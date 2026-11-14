@@ -208,3 +208,33 @@ fn no_words_beside_an_id_are_in_the_monospace_font() {
         wrong.join("\n")
     );
 }
+
+/// BUG-159: an e-mail, a version (0.1.0) and a short commit hash (7–12 hex) are code too, in the
+/// monospace font — and a date, an amount with its thousands, an ordinary word or number are not.
+#[test]
+fn an_email_a_version_and_a_short_hash_are_code() {
+    let only = |text: &str| -> Vec<String> {
+        runs(text).into_iter().map(|r| text[r].to_owned()).collect()
+    };
+    assert_eq!(
+        only("To: ulput@protonmail.com · subject"),
+        ["ulput@protonmail.com"]
+    );
+    assert_eq!(only("evolite 0.1.0 (a97a98e)"), ["0.1.0", "a97a98e"]);
+    assert_eq!(only("platform 575d961, v1.2.13."), ["575d961", "v1.2.13"]);
+    assert_eq!(only("rust-dashcore aca0202"), ["aca0202"]);
+    for no in [
+        "14.11.2026",
+        "1.200.000 DASH",
+        "3.5 DASH",
+        "facade and decade",
+        "1234567 credits",
+        "@alice and @bob",
+        "e.g. this",
+        "Nov 14, 14:59",
+        "0,1000 DASH",
+        "ChainLock up to ~2.5 min",
+    ] {
+        assert_eq!(only(no), Vec::<String>::new(), "{no}");
+    }
+}
