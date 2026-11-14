@@ -379,11 +379,15 @@ fn a_low_last_look_shows_the_excess_to_agree_to() {
                         .is_some_and(|(view, block)| view.expand(1.0).contains_rect(block))
             })
         };
-        if brought {
+        // P1 (BUG-167): not «after 10 frames» but once its middle has stopped moving — a loaded
+        // machine had it mid-layout at frame 10. Then exactly at its top: a settled offset that
+        // is not 0 is the dialog opened scrolled, the bug this guards, and still fails.
+        let settled = if brought {
             wait_for(&mut kit, "the middle brought to the block", block_in_view);
+            None
         } else {
-            kit.run_steps(10);
-        }
+            Some(settled_offset(&mut kit, 10))
+        };
         let dialog = dialog_seen(&kit.ctx).expect("the last look");
         let view = dialog.scrolled.expect("its middle scrolls at 800 × 440");
         let block = said(&kit, "goes to the miners as part of the fee").expect("the block");
@@ -395,10 +399,36 @@ fn a_low_last_look_shows_the_excess_to_agree_to() {
             );
             assert!(dialog.offset > 0.0, "{preset}: brought down to it");
         } else {
+            assert_eq!(settled, Some(0.0), "{preset}: settled at its top");
             assert_eq!(dialog.offset, 0.0, "{preset}: at its top");
         }
         drop(kit);
         drop(turn);
+    }
+}
+
+/// Frames until the dialog's middle stops moving: the same offset `frames` frames in a row, at
+/// most [`PATIENCE`] (BUG-167). What the person sees once the layout has settled — however many
+/// frames a loaded machine takes to get there.
+fn settled_offset(kit: &mut Kit, frames: usize) -> f32 {
+    let started = std::time::Instant::now();
+    let (mut last, mut same) = (None, 0);
+    loop {
+        kit.run_steps(1);
+        let now = crate::components::dialog_seen(&kit.ctx).map(|d| d.offset);
+        if now.is_some() && now == last {
+            same += 1;
+            if same >= frames {
+                return now.unwrap_or_default();
+            }
+        } else {
+            same = 0;
+        }
+        last = now;
+        assert!(
+            started.elapsed() < PATIENCE,
+            "the dialog's middle never settled: {last:?}"
+        );
     }
 }
 
