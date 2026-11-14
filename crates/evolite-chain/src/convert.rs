@@ -115,6 +115,7 @@ pub fn sync_info(s: &SyncStatus, wallet: bool) -> SyncInfo {
         // The core asks the client and the SDK itself.
         core_nodes: Vec::new(),
         dapi_nodes: Vec::new(),
+        platform: Vec::new(),
     }
 }
 

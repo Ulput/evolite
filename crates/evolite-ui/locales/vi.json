@@ -1692,5 +1692,14 @@
   },
   "Checking balances: identity {} of {}": "Đang kiểm tra số dư: danh tính {}/{}",
   "Once the connection is back, the search goes on from the same place — no need to start over.": "Khi kết nối trở lại, việc tìm kiếm tiếp tục từ chỗ cũ — không cần bắt đầu lại.",
-  "evolite checks the network's contracts with proofs. You can leave this screen — the search goes on, and what it finds will appear here.": "evolite kiểm tra các hợp đồng của mạng bằng bằng chứng. Bạn có thể rời màn hình này — việc tìm kiếm vẫn tiếp tục, và những gì tìm thấy sẽ hiện ở đây."
+  "evolite checks the network's contracts with proofs. You can leave this screen — the search goes on, and what it finds will appear here.": "evolite kiểm tra các hợp đồng của mạng bằng bằng chứng. Bạn có thể rời màn hình này — việc tìm kiếm vẫn tiếp tục, và những gì tìm thấy sẽ hiện ở đây.",
+  "Sync · Platform": "Đồng bộ · Platform",
+  "identities": "danh tính",
+  "names": "tên",
+  "contacts": "danh bạ",
+  "tokens": "token",
+  "and {} more": "và {} mục khác",
+  "address": "địa chỉ",
+  "Platform: {}": "Platform: {}",
+  "pool": "pool"
 }

@@ -1703,5 +1703,14 @@
   },
   "Checking balances: identity {} of {}": "बैलेंस जाँचे जा रहे हैं: पहचान {} / {}",
   "Once the connection is back, the search goes on from the same place — no need to start over.": "कनेक्शन लौटते ही खोज उसी जगह से जारी रहेगी — फिर से शुरू करने की ज़रूरत नहीं।",
-  "evolite checks the network's contracts with proofs. You can leave this screen — the search goes on, and what it finds will appear here.": "evolite नेटवर्क के कॉन्ट्रैक्ट प्रमाणों के साथ जाँचता है। आप यह स्क्रीन छोड़ सकते हैं — खोज जारी रहेगी, और जो मिलेगा वह यहाँ दिखेगा।"
+  "evolite checks the network's contracts with proofs. You can leave this screen — the search goes on, and what it finds will appear here.": "evolite नेटवर्क के कॉन्ट्रैक्ट प्रमाणों के साथ जाँचता है। आप यह स्क्रीन छोड़ सकते हैं — खोज जारी रहेगी, और जो मिलेगा वह यहाँ दिखेगा।",
+  "Sync · Platform": "सिंक · Platform",
+  "identities": "पहचान",
+  "names": "नाम",
+  "contacts": "संपर्क",
+  "tokens": "टोकन",
+  "and {} more": "और {} अन्य",
+  "address": "पता",
+  "Platform: {}": "Platform: {}",
+  "pool": "पूल"
 }

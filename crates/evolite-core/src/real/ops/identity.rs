@@ -437,6 +437,7 @@ impl Real {
         let complete = self.identities_complete.clone();
         let refresh = self.refresher();
         let stale = self.balances_stale.clone();
+        let works = self.works.clone();
         // A new search: the credits are checked again, all of them (BUG-115).
         let checked = self.credits_checked.clone();
         checked.store(false, Ordering::Relaxed);
@@ -452,6 +453,8 @@ impl Real {
             while live() {
                 let result = match chain.wallet(&id).await {
                     Some(wallet) => {
+                        // The pass, not the pause after it (BUG-137).
+                        let _working = works.start(PlatformWork::Identities);
                         let pass = chain.discover_identities_again(&wallet, &keys, &mut names_read);
                         turn::timed("identity_search_pass", pass).await
                     }
@@ -478,6 +481,7 @@ impl Real {
                         stale.clone(),
                         checked.clone(),
                         refresh.clone(),
+                        works.clone(),
                     ));
                 }
                 refresh();

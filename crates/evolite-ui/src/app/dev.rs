@@ -46,6 +46,9 @@ pub(super) struct DevState {
     tokens_preset: Option<&'static str>,
     /// `--screen overview-syncing` / `send-syncing`: the screen while the sync still runs.
     syncing_preset: bool,
+    /// `--screen sync-platform` / `sync-platform-short` (BUG-137): Core synced, the identities and
+    /// the tokens read from Platform; for 0.3 s only in the short one. When it began, and how long.
+    platform_preset: Option<(std::time::Instant, Option<f64>)>,
     /// `--screen send-confirm-tall` / `edit-profile-password`: «Password for every send» on, so
     /// the dialog asks for it (BUG-122: the tallest form of each).
     password_preset: bool,
@@ -183,6 +186,13 @@ impl DevState {
             },
             tokens_preset: TOKEN_STATES.into_iter().find(|name| dev.preset(name)),
             syncing_preset: dev.preset("overview-syncing") || dev.preset("send-syncing"),
+            platform_preset: if dev.preset("sync-platform") {
+                Some((std::time::Instant::now(), None))
+            } else if dev.preset("sync-platform-short") {
+                Some((std::time::Instant::now(), Some(0.3)))
+            } else {
+                None
+            },
             password_preset: dev.preset("send-confirm-tall")
                 || dev.preset("edit-profile-password")
                 || dev.preset("send-mixed-agree")
@@ -350,6 +360,15 @@ impl App {
             s.sync.stage = evolite_api::SyncStage::Filters;
             s.sync.progress = Some(0.58);
             s.sync.chainlocked = false;
+        }
+        if let Some((began, lasts)) = self.dev.platform_preset
+            && let Some(s) = self.snapshot.as_mut()
+            && lasts.is_none_or(|secs| began.elapsed().as_secs_f64() < secs)
+        {
+            s.sync.platform = vec![
+                evolite_api::PlatformWork::Identities,
+                evolite_api::PlatformWork::Tokens,
+            ];
         }
         // `--screen send-pool-unread` / `send-pool-unknown`: the pool not read in this run yet, with
         // the demo's amount kept from before or none (BUG-113).

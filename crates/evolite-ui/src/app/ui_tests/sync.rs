@@ -265,19 +265,22 @@ fn a_stopped_sync_shows_in_the_rail() {
     );
 }
 
-/// BUG-75 AC-D6: the full menu is as it was — the card with its words, no mark of the rail.
+/// BUG-75 AC-D6: the full menu keeps its card with its words. BUG-137 AC-D1: its mark moves as
+/// the rail's does (it stood still before).
 #[test]
 fn the_full_menu_keeps_its_sync_card() {
     let (_turn, mut kit) = demo_app("overview", "en");
+    system_motion(&mut kit, true);
     full_menu(&mut kit);
-    kit.ctx
-        .data_mut(|d| d.remove::<(RailMark, bool)>(egui::Id::new("evolite-rail-mark")));
     shows(&mut kit, SyncStage::Filters, Some(0.25), "the card", |k| {
         card(k) == "Block filters · 25 % · 3 Core nodes"
     });
-    assert!(
-        crate::screens::sidebar::rail_mark_shown(&kit.ctx).is_none(),
-        "no rail mark in the full menu"
+    shows(
+        &mut kit,
+        SyncStage::Filters,
+        Some(0.25),
+        "the mark moving",
+        moving,
     );
     assert_eq!(
         kit.query_all_by_role(egui::accesskit::Role::Status).count(),
@@ -427,4 +430,127 @@ fn a_refused_folder_is_said_in_words() {
         ru.starts_with("Синхронизация не может начаться") && ru.contains("chmod go-w '/home/a'"),
         "{ru}"
     );
+}
+
+/// One frame (0.25 s of the app's time) with Core synced and `works` going on Platform.
+fn platform_frame(kit: &mut Kit, works: &[evolite_api::PlatformWork]) {
+    let ctx = kit.ctx.clone();
+    kit.state_mut().take_events(&ctx);
+    if let Some(s) = kit.state_mut().snapshot.as_mut() {
+        s.sync.stage = SyncStage::Done;
+        s.sync.progress = Some(1.0);
+        s.sync.error = None;
+        s.sync.platform = works.to_vec();
+    }
+    kit.step();
+}
+
+fn moving(kit: &Kit) -> bool {
+    matches!(
+        rail_mark(kit),
+        (
+            RailMark::Block {
+                dim: false,
+                stopped: false,
+                ..
+            },
+            true
+        )
+    )
+}
+
+/// BUG-137 AC-D2, AC-T6: Core synced, Platform work of 1 s moves the mark and asks for frames,
+/// in every size: the wide menu, the rail, the low rail without the top logo, the wide low one.
+/// The wide card says «Sync · Platform» and what goes.
+#[test]
+fn platform_work_moves_the_mark_in_every_size() {
+    use evolite_api::PlatformWork::{Identities, Tokens};
+    for (w, h) in [
+        (1280.0, 800.0),
+        (1024.0, 768.0),
+        (800.0, 600.0),
+        (800.0, 440.0),
+        (1440.0, 560.0),
+    ] {
+        let (_turn, mut kit) = demo_app("overview", "en");
+        system_motion(&mut kit, true);
+        kit.set_size(egui::vec2(w, h));
+        for _ in 0..3 {
+            platform_frame(&mut kit, &[]);
+        }
+        assert_eq!(rail_mark(&kit), (RailMark::Done, false), "{w}×{h}: synced");
+        for _ in 0..4 {
+            platform_frame(&mut kit, &[Identities, Tokens]);
+        }
+        assert!(
+            moving(&kit),
+            "{w}×{h}: moving after 1 s: {:?}",
+            rail_mark(&kit)
+        );
+        if w >= 1280.0 && h >= 640.0 {
+            assert!(
+                kit.query_all_by(|n| n
+                    .value()
+                    .is_some_and(|v| v == "Sync · Platform: identities · tokens"))
+                    .next()
+                    .is_some(),
+                "{w}×{h}: the card's words"
+            );
+        }
+    }
+}
+
+/// BUG-137 AC-D3, AC-T6: Platform work of 0.3 s does not move the mark nor ask for frames.
+#[test]
+fn a_short_platform_work_does_not_move_the_mark() {
+    let (_turn, mut kit) = demo_app("overview", "en");
+    system_motion(&mut kit, true);
+    for _ in 0..3 {
+        platform_frame(&mut kit, &[]);
+    }
+    platform_frame(&mut kit, &[evolite_api::PlatformWork::Credits]);
+    for i in 0..8 {
+        platform_frame(&mut kit, &[]);
+        assert_eq!(rail_mark(&kit), (RailMark::Done, false), "frame {i}");
+    }
+}
+
+/// BUG-137 AC-D5, AC-T6: the system's animations off — Platform work asks for no frame; the
+/// mark is dim, the block at the bar's start.
+#[test]
+fn with_animations_off_platform_work_leaves_the_mark_dim_and_still() {
+    let (_turn, mut kit) = demo_app("overview", "en");
+    system_motion(&mut kit, false);
+    for _ in 0..4 {
+        platform_frame(&mut kit, &[evolite_api::PlatformWork::Tokens]);
+    }
+    assert_eq!(
+        rail_mark(&kit),
+        (
+            RailMark::Block {
+                dim: true,
+                x: crate::screens::sidebar::block_still(None),
+                alpha: 1.0,
+                stopped: false,
+            },
+            false
+        )
+    );
+}
+
+/// BUG-137 AC-D7, AC-T7: the reader hears «Sync · Platform» when Platform's turn comes, and a
+/// second Platform work does not change what it hears.
+#[test]
+fn the_reader_hears_platform_once_not_each_work() {
+    use evolite_api::PlatformWork::{Identities, Names};
+    let (_turn, mut kit) = demo_app("overview", "en");
+    system_motion(&mut kit, true);
+    for _ in 0..4 {
+        platform_frame(&mut kit, &[Identities]);
+    }
+    assert_eq!(rail_status(&kit), "Sync · Platform");
+    for _ in 0..2 {
+        platform_frame(&mut kit, &[Identities, Names]);
+    }
+    assert_eq!(rail_status(&kit), "Sync · Platform", "the same name");
 }

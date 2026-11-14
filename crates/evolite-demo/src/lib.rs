@@ -1613,6 +1613,18 @@ mod tests {
         }
     }
 
+    /// BUG-137 AC-T4: a spend is the person's own operation, not a sync: the sync card's mark
+    /// does not move for it.
+    #[test]
+    fn a_spend_is_no_platform_sync() {
+        let (mut m, _tx, _rx) = mock();
+        m.snapshot.wallet = Some(demo_wallet(now()));
+        for op in every_spend() {
+            let _ = m.spend(op);
+            assert!(m.snapshot.sync.platform.is_empty());
+        }
+    }
+
     #[test]
     fn with_a_password_for_every_send_no_spend_goes_without_it() {
         let (mut m, tx, rx) = mock();

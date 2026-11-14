@@ -14,6 +14,8 @@ use File::Find;
 binmode STDOUT, ':encoding(UTF-8)';
 
 my %keys;
+# How often each text is marked, and how often as a form of a plural (BUG-137).
+my (%marked, %in_plural);
 my @dirs = map { "crates/$_/src" } qw(evolite-ui evolite-core evolite-api evolite-chain evolite-art evolite-common evolite-demo evolite-local);
 my $lit = qr/"((?:[^"\\]|\\.)*)"/s;
 
@@ -33,6 +35,7 @@ find(sub {
     # plural(n, tr!("a"), tr!("b")) → one key in both its forms (rustfmt may end it with a comma).
     while ($src =~ /plural\(\s*[^,]+,\s*tr!\(\s*$lit\s*\)\s*,\s*tr!\(\s*$lit\s*\)\s*,?\s*\)/g) {
         $keys{"{} " . unescape($1) . "|{} " . unescape($2)} = 1;
+        $in_plural{unescape($_)}++ for ($1, $2);
     }
     while ($src =~ /\btr!\(\s*$lit\s*\)/g) {
         my $key = unescape($1);
@@ -41,6 +44,7 @@ find(sub {
         $key =~ s/\{[A-Za-z0-9_.]*(?::[^{}]*)?\}/{}/g;
         $key =~ s/\x{1}/{/g; $key =~ s/\x{2}/}/g;
         $keys{$key} = 1;
+        $marked{$key}++;
     }
 }, @dirs);
 
@@ -90,9 +94,12 @@ sub unescape {
     return $s;
 }
 
-# The plural forms are keys of their own; their single forms are not needed again.
+# The plural forms are keys of their own; their single forms are not needed again, unless the
+# same text is marked alone somewhere as well (BUG-137: the sync card's «identities»).
 my %forms = map { $_ => 1 } map { my $k = $_; $k =~ s/\{\} //g; split /\|/, $k } grep { /\|/ } keys %keys;
-delete $keys{$_} for keys %forms;
+for my $form (keys %forms) {
+    delete $keys{$form} unless ($marked{$form} // 0) > ($in_plural{$form} // 0);
+}
 
 open my $out, '>:encoding(UTF-8)', 'crates/evolite-ui/locales/_keys.json' or die $!;
 my @sorted = sort keys %keys;

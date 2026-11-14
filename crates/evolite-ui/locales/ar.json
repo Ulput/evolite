@@ -1747,5 +1747,14 @@
   },
   "Checking balances: identity {} of {}": "نتحقق من الأرصدة: الهوية {} من {}",
   "Once the connection is back, the search goes on from the same place — no need to start over.": "حين يعود الاتصال يستمر البحث من المكان نفسه — لا حاجة للبدء من جديد.",
-  "evolite checks the network's contracts with proofs. You can leave this screen — the search goes on, and what it finds will appear here.": "يتحقق evolite من عقود الشبكة بالإثباتات. يمكنك مغادرة هذه الشاشة — سيستمر البحث وسيظهر ما يُعثر عليه هنا."
+  "evolite checks the network's contracts with proofs. You can leave this screen — the search goes on, and what it finds will appear here.": "يتحقق evolite من عقود الشبكة بالإثباتات. يمكنك مغادرة هذه الشاشة — سيستمر البحث وسيظهر ما يُعثر عليه هنا.",
+  "Sync · Platform": "المزامنة · Platform",
+  "identities": "الهويات",
+  "names": "الأسماء",
+  "contacts": "جهات الاتصال",
+  "tokens": "الرموز",
+  "and {} more": "و{} أخرى",
+  "address": "العنوان",
+  "Platform: {}": "Platform: {}",
+  "pool": "المجمّع"
 }

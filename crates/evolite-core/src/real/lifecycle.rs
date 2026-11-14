@@ -11,6 +11,7 @@ impl Real {
         wake: Arc<dyn Fn() + Send + Sync>,
     ) -> Self {
         let paths = Paths::new(data_dir, &wallet);
+        let dirty = Arc::new(AtomicBool::new(true));
         let index = wallets::load(&paths.root);
         // A vault that cannot be read still exists: "Locked", and unlocking says why.
         let saved = match vault::load(&paths.vault) {
@@ -74,7 +75,14 @@ impl Real {
             paths,
             chain: Arc::new(Chain::default()),
             out,
-            dirty: Arc::new(AtomicBool::new(true)),
+            works: super::works::Works::new({
+                let (dirty, wake) = (dirty.clone(), wake.clone());
+                Arc::new(move || {
+                    dirty.store(true, Ordering::Relaxed);
+                    wake();
+                })
+            }),
+            dirty,
             wake,
             pending: None,
             saved,

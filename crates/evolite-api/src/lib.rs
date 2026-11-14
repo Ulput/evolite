@@ -482,6 +482,33 @@ pub struct SyncInfo {
     pub core_nodes: Vec<NodeInfo>,
     /// The Platform (DAPI) nodes the SDK knows, and which of them it holds off for now.
     pub dapi_nodes: Vec<NodeInfo>,
+    /// What the wallet catches up on Platform now, in the order of [`PlatformWork`], each once;
+    /// empty: nothing (BUG-137). Only the core's background reads, never a person's operation.
+    pub platform: Vec<PlatformWork>,
+}
+
+/// A background read of Platform the wallet catches up with (BUG-137): the sync card's mark
+/// moves while one goes. In the order the card names them.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
+pub enum PlatformWork {
+    Identities,
+    Names,
+    Credits,
+    Contacts,
+    Tokens,
+    Pool,
+}
+
+impl PlatformWork {
+    /// Every kind, in order.
+    pub const ALL: [PlatformWork; 6] = [
+        PlatformWork::Identities,
+        PlatformWork::Names,
+        PlatformWork::Credits,
+        PlatformWork::Contacts,
+        PlatformWork::Tokens,
+        PlatformWork::Pool,
+    ];
 }
 
 /// One node of the network, as Settings → Network → "Nodes" lists it.

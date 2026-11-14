@@ -23,6 +23,7 @@ mod ops;
 mod prices;
 mod run;
 mod snapshot;
+mod works;
 
 use lifecycle::*;
 use ops::core::*;
@@ -287,6 +288,8 @@ struct Real {
     /// Set by the sync callback; the loop then sends a fresh snapshot.
     dirty: Arc<AtomicBool>,
     wake: Arc<dyn Fn() + Send + Sync>,
+    /// What the wallet catches up on Platform now (BUG-137): the snapshot's `SyncInfo::platform`.
+    works: Arc<works::Works>,
     /// A phrase between "new / typed" and "create wallet". Never leaves the core but to the
     /// onboarding screen that must show it.
     pending: Option<(Zeroizing<String>, bool)>,
@@ -576,3 +579,11 @@ const LOCK_RETRY: Duration = Duration::from_secs(3);
 
 #[cfg(test)]
 mod tests;
+
+impl Real {
+    /// A background read of Platform starts (BUG-137): the sync card's mark moves until the
+    /// guard is dropped.
+    pub(crate) fn work(&self, kind: PlatformWork) -> works::Working {
+        self.works.start(kind)
+    }
+}

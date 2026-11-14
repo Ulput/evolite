@@ -1714,5 +1714,14 @@
   },
   "Checking balances: identity {} of {}": "Verificando saldos: identidade {} de {}",
   "Once the connection is back, the search goes on from the same place — no need to start over.": "Assim que a conexão voltar, a busca continua do mesmo ponto — não é preciso recomeçar.",
-  "evolite checks the network's contracts with proofs. You can leave this screen — the search goes on, and what it finds will appear here.": "A evolite verifica os contratos da rede com provas. Você pode sair desta tela — a busca continua, e o que ela encontrar vai aparecer aqui."
+  "evolite checks the network's contracts with proofs. You can leave this screen — the search goes on, and what it finds will appear here.": "A evolite verifica os contratos da rede com provas. Você pode sair desta tela — a busca continua, e o que ela encontrar vai aparecer aqui.",
+  "Sync · Platform": "Sincronização · Platform",
+  "identities": "identidades",
+  "names": "nomes",
+  "contacts": "contatos",
+  "tokens": "tokens",
+  "and {} more": "e mais {}",
+  "address": "endereço",
+  "Platform: {}": "Platform: {}",
+  "pool": "pool"
 }

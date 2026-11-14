@@ -25,11 +25,13 @@ impl Real {
         let db = self.paths.pool.clone();
         let dirty = self.dirty.clone();
         let wake = self.wake.clone();
+        let working = self.work(PlatformWork::Pool);
         tokio::spawn(async move {
             let result = match chain.wallet(&id).await {
                 Some(wallet) => chain.connect_pool(&wallet, &seed[..], &db).await,
                 None => Err(tr!("the wallet is not loaded").to_owned()),
             };
+            drop(working);
             match result {
                 Ok(()) => {
                     dirty.store(true, Ordering::Relaxed);

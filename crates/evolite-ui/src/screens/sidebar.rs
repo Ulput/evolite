@@ -217,13 +217,22 @@ pub fn sidebar(
         return;
     }
     let done = status.stage == SyncStage::Done;
-    a.icons
-        .sync_mark(if done { 3 } else { 2 }, &p, 28.0)
-        .paint_at(ui, mark);
+    // The same mark as the rail's, moving in the wide menu too (BUG-137 AC-D1).
+    let clock = sync_mark(ui, a, status, mark, ui.id().with("sync-card"));
     let (title, detail) = if status.folder_refused.is_some() {
         (
             tr!("The sync stopped").to_string(),
             tr!("a folder needs fixing").to_string(),
+        )
+    } else if done && clock.platform() {
+        // Core done, Platform catching up (BUG-137): «Sync», as for Core, and what goes in the
+        // second line (the designer: «Sync · Platform» did not fit the card in ru).
+        (
+            tr!("Sync").to_string(),
+            format!(
+                tr!("Platform: {works}"),
+                works = platform_words(&words_status(status, &clock).platform)
+            ),
         )
     } else if done {
         (
@@ -266,7 +275,12 @@ pub fn sidebar(
         if compact {
             return;
         }
-        let font = mono(11.0, Weight::Regular);
+        // The works of Platform are words, not numbers: 12 Regular (the designer, BUG-137).
+        let font = if done && clock.platform() {
+            sans(12.0, Weight::Regular)
+        } else {
+            mono(11.0, Weight::Regular)
+        };
         let wrap = sync.right() - 12.0 - x;
         let shown = crate::components::lines(ui.ctx(), &detail, &font, wrap);
         let detail = ui.painter().layout(shown, font, p.muted, wrap);
@@ -325,13 +339,73 @@ pub(crate) enum RailMark {
     },
 }
 
-/// The rail mark's clock, kept from frame to frame.
+/// Platform work moves the mark once it has gone this long (BUG-137): no flash for a short one.
+const PLATFORM_AFTER: f64 = 0.6;
+/// A pause shorter than this between two works does not end a cycle.
+const PLATFORM_GAP: f64 = 1.0;
+
+/// The sync mark's clock, kept from frame to frame.
 #[derive(Clone, Copy, Default)]
 pub(crate) struct MarkClock {
     /// When the cycle that runs began; `None`: none runs.
     cycle: Option<f64>,
     /// The way to the full logo: when it began, and where the block was then and how bright.
     to_done: Option<(f64, f32, f32)>,
+    /// Platform work (BUG-137): since when it goes without a pause of [`PLATFORM_GAP`], and when
+    /// it was last seen.
+    platform_since: Option<f64>,
+    platform_seen: Option<f64>,
+    /// The mark moves (or stands dim) for Platform, with Core done: the words say so.
+    for_platform: bool,
+    /// The kinds of Platform work last seen (a bit each, [`evolite_api::PlatformWork::ALL`]'s order),
+    /// for the words while a cycle finishes after the work.
+    last_works: u8,
+}
+
+impl MarkClock {
+    /// The mark goes for Platform now, Core being done (the words: «Sync · Platform»).
+    pub(crate) fn platform(&self) -> bool {
+        self.for_platform
+    }
+
+    /// The kinds of Platform work last seen.
+    pub(crate) fn last_works(&self) -> Vec<evolite_api::PlatformWork> {
+        evolite_api::PlatformWork::ALL
+            .into_iter()
+            .filter(|w| self.last_works & (1 << *w as u8) != 0)
+            .collect()
+    }
+
+    /// Notes the Platform work of this frame; whether it has gone [`PLATFORM_AFTER`] now.
+    fn platform_long(&mut self, working: bool, now: f64) -> bool {
+        if working {
+            self.platform_since.get_or_insert(now);
+            self.platform_seen = Some(now);
+        } else if self
+            .platform_seen
+            .is_some_and(|seen| now - seen >= PLATFORM_GAP)
+        {
+            self.platform_since = None;
+            self.platform_seen = None;
+        }
+        working
+            && self
+                .platform_since
+                .is_some_and(|since| now - since >= PLATFORM_AFTER - 1e-9)
+    }
+
+    /// A cycle begun for Platform is owed its end: the work was seen less than [`PLATFORM_GAP`]
+    /// ago, or the cycle it was last seen in has not ended.
+    fn platform_owed(&self, now: f64) -> bool {
+        let (Some(start), Some(seen)) = (self.cycle, self.platform_seen) else {
+            return false;
+        };
+        if now - seen < PLATFORM_GAP {
+            return true;
+        }
+        let end = start + ((seen - start) / CYCLE).floor() * CYCLE + CYCLE;
+        now < end
+    }
 }
 
 /// What the rail's mark shows at `now` (seconds) and whether it moves, so another frame is
@@ -352,12 +426,30 @@ pub(crate) fn rail_mark_now(
         };
         return (mark, false);
     }
-    if status.stage == SyncStage::Done {
-        // From wherever the cycle was, the block rides home or shows there in 400 ms.
+    let core = status.stage != SyncStage::Done;
+    // BUG-137: Platform work too, once it has gone 0.6 s, or while the cycle it began is owed
+    // its end (moving only: still, there is no cycle to finish).
+    if !status.platform.is_empty() {
+        clock.last_works = status
+            .platform
+            .iter()
+            .fold(0, |bits, w| bits | 1 << *w as u8);
+    }
+    let platform = clock.platform_long(!status.platform.is_empty(), now)
+        || (!core && moving && clock.for_platform && clock.platform_owed(now));
+    clock.for_platform = !core && platform;
+    if !core && !platform {
+        // From wherever the cycle was, the block rides home or shows there in 400 ms; a cycle
+        // that ran to its end for Platform is at home already, faded.
         if let Some(start) = clock.cycle.take()
             && moving
         {
-            let (x, alpha) = block_at((((now - start) % CYCLE) / CYCLE) as f32);
+            let ended = clock.platform_seen.is_some();
+            let (x, alpha) = if ended {
+                (BLOCK_HOME, 0.0)
+            } else {
+                block_at((((now - start) % CYCLE) / CYCLE) as f32)
+            };
             clock.to_done = Some((now, x, alpha));
         }
         if let Some((at, x, alpha)) = clock.to_done
@@ -383,7 +475,8 @@ pub(crate) fn rail_mark_now(
         clock.cycle = None;
         let mark = RailMark::Block {
             dim: true,
-            x: block_still(status.progress),
+            // Platform has no percent: the bar's start.
+            x: block_still(if core { status.progress } else { None }),
             alpha: 1.0,
             stopped: false,
         };
@@ -400,8 +493,33 @@ pub(crate) fn rail_mark_now(
     (mark, true)
 }
 
-/// The two lines of the rail mark's words, and whether the first is a stop's (`danger`).
-fn rail_words(status: &evolite_api::SyncInfo) -> (String, String, bool) {
+/// What Platform catches up on, for the words (BUG-137): three at most, then «and N more».
+fn platform_words(works: &[evolite_api::PlatformWork]) -> String {
+    use evolite_api::PlatformWork::*;
+    let names: Vec<String> = works
+        .iter()
+        .map(|w| {
+            crate::i18n::t(match w {
+                Identities => tr!("identities"),
+                Names => tr!("names"),
+                Credits => tr!("credits"),
+                Contacts => tr!("contacts"),
+                Tokens => tr!("tokens"),
+                Pool => tr!("pool"),
+            })
+            .into_owned()
+        })
+        .collect();
+    let mut shown: Vec<String> = names.iter().take(3).cloned().collect();
+    if names.len() > 3 {
+        shown.push(crate::i18n::t(&format!(tr!("and {} more"), names.len() - 3)).into_owned());
+    }
+    shown.join(" · ")
+}
+
+/// The two lines of the sync card's words, and whether the first is a stop's (`danger`).
+/// `platform`: the mark goes for Platform ([`MarkClock::platform`]).
+fn rail_words(status: &evolite_api::SyncInfo, platform: bool) -> (String, String, bool) {
     if let Some(what_to_do) = &status.folder_refused {
         return (
             tr!("The sync stopped").to_string(),
@@ -417,6 +535,14 @@ fn rail_words(status: &evolite_api::SyncInfo) -> (String, String, bool) {
                 crate::i18n::t(why)
             ),
             true,
+        );
+    }
+    if status.stage == SyncStage::Done && platform {
+        // A cycle finishing after the work: the last words stay until it ends.
+        return (
+            tr!("Sync · Platform").to_string(),
+            platform_words(&status.platform),
+            false,
         );
     }
     if status.stage == SyncStage::Done {
@@ -461,8 +587,22 @@ fn rail_sync(
     sync: egui::Rect,
     mark: egui::Rect,
 ) {
-    let p = a.p;
     let id = ui.id().with("sync-card");
+    let clock = sync_mark(ui, a, status, mark, id);
+    rail_sync_words(ui, a, status, sync, id, &clock);
+}
+
+/// The sync card's mark, in every size of the menu (BUG-137): «the block finds its place» while
+/// Core or Platform catches up, the full logo once done, the danger block at a stop. Asks for
+/// frames only while it moves. Its clock, for the words.
+fn sync_mark(
+    ui: &mut Ui,
+    a: &mut Assets,
+    status: &evolite_api::SyncInfo,
+    mark: egui::Rect,
+    id: egui::Id,
+) -> MarkClock {
+    let p = a.p;
     let now = ui.input(|i| i.time);
     let moving = crate::motion::system_on(ui.ctx());
     let mut clock = ui.data(|d| d.get_temp::<MarkClock>(id)).unwrap_or_default();
@@ -492,7 +632,17 @@ fn rail_sync(
         ui.ctx()
             .request_repaint_after(std::time::Duration::from_secs_f64(1.0 / 30.0));
     }
-    rail_sync_words(ui, a, status, sync, id);
+    clock
+}
+
+/// What the words say of Platform: what goes now, or, while a cycle finishes after it, what went
+/// last.
+fn words_status(status: &evolite_api::SyncInfo, clock: &MarkClock) -> evolite_api::SyncInfo {
+    let mut shown = status.clone();
+    if clock.platform() && shown.platform.is_empty() {
+        shown.platform = clock.last_works();
+    }
+    shown
 }
 
 /// The rail mark's words: a tooltip of two lines on hover and on keyboard focus, and one name
@@ -504,17 +654,20 @@ fn rail_sync_words(
     status: &evolite_api::SyncInfo,
     sync: egui::Rect,
     id: egui::Id,
+    clock: &MarkClock,
 ) {
     let p = a.p;
-    let (title, detail, stopped) = rail_words(status);
+    let platform = clock.platform();
+    let (title, detail, stopped) = rail_words(&words_status(status, clock), platform);
     let title = crate::i18n::t(&title).into_owned();
     let detail = crate::i18n::t(&detail).into_owned();
-    // The reader is told only of a new stage, the end and a stop: the status is a polite live
-    // region for a second after one, quiet while the percent and the minutes left move on.
-    let key = (status.stage, status.error.is_some());
+    // The reader is told only of a new stage, the end and a stop, and of Platform's turn (BUG-137
+    // AC-D7): the status is a polite live region for a second after one, quiet while the percent,
+    // the minutes left and the Platform works move on.
+    let key = (status.stage, status.error.is_some(), platform);
     let now = ui.input(|i| i.time);
     let changed_id = id.with("changed");
-    let changed = match ui.data(|d| d.get_temp::<((SyncStage, bool), f64)>(changed_id)) {
+    let changed = match ui.data(|d| d.get_temp::<((SyncStage, bool, bool), f64)>(changed_id)) {
         Some((was, at)) if was == key => at,
         _ => {
             ui.data_mut(|d| d.insert_temp(changed_id, (key, now)));
@@ -532,7 +685,13 @@ fn rail_sync_words(
     } else {
         egui::accesskit::Live::Off
     };
-    let spoken = format!("{title} · {detail}");
+    // Platform's works change often: the reader is told «Sync · Platform», the works are in the
+    // tooltip (AC-T7: a second work does not change the name).
+    let spoken = if platform {
+        title.clone()
+    } else {
+        format!("{title} · {detail}")
+    };
     let resp = ui.interact(sync, id, egui::Sense::hover() | egui::Sense::FOCUSABLE);
     resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, &spoken));
     ui.ctx().accesskit_node_builder(resp.id, |node| {
@@ -583,6 +742,7 @@ mod tests {
             core_node_next: None,
             core_nodes: Vec::new(),
             dapi_nodes: Vec::new(),
+            platform: Vec::new(),
         }
     }
 
@@ -690,5 +850,143 @@ mod tests {
                 }
             );
         }
+    }
+
+    fn on_platform(works: &[evolite_api::PlatformWork]) -> evolite_api::SyncInfo {
+        let mut s = syncing(SyncStage::Done, None);
+        s.platform = works.to_vec();
+        s
+    }
+
+    fn moving(shown: (RailMark, bool)) -> bool {
+        matches!(
+            shown,
+            (
+                RailMark::Block {
+                    dim: false,
+                    stopped: false,
+                    ..
+                },
+                true
+            )
+        )
+    }
+
+    /// BUG-137 AC-D2, AC-D3: Platform work moves the mark once it has gone 0.6 s; a shorter one
+    /// does not touch it.
+    #[test]
+    fn platform_work_moves_the_mark_after_six_tenths_of_a_second() {
+        use evolite_api::PlatformWork::Tokens;
+        let (going, idle) = (on_platform(&[Tokens]), on_platform(&[]));
+        let mut clock = MarkClock::default();
+        assert_eq!(
+            rail_mark_now(&mut clock, &going, true, 10.0),
+            (RailMark::Done, false)
+        );
+        assert_eq!(
+            rail_mark_now(&mut clock, &going, true, 10.5),
+            (RailMark::Done, false)
+        );
+        assert!(moving(rail_mark_now(&mut clock, &going, true, 10.6)));
+        assert!(clock.platform(), "the words say Platform");
+        let mut clock = MarkClock::default();
+        rail_mark_now(&mut clock, &going, true, 20.0);
+        rail_mark_now(&mut clock, &going, true, 20.3);
+        for t in [20.4, 20.6, 21.0, 22.0] {
+            assert_eq!(
+                rail_mark_now(&mut clock, &idle, true, t),
+                (RailMark::Done, false),
+                "0.3 s of work: still at {t}"
+            );
+        }
+        assert!(!clock.platform());
+    }
+
+    /// BUG-137 AC-D3: a cycle begun runs to its end, then 0.4 s to the full logo; a pause under
+    /// a second between two works does not break it.
+    #[test]
+    fn a_platform_cycle_runs_to_its_end() {
+        use evolite_api::PlatformWork::Identities;
+        let (going, idle) = (on_platform(&[Identities]), on_platform(&[]));
+        let mut clock = MarkClock::default();
+        rail_mark_now(&mut clock, &going, true, 0.0);
+        assert!(
+            moving(rail_mark_now(&mut clock, &going, true, 0.6)),
+            "the cycle begins"
+        );
+        // The work ends at 1.0; the cycle (0.6 + 2.8 = 3.4) goes on.
+        assert!(moving(rail_mark_now(&mut clock, &idle, true, 1.0)));
+        assert!(moving(rail_mark_now(&mut clock, &idle, true, 3.3)));
+        // Its end: from home, 0.4 s to the full logo.
+        let (mark, again) = rail_mark_now(&mut clock, &idle, true, 3.45);
+        assert!(again, "on its way to the full logo");
+        assert!(
+            matches!(mark, RailMark::Block { x, .. } if x == BLOCK_HOME),
+            "{mark:?}"
+        );
+        assert_eq!(
+            rail_mark_now(&mut clock, &idle, true, 3.45 + TO_DONE + 0.01),
+            (RailMark::Done, false)
+        );
+        // A pause of 0.5 s at the cycle's end: the next cycle, not the full logo.
+        let mut clock = MarkClock::default();
+        rail_mark_now(&mut clock, &going, true, 0.0);
+        rail_mark_now(&mut clock, &going, true, 0.6);
+        rail_mark_now(&mut clock, &going, true, 3.0);
+        let shown = rail_mark_now(&mut clock, &idle, true, 3.5);
+        assert!(moving(shown), "{shown:?}");
+        assert!(
+            matches!(shown.0, RailMark::Block { x, .. } if x == BLOCK_FROM),
+            "a new cycle from the bar's start: {shown:?}"
+        );
+    }
+
+    /// BUG-137 AC-D5: the system's animations off: no frames, the mark dim with the block at the
+    /// bar's start (Platform has no percent); then the full logo at once.
+    #[test]
+    fn platform_work_with_animations_off_is_dim_and_still() {
+        use evolite_api::PlatformWork::Credits;
+        let (going, idle) = (on_platform(&[Credits]), on_platform(&[]));
+        let mut clock = MarkClock::default();
+        rail_mark_now(&mut clock, &going, false, 0.0);
+        assert_eq!(
+            rail_mark_now(&mut clock, &going, false, 0.7),
+            (
+                RailMark::Block {
+                    dim: true,
+                    x: BLOCK_FROM,
+                    alpha: 1.0,
+                    stopped: false
+                },
+                false
+            )
+        );
+        assert_eq!(
+            rail_mark_now(&mut clock, &idle, false, 0.8),
+            (RailMark::Done, false)
+        );
+    }
+
+    /// BUG-137: Core first; with Core done, «Sync · Platform» and what goes, three at most.
+    #[test]
+    fn the_words_say_platform_once_core_is_done() {
+        use evolite_api::PlatformWork::*;
+        let (title, detail, stopped) = rail_words(&on_platform(&[Identities, Tokens]), true);
+        assert_eq!((title.as_str(), stopped), ("Sync · Platform", false));
+        assert_eq!(detail, "identities · tokens");
+        let (_, detail, _) = rail_words(
+            &on_platform(&[Identities, Names, Credits, Contacts, Pool]),
+            true,
+        );
+        assert_eq!(detail, "identities · names · credits · and 2 more");
+        let mut both = on_platform(&[Tokens]);
+        both.stage = SyncStage::Filters;
+        assert!(
+            rail_words(&both, true)
+                .0
+                .starts_with("Sync · Block filters"),
+            "Core first"
+        );
+        assert_eq!(rail_words(&on_platform(&[]), false).0, "Synced");
     }
 }

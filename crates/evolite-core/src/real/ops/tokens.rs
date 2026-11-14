@@ -246,7 +246,9 @@ impl Real {
         let (chain, refresh) = (self.chain.clone(), self.refresher());
         let (facts, reading) = (self.tokens.facts.clone(), self.tokens.reading.clone());
         let kept_registered = self.tokens.kept_registered.clone();
+        let working = self.work(PlatformWork::Tokens);
         tokio::spawn(async move {
+            let _working = working;
             if !kept_registered.swap(true, Ordering::AcqRel) {
                 let kept: Vec<Vec<u8>> = file.contracts().into_iter().map(|(_, b)| b).collect();
                 chain.register_kept_contracts(&kept).await;

@@ -1692,5 +1692,14 @@
   },
   "Checking balances: identity {} of {}": "Memeriksa saldo: identitas {} dari {}",
   "Once the connection is back, the search goes on from the same place — no need to start over.": "Begitu koneksi kembali, pencarian berlanjut dari tempat yang sama — tidak perlu mulai dari awal.",
-  "evolite checks the network's contracts with proofs. You can leave this screen — the search goes on, and what it finds will appear here.": "evolite memeriksa kontrak jaringan dengan bukti. Anda boleh meninggalkan layar ini — pencarian berlanjut, dan yang ditemukan akan muncul di sini."
+  "evolite checks the network's contracts with proofs. You can leave this screen — the search goes on, and what it finds will appear here.": "evolite memeriksa kontrak jaringan dengan bukti. Anda boleh meninggalkan layar ini — pencarian berlanjut, dan yang ditemukan akan muncul di sini.",
+  "Sync · Platform": "Sinkronisasi · Platform",
+  "identities": "identitas",
+  "names": "nama",
+  "contacts": "kontak",
+  "tokens": "token",
+  "and {} more": "dan {} lainnya",
+  "address": "alamat",
+  "Platform: {}": "Platform: {}",
+  "pool": "pool"
 }

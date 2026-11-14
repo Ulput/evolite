@@ -124,6 +124,7 @@ pub fn synced() -> SyncInfo {
         core_node_next: None,
         core_nodes: demo_nodes(),
         dapi_nodes: demo_dapi(),
+        platform: Vec::new(),
     }
 }
 
@@ -1176,6 +1177,7 @@ pub fn staged_sync(elapsed: f32) -> SyncInfo {
         core_node_next: None,
         core_nodes: demo_nodes(),
         dapi_nodes: demo_dapi(),
+        platform: Vec::new(),
     }
 }
 

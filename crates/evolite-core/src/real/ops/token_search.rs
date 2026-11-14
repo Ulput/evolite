@@ -457,6 +457,7 @@ impl Real {
             failed: None,
         };
         let identities_found = self.identities_found.clone();
+        let works = self.works.clone();
         tokio::spawn(async move {
             while !chain.platform_ready() {
                 if !live() {
@@ -472,6 +473,9 @@ impl Real {
                 }
                 tokio::time::sleep(Duration::from_secs(1)).await;
             }
+            // The pass and its balances, not the waits before it (BUG-137): the identities'
+            // lookup has its own guard.
+            let _working = works.start(PlatformWork::Tokens);
             let mut cache: Cache<chain::CrawlTokens> = store::load(&path);
             let started = std::time::Instant::now();
             let now_ms = move || started.elapsed().as_millis() as u64;
@@ -674,7 +678,10 @@ impl Real {
         let run = self.tokens.search.run.load(Ordering::Relaxed);
         let current = self.tokens.search.run.clone();
         let live = move || current.load(Ordering::Relaxed) == run;
+        let working = self.work(PlatformWork::Tokens);
         tokio::spawn(async move {
+            // The new identities' balances are a token read too (BUG-137).
+            let _working = working;
             if !chain.platform_ready() {
                 return;
             }

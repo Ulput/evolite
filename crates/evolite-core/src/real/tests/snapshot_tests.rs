@@ -300,3 +300,33 @@ fn a_lock_takes_its_amount_from_the_status_it_has_just_got() {
         assert_eq!(card(&line).credits_added, None, "{credits:?}");
     }
 }
+
+/// BUG-137 AC-T2, AC-T3: the snapshot names the Platform work under way, in the kinds' order,
+/// and nothing once it ended; its start and its end each make a snapshot without waiting for
+/// the tick.
+#[tokio::test]
+async fn the_snapshot_names_the_platform_work_under_way() {
+    let dir = fresh_dir("platform-work");
+    let mut core = core_at(&dir, TEST_WALLET);
+    assert!(core.snapshot().await.sync.platform.is_empty());
+    core.dirty.store(false, Ordering::Relaxed);
+    let tokens = core.work(PlatformWork::Tokens);
+    assert!(
+        core.dirty.load(Ordering::Relaxed),
+        "the start makes a snapshot"
+    );
+    let identities = core.work(PlatformWork::Identities);
+    assert_eq!(
+        core.snapshot().await.sync.platform,
+        [PlatformWork::Identities, PlatformWork::Tokens]
+    );
+    core.dirty.store(false, Ordering::Relaxed);
+    drop(tokens);
+    assert!(core.dirty.load(Ordering::Relaxed), "the end too");
+    assert_eq!(
+        core.snapshot().await.sync.platform,
+        [PlatformWork::Identities]
+    );
+    drop(identities);
+    assert!(core.snapshot().await.sync.platform.is_empty());
+}

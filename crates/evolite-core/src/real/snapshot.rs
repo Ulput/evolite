@@ -205,6 +205,7 @@ impl Real {
                 platform_nodes,
                 core_nodes,
                 dapi_nodes,
+                platform: self.works.now(),
                 core_node_next: {
                     let saved =
                         turn::during("core_node_file", || node::load(&self.paths.chain.core_node));
@@ -1133,6 +1134,8 @@ impl Real {
         let marks_path = self.paths.platform_sync.clone();
         let names = self.names.lock().unwrap_or_else(|e| e.into_inner()).clone();
         let refresh = self.refresher();
+        // The Platform journal is the credits' history (BUG-137).
+        let working = self.work(PlatformWork::Credits);
         tokio::spawn(async move {
             // Lowered on every way out, a panic in the read too.
             struct Done(Arc<AtomicBool>);
@@ -1142,6 +1145,7 @@ impl Real {
                 }
             }
             let _done = Done(busy);
+            let _working = working;
             let Some(wallet) = chain.wallet(&id).await else {
                 return;
             };
@@ -1234,14 +1238,18 @@ pub(super) async fn keep_balances_fresh(
     stale: Arc<tokio::sync::Notify>,
     checked: Arc<AtomicBool>,
     refresh: impl Fn(),
+    works: Arc<super::works::Works>,
 ) {
     let mut round = 0u32;
     while live() {
         let all = round.is_multiple_of(BALANCES_ALL_EVERY);
         round = round.wrapping_add(1);
         if let Some(wallet) = chain.wallet(&id).await {
+            // The read, not the wait for the next one (BUG-137).
+            let working = works.start(PlatformWork::Credits);
             let result =
                 turn::timed("refresh_balances", chain.refresh_balances(&wallet, all)).await;
+            drop(working);
             if round_reads_all(all, &result) && live() {
                 checked.store(true, Ordering::Relaxed);
             }

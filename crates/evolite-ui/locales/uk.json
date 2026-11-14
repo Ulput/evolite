@@ -1725,5 +1725,14 @@
   },
   "Checking balances: identity {} of {}": "Перевіряємо баланси: identity {} з {}",
   "Once the connection is back, the search goes on from the same place — no need to start over.": "Щойно зв’язок повернеться, пошук продовжиться з того ж місця — починати спочатку не доведеться.",
-  "evolite checks the network's contracts with proofs. You can leave this screen — the search goes on, and what it finds will appear here.": "evolite перевіряє контракти мережі з доказами. Можна піти з екрана — пошук продовжиться, а знайдене з’явиться тут."
+  "evolite checks the network's contracts with proofs. You can leave this screen — the search goes on, and what it finds will appear here.": "evolite перевіряє контракти мережі з доказами. Можна піти з екрана — пошук продовжиться, а знайдене з’явиться тут.",
+  "Sync · Platform": "Синхронізація · Platform",
+  "identities": "identity",
+  "names": "імена",
+  "contacts": "контакти",
+  "tokens": "токени",
+  "and {} more": "і ще {}",
+  "address": "адреса",
+  "Platform: {}": "Platform: {}",
+  "pool": "пул"
 }

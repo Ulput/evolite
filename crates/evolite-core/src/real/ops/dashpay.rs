@@ -261,11 +261,14 @@ impl Real {
         let busy = self.contact_accounts_busy.clone();
         let dirty = self.dirty.clone();
         let wake = self.wake.clone();
+        // Contacts: the build, not the pause before a retry (BUG-137).
+        let working = self.work(PlatformWork::Contacts);
         tokio::spawn(async move {
             let accounts = match chain.wallet(&id).await {
                 Some(wallet) => chain.build_contact_accounts(&wallet, &keys).await.ok(),
                 None => None,
             };
+            drop(working);
             if accounts.is_some() {
                 // The history names the contacts' payments with what was built.
                 dirty.store(true, Ordering::Relaxed);
@@ -306,11 +309,14 @@ impl Real {
             let names = self.names.clone();
             let asked = self.names_asked.clone();
             let refresh = self.refresher();
+            let working = self.work(PlatformWork::Names);
             tokio::spawn(async move {
                 let Ok(identifier) = Identifier::from_string(&id, Encoding::Base58) else {
                     return;
                 };
-                match turn::timed("contact_name_read", chain.name_of(identifier)).await {
+                let read = turn::timed("contact_name_read", chain.name_of(identifier)).await;
+                drop(working);
+                match read {
                     Ok(name) => {
                         names
                             .lock()
