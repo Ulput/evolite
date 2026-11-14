@@ -67,6 +67,7 @@ impl Real {
                 paths.lock_status.clone(),
             )),
             lock_status_busy: Arc::new(AtomicBool::new(false)),
+            fund_resume_failed: Default::default(),
             history_next: None,
             contact_paid,
             hidden,

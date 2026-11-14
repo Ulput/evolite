@@ -226,6 +226,50 @@ fn from_core_the_wallets_own_platform_address_is_not_someone_elses() {
     );
 }
 
+/// FEAT-0015 follow-up, FEAT-0037: on mainnet the network matrix has no top-up of the Platform
+/// address yet, so Send from Core to the wallet's own address (a mainnet «dash1…») offers none —
+/// no «Check and top up» — and says it is not available on mainnet yet.
+#[test]
+fn on_mainnet_core_to_the_own_platform_address_is_not_available_yet() {
+    let (_turn, mut kit) = demo_app("core-to-platform-address", "en");
+    kit.set_size(egui::vec2(1024.0, 1100.0));
+    settle(&mut kit);
+    let own = kit
+        .state()
+        .snapshot
+        .as_ref()
+        .and_then(|s| s.wallet.as_ref())
+        .map(|w| w.platform_address.replacen("tdash1", "dash1", 1))
+        .expect("the demo's Platform address");
+    kit.state_mut().send.recipient = own.clone();
+    kit.state_mut().send.amount = crate::format::input_text(10_000_000);
+    show_edited(
+        &mut kit,
+        3,
+        "the refusal on mainnet",
+        |app| {
+            if let Some(s) = app.snapshot.as_mut() {
+                s.network = evolite_api::Network::Mainnet;
+                if let Some(w) = s.wallet.as_mut() {
+                    w.platform_address = own.clone();
+                }
+            }
+        },
+        |kit| has_words(kit, "not available on mainnet yet"),
+    );
+    assert_eq!(kit.state().send.source, 0, "from Core");
+    assert!(
+        kit.query_all_by_role_and_label(Role::Button, "Check and top up")
+            .next()
+            .is_none(),
+        "no top-up offered"
+    );
+    assert!(!has_words(
+        &kit,
+        "Top-up of your Platform address from Core"
+    ));
+}
+
 /// BUG-141, QA pass 23, review r1 should 1: to the demo's own Receive address — itself funded,
 /// as in QA's wallet — from the Platform address. More than the other address holds is «More
 /// than there is in this balance» before the password, and the fee row says one input's fee,

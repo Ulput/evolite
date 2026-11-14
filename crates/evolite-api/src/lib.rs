@@ -682,6 +682,9 @@ pub struct UnfinishedAddressTopUp {
     pub locked: Duffs,
     /// The Platform address (`tdash1…`) the lock is for.
     pub address: String,
+    /// Whether it holds a new top-up back until it is finished (AC-T5): no longer once its
+    /// «Continue» failed in this run (BUG-160) — it is still offered beside a new one.
+    pub holds_back: bool,
 }
 
 /// One word of "Check the phrase": its number in the phrase (from 1) and the words to pick from,

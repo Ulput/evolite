@@ -2,6 +2,7 @@
 //! keys, all from the core's snapshot.
 
 mod add_name;
+mod imgur;
 mod profile;
 mod top_up;
 

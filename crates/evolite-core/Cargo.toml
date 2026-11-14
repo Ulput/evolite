@@ -29,6 +29,9 @@ pool = ["real", "evolite-chain/pool"]
 # screenshots and the demo; `evolite-ui`'s `dev-tools` turns it on. Built without `real` it is
 # the only core and needs no flag.
 demo = []
+# `--stop-after asset-lock` (evolite-ui's `dev-tools`, BUG-160): the process exits right after an
+# address funding's lock is broadcast, proved and stored, before Platform is asked.
+dev-stops = ["evolite-chain?/dev-stops"]
 
 [dependencies]
 evolite-api = { path = "../evolite-api" }

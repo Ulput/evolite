@@ -1004,7 +1004,11 @@ impl Mock {
             .wallet
             .as_mut()
             .ok_or(CoreError::NotAvailable(NO_WALLET.into()))?;
-        if wallet.unfinished_address_top_up.is_some() {
+        if wallet
+            .unfinished_address_top_up
+            .as_ref()
+            .is_some_and(|u| u.holds_back)
+        {
             return Err(CoreError::NotAvailable(
                 tr!("First finish the stopped top-up of the Platform address — its money is already locked").into(),
             ));

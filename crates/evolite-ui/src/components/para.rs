@@ -187,15 +187,82 @@ pub fn address_like(run: &str) -> bool {
     if let Some((head, tail)) = run.split_once('…') {
         return head.len() >= 3 && tail.len() >= 3 && has_digit && has_letter;
     }
-    run.len() >= 26 && has_digit && has_letter
+    run.len() >= 26 && has_digit && has_letter || short_hash(run)
 }
 
-/// The runs of `text` that are addresses, hashes, ids or keys ([`address_like`]), as byte
-/// ranges: drawn in the monospace font, as Inter's «x» between digits reads as «×» (BUG-154).
+/// A short commit hash (BUG-159): 7 to 12 lowercase hex characters with a digit and a letter —
+/// `575d961`, `aca0202`; not a word («facade») nor a number.
+fn short_hash(run: &str) -> bool {
+    (7..=12).contains(&run.len())
+        && run
+            .chars()
+            .all(|c| c.is_ascii_digit() || ('a'..='f').contains(&c))
+        && run.chars().any(|c| c.is_ascii_digit())
+        && run.chars().any(|c| c.is_ascii_lowercase())
+}
+
+/// An e-mail address (BUG-159): `name@domain.tld`, the domain with a dot and a final part of two
+/// letters or more.
+fn email_like(run: &str) -> bool {
+    let Some((name, domain)) = run.split_once('@') else {
+        return false;
+    };
+    let Some((_, tld)) = domain.rsplit_once('.') else {
+        return false;
+    };
+    !name.is_empty()
+        && !domain.starts_with('.')
+        && tld.len() >= 2
+        && tld.chars().all(|c| c.is_ascii_alphabetic())
+        && !domain.contains('@')
+}
+
+/// A version (BUG-159): `0.1.0`, `v1.2.13` — three parts of digits, the first of one or two, the
+/// others up to three; not a date («14.11.2026», a part of four digits) nor an amount with its
+/// thousands («1.200.000», every part after the first of three digits).
+fn version_like(run: &str) -> bool {
+    let run = run.strip_prefix('v').unwrap_or(run);
+    let parts: Vec<&str> = run.split('.').collect();
+    parts.len() == 3
+        && parts
+            .iter()
+            .all(|p| !p.is_empty() && p.len() <= 3 && p.chars().all(|c| c.is_ascii_digit()))
+        && parts[0].len() <= 2
+        && !parts[1..].iter().all(|p| p.len() == 3)
+}
+
+/// The runs of `text` that are addresses, hashes, ids or keys ([`address_like`]), e-mails and
+/// versions, as byte ranges: drawn in the monospace font, as Inter's «x» between digits reads
+/// as «×» (BUG-154, BUG-159).
 pub fn address_runs(text: &str) -> Vec<std::ops::Range<usize>> {
     let mut found = Vec::new();
-    let mut start = None;
+    // Wider runs first: an e-mail or a version holds dots and an @ the others stop at.
+    let wide = |c: char| c.is_ascii_alphanumeric() || matches!(c, '.' | '@' | '_' | '-' | '+');
+    for run in runs_of(text, wide) {
+        // A dot that ends a sentence is not part of it.
+        let trimmed = text[run.clone()].trim_end_matches('.');
+        let run = run.start..run.start + trimmed.len();
+        if email_like(trimmed) || version_like(trimmed) {
+            found.push(run);
+        }
+    }
     let piece = |c: char| c.is_ascii_alphanumeric() || c == '…';
+    for run in runs_of(text, piece) {
+        let inside = found
+            .iter()
+            .any(|f| f.start <= run.start && run.end <= f.end);
+        if !inside && address_like(&text[run.clone()]) {
+            found.push(run);
+        }
+    }
+    found.sort_by_key(|r| r.start);
+    found
+}
+
+/// The maximal runs of `text` whose chars are `piece`, as byte ranges.
+fn runs_of(text: &str, piece: impl Fn(char) -> bool) -> Vec<std::ops::Range<usize>> {
+    let mut out = Vec::new();
+    let mut start = None;
     for (i, c) in text
         .char_indices()
         .chain(std::iter::once((text.len(), ' ')))
@@ -203,15 +270,13 @@ pub fn address_runs(text: &str) -> Vec<std::ops::Range<usize>> {
         match (start, piece(c)) {
             (None, true) => start = Some(i),
             (Some(s), false) => {
-                if address_like(&text[s..i]) {
-                    found.push(s..i);
-                }
+                out.push(s..i);
                 start = None;
             }
             _ => {}
         }
     }
-    found
+    out
 }
 
 /// BUG-154: `text` (already in the interface language) in `font`, but every address, hash, id
