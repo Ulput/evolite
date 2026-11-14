@@ -643,7 +643,7 @@ impl Real {
                     let (chain, me, tokens) = (chain.clone(), me.clone(), vec![token_id.clone()]);
                     move || async move { chain.token_facts(&me, &tokens).await }
                 };
-                check_before_signing(known, &me, &info, amount, read).await?;
+                let checked = check_before_signing(known, &me, &info, amount, read).await?;
                 // BUG-145: the fee, from the credits before and after.
                 let before = chain.first_identity_credits(&wallet, false).await;
                 let send = chain.send_token(
@@ -654,10 +654,11 @@ impl Real {
                     to,
                     amount,
                 );
-                let balance = tokio::time::timeout(SEND_WAIT, send)
+                let proved = tokio::time::timeout(SEND_WAIT, send)
                     .await
                     .map_err(|_| CoreError::Failed("timed out".into()))?
                     .map_err(dashpay_failure)?;
+                let balance = balance_after(proved, checked, amount);
                 after_sent(
                     &mut facts.lock().unwrap_or_else(|e| e.into_inner()),
                     &me,
@@ -703,10 +704,21 @@ fn token_label(info: &TokenInfo) -> String {
     }
 }
 
-/// After a confirmed transfer from `sender`: the sender's balance from the proof when the answer
-/// has it, so the row is right at once; and the facts read again with the next snapshot either
-/// way (BUG-146). A token that keeps its transfer history answers with a document, not the
-/// balance, and its row waited a whole [`FACTS_EVERY`]. Facts of another identity are not touched.
+/// The sender's balance after a confirmed transfer of `amount` (BUG-146): the one in the proved
+/// answer; for a token that keeps its transfer history, whose answer is the proved transfer
+/// document and no balance, the balance checked before signing less the amount sent. `None`
+/// when neither is known.
+fn balance_after(proved: Option<u64>, before: Option<u64>, amount: u64) -> Option<u64> {
+    proved.or_else(|| before.map(|b| b.saturating_sub(amount)))
+}
+
+/// After a confirmed transfer from `sender`: its balance shown at once (BUG-146). The facts are
+/// read again with the next snapshot only when the balance is not known: a node a block behind
+/// answered the balance before the transfer, and the row went back to it for up to a
+/// [`FACTS_EVERY`] (QA pass 23). A balance computed by [`balance_after`] (the one checked before
+/// signing less the amount) is not proved: the regular read within [`FACTS_EVERY`] checks it,
+/// e.g. against a transfer that came in meanwhile (review r1, P3 1–2). Facts of another identity
+/// are not touched.
 fn after_sent(facts: &mut KnownFacts, sender: &str, token_id: &str, balance: Option<u64>) {
     let Some((who, at, f)) = facts.as_mut() else {
         return;
@@ -714,11 +726,15 @@ fn after_sent(facts: &mut KnownFacts, sender: &str, token_id: &str, balance: Opt
     if who.as_str() != sender {
         return;
     }
-    if let Some(balance) = balance {
-        f.balances.insert(token_id.to_owned(), balance);
-    }
-    if let Some(earlier) = at.checked_sub(FACTS_EVERY) {
-        *at = earlier;
+    match balance {
+        Some(balance) => {
+            f.balances.insert(token_id.to_owned(), balance);
+        }
+        None => {
+            if let Some(earlier) = at.checked_sub(FACTS_EVERY) {
+                *at = earlier;
+            }
+        }
     }
 }
 
@@ -748,14 +764,26 @@ mod after_sent_tests {
         assert!(due(&facts), "read again with the next snapshot");
     }
 
-    /// With the balance in the proved answer, it is shown at once, and read again as well.
+    /// With the balance known after the transfer, it is shown at once, and not read again early:
+    /// a node a block behind would put the old balance back (QA pass 23).
     #[test]
     fn the_balance_in_the_answer_is_shown_at_once() {
         let mut facts = known("ME", 1_000_000);
         after_sent(&mut facts, "ME", "T", Some(998_766));
         let (_, _, f) = facts.as_ref().unwrap();
         assert_eq!(f.balances.get("T"), Some(&998_766));
-        assert!(due(&facts));
+        assert!(!due(&facts), "not read again before its time");
+    }
+
+    /// BUG-146, QA pass 23: a token that keeps its transfer history answers with the proved
+    /// transfer, not the balance: the balance checked before signing less the amount sent.
+    /// The proved balance, when the answer has it, wins.
+    #[test]
+    fn a_token_with_history_shows_the_balance_less_the_amount_sent() {
+        assert_eq!(balance_after(None, Some(1_000_000), 1_234), Some(998_766));
+        assert_eq!(balance_after(Some(5), Some(1_000_000), 1_234), Some(5));
+        assert_eq!(balance_after(None, None, 1_234), None);
+        assert_eq!(balance_after(None, Some(100), 1_234), Some(0));
     }
 
     /// The facts shown are of another identity (the person switched): its balance is not
@@ -835,7 +863,7 @@ async fn check_before_signing<F>(
     info: &TokenInfo,
     amount: u64,
     read: impl FnOnce() -> F,
-) -> Result<(), CoreError>
+) -> Result<Option<u64>, CoreError>
 where
     F: Future<Output = Result<chain::TokenFacts, String>>,
 {
@@ -864,8 +892,9 @@ where
     };
     // The screen's words (`screens/tokens/state.rs`): one key, one translation.
     let words = |w: &str| Err(CoreError::NotAvailable(w.to_owned()));
+    let balance = row.balance;
     match send_refusal(&row, Some(amount), sender) {
-        None => Ok(()),
+        None => Ok(balance),
         Some(TokenRefusal::Paused) => words(tr!(
             "The issuer paused the token — transfers are not available now."
         )),
@@ -878,7 +907,7 @@ where
         Some(TokenRefusal::NotKnown) => words(tr!("The balance is not known yet: wait for it.")),
         Some(TokenRefusal::Zero) => Err(CoreError::BadAmount),
         Some(TokenRefusal::MoreThanBalance(_)) => Err(CoreError::NotEnough),
-        Some(TokenRefusal::NoKey | TokenRefusal::NoCredits) => Ok(()),
+        Some(TokenRefusal::NoKey | TokenRefusal::NoCredits) => Ok(balance),
     }
 }
 
@@ -919,7 +948,7 @@ mod signing_tests {
         read_gives: chain::TokenFacts,
         i: &TokenInfo,
         amount: u64,
-    ) -> (Result<(), CoreError>, u32) {
+    ) -> (Result<Option<u64>, CoreError>, u32) {
         let reads = Cell::new(0);
         let result = check_before_signing(known, "ME", i, amount, || {
             reads.set(reads.get() + 1);
@@ -951,7 +980,8 @@ mod signing_tests {
         let (fixed, _) = check(fresh(ok.clone()), ok.clone(), &fixed, 100).await;
         assert!(matches!(fixed, Err(CoreError::NotAvailable(_))));
         let (fine, reads) = check(fresh(ok.clone()), ok, &i, 100).await;
-        assert_eq!((fine, reads), (Ok(()), 0));
+        // The balance checked comes back: the one shown after the transfer starts from it.
+        assert_eq!((fine, reads), (Ok(Some(500)), 0));
     }
 
     #[tokio::test]
