@@ -404,6 +404,9 @@ struct Real {
     history_busy: Arc<AtomicBool>,
     lock_status: Arc<evolite_chain::lock_status::LockStatuses>,
     lock_status_busy: Arc<AtomicBool>,
+    /// The address fundings whose «Continue» failed in this run, by txid: they no longer hold
+    /// a new funding back (BUG-160).
+    fund_resume_failed: Arc<std::sync::Mutex<std::collections::HashSet<String>>>,
     /// When the next pass is due; `None`: as soon as the identities are known.
     history_next: Option<std::time::Instant>,
     /// Addresses of contacts' keys already paid: never paid again, after a restart too.

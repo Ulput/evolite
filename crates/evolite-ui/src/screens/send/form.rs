@@ -155,7 +155,11 @@ impl<'a> FormView<'a> {
         form.sync_currency(rate.as_ref());
         // An address for Core is checked as it is typed, so a typo shows before the password.
         // A Platform address is no Core payee (FEAT-0015, frame 15): not asked of the core.
-        let platform_typed = typed.to_ascii_lowercase().starts_with("tdash1");
+        // Mainnet's start with «dash1» (FEAT-0037).
+        let platform_typed = {
+            let lower = typed.to_ascii_lowercase();
+            lower.starts_with("tdash1") || lower.starts_with("dash1")
+        };
         let typed_address = source.source == Source::Core
             && !typed.is_empty()
             && !typed.starts_with('@')
@@ -215,15 +219,24 @@ impl<'a> FormView<'a> {
             .flatten();
         // FEAT-0015 stage 2 (frame 14): from Core to the wallet's own Platform address is a
         // funding of the address — its plate and «Check and top up» — not «you can't» (BUG-143).
-        // Bech32m in capitals is the same address (QA21 r1 P3 1).
-        let fund_own = source.source == Source::Core
+        // Bech32m in capitals is the same address (QA21 r1 P3 1). Only where the network matrix
+        // has the top-up (FEAT-0037: not on mainnet), as the Overview's tile.
+        let own_from_core = source.source == Source::Core
             && platform_typed
             && typed
                 .trim()
                 .eq_ignore_ascii_case(cx.wallet().platform_address.trim());
+        let top_up_here = evolite_api::features::on(
+            evolite_api::features::Feature::PlatformAddressTopUp,
+            cx.snap.network,
+        );
+        let fund_own = own_from_core && top_up_here;
         let unavailable = match source.source {
             Source::Mixed => mixed_refusal.as_deref(),
             Source::Core if fund_own => None,
+            Source::Core if own_from_core => Some(tr!(
+                "Topping up the Platform address from Core is not available on mainnet yet"
+            )),
             Source::Credits if cx.wallet().identity.is_none() => Some(tr!(
                 "Only an identity has credits, and the wallet has none yet: make one on the “Identity” screen."
             )),

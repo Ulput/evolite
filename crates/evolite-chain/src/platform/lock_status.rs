@@ -203,6 +203,37 @@ impl LockStatuses {
         self.state().wanted = locks;
     }
 
+    /// [`Self::want`] for locks the history does not ask about (FEAT-0015 AC-T6: a funding of
+    /// the address found on chain after a restore): added, not replacing.
+    pub fn want_also(&self, locks: Vec<Lock>) {
+        let mut state = self.state();
+        for lock in locks {
+            if !state.wanted.iter().any(|(txid, _)| *txid == lock.0) {
+                state.wanted.push(lock);
+            }
+        }
+    }
+
+    /// What Platform proved about `txid`, if it answered (in this run, or spent in an earlier
+    /// one).
+    pub fn answer(&self, txid: &str) -> Option<Answer> {
+        let mut state = self.state();
+        self.load(&mut state);
+        if state.spent.as_ref().is_some_and(|s| s.contains_key(txid)) {
+            return Some(Answer::Spent);
+        }
+        state.this_run.get(txid).copied()
+    }
+
+    /// Forgets this run's answer about `txid` and asks Platform again (BUG-160: a «Continue»
+    /// from a lock Platform said it had not seen failed; Platform may have taken it since). A
+    /// «spent» kept for good is not forgotten; the wait after a failed request still holds.
+    pub fn ask_again(&self, txid: &str) {
+        let mut state = self.state();
+        state.this_run.remove(txid);
+        state.asked.remove(txid);
+    }
+
     /// The next request to make at `now`, if one is due: locks not asked in this run, marked as
     /// asked.
     pub fn next_batch(&self, now: Instant) -> Vec<Lock> {
@@ -403,6 +434,60 @@ mod tests {
         assert_eq!(status.next_batch(now).len(), BATCH);
         assert_eq!(status.next_batch(now).len(), 2);
         assert!(status.next_batch(now).is_empty(), "all were asked");
+    }
+
+    /// FEAT-0015 AC-T6: a recovered funding of the address is asked about beside the history's
+    /// locks — added, not replacing them, once — and its answer is read back as given.
+    #[test]
+    fn a_recovered_funding_is_asked_beside_the_history() {
+        let status = LockStatuses::new(folder("also"));
+        let now = Instant::now();
+        status.want(vec![lock(&txid(1))]);
+        status.want_also(vec![lock(&txid(2)), lock(&txid(1))]);
+        assert_eq!(status.next_batch(now).len(), 2, "both, the first once");
+        assert_eq!(status.answer(&txid(2)), None, "not answered yet");
+        status.answered(
+            &txid(2),
+            Told {
+                answer: Answer::NotSeen,
+                identity: false,
+            },
+        );
+        assert_eq!(status.answer(&txid(2)), Some(Answer::NotSeen));
+        status.answered(
+            &txid(1),
+            Told {
+                answer: Answer::Spent,
+                identity: false,
+            },
+        );
+        assert_eq!(status.answer(&txid(1)), Some(Answer::Spent));
+    }
+
+    /// BUG-160: after a failed «Continue», a «not seen» of this run is forgotten and the lock is
+    /// asked again; a «spent» kept for good stays.
+    #[test]
+    fn a_lock_is_asked_again_after_a_failed_continue() {
+        let status = LockStatuses::new(folder("again"));
+        let now = Instant::now();
+        status.want(vec![lock(&txid(1)), lock(&txid(2))]);
+        assert_eq!(status.next_batch(now).len(), 2);
+        let told = |answer| Told {
+            answer,
+            identity: false,
+        };
+        status.answered(&txid(1), told(Answer::NotSeen));
+        status.answered(&txid(2), told(Answer::Spent));
+        assert!(status.next_batch(now).is_empty(), "each asked once");
+        status.ask_again(&txid(1));
+        assert_eq!(status.answer(&txid(1)), None, "not seen is forgotten");
+        assert_eq!(
+            status.next_batch(now),
+            vec![lock(&txid(1))],
+            "and asked again"
+        );
+        status.ask_again(&txid(2));
+        assert_eq!(status.answer(&txid(2)), Some(Answer::Spent), "spent stays");
     }
 
     /// AC-T3: an error is no answer, and the next try waits ten minutes.

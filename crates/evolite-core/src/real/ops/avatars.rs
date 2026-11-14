@@ -27,6 +27,9 @@ const PRIVATE: &str =
     tr!("an address on this computer or the local network — such links are not opened");
 const TOO_BIG: &str = tr!("the picture is over 1 MB");
 const NOT_PICTURE: &str = tr!("the link is not a picture: PNG, JPEG, GIF, WebP or SVG is needed");
+/// Imgur's stand-in for a picture it does not have (deleted, or a wrong id): a real PNG, so it
+/// would be taken as the avatar without this (FEAT-0018, АРХ-6 point 3).
+const REMOVED: &str = tr!("Imgur did not find this picture: it may have been deleted");
 /// A picture that did not download for a network reason is tried again after this long.
 const RETRY: Duration = Duration::from_secs(5 * 60);
 
@@ -214,7 +217,7 @@ impl Avatars {
                     // Not the profile's picture: the same link will not become it.
                     Ok(_) => {}
                     // The network or the host: tried again later, not only after a restart.
-                    Err(e) if ![PRIVATE, TOO_BIG, NOT_PICTURE].contains(&e.as_str()) => {
+                    Err(e) if ![PRIVATE, TOO_BIG, NOT_PICTURE, REMOVED].contains(&e.as_str()) => {
                         std::thread::sleep(RETRY);
                         me.lock().tried.remove(&key);
                         ready();
@@ -233,6 +236,13 @@ impl Avatars {
     }
 }
 
+/// Whether the redirects ended at Imgur's «removed» picture: `i.imgur.com/removed.png`.
+fn imgur_removed(uri: &ureq::http::Uri) -> bool {
+    uri.host()
+        .is_some_and(|h| h.eq_ignore_ascii_case("i.imgur.com"))
+        && uri.path() == "/removed.png"
+}
+
 /// GET `url` over https from a public address (redirects included), no more than
 /// [`MAX_BYTES`], and only a picture the renderer draws.
 pub fn download(url: &str) -> Result<Vec<u8>, String> {
@@ -249,6 +259,9 @@ pub fn download(url: &str) -> Result<Vec<u8>, String> {
         ureq::Error::Io(io) if io.kind() == std::io::ErrorKind::PermissionDenied => PRIVATE.into(),
         e => e.to_string(),
     })?;
+    if imgur_removed(ureq::ResponseExt::get_uri(&response)) {
+        return Err(REMOVED.into());
+    }
     let mut bytes = Vec::new();
     response
         .body_mut()
@@ -369,6 +382,48 @@ mod tests {
             std::thread::sleep(Duration::from_millis(20));
         }
         assert_eq!(avatars.lock().running, 0);
+    }
+
+    /// FEAT-0018, АРХ-6 point 3: Imgur's stand-in for a missing picture is refused by where the
+    /// redirects ended; a real picture there is not.
+    #[test]
+    fn imgurs_removed_picture_is_refused() {
+        let uri = |s: &str| s.parse::<ureq::http::Uri>().unwrap();
+        assert!(imgur_removed(&uri("https://i.imgur.com/removed.png")));
+        assert!(imgur_removed(&uri("https://I.IMGUR.COM/removed.png")));
+        assert!(!imgur_removed(&uri("https://i.imgur.com/MXLYfwq.png")));
+        assert!(!imgur_removed(&uri("https://example.com/removed.png")));
+        assert!(!imgur_removed(&uri("https://i.imgur.com/a/removed.png")));
+    }
+
+    /// FEAT-0018 AC-T1, live (reads five public addresses on i.imgur.com; uploads nothing):
+    /// a picture there downloads by `ureq` without a User-Agent of ours, the same bytes under
+    /// another extension; without one it is Imgur's page, not a picture. A missing id of
+    /// Imgur's own length (7) is Imgur's stand-in, refused in words; one of another length
+    /// is sent to a page (`imgur.com/<id>`), «not a picture» (the coordinator's curl,
+    /// 2026-11-14).
+    #[test]
+    #[ignore = "needs the internet: reads public pictures on i.imgur.com"]
+    fn live_imgur_direct_links() {
+        let png = download("https://i.imgur.com/MXLYfwq.png").expect("the picture");
+        assert_eq!(picture_format(&png), Some(Format::Png));
+        let jpg = download("https://i.imgur.com/MXLYfwq.jpg").expect("the same picture");
+        assert_eq!(jpg, png, "the extension does not change the bytes");
+        assert_eq!(
+            download("https://i.imgur.com/MXLYfwq"),
+            Err(NOT_PICTURE.into()),
+            "no extension: Imgur's page"
+        );
+        assert_eq!(
+            download("https://i.imgur.com/zzzzzzz.png"),
+            Err(REMOVED.into()),
+            "a missing id of Imgur's length: the stand-in"
+        );
+        assert_eq!(
+            download("https://i.imgur.com/zzzzzzzzz9.png"),
+            Err(NOT_PICTURE.into()),
+            "a malformed id: Imgur's page"
+        );
     }
 
     #[test]

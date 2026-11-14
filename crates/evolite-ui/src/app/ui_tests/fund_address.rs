@@ -165,3 +165,36 @@ fn a_stopped_one_is_continued() {
         kit.state().fund_address.result.is_some()
     });
 }
+
+/// BUG-160: once a stopped one's «Continue» failed, it no longer holds a new top-up back: the
+/// tile's action is active again, and the stopped one is still offered.
+#[test]
+fn a_failed_continue_does_not_dim_the_tile() {
+    let (_turn, mut kit) = demo_app("fund-address-unfinished", "en");
+    settle(&mut kit);
+    assert!(!enabled(&kit, "Top up from Core ›"), "held back first");
+    let app = kit.state_mut();
+    app.dev.fund_unfinished_preset = false;
+    if let Some(u) = app
+        .snapshot
+        .as_mut()
+        .and_then(|s| s.wallet.as_mut())
+        .and_then(|w| w.unfinished_address_top_up.as_mut())
+    {
+        u.holds_back = false;
+    }
+    kit.run_steps(2);
+    assert!(
+        kit.state()
+            .snapshot
+            .as_ref()
+            .and_then(|s| s.wallet.as_ref())
+            .is_some_and(|w| w.unfinished_address_top_up.is_some()),
+        "still stopped"
+    );
+    assert!(
+        has_words(&kit, "are already locked in Core"),
+        "still offered"
+    );
+    assert!(enabled(&kit, "Top up from Core ›"), "a new one may start");
+}
