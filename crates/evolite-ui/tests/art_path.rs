@@ -64,7 +64,15 @@ fn answers(core: &Core, backlog: &mut Vec<Event>, art: &str) -> Vec<(bool, Arc<P
             } = event
                 && a == art
             {
-                got.push((partial, result.expect("drawn")));
+                // The renderer's own words when it refuses (BUG-168: it failed twice under load
+                // with only «drawn» to go by).
+                let picture = result.unwrap_or_else(|e| {
+                    panic!(
+                        "{art}: not drawn ({}): {e:?}",
+                        if partial { "first frame" } else { "whole" }
+                    )
+                });
+                got.push((partial, picture));
                 if !partial {
                     return got;
                 }
