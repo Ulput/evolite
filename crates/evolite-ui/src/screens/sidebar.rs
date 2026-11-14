@@ -306,7 +306,7 @@ pub(crate) fn card_words(
     }
     if let Some(why) = &status.error {
         let line = format!(
-            tr!("{} · resync in Settings → Network and nodes"),
+            tr!("{} · resync in Settings › Network and nodes"),
             crate::i18n::t(why)
         );
         return stopped(line.clone(), line, status.progress.unwrap_or(0.5));
@@ -1400,7 +1400,7 @@ mod tests {
         assert_eq!((w.title.as_str(), w.stopped), ("Stopped", true));
         assert_eq!(
             w.detail,
-            "the node refused us · resync in Settings → Network and nodes"
+            "the node refused us · resync in Settings › Network and nodes"
         );
         assert_eq!(w.tip_title, "The sync stopped");
         assert_eq!(w.bar, Bar::Stopped(0.3));

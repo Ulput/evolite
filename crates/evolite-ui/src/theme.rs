@@ -483,15 +483,29 @@ pub fn name_font(lang: crate::i18n::Lang, size: f32, weight: Weight) -> FontId {
 /// every language of [`CJK`] gets a family for its own name ([`name_font`]). Installed again
 /// when the interface language changes and when the language picker opens or closes.
 pub fn install_fonts(ctx: &egui::Context, lang: crate::i18n::Lang, names: bool) {
+    let (fonts, installed) = definitions(lang, names, true);
+    ctx.set_fonts(fonts);
+    NAMES_PENDING.store(installed, Ordering::Relaxed);
+}
+
+/// What [`install_fonts`] installs, and the bits of the names it gave a family. Without
+/// `system`, only the fonts that ship with the app and egui's own: what a computer with none of
+/// [`LATIN`] and no CJK font has (BUG-151's test).
+pub(crate) fn definitions(
+    lang: crate::i18n::Lang,
+    names: bool,
+    system: bool,
+) -> (FontDefinitions, u8) {
     let mut fonts = FontDefinitions::default();
     let mut extra: Vec<&'static str> = Vec::new();
-    if let Some(data) = system_font(LATIN) {
+    if system && let Some(data) = system_font(LATIN) {
         fonts
             .font_data
             .insert("System-latin".into(), Arc::new(data));
         extra.push("System-latin");
     }
-    if let Some((key, file)) = cjk_font(lang)
+    if system
+        && let Some((key, file)) = cjk_font(lang)
         && let Some(data) = cjk_system_font(file)
     {
         fonts.font_data.insert(key.into(), Arc::new(data));
@@ -499,7 +513,7 @@ pub fn install_fonts(ctx: &egui::Context, lang: crate::i18n::Lang, names: bool) 
     }
     // The interface language's own font is already loaded; the others only for the picker.
     let mut name_keys: Vec<(crate::i18n::Lang, String)> = Vec::new();
-    for other in CJK.into_iter().filter(|_| names) {
+    for other in CJK.into_iter().filter(|_| names && system) {
         let Some((own_key, file)) = cjk_font(other) else {
             continue;
         };
@@ -588,8 +602,7 @@ pub fn install_fonts(ctx: &egui::Context, lang: crate::i18n::Lang, names: bool) 
         families.insert(name_family(*other), chain(&[key.as_str()]));
         installed |= name_bit(*other);
     }
-    ctx.set_fonts(fonts);
-    NAMES_PENDING.store(installed, Ordering::Relaxed);
+    (fonts, installed)
 }
 
 /// egui's own widgets (scroll bars, text edits, tooltips) in our colours.

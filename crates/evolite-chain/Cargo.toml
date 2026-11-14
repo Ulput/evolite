@@ -11,6 +11,9 @@ pool = ["platform-wallet/shielded", "platform-wallet-storage/shielded"]
 # What this crate's own tests have, for the core's tests: counters of what the chain did, the
 # `Chain::open_store_only` start, the live tests' `.env.test.local`. Never in the app.
 test-support = []
+# QA's deterministic interruptions (`--stop-after asset-lock`, BUG-160): the address funding's
+# lock alone. Only through evolite-ui's `dev-tools`; never in the app QA does not build.
+dev-stops = []
 
 [dependencies]
 evolite-api = { path = "../evolite-api" }
