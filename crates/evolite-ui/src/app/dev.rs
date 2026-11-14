@@ -839,7 +839,14 @@ impl App {
             });
         }
         // `--screen top-up` opens "Top up the identity" over Identity.
-        self.identity.top_up = preset("top-up").then(screens::identity::TopUpForm::default);
+        // `--screen top-up-bad-amount`: with «1,234.56» typed, the line under the field (BUG-161).
+        self.identity.top_up = (preset("top-up") || preset("top-up-bad-amount")).then(|| {
+            let mut form = screens::identity::TopUpForm::default();
+            if preset("top-up-bad-amount") {
+                form.amount = "1,234.56".into();
+            }
+            form
+        });
         // FEAT-0015 stage 2: the funding of the Platform address frame by frame (22–25).
         if preset("fund-address") || preset("fund-address-review") {
             self.fund_address.form = Some(screens::fund_address::FundForm {
@@ -879,7 +886,9 @@ impl App {
             }
         } else {
             // `--screen unshield` and `--screen pool-address`: the other two dialogs.
-            let unshield = preset("unshield") || preset("unshield-identity");
+            // `--screen unshield-bad-amount`: «1,234.56» typed, the line under the field (BUG-161).
+            let bad = preset("unshield-bad-amount");
+            let unshield = preset("unshield") || preset("unshield-identity") || bad;
             screens::shielded::PoolState {
                 // `--screen shield-core` and `--screen unshield-identity`: the Core source and
                 // the identity destination; `--open shield` is the empty dialog over the real core.
@@ -894,7 +903,9 @@ impl App {
                 suggested: (preset("shield-core") && !real_shot).then_some(50_000_000),
                 unshielding: unshield,
                 unshield_to_identity: preset("unshield-identity"),
-                unshield_amount: if unshield && !real_shot {
+                unshield_amount: if bad {
+                    "1,234.56".into()
+                } else if unshield && !real_shot {
                     crate::format::input_text(30_000_000)
                 } else {
                     String::new()

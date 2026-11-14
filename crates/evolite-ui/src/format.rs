@@ -259,19 +259,37 @@ pub fn input_text(duffs: i64) -> String {
 }
 
 /// A pill's label: the amount in the chosen unit and format, without trailing zeros — "0.1",
-/// "0,5", "1", "100" (mDASH). No thousands marks, as in a field (BUG-161): a pill's «1,000» mDASH
-/// typed back would read as 1.
+/// "0,5", "1", "100" (mDASH). Thousands are set apart by a no-break space, never by a comma or a
+/// point (BUG-161): «1 000» mDASH typed back reads as 1000, where «1,000» would read as 1. (The
+/// designer asked for U+202F; our Inter and JetBrains Mono have no glyph for it, U+00A0 they
+/// have, and the Russian format groups with it.)
 pub fn short_number(duffs: i64) -> String {
     let d = display();
     let (_, decimal) = d.style.marks();
     let text = write(duffs, d.unit, d.style, false, false);
-    if text.contains(decimal) {
+    let text = if text.contains(decimal) {
         text.trim_end_matches('0')
             .trim_end_matches(decimal)
             .to_string()
     } else {
         text
+    };
+    let (whole, fraction) = match text.split_once(decimal) {
+        Some((w, f)) => (w, Some(f)),
+        None => (text.as_str(), None),
+    };
+    let mut out = String::new();
+    for (i, c) in whole.chars().enumerate() {
+        if i > 0 && (whole.len() - i) % 3 == 0 {
+            out.push('\u{a0}');
+        }
+        out.push(c);
     }
+    if let Some(fraction) = fraction {
+        out.push(decimal);
+        out.push_str(fraction);
+    }
+    out
 }
 
 /// A suggested amount (an example or a default) kept in the chosen unit and format, called each
@@ -719,6 +737,11 @@ mod tests {
                             "{at} {unit:?}"
                         );
                     }
+                    // A pill's label, its thousands apart by a no-break space, reads back.
+                    for duffs in [10_000_000, 100_000_000, 123_456_700_000] {
+                        let label = short_number(duffs);
+                        assert_eq!(parse_amount(&label), Some(duffs), "{at} {unit:?} «{label}»");
+                    }
                 }
             }
         }
@@ -797,6 +820,10 @@ mod tests {
         assert_eq!(short_number(50_000_000), "0,5");
         with(Unit::MilliDash, NumberStyle::CommaDot);
         assert_eq!(short_number(10_000_000), "100");
+        // BUG-161, the designer: thousands apart by a no-break space, never a comma.
+        assert_eq!(short_number(100_000_000), "1\u{a0}000");
+        with(Unit::Duffs, NumberStyle::CommaDot);
+        assert_eq!(short_number(100_000_000), "100\u{a0}000\u{a0}000");
         set_display(Display::default());
     }
 

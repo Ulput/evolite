@@ -233,11 +233,11 @@ pub const PRESETS: &[&str] = &[
     "activity-fiat", "activity-card-fiat", "activity-card-fiat-old", "activity-apps",
     "identity", "identity-unfinished", "identity-created", "top-up-stopped", "top-up-awaiting",
     "edit-profile", "edit-profile-password",
-    "top-up", "add-name",
+    "top-up", "top-up-bad-amount", "add-name",
     "contacts", "add-contact", "contact-profile", "my-qr",
     "create-identity", "creating", "create-identity-nameless", "create-identity-confirm",
     "create-identity-short", "create-identity-unchecked",
-    "shielded", "shield", "shield-core", "unshield", "unshield-identity", "pool-address",
+    "shielded", "shield", "shield-core", "unshield", "unshield-bad-amount", "unshield-identity", "pool-address",
     "apps", "connect", "connect-limits", "connect-renew", "refused-v1", "refused-stale",
     "refused-mainnet", "apps-disconnected", "apps-renew", "apps-disconnect", "apps-remove",
     "collection", "gift",
@@ -414,6 +414,7 @@ fn dev_args<'a>(
                 | "edit-profile"
                 | "edit-profile-password"
                 | "top-up"
+                | "top-up-bad-amount"
                 | "add-name",
             ),
         ) => Screen::Identity,
@@ -432,7 +433,12 @@ fn dev_args<'a>(
         (
             None,
             Some(
-                "shielded" | "shield" | "shield-core" | "unshield" | "unshield-identity"
+                "shielded"
+                | "shield"
+                | "shield-core"
+                | "unshield"
+                | "unshield-bad-amount"
+                | "unshield-identity"
                 | "pool-address",
             ),
         ) => Screen::Shielded,
