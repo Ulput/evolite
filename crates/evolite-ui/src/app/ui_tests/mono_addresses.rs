@@ -145,10 +145,7 @@ fn mono_words(kit: &Kit) -> Vec<String> {
         // An @name starts a word (an e-mail is not one); a link or a payment URI is code.
         let named = job.text.starts_with('@') || job.text.contains(" @");
         let code = job.text.contains("://") || job.text.starts_with("dash:");
-        // A document shown as a block (the report letter, five lines or more) is the lead's
-        // (FEAT-0033): this half is about a line beside an id.
-        let document = job.text.lines().count() >= 5;
-        if (ids.is_empty() && !named) || code || document {
+        if (ids.is_empty() && !named) || code {
             continue;
         }
         // Each run of letters with where it starts, in bytes.
