@@ -203,7 +203,7 @@ pub(super) fn edit_profile(
 }
 
 /// Under «Picture link» (FEAT-0018, frames AV1 and AV2): the formats, where to put a picture
-/// with no host of one's own («imgur.com ↗», R-2) and what Imgur sees (R-5). For a link to an
+/// with no host of one's own («imgur.com», R-2) and what Imgur sees (R-5). For a link to an
 /// Imgur page rather than the picture (R-4), a warning instead of those three lines and, when
 /// the picture's own address follows from it, «Use the direct link», which puts it in the field
 /// (and saves nothing: «Save» does, with the core's usual checks).
@@ -246,7 +246,7 @@ fn under_the_link(ui: &mut Ui, a: &mut Assets, url: &mut String) {
             Weight::Regular,
             p.muted,
         ));
-        if upload_link(ui, &p).clicked() {
+        if upload_link(ui, a).clicked() {
             // Nothing in the journal: neither the click nor the address (R-7).
             crate::links::open(super::imgur::UPLOAD);
         }
@@ -265,24 +265,12 @@ fn under_the_link(ui: &mut Ui, a: &mut Assets, url: &mut String) {
     );
 }
 
-/// «imgur.com ↗»: 12 SemiBold in the accent, underlined under the pointer, the full address as
-/// its tooltip, a link for screen readers; a Tab stop after the field.
-fn upload_link(ui: &mut Ui, p: &crate::theme::Palette) -> egui::Response {
-    let resp = ui
-        .add(
-            egui::Label::new(txt(tr!("imgur.com ↗"), 12.0, Weight::SemiBold, p.accent))
-                .sense(Sense::click()),
-        )
-        .on_hover_cursor(CursorIcon::PointingHand)
-        .on_hover_text(super::imgur::UPLOAD);
-    if resp.hovered() || resp.has_focus() {
-        let r = resp.rect;
-        ui.painter().hline(
-            r.x_range(),
-            r.bottom() - 1.0,
-            egui::Stroke::new(1.0, p.accent),
-        );
-    }
+/// «imgur.com» with the «link» icon before it: the kit's mark for a link that opens the browser
+/// («Show an example» in Apps), not «›», which goes somewhere inside the app (the designer,
+/// 2026-11-14). The full address as its tooltip, a link for screen readers; a Tab stop after
+/// the field. The domain is no word to translate.
+fn upload_link(ui: &mut Ui, a: &mut Assets) -> egui::Response {
+    let resp = text_action(ui, a, "link", "imgur.com").on_hover_text(super::imgur::UPLOAD);
     crate::components::named(
         &resp,
         egui::WidgetType::Link,

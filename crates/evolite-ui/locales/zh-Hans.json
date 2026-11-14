@@ -1,6 +1,5 @@
 {
   "No link? Upload the picture, for example, to": "没有链接？可以把图片上传到，例如",
-  "imgur.com ↗": "imgur.com ↗",
   "Imgur is a third-party service: it sees your IP and the file itself, and may delete an anonymously uploaded picture over time. Before uploading, check the file does not keep where it was taken.": "Imgur 是第三方服务：它能看到你的 IP 和文件本身，匿名上传的图片可能会随时间被删除。上传前请检查文件中是否保留了拍摄地点。",
   "This is a link to an Imgur page, not to the picture. Open the picture and copy its address: it starts with i.imgur.com": "这是 Imgur 页面的链接，而不是图片本身。请打开图片并复制它的地址：以 i.imgur.com 开头",
   "Use the direct link": "使用直接链接",

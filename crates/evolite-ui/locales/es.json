@@ -1,6 +1,5 @@
 {
   "No link? Upload the picture, for example, to": "¿No tienes enlace? Sube la imagen, por ejemplo, a",
-  "imgur.com ↗": "imgur.com ↗",
   "Imgur is a third-party service: it sees your IP and the file itself, and may delete an anonymously uploaded picture over time. Before uploading, check the file does not keep where it was taken.": "Imgur es un servicio de terceros: ve tu IP y el propio archivo, y con el tiempo puede borrar una imagen subida de forma anónima. Antes de subirla, comprueba que el archivo no guarde dónde se tomó.",
   "This is a link to an Imgur page, not to the picture. Open the picture and copy its address: it starts with i.imgur.com": "Es un enlace a una página de Imgur, no a la imagen. Abre la imagen y copia su dirección: empieza por i.imgur.com",
   "Use the direct link": "Usar el enlace directo",

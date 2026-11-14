@@ -16,7 +16,7 @@ fn typed(kit: &Kit) -> String {
         .unwrap_or_default()
 }
 
-/// AC-T3, AC-T5 (R-2, R-7): «imgur.com ↗» opens exactly Imgur's upload page, with nothing
+/// AC-T3, AC-T5 (R-2, R-7): «imgur.com» opens exactly Imgur's upload page, with nothing
 /// added, and does nothing else: no command, the profile not saved, the dialog still open.
 #[test]
 fn the_imgur_link_opens_the_upload_page_and_nothing_else() {
@@ -87,7 +87,7 @@ fn an_album_link_warns_without_a_direct_link() {
     );
 }
 
-/// AC-T4, AC-A6: Tab goes from the field to «imgur.com ↗»; with a page link, from the field to
+/// AC-T4, AC-A6: Tab goes from the field to «imgur.com»; with a page link, from the field to
 /// «Use the direct link»; Enter on it uses the direct link.
 #[test]
 fn tab_reaches_the_link_and_the_direct_link() {
