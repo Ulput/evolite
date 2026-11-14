@@ -1,4 +1,12 @@
 {
+  "No link? Upload the picture, for example, to": "Chưa có liên kết? Hãy tải ảnh lên, ví dụ, tại",
+  "imgur.com ↗": "imgur.com ↗",
+  "Imgur is a third-party service: it sees your IP and the file itself, and may delete an anonymously uploaded picture over time. Before uploading, check the file does not keep where it was taken.": "Imgur là dịch vụ bên thứ ba: họ thấy IP của bạn và chính tệp, và có thể xóa ảnh tải lên ẩn danh theo thời gian. Trước khi tải lên, hãy kiểm tra tệp không lưu nơi chụp.",
+  "This is a link to an Imgur page, not to the picture. Open the picture and copy its address: it starts with i.imgur.com": "Đây là liên kết tới một trang Imgur, không phải tới ảnh. Hãy mở ảnh và sao chép địa chỉ của nó: địa chỉ bắt đầu bằng i.imgur.com",
+  "Use the direct link": "Dùng liên kết trực tiếp",
+  "A write to Platform, with {}'s credits": "Một lần ghi lên Platform, bằng tín dụng của {}",
+  "imgur.com, opens in the browser": "imgur.com, mở trong trình duyệt",
+  "Imgur did not find this picture: it may have been deleted": "Imgur không tìm thấy ảnh này: có thể nó đã bị xóa",
   "{} address will be linked on the network: anyone will see it has one owner.|{} addresses will be linked on the network: anyone will see they have one owner.": {"other":"{} địa chỉ này sẽ bị liên kết trên mạng: ai cũng sẽ thấy chúng cùng một chủ."},
   "payment {} + fee": "thanh toán {} + phí",
   "Apply": "Áp dụng",

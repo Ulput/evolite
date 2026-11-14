@@ -829,12 +829,19 @@ impl App {
             self.send.scanner.menu = true;
             self.send.scanner.clip_picture = Some(true);
         }
-        // `--screen edit-profile` opens 23 over Identity.
-        if (preset("edit-profile") || preset("edit-profile-password")) && !real_shot {
+        // `--screen edit-profile` opens 23 over Identity; `edit-profile-imgur-page` with a link
+        // to an Imgur album in it (FEAT-0018, frame AV2).
+        let imgur_page = preset("edit-profile-imgur-page");
+        if (preset("edit-profile") || preset("edit-profile-password") || imgur_page) && !real_shot {
             self.identity.editing = Some(screens::identity::ProfileForm {
                 display: "Satoshi Nakamoto".into(),
                 about: tr!("I write about Dash Platform and collect generative NFTs. Pay through a DashPay contact — that way each payment goes to a new address.").into(),
-                avatar_url: "https://ipfs.io/ipfs/bafybeigdyrz/satoshi.png".into(),
+                avatar_url: if imgur_page {
+                    "https://imgur.com/a/Xq3b9Tz"
+                } else {
+                    "https://ipfs.io/ipfs/bafybeigdyrz/satoshi.png"
+                }
+                .into(),
                 ..Default::default()
             });
         }

@@ -101,12 +101,7 @@ pub(super) fn edit_profile(
                         FieldKind::Text,
                         |_| {},
                     );
-                    ui.label(txt(
-                        tr!("PNG, JPEG, GIF, WebP or SVG, up to 1 MB, over https"),
-                        12.0,
-                        Weight::Regular,
-                        p.muted,
-                    ));
+                    under_the_link(ui, a, &mut form.avatar_url);
                 });
             });
             ui.vertical(|ui| {
@@ -162,20 +157,13 @@ pub(super) fn edit_profile(
                     p.muted,
                 ));
             });
-            let value = mono(13.0, Weight::Medium);
+            // One line, as the token transfer's (FEAT-0018 AV1: the dialog fits in 768).
             kv_row(
                 ui,
                 &p,
-                tr!("A write to Platform"),
+                &format!(tr!("A write to Platform, with {me}'s credits"), me = me),
                 &format!("≈ {}", crate::format::amount(fee)),
-                value.clone(),
-            );
-            kv_row(
-                ui,
-                &p,
-                tr!("Paid by"),
-                &format!(tr!("{me} · credits"), me = me),
-                value,
+                mono(13.0, Weight::Medium),
             );
             notice(
                 ui,
@@ -212,6 +200,96 @@ pub(super) fn edit_profile(
     } else if close && !form.waiting {
         state.editing = None;
     }
+}
+
+/// Under «Picture link» (FEAT-0018, frames AV1 and AV2): the formats, where to put a picture
+/// with no host of one's own («imgur.com ↗», R-2) and what Imgur sees (R-5). For a link to an
+/// Imgur page rather than the picture (R-4), a warning instead of those three lines and, when
+/// the picture's own address follows from it, «Use the direct link», which puts it in the field
+/// (and saves nothing: «Save» does, with the core's usual checks).
+fn under_the_link(ui: &mut Ui, a: &mut Assets, url: &mut String) {
+    let p = a.p;
+    if let Some(page) = super::imgur::page_link(url) {
+        ui.horizontal_top(|ui| {
+            ui.spacing_mut().item_spacing.x = 6.0;
+            ui.add(a.icons.icon("warning", p.accent, &p, 16.0));
+            ui.add(
+                crate::components::para(
+                    tr!(
+                        "This is a link to an Imgur page, not to the picture. Open the picture and copy its address: it starts with i.imgur.com"
+                    ),
+                    12.0,
+                    Weight::Regular,
+                    p.accent,
+                )
+                .line_height(18.0),
+            );
+        });
+        if let Some(direct) = page.direct()
+            && text_action(ui, a, "link", tr!("Use the direct link")).clicked()
+        {
+            *url = direct.to_owned();
+        }
+        return;
+    }
+    ui.label(txt(
+        tr!("PNG, JPEG, GIF, WebP or SVG, up to 1 MB, over https"),
+        12.0,
+        Weight::Regular,
+        p.muted,
+    ));
+    ui.horizontal_wrapped(|ui| {
+        ui.spacing_mut().item_spacing.x = 4.0;
+        ui.label(txt(
+            tr!("No link? Upload the picture, for example, to"),
+            12.0,
+            Weight::Regular,
+            p.muted,
+        ));
+        if upload_link(ui, &p).clicked() {
+            // Nothing in the journal: neither the click nor the address (R-7).
+            crate::links::open(super::imgur::UPLOAD);
+        }
+    });
+    let caption = crate::theme::type_scale::CAPTION;
+    ui.add(
+        crate::components::para(
+            tr!(
+                "Imgur is a third-party service: it sees your IP and the file itself, and may delete an anonymously uploaded picture over time. Before uploading, check the file does not keep where it was taken."
+            ),
+            caption.size,
+            caption.weight,
+            p.muted,
+        )
+        .line_height(caption.line),
+    );
+}
+
+/// «imgur.com ↗»: 12 SemiBold in the accent, underlined under the pointer, the full address as
+/// its tooltip, a link for screen readers; a Tab stop after the field.
+fn upload_link(ui: &mut Ui, p: &crate::theme::Palette) -> egui::Response {
+    let resp = ui
+        .add(
+            egui::Label::new(txt(tr!("imgur.com ↗"), 12.0, Weight::SemiBold, p.accent))
+                .sense(Sense::click()),
+        )
+        .on_hover_cursor(CursorIcon::PointingHand)
+        .on_hover_text(super::imgur::UPLOAD);
+    if resp.hovered() || resp.has_focus() {
+        let r = resp.rect;
+        ui.painter().hline(
+            r.x_range(),
+            r.bottom() - 1.0,
+            egui::Stroke::new(1.0, p.accent),
+        );
+    }
+    crate::components::named(
+        &resp,
+        egui::WidgetType::Link,
+        true,
+        tr!("imgur.com, opens in the browser"),
+    );
+    resp
 }
 
 /// The DashPay profile as typed in 23, before it is written.

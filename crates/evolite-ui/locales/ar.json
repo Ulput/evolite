@@ -1,4 +1,12 @@
 {
+  "No link? Upload the picture, for example, to": "ليس لديك رابط؟ ارفع الصورة مثلًا إلى",
+  "imgur.com ↗": "imgur.com ↗",
+  "Imgur is a third-party service: it sees your IP and the file itself, and may delete an anonymously uploaded picture over time. Before uploading, check the file does not keep where it was taken.": "خدمة Imgur خارجية: سترى عنوان IP الخاص بك والملف نفسه، وقد تحذف مع الوقت الصورة المرفوعة دون حساب. قبل الرفع تحقّق من أن الملف لا يحفظ مكان التصوير.",
+  "This is a link to an Imgur page, not to the picture. Open the picture and copy its address: it starts with i.imgur.com": "هذا رابط لصفحة على Imgur وليس للصورة نفسها. افتح الصورة وانسخ عنوانها: يبدأ بـ i.imgur.com",
+  "Use the direct link": "استخدم الرابط المباشر",
+  "A write to Platform, with {}'s credits": "كتابة على Platform، بأرصدة {}",
+  "imgur.com, opens in the browser": "imgur.com، يُفتح في المتصفح",
+  "Imgur did not find this picture: it may have been deleted": "لم يجد Imgur هذه الصورة: ربما حُذفت",
   "{} address will be linked on the network: anyone will see it has one owner.|{} addresses will be linked on the network: anyone will see they have one owner.": {"few":"ستُربط هذه العناوين ({}) في الشبكة: سيرى أي شخص أن لها مالكًا واحدًا.","many":"ستُربط هذه العناوين ({}) في الشبكة: سيرى أي شخص أن لها مالكًا واحدًا.","one":"سيُربط هذا العنوان في الشبكة: سيرى أي شخص أن له مالكًا واحدًا.","other":"ستُربط هذه العناوين ({}) في الشبكة: سيرى أي شخص أن لها مالكًا واحدًا.","two":"سيُربط هذان العنوانان في الشبكة: سيرى أي شخص أن لهما مالكًا واحدًا.","zero":"ستُربط هذه العناوين ({}) في الشبكة: سيرى أي شخص أن لها مالكًا واحدًا."},
   "payment {} + fee": "الدفعة {} + الرسوم",
   "Apply": "تطبيق",

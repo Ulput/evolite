@@ -1,4 +1,12 @@
 {
+  "No link? Upload the picture, for example, to": "Pas de lien ? Envoyez l’image, par exemple, sur",
+  "imgur.com ↗": "imgur.com ↗",
+  "Imgur is a third-party service: it sees your IP and the file itself, and may delete an anonymously uploaded picture over time. Before uploading, check the file does not keep where it was taken.": "Imgur est un service tiers : il voit votre IP et le fichier lui-même, et peut supprimer avec le temps une image envoyée anonymement. Avant l’envoi, vérifiez que le fichier ne garde pas le lieu de la prise de vue.",
+  "This is a link to an Imgur page, not to the picture. Open the picture and copy its address: it starts with i.imgur.com": "C’est un lien vers une page Imgur, pas vers l’image. Ouvrez l’image et copiez son adresse : elle commence par i.imgur.com",
+  "Use the direct link": "Utiliser le lien direct",
+  "A write to Platform, with {}'s credits": "Une écriture sur Platform, avec les crédits de {}",
+  "imgur.com, opens in the browser": "imgur.com, s’ouvre dans le navigateur",
+  "Imgur did not find this picture: it may have been deleted": "Imgur n’a pas trouvé cette image : elle a peut-être été supprimée",
   "{} address will be linked on the network: anyone will see it has one owner.|{} addresses will be linked on the network: anyone will see they have one owner.": {"many":"Ces {} adresses seront liées sur le réseau : chacun verra qu'elles ont un même propriétaire.","one":"{} adresse sera liée sur le réseau : chacun verra qu'elle a un propriétaire.","other":"Ces {} adresses seront liées sur le réseau : chacun verra qu'elles ont un même propriétaire."},
   "payment {} + fee": "paiement {} + frais",
   "Apply": "Appliquer",

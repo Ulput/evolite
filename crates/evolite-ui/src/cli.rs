@@ -232,7 +232,7 @@ pub const PRESETS: &[&str] = &[
     "receive", "receive-fiat",
     "activity-fiat", "activity-card-fiat", "activity-card-fiat-old", "activity-apps",
     "identity", "identity-unfinished", "identity-created", "top-up-stopped", "top-up-awaiting",
-    "edit-profile", "edit-profile-password",
+    "edit-profile", "edit-profile-password", "edit-profile-imgur-page",
     "top-up", "add-name",
     "contacts", "add-contact", "contact-profile", "my-qr",
     "create-identity", "creating", "create-identity-nameless", "create-identity-confirm",
@@ -413,6 +413,7 @@ fn dev_args<'a>(
                 | "top-up-awaiting"
                 | "edit-profile"
                 | "edit-profile-password"
+                | "edit-profile-imgur-page"
                 | "top-up"
                 | "add-name",
             ),

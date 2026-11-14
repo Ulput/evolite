@@ -1,4 +1,12 @@
 {
+  "No link? Upload the picture, for example, to": "Bağlantınız yok mu? Resmi örneğin şuraya yükleyin:",
+  "imgur.com ↗": "imgur.com ↗",
+  "Imgur is a third-party service: it sees your IP and the file itself, and may delete an anonymously uploaded picture over time. Before uploading, check the file does not keep where it was taken.": "Imgur üçüncü taraf bir hizmettir: IP adresinizi ve dosyanın kendisini görür, anonim yüklenen bir resmi zamanla silebilir. Yüklemeden önce dosyanın çekildiği yeri saklamadığını kontrol edin.",
+  "This is a link to an Imgur page, not to the picture. Open the picture and copy its address: it starts with i.imgur.com": "Bu, resmin değil bir Imgur sayfasının bağlantısı. Resmi açıp adresini kopyalayın: i.imgur.com ile başlar",
+  "Use the direct link": "Doğrudan bağlantıyı kullan",
+  "A write to Platform, with {}'s credits": "Platform’a yazma, {} kredileriyle",
+  "imgur.com, opens in the browser": "imgur.com, tarayıcıda açılır",
+  "Imgur did not find this picture: it may have been deleted": "Imgur bu resmi bulamadı: silinmiş olabilir",
   "{} address will be linked on the network: anyone will see it has one owner.|{} addresses will be linked on the network: anyone will see they have one owner.": {"one":"Bu {} adres ağda bağlanacak: herkes tek bir sahibi olduğunu görecek.","other":"Bu {} adres ağda bağlanacak: herkes tek bir sahibi olduğunu görecek."},
   "payment {} + fee": "ödeme {} + ücret",
   "Apply": "Uygula",
