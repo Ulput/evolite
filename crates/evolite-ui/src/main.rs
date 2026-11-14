@@ -88,6 +88,14 @@ fn main() {
     }
     // The journal for problem reports, beside the wallet's files (the demo's in its cache).
     diagnostics::start(&cli::logs_for(&launch.core));
+    // `--stop-after asset-lock` (dev-tools, BUG-160): a top-up of the Platform address from
+    // Core ends the process once its lock is made, before Platform is asked.
+    #[cfg(feature = "dev-tools")]
+    match launch.dev.stop_after.as_deref() {
+        Some("asset-lock") => evolite_core::dev_stop::after_asset_lock(),
+        Some(other) => eprintln!("--stop-after: unknown step «{other}» (known: asset-lock)"),
+        None => {}
+    }
     // `--window 853x533` (dev-tools): a given size in points, smaller than the usual minimum
     // too — how a 1280 × 800 screen at 150 % looks, for screenshots.
     #[cfg(feature = "dev-tools")]

@@ -225,6 +225,15 @@ impl LockStatuses {
         state.this_run.get(txid).copied()
     }
 
+    /// Forgets this run's answer about `txid` and asks Platform again (BUG-160: a «Continue»
+    /// from a lock Platform said it had not seen failed; Platform may have taken it since). A
+    /// «spent» kept for good is not forgotten; the wait after a failed request still holds.
+    pub fn ask_again(&self, txid: &str) {
+        let mut state = self.state();
+        state.this_run.remove(txid);
+        state.asked.remove(txid);
+    }
+
     /// The next request to make at `now`, if one is due: locks not asked in this run, marked as
     /// asked.
     pub fn next_batch(&self, now: Instant) -> Vec<Lock> {
@@ -453,6 +462,32 @@ mod tests {
             },
         );
         assert_eq!(status.answer(&txid(1)), Some(Answer::Spent));
+    }
+
+    /// BUG-160: after a failed «Continue», a «not seen» of this run is forgotten and the lock is
+    /// asked again; a «spent» kept for good stays.
+    #[test]
+    fn a_lock_is_asked_again_after_a_failed_continue() {
+        let status = LockStatuses::new(folder("again"));
+        let now = Instant::now();
+        status.want(vec![lock(&txid(1)), lock(&txid(2))]);
+        assert_eq!(status.next_batch(now).len(), 2);
+        let told = |answer| Told {
+            answer,
+            identity: false,
+        };
+        status.answered(&txid(1), told(Answer::NotSeen));
+        status.answered(&txid(2), told(Answer::Spent));
+        assert!(status.next_batch(now).is_empty(), "each asked once");
+        status.ask_again(&txid(1));
+        assert_eq!(status.answer(&txid(1)), None, "not seen is forgotten");
+        assert_eq!(
+            status.next_batch(now),
+            vec![lock(&txid(1))],
+            "and asked again"
+        );
+        status.ask_again(&txid(2));
+        assert_eq!(status.answer(&txid(2)), Some(Answer::Spent), "spent stays");
     }
 
     /// AC-T3: an error is no answer, and the next try waits ten minutes.

@@ -152,8 +152,9 @@ struct WalletRead {
     platform: Option<(String, u64)>,
     unfinished: Option<UnfinishedIdentity>,
     unfinished_top_up: Option<UnfinishedTopUp>,
-    /// Duffs locked for a funding of the Platform address not taken yet (FEAT-0015 stage 2).
-    unfinished_address_fund: Option<u64>,
+    /// Duffs locked for a funding of the Platform address not taken yet (FEAT-0015 stage 2),
+    /// and whether it holds a new one back (BUG-160).
+    unfinished_address_fund: Option<(u64, bool)>,
     lost_block: Option<mined::Lost>,
     /// How far the wallet's filters are: back where a rescan was asked, it has finished.
     synced: u32,
@@ -312,11 +313,13 @@ impl Real {
         } = self.read_wallet(id).await;
         let (platform_address, platform_credits) = platform.unwrap_or_default();
         // A funding of the address cut short: finished to the address the wallet shows, its own.
-        let unfinished_address_top_up =
-            unfinished_address_fund.map(|locked| evolite_api::UnfinishedAddressTopUp {
+        let unfinished_address_top_up = unfinished_address_fund.map(|(locked, holds_back)| {
+            evolite_api::UnfinishedAddressTopUp {
                 locked: locked as Duffs,
                 address: platform_address.clone(),
-            });
+                holds_back,
+            }
+        });
         let (pool, unfinished_shield, connecting_pool) = self.read_pool(id).await;
         let mut fees = turn::timed("fees_now", self.fees_now(coins)).await;
         fees.core_coins = convert::core_coins(coin_values);
@@ -501,12 +504,18 @@ impl Real {
             turn::timed("address_inputs", self.chain.address_inputs(&wallet)).await;
         let unfinished =
             turn::timed("unfinished_identity", self.unfinished_identity(&wallet)).await;
-        // Made here and cut short, or found on chain after a restore and not seen by Platform
-        // (FEAT-0015 AC-T6).
+        // Made here and cut short, or found on chain after a restore, and not proved taken by
+        // Platform (FEAT-0015 AC-T6, BUG-160).
         let unfinished_address_fund =
             turn::timed("unfinished_address_fund", self.waiting_fund(&wallet))
                 .await
-                .map(|(locked, _)| locked);
+                .map(|l| {
+                    let failed = self
+                        .fund_resume_failed
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner());
+                    (l.amount, !failed.contains(&l.txid))
+                });
         let unfinished_top_up =
             turn::timed("unfinished_top_up", self.unfinished_top_up(&wallet)).await;
         let live_count = {
@@ -923,16 +932,12 @@ impl Real {
             say_the_lock(act, (who, made, taken), &top_ups, identities);
         }
         self.lock_status.want(no_answer);
-        // FEAT-0015 AC-T6: a funding of the address found on chain after a restore is asked
-        // about too — its «Continue» waits for Platform's proved «not seen».
-        let recovered = turn::timed(
-            "recovered_fund_locks",
-            self.chain.recovered_fund_locks(&wallet),
-        )
-        .await;
+        // FEAT-0015 AC-T6, BUG-160: every funding of the address not seen taken is asked about
+        // too — made here or found on chain after a restore. A proved «spent» closes it (the
+        // window may have closed after Platform took it); a recovered one waits for «not seen».
+        let open = turn::timed("open_fund_locks", self.chain.open_fund_locks(&wallet)).await;
         self.lock_status.want_also(
-            recovered
-                .into_iter()
+            open.into_iter()
                 .filter(|l| self.lock_status.answer(&l.txid).is_none())
                 .map(|l| (l.txid, false))
                 .collect(),

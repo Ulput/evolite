@@ -6,6 +6,7 @@
 
 use crate::real::*;
 use evolite_api::address_fund::{FundRefusal, fund_plan};
+use evolite_chain::chain::address_fund::FundLock;
 
 /// The words for a funding the plan refuses.
 fn refusal(why: FundRefusal) -> CoreError {
@@ -13,6 +14,16 @@ fn refusal(why: FundRefusal) -> CoreError {
         FundRefusal::BelowLeast { .. } => CoreError::BadAmount,
         FundRefusal::NotEnough { .. } => CoreError::NotEnough,
     }
+}
+
+/// Whether the funding waiting for «Continue» holds a new one back (AC-T5): it does until its
+/// «Continue» fails in this run (BUG-160) — then a new lock may be made, and the old one is
+/// still offered.
+fn holds_back(
+    waiting: Option<&FundLock>,
+    resume_failed: &std::collections::HashSet<String>,
+) -> bool {
+    waiting.is_some_and(|l| !resume_failed.contains(&l.txid))
 }
 
 /// AC-T11 (the customer, 2026-11-14): not on mainnet until it is measured there.
@@ -71,8 +82,15 @@ impl Real {
     pub(in crate::real) async fn fund_address(&mut self, amount: Duffs) -> Result<(), CoreError> {
         let amount = positive_duffs(amount)? as Duffs;
         let (wallet, keys, to) = self.fund_ready().await?;
-        // A cut-short funding is finished first, with the money already locked for it.
-        if self.waiting_fund(&wallet).await.is_some() {
+        // A cut-short funding is finished first, with the money already locked for it — unless
+        // its «Continue» failed in this run (BUG-160: never held back for good).
+        let waiting = self.waiting_fund(&wallet).await;
+        let failed = self
+            .fund_resume_failed
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
+        if holds_back(waiting.as_ref(), &failed) {
             return Err(CoreError::NotAvailable(
                 tr!("First finish the stopped top-up of the Platform address — its money is already locked").into(),
             ));
@@ -90,30 +108,27 @@ impl Real {
     /// money. Refused when nothing waits (an earlier one went through: no second transition).
     pub(in crate::real) async fn resume_fund_address(&mut self) -> Result<(), CoreError> {
         let (wallet, keys, to) = self.fund_ready().await?;
-        let Some((_, recovered)) = self.waiting_fund(&wallet).await else {
+        let Some(waiting) = self.waiting_fund(&wallet).await else {
             return Err(CoreError::NotAvailable(
                 tr!("Nothing to continue: the top-up of the Platform address is already credited")
                     .into(),
             ));
         };
-        self.fund_in_background(wallet, keys, to, 0, recovered)
+        self.fund_in_background(wallet, keys, to, 0, Some(waiting))
     }
 
-    /// The funding of the address that waits for «Continue», and the duffs it locked: one made
-    /// here and cut short, or — after a restore from the phrase — one found on chain that
-    /// Platform proved it has not seen (AC-T6, FEAT-0016); the latter with its out point.
+    /// The funding of the address that waits for «Continue» (the chain's `waiting_lock`):
+    /// made here and cut short, or found on chain after a restore (AC-T6); never one Platform
+    /// proved it took (BUG-160).
     pub(in crate::real) async fn waiting_fund(
         &self,
         wallet: &platform_wallet::PlatformWallet,
-    ) -> Option<(u64, Option<key_wallet::dashcore::OutPoint>)> {
-        if let Some(locked) = self.chain.unfinished_address_fund(wallet).await {
-            return Some((locked, None));
-        }
-        let recovered = self.chain.recovered_fund_locks(wallet).await;
-        evolite_chain::chain::address_fund::recovered_unfinished(&recovered, |txid| {
+    ) -> Option<FundLock> {
+        let open = self.chain.open_fund_locks(wallet).await;
+        evolite_chain::chain::address_fund::waiting_lock(&open, |txid| {
             self.lock_status.answer(txid)
         })
-        .map(|l| (l.amount, Some(l.out_point)))
+        .cloned()
     }
 
     /// One funding at a time, as one asset lock at a time (an identity's too: they draw on the
@@ -124,7 +139,7 @@ impl Real {
         keys: key_wallet::Wallet,
         to: PlatformAddress,
         lock: u64,
-        recovered: Option<key_wallet::dashcore::OutPoint>,
+        resumed: Option<FundLock>,
     ) -> Result<(), CoreError> {
         if self.identity_busy.swap(true, Ordering::Relaxed) {
             return Err(CoreError::NotAvailable(
@@ -134,11 +149,42 @@ impl Real {
         let chain = self.chain.clone();
         let busy = self.identity_busy.clone();
         let refresh = self.refresher();
+        let failed = self.fund_resume_failed.clone();
+        let lock_status = self.lock_status.clone();
         self.answer_later("task:fund_address", async move {
+            // QA's `--stop-after asset-lock` (dev-tools, BUG-160): the lock alone, then the
+            // process ends before Platform is asked.
+            #[cfg(feature = "dev-stops")]
+            if resumed.is_none() && crate::dev_stop::wanted_after_asset_lock() {
+                let locked = chain.lock_for_address_only(&wallet, &keys, lock).await;
+                crate::diag::record_now(crate::diag::Record::Answer {
+                    what: "stop_after_asset_lock",
+                    outcome: if locked.is_ok() { "exit" } else { "failed" },
+                });
+                if let Err(e) = locked {
+                    busy.store(false, Ordering::Relaxed);
+                    refresh();
+                    return Event::Done {
+                        what: DoneWhat::FundAddress,
+                        result: Err(identity_failure(e)),
+                    };
+                }
+                std::process::exit(0);
+            }
+            let existing = resumed.as_ref().map(|l| l.out_point);
             let result = chain
-                .fund_address(&wallet, &keys, to, lock, recovered)
+                .fund_address(&wallet, &keys, to, lock, existing)
                 .await
                 .map_err(identity_failure);
+            // BUG-160: a «Continue» that failed holds no new funding back, and Platform is
+            // asked again whether it took the lock (then «Continue» goes).
+            if let (Some(resumed), Err(_)) = (&resumed, &result) {
+                failed
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .insert(resumed.txid.clone());
+                lock_status.ask_again(&resumed.txid);
+            }
             busy.store(false, Ordering::Relaxed);
             refresh();
             Event::Done {
@@ -153,6 +199,29 @@ impl Real {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// BUG-160: a stopped funding holds a new one back until its «Continue» fails in this run.
+    #[test]
+    fn a_failed_continue_does_not_hold_a_new_funding_back() {
+        use key_wallet::dashcore::hashes::Hash;
+        let lock = FundLock {
+            txid: "ab".repeat(32),
+            out_point: key_wallet::dashcore::OutPoint::new(
+                key_wallet::dashcore::Txid::from_byte_array([0xab; 32]),
+                0,
+            ),
+            amount: 10_012_000,
+            made_here: true,
+        };
+        let mut failed = std::collections::HashSet::new();
+        assert!(!holds_back(None, &failed), "nothing stopped");
+        assert!(
+            holds_back(Some(&lock), &failed),
+            "finish the stopped one first"
+        );
+        failed.insert(lock.txid.clone());
+        assert!(!holds_back(Some(&lock), &failed), "its «Continue» failed");
+    }
 
     /// AC-T11: mainnet answers «not available yet»; testnet goes on.
     #[test]
