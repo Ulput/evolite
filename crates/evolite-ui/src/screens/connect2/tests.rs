@@ -245,3 +245,33 @@ fn the_explanation_says_the_whole_ask() {
         "{said}"
     );
 }
+
+/// BUG-161, App Connect's «Your amount» limit: «0,002» and «0.002» are the same limit in every
+/// language; «1,000,000» is no limit (none is granted) and the line under the field says so.
+#[test]
+fn your_amount_reads_one_mark_and_refuses_two() {
+    let limits = SessionLimits::wallet();
+    for lang in crate::i18n::Lang::ALL {
+        crate::i18n::set(lang);
+        crate::format::set_display(Default::default());
+        let limit = |typed: &str| {
+            Choice {
+                budget: limits.budget_presets.len(),
+                amount: typed.into(),
+                term: 0,
+                date: String::new(),
+                kept: Vec::new(),
+                for_request: 0,
+            }
+            .limit(&limits)
+        };
+        assert_eq!(limit("0,002"), Some(200_000), "{lang:?}");
+        assert_eq!(limit("0.002"), Some(200_000), "{lang:?}");
+        assert_eq!(limit("1,000,000"), None, "{lang:?}");
+        assert!(
+            crate::format::amount_hint("1,000,000").is_some(),
+            "{lang:?}: its line"
+        );
+    }
+    crate::i18n::set(crate::i18n::Lang::En);
+}

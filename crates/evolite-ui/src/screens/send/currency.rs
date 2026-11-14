@@ -160,6 +160,49 @@ mod tests {
         crate::format::set_display(Default::default());
     }
 
+    /// BUG-161, the currency in «Send» and «Receive» (`FiatLine::dash_text`): «0,02» and
+    /// «0.02» are the same cents in every language; «1,000,000» is no amount, said as such,
+    /// and gives no DASH.
+    #[test]
+    fn the_currency_reads_one_mark_and_refuses_two() {
+        let rate = usd(0, true);
+        for lang in crate::i18n::Lang::ALL {
+            crate::i18n::set(lang);
+            crate::format::set_display(Default::default());
+            let dash = |typed: &str| {
+                let mut form = SendForm {
+                    in_currency: true,
+                    fiat: typed.into(),
+                    ..SendForm::empty()
+                };
+                form.typed_currency(&rate);
+                (
+                    form.amount.clone(),
+                    form.currency_not_an_amount(Some(&rate)),
+                )
+            };
+            let (comma, dot) = (dash("0,02"), dash("0.02"));
+            assert!(
+                !comma.0.is_empty() && !comma.1,
+                "{lang:?}: «0,02» is an amount"
+            );
+            assert_eq!(comma, dot, "{lang:?}: «0,02» = «0.02»");
+            assert_eq!(
+                rate.dash_text("0,02"),
+                rate.dash_text("0.02"),
+                "{lang:?}: Receive"
+            );
+            let (amount, said) = dash("1,000,000");
+            assert!(
+                amount.is_empty() && said,
+                "{lang:?}: «1,000,000» is no amount"
+            );
+            assert_eq!(rate.dash_text("1,000,000"), None, "{lang:?}: Receive");
+        }
+        crate::i18n::set(crate::i18n::Lang::En);
+        crate::format::set_display(Default::default());
+    }
+
     #[test]
     fn the_amount_is_fixed_once_the_last_look_is_open() {
         crate::format::set_display(crate::format::Display {

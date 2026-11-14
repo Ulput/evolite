@@ -427,10 +427,17 @@ pub fn count(n: u64) -> String {
     out
 }
 
-/// An amount typed into History's search, in the chosen unit: a comma or a dot before the
-/// decimals whatever the number format (FEAT-0009 R-4), spaces allowed; none for anything else.
+/// An amount typed into History's search, in the chosen unit, by the one rule of every amount
+/// ([`typed_parts`], BUG-161): a comma or a dot before the decimals whatever the number format
+/// (FEAT-0009 R-4), spaces allowed; none for anything else.
 pub fn parse_search_amount(input: &str) -> Option<i64> {
-    parse_units(input, display().unit.decimals(), &[',', '.'])
+    parse_typed(input, display().unit.decimals())
+}
+
+/// An amount in DASH whatever the unit chosen, in duffs: a `dash:` link's `amount=` (from a QR
+/// code, the clipboard or a click), by the one rule of every amount ([`typed_parts`], BUG-161).
+pub fn parse_dash(input: &str) -> Option<i64> {
+    parse_typed(input, Unit::Dash.decimals())
 }
 
 /// A decimal number of `decimals` places from text: digits, one decimal mark, spaces allowed.
@@ -723,6 +730,12 @@ mod tests {
                     );
                 }
                 assert_eq!(parse_fiat("0,02"), Some(2), "{at}: cents");
+                // History's search and a `dash:` link read by the same rule.
+                assert_eq!(parse_search_amount("0,002"), Some(200_000), "{at}: search");
+                assert_eq!(parse_search_amount("0.002"), Some(200_000), "{at}: search");
+                assert_eq!(parse_search_amount("1,000,000"), None, "{at}: search");
+                assert_eq!(parse_dash("0,002"), Some(200_000), "{at}: a link");
+                assert_eq!(parse_dash("1,000,000"), None, "{at}: a link");
                 assert_eq!(parse_fiat("1,234.56"), None, "{at}: a fiat amount alike");
                 // Too many decimals is said as such.
                 assert!(too_precise("0,000000001"), "{at}");
@@ -853,6 +866,97 @@ mod tests {
         assert!(too_precise("1.5"));
         assert!(!too_precise("15"));
         set_display(Display::default());
+    }
+
+    /// BUG-161, the customer: no field that takes money, tokens or anything of value may read
+    /// typed text by a rule of its own. Every place in `evolite-ui` and `evolite-api` that turns
+    /// text into a number is listed here with why it is not an amount; a new one fails this test
+    /// until it goes through [`typed_parts`] in this file, or is listed with its reason.
+    #[test]
+    fn no_amount_is_read_outside_format() {
+        use std::path::{Path, PathBuf};
+        const READS: [&str; 6] = [
+            ".parse::<",
+            ".parse()",
+            "from_str_radix(",
+            "split_once('.')",
+            "split_once(',')",
+            "f64::from_str",
+        ];
+        // (file under crates/, how many, why it is not an amount typed by the person)
+        const NOT_AMOUNTS: &[(&str, usize, &str)] = &[
+            ("evolite-ui/src/format.rs", 2, "the one rule itself"),
+            (
+                "evolite-api/src/tokens.rs",
+                1,
+                "a token's units from «1250.5», fed only by format::typed_parts",
+            ),
+            ("evolite-ui/src/app/dev.rs", 1, "a dev-tools flag"),
+            ("evolite-ui/src/cli.rs", 2, "--window WxH"),
+            ("evolite-ui/src/i18n/catalog.rs", 2, "a plural form's index"),
+            ("evolite-ui/src/network_choice.rs", 1, "a node's port"),
+            ("evolite-ui/src/payment_uri.rs", 1, "a link's %XX escapes"),
+            (
+                "evolite-ui/src/screens/tokens/state.rs",
+                1,
+                "writes an amount, does not read one",
+            ),
+            ("evolite-ui/src/setup/plan.rs", 1, "the installed version"),
+            ("evolite-ui/src/setup/system.rs", 1, "a process id"),
+            (
+                "evolite-ui/src/app/ui_tests/bugs.rs",
+                1,
+                "a test reading a count",
+            ),
+            (
+                "evolite-ui/src/app/ui_tests/identity_pool.rs",
+                1,
+                "a test counting decimals",
+            ),
+        ];
+        fn files(dir: &Path, out: &mut Vec<PathBuf>) {
+            for entry in std::fs::read_dir(dir).into_iter().flatten().flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    files(&path, out);
+                } else if path.extension().is_some_and(|e| e == "rs") {
+                    out.push(path);
+                }
+            }
+        }
+        let crates = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+        let mut all = Vec::new();
+        files(&crates.join("evolite-ui/src"), &mut all);
+        files(&crates.join("evolite-api/src"), &mut all);
+        let mut found = Vec::new();
+        for path in all {
+            let text = std::fs::read_to_string(&path).unwrap();
+            let n: usize = READS.iter().map(|r| text.matches(r).count()).sum();
+            // This test names the reads above: not one of them.
+            let n = if path.ends_with("format.rs") {
+                n - READS.len()
+            } else {
+                n
+            };
+            if n > 0 {
+                let name = path
+                    .strip_prefix(&crates)
+                    .unwrap()
+                    .to_string_lossy()
+                    .replace('\\', "/");
+                found.push((name, n));
+            }
+        }
+        for (name, n) in &found {
+            let listed = NOT_AMOUNTS.iter().find(|(f, _, _)| f == name);
+            assert!(
+                listed.is_some_and(|(_, count, _)| n <= count),
+                "{name}: {n} read(s) of a number, listed {:?}. An amount goes through \
+                 format::typed_parts; anything else is listed in NOT_AMOUNTS with why",
+                listed.map(|(_, c, _)| c)
+            );
+        }
+        assert!(found.len() >= 5, "the scan found the files: {found:?}");
     }
 
     #[test]

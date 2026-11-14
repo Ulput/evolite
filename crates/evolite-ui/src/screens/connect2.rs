@@ -611,6 +611,10 @@ pub fn request(
                     FieldKind::Amount,
                     |_| {},
                 );
+                // BUG-161: what is not one amount is said under the field, as under the others.
+                if let Some(hint) = crate::format::amount_hint(&state.choice.amount) {
+                    wrapped(ui, &hint, 12.0, p.danger);
+                }
             }
             section(ui, a, tr!("Period"));
             let mut items: Vec<String> = limits

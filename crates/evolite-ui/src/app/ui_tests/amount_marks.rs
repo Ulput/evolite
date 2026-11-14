@@ -84,3 +84,118 @@ fn two_marks_are_refused_under_every_amount_field() {
         drop(turn);
     }
 }
+
+/// BUG-161, every field (the customer: «ни в одном поле, касающемся денег, токенов и чего угодно
+/// ценного»): for each, «0,002» and «0.002» are the same amount, and «1,000,000» — no amount —
+/// shows the field's own line, never read as another number. The table in `BUG-161-1.md`.
+#[test]
+fn every_amount_field_reads_one_mark_and_refuses_two() {
+    // (preset, where the text goes, how the screen reads it, its line for no amount)
+    type Set = fn(&mut App, &str);
+    type Read = fn(&App) -> Option<i128>;
+    let dash: Read = |_| None;
+    let fields: &[(&str, Set, Read, &str)] = &[
+        (
+            "send",
+            |app, t| app.send.amount = t.into(),
+            |app| crate::format::parse_amount(&app.send.amount).map(i128::from),
+            "Enter an amount, e.g. 0.25",
+        ),
+        (
+            "send-mixed",
+            |app, t| app.send.amount = t.into(),
+            |app| crate::format::parse_amount(&app.send.amount).map(i128::from),
+            "Enter an amount, e.g. 0.25",
+        ),
+        (
+            "send-from-address",
+            |app, t| app.send.amount = t.into(),
+            |app| crate::format::parse_amount(&app.send.amount).map(i128::from),
+            "Enter an amount, e.g. 0.25",
+        ),
+        (
+            "receive",
+            |app, t| app.receive.amount = t.into(),
+            |app| crate::format::parse_amount(&app.receive.amount).map(i128::from),
+            "Enter an amount, e.g. 0.25",
+        ),
+        (
+            "top-up",
+            |app, t| app.identity.top_up.as_mut().unwrap().amount = t.into(),
+            |app| {
+                crate::format::parse_amount(&app.identity.top_up.as_ref().unwrap().amount)
+                    .map(i128::from)
+            },
+            "Enter an amount, e.g. 0.25",
+        ),
+        (
+            "create-identity",
+            |app, t| app.create_identity.amount = t.into(),
+            |app| crate::format::parse_amount(&app.create_identity.amount).map(i128::from),
+            "Enter an amount, e.g. 0.25",
+        ),
+        (
+            "shield",
+            |app, t| app.pool.amount = t.into(),
+            |app| crate::format::parse_amount(&app.pool.amount).map(i128::from),
+            "Enter an amount, e.g. 0.25",
+        ),
+        (
+            "unshield",
+            |app, t| app.pool.unshield_amount = t.into(),
+            |app| crate::format::parse_amount(&app.pool.unshield_amount).map(i128::from),
+            "Enter an amount, e.g. 0.25",
+        ),
+        (
+            "fund-address",
+            |app, t| app.fund_address.form.as_mut().unwrap().amount = t.into(),
+            |app| {
+                crate::format::parse_amount(&app.fund_address.form.as_ref().unwrap().amount)
+                    .map(i128::from)
+            },
+            "Enter an amount, e.g. 0.25",
+        ),
+        (
+            "tokens-send",
+            |app, t| app.tokens.sending.as_mut().unwrap().amount = t.into(),
+            |app| {
+                // The demo's Evo Coffee has 2 decimals: the token's own (per token, R-4).
+                crate::screens::tokens::state::typed(
+                    &app.tokens.sending.as_ref().unwrap().amount,
+                    2,
+                )
+                .ok()
+                .map(i128::from)
+            },
+            "Not an amount of this token",
+        ),
+    ];
+    let _ = dash;
+    for &(preset, set, read, line) in fields {
+        let (turn, mut kit) = demo_app(preset, "en");
+        kit.run_steps(10);
+        // DASH: 0.002 is 200 000 duffs. A token of 2 decimals has no 0.002: 0.02 is 2 of its
+        // units, and «0,002» there is too many decimals (the token's line).
+        let (pair, want) = if preset == "tokens-send" {
+            (["0,02", "0.02"], 2)
+        } else {
+            (["0,002", "0.002"], 200_000)
+        };
+        for typed in pair {
+            set(kit.state_mut(), typed);
+            kit.run_steps(3);
+            assert_eq!(read(kit.state()), Some(want), "{preset}: «{typed}»");
+            assert!(!has_text(&kit, line), "{preset}: «{typed}» says nothing");
+        }
+        set(kit.state_mut(), "1,000,000");
+        kit.run_steps(3);
+        assert_eq!(
+            read(kit.state()),
+            None,
+            "{preset}: «1,000,000» is no amount"
+        );
+        assert!(has_text(&kit, line), "{preset}: «{line}» under the field");
+        drop(kit);
+        drop(turn);
+    }
+}

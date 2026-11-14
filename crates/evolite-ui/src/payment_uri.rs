@@ -98,30 +98,10 @@ fn read(address: &str, query: &str) -> Result<PaymentLink, Refused> {
     Ok(link)
 }
 
-/// `0.25` → 25 000 000 duffs: digits, at most one dot, at most 8 decimals, more than zero and
-/// at most 21 million DASH.
+/// `0.25` → 25 000 000 duffs, by the one rule of every amount (`format::parse_dash`, BUG-161):
+/// one decimal mark at most, at most 8 decimals; more than zero and at most 21 million DASH.
 pub fn amount(text: &str) -> Option<Duffs> {
-    let (whole, fraction) = text.split_once('.').unwrap_or((text, ""));
-    let digits = |s: &str| s.chars().all(|c| c.is_ascii_digit());
-    if (whole.is_empty() && fraction.is_empty())
-        || !digits(whole)
-        || !digits(fraction)
-        || fraction.len() > 8
-        || whole.len() > 8
-    {
-        return None;
-    }
-    let whole: Duffs = if whole.is_empty() {
-        0
-    } else {
-        whole.parse().ok()?
-    };
-    let fraction: Duffs = if fraction.is_empty() {
-        0
-    } else {
-        format!("{fraction:0<8}").parse().ok()?
-    };
-    let duffs = whole.checked_mul(DUFFS_PER_DASH)?.checked_add(fraction)?;
+    let duffs = crate::format::parse_dash(text)?;
     (duffs > 0 && duffs <= MAX_DASH * DUFFS_PER_DASH).then_some(duffs)
 }
 
@@ -235,12 +215,16 @@ mod tests {
     }
 
     #[test]
-    fn the_amount_is_dash_with_a_dot() {
+    fn the_amount_is_dash_by_the_one_rule() {
         let at = |a: &str| parse(&format!("dash:{ADDRESS}?amount={a}")).unwrap();
         assert_eq!(at("0.25").unwrap().amount, Some(25_000_000));
         assert_eq!(at("1").unwrap().amount, Some(DUFFS_PER_DASH));
         assert_eq!(at(".5").unwrap().amount, Some(50_000_000));
         assert_eq!(at("0.00000001").unwrap().amount, Some(1));
+        // BUG-161: the one rule of every amount — one comma or point is the decimal mark.
+        assert_eq!(at("0,002").unwrap().amount, Some(200_000));
+        assert_eq!(at("0.002").unwrap().amount, Some(200_000));
+        assert_eq!(at("0,25").unwrap().amount, Some(25_000_000));
         assert_eq!(
             at("21000000").unwrap().amount,
             Some(MAX_DASH * DUFFS_PER_DASH)
@@ -252,7 +236,8 @@ mod tests {
             "0.000000001",
             "21000000.00000001",
             "0",
-            "0,25",
+            "1,000,000",
+            "1,234.56",
             "",
             ".",
             "1.2.3",
