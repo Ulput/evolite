@@ -53,12 +53,7 @@ pub(super) fn edit_profile(
                     // Why «Save» is off: a write costs credits, the same profile again buys
                     // nothing.
                     if !changed && !form.waiting {
-                        ui.label(txt(
-                            tr!("Nothing has changed yet"),
-                            12.0,
-                            Weight::Regular,
-                            p.muted,
-                        ));
+                        ui.label(text(tr!("Nothing has changed yet"), SMALL, p.muted));
                     }
                     if button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked() {
                         close = true;
@@ -101,10 +96,9 @@ pub(super) fn edit_profile(
                         FieldKind::Text,
                         |_| {},
                     );
-                    ui.label(txt(
+                    ui.label(text(
                         tr!("PNG, JPEG, GIF, WebP or SVG, up to 1 MB, over https"),
-                        12.0,
-                        Weight::Regular,
+                        SMALL,
                         p.muted,
                     ));
                 });
@@ -122,10 +116,9 @@ pub(super) fn edit_profile(
                     |_| {},
                 );
                 keep_chars(&mut form.display, DISPLAY_MAX);
-                ui.label(txt(
+                ui.label(text(
                     &count(form.display.chars().count(), DISPLAY_MAX),
-                    12.0,
-                    Weight::Regular,
+                    SMALL,
                     p.muted,
                 ));
             });
@@ -141,13 +134,8 @@ pub(super) fn edit_profile(
                         crate::rtl::text_edit(
                             ui,
                             egui::TextEdit::multiline(&mut form.about)
-                                .hint_text(txt(
-                                    tr!("A few words about yourself"),
-                                    14.0,
-                                    Weight::Regular,
-                                    p.muted,
-                                ))
-                                .font(sans(14.0, Weight::Regular))
+                                .hint_text(text(tr!("A few words about yourself"), BODY, p.muted))
+                                .font(style(BODY))
                                 .text_color(p.text)
                                 .frame(egui::Frame::NONE)
                                 .desired_rows(3)
@@ -155,14 +143,13 @@ pub(super) fn edit_profile(
                         );
                     });
                 keep_chars(&mut form.about, ABOUT_MAX);
-                ui.label(txt(
+                ui.label(text(
                     &count(form.about.chars().count(), ABOUT_MAX),
-                    12.0,
-                    Weight::Regular,
+                    SMALL,
                     p.muted,
                 ));
             });
-            let value = mono(13.0, Weight::Medium);
+            let value = style(UI.weight(Weight::Medium).mono());
             kv_row(
                 ui,
                 &p,
@@ -189,10 +176,9 @@ pub(super) fn edit_profile(
             let url = form.avatar_url.trim();
             let url_ok = url.is_empty() || url.starts_with("https://");
             if !url_ok {
-                ui.label(txt(
+                ui.label(text(
                     tr!("The link must start with https://"),
-                    12.0,
-                    Weight::Regular,
+                    SMALL,
                     p.danger,
                 ));
             }

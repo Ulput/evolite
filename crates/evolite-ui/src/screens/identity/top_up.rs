@@ -72,11 +72,7 @@ pub(super) fn top_up_dialog(
                 crate::components::para(
                         &format!(
                             tr!("DASH from Core become credits of {me}: they pay for writes to Platform — names, contacts, profile.")
-                        , me = me),
-                        13.0,
-                        Weight::Regular,
-                        p.muted,
-                    )
+                        , me = me), UI.size, UI.weight, p.muted).line_height(UI.line)
                     .line_height(20.0),
             );
             ui.vertical(|ui| {
@@ -106,29 +102,23 @@ pub(super) fn top_up_dialog(
                 _ => false,
             };
             if too_much {
-                ui.label(txt(
-                    tr!("More than there is on Core"),
-                    12.0,
-                    Weight::Regular,
-                    p.danger,
-                ));
+                ui.label(text(tr!("More than there is on Core"), SMALL, p.danger));
             }
             // BUG-93 review must 1: Platform refuses a smaller lock and its DASH stay in it.
             let least = fees.top_up_amount_least();
             let too_little = amount.is_some_and(|d| d < least);
             if too_little {
-                ui.label(txt(
+                ui.label(text(
                     &format!(
                         tr!("At least {} — Dash Platform takes no smaller asset lock"),
                         dash(least)
                     ),
-                    12.0,
-                    Weight::Regular,
+                    SMALL,
                     p.danger,
                 ));
             }
             let after = wallet.balances.credits.saturating_add(amount.unwrap_or(0));
-            let value = mono(13.0, Weight::Medium);
+            let value = style(UI.weight(Weight::Medium).mono());
             crate::components::kv_row_eye_in(
                 ui,
                 a,

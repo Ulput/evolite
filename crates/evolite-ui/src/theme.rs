@@ -164,6 +164,11 @@ pub mod type_scale {
         pub const fn weight(self, weight: Weight) -> Step {
             Step { weight, ..self }
         }
+
+        /// The same step in JetBrains Mono: an id, an address, a value in a row's figures.
+        pub const fn mono(self) -> Step {
+            Step { mono: true, ..self }
+        }
     }
 
     const fn step(size: f32, line: f32, mono: bool, weight: Weight) -> Step {
