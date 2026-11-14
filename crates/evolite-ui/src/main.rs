@@ -45,6 +45,7 @@ mod i18n;
 mod icons;
 mod links;
 mod motion;
+mod network_choice;
 mod notify;
 mod payment_uri;
 mod prefs;
@@ -78,12 +79,17 @@ fn main() {
     let lang = launch.lang.unwrap_or_else(i18n::system);
     // A data folder made now is its owner's alone, wherever --data-dir puts it — before the
     // journal below or the core create anything in it. (Without the demo core, the real one is
-    // the only choice.)
+    // the only choice.) A network's own folder opened as the other network's is refused before
+    // anything is made in it (FEAT-0037 AC-T7).
     #[allow(
         irrefutable_let_patterns,
         reason = "without the demo core CoreChoice has only Real"
     )]
     if let cli::CoreChoice::Real(dir) = &launch.core {
+        if network_choice::wrong_folder(dir, launch.network, &cli::base_dir()) {
+            window::refuse_wrong_folder(dir, launch.network, lang);
+            return;
+        }
         let _ = private_dir::create(dir);
     }
     // The journal for problem reports, beside the wallet's files (the demo's in its cache).
@@ -105,9 +111,12 @@ fn main() {
     // The smallest window fits a 1280 × 720 screen at 150 % (853 points wide) and a 1366 × 768
     // one at 150 % (512 high, less the taskbar and the title bar); screens scroll below that
     // height, and below 1280 wide the menu is a rail (responsive spec R2).
-    let (size, min) = match window {
-        Some(size) => (size, size),
-        None => ([1280.0, 800.0], theme::MIN_WINDOW),
+    // After a switch of network: the old window's place and size (FEAT-0037 AC-T6ж).
+    let at = launch.window_at;
+    let (size, min) = match (window, at) {
+        (Some(size), _) => (size, size),
+        (None, Some([_, _, w, h])) => ([w, h], theme::MIN_WINDOW),
+        (None, None) => ([1280.0, 800.0], theme::MIN_WINDOW),
     };
     // The last run ended with its window open (a crash, a driver reset): the saved size and the
     // maximized state are dropped, so the window that may have brought it down does not open
@@ -117,14 +126,18 @@ fn main() {
         window::forget_saved_window(APP_ID);
         evolite_core::diag::record(evolite_core::diag::Record::WindowReset);
     }
+    let mut viewport = egui::ViewportBuilder::default()
+        .with_title("evolite")
+        .with_icon(app_icon())
+        .with_inner_size(size)
+        .with_min_inner_size(min);
+    if let Some([x, y, _, _]) = at {
+        viewport = viewport.with_position(egui::pos2(x, y));
+    }
     let options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default()
-            .with_title("evolite")
-            .with_icon(app_icon())
-            .with_inner_size(size)
-            .with_min_inner_size(min),
+        viewport,
         // A size asked for is not overridden by the one remembered from the last run.
-        persist_window: window.is_none(),
+        persist_window: window.is_none() && at.is_none(),
         renderer: eframe::Renderer::Wgpu,
         wgpu_options: window::wgpu_options(),
         ..Default::default()

@@ -61,6 +61,12 @@ pub fn logs_for(core: &CoreChoice) -> PathBuf {
     }
 }
 
+/// A network's own data folder beside the other's, in the OS's per-user data folder (FEAT-0037: the
+/// switch's target).
+pub(crate) fn network_dir(network: evolite_api::Network) -> PathBuf {
+    data_dir(None, network)
+}
+
 /// Where the real core keeps its files: `--data-dir`, else the OS's per-user data folder —
 /// `evolite` for testnet, `evolite-mainnet` for mainnet, so the two never share a folder (inside
 /// any folder the core keeps each network's files apart as well).
@@ -68,7 +74,16 @@ fn data_dir(arg: Option<&str>, network: evolite_api::Network) -> PathBuf {
     if let Some(dir) = arg {
         return PathBuf::from(dir);
     }
-    let base = std::env::var_os("APPDATA")
+    let base = base_dir();
+    match network {
+        evolite_api::Network::Testnet => base.join("evolite"),
+        evolite_api::Network::Mainnet => base.join("evolite-mainnet"),
+    }
+}
+
+/// The OS's per-user data folder, which holds the networks' folders and the app's common one.
+pub(crate) fn base_dir() -> PathBuf {
+    std::env::var_os("APPDATA")
         .or_else(|| std::env::var_os("XDG_DATA_HOME"))
         .map(PathBuf::from)
         .or_else(|| {
@@ -81,11 +96,7 @@ fn data_dir(arg: Option<&str>, network: evolite_api::Network) -> PathBuf {
                 }
             })
         })
-        .unwrap_or_else(|| PathBuf::from("."));
-    match network {
-        evolite_api::Network::Testnet => base.join("evolite"),
-        evolite_api::Network::Mainnet => base.join("evolite-mainnet"),
-    }
+        .unwrap_or_else(|| PathBuf::from("."))
 }
 
 /// What the app starts with.
@@ -95,8 +106,15 @@ pub struct Launch {
     pub dark: bool,
     /// `--lang <code>`: the interface language for this run (screenshots in every language).
     pub lang: Option<crate::i18n::Lang>,
-    /// `--network mainnet`; testnet without it. With the demo, only to see how mainnet looks.
+    /// `--network`, else the last network chosen, else testnet (FEAT-0037, AC-T6а).
     pub network: evolite_api::Network,
+    /// The app's common folder: the last network and the app's settings (FEAT-0037).
+    pub app_dir: PathBuf,
+    /// Started by a switch of network (FEAT-0037): a held folder is said as that network open
+    /// in another window.
+    pub switched: bool,
+    /// The old window's place and size, `x, y, w, h` in points, after a switch (AC-T6ж).
+    pub window_at: Option<[f32; 4]>,
     /// What `dev-tools` reads besides: the screen preset, the screenshot, the window.
     #[cfg(feature = "dev-tools")]
     pub dev: DevLaunch,
@@ -135,17 +153,23 @@ impl DevLaunch {
 
 impl Launch {
     pub fn from_args(args: &[String]) -> Self {
+        Self::from_args_with(args, crate::network_choice::read_last)
+    }
+
+    /// [`Launch::from_args`] with the last network chosen read by `last` (a test reads none).
+    pub fn from_args_with(
+        args: &[String],
+        last: impl Fn(&std::path::Path) -> Option<evolite_api::Network>,
+    ) -> Self {
         let arg = |name: &str| {
             args.iter()
                 .position(|a| a == name)
                 .and_then(|i| args.get(i + 1))
                 .map(String::as_str)
         };
-        // `--network mainnet`: real money, only when asked for at the start; testnet otherwise.
-        let network = match arg("--network") {
-            Some("mainnet") => evolite_api::Network::Mainnet,
-            _ => evolite_api::Network::Testnet,
-        };
+        // `--network`, else the last network chosen, else testnet (FEAT-0037, the customer's М3).
+        let app_dir = crate::network_choice::app_dir(arg("--data-dir"), &base_dir());
+        let network = crate::network_choice::start_network(arg("--network"), last(&app_dir));
         let real = CoreChoice::Real(data_dir(arg("--data-dir"), network));
         #[cfg(feature = "dev-tools")]
         let (core, screen, dev) = dev_args(args, &arg, real);
@@ -163,6 +187,10 @@ impl Launch {
             dark: arg("--theme") != Some("light"),
             lang: arg("--lang").and_then(crate::i18n::Lang::from_code),
             network,
+            app_dir,
+            switched: args.iter().any(|a| a == crate::network_choice::SWITCHED),
+            window_at: arg(crate::network_choice::WINDOW_AT)
+                .and_then(crate::network_choice::window_at),
             #[cfg(feature = "dev-tools")]
             dev,
         }
@@ -224,8 +252,8 @@ pub const PRESETS: &[&str] = &[
     "settings", "phrase", "check-phrase", "appearance", "appearance-rate", "change-password",
     "security", "backup", "notifications", "own-node", "nodes", "nodes-dapi", "about",
     "about-end", "report", "report-letter", "delete", "resync", "language", "wallets",
-    "wallet-rename", "wallet-more",
-    "welcome", "elsewhere", "forgot", "wallet-unlock", "wallet-add",
+    "wallet-rename", "wallet-more", "network-switch",
+    "welcome", "welcome-other", "elsewhere", "forgot", "wallet-unlock", "wallet-add",
     "unlock", "unlock-warn", "unlock-wait", "unlock-wait-end", "wallet-unlock-wait",
     "wallet-switch-wait",
 ];
@@ -455,7 +483,7 @@ fn dev_args<'a>(
                 | "security" | "backup" | "notifications" | "own-node" | "appearance-rate"
                 | "nodes" | "nodes-dapi" | "about" | "about-end" | "report" | "report-letter"
                 | "delete" | "resync" | "language" | "wallets" | "wallet-rename" | "wallet-more"
-                | "delete-notes",
+                | "delete-notes" | "network-switch",
             ),
         ) => Screen::Settings,
         _ => Screen::Welcome,
@@ -536,7 +564,8 @@ mod tests {
             .chain(args.split_whitespace())
             .map(str::to_owned)
             .collect();
-        Launch::from_args(&args)
+        // The machine's own last choice is not the test's.
+        Launch::from_args_with(&args, |_| None)
     }
 
     #[cfg(any(feature = "real", feature = "dev-tools"))]

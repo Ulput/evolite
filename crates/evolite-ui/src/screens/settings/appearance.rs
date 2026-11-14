@@ -350,17 +350,16 @@ pub(crate) fn language_and_theme(
     } else {
         tr!("light theme")
     };
+    // The network is at the top now, in its switch (FEAT-0037): the foot is the language and the
+    // theme.
+    let _ = network;
     let font = sans(13.0, Weight::Regular);
     let w = crate::components::text_width(ui, &lang, font.clone())
         + crate::components::text_width(ui, " · ", font.clone())
-        + crate::components::text_width(ui, theme, font)
-        + 12.0
-        + 90.0;
+        + crate::components::text_width(ui, theme, font);
     ui.horizontal(|ui| {
         ui.add_space(((ui.available_width() - w) / 2.0).max(0.0));
         ui.spacing_mut().item_spacing.x = 0.0;
-        crate::components::network_chip(ui, a, network);
-        ui.add_space(12.0);
         if foot_link(ui, &p, &lang).clicked() {
             state.lang_picker = true;
         }

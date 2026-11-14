@@ -273,6 +273,11 @@ impl Known {
     pub fn mainnet_data(&self) -> PathBuf {
         self.roaming.join("evolite-mainnet")
     }
+    /// The app's common folder (FEAT-0037): the last network chosen and the app's settings, the
+    /// same for both networks. No wallet.
+    pub fn app_data(&self) -> PathBuf {
+        self.roaming.join("evolite-app")
+    }
     /// Pictures drawn by the renderer (NFTs, avatars).
     pub fn cache(&self) -> PathBuf {
         self.local.join("evolite")
@@ -282,16 +287,25 @@ impl Known {
         self.programs.join(FOLDER)
     }
     /// The folders deleted with «delete wallet data too».
-    pub fn data_folders(&self) -> [PathBuf; 2] {
+    pub fn data_folders(&self) -> [PathBuf; 3] {
+        [self.testnet_data(), self.mainnet_data(), self.app_data()]
+    }
+    /// The folders that hold wallets, each network's: the uninstaller lists their wallets.
+    pub fn wallet_folders(&self) -> [PathBuf; 2] {
         [self.testnet_data(), self.mainnet_data()]
     }
 
     /// Whether `path` is one of evolite's own folders — a check before anything is deleted
     /// whole, so a mistake can never reach another folder.
     pub fn is_own_folder(&self, path: &Path) -> bool {
-        [self.testnet_data(), self.mainnet_data(), self.cache()]
-            .iter()
-            .any(|own| own == path)
+        [
+            self.testnet_data(),
+            self.mainnet_data(),
+            self.app_data(),
+            self.cache(),
+        ]
+        .iter()
+        .any(|own| own == path)
     }
 }
 
@@ -609,6 +623,12 @@ mod tests {
         };
         assert!(k.is_own_folder(&k.testnet_data()));
         assert!(k.is_own_folder(&k.mainnet_data()));
+        // FEAT-0037: the app's common folder (the last network, the app's settings) goes with the
+        // data; it holds no wallet.
+        assert!(k.is_own_folder(&k.app_data()));
+        assert!(k.data_folders().contains(&k.app_data()));
+        assert!(!k.wallet_folders().contains(&k.app_data()));
+        assert_eq!(k.app_data(), k.roaming.join("evolite-app"));
         assert!(k.is_own_folder(&k.cache()));
         for other in [
             &k.roaming,

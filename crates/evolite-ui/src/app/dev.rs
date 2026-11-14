@@ -61,6 +61,8 @@ pub(super) struct DevState {
     /// `--screen overview-mixed-unchecked` (FEAT-0030 O2): Core, and «Mixed» with it, last checked an
     /// hour ago.
     core_unchecked_preset: bool,
+    /// `--screen welcome-other` (FEAT-0037 L2m): no wallets on this network, three on the other.
+    empty_here_preset: bool,
     /// `--screen send-fiat-stale`: the rate older than 5 minutes (FEAT-0008, frame 3).
     stale_rate_preset: bool,
     /// `--screen send-pool-unread` / `send-pool-unknown`: Send from the pool before its first read
@@ -206,6 +208,7 @@ impl DevState {
                 || dev.preset("fund-address-review")
                 || dev.preset("fund-address-resume"),
             core_unchecked_preset: dev.preset("overview-mixed-unchecked"),
+            empty_here_preset: dev.preset("welcome-other"),
             unsignable_preset: dev.preset("send-unsignable") || dev.preset("send-unsignable-short"),
             stale_rate_preset: dev.preset("send-fiat-stale"),
             pool_preset: if dev.preset("send-pool-unread") {
@@ -296,6 +299,11 @@ impl App {
     /// A new snapshot: `--screen identity-unfinished` gives it a stopped creation, and `--open`
     /// opens what it asked for once the real wallet has it.
     pub(super) fn dev_snapshot(&mut self, ctx: &egui::Context) {
+        if self.dev.empty_here_preset
+            && let Some(s) = self.snapshot.as_mut()
+        {
+            s.wallets.clear();
+        }
         if self.dev.stale_rate_preset
             && let Some(rate) = self.snapshot.as_mut().and_then(|s| s.fiat.as_mut())
         {
@@ -950,6 +958,15 @@ impl App {
                 }
                 None => self.tokens.adding = Some(screens::tokens::AddState::default()),
             }
+        }
+        // `--screen welcome-other` (FEAT-0037 L2m): the other network has three wallets.
+        if preset("welcome-other") {
+            self.networks.other_wallets = 3;
+        }
+        // `--screen network-switch` (FEAT-0037 N2d, N2t): Settings → Network with the switch's
+        // question, to the other network.
+        if preset("network-switch") {
+            self.settings.switch_to = Some(super::network::other(evolite_core::network::current()));
         }
         // `--screen gift` opens the collection with the gift dialog.
         self.collection.gifting = preset("gift");

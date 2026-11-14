@@ -8,8 +8,16 @@ use crate::icons::Logo;
 use crate::theme::Weight;
 use egui::Ui;
 
-pub fn elsewhere(ui: &mut Ui, a: &mut Assets) {
+/// `switched`: this run was started by a switch to `here` from `back` (FEAT-0037): the folder is
+/// that network open in another window, said so (AC-A6), with a way back. True when «Back to …»
+/// was clicked.
+pub fn elsewhere(
+    ui: &mut Ui,
+    a: &mut Assets,
+    switched: Option<(evolite_api::Network, evolite_api::Network)>,
+) -> bool {
     let p = a.p;
+    let mut back = false;
     let column = 420.0;
     ui.add_space(((ui.available_height() - 420.0) / 2.0).max(24.0));
     ui.vertical_centered(|ui| {
@@ -23,6 +31,25 @@ pub fn elsewhere(ui: &mut Ui, a: &mut Assets) {
         ));
         ui.allocate_ui(egui::vec2(column, 0.0), |ui| {
             ui.spacing_mut().item_spacing.y = 16.0;
+            if let Some((here, other)) = switched {
+                let name = |n| match n {
+                    evolite_api::Network::Testnet => "Testnet",
+                    evolite_api::Network::Mainnet => "Mainnet",
+                };
+                ui.add(crate::components::para(
+                    &format!(
+                        tr!("{} is already open in another evolite window. Switch to that window or go back to {}."),
+                        name(here),
+                        name(other).to_lowercase()
+                    ),
+                    14.0,
+                    Weight::Regular,
+                    p.muted,
+                ));
+                let label = format!(tr!("Back to {}"), name(other).to_lowercase());
+                back = button(ui, a, &label, ButtonKind::Primary, Some(column)).clicked();
+                return;
+            }
             ui.add(
                 crate::components::para(
                     tr!("Work in the first evolite window. Two copies on one data folder could damage the history and the phrase's vault, so nothing is open here — neither keys nor data."),
@@ -43,4 +70,5 @@ pub fn elsewhere(ui: &mut Ui, a: &mut Assets) {
             }
         });
     });
+    back
 }

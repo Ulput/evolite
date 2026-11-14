@@ -26,6 +26,21 @@ use evolite_common::phrase_check;
 #[cfg(feature = "real")]
 pub(crate) use evolite_common::{PASSWORD_NEEDED, dpns};
 pub use evolite_common::{attempts, bip39, diag, layers, note_text};
+
+/// The wallets of `network` in data folder `data_dir`, counted without opening or writing
+/// anything: the network switch on the sign-in screens says how many each network has
+/// (FEAT-0037). None without the real core.
+pub fn wallets_on(data_dir: &std::path::Path, network: evolite_api::Network) -> usize {
+    #[cfg(feature = "real")]
+    {
+        evolite_local::wallets::count_on(data_dir, network::name_of(network))
+    }
+    #[cfg(not(feature = "real"))]
+    {
+        let _ = (data_dir, network);
+        0
+    }
+}
 #[cfg(any(feature = "demo", not(feature = "real"), test))]
 use evolite_demo as mock;
 /// The password the demo core refuses (the UI tests' "Wrong password").
