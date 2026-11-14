@@ -1162,6 +1162,7 @@
   "Turn off": "关闭",
   "Type": "类型",
   "Type “delete”": "输入“删除”",
+  "Unclear: is {} {} or {}? Type {} or {}.": "不明确：{} 是 {} 还是 {}？请输入 {} 或 {}。",
   "Unit": "金额单位",
   "Unshield": "转出私密池",
   "Unshield from the pool": "转出私密池",

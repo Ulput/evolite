@@ -1162,6 +1162,7 @@
   "Turn off": "オフにする",
   "Type": "種類",
   "Type “delete”": "「削除」と入力",
+  "Unclear: is {} {} or {}? Type {} or {}.": "あいまいです: {} は {} ですか、{} ですか? {} または {} と入力してください。",
   "Unit": "金額の単位",
   "Unshield": "シールド解除",
   "Unshield from the pool": "プールからシールド解除",

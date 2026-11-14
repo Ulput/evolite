@@ -61,7 +61,8 @@ pub fn plain_written(plain: &str) -> String {
 /// ([`crate::format::typed_parts`], BUG-161): one comma or point is the decimal mark in every
 /// language; a second mark is not a number, never read as another one.
 pub fn typed(input: &str, decimals: u8) -> Result<TokenAmount, AmountError> {
-    let (whole, fraction) = crate::format::typed_parts(input).ok_or(AmountError::NotANumber)?;
+    let (whole, fraction) =
+        crate::format::typed_amount_parts(input).ok_or(AmountError::NotANumber)?;
     parse_amount(&format!("{whole}.{fraction}"), decimals)
 }
 

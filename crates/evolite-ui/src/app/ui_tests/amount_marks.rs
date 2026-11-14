@@ -199,3 +199,31 @@ fn every_amount_field_reads_one_mark_and_refuses_two() {
         drop(turn);
     }
 }
+
+/// BUG-161 r1 Should 1, the customer's decision, as the person sees it in English: «1,000» and
+/// «2,500» in «Top up the identity» take no amount and ask which number is meant, under the field.
+#[test]
+fn an_english_thousand_asks_rather_than_being_read_as_one() {
+    let (_turn, mut kit) = demo_app("top-up", "en");
+    kit.run_steps(10);
+    for (typed, line) in [
+        ("1,000", "Unclear: is 1,000 1 or 1000? Type 1000 or 1.0."),
+        ("2,500", "Unclear: is 2,500 2.5 or 2500? Type 2500 or 2.5."),
+    ] {
+        *field_of(&mut kit, "top-up") = typed.into();
+        kit.run_steps(3);
+        assert_eq!(
+            crate::format::parse_amount(typed),
+            None,
+            "{typed}: no amount"
+        );
+        assert!(has_text(&kit, line), "«{line}» under the field");
+        assert!(
+            !has_text(
+                &kit,
+                &format!("Top up by {}", crate::format::amount(100_000_000))
+            ),
+            "{typed}: never 1 DASH"
+        );
+    }
+}

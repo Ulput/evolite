@@ -437,7 +437,14 @@ pub fn parse_search_amount(input: &str) -> Option<i64> {
 /// An amount in DASH whatever the unit chosen, in duffs: a `dash:` link's `amount=` (from a QR
 /// code, the clipboard or a click), by the one rule of every amount ([`typed_parts`], BUG-161).
 pub fn parse_dash(input: &str) -> Option<i64> {
-    parse_typed(input, Unit::Dash.decimals())
+    // A machine's format, not the person's: no [`unclear`] here — «1.000» in a German
+    // interface is 1 DASH in a link, as BIP21 writes it.
+    let (whole, fraction) = typed_parts(input)?;
+    parse_units(
+        &format!("{whole}.{fraction}"),
+        Unit::Dash.decimals(),
+        &['.'],
+    )
 }
 
 /// A decimal number of `decimals` places from text: digits, one decimal mark, spaces allowed.
@@ -501,18 +508,62 @@ pub fn typed_parts(input: &str) -> Option<(String, String)> {
     Some((whole, fraction))
 }
 
-/// A number typed with `decimals` places: see [`typed_parts`]. More digits after the mark than
-/// `decimals` is no amount ([`too_precise`] says why).
-fn parse_typed(input: &str, decimals: u32) -> Option<i64> {
+/// BUG-161 r1 Should 1, the customer's decision: a number a person in this format reads as
+/// thousands — «1,000» or «2,500» where the comma groups thousands («1,234.56», English; the
+/// point in German) — is neither 1 nor 2.5 nor guessed: it is refused, and [`amount_hint`] asks
+/// which. Exactly: one mark, the format's thousands mark, a whole part of 1–3 digits not starting
+/// with 0, and exactly 3 digits after it. «0,002», «1,25», «12345,678» and every format with a
+/// space between thousands (where a comma or a point is only decimal) read as before. The parts,
+/// when it is so.
+pub fn unclear(input: &str) -> Option<(String, String)> {
+    let (group, _) = display().style.marks();
+    if group.is_whitespace() || input.matches([',', '.']).count() != 1 || !input.contains(group) {
+        return None;
+    }
     let (whole, fraction) = typed_parts(input)?;
+    (!whole.is_empty() && whole.len() <= 3 && !whole.starts_with('0') && fraction.len() == 3)
+        .then_some((whole, fraction))
+}
+
+/// [`typed_parts`] of a number a person typed in the chosen format: an [`unclear`] one is no
+/// number. Every field reads through this; a `dash:` link, written by a machine, does not.
+pub fn typed_amount_parts(input: &str) -> Option<(String, String)> {
+    if unclear(input).is_some() {
+        return None;
+    }
+    typed_parts(input)
+}
+
+/// A number typed with `decimals` places: see [`typed_amount_parts`]. More digits after the
+/// mark than `decimals` is no amount ([`too_precise`] says why).
+fn parse_typed(input: &str, decimals: u32) -> Option<i64> {
+    let (whole, fraction) = typed_amount_parts(input)?;
     parse_units(&format!("{whole}.{fraction}"), decimals, &['.'])
 }
 
-/// The line under an amount field for text it cannot read as an amount (BUG-161): too many
-/// decimals, or not one number — a second mark, a letter. None when it reads, or is empty.
+/// The line under an amount field for text it cannot read as an amount (BUG-161): which number
+/// an [`unclear`] one is meant to be, too many decimals, or not one number — a second mark, a
+/// letter. None when it reads, or is empty.
 pub fn amount_hint(input: &str) -> Option<String> {
     if input.trim().is_empty() || parse_amount(input).is_some() {
         return None;
+    }
+    if let Some((whole, fraction)) = unclear(input) {
+        let (_, decimal) = display().style.marks();
+        let kept = fraction.trim_end_matches('0');
+        let small = if kept.is_empty() {
+            whole.clone()
+        } else {
+            format!("{whole}{decimal}{kept}")
+        };
+        let decimals = if kept.is_empty() { "0" } else { kept };
+        return Some(format!(
+            tr!("Unclear: is {typed} {small} or {large}? Type {large} or {decimal}."),
+            typed = input.trim(),
+            small = small,
+            large = format!("{whole}{fraction}"),
+            decimal = format!("{whole}{decimal}{decimals}"),
+        ));
     }
     Some(if too_precise(input) {
         format!(
@@ -699,8 +750,9 @@ mod tests {
                 for (typed, duffs) in [
                     ("0,002", 200_000),
                     ("0.002", 200_000),
-                    ("1,234", 123_400_000),
-                    ("1.234", 123_400_000),
+                    ("1,25", 125_000_000),
+                    ("1.25", 125_000_000),
+                    ("12345,678", 1_234_567_800_000),
                     ("0,25", 25_000_000),
                     (".5", 50_000_000),
                     ("5.", 500_000_000),
@@ -710,6 +762,23 @@ mod tests {
                 ] {
                     assert_eq!(parse_amount(typed), Some(duffs), "{at}: {typed}");
                     assert_eq!(amount_hint(typed), None, "{at}: {typed}");
+                }
+                // r1 Should 1: refused exactly where the mark is this format's thousands mark,
+                // a decimal everywhere else.
+                let (group, _) = style.marks();
+                for (typed, mark, duffs) in [
+                    ("1,000", ',', 100_000_000),
+                    ("2,500", ',', 250_000_000),
+                    ("999,999", ',', 99_999_900_000),
+                    ("1.000", '.', 100_000_000),
+                ] {
+                    if group == mark {
+                        assert_eq!(parse_amount(typed), None, "{at}: {typed} is unclear");
+                        assert!(unclear(typed).is_some(), "{at}: {typed}");
+                        assert!(amount_hint(typed).is_some(), "{at}: a line for {typed}");
+                    } else {
+                        assert_eq!(parse_amount(typed), Some(duffs), "{at}: {typed}");
+                    }
                 }
                 for bad in [
                     "1,234.56",
@@ -865,6 +934,83 @@ mod tests {
         with(Unit::Duffs, NumberStyle::CommaDot);
         assert!(too_precise("1.5"));
         assert!(!too_precise("15"));
+        set_display(Display::default());
+    }
+
+    /// BUG-161 r1 Should 1, the customer's decision: in English «1,000» and «2,500» are a
+    /// thousand and two and a half thousand to the person, so they are neither 1 nor 2.5: refused
+    /// with a line that asks which. In Russian the comma is only decimal: «1,000» is 1. In German
+    /// the point groups thousands: «1.000» asks, «1,000» is 1. «0,002» and «0.002» read alike
+    /// everywhere, and a pill's «1 000» (no-break space) reads back as 1000.
+    #[test]
+    fn a_number_this_format_reads_as_thousands_is_refused_not_guessed() {
+        use crate::i18n::Lang;
+        crate::i18n::set(Lang::En);
+        with(Unit::Dash, NumberStyle::Language);
+        for unclear_text in ["1,000", "2,500", " 1,000 "] {
+            assert_eq!(parse_amount(unclear_text), None, "en: {unclear_text}");
+        }
+        assert_eq!(
+            amount_hint("1,000").as_deref(),
+            Some("Unclear: is 1,000 1 or 1000? Type 1000 or 1.0.")
+        );
+        assert_eq!(
+            amount_hint("2,500").as_deref(),
+            Some("Unclear: is 2,500 2.5 or 2500? Type 2500 or 2.5.")
+        );
+        for (typed, duffs) in [
+            ("0,002", 200_000),
+            ("0.002", 200_000),
+            ("1,25", 125_000_000),
+            ("1000", 100_000_000_000),
+            ("1.000", 100_000_000),
+            ("1\u{a0}000", 100_000_000_000),
+        ] {
+            assert_eq!(parse_amount(typed), Some(duffs), "en: {typed}");
+        }
+        crate::i18n::set(Lang::Ru);
+        for (typed, duffs) in [
+            ("1,000", 100_000_000),
+            ("1.000", 100_000_000),
+            ("0,002", 200_000),
+            ("0.002", 200_000),
+            ("1\u{a0}000", 100_000_000_000),
+        ] {
+            assert_eq!(parse_amount(typed), Some(duffs), "ru: {typed}");
+        }
+        // The line in another language, as it is drawn (`i18n::t`), its places in order:
+        // Russian with «1,234.56» chosen.
+        with(Unit::Dash, NumberStyle::CommaDot);
+        assert_eq!(
+            crate::i18n::t(&amount_hint("1,000").unwrap()),
+            "Непонятно: 1,000 — это 1 или 1000? Напишите 1000 или 1.0."
+        );
+        with(Unit::Dash, NumberStyle::Language);
+        crate::i18n::set(Lang::De);
+        assert_eq!(
+            parse_amount("1.000"),
+            None,
+            "de: the point groups thousands"
+        );
+        assert!(amount_hint("1.000").is_some());
+        assert_eq!(
+            parse_amount("1,000"),
+            Some(100_000_000),
+            "de: the comma is decimal"
+        );
+        assert_eq!(parse_amount("0,002"), Some(200_000));
+        assert_eq!(parse_amount("0.002"), Some(200_000));
+        // A `dash:` link is a machine's: «1.000» there is 1 DASH in any interface.
+        assert_eq!(parse_dash("1.000"), Some(100_000_000), "de: a link");
+        crate::i18n::set(Lang::En);
+        assert_eq!(parse_dash("1,000"), Some(100_000_000), "en: a link");
+        // Pills in every unit read back, «1 000» mDASH among them.
+        for unit in [Unit::Dash, Unit::MilliDash, Unit::Duffs] {
+            with(unit, NumberStyle::Language);
+            for duffs in [10_000_000, 100_000_000, 123_456_700_000] {
+                assert_eq!(parse_amount(&short_number(duffs)), Some(duffs), "{unit:?}");
+            }
+        }
         set_display(Display::default());
     }
 
