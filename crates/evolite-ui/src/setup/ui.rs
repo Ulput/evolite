@@ -933,13 +933,13 @@ impl Setup {
             );
             divider(ui, &p);
             let (title, sub) = if cfg!(windows) {
-                (tr!("Shortcut in the Start menu"), tr!("Start → evolite"))
+                (tr!("Shortcut in the Start menu"), tr!("Start › evolite"))
             } else if cfg!(target_os = "macos") {
-                (tr!("Shortcut in Launchpad"), tr!("Launchpad → evolite"))
+                (tr!("Shortcut in Launchpad"), tr!("Launchpad › evolite"))
             } else {
                 (
                     tr!("Entry in the applications menu"),
-                    tr!("Applications → evolite"),
+                    tr!("Applications › evolite"),
                 )
             };
             item(ui, &p, &mut self.icons, "home", title, sub);
@@ -1589,7 +1589,7 @@ impl Setup {
             self.icons.icon("check", p.accent, &p, 32.0).paint_at(ui, Rect::from_center_size(r.center(), vec2(32.0, 32.0)));
             if installing {
                 ui.label(txt(tr!("evolite is installed"), 22.0, Weight::SemiBold, p.text));
-                ui.add(crate::para::para(tr!("The shortcut is in the Start menu. You can remove evolite in Settings → Apps."), 13.0, Weight::Regular, p.muted));
+                ui.add(crate::para::para(tr!("The shortcut is in the Start menu. You can remove evolite in Settings › Apps."), 13.0, Weight::Regular, p.muted));
             } else {
                 ui.label(txt(tr!("evolite is removed"), 22.0, Weight::SemiBold, p.text));
                 let text = if self.delete_data && self.sure {

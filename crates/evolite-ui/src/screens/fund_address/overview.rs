@@ -23,10 +23,15 @@ impl FundAddressState {
         self.result = None;
     }
 
-    /// Whether a new funding may be started: none running, none stopped (24: the tile's action
-    /// is dim and inactive then).
+    /// Whether a new funding may be started: none running, none stopped that holds it back (24:
+    /// the tile's action is dim and inactive then). A stopped one whose «Continue» failed holds
+    /// nothing back (BUG-160).
     pub fn may_start(&self, wallet: &Wallet) -> bool {
-        self.running.is_none() && wallet.unfinished_address_top_up.is_none()
+        self.running.is_none()
+            && !wallet
+                .unfinished_address_top_up
+                .as_ref()
+                .is_some_and(|u| u.holds_back)
     }
 }
 
