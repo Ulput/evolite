@@ -125,6 +125,18 @@ fn has_wallet(dir: &Path) -> bool {
     dir.join("wallet.json").is_file()
 }
 
+/// The wallets of network `network` ("testnet", "mainnet") in data folder `data_dir`, counted
+/// without opening or writing anything: the network switch on the sign-in screen says how many
+/// each network has (FEAT-0037).
+pub fn count_on(data_dir: &Path, network: &str) -> usize {
+    std::fs::read_dir(data_dir.join("wallets").join(network))
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter(|e| e.file_name().to_str().is_some_and(is_id) && has_wallet(&e.path()))
+        .count()
+}
+
 /// Moves a data folder from before wallet folders to the layout with a folder per wallet; nothing to do
 /// when it is already there. Renames only, each one at a time:
 ///
@@ -357,5 +369,32 @@ mod tests {
         assert_eq!(index.wallets.len(), 1);
         assert_eq!(index.current().unwrap().name, tr!("Savings"));
         let _ = std::fs::remove_dir_all(&data);
+    }
+
+    /// FEAT-0037: the wallets of a network are counted in its folder without opening or writing
+    /// anything, for the network switch on the sign-in screen.
+    #[test]
+    fn the_wallets_of_a_network_are_counted_without_writing() {
+        let dir = std::env::temp_dir().join(format!("evolite-count-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(count_on(&dir, "mainnet"), 0, "no folder");
+        for id in ["0a1b2c3d", "11223344"] {
+            let w = dir.join("wallets").join("mainnet").join(id);
+            std::fs::create_dir_all(&w).unwrap();
+            std::fs::write(w.join("wallet.json"), "{}").unwrap();
+        }
+        // A folder without its vault (a deletion's leftovers) and a stray name are not wallets.
+        std::fs::create_dir_all(dir.join("wallets").join("mainnet").join("deadbeef")).unwrap();
+        std::fs::create_dir_all(dir.join("wallets").join("mainnet").join("not-a-wallet")).unwrap();
+        assert_eq!(count_on(&dir, "mainnet"), 2);
+        assert_eq!(count_on(&dir, "testnet"), 0);
+        assert!(
+            !dir.join("wallets")
+                .join("mainnet")
+                .join("wallets.json")
+                .exists(),
+            "no index written"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

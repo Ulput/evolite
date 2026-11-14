@@ -708,12 +708,12 @@ pub fn refusal_words(why: &AppLinkRefusal, app: &str) -> (String, String, String
             ),
         ),
         AppLinkRefusal::Mainnet => (
-            t(tr!("Test network only")),
+            t(tr!("Testnet only")),
             t(tr!(
-                "App Connect v2 works only on the test network and devnet for now. This request is for the main network."
+                "App Connect v2 works only on testnet and devnet for now. This request is for mainnet."
             )),
             t(tr!(
-                "Connecting on the main network will come when the protocol is ready there. Nothing was spent."
+                "Connecting on mainnet will come when the protocol is ready there. Nothing was spent."
             )),
         ),
         other => {

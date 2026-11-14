@@ -61,9 +61,15 @@ impl TokenState {
         Self::on(crate::network::current(), path, root)
     }
 
-    /// On `network`: everything off on mainnet (R-9), where no file is opened and nothing asked.
+    /// On `network`: as the network matrix says (FEAT-0037; R-9 kept them off on mainnet until
+    /// the customer let them into the first mainnet release).
     pub(in crate::real) fn on(network: Network, path: &Path, root: &Path) -> Self {
-        let here = network == Network::Testnet;
+        use evolite_api::features::{Feature, on};
+        Self::with(on(Feature::Tokens, network), path, root)
+    }
+
+    /// Tokens on (`here`) or off: off, no file is opened and nothing is asked.
+    pub(in crate::real) fn with(here: bool, path: &Path, root: &Path) -> Self {
         TokenState {
             search: super::token_search::Search::on(here, root),
             identities: Arc::default(),

@@ -255,10 +255,14 @@ pub(super) fn sources_on(
     all
 }
 
-/// Whether `source` is offered on `network`: «Platform address» not on mainnet until its payments
-/// are proven live on testnet (FEAT-0015 review r1, Must 1). One place to change then.
+/// Whether `source` is offered on `network`: «Platform address» where the network matrix lets its
+/// payments in (FEAT-0015 review r1, Must 1; FEAT-0037).
 pub(super) fn shown_on(network: evolite_api::Network, source: Source) -> bool {
-    !(network == evolite_api::Network::Mainnet && source == Source::PlatformAddress)
+    source != Source::PlatformAddress
+        || evolite_api::features::on(
+            evolite_api::features::Feature::PlatformAddressPayments,
+            network,
+        )
 }
 
 /// What a payment of `amount` duffs from the Platform addresses to `to` costs, by the plan the

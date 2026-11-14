@@ -160,7 +160,7 @@ impl Setup {
         }
         if let (Mode::Uninstall { .. }, Ok(known)) = (&setup.mode, &setup.known) {
             setup.wallets = known
-                .data_folders()
+                .wallet_folders()
                 .into_iter()
                 .map(|d| {
                     let w = plan::wallets_in(&d);
@@ -1342,7 +1342,15 @@ impl Setup {
             tr!(
                 "Without this, wallets, their history and settings stay in {} and open again if you install evolite later."
             ),
-            &[&known.testnet_data().display().to_string()],
+            // Every data folder there is, mainnet's too (real money) and the app's common one
+            // (FEAT-0037, review r1 P3 3).
+            &[&known
+                .data_folders()
+                .iter()
+                .filter(|d| d.exists() || *d == &known.testnet_data())
+                .map(|d| d.display().to_string())
+                .collect::<Vec<_>>()
+                .join(", ")],
         );
         checkbox(
             ui,

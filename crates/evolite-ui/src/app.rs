@@ -7,6 +7,8 @@ mod dev;
 // opens screens by their `--screen` presets, which exist only with `dev-tools`.
 #[cfg(all(test, demo_core, feature = "dev-tools"))]
 mod ui_tests;
+// FEAT-0037: testnet and mainnet, a switch by starting again.
+mod network;
 
 use crate::cli::{CoreChoice, Launch};
 use crate::components::{Assets, txt};
@@ -75,6 +77,23 @@ pub struct App {
     /// The data folder; `None` in the demo. Its `settings.json` holds the app's settings, each
     /// wallet's folder that wallet's. What both hold now, together.
     data_dir: Option<std::path::PathBuf>,
+    /// The app's common folder (FEAT-0037): its `settings.json` holds the app's settings, the same
+    /// for both networks; the last network chosen. `None` in the demo.
+    app_dir: Option<std::path::PathBuf>,
+    /// The other network's folder and wallets, for the switch (FEAT-0037).
+    networks: network::Networks,
+    /// A switch of network under way.
+    net_switch: Option<network::Switching>,
+    /// The network asked for is open in another window: said (AC-A6).
+    switch_held: Option<evolite_api::Network>,
+    /// The switch to this network did not start evolite there (review r1, Should 1): said.
+    switch_failed: Option<evolite_api::Network>,
+    /// Tests: the run a switch starts has ended (review r1, Should 1).
+    #[cfg(test)]
+    pub(crate) restart_ends: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    /// The command a switch would start again with (tests start nothing, AC-T6б).
+    #[cfg(test)]
+    pub(crate) restarted: Option<Vec<std::ffi::OsString>>,
     saved_prefs: crate::prefs::Prefs,
     /// The app's `settings.json` as read at the start: a file from before also holds the
     /// one wallet's settings, taken by that wallet ([`crate::prefs::load_wallet`]).
@@ -177,6 +196,26 @@ impl App {
             CoreChoice::Real(dir) if !demo => Some(dir.clone()),
             _ => None,
         };
+        let app_dir = data_dir.as_ref().map(|_| launch.app_dir.clone());
+        // The other network's folder: the same one with `--data-dir` (the common folder is the
+        // data folder then), else its own beside this one.
+        let other = network::other(launch.network);
+        let other_dir = data_dir.as_ref().map(|dir| {
+            if Some(dir) == app_dir.as_ref() {
+                dir.clone()
+            } else {
+                crate::cli::network_dir(other)
+            }
+        });
+        let networks = network::Networks {
+            own_dir: data_dir.clone(),
+            other_wallets: other_dir
+                .as_deref()
+                .map_or(0, |d| evolite_core::wallets_on(d, other)),
+            other_dir,
+            app_dir: app_dir.clone(),
+            switched: launch.switched,
+        };
         let core = match launch.core {
             // The demo on mainnet only for screenshots of how mainnet looks; it has no wallet.
             #[cfg(demo_core)]
@@ -238,6 +277,15 @@ impl App {
             vault: None,
             egui_ctx: None,
             data_dir,
+            app_dir,
+            networks,
+            net_switch: None,
+            switch_held: None,
+            switch_failed: None,
+            #[cfg(test)]
+            restart_ends: Default::default(),
+            #[cfg(test)]
+            restarted: None,
             saved_prefs: Default::default(),
             read_prefs: Default::default(),
             prefs_wallet: None,
@@ -262,11 +310,14 @@ impl App {
         };
         #[cfg(feature = "dev-tools")]
         app.apply_presets(&cc.egui_ctx, &launch.dev, demo);
-        if let Some(dir) = &app.data_dir {
-            let saved = crate::prefs::load(&crate::prefs::path(dir));
+        if let (Some(dir), Some(common)) = (&app.data_dir, &app.app_dir) {
+            // The app's settings from the common folder (FEAT-0037); the network folder's file
+            // from before for a wallet's part not taken yet.
+            let saved = crate::prefs::app_prefs(common, dir, app.networks.other_dir.as_deref());
             app.settings.apply(&saved, &mut app.collection.trusted);
-            app.chosen_identity = saved.identity.clone();
-            app.read_prefs = saved;
+            let old = crate::prefs::load(&crate::prefs::path(dir));
+            app.chosen_identity = old.identity.clone().or(saved.identity.clone());
+            app.read_prefs = old;
         }
         #[cfg(feature = "dev-tools")]
         app.apply_settings_presets(&launch.dev);
@@ -391,7 +442,7 @@ impl App {
         if self.looking_only() {
             return;
         }
-        let Some(dir) = &self.data_dir else {
+        let (Some(dir), Some(common)) = (&self.data_dir, &self.app_dir) else {
             return;
         };
         let mut now = self.settings.prefs(&self.collection.trusted);
@@ -402,12 +453,15 @@ impl App {
         // the app's part to the data folder, the wallet's to its folder. With no wallet
         // open, only the app's — but an old file not split yet is written whole, so its wallet
         // part is not lost before its wallet takes it.
+        // The app's part to the common folder (FEAT-0037). An old file in the network folder is
+        // left as it was, so its wallet part is there until its wallet takes it; with
+        // `--data-dir` that file is the common one, and is written whole while it holds one.
         let (app, wallet) = crate::prefs::split(&now);
-        let app_file = crate::prefs::path(dir);
+        let app_file = crate::prefs::path(common);
         let written = match &self.prefs_wallet {
             Some(id) => crate::prefs::save(&app_file, &app)
                 .and_then(|()| crate::prefs::save(&crate::prefs::wallet_path(dir, id), &wallet)),
-            None if self.read_prefs != crate::prefs::Prefs::default() => {
+            None if common == dir && self.read_prefs != crate::prefs::Prefs::default() => {
                 crate::prefs::save(&app_file, &now)
             }
             None => crate::prefs::save(&app_file, &app),
@@ -979,6 +1033,31 @@ impl eframe::App for App {
         let mut go = None;
         let mut commands: Vec<Command> = Vec::new();
 
+        // FEAT-0037: a switch of network under way, the switch on the sign-in screens, the
+        // Settings question and the «open in another window» answer.
+        if let Some((vault, network, wallets, open, elsewhere)) = self.snapshot.as_ref().map(|s| {
+            (
+                s.vault,
+                s.network,
+                s.wallets.len(),
+                s.wallets.iter().find(|w| w.open).map(|w| w.name.clone()),
+                s.elsewhere,
+            )
+        }) {
+            let ctx = ui.ctx().clone();
+            self.tick_switch(&ctx, vault);
+            if matches!(self.screen, Screen::Unlock | Screen::Welcome)
+                && self.adding.is_none()
+                && self.net_switch.is_none()
+                && !elsewhere
+            {
+                self.sign_in_switch(&ctx, network, wallets);
+            }
+            self.switch_dialog(ui, open.as_deref());
+            self.held_dialog(ui, network);
+            self.failed_dialog(ui, network);
+            self.switching_screen(&ctx);
+        }
         let Some(snapshot) = &self.snapshot else {
             egui::CentralPanel::default()
                 .frame(Frame::new().fill(p.bg))
@@ -994,23 +1073,9 @@ impl eframe::App for App {
                 });
             return;
         };
-        // Mainnet: a band over every screen, so real money is never taken for test coins.
+        // Mainnet: a band over every screen, so real money is never taken for test coins (N3).
         if snapshot.network == evolite_api::Network::Mainnet {
-            Panel::top("mainnet")
-                .exact_size(34.0)
-                .resizable(false)
-                .show_separator_line(false)
-                .frame(Frame::new().fill(p.danger).inner_margin(Margin::symmetric(16, 0)))
-                .show(ui, |ui| {
-                    ui.centered_and_justified(|ui| {
-                        ui.add(crate::components::para(
-                            tr!("Mainnet means real DASH. This is a test build of evolite: keep only small amounts here and check the address before every payment."),
-                            13.0,
-                            theme::Weight::SemiBold,
-                            if p.dark { p.bg } else { egui::Color32::WHITE },
-                        ));
-                    });
-                });
+            network::mainnet_band(ui, &mut self.a);
         }
         // The wallet's database refused a folder (BUG-94): sync cannot start until the person
         // changes it, and only the whole sentence says how.
@@ -1038,9 +1103,17 @@ impl eframe::App for App {
         #[cfg(not(feature = "dev-tools"))]
         let elsewhere = snapshot.elsewhere;
         if elsewhere {
-            egui::CentralPanel::default()
+            // Started by a switch: that network is open in another window (FEAT-0037 AC-A6).
+            let here = snapshot.network;
+            let switched = self.networks.switched.then(|| (here, network::other(here)));
+            let back = egui::CentralPanel::default()
                 .frame(Frame::new().fill(p.bg))
-                .show(ui, |ui| screens::elsewhere(ui, &mut self.a));
+                .show(ui, |ui| screens::elsewhere(ui, &mut self.a, switched))
+                .inner;
+            if back {
+                let ctx = ui.ctx().clone();
+                self.switch_network(&ctx, network::other(here), false);
+            }
             #[cfg(feature = "dev-tools")]
             self.take_screenshot(&ui.ctx().clone());
             return;
@@ -1189,7 +1262,13 @@ impl eframe::App for App {
             egui::CentralPanel::default()
                 .frame(Frame::new().fill(p.bg))
                 .show(ui, |ui| {
-                    screens::welcome(ui, &mut self.a, &mut cx, &mut self.settings);
+                    screens::welcome(
+                        ui,
+                        &mut self.a,
+                        &mut cx,
+                        &mut self.settings,
+                        self.networks.other_wallets,
+                    );
                 });
         } else if self.probe_open() {
             // `--screen probe` (dev-tools): no sidebar, there may be no wallet.
