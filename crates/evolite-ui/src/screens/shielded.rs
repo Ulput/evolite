@@ -811,14 +811,11 @@ fn proof_progress(ui: &mut Ui, a: &mut Assets, fraction: f32) {
                     p.text,
                 ));
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    ui.label(
-                        egui::RichText::new(crate::i18n::t(&format!(
-                            "{} %",
-                            (fraction * 100.0).round()
-                        )))
-                        .font(mono(12.0, Weight::Regular))
-                        .color(p.muted),
-                    );
+                    ui.label(crate::components::fig_txt(
+                        &crate::i18n::t(&format!("{} %", (fraction * 100.0).round())),
+                        mono(12.0, Weight::Regular),
+                        p.muted,
+                    ));
                 });
             });
             progress_bar(ui, &p, fraction);
@@ -915,11 +912,11 @@ fn unshield_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut PoolSt
                     Some(name) if to_identity => format!(tr!("{name} · credits"), name = name),
                     _ => format!(tr!("Your Platform address · {}"), wallet.platform_address),
                 };
-                ui.label(
-                    egui::RichText::new(crate::i18n::t(&target))
-                        .font(mono(12.0, Weight::Regular))
-                        .color(p.text),
-                );
+                ui.label(crate::components::fig_txt(
+                    &crate::i18n::t(&target),
+                    mono(12.0, Weight::Regular),
+                    p.text,
+                ));
             });
             let amount = crate::format::parse_amount(&state.unshield_amount).filter(|d| *d > 0);
             let left = amount.map(|d| crate::format::left_after(balance, d, fee));
@@ -1086,11 +1083,11 @@ fn address_dialog(ui: &mut Ui, a: &mut Assets, state: &mut PoolState, address: &
                 super::receive::qr_card(ui, &p, address);
             });
             ui.add(
-                egui::Label::new(
-                    egui::RichText::new(address)
-                        .font(mono(12.0, Weight::Regular))
-                        .color(p.text),
-                )
+                egui::Label::new(crate::components::fig_txt(
+                    address,
+                    mono(12.0, Weight::Regular),
+                    p.text,
+                ))
                 .wrap(),
             );
             notice(

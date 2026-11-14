@@ -262,10 +262,8 @@ pub(crate) fn note_galley(
 /// A note laid out in one row, cut with «…» to `width`. egui keeps the laid-out text from frame
 /// to frame, so a long note is not measured anew each frame (AC-T9).
 fn note_job(shown: String, width: f32, color: Color32) -> egui::text::LayoutJob {
-    let mut job = egui::text::LayoutJob::single_section(
-        shown,
-        egui::TextFormat::simple(sans(12.0, Weight::Regular), color),
-    );
+    // An address in the note in the monospace font (BUG-154).
+    let mut job = super::with_ids(&shown, sans(12.0, Weight::Regular), color, None);
     job.wrap = egui::text::TextWrapping {
         max_width: width,
         max_rows: 1,

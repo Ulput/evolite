@@ -727,23 +727,23 @@ fn coin_row(
                 );
                 ui.vertical(|ui| {
                     ui.spacing_mut().item_spacing.y = 2.0;
-                    ui.label(
-                        egui::RichText::new(shown)
-                            .font(mono(14.0, Weight::Medium))
-                            .color(text_color),
-                    );
+                    ui.label(crate::components::fig_txt(
+                        &shown,
+                        mono(14.0, Weight::Medium),
+                        text_color,
+                    ));
                     let when = coin
                         .at
                         .map_or_else(|| "—".to_owned(), |at| crate::text::date_short(at, now));
-                    ui.label(
-                        egui::RichText::new(format!(
+                    ui.label(crate::components::fig_txt(
+                        &format!(
                             "{} · {} · {when}",
                             crate::text::short_address(&coin.address),
                             whose(coin)
-                        ))
-                        .font(mono(12.0, Weight::Regular))
-                        .color(p.muted),
-                    );
+                        ),
+                        mono(12.0, Weight::Regular),
+                        p.muted,
+                    ));
                 });
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                     let (icon, words) = if spent {
@@ -812,23 +812,23 @@ fn input_line(ui: &mut Ui, p: &crate::theme::Palette, coin: &Coin, note: Option<
     // line high: a layout given the rest of the dialog would take all of it.
     let size = egui::vec2(ui.available_width(), 18.0);
     ui.allocate_ui_with_layout(size, Layout::right_to_left(Align::Center), |ui| {
-        ui.label(
-            egui::RichText::new(crate::format::amount(coin.value))
-                .font(mono(12.0, Weight::Regular))
-                .color(color),
-        );
+        ui.label(crate::components::fig_txt(
+            &crate::format::amount(coin.value),
+            mono(12.0, Weight::Regular),
+            color,
+        ));
         ui.add_space(8.0);
         ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
             ui.add(
-                egui::Label::new(
-                    egui::RichText::new(format!(
+                egui::Label::new(crate::components::fig_txt(
+                    &format!(
                         "{} · {}",
                         crate::text::short_address(&coin.address),
                         note.map_or_else(|| whose(coin), |n| crate::i18n::t(n).into_owned())
-                    ))
-                    .font(mono(12.0, Weight::Regular))
-                    .color(color),
-                )
+                    ),
+                    mono(12.0, Weight::Regular),
+                    color,
+                ))
                 .truncate(),
             );
         });

@@ -38,11 +38,22 @@ impl Para<'_> {
         self
     }
 
-    fn rich(&self, shown: String) -> RichText {
-        RichText::new(shown)
-            .font(self.font.clone())
-            .color(self.color)
-            .line_height(self.line_height)
+    /// The words as a label shows them; an address in them in the monospace font (BUG-154).
+    fn rich(&self, shown: String) -> egui::WidgetText {
+        // A mono paragraph (an address, a txid) keeps a name or words in it in Inter (BUG-154).
+        let mono = matches!(&self.font.family, egui::FontFamily::Monospace)
+            || matches!(&self.font.family, egui::FontFamily::Name(n) if n.starts_with("mono"));
+        if mono {
+            return with_figures(&shown, self.font.clone(), self.color, self.line_height).into();
+        }
+        if address_runs(&shown).is_empty() {
+            return RichText::new(shown)
+                .font(self.font.clone())
+                .color(self.color)
+                .line_height(self.line_height)
+                .into();
+        }
+        with_ids(&shown, self.font.clone(), self.color, self.line_height).into()
     }
 }
 
@@ -160,5 +171,159 @@ impl egui::Widget for Para<'_> {
         response
             .widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, enabled, &spoken));
         response
+    }
+}
+
+/// Whether `run` (letters, digits and «…», nothing else) is written like an address, a hash, an
+/// id or a key (BUG-154): a Platform address, a long Base58 or hex string with both letters and
+/// digits, or one shortened around «…» with a digit in it.
+pub fn address_like(run: &str) -> bool {
+    let lower = run.to_ascii_lowercase();
+    if lower.starts_with("tdash1") || lower.starts_with("dash1") {
+        return true;
+    }
+    let has_digit = run.chars().any(|c| c.is_ascii_digit());
+    let has_letter = run.chars().any(|c| c.is_ascii_alphabetic());
+    if let Some((head, tail)) = run.split_once('…') {
+        return head.len() >= 3 && tail.len() >= 3 && has_digit && has_letter;
+    }
+    run.len() >= 26 && has_digit && has_letter
+}
+
+/// The runs of `text` that are addresses, hashes, ids or keys ([`address_like`]), as byte
+/// ranges: drawn in the monospace font, as Inter's «x» between digits reads as «×» (BUG-154).
+pub fn address_runs(text: &str) -> Vec<std::ops::Range<usize>> {
+    let mut found = Vec::new();
+    let mut start = None;
+    let piece = |c: char| c.is_ascii_alphanumeric() || c == '…';
+    for (i, c) in text
+        .char_indices()
+        .chain(std::iter::once((text.len(), ' ')))
+    {
+        match (start, piece(c)) {
+            (None, true) => start = Some(i),
+            (Some(s), false) => {
+                if address_like(&text[s..i]) {
+                    found.push(s..i);
+                }
+                start = None;
+            }
+            _ => {}
+        }
+    }
+    found
+}
+
+/// BUG-154: `text` (already in the interface language) in `font`, but every address, hash, id
+/// and key in it ([`address_runs`]) in the monospace font of the same size and
+/// weight. In Inter a lowercase «x» between digits reads as «×», and an address is checked by
+/// eye before signing.
+pub fn with_ids(
+    text: &str,
+    font: FontId,
+    color: Color32,
+    line_height: Option<f32>,
+) -> egui::text::LayoutJob {
+    let mono_font = mono_like(&font);
+    let format = |font: FontId| egui::TextFormat {
+        font_id: font,
+        color,
+        line_height,
+        ..Default::default()
+    };
+    let mut job = egui::text::LayoutJob::default();
+    let mut at = 0;
+    for run in address_runs(text) {
+        if run.start > at {
+            job.append(&text[at..run.start], 0.0, format(font.clone()));
+        }
+        job.append(&text[run.clone()], 0.0, format(mono_font.clone()));
+        at = run.end;
+    }
+    if at < text.len() {
+        job.append(&text[at..], 0.0, format(font.clone()));
+    }
+    job
+}
+
+/// The monospace font as heavy as `font`: Regular for Inter 400, Medium otherwise.
+fn mono_like(font: &FontId) -> FontId {
+    match &font.family {
+        egui::FontFamily::Monospace => font.clone(),
+        egui::FontFamily::Name(name) if name.starts_with("mono") => font.clone(),
+        egui::FontFamily::Proportional => crate::theme::mono(font.size, Weight::Regular),
+        _ => crate::theme::mono(font.size, Weight::Medium),
+    }
+}
+
+/// BUG-154, the designer: a line meant for the monospace font (`font`, mono) whose words are
+/// set in Inter of the same size and weight — figures, amounts, ids and codes (DASH, USD: all
+/// capitals, five letters at most) stay mono, a word or an @name does not: «@satoshi ·
+/// credits», «yPq8…8e4k · this wallet · Nov 14». A line with no words is all mono, as before.
+pub fn with_figures(
+    text: &str,
+    font: FontId,
+    color: Color32,
+    line_height: Option<f32>,
+) -> egui::text::LayoutJob {
+    let words_font = sans_like(&font);
+    let ids = address_runs(text);
+    let format = |font: FontId| egui::TextFormat {
+        font_id: font,
+        color,
+        line_height,
+        ..Default::default()
+    };
+    // Each char: whether it belongs to a word (Inter) rather than to the figures (mono).
+    let chars: Vec<(usize, char)> = text.char_indices().collect();
+    let mut is_word = vec![false; chars.len()];
+    let mut i = 0;
+    while i < chars.len() {
+        let (at, c) = chars[i];
+        if ids.iter().any(|r| r.start <= at && at < r.end) {
+            i += 1;
+            continue;
+        }
+        // A run of letters (with an @ before it, an @name), cut where it ends.
+        let starts_name = c == '@';
+        if c.is_alphabetic() || starts_name {
+            let mut j = i + 1;
+            while j < chars.len()
+                && (chars[j].1.is_alphabetic()
+                    || (starts_name && (chars[j].1.is_alphanumeric() || chars[j].1 == '-')))
+            {
+                j += 1;
+            }
+            let word: String = chars[i..j].iter().map(|(_, c)| c).collect();
+            let letters = word.trim_start_matches('@');
+            let code = letters.chars().count() <= 5 && letters.chars().all(|c| c.is_uppercase());
+            if starts_name || (!code && letters.chars().count() >= 2) {
+                is_word[i..j].iter_mut().for_each(|w| *w = true);
+            }
+            i = j;
+        } else {
+            i += 1;
+        }
+    }
+    let mut job = egui::text::LayoutJob::default();
+    let mut run_start = 0;
+    for k in 1..=chars.len() {
+        let end = chars.get(k).map_or(text.len(), |(at, _)| *at);
+        if k == chars.len() || is_word[k] != is_word[k - 1] {
+            let start = chars[run_start].0;
+            let f = if is_word[k - 1] { &words_font } else { &font };
+            job.append(&text[start..end], 0.0, format(f.clone()));
+            run_start = k;
+        }
+    }
+    job
+}
+
+/// Inter as heavy as the monospace `font`: Regular for mono 400, Medium otherwise.
+fn sans_like(font: &FontId) -> FontId {
+    match &font.family {
+        egui::FontFamily::Monospace => sans(font.size, Weight::Regular),
+        egui::FontFamily::Name(name) if name.starts_with("mono") => sans(font.size, Weight::Medium),
+        _ => font.clone(),
     }
 }

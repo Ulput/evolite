@@ -46,6 +46,11 @@ pub fn text_field(
     end: impl FnOnce(&mut Ui),
 ) -> Response {
     let (font, margin) = match kind {
+        // An address typed or pasted: in the monospace font, as everywhere (BUG-154); a name or
+        // words stay in Inter.
+        FieldKind::Text if !crate::text::address_runs(value).is_empty() => {
+            (mono(14.0, Weight::Regular), Margin::symmetric(14, 12))
+        }
         FieldKind::Text | FieldKind::Password => {
             (sans(14.0, Weight::Regular), Margin::symmetric(14, 12))
         }

@@ -837,11 +837,11 @@ fn check_new_identity(
                 match &plan.label {
                     Some(label) => {
                         ui.add(
-                            egui::Label::new(
-                                egui::RichText::new(crate::i18n::t(&format!("@{label}")))
-                                    .font(mono(14.0, Weight::Medium))
-                                    .color(p.text),
-                            )
+                            egui::Label::new(crate::components::fig_txt(
+                                &crate::i18n::t(&format!("@{label}")),
+                                mono(14.0, Weight::Medium),
+                                p.text,
+                            ))
                             .wrap(),
                         );
                     }

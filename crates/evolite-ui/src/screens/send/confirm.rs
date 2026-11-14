@@ -318,14 +318,9 @@ fn recipient_lines(ui: &mut Ui, p: &crate::theme::Palette, form: &SendForm, look
                 Some(display) => format!("{to} · {display}"),
                 None => to.clone(),
             };
-            ui.add(
-                egui::Label::new(
-                    egui::RichText::new(crate::i18n::t(&who))
-                        .font(mono(14.0, Weight::Medium))
-                        .color(p.text),
-                )
-                .wrap(),
-            );
+            // A name and a display name are words: Inter SemiBold (the designer, BUG-154); an
+            // id in them would still be in mono (`txt`).
+            ui.add(egui::Label::new(txt(&who, 14.0, Weight::SemiBold, p.text)).wrap());
         } else {
             let marked = lookalike
                 .as_deref()
@@ -355,14 +350,8 @@ fn recipient_lines(ui: &mut Ui, p: &crate::theme::Palette, form: &SendForm, look
                         tr!("to an address from the contact's key: {address}"),
                         address = address
                     );
-                    ui.add(
-                        egui::Label::new(
-                            egui::RichText::new(crate::i18n::t(&line))
-                                .font(mono(12.0, Weight::Regular))
-                                .color(p.muted),
-                        )
-                        .wrap(),
-                    );
+                    // Words in Inter, the address in them in mono (`with_ids`, BUG-154).
+                    ui.add(egui::Label::new(txt(&line, 12.0, Weight::Regular, p.muted)).wrap());
                 }
                 (Some(_), _) => {}
                 (None, Some(Err(e))) => {
