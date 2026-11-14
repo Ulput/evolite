@@ -363,6 +363,9 @@ fn hidden_amounts_hide_the_balances_to_send_from() {
 /// What «Max» on «Send» puts in the amount field, and what «Left» then says.
 fn after_max(hide: bool) -> (String, Vec<String>) {
     let (_turn, mut kit) = demo_app("send", "en");
+    // The demo core's late answers first: «Max» counted from a snapshot that came later in one
+    // run than in the other, and the two amounts differed (flaky under load, the BUG-144 kind).
+    settle(&mut kit);
     if hide {
         kit.state_mut().settings.flip_hide_amounts();
         kit.run_steps(3);
@@ -371,7 +374,10 @@ fn after_max(hide: bool) -> (String, Vec<String>) {
     kit.state_mut().send.max = false;
     kit.run_steps(2);
     button(&kit, "Max").click();
-    kit.run_steps(3);
+    wait_for(&mut kit, "«Max» in the field", |kit| {
+        !kit.state().send.amount.is_empty()
+    });
+    kit.run_steps(2);
     let amount = kit.state().send.amount.clone();
     assert!(
         kit.query_all_by_role(Role::TextInput)

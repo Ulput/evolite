@@ -232,15 +232,20 @@ fn take(
     if carries < amount || payer_most < MIN_INPUT {
         return Err(if payer_most < MIN_INPUT { 0 } else { carries });
     }
-    // The others give what they have, the largest first; the payer gives the rest.
+    // The others give what they have, the largest first; the payer gives last, only what they
+    // do not: Platform takes the fee it meters from the payer's rest alone (`DeductFromInput`),
+    // and that may be more than the estimate. All the rest the payment leaves on the chosen
+    // addresses stays there, but the least input the payer must give to pay at all (BUG-141,
+    // reopened: two inputs, the payer drained to the estimate, refused «not enough»).
     let mut others: Vec<usize> = chosen.iter().copied().filter(|&i| i != payer).collect();
     others.sort_by(|&a, &b| balances[b].cmp(&balances[a]).then(a.cmp(&b)));
+    let from_others: u64 = others.iter().map(|&i| balances[i]).sum();
+    let mut payer_gives = amount.saturating_sub(from_others).max(MIN_INPUT);
+    if payer_gives > payer_most {
+        return Err(carries);
+    }
     let mut gives: Vec<(usize, u64)> = Vec::new();
-    let mut left = amount;
-    // The payer first, as much as its rest allows: fewer others needed.
-    let from_payer = left.min(payer_most);
-    left -= from_payer;
-    let mut payer_gives = from_payer;
+    let mut left = amount.saturating_sub(payer_gives);
     for &i in &others {
         if left == 0 {
             break;
@@ -248,8 +253,13 @@ fn take(
         let mut part = left.min(balances[i]);
         left -= part;
         if part < MIN_INPUT {
-            // Too small an input: this one gives the least an input may, the payer that
-            // much less (every address here holds at least that).
+            // Too small an input: the payer gives it instead, if its rest allows; else this
+            // one gives the least an input may and the payer that much less (every address
+            // here holds at least that).
+            if payer_gives + part <= payer_most {
+                payer_gives += part;
+                continue;
+            }
             let more = MIN_INPUT - part;
             if payer_gives < MIN_INPUT + more {
                 return Err(carries);
@@ -259,7 +269,7 @@ fn take(
         }
         gives.push((i, part));
     }
-    if left > 0 || payer_gives < MIN_INPUT {
+    if left > 0 {
         return Err(carries);
     }
     gives.push((payer, payer_gives));
@@ -356,6 +366,36 @@ mod tests {
         assert!(payer_gives + two.fee <= balances[payer]);
         for (i, c) in &two.inputs {
             assert!(*c >= MIN_INPUT && *c <= balances[*i], "{two:?}");
+        }
+    }
+
+    /// BUG-141, reopened by QA on dev `c251f87` («Повтор 3»): 0,001 DASH from the addresses,
+    /// which held 0,00287511 in all (`held 287511`), none of them alone enough (the form planned
+    /// two inputs: `declared` 11 500 and 4 500), to the wallet's own Platform address and into
+    /// @kestrel7's credits. Both were refused after the password, «not enough». The plan left on
+    /// the fee's payer only the estimate, and Platform takes the fee it meters from that rest
+    /// alone (`DeductFromInput`; a top-up always from its first input). The payer gives last and
+    /// least: all the rest of the chosen addresses but the least input stays where the fee is
+    /// taken from.
+    #[test]
+    fn the_fee_payer_keeps_the_rest_the_payment_does_not_take() {
+        let duff = CREDITS_PER_DUFF;
+        let balances = [100_000 * duff, 100_000 * duff, 87_511 * duff];
+        assert_eq!(balances.iter().sum::<u64>(), 287_511 * duff, "QA's held");
+        let amount = 100_000 * duff;
+        for (kind, declared) in [(AddressMove::Transfer, 11_500), (AddressMove::TopUp, 4_500)] {
+            let plan = address_plan(kind, amount, false, &balances).unwrap();
+            assert_eq!(duffs_up(plan.fee), declared, "{kind:?}: the form's fee");
+            let payer = plan.fee_payer.unwrap();
+            let chosen: u64 = plan.inputs.iter().map(|(i, _)| balances[*i]).sum();
+            let gives = plan.inputs.iter().find(|(i, _)| *i == payer).unwrap().1;
+            let room = balances[payer] - gives;
+            assert!(
+                room + MIN_INPUT >= chosen - amount,
+                "{kind:?}: {room} left for the fee of {} on the payer, of {} the payment leaves: {plan:?}",
+                plan.fee,
+                chosen - amount
+            );
         }
     }
 
