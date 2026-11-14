@@ -145,6 +145,22 @@ pub enum Record {
         not_in_block: u32,
         still_held: u32,
     },
+    /// The wallet's coins by kind of account (BUG-150): `when` at the unlock before the network and
+    /// after the first filter pass; how many and their sum in duffs. Numbers only.
+    Coins {
+        when: &'static str,
+        bip44: (u32, u64),
+        bip32: (u32, u64),
+        dashpay: (u32, u64),
+        coinjoin: (u32, u64),
+    },
+    /// A rescan from the birth for the contacts' receiving accounts ran to its end (BUG-150): for
+    /// how many accounts, how many history records it brought, how long it took.
+    RescanDone {
+        accounts: u32,
+        found: u32,
+        secs: u64,
+    },
     /// A spend's price (TECH-price-check): the kind of spend, what the form promised, what was
     /// taken (`None`: not known, or refused), whether the balance covered the promise, and `ok` or
     /// the refusal's code; and the balance the core judged it by when it read one anew (`held`,
@@ -227,6 +243,25 @@ impl Record {
             } => json!({
                 "k": "spent_claims", "claimed": claimed, "notInBlock": not_in_block,
                 "stillHeld": still_held,
+            }),
+            Record::Coins {
+                when,
+                bip44,
+                bip32,
+                dashpay,
+                coinjoin,
+            } => json!({
+                "k": "coins", "when": when,
+                "bip44": [bip44.0, bip44.1], "bip32": [bip32.0, bip32.1],
+                "dashpay": [dashpay.0, dashpay.1], "coinjoin": [coinjoin.0, coinjoin.1],
+            }),
+            Record::RescanDone {
+                accounts,
+                found,
+                secs,
+            } => json!({
+                "k": "rescan_done", "why": "contact_account", "accounts": accounts,
+                "found": found, "secs": secs,
             }),
             Record::Price {
                 what,

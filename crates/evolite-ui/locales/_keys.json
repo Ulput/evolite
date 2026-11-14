@@ -1389,6 +1389,7 @@
   "block {}",
   "by the current rate",
   "by the rate at {}",
+  "can't be signed for yet",
   "checking quorums",
   "confirmed",
   "contact with {}",

@@ -51,6 +51,7 @@
   "The recipient is not found on the network.": "لم يُعثر على المستلم في الشبكة.",
   "by the current rate": "بالسعر الحالي",
   "by the rate at {}": "بسعر {}",
+  "can't be signed for yet": "لا يمكن توقيعها بعد",
   "now": "الآن",
   "rate at {}": "سعر {}",
   "the rate at the time of the operation was not saved": "لم يُحفظ السعر وقت العملية",

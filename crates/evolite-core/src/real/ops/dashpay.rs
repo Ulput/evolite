@@ -213,6 +213,31 @@ impl Real {
         Ok(())
     }
 
+    /// BUG-148: once the wallet is attached after the unlock, the receiving accounts queued in the
+    /// store are built with the phrase's keys, before the network, and a contact's coin the
+    /// store's early load filed in account 0 goes to its own account: «Max» takes it again.
+    pub(in crate::real) fn rehome_contact_coins(&self) {
+        let Some((id, Some(keys))) = self.unlocked.as_ref().map(|o| (o.id, o.keys.clone())) else {
+            return;
+        };
+        let chain = self.chain.clone();
+        let dirty = self.dirty.clone();
+        let wake = self.wake.clone();
+        tokio::spawn(async move {
+            let Some(wallet) = chain.wallet(&id).await else {
+                return;
+            };
+            if chain
+                .rehome_contact_coins(&wallet, &keys)
+                .await
+                .is_ok_and(|moved| moved > 0)
+            {
+                dirty.store(true, Ordering::Relaxed);
+                wake();
+            }
+        });
+    }
+
     /// Builds the key accounts of the established contacts in the background once the DashPay
     /// sync has found them: a payment to a contact is named by its @name, and counted in
     /// its payments, also in a wallet restored from its phrase and before any payment in this

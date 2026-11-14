@@ -48,6 +48,7 @@
   "The rate is older than 5 minutes": "Курсу больше 5 минут",
   "by the current rate": "по текущему курсу",
   "by the rate at {}": "по курсу на {}",
+  "can't be signed for yet": "пока нельзя подписать",
   "now": "сейчас",
   "rate at {}": "курс на {}",
   "the rate at the time of the operation was not saved": "курс на момент операции не сохранён",

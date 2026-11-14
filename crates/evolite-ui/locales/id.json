@@ -51,6 +51,7 @@
   "The recipient is not found on the network.": "Penerima tidak ditemukan di jaringan.",
   "by the current rate": "dengan kurs saat ini",
   "by the rate at {}": "dengan kurs pada {}",
+  "can't be signed for yet": "belum bisa ditandatangani",
   "now": "sekarang",
   "rate at {}": "kurs pada {}",
   "the rate at the time of the operation was not saved": "kurs saat operasi tidak disimpan",

@@ -51,6 +51,7 @@
   "The recipient is not found on the network.": "Отримувача не знайдено в мережі.",
   "by the current rate": "за поточним курсом",
   "by the rate at {}": "за курсом на {}",
+  "can't be signed for yet": "поки не можна підписати",
   "now": "зараз",
   "rate at {}": "курс на {}",
   "the rate at the time of the operation was not saved": "курс на момент операції не збережено",

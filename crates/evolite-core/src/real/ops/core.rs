@@ -499,6 +499,17 @@ impl Real {
         let at = |txid: &key_wallet::dashcore::Txid| times.get(txid).copied();
         let verified = |txid: &key_wallet::dashcore::Txid| self.chain.instant_lock_verified(txid);
         let mut listed = evolite_chain::coins::listed(coins, verified, at);
+        // A coin no account can sign for yet is listed, not to tick (BUG-148, the BUG-142 review).
+        let signable: std::collections::HashSet<String> =
+            convert::signable_outpoints(&state.core_wallet)
+                .iter()
+                .map(evolite_chain::coins::outpoint_text)
+                .collect();
+        for coin in &mut listed {
+            if !signable.contains(&coin.outpoint) && coin.state != CoinState::Reserved {
+                coin.state = CoinState::Unsignable;
+            }
+        }
         // The mixing account's coins that have not been through all the rounds, after the others
         // (FEAT-0030 AC-A6). Fully mixed ones are spent from «Mixed», not here.
         let unfinished = convert::unfinished_coins(&state.core_wallet, verified);

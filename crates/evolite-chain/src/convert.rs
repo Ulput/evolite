@@ -1025,13 +1025,49 @@ pub fn payable_coins(
         .collect()
 }
 
-/// What of the Core balance no payment can sign for now (BUG-142): coins held only by an account
-/// that does not derive their address — a contact's coin the store's early load filed in
-/// account 0 (BUG-65) before its DashPay account has it. platform-wallet finds no key for them;
-/// «Max» from Core leaves them out until the account that owns them holds them.
-pub fn unsignable(info: &key_wallet::wallet::managed_wallet_info::ManagedWalletInfo) -> Duffs {
+/// The wallet's coins by kind of account, how many and their sum in duffs (BUG-150, the journal):
+/// BIP44, BIP32, DashPay receiving, CoinJoin.
+pub fn coin_kinds(
+    info: &key_wallet::wallet::managed_wallet_info::ManagedWalletInfo,
+) -> [(u32, u64); 4] {
+    use key_wallet::wallet::managed_wallet_info::wallet_info_interface::WalletInfoInterface;
+    let a = info.accounts();
+    let of = |accounts: Vec<&key_wallet::managed_account::ManagedCoreFundsAccount>| {
+        accounts
+            .iter()
+            .flat_map(|x| x.utxos.values())
+            .fold((0u32, 0u64), |(n, s), u| (n + 1, s + u.value()))
+    };
+    [
+        of(a.standard_bip44_accounts.values().collect()),
+        of(a.standard_bip32_accounts.values().collect()),
+        of(a.dashpay_receival_accounts.values().collect()),
+        of(a.coinjoin_accounts.values().collect()),
+    ]
+}
+
+/// [`coin_kinds`] as a line of the journal.
+pub fn coins_record(
+    when: &'static str,
+    info: &key_wallet::wallet::managed_wallet_info::ManagedWalletInfo,
+) -> crate::diag::Record {
+    let [bip44, bip32, dashpay, coinjoin] = coin_kinds(info);
+    crate::diag::Record::Coins {
+        when,
+        bip44,
+        bip32,
+        dashpay,
+        coinjoin,
+    }
+}
+
+/// The outpoints a Core payment can sign for: of the coins [`send_accounts`] hold, those whose
+/// account derives their address (BUG-142).
+pub fn signable_outpoints(
+    info: &key_wallet::wallet::managed_wallet_info::ManagedWalletInfo,
+) -> std::collections::HashSet<key_wallet::dashcore::OutPoint> {
     use key_wallet::account::ManagedAccountTrait;
-    let signable: std::collections::HashSet<_> = send_accounts(info)
+    send_accounts(info)
         .flat_map(|account| {
             account
                 .utxos
@@ -1039,12 +1075,75 @@ pub fn unsignable(info: &key_wallet::wallet::managed_wallet_info::ManagedWalletI
                 .filter(|u| account.address_derivation_path(&u.address).is_some())
                 .map(|u| u.outpoint)
         })
-        .collect();
+        .collect()
+}
+
+/// What of the Core balance no payment can sign for now (BUG-142): coins held only by an account
+/// that does not derive their address — a contact's coin the store's early load filed in
+/// account 0 (BUG-65) before its DashPay account has it. platform-wallet finds no key for them;
+/// «Max» from Core leaves them out until the account that owns them holds them.
+pub fn unsignable(info: &key_wallet::wallet::managed_wallet_info::ManagedWalletInfo) -> Duffs {
+    let signable = signable_outpoints(info);
     coins_once(info)
         .into_iter()
         .filter(|u| !signable.contains(&u.outpoint))
         .map(|u| u.value() as Duffs)
         .sum()
+}
+
+/// Moves each coin filed in BIP44 or BIP32 account 0 at an address that account does not derive
+/// (BUG-148: a contact's coin the store's early load put there, BUG-65) to the DashPay receiving
+/// account that derives it, once that account exists. The filters do not look at the coin's
+/// block again, so it would stay where it was, [`unsignable`] for good. Coins no account derives
+/// stay. Answers how many moved.
+pub fn rehome_filed_coins(
+    info: &mut key_wallet::wallet::managed_wallet_info::ManagedWalletInfo,
+) -> usize {
+    use key_wallet::account::ManagedAccountTrait;
+    use key_wallet::wallet::managed_wallet_info::wallet_info_interface::WalletInfoInterface;
+    let accounts = info.accounts_mut();
+    // (account 0 of BIP44 or BIP32, the coin, the DashPay account that derives it)
+    let mut moves = Vec::new();
+    for (bip32, source) in [
+        (false, accounts.standard_bip44_accounts.get(&0)),
+        (true, accounts.standard_bip32_accounts.get(&0)),
+    ] {
+        let Some(source) = source else { continue };
+        for utxo in source.utxos.values() {
+            // Nor one held by a payment on its way: its reservation is the account's (the BUG-148
+            // review, P3 2).
+            if utxo.is_locked || source.address_derivation_path(&utxo.address).is_some() {
+                continue;
+            }
+            let target = accounts
+                .dashpay_receival_accounts
+                .iter()
+                .find(|(_, a)| a.address_derivation_path(&utxo.address).is_some());
+            if let Some((key, _)) = target {
+                moves.push((bip32, utxo.outpoint, *key));
+            }
+        }
+    }
+    let mut moved = 0;
+    for (bip32, outpoint, key) in moves {
+        let source = if bip32 {
+            accounts.standard_bip32_accounts.get_mut(&0)
+        } else {
+            accounts.standard_bip44_accounts.get_mut(&0)
+        };
+        let Some(utxo) = source.and_then(|s| s.utxos.remove(&outpoint)) else {
+            continue;
+        };
+        if let Some(target) = accounts.dashpay_receival_accounts.get_mut(&key) {
+            target.mark_address_used(&utxo.address);
+            target.utxos.entry(outpoint).or_insert(utxo);
+            moved += 1;
+        }
+    }
+    if moved > 0 {
+        info.update_balance();
+    }
+    moved
 }
 
 /// The accounts a Core payment pays from (`SEND_FUNDING_SOURCES` at index 0): BIP44 and BIP32
@@ -3267,6 +3366,67 @@ mod coinjoin_tests {
             );
             OutPoint::new(txid, 0)
         }
+    }
+
+    /// BUG-148: a contact's coin filed in account 0 by the store's early load goes to its own
+    /// DashPay receiving account once that exists (the filters do not look at its block again):
+    /// then it can be signed for and «Max» takes it; the balance does not change.
+    #[test]
+    fn a_filed_coin_goes_to_the_account_that_derives_it() {
+        let mut info = info();
+        let own = address(&info, false, 0);
+        // A contact's receiving account (DIP-15): any xpub not account 0's serves the test.
+        let keys = super::super::keys_of(
+            "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
+        )
+        .unwrap();
+        let contact = key_wallet::Account {
+            parent_wallet_id: None,
+            account_type: key_wallet::account::AccountType::DashpayReceivingFunds {
+                index: 0,
+                user_identity_id: [1; 32],
+                friend_identity_id: [2; 32],
+            },
+            network: key_wallet::Network::Testnet,
+            account_xpub: keys.accounts.coinjoin_accounts[&0].account_xpub,
+            is_watch_only: false,
+        };
+        let managed = key_wallet::managed_account::ManagedCoreFundsAccount::from_account(&contact);
+        let theirs = managed.managed_account_type().all_addresses()[0].clone();
+        info.accounts_mut()
+            .insert_funds_bearing_account(managed)
+            .unwrap();
+        let mine = utxo(
+            OutPoint::new(Txid::from_byte_array([1; 32]), 0),
+            5_000_000,
+            &own,
+        );
+        let filed = utxo(
+            OutPoint::new(Txid::from_byte_array([2; 32]), 0),
+            100_000,
+            &theirs,
+        );
+        {
+            let account = info
+                .accounts_mut()
+                .standard_bip44_accounts
+                .get_mut(&0)
+                .unwrap();
+            account.utxos.insert(mine.outpoint, mine.clone());
+            account.utxos.insert(filed.outpoint, filed.clone());
+        }
+        // The journal's numbers by kind (BUG-150): BIP44, BIP32, DashPay, CoinJoin.
+        assert_eq!(coin_kinds(&info)[0], (2, 5_100_000));
+        assert_eq!(coin_kinds(&info)[2], (0, 0));
+        assert_eq!(unsignable(&info), 100_000, "filed: not to sign for");
+        assert_eq!(rehome_filed_coins(&mut info), 1);
+        assert_eq!(coin_kinds(&info)[0], (1, 5_000_000));
+        assert_eq!(coin_kinds(&info)[2], (1, 100_000));
+        assert_eq!(unsignable(&info), 0, "in its own account: signed for");
+        assert_eq!(core_balance(&info), 5_100_000, "the balance the same");
+        let payable = payable_coins(&info, |_| true);
+        assert!(payable.iter().any(|u| u.outpoint == filed.outpoint));
+        assert_eq!(rehome_filed_coins(&mut info), 0, "nothing left to move");
     }
 
     /// BUG-142: a contact's coin the store's early load filed in account 0 (BUG-65), at an address

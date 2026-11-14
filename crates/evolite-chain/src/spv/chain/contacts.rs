@@ -277,6 +277,32 @@ impl Chain {
         written.map(|_| ()).map_err(|e| e.to_string())
     }
 
+    /// BUG-148: at the unlock, before the network, the receiving accounts of our contacts whose
+    /// build is queued in the store are built with the phrase's keys, and a contact's coin the
+    /// store's early load filed in account 0 goes to its own account: it can be signed for. Answers
+    /// how many coins moved.
+    pub async fn rehome_contact_coins(
+        &self,
+        wallet: &PlatformWallet,
+        keys: &key_wallet::Wallet,
+    ) -> Result<usize, String> {
+        // The coins as the store gave them, before the network (BUG-150: numbers only).
+        crate::diag::record(crate::convert::coins_record(
+            "unlock",
+            &wallet.state().await.core_wallet,
+        ));
+        let crypto = dashpay::SeedCrypto(keys.clone());
+        wallet
+            .identity()
+            .dashpay()
+            .drain_pending_contact_crypto_verified(&crypto, None)
+            .await
+            .map_err(|e| e.to_string())?;
+        Ok(crate::convert::rehome_filed_coins(
+            &mut wallet.state_mut().await.core_wallet,
+        ))
+    }
+
     /// Builds the accounts of the keys every established contact gave us (DIP-15), all at once:
     /// platform-wallet otherwise builds one only for the first payment to that contact in a run,
     /// so a wallet restored from its phrase named no past payment and counted none.
@@ -298,6 +324,9 @@ impl Chain {
         view.drain_pending_contact_crypto_verified(&crypto, None)
             .await
             .map_err(|e| e.to_string())?;
+        // A contact's coin filed in account 0 at the store's early load goes to its account now
+        // (BUG-148).
+        crate::convert::rehome_filed_coins(&mut wallet.state_mut().await.core_wallet);
         let state = wallet.state().await;
         let me = me.id().to_buffer();
         Ok(state

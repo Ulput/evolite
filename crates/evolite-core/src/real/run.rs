@@ -168,6 +168,7 @@ pub fn run(
                 && core.attach.is_none()
             {
                 core.discover_identities();
+                core.rehome_contact_coins();
             }
             // Platform address balances come with proofs: from the masternode lists on.
             if core.chain.platform_ready() {

@@ -51,6 +51,7 @@
   "The recipient is not found on the network.": "受取人がネットワーク上に見つかりません。",
   "by the current rate": "現在のレートで",
   "by the rate at {}": "{} のレートで",
+  "can't be signed for yet": "まだ署名できません",
   "now": "現在",
   "rate at {}": "{} のレート",
   "the rate at the time of the operation was not saved": "取引時のレートは保存されていません",

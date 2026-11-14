@@ -1362,6 +1362,9 @@ pub enum CoinState {
     Unconfirmed,
     /// Held by a payment on its way.
     Reserved,
+    /// No account of the wallet can sign for it yet (BUG-142, BUG-148): a contact's coin waiting
+    /// for its DashPay account. Not to tick.
+    Unsignable,
 }
 
 /// The coins a Core payment may take (FEAT-0013, the customer's path 2, the architect's

@@ -51,6 +51,7 @@
   "The recipient is not found on the network.": "प्राप्तकर्ता नेटवर्क पर नहीं मिला।",
   "by the current rate": "मौजूदा दर पर",
   "by the rate at {}": "{} की दर पर",
+  "can't be signed for yet": "अभी हस्ताक्षर नहीं हो सकता",
   "now": "अभी",
   "rate at {}": "{} की दर",
   "the rate at the time of the operation was not saved": "लेन-देन के समय की दर सहेजी नहीं गई",

@@ -2,6 +2,7 @@
 //! the wallet has seen.
 
 pub mod chain;
+pub mod contact_scans;
 pub mod mined;
 pub mod provider;
 pub mod sync;

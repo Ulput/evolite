@@ -61,7 +61,8 @@ use dpp::identity::accessors::IdentityGettersV0;
 use dpp::platform_value::string_encoding::Encoding;
 use dpp::prelude::Identifier;
 use evolite_chain::{
-    chain, convert, dashpay, identity, mined, nfts, platform_history, pool, store, sync, turn,
+    chain, contact_scans, convert, dashpay, identity, mined, nfts, platform_history, pool, store,
+    sync, turn,
 };
 use evolite_local::{
     address_book, attempts, connected_apps, contact_addresses, core_balance, folders,
@@ -132,6 +133,9 @@ pub struct Paths {
     pub mempool: PathBuf,
     /// The block each Core transaction was seen in ([`mined::Mined`]).
     pub mined: PathBuf,
+    /// The DashPay receiving accounts rescanned for from the birth ([`contact_scans::ContactScans`],
+    /// BUG-150).
+    pub contact_scans: PathBuf,
     /// The last checked Core balance and its time ([`core_balance::CoreBalance`], BUG-77).
     pub core_balance: PathBuf,
     /// The shielded pool's note store and commitment tree ([`pool`]).
@@ -173,6 +177,7 @@ impl Paths {
             address_book: wallets.join("address-book.json"),
             mempool: wallets.join("mempool-seen.json"),
             mined: wallets.join("mined.json"),
+            contact_scans: wallets.join("contact-rescans.json"),
             core_balance: wallets.join("core-balance.json"),
             pool: wallets.join("shielded-pool.db"),
             connected_apps: wallets.join("connected-apps.json"),
@@ -312,6 +317,10 @@ struct Real {
     mempool: mempool::MempoolSeen,
     /// The block each Core transaction was seen in, for one the wallet took out of it (BUG-64).
     mined: mined::Mined,
+    /// The contacts' receiving accounts whose rescan from the birth has run to its end (BUG-150).
+    contact_scans: contact_scans::ContactScans,
+    /// The wallet whose coins were written to the journal after the first filter pass (BUG-150).
+    coins_after_pass: Option<WalletId>,
     /// The last checked Core balance, shown while the coins are not known (BUG-77).
     core_balance: core_balance::CoreBalance,
     /// The lowest height the filters were asked to be scanned again from in this run (BUG-64).
@@ -476,6 +485,11 @@ struct OwedRescan {
     /// Lines of `mempool-seen.json` and of `mined.json` it is for.
     stale: Vec<String>,
     lost: Vec<String>,
+    /// The contacts' receiving accounts it is for (BUG-150, `contact-rescans.json`).
+    contacts: Vec<String>,
+    /// For the journal: when the one for contacts was asked and how many history records there
+    /// were then (BUG-150).
+    contacts_asked: Option<(std::time::Instant, usize)>,
 }
 
 impl OwedRescan {
@@ -495,11 +509,37 @@ impl OwedRescan {
                 up_to: synced,
                 stale: Vec::new(),
                 lost: Vec::new(),
+                contacts: Vec::new(),
+                contacts_asked: None,
             }),
         };
         o.up_to = o.up_to.max(synced);
         o.stale.extend(stale);
         o.lost.extend(lost);
+    }
+
+    /// One more rescan asked for `wallet` at `synced`, for the contacts' receiving `accounts`
+    /// (BUG-150).
+    fn add_contacts(
+        owed: &mut Option<Self>,
+        wallet: WalletId,
+        synced: u32,
+        accounts: Vec<String>,
+        records: usize,
+    ) {
+        Self::add(owed, wallet, synced, Vec::new(), Vec::new());
+        if let Some(o) = owed.as_mut() {
+            o.contacts.extend(accounts);
+            o.contacts_asked
+                .get_or_insert((std::time::Instant::now(), records));
+        }
+    }
+
+    /// The contacts' receiving accounts a rescan is under way for.
+    fn contacts_under_way<'a>(owed: &'a Option<Self>, wallet: &WalletId) -> &'a [String] {
+        owed.as_ref()
+            .filter(|o| o.wallet == *wallet)
+            .map_or(&[][..], |o| o.contacts.as_slice())
     }
 
     /// The owed rescan, taken, when `wallet`'s filters are at `synced` and that is where it

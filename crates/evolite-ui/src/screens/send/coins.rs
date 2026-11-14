@@ -193,6 +193,8 @@ fn state_words(state: CoinState) -> (&'static str, &'static str) {
         CoinState::Final => ("lock", tr!("Final")),
         CoinState::Unconfirmed => ("pending", tr!("Pending")),
         CoinState::Reserved => ("lock", tr!("sending")),
+        // BUG-148: a contact's coin waiting for its account (not to tick).
+        CoinState::Unsignable => ("pending", tr!("can't be signed for yet")),
     }
 }
 

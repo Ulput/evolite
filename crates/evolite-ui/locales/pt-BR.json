@@ -51,6 +51,7 @@
   "The recipient is not found on the network.": "O destinatário não foi encontrado na rede.",
   "by the current rate": "pela cotação atual",
   "by the rate at {}": "pela cotação de {}",
+  "can't be signed for yet": "ainda não pode ser assinada",
   "now": "agora",
   "rate at {}": "cotação de {}",
   "the rate at the time of the operation was not saved": "a cotação no momento da operação não foi salva",

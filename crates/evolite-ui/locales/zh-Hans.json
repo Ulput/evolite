@@ -51,6 +51,7 @@
   "The recipient is not found on the network.": "在网络上找不到收款方。",
   "by the current rate": "按当前汇率",
   "by the rate at {}": "按 {} 的汇率",
+  "can't be signed for yet": "暂时无法签名",
   "now": "当前",
   "rate at {}": "{} 的汇率",
   "the rate at the time of the operation was not saved": "未保存交易时的汇率",

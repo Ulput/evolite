@@ -145,6 +145,8 @@ struct WalletRead {
     coin_values: Vec<u64>,
     /// What of the balance no payment can sign for yet (BUG-142).
     unsignable: Duffs,
+    /// The contacts' receiving accounts, by [`contact_scans::ContactScans::key`] (BUG-150).
+    contact_accounts: Vec<String>,
     history: Vec<Activity>,
     shown: Option<ShownIdentity>,
     platform: Option<(String, u64)>,
@@ -209,7 +211,7 @@ impl Real {
                     // Empty: back to DNS seeds at the next start.
                     (saved != status.core_node).then(|| saved.unwrap_or_default())
                 },
-                ..sync_info(&status, self.unlocked.is_some())
+                ..self.shown_sync(&status)
             },
             vault,
             wallet,
@@ -219,6 +221,22 @@ impl Real {
             wallets: self.wallet_entries(),
             adding_wallet: self.adding_from.is_some(),
         }
+    }
+
+    /// The sync as the screens show it. A rescan for the contacts' receiving accounts (BUG-150) takes
+    /// the filters back to the birth in the background: the screens go on saying «Done», not
+    /// «syncing» from the start again (the architect). A payment waits for it all the same.
+    fn shown_sync(&self, status: &sync::SyncStatus) -> SyncInfo {
+        let mut shown = sync_info(status, self.unlocked.is_some());
+        let rescanning = self
+            .unlocked
+            .as_ref()
+            .is_some_and(|o| !OwedRescan::contacts_under_way(&self.rescan_owed, &o.id).is_empty());
+        if rescanning && status.phase != sync::Phase::Error {
+            shown.stage = SyncStage::Done;
+            shown.progress = None;
+        }
+        shown
     }
 
     /// The wallets of this computer for the switcher, this core's marked open.
@@ -274,6 +292,7 @@ impl Real {
             addresses,
             coin_values,
             unsignable,
+            contact_accounts,
             mut history,
             shown,
             platform,
@@ -356,8 +375,15 @@ impl Real {
             self.chain.status().headers.map_or(0, |h| h.height),
             now(),
         );
-        self.settle_rescans(id, meta.birth_height, synced, lost_block, &mut history)
-            .await;
+        self.settle_rescans(
+            id,
+            meta.birth_height,
+            synced,
+            lost_block,
+            &contact_accounts,
+            &mut history,
+        )
+        .await;
         let notes_error = self.put_notes_on(&mut history).await;
         history.sort_by_key(|a| std::cmp::Reverse(a.at));
         // Only a checked balance is shown: while the filters are not at the tip (a start, a
@@ -551,6 +577,11 @@ impl Real {
         platform_history::link_payouts(&mut history, &self.journal.entries(), &unlocks, |id| {
             identity_ref(&identities, id)
         });
+        // BUG-150: the coins by kind once the first filter pass is done (numbers only).
+        if self.coins_after_pass != Some(id) && self.chain.status().phase == sync::Phase::Synced {
+            crate::diag::record(convert::coins_record("after_filters", &state.core_wallet));
+            self.coins_after_pass = Some(id);
+        }
         // Coins, and the addresses holding them (the overview counts those).
         let utxos = convert::coins_once(&state.core_wallet);
         let holding: std::collections::HashSet<_> =
@@ -562,6 +593,19 @@ impl Real {
             addresses: holding.len(),
             coin_values: utxos.iter().map(|u| u.value()).collect(),
             unsignable: convert::unsignable(&state.core_wallet),
+            contact_accounts: state
+                .core_wallet
+                .accounts
+                .dashpay_receival_accounts
+                .keys()
+                .map(|k| {
+                    contact_scans::ContactScans::key(
+                        &k.user_identity_id,
+                        &k.friend_identity_id,
+                        k.index,
+                    )
+                })
+                .collect(),
             history,
             shown,
             platform,
@@ -906,6 +950,7 @@ impl Real {
         birth_height: u32,
         synced: u32,
         lost_block: Option<mined::Lost>,
+        contact_accounts: &[String],
         history: &mut Vec<Activity>,
     ) {
         // A payment long out of a block may have lost its block before this file knew it
@@ -916,6 +961,14 @@ impl Real {
         if let Some(done) = OwedRescan::finished(&mut self.rescan_owed, &id, synced) {
             self.mempool.rescanned(&done.stale);
             self.mined.rescanned(&done.lost);
+            self.contact_scans.done(&done.contacts);
+            if let Some((asked, records)) = done.contacts_asked {
+                crate::diag::record(crate::diag::Record::RescanDone {
+                    accounts: done.contacts.len() as u32,
+                    found: history.len().saturating_sub(records) as u32,
+                    secs: asked.elapsed().as_secs(),
+                });
+            }
         }
         // Read once, before a rescan is asked: a rescan asked below is owed in this snapshot.
         let sync_done = self.chain.status().phase == sync::Phase::Synced;
@@ -936,6 +989,22 @@ impl Real {
                 )
                 .await;
             }
+        }
+        // BUG-150: a contact's receiving account built after the filters went past its coins: once
+        // each, from the birth, not again while one for it is under way.
+        let under_way = OwedRescan::contacts_under_way(&self.rescan_owed, &id).to_vec();
+        let owed: Vec<String> = self
+            .contact_scans
+            .owed(contact_accounts)
+            .into_iter()
+            .filter(|a| !under_way.contains(a))
+            .collect();
+        if !owed.is_empty() {
+            turn::timed(
+                "rescan_contacts",
+                self.rescan_for_contacts(id, birth_height, synced, owed, history.len()),
+            )
+            .await;
         }
         // Stale since an earlier run and not rescanned yet: most likely in a block the store
         // lost, not a payment still coming or going (BUG-82). Left out only while its rescan

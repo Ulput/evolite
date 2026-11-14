@@ -51,6 +51,7 @@
   "The recipient is not found on the network.": "네트워크에서 받는 사람을 찾을 수 없습니다.",
   "by the current rate": "현재 환율 기준",
   "by the rate at {}": "{} 환율 기준",
+  "can't be signed for yet": "아직 서명할 수 없음",
   "now": "현재",
   "rate at {}": "{} 환율",
   "the rate at the time of the operation was not saved": "거래 당시 환율이 저장되지 않았습니다",

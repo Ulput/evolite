@@ -51,6 +51,7 @@
   "The recipient is not found on the network.": "Le destinataire est introuvable sur le réseau.",
   "by the current rate": "au cours actuel",
   "by the rate at {}": "au cours du {}",
+  "can't be signed for yet": "pas encore signable",
   "now": "maintenant",
   "rate at {}": "cours de {}",
   "the rate at the time of the operation was not saved": "le cours au moment de l'opération n'a pas été enregistré",

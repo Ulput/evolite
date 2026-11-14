@@ -51,6 +51,7 @@
   "The recipient is not found on the network.": "Không tìm thấy người nhận trên mạng.",
   "by the current rate": "theo tỷ giá hiện tại",
   "by the rate at {}": "theo tỷ giá lúc {}",
+  "can't be signed for yet": "chưa thể ký",
   "now": "hiện tại",
   "rate at {}": "tỷ giá lúc {}",
   "the rate at the time of the operation was not saved": "tỷ giá tại thời điểm giao dịch không được lưu",

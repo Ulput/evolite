@@ -28,6 +28,35 @@ fn a_rescan_is_noted_only_when_it_has_run_to_its_end() {
     assert_eq!(done.stale, s("y"));
 }
 
+/// BUG-150: a rescan for the contacts' receiving accounts is under way until the filters are back
+/// where it was asked from — not asked again meanwhile — and then hands its accounts over to be
+/// noted done (`contact-rescans.json`), once.
+#[test]
+fn a_rescan_for_contact_accounts_is_noted_only_when_it_has_run_to_its_end() {
+    let a: WalletId = [0xa; 32];
+    let mut owed = None;
+    let k = vec!["11-22-0".to_owned()];
+    assert!(OwedRescan::contacts_under_way(&owed, &a).is_empty());
+    OwedRescan::add_contacts(&mut owed, a, 1_600_000, k.clone(), 0);
+    assert_eq!(
+        OwedRescan::contacts_under_way(&owed, &a),
+        k.as_slice(),
+        "under way"
+    );
+    assert_eq!(
+        OwedRescan::finished(&mut owed, &a, 1_400_000),
+        None,
+        "climbing"
+    );
+    assert_eq!(OwedRescan::contacts_under_way(&owed, &a), k.as_slice());
+    let done = OwedRescan::finished(&mut owed, &a, 1_600_000).expect("back at the tip");
+    assert_eq!(done.contacts, k);
+    assert!(
+        OwedRescan::contacts_under_way(&owed, &a).is_empty(),
+        "noted once"
+    );
+}
+
 /// BUG-13: each DashPay pass makes the snapshot again, once.
 #[test]
 fn a_new_dashpay_pass_is_noticed_once() {

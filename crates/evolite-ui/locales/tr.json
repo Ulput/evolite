@@ -51,6 +51,7 @@
   "The recipient is not found on the network.": "Alıcı ağda bulunamadı.",
   "by the current rate": "güncel kurla",
   "by the rate at {}": "{} kuruyla",
+  "can't be signed for yet": "henüz imzalanamaz",
   "now": "şimdi",
   "rate at {}": "{} kuru",
   "the rate at the time of the operation was not saved": "işlem anındaki kur kaydedilmedi",

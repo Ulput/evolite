@@ -41,6 +41,39 @@ impl Real {
         }
     }
 
+    /// BUG-150: the filters scanned again from `from` (the wallet's birth) for the contacts'
+    /// receiving `accounts` built after the scan went past their coins. Asked even after another
+    /// rescan in this run (that one did not know these accounts), but not while one for them is
+    /// under way; noted done in `contact-rescans.json` only when it has run to its end.
+    pub(in crate::real) async fn rescan_for_contacts(
+        &mut self,
+        id: WalletId,
+        from: u32,
+        synced: u32,
+        accounts: Vec<String>,
+        records: usize,
+    ) {
+        if accounts.is_empty() || self.chain.status().phase != sync::Phase::Synced {
+            return;
+        }
+        let Ok(manager) = self.chain.manager().await else {
+            return;
+        };
+        self.rescanned_from = Some(self.rescanned_from.map_or(from, |asked| asked.min(from)));
+        crate::diag::record(crate::diag::Record::Answer {
+            what: "rescan",
+            outcome: "contact_account",
+        });
+        let asked = matches!(
+            tokio::task::spawn_blocking(move || manager.spv_rescan_filters_blocking(&id, from))
+                .await,
+            Ok(true)
+        );
+        if asked {
+            OwedRescan::add_contacts(&mut self.rescan_owed, id, synced, accounts, records);
+        }
+    }
+
     /// Decrypts the vault with `password`; Argon2 runs off the async threads.
     pub(in crate::real) async fn open_vault(
         &self,

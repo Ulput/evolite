@@ -142,3 +142,47 @@ fn hidden_amounts_hide_the_coins() {
     assert!(shows(&kit, "•••• DASH"));
     assert!(!shows(&kit, "5.0000 DASH"));
 }
+
+/// BUG-148, the BUG-142 review's P3: a coin no account can sign for yet is listed as such and
+/// cannot be ticked (the core would refuse it only when building).
+#[test]
+fn a_coin_not_to_sign_for_says_so_and_cannot_be_ticked() {
+    let (_turn, mut kit) = demo_app("coins-manual", "en");
+    coins_in(&mut kit);
+    let first = {
+        let pick = &mut kit.state_mut().send.coins;
+        let Some(Ok(coins)) = pick.coins.as_mut() else {
+            panic!("the demo's coins")
+        };
+        let coin = coins
+            .iter_mut()
+            .find(|c| {
+                c.state == evolite_api::CoinState::Final && !pick.ticked.contains(&c.outpoint)
+            })
+            .expect("a final coin not ticked");
+        coin.state = evolite_api::CoinState::Unsignable;
+        (
+            coin.outpoint.clone(),
+            format!(
+                "{} {} · {}",
+                crate::format::number(coin.value, false),
+                crate::format::unit_name(),
+                crate::text::short_address(&coin.address)
+            ),
+        )
+    };
+    let (first, name) = first;
+    kit.run_steps(3);
+    assert!(shows(&kit, "can't be signed for yet"));
+    let before = kit.state().send.coins.ticked.clone();
+    // Its tick, named by its amount and address: off.
+    let tick = kit
+        .query_all_by_role(Role::CheckBox)
+        .find(|n| n.accesskit_node().label().as_deref() == Some(name.as_str()))
+        .expect("its tick");
+    assert!(tick.accesskit_node().is_disabled(), "its tick off");
+    tick.click();
+    kit.run_steps(2);
+    assert_eq!(kit.state().send.coins.ticked, before, "not ticked");
+    assert!(!kit.state().send.coins.ticked.contains(&first));
+}
