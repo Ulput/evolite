@@ -1,0 +1,51 @@
+[workspace]
+members = ["dash", "crypto", "dash-network", "hashes", "internals", "rpc-client", "rpc-json", "key-wallet", "key-wallet-manager", "dash-spv", "git-state", "dash-network-seeds"]
+resolver = "2"
+
+[workspace.dependencies]
+# Packages shared across crates
+bincode = { package = "grovedb-bincode", version = "=2.1.0" }
+bincode_derive = { package = "grovedb-bincode-derive", version = "=2.1.0" }
+futures = "0.3"
+rayon = "1.11"
+serde = { version = "1.0.219", default-features = false }
+zeroize = { version = "1.8", features = ["derive"] }
+
+# Packages from `dashpay/base-sdk`, MUST share same version ACROSS crates
+dash-num = { git = "https://github.com/dashpay/base-sdk", rev = "addedfa16a56c77f435b41804cd2c0668b776e97", default-features = false }
+dash-pkc = { git = "https://github.com/dashpay/base-sdk", rev = "addedfa16a56c77f435b41804cd2c0668b776e97", default-features = false }
+dash-pow = { git = "https://github.com/dashpay/base-sdk", rev = "addedfa16a56c77f435b41804cd2c0668b776e97", default-features = false }
+dash-types = { git = "https://github.com/dashpay/base-sdk", rev = "addedfa16a56c77f435b41804cd2c0668b776e97", default-features = false }
+
+# Packages from `rust-bitcoin/rust-bitcoin`, `bitcoin-crypto` uses revision due to `secp256k1`
+base58ck = { version = "0.5.0" }
+bitcoin_hashes = { version = "0.14.101", default-features = false }
+bitcoin-crypto = { git = "https://github.com/rust-bitcoin/rust-bitcoin", rev = "7ba35c7c1dd63892bfb9c9395bbd80e2ab5df516", default-features = false }
+hex-conservative = { version = "1.3.0" }
+
+[workspace.package]
+authors = ["The rust-dashcore Developers"]
+edition = "2024"
+license = "CC0-1.0"
+repository = "https://github.com/dashpay/rust-dashcore"
+rust-version = "1.89.0"
+version = "0.46.0"
+
+[patch.crates-io]
+dashcore_hashes = { path = "hashes" }
+
+[profile.release]
+# Default to unwinding for most crates
+panic = "unwind"
+
+[profile.release.package.dash-fuzz]
+# Disable LTO and keep debuginfo for honggfuzz to avoid link GC issues
+codegen-units = 16
+debug = 1
+
+[profile.dev]
+# Default to unwinding for most crates
+
+[profile.dev.package.dash-pow]
+# Unoptimized X11 is slow enough to stall header sync
+opt-level = 3

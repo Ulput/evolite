@@ -7,3 +7,6 @@ pub mod mined;
 pub mod provider;
 pub mod sync;
 pub mod turn;
+
+#[cfg(test)]
+mod dgw_tests;

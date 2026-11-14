@@ -368,7 +368,22 @@ fn a_low_last_look_shows_the_excess_to_agree_to() {
             said(kit, "goes to the miners as part of the fee").is_some()
                 && dialog_seen(&kit.ctx).is_some_and(|d| d.scrolled.is_some())
         });
-        kit.run_steps(10);
+        // Brought down by its scroll: waited for, not a number of frames, as a loaded machine
+        // takes more of them (BUG-156, the BUG-144 kind). P1 has nothing to wait for: it must
+        // stay at its top whatever the frames.
+        let block_in_view = |kit: &Kit| {
+            dialog_seen(&kit.ctx).is_some_and(|d| {
+                d.offset > 0.0
+                    && d.scrolled
+                        .zip(said(kit, "goes to the miners as part of the fee"))
+                        .is_some_and(|(view, block)| view.expand(1.0).contains_rect(block))
+            })
+        };
+        if brought {
+            wait_for(&mut kit, "the middle brought to the block", block_in_view);
+        } else {
+            kit.run_steps(10);
+        }
         let dialog = dialog_seen(&kit.ctx).expect("the last look");
         let view = dialog.scrolled.expect("its middle scrolls at 800 × 440");
         let block = said(&kit, "goes to the miners as part of the fee").expect("the block");
