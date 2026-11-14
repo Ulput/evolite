@@ -4,13 +4,13 @@
 
 use super::parts::{Control, group, heading};
 use super::{PasswordChange, SettingsState};
+use crate::components::text;
 use crate::components::{
     Assets, ButtonKind, FieldKind, Part, button, button_enabled, button_row, dialog,
     dialog_with_footer, field_label, notice, text_field,
 };
 use crate::context::Ctx;
 use crate::screens::onboarding::{missing, missing_line, strength};
-use crate::theme::text;
 use crate::theme::type_scale::{BODY, SMALL};
 use egui::Ui;
 use evolite_api::{Command, CoreError, Password};

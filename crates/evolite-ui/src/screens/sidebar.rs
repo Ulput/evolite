@@ -7,7 +7,7 @@ use crate::components::{Assets, NAV_ITEM, nav_item, network_chip};
 use crate::context::Ctx;
 use crate::icons::Logo;
 use crate::text::{self, group_thousands};
-use crate::theme::{Weight, mono, sans};
+use crate::theme::{Weight, sans};
 use egui::{Align, Layout, Stroke, Ui, vec2};
 use evolite_api::SyncStage;
 
@@ -116,21 +116,41 @@ pub fn sidebar(
     } else if !compact {
         ui.add_space(24.0);
     }
-    // Footer pinned to the bottom: sync widget (74 px; 44 in a low window), 12 px, network and
-    // settings (40 px), 20 px. The items scroll between, never under it: at 150 % on a laptop
-    // the window is about 450 px high.
-    let sync_h = if compact { 44.0 } else { 74.0 };
+    // Footer pinned to the bottom: the sync card (64 px, the rail's 52; 44 in a low window,
+    // BUG-155), 12 px, network and settings (40 px), 20 px. The items scroll between, never
+    // under it: at 150 % on a laptop the window is about 450 px high.
+    let sync_h = if compact {
+        SYNC_LOW
+    } else if rail {
+        SYNC_RAIL
+    } else {
+        SYNC_WIDE
+    };
     let footer = egui::Rect::from_min_max(
         egui::pos2(area.left(), area.bottom() - 60.0),
         egui::pos2(area.right(), area.bottom() - 20.0),
     );
+    // FEAT-0037 N3: the rail on mainnet has the network too, over Settings: a globe in a
+    // `danger` frame, 40 px and 8 above it (the wide menu has the chip beside Settings).
+    let rail_mainnet = rail && network == evolite_api::Network::Mainnet;
+    let net = rail_mainnet.then(|| {
+        egui::Rect::from_center_size(
+            egui::pos2(footer.right() - 20.0, footer.top() - 8.0 - 20.0),
+            vec2(40.0, 40.0),
+        )
+    });
+    let above = net.map_or(footer.top(), |r| r.top());
     let sync = egui::Rect::from_min_max(
-        egui::pos2(area.left(), footer.top() - 12.0 - sync_h),
-        egui::pos2(area.right(), footer.top() - 12.0),
+        egui::pos2(area.left(), above - 12.0 - sync_h),
+        egui::pos2(area.right(), above - 12.0),
     );
     let room = (sync.top() - 12.0 - ui.cursor().top()).max(40.0);
+    // What this network has (the network matrix, FEAT-0037).
     #[allow(unused_mut)]
-    let mut items = NAV.to_vec();
+    let mut items: Vec<_> = NAV
+        .into_iter()
+        .filter(|(screen, _, _)| super::shown_on(*screen, network))
+        .collect();
     #[cfg(test)]
     items.extend(more_items(ui.ctx()));
     let height = if compact { NAV_ITEM_LOW } else { NAV_ITEM };
@@ -193,6 +213,9 @@ pub fn sidebar(
             });
         },
     );
+    if let Some(rect) = net {
+        rail_network(ui, a, rect);
+    }
     let radius = egui::CornerRadius::same(12);
     ui.painter().rect(
         sync,
@@ -201,91 +224,491 @@ pub fn sidebar(
         Stroke::new(1.0, p.line),
         egui::StrokeKind::Inside,
     );
+    sync_card(ui, a, status, sync, rail, compact);
+}
+
+/// The sync card's height in the wide menu (BUG-155, the designer's B).
+pub(crate) const SYNC_WIDE: f32 = 64.0;
+/// The rail's square.
+pub(crate) const SYNC_RAIL: f32 = 52.0;
+/// Below [`LOW_MENU`], wide or rail.
+pub(crate) const SYNC_LOW: f32 = 44.0;
+/// The words' column in the wide menu: from 10 right of the mark to 10 from the card's edge.
+pub(crate) const WORDS: f32 = 156.0;
+
+/// What the sync card's bar shows (BUG-155).
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub(crate) enum Bar {
+    /// None: synced.
+    None,
+    /// The stage's part done, 0..1.
+    Part(f32),
+    /// A short run along the track: how much is left is not known (nodes, Platform).
+    Running,
+    /// Stopped where it stood, in `danger`.
+    Stopped(f32),
+}
+
+/// The sync card's words: its two lines, and the whole of them for the tooltip and the reader.
+#[derive(Clone, PartialEq, Debug)]
+pub(crate) struct CardWords {
+    /// The card's first line: a stage's short name, «Stopped», «Synced».
+    pub title: String,
+    /// The card's second line, cut with «…» when longer than the column.
+    pub detail: String,
+    /// The second line without «· ChainLock», for a «block {}» too long with it (the designer's
+    /// rule: no «…» there).
+    pub detail_short: Option<String>,
+    /// The title in `danger`.
+    pub stopped: bool,
+    /// The tooltip's and the reader's title: a stage's full name with its percent.
+    pub tip_title: String,
+    /// The tooltip's and the reader's second line, whole.
+    pub tip_detail: String,
+    pub bar: Bar,
+}
+
+/// When the tip came, for «updated {}» (BUG-155 AC-A9): the time today, else the date as History
+/// gives it and the time.
+pub(crate) fn tip_time(at: evolite_api::Timestamp, now: chrono::DateTime<chrono::Local>) -> String {
+    let clock = crate::fiat_lines::clock(at);
+    let day = chrono::DateTime::from_timestamp(at, 0)
+        .map(|t| t.with_timezone(&chrono::Local).date_naive());
+    if day == Some(now.date_naive()) {
+        clock
+    } else {
+        format!("{}, {clock}", text::date_short(at, now))
+    }
+}
+
+/// The sync card's words (BUG-155, the analyst's AC-A1…A9). `platform`: the mark goes for
+/// Platform ([`MarkClock::platform`]).
+pub(crate) fn card_words(
+    status: &evolite_api::SyncInfo,
+    platform: bool,
+    now: chrono::DateTime<chrono::Local>,
+) -> CardWords {
+    let stopped = |detail: String, tip_detail: String, at: f32| CardWords {
+        title: tr!("Stopped").to_string(),
+        detail,
+        detail_short: None,
+        stopped: true,
+        tip_title: tr!("The sync stopped").to_string(),
+        tip_detail,
+        bar: Bar::Stopped(at),
+    };
+    if let Some(what_to_do) = &status.folder_refused {
+        return stopped(
+            tr!("a folder needs fixing").to_string(),
+            crate::i18n::t(what_to_do).into_owned(),
+            0.5,
+        );
+    }
+    if let Some(why) = &status.error {
+        let line = format!(
+            tr!("{} · resync in Settings → Network and nodes"),
+            crate::i18n::t(why)
+        );
+        return stopped(line.clone(), line, status.progress.unwrap_or(0.5));
+    }
+    if status.stage == SyncStage::Done && platform {
+        // Core done, Platform catching up (BUG-137): «Platform» and three works at most on the
+        // card (the designer, BUG-155 r1), «Sync» with all of them in the tooltip.
+        let all: Vec<String> = status
+            .platform
+            .iter()
+            .map(|w| crate::i18n::t(platform_work(*w)).into_owned())
+            .collect();
+        return CardWords {
+            title: "Platform".to_string(),
+            detail: platform_words(&status.platform),
+            detail_short: None,
+            stopped: false,
+            // Whatever goes (contacts, tokens…): the general «Sync» (the designer, BUG-155).
+            tip_title: tr!("Sync").to_string(),
+            tip_detail: format!(tr!("Platform: {works}"), works = all.join(" · ")),
+            bar: Bar::Running,
+        };
+    }
+    if status.stage == SyncStage::Done {
+        let block = format!(tr!("block {}"), group_thousands(status.tip_height as i64));
+        let mut tip = vec![crate::i18n::t(&block).into_owned()];
+        if status.chainlocked {
+            tip.push("ChainLock".to_owned());
+        }
+        if let Some(at) = status.tip_at {
+            tip.push(crate::i18n::t(&format!(tr!("updated {}"), tip_time(at, now))).into_owned());
+        }
+        return CardWords {
+            title: tr!("Synced").to_string(),
+            detail: block.clone() + if status.chainlocked { CHAINLOCKED } else { "" },
+            detail_short: status.chainlocked.then_some(block),
+            stopped: false,
+            tip_title: tr!("Synced").to_string(),
+            tip_detail: tip.join(" · "),
+            bar: Bar::None,
+        };
+    }
+    let rest = match status.minutes_left {
+        Some(m) => format!(tr!("about {} min left"), m.max(1)),
+        None => format!(tr!("{} Core nodes"), status.core_peers),
+    };
+    let rest = crate::i18n::t(&rest).into_owned();
+    let (detail, bar) = match status.progress {
+        Some(part) => (
+            format!("{} % · {rest}", (part * 100.0).round() as i32),
+            Bar::Part(part.clamp(0.0, 1.0)),
+        ),
+        None => (rest.clone(), Bar::Running),
+    };
+    CardWords {
+        title: text::sync_short(status.stage).to_string(),
+        detail,
+        detail_short: None,
+        stopped: false,
+        tip_title: text::sync_title(status),
+        tip_detail: rest,
+        bar,
+    }
+}
+
+/// One line of the card's words at `pos`, cut with «…» at `width` (in Arabic from its end in
+/// reading order, BUG-118).
+fn card_line(
+    ui: &Ui,
+    text: &str,
+    font: egui::FontId,
+    color: egui::Color32,
+    pos: egui::Pos2,
+    width: f32,
+    row: f32,
+) {
+    let mut format = egui::TextFormat::simple(font.clone(), color);
+    format.line_height = Some(row);
+    let mut job = egui::text::LayoutJob::single_section(
+        crate::components::cut_to(ui.ctx(), text, &font, width, 1),
+        format,
+    );
+    job.wrap = egui::text::TextWrapping::truncate_at_width(width);
+    let galley = ui.painter().layout_job(job);
+    ui.painter().galley(pos, galley, color);
+}
+
+/// Where the card's parts stand (BUG-155, the designer's table): the mark, the words' column and
+/// the bar, for a card `sync` of the wide menu or the rail.
+pub(crate) fn card_layout(
+    sync: egui::Rect,
+    rail: bool,
+    compact: bool,
+) -> (egui::Rect, egui::Pos2, egui::Rect) {
     let mark = if rail {
         egui::Rect::from_center_size(sync.center(), vec2(28.0, 28.0))
     } else {
-        let top = if compact {
-            sync.center().y - 14.0
-        } else {
-            sync.top() + 12.0
-        };
-        egui::Rect::from_min_size(egui::pos2(sync.left() + 12.0, top), vec2(28.0, 28.0))
+        egui::Rect::from_min_size(
+            egui::pos2(sync.left() + 12.0, sync.center().y - 14.0),
+            vec2(28.0, 28.0),
+        )
     };
-    // The rail: the mark alone, moving while sync goes (BUG-75).
-    if rail {
-        rail_sync(ui, a, status, sync, mark);
-        return;
-    }
-    let done = status.stage == SyncStage::Done;
-    // The same mark as the rail's, moving in the wide menu too (BUG-137 AC-D1).
-    let clock = sync_mark(ui, a, status, mark, ui.id().with("sync-card"));
-    let (title, detail) = if status.folder_refused.is_some() {
-        (
-            tr!("The sync stopped").to_string(),
-            tr!("a folder needs fixing").to_string(),
-        )
-    } else if done && clock.platform() {
-        // Core done, Platform catching up (BUG-137): «Sync», as for Core, and what goes in the
-        // second line (the designer: «Sync · Platform» did not fit the card in ru).
-        (
-            tr!("Sync").to_string(),
-            format!(
-                tr!("Platform: {works}"),
-                works = platform_words(&words_status(status, &clock).platform)
+    let words = egui::pos2(
+        mark.right() + 10.0,
+        sync.top() + if compact { 13.0 } else { 14.0 },
+    );
+    let bar = if rail {
+        egui::Rect::from_min_size(
+            egui::pos2(
+                sync.left() + 10.0,
+                mark.bottom() + if compact { 3.0 } else { 5.0 },
             ),
+            vec2(sync.width() - 20.0, 3.0),
         )
-    } else if done {
-        (
-            tr!("Synced").to_string(),
-            format!(tr!("block {}"), group_thousands(status.tip_height as i64))
-                + if status.chainlocked { CHAINLOCKED } else { "" },
-        )
+    } else if compact {
+        egui::Rect::from_min_size(egui::pos2(words.x, sync.top() + 37.0), vec2(WORDS, 3.0))
     } else {
-        (
-            text::sync_title(status),
-            match (&status.error, status.minutes_left) {
-                (Some(_), _) => tr!("the sync stopped").to_string(),
-                (None, Some(m)) => format!(tr!("about {} min left"), m.max(1)),
-                (None, None) => format!(tr!("{} Core nodes"), status.core_peers),
+        egui::Rect::from_min_size(
+            egui::pos2(sync.left() + 12.0, sync.bottom() - 7.0),
+            vec2(sync.width() - 24.0, 3.0),
+        )
+    };
+    (mark, words, bar)
+}
+
+#[cfg(test)]
+fn card_id() -> egui::Id {
+    egui::Id::new("evolite-sync-card-shown")
+}
+
+/// What the sync card drew in the last frame (for tests): its rect, the words' two lines as
+/// drawn (before the cut), the bar and its rect.
+#[cfg(test)]
+#[allow(
+    dead_code,
+    reason = "read by the app's kittests (dev-tools, the demo core)"
+)]
+#[derive(Clone, Debug)]
+pub(crate) struct CardShown {
+    pub card: egui::Rect,
+    pub mark: egui::Rect,
+    pub title: Option<(String, egui::Rect)>,
+    pub detail: Option<(String, egui::Rect)>,
+    pub bar: Bar,
+    pub bar_rect: egui::Rect,
+    pub words: CardWords,
+}
+
+/// The sync card in the last frame (for tests); `None`: no menu drawn yet.
+#[cfg(all(test, demo_core, feature = "dev-tools"))]
+pub(crate) fn card_shown(ctx: &egui::Context) -> Option<CardShown> {
+    ctx.data(|d| d.get_temp::<CardShown>(card_id()))
+}
+
+/// The sync card (BUG-155, the designer's B + O7): the mark and the words in the middle of the
+/// card's height in every state, a 3 px bar at its foot while sync goes; in the rail the mark
+/// alone, centred, the bar under it. The whole words on hover and on keyboard focus in every
+/// size, and for the screen reader.
+fn sync_card(
+    ui: &mut Ui,
+    a: &mut Assets,
+    status: &evolite_api::SyncInfo,
+    sync: egui::Rect,
+    rail: bool,
+    compact: bool,
+) {
+    let p = a.p;
+    let id = ui.id().with("sync-card");
+    let (mark, at, bar_rect) = card_layout(sync, rail, compact);
+    // The same mark in every size (BUG-137 AC-D1).
+    let clock = sync_mark(ui, a, status, mark, id);
+    let words = card_words(
+        &words_status(status, &clock),
+        clock.platform(),
+        chrono::Local::now(),
+    );
+    #[cfg(test)]
+    let (mut title_shown, mut detail_shown) = (None, None);
+    if !rail {
+        let title_font = sans(13.0, Weight::SemiBold);
+        let color = if words.stopped { p.danger } else { p.text };
+        card_line(ui, &words.title, title_font.clone(), color, at, WORDS, 18.0);
+        #[cfg(test)]
+        {
+            let w = crate::components::text_width(ui, &words.title, title_font);
+            title_shown = Some((
+                words.title.clone(),
+                egui::Rect::from_min_size(at, vec2(w, 18.0)),
+            ));
+        }
+        if !compact {
+            let font = sans(12.0, Weight::Regular);
+            // «block {} · ChainLock» too long for the column: «block {}», never cut (the designer).
+            let detail = match &words.detail_short {
+                Some(short)
+                    if crate::components::text_width(ui, &words.detail, font.clone()) > WORDS =>
+                {
+                    short
+                }
+                _ => &words.detail,
+            };
+            let pos = egui::pos2(at.x, sync.top() + 34.0);
+            card_line(ui, detail, font.clone(), p.muted, pos, WORDS, 16.0);
+            #[cfg(test)]
+            {
+                let w = crate::components::text_width(ui, detail, font);
+                detail_shown = Some((
+                    detail.clone(),
+                    egui::Rect::from_min_size(pos, vec2(w, 16.0)),
+                ));
+            }
+        }
+    }
+    sync_bar(
+        ui,
+        a,
+        id.with("bar"),
+        bar_rect,
+        words.bar,
+        status.stage,
+        rail,
+    );
+    #[cfg(test)]
+    ui.data_mut(|d| {
+        d.insert_temp(
+            card_id(),
+            CardShown {
+                card: sync,
+                mark,
+                title: title_shown,
+                detail: detail_shown,
+                bar: words.bar,
+                bar_rect,
+                words: words.clone(),
             },
         )
+    });
+    card_status(ui, a, status, sync, id, &clock, &words);
+}
+
+/// The bar's way to the end when sync is done, seconds (as the mark's, `TO_DONE`).
+const BAR_GONE: f64 = 0.4;
+/// Before it goes, the fill runs on from where it was to the end, seconds (the designer's review
+/// of BUG-155: it jumped from 45 % to the end).
+const BAR_TO_END: f64 = 0.3;
+/// A new stage's fill fades in, seconds: no jump back from the last stage's.
+const BAR_NEW: f64 = 0.2;
+/// One run of the short piece along the track, seconds.
+const BAR_RUN: f64 = 1.4;
+
+/// The bar `t` seconds after sync was done, coming from `last`: how far its fill reaches and how
+/// opaque it is; `None` once gone. The fill runs on from where it was to the end, then fades
+/// with the track (the designer's review of BUG-155: it jumped from 45 % to the end).
+pub(crate) fn bar_going(last: Bar, t: f64) -> Option<(f32, f32)> {
+    let from = match last {
+        Bar::Part(part) | Bar::Stopped(part) => part,
+        Bar::Running | Bar::None => 1.0,
     };
-    // All of it for the screen reader (the words are painted); in a low window part of it is
-    // not drawn: all of it on hover too.
-    let both = format!("{} · {}", crate::i18n::t(&title), crate::i18n::t(&detail));
-    let resp = ui.interact(sync, ui.id().with("sync-card"), egui::Sense::hover());
-    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, &both));
-    if compact {
-        resp.on_hover_text(both);
+    if t < BAR_TO_END {
+        let k = (t / BAR_TO_END) as f32;
+        Some((from + (1.0 - from) * (1.0 - (1.0 - k).powi(3)), 1.0))
+    } else if t < BAR_TO_END + BAR_GONE {
+        Some((1.0, 1.0 - ((t - BAR_TO_END) / BAR_GONE) as f32))
+    } else {
+        None
     }
-    if !rail {
-        let x = mark.right() + 12.0;
-        let (y, align) = if compact {
-            (sync.center().y, egui::Align2::LEFT_CENTER)
-        } else {
-            (sync.top() + 12.0, egui::Align2::LEFT_TOP)
-        };
-        ui.painter().text(
-            egui::pos2(x, y),
-            align,
-            crate::i18n::t(&title),
-            sans(13.0, Weight::SemiBold),
-            p.text,
+}
+
+/// The bar's state from frame to frame.
+#[derive(Clone, Copy)]
+struct BarClock {
+    /// The bar last drawn and the stage it was for.
+    last: Bar,
+    stage: SyncStage,
+    /// When the stage began, for the fade of a new stage's fill.
+    since: f64,
+    /// Since when the bar goes, sync being done, and what it was.
+    gone: Option<(f64, Bar)>,
+}
+
+/// The sync card's bar (BUG-155): the track in `line`, the fill in `accent` (`danger` at a stop);
+/// a short piece running round while how much is left is not known. The frame mirror turns it
+/// for Arabic (right to left). With the system's animations off nothing moves.
+fn sync_bar(
+    ui: &mut Ui,
+    a: &Assets,
+    id: egui::Id,
+    rect: egui::Rect,
+    bar: Bar,
+    stage: SyncStage,
+    rail: bool,
+) {
+    let p = a.p;
+    let now = ui.input(|i| i.time);
+    let moving = crate::motion::system_on(ui.ctx());
+    let mut clock = ui.data(|d| d.get_temp::<BarClock>(id)).unwrap_or(BarClock {
+        last: bar,
+        stage,
+        since: f64::NEG_INFINITY,
+        gone: None,
+    });
+    if clock.stage != stage {
+        clock.stage = stage;
+        clock.since = now;
+    }
+    if bar == Bar::None && clock.last != Bar::None && moving {
+        clock.gone = Some((now, clock.last));
+    }
+    if bar != Bar::None {
+        clock.gone = None;
+    }
+    clock.last = bar;
+    ui.data_mut(|d| d.insert_temp(id, clock));
+    let painter = ui.painter();
+    let radius = egui::CornerRadius::same(2);
+    let fill = |painter: &egui::Painter, from: f32, to: f32, color: egui::Color32| {
+        let r = egui::Rect::from_min_max(
+            egui::pos2(rect.left() + rect.width() * from, rect.top()),
+            egui::pos2(rect.left() + rect.width() * to, rect.bottom()),
         );
-        if compact {
-            return;
+        painter.rect_filled(r, radius, color);
+    };
+    let mut again = false;
+    match bar {
+        Bar::None => {
+            // The fill runs on to the end, then goes with the track (as the mark, `TO_DONE`).
+            if let Some((at, last)) = clock.gone
+                && let Some((to, alpha)) = bar_going(last, now - at)
+            {
+                let color = if matches!(last, Bar::Stopped(_)) {
+                    p.danger
+                } else {
+                    p.accent
+                };
+                painter.rect_filled(rect, radius, p.line.gamma_multiply(alpha));
+                fill(painter, 0.0, to, color.gamma_multiply(alpha));
+                again = true;
+            }
         }
-        // The works of Platform are words, not numbers: 12 Regular (the designer, BUG-137).
-        let font = if done && clock.platform() {
-            sans(12.0, Weight::Regular)
-        } else {
-            mono(11.0, Weight::Regular)
-        };
-        let wrap = sync.right() - 12.0 - x;
-        let shown = crate::components::lines(ui.ctx(), &detail, &font, wrap);
-        let detail = ui.painter().layout(shown, font, p.muted, wrap);
-        ui.painter()
-            .galley(egui::pos2(x, sync.top() + 31.0), detail, p.muted);
+        Bar::Part(part) => {
+            painter.rect_filled(rect, radius, p.line);
+            let fade = if moving && now - clock.since < BAR_NEW {
+                again = true;
+                ((now - clock.since) / BAR_NEW) as f32
+            } else {
+                1.0
+            };
+            fill(painter, 0.0, part, p.accent.gamma_multiply(fade));
+        }
+        Bar::Stopped(at) => {
+            painter.rect_filled(rect, radius, p.line);
+            fill(painter, 0.0, at.clamp(0.0, 1.0), p.danger);
+        }
+        Bar::Running => {
+            painter.rect_filled(rect, radius, p.line);
+            let piece = (if rail { 10.0 } else { 40.0 }) / rect.width();
+            let start = if moving {
+                again = true;
+                let k = ((now % BAR_RUN) / BAR_RUN) as f32;
+                k * (1.0 + piece) - piece
+            } else {
+                0.0
+            };
+            fill(painter, start.max(0.0), (start + piece).min(1.0), p.accent);
+        }
+    }
+    if again {
+        ui.ctx()
+            .request_repaint_after(std::time::Duration::from_secs_f64(1.0 / 30.0));
+    }
+}
+
+/// The rail's network on mainnet (FEAT-0037 N3): a globe in a `danger` frame, «Mainnet · beta»
+/// on hover and on keyboard focus, and for the screen reader.
+fn rail_network(ui: &mut Ui, a: &mut Assets, rect: egui::Rect) {
+    let p = a.p;
+    let words = crate::i18n::t(tr!("Mainnet · beta")).into_owned();
+    let resp = ui.interact(
+        rect,
+        ui.id().with("rail-network"),
+        egui::Sense::hover() | egui::Sense::FOCUSABLE,
+    );
+    // Its name, not only its value: a Tab stop says what it is (the Tab sweep).
+    crate::components::named(&resp, egui::WidgetType::Label, true, tr!("Mainnet · beta"));
+    let spoken = crate::i18n::spoken(tr!("Mainnet · beta"));
+    ui.ctx()
+        .accesskit_node_builder(resp.id, |node| node.set_label(spoken));
+    ui.painter().rect(
+        rect,
+        10,
+        egui::Color32::TRANSPARENT,
+        Stroke::new(1.0, p.danger),
+        egui::StrokeKind::Inside,
+    );
+    a.icons.icon("mainnet", p.danger, &p, 20.0).paint_at(
+        ui,
+        egui::Rect::from_center_size(rect.center(), vec2(20.0, 20.0)),
+    );
+    if resp.has_focus() {
+        resp.show_tooltip_text(words);
+    } else {
+        resp.on_hover_text(words);
     }
 }
 
@@ -493,75 +916,30 @@ pub(crate) fn rail_mark_now(
     (mark, true)
 }
 
-/// What Platform catches up on, for the words (BUG-137): three at most, then «and N more».
-fn platform_words(works: &[evolite_api::PlatformWork]) -> String {
+/// A kind of Platform work, as the words name it (BUG-137).
+fn platform_work(work: evolite_api::PlatformWork) -> &'static str {
     use evolite_api::PlatformWork::*;
+    match work {
+        Identities => tr!("identities"),
+        Names => tr!("names"),
+        Credits => tr!("credits"),
+        Contacts => tr!("contacts"),
+        Tokens => tr!("tokens"),
+        Pool => tr!("pool"),
+    }
+}
+
+/// What Platform catches up on, for the card (BUG-137): three at most, then «and N more».
+fn platform_words(works: &[evolite_api::PlatformWork]) -> String {
     let names: Vec<String> = works
         .iter()
-        .map(|w| {
-            crate::i18n::t(match w {
-                Identities => tr!("identities"),
-                Names => tr!("names"),
-                Credits => tr!("credits"),
-                Contacts => tr!("contacts"),
-                Tokens => tr!("tokens"),
-                Pool => tr!("pool"),
-            })
-            .into_owned()
-        })
+        .map(|w| crate::i18n::t(platform_work(*w)).into_owned())
         .collect();
     let mut shown: Vec<String> = names.iter().take(3).cloned().collect();
     if names.len() > 3 {
         shown.push(crate::i18n::t(&format!(tr!("and {} more"), names.len() - 3)).into_owned());
     }
     shown.join(" · ")
-}
-
-/// The two lines of the sync card's words, and whether the first is a stop's (`danger`).
-/// `platform`: the mark goes for Platform ([`MarkClock::platform`]).
-fn rail_words(status: &evolite_api::SyncInfo, platform: bool) -> (String, String, bool) {
-    if let Some(what_to_do) = &status.folder_refused {
-        return (
-            tr!("The sync stopped").to_string(),
-            crate::i18n::t(what_to_do).to_string(),
-            true,
-        );
-    }
-    if let Some(why) = &status.error {
-        return (
-            tr!("The sync stopped").to_string(),
-            format!(
-                tr!("{} · resync in Settings → Network and nodes"),
-                crate::i18n::t(why)
-            ),
-            true,
-        );
-    }
-    if status.stage == SyncStage::Done && platform {
-        // A cycle finishing after the work: the last words stay until it ends.
-        return (
-            tr!("Sync · Platform").to_string(),
-            platform_words(&status.platform),
-            false,
-        );
-    }
-    if status.stage == SyncStage::Done {
-        let chainlock = if status.chainlocked { CHAINLOCKED } else { "" };
-        return (
-            tr!("Synced").to_string(),
-            format!(tr!("block {}"), group_thousands(status.tip_height as i64)) + chainlock,
-            false,
-        );
-    }
-    let detail = match status.minutes_left {
-        Some(m) => format!(tr!("about {} min left"), m.max(1)),
-        None => format!(tr!("{} Core nodes"), status.core_peers),
-    };
-    (
-        format!(tr!("Sync · {}"), text::sync_title(status)),
-        detail,
-        false,
-    )
 }
 
 #[cfg(test)]
@@ -574,22 +952,6 @@ fn rail_mark_id() -> egui::Id {
 #[cfg(all(test, demo_core, feature = "dev-tools"))]
 pub(crate) fn rail_mark_shown(ctx: &egui::Context) -> Option<(RailMark, bool)> {
     ctx.data(|d| d.get_temp::<(RailMark, bool)>(rail_mark_id()))
-}
-
-/// The sync card of the rail: the mark alone (BUG-75, «the block finds its place»). While sync
-/// goes the block rides along the bar to its home, every 2.8 s; once done the full logo, still.
-/// With the system's animations off nothing moves: «e» and bar at 55 %, the block as far as the
-/// stage has gone. Its words show on hover and on keyboard focus.
-fn rail_sync(
-    ui: &mut Ui,
-    a: &mut Assets,
-    status: &evolite_api::SyncInfo,
-    sync: egui::Rect,
-    mark: egui::Rect,
-) {
-    let id = ui.id().with("sync-card");
-    let clock = sync_mark(ui, a, status, mark, id);
-    rail_sync_words(ui, a, status, sync, id, &clock);
 }
 
 /// The sync card's mark, in every size of the menu (BUG-137): «the block finds its place» while
@@ -645,22 +1007,23 @@ fn words_status(status: &evolite_api::SyncInfo, clock: &MarkClock) -> evolite_ap
     shown
 }
 
-/// The rail mark's words: a tooltip of two lines on hover and on keyboard focus, and one name
-/// for the screen reader — a polite status that changes with the stage, the end and a stop,
-/// not with each percent.
-fn rail_sync_words(
+/// The sync card's whole words (BUG-155 AC-A3, A4): a tooltip on hover and on keyboard focus in
+/// every size, and one name for the screen reader — a polite status that changes with the stage,
+/// the end and a stop, not with each percent (BUG-137 AC-D7).
+fn card_status(
     ui: &mut Ui,
     a: &mut Assets,
     status: &evolite_api::SyncInfo,
     sync: egui::Rect,
     id: egui::Id,
     clock: &MarkClock,
+    words: &CardWords,
 ) {
     let p = a.p;
     let platform = clock.platform();
-    let (title, detail, stopped) = rail_words(&words_status(status, clock), platform);
-    let title = crate::i18n::t(&title).into_owned();
-    let detail = crate::i18n::t(&detail).into_owned();
+    let stopped = words.stopped;
+    let title = crate::i18n::t(&words.tip_title).into_owned();
+    let detail = crate::i18n::t(&words.tip_detail).into_owned();
     // The reader is told only of a new stage, the end and a stop, and of Platform's turn (BUG-137
     // AC-D7): the status is a polite live region for a second after one, quiet while the percent,
     // the minutes left and the Platform works move on.
@@ -685,10 +1048,10 @@ fn rail_sync_words(
     } else {
         egui::accesskit::Live::Off
     };
-    // Platform's works change often: the reader is told «Sync · Platform», the works are in the
-    // tooltip (AC-T7: a second work does not change the name).
+    // Platform's works change often: the reader is told «Sync · Platform», the
+    // works are in the tooltip (BUG-137 AC-T7: a second work does not change the name).
     let spoken = if platform {
-        title.clone()
+        format!("{title} · Platform")
     } else {
         format!("{title} · {detail}")
     };
@@ -700,6 +1063,7 @@ fn rail_sync_words(
         node.set_live(live);
     });
     let words = |ui: &mut Ui| {
+        ui.set_max_width(280.0);
         ui.spacing_mut().item_spacing.y = 2.0;
         let color = if stopped { p.danger } else { p.text };
         ui.label(
@@ -743,6 +1107,7 @@ mod tests {
             core_nodes: Vec::new(),
             dapi_nodes: Vec::new(),
             platform: Vec::new(),
+            tip_at: None,
         }
     }
 
@@ -967,26 +1332,163 @@ mod tests {
         );
     }
 
-    /// BUG-137: Core first; with Core done, «Sync · Platform» and what goes, three at most.
+    /// A fixed «now»: 14 November 2026, 15:00 here.
+    fn at_three() -> chrono::DateTime<chrono::Local> {
+        use chrono::TimeZone;
+        chrono::Local
+            .with_ymd_and_hms(2026, 11, 14, 15, 0, 0)
+            .single()
+            .expect("a time")
+    }
+
+    fn words(status: &evolite_api::SyncInfo, platform: bool) -> CardWords {
+        card_words(status, platform, at_three())
+    }
+
+    /// BUG-137, BUG-155: Core first; with Core done, «Sync» and what goes, three at most on the
+    /// card, all of them in the tooltip; the bar runs.
     #[test]
     fn the_words_say_platform_once_core_is_done() {
         use evolite_api::PlatformWork::*;
-        let (title, detail, stopped) = rail_words(&on_platform(&[Identities, Tokens]), true);
-        assert_eq!((title.as_str(), stopped), ("Sync · Platform", false));
-        assert_eq!(detail, "identities · tokens");
-        let (_, detail, _) = rail_words(
+        let w = words(&on_platform(&[Identities, Tokens]), true);
+        assert_eq!((w.title.as_str(), w.stopped), ("Platform", false));
+        assert_eq!(w.detail, "identities · tokens");
+        assert_eq!(w.tip_title, "Sync");
+        assert_eq!(w.bar, Bar::Running);
+        let w = words(
             &on_platform(&[Identities, Names, Credits, Contacts, Pool]),
             true,
         );
-        assert_eq!(detail, "identities · names · credits · and 2 more");
+        assert_eq!(w.detail, "identities · names · credits · and 2 more");
+        assert_eq!(
+            w.tip_detail,
+            "Platform: identities · names · credits · contacts · pool"
+        );
         let mut both = on_platform(&[Tokens]);
         both.stage = SyncStage::Filters;
-        assert!(
-            rail_words(&both, true)
-                .0
-                .starts_with("Sync · Block filters"),
-            "Core first"
+        assert_eq!(words(&both, true).title, "Block filters", "Core first");
+        assert_eq!(words(&on_platform(&[]), false).title, "Synced");
+    }
+
+    /// BUG-155 AC-A1: the short name on the card, the percent first in the second line, the
+    /// full name with it in the tooltip; the bar shows the same part.
+    #[test]
+    fn a_stage_is_named_short_on_the_card_and_in_full_in_the_tooltip() {
+        let mut s = syncing(SyncStage::Quorums, Some(0.45));
+        s.minutes_left = Some(3);
+        let w = words(&s, false);
+        assert_eq!(w.title, "Masternode quorums");
+        assert_eq!(w.detail, "45 % · about 3 min left");
+        assert_eq!(w.tip_title, "Checking masternode quorums · 45 %");
+        assert_eq!(w.tip_detail, "about 3 min left");
+        assert_eq!(w.bar, Bar::Part(0.45));
+        let w = words(&syncing(SyncStage::Connecting, None), false);
+        assert_eq!(
+            (w.title.as_str(), w.detail.as_str()),
+            ("Network nodes", "3 Core nodes")
         );
-        assert_eq!(rail_words(&on_platform(&[]), false).0, "Synced");
+        assert_eq!(w.bar, Bar::Running);
+    }
+
+    /// BUG-155 AC-A5: a stop says «Stopped» in `danger` and why; the tooltip «The sync stopped»
+    /// with the reason whole; the bar stands where it stopped, or halfway.
+    #[test]
+    fn a_stop_is_said_on_the_card_with_its_reason() {
+        let mut s = syncing(SyncStage::Filters, Some(0.3));
+        s.error = Some("the node refused us".into());
+        let w = words(&s, false);
+        assert_eq!((w.title.as_str(), w.stopped), ("Stopped", true));
+        assert_eq!(
+            w.detail,
+            "the node refused us · resync in Settings → Network and nodes"
+        );
+        assert_eq!(w.tip_title, "The sync stopped");
+        assert_eq!(w.bar, Bar::Stopped(0.3));
+        let mut s = syncing(SyncStage::Headers, None);
+        s.folder_refused = Some("Choose another folder".into());
+        let w = words(&s, false);
+        assert_eq!(w.detail, "a folder needs fixing");
+        assert_eq!(w.tip_detail, "Choose another folder");
+        assert_eq!(w.bar, Bar::Stopped(0.5));
+    }
+
+    /// BUG-155 AC-A6, A9: synced — no bar; «block {} · ChainLock» on the card, «block {}» when
+    /// that is too long; the tooltip adds when the tip came: the time today, the date before.
+    #[test]
+    fn synced_says_the_block_and_when_it_came() {
+        let mut s = on_platform(&[]);
+        s.chainlocked = true;
+        let today = at_three().timestamp() - 28 * 60;
+        s.tip_at = Some(today);
+        let w = words(&s, false);
+        assert_eq!(w.bar, Bar::None);
+        assert_eq!(w.detail, format!("block 1,284,112{CHAINLOCKED}"));
+        assert_eq!(w.detail_short.as_deref(), Some("block 1,284,112"));
+        assert_eq!(w.tip_detail, "block 1,284,112 · ChainLock · updated 14:32");
+        s.tip_at = Some(today - 24 * 60 * 60);
+        assert_eq!(
+            words(&s, false).tip_detail,
+            "block 1,284,112 · ChainLock · updated Nov 13, 14:32"
+        );
+        s.tip_at = None;
+        s.chainlocked = false;
+        let w = words(&s, false);
+        assert_eq!(
+            (w.detail.as_str(), w.detail_short),
+            ("block 1,284,112", None)
+        );
+        assert_eq!(w.tip_detail, "block 1,284,112");
+    }
+
+    /// BUG-155, the designer's review: once synced the fill runs on from where it was to the end,
+    /// never jumping there, and only then goes with the track.
+    #[test]
+    fn the_bar_runs_to_its_end_before_it_goes() {
+        let (to, alpha) = bar_going(Bar::Part(0.45), 0.0).expect("there");
+        assert_eq!((to, alpha), (0.45, 1.0), "from where it was");
+        let (to, alpha) = bar_going(Bar::Part(0.45), BAR_TO_END / 2.0).expect("there");
+        assert!(to > 0.45 && to < 1.0 && alpha == 1.0, "{to} {alpha}");
+        assert_eq!(
+            bar_going(Bar::Part(0.45), BAR_TO_END),
+            Some((1.0, 1.0)),
+            "at the end"
+        );
+        let (to, alpha) = bar_going(Bar::Part(0.45), BAR_TO_END + BAR_GONE / 2.0).expect("there");
+        assert!(to == 1.0 && (alpha - 0.5).abs() < 1e-3, "{to} {alpha}");
+        assert_eq!(
+            bar_going(Bar::Part(0.45), BAR_TO_END + BAR_GONE),
+            None,
+            "gone"
+        );
+        assert_eq!(bar_going(Bar::Running, 0.0), Some((1.0, 1.0)));
+    }
+
+    /// BUG-155: the designer's places — the mark in the middle of the card's height in every
+    /// size, the words' column 156 from 50, the bar at the foot (wide), under the words (low),
+    /// under the mark (rail).
+    #[test]
+    fn the_card_s_parts_stand_where_the_designer_put_them() {
+        let wide = egui::Rect::from_min_size(egui::pos2(16.0, 600.0), vec2(216.0, SYNC_WIDE));
+        let (mark, words, bar) = card_layout(wide, false, false);
+        assert_eq!(mark.min - wide.min, vec2(12.0, 18.0));
+        assert_eq!(words - wide.min, vec2(50.0, 14.0));
+        assert_eq!(wide.right() - 10.0 - words.x, WORDS);
+        assert_eq!(bar.min - wide.min, vec2(12.0, 57.0));
+        assert_eq!(bar.size(), vec2(192.0, 3.0));
+        let low = egui::Rect::from_min_size(egui::pos2(16.0, 300.0), vec2(216.0, SYNC_LOW));
+        let (mark, words, bar) = card_layout(low, false, true);
+        assert_eq!(mark.min - low.min, vec2(12.0, 8.0));
+        assert_eq!(words - low.min, vec2(50.0, 13.0));
+        assert_eq!(bar.min - low.min, vec2(50.0, 37.0));
+        assert_eq!(bar.width(), WORDS);
+        let rail = egui::Rect::from_min_size(egui::pos2(12.0, 600.0), vec2(52.0, SYNC_RAIL));
+        let (mark, _, bar) = card_layout(rail, true, false);
+        assert_eq!(mark.min - rail.min, vec2(12.0, 12.0));
+        assert_eq!(bar.min - rail.min, vec2(10.0, 45.0));
+        assert_eq!(bar.size(), vec2(32.0, 3.0));
+        let rail = egui::Rect::from_min_size(egui::pos2(12.0, 300.0), vec2(52.0, SYNC_LOW));
+        let (mark, _, bar) = card_layout(rail, true, true);
+        assert_eq!(mark.min - rail.min, vec2(12.0, 8.0));
+        assert_eq!(bar.min - rail.min, vec2(10.0, 39.0));
     }
 }

@@ -10,6 +10,7 @@ pub use profile::*;
 pub use top_up::*;
 
 use super::Screen;
+use crate::components::text;
 use crate::components::{
     Assets, ButtonKind, CardAmount, FieldKind, RowCell, SpendPassword, amount_field, avatar,
     button, button_enabled, button_row, card, chip, divider, field_label, inner, kv_row,
@@ -18,8 +19,8 @@ use crate::components::{
 use crate::context::Ctx;
 use crate::text::{self, group_thousands, short_id};
 use crate::theme::Weight;
+use crate::theme::style;
 use crate::theme::type_scale::{AMOUNT_L, BODY, CAPTION, HEADING, SMALL, UI};
-use crate::theme::{style, text};
 use egui::{Align, Align2, CornerRadius, CursorIcon, Layout, Margin, Rect, Sense, Ui, pos2, vec2};
 use evolite_api::{
     Balances, Command, CoreError, Fees, Identity, IdentitySearch, NameCheck, Profile, Source,

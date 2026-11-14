@@ -83,6 +83,8 @@ pub struct SettingsState {
     pub node: Option<NodeForm>,
     /// the nodes window, on its Core or Platform tab, while open.
     pub nodes: Option<NodesTab>,
+    /// Settings → Network asked for the other network: the app asks first (FEAT-0037, N2d).
+    pub switch_to: Option<evolite_api::Network>,
     /// "Remind me later" on the phrase-check reminder: not before this.
     pub remind_snoozed: Option<Timestamp>,
     /// "Restart evolite" was pressed: the app starts again (a new Core node).
@@ -225,6 +227,7 @@ impl SettingsState {
             fiat_currency: 0,
             node: None,
             nodes: None,
+            switch_to: None,
             remind_snoozed: None,
             restart: false,
             phrase_dialog: phrase,

@@ -217,14 +217,6 @@ pub fn style(step: type_scale::Step) -> FontId {
     }
 }
 
-/// A label's text in a step of the scale, translated: `components::txt` with a step instead of a
-/// size and a weight (FEAT-0033 step 2).
-pub fn text(s: &str, step: type_scale::Step, color: Color32) -> egui::RichText {
-    egui::RichText::new(crate::i18n::t(s))
-        .font(style(step))
-        .color(color)
-}
-
 macro_rules! font {
     ($file:literal) => {
         include_bytes!(concat!("../assets/fonts/", $file))

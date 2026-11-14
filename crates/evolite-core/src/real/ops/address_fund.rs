@@ -15,9 +15,11 @@ fn refusal(why: FundRefusal) -> CoreError {
     }
 }
 
-/// AC-T11 (the customer, 2026-11-14): not on mainnet until it is measured there.
+/// AC-T11 (the customer, 2026-11-14): not on mainnet until it is measured there — the network
+/// matrix's `PlatformAddressTopUp` (FEAT-0037).
 fn on_this_network(network: evolite_api::Network) -> Result<(), CoreError> {
-    if network == evolite_api::Network::Mainnet {
+    use evolite_api::features::{Feature, on};
+    if !on(Feature::PlatformAddressTopUp, network) {
         return Err(CoreError::NotAvailable(
             tr!("Topping up the Platform address from Core is not available on mainnet yet").into(),
         ));

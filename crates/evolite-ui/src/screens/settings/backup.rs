@@ -2,6 +2,7 @@
 
 use super::parts::{Control, group, heading};
 use super::{PhraseCheckForm, SettingsState};
+use crate::components::text;
 use crate::components::{
     Assets, ButtonKind, FieldKind, Part, button, button_enabled, button_row, dialog,
     dialog_with_footer, field_label, notice, pill, text_field,
@@ -9,7 +10,6 @@ use crate::components::{
 use crate::context::Ctx;
 use crate::text;
 use crate::theme::Weight;
-use crate::theme::text;
 use crate::theme::type_scale::{SMALL, UI};
 use egui::{Align, Layout, Ui};
 use evolite_api::{Command, CoreError, Password, Timestamp, Wallet, WalletOrigin};

@@ -35,6 +35,7 @@ mod low_login;
 mod low_menu;
 mod mixed;
 mod mono_addresses;
+mod network_switch;
 mod new_identity;
 mod notes;
 mod onboarding;
@@ -75,7 +76,8 @@ pub(super) fn demo_app(preset: &str, lang: &str) -> (MutexGuard<'static, ()>, Ki
         .iter()
         .map(|s| s.to_string())
         .collect();
-    let launch = Launch::from_args(&args);
+    // This machine's last network chosen is not the test's (FEAT-0037).
+    let launch = Launch::from_args_with(&args, |_| None);
     assert!(
         matches!(launch.core, crate::cli::CoreChoice::Mock),
         "a preset opens the demo"

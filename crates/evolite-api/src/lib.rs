@@ -15,6 +15,7 @@ use zeroize::Zeroizing;
 pub mod address_fund;
 pub mod address_plan;
 pub mod coin_plan;
+pub mod features;
 pub mod fiat;
 /// Platform tokens (FEAT-0019).
 pub mod tokens;
@@ -511,6 +512,9 @@ pub struct SyncInfo {
     /// What the wallet catches up on Platform now, in the order of [`PlatformWork`], each once;
     /// empty: nothing (BUG-137). Only the core's background reads, never a person's operation.
     pub platform: Vec<PlatformWork>,
+    /// When the wallet last saw a new tip (the tip's height grew), this computer's time; `None`
+    /// before the first (BUG-155 AC-A9: «updated 14:32» in the synced card's tooltip).
+    pub tip_at: Option<Timestamp>,
 }
 
 /// A background read of Platform the wallet catches up with (BUG-137): the sync card's mark

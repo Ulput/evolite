@@ -20,9 +20,7 @@ use egui::{
 use evolite_api::tokens::{
     SearchStage, SearchState, Sender, TokenInfo, TokenOrigin, TokenRefusal, TokenRow, TokenSearch,
 };
-use evolite_api::{
-    Command, CoreError, KeyKind, KeyLevel, KeyPurpose, Network, ResolvedName, Wallet,
-};
+use evolite_api::{Command, CoreError, KeyKind, KeyLevel, KeyPurpose, ResolvedName, Wallet};
 
 pub use dialogs::{AddState, SendState};
 
@@ -256,7 +254,8 @@ fn identity_chip(ui: &mut Ui, p: &crate::theme::Palette, label: &str, on: bool) 
 pub fn tokens(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut TokensState) {
     let p = a.p;
     ui.spacing_mut().item_spacing.y = 16.0;
-    if cx.snap.network == Network::Mainnet {
+    // Where the network matrix leaves tokens off, the screen only explains (FEAT-0037).
+    if !evolite_api::features::on(evolite_api::features::Feature::Tokens, cx.snap.network) {
         page_header(ui, a, tr!("Tokens"), None, |_, _| {});
         mainnet(ui, a);
         return;

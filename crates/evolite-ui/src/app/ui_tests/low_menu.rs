@@ -131,7 +131,10 @@ fn the_mainnet_band_takes_its_height_from_the_menu() {
     assert_eq!(rhythm(&kit).0, 40.0);
     kit.state_mut().snapshot.as_mut().unwrap().network = evolite_api::Network::Mainnet;
     kit.run_steps(3);
-    assert!(has_words(&kit, "Mainnet means real DASH"), "the band");
+    assert!(
+        has_words(&kit, "Mainnet: real DASH"),
+        "the band (FEAT-0037: its words)"
+    );
     assert_eq!(rhythm(&kit).0, 36.0, "the menu under the band is low");
 }
 

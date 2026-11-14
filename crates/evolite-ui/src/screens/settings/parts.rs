@@ -2,8 +2,7 @@
 
 use super::txt;
 use crate::components::{
-    Assets, ButtonKind, button, card, inner, section_label, segmented, segmented_with_off,
-    text_width, toggle,
+    Assets, ButtonKind, button, card, inner, section_label, segmented, text_width, toggle,
 };
 use crate::theme::{Palette, Weight, mono, sans};
 use egui::{
@@ -30,8 +29,6 @@ pub(super) fn heading(ui: &mut Ui, p: &Palette, title: &str, lead: Option<&str>)
 pub(super) enum Control<'a> {
     Toggle(&'a mut bool),
     Segmented(&'a [&'a str], &'a mut usize),
-    /// [`Control::Segmented`] where an item with `Some(hint)` cannot be chosen.
-    SegmentedWithOff(&'a [&'a str], &'a mut usize, &'a [Option<&'a str>]),
     /// A value with a chevron, e.g. "8 nodes ›".
     Value(&'a str, bool),
     /// A value only to read (no chevron, not clickable); `true`: in mono. Empty: nothing.
@@ -98,10 +95,8 @@ fn row(ui: &mut Ui, a: &mut Assets, title: &str, sub: &str, control: Control) ->
             // Several buttons, or a choice of several, in a narrow window go under the text, not
             // squeeze it (FEAT-0034 item 10: a column a few words wide broke the number format's
             // line before its colon).
-            if matches!(
-                control,
-                Control::Buttons(..) | Control::Segmented(..) | Control::SegmentedWithOff(..)
-            ) && ui.available_width() - control_width(ui, &control) - 20.0 < 300.0
+            if matches!(control, Control::Buttons(..) | Control::Segmented(..))
+                && ui.available_width() - control_width(ui, &control) - 20.0 < 300.0
             {
                 ui.spacing_mut().item_spacing.y = 12.0;
                 ui.vertical(|ui| {
@@ -172,7 +167,7 @@ fn row(ui: &mut Ui, a: &mut Assets, title: &str, sub: &str, control: Control) ->
 fn control_width(ui: &Ui, control: &Control) -> f32 {
     match control {
         Control::Toggle(_) => 40.0,
-        Control::Segmented(items, _) | Control::SegmentedWithOff(items, _, _) => {
+        Control::Segmented(items, _) => {
             8.0 + items
                 .iter()
                 .map(|s| text_width(ui, s, sans(13.0, Weight::SemiBold)) + 24.0 + 4.0)
@@ -202,10 +197,6 @@ fn draw_control(ui: &mut Ui, a: &mut Assets, title: &str, control: Control) -> b
         }
         Control::Segmented(items, selected) => {
             segmented(ui, &p, items, selected, true);
-            false
-        }
-        Control::SegmentedWithOff(items, selected, off) => {
-            segmented_with_off(ui, &p, items, selected, true, off);
             false
         }
         Control::Value(value, mono_value) => {

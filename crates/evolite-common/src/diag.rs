@@ -153,6 +153,9 @@ pub enum Record {
         bip32: (u32, u64),
         dashpay: (u32, u64),
         coinjoin: (u32, u64),
+        /// After the unlock's move of contacts' coins out of account 0 (`unlock_rehomed`, BUG-148):
+        /// how many it moved. None on the other lines.
+        moved: Option<u32>,
     },
     /// A rescan from the birth for the contacts' receiving accounts ran to its end (BUG-150): for
     /// how many accounts, how many history records it brought, how long it took.
@@ -266,11 +269,18 @@ impl Record {
                 bip32,
                 dashpay,
                 coinjoin,
-            } => json!({
-                "k": "coins", "when": when,
-                "bip44": [bip44.0, bip44.1], "bip32": [bip32.0, bip32.1],
-                "dashpay": [dashpay.0, dashpay.1], "coinjoin": [coinjoin.0, coinjoin.1],
-            }),
+                moved,
+            } => {
+                let mut fields = json!({
+                    "k": "coins", "when": when,
+                    "bip44": [bip44.0, bip44.1], "bip32": [bip32.0, bip32.1],
+                    "dashpay": [dashpay.0, dashpay.1], "coinjoin": [coinjoin.0, coinjoin.1],
+                });
+                if let Some(moved) = moved {
+                    fields["moved"] = (*moved).into();
+                }
+                fields
+            }
             Record::RescanDone {
                 accounts,
                 found,
@@ -620,6 +630,25 @@ mod tests {
         assert_eq!(timestamp(UNIX_EPOCH), "1970-01-01T00:00:00.000Z");
         assert_eq!(civil(19_723), (2024, 1, 1));
         assert_eq!(civil(11_016), (2000, 2, 29));
+    }
+
+    /// BUG-148: the coins line after the unlock's move carries how many moved; the other coins
+    /// lines read as before, without it. Numbers only.
+    #[test]
+    fn a_coins_line_says_how_many_moved_only_after_the_move() {
+        let coins = |when, moved| Record::Coins {
+            when,
+            bip44: (1, 5_000_000),
+            bip32: (0, 0),
+            dashpay: (1, 100_000),
+            coinjoin: (0, 0),
+            moved,
+        };
+        assert_eq!(
+            coins("unlock_rehomed", Some(1)).line(UNIX_EPOCH),
+            r#"{"t":"1970-01-01T00:00:00.000Z","k":"coins","when":"unlock_rehomed","bip44":[1,5000000],"bip32":[0,0],"dashpay":[1,100000],"coinjoin":[0,0],"moved":1}"#
+        );
+        assert!(!coins("unlock", None).line(UNIX_EPOCH).contains("moved"));
     }
 
     /// BUG-71: a shift line is the screen's name and a number of points, nothing else.

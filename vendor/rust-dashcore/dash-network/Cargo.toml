@@ -1,0 +1,30 @@
+[package]
+name = "dash-network"
+description = "The `Network` enum and its pure helpers (magic bytes, activation heights, default P2P ports) extracted from `dashcore` into a minimal-dependency crate so that lightweight consumers can depend on it without pulling in the full protocol library."
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+[lib]
+name = "dash_network"
+path = "src/lib.rs"
+
+[features]
+default = []
+# serde::{Serialize, Deserialize} impls for Network.
+serde = ["dep:serde"]
+# bincode::{Encode, Decode} impls for Network.
+bincode = ["dep:bincode", "dep:bincode_derive"]
+# C-ABI `FFINetwork` mirror + `dashcore_network_get_name` extern fn.
+ffi = []
+
+[dependencies]
+serde = { workspace = true, features = ["derive"], optional = true }
+bincode = { workspace = true, optional = true }
+bincode_derive = { workspace = true, optional = true }
+
+[build-dependencies]
+cbindgen = "0.29"

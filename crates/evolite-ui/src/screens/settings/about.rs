@@ -72,11 +72,10 @@ pub(super) fn about(ui: &mut Ui, a: &mut Assets, state: &mut SettingsState) {
             (
                 tr!("Version"),
                 match evolite_core::network::current() {
-                    evolite_api::Network::Testnet => {
-                        tr!("Test build: testnet, the coins are worth nothing")
-                    }
+                    // No «test build» any more (FEAT-0037 AC-A7): mainnet is a beta (М9).
+                    evolite_api::Network::Testnet => tr!("Testnet: the coins are worth nothing"),
                     evolite_api::Network::Mainnet => {
-                        tr!("Test build on mainnet: real DASH, small amounts only")
+                        tr!("Mainnet beta: real DASH, keep only small amounts")
                     }
                 },
                 Control::Text(env!("CARGO_PKG_VERSION"), true),
@@ -86,7 +85,8 @@ pub(super) fn about(ui: &mut Ui, a: &mut Assets, state: &mut SettingsState) {
                 tr!(
                     "dash-spv: headers, block filters (BIP158), ChainLock and InstantSend are verified here"
                 ),
-                Control::Text("rust-dashcore aca0202", true),
+                // No revision: it moves with the dependencies (FEAT-0037 AC-T9).
+                Control::Text("rust-dashcore", true),
             ),
             (
                 "Dash Platform",
@@ -117,7 +117,7 @@ pub(super) fn about(ui: &mut Ui, a: &mut Assets, state: &mut SettingsState) {
             (
                 tr!("Implemented"),
                 tr!(
-                    "Core: receive, send, history, your own node. Platform: identities, DPNS names, credits, Platform address. DashPay contacts and profile, the private pool, app sign-in by App Connect v2 with a spending limit and a period, the Jembe NFT collection, mainnet by a launch flag"
+                    "Core: receive, send, history, your own node. Platform: identities, DPNS names, credits, Platform address. DashPay contacts and profile, the private pool, app sign-in by App Connect v2 with a spending limit and a period, the Jembe NFT collection, testnet and mainnet (beta), the network is chosen on the sign-in screen"
                 ),
                 Control::Text("", false),
             ),

@@ -137,6 +137,22 @@ pub fn subject(form: &ReportForm) -> String {
     format!("[evolite {}] {summary}", env!("CARGO_PKG_VERSION"))
 }
 
+/// The letter's section titles as [`body`] writes them, in capitals: the preview sets them in
+/// SemiBold (FEAT-0033, the designer).
+fn section_titles() -> [String; 8] {
+    [
+        tr!("What happened"),
+        tr!("What I was doing"),
+        tr!("What I expected"),
+        tr!("What happened instead"),
+        tr!("How often"),
+        tr!("Contact for a reply"),
+        tr!("System details"),
+        tr!("Journal"),
+    ]
+    .map(str::to_uppercase)
+}
+
 /// The letter as plain text: sections under capital headings, the system as "• name: value"
 /// lines, then what is never in it. Mail programs show plain text in a proportional font, so
 /// nothing relies on columns: underlines and space-aligned tables come out ragged there.
@@ -442,11 +458,25 @@ fn letter_step(
                 .show(ui, |ui| {
                     ui.set_max_width(ui.available_width() - 10.0);
                     // Words in Inter 12·18, as the designer asked (FEAT-0033 review): the
-                    // email is read, not a log. A paragraph, so Arabic wraps in reading order.
-                    ui.add(
-                        crate::components::para(&preview, SMALL.size, SMALL.weight, p.text)
-                            .line_height(SMALL.line),
-                    );
+                    // email is read, not a log. Line by line, each a paragraph so Arabic wraps
+                    // in reading order; a section's title in SemiBold (the designer, round 2).
+                    ui.spacing_mut().item_spacing.y = 0.0;
+                    let titles = section_titles();
+                    for line in preview.split('\n') {
+                        if line.trim().is_empty() {
+                            ui.add_space(SMALL.line);
+                            continue;
+                        }
+                        let weight = if titles.iter().any(|t| line == crate::i18n::own(t)) {
+                            crate::theme::Weight::SemiBold
+                        } else {
+                            SMALL.weight
+                        };
+                        ui.add(
+                            crate::components::para(line, SMALL.size, weight, p.text)
+                                .line_height(SMALL.line),
+                        );
+                    }
                 });
         });
     let phrase = phrase_notice(ui, a, form);
@@ -572,6 +602,13 @@ mod tests {
             (tr!("Sync"), "done".into()),
         ];
         let letter = body(&form(), Some(&system));
+        // Each title the preview sets in SemiBold is a line of the letter.
+        for title in section_titles() {
+            assert!(
+                letter.lines().any(|line| line == title),
+                "{title}\n{letter}"
+            );
+        }
         for part in [
             "WHAT HAPPENED\nA payment does not go through",
             "HOW OFTEN\nEvery time",

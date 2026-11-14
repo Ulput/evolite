@@ -3,6 +3,7 @@
 
 use super::SettingsState;
 use super::parts::heading;
+use crate::components::text;
 use crate::components::{
     Assets, ButtonKind, FieldKind, button, button_enabled, button_row, card, dialog_with_header,
     field_label, inner, notice, paint_text, paint_wallet_dot, section_label, text_field,
@@ -10,8 +11,8 @@ use crate::components::{
 use crate::context::{Ctx, WalletRequest};
 use crate::screens::onboarding::Flow;
 use crate::theme::Weight;
+use crate::theme::style;
 use crate::theme::type_scale::{BODY, HEADING, SMALL, UI};
-use crate::theme::{style, text};
 use egui::{Align2, CornerRadius, CursorIcon, Margin, Rect, Sense, Stroke, Ui, pos2, vec2};
 use evolite_api::{Command, CoreError};
 

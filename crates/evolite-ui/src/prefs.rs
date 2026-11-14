@@ -97,6 +97,32 @@ pub fn load_wallet(data_dir: &Path, id: &str, app: &Prefs) -> Option<Prefs> {
     (old != Prefs::default()).then_some(old)
 }
 
+/// The app's settings, from the common folder `common`, the same for both networks (FEAT-0037).
+/// With none there yet, the app's part of a network folder's file is taken there once — this
+/// network's (`network_dir`), else the other's (`other_dir`): a first start of this build on
+/// mainnet keeps what testnet had (review r1, Should 2). That file is left as it was, for an
+/// older build. With neither, nothing is written: the common file comes with the first change.
+/// With `--data-dir` the common folder is the network's (`common == network_dir`): its file is
+/// read whole, as before.
+pub fn app_prefs(common: &Path, network_dir: &Path, other_dir: Option<&Path>) -> Prefs {
+    let file = path(common);
+    if common == network_dir || file.exists() {
+        return load(&file);
+    }
+    let Some(old) = std::iter::once(network_dir)
+        .chain(other_dir)
+        .map(path)
+        .find(|p| p.exists())
+    else {
+        return Prefs::default();
+    };
+    let (app, _) = split(&load(&old));
+    if let Err(e) = save(&file, &app) {
+        eprintln!("settings not moved to the common folder: {e}");
+    }
+    app
+}
+
 /// The saved settings; none (all defaults) when there is no file yet or it does not read —
 /// a broken file never stops the wallet from opening. A file over 1 MB (settings take a few
 /// hundred bytes) is not read into memory.
@@ -213,5 +239,97 @@ mod tests {
         assert_eq!(load_wallet(&data, "aaaa0001", &app), Some(wallet));
         assert_eq!(load_wallet(&data, "bbbb0002", &app), None);
         let _ = std::fs::remove_dir_all(&data);
+    }
+
+    /// FEAT-0037 AC-T6д: the app's settings are in the common folder, the same for both networks.
+    /// The first run of this build takes the app's part of the network folder's old file there,
+    /// and leaves that file as it was (an older build still reads it).
+    #[test]
+    fn the_app_settings_move_to_the_common_folder_once() {
+        let root = std::env::temp_dir().join(format!("evolite-prefs-app-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let (common, testnet, mainnet) = (
+            root.join("evolite-app"),
+            root.join("evolite"),
+            root.join("evolite-mainnet"),
+        );
+        let old = Prefs {
+            theme: Some("light".into()),
+            lang: Some("en".into()),
+            lock_after: Some(5),
+            ..Prefs::default()
+        };
+        save(&path(&testnet), &old).unwrap();
+        let before = std::fs::read(path(&testnet)).unwrap();
+        let app = app_prefs(&common, &testnet, Some(&mainnet));
+        assert_eq!(
+            (app.theme.as_deref(), app.lang.as_deref()),
+            (Some("light"), Some("en"))
+        );
+        assert!(
+            app.lock_after.is_none(),
+            "the wallet's part stays with the wallet"
+        );
+        assert!(path(&common).exists(), "kept in the common folder");
+        assert_eq!(
+            std::fs::read(path(&testnet)).unwrap(),
+            before,
+            "the old file as it was"
+        );
+        // The other network reads the same: the theme and the language do not jump.
+        let dark = Prefs {
+            theme: Some("dark".into()),
+            ..Prefs::default()
+        };
+        save(&path(&mainnet), &dark).unwrap();
+        assert_eq!(
+            app_prefs(&common, &mainnet, Some(&testnet))
+                .theme
+                .as_deref(),
+            Some("light")
+        );
+        // With --data-dir the common folder is that folder: the file is the one it had.
+        assert_eq!(
+            app_prefs(&testnet, &testnet, None).lock_after,
+            Some(5),
+            "read whole, as before"
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// Review r1, Should 2: the first start of this build on mainnet, with the settings in the
+    /// testnet folder only, keeps them (the theme does not go back to the default); with no
+    /// settings anywhere nothing is written.
+    #[test]
+    fn a_first_start_on_mainnet_keeps_testnet_s_settings() {
+        let root = std::env::temp_dir().join(format!(
+            "evolite-prefs-first-mainnet-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        let (common, testnet, mainnet) = (
+            root.join("evolite-app"),
+            root.join("evolite"),
+            root.join("evolite-mainnet"),
+        );
+        assert_eq!(
+            app_prefs(&common, &mainnet, Some(&testnet)),
+            Prefs::default()
+        );
+        assert!(!path(&common).exists(), "nothing found: nothing written");
+        let old = Prefs {
+            theme: Some("light".into()),
+            ..Prefs::default()
+        };
+        save(&path(&testnet), &old).unwrap();
+        assert_eq!(
+            app_prefs(&common, &mainnet, Some(&testnet))
+                .theme
+                .as_deref(),
+            Some("light"),
+            "testnet's theme"
+        );
+        assert!(path(&common).exists(), "kept in the common folder");
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

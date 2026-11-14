@@ -59,6 +59,13 @@ pub fn txt(s: &str, size: f32, w: Weight, color: Color32) -> Txt {
     }
 }
 
+/// [`txt`] in a step of the type scale (FEAT-0033 step 2): its size, weight and font (a mono step
+/// stays mono), an address in it in mono as [`txt`] draws it (BUG-154). Here and not in `theme`:
+/// the installer builds `theme.rs` without the components.
+pub fn text(s: &str, step: crate::theme::type_scale::Step, color: Color32) -> Txt {
+    txt(s, step.size, step.weight, color).font(crate::theme::style(step))
+}
+
 /// What [`txt`] gives: a label's words, drawn by [`with_ids`].
 #[must_use = "give it to a label"]
 pub struct Txt {
