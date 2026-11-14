@@ -10,7 +10,8 @@ pub use add_name::*;
 pub use profile::*;
 pub use top_up::*;
 
-use super::{Screen, txt};
+use super::Screen;
+use crate::components::text;
 use crate::components::{
     Assets, ButtonKind, CardAmount, FieldKind, RowCell, SpendPassword, amount_field, avatar,
     button, button_enabled, button_row, card, chip, divider, field_label, inner, kv_row,
@@ -18,7 +19,9 @@ use crate::components::{
 };
 use crate::context::Ctx;
 use crate::text::{self, group_thousands, short_id};
-use crate::theme::{Weight, mono, sans};
+use crate::theme::Weight;
+use crate::theme::style;
+use crate::theme::type_scale::{AMOUNT_L, BODY, CAPTION, HEADING, SMALL, UI};
 use egui::{Align, Align2, CornerRadius, CursorIcon, Layout, Margin, Rect, Sense, Ui, pos2, vec2};
 use evolite_api::{
     Balances, Command, CoreError, Fees, Identity, IdentitySearch, NameCheck, Profile, Source,
@@ -307,7 +310,7 @@ fn profile(
                 tr!("Create a profile")
             };
             // Icon 16 + gap 6 + the words, as `text_action` draws them.
-            let w = 22.0 + crate::components::text_width(ui, label, sans(13.0, Weight::Medium));
+            let w = 22.0 + crate::components::text_width(ui, label, style(UI.weight(Weight::Medium)));
             ui.add_space((ui.available_width() - w).max(0.0));
             if text_action(ui, a, "edit", label).clicked() {
                 state.editing = Some(ProfileForm::from(id.profile.as_ref()));
@@ -332,16 +335,16 @@ fn profile(
                         ui.spacing_mut().item_spacing = vec2(10.0, 4.0);
                         match &name {
                             Some(name) => {
-                                ui.label(txt(name, 22.0, Weight::Bold, p.text));
+                                ui.label(text(name, HEADING, p.text));
                                 chip(ui, a, "confirmed", tr!("Name verified"), true);
                             }
                             None => {
-                                ui.label(txt(tr!("No name"), 22.0, Weight::Bold, p.text));
+                                ui.label(text(tr!("No name"), HEADING, p.text));
                             }
                         }
                     });
                     if let Some(display) = &display {
-                        ui.label(txt(display, 15.0, Weight::Medium, p.text));
+                        ui.label(text(display, BODY.weight(Weight::Medium), p.text));
                     }
                     // The ID with a copy icon; the icon turns into "copied" for a moment.
                     let now = ui.input(|i| i.time);
@@ -364,7 +367,7 @@ fn profile(
                             ui.add(
                                 egui::Label::new(
                                     egui::RichText::new(crate::i18n::t(&label))
-                                        .font(mono(13.0, Weight::Regular))
+                                        .font(style(UI.mono()))
                                         .color(p.muted),
                                 )
                                 .selectable(false),
@@ -393,15 +396,11 @@ fn profile(
             Some(profile) => super::contacts::about_block(ui, a, profile),
             None => {
                 ui.add(crate::components::para(
-                    tr!("No DashPay profile yet: your contacts will see the name, “About” and avatar."),
-                    13.0,
-                    Weight::Regular,
-                    p.muted,
-                ));
+                    tr!("No DashPay profile yet: your contacts will see the name, “About” and avatar."), UI.size, UI.weight, p.muted).line_height(UI.line));
             }
         }
         divider(ui, &p);
-        let value = sans(13.0, Weight::Medium);
+        let value = style(UI.weight(Weight::Medium));
         // 0: the core does not know (Platform does not keep it with the identity).
         if id.created_at > 0 {
             let created = format!(
@@ -416,11 +415,11 @@ fn profile(
             &p,
             tr!("Revision"),
             &id.revision.to_string(),
-            mono(13.0, Weight::Medium),
+            style(UI.weight(Weight::Medium).mono()),
         );
         kv_row(ui, &p, tr!("Source"), &id.key_source, value);
         if let Some(line) = dashpay_android_line(id.slot) {
-            ui.add(crate::components::para(line, 12.0, Weight::Regular, p.muted));
+            ui.add(crate::components::para(line, SMALL.size, SMALL.weight, p.muted).line_height(SMALL.line));
         }
     });
 }
@@ -462,12 +461,12 @@ fn identity_choice(
         // (design review №14).
         ui.horizontal_top(|ui| {
             ui.spacing_mut().item_spacing.x = 8.0;
-            let font = sans(13.0, Weight::Medium);
+            let font = style(UI.weight(Weight::Medium));
             let label_w = crate::components::text_width(ui, tr!("Work as"), font);
             ui.allocate_ui_with_layout(
                 vec2(label_w, 33.0),
                 Layout::left_to_right(Align::Center),
-                |ui| ui.label(txt(tr!("Work as"), 13.0, Weight::Medium, p.muted)),
+                |ui| ui.label(text(tr!("Work as"), UI.weight(Weight::Medium), p.muted)),
             );
             ui.horizontal_wrapped(|ui| {
                 ui.spacing_mut().item_spacing = vec2(8.0, 8.0);
@@ -484,7 +483,10 @@ fn identity_choice(
         });
         // Why not, in words and without hovering (AC-D2), naming the identity to finish.
         if let Some(why) = &blocked {
-            ui.add(crate::components::para(why, 12.0, Weight::Regular, p.muted));
+            ui.add(
+                crate::components::para(why, SMALL.size, SMALL.weight, p.muted)
+                    .line_height(SMALL.line),
+            );
         }
     });
     if chose {
@@ -640,11 +642,7 @@ fn searching_for_identity(ui: &mut Ui, a: &mut Assets) {
         crate::components::named(&resp, egui::WidgetType::Label, true, looking);
     });
     ui.add(crate::components::para(
-        tr!("We check the answer against masternode lists — usually under a minute. Nothing to do here yet."),
-        14.0,
-        Weight::Regular,
-        p.muted,
-    ));
+        tr!("We check the answer against masternode lists — usually under a minute. Nothing to do here yet."), BODY.size, BODY.weight, p.muted).line_height(BODY.line));
 }
 
 /// No identity after the search (or after a failed one, which [`search_status`] explains):
@@ -653,12 +651,17 @@ fn searching_for_identity(ui: &mut Ui, a: &mut Assets) {
 fn no_identity(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, wallet: &Wallet, search_again: bool) {
     let p = a.p;
     let done = wallet.identity_search == IdentitySearch::Done;
-    ui.add(crate::components::para(
-        tr!("No identity yet. It is made from DASH on Core: a name, keys and credits for apps."),
-        14.0,
-        Weight::Regular,
-        p.muted,
-    ));
+    ui.add(
+        crate::components::para(
+            tr!(
+                "No identity yet. It is made from DASH on Core: a name, keys and credits for apps."
+            ),
+            BODY.size,
+            BODY.weight,
+            p.muted,
+        )
+        .line_height(BODY.line),
+    );
     // What it takes, against what there is: the name and the creation, plus any credits. Only
     // once the search is done — an identity may yet be found (CS-4) — and red only once the
     // sync has counted Core: a zero before it is not known (the designer's improvement 1).
@@ -743,7 +746,7 @@ fn dash(d: i64) -> String {
 /// button for a screen reader.
 fn inline_action(ui: &mut Ui, p: &crate::theme::Palette, label: &str) -> egui::Response {
     let resp = ui
-        .add(egui::Button::new(txt(label, 12.0, Weight::SemiBold, p.accent)).frame(false))
+        .add(egui::Button::new(text(label, SMALL.weight(Weight::SemiBold), p.accent)).frame(false))
         .on_hover_cursor(CursorIcon::PointingHand);
     crate::components::named(&resp, egui::WidgetType::Button, true, label);
     resp
@@ -785,7 +788,11 @@ fn credits(
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 8.0;
             ui.add(a.icons.icon("credits", p.muted, &p, 18.0));
-            ui.label(txt(tr!("Platform credits"), 13.0, Weight::Medium, p.muted));
+            ui.label(text(
+                tr!("Platform credits"),
+                UI.weight(Weight::Medium),
+                p.muted,
+            ));
             // The app's one «Hide amounts» (FEAT-0007).
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 crate::components::amount_toggle(ui, a, false);
@@ -797,12 +804,7 @@ fn credits(
         } else {
             p.text.gamma_multiply(0.6)
         };
-        crate::components::amount_label(
-            ui,
-            &crate::format::amount(duffs),
-            mono(28.0, Weight::Medium),
-            color,
-        );
+        crate::components::amount_label(ui, &crate::format::amount(duffs), style(AMOUNT_L), color);
         // The credits and the operations they pay for give the balance away: hidden with it.
         let credits = if crate::format::display().hide {
             "••••".to_string()
@@ -816,7 +818,7 @@ fn credits(
                 &operations,
                 balances.credits_checked,
             )))
-            .font(mono(12.0, Weight::Regular))
+            .font(style(SMALL.mono()))
             .color(p.muted),
         );
         ui.add_space(6.0);
@@ -857,7 +859,7 @@ fn tile(ui: &mut Ui, a: &mut Assets, icon: &str, label: &str, width: f32) -> egu
         pos2(rect.center().x, rect.bottom() - 10.0),
         Align2::CENTER_BOTTOM,
         crate::i18n::t(label),
-        sans(12.0, Weight::SemiBold),
+        style(SMALL.weight(Weight::SemiBold)),
         p.text,
     );
     resp.on_hover_cursor(CursorIcon::PointingHand)
@@ -889,8 +891,12 @@ fn names(ui: &mut Ui, a: &mut Assets, id: &Identity, width: f32, cell: &mut RowC
                     ui.add(a.icons.icon(icon, p.text, &p, 20.0));
                     ui.vertical(|ui| {
                         ui.spacing_mut().item_spacing.y = 2.0;
-                        ui.label(txt(&format!("@{name}"), 14.0, Weight::SemiBold, p.text));
-                        ui.label(txt(&sub, 12.0, Weight::Regular, p.muted));
+                        ui.label(text(
+                            &format!("@{name}"),
+                            BODY.weight(Weight::SemiBold),
+                            p.text,
+                        ));
+                        ui.label(text(&sub, SMALL, p.muted));
                     });
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                         let (icon, color, hint) = if voting.is_some() {
@@ -913,11 +919,7 @@ fn names(ui: &mut Ui, a: &mut Assets, id: &Identity, width: f32, cell: &mut RowC
                 divider(ui, &p);
                 ui.add(
                     crate::components::para(
-                        tr!("No names yet. With a name the identity can be found by @name and added to contacts."),
-                        13.0,
-                        Weight::Regular,
-                        p.muted,
-                    ),
+                        tr!("No names yet. With a name the identity can be found by @name and added to contacts."), UI.size, UI.weight, p.muted).line_height(UI.line),
                 );
             }
         },
@@ -946,7 +948,7 @@ fn keys(ui: &mut Ui, a: &mut Assets, id: &Identity, width: f32, cell: &mut RowCe
                     pos2(x, cy),
                     Align2::LEFT_CENTER,
                     crate::i18n::t(&format!("#{}", key.id)),
-                    mono(13.0, Weight::Medium),
+                    style(UI.weight(Weight::Medium).mono()),
                     p.text,
                 )
                 .right()
@@ -956,7 +958,7 @@ fn keys(ui: &mut Ui, a: &mut Assets, id: &Identity, width: f32, cell: &mut RowCe
                     pos2(x, cy),
                     Align2::LEFT_CENTER,
                     crate::i18n::t(level),
-                    mono(12.0, Weight::Medium),
+                    style(SMALL.weight(Weight::Medium).mono()),
                     p.muted,
                 )
                 .right()
@@ -965,14 +967,14 @@ fn keys(ui: &mut Ui, a: &mut Assets, id: &Identity, width: f32, cell: &mut RowCe
                 pos2(x, cy),
                 Align2::LEFT_CENTER,
                 crate::i18n::t(&purpose),
-                sans(13.0, Weight::Regular),
+                style(UI),
                 p.text,
             );
             painter.text(
                 pos2(rect.right(), cy),
                 Align2::RIGHT_CENTER,
                 crate::i18n::t(text::key_kind(key.kind)),
-                mono(11.0, Weight::Regular),
+                style(CAPTION.mono()),
                 p.muted,
             );
         }

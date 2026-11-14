@@ -85,15 +85,11 @@ pub(super) fn add_name_dialog(
                 crate::components::para(
                         &format!(
                             tr!("One more DPNS name for {me}: people can find you and pay you by it too.")
-                        , me = me),
-                        13.0,
-                        Weight::Regular,
-                        p.muted,
-                    )
+                        , me = me), UI.size, UI.weight, p.muted).line_height(UI.line)
                     .line_height(20.0),
             );
             name_field(ui, &p, form, &label, &check);
-            let value = mono(13.0, Weight::Medium);
+            let value = style(UI.weight(Weight::Medium).mono());
             kv_row(
                 ui,
                 &p,
@@ -179,7 +175,7 @@ fn name_field(
                 };
                 if let Some(line) = line {
                     ui.add(
-                        crate::components::para(&line, 12.0, Weight::Regular, color),
+                        crate::components::para(&line, SMALL.size, SMALL.weight, color).line_height(SMALL.line),
                     );
                 }
             });
@@ -197,26 +193,30 @@ fn credits_state(
 ) {
     let p = *p;
     if !read {
-        ui.add(crate::components::para(
-            &format!(
-                "{}.",
-                tr!("The identity's credits are not read yet: nothing is charged until they are")
-            ),
-            12.0,
-            Weight::Regular,
-            p.muted,
-        ));
+        ui.add(
+            crate::components::para(
+                &format!(
+                    "{}.",
+                    tr!(
+                        "The identity's credits are not read yet: nothing is charged until they are"
+                    )
+                ),
+                SMALL.size,
+                SMALL.weight,
+                p.muted,
+            )
+            .line_height(SMALL.line),
+        );
     } else if short {
         ui.horizontal_wrapped(|ui| {
             ui.spacing_mut().item_spacing.x = 8.0;
-            ui.label(txt(
+            ui.label(text(
                 &format!(
                     tr!("Not enough credits for the name: ≈ {} needed, the identity has {}."),
                     dash(needed),
                     crate::format::balance(credits)
                 ),
-                12.0,
-                Weight::Regular,
+                SMALL,
                 p.muted,
             ));
             if inline_action(ui, &p, tr!("Top up ›")).clicked() {
@@ -225,11 +225,7 @@ fn credits_state(
         });
         ui.add(
                     crate::components::para(
-                        tr!("Platform wants this much before it writes a name; what the name does not use stays on the identity."),
-                        12.0,
-                        Weight::Regular,
-                        p.muted,
-                    ),
+                        tr!("Platform wants this much before it writes a name; what the name does not use stays on the identity."), SMALL.size, SMALL.weight, p.muted).line_height(SMALL.line),
                 );
     }
 }
