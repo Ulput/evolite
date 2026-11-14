@@ -1693,5 +1693,11 @@
   "Core: receive, send, history, your own node. Platform: identities, DPNS names, credits, Platform address. DashPay contacts and profile, the private pool, app sign-in by App Connect v2 with a spending limit and a period, the Jembe NFT collection, mainnet by a launch flag": "Core: alma, gönderme, geçmiş, kendi düğümünüz. Platform: kimlikler, DPNS adları, krediler, Platform adresi. DashPay kişileri ve profili, gizli havuz, harcama sınırı ve süresiyle App Connect v2 üzerinden uygulama girişi, Jembe NFT koleksiyonu, başlatma seçeneğiyle mainnet",
   "Giving, selling and receiving NFTs by link": "NFT'leri hediye etme, satma ve bağlantıyla alma",
   "Signs in with the identity chosen in “Work as”; you can change it there.": "«Şu olarak çalış» kısmında seçili kimlikle giriş yapar; oradan değiştirebilirsiniz.",
-  "The limit is less than the app needs": "Sınır, uygulamanın ihtiyacından az"
+  "The limit is less than the app needs": "Sınır, uygulamanın ihtiyacından az",
+  "The token list is kept on this computer. After a restore from the phrase, the search finds the tokens with a balance again, hidden ones included: hide them again if needed. Tokens added by hand with a zero balance do not come back — add them again by id.": "Token listesi yalnızca bu bilgisayarda saklanır. İfadeden geri yüklemeden sonra arama, bakiyesi olan token’ları gizlenenler dahil yeniden bulur: gerekirse onları yeniden gizleyin. Elle eklenen sıfır bakiyeli token’lar geri gelmez — onları id’siyle yeniden ekleyin.",
+  "Remove": "Kaldır",
+  "{} network contract read|{} network contracts read": {
+    "one": "Ağın {} sözleşmesi okundu",
+    "other": "Ağın {} sözleşmesi okundu"
+  }
 }

@@ -599,6 +599,7 @@ impl Real {
             return refused(CoreError::NotAvailable(tr!("The keys are not open").into()));
         };
         let (chain, facts) = (self.chain.clone(), self.tokens.facts.clone());
+        let refresh = self.refresher();
         let known = facts.lock().unwrap_or_else(|e| e.into_inner()).clone();
         self.answer_later("task:send_token", async move {
             let result = async {
@@ -635,11 +636,14 @@ impl Real {
                     .await
                     .map_err(|_| CoreError::Failed("timed out".into()))?
                     .map_err(dashpay_failure)?;
-                // The sender's balance from the proof, so the row is right before the next read.
-                let mut facts = facts.lock().unwrap_or_else(|e| e.into_inner());
-                if let (Some(balance), Some((_, _, f))) = (balance, facts.as_mut()) {
-                    f.balances.insert(token.token_id.clone(), balance);
-                }
+                after_sent(
+                    &mut facts.lock().unwrap_or_else(|e| e.into_inner()),
+                    &me,
+                    &token.token_id,
+                    balance,
+                );
+                // A snapshot now: it shows the balance, or starts the read of it (BUG-146).
+                refresh();
                 Ok(())
             }
             .await;
@@ -652,6 +656,72 @@ impl Real {
             what: "send_token",
             fraction: 0.0,
         }
+    }
+}
+
+/// After a confirmed transfer from `sender`: the sender's balance from the proof when the answer
+/// has it, so the row is right at once; and the facts read again with the next snapshot either
+/// way (BUG-146). A token that keeps its transfer history answers with a document, not the
+/// balance, and its row waited a whole [`FACTS_EVERY`]. Facts of another identity are not touched.
+fn after_sent(facts: &mut KnownFacts, sender: &str, token_id: &str, balance: Option<u64>) {
+    let Some((who, at, f)) = facts.as_mut() else {
+        return;
+    };
+    if who.as_str() != sender {
+        return;
+    }
+    if let Some(balance) = balance {
+        f.balances.insert(token_id.to_owned(), balance);
+    }
+    if let Some(earlier) = at.checked_sub(FACTS_EVERY) {
+        *at = earlier;
+    }
+}
+
+#[cfg(test)]
+mod after_sent_tests {
+    use super::*;
+    use std::time::Instant;
+
+    fn known(who: &str, balance: u64) -> KnownFacts {
+        let mut f = chain::TokenFacts::default();
+        f.balances.insert("T".into(), balance);
+        Some((who.into(), Instant::now(), f))
+    }
+
+    fn due(facts: &KnownFacts) -> bool {
+        facts
+            .as_ref()
+            .is_some_and(|(_, at, _)| at.elapsed() >= FACTS_EVERY)
+    }
+
+    /// BUG-146: a token that keeps its transfer history answers a transfer with a document, not
+    /// the sender's balance. Its facts are read again with the next snapshot, not a minute later.
+    #[test]
+    fn without_a_balance_in_the_answer_the_facts_are_read_again() {
+        let mut facts = known("ME", 1_000_000);
+        after_sent(&mut facts, "ME", "T", None);
+        assert!(due(&facts), "read again with the next snapshot");
+    }
+
+    /// With the balance in the proved answer, it is shown at once, and read again as well.
+    #[test]
+    fn the_balance_in_the_answer_is_shown_at_once() {
+        let mut facts = known("ME", 1_000_000);
+        after_sent(&mut facts, "ME", "T", Some(998_766));
+        let (_, _, f) = facts.as_ref().unwrap();
+        assert_eq!(f.balances.get("T"), Some(&998_766));
+        assert!(due(&facts));
+    }
+
+    /// The facts shown are of another identity (the person switched): its balance is not
+    /// touched, and the sender's comes with the next read of its own.
+    #[test]
+    fn another_identity_s_facts_are_not_touched() {
+        let mut facts = known("OTHER", 5);
+        after_sent(&mut facts, "ME", "T", Some(998_766));
+        let (_, _, f) = facts.as_ref().unwrap();
+        assert_eq!(f.balances.get("T"), Some(&5));
     }
 }
 

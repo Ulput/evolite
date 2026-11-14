@@ -1683,5 +1683,10 @@
   "Core: receive, send, history, your own node. Platform: identities, DPNS names, credits, Platform address. DashPay contacts and profile, the private pool, app sign-in by App Connect v2 with a spending limit and a period, the Jembe NFT collection, mainnet by a launch flag": "Core：收款、付款、历史、自有节点。Platform：身份、DPNS 名称、积分、Platform 地址。DashPay 联系人和资料、私密池、通过 App Connect v2 登录应用（带支出上限和期限）、Jembe NFT 收藏、通过启动参数使用主网",
   "Giving, selling and receiving NFTs by link": "赠送、出售和通过链接接收 NFT",
   "Signs in with the identity chosen in “Work as”; you can change it there.": "使用“以此身份操作”中选中的身份登录；可以在那里更改。",
-  "The limit is less than the app needs": "上限低于应用所需"
+  "The limit is less than the app needs": "上限低于应用所需",
+  "The token list is kept on this computer. After a restore from the phrase, the search finds the tokens with a balance again, hidden ones included: hide them again if needed. Tokens added by hand with a zero balance do not come back — add them again by id.": "代币列表仅保存在这台电脑上。用助记词恢复后，搜索会重新找到有余额的代币，包括已隐藏的：如有需要，请再次隐藏。手动添加且余额为零的代币不会恢复——请按 id 重新添加。",
+  "Remove": "移除",
+  "{} network contract read|{} network contracts read": {
+    "other": "已读取 {} 个网络合约"
+  }
 }

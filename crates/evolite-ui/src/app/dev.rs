@@ -121,10 +121,11 @@ impl PausePreset {
 
 /// The `--screen` presets of the tokens screen that change the snapshot (design T1, T5, T4, T4b,
 /// T3, T7).
-const TOKEN_STATES: [&str; 8] = [
+const TOKEN_STATES: [&str; 9] = [
     "tokens-review",
     "tokens-send-credits",
     "tokens-first-search",
+    "tokens-first-count",
     "tokens-pause",
     "tokens-no-network",
     "tokens-refresh-failed",
@@ -1109,6 +1110,15 @@ fn tokens_state(s: &mut evolite_api::Snapshot, name: &str) {
         "tokens-first-search" => {
             w.tokens.rows.clear();
             w.tokens.search = first(SearchState::Running);
+        }
+        // BUG-132: the first pass before the network's count is known.
+        "tokens-first-count" => {
+            w.tokens.rows.clear();
+            w.tokens.search = TokenSearch {
+                total: None,
+                left_secs: None,
+                ..first(SearchState::Running)
+            };
         }
         "tokens-pause" => {
             w.tokens.rows.clear();

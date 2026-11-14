@@ -94,6 +94,15 @@ fn with_name(amount: u64, info: &TokenInfo) -> String {
     )
 }
 
+/// «•••• · Evo Coffee» while amounts are hidden: what a person holds, outside its row (BUG-129).
+fn held_with_name(amount: u64, info: &TokenInfo) -> String {
+    format!(
+        "{} · {}",
+        state::held_amount(amount, info.decimals),
+        crate::i18n::own(state::name(info))
+    )
+}
+
 /// The words of a refusal before the password (R-3).
 fn problem_text(problem: &state::FormProblem, info: &TokenInfo, who: &str) -> String {
     use state::FormProblem::*;
@@ -102,7 +111,7 @@ fn problem_text(problem: &state::FormProblem, info: &TokenInfo, who: &str) -> St
         Amount => tr!("Not an amount of this token").into(),
         MoreThan(balance) => format!(
             tr!("More than you have: {} available."),
-            with_name(*balance, info)
+            held_with_name(*balance, info)
         ),
         NoCredits => format!(
             tr!("Not enough credits for the fee: top up {}."),
@@ -122,7 +131,7 @@ fn problem_text(problem: &state::FormProblem, info: &TokenInfo, who: &str) -> St
         Token(TokenRefusal::Zero) => tr!("Not an amount of this token").into(),
         Token(TokenRefusal::MoreThanBalance(balance)) => format!(
             tr!("More than you have: {} available."),
-            with_name(*balance, info)
+            held_with_name(*balance, info)
         ),
         Token(TokenRefusal::NoCredits) => format!(
             tr!("Not enough credits for the fee: top up {}."),
@@ -302,7 +311,7 @@ pub(super) fn send_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, tokens: &mu
                         });
                         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                             ui.label(
-                                egui::RichText::new(state::written(balance, row.info.decimals))
+                                egui::RichText::new(state::held_amount(balance, row.info.decimals))
                                     .font(mono(13.0, Weight::Medium))
                                     .color(p.text),
                             );
@@ -471,7 +480,7 @@ pub(super) fn send_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, tokens: &mu
                     ui,
                     &p,
                     tr!("Left after"),
-                    &crate::i18n::own(&with_name(balance.saturating_sub(amount), &row.info)),
+                    &crate::i18n::own(&held_with_name(balance.saturating_sub(amount), &row.info)),
                     value,
                 );
                 notice(

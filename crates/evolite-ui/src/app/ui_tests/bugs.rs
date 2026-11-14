@@ -1060,3 +1060,32 @@ fn the_unlock_links_are_named_in_reading_order() {
         }
     }
 }
+
+/// Pass-22 design review: «Keep in mind» on «Tokens» in Arabic is broken in reading order, as
+/// every paragraph since BUG-119: its first words in the top row, its last word in the bottom.
+#[test]
+fn tokens_keep_in_mind_in_arabic_reads_down_from_its_first_row() {
+    const KEY: &str = "Tokens with a zero balance do not appear in the list — add such a token by id. Payouts are not in the balance: if a perpetual distribution may have something to claim, the token is marked “something to claim”. Payouts of distributions to evonodes and of pre-programmed distributions are not shown here. Token balances and transfers are visible to everyone on the network.";
+    let (_turn, mut kit) = demo_app("tokens", "ar");
+    // Tall enough for the block under the seven rows to be painted.
+    kit.set_size(egui::vec2(1024.0, 1400.0));
+    kit.run_steps(4);
+    let said = crate::i18n::t_in(crate::i18n::Lang::Ar, KEY).into_owned();
+    let words: Vec<&str> = said.split(' ').collect();
+    let (first, last) = (words[0], words[words.len() - 1].trim_end_matches('.'));
+    let galley = painted_galleys(&kit)
+        .into_iter()
+        .find(|g| g.text().contains(first) && g.text().contains(last))
+        .expect("the paragraph");
+    let rows: Vec<&str> = galley.text().split('\n').collect();
+    assert!(rows.len() > 1, "broken into lines before egui: {rows:?}");
+    assert_eq!(galley.rows.len(), rows.len(), "egui broke no line again");
+    assert!(
+        rows[0].contains(first),
+        "«{first}» in the top row: {rows:?}"
+    );
+    assert!(
+        rows[rows.len() - 1].contains(last),
+        "«{last}» in the bottom row: {rows:?}"
+    );
+}

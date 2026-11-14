@@ -1707,5 +1707,12 @@
   "The balance is not checked yet — you can send after the check.": "Баланс ещё не проверен — отправить можно после проверки.",
   "The recipient is not found on the network.": "Получатель не найден в сети.",
   "You can add a token with a zero balance too.": "Можно добавить и токен с нулевым балансом.",
-  "Return to the list": "Вернуть в список"
+  "Return to the list": "Вернуть в список",
+  "The token list is kept on this computer. After a restore from the phrase, the search finds the tokens with a balance again, hidden ones included: hide them again if needed. Tokens added by hand with a zero balance do not come back — add them again by id.": "Список токенов хранится только на этом компьютере. После восстановления по фразе поиск снова найдёт токены с балансом — и скрытые тоже, их придётся скрыть заново. Добавленные вручную токены с нулевым балансом не вернутся — добавьте их снова по id.",
+  "Remove": "Убрать",
+  "{} network contract read|{} network contracts read": {
+    "one": "Прочитан {} контракт сети",
+    "few": "Прочитано {} контракта сети",
+    "many": "Прочитано {} контрактов сети"
+  }
 }

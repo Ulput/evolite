@@ -31,6 +31,11 @@ const COMES_BACK: &str = tr!(
 const ADDRESS_BACK: &str = tr!(
     "Its balance comes back, but not its earlier operations: the network keeps only the balance of an address."
 );
+/// BUG-130 (FEAT-0019 R-1, AC-A6): the token list is this computer's; a restore finds again only
+/// the tokens with a balance.
+const TOKENS_HERE: &str = tr!(
+    "The token list is kept on this computer. After a restore from the phrase, the search finds the tokens with a balance again, hidden ones included: hide them again if needed. Tokens added by hand with a zero balance do not come back — add them again by id."
+);
 pub const KEPT_HERE: &str = tr!("Kept only on this computer");
 pub const KEPT_HERE_TEXT: &str = tr!(
     "Payment notes, the address book and settings, as well as records of credit transfers, app sign-ins and exact Platform fees. The phrase does not bring them back."
@@ -116,6 +121,7 @@ pub(super) fn backup(
         &[
             (WHAT_COMES_BACK, COMES_BACK),
             (tr!("Platform address"), ADDRESS_BACK),
+            (tr!("Tokens"), TOKENS_HERE),
             (KEPT_HERE, KEPT_HERE_TEXT),
         ],
     );

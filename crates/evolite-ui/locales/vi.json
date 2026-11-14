@@ -1683,5 +1683,10 @@
   "Core: receive, send, history, your own node. Platform: identities, DPNS names, credits, Platform address. DashPay contacts and profile, the private pool, app sign-in by App Connect v2 with a spending limit and a period, the Jembe NFT collection, mainnet by a launch flag": "Core: nhận, gửi, lịch sử, nút riêng. Platform: danh tính, tên DPNS, tín dụng, địa chỉ Platform. Liên hệ và hồ sơ DashPay, pool riêng tư, đăng nhập ứng dụng bằng App Connect v2 với hạn mức chi tiêu và thời hạn, bộ sưu tập NFT Jembe, mainnet qua tùy chọn khởi chạy",
   "Giving, selling and receiving NFTs by link": "Tặng, bán và nhận NFT qua liên kết",
   "Signs in with the identity chosen in “Work as”; you can change it there.": "Đăng nhập bằng danh tính đã chọn ở “Làm việc với tư cách”; bạn có thể đổi ở đó.",
-  "The limit is less than the app needs": "Hạn mức ít hơn mức ứng dụng cần"
+  "The limit is less than the app needs": "Hạn mức ít hơn mức ứng dụng cần",
+  "The token list is kept on this computer. After a restore from the phrase, the search finds the tokens with a balance again, hidden ones included: hide them again if needed. Tokens added by hand with a zero balance do not come back — add them again by id.": "Danh sách token chỉ được lưu trên máy tính này. Sau khi khôi phục bằng cụm từ, tìm kiếm sẽ tìm lại các token có số dư, kể cả token đã ẩn: hãy ẩn lại nếu cần. Token thêm thủ công có số dư bằng 0 sẽ không quay lại — hãy thêm lại bằng id.",
+  "Remove": "Gỡ",
+  "{} network contract read|{} network contracts read": {
+    "other": "Đã đọc {} hợp đồng mạng"
+  }
 }

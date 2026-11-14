@@ -136,17 +136,20 @@ pub(crate) fn id_line(info: &TokenInfo, by_hand: bool) -> String {
     line
 }
 
-/// A paragraph at FEAT-0033's line height (1.5 of the size), at most `max` wide.
+/// A paragraph at FEAT-0033's line height (1.5 of the size), at most `max` wide. Through
+/// [`crate::components::para`], so Arabic is broken in reading order (BUG-119; pass-22 design
+/// review, «Keep in mind»).
 pub(crate) fn para(ui: &mut Ui, text: &str, size: f32, color: egui::Color32, max: Option<f32>) {
-    let words = txt(text, size, Weight::Regular, color).line_height(Some((size * 1.5).round()));
+    let words = crate::components::para(text, size, Weight::Regular, color)
+        .line_height((size * 1.5).round());
     match max {
         Some(max) if ui.available_width() > max => {
             ui.allocate_ui(vec2(max, 0.0), |ui| {
-                ui.vertical_centered(|ui| ui.label(words));
+                ui.vertical_centered(|ui| ui.add(words));
             });
         }
         _ => {
-            ui.label(words);
+            ui.add(words);
         }
     }
 }
@@ -157,10 +160,31 @@ fn tile(ui: &mut Ui, a: &mut Assets, icon: &str, color: egui::Color32) {
     crate::components::paint_icon_box(ui, a, rect, 10, icon, 20.0, color);
 }
 
-/// The search's bar: 6 high, the track `raised`, the part done in `fill`.
-fn bar(ui: &mut Ui, track: egui::Color32, fill: egui::Color32, fraction: f32) {
+/// The search's bar: 6 high, the track `raised`, the part done in `fill`. `None`: the share is
+/// unknown (BUG-132), and a third of the track runs along it. With the system's animations off
+/// the track stays empty: a third standing still would read as a share (design review), and
+/// the line under it says how many were read.
+fn bar(ui: &mut Ui, track: egui::Color32, fill: egui::Color32, fraction: Option<f32>) {
     let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), 6.0), Sense::hover());
     ui.painter().rect_filled(rect, CornerRadius::same(3), track);
+    let Some(fraction) = fraction else {
+        if !crate::motion::system_on(ui.ctx()) {
+            return;
+        }
+        ui.ctx().request_repaint();
+        let width = rect.width() / 3.0;
+        // Across in 1.6 s, from just before the track to just past it.
+        let phase = (ui.input(|i| i.time) / 1.6).fract() as f32;
+        let start = rect.left() - width + phase * (rect.width() + width);
+        let run = Rect::from_min_max(
+            egui::pos2(start.max(rect.left()), rect.top()),
+            egui::pos2((start + width).min(rect.right()), rect.bottom()),
+        );
+        if run.width() > 0.0 {
+            ui.painter().rect_filled(run, CornerRadius::same(3), fill);
+        }
+        return;
+    };
     let mut done = rect;
     done.set_width(rect.width() * fraction.clamp(0.0, 1.0));
     if done.width() > 0.0 {
@@ -289,7 +313,8 @@ pub fn tokens(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut TokensState
                     add |= empty(ui, a, &name, &search);
                 }
             } else if let Some(token_id) = list(ui, a, &rows, state, who) {
-                // A found token taken out is hidden, so the search does not bring it back (R-11).
+                // Taken out: a found one is hidden, so the search does not bring it back (R-11); one added
+                // by hand leaves the list (BUG-131).
                 cx.send(Command::TrackToken {
                     token_id,
                     on: false,
@@ -403,7 +428,8 @@ fn identity_row(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx) {
     }
 }
 
-/// «1 840 of 4 175 contracts · about a minute left»: the time only once the pace is known.
+/// «1 840 of 4 175 contracts · about a minute left», or «1 840 network contracts read» while the
+/// network's count is unknown (BUG-132): the time only once the pace is known.
 pub(crate) fn progress_text(search: &TokenSearch) -> String {
     let checked = crate::format::count(search.checked as u64);
     let mut line = match search.total {
@@ -413,7 +439,13 @@ pub(crate) fn progress_text(search: &TokenSearch) -> String {
             crate::format::count(total as u64)
         ))
         .into_owned(),
-        None => checked,
+        // BUG-132: what is counted, while the network's count is unknown.
+        None => crate::i18n::t(&grouped_plural(
+            search.checked,
+            tr!("network contract read"),
+            tr!("network contracts read"),
+        ))
+        .into_owned(),
     };
     if let Some(left) = search.left_secs.filter(|s| *s > 0) {
         line.push_str(" · ");
@@ -429,11 +461,19 @@ pub(crate) fn progress_text(search: &TokenSearch) -> String {
     line
 }
 
-/// The share of the network's contracts checked.
-fn checked_share(search: &TokenSearch) -> f32 {
+/// «1,800 network contracts read»: [`crate::text::plural`] with the count grouped, one catalog
+/// key in both forms.
+fn grouped_plural(n: u32, one: &str, other: &str) -> String {
+    let form = if n == 1 { one } else { other };
+    format!("{} {form}", crate::format::count(n as u64))
+}
+
+/// The share of the network's contracts checked; `None` while their count is unknown.
+fn checked_share(search: &TokenSearch) -> Option<f32> {
     match search.total {
-        Some(total) if total > 0 => (search.checked as f32 / total as f32).clamp(0.0, 1.0),
-        _ => 0.0,
+        Some(total) if total > 0 => Some((search.checked as f32 / total as f32).clamp(0.0, 1.0)),
+        Some(_) => Some(0.0),
+        None => None,
     }
 }
 
@@ -507,7 +547,8 @@ fn no_network(ui: &mut Ui, a: &mut Assets, search: &TokenSearch) -> bool {
             ));
         });
         // The part checked stays shown, muted (review 3c).
-        bar(ui, p.raised, p.muted, checked_share(search));
+        // Stopped: the bar stands, even while the share is unknown.
+        bar(ui, p.raised, p.muted, Some(checked_share(search).unwrap_or(0.0)));
         ui.label(txt(&progress_text(&TokenSearch { left_secs: None, ..search.clone() }), 12.0, Weight::Regular, p.muted));
         let total = search.total.unwrap_or(search.checked);
         para(
@@ -606,7 +647,7 @@ fn empty(ui: &mut Ui, a: &mut Assets, name: &str, search: &TokenSearch) -> bool 
     add
 }
 
-/// T2: the rows; the token whose «Hide» was clicked.
+/// T2: the rows; the token whose «Hide» or «Remove» was clicked.
 fn list(
     ui: &mut Ui,
     a: &mut Assets,
@@ -664,7 +705,7 @@ fn token_row(ui: &mut Ui, a: &mut Assets, row: &TokenRow, who: Sender) -> RowAct
     ));
     let mut action = RowAction::None;
     let balance = match row.balance {
-        Some(b) => state::written(b, row.info.decimals),
+        Some(b) => state::held_amount(b, row.info.decimals),
         // Not read yet: never shown as 0 (AC-T5).
         None => "—".to_owned(),
     };
@@ -687,29 +728,29 @@ fn token_row(ui: &mut Ui, a: &mut Assets, row: &TokenRow, who: Sender) -> RowAct
                             Weight::SemiBold,
                             p.text,
                         ));
-                        if row.origin == TokenOrigin::Found {
+                        // A found token is hidden, so the search does not bring it back; one
+                        // added by hand is removed from the list (BUG-131). The core tells
+                        // them apart by the origin it keeps.
+                        let take_out = if row.origin == TokenOrigin::Found {
                             flag(ui, a, "search", tr!("found automatically"));
-                            // A label that clicks, not `ui.link`: it is mirrored in Arabic as
-                            // the words beside it are.
-                            let hide = ui
-                                .add(
-                                    egui::Label::new(
-                                        txt(tr!("Hide"), 12.0, Weight::Regular, p.muted)
-                                            .underline(),
-                                    )
-                                    .extend()
-                                    .sense(Sense::click()),
+                            tr!("Hide")
+                        } else {
+                            tr!("Remove")
+                        };
+                        // A label that clicks, not `ui.link`: it is mirrored in Arabic as the
+                        // words beside it are.
+                        let out = ui
+                            .add(
+                                egui::Label::new(
+                                    txt(take_out, 12.0, Weight::Regular, p.muted).underline(),
                                 )
-                                .on_hover_cursor(egui::CursorIcon::PointingHand);
-                            crate::components::named(
-                                &hide,
-                                egui::WidgetType::Button,
-                                true,
-                                tr!("Hide"),
-                            );
-                            if hide.clicked() {
-                                action = RowAction::Hide;
-                            }
+                                .extend()
+                                .sense(Sense::click()),
+                            )
+                            .on_hover_cursor(egui::CursorIcon::PointingHand);
+                        crate::components::named(&out, egui::WidgetType::Button, true, take_out);
+                        if out.clicked() {
+                            action = RowAction::Hide;
                         }
                         if row.paused == Some(true) {
                             flag(ui, a, "info", tr!("paused"));
@@ -794,4 +835,63 @@ fn keep_in_mind(ui: &mut Ui, a: &mut Assets) {
             None,
         );
     });
+}
+
+#[cfg(test)]
+mod progress_tests {
+    use super::*;
+
+    fn search(checked: u32, total: Option<u32>, left_secs: Option<u32>) -> TokenSearch {
+        TokenSearch {
+            state: SearchState::Running,
+            checked,
+            total,
+            left_secs,
+            done: None,
+            failed: false,
+        }
+    }
+
+    /// BUG-132: while the network's count is unknown the line says what is counted; once it is
+    /// known, «N of M contracts».
+    #[test]
+    fn the_progress_says_what_it_counts() {
+        let n = crate::format::count(1_800);
+        crate::i18n::set(crate::i18n::Lang::En);
+        assert_eq!(
+            progress_text(&search(1_800, None, None)),
+            format!("{n} network contracts read")
+        );
+        assert_eq!(
+            progress_text(&search(1_800, None, Some(60))),
+            format!("{n} network contracts read · about a minute left")
+        );
+        assert_eq!(
+            progress_text(&search(1, None, None)),
+            "1 network contract read"
+        );
+        assert_eq!(
+            progress_text(&search(1_800, Some(4_190), None)),
+            format!("{n} of {} contracts", crate::format::count(4_190))
+        );
+        crate::i18n::set(crate::i18n::Lang::Ru);
+        assert_eq!(
+            progress_text(&search(1_800, None, None)),
+            "Прочитано 1\u{a0}800 контрактов сети"
+        );
+        assert_eq!(
+            progress_text(&search(21, None, None)),
+            "Прочитан 21 контракт сети"
+        );
+        // Design review: the three Russian forms, not the two English ones.
+        assert_eq!(
+            progress_text(&search(1_841, None, None)),
+            "Прочитан 1\u{a0}841 контракт сети"
+        );
+        assert_eq!(
+            progress_text(&search(1_842, None, None)),
+            "Прочитано 1\u{a0}842 контракта сети"
+        );
+        crate::i18n::set(crate::i18n::Lang::En);
+    }
 }

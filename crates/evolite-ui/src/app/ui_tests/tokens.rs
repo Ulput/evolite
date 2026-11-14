@@ -243,3 +243,92 @@ fn a_hidden_token_can_be_returned_from_add() {
     button(&kit, "Cancel").click();
     wait_for(&mut kit, "the row back", |kit| rows_named(kit) > 0);
 }
+
+/// BUG-129: «Hide amounts» hides what a person holds of a token, as it hides DASH: the row's
+/// balance, «available» in the form and «Left after» in the review. What they send stays.
+#[test]
+fn hidden_amounts_hide_token_balances() {
+    {
+        let (_turn, mut kit) = demo_app("tokens", "en");
+        kit.run_steps(3);
+        assert!(has_text(&kit, "125.50"), "Evo Coffee's balance at first");
+        kit.state_mut().settings.flip_hide_amounts();
+        kit.run_steps(3);
+        assert!(!has_words(&kit, "125.50"), "the balance hidden in the row");
+        assert!(has_text(&kit, "••••"), "«••••» in its place");
+    }
+
+    let (_turn, mut kit) = demo_app("tokens-review", "en");
+    kit.state_mut().settings.flip_hide_amounts();
+    wait_for(&mut kit, "the review", |kit| {
+        has_text(kit, "Check the transfer")
+    });
+    kit.run_steps(2);
+    for held in ["125.50", "120.50"] {
+        assert!(!has_words(&kit, held), "{held} hidden in the review");
+    }
+    assert!(
+        has_words(&kit, "Left after: •••• · Evo Coffee"),
+        "«Left after» masked, the name kept"
+    );
+    assert!(
+        has_words(&kit, "Amount: 5.00 · Evo Coffee"),
+        "the amount sent stays"
+    );
+}
+
+/// BUG-130 (R-1, AC-A6): «Backup» says that the token list stays on this computer, and what a
+/// restore brings back of it.
+#[test]
+fn backup_says_the_token_list_is_kept_here() {
+    const TOKENS: &str = "The token list is kept on this computer. After a restore from the phrase, the search finds the tokens with a balance again, hidden ones included: hide them again if needed. Tokens added by hand with a zero balance do not come back — add them again by id.";
+    {
+        let (_turn, kit) = demo_app("backup", "en");
+        assert!(has_text(&kit, TOKENS));
+    }
+    let (_turn, kit) = demo_app("backup", "ru");
+    assert!(has_text(
+        &kit,
+        "Список токенов хранится только на этом компьютере. После восстановления по фразе поиск снова найдёт токены с балансом — и скрытые тоже, их придётся скрыть заново. Добавленные вручную токены с нулевым балансом не вернутся — добавьте их снова по id."
+    ));
+}
+
+/// BUG-131: a token added by hand has «Remove» where a found one has «Hide», and after the
+/// click its row leaves the list. A found one keeps «Hide».
+#[test]
+fn a_token_added_by_hand_can_be_removed() {
+    let (_turn, mut kit) = demo_app("tokens", "en");
+    kit.run_steps(3);
+    let count =
+        |kit: &Kit, label: &str| kit.query_all_by_role_and_label(Role::Button, label).count();
+    let rows_named = |kit: &Kit| {
+        kit.query_all_by(|n| n.value().as_deref() == Some("Workshop Hours"))
+            .count()
+    };
+    let (removes, hides) = (count(&kit, "Remove"), count(&kit, "Hide"));
+    assert!(
+        removes >= 3,
+        "a «Remove» on each row added by hand: {removes}"
+    );
+    assert!(hides >= 1, "found rows keep «Hide»");
+    assert!(
+        rows_named(&kit) > 0,
+        "Workshop Hours, added by hand, in the list"
+    );
+    kit.query_all_by_role_and_label(Role::Button, "Remove")
+        .min_by(|a, b| a.rect().top().total_cmp(&b.rect().top()))
+        .expect("the first «Remove»")
+        .click();
+    wait_for(&mut kit, "the row removed", |kit| rows_named(kit) == 0);
+    assert_eq!(count(&kit, "Remove"), removes - 1);
+    assert_eq!(count(&kit, "Hide"), hides);
+}
+
+/// BUG-132: before the network's count is known, the first search says what it counts.
+#[test]
+fn the_first_search_says_what_it_counts() {
+    let (_turn, mut kit) = demo_app("tokens-first-count", "en");
+    kit.run_steps(3);
+    assert!(has_text(&kit, "Looking for your tokens on the network…"));
+    assert!(has_text(&kit, "1,840 network contracts read"));
+}

@@ -211,7 +211,7 @@ pub const PRESETS: &[&str] = &[
     "apps", "connect", "connect-limits", "connect-renew", "refused-v1", "refused-stale",
     "refused-mainnet", "apps-disconnected", "apps-renew", "apps-disconnect", "apps-remove",
     "collection", "gift",
-    "tokens", "tokens-first-search", "tokens-pause", "tokens-no-network", "tokens-refresh-failed",
+    "tokens", "tokens-first-search", "tokens-first-count", "tokens-pause", "tokens-no-network", "tokens-refresh-failed",
     "tokens-empty", "tokens-send", "tokens-review", "tokens-add", "tokens-mainnet",
     "tokens-send-address", "tokens-send-more", "tokens-send-credits", "tokens-send-unknown",
     "tokens-add-one", "tokens-add-many", "tokens-add-none", "tokens-add-hidden",
@@ -410,6 +410,7 @@ fn dev_args<'a>(
             Some(
                 "tokens"
                 | "tokens-first-search"
+                | "tokens-first-count"
                 | "tokens-pause"
                 | "tokens-no-network"
                 | "tokens-refresh-failed"

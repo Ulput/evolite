@@ -1703,5 +1703,12 @@
   "Core: receive, send, history, your own node. Platform: identities, DPNS names, credits, Platform address. DashPay contacts and profile, the private pool, app sign-in by App Connect v2 with a spending limit and a period, the Jembe NFT collection, mainnet by a launch flag": "Core: recibir, enviar, historial, nodo propio. Platform: identidades, nombres DPNS, créditos, dirección de Platform. Contactos y perfil de DashPay, pool privado, inicio de sesión en apps con App Connect v2 con límite de gasto y plazo, colección de NFT de Jembe, mainnet con una opción de inicio",
   "Giving, selling and receiving NFTs by link": "Regalar, vender y recibir NFT por enlace",
   "Signs in with the identity chosen in “Work as”; you can change it there.": "Inicia sesión con la identidad elegida en «Trabajar como»; puede cambiarla allí.",
-  "The limit is less than the app needs": "El límite es menor de lo que necesita la aplicación"
+  "The limit is less than the app needs": "El límite es menor de lo que necesita la aplicación",
+  "The token list is kept on this computer. After a restore from the phrase, the search finds the tokens with a balance again, hidden ones included: hide them again if needed. Tokens added by hand with a zero balance do not come back — add them again by id.": "La lista de tokens solo se guarda en este ordenador. Tras restaurar con la frase, la búsqueda vuelve a encontrar los tokens con saldo, también los ocultos: ocúltalos de nuevo si hace falta. Los tokens añadidos a mano con saldo cero no vuelven: añádelos de nuevo por su id.",
+  "Remove": "Quitar",
+  "{} network contract read|{} network contracts read": {
+    "one": "{} contrato de la red leído",
+    "many": "{} contratos de la red leídos",
+    "other": "{} contratos de la red leídos"
+  }
 }

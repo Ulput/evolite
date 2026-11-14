@@ -12,6 +12,16 @@ pub fn name(info: &evolite_api::tokens::TokenInfo) -> &str {
     evolite_api::tokens::name_in(info, crate::i18n::current().code())
 }
 
+/// What a person holds of a token as [`written`], or «••••» while «Hide amounts» is on (BUG-129,
+/// as `format::balance` for DASH). What they type or send is not hidden.
+pub fn held_amount(amount: TokenAmount, decimals: u8) -> String {
+    if crate::format::display().hide {
+        crate::format::mask("")
+    } else {
+        written(amount, decimals)
+    }
+}
+
 /// `amount` with the token's `decimals` in the chosen number format, thousands marked:
 /// «1 250,00», «12». No unit: the row shows the name beside it (R-4).
 pub fn written(amount: TokenAmount, decimals: u8) -> String {

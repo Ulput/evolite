@@ -1683,5 +1683,10 @@
   "Core: receive, send, history, your own node. Platform: identities, DPNS names, credits, Platform address. DashPay contacts and profile, the private pool, app sign-in by App Connect v2 with a spending limit and a period, the Jembe NFT collection, mainnet by a launch flag": "Core: terima, kirim, riwayat, node sendiri. Platform: identitas, nama DPNS, kredit, alamat Platform. Kontak dan profil DashPay, pool privat, masuk ke aplikasi lewat App Connect v2 dengan batas pengeluaran dan masa berlaku, koleksi NFT Jembe, mainnet lewat opsi peluncuran",
   "Giving, selling and receiving NFTs by link": "Memberi, menjual, dan menerima NFT lewat tautan",
   "Signs in with the identity chosen in “Work as”; you can change it there.": "Masuk dengan identitas yang dipilih di “Bertindak sebagai”; Anda bisa menggantinya di sana.",
-  "The limit is less than the app needs": "Batasnya kurang dari yang dibutuhkan aplikasi"
+  "The limit is less than the app needs": "Batasnya kurang dari yang dibutuhkan aplikasi",
+  "The token list is kept on this computer. After a restore from the phrase, the search finds the tokens with a balance again, hidden ones included: hide them again if needed. Tokens added by hand with a zero balance do not come back — add them again by id.": "Daftar token hanya disimpan di komputer ini. Setelah dipulihkan dari frasa, pencarian menemukan lagi token yang punya saldo, termasuk yang disembunyikan: sembunyikan lagi bila perlu. Token yang ditambahkan manual dengan saldo nol tidak kembali — tambahkan lagi lewat id.",
+  "Remove": "Hapus",
+  "{} network contract read|{} network contracts read": {
+    "other": "{} kontrak jaringan dibaca"
+  }
 }

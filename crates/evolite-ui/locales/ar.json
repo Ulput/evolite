@@ -1733,5 +1733,15 @@
   "Core: receive, send, history, your own node. Platform: identities, DPNS names, credits, Platform address. DashPay contacts and profile, the private pool, app sign-in by App Connect v2 with a spending limit and a period, the Jembe NFT collection, mainnet by a launch flag": "Core: استلام وإرسال وسجل وعقدتك الخاصة. Platform: الهويات وأسماء DPNS والأرصدة وعنوان Platform. جهات اتصال DashPay وملفها الشخصي، والمجمّع الخاص، وتسجيل الدخول إلى التطبيقات عبر App Connect v2 بحد إنفاق ومدة، ومجموعة رموز NFT من Jembe، والشبكة الرئيسية بخيار تشغيل",
   "Giving, selling and receiving NFTs by link": "إهداء رموز NFT وبيعها واستلامها عبر رابط",
   "Signs in with the identity chosen in “Work as”; you can change it there.": "تسجيل الدخول بالهوية المختارة في «العمل باسم»؛ يمكن تغييرها هناك.",
-  "The limit is less than the app needs": "الحد أقل مما يحتاجه التطبيق"
+  "The limit is less than the app needs": "الحد أقل مما يحتاجه التطبيق",
+  "The token list is kept on this computer. After a restore from the phrase, the search finds the tokens with a balance again, hidden ones included: hide them again if needed. Tokens added by hand with a zero balance do not come back — add them again by id.": "تُحفظ قائمة الرموز على هذا الحاسوب فقط. بعد الاستعادة من العبارة، يعثر البحث من جديد على الرموز التي لها رصيد، بما فيها المخفية: أخفِها مجددًا إن لزم. أما الرموز المضافة يدويًا برصيد صفري فلا تعود — أضفها مجددًا بمعرّفها id.",
+  "Remove": "إزالة",
+  "{} network contract read|{} network contracts read": {
+    "zero": "قُرئ من الشبكة {} عقد",
+    "one": "قُرئ من الشبكة عقد واحد",
+    "two": "قُرئ من الشبكة عقدان",
+    "few": "قُرئت من الشبكة {} عقود",
+    "many": "قُرئ من الشبكة {} عقدًا",
+    "other": "قُرئ من الشبكة {} عقد"
+  }
 }

@@ -1713,5 +1713,13 @@
   "Core: receive, send, history, your own node. Platform: identities, DPNS names, credits, Platform address. DashPay contacts and profile, the private pool, app sign-in by App Connect v2 with a spending limit and a period, the Jembe NFT collection, mainnet by a launch flag": "Core: прийом, надсилання, історія, свій вузол. Platform: identity, імена DPNS, кредити, адреса Platform. Контакти й профіль DashPay, приватний пул, вхід у застосунки за App Connect v2 з лімітом витрат і строком, колекція NFT Jembe, mainnet за прапорцем запуску",
   "Giving, selling and receiving NFTs by link": "Дарування, продаж і отримання NFT за посиланням",
   "Signs in with the identity chosen in “Work as”; you can change it there.": "Вхід — identity з «Працювати як»; змінити її можна там.",
-  "The limit is less than the app needs": "Ліміт менший, ніж потрібно застосунку"
+  "The limit is less than the app needs": "Ліміт менший, ніж потрібно застосунку",
+  "The token list is kept on this computer. After a restore from the phrase, the search finds the tokens with a balance again, hidden ones included: hide them again if needed. Tokens added by hand with a zero balance do not come back — add them again by id.": "Список токенів зберігається лише на цьому комп’ютері. Після відновлення з фрази пошук знову знайде токени з балансом — і приховані теж, їх доведеться приховати знову. Додані вручну токени з нульовим балансом не повернуться — додайте їх знову за id.",
+  "Remove": "Прибрати",
+  "{} network contract read|{} network contracts read": {
+    "one": "Прочитано {} контракт мережі",
+    "few": "Прочитано {} контракти мережі",
+    "many": "Прочитано {} контрактів мережі",
+    "other": "Прочитано {} контракту мережі"
+  }
 }
