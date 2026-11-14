@@ -164,9 +164,27 @@ pub(super) fn wallets(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut Set
                     max,
                 );
                 ui.painter().galley(pos2(x, row.top() + 17.0), name, p.text);
-                let line = crate::i18n::t(&crate::screens::wallets::settings_line(w, snap, cx.now))
-                    .into_owned();
-                let line = ui.painter().layout(line, style(SMALL), p.muted, max);
+                // At most two rows, the second ending in «…»: the row is 73 high, and a third
+                // crossed the divider under it (de at 800 × 440, FEAT-0033 design review).
+                // Arabic is cut by words from its end in reading order (BUG-118).
+                let line = crate::components::cut_to(
+                    ui.ctx(),
+                    &crate::screens::wallets::settings_line(w, snap, cx.now),
+                    &style(SMALL),
+                    max,
+                    2,
+                );
+                let mut job = egui::text::LayoutJob::single_section(
+                    line,
+                    egui::TextFormat::simple(style(SMALL), p.muted),
+                );
+                job.wrap = egui::text::TextWrapping {
+                    max_width: max,
+                    max_rows: 2,
+                    break_anywhere: false,
+                    overflow_character: Some('…'),
+                };
+                let line = ui.painter().layout_job(job);
                 ui.painter()
                     .galley(pos2(x, row.top() + 40.0), line, p.muted);
                 if state.wallet_more.as_deref() == Some(w.id.as_str()) {
