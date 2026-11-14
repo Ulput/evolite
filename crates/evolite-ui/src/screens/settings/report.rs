@@ -8,7 +8,6 @@ use crate::components::{
     field_label, notice, segmented, text_area, text_field,
 };
 use crate::context::Ctx;
-use crate::theme::mono;
 use crate::theme::type_scale::{SMALL, UI};
 use egui::Ui;
 use std::path::{Path, PathBuf};
@@ -197,6 +196,37 @@ fn encode(text: &str) -> String {
     out
 }
 
+/// The whole letter as the preview shows it (BUG-158): «To» and «Subject» in the interface
+/// language; the address, the subject and every line of the body exactly as they are sent,
+/// each marked as written words ([`crate::i18n::own`]). So none of them is translated (a typed
+/// line that happened to be a phrase of the interface came out in Arabic), and in the Arabic
+/// interface each reads left to right whole: the address unbroken, a full stop or a bracket
+/// where it was written, not flipped to the other end. Only the preview: the email and the
+/// saved report are the letter's own text.
+fn shown_letter(subject: &str, body: &str) -> String {
+    // Line by line: an isolate must open and close on one line.
+    let as_written = |text: &str| {
+        text.split('\n')
+            .map(|line| {
+                if line.trim().is_empty() {
+                    line.to_owned()
+                } else {
+                    crate::i18n::own(line)
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+    let letter = format!(
+        tr!("To: {TO}\nSubject: {subject}\n\n{body}"),
+        TO = crate::i18n::own(TO),
+        subject = as_written(subject),
+        body = as_written(body)
+    );
+    // The letter's labels are translated line by line, not as a template.
+    crate::i18n::t_in(crate::i18n::current(), &letter).into_owned()
+}
+
 /// The `mailto:` link, the body cut to fit [`MAILTO_MAX`] when needed (and then saying so).
 pub fn mailto(subject: &str, body: &str) -> String {
     let link = |body: &str| {
@@ -332,7 +362,7 @@ fn fields_step(ui: &mut Ui, a: &mut Assets, form: &mut ReportForm, room: f32) ->
                 ui.spacing_mut().item_spacing.y = 14.0;
                 ui.add(
                     crate::components::para(
-                        &format!(tr!("The email goes to the developers at {TO} from your mail app. You will see all of it before sending."), TO = TO), UI.size, UI.weight, p.muted).line_height(UI.line),
+                        &format!(tr!("The email goes to the developers at {TO} from your mail app. You will see all of it before sending."), TO = crate::i18n::own(TO)), UI.size, UI.weight, p.muted).line_height(UI.line),
                 );
                 let field = |ui: &mut Ui, label: &str, add: &mut dyn FnMut(&mut Ui)| {
                     ui.vertical(|ui| {
@@ -399,12 +429,7 @@ fn letter_step(
         crate::components::para(
             tr!("The whole email, as the recipient will see it. If everything is right, open it in your mail app or save it together with the journal."), UI.size, UI.weight, p.muted).line_height(UI.line),
     );
-    let preview = format!(
-        tr!("To: {TO}\nSubject: {subject}\n\n{body}"),
-        TO = TO,
-        subject = subject,
-        body = body
-    );
+    let preview = shown_letter(&subject, &body);
     egui::Frame::new()
         .fill(p.raised)
         .corner_radius(egui::CornerRadius::same(10))
@@ -416,13 +441,11 @@ fn letter_step(
                 .auto_shrink([false, true])
                 .show(ui, |ui| {
                     ui.set_max_width(ui.available_width() - 10.0);
+                    // Words in Inter 12·18, as the designer asked (FEAT-0033 review): the
+                    // email is read, not a log. A paragraph, so Arabic wraps in reading order.
                     ui.add(
-                        egui::Label::new(
-                            egui::RichText::new(crate::i18n::t(&preview))
-                                .font(mono(SMALL.size, SMALL.weight))
-                                .color(p.text),
-                        )
-                        .wrap(),
+                        crate::components::para(&preview, SMALL.size, SMALL.weight, p.text)
+                            .line_height(SMALL.line),
                     );
                 });
         });
@@ -489,6 +512,47 @@ fn letter_step(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// BUG-158: in the Arabic interface the preview's «To» and «Subject» are Arabic, while the
+    /// address, the subject and the body are as sent: not translated (a typed line that is also
+    /// a phrase of the interface stayed English), each drawn left to right whole — the address
+    /// unbroken, the subject's brackets and a full stop where they were written. The sentence
+    /// above the form keeps the address whole too.
+    #[test]
+    fn the_preview_shows_the_letter_as_sent_and_whole_in_arabic() {
+        crate::i18n::set(crate::i18n::Lang::Ar);
+        let shown = shown_letter(
+            "[evolite 0.1.0] A payment",
+            "WHAT I EXPECTED\nThe payment review window.",
+        );
+        let drawn = crate::i18n::t(&shown).into_owned();
+        let sentence = crate::i18n::t(&format!(
+            tr!("The email goes to the developers at {TO} from your mail app. You will see all of it before sending."),
+            TO = crate::i18n::own(TO)
+        ))
+        .into_owned();
+        crate::i18n::set(crate::i18n::Lang::En);
+        let lines: Vec<&str> = shown.split('\n').collect();
+        assert!(lines[0].contains("إلى"), "«To» in Arabic: {lines:?}");
+        assert!(
+            lines[1].chars().any(crate::i18n::is_rtl_char),
+            "«Subject» in Arabic: {lines:?}"
+        );
+        assert_eq!(lines[3], crate::i18n::own("WHAT I EXPECTED"));
+        assert_eq!(
+            lines[4],
+            crate::i18n::own("The payment review window."),
+            "not translated"
+        );
+        for whole in [
+            TO,
+            "[evolite 0.1.0] A payment",
+            "The payment review window.",
+        ] {
+            assert!(drawn.contains(whole), "{whole:?} whole in {drawn:?}");
+        }
+        assert!(sentence.contains(TO), "the address whole: {sentence:?}");
+    }
 
     fn form() -> ReportForm {
         ReportForm {
