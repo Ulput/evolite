@@ -105,10 +105,23 @@ fn sweep(preset: &str) -> Vec<String> {
     // sync answers all the time; [`place`] stops its round where it moves on.
     let snapshot = kit.state().snapshot.clone();
     let answered = |k: &Kit| !staged && k.state().snapshot != snapshot;
-    round(&mut kit, preset, answered).unwrap_or_else(|| {
+    let found = round(&mut kit, preset, answered).unwrap_or_else(|| {
         settle(&mut kit);
         round(&mut kit, preset, |_| false).expect("a round")
-    })
+    });
+    if found.is_empty() {
+        return found;
+    }
+    // A problem counts when a second round, the screen let settle, finds it too (BUG-164): a
+    // Tab problem of the screen's own shows every time, while a late answer of the demo core
+    // under a loaded check redraws the screen once («send-mixed-changed: focus lost after
+    // «Wallet password»», 1 of 8 sweeps run at once, after the wait for the focus).
+    settle(&mut kit);
+    let again = round(&mut kit, preset, |_| false).expect("a round");
+    found
+        .into_iter()
+        .filter(|f| again.iter().any(|a| kind(a) == kind(f)))
+        .collect()
 }
 
 /// How long a Tab's focus may take to land before it counts as lost (BUG-164).
