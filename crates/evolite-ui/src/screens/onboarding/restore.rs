@@ -495,17 +495,20 @@ pub(super) fn found(ui: &mut Ui, a: &mut Assets, o: &mut Onboarding) {
             let boxr = Rect::from_min_size(pos2(rect.left() + 18.0, cy - 18.0), vec2(36.0, 36.0));
             crate::components::paint_icon_box(ui, a, boxr, 10, icon, 18.0, p.text);
             let x = boxr.right() + 14.0;
-            ui.painter().text(
+            // An identity's id in the monospace font (BUG-154).
+            crate::components::paint_text(
+                ui,
                 pos2(x, cy - 1.0),
                 Align2::LEFT_BOTTOM,
-                crate::i18n::t(title),
+                title,
                 sans(14.0, Weight::SemiBold),
                 p.text,
             );
-            ui.painter().text(
+            crate::components::paint_text(
+                ui,
                 pos2(x, cy + 2.0),
                 Align2::LEFT_TOP,
-                crate::i18n::t(sub),
+                sub,
                 sans(12.0, Weight::Regular),
                 p.muted,
             );

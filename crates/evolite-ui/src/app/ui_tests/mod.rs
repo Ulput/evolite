@@ -34,6 +34,7 @@ mod login;
 mod low_login;
 mod low_menu;
 mod mixed;
+mod mono_addresses;
 mod new_identity;
 mod notes;
 mod onboarding;

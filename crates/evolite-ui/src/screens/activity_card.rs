@@ -779,7 +779,7 @@ fn related_row(
     let ctx = ui.ctx().clone();
     let laid = |text: &str, font: egui::FontId, color| {
         let shown = crate::components::lines(&ctx, text, &font, wrap);
-        painter.layout(shown, font, color, wrap)
+        crate::components::ids_galley(&painter, &shown, font, color, wrap)
     };
     let title_galley = laid(title, sans(13.0, Weight::Medium), p.text);
     let sub_galley = sub.map(|s| laid(s, sans(12.0, Weight::Regular), p.muted));
@@ -996,11 +996,20 @@ fn side_row(ui: &mut Ui, p: &crate::theme::Palette, label: &str, side: &Side) {
     };
     let painter = ui.painter().clone();
     let ctx = ui.ctx().clone();
+    // An id in the words («8rd3…J38R · credits») in the monospace font (BUG-154).
     let laid = |text: &str, font: egui::FontId, color| {
         let shown = crate::components::lines(&ctx, text, &font, wrap);
-        painter.layout(shown, font, color, wrap)
+        crate::components::ids_galley(&painter, &shown, font, color, wrap)
     };
-    let value = laid(&side.value, font, p.text);
+    // A mono side keeps its figures and ids in mono, a name or words on it in Inter (BUG-154).
+    let value = if side.mono {
+        let shown = crate::components::lines(&ctx, &side.value, &font, wrap);
+        let mut job = crate::components::with_figures(&shown, font, p.text, None);
+        job.wrap.max_width = wrap;
+        painter.layout_job(job)
+    } else {
+        laid(&side.value, font, p.text)
+    };
     let sub = side
         .sub
         .as_deref()
@@ -1478,7 +1487,10 @@ fn card_title(ui: &mut Ui, p: &crate::theme::Palette, title: &str, width: f32) {
     let font = sans(20.0, Weight::Bold);
     let painter = ui.painter().clone();
     let shown = |s: &str| crate::i18n::visual(s).replace(['\u{2068}', '\u{2069}'], "");
-    let galley = |s: &str| painter.layout_no_wrap(shown(s), font.clone(), p.text);
+    // An address in the title in the monospace font (BUG-154).
+    let galley = |s: &str| {
+        crate::components::ids_galley(&painter, &shown(s), font.clone(), p.text, f32::INFINITY)
+    };
     let logical = crate::i18n::t_in(crate::i18n::current(), title).into_owned();
     let lines = fit_title(&logical, width, |s| galley(s).size().x);
     let galleys: Vec<_> = lines.iter().map(|l| galley(l)).collect();

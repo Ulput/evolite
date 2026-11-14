@@ -250,6 +250,10 @@ pub fn lookalike<'a>(address: &str, known: impl IntoIterator<Item = &'a str>) ->
         .find(|k| *k != address && ends(k).as_ref() == Some(&mine))
 }
 
+/// BUG-154: what is an address, a hash, an id or a key in a text (in `components::para`, which
+/// the installer shares).
+pub use crate::components::address_runs;
+
 /// "yXk3…9f2c": enough to compare by eye; a name stays as it is.
 pub fn short_address(s: &str) -> String {
     if s.starts_with('@') || s.chars().count() <= 12 {

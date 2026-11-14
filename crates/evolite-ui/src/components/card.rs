@@ -41,7 +41,7 @@ pub fn kv_row_in(
         sans(13.0, Weight::Regular),
         p.muted,
     );
-    paint_text(
+    paint_value(
         ui,
         rect.right_center(),
         Align2::RIGHT_CENTER,
@@ -49,6 +49,29 @@ pub fn kv_row_in(
         value_font,
         color,
     );
+}
+
+/// A row's value: in mono, its words in Inter ([`with_figures`], BUG-154) — «@satoshi ·
+/// credits»; in another font, as [`paint_text`] draws it.
+pub(crate) fn paint_value(
+    ui: &Ui,
+    pos: egui::Pos2,
+    anchor: Align2,
+    value: &str,
+    font: FontId,
+    color: egui::Color32,
+) -> Rect {
+    let mono = matches!(&font.family, egui::FontFamily::Monospace)
+        || matches!(&font.family, egui::FontFamily::Name(n) if n.starts_with("mono"));
+    if !mono {
+        return paint_text(ui, pos, anchor, value, font, color);
+    }
+    let galley = ui
+        .painter()
+        .layout_job(with_figures(&crate::i18n::t(value), font, color, None));
+    let rect = anchor.anchor_size(pos, galley.size());
+    ui.painter().galley(rect.min, galley, color);
+    rect
 }
 
 /// [`kv_row`] with the icon of [`amount_toggle`] right after the label (BUG-73: «Payments» of

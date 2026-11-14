@@ -111,12 +111,22 @@ pub const PILL_HEIGHT: f32 = 34.0;
 
 /// How wide [`pill`] is with `label`.
 pub fn pill_width(ui: &Ui, label: &str) -> f32 {
-    text_width(ui, label, sans(13.0, Weight::SemiBold)) + 28.0
+    pill_galley(ui, label, Color32::WHITE).size().x + 28.0
+}
+
+/// A pill's words; an address in them in the monospace font (BUG-154).
+fn pill_galley(ui: &Ui, label: &str, color: Color32) -> std::sync::Arc<egui::Galley> {
+    super::ids_galley(
+        ui.painter(),
+        &crate::i18n::t(label),
+        sans(13.0, Weight::SemiBold),
+        color,
+        f32::INFINITY,
+    )
 }
 
 /// A filter pill: ink when on, surface with a 1 px line when off. [`PILL_HEIGHT`] high.
 pub fn pill(ui: &mut Ui, p: &Palette, label: &str, on: bool) -> Response {
-    let font = sans(13.0, Weight::SemiBold);
     let w = pill_width(ui, label);
     let (rect, resp) = ui.allocate_exact_size(vec2(w, PILL_HEIGHT), Sense::click());
     let (fill, stroke, color) = if on {
@@ -127,9 +137,9 @@ pub fn pill(ui: &mut Ui, p: &Palette, label: &str, on: bool) -> Response {
     };
     ui.painter()
         .rect(rect, 255, fill, stroke, StrokeKind::Inside);
-    let shown = crate::i18n::t(label);
-    ui.painter()
-        .text(rect.center(), Align2::CENTER_CENTER, &shown, font, color);
+    let galley = pill_galley(ui, label, color);
+    let at = Align2::CENTER_CENTER.anchor_size(rect.center(), galley.size());
+    ui.painter().galley(at.min, galley, color);
     named_choice(&resp, egui::WidgetType::SelectableLabel, on, label);
     resp.on_hover_cursor(CursorIcon::PointingHand)
 }
