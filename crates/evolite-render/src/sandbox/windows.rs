@@ -286,6 +286,22 @@ impl Sandboxed {
         let ok = unsafe { GetExitCodeProcess(self.process.as_raw_handle() as HANDLE, &mut code) };
         (ok != 0 && code != STILL_ACTIVE as u32).then_some(code)
     }
+
+    /// The worker's process id (BUG-168: a test follows it after its parent is gone).
+    pub fn id(&self) -> u32 {
+        // SAFETY: as above.
+        unsafe {
+            windows_sys::Win32::System::Threading::GetProcessId(
+                self.process.as_raw_handle() as HANDLE
+            )
+        }
+    }
+
+    /// Whether the worker is in its own job, the one that ends it when the wallet's handle
+    /// closes (BUG-168), not only in one it inherited.
+    pub fn in_its_job(&self) -> bool {
+        self._job.holds(self.process.as_raw_handle() as HANDLE)
+    }
 }
 
 /// Starts `program args` in the sandbox, with `memory` as the job's cap; `win32k_off` also
@@ -312,16 +328,22 @@ pub fn spawn(
         Reserved: 0,
     };
     let mitigations: u64 = MITIGATIONS | if win32k_off { WIN32K_OFF } else { 0 };
+    // The job first, and the worker created in it (BUG-168): with the job put on after
+    // creation, a wallet that ended in between left the worker suspended for good — three
+    // times on 2026-11-14, each holding the executable. Its handle closes with the wallet,
+    // however the wallet ends, and the job's kill-on-close ends the worker.
+    let job = Job::new(memory)?;
+    let jobs: [HANDLE; 1] = [job.handle()];
 
     // SAFETY: the attribute list is sized by the first call and lives in `list` until
     // DeleteProcThreadAttributeList; every attribute points at a local that outlives
     // CreateProcessW; all handles are owned here and closed on every path.
     unsafe {
         let mut size = 0usize;
-        InitializeProcThreadAttributeList(std::ptr::null_mut(), 3, 0, &mut size);
+        InitializeProcThreadAttributeList(std::ptr::null_mut(), 4, 0, &mut size);
         let mut list = vec![0usize; size.div_ceil(size_of::<usize>())];
         let attributes: LPPROC_THREAD_ATTRIBUTE_LIST = list.as_mut_ptr().cast();
-        if InitializeProcThreadAttributeList(attributes, 3, 0, &mut size) == 0 {
+        if InitializeProcThreadAttributeList(attributes, 4, 0, &mut size) == 0 {
             return Err(io::Error::last_os_error());
         }
         struct List(LPPROC_THREAD_ATTRIBUTE_LIST);
@@ -347,6 +369,11 @@ pub fn spawn(
                 PROC_THREAD_ATTRIBUTE_MITIGATION_POLICY as usize,
                 (&raw const mitigations).cast(),
                 size_of::<u64>(),
+            ),
+            (
+                windows_sys::Win32::System::Threading::PROC_THREAD_ATTRIBUTE_JOB_LIST as usize,
+                jobs.as_ptr().cast(),
+                size_of_val(&jobs),
             ),
         ] {
             if UpdateProcThreadAttribute(
@@ -391,17 +418,19 @@ pub fn spawn(
         }
         let process = OwnedHandle::from_raw_handle(info.hProcess);
         let thread = Handle(info.hThread);
+        // BUG-168's test: the wallet ends right here, the worker created and not yet running,
+        // as `--screenshot` or a test that ends while the art pool starts one. Debug builds only.
+        #[cfg(debug_assertions)]
+        if std::env::var_os("EVOLITE_RENDER_EXIT_AFTER_CREATE").is_some() {
+            use std::io::Write as _;
+            println!("worker {} created", info.dwProcessId);
+            let _ = std::io::stdout().flush();
+            std::process::exit(0);
+        }
         // The child holds its own copies of its pipe ends now.
         drop(child_in);
         drop(child_out);
 
-        let job = match Job::confine(info.hProcess, memory) {
-            Ok(job) => job,
-            Err(e) => {
-                TerminateProcess(info.hProcess, 1);
-                return Err(e);
-            }
-        };
         if ResumeThread(thread.0) == u32::MAX {
             let e = io::Error::last_os_error();
             TerminateProcess(info.hProcess, 1);

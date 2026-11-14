@@ -1070,7 +1070,22 @@ pub fn coins_record(
         bip32,
         dashpay,
         coinjoin,
+        moved: None,
     }
+}
+
+/// The coins right after the unlock's [`rehome_filed_coins`], with how many it moved (BUG-148):
+/// the line before it, `unlock`, shows the store's filing, this one what a payment sees from
+/// then on. Numbers only.
+pub fn rehomed_record(
+    info: &key_wallet::wallet::managed_wallet_info::ManagedWalletInfo,
+    moved: usize,
+) -> crate::diag::Record {
+    let mut record = coins_record("unlock_rehomed", info);
+    if let crate::diag::Record::Coins { moved: m, .. } = &mut record {
+        *m = Some(u32::try_from(moved).unwrap_or(u32::MAX));
+    }
+    record
 }
 
 /// The outpoints a Core payment can sign for: of the coins [`send_accounts`] hold, those whose
@@ -3452,6 +3467,19 @@ mod coinjoin_tests {
         assert_eq!(coin_kinds(&info)[2], (0, 0));
         assert_eq!(unsignable(&info), 100_000, "filed: not to sign for");
         assert_eq!(rehome_filed_coins(&mut info), 1);
+        // The unlock's line after the move says so (BUG-148, QA pass 23: the line before it
+        // showed the store's filing, and the coin seemed to move only after the filters).
+        assert_eq!(
+            rehomed_record(&info, 1),
+            crate::diag::Record::Coins {
+                when: "unlock_rehomed",
+                bip44: (1, 5_000_000),
+                bip32: (0, 0),
+                dashpay: (1, 100_000),
+                coinjoin: (0, 0),
+                moved: Some(1),
+            }
+        );
         assert_eq!(coin_kinds(&info)[0], (1, 5_000_000));
         assert_eq!(coin_kinds(&info)[2], (1, 100_000));
         assert_eq!(unsignable(&info), 0, "in its own account: signed for");
