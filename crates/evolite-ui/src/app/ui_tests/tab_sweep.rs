@@ -111,6 +111,22 @@ fn sweep(preset: &str) -> Vec<String> {
     })
 }
 
+/// How long a Tab's focus may take to land before it counts as lost (BUG-164).
+const FOCUS_SETTLES: std::time::Duration = std::time::Duration::from_millis(1500);
+
+/// After a press of Tab, frames until a widget has the focus, for at most [`FOCUS_SETTLES`] —
+/// by time, not by a count of frames (BUG-120). Under a loaded check the widget Tab moved to
+/// may be drawn a frame late (a menu or a hint area measured unseen on its first frame), and
+/// two frames were not always enough: «create: focus lost after «Hide»», «send-qr-menu: after
+/// «To»» failed 2 checks of 3 and passed alone (BUG-164). A focus really lost stays lost: egui
+/// gives it back to no one by itself.
+fn settle_focus(kit: &mut Kit) {
+    let until = std::time::Instant::now() + FOCUS_SETTLES;
+    while focused(kit).is_none() && std::time::Instant::now() < until {
+        kit.run_steps(1);
+    }
+}
+
 /// One Tab round of `preset`; `None` when `moved` said, after a press, that the core answered.
 fn round(kit: &mut Kit, preset: &str, moved: impl Fn(&Kit) -> bool) -> Option<Vec<String>> {
     let start = place(kit);
@@ -129,6 +145,7 @@ fn round(kit: &mut Kit, preset: &str, moved: impl Fn(&Kit) -> bool) -> Option<Ve
     let mut last = String::from("the start");
     for press in 0..PRESSES {
         tab(kit, false);
+        settle_focus(kit);
         if moved(kit) {
             return None;
         }
