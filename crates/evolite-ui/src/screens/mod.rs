@@ -83,4 +83,20 @@ pub const NAV: [(Screen, &str, &str); 10] = [
     (Screen::Tokens, "token", tr!("Tokens")),
 ];
 
+/// What a menu item needs of the network matrix (FEAT-0037); `None`: every network has it.
+pub fn feature_of(screen: Screen) -> Option<evolite_api::features::Feature> {
+    use evolite_api::features::Feature;
+    match screen {
+        Screen::Tokens => Some(Feature::Tokens),
+        Screen::Apps => Some(Feature::Apps),
+        Screen::Collection => Some(Feature::Collection),
+        _ => None,
+    }
+}
+
+/// Whether `screen` is in the menu on `network`: what the network matrix lets in.
+pub fn shown_on(screen: Screen, network: evolite_api::Network) -> bool {
+    feature_of(screen).is_none_or(|f| evolite_api::features::on(f, network))
+}
+
 pub(crate) use crate::components::txt;

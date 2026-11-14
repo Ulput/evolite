@@ -956,12 +956,15 @@ fn the_found_dashpay_wallet_is_in_the_window() {
 
 /// BUG-127: «Which wallet to open?» in the smallest window (800×440): the wheel brings «Open»,
 /// «Add wallet» and the foot into the window. The screen did not scroll, and they stayed below
-/// its edge — the password could only be sent with Enter, and no wallet added.
+/// its edge — the password could only be sent with Enter, and no wallet added. On mainnet: under
+/// the band «Add wallet» is still below the edge (on testnet, with FEAT-0037's 48 px rows, it
+/// now fits and there is nothing to scroll to).
 #[test]
 fn the_unlock_screen_scrolls_to_its_buttons_in_the_smallest_window() {
     for lang in ["en", "ar"] {
         let (_turn, mut kit) = demo_app("wallet-unlock", lang);
         kit.set_size(egui::vec2(800.0, 440.0));
+        kit.state_mut().snapshot.as_mut().unwrap().network = evolite_api::Network::Mainnet;
         kit.run_steps(4);
         let add = crate::i18n::spoken("Add wallet");
         let open = crate::i18n::spoken("Open");

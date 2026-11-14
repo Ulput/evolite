@@ -110,11 +110,26 @@ fn the_send_form_refuses_before_the_password() {
     );
 }
 
-/// AC-D1, AC-T6: on mainnet the screen only explains; no search, no adding.
+/// AC-D1, AC-T6, FEAT-0037: the tokens screen on mainnet is what the network matrix says: the list
+/// and the search where tokens are on (the customer let them into the first mainnet release);
+/// only the explanation, with no search and no adding, where they are off.
 #[test]
-fn on_mainnet_the_screen_only_explains() {
+fn on_mainnet_the_tokens_screen_follows_the_matrix() {
     let (_turn, mut kit) = demo_app("tokens-mainnet", "en");
     kit.run_steps(3);
+    if evolite_api::features::on(
+        evolite_api::features::Feature::Tokens,
+        evolite_api::Network::Mainnet,
+    ) {
+        assert!(!has_text(&kit, "Tokens work only on testnet for now"));
+        assert!(has_text(&kit, "Evo Coffee"), "the rows");
+        assert!(
+            kit.query_all_by_role_and_label(Role::Button, "Find my tokens")
+                .next()
+                .is_some()
+        );
+        return;
+    }
     assert!(has_text(&kit, "Tokens work only on testnet for now"));
     assert!(
         kit.query_all_by_role_and_label(Role::Button, "Find my tokens")

@@ -137,7 +137,7 @@ pub fn unlock(
                         ui.spacing_mut().item_spacing.y = if low { 6.0 } else { 8.0 };
                         for w in &snap.wallets {
                             let on = chosen_id.as_deref() == Some(w.id.as_str());
-                            if wallet_choice(ui, a, w, on, cx.now, column).clicked() && !on {
+                            if wallet_choice(ui, a, w, on, cx.now, column, low).clicked() && !on {
                                 form.chosen = Some(w.id.clone());
                                 form.password.zeroize();
                                 form.error = None;
@@ -188,7 +188,9 @@ pub fn unlock(
                         if paused.is_some() {
                             pause::tick(ui, cx.now);
                         }
-                        ui.add_space(if low { 2.0 } else { 6.0 });
+                        // Below 640 px, 20 from the password to «Open» (FEAT-0037: «Open» under
+                        // three wallets in 800×440 is in sight with the mainnet band too).
+                        ui.add_space(if low { -6.0 } else { 6.0 });
                         // In a pause the typing stays, but nothing goes (FR-3).
                         let ready = !form.password.is_empty() && !form.waiting && paused.is_none();
                         let label = match (form.waiting, several) {
@@ -339,9 +341,17 @@ fn wallet_choice(
     on: bool,
     now: chrono::DateTime<chrono::Local>,
     width: f32,
+    low: bool,
 ) -> egui::Response {
     let p = a.p;
-    let (row, resp) = ui.allocate_exact_size(vec2(width, 56.0), Sense::click());
+    // Below 640 px a row is 48: the dot 28, the name 13, the line under it 11 (FEAT-0037, the
+    // designer: three wallets and «Open» fit in 800×440 under the mainnet band).
+    let (height, dot_size, name_size, small_size, name_top, line_top) = if low {
+        (48.0, 28.0, 13.0, 11.0, 8.0, 26.0)
+    } else {
+        (56.0, 32.0, 14.0, 12.0, 11.0, 31.0)
+    };
+    let (row, resp) = ui.allocate_exact_size(vec2(width, height), Sense::click());
     crate::components::named_choice(&resp, egui::WidgetType::RadioButton, on, &shown_name(w));
     ui.painter().rect(
         row,
@@ -355,27 +365,27 @@ fn wallet_choice(
         StrokeKind::Inside,
     );
     let dot = Rect::from_min_size(
-        pos2(row.left() + 12.0, row.center().y - 16.0),
-        vec2(32.0, 32.0),
+        pos2(row.left() + 12.0, row.center().y - dot_size / 2.0),
+        vec2(dot_size, dot_size),
     );
     paint_wallet_dot(ui, dot, w);
     let x = dot.right() + 12.0;
     paint_text(
         ui,
-        pos2(x, row.top() + 11.0),
+        pos2(x, row.top() + name_top),
         Align2::LEFT_TOP,
         &shown_name(w),
-        sans(14.0, Weight::SemiBold),
+        sans(name_size, Weight::SemiBold),
         p.text,
     );
     let line = match w.last_opened {
         Some(at) => format!(tr!("last opened {}"), crate::text::when(at, now)),
         None => String::new(),
     };
-    let small = sans(12.0, Weight::Regular);
+    let small = sans(small_size, Weight::Regular);
     let said = paint_text(
         ui,
-        pos2(x, row.top() + 31.0),
+        pos2(x, row.top() + line_top),
         Align2::LEFT_TOP,
         &line,
         small.clone(),
@@ -387,7 +397,7 @@ fn wallet_choice(
         let dot = if line.is_empty() { "" } else { " · " };
         let dot = paint_text(
             ui,
-            pos2(said.right(), row.top() + 31.0),
+            pos2(said.right(), row.top() + line_top),
             Align2::LEFT_TOP,
             dot,
             small.clone(),
@@ -395,7 +405,7 @@ fn wallet_choice(
         );
         paint_text(
             ui,
-            pos2(dot.right(), row.top() + 31.0),
+            pos2(dot.right(), row.top() + line_top),
             Align2::LEFT_TOP,
             &pause::row_text(secs),
             small,

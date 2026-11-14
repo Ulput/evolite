@@ -105,8 +105,12 @@ impl Real {
             .and_then(|open| open.keys.clone())
             .ok_or(CoreError::NotAvailable(tr!("The keys are not open").into()))?;
         // One at a time: a second one is refused, not queued (R-2, AC-T4).
-        // Not on mainnet until it has been proven live on testnet (review r1, Must 1).
-        if crate::network::current() == evolite_api::Network::Mainnet {
+        // Not on mainnet until it has been proven live on testnet (review r1, Must 1): the
+        // network matrix (FEAT-0037).
+        if !evolite_api::features::on(
+            evolite_api::features::Feature::PlatformAddressPayments,
+            crate::network::current(),
+        ) {
             return Err(CoreError::NotAvailable(
                 tr!("Payments from a Platform address are not available on mainnet yet").into(),
             ));

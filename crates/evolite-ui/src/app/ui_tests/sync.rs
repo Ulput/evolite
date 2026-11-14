@@ -158,7 +158,7 @@ fn rail_status(kit: &Kit) -> String {
 }
 
 /// BUG-75 AC-D1, AC-D2, AC-D5: in the rail (1024 wide) the block moves while sync goes and asks
-/// for frames; the reader hears «Sync · stage · percent · …»; once done the full logo, still,
+/// for frames; the reader hears «stage · percent · …»; once done the full logo, still,
 /// with no more frames.
 #[test]
 fn the_rail_mark_moves_while_it_syncs_and_stands_full_when_done() {
@@ -184,10 +184,7 @@ fn the_rail_mark_moves_while_it_syncs_and_stands_full_when_done() {
         "the block moving",
         moving,
     );
-    assert_eq!(
-        rail_status(&kit),
-        "Sync · Block filters · 64 % · 3 Core nodes"
-    );
+    assert_eq!(rail_status(&kit), "Block filters · 64 % · 3 Core nodes");
     // A frame of the harness is 0.25 s of the app's time.
     let before = rail_mark(&kit).0;
     shows(
@@ -282,10 +279,11 @@ fn the_full_menu_keeps_its_sync_card() {
         "the mark moving",
         moving,
     );
+    // BUG-155 AC-A4: the wide card is a status, as the rail's (BUG-137 AC-D7 for both).
     assert_eq!(
         kit.query_all_by_role(egui::accesskit::Role::Status).count(),
-        0,
-        "the card is a label, as before"
+        1,
+        "the card is one status"
     );
 }
 
@@ -374,7 +372,7 @@ fn the_rail_status_is_polite_for_a_second_after_a_change() {
         SyncStage::Filters,
         Some(0.25),
         "polite at a new stage",
-        |k| polite(k) && rail_status(k).starts_with("Sync · Block filters"),
+        |k| polite(k) && rail_status(k).starts_with("Block filters"),
     );
     goes_quiet(&mut kit, SyncStage::Filters, "the stage");
     shows(
@@ -461,7 +459,7 @@ fn moving(kit: &Kit) -> bool {
 
 /// BUG-137 AC-D2, AC-T6: Core synced, Platform work of 1 s moves the mark and asks for frames,
 /// in every size: the wide menu, the rail, the low rail without the top logo, the wide low one.
-/// The wide card says «Sync · Platform» and what goes.
+/// The wide card says «Platform» and what goes (BUG-155 r1: the designer).
 #[test]
 fn platform_work_moves_the_mark_in_every_size() {
     use evolite_api::PlatformWork::{Identities, Tokens};
@@ -488,12 +486,10 @@ fn platform_work_moves_the_mark_in_every_size() {
             rail_mark(&kit)
         );
         if w >= 1280.0 && h >= 640.0 {
-            assert!(
-                kit.query_all_by(|n| n
-                    .value()
-                    .is_some_and(|v| v == "Sync · Platform: identities · tokens"))
-                    .next()
-                    .is_some(),
+            let shown = crate::screens::sidebar::card_shown(&kit.ctx).expect("the card");
+            assert_eq!(
+                (shown.words.title.as_str(), shown.words.detail.as_str()),
+                ("Platform", "identities · tokens"),
                 "{w}×{h}: the card's words"
             );
         }
@@ -553,4 +549,208 @@ fn the_reader_hears_platform_once_not_each_work() {
         platform_frame(&mut kit, &[Identities, Names]);
     }
     assert_eq!(rail_status(&kit), "Sync · Platform", "the same name");
+}
+
+/// The sync card as the last frame drew it.
+fn card_now(kit: &Kit) -> crate::screens::sidebar::CardShown {
+    crate::screens::sidebar::card_shown(&kit.ctx).expect("the sync card")
+}
+
+/// BUG-155 AC-A7, AC-D2: «syncing → Platform → stopped → synced»: the card, the mark and the
+/// words' places stay; only the words and the bar change. In every size of the menu.
+#[test]
+fn nothing_on_the_sync_card_moves_between_its_states() {
+    use crate::screens::sidebar::{Bar, SYNC_LOW, SYNC_RAIL, SYNC_WIDE};
+    for (size, height) in [
+        (egui::vec2(1280.0, 800.0), SYNC_WIDE),
+        (egui::vec2(1440.0, 560.0), SYNC_LOW),
+        (egui::vec2(1024.0, 768.0), SYNC_RAIL),
+        (egui::vec2(800.0, 440.0), SYNC_LOW),
+    ] {
+        let (_turn, mut kit) = demo_app("overview", "en");
+        system_motion(&mut kit, false);
+        kit.set_size(size);
+        kit.run_steps(2);
+        shows(&mut kit, SyncStage::Filters, Some(0.4), "syncing", |k| {
+            card_now(k).bar == Bar::Part(0.4)
+        });
+        let syncing = card_now(&kit);
+        assert_eq!(syncing.card.height(), height, "{size:?}: the card's height");
+        assert!(
+            (syncing.mark.center().y - syncing.card.center().y).abs() < 0.5,
+            "{size:?}: the mark in the middle of the card's height"
+        );
+        let places = |c: &crate::screens::sidebar::CardShown| {
+            (
+                c.card,
+                c.mark,
+                c.bar_rect,
+                c.title.as_ref().map(|t| t.1.min),
+                c.detail.as_ref().map(|t| t.1.min),
+            )
+        };
+        for _ in 0..5 {
+            platform_frame(&mut kit, &[evolite_api::PlatformWork::Identities]);
+        }
+        let platform = card_now(&kit);
+        assert_eq!(platform.bar, Bar::Running, "{size:?}: Platform runs");
+        stopped(&mut kit, "stopped", |k| card_now(k).words.stopped);
+        let stop = card_now(&kit);
+        for _ in 0..3 {
+            platform_frame(&mut kit, &[]);
+        }
+        let done = card_now(&kit);
+        assert_eq!(done.bar, Bar::None, "{size:?}: no bar once synced");
+        for (name, state) in [
+            ("Platform", &platform),
+            ("stopped", &stop),
+            ("synced", &done),
+        ] {
+            assert_eq!(
+                places(state),
+                places(&syncing),
+                "{size:?}: {name} moved something"
+            );
+        }
+    }
+}
+
+/// BUG-155 AC-A2: a stage's short name fits the card's 156 px whole, never cut, in all 15
+/// languages (13 SemiBold); «Stopped» too.
+#[test]
+fn every_short_stage_name_fits_the_card_in_every_language() {
+    let (_turn, mut kit) = demo_app("overview", "en");
+    full_menu(&mut kit);
+    let font = crate::theme::sans(13.0, crate::theme::Weight::SemiBold);
+    let width = |kit: &Kit, text: &str| {
+        kit.ctx.fonts_mut(|f| {
+            f.layout_no_wrap(text.to_owned(), font.clone(), egui::Color32::WHITE)
+                .size()
+                .x
+        })
+    };
+    let mut too_long = Vec::new();
+    for lang in crate::i18n::Lang::ALL {
+        crate::i18n::set(lang);
+        let names = [
+            SyncStage::Connecting,
+            SyncStage::Headers,
+            SyncStage::Masternodes,
+            SyncStage::Quorums,
+            SyncStage::Filters,
+            SyncStage::Transactions,
+            SyncStage::Platform,
+            SyncStage::ChainLock,
+            SyncStage::Done,
+        ]
+        .map(crate::text::sync_short);
+        for key in names.iter().copied().chain([tr!("Stopped")]) {
+            let name = crate::i18n::t(key).into_owned();
+            let w = width(&kit, &name);
+            if w > crate::screens::sidebar::WORDS {
+                too_long.push(format!("{lang:?} «{name}» {w:.0}"));
+            }
+        }
+    }
+    crate::i18n::set(crate::i18n::Lang::En);
+    assert!(too_long.is_empty(), "wider than 156: {too_long:?}");
+}
+
+/// BUG-155 AC-A2, AC-D1: the longest stop's reason, in de, uk and ar: no letter of the card's
+/// words goes past the card (cut with «…»).
+#[test]
+fn a_long_reason_stays_inside_the_card() {
+    for lang in ["de", "uk", "ar", "en"] {
+        let (_turn, mut kit) = demo_app("overview", lang);
+        full_menu(&mut kit);
+        show_edited(
+            &mut kit,
+            1,
+            "a long stop",
+            |app| {
+                let sync = &mut app.snapshot.as_mut().expect("a snapshot").sync;
+                sync.stage = SyncStage::Filters;
+                sync.error = Some(
+                    "The wallet database refused to open: another evolite window has it, or the disk is full"
+                        .into(),
+                );
+            },
+            |k| card_now(k).words.stopped,
+        );
+        kit.run_steps(1);
+        let card = card_now(&kit).card;
+        fn walk(shape: &egui::Shape, out: &mut Vec<egui::Rect>) {
+            match shape {
+                egui::Shape::Text(t) => out.push(t.visual_bounding_rect()),
+                egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, out)),
+                _ => {}
+            }
+        }
+        let mut texts = Vec::new();
+        for c in &kit.output().shapes {
+            walk(&c.shape, &mut texts);
+        }
+        // The card's own words: what starts inside it, on its rows.
+        let out: Vec<egui::Rect> = texts
+            .into_iter()
+            .filter(|r| card.y_range().contains(r.center().y))
+            .filter(|r| card.x_range().contains(r.left()) || card.x_range().contains(r.right()))
+            .filter(|r| !card.expand(0.5).contains_rect(*r))
+            .collect();
+        assert!(
+            out.is_empty(),
+            "{lang}: words past the card {card:?}: {out:?}"
+        );
+    }
+}
+
+/// BUG-155 AC-A3, AC-D7: the wide card is a Tab stop too, and the keyboard's focus shows its
+/// whole words: the stage's full name with its percent.
+#[test]
+fn the_keyboard_on_the_wide_card_shows_its_whole_words() {
+    let (_turn, mut kit) = demo_app("overview", "en");
+    full_menu(&mut kit);
+    shows(&mut kit, SyncStage::Quorums, Some(0.45), "quorums", |k| {
+        card_now(k).words.title == "Masternode quorums"
+    });
+    assert!(
+        !has_text(&kit, "Checking masternode quorums · 45 %"),
+        "no tooltip yet"
+    );
+    tab_to(&mut kit, "Checking masternode quorums · 45 %");
+    kit.run_steps(2);
+    assert!(
+        has_text(&kit, "Checking masternode quorums · 45 %"),
+        "the tooltip's first line"
+    );
+}
+
+/// BUG-155 AC-A9: synced, the tooltip and the reader say when the tip came; the card does not.
+#[test]
+fn synced_says_when_the_tip_came_in_the_tooltip_only() {
+    let (_turn, mut kit) = demo_app("overview", "en");
+    full_menu(&mut kit);
+    for _ in 0..3 {
+        platform_frame(&mut kit, &[]);
+    }
+    let at = kit
+        .state()
+        .snapshot
+        .as_ref()
+        .and_then(|s| s.sync.tip_at)
+        .expect("the demo's tip has a time");
+    let when = crate::screens::sidebar::tip_time(at, chrono::Local::now());
+    let shown = card_now(&kit);
+    assert!(!shown.words.detail.contains("updated"), "not on the card");
+    assert!(
+        shown.words.tip_detail.ends_with(&format!("updated {when}")),
+        "{}",
+        shown.words.tip_detail
+    );
+    assert!(
+        kit.query_all_by_role(egui::accesskit::Role::Status)
+            .filter_map(|n| n.accesskit_node().value())
+            .any(|v| v.ends_with(&format!("updated {when}"))),
+        "the reader hears it"
+    );
 }

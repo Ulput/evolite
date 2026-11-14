@@ -1,0 +1,27 @@
+diff --git a/dash-spv/src/chain/checkpoints.rs b/dash-spv/src/chain/checkpoints.rs
+index d06a6bfa..08989dbf 100644
+--- a/dash-spv/src/chain/checkpoints.rs
++++ b/dash-spv/src/chain/checkpoints.rs
+@@ -40,7 +40,8 @@ static NO_CHECKPOINTS: CheckpointManager = CheckpointManager {
+ /// A known block and the [`CHECKPOINT_HEADERS`] - 1 headers before it.
+ #[derive(Debug, Clone)]
+ pub struct Checkpoint {
+-    height: u32,
++    /// evolite FEAT-0037 shim: platform-wallet 575d961 reads `.height` (aca0202 API).
++    pub height: u32,
+     headers: Vec<HashedBlockHeader>,
+ }
+ 
+@@ -145,6 +146,12 @@ impl CheckpointManager {
+         self.checkpoints.range(..=height).next_back().map(|(_, checkpoint)| checkpoint)
+     }
+ 
++    /// evolite FEAT-0037 shim: the highest checkpoint, as aca0202 named it (platform-wallet
++    /// 575d961 `wallet_lifecycle.rs`).
++    pub fn last_checkpoint(&self) -> Option<&Checkpoint> {
++        self.checkpoints.values().next_back()
++    }
++
+     /// All the checkpoints, lowest first.
+     pub fn checkpoints(&self) -> impl Iterator<Item = &Checkpoint> {
+         self.checkpoints.values()

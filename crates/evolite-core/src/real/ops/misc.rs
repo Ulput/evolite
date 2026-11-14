@@ -10,7 +10,14 @@ impl Real {
         identity: Option<&Identity>,
     ) -> (Vec<Nft>, NftsStatus) {
         let owner = identity.map(|i| i.id.clone());
+        // The collection's contract is on testnet only: nothing is asked where the network
+        // matrix leaves it off (FEAT-0037).
+        let here = evolite_api::features::on(
+            evolite_api::features::Feature::Collection,
+            crate::network::current(),
+        );
         if let Some(owner) = &owner
+            && here
             && self.chain.platform_ready()
             && self.nfts.due(owner)
         {

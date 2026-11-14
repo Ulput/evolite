@@ -58,7 +58,17 @@ pub fn overview(
     super::fund_address::on_overview(ui, a, cx, fund);
     let wallet = cx.wallet();
     total_block(ui, a, cx, wallet, &total_line, total_color, synced);
-    if balance_cards(ui, a, wallet, pool, &as_of, unknown, fund.may_start(wallet)) {
+    let network = cx.snap.network;
+    if balance_cards(
+        ui,
+        a,
+        wallet,
+        pool,
+        &as_of,
+        unknown,
+        network,
+        fund.may_start(wallet),
+    ) {
         fund.open();
     }
     quick_actions(ui, a, cx, wallet);
@@ -161,6 +171,10 @@ fn total_block(
 
 /// The four balance cards. Whether «Top up from Core ›» on the Platform address tile was
 /// clicked; `may_fund`: it is active (FEAT-0015 stage 2).
+#[allow(
+    clippy::too_many_arguments,
+    reason = "the cards' own state and the network's, each used once (FEAT-0015, FEAT-0037)"
+)]
 fn balance_cards(
     ui: &mut Ui,
     a: &mut Assets,
@@ -168,9 +182,15 @@ fn balance_cards(
     pool: CardAmount,
     as_of: &Option<String>,
     unknown: bool,
+    network: evolite_api::Network,
     may_fund: bool,
 ) -> bool {
     let mut fund = false;
+    // «Top up from Core ›» only where the network matrix has it (FEAT-0037: not on mainnet).
+    let top_up = evolite_api::features::on(
+        evolite_api::features::Feature::PlatformAddressTopUp,
+        network,
+    );
     let b = &wallet.balances;
     // The credits of every identity of the wallet, as «Total» counts them (BUG-56); the one
     // worked as has its own on Identity.
@@ -218,7 +238,15 @@ fn balance_cards(
         CardAmount::Earlier(_) => format!(tr!("{unit} · not checked yet"), unit = unit),
         CardAmount::Unknown => tr!("Not known yet").to_owned(),
     };
-    let address_line = &*if b.platform_address_read {
+    // Where the network matrix leaves its payments off, the tile with money on it says so
+    // (FEAT-0037 AC-A5).
+    let paying_off = !evolite_api::features::on(
+        evolite_api::features::Feature::PlatformAddressPayments,
+        network,
+    );
+    let address_line = &*if b.platform_address_read && paying_off && b.platform_address > 0 {
+        format!("{unit} · {}", tr!("Paying — testnet only for now"))
+    } else if b.platform_address_read {
         format!(tr!("{unit} · no identity"), unit = unit)
     } else {
         tr!("Not known yet").to_owned()
@@ -295,7 +323,7 @@ fn balance_cards(
                 w,
             );
             mixed_tip(ui, b.mixed.map(|m| m.unfinished).filter(|u| *u > 0));
-        } else if *icon == "platform-address" {
+        } else if *icon == "platform-address" && top_up {
             // FEAT-0015 stage 2 (21): «Top up from Core ›», dim while one is running or
             // stopped (24).
             fund |= balance_card_action(

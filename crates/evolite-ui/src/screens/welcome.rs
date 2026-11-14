@@ -13,11 +13,18 @@ pub fn welcome(
     a: &mut Assets,
     cx: &mut Ctx,
     settings: &mut super::settings::SettingsState,
+    other_wallets: usize,
 ) {
     let p = a.p;
-    let column = 440.0;
     let low = low_window(ui);
     let adding = cx.snap.adding_wallet;
+    // An empty network beside one with wallets says where they are (FEAT-0037 AC-A2, L2m);
+    // the very first run, with none anywhere, says nothing.
+    let elsewhere = !adding && cx.snap.wallets.is_empty() && other_wallets > 0;
+    // Below 640 px with that line (the designer's L2mS): the words 520 wide and 12 apart, so the
+    // three buttons stay in sight.
+    let tight = low && elsewhere;
+    let column = if tight { 520.0 } else { 440.0 };
     // Below 640 px high the logo is compact (BUG-140).
     let content_h = if low {
         536.0 - (119.0 - COMPACT_LOGO)
@@ -41,7 +48,7 @@ pub fn welcome(
     let top = if low { LOW_TOP } else { ((room - content_h) / 2.0).max(24.0) };
     ui.add_space(top);
     let content = ui.vertical_centered(|ui| {
-        ui.spacing_mut().item_spacing.y = 28.0;
+        ui.spacing_mut().item_spacing.y = if tight { 12.0 } else { 28.0 };
         // The top bar has the logo and the network already, so neither is repeated here
         // (designer review №23).
         if !adding {
@@ -79,8 +86,17 @@ pub fn welcome(
                 ui.label(txt(&lead, 15.0, Weight::Regular, p.muted).line_height(Some(22.5)));
             });
         });
+        if elsewhere {
+            let line = match cx.snap.network {
+                evolite_api::Network::Mainnet => tr!("There are no mainnet wallets on this computer yet. Your testnet wallets are in the network switch at the top."),
+                evolite_api::Network::Testnet => tr!("There are no testnet wallets on this computer yet. Your mainnet wallets are in the network switch at the top."),
+            };
+            ui.allocate_ui(vec2(column, 0.0), |ui| {
+                crate::components::notice(ui, a, "info", p.muted, line);
+            });
+        }
         ui.spacing_mut().item_spacing.y = 10.0;
-        ui.add_space(-10.0);
+        ui.add_space(if tight { 0.0 } else { -10.0 });
         use super::onboarding::Flow;
         for (label, kind, flow) in [
             (tr!("Create a wallet"), ButtonKind::Primary, Flow::Create),

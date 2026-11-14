@@ -8,7 +8,9 @@ use crate::components::{
 };
 use crate::context::Ctx;
 use crate::text;
-use crate::theme::{Weight, sans};
+use crate::theme::Weight;
+use crate::theme::style;
+use crate::theme::type_scale::{SMALL, UI};
 use egui::Ui;
 use evolite_api::{Command, CoreError};
 
@@ -47,12 +49,15 @@ pub(super) fn resync_dialog(
                 // The footer (BUG-122): always in the window.
                 let mut close = false;
                 if let Some(error) = &form.error {
-                    ui.add(crate::components::para(
-                        &text::error_text(error),
-                        12.0,
-                        Weight::Regular,
-                        p.danger,
-                    ));
+                    ui.add(
+                        crate::components::para(
+                            &text::error_text(error),
+                            SMALL.size,
+                            SMALL.weight,
+                            p.danger,
+                        )
+                        .line_height(SMALL.line),
+                    );
                 }
                 // It restarts the app and takes 10–20 minutes: «Cancel» first (the designer's rule b′).
                 button_row_destructive(ui, |ui| {
@@ -76,13 +81,9 @@ pub(super) fn resync_dialog(
             }
             ui.add(
             crate::components::para(
-                tr!("evolite downloads the headers and block filters again and finds the coins and history from the wallet's creation date. Keys, identities, names and contacts are not touched."),
-                13.0,
-                Weight::Regular,
-                p.text,
-            ),
+                tr!("evolite downloads the headers and block filters again and finds the coins and history from the wallet's creation date. Keys, identities, names and contacts are not touched."), UI.size, UI.weight, p.text).line_height(UI.line),
         );
-            let value = sans(13.0, Weight::Medium);
+            let value = style(UI.weight(Weight::Medium));
             // What is read again and what stays (BUG-58, decision B: Platform too).
             kv_row(
                 ui,
@@ -106,12 +107,15 @@ pub(super) fn resync_dialog(
                 tr!("unavailable until it ends"),
                 value,
             );
-            ui.add(crate::components::para(
-                tr!("evolite restarts for this; enter your password after the restart."),
-                12.0,
-                Weight::Regular,
-                p.muted,
-            ));
+            ui.add(
+                crate::components::para(
+                    tr!("evolite restarts for this; enter your password after the restart."),
+                    SMALL.size,
+                    SMALL.weight,
+                    p.muted,
+                )
+                .line_height(SMALL.line),
+            );
             false
         },
     ) && !form.waiting
