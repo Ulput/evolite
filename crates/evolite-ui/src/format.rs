@@ -1039,6 +1039,11 @@ mod tests {
             ),
             ("evolite-ui/src/app/dev.rs", 1, "a dev-tools flag"),
             ("evolite-ui/src/cli.rs", 2, "--window WxH"),
+            (
+                "evolite-ui/src/components/para.rs",
+                1,
+                "an e-mail's domain, to set it in mono (BUG-159)",
+            ),
             ("evolite-ui/src/i18n/catalog.rs", 2, "a plural form's index"),
             ("evolite-ui/src/network_choice.rs", 1, "a node's port"),
             ("evolite-ui/src/payment_uri.rs", 1, "a link's %XX escapes"),
