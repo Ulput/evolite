@@ -11,6 +11,8 @@ members = [
     "crates/evolite-render",
     "crates/evolite-ui",
 ]
+# rust-dashcore 0dcdd823, vendored for FEAT-0037: its own workspace, read through [patch] below.
+exclude = ["vendor/rust-dashcore"]
 
 [workspace.package]
 version = "0.1.0"
@@ -51,15 +53,28 @@ unused_must_use = "deny"
 [workspace.lints.clippy]
 all = { level = "warn", priority = -1 }
 
-# rust-dashcore aca0202 still hashes X11 in C (rs-x11-hash): its header includes <unistd.h>,
-# which MSVC lacks and nothing uses, and its build script insists on clang. The vendored copy
-# guards the include and lets MSVC's compiler build it.
-[patch.crates-io]
-rs-x11-hash = { path = "vendor/rs-x11-hash" }
+# FEAT-0037 (route A): every rust-dashcore crate, ours and those of Platform 575d961, built
+# from 0dcdd823 = aca0202 + 7 commits: the Dark Gravity Wave check of headers (#1161), checkpoints
+# from the network (#375), X11 through dash-pow instead of C (#1214), the masternode engine kept
+# on a refused QRInfo (#1211), stop waiting for sync tasks (#1178), key-wallet's word on coins
+# awaiting finality (#1192). Vendored in vendor/rust-dashcore (see its EVOLITE.md, with one shim for
+# platform-wallet 575d961): cargo does not patch a git source with itself.
+[patch."https://github.com/dashpay/rust-dashcore"]
+dashcore = { path = "vendor/rust-dashcore/dash" }
+dashcore-crypto = { path = "vendor/rust-dashcore/crypto" }
+dashcore_hashes = { path = "vendor/rust-dashcore/hashes" }
+dashcore-private = { path = "vendor/rust-dashcore/internals" }
+dash-network = { path = "vendor/rust-dashcore/dash-network" }
+dash-network-seeds = { path = "vendor/rust-dashcore/dash-network-seeds" }
+dash-spv = { path = "vendor/rust-dashcore/dash-spv" }
+key-wallet = { path = "vendor/rust-dashcore/key-wallet" }
+key-wallet-manager = { path = "vendor/rust-dashcore/key-wallet-manager" }
+git-state = { path = "vendor/rust-dashcore/git-state" }
+dashcore-rpc = { path = "vendor/rust-dashcore/rpc-client" }
+dashcore-rpc-json = { path = "vendor/rust-dashcore/rpc-json" }
 
-[profile.dev.package.rs-x11-hash]
-# X11 without optimisation is slow enough to stall header sync in debug builds (cc follows
-# the package opt-level).
+[profile.dev.package.dash-pow]
+# X11 without optimisation is slow enough to stall header sync in debug builds.
 opt-level = 3
 
 # Build speed. Full debug info for the Platform stack made `target` tens of GB and every test

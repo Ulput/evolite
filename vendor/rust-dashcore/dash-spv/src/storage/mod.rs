@@ -1,0 +1,772 @@
+//! Storage abstraction for the Dash SPV client.
+
+mod block_headers;
+mod blocks;
+mod filter_headers;
+mod filters;
+mod header_hash_index;
+mod io;
+mod lockfile;
+mod masternode;
+mod metadata;
+mod migrator;
+mod peers;
+mod segments;
+
+use crate::error::StorageResult;
+use crate::storage::lockfile::LockFile;
+use crate::storage::migrator::StorageMigrator;
+use crate::types::{HashedBlock, HashedBlockHeader};
+use crate::ClientConfig;
+use async_trait::async_trait;
+use dashcore::hash_types::FilterHeader;
+use dashcore::network::message_qrinfo::QRInfo;
+use dashcore::network::message_sml::MnListDiff;
+use dashcore::prelude::CoreBlockHeight;
+use dashcore::Network;
+use serde::de::DeserializeOwned;
+use std::ops::Range;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::time::Duration;
+use tokio::sync::RwLock;
+
+pub use crate::storage::block_headers::{
+    BlockHeaderStorage, BlockHeaderTip, PersistentBlockHeaderStorage,
+};
+pub use crate::storage::blocks::{BlockStorage, PersistentBlockStorage};
+pub use crate::storage::filter_headers::{FilterHeaderStorage, PersistentFilterHeaderStorage};
+pub use crate::storage::filters::{FilterStorage, PersistentFilterStorage};
+pub use crate::storage::masternode::{MasternodeStorage, PersistentMasternodeStorage};
+pub use crate::storage::metadata::{MetadataStorage, PersistentMetadataStorage};
+pub use crate::storage::peers::{PeerStorage, PersistentPeerStorage};
+
+#[async_trait]
+pub trait PersistentStorage: Sized {
+    /// If the storage_path contains persisted data the storage will use it, if not,
+    /// a empty storage will be created.
+    async fn open(storage_path: impl Into<PathBuf> + Send) -> StorageResult<Self>;
+
+    async fn persist(&mut self, storage_path: impl Into<PathBuf> + Send) -> StorageResult<()>;
+}
+
+#[async_trait]
+pub trait StorageManager:
+    BlockHeaderStorage
+    + FilterHeaderStorage
+    + FilterStorage
+    + BlockStorage
+    + MetadataStorage
+    + MasternodeStorage
+    + Send
+    + Sync
+    + 'static
+{
+    /// Deletes in-disk and in-memory data
+    async fn clear(&mut self) -> StorageResult<()>;
+
+    /// Drops the block headers, filter headers, filters, blocks and masternode
+    /// messages above `height`.
+    async fn truncate_above(&mut self, height: u32) -> StorageResult<()>;
+
+    /// Starts the background tasks, restarting them after a [`Self::stop`].
+    async fn start(&mut self);
+
+    /// Stops all background tasks and persists the data.
+    async fn stop(&mut self);
+
+    /// Returns shared access to the block headers storage.
+    fn block_headers(&self) -> Arc<RwLock<PersistentBlockHeaderStorage>>;
+
+    /// Returns shared access to the filter headers storage.
+    fn filter_headers(&self) -> Arc<RwLock<PersistentFilterHeaderStorage>>;
+
+    /// Returns shared access to the filters storage.
+    fn filters(&self) -> Arc<RwLock<PersistentFilterStorage>>;
+
+    /// Returns shared access to the block storage.
+    fn blocks(&self) -> Arc<RwLock<PersistentBlockStorage>>;
+
+    /// Returns shared access to the metadata storage.
+    fn metadata(&self) -> Arc<RwLock<PersistentMetadataStorage>>;
+
+    fn masternodes(&self)
+        -> Arc<RwLock<PersistentMasternodeStorage<PersistentBlockHeaderStorage>>>;
+}
+
+/// Disk-based storage manager with segmented files and async background saving.
+/// Only one instance of DiskStorageManager working on the same storage path
+/// can exist at a time. The background saving runs from [`StorageManager::start`]
+/// until [`StorageManager::stop`] or drop.
+pub struct DiskStorageManager {
+    storage_path: PathBuf,
+    network: Network,
+
+    block_headers: Arc<RwLock<PersistentBlockHeaderStorage>>,
+    filter_headers: Arc<RwLock<PersistentFilterHeaderStorage>>,
+    filters: Arc<RwLock<PersistentFilterStorage>>,
+    blocks: Arc<RwLock<PersistentBlockStorage>>,
+    metadata: Arc<RwLock<PersistentMetadataStorage>>,
+    masternodes: Arc<RwLock<PersistentMasternodeStorage<PersistentBlockHeaderStorage>>>,
+
+    // Background worker
+    worker_handle: Option<tokio::task::JoinHandle<()>>,
+
+    _lock_file: LockFile,
+}
+
+/// Derives the lockfile path for a storage directory by appending `.lock` to
+/// the directory's full name. `Path::set_extension` is unsuitable here: it
+/// replaces everything after the last dot, so directory names containing dots
+/// (e.g. `95.183.53.19-9999` and `95.183.53.20-9999`) would collide on the
+/// same lockfile.
+fn lock_file_path(storage_path: &Path) -> PathBuf {
+    match storage_path.file_name() {
+        Some(name) => {
+            let mut lock_name = name.to_os_string();
+            lock_name.push(".lock");
+            storage_path.with_file_name(lock_name)
+        }
+        // Paths without a final component (e.g. `/` or `..`); keep the
+        // previous `set_extension` behavior.
+        None => {
+            let mut lock_file = storage_path.to_path_buf();
+            lock_file.set_extension("lock");
+            lock_file
+        }
+    }
+}
+
+impl DiskStorageManager {
+    pub async fn new(config: &ClientConfig) -> StorageResult<Self> {
+        use std::fs;
+
+        let storage_path = config.storage_path.clone();
+        let lock_file = lock_file_path(&storage_path);
+
+        fs::create_dir_all(&storage_path)?;
+
+        let lock_file = LockFile::new(lock_file)?;
+
+        StorageMigrator::migrate(&storage_path).await?;
+
+        let block_headers =
+            Arc::new(RwLock::new(PersistentBlockHeaderStorage::open(&storage_path).await?));
+
+        Ok(Self {
+            storage_path: storage_path.clone(),
+            network: config.network,
+
+            filter_headers: Arc::new(RwLock::new(
+                PersistentFilterHeaderStorage::open(&storage_path).await?,
+            )),
+            filters: Arc::new(RwLock::new(PersistentFilterStorage::open(&storage_path).await?)),
+            blocks: Arc::new(RwLock::new(PersistentBlockStorage::open(&storage_path).await?)),
+            metadata: Arc::new(RwLock::new(PersistentMetadataStorage::open(&storage_path).await?)),
+            masternodes: Arc::new(RwLock::new(
+                PersistentMasternodeStorage::open(
+                    &storage_path,
+                    Arc::clone(&block_headers),
+                    config.network,
+                )
+                .await?,
+            )),
+            block_headers,
+
+            worker_handle: None,
+
+            _lock_file: lock_file,
+        })
+    }
+
+    #[cfg(test)]
+    pub async fn with_temp_dir() -> StorageResult<Self> {
+        use tempfile::TempDir;
+
+        let temp_dir = TempDir::new()?;
+        Self::new(&ClientConfig::testnet().with_storage_path(temp_dir.path())).await
+    }
+
+    /// Start the background worker saving data every 5 seconds
+    async fn start_worker(&mut self) {
+        if self.worker_handle.as_ref().is_some_and(|handle| !handle.is_finished()) {
+            return;
+        }
+
+        let block_headers = Arc::clone(&self.block_headers);
+        let filter_headers = Arc::clone(&self.filter_headers);
+        let filters = Arc::clone(&self.filters);
+        let blocks = Arc::clone(&self.blocks);
+        let metadata = Arc::clone(&self.metadata);
+
+        let storage_path = self.storage_path.clone();
+
+        let worker_handle = tokio::spawn(async move {
+            let mut ticker = tokio::time::interval(Duration::from_secs(5));
+
+            loop {
+                ticker.tick().await;
+
+                let _ = block_headers.write().await.persist(&storage_path).await;
+                let _ = filter_headers.write().await.persist(&storage_path).await;
+                let _ = filters.write().await.persist(&storage_path).await;
+                let _ = blocks.write().await.persist(&storage_path).await;
+                let _ = metadata.write().await.persist(&storage_path).await;
+            }
+        });
+
+        self.worker_handle = Some(worker_handle);
+    }
+
+    /// Stop the background worker without forcing a save.
+    fn stop_worker(&mut self) {
+        if let Some(handle) = self.worker_handle.take() {
+            handle.abort();
+        }
+    }
+
+    async fn persist(&self) {
+        let storage_path = &self.storage_path;
+
+        let _ = self.block_headers.write().await.persist(storage_path).await;
+        let _ = self.filter_headers.write().await.persist(storage_path).await;
+        let _ = self.filters.write().await.persist(storage_path).await;
+        let _ = self.blocks.write().await.persist(storage_path).await;
+        let _ = self.metadata.write().await.persist(storage_path).await;
+    }
+}
+
+/// Aborts the background worker without saving, use [`StorageManager::stop`] to persist.
+impl Drop for DiskStorageManager {
+    fn drop(&mut self) {
+        self.stop_worker();
+    }
+}
+
+#[async_trait]
+impl StorageManager for DiskStorageManager {
+    async fn truncate_above(&mut self, height: u32) -> StorageResult<()> {
+        BlockHeaderStorage::truncate_above(self, height).await?;
+        FilterHeaderStorage::truncate_above(self, height).await?;
+        FilterStorage::truncate_above(self, height).await?;
+        BlockStorage::truncate_above(self, height).await?;
+        MasternodeStorage::truncate_above(self, height).await
+    }
+
+    async fn clear(&mut self) -> StorageResult<()> {
+        // First, stop the background worker to avoid races with file deletion
+        let worker_was_running = self.worker_handle.is_some();
+        self.stop_worker();
+
+        // Remove all files and directories under storage_path
+        if self.storage_path.exists() {
+            // Best-effort removal; if concurrent files appear, retry once
+            match tokio::fs::remove_dir_all(&self.storage_path).await {
+                Ok(_) => {}
+                Err(e)
+                    if e.kind() == std::io::ErrorKind::Other
+                        || e.kind() == std::io::ErrorKind::DirectoryNotEmpty =>
+                {
+                    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                    tokio::fs::remove_dir_all(&self.storage_path).await?;
+                }
+                Err(e) => return Err(crate::error::StorageError::Io(e)),
+            }
+            tokio::fs::create_dir_all(&self.storage_path).await?;
+        }
+
+        // Instantiate storages again once persisted data has been cleared
+        let storage_path = &self.storage_path;
+
+        StorageMigrator::migrate(storage_path).await?;
+
+        self.block_headers =
+            Arc::new(RwLock::new(PersistentBlockHeaderStorage::open(storage_path).await?));
+        self.filter_headers =
+            Arc::new(RwLock::new(PersistentFilterHeaderStorage::open(storage_path).await?));
+        self.filters = Arc::new(RwLock::new(PersistentFilterStorage::open(storage_path).await?));
+        self.blocks = Arc::new(RwLock::new(PersistentBlockStorage::open(storage_path).await?));
+        self.metadata = Arc::new(RwLock::new(PersistentMetadataStorage::open(storage_path).await?));
+        self.masternodes = Arc::new(RwLock::new(
+            PersistentMasternodeStorage::open(
+                storage_path,
+                Arc::clone(&self.block_headers),
+                self.network,
+            )
+            .await?,
+        ));
+
+        if worker_was_running {
+            self.start_worker().await;
+        }
+
+        Ok(())
+    }
+
+    async fn start(&mut self) {
+        self.start_worker().await;
+    }
+
+    async fn stop(&mut self) {
+        self.stop_worker();
+
+        self.persist().await;
+    }
+
+    fn block_headers(&self) -> Arc<RwLock<PersistentBlockHeaderStorage>> {
+        Arc::clone(&self.block_headers)
+    }
+
+    fn filter_headers(&self) -> Arc<RwLock<PersistentFilterHeaderStorage>> {
+        Arc::clone(&self.filter_headers)
+    }
+
+    fn filters(&self) -> Arc<RwLock<PersistentFilterStorage>> {
+        Arc::clone(&self.filters)
+    }
+
+    fn blocks(&self) -> Arc<RwLock<PersistentBlockStorage>> {
+        Arc::clone(&self.blocks)
+    }
+
+    fn metadata(&self) -> Arc<RwLock<PersistentMetadataStorage>> {
+        Arc::clone(&self.metadata)
+    }
+
+    fn masternodes(
+        &self,
+    ) -> Arc<RwLock<PersistentMasternodeStorage<PersistentBlockHeaderStorage>>> {
+        Arc::clone(&self.masternodes)
+    }
+}
+
+#[async_trait]
+impl BlockHeaderStorage for DiskStorageManager {
+    async fn store_headers(&mut self, headers: &[HashedBlockHeader]) -> StorageResult<()> {
+        self.block_headers.write().await.store_headers(headers).await
+    }
+
+    async fn store_headers_at_height(
+        &mut self,
+        headers: &[HashedBlockHeader],
+        height: u32,
+    ) -> StorageResult<()> {
+        self.block_headers.write().await.store_headers_at_height(headers, height).await
+    }
+
+    async fn load_headers(&self, range: Range<u32>) -> StorageResult<Vec<HashedBlockHeader>> {
+        self.block_headers.read().await.load_headers(range).await
+    }
+
+    async fn get_tip_height(&self) -> Option<u32> {
+        self.block_headers.read().await.get_tip_height().await
+    }
+
+    async fn get_tip(&self) -> Option<BlockHeaderTip> {
+        self.block_headers.read().await.get_tip().await
+    }
+
+    async fn get_start_height(&self) -> Option<u32> {
+        self.block_headers.read().await.get_start_height().await
+    }
+
+    async fn get_stored_headers_len(&self) -> u32 {
+        self.block_headers.read().await.get_stored_headers_len().await
+    }
+
+    async fn get_header_height_by_hash(
+        &self,
+        hash: &dashcore::BlockHash,
+    ) -> StorageResult<Option<u32>> {
+        self.block_headers.read().await.get_header_height_by_hash(hash).await
+    }
+
+    async fn truncate_above(&mut self, target_height: u32) -> StorageResult<()> {
+        self.block_headers.write().await.truncate_above(target_height).await
+    }
+}
+
+#[async_trait]
+impl FilterHeaderStorage for DiskStorageManager {
+    async fn store_filter_headers(&mut self, headers: &[FilterHeader]) -> StorageResult<()> {
+        self.filter_headers.write().await.store_filter_headers(headers).await
+    }
+
+    async fn store_filter_headers_at_height(
+        &mut self,
+        headers: &[FilterHeader],
+        height: u32,
+    ) -> StorageResult<()> {
+        self.filter_headers.write().await.store_filter_headers_at_height(headers, height).await
+    }
+
+    async fn load_filter_headers(&self, range: Range<u32>) -> StorageResult<Vec<FilterHeader>> {
+        self.filter_headers.read().await.load_filter_headers(range).await
+    }
+
+    async fn get_filter_tip_height(&self) -> StorageResult<Option<u32>> {
+        self.filter_headers.read().await.get_filter_tip_height().await
+    }
+
+    async fn get_filter_start_height(&self) -> Option<u32> {
+        self.filter_headers.read().await.get_filter_start_height().await
+    }
+
+    async fn truncate_above(&mut self, target_height: u32) -> StorageResult<()> {
+        self.filter_headers.write().await.truncate_above(target_height).await
+    }
+}
+
+#[async_trait]
+impl filters::FilterStorage for DiskStorageManager {
+    async fn store_filter(&mut self, height: u32, filter: &[u8]) -> StorageResult<()> {
+        self.filters.write().await.store_filter(height, filter).await
+    }
+
+    async fn load_filters(&self, range: Range<u32>) -> StorageResult<Vec<Vec<u8>>> {
+        self.filters.read().await.load_filters(range).await
+    }
+
+    async fn filter_tip_height(&self) -> StorageResult<u32> {
+        self.filters.read().await.filter_tip_height().await
+    }
+
+    async fn filter_start_height(&self) -> Option<u32> {
+        self.filters.read().await.filter_start_height().await
+    }
+
+    async fn clear_filters(&mut self) -> StorageResult<()> {
+        self.filters.write().await.clear_filters().await
+    }
+
+    async fn truncate_above(&mut self, target_height: u32) -> StorageResult<()> {
+        self.filters.write().await.truncate_above(target_height).await
+    }
+}
+
+#[async_trait]
+impl BlockStorage for DiskStorageManager {
+    async fn store_block(&mut self, height: u32, block: HashedBlock) -> StorageResult<()> {
+        self.blocks.write().await.store_block(height, block).await
+    }
+
+    async fn load_block(&self, height: u32) -> StorageResult<Option<HashedBlock>> {
+        self.blocks.read().await.load_block(height).await
+    }
+
+    async fn truncate_above(&mut self, target_height: u32) -> StorageResult<()> {
+        self.blocks.write().await.truncate_above(target_height).await
+    }
+}
+
+#[async_trait]
+impl metadata::MetadataStorage for DiskStorageManager {
+    async fn store_metadata(&mut self, key: &str, value: &[u8]) -> StorageResult<()> {
+        self.metadata.write().await.store_metadata(key, value).await
+    }
+
+    async fn load_metadata<T: DeserializeOwned + Send>(
+        &self,
+        key: &str,
+    ) -> StorageResult<Option<T>> {
+        self.metadata.read().await.load_metadata(key).await
+    }
+
+    async fn store_last_target_height(&mut self, height: CoreBlockHeight) -> StorageResult<()> {
+        self.metadata.write().await.store_last_target_height(height).await
+    }
+
+    async fn load_last_target_height(&self) -> StorageResult<CoreBlockHeight> {
+        self.metadata.read().await.load_last_target_height().await
+    }
+}
+
+#[async_trait]
+impl masternode::MasternodeStorage for DiskStorageManager {
+    async fn store_diff(
+        &mut self,
+        height: CoreBlockHeight,
+        diff: &MnListDiff,
+    ) -> StorageResult<()> {
+        self.masternodes.write().await.store_diff(height, diff).await
+    }
+
+    async fn store_qr_info(
+        &mut self,
+        height: CoreBlockHeight,
+        qr_info: &QRInfo,
+    ) -> StorageResult<()> {
+        self.masternodes.write().await.store_qr_info(height, qr_info).await
+    }
+
+    async fn truncate_above(&mut self, height: CoreBlockHeight) -> StorageResult<()> {
+        self.masternodes.write().await.truncate_above(height).await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use dashcore::Header as BlockHeader;
+    use tempfile::TempDir;
+
+    fn hashed_batch(r: std::ops::Range<u32>) -> Vec<HashedBlockHeader> {
+        BlockHeader::dummy_batch(r).into_iter().map(HashedBlockHeader::from).collect()
+    }
+
+    #[test]
+    fn test_lock_file_path_appends_to_full_name() {
+        // Dot-free directory names keep the historical behavior.
+        assert_eq!(
+            lock_file_path(Path::new("data/discovery")),
+            PathBuf::from("data/discovery.lock")
+        );
+
+        // Dotted directory names must not have their "extension" replaced:
+        // distinct sibling directories need distinct lockfiles.
+        let a = lock_file_path(Path::new("probes/95.183.53.19-9999"));
+        let b = lock_file_path(Path::new("probes/95.183.53.20-9999"));
+        assert_eq!(a, PathBuf::from("probes/95.183.53.19-9999.lock"));
+        assert_eq!(b, PathBuf::from("probes/95.183.53.20-9999.lock"));
+        assert_ne!(a, b);
+    }
+
+    #[tokio::test]
+    async fn test_dotted_sibling_dirs_do_not_share_lock() -> Result<(), Box<dyn std::error::Error>>
+    {
+        let temp_dir = TempDir::new()?;
+        let path_a = temp_dir.path().join("95.183.53.19-9999");
+        let path_b = temp_dir.path().join("95.183.53.20-9999");
+
+        let config_a = ClientConfig::testnet().with_storage_path(&path_a);
+        let config_b = ClientConfig::testnet().with_storage_path(&path_b);
+
+        let _storage_a = DiskStorageManager::new(&config_a).await?;
+        // Before the fix this failed with "Data directory ... is already in
+        // use by another process" because both paths derived the same lockfile.
+        let _storage_b = DiskStorageManager::new(&config_b).await?;
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_worker_runs_from_start_until_drop() {
+        let mut storage = DiskStorageManager::with_temp_dir().await.unwrap();
+        assert!(storage.worker_handle.is_none());
+
+        storage.start().await;
+        let block_headers = Arc::downgrade(&storage.block_headers());
+        drop(storage);
+        tokio::task::yield_now().await;
+
+        // Only the worker could still hold the storages.
+        assert!(block_headers.upgrade().is_none());
+    }
+
+    #[tokio::test]
+    async fn test_store_load_headers() -> Result<(), Box<dyn std::error::Error>> {
+        // Create a temporary directory for the test
+        let temp_dir = TempDir::new()?;
+        let config = ClientConfig::testnet().with_storage_path(temp_dir.path());
+        let mut storage = DiskStorageManager::new(&config).await.expect("Unable to create storage");
+
+        let headers = hashed_batch(0..60_000);
+
+        storage.store_headers(&headers[0..0]).await.expect("Should handle empty header batch");
+        assert_eq!(storage.get_tip_height().await, None);
+
+        storage.store_headers(&headers[0..1]).await.expect("Failed to store headers");
+        let loaded_headers = storage.load_headers(0..1).await?;
+        assert_eq!(loaded_headers.len(), 1);
+        assert_eq!(loaded_headers[0], headers[0]);
+
+        storage.store_headers(&headers[1..100]).await.expect("Failed to store headers");
+        let loaded_headers = storage.load_headers(50..60).await.unwrap();
+        assert_eq!(loaded_headers.len(), 10);
+        assert_eq!(&loaded_headers, &headers[50..60]);
+
+        storage.store_headers(&headers[100..headers.len()]).await.expect("Failed to store headers");
+
+        let tip_height = storage.get_tip_height().await.unwrap();
+        let tip_header = storage.get_header(tip_height).await.unwrap().unwrap();
+        let expected_header = &headers[headers.len() - 1];
+        assert_eq!(tip_header, *expected_header);
+
+        let non_existing_height = tip_height + 1;
+        let non_existing_header = storage.get_header(non_existing_height).await.unwrap();
+        assert!(non_existing_header.is_none());
+
+        storage.stop().await;
+        drop(storage);
+        let storage = DiskStorageManager::new(&config).await.expect("Unable to open storage");
+
+        let loaded_headers = storage.load_headers(49_999..50_002).await.unwrap();
+        assert_eq!(loaded_headers.len(), 3);
+        assert_eq!(&loaded_headers, &headers[49_999..50_002]);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_checkpoint_storage_indexing() -> StorageResult<()> {
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        let config = ClientConfig::testnet().with_storage_path(temp_dir.path());
+        let mut storage = DiskStorageManager::new(&config).await?;
+
+        // Create test headers starting from checkpoint height
+        const CHECKPOINT_HEIGHT: u32 = 1_100_000;
+        let headers: Vec<HashedBlockHeader> =
+            hashed_batch(CHECKPOINT_HEIGHT..CHECKPOINT_HEIGHT + 100);
+
+        storage.store_headers_at_height(&headers, CHECKPOINT_HEIGHT).await?;
+
+        check_storage(&storage, &headers).await?;
+
+        storage.stop().await;
+        drop(storage);
+
+        let storage = DiskStorageManager::new(&config).await?;
+
+        check_storage(&storage, &headers).await?;
+
+        return Ok(());
+
+        async fn check_storage(
+            storage: &DiskStorageManager,
+            headers: &[HashedBlockHeader],
+        ) -> StorageResult<()> {
+            assert_eq!(storage.get_stored_headers_len().await, headers.len() as u32);
+
+            let header_at_base = storage.get_header(CHECKPOINT_HEIGHT).await?;
+            assert_eq!(header_at_base, Some(headers[0].clone()));
+
+            let header_at_ending = storage.get_header(CHECKPOINT_HEIGHT + 99).await?;
+            assert_eq!(header_at_ending, Some(headers[99].clone()));
+
+            // Test the reverse index (hash -> blockchain height)
+            let hash_0 = *headers[0].hash();
+            let height_0 = storage.get_header_height_by_hash(&hash_0).await?;
+            assert_eq!(
+                height_0,
+                Some(CHECKPOINT_HEIGHT),
+                "Hash should map to blockchain height 1,100,000"
+            );
+
+            let hash_99 = *headers[99].hash();
+            let height_99 = storage.get_header_height_by_hash(&hash_99).await?;
+            assert_eq!(
+                height_99,
+                Some(CHECKPOINT_HEIGHT + 99),
+                "Hash should map to blockchain height 1,100,099"
+            );
+
+            Ok(())
+        }
+    }
+
+    #[tokio::test]
+    async fn test_reverse_index_disk_storage() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let config = ClientConfig::regtest().with_storage_path(temp_dir.path());
+
+        {
+            let mut storage = DiskStorageManager::new(&config).await.unwrap();
+
+            // Create and store headers
+            let headers = hashed_batch(0..10);
+
+            storage.store_headers(&headers).await.unwrap();
+
+            // Test reverse lookups
+            for (i, header) in headers.iter().enumerate() {
+                let hash = *header.hash();
+                let height = storage.get_header_height_by_hash(&hash).await.unwrap();
+                assert_eq!(height, Some(i as u32), "Height mismatch for header {}", i);
+            }
+
+            storage.stop().await;
+        }
+
+        // Test persistence - reload storage and verify index still works
+        {
+            let storage = DiskStorageManager::new(&config).await.unwrap();
+
+            // The index should have been rebuilt from the loaded headers
+            // We need to get the actual headers that were stored to test properly
+            for i in 0..10 {
+                let stored_header = storage.get_header(i).await.unwrap().unwrap();
+                let hash = *stored_header.hash();
+                let height = storage.get_header_height_by_hash(&hash).await.unwrap();
+                assert_eq!(height, Some(i), "Height mismatch after reload for header {}", i);
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn test_clear_clears_index() {
+        let mut storage =
+            DiskStorageManager::with_temp_dir().await.expect("Failed to create tmp storage");
+
+        // Store some headers
+        let header = hashed_batch(0..1);
+        storage.store_headers(&header).await.unwrap();
+
+        let hash = *header[0].hash();
+        assert!(storage.get_header_height_by_hash(&hash).await.unwrap().is_some());
+
+        // Clear storage
+        storage.clear().await.unwrap();
+
+        // Verify index is cleared
+        assert!(storage.get_header_height_by_hash(&hash).await.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn test_disk_storage_manager_truncate_above_block_headers() {
+        let temp_dir = TempDir::new().unwrap();
+        let config = ClientConfig::regtest().with_storage_path(temp_dir.path());
+        let mut mgr = DiskStorageManager::new(&config).await.unwrap();
+
+        let headers = hashed_batch(0..10);
+        mgr.store_headers(&headers).await.unwrap();
+
+        let orphaned_hash = *headers[7].hash();
+        assert_eq!(mgr.get_header_height_by_hash(&orphaned_hash).await.unwrap(), Some(7));
+
+        <DiskStorageManager as BlockHeaderStorage>::truncate_above(&mut mgr, 5).await.unwrap();
+
+        assert_eq!(mgr.get_tip_height().await, Some(5));
+        assert_eq!(mgr.get_header_height_by_hash(&orphaned_hash).await.unwrap(), None);
+
+        let kept_hash = *headers[3].hash();
+        assert_eq!(mgr.get_header_height_by_hash(&kept_hash).await.unwrap(), Some(3));
+    }
+
+    #[tokio::test]
+    async fn test_lock_lifecycle() {
+        let temp_dir = TempDir::new().expect("Failed to create temp directory");
+        let path = temp_dir.path().to_path_buf();
+        let lock_path = {
+            let mut lock_file = path.clone();
+            lock_file.set_extension("lock");
+            lock_file
+        };
+        let config = ClientConfig::regtest().with_storage_path(path);
+
+        let mut storage1 = DiskStorageManager::new(&config).await.unwrap();
+        assert!(lock_path.exists(), "Lock file should exist while storage is open");
+        storage1.clear().await.expect("Failed to clear the storage");
+        assert!(lock_path.exists(), "Lock file should exist after storage is cleared");
+
+        let storage2 = DiskStorageManager::new(&config).await;
+        assert!(storage2.is_err(), "Second storage manager should fail");
+
+        // Lock file removed when storage drops
+        drop(storage1);
+        assert!(!lock_path.exists(), "Lock file should be removed after storage drops");
+
+        // Can reopen storage after previous one dropped
+        let storage3 = DiskStorageManager::new(&config).await;
+        assert!(storage3.is_ok(), "Should reopen after previous storage dropped");
+    }
+}
