@@ -118,10 +118,21 @@ fn sweep(preset: &str) -> Vec<String> {
     // «Wallet password»», 1 of 8 sweeps run at once, after the wait for the focus).
     settle(&mut kit);
     let again = round(&mut kit, preset, |_| false).expect("a round");
-    found
+    let (confirmed, once): (Vec<_>, Vec<_>) = found
         .into_iter()
-        .filter(|f| again.iter().any(|a| kind(a) == kind(f)))
-        .collect()
+        .partition(|f| again.iter().any(|a| kind(a) == kind(f)));
+    // Not lost silently (BUG-164 r1, should 1): a problem only the first round found is printed,
+    // and the check script counts these lines in its report, so one that keeps coming back on a
+    // screen shows across checks. Written to stderr itself: libtest keeps an `eprintln!` of a
+    // test that passed to itself.
+    for finding in &once {
+        use std::io::Write as _;
+        let _ = writeln!(
+            std::io::stderr(),
+            "tab sweep: {preset}: once, not again: {finding}"
+        );
+    }
+    confirmed
 }
 
 /// How long a Tab's focus may take to land before it counts as lost (BUG-164).
