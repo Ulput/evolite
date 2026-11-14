@@ -1090,3 +1090,69 @@ fn tokens_keep_in_mind_in_arabic_reads_down_from_its_first_row() {
         "«{last}» in the bottom row: {rows:?}"
     );
 }
+
+/// BUG-153: in Arabic the search's count, «800 من 4,193 عقدًا», is drawn as read right to left —
+/// the number read first (checked) at the right end, the total left of it — and stands at the
+/// card's right. Checked on the shapes the window gets, after the mirror, for the running search
+/// QA looked at and for the stopped one. (QA's picture showed it right: the line's pixels put
+/// «800» at its right end; a picture of Arabic is easily read the wrong way round.)
+#[test]
+fn the_search_count_in_arabic_is_drawn_right_to_left() {
+    for preset in ["tokens-again", "tokens-no-network"] {
+        let (_turn, mut kit) = demo_app(preset, "ar");
+        kit.run_steps(4);
+        let mut texts = Vec::new();
+        fn walk(shape: &egui::Shape, out: &mut Vec<egui::epaint::TextShape>) {
+            match shape {
+                egui::Shape::Text(t) => out.push(t.clone()),
+                egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, out)),
+                _ => {}
+            }
+        }
+        for c in &kit.output().shapes {
+            walk(&c.shape, &mut texts);
+        }
+        // The count: one line, two numbers and «من».
+        let count = texts
+            .iter()
+            .find(|t| {
+                let s = t.galley.text();
+                !s.contains('\n')
+                    && s.contains("من")
+                    && s.split(' ')
+                        .filter(|w| w.starts_with(|c: char| c.is_ascii_digit()))
+                        .count()
+                        == 2
+            })
+            .unwrap_or_else(|| panic!("{preset}: the count"));
+        // The numbers as the screen shows them: their glyphs left to right by x.
+        let mut glyphs: Vec<(f32, char)> = count
+            .galley
+            .rows
+            .iter()
+            .flat_map(|r| r.row.glyphs.iter().map(move |g| (r.pos.x + g.pos.x, g.chr)))
+            .filter(|(_, c)| c.is_ascii_digit() || *c == ',' || *c == ' ')
+            .collect();
+        glyphs.sort_by(|a, b| a.0.total_cmp(&b.0));
+        let shown: String = glyphs.iter().map(|(_, c)| *c).collect();
+        let numbers: Vec<u64> = shown
+            .split(' ')
+            .filter(|w| !w.is_empty())
+            .map(|w| w.replace(',', "").parse().expect("a number"))
+            .collect();
+        assert_eq!(numbers.len(), 2, "{preset}: {shown:?}");
+        assert!(
+            numbers[1] < numbers[0],
+            "{preset}: the checked count {} is read first, so drawn right of the total {} ({:?})",
+            numbers[1].min(numbers[0]),
+            numbers[1].max(numbers[0]),
+            count.galley.text()
+        );
+        // At the card's right: the line ends in the right half of the window.
+        let right = count.pos.x + count.galley.rect.max.x;
+        assert!(
+            right > kit.ctx.content_rect().center().x,
+            "{preset}: the count ends at {right}, at the left"
+        );
+    }
+}
