@@ -145,7 +145,10 @@ fn mono_words(kit: &Kit) -> Vec<String> {
         // An @name starts a word (an e-mail is not one); a link or a payment URI is code.
         let named = job.text.starts_with('@') || job.text.contains(" @");
         let code = job.text.contains("://") || job.text.starts_with("dash:");
-        if (ids.is_empty() && !named) || code {
+        // A document shown as a block (the report letter, five lines or more) is the lead's
+        // (FEAT-0033): this half is about a line beside an id.
+        let document = job.text.lines().count() >= 5;
+        if (ids.is_empty() && !named) || code || document {
             continue;
         }
         // Each run of letters with where it starts, in bytes.
@@ -207,4 +210,34 @@ fn no_words_beside_an_id_are_in_the_monospace_font() {
         wrong.len(),
         wrong.join("\n")
     );
+}
+
+/// BUG-159: an e-mail, a version (0.1.0) and a short commit hash (7–12 hex) are code too, in the
+/// monospace font — and a date, an amount with its thousands, an ordinary word or number are not.
+#[test]
+fn an_email_a_version_and_a_short_hash_are_code() {
+    let only = |text: &str| -> Vec<String> {
+        runs(text).into_iter().map(|r| text[r].to_owned()).collect()
+    };
+    assert_eq!(
+        only("To: ulput@protonmail.com · subject"),
+        ["ulput@protonmail.com"]
+    );
+    assert_eq!(only("evolite 0.1.0 (a97a98e)"), ["0.1.0", "a97a98e"]);
+    assert_eq!(only("platform 575d961, v1.2.13."), ["575d961", "v1.2.13"]);
+    assert_eq!(only("rust-dashcore aca0202"), ["aca0202"]);
+    for no in [
+        "14.11.2026",
+        "1.200.000 DASH",
+        "3.5 DASH",
+        "facade and decade",
+        "1234567 credits",
+        "@alice and @bob",
+        "e.g. this",
+        "Nov 14, 14:59",
+        "0,1000 DASH",
+        "ChainLock up to ~2.5 min",
+    ] {
+        assert_eq!(only(no), Vec::<String>::new(), "{no}");
+    }
 }
