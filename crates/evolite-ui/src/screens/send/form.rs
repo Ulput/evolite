@@ -117,6 +117,8 @@ pub(super) struct Asked {
     pub(super) open_contacts: bool,
     /// «Check and top up» (FEAT-0015 stage 2, frame 14): the funding's review for this amount.
     pub(super) fund: Option<Duffs>,
+    /// «Cancel» (BUG-169): back to where Send was entered from; the form is cleared.
+    pub(super) back: bool,
 }
 
 impl<'a> FormView<'a> {
@@ -792,6 +794,7 @@ fn contact_first(
         }
         if button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked() {
             form.replace(SendForm::empty());
+            asked.back = true;
         }
     });
 }
@@ -1225,10 +1228,24 @@ fn send_row(ui: &mut Ui, a: &mut Assets, form: &mut SendForm, v: &FormView, aske
             }
             if button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked() {
                 form.replace(SendForm::empty());
+                asked.back = true;
             }
         });
         if let Some(missing) = missing {
             ui.add(egui::Label::new(txt(missing, 12.0, Weight::Regular, p.muted)).wrap());
+        }
+        return;
+    }
+    // BUG-169 S4 (the customer: «Да, как на S4»): a payment just sent and nothing typed since —
+    // «Done» in the place of «Check and send», no «Cancel» (nothing is left to give up); it goes
+    // back to where Send was entered from, as «Cancel» would. Typing brings the usual buttons.
+    let just_sent = matches!(form.result, Some(Ok(_)))
+        && form.recipient.trim().is_empty()
+        && form.amount.trim().is_empty();
+    if just_sent {
+        if button(ui, a, tr!("Done"), ButtonKind::Primary, None).clicked() {
+            form.result = None;
+            asked.back = true;
         }
         return;
     }
@@ -1255,6 +1272,7 @@ fn send_row(ui: &mut Ui, a: &mut Assets, form: &mut SendForm, v: &FormView, aske
         }
         if button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked() {
             form.replace(SendForm::empty());
+            asked.back = true;
         }
     });
     if let Some(missing) = missing {

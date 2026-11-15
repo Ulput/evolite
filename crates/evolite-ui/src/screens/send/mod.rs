@@ -554,7 +554,15 @@ pub fn send(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut SendForm) {
     crate::format::fill_suggested(&mut form.amount, &mut form.suggested);
     form.sync_currency(currency::Rate::now(cx.now.timestamp()).as_ref());
     ui.spacing_mut().item_spacing.y = 24.0;
-    page_header(ui, a, tr!("Send"), None, |_, _| {});
+    // BUG-169 R-7: «‹ {place}» 4 above the title — where «Cancel», Esc and the mouse's «back»
+    // lead too.
+    ui.scope(|ui| {
+        ui.spacing_mut().item_spacing.y = 0.0;
+        if crate::components::back_link(ui, a, super::place_name(cx.back)).clicked() {
+            cx.go_back();
+        }
+        page_header(ui, a, tr!("Send"), None, |_, _| {});
+    });
 
     // A picture dropped on the window, then what a scan brought (FEAT-0006): «To» gets it.
     if !form.confirming
@@ -635,6 +643,10 @@ pub fn send(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut SendForm) {
     }
     if asked.open_contacts {
         cx.go(super::Screen::Contacts);
+    }
+    // BUG-169: «Cancel» goes back to where Send was entered from (`App` clears the form).
+    if asked.back {
+        cx.go_back();
     }
 
     // While its answer is awaited the amount has left the form for the payment (BUG-92).

@@ -39,13 +39,7 @@ pub fn card_window(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx) {
             cx.send(command);
         }
         if answer.closed {
-            ui.data_mut(|d| {
-                d.remove::<u64>(card_id());
-                d.remove::<u64>(all_sides_id());
-                d.remove::<u64>(body_of_id());
-            });
-            // A note half edited goes with its card.
-            forget_note(ui.ctx());
+            close_card(ui.ctx());
         }
         // "Open in Contacts": accepting is there, with the password (BUG-42, BUG-58).
         // "Continue on the Identity screen": the cut-short top-up or creation is finished
@@ -85,6 +79,24 @@ fn all_sides_id() -> egui::Id {
 /// Opens the card of operation `id` (a row clicked; `--screen activity-card`).
 pub fn open_card(ctx: &egui::Context, id: u64) {
     ctx.data_mut(|d| d.insert_temp(card_id(), id));
+}
+
+/// Closes the open card, with what it kept: «Show all», the body it was opened on, a note half
+/// edited. Its own «×» and, BUG-169 r1 Should 1, a return to it given up.
+pub fn close_card(ctx: &egui::Context) {
+    ctx.data_mut(|d| {
+        d.remove::<u64>(card_id());
+        d.remove::<u64>(all_sides_id());
+        d.remove::<u64>(body_of_id());
+    });
+    // A note half edited goes with its card.
+    forget_note(ctx);
+}
+
+/// Whether a card is open (BUG-169's tests).
+#[cfg(all(test, demo_core, feature = "dev-tools"))]
+pub fn card_open(ctx: &egui::Context) -> bool {
+    ctx.data(|d| d.get_temp::<u64>(card_id()).is_some())
 }
 
 /// The note being edited in the open card (FEAT-0003, AC-D4): its operation's key, the text as
@@ -1895,7 +1907,7 @@ fn card_footer(ui: &mut Ui, a: &mut Assets, footer: &Footer, answer: &mut CardAn
                         .clicked()
                 {
                     answer.again = Some(repeat.clone());
-                    close = true;
+                    // Left open: «Cancel» on Send comes back to it (BUG-169 R-1).
                 }
     });
     close

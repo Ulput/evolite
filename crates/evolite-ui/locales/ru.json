@@ -1,4 +1,5 @@
 {
+  "Back: {}": "Назад: {}",
   "No link? Upload the picture, for example, to": "Нет ссылки? Загрузите картинку, например, на",
   "Imgur is a third-party service: it sees your IP and the file itself, and may delete an anonymously uploaded picture over time. Before uploading, check the file does not keep where it was taken.": "Imgur — сторонний сервис: он увидит ваш IP и сам файл, а анонимно загруженную картинку может со временем удалить. Перед загрузкой проверьте, нет ли в файле места съёмки.",
   "This is a link to an Imgur page, not to the picture. Open the picture and copy its address: it starts with i.imgur.com": "Это ссылка на страницу Imgur, а не на картинку. Откройте картинку и скопируйте её адрес: он начинается с i.imgur.com",

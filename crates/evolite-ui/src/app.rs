@@ -9,6 +9,8 @@ mod dev;
 mod ui_tests;
 // FEAT-0037: testnet and mainnet, a switch by starting again.
 mod network;
+// BUG-169: a screen entered from several places goes back to where it was entered from.
+mod back;
 
 use crate::cli::{CoreChoice, Launch};
 use crate::components::{Assets, txt};
@@ -41,6 +43,8 @@ pub struct App {
     screen: Screen,
     /// The screen of the wallet drawn last: when it differs from `screen`, the person left it.
     drawn: Screen,
+    /// BUG-169: where Send goes back to (one step); none off a returning screen.
+    back: Option<back::Back>,
     /// History's filters and search (FEAT-0009): kept for this wallet and this unlock only.
     history: screens::activity_filters::History,
     send: screens::send::SendForm,
@@ -254,6 +258,7 @@ impl App {
             snapshot: None,
             screen: launch.screen,
             drawn: launch.screen,
+            back: None,
             history: Default::default(),
             send,
             receive: Default::default(),
@@ -902,6 +907,21 @@ fn demo_notes_in_language(s: &mut Snapshot) {
     }
 }
 
+/// BUG-169 r1 Should 1: the return to `place` is given up (Send left another way than back, or
+/// a lock): what was left open there for it closes — a contact's profile on Contacts, an
+/// operation's card on History or Overview.
+fn give_up_return(
+    contacts: &mut screens::contacts::ContactsState,
+    ctx: &egui::Context,
+    place: Screen,
+) {
+    match place {
+        Screen::Contacts => contacts.profile = None,
+        Screen::Activity | Screen::Overview => screens::activity_card::close_card(ctx),
+        _ => {}
+    }
+}
+
 /// The open wallet's keys went since the last snapshot: locked, or deleted (a deletion goes from
 /// open straight to no wallet, never through "locked").
 fn keys_gone(before: Option<VaultState>, now: VaultState) -> bool {
@@ -1165,6 +1185,11 @@ impl eframe::App for App {
             // A QR picture still being read is dropped when it ends (FEAT-0006).
             crate::qr_scan::on_lock();
             self.send.on_lock();
+            // BUG-169 R-3: after a lock there is no place to go back to; what was left open for
+            // it closes (r1 Should 1).
+            if let Some(given_up) = self.back.take() {
+                give_up_return(&mut self.contacts, ui.ctx(), given_up.screen);
+            }
             self.settings.forget_secrets();
             // FEAT-0009 R-5: the filters and the search go with the lock.
             self.history = Default::default();
@@ -1237,7 +1262,10 @@ impl eframe::App for App {
                 self.identity_restored = true;
             }
         }
+        // BUG-169: where a returning screen goes back to, as its «‹ {place}» names it.
+        let here = back::here(snapshot);
         let mut cx = Ctx::new(snapshot, &mut commands, &mut go);
+        cx.back = back::back_to(self.back.as_ref(), &here, snapshot.network);
         // By the window's width, once a frame (responsive spec R2).
         cx.bp = crate::theme::Breakpoint::of(ui.ctx().content_rect().width());
         // A countdown preset (FEAT-0002) shows the time it names.
@@ -1482,6 +1510,11 @@ impl eframe::App for App {
                 cx.send(command);
             }
         }
+        // BUG-169: «Cancel» and the link ask for it; Esc without a dialog and the mouse's
+        // «back» do the same on a returning screen (R-6).
+        let going_back = cx.take_go_back()
+            || (back::returning(self.screen) && back::esc_or_mouse_back(ui.ctx()));
+        let back_to = cx.back;
         let pay = cx.take_pay();
         if cx.take_top_up() {
             self.identity.open_top_up();
@@ -1583,7 +1616,26 @@ impl eframe::App for App {
                 self.send.amount = crate::format::input_text(amount);
             }
         }
+        if going_back && go.is_none() {
+            // Going back is giving the payment up: the form is cleared, as «Cancel» clears it
+            // (R-5), whichever way it was asked.
+            if self.screen == Screen::Send {
+                self.send.replace(screens::send::SendForm::empty());
+            }
+            go = Some(back_to);
+        }
         if let Some(screen) = go {
+            // BUG-169: entering a returning screen remembers where from (one step, R-4).
+            let before = self.back.take();
+            self.back = back::back_after(self.screen, screen, before.clone(), here.clone());
+            // r1 Should 1: Send left another way than back — what was left open for the return
+            // (a contact's profile, an operation's card) closes; coming back anew finds the list.
+            if let Some(given_up) = before
+                && self.back.is_none()
+                && !going_back
+            {
+                give_up_return(&mut self.contacts, ui.ctx(), given_up.screen);
+            }
             if !matches!(screen, Screen::Onboarding(_)) {
                 // Leaving the onboarding forgets what was typed there.
                 self.onboarding = None;

@@ -30,6 +30,12 @@ pub struct Ctx<'a> {
     fund: Option<evolite_api::Duffs>,
     /// Something about the wallets of this computer the app does across frames.
     wallets: Option<WalletRequest>,
+    /// BUG-169: where «Cancel», «‹ {place}», Esc and the mouse's «back» on a returning screen
+    /// lead — the screen it was entered from, or Overview when there is none to go back to.
+    /// Set by `App` each frame.
+    pub back: Screen,
+    /// [`Self::go_back`] was asked this frame.
+    go_back: bool,
 }
 
 /// what a screen asks of the wallets that takes more than one command.
@@ -65,7 +71,19 @@ impl<'a> Ctx<'a> {
             top_up: false,
             fund: None,
             wallets: None,
+            back: Screen::Overview,
+            go_back: false,
         }
+    }
+
+    /// Back to [`Self::back`] (BUG-169); `App` checks the place is still there, else Overview.
+    pub fn go_back(&mut self) {
+        self.go_back = true;
+    }
+
+    /// Whether [`Self::go_back`] was asked this frame.
+    pub fn take_go_back(&mut self) -> bool {
+        std::mem::take(&mut self.go_back)
     }
 
     pub fn wallets(&mut self, request: WalletRequest) {

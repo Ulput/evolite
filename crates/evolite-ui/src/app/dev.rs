@@ -604,6 +604,18 @@ impl App {
             self.send.confirming = preset("send-confirm")
                 || preset("send-confirm-note")
                 || preset("send-confirm-link");
+            // `--screen send-done` (BUG-169 S4): just after a payment — the form cleared, the
+            // network's answer on it, «Done» in place of «Check and send».
+            if preset("send-done") {
+                self.send.recipient.clear();
+                self.send.amount.clear();
+                self.send.result = Some(Ok(evolite_api::SentPayment {
+                    txid: "4f1c9e2b7a5d3086c1e4f7a2b9d0c3e6f8a1b4d7c0e3f6a9b2c5d8e1f4a7b0c3".into(),
+                    amount: 25_000_000,
+                    fee: 227,
+                    relayed: true,
+                }));
+            }
             // FEAT-0006: what a QR leaves in the form (Figma 02, 04, 09).
             const LINK: &str =
                 "dash:yXk3Tq9mD8vJw2RfL6pN4sB7cH1eZ5aG9f?amount=0.25&label=Invoice%2014";

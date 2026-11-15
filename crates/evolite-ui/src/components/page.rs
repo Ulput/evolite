@@ -3,6 +3,42 @@
 
 use super::prelude::*;
 
+/// «‹ {place}» above a screen's title (BUG-169; FEAT-0020 K1, frame Y1): where the screen goes
+/// back to, `place` a menu item's name (English, the key). The chevron and the words, 13 Medium
+/// `muted`, `text` under the pointer and when focused; 4 above the title. A link for a screen
+/// reader, «Back: {place}», and the screen's first Tab stop (it is drawn first). In Arabic the
+/// frame's mirror turns it over: at the right, the chevron right of the word, pointing right.
+pub fn back_link(ui: &mut Ui, a: &mut Assets, place: &str) -> Response {
+    let p = a.p;
+    // The colour by the last frame's pointer and focus: the words are drawn before the click
+    // that lies over them is registered.
+    let lit_id = ui.id().with("back-link-lit");
+    let lit = ui.data(|d| d.get_temp::<bool>(lit_id)).unwrap_or(false);
+    let color = if lit { p.text } else { p.muted };
+    let row = ui
+        .horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 4.0;
+            ui.style_mut().interaction.selectable_labels = false;
+            ui.add(a.icons.icon("chevron-left", color, &p, 14.0));
+            ui.label(txt(place, 13.0, Weight::Medium, color));
+        })
+        .response;
+    let resp = crate::a11y::row_click(ui, &row, "back-link");
+    named(
+        &resp,
+        egui::WidgetType::Link,
+        true,
+        &format!(tr!("Back: {}"), place),
+    );
+    let now = resp.hovered() || resp.has_focus();
+    if now != lit {
+        ui.data_mut(|d| d.insert_temp(lit_id, now));
+        ui.ctx().request_repaint();
+    }
+    ui.add_space(4.0);
+    resp.on_hover_cursor(CursorIcon::PointingHand)
+}
+
 /// Header: 28 Bold title, an optional mono count next to it, actions on the right (drawn right
 /// to left, so the primary one goes first). 41 px, as tall as a button.
 pub fn page_header(

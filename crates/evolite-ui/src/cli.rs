@@ -216,7 +216,7 @@ pub const PRESETS: &[&str] = &[
     "activity-notes", "activity-search-note", "activity-notes-unreadable", "activity-card-note",
     "activity-card-add-note", "activity-card-note-edit", "activity-card-note-error",
     "send-note", "send-note-limit", "send-confirm-note", "delete-notes",
-    "send", "send-confirm", "send-contact", "send-book", "send-syncing", "send-qr-menu",
+    "send", "send-confirm", "send-done", "send-contact", "send-book", "send-syncing", "send-qr-menu",
     "send-qr-filled", "send-qr-error", "send-confirm-link",
     "send-from-address", "address-withdraw-warning", "address-withdraw-foreign", "address-top-up",
     "address-confirm",
@@ -359,6 +359,7 @@ fn dev_args<'a>(
             Some(
                 "send"
                 | "send-confirm"
+                | "send-done"
                 | "send-contact"
                 | "send-book"
                 | "send-syncing"

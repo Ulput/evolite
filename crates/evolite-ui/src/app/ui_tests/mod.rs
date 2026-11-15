@@ -47,6 +47,7 @@ mod pool_moves;
 mod qr;
 mod scrolling;
 mod send;
+mod send_back;
 mod settings_apps;
 mod spend;
 mod sync;

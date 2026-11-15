@@ -579,7 +579,7 @@ fn profile_dialog(
                         && button(ui, a, tr!("Send"), ButtonKind::Primary, None).clicked()
                     {
                         pay = true;
-                        close = true;
+                        // Left open: «Cancel» on Send comes back to it (BUG-169 R-1).
                     }
                 });
                 return close;

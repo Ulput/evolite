@@ -1,4 +1,5 @@
 {
+  "Back: {}": "Retour : {}",
   "No link? Upload the picture, for example, to": "Pas de lien ? Envoyez l’image, par exemple, sur",
   "Imgur is a third-party service: it sees your IP and the file itself, and may delete an anonymously uploaded picture over time. Before uploading, check the file does not keep where it was taken.": "Imgur est un service tiers : il voit votre IP et le fichier lui-même, et peut supprimer avec le temps une image envoyée anonymement. Avant l’envoi, vérifiez que le fichier ne garde pas le lieu de la prise de vue.",
   "This is a link to an Imgur page, not to the picture. Open the picture and copy its address: it starts with i.imgur.com": "C’est un lien vers une page Imgur, pas vers l’image. Ouvrez l’image et copiez son adresse : elle commence par i.imgur.com",

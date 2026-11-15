@@ -99,4 +99,17 @@ pub fn shown_on(screen: Screen, network: evolite_api::Network) -> bool {
     feature_of(screen).is_none_or(|f| evolite_api::features::on(f, network))
 }
 
+/// A screen's name as the menu says it (the key): what «‹ {place}» names (BUG-169). Settings by
+/// its button; «Create an identity» is Identity's, as the menu keeps it lit.
+pub fn place_name(screen: Screen) -> &'static str {
+    match screen {
+        Screen::Settings => tr!("Settings"),
+        Screen::CreateIdentity => tr!("Identity"),
+        _ => NAV
+            .iter()
+            .find(|(s, ..)| *s == screen)
+            .map_or(tr!("Overview"), |(_, _, name)| name),
+    }
+}
+
 pub(crate) use crate::components::txt;
