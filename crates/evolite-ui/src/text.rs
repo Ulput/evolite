@@ -825,6 +825,7 @@ pub fn activity_icon(a: &Activity) -> &'static str {
 pub fn proof(p: Proof) -> (&'static str, &'static str) {
     match p {
         Proof::InstantLock => ("instantsend", tr!("Confirmed")),
+        Proof::InstantLockChecking => ("instantsend", tr!("Confirmed · checking")),
         Proof::ChainLock => ("chainlock", tr!("Final")),
         Proof::InBlock => ("confirmed", tr!("In a block")),
         Proof::Proved => ("confirmed", tr!("Proved")),
@@ -837,6 +838,9 @@ pub fn proof(p: Proof) -> (&'static str, &'static str) {
 /// What a status means, with its Dash term: the chip's tooltip.
 pub fn proof_hint(p: Proof) -> &'static str {
     match p {
+        Proof::InstantLockChecking => tr!(
+            "InstantLock: confirmed before evolite was closed. Its signature is checked again against the masternodes; until then its coins are not spent as final."
+        ),
         Proof::InstantLock => tr!(
             "InstantLock: a quorum of masternodes locked this payment within seconds. It cannot be reversed."
         ),

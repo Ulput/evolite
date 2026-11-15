@@ -1,4 +1,6 @@
 {
+  "Confirmed · checking": "पुष्ट · जाँच जारी",
+  "InstantLock: confirmed before evolite was closed. Its signature is checked again against the masternodes; until then its coins are not spent as final.": "InstantLock: confirmed before evolite was closed. Its signature is checked again against the masternodes; until then its coins are not spent as final.",
   "Back: {}": "वापस: {}",
   "No link? Upload the picture, for example, to": "लिंक नहीं है? तस्वीर अपलोड करें, उदाहरण के लिए यहाँ:",
   "Imgur is a third-party service: it sees your IP and the file itself, and may delete an anonymously uploaded picture over time. Before uploading, check the file does not keep where it was taken.": "Imgur एक बाहरी सेवा है: वह आपका IP और फ़ाइल खुद देखती है, और बिना खाते के अपलोड की गई तस्वीर समय के साथ हटा सकती है। अपलोड से पहले जाँच लें कि फ़ाइल में तस्वीर लेने की जगह तो नहीं है।",

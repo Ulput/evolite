@@ -1,4 +1,6 @@
 {
+  "Confirmed · checking": "確認済み · 再確認中",
+  "InstantLock: confirmed before evolite was closed. Its signature is checked again against the masternodes; until then its coins are not spent as final.": "InstantLock: confirmed before evolite was closed. Its signature is checked again against the masternodes; until then its coins are not spent as final.",
   "Back: {}": "戻る: {}",
   "No link? Upload the picture, for example, to": "リンクがない場合は、たとえば次の場所に画像をアップロードできます:",
   "Imgur is a third-party service: it sees your IP and the file itself, and may delete an anonymously uploaded picture over time. Before uploading, check the file does not keep where it was taken.": "Imgur は外部のサービスです。あなたの IP とファイルそのものが見え、匿名でアップロードした画像はいずれ削除されることがあります。アップロードの前に、ファイルに撮影場所が残っていないか確認してください。",

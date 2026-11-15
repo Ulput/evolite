@@ -397,6 +397,8 @@ impl Real {
         self.name_contact_lines(id, &mut history, &mut contacts)
             .await;
         convert::settle(&mut history, self.chain.status().chainlock_height);
+        // BUG-173: own InstantLocks kept across a restart; «Confirmed · checking» from them.
+        self.keep_instant_locks(&mut history);
         self.mempool.mark_stale(
             &mut history,
             self.chain.status().headers.map_or(0, |h| h.height),
@@ -906,10 +908,20 @@ impl Real {
         let fund_locks =
             turn::timed("address_fund_locks", self.chain.address_fund_locks(&wallet)).await;
         for act in history.iter_mut() {
-            let locked = act.txid.as_ref().and_then(|t| fund_locks.get(t));
-            if let (ActivityKind::TopUp { .. }, Some(locked)) = (&act.kind, locked) {
+            if !matches!(act.kind, ActivityKind::TopUp { .. }) {
+                continue;
+            }
+            let Some(txid) = act.txid.as_ref() else {
+                continue;
+            };
+            if let Some(locked) = fund_locks.get(txid) {
                 act.kind = ActivityKind::AddressFunded;
                 act.amount = -(*locked as Duffs + act.fee.unwrap_or(0));
+            } else if self.fund_intents.is_funding(txid) {
+                // BUG-173: before platform-wallet's store is read (a start) our own record names
+                // it, so the line does not change its name when the store comes; what left Core
+                // is the transaction's own.
+                act.kind = ActivityKind::AddressFunded;
             }
         }
         // "Transfer to Platform" says whom — the identity it registered or tops up — and
@@ -958,9 +970,12 @@ impl Real {
         // too — made here or found on chain after a restore. A proved «spent» closes it (the
         // window may have closed after Platform took it); a recovered one waits for «not seen».
         let open = turn::timed("open_fund_locks", self.chain.open_fund_locks(&wallet)).await;
-        // BUG-171: the record of where a funding goes is kept while its lock is open.
-        self.fund_intents
-            .keep_only(&open.iter().map(|l| l.txid.clone()).collect::<Vec<_>>());
+        // BUG-171, BUG-173: a record whose lock is no longer open is marked taken (it still names
+        // the line); old and surplus ones go.
+        self.fund_intents.settle(
+            &open.iter().map(|l| l.txid.clone()).collect::<Vec<_>>(),
+            evolite_chain::fund_intents::unix_now(),
+        );
         self.lock_status.want_also(
             open.into_iter()
                 .filter(|l| self.lock_status.answer(&l.txid).is_none())

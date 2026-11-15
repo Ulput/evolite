@@ -1,4 +1,6 @@
 {
+  "Confirmed · checking": "Подтверждено · проверяется",
+  "InstantLock: confirmed before evolite was closed. Its signature is checked again against the masternodes; until then its coins are not spent as final.": "InstantLock: confirmed before evolite was closed. Its signature is checked again against the masternodes; until then its coins are not spent as final.",
   "Back: {}": "Назад: {}",
   "No link? Upload the picture, for example, to": "Нет ссылки? Загрузите картинку, например, на",
   "Imgur is a third-party service: it sees your IP and the file itself, and may delete an anonymously uploaded picture over time. Before uploading, check the file does not keep where it was taken.": "Imgur — сторонний сервис: он увидит ваш IP и сам файл, а анонимно загруженную картинку может со временем удалить. Перед загрузкой проверьте, нет ли в файле места съёмки.",

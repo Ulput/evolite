@@ -9,6 +9,7 @@ extern crate evolite_common;
 mod apps;
 pub mod coins;
 pub mod convert;
+pub mod kept_locks;
 pub mod mixed_pay;
 /// Denominations, rounds and the excess rule of mixed coins (FEAT-0030), for the core.
 pub use evolite_coinjoin as coinjoin;

@@ -1,4 +1,6 @@
 {
+  "Confirmed · checking": "Đã xác nhận · đang kiểm tra",
+  "InstantLock: confirmed before evolite was closed. Its signature is checked again against the masternodes; until then its coins are not spent as final.": "InstantLock: confirmed before evolite was closed. Its signature is checked again against the masternodes; until then its coins are not spent as final.",
   "Back: {}": "Quay lại: {}",
   "No link? Upload the picture, for example, to": "Chưa có liên kết? Hãy tải ảnh lên, ví dụ, tại",
   "Imgur is a third-party service: it sees your IP and the file itself, and may delete an anonymously uploaded picture over time. Before uploading, check the file does not keep where it was taken.": "Imgur là dịch vụ bên thứ ba: họ thấy IP của bạn và chính tệp, và có thể xóa ảnh tải lên ẩn danh theo thời gian. Trước khi tải lên, hãy kiểm tra tệp không lưu nơi chụp.",

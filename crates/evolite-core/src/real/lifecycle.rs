@@ -69,6 +69,9 @@ impl Real {
             fund_intents: Arc::new(evolite_chain::fund_intents::FundIntents::new(
                 paths.fund_intents.clone(),
             )),
+            kept_locks: Arc::new(evolite_chain::kept_locks::KeptLocks::new(
+                paths.kept_locks.clone(),
+            )),
             lock_status_busy: Arc::new(AtomicBool::new(false)),
             fund_resume_failed: Default::default(),
             history_next: None,

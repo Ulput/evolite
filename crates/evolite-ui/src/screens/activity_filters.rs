@@ -44,7 +44,7 @@ pub fn status_of(a: &Activity) -> Status {
     }
     match a.proof {
         Proof::Mempool | Proof::Sending | Proof::Unconfirmed => Status::Pending,
-        Proof::InstantLock | Proof::InBlock => Status::Confirmed,
+        Proof::InstantLock | Proof::InstantLockChecking | Proof::InBlock => Status::Confirmed,
         Proof::ChainLock | Proof::Proved => Status::Final,
     }
 }

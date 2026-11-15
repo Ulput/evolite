@@ -7,7 +7,7 @@
 //! the wallets platform-wallet holds. Validation is always `ValidationMode::Full` (the dash-spv
 //! default) and must stay that way.
 
-use std::collections::{HashSet, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::{Arc, Mutex};
 
 use dash_spv::EventHandler;
@@ -190,10 +190,40 @@ pub struct VerifiedLocks(Arc<Mutex<VerifiedSet>>);
 struct VerifiedSet {
     set: HashSet<Txid>,
     order: VecDeque<Txid>,
+    /// The newest locks' own bytes, for the wallet to keep those of its transactions across a
+    /// restart (BUG-173): at most [`VerifiedLocks::BYTES_CAP`].
+    bytes: HashMap<Txid, Vec<u8>>,
+    bytes_order: VecDeque<Txid>,
 }
 
 impl VerifiedLocks {
     pub const CAP: usize = 20_000;
+    /// How many locks' bytes are kept: the wallet keeps its own at the next snapshot, seconds
+    /// after the lock came.
+    pub const BYTES_CAP: usize = 2_000;
+
+    /// The bytes of `txid`'s verified InstantLock (`isdlock`), while they are kept here.
+    pub fn bytes(&self, txid: &Txid) -> Option<Vec<u8>> {
+        self.0
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .bytes
+            .get(txid)
+            .cloned()
+    }
+
+    /// Keeps the bytes of `txid`'s verified lock among the newest [`Self::BYTES_CAP`].
+    pub(crate) fn keep_bytes(&self, txid: Txid, bytes: Vec<u8>) {
+        let mut locks = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        if locks.bytes.insert(txid, bytes).is_none() {
+            locks.bytes_order.push_back(txid);
+        }
+        while locks.bytes_order.len() > Self::BYTES_CAP {
+            if let Some(old) = locks.bytes_order.pop_front() {
+                locks.bytes.remove(&old);
+            }
+        }
+    }
 
     pub fn contains(&self, txid: &Txid) -> bool {
         self.0
@@ -265,6 +295,11 @@ impl EventHandler for Reporter {
         } = event
             && self.instant_locks.insert(instant_lock.txid)
         {
+            // Its bytes, for the wallet to keep with its own transaction (BUG-173).
+            self.instant_locks.keep_bytes(
+                instant_lock.txid,
+                key_wallet::dashcore::consensus::encode::serialize(instant_lock),
+            );
             // The history shows it as InstantSend from now on.
             self.update(|_| {});
         }

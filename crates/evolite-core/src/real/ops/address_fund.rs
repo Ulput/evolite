@@ -187,6 +187,7 @@ impl Real {
                         intents.put(
                             &out_point.txid.to_string(),
                             &to.to_bech32m_string(crate::network::dash()),
+                            evolite_chain::fund_intents::unix_now(),
                         );
                         (out_point, instant, lock)
                     }
@@ -223,8 +224,8 @@ impl Real {
                 credited,
             });
             if result.is_ok() {
-                // Taken: the record of where it went is not needed any more.
-                intents.remove(&out_point.txid.to_string());
+                // Taken: the snapshot marks its record so once the lock is no longer open (BUG-173:
+                // it still names the line).
                 // BUG-171 AC-T4: what came, ahead of the «Done» it belongs to.
                 if let Some(credited) = credited {
                     let _ = out.send(Event::AddressFunded { credited });

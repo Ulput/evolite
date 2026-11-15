@@ -1,4 +1,6 @@
 {
+  "Confirmed · checking": "已确认 · 正在核验",
+  "InstantLock: confirmed before evolite was closed. Its signature is checked again against the masternodes; until then its coins are not spent as final.": "InstantLock: confirmed before evolite was closed. Its signature is checked again against the masternodes; until then its coins are not spent as final.",
   "Back: {}": "返回：{}",
   "No link? Upload the picture, for example, to": "没有链接？可以把图片上传到，例如",
   "Imgur is a third-party service: it sees your IP and the file itself, and may delete an anonymously uploaded picture over time. Before uploading, check the file does not keep where it was taken.": "Imgur 是第三方服务：它能看到你的 IP 和文件本身，匿名上传的图片可能会随时间被删除。上传前请检查文件中是否保留了拍摄地点。",

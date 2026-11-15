@@ -169,6 +169,8 @@ pub struct Paths {
     pub token_history: PathBuf,
     /// Where each funding of the Platform address was signed to go (BUG-171).
     pub fund_intents: PathBuf,
+    /// The wallet's own InstantLocks kept across a restart (BUG-173).
+    pub kept_locks: PathBuf,
     /// Addresses of contacts' keys already paid ([`contact_addresses::ContactAddresses`]).
     pub contact_addresses: PathBuf,
     /// Senders whose contact requests were hidden ([`hidden_requests::HiddenRequests`]).
@@ -222,6 +224,7 @@ impl Paths {
             lock_status: wallets.join("lock-status.json"),
             token_history: wallets.join("token-history.json"),
             fund_intents: wallets.join("fund-intents.json"),
+            kept_locks: wallets.join("instant-locks.json"),
             contact_addresses: wallets.join("contact-addresses.json"),
             hidden_requests: wallets.join("hidden-requests.json"),
             pool_history: wallets.join("pool-history.json"),
@@ -456,6 +459,8 @@ struct Real {
     lock_status: Arc<evolite_chain::lock_status::LockStatuses>,
     /// Where each funding of the Platform address was signed to go (BUG-171).
     fund_intents: Arc<evolite_chain::fund_intents::FundIntents>,
+    /// The wallet's own InstantLocks kept across a restart (BUG-173).
+    kept_locks: Arc<evolite_chain::kept_locks::KeptLocks>,
     lock_status_busy: Arc<AtomicBool>,
     /// The address fundings whose «Continue» failed in this run, by txid: they no longer hold
     /// a new funding back (BUG-160).

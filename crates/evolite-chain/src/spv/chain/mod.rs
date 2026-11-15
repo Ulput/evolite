@@ -264,6 +264,12 @@ impl Chain {
         self.instant_locks.contains(txid)
     }
 
+    /// The bytes of `txid`'s InstantLock verified in this run, while kept (BUG-173: the wallet
+    /// keeps its own across a restart).
+    pub fn instant_lock_bytes(&self, txid: &key_wallet::dashcore::Txid) -> Option<Vec<u8>> {
+        self.instant_locks.bytes(txid)
+    }
+
     pub fn status(&self) -> SyncStatus {
         self.status
             .lock()

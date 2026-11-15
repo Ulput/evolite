@@ -71,6 +71,10 @@ pub enum Proof {
     Mempool,
     /// Core: InstantLock with a checked BLS signature.
     InstantLock,
+    /// Core: an InstantLock this wallet checked before it was closed, kept with the transaction and
+    /// checked again once the masternode lists are in (BUG-173). Shown as confirmed, but the coin
+    /// is not final for spending until the check (R-1): the transaction is not in a block yet.
+    InstantLockChecking,
     /// Core: in a block, no ChainLock yet.
     InBlock,
     /// Core: in a block with a checked ChainLock.
