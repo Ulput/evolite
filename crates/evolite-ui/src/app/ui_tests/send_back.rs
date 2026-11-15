@@ -24,9 +24,24 @@ fn click_last(kit: &mut Kit, name: &str) {
     kit.run_steps(3);
 }
 
-/// Send's «Cancel» (the form's, the last one drawn).
-fn cancel(kit: &mut Kit) {
+/// Send's «Cancel» (the form's, the last one drawn), once Send is ready for it: the core has
+/// gone quiet (the identity's refresh, BUG-175), the link is drawn and «Cancel» is on. Then the
+/// frames until the screen is `to` (bounded by time, not by frames: under the full suite's load
+/// three frames were not always enough).
+fn cancel_to(kit: &mut Kit, to: Screen, what: &str) {
+    settle(kit);
+    wait_for(kit, &format!("{what}: «Cancel» ready"), |k| {
+        k.query_all_by_role(Role::Link).any(|l| {
+            l.accesskit_node()
+                .label()
+                .is_some_and(|n| n.starts_with("Back: "))
+        }) && k
+            .query_all_by_role_and_label(Role::Button, "Cancel")
+            .last()
+            .is_some_and(|b| !b.accesskit_node().is_disabled())
+    });
     click_last(kit, "Cancel");
+    wait_for(kit, &format!("{what}: back on {to:?}"), |k| on(k, to));
 }
 
 /// From the screen `preset` opens, `enter` reaches Send; the link names `place`; «Cancel» leads
@@ -39,13 +54,13 @@ fn round_trip(preset: &str, enter: impl Fn(&mut Kit), place: &str, kept: impl Fn
     assert_ne!(from, Screen::Send, "{preset}");
     enter(&mut kit);
     wait_for(&mut kit, "Send", |k| on(k, Screen::Send));
-    kit.run_steps(3);
-    assert!(link_to(&kit, place), "{preset}: «‹ {place}»");
-    cancel(&mut kit);
-    assert_eq!(
-        kit.state().screen,
+    wait_for(&mut kit, &format!("{preset}: «‹ {place}»"), |k| {
+        link_to(k, place)
+    });
+    cancel_to(
+        &mut kit,
         from,
-        "{preset}: back where it came from"
+        &format!("{preset}: back where it came from"),
     );
     assert!(
         kit.state().send.recipient.is_empty() && kit.state().send.amount.is_empty(),
@@ -152,14 +167,10 @@ fn historys_filters_are_kept_there_and_back() {
     assert_ne!(filters, Default::default());
     click_last(&mut kit, "Send");
     wait_for(&mut kit, "Send", |k| on(k, Screen::Send));
-    assert!(link_to(&kit, "History"));
-    cancel(&mut kit);
-    assert!(
-        on(&kit, Screen::Activity),
-        "filters: {:?}, back {:?}",
-        kit.state().screen,
-        kit.state().back
-    );
+    wait_for(&mut kit, "filters: «‹ History»", |k| {
+        link_to(k, "History")
+    });
+    cancel_to(&mut kit, Screen::Activity, "filters");
     assert_eq!(kit.state().history.filters, filters);
 }
 
@@ -171,14 +182,10 @@ fn from_the_menu_back_to_the_last_screen_and_cold_to_overview() {
     let (_turn, mut kit) = demo_app("send", "en");
     kit.set_size(egui::vec2(1280.0, 1000.0));
     settle(&mut kit);
-    assert!(link_to(&kit, "Overview"));
-    cancel(&mut kit);
-    assert!(
-        on(&kit, Screen::Overview),
-        "cold: {:?}, back {:?}",
-        kit.state().screen,
-        kit.state().back
-    );
+    wait_for(&mut kit, "cold: «‹ Overview»", |k| {
+        link_to(k, "Overview")
+    });
+    cancel_to(&mut kit, Screen::Overview, "cold");
 }
 
 /// AC-T6: leaving Send by the menu keeps what was typed; coming back by the menu finds it.
@@ -243,9 +250,9 @@ fn esc_and_the_mouses_back_go_back_but_not_from_a_dialog() {
         wait_for(&mut kit, "Send", |k| on(k, Screen::Send));
         kit.state_mut().send.recipient = "@alice".into();
         kit.run_steps(2);
+        settle(&mut kit);
         kit.input_mut().events.push(back.clone());
-        kit.run_steps(3);
-        assert!(on(&kit, Screen::Identity), "{back:?}: back to Identity");
+        wait_for(&mut kit, "back to Identity", |k| on(k, Screen::Identity));
         assert!(kit.state().send.recipient.is_empty(), "{back:?}: cleared");
     }
     let (_turn, mut kit) = demo_app("send-confirm", "en");
