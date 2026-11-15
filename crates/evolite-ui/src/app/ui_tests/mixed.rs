@@ -362,8 +362,17 @@ fn a_low_last_look_shows_the_excess_to_agree_to() {
     for (preset, brought) in [("send-mixed-agree", true), ("send-mixed-confirm", false)] {
         let (turn, mut kit) = demo_app(preset, "en");
         kit.set_size(egui::vec2(800.0, 440.0));
+        // BUG-187: the preset opens the last look on its first frame, before the demo core has
+        // answered, and a loaded run drew more frames on what was there then: enough for P1's
+        // middle to be brought down (settled at 90, 4 of 10 under a full suite). The last look
+        // opens again once the core is quiet (bounded by `PATIENCE`), as the app opens it: from
+        // a form already filled. Shut for a frame, it is a new opening, its middle at its top.
+        settle(&mut kit);
+        kit.state_mut().send.confirming = false;
+        kit.run_steps(2);
         // As the last look opens at this size.
         kit.state_mut().send.mixed.revealed = None;
+        kit.state_mut().send.confirming = true;
         wait_for(&mut kit, "the block", |kit| {
             said(kit, "goes to the miners as part of the fee").is_some()
                 && dialog_seen(&kit.ctx).is_some_and(|d| d.scrolled.is_some())

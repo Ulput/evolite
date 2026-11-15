@@ -18,8 +18,10 @@ fn coins_in(kit: &mut Kit) {
 #[test]
 fn the_coins_row_is_for_core_only_and_automatic_by_default() {
     let (_turn, mut kit) = demo_app("send-coins", "en");
-    kit.run_steps(3);
-    assert!(shows(&kit, "Coins: automatic"));
+    // BUG-187: the row waits for the wallet's snapshot; a loaded run takes more than 3 frames.
+    wait_for(&mut kit, "«Coins: automatic»", |k| {
+        shows(k, "Coins: automatic")
+    });
     kit.state_mut().send.pick(evolite_api::Source::Credits);
     kit.run_steps(2);
     assert!(!shows(&kit, "Coins: automatic"), "credits: no row");
@@ -30,12 +32,14 @@ fn the_coins_row_is_for_core_only_and_automatic_by_default() {
 fn a_payment_to_a_name_lets_the_wallet_choose() {
     let (_turn, mut kit) = demo_app("send-coins-name", "en");
     kit.state_mut().send.coins.chosen = ["x:0".to_owned()].into();
-    kit.run_steps(3);
-    assert!(shows(
-        &kit,
-        "The wallet chooses the coins for a payment to a contact."
-    ));
-    assert!(kit.state().send.coins.chosen.is_empty());
+    // BUG-187: the contact is the demo core's answer: waited for, not counted in frames — the
+    // reason and the choice dropped, which comes a frame after it.
+    wait_for(&mut kit, "the reason, the choice dropped", |k| {
+        shows(
+            k,
+            "The wallet chooses the coins for a payment to a contact.",
+        ) && k.state().send.coins.chosen.is_empty()
+    });
 }
 
 /// CC1, R-13: ticked coins and their sum; dust hidden and counted; «Apply» takes the ticks.
@@ -117,8 +121,6 @@ fn the_last_look_says_which_coins_go() {
 fn max_spends_the_chosen_coins_less_their_fee() {
     let (_turn, mut kit) = demo_app("send-coins-chosen", "en");
     coins_in(&mut kit);
-    button(&kit, "Max").click();
-    kit.run_steps(3);
     let fees = kit
         .state()
         .snapshot
@@ -127,6 +129,13 @@ fn max_spends_the_chosen_coins_less_their_fee() {
         .map(|w| w.fees.clone())
         .unwrap();
     let max = 10_000_000 + 4_050_000 + 50_000 - fees.core_fee_for_inputs(3);
+    button(&kit, "Max").click();
+    // BUG-187: «Max» fills the amount once the chosen coins are in the snapshot it reads: a
+    // loaded run took more than the 3 frames this counted. Waited for, bounded by time; the
+    // preset's own amount is there before, so the wait is for the sum itself.
+    wait_for(&mut kit, "«Max»: the chosen coins less their fee", |k| {
+        crate::format::parse_amount(&k.state().send.amount) == Some(max)
+    });
     assert_eq!(
         crate::format::parse_amount(&kit.state().send.amount),
         Some(max)

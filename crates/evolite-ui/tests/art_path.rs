@@ -14,18 +14,27 @@ use evolite_render::{Settings, worker};
 use std::sync::Arc;
 
 fn core(cache: &Path) -> Core {
+    let mut worker = Settings::new(
+        env!("CARGO_BIN_EXE_evolite").into(),
+        vec![worker::FLAG.into()],
+    );
+    // BUG-187: the renderer gives one picture 5 s and then answers `Timeout`, which this test
+    // took for «not drawn». Under a full suite beside another build, the animation took
+    // longer (BUG-168's two red runs). Here the limit is the test's own: as long as `answers`
+    // waits, so a slow machine is only slower, while a refusal is still a refusal.
+    worker.timeout = ANSWER_WAIT;
     Core::mock(
         ArtOptions {
             cache: Some(cache.to_path_buf()),
-            worker: Some(Settings::new(
-                env!("CARGO_BIN_EXE_evolite").into(),
-                vec![worker::FLAG.into()],
-            )),
+            worker: Some(worker),
             off: false,
         },
         || {},
     )
 }
+
+/// How long one picture may take, here and in the renderer.
+const ANSWER_WAIT: Duration = Duration::from_secs(90);
 
 /// The demo NFTs, from the core's first snapshot.
 fn demo_nfts(core: &Core) -> Vec<Nft> {
@@ -47,7 +56,7 @@ fn answers(core: &Core, backlog: &mut Vec<Event>, art: &str) -> Vec<(bool, Arc<P
     // Generous: a loaded machine (a full check beside another build) only makes it slower,
     // never red (it took over 30 s once, 5-14 s alone; as BUG-120). A passing run waits only as
     // long as the picture takes.
-    let deadline = Instant::now() + Duration::from_secs(90);
+    let deadline = Instant::now() + ANSWER_WAIT;
     let mut got = Vec::new();
     loop {
         backlog.extend(core.events());

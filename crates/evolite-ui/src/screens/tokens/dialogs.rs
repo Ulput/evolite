@@ -34,6 +34,10 @@ pub struct SendState {
     pub to_problem: Option<String>,
     /// «To» as it was when `to_problem` was said: typing again takes it away.
     to_checked: String,
+    /// The balance «Left after» was reckoned on when «Sign and send» was pressed (BUG-186, the
+    /// pattern of BUG-177 and BUG-179): while it runs and once sent, the window shows what was
+    /// signed, not the balance after it reckoned as another transfer still to come.
+    pub signed_balance: Option<u64>,
 }
 
 impl SendState {
@@ -47,6 +51,7 @@ impl SendState {
             waiting: false,
             result: None,
             checking: None,
+            signed_balance: None,
             recipient: None,
             to_problem: None,
             to_checked: String::new(),
@@ -181,7 +186,14 @@ pub(super) fn send_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, tokens: &mu
     let from = shown_name(wallet);
     // As the core declares it until AC-T9 measures it: twice a document write (part 3 review r1).
     let fee = wallet.fees.document_write.saturating_mul(2);
-    let balance = row.balance.unwrap_or(0);
+    // BUG-186: what was signed stays shown while it runs and once sent; an error drops it.
+    let sent = matches!(form.result, Some(Ok(())));
+    if !form.waiting && !sent {
+        form.signed_balance = None;
+    }
+    let balance = form
+        .signed_balance
+        .unwrap_or_else(|| row.balance.unwrap_or(0));
     if form.to != form.to_checked {
         form.to_problem = None;
     }
@@ -508,6 +520,7 @@ pub(super) fn send_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, tokens: &mu
         cx.send(form.password.command(op, ask));
         form.waiting = true;
         form.result = None;
+        form.signed_balance = Some(balance);
     }
     if closed {
         form.password.forget();

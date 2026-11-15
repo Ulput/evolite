@@ -107,24 +107,47 @@ fn a_purchase_done_keeps_its_credits_as_signed() {
 #[test]
 fn the_credits_row_does_not_overlap_its_label() {
     let (_turn, mut kit) = demo_app("tokens-buy", "en");
-    credits_read(&mut kit);
-    kit.run_steps(3);
     wait_for(&mut kit, "P1", |kit| has_text(kit, "Buy Evo Coffee"));
-    if let Some(i) = kit
-        .state_mut()
-        .snapshot
-        .as_mut()
-        .and_then(|s| s.wallet.as_mut())
-        .and_then(|w| w.identity.as_mut())
-    {
-        i.names = vec![evolite_api::DpnsName {
-            label: "qa-kestrel-1108b-a-long-name".into(),
-            primary: true,
-            state: evolite_api::NameState::Registered,
-            contest: None,
-        }];
+    // BUG-187: the credits read and the long name are put into the snapshot by hand, and a
+    // snapshot the demo core sent later took them away under a loaded run. First the core goes
+    // quiet; then they are put in, again whenever a snapshot replaced them, until the row says
+    // the long name — bounded by `PATIENCE`, not a count of frames.
+    settle(&mut kit);
+    let long = |kit: &mut Kit| {
+        credits_read(kit);
+        if let Some(i) = kit
+            .state_mut()
+            .snapshot
+            .as_mut()
+            .and_then(|s| s.wallet.as_mut())
+            .and_then(|w| w.identity.as_mut())
+        {
+            i.names = vec![evolite_api::DpnsName {
+                label: "qa-kestrel-1108b-a-long-name".into(),
+                primary: true,
+                state: evolite_api::NameState::Registered,
+                contest: None,
+            }];
+        }
+    };
+    let shown = |kit: &Kit| {
+        kit.query_all_by(|n| {
+            n.label()
+                .or_else(|| n.value())
+                .is_some_and(|w| w.starts_with("Credits of") && w.contains("a-long-name"))
+        })
+        .next()
+        .is_some()
+    };
+    let started = std::time::Instant::now();
+    while !shown(&kit) {
+        assert!(
+            started.elapsed() < PATIENCE,
+            "no «Credits of» with the long name"
+        );
+        long(&mut kit);
+        kit.step();
     }
-    kit.run_steps(3);
     let (rect, _) = credits_row(&kit);
     assert!(rect.height() > 30.0, "{rect:?}");
 }

@@ -370,3 +370,42 @@ fn every_stage_of_the_search_says_what_it_does() {
     assert!(has_text(&kit, "1,840 network contracts read"));
     assert!(!has_words(&kit, "1,840 of 1,840"), "no total made up");
 }
+
+/// BUG-186: sent, the balance after it in the snapshot: «Left after» stays as signed, not
+/// reckoned as another transfer still to come (the pattern of BUG-177 and BUG-179).
+#[test]
+fn a_transfer_sent_keeps_left_after_as_signed() {
+    let (_turn, mut kit) = demo_app("tokens-review", "en");
+    wait_for(&mut kit, "the review", |kit| {
+        has_text(kit, "Check the transfer")
+    });
+    kit.run_steps(2);
+    assert!(has_words(&kit, "120.50"), "5 of 125.50: 120.50 left");
+    kit.query_all_by_role(Role::PasswordInput)
+        .next()
+        .expect("the password field")
+        .click();
+    kit.run_steps(2);
+    kit.query_all_by_role(Role::PasswordInput)
+        .next()
+        .expect("the password field")
+        .type_text("demo password");
+    kit.run_steps(2);
+    button(&kit, "Sign and send").click();
+    // One frame: sent; the demo's refusal comes later and nobody waits for it then.
+    kit.run_steps(1);
+    kit.state_mut().tokens.on_sent(&Ok(()));
+    if let Some(row) = kit
+        .state_mut()
+        .snapshot
+        .as_mut()
+        .and_then(|s| s.wallet.as_mut())
+        .and_then(|w| w.tokens.rows.iter_mut().find(|r| r.balance == Some(12_550)))
+    {
+        row.balance = Some(12_050);
+    }
+    kit.run_steps(3);
+    assert!(has_words(&kit, "The token is sent."));
+    assert!(has_words(&kit, "120.50"), "as signed");
+    assert!(!has_words(&kit, "115.50"), "not reckoned again");
+}
