@@ -1450,7 +1450,9 @@
   "yesterday": "hôm qua",
   "your request is sent · you can pay once {} answers": "đã gửi yêu cầu của bạn · bạn có thể thanh toán khi {} trả lời",
   "{}\n\nClick to copy": "{}\n\nNhấp để sao chép",
-  "{} Core nodes": "{} nút Core",
+  "{} Core node|{} Core nodes": {
+    "other": "{} nút Core"
+  },
   "{} If the DASH are already locked, evolite shows “Continue the top-up”.": "{} Nếu DASH đã bị khóa, evolite hiển thị «Tiếp tục nạp».",
   "{} addresses with history · BIP44": "{} địa chỉ có lịch sử · BIP44",
   "{} address|{} addresses": {

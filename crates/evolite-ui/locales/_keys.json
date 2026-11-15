@@ -1717,7 +1717,7 @@
   "your identity",
   "your request is sent · you can pay once {} answers",
   "{}\n\nClick to copy",
-  "{} Core nodes",
+  "{} Core node|{} Core nodes",
   "{} If the DASH are already locked, evolite shows “Continue the top-up”.",
   "{} address will be linked on the network: anyone will see it has one owner.|{} addresses will be linked on the network: anyone will see they have one owner.",
   "{} addresses with history · BIP44",

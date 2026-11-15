@@ -52,7 +52,7 @@ fn stopped(kit: &mut Kit, what: &str, seen: impl Fn(&Kit) -> bool) {
 fn card(kit: &Kit) -> String {
     kit.query_all_by(|n| {
         n.value()
-            .is_some_and(|l| l.ends_with("Core nodes") || l.ends_with("узлов Core"))
+            .is_some_and(|l| l.ends_with("Core nodes") || l.ends_with(" Core"))
     })
     .next()
     .and_then(|n| n.accesskit_node().value())
@@ -111,7 +111,7 @@ fn the_first_sync_gives_a_percent_only_for_what_is_counted() {
     let percent_on_quorums = |k: &Kit| {
         k.query_all_by(|n| {
             n.value()
-                .is_some_and(|v| v.starts_with("Checking masternode quorums ·"))
+                .is_some_and(|v| v.starts_with("Checking masternode quorums ·") && v.contains('%'))
         })
         .any(|_| true)
     };
@@ -444,8 +444,12 @@ fn platform_frame(kit: &mut Kit, works: &[evolite_api::PlatformWork]) {
 }
 
 fn moving(kit: &Kit) -> bool {
+    // Not drawn yet (the first sync's card comes a frame in): not moving.
+    let Some(shown) = crate::screens::sidebar::rail_mark_shown(&kit.ctx) else {
+        return false;
+    };
     matches!(
-        rail_mark(kit),
+        shown,
         (
             RailMark::Block {
                 dim: false,
@@ -752,5 +756,95 @@ fn synced_says_when_the_tip_came_in_the_tooltip_only() {
             .filter_map(|n| n.accesskit_node().value())
             .any(|v| v.ends_with(&format!("updated {when}"))),
         "the reader hears it"
+    );
+}
+
+/// The first sync's card (O6), as the reader has it: its rect.
+fn o6_card(kit: &Kit) -> egui::Rect {
+    kit.query_all_by_role(egui::accesskit::Role::Status)
+        .next()
+        .expect("the first sync's card")
+        .rect()
+}
+
+/// BUG-163 AC-D1, AC-D5: on the first sync the 48 px mark moves while sync goes, as the menu's
+/// (BUG-137), and stands full once done; the card keeps its height in every state (the bar's
+/// room stays when it goes).
+#[test]
+fn the_first_sync_s_mark_moves_while_it_syncs_and_stands_when_done() {
+    let (_turn, mut kit) = demo_app("sync", "en");
+    system_motion(&mut kit, true);
+    shows(&mut kit, SyncStage::Filters, Some(0.4), "syncing", moving);
+    let (mark, _) = rail_mark(&kit);
+    assert!(
+        matches!(mark, RailMark::Block { dim: false, .. }),
+        "{mark:?}"
+    );
+    let syncing = o6_card(&kit);
+    for _ in 0..4 {
+        platform_frame(&mut kit, &[evolite_api::PlatformWork::Identities]);
+    }
+    assert!(moving(&kit), "Platform moves it too");
+    // Done, held against the staged sync's own snapshots until the mark is home (0.4 s).
+    show_edited(
+        &mut kit,
+        1,
+        "done: full and still",
+        |app| {
+            if let Some(s) = app.snapshot.as_mut() {
+                s.sync.stage = SyncStage::Done;
+                s.sync.progress = Some(1.0);
+                s.sync.error = None;
+                s.sync.platform.clear();
+            }
+        },
+        |k| rail_mark(k) == (RailMark::Done, false),
+    );
+    // The height and where it starts: its x may move a few pixels as the screen's width settles
+    // (batch 3: 5 px once in 3 runs), which is not what AC-D5 is about.
+    let done = o6_card(&kit);
+    assert_eq!(
+        (done.top(), done.height()),
+        (syncing.top(), syncing.height()),
+        "the card's height stays: {syncing:?} → {done:?}"
+    );
+}
+
+/// BUG-163 AC-D2: the system's animations off — the mark dim and still, no frames asked for.
+#[test]
+fn with_animations_off_the_first_sync_s_mark_stands_still() {
+    let (_turn, mut kit) = demo_app("sync", "en");
+    system_motion(&mut kit, false);
+    shows(&mut kit, SyncStage::Filters, Some(0.4), "syncing", |k| {
+        crate::screens::sidebar::rail_mark_shown(&k.ctx)
+            .is_some_and(|(m, _)| matches!(m, RailMark::Block { dim: true, .. }))
+    });
+    assert!(!rail_mark(&kit).1, "no frames asked for");
+}
+
+/// BUG-163 AC-D6: «Open the wallet» in the middle of a cycle — the menu's mark goes on with the
+/// same cycle: one clock for both.
+#[test]
+fn the_menu_s_mark_goes_on_with_the_first_sync_s_cycle() {
+    let (_turn, mut kit) = demo_app("sync", "en");
+    system_motion(&mut kit, true);
+    shows(&mut kit, SyncStage::Filters, Some(0.4), "syncing", moving);
+    let started = crate::screens::sidebar::mark_cycle(&kit.ctx).expect("a cycle runs");
+    super::button(&kit, "Open the wallet").click();
+    for _ in 0..3 {
+        shows(&mut kit, SyncStage::Filters, Some(0.4), "the menu", |k| {
+            k.query_all_by_role(egui::accesskit::Role::Status)
+                .next()
+                .is_some()
+        });
+    }
+    assert!(
+        !has_text(&kit, "We verify the network ourselves"),
+        "the first sync is left"
+    );
+    assert_eq!(
+        crate::screens::sidebar::mark_cycle(&kit.ctx),
+        Some(started),
+        "the same cycle goes on"
     );
 }

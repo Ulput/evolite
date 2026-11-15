@@ -1455,7 +1455,14 @@
   "yesterday": "أمس",
   "your request is sent · you can pay once {} answers": "أُرسل طلبك · يمكنك الدفع حين يرد {}",
   "{}\n\nClick to copy": "{}\n\nانقر للنسخ",
-  "{} Core nodes": "{} عقدة Core",
+  "{} Core node|{} Core nodes": {
+    "zero": "لا عُقد Core",
+    "one": "عقدة Core واحدة",
+    "two": "عقدتا Core",
+    "few": "{} عُقد Core",
+    "many": "{} عقدةً Core",
+    "other": "{} عقدة Core"
+  },
   "{} If the DASH are already locked, evolite shows “Continue the top-up”.": "{} إذا كانت DASH مقفلة بالفعل، يعرض evolite «متابعة الشحن».",
   "{} addresses with history · BIP44": "{} عنوان ذو سجل · BIP44",
   "{} address|{} addresses": {

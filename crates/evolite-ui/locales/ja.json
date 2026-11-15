@@ -1450,7 +1450,9 @@
   "yesterday": "昨日",
   "your request is sent · you can pay once {} answers": "リクエストを送信済み · {} が応答すれば支払えます",
   "{}\n\nClick to copy": "{}\n\nクリックでコピー",
-  "{} Core nodes": "{} Core ノード",
+  "{} Core node|{} Core nodes": {
+    "other": "{} Core ノード"
+  },
   "{} If the DASH are already locked, evolite shows “Continue the top-up”.": "{} DASH がすでにロックされている場合、evolite は「チャージを続行」を表示します。",
   "{} addresses with history · BIP44": "履歴のあるアドレス {} 件 · BIP44",
   "{} address|{} addresses": {

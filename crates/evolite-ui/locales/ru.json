@@ -1395,7 +1395,11 @@
   "Dash Platform did not answer within a minute": "Dash Platform не ответила за минуту",
   "{}. evolite asks Dash Platform again every minute.": "{}. evolite спрашивает Dash Platform снова каждую минуту.",
   "{}\n\nClick to copy": "{}\n\nЩелчок — скопировать",
-  "{} Core nodes": "{} узлов Core",
+  "{} Core node|{} Core nodes": {
+    "one": "{} узел Core",
+    "few": "{} узла Core",
+    "many": "{} узлов Core"
+  },
   "{} addresses with history · BIP44": "{} адреса с историей · BIP44",
   "{} address|{} addresses": {
     "one": "{} адрес",

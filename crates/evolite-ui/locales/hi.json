@@ -1451,7 +1451,10 @@
   "yesterday": "कल",
   "your request is sent · you can pay once {} answers": "आपका अनुरोध भेजा गया · {} के जवाब देने पर आप भुगतान कर सकेंगे",
   "{}\n\nClick to copy": "{}\n\nकॉपी करने के लिए क्लिक करें",
-  "{} Core nodes": "{} Core नोड",
+  "{} Core node|{} Core nodes": {
+    "one": "{} Core नोड",
+    "other": "{} Core नोड"
+  },
   "{} If the DASH are already locked, evolite shows “Continue the top-up”.": "{} अगर DASH पहले से लॉक हैं, तो evolite «टॉप-अप जारी रखें» दिखाता है।",
   "{} addresses with history · BIP44": "इतिहास वाले {} पते · BIP44",
   "{} address|{} addresses": {

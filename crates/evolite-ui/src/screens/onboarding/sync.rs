@@ -3,8 +3,9 @@
 use super::txt;
 use super::{Outcome, heading};
 use crate::components::{
-    Assets, ButtonKind, Mark, button, card, check_line, inner, notice, progress_bar, text_action,
+    Assets, ButtonKind, Mark, button, card, check_line, inner, notice, text_action,
 };
+use crate::screens::sidebar;
 use crate::text::group_thousands;
 use crate::theme::{Weight, mono};
 use egui::{Align, Align2, Layout, Margin, Sense, Ui, pos2, vec2};
@@ -47,24 +48,19 @@ pub(super) fn sync(ui: &mut Ui, a: &mut Assets, sync: &SyncInfo, demo: bool) -> 
     let width = ui.available_width();
     let title = crate::text::sync_title(sync);
     let filtering = sync.stage == SyncStage::Filters;
-    card(&p, Margin::symmetric(32, 28)).show(ui, |ui| {
+    // BUG-163: the 48 px mark moves as the menu's (one clock, BUG-137), in the middle of the
+    // words' height (O7); the bar is the menu's (BUG-155), 4 high, its room kept when it goes.
+    let shown = card(&p, Margin::symmetric(32, 28)).show(ui, |ui| {
         ui.set_width(inner(width, 32));
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 32.0;
-            let (mark, _) = ui.allocate_exact_size(vec2(48.0, 48.0), Sense::hover());
-            a.icons
-                .sync_mark(if running >= 5 { 3 } else { 2 }, &p, 48.0)
-                .paint_at(ui, mark);
-            ui.vertical(|ui| {
+            // The mark's column; the mark is painted once the words' height is known.
+            let (column, _) = ui.allocate_exact_size(vec2(48.0, 48.0), Sense::hover());
+            let block = ui.vertical(|ui| {
                 ui.spacing_mut().item_spacing.y = 10.0;
                 ui.label(txt(&title, 15.0, Weight::SemiBold, p.text));
-                match sync.progress {
-                    Some(part) => progress_bar(ui, &p, part),
-                    // Nothing to count: no bar standing at 0 or full, the same room kept.
-                    None => {
-                        ui.allocate_exact_size(vec2(ui.available_width(), 4.0), Sense::hover());
-                    }
-                }
+                let (bar, _) =
+                    ui.allocate_exact_size(vec2(ui.available_width(), 4.0), Sense::hover());
                 ui.label(
                     egui::RichText::new(crate::i18n::t(&if filtering {
                         match sync.minutes_left {
@@ -84,9 +80,45 @@ pub(super) fn sync(ui: &mut Ui, a: &mut Assets, sync: &SyncInfo, demo: bool) -> 
                     .font(mono(11.0, Weight::Regular))
                     .color(p.muted),
                 );
+                bar
             });
-        });
+            let middle = column.center().x;
+            let mark = egui::Rect::from_center_size(
+                pos2(middle, block.response.rect.center().y),
+                vec2(48.0, 48.0),
+            );
+            let clock = sidebar::sync_mark(ui, a, sync, mark);
+            let words = sidebar::card_words(
+                &sidebar::words_status(sync, &clock),
+                clock.platform(),
+                chrono::Local::now(),
+            );
+            sidebar::sync_bar(
+                ui,
+                a,
+                egui::Id::new("o6-sync-bar"),
+                block.inner,
+                words.bar,
+                sync.stage,
+                false,
+            );
+            (clock, words)
+        })
+        .inner
     });
+    let (clock, words) = shown.inner;
+    // A polite status at a new stage, a stop and the end, not at each percent (BUG-137 AC-D7);
+    // its words stand whole on the card: no tooltip.
+    sidebar::card_status(
+        ui,
+        a,
+        sync,
+        shown.response.rect,
+        egui::Id::new("o6-sync"),
+        &clock,
+        &words,
+        false,
+    );
     let fmt = |n: u32| group_thousands(n as i64);
     let tip = sync.tip_height;
     let stages: [(&str, String, usize); 6] = [

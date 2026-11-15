@@ -1450,7 +1450,9 @@
   "yesterday": "昨天",
   "your request is sent · you can pay once {} answers": "你的请求已发送 · {} 回复后即可付款",
   "{}\n\nClick to copy": "{}\n\n点击复制",
-  "{} Core nodes": "{} 个 Core 节点",
+  "{} Core node|{} Core nodes": {
+    "other": "{} 个 Core 节点"
+  },
   "{} If the DASH are already locked, evolite shows “Continue the top-up”.": "{} 如果 DASH 已锁定，evolite 会显示“继续充值”。",
   "{} addresses with history · BIP44": "{} 个有历史的地址 · BIP44",
   "{} address|{} addresses": {

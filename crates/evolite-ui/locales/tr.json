@@ -1451,7 +1451,10 @@
   "yesterday": "dün",
   "your request is sent · you can pay once {} answers": "isteğiniz gönderildi · {} yanıt verince ödeme yapabilirsiniz",
   "{}\n\nClick to copy": "{}\n\nKopyalamak için tıklayın",
-  "{} Core nodes": "{} Core düğümü",
+  "{} Core node|{} Core nodes": {
+    "one": "{} Core düğümü",
+    "other": "{} Core düğümü"
+  },
   "{} If the DASH are already locked, evolite shows “Continue the top-up”.": "{} DASH zaten kilitliyse evolite «Yüklemeye devam et» gösterir.",
   "{} addresses with history · BIP44": "Geçmişi olan {} adres · BIP44",
   "{} address|{} addresses": {

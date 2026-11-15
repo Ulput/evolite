@@ -1450,7 +1450,9 @@
   "yesterday": "kemarin",
   "your request is sent · you can pay once {} answers": "permintaan Anda terkirim · Anda bisa membayar setelah {} menjawab",
   "{}\n\nClick to copy": "{}\n\nKlik untuk menyalin",
-  "{} Core nodes": "{} node Core",
+  "{} Core node|{} Core nodes": {
+    "other": "{} node Core"
+  },
   "{} If the DASH are already locked, evolite shows “Continue the top-up”.": "{} Jika DASH sudah dikunci, evolite menampilkan «Lanjutkan isi ulang».",
   "{} addresses with history · BIP44": "{} alamat dengan riwayat · BIP44",
   "{} address|{} addresses": {

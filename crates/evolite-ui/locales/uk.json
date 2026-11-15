@@ -1453,7 +1453,12 @@
   "yesterday": "учора",
   "your request is sent · you can pay once {} answers": "ваш запит надіслано · платити можна, коли {} відповість",
   "{}\n\nClick to copy": "{}\n\nНатисніть, щоб скопіювати",
-  "{} Core nodes": "{} вузлів Core",
+  "{} Core node|{} Core nodes": {
+    "one": "{} вузол Core",
+    "few": "{} вузли Core",
+    "many": "{} вузлів Core",
+    "other": "{} вузла Core"
+  },
   "{} If the DASH are already locked, evolite shows “Continue the top-up”.": "{} Якщо DASH уже заблоковано, evolite покаже «Продовжити поповнення».",
   "{} addresses with history · BIP44": "{} адрес з історією · BIP44",
   "{} address|{} addresses": {

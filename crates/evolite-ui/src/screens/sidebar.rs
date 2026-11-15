@@ -281,6 +281,13 @@ pub(crate) fn tip_time(at: evolite_api::Timestamp, now: chrono::DateTime<chrono:
     }
 }
 
+/// `text` in the interface language in reading order: the card's lines are put together from
+/// pieces and turned to visual order once, where they are drawn (BUG-153: pieces turned already
+/// and turned again swap places in Arabic).
+fn reading(text: &str) -> std::borrow::Cow<'_, str> {
+    crate::i18n::t_in(crate::i18n::current(), text)
+}
+
 /// The sync card's words (BUG-155, the analyst's AC-A1…A9). `platform`: the mark goes for
 /// Platform ([`MarkClock::platform`]).
 pub(crate) fn card_words(
@@ -300,14 +307,14 @@ pub(crate) fn card_words(
     if let Some(what_to_do) = &status.folder_refused {
         return stopped(
             tr!("a folder needs fixing").to_string(),
-            crate::i18n::t(what_to_do).into_owned(),
+            reading(what_to_do).into_owned(),
             0.5,
         );
     }
     if let Some(why) = &status.error {
         let line = format!(
             tr!("{} · resync in Settings › Network and nodes"),
-            crate::i18n::t(why)
+            reading(why)
         );
         return stopped(line.clone(), line, status.progress.unwrap_or(0.5));
     }
@@ -317,7 +324,7 @@ pub(crate) fn card_words(
         let all: Vec<String> = status
             .platform
             .iter()
-            .map(|w| crate::i18n::t(platform_work(*w)).into_owned())
+            .map(|w| reading(platform_work(*w)).into_owned())
             .collect();
         return CardWords {
             title: "Platform".to_string(),
@@ -332,12 +339,12 @@ pub(crate) fn card_words(
     }
     if status.stage == SyncStage::Done {
         let block = format!(tr!("block {}"), group_thousands(status.tip_height as i64));
-        let mut tip = vec![crate::i18n::t(&block).into_owned()];
+        let mut tip = vec![reading(&block).into_owned()];
         if status.chainlocked {
             tip.push("ChainLock".to_owned());
         }
         if let Some(at) = status.tip_at {
-            tip.push(crate::i18n::t(&format!(tr!("updated {}"), tip_time(at, now))).into_owned());
+            tip.push(reading(&format!(tr!("updated {}"), tip_time(at, now))).into_owned());
         }
         return CardWords {
             title: tr!("Synced").to_string(),
@@ -345,15 +352,24 @@ pub(crate) fn card_words(
             detail_short: status.chainlocked.then_some(block),
             stopped: false,
             tip_title: tr!("Synced").to_string(),
-            tip_detail: tip.join(" · "),
+            // In Arabic each piece on its own (BUG-166): the time stood with «ChainLock», a Latin run
+            // beside it, and read before «updated» (as BUG-118, BUG-119).
+            tip_detail: if crate::i18n::rtl() {
+                tip.iter()
+                    .map(|p| crate::i18n::own(p))
+                    .collect::<Vec<_>>()
+                    .join(" · ")
+            } else {
+                tip.join(" · ")
+            },
             bar: Bar::None,
         };
     }
     let rest = match status.minutes_left {
         Some(m) => format!(tr!("about {} min left"), m.max(1)),
-        None => format!(tr!("{} Core nodes"), status.core_peers),
+        None => text::plural(status.core_peers, tr!("Core node"), tr!("Core nodes")),
     };
-    let rest = crate::i18n::t(&rest).into_owned();
+    let rest = reading(&rest).into_owned();
     let (detail, bar) = match status.progress {
         Some(part) => (
             format!("{} % · {rest}", (part * 100.0).round() as i32),
@@ -477,7 +493,7 @@ fn sync_card(
     let id = ui.id().with("sync-card");
     let (mark, at, bar_rect) = card_layout(sync, rail, compact);
     // The same mark in every size (BUG-137 AC-D1).
-    let clock = sync_mark(ui, a, status, mark, id);
+    let clock = sync_mark(ui, a, status, mark);
     let words = card_words(
         &words_status(status, &clock),
         clock.platform(),
@@ -544,7 +560,7 @@ fn sync_card(
             },
         )
     });
-    card_status(ui, a, status, sync, id, &clock, &words);
+    card_status(ui, a, status, sync, id, &clock, &words, true);
 }
 
 /// The bar's way to the end when sync is done, seconds (as the mark's, `TO_DONE`).
@@ -590,7 +606,7 @@ struct BarClock {
 /// The sync card's bar (BUG-155): the track in `line`, the fill in `accent` (`danger` at a stop);
 /// a short piece running round while how much is left is not known. The frame mirror turns it
 /// for Arabic (right to left). With the system's animations off nothing moves.
-fn sync_bar(
+pub(crate) fn sync_bar(
     ui: &mut Ui,
     a: &Assets,
     id: egui::Id,
@@ -933,11 +949,11 @@ fn platform_work(work: evolite_api::PlatformWork) -> &'static str {
 fn platform_words(works: &[evolite_api::PlatformWork]) -> String {
     let names: Vec<String> = works
         .iter()
-        .map(|w| crate::i18n::t(platform_work(*w)).into_owned())
+        .map(|w| reading(platform_work(*w)).into_owned())
         .collect();
     let mut shown: Vec<String> = names.iter().take(3).cloned().collect();
     if names.len() > 3 {
-        shown.push(crate::i18n::t(&format!(tr!("and {} more"), names.len() - 3)).into_owned());
+        shown.push(reading(&format!(tr!("and {} more"), names.len() - 3)).into_owned());
     }
     shown.join(" · ")
 }
@@ -954,33 +970,48 @@ pub(crate) fn rail_mark_shown(ctx: &egui::Context) -> Option<(RailMark, bool)> {
     ctx.data(|d| d.get_temp::<(RailMark, bool)>(rail_mark_id()))
 }
 
-/// The sync card's mark, in every size of the menu (BUG-137): «the block finds its place» while
-/// Core or Platform catches up, the full logo once done, the danger block at a stop. Asks for
-/// frames only while it moves. Its clock, for the words.
-fn sync_mark(
+/// The one clock of every sync mark (BUG-163 AC-D6): the menu's and the first sync's (O6) go on
+/// from the same point of the cycle, from one screen to the other.
+fn mark_clock_id() -> egui::Id {
+    egui::Id::new("evolite-sync-mark-clock")
+}
+
+/// When the running cycle of the sync marks began (for tests); `None`: none runs.
+#[cfg(all(test, demo_core, feature = "dev-tools"))]
+pub(crate) fn mark_cycle(ctx: &egui::Context) -> Option<f64> {
+    ctx.data(|d| d.get_temp::<MarkClock>(mark_clock_id()))
+        .and_then(|c| c.cycle)
+}
+
+/// The sync mark at `mark`'s size, in every size of the menu (BUG-137) and on the first sync
+/// (O6, 48 px, BUG-163): «the block finds its place» while Core or Platform catches up, the full
+/// logo once done, the danger block at a stop. Asks for frames only while it moves. Its clock,
+/// for the words: one for every mark.
+pub(crate) fn sync_mark(
     ui: &mut Ui,
     a: &mut Assets,
     status: &evolite_api::SyncInfo,
     mark: egui::Rect,
-    id: egui::Id,
 ) -> MarkClock {
     let p = a.p;
+    let size = mark.width();
     let now = ui.input(|i| i.time);
     let moving = crate::motion::system_on(ui.ctx());
+    let id = mark_clock_id();
     let mut clock = ui.data(|d| d.get_temp::<MarkClock>(id)).unwrap_or_default();
     let (shown, again) = rail_mark_now(&mut clock, status, moving, now);
     ui.data_mut(|d| d.insert_temp(id, clock));
     #[cfg(test)]
     ui.data_mut(|d| d.insert_temp(rail_mark_id(), (shown, again)));
     match shown {
-        RailMark::Done => a.icons.sync_mark(3, &p, 28.0).paint_at(ui, mark),
+        RailMark::Done => a.icons.sync_mark(3, &p, size).paint_at(ui, mark),
         RailMark::Block {
             dim,
             x,
             alpha,
             stopped,
         } => {
-            a.icons.sync_base(dim, &p, 28.0).paint_at(ui, mark);
+            a.icons.sync_base(dim, &p, size).paint_at(ui, mark);
             let unit = mark.width() / 64.0;
             let block =
                 egui::Rect::from_min_size(mark.min + vec2(x, 23.5) * unit, vec2(12.0, 12.0) * unit);
@@ -999,7 +1030,10 @@ fn sync_mark(
 
 /// What the words say of Platform: what goes now, or, while a cycle finishes after it, what went
 /// last.
-fn words_status(status: &evolite_api::SyncInfo, clock: &MarkClock) -> evolite_api::SyncInfo {
+pub(crate) fn words_status(
+    status: &evolite_api::SyncInfo,
+    clock: &MarkClock,
+) -> evolite_api::SyncInfo {
     let mut shown = status.clone();
     if clock.platform() && shown.platform.is_empty() {
         shown.platform = clock.last_works();
@@ -1009,8 +1043,13 @@ fn words_status(status: &evolite_api::SyncInfo, clock: &MarkClock) -> evolite_ap
 
 /// The sync card's whole words (BUG-155 AC-A3, A4): a tooltip on hover and on keyboard focus in
 /// every size, and one name for the screen reader — a polite status that changes with the stage,
-/// the end and a stop, not with each percent (BUG-137 AC-D7).
-fn card_status(
+/// the end and a stop, not with each percent (BUG-137 AC-D7). `tooltip`: off where the words
+/// stand whole already (the first sync, BUG-163).
+#[allow(
+    clippy::too_many_arguments,
+    reason = "the card's place, its clock and words, each used once"
+)]
+pub(crate) fn card_status(
     ui: &mut Ui,
     a: &mut Assets,
     status: &evolite_api::SyncInfo,
@@ -1018,6 +1057,7 @@ fn card_status(
     id: egui::Id,
     clock: &MarkClock,
     words: &CardWords,
+    tooltip: bool,
 ) {
     let p = a.p;
     let platform = clock.platform();
@@ -1077,6 +1117,9 @@ fn card_status(
                 .color(p.muted),
         );
     };
+    if !tooltip {
+        return;
+    }
     if resp.has_focus() {
         resp.show_tooltip_ui(words);
     } else {
@@ -1438,6 +1481,41 @@ mod tests {
             ("block 1,284,112", None)
         );
         assert_eq!(w.tip_detail, "block 1,284,112");
+    }
+
+    /// BUG-165: Core's nodes are counted in the language's plural: «1 узел», «3 узла», «5 узлов».
+    #[test]
+    fn core_nodes_are_counted_in_russian() {
+        crate::i18n::set(crate::i18n::Lang::Ru);
+        for (n, want) in [(1, "1 узел Core"), (3, "3 узла Core"), (5, "5 узлов Core")]
+        {
+            let mut s = syncing(SyncStage::Connecting, None);
+            s.core_peers = n;
+            assert_eq!(words(&s, false).detail, want);
+        }
+        crate::i18n::set(crate::i18n::Lang::En);
+    }
+
+    /// BUG-166: in Arabic the synced tooltip reads «block · ChainLock · updated 14:32» right to left:
+    /// the time stays with «updated», not with «ChainLock» (drawn left to right: the time, «updated»,
+    /// then «ChainLock»).
+    #[test]
+    fn in_arabic_the_time_stays_with_updated() {
+        crate::i18n::set(crate::i18n::Lang::Ar);
+        let mut s = on_platform(&[]);
+        s.chainlocked = true;
+        s.tip_at = Some(at_three().timestamp() - 28 * 60);
+        let shown = crate::i18n::t(&words(&s, false).tip_detail).into_owned();
+        crate::i18n::set(crate::i18n::Lang::En);
+        let at = |needle: &str| {
+            shown
+                .find(needle)
+                .unwrap_or_else(|| panic!("{needle} in {shown:?}"))
+        };
+        assert!(
+            at("14:32") < at("حُدّثت") && at("حُدّثت") < at("ChainLock"),
+            "{shown:?}"
+        );
     }
 
     /// BUG-155, the designer's review: once synced the fill runs on from where it was to the end,

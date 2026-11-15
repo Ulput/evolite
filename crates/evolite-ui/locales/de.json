@@ -1451,7 +1451,10 @@
   "yesterday": "gestern",
   "your request is sent · you can pay once {} answers": "Ihre Anfrage ist gesendet · zahlen können Sie, sobald {} antwortet",
   "{}\n\nClick to copy": "{}\n\nKlicken zum Kopieren",
-  "{} Core nodes": "{} Core-Knoten",
+  "{} Core node|{} Core nodes": {
+    "one": "{} Core-Knoten",
+    "other": "{} Core-Knoten"
+  },
   "{} If the DASH are already locked, evolite shows “Continue the top-up”.": "{} Sind die DASH schon gesperrt, zeigt evolite „Aufladen fortsetzen“.",
   "{} addresses with history · BIP44": "{} Adressen mit Verlauf · BIP44",
   "{} address|{} addresses": {

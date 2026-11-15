@@ -1452,7 +1452,11 @@
   "yesterday": "ayer",
   "your request is sent · you can pay once {} answers": "su solicitud está enviada · podrá pagar cuando {} responda",
   "{}\n\nClick to copy": "{}\n\nHaga clic para copiar",
-  "{} Core nodes": "{} nodos Core",
+  "{} Core node|{} Core nodes": {
+    "one": "{} nodo de Core",
+    "many": "{} nodos de Core",
+    "other": "{} nodos de Core"
+  },
   "{} If the DASH are already locked, evolite shows “Continue the top-up”.": "{} Si los DASH ya están bloqueados, evolite muestra «Continuar la recarga».",
   "{} addresses with history · BIP44": "{} direcciones con historial · BIP44",
   "{} address|{} addresses": {
