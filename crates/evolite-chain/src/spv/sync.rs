@@ -73,6 +73,16 @@ pub struct SyncStatus {
     /// when the headers are not done (all peers lost: dash-spv waits for connections again) and
     /// on a rewind; after either, the filters have to reach the headers' tip again.
     pub filters_at_tip: Option<u32>,
+    /// BUG-162: how far the open wallet itself is synced (key-wallet's `synced_height`), noted
+    /// by the core at each snapshot; none before the first one. dash-spv's filters run with no
+    /// wallet at all (a first start, while the phrase is being written down) and reach the tip
+    /// for nobody; then the new wallet's own pass begins at 0. Only this height says the
+    /// wallet's coins are known.
+    pub wallet_synced: Option<u32>,
+    /// [`Self::filters_at_tip`] for the wallet: the headers' height its own sync reached, kept
+    /// through a new block (the wallet a few seconds behind), gone when the headers are not
+    /// done or the wallet's height falls below it (its pass restarted).
+    pub wallet_at_tip: Option<u32>,
     /// A node answered this run's request for the masternode lists (QRInfo): dash-spv checks
     /// their quorums now. Its list height moves only at the very end, so this is all there is
     /// to tell the two apart (BUG-61).
@@ -149,6 +159,35 @@ impl SyncStatus {
         }
         self.percent = (progress.percentage() * 100.0).clamp(0.0, 100.0);
         self.latch_filters_at_tip();
+        self.latch_wallet_at_tip();
+    }
+
+    /// BUG-162: the open wallet's own synced height, from the core (none: no wallet open).
+    pub fn note_wallet_synced(&mut self, height: Option<u32>) {
+        self.wallet_synced = height;
+        self.latch_wallet_at_tip();
+    }
+
+    /// Moves [`Self::wallet_at_tip`] as [`Self::latch_filters_at_tip`] moves its own.
+    pub fn latch_wallet_at_tip(&mut self) {
+        match (self.headers, self.wallet_synced) {
+            (Some(h), Some(w)) if h.done && w >= h.height => self.wallet_at_tip = Some(w),
+            (Some(h), _) if !h.done => self.wallet_at_tip = None,
+            (_, Some(w)) if self.wallet_at_tip.is_some_and(|at| w < at) => {
+                self.wallet_at_tip = None;
+            }
+            (_, None) => self.wallet_at_tip = None,
+            _ => {}
+        }
+    }
+
+    /// BUG-162: a wallet joined the running client — what the client did before was not for
+    /// it: the latches and the filters' start go, its own pass decides.
+    pub fn wallet_attached(&mut self) {
+        self.filters_at_tip = None;
+        self.filters_from = None;
+        self.wallet_synced = None;
+        self.wallet_at_tip = None;
     }
 
     /// Moves [`Self::filters_at_tip`]: up when the filters are done to the headers' tip, away
@@ -172,6 +211,7 @@ impl SyncStatus {
     /// left them.
     pub fn begin_run(&mut self) {
         self.filters_at_tip = None;
+        self.wallet_at_tip = None;
         self.headers_from = None;
         self.filters_from = None;
         self.lists_answered = false;

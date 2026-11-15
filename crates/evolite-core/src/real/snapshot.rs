@@ -299,6 +299,12 @@ impl Real {
     }
 
     pub(super) async fn wallet(&mut self, id: WalletId, meta: VaultMeta) -> Wallet {
+        // BUG-162: how far this wallet itself is synced — its coins are known by that, not by
+        // the client's filters, which may have reached the tip before the wallet joined.
+        if let Some(wallet) = turn::timed("wallet_synced", self.chain.wallet(&id)).await {
+            let height = wallet.state().await.core_wallet.synced_height();
+            self.chain.note_wallet_synced(Some(height));
+        }
         // Read before the coins are counted, and again after ([`count_checked`]).
         let status_before = self.chain.status();
         let WalletRead {
@@ -322,6 +328,8 @@ impl Real {
             own_core,
             mixed,
         } = self.read_wallet(id).await;
+        // The height its coins were read at: the «after» of [`count_checked`] sees it.
+        self.chain.note_wallet_synced(Some(synced));
         let (platform_address, platform_credits) = platform.unwrap_or_default();
         let (pool, unfinished_shield, connecting_pool) = self.read_pool(id).await;
         let mut fees = turn::timed("fees_now", self.fees_now(coins)).await;

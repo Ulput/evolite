@@ -23,8 +23,16 @@ use super::sync::SyncStatus;
 pub fn coins_known(s: &SyncStatus, wallet: bool) -> bool {
     s.headers.is_some_and(|h| h.done)
         && (!wallet
-            || s.filters
-                .is_some_and(|f| s.filters_at_tip.is_some_and(|at| f.height >= at)))
+            || match s.wallet_synced {
+                // BUG-162: the wallet's own sync, not the client's filters — those may have
+                // reached the tip for nobody before the wallet joined.
+                Some(at) => s.wallet_at_tip.is_some_and(|tip| at >= tip),
+                // Before the core's first note of it: the filters' latch (reset when a wallet
+                // joins).
+                None => s
+                    .filters
+                    .is_some_and(|f| s.filters_at_tip.is_some_and(|at| f.height >= at)),
+            })
 }
 
 /// A wallet's balance counted between two reads of the sync status is checked only when its
@@ -78,7 +86,9 @@ pub fn sync_info(s: &SyncStatus, wallet: bool) -> SyncInfo {
             // No start known yet (the first report of a new or restored wallet): no count.
             let from = s.filters_from.map(|from| from.min(f.height));
             let stored = s.filters_stored.max(f.height);
-            let parts = [s.filter_headers.max(stored), stored, f.height];
+            // The last part is the wallet's own pass when known (BUG-162), not the client's.
+            let done = s.wallet_synced.unwrap_or(f.height);
+            let parts = [s.filter_headers.max(stored), stored, done];
             (
                 SyncStage::Filters,
                 from.and_then(|from| {
@@ -2132,6 +2142,71 @@ mod tests {
             chainlock_height: Some(1000),
             ..Default::default()
         }
+    }
+
+    /// BUG-162 AC-T1: the client's filters at the tip say nothing of the wallet — its own synced
+    /// height does: 0 is «Filters», not «Done»; at the tip, «Done».
+    #[test]
+    fn the_wallets_own_height_says_whether_its_coins_are_known() {
+        let mut s = at_tip();
+        filters_done_at(&mut s, 1000);
+        s.note_wallet_synced(Some(0));
+        assert!(!coins_known(&s, true));
+        assert_eq!(sync_info(&s, true).stage, SyncStage::Filters);
+        s.note_wallet_synced(Some(1000));
+        assert!(coins_known(&s, true));
+        assert_eq!(sync_info(&s, true).stage, SyncStage::Done);
+        // A new block: the headers one ahead, the wallet a few seconds behind — no flicker.
+        s.headers = Some(Stage {
+            height: 1001,
+            target: 1001,
+            done: true,
+        });
+        s.latch_wallet_at_tip();
+        assert!(coins_known(&s, true), "kept through a new block");
+        // Its pass restarted (dash-spv: synced_height fell below committed): not known.
+        s.note_wallet_synced(Some(0));
+        assert!(!coins_known(&s, true));
+    }
+
+    /// BUG-162 AC-T2, AC-T4: the customer's first start — the client's filters reach the tip
+    /// with no wallet; a wallet joins; its own pass runs from 0 to the tip. «Filters» shows once,
+    /// without a «Done» in between, and no count is checked until its pass is at the tip.
+    #[test]
+    fn a_first_start_shows_the_filters_once_for_the_wallet() {
+        let mut s = at_tip();
+        // Before any wallet: the filters run for nobody and reach the tip. No wallet: no
+        // filters stage at all.
+        filters_done_at(&mut s, 1000);
+        assert_eq!(sync_info(&s, false).stage, SyncStage::Done);
+        // The wallet joins the running client.
+        s.wallet_attached();
+        let mut stages = vec![sync_info(&s, true).stage];
+        let before = s.clone();
+        s.note_wallet_synced(Some(0));
+        stages.push(sync_info(&s, true).stage);
+        // dash-spv restarts the scan for it: committed at 0, then up to the tip.
+        for height in [0, 400, 800, 999] {
+            s.filters = Some(Stage {
+                height,
+                target: 1000,
+                done: false,
+            });
+            s.latch_filters_at_tip();
+            s.note_wallet_synced(Some(height));
+            stages.push(sync_info(&s, true).stage);
+            assert!(!count_checked(true, &before, &s), "not checked at {height}");
+        }
+        filters_done_at(&mut s, 1000);
+        s.note_wallet_synced(Some(1000));
+        stages.push(sync_info(&s, true).stage);
+        let filters = stages
+            .iter()
+            .filter(|&&st| st == SyncStage::Filters)
+            .count();
+        assert_eq!(filters, stages.len() - 1, "{stages:?}");
+        assert_eq!(*stages.last().unwrap(), SyncStage::Done);
+        assert!(count_checked(true, &s.clone(), &s));
     }
 
     #[test]

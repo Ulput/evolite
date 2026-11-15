@@ -277,6 +277,15 @@ impl Chain {
             .clone()
     }
 
+    /// BUG-162: the open wallet's own synced height (none: no wallet open), which says whether
+    /// its coins are known ([`crate::convert::coins_known`]).
+    pub fn note_wallet_synced(&self, height: Option<u32>) {
+        self.status
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .note_wallet_synced(height);
+    }
+
     /// Opens the store at `store` and restores the wallets saved there, before the SPV client
     /// starts: the manager is in [`Self::manager`] from then on.
     async fn open_store(
@@ -509,6 +518,12 @@ impl Chain {
             )
             .await
             .map_err(|e| e.to_string())?;
+        // BUG-162: what the running client did before was for no wallet; this one's own pass
+        // decides from now on.
+        self.status
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .wallet_attached();
         Ok((wallet.wallet_id(), wallet))
     }
 
