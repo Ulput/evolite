@@ -1843,5 +1843,9 @@
   "{} hour|{} hours": {"other":"{}시간"},
   "fee: no record": "수수료: 기록 없음",
   "this identity's keys were changed in another app or on another device — try again": "이 identity의 키가 다른 앱이나 다른 기기에서 변경되었습니다. 다시 시도하세요",
-  "Top up again": "다시 충전"
+  "Top up again": "다시 충전",
+  "Bought: the tokens are in the balance; {} taken in credits.": "구매했습니다. 토큰이 잔액에 있습니다. 크레딧에서 {} 차감.",
+  "Checking the price…": "가격 확인 중…",
+  "The price grew: now {} (was {}) — check and sign again.": "가격이 올랐습니다: 현재 {}(이전 {}). 확인하고 다시 서명하세요.",
+  "Could not check the price — try again.": "가격을 확인하지 못했습니다 — 다시 시도하세요."
 }

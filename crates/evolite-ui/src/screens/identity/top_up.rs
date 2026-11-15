@@ -422,10 +422,13 @@ pub(super) fn top_up_blocked_by(
     }
 }
 
-/// "Top up the identity" as typed, before it is sent.
+/// "Top up the identity" as typed, before it is sent. It opens empty, with the «0.0000» hint
+/// (BUG-182, the rule of BUG-172: no amount is put into what gets signed).
+#[derive(Default)]
 pub struct TopUpForm {
     pub amount: String,
-    /// 0.1 DASH in `amount` until the person changes it (`format::fill_suggested`).
+    /// An amount put in for the person (`format::fill_suggested`) until they change it: none
+    /// when the form opens; a `--screen` frame with an amount sets one.
     pub suggested: Option<i64>,
     /// What «Top up» signed (BUG-177): shown instead of the form until «Top up again».
     pub signed: Option<SignedTopUp>,
@@ -440,16 +443,6 @@ pub struct SignedTopUp {
     pub credits_checked: bool,
     pub fee: i64,
     pub on_top: i64,
-}
-
-impl Default for TopUpForm {
-    fn default() -> Self {
-        Self {
-            amount: crate::format::input_text(10_000_000),
-            suggested: Some(10_000_000),
-            signed: None,
-        }
-    }
 }
 
 /// The core's answer to a top-up whose lock Platform took on an earlier attempt: the same

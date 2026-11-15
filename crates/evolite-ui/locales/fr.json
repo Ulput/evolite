@@ -1869,5 +1869,9 @@
   "{} hour|{} hours": {"many":"{} heures","one":"{} heure","other":"{} heures"},
   "fee: no record": "frais : aucune donnée",
   "this identity's keys were changed in another app or on another device — try again": "les clés de cette identity ont été modifiées dans une autre application ou sur un autre appareil — réessayez",
-  "Top up again": "Recharger encore"
+  "Top up again": "Recharger encore",
+  "Bought: the tokens are in the balance; {} taken in credits.": "Acheté : les jetons sont dans le solde ; {} prélevés en crédits.",
+  "Checking the price…": "Vérification du prix…",
+  "The price grew: now {} (was {}) — check and sign again.": "Le prix a augmenté : maintenant {} (avant {}) — vérifiez et signez à nouveau.",
+  "Could not check the price — try again.": "Impossible de vérifier le prix — réessayez."
 }

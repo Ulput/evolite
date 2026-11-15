@@ -1882,5 +1882,9 @@
   "{} hour|{} hours": {"few":"{} години","many":"{} годин","one":"{} годину","other":"{} години"},
   "fee: no record": "комісія: немає відомостей",
   "this identity's keys were changed in another app or on another device — try again": "ключі цієї identity змінили в іншому застосунку або на іншому пристрої — спробуйте ще раз",
-  "Top up again": "Поповнити ще"
+  "Top up again": "Поповнити ще",
+  "Bought: the tokens are in the balance; {} taken in credits.": "Куплено: токени в балансі; списано {} кредитами.",
+  "Checking the price…": "Перевіряємо ціну…",
+  "The price grew: now {} (was {}) — check and sign again.": "Ціна зросла: тепер {} (було {}) — перевірте й підпишіть знову.",
+  "Could not check the price — try again.": "Не вдалося перевірити ціну — спробуйте ще раз."
 }

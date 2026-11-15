@@ -13,6 +13,12 @@ fn top_up_label() -> String {
 /// the core's answer is the test's.
 fn signed_top_up() -> (MutexGuard<'static, ()>, Kit) {
     let (turn, mut kit) = demo_app("top-up", "en");
+    wait_for(&mut kit, "the form", |kit| {
+        kit.state().identity.top_up.is_some()
+    });
+    if let Some(form) = &mut kit.state_mut().identity.top_up {
+        form.amount = crate::format::input_text(AMOUNT);
+    }
     wait_for(&mut kit, "the button with the amount", |kit| {
         has_text(kit, &top_up_label())
     });

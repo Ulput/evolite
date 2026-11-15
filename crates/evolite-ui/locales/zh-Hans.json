@@ -1843,5 +1843,9 @@
   "{} hour|{} hours": {"other":"{} 小时"},
   "fee: no record": "手续费：无记录",
   "this identity's keys were changed in another app or on another device — try again": "此 identity 的密钥已在其他应用或其他设备上更改——请重试",
-  "Top up again": "再次充值"
+  "Top up again": "再次充值",
+  "Bought: the tokens are in the balance; {} taken in credits.": "已购买：代币已在余额中；以点数扣除 {}。",
+  "Checking the price…": "正在检查价格…",
+  "The price grew: now {} (was {}) — check and sign again.": "价格上涨：现在 {}（之前 {}）——请核对后重新签名。",
+  "Could not check the price — try again.": "无法核对价格 — 请重试。"
 }

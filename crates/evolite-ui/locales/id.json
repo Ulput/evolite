@@ -1843,5 +1843,9 @@
   "{} hour|{} hours": {"other":"{} jam"},
   "fee: no record": "biaya: tidak ada catatan",
   "this identity's keys were changed in another app or on another device — try again": "kunci identity ini diubah di aplikasi lain atau di perangkat lain — coba lagi",
-  "Top up again": "Isi ulang lagi"
+  "Top up again": "Isi ulang lagi",
+  "Bought: the tokens are in the balance; {} taken in credits.": "Dibeli: token sudah di saldo; {} dipotong dari kredit.",
+  "Checking the price…": "Memeriksa harga…",
+  "The price grew: now {} (was {}) — check and sign again.": "Harga naik: sekarang {} (sebelumnya {}) — periksa dan tanda tangani lagi.",
+  "Could not check the price — try again.": "Harga tidak dapat diperiksa — coba lagi."
 }

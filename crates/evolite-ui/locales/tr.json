@@ -1856,5 +1856,9 @@
   "{} hour|{} hours": {"one":"{} saat","other":"{} saat"},
   "fee: no record": "ücret: kayıt yok",
   "this identity's keys were changed in another app or on another device — try again": "bu identity'nin anahtarları başka bir uygulamada veya başka bir cihazda değiştirildi — tekrar deneyin",
-  "Top up again": "Tekrar yükle"
+  "Top up again": "Tekrar yükle",
+  "Bought: the tokens are in the balance; {} taken in credits.": "Satın alındı: tokenler bakiyede; kredilerden {} alındı.",
+  "Checking the price…": "Fiyat kontrol ediliyor…",
+  "The price grew: now {} (was {}) — check and sign again.": "Fiyat yükseldi: şimdi {} (önceden {}) — kontrol edip yeniden imzalayın.",
+  "Could not check the price — try again.": "Fiyat denetlenemedi — yeniden deneyin."
 }

@@ -984,11 +984,22 @@ fn keys(ui: &mut Ui, a: &mut Assets, id: &Identity, width: f32, cell: &mut RowCe
 #[cfg(test)]
 mod tests {
     use super::{
-        Created, IdentityState, TOP_UP_SETTLED, created_banner, searching_text, top_up_blocked_by,
-        top_up_done_text, top_up_error, unfinished_top_up_text,
+        Created, IdentityState, TOP_UP_SETTLED, TopUpForm, created_banner, searching_text,
+        top_up_blocked_by, top_up_done_text, top_up_error, unfinished_top_up_text,
     };
     use evolite_api::CoreError;
     use evolite_api::IdentitySearch;
+
+    /// BUG-182 (the rule of BUG-172): «Top up» opens empty, no amount put into what gets signed,
+    /// no quick amount chosen.
+    #[test]
+    fn the_top_up_opens_empty() {
+        let mut state = IdentityState::default();
+        state.open_top_up();
+        let form: &TopUpForm = state.top_up.as_ref().expect("the form");
+        assert!(form.amount.is_empty(), "{:?}", form.amount);
+        assert_eq!(form.suggested, None);
+    }
 
     /// BUG-115: credits kept from an earlier run say they are not checked, not what they pay for.
     #[test]

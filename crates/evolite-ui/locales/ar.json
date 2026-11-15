@@ -1908,5 +1908,9 @@
   "{} hour|{} hours": {"few":"{} ساعات","many":"{} ساعة","one":"ساعة واحدة","other":"{} ساعة","two":"ساعتين","zero":"{} ساعة"},
   "fee: no record": "الرسوم: لا توجد بيانات",
   "this identity's keys were changed in another app or on another device — try again": "تم تغيير مفاتيح هذه الهوية في تطبيق آخر أو على جهاز آخر — حاول مرة أخرى",
-  "Top up again": "شحن مرة أخرى"
+  "Top up again": "شحن مرة أخرى",
+  "Bought: the tokens are in the balance; {} taken in credits.": "تم الشراء: الرموز في الرصيد؛ خُصم {} من الأرصدة.",
+  "Checking the price…": "نتحقق من السعر…",
+  "The price grew: now {} (was {}) — check and sign again.": "ارتفع السعر: الآن {} (كان {}) — تحقّق ووقّع مرة أخرى.",
+  "Could not check the price — try again.": "تعذّر التحقق من السعر — حاول مرة أخرى."
 }

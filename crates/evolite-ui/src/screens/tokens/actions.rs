@@ -125,6 +125,9 @@ pub struct ClaimState {
     pub password: SpendPassword,
     pub waiting: bool,
     pub result: Option<Result<(), CoreError>>,
+    /// What «Sign and claim» signed (BUG-179): shown while it runs and once done, not the next
+    /// distribution reckoned on the new balances.
+    pub signed: Option<Claims>,
 }
 
 impl ClaimState {
@@ -134,6 +137,7 @@ impl ClaimState {
             password: SpendPassword::default(),
             waiting: false,
             result: None,
+            signed: None,
         }
     }
 
@@ -159,6 +163,78 @@ pub struct BuyState {
     pub was: Option<u64>,
     /// A fresh price was asked for (R-22), not answered yet.
     pub asked_price: bool,
+    /// What «Sign and buy» signed (BUG-179): the price and the credits it was reckoned on.
+    pub signed: Option<SignedBuy>,
+    /// «Sign and buy» pressed on a price over a minute old (BUG-181): what it showed, while the
+    /// price is read again.
+    pub pending: Option<Pending>,
+    /// The price could not be read again in time (BUG-181 r2, Should 1): nothing was sent.
+    pub unchecked: bool,
+    /// The price read again came dearer (BUG-181): the new total and the one shown; nothing was
+    /// sent, the next «Sign and buy» is a knowing one.
+    pub dearer: Option<(u64, u64)>,
+}
+
+/// «Sign and buy» pressed on an old price (BUG-181): the total shown, the count it was for
+/// (r2, Should 2: another count typed meanwhile was never shown a total) and when, in ms.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Pending {
+    pub total: u64,
+    pub count: u64,
+    pub at_ms: u64,
+}
+
+/// How long a price is waited for after «Sign and buy» on an old one (BUG-181 r2, Should 1).
+pub const RECHECK_WAIT_MS: u64 = 30_000;
+
+/// Whether `pending` still stands: the same count in the field, and not waited for longer than
+/// [`RECHECK_WAIT_MS`]. `Err(true)`: given up for the time, said; `Err(false)`: the count
+/// changed, dropped quietly.
+pub fn pending_holds(pending: Pending, count: Option<u64>, now_ms: u64) -> Result<(), bool> {
+    if count != Some(pending.count) {
+        return Err(false);
+    }
+    if now_ms.saturating_sub(pending.at_ms) > RECHECK_WAIT_MS {
+        return Err(true);
+    }
+    Ok(())
+}
+
+/// A purchase as it was signed.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SignedBuy {
+    pub offer: Offer,
+    pub credits: Option<u64>,
+    /// When it was signed: the History line of it is the first «Bought» since.
+    pub at: evolite_api::Timestamp,
+}
+
+/// What a price read again means for a purchase pressed on the old one (BUG-181, the
+/// architect's rule): decided by the total, not by the price's age.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Reread {
+    /// The same total, or less: it goes on the same click, the total shown as the ceiling
+    /// (Platform takes what is due, АРХ-10).
+    Buy,
+    /// More: nothing is sent; «now … (was …)», and the next click is a knowing one.
+    Dearer { now: u64, was: u64 },
+    /// It cannot be bought now (not sold, under the new minimum, paused, the limit): the form
+    /// says why.
+    Refused,
+}
+
+/// [`Reread`] of the purchase that showed `shown`, by the quote of now; `refused`: the form
+/// refuses it now.
+pub fn after_reread(shown: u64, now: Option<Quote>, refused: bool) -> Reread {
+    match now {
+        _ if refused => Reread::Refused,
+        Some(Quote::Total { total, .. }) if total <= shown => Reread::Buy,
+        Some(Quote::Total { total, .. }) => Reread::Dearer {
+            now: total,
+            was: shown,
+        },
+        _ => Reread::Refused,
+    }
 }
 
 impl BuyState {
@@ -171,6 +247,10 @@ impl BuyState {
             result: None,
             was: None,
             asked_price: false,
+            signed: None,
+            pending: None,
+            unchecked: false,
+            dearer: None,
         }
     }
 
@@ -248,7 +328,13 @@ pub(super) fn claim_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, tokens: &m
         tokens.claiming = None;
         return;
     };
-    let Some(claims) = row.claims else {
+    // BUG-179: what was signed stays shown while it runs and once done; an error gives the
+    // window back to what is to claim now.
+    let done = matches!(form.result, Some(Ok(())));
+    if !form.waiting && !done {
+        form.signed = None;
+    }
+    let Some(claims) = form.signed.or(row.claims) else {
         tokens.claiming = None;
         return;
     };
@@ -416,6 +502,7 @@ pub(super) fn claim_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, tokens: &m
         cx.send(form.password.command(op, ask));
         form.waiting = true;
         form.result = None;
+        form.signed = Some(claims);
     }
     if closed {
         form.password.forget();
@@ -480,12 +567,24 @@ pub(super) fn buy_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, tokens: &mut
         tokens.buying = None;
         return;
     };
-    let Some(offer) = row.offer.clone() else {
+    let Some(live) = row.offer.clone() else {
         tokens.buying = None;
         return;
     };
+    // BUG-179: what was signed stays shown while it runs and once done.
+    let done = matches!(form.result, Some(Ok(())));
+    if !form.waiting && !done {
+        form.signed = None;
+    }
+    let offer = form
+        .signed
+        .as_ref()
+        .map_or(live.clone(), |s| s.offer.clone());
     let wallet = cx.wallet();
-    let who = sender(wallet);
+    let mut who = sender(wallet);
+    if let Some(signed) = &form.signed {
+        who.credits = signed.credits;
+    }
     let from = shown_name(wallet);
     let fee = who.fee;
     let decimals = row.info.decimals;
@@ -506,9 +605,44 @@ pub(super) fn buy_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, tokens: &mut
     if !old {
         form.asked_price = false;
     }
+    // BUG-181: what the purchase really took (the price may have come lower than shown): its
+    // History line, the first «Bought» of this token since it was signed.
+    let label = evolite_api::tokens::name_in(&row.info, "en").to_owned();
+    let charged = form.signed.as_ref().and_then(|s| {
+        cx.wallet()
+            .activity
+            .iter()
+            .filter(|act| act.at + 5 >= s.at)
+            .find(|act| matches!(&act.kind, evolite_api::ActivityKind::TokenBought { token, .. } if *token == label))
+            .map(|act| -act.amount)
+    });
     let ask = password_asked(cx.snap);
     let read_at = clock(offer.read_ms);
     let mut buy = None;
+    // BUG-181 r2: no fresh price in 30 s (no answer, or the read refused), or another count
+    // typed — the pending purchase is dropped and nothing is sent.
+    if let Some(pending) = form.pending
+        && let Err(said) = pending_holds(pending, count, now_ms)
+    {
+        form.pending = None;
+        form.unchecked = said;
+    }
+    // BUG-181: pressed on an old price, read again now: by the total — the same or less goes on
+    // that click, more is said and waits, what cannot be bought is the form's own refusal.
+    if let Some(Pending { total: shown, .. }) = form.pending.filter(|_| !old && !form.waiting) {
+        form.pending = None;
+        match (after_reread(shown, quoted, problem.is_some()), count) {
+            (Reread::Buy, Some(count)) => {
+                buy = Some(Spend::BuyToken {
+                    token_id: row.info.token_id.clone(),
+                    count,
+                    agreed: shown,
+                });
+            }
+            (Reread::Dearer { now, was }, _) => form.dearer = Some((now, was)),
+            (Reread::Refused, _) | (Reread::Buy, None) => {}
+        }
+    }
     let mut top_up = false;
     let title = format!(tr!("Buy {}"), crate::i18n::own(state::name(&row.info)));
     let closed = dialog_with_footer(
@@ -529,7 +663,15 @@ pub(super) fn buy_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, tokens: &mut
                             a,
                             "confirmed",
                             p.accent,
-                            tr!("Bought: the tokens are in the balance."),
+                            &charged.map_or_else(
+                                || tr!("Bought: the tokens are in the balance.").to_string(),
+                                |c| {
+                                    format!(
+                                        tr!("Bought: the tokens are in the balance; {} taken in credits."),
+                                        crate::format::amount(c)
+                                    )
+                                },
+                            ),
                         );
                         button_row(ui, |ui| {
                             if button(ui, a, tr!("Done"), ButtonKind::Primary, None).clicked() {
@@ -562,7 +704,7 @@ pub(super) fn buy_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, tokens: &mut
                         close = true;
                     }
                     let ready = !form.waiting
-                        && !old
+                        && form.pending.is_none()
                         && problem.is_none()
                         && total.is_some()
                         && form.password.ready(ask);
@@ -570,11 +712,40 @@ pub(super) fn buy_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, tokens: &mut
                         .clicked()
                         && let (Some(count), Some(total)) = (count, total)
                     {
-                        buy = Some(Spend::BuyToken {
-                            token_id: row.info.token_id.clone(),
-                            count,
-                            agreed: total,
-                        });
+                        form.dearer = None;
+                        form.unchecked = false;
+                        if old {
+                            // R-22, BUG-181: the price is read again first; the purchase goes on
+                            // that click unless the total grew.
+                            form.pending = Some(Pending {
+                                total,
+                                count,
+                                at_ms: now_ms,
+                            });
+                            form.asked_price = true;
+                            cx.send(Command::ReadTokenPrices);
+                        } else {
+                            buy = Some(Spend::BuyToken {
+                                token_id: row.info.token_id.clone(),
+                                count,
+                                agreed: total,
+                            });
+                        }
+                    }
+                    if form.pending.is_some() {
+                        ui.label(txt(
+                            tr!("Checking the price…"),
+                            12.0,
+                            Weight::Regular,
+                            p.muted,
+                        ));
+                    } else if form.unchecked {
+                        ui.label(txt(
+                            tr!("Could not check the price — try again."),
+                            12.0,
+                            Weight::Regular,
+                            p.danger,
+                        ));
                     }
                 });
                 return close;
@@ -582,6 +753,20 @@ pub(super) fn buy_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, tokens: &mut
             ui.spacing_mut().item_spacing.y = 10.0;
             let value = sans(13.0, Weight::Medium);
             let number = mono(13.0, Weight::Medium);
+            // BUG-181: the price read again came dearer: nothing was sent.
+            if let Some((now, was)) = form.dearer {
+                notice(
+                    ui,
+                    a,
+                    "warning",
+                    p.danger,
+                    &format!(
+                        tr!("The price grew: now {} (was {}) — check and sign again."),
+                        crate::format::amount(purchase_total_duffs(now) as i64),
+                        crate::format::amount(purchase_total_duffs(was) as i64)
+                    ),
+                );
+            }
             // P2: the price grew before the purchase was written.
             if let (Some(was), Some(now_per_unit)) = (form.was, offer.tiers.first().map(|t| t.1)) {
                 notice(
@@ -713,7 +898,8 @@ pub(super) fn buy_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, tokens: &mut
             }
             if let (Some(have), Some(total)) = (who.credits, total) {
                 let after = have.saturating_sub(purchase_total_duffs(total).saturating_add(fee));
-                kv_row(
+                // BUG-180: a long @name and both sums do not share one line: the value goes under.
+                crate::components::kv_row_fit(
                     ui,
                     &p,
                     &format!(tr!("Credits of {}"), crate::i18n::own(&from)),
@@ -746,6 +932,11 @@ pub(super) fn buy_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, tokens: &mut
         form.waiting = true;
         form.result = None;
         form.was = None;
+        form.signed = Some(SignedBuy {
+            offer: live,
+            credits: who.credits,
+            at: cx.now.timestamp(),
+        });
     }
     if closed {
         form.password.forget();

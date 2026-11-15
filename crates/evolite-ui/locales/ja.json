@@ -1843,5 +1843,9 @@
   "{} hour|{} hours": {"other":"{} 時間"},
   "fee: no record": "手数料：記録なし",
   "this identity's keys were changed in another app or on another device — try again": "この identity の鍵が別のアプリまたは別のデバイスで変更されました。もう一度お試しください",
-  "Top up again": "もう一度チャージ"
+  "Top up again": "もう一度チャージ",
+  "Bought: the tokens are in the balance; {} taken in credits.": "購入しました。トークンは残高にあります。クレジットから {} が引かれました。",
+  "Checking the price…": "価格を確認中…",
+  "The price grew: now {} (was {}) — check and sign again.": "価格が上がりました：現在 {}（以前 {}）。確認してもう一度署名してください。",
+  "Could not check the price — try again.": "価格を確認できませんでした — もう一度お試しください。"
 }

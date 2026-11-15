@@ -902,6 +902,11 @@ impl App {
             let mut form = screens::identity::TopUpForm::default();
             if preset("top-up-bad-amount") {
                 form.amount = "1,234.56".into();
+            } else if !real_shot {
+                // The frame with an amount, as the person would type it; the form opens empty
+                // (BUG-182).
+                form.amount = crate::format::input_text(10_000_000);
+                form.suggested = Some(10_000_000);
             }
             form
         });
