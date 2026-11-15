@@ -586,7 +586,12 @@ fn source_cards(ui: &mut Ui, a: &mut Assets, form: &mut SendForm, v: &FormView) 
             }
         });
         if let Some(caption) = sources_caption(core_as_of, core_as_of_line.as_deref(), all) {
-            ui.add(egui::Label::new(txt(&caption, 12.0, Weight::Regular, p.muted)).wrap());
+            ui.add(crate::components::para(
+                &caption,
+                12.0,
+                Weight::Regular,
+                p.muted,
+            ));
         }
         // «Mixed»: why it gives no change and pays only Core, where the source is chosen (the
         // designer, S1): a plain line, not a banner at the bottom of the form.
@@ -667,32 +672,31 @@ fn recipient_lines(
     } else if checking {
         ui.ctx()
             .request_repaint_after(std::time::Duration::from_secs(1));
-        ui.add(
-            egui::Label::new(txt(
-                crate::text::name_waiting(form.asked_at),
-                12.0,
-                Weight::Regular,
-                p.muted,
-            ))
-            .wrap(),
-        );
+        ui.add(crate::components::para(
+            crate::text::name_waiting(form.asked_at),
+            12.0,
+            Weight::Regular,
+            p.muted,
+        ));
     } else if let Some((why, typo)) = &name_problem {
         let color = if *typo { p.danger } else { p.muted };
         ui.label(txt(why, 12.0, Weight::Regular, color));
     } else if let Some(why) = &address_problem {
-        ui.add(egui::Label::new(txt(why, 12.0, Weight::Regular, p.danger)).wrap());
+        ui.add(crate::components::para(
+            why,
+            12.0,
+            Weight::Regular,
+            p.danger,
+        ));
     }
     if all[form.source].source == Source::Core {
         if own && address_ok {
-            ui.add(
-                        egui::Label::new(txt(
-                            tr!("This is an address of this wallet: the money stays yours, only the fee goes."),
-                            12.0,
-                            Weight::Regular,
-                            p.muted,
-                        ))
-                        .wrap(),
-                    );
+            ui.add(crate::components::para(
+                tr!("This is an address of this wallet: the money stays yours, only the fee goes."),
+                12.0,
+                Weight::Regular,
+                p.muted,
+            ));
         }
         address_book(ui, a, form, book, address_ok && !own, &mut asked.commands);
     }
@@ -872,18 +876,15 @@ fn amount_row(ui: &mut Ui, a: &mut Assets, form: &mut SendForm, v: &FormView) {
                     p.danger,
                 ));
             } else {
-                ui.add(egui::Label::new(txt(why, 12.0, Weight::Regular, p.muted)).wrap());
+                ui.add(crate::components::para(why, 12.0, Weight::Regular, p.muted));
             }
         } else if let Some(problem) = problem {
-            ui.add(
-                egui::Label::new(txt(
-                    &amount_problem_text(problem, source.fee, source.withdrawal),
-                    12.0,
-                    Weight::Regular,
-                    p.danger,
-                ))
-                .wrap(),
-            );
+            ui.add(crate::components::para(
+                &amount_problem_text(problem, source.fee, source.withdrawal),
+                12.0,
+                Weight::Regular,
+                p.danger,
+            ));
         }
         // BUG-142 AC-142-1: why «Max» is less than the balance, from Core only, while nothing else
         // is said here.
@@ -901,7 +902,12 @@ fn amount_row(ui: &mut Ui, a: &mut Assets, form: &mut SendForm, v: &FormView) {
         }
         // By which rate (frames 1–3), «Fiat rate» on only (R-1).
         if let Some(line) = super::currency::field_line(form, rate, v.amount) {
-            ui.add(egui::Label::new(txt(&line, 12.0, Weight::Regular, p.muted)).wrap());
+            ui.add(crate::components::para(
+                &line,
+                12.0,
+                Weight::Regular,
+                p.muted,
+            ));
         }
         // FEAT-0015 stage 2 (frame 14): the funding's fees in one line, as its review counts them.
         if v.fund_own
@@ -1187,13 +1193,12 @@ fn send_row(ui: &mut Ui, a: &mut Assets, form: &mut SendForm, v: &FormView, aske
     };
     if form.waiting > 0 {
         ui.add(
-                    egui::Label::new(txt(
+                    crate::components::para(
                         tr!("The payment awaits the network's answer: it is in the history as “Sending”, and the answer will come. The form is free for the next one."),
                         12.0,
                         Weight::Regular,
                         p.muted,
-                    ))
-                    .wrap(),
+                    ),
                 );
     }
     // A grey button says nothing by itself: what is still missing — under the buttons,
@@ -1232,7 +1237,12 @@ fn send_row(ui: &mut Ui, a: &mut Assets, form: &mut SendForm, v: &FormView, aske
             }
         });
         if let Some(missing) = missing {
-            ui.add(egui::Label::new(txt(missing, 12.0, Weight::Regular, p.muted)).wrap());
+            ui.add(crate::components::para(
+                missing,
+                12.0,
+                Weight::Regular,
+                p.muted,
+            ));
         }
         return;
     }
@@ -1276,7 +1286,12 @@ fn send_row(ui: &mut Ui, a: &mut Assets, form: &mut SendForm, v: &FormView, aske
         }
     });
     if let Some(missing) = missing {
-        ui.add(egui::Label::new(txt(missing, 12.0, Weight::Regular, p.muted)).wrap());
+        ui.add(crate::components::para(
+            missing,
+            12.0,
+            Weight::Regular,
+            p.muted,
+        ));
     }
 }
 
@@ -1492,16 +1507,7 @@ pub(super) fn summary_card(ui: &mut Ui, p: &crate::theme::Palette, v: &FormView,
             }
             divider(ui, p);
             ui.add(
-                egui::Label::new(
-                    txt(
-                        tr!("A payment cannot be undone. Before signing, evolite shows the recipient's address once more."),
-                        12.0,
-                        Weight::Regular,
-                        p.muted,
-                    )
-                    .line_height(Some(18.0)),
-                )
-                .wrap(),
+                crate::components::para(tr!("A payment cannot be undone. Before signing, evolite shows the recipient's address once more."), 12.0, Weight::Regular, p.muted).line_height(18.0),
             );
     });
 }

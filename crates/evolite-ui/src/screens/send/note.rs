@@ -59,12 +59,22 @@ pub(super) fn note_field(ui: &mut Ui, a: &mut Assets, form: &mut SendForm) {
                 tr!("character is all a note holds: the rest was cut off."),
                 tr!("characters is all a note holds: the rest was cut off."),
             );
-            ui.add(egui::Label::new(txt(&cut, 12.0, Weight::Regular, p.danger)).wrap());
+            ui.add(crate::components::para(
+                &cut,
+                12.0,
+                Weight::Regular,
+                p.danger,
+            ));
         }
         ui.horizontal_top(|ui| {
             ui.spacing_mut().item_spacing.x = 6.0;
             ui.add(a.icons.icon("lock", p.muted, &p, 14.0));
-            ui.add(egui::Label::new(txt(NOTE_PRIVACY, 12.0, Weight::Regular, p.muted)).wrap());
+            ui.add(crate::components::para(
+                NOTE_PRIVACY,
+                12.0,
+                Weight::Regular,
+                p.muted,
+            ));
         });
     });
 }
@@ -130,29 +140,25 @@ pub(super) fn confirm_note(ui: &mut Ui, a: &mut Assets, note: &str, from_link: b
                 };
                 ui.label(txt(heading, 12.0, Weight::Medium, p.muted));
             });
-            ui.add(
-                egui::Label::new(txt(&crate::i18n::own(note), 14.0, Weight::Regular, p.text))
-                    .wrap(),
-            );
+            ui.add(crate::components::para(
+                &crate::i18n::own(note),
+                14.0,
+                Weight::Regular,
+                p.text,
+            ));
             if from_link {
-                ui.add(
-                    egui::Label::new(txt(
-                        tr!("This is text from the QR code, not a verified recipient name."),
-                        12.0,
-                        Weight::Regular,
-                        p.muted,
-                    ))
-                    .wrap(),
-                );
-            }
-            ui.add(
-                egui::Label::new(txt(
-                    tr!("Saved to the payment on this computer; it does not go to the network."),
+                ui.add(crate::components::para(
+                    tr!("This is text from the QR code, not a verified recipient name."),
                     12.0,
                     Weight::Regular,
                     p.muted,
-                ))
-                .wrap(),
-            );
+                ));
+            }
+            ui.add(crate::components::para(
+                tr!("Saved to the payment on this computer; it does not go to the network."),
+                12.0,
+                Weight::Regular,
+                p.muted,
+            ));
         });
 }

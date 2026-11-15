@@ -59,6 +59,10 @@ impl Para<'_> {
 
 /// Whether `text` is Arabic in the Arabic interface: the only text [`lines`] breaks itself, and
 /// the only text cut by words in reading order rather than by egui (BUG-118).
+///
+/// An Arabic name in another interface (a contact's display name on an English screen) is left
+/// to egui on purpose: there the paragraph runs left to right, and a long one with an Arabic
+/// name in it may wrap the name's words in visual order. Rare, and noted in BUG-119 r1 P3 2.
 pub(crate) fn breaks_itself(text: &str) -> bool {
     crate::i18n::rtl()
         && crate::i18n::t_in(crate::i18n::current(), text)
@@ -158,7 +162,12 @@ impl egui::Widget for Para<'_> {
             return ui.add(egui::Label::new(self.rich(shown)).wrap());
         }
         let shown = lines(ui.ctx(), self.text, &self.font, width);
-        let broken = shown.matches('\n').count() > self.text.matches('\n').count();
+        // Against the translation, not the English key: a translation may break a line the key
+        // doesn't, and that line is no break of ours (BUG-119 r1 P3 1).
+        let own_breaks = crate::i18n::t_in(crate::i18n::current(), self.text)
+            .matches('\n')
+            .count();
+        let broken = shown.matches('\n').count() > own_breaks;
         let response = ui.add(egui::Label::new(self.rich(shown)).wrap());
         if !broken {
             // One line, as a Label shows it: the same words for a screen reader too.

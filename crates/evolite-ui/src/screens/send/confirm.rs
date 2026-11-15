@@ -320,7 +320,12 @@ fn recipient_lines(ui: &mut Ui, p: &crate::theme::Palette, form: &SendForm, look
             };
             // A name and a display name are words: Inter SemiBold (the designer, BUG-154); an
             // id in them would still be in mono (`txt`).
-            ui.add(egui::Label::new(txt(&who, 14.0, Weight::SemiBold, p.text)).wrap());
+            ui.add(crate::components::para(
+                &who,
+                14.0,
+                Weight::SemiBold,
+                p.text,
+            ));
         } else {
             let marked = lookalike
                 .as_deref()
@@ -351,14 +356,21 @@ fn recipient_lines(ui: &mut Ui, p: &crate::theme::Palette, form: &SendForm, look
                         address = address
                     );
                     // Words in Inter, the address in them in mono (`with_ids`, BUG-154).
-                    ui.add(egui::Label::new(txt(&line, 12.0, Weight::Regular, p.muted)).wrap());
+                    ui.add(crate::components::para(
+                        &line,
+                        12.0,
+                        Weight::Regular,
+                        p.muted,
+                    ));
                 }
                 (Some(_), _) => {}
                 (None, Some(Err(e))) => {
-                    ui.add(
-                        egui::Label::new(txt(&send_error(e), 12.0, Weight::Regular, p.danger))
-                            .wrap(),
-                    );
+                    ui.add(crate::components::para(
+                        &send_error(e),
+                        12.0,
+                        Weight::Regular,
+                        p.danger,
+                    ));
                 }
                 (None, _) => {
                     ui.label(txt(
@@ -557,30 +569,50 @@ pub(super) fn lookalike_spoken(similar: &str) -> String {
 /// sentence, the recipient's address and where they differ, not the colours.
 fn lookalike_warning(ui: &mut Ui, p: &crate::theme::Palette, to: &str, similar: &str) {
     const MARK: &str = "\u{E000}";
-    let sentence = crate::i18n::t(&format!(
-        tr!("Careful: this address only looks like {} that you paid or saved before — the middle is different. Compare it character by character."),
+    let logical = format!(
+        tr!(
+            "Careful: this address only looks like {} that you paid or saved before — the middle is different. Compare it character by character."
+        ),
         MARK
-    ))
-    .into_owned();
-    let (before, after) = sentence.split_once(MARK).unwrap_or((&sentence, ""));
+    );
     let words = || egui::TextFormat {
         font_id: sans(12.0, Weight::Medium),
         color: p.danger,
         ..Default::default()
     };
-    let mut job = egui::text::LayoutJob::default();
-    job.append(before, 0.0, words());
     let marked = crate::text::differing(similar, to);
-    append_address(
-        &mut job,
-        similar,
-        12.0,
-        (p.danger, None),
-        Weight::Regular,
-        &marked,
+    // The words in Inter; where the mark is, the address in mono with its differences marked.
+    let job_of = |shown: &str| {
+        let mut job = egui::text::LayoutJob::default();
+        for (i, line) in shown.split('\n').enumerate() {
+            if i > 0 {
+                job.append("\n", 0.0, words());
+            }
+            let (before, after) = line.split_once(MARK).unwrap_or((line, ""));
+            job.append(before, 0.0, words());
+            if line.contains(MARK) {
+                append_address(
+                    &mut job,
+                    similar,
+                    12.0,
+                    (p.danger, None),
+                    Weight::Regular,
+                    &marked,
+                );
+            }
+            job.append(after, 0.0, words());
+        }
+        job
+    };
+    // In Arabic broken in reading order first (BUG-119), each line measured as it is drawn,
+    // the address in mono; any other text is `t` of it, wrapped by egui as before.
+    let sentence = crate::components::lines_measured(
+        &logical,
+        &sans(12.0, Weight::Medium),
+        ui.available_width(),
+        |line| ui.painter().layout_job(job_of(line)).size().x,
     );
-    job.append(after, 0.0, words());
-    let resp = ui.add(egui::Label::new(job).wrap());
+    let resp = ui.add(egui::Label::new(job_of(&sentence)).wrap());
     // For a screen reader the sentence in reading order (`spoken`), not as drawn: `t` has
     // Arabic in visual order, which would be read backwards (r1 Should 1).
     let said = format!(
@@ -612,15 +644,12 @@ fn password_field(ui: &mut Ui, p: &crate::theme::Palette, form: &mut SendForm) {
             field.request_focus();
         }
         if form.password_wrong {
-            ui.add(
-                egui::Label::new(txt(
-                    &send_error(&CoreError::WrongPassword),
-                    12.0,
-                    Weight::Regular,
-                    p.danger,
-                ))
-                .wrap(),
-            );
+            ui.add(crate::components::para(
+                &send_error(&CoreError::WrongPassword),
+                12.0,
+                Weight::Regular,
+                p.danger,
+            ));
         }
     });
 }

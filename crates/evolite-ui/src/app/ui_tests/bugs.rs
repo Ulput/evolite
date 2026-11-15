@@ -1160,6 +1160,66 @@ fn the_search_count_in_arabic_is_drawn_right_to_left() {
     }
 }
 
+/// BUG-119, the step on «Send» (review r1 step 4): its paragraphs in Arabic are broken in
+/// reading order too — the first words in the top row, the last word in the bottom one: the
+/// side panel's note under the form (`para`), and the look-alike warning in «Check the
+/// payment», whose sentence holds an address in mono (`lines_measured` on its own job).
+#[test]
+fn send_paragraphs_in_arabic_read_down_from_their_first_row() {
+    let cases = [
+        (
+            "send",
+            (1600.0, 1200.0),
+            "A payment cannot be undone. Before signing, evolite shows the recipient's address once more.",
+        ),
+        (
+            "send-lookalike",
+            (853.0, 1000.0),
+            "Careful: this address only looks like {} that you paid or saved before — the middle is different. Compare it character by character.",
+        ),
+    ];
+    for (preset, (w, h), key) in cases {
+        let (_turn, mut kit) = demo_app(preset, "ar");
+        // Where each paragraph needs more than one row: the summary card beside the form is
+        // narrow in a wide window; the dialog's warning is long in the smallest one.
+        kit.set_size(egui::vec2(w, h));
+        kit.run_steps(6);
+        let said = crate::i18n::t_in(crate::i18n::Lang::Ar, key).into_owned();
+        assert!(
+            said.chars().any(crate::i18n::is_rtl_char),
+            "{preset}: translated {said}"
+        );
+        let words: Vec<&str> = said.split(' ').filter(|w| !w.contains("{}")).collect();
+        // Punctuation at a word's end goes to its other side in visual order: words without it.
+        fn bare(w: &str) -> &str {
+            w.trim_matches(|c: char| ".:،".contains(c))
+        }
+        let (first, last) = (bare(words[0]), bare(words[words.len() - 1]));
+        let galley = painted_galleys(&kit)
+            .into_iter()
+            .find(|g| g.text().contains(first) && g.text().contains(last))
+            .unwrap_or_else(|| panic!("{preset}: the paragraph"));
+        let rows: Vec<&str> = galley.text().split('\n').collect();
+        assert!(
+            rows.len() > 1,
+            "{preset}: broken into lines before egui: {rows:?}"
+        );
+        assert_eq!(
+            galley.rows.len(),
+            rows.len(),
+            "{preset}: egui broke no line again"
+        );
+        assert!(
+            rows[0].contains(first),
+            "{preset}: «{first}» in the top row: {rows:?}"
+        );
+        assert!(
+            rows[rows.len() - 1].contains(last),
+            "{preset}: «{last}» in the bottom row: {rows:?}"
+        );
+    }
+}
+
 /// A painted line's letters as the screen shows them, left to right by `x`: what
 /// [`ink_left_to_right`] reads of a laid-out text, here of what the frame drew.
 fn ink_of(galley: &egui::Galley) -> String {
@@ -1255,4 +1315,39 @@ fn names_of_pieces_in_arabic_are_in_reading_order() {
         "About: no row named «{read}»"
     );
     assert!(kit.query_by_role_and_label(Role::Button, &turned).is_none());
+}
+
+/// BUG-174: in Arabic the warning under «Wrong password» reads from its first phrase: the
+/// attempts left start the top row at its right (the row's text in visual order ends with the
+/// word read first), and «Check the keyboard layout and Caps Lock.» comes after them, its end
+/// in the bottom row. Each phrase turned first and then joined drew the second phrase first.
+#[test]
+fn the_unlock_warning_in_arabic_reads_from_its_first_phrase() {
+    use crate::i18n::{Lang, t_in};
+    let (_turn, mut kit) = demo_app("unlock-warn", "ar");
+    settle(&mut kit);
+    let line = crate::screens::pause::warning(4).expect("the warning after 4 wrong passwords");
+    let check = t_in(Lang::Ar, "Check the keyboard layout and Caps Lock.").into_owned();
+    assert!(
+        line.ends_with(&check),
+        "translated, in reading order: {line}"
+    );
+    let first_word = line.split(' ').next().unwrap().to_owned();
+    assert!(first_word.chars().any(crate::i18n::is_rtl_char), "{line}");
+    let galley = painted_galleys(&kit)
+        .into_iter()
+        .find(|g| g.text().contains("Caps"))
+        .expect("the warning");
+    let rows: Vec<&str> = galley.text().split('\n').collect();
+    // Rows broken before egui, as BUG-119's paragraphs: egui's own wrap puts no `\n` in the text.
+    assert!(rows.len() > 1, "broken into lines before egui: {rows:?}");
+    assert_eq!(galley.rows.len(), rows.len(), "egui broke no line again");
+    assert!(
+        rows[0].trim_end().ends_with(&first_word),
+        "«{first_word}» read first, at the top row's right: {rows:?}"
+    );
+    assert!(
+        rows[rows.len() - 1].contains("Caps Lock"),
+        "the second phrase's end last: {rows:?}"
+    );
 }

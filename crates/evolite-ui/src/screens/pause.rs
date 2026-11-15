@@ -82,7 +82,11 @@ fn try_again(secs: u64) -> String {
 }
 
 /// After the 3rd and 4th wrong password in a row: how many are left before the pause, and the
-/// usual cause of a wrong one — translated, for a label as it is.
+/// usual cause of a wrong one — translated, in reading order, for [`warning_line`].
+///
+/// The two phrases are joined as translated and put in visual order once, as one line: each
+/// in visual order first, then joined left to right, read the second phrase first in Arabic
+/// (BUG-174).
 pub fn warning(wrong_tries: u32) -> Option<String> {
     if !(FREE_TRIES - 1..=FREE_TRIES).contains(&wrong_tries) {
         return None;
@@ -90,10 +94,11 @@ pub fn warning(wrong_tries: u32) -> Option<String> {
     let n = FREE_TRIES + 1 - wrong_tries;
     #[rustfmt::skip]
     let s = plural(n, tr!("attempt left before a pause."), tr!("attempts left before a pause."));
+    let lang = i18n::current();
     Some(format!(
         "{} {}",
-        i18n::t(&s),
-        i18n::t(tr!("Check the keyboard layout and Caps Lock."))
+        i18n::t_in(lang, &s),
+        i18n::t_in(lang, tr!("Check the keyboard layout and Caps Lock."))
     ))
 }
 
@@ -224,16 +229,15 @@ pub fn after_line(ui: &mut Ui, a: &mut Assets, text: &str) {
     });
 }
 
-/// The grey warning line under "Wrong password" (AC-D1), already translated.
+/// The grey warning line under "Wrong password" (AC-D1): [`warning`]'s, translated and in
+/// reading order. `para` puts it in visual order once, wrapped in reading order (BUG-119, 174).
 pub fn warning_line(ui: &mut Ui, a: &Assets, text: &str) {
-    ui.add(
-        egui::Label::new(
-            egui::RichText::new(text)
-                .font(sans(12.0, Weight::Regular))
-                .color(a.p.muted),
-        )
-        .wrap(),
-    );
+    ui.add(crate::components::para(
+        text,
+        12.0,
+        Weight::Regular,
+        a.p.muted,
+    ));
 }
 
 /// While a pause lasts the countdown changes once a second: one frame at the next second, no

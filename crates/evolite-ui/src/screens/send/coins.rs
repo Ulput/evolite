@@ -283,7 +283,12 @@ pub(super) fn coins_row(
     };
     if let Some(note) = note {
         ui.add_space(-12.0);
-        ui.add(egui::Label::new(txt(note, 12.0, Weight::Regular, p.muted)).wrap());
+        ui.add(crate::components::para(
+            note,
+            12.0,
+            Weight::Regular,
+            p.muted,
+        ));
     }
 }
 
@@ -394,13 +399,12 @@ pub(super) fn coins_dialog(ui: &mut Ui, a: &mut Assets, form: &mut SendForm, v: 
             let mut reason = Foot::Fine;
             if !pick.manual {
                 ui.add(
-                    egui::Label::new(txt(
+                    crate::components::para(
                         tr!("The wallet picks the coins itself: largest first, as many as the amount and the fee need. This is usually cheaper."),
                         13.0,
                         Weight::Regular,
                         p.muted,
-                    ))
-                    .wrap(),
+                    ),
                 );
             } else {
                 reason = manual_part(ui, a, pick, amount, &fees);
@@ -886,7 +890,7 @@ pub(super) fn spent_banner(ui: &mut Ui, a: &mut Assets, coin: &str) {
                 ui.spacing_mut().item_spacing.x = 10.0;
                 ui.add(a.icons.icon("warning", p.accent, &p, 18.0));
                 ui.add(
-                    egui::Label::new(txt(
+                    crate::components::para(
                         &format!(
                             tr!(
                                 "The coin {} is already spent, perhaps by a payment from another device. Untick it and check the selection before you go on."
@@ -896,8 +900,7 @@ pub(super) fn spent_banner(ui: &mut Ui, a: &mut Assets, coin: &str) {
                         13.0,
                         Weight::Regular,
                         p.text,
-                    ))
-                    .wrap(),
+                    ),
                 );
             });
         });
