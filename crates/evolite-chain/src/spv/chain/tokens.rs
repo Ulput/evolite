@@ -185,6 +185,12 @@ pub struct Facts {
     pub balances: std::collections::HashMap<String, u64>,
     pub paused: std::collections::HashMap<String, bool>,
     pub frozen: std::collections::HashMap<String, bool>,
+    /// What this identity may claim of each token (FEAT-0019 T-2.1, T-2.2); a token with nothing
+    /// to claim has no entry.
+    pub claims: std::collections::HashMap<String, super::token_actions::Claimable>,
+    /// Each token's price and what may still be made of it (T-2.4); read at `read_ms`.
+    pub offers: std::collections::HashMap<String, super::token_actions::Offer>,
+    pub read_ms: u64,
 }
 
 /// Token ids in one request (Platform's limit).

@@ -165,6 +165,8 @@ pub struct Paths {
     pub platform_sync: PathBuf,
     /// What Platform proved about the wallet's asset locks (FEAT-0016).
     pub lock_status: PathBuf,
+    /// How far the tokens' history was read, and their last proved balances (FEAT-0019 T-1).
+    pub token_history: PathBuf,
     /// Where each funding of the Platform address was signed to go (BUG-171).
     pub fund_intents: PathBuf,
     /// Addresses of contacts' keys already paid ([`contact_addresses::ContactAddresses`]).
@@ -218,6 +220,7 @@ impl Paths {
             journal: wallets.join("platform-history.json"),
             platform_sync: wallets.join("platform-sync.json"),
             lock_status: wallets.join("lock-status.json"),
+            token_history: wallets.join("token-history.json"),
             fund_intents: wallets.join("fund-intents.json"),
             contact_addresses: wallets.join("contact-addresses.json"),
             hidden_requests: wallets.join("hidden-requests.json"),

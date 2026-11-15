@@ -456,6 +456,8 @@ pub fn resync_on_start(paths: &Paths) -> std::io::Result<bool> {
     }
     // Platform is read back from the start; what the journal holds stays (BUG-58).
     gone(std::fs::remove_file(&paths.platform_sync))?;
+    // The tokens' history too (FEAT-0019 T-1): its documents keep their keys, nothing doubles.
+    gone(std::fs::remove_file(&paths.token_history))?;
     // The DashPay backfill record vouches for a scan that is gone with the store (BUG-77); the
     // spent-coin claims are read from the store itself and go with it.
     gone(std::fs::remove_file(store::backfill_file(

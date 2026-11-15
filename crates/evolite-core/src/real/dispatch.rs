@@ -69,6 +69,21 @@ impl Real {
                 Event::Progress { .. } => return (None, true),
                 refused => refused,
             },
+            Spend::ClaimToken {
+                token_id,
+                scheduled,
+            } => match self.claim_token(token_id, scheduled) {
+                Event::Progress { .. } => return (None, true),
+                refused => refused,
+            },
+            Spend::BuyToken {
+                token_id,
+                count,
+                agreed,
+            } => match self.buy_token(token_id, count, agreed) {
+                Event::Progress { .. } => return (None, true),
+                refused => refused,
+            },
             Spend::GiftNft { .. } => Event::Done {
                 what: DoneWhat::Gift,
                 result: Err(CoreError::NotAvailable(NO_GIFTS.into())),
@@ -408,6 +423,15 @@ impl Real {
             Command::SearchTokens { keyword } => return self.search_tokens(keyword),
             Command::TrackToken { token_id, on } => return self.track_token(token_id, on),
             Command::FindMyTokens => return self.find_my_tokens(true),
+            Command::ReadTokenHistory { token, earlier } => {
+                self.read_token_history(token, earlier);
+                return (None, false);
+            }
+            // R-22: the facts, prices among them, are read with the next snapshot.
+            Command::ReadTokenPrices => {
+                ops::tokens::make_due(&self.tokens.facts_handle());
+                return (None, true);
+            }
         };
         (Some(event), true)
     }

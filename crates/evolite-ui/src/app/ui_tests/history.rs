@@ -991,6 +991,86 @@ fn hidden_amounts_hide_a_token_sent() {
     );
 }
 
+/// History on the «Tokens» layer, the demo's lines settled.
+fn tokens_layer(kit: &mut Kit) {
+    // Tall enough for every line of the demo's tokens, «Show earlier» and the note under them.
+    kit.set_size(egui::vec2(1280.0, 1600.0));
+    kit.state_mut().history.filters.layer = crate::screens::activity_filters::TOKENS_LAYER;
+    // The layer's own frames: «Received …» shows on «All» as well.
+    kit.run_steps(3);
+    wait_for(kit, "the tokens' lines", |kit| {
+        has_words(kit, "Received 120.00 Evo Coffee from")
+    });
+}
+
+/// FEAT-0019 T-1.7 (R-17, the designer's H1): «Tokens» shows the tokens' lines only — a token
+/// received with its amount on the right and no fee line, a token's balance changes with the
+/// «from network data» chip and when it was read, the own send — then «Show earlier» and why
+/// some tokens show no sender.
+#[test]
+fn the_tokens_layer_shows_the_tokens_lines() {
+    let (_turn, mut kit) = demo_app("activity", "en");
+    tokens_layer(&mut kit);
+    assert!(
+        has_words(&kit, "+120.00 Evo\u{a0}Coffee"),
+        "the amount on the right"
+    );
+    assert!(has_words(&kit, "evoliteQA balance went up by 40.00"));
+    assert!(has_words(&kit, "evoliteQA balance went down by 5.00"));
+    assert!(has_words(&kit, "from network data"), "the neutral chip");
+    assert!(has_words(&kit, "as of "), "when the balance was read");
+    assert!(has_words(&kit, "Token transfer to @alice"), "the own send");
+    assert!(!has_words(&kit, "Signed in to Yappr"), "no other line");
+    assert!(has_words(&kit, "Show earlier"));
+    assert!(has_words(&kit, "There are no tokens in the CSV"));
+}
+
+/// T-1.7, AC-A13: «Hide amounts» hides the tokens' amounts too.
+#[test]
+fn hidden_amounts_hide_the_tokens_received() {
+    let (_turn, mut kit) = demo_app("activity", "en");
+    tokens_layer(&mut kit);
+    kit.state_mut().settings.flip_hide_amounts();
+    kit.run_steps(3);
+    assert!(!has_words(&kit, "+120.00"), "the amount hidden");
+}
+
+/// The designer's H1: «Token: …» shows one token's lines.
+#[test]
+fn a_token_chosen_shows_only_its_lines() {
+    let (_turn, mut kit) = demo_app("activity", "en");
+    tokens_layer(&mut kit);
+    kit.state_mut().history.token = Some(("QA".into(), "evoliteQA".into()));
+    kit.run_steps(3);
+    assert!(has_words(&kit, "evoliteQA balance went up by 40.00"));
+    assert!(
+        !has_words(&kit, "Received 120.00 Evo Coffee"),
+        "another token's line"
+    );
+}
+
+/// FEAT-0019 T-1, AC-A13: «Token: all» and «Show earlier» are Tab stops with their names; Enter on
+/// «Token: all» opens its list, and Escape closes it.
+#[test]
+fn the_tokens_layer_works_from_the_keyboard() {
+    let (_turn, mut kit) = demo_app("activity-tokens", "en");
+    kit.set_size(egui::vec2(1280.0, 1600.0));
+    wait_for(&mut kit, "the tokens' lines", |kit| {
+        has_words(kit, "Received 120.00 Evo Coffee from")
+    });
+    tab_to(&mut kit, "Token: all");
+    assert_eq!(focused(&kit).as_deref(), Some("Token: all"));
+    kit.key_press(egui::Key::Enter);
+    kit.run_steps(2);
+    assert!(kit.state().history.token_menu, "Enter opens the list");
+    assert!(has_words(&kit, "Evo Coffee"), "the tokens in it");
+    kit.key_press(egui::Key::Escape);
+    kit.run_steps(2);
+    assert!(!kit.state().history.token_menu, "Escape closes it");
+    tab_to(&mut kit, "Show earlier");
+    assert_eq!(focused(&kit).as_deref(), Some("Show earlier"));
+}
+
 /// BUG-176 AC-T2: a profile saved on another device — its line found on the network, what it cost
 /// not known — reads «—» and «fee: no record», and its card «Fee: no record»; it is left out of
 /// the CSV.

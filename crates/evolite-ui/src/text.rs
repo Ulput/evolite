@@ -362,7 +362,36 @@ pub fn row_place(act: &Activity) -> String {
             };
             format!(tr!("fee {}"), fee)
         }
+        // FEAT-0019 T-1 (R-17): a token received costs nothing — no second line but where.
+        ActivityKind::TokenReceived { .. } => tr!("Tokens").into(),
+        // UC-5в (the designer's H1): when it grew, why the sender is not known. The time is
+        // [`row_time`]'s, before it ([`row_detail`]). A piece of its own: a line is translated
+        // piece by piece between its « · ».
+        ActivityKind::TokenBalance { up: true, .. } => {
+            tr!("the token keeps no transfer history").into()
+        }
+        ActivityKind::TokenBalance { .. } => String::new(),
+        // FEAT-0019 T-2 (R-17): a claim's fee, as a send's; a purchase's cost with its fee, in
+        // credits.
+        ActivityKind::TokenClaimed { .. } => {
+            format!(tr!("fee {}"), hidden_or(crate::format::amount(-act.amount)))
+        }
+        ActivityKind::TokenBought { .. } => {
+            format!(
+                tr!("{} in credits"),
+                hidden_or(crate::format::amount(-act.amount))
+            )
+        }
         _ => source(act).into(),
+    }
+}
+
+/// `text` masked when amounts are hidden (AC-A7).
+fn hidden_or(text: String) -> String {
+    if crate::format::display().hide {
+        crate::format::mask(&text)
+    } else {
+        text
     }
 }
 
@@ -380,6 +409,31 @@ pub fn row_amount(act: &Activity) -> String {
             crate::screens::tokens::state::plain_written(amount),
             token.replace(' ', "\u{a0}")
         ),
+        // FEAT-0019 T-1: what came, and a balance's change, in the token, signed.
+        ActivityKind::TokenReceived { token, amount, .. }
+        | ActivityKind::TokenBalance {
+            token,
+            amount,
+            up: true,
+        } => format!(
+            "+{} {}",
+            crate::screens::tokens::state::plain_written(amount),
+            token.replace(' ', "\u{a0}")
+        ),
+        ActivityKind::TokenBalance { token, amount, .. } => format!(
+            "−{} {}",
+            crate::screens::tokens::state::plain_written(amount),
+            token.replace(' ', "\u{a0}")
+        ),
+        // FEAT-0019 T-2: what a claim or a purchase brought, in the token.
+        ActivityKind::TokenClaimed { token, amount }
+        | ActivityKind::TokenBought { token, amount } => {
+            format!(
+                "+{} {}",
+                crate::screens::tokens::state::plain_written(amount),
+                token.replace(' ', "\u{a0}")
+            )
+        }
         _ => crate::format::signed_amount(act.amount),
     }
 }
@@ -389,7 +443,20 @@ pub fn row_time(act: &Activity, now: DateTime<Local>) -> String {
     let time = time_of_day(act.at, now);
     match act.kind {
         ActivityKind::AppSpent { .. } => format!(tr!("as read at {}"), time),
+        // FEAT-0019 T-1: a balance change is as of its read.
+        ActivityKind::TokenBalance { .. } => format!(tr!("as of {}"), time),
         _ => time,
+    }
+}
+
+/// A line's second line in History: [`row_place`] · [`row_time`]; a token's balance change says
+/// when it was read first, then why the sender is unknown (the designer's H1).
+pub fn row_detail(act: &Activity, now: DateTime<Local>) -> String {
+    let (place, time) = (row_place(act), row_time(act, now));
+    match act.kind {
+        ActivityKind::TokenBalance { .. } if place.is_empty() => time,
+        ActivityKind::TokenBalance { .. } => format!("{time} · {place}"),
+        _ => format!("{place} · {time}"),
     }
 }
 
@@ -493,7 +560,43 @@ pub fn activity_title(a: &Activity) -> String {
         ActivityKind::TokenSent { to, .. } => {
             format!(tr!("Token transfer to {}"), short_address(to))
         }
+        // FEAT-0019 T-1 (the analyst's strings).
+        ActivityKind::TokenReceived {
+            token,
+            amount,
+            from,
+        } => format!(
+            tr!("Received {amount} {token} from {from}"),
+            amount = crate::screens::tokens::state::plain_written(amount),
+            token = token,
+            from = short_address(from)
+        ),
+        ActivityKind::TokenBalance {
+            token,
+            amount,
+            up: true,
+        } => format!(
+            tr!("{token} balance went up by {amount}"),
+            token = token,
+            amount = crate::screens::tokens::state::plain_written(amount)
+        ),
+        ActivityKind::TokenBalance { token, amount, .. } => format!(
+            tr!("{token} balance went down by {amount}"),
+            token = token,
+            amount = crate::screens::tokens::state::plain_written(amount)
+        ),
         ActivityKind::AppSpent { app } => format!(tr!("{app} spent from its limit"), app = app),
+        // FEAT-0019 T-2 (the analyst's strings).
+        ActivityKind::TokenClaimed { token, amount } => format!(
+            tr!("Received {amount} {token}: distribution"),
+            amount = crate::screens::tokens::state::plain_written(amount),
+            token = token
+        ),
+        ActivityKind::TokenBought { token, amount } => format!(
+            tr!("Bought {amount} {token}"),
+            amount = crate::screens::tokens::state::plain_written(amount),
+            token = token
+        ),
         ActivityKind::CreditTransfer { to } => {
             format!(tr!("Credit transfer to {}"), short_address(to))
         }
@@ -699,7 +802,12 @@ pub fn activity_icon(a: &Activity) -> &'static str {
         ActivityKind::AppRenewed { .. }
         | ActivityKind::AppDisconnected { .. }
         | ActivityKind::AppSpent { .. } => "app-connect",
-        ActivityKind::TokenSent { .. } => "token",
+        ActivityKind::TokenSent { .. }
+        | ActivityKind::TokenReceived { .. }
+        | ActivityKind::TokenClaimed { .. }
+        | ActivityKind::TokenBought { .. } => "token",
+        // The designer's H1: a change between reads is history, not a token's move.
+        ActivityKind::TokenBalance { .. } => "activity",
         ActivityKind::CreditTransfer { .. } => "transfer",
         ActivityKind::Shielded { .. } => "shield",
         ActivityKind::Withdrawal { .. } => "send",
@@ -843,6 +951,7 @@ pub fn error_text(e: &CoreError) -> String {
             evolite_api::Network::Mainnet => tr!("this is not a Dash mainnet address").into(),
         },
         CoreError::NotEnough => tr!("not enough funds for the amount and the fee").into(),
+        CoreError::TokenPriceGrew => tr!("the price changed: nothing was taken").into(),
         // BUG-175, the analyst's words: no promise that evolite read them again.
         CoreError::KeysChanged => {
             tr!("this identity's keys were changed in another app or on another device — try again")

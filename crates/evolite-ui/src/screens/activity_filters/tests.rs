@@ -324,7 +324,7 @@ fn each_layer_pill_keeps_what_moves_any_of_its_balances() {
             Flow::Between,
         ),
     ];
-    assert_eq!(LAYERS.len(), 6, "a pill added: give it its lines here");
+    assert_eq!(LAYERS.len(), 7, "a pill added: give it its lines here");
     for (pill, lines) in [
         (0, vec![0, 1, 2, 3, 4, 5, 6, 7, 8]),
         (1, vec![0, 3, 4, 8]),
@@ -332,6 +332,8 @@ fn each_layer_pill_keeps_what_moves_any_of_its_balances() {
         (3, vec![1, 2, 3, 4, 5]),
         (4, vec![5, 6]),
         (5, vec![1, 3, 5]),
+        // FEAT-0019 T-1: «Tokens» keeps only the lines of tokens; none here.
+        (6, vec![]),
     ] {
         let f = Filters {
             layer: pill,

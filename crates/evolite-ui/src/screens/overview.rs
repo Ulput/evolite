@@ -504,6 +504,8 @@ fn latest_operations(
                     alert: text::activity_alert(act),
                     quiet: text::credits_quiet(act),
                     core_chip: text::core_chip(act),
+                    neutral: matches!(act.kind, evolite_api::ActivityKind::TokenBalance { .. })
+                        .then_some(tr!("from network data")),
                     note: act.note.as_deref(),
                     fiat: None,
                 },

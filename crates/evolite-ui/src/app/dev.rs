@@ -140,7 +140,7 @@ impl PausePreset {
 
 /// The `--screen` presets of the tokens screen that change the snapshot (design T1, T5, T4, T4b,
 /// T3, T7).
-const TOKEN_STATES: [&str; 12] = [
+const TOKEN_STATES: [&str; 13] = [
     "tokens-review",
     "tokens-send-credits",
     "tokens-first-search",
@@ -153,6 +153,7 @@ const TOKEN_STATES: [&str; 12] = [
     "tokens-refresh-failed",
     "tokens-empty",
     "tokens-mainnet",
+    "tokens-claim-unknown",
 ];
 
 /// What `--screen create-identity-short` / `create-identity-unchecked` do to Core.
@@ -555,6 +556,10 @@ impl App {
                 screens::activity_filters::kind::APPS | screens::activity_filters::kind::IDENTITY;
         }
         // FEAT-0030 H1: History on «Mixed».
+        // FEAT-0019 T-1: History on «Tokens» (the designer's H1).
+        if preset("activity-tokens") {
+            self.history.filters.layer = screens::activity_filters::TOKENS_LAYER;
+        }
         if preset("activity-mixed") {
             self.history.filters.layer = 2;
         }
@@ -1001,6 +1006,21 @@ impl App {
             }
             self.tokens.sending = Some(send);
         }
+        // `--screen tokens-claim*` / `tokens-buy*` (FEAT-0019 T-2): K1, K1u, P1 and P2 over Evo
+        // Coffee. P2: the purchase was refused for a price that grew from 0.0006 DASH.
+        if preset("tokens-claim") || preset("tokens-claim-unknown") {
+            self.tokens.claiming = Some(screens::tokens::ClaimState::new(DEMO_TOKEN));
+        }
+        if preset("tokens-buy") || preset("tokens-buy-changed") {
+            let mut buy = screens::tokens::BuyState::new(DEMO_TOKEN);
+            if !real_shot {
+                buy.count = "15".into();
+                if preset("tokens-buy-changed") {
+                    buy.was = Some(600_000);
+                }
+            }
+            self.tokens.buying = Some(buy);
+        }
         let add_preset = [
             ("tokens-add", ""),
             ("tokens-add-one", DEMO_TOKEN),
@@ -1236,6 +1256,15 @@ fn tokens_state(s: &mut evolite_api::Snapshot, name: &str) {
     let Some(w) = s.wallet.as_mut() else {
         return;
     };
+    // K1u (FEAT-0019 T-2): what a claim pays is not known before it.
+    if name == "tokens-claim-unknown" {
+        for row in &mut w.tokens.rows {
+            if let Some(p) = row.claims.as_mut().and_then(|c| c.perpetual.as_mut()) {
+                p.at_least = None;
+            }
+        }
+        return;
+    }
     // T6b: the wallet's password asked as for every spend with «Password for every send» on.
     if name == "tokens-review" {
         w.password_each_send = true;

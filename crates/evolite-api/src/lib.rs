@@ -49,6 +49,8 @@ pub mod layer {
     pub const POOL: u8 = 8;
     /// The CoinJoin account's coins, «Mixed» (FEAT-0030 AC-A7).
     pub const MIXED: u8 = 16;
+    /// A token's amounts (FEAT-0019 T-1): the lines of tokens, never counted in DASH.
+    pub const TOKENS: u8 = 32;
 }
 
 /// Which way an operation moved money, for the wallet as a whole (FEAT-0009 R-2).
@@ -144,6 +146,33 @@ pub enum ActivityKind {
     TokenSent {
         token: String,
         to: String,
+        amount: String,
+    },
+    /// A token received (FEAT-0019 T-1, UC-5б): its `transfer` document in TokenHistory, read with
+    /// a proof. `from`: the sender's id (or `@name` when known); `amount` in words, as in
+    /// `TokenSent`. No fee: nothing left this wallet.
+    TokenReceived {
+        token: String,
+        from: String,
+        amount: String,
+    },
+    /// A token's balance moved between two proved reads with no operation of this wallet
+    /// (UC-5в): the token keeps no transfer history, so who sent it is not known. `up`: it grew.
+    TokenBalance {
+        token: String,
+        amount: String,
+        up: bool,
+    },
+    /// A token's distribution claimed (FEAT-0019 T-2.3): the amount the proved `claim` document
+    /// says, in words. The line's fee is in credits.
+    TokenClaimed {
+        token: String,
+        amount: String,
+    },
+    /// A token bought from its issuer (T-2.5): the count in words. The line's amount is what it
+    /// cost in credits, with the fee.
+    TokenBought {
+        token: String,
         amount: String,
     },
     /// What an app spent from its keys' budgets, as Platform says (BUG-145): one line an app a
@@ -1898,6 +1927,16 @@ pub enum Command {
     /// "Find my tokens": go through the network's contracts again now (UC-1а). Only the
     /// snapshots answer ([`Wallet::tokens`]'s search).
     FindMyTokens,
+    /// History's «Tokens» opened, a token chosen there (`token`), or «Show earlier» (`earlier`)
+    /// (FEAT-0019 T-1): a page of the shown identity's tokens' transfers that keep a history,
+    /// older than what was read — the newest first. Only the snapshots answer.
+    ReadTokenHistory {
+        token: Option<String>,
+        earlier: bool,
+    },
+    /// «Buy» open on a price over a minute old (FEAT-0019 T-2, R-22): the shown identity's token
+    /// facts, prices among them, are read again now. Only the snapshots answer.
+    ReadTokenPrices,
 }
 
 /// Everything that spends: Core DASH, credits or the pool. Only through [`Command::Spend`], so
@@ -2003,6 +2042,19 @@ pub enum Spend {
     /// IdentityUpdate the identity pays for, so it passes the password gate (BUG-42); its
     /// response deleted. `Done { what: DoneWhat::Disconnect }`.
     DisconnectApp { id: String },
+    /// Claim the shown identity's distribution of `token_id` (FEAT-0019 T-2.3): the perpetual
+    /// one, or the pre-programmed payout due (`scheduled`). The fee is in its credits. Answered
+    /// with `Done { what: DoneWhat::ClaimToken }`; the balance is read again with a proof.
+    ClaimToken { token_id: String, scheduled: bool },
+    /// Buy `count` (smallest units) of `token_id` from its issuer for the shown identity, paying
+    /// at most `agreed` credits (the total shown, T-2.5). A dearer price is refused with nothing
+    /// taken ([`CoreError::TokenPriceGrew`], the new price read again); a cheaper one is what is
+    /// taken. `Done { what: DoneWhat::BuyToken }`.
+    BuyToken {
+        token_id: String,
+        count: tokens::TokenAmount,
+        agreed: u64,
+    },
 }
 
 impl Spend {
@@ -2028,6 +2080,8 @@ impl Spend {
             Spend::ApproveApp { .. } => DoneWhat::App,
             Spend::GiftNft { .. } => DoneWhat::Gift,
             Spend::SendToken { .. } => DoneWhat::SendToken,
+            Spend::ClaimToken { .. } => DoneWhat::ClaimToken,
+            Spend::BuyToken { .. } => DoneWhat::BuyToken,
             Spend::DisconnectApp { .. } => DoneWhat::Disconnect,
         }
     }
@@ -2062,6 +2116,9 @@ pub enum CoreError {
     BadAddress,
     /// The balance does not cover the amount and the fee.
     NotEnough,
+    /// The token's price grew before the purchase was written: nothing was taken, and the new
+    /// price is in the token's row (FEAT-0019 T-2.5, АРХ-10).
+    TokenPriceGrew,
     /// Platform refused the transition for a key or its signature: the identity's keys were
     /// changed elsewhere (BUG-175). The identity is read again; nothing is tried again by itself.
     KeysChanged,
@@ -2130,6 +2187,8 @@ pub enum DoneWhat {
     Resync,
     Send,
     SendToken,
+    ClaimToken,
+    BuyToken,
     Shield,
     Switch,
     Token,
@@ -2168,6 +2227,8 @@ impl DoneWhat {
             Self::Resync => "resync",
             Self::Send => "send",
             Self::SendToken => "send-token",
+            Self::ClaimToken => "claim-token",
+            Self::BuyToken => "buy-token",
             Self::Shield => "shield",
             Self::Switch => "switch",
             Self::Token => "token",

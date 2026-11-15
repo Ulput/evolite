@@ -4,7 +4,7 @@ use super::activity_filters::{self, Filters, History, Period, Status};
 use super::txt;
 use crate::components::{
     Assets, ButtonKind, TxRow, button, button_enabled, button_row, checkbox, notice, page_header,
-    pill, section_label, tx_row_clickable,
+    pill, section_label, text_action, tx_row_clickable,
 };
 use crate::context::Ctx;
 use crate::csv_export;
@@ -12,7 +12,7 @@ use crate::text::{self};
 use crate::theme::{Weight, mono, sans};
 use chrono::{DateTime, Local};
 use egui::{Align, Layout, Margin, Stroke, Ui};
-use evolite_api::{Activity, Flow};
+use evolite_api::{Activity, Command, Flow};
 
 // The operation's card lives apart (FEAT-0005); History and the app reach it from here.
 #[cfg(all(test, feature = "dev-tools"))]
@@ -86,9 +86,22 @@ pub fn activity(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, h: &mut History) {
         });
     });
     let total = wallet.activity.len();
-    let shown: Vec<usize> = h
+    let mut shown: Vec<usize> = h
         .shown(&wallet.activity, &wallet.address_book, &cx.now)
         .to_vec();
+    // FEAT-0019 T-1: «Tokens» opened asks for the newest page of the tokens' history, once; a
+    // token chosen in «Token: …» shows only its lines.
+    let on_tokens = h.filters.layer == activity_filters::TOKENS_LAYER;
+    if on_tokens && !h.tokens_open {
+        cx.send(Command::ReadTokenHistory {
+            token: h.token.as_ref().map(|(id, _)| id.clone()),
+            earlier: false,
+        });
+    }
+    h.tokens_open = on_tokens;
+    if let Some((_, name)) = h.token.as_ref().filter(|_| on_tokens) {
+        shown.retain(|i| token_of(&wallet.activity[*i]) == Some(name.as_str()));
+    }
     let export = run_export(ui, a, h, wallet, &shown, total, export);
     let saved: Option<Result<(std::path::PathBuf, usize), String>> =
         ui.data(|d| d.get_temp(saved_id));
@@ -109,6 +122,9 @@ pub fn activity(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, h: &mut History) {
     // The filters on, each with its cross, and how many lines they leave (UC-5).
     let chips = h.filters.chips();
     chips_row(ui, a, h, &chips, &shown, total);
+    if on_tokens {
+        token_picker(ui, a, cx, h);
+    }
     let mut list = egui::ScrollArea::vertical().auto_shrink(false);
     if banner_new {
         list = list.vertical_scroll_offset(0.0);
@@ -125,9 +141,172 @@ pub fn activity(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, h: &mut History) {
         for act in shown.iter().map(|i| &wallet.activity[*i]) {
             operation_row(ui, a, cx, act, &mut day);
         }
+        // FEAT-0019 T-1: older pages of the tokens' history, and what History cannot know.
+        if on_tokens {
+            ui.add_space(12.0);
+            if text_action(ui, a, "activity", tr!("Show earlier")).clicked() {
+                cx.send(Command::ReadTokenHistory {
+                    token: h.token.as_ref().map(|(id, _)| id.clone()),
+                    earlier: true,
+                });
+            }
+            ui.add_space(8.0);
+            notice(
+                ui,
+                a,
+                "info",
+                a.p.muted,
+                tr!("For tokens without a transfer history evolite sees only a change of balance — where it came from is unknown. There are no tokens in the CSV: the export is DASH only."),
+            );
+        }
     });
     crate::diagnostics::screen_offset(out.state.offset.y);
     card_window(ui, a, cx);
+}
+
+/// The token a line of tokens is about, as History names it (FEAT-0019 T-1).
+fn token_of(act: &Activity) -> Option<&str> {
+    match &act.kind {
+        evolite_api::ActivityKind::TokenSent { token, .. }
+        | evolite_api::ActivityKind::TokenReceived { token, .. }
+        | evolite_api::ActivityKind::TokenBalance { token, .. } => Some(token),
+        _ => None,
+    }
+}
+
+/// «Token: all ▾» under «Tokens» (the designer's H1): one of the tracked tokens, or all. A token
+/// chosen asks for its history, as the layer did.
+fn token_picker(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, h: &mut History) {
+    use egui::{Align2, CornerRadius, Rect, Sense, pos2, vec2};
+    let p = a.p;
+    let names: Vec<(String, String)> = cx
+        .wallet()
+        .tokens
+        .rows
+        .iter()
+        .map(|r| {
+            let name = evolite_api::tokens::name_in(&r.info, "en");
+            let name = if name.is_empty() {
+                r.info.token_id.chars().take(8).collect()
+            } else {
+                name.to_owned()
+            };
+            (r.info.token_id.clone(), name)
+        })
+        .collect();
+    // The designer's H1: a small raised button, «Token: all» and a chevron.
+    let shown = match &h.token {
+        Some((_, name)) => format!("{}: {name}", crate::i18n::t(tr!("Token"))),
+        None => crate::i18n::t(tr!("Token: all")).into_owned(),
+    };
+    let font = sans(13.0, Weight::Medium);
+    let width = 12.0 + crate::components::text_width(ui, &shown, font.clone()) + 6.0 + 14.0 + 10.0;
+    let (rect, resp) = ui.allocate_exact_size(vec2(width, 30.0), Sense::click());
+    crate::components::named(&resp, egui::WidgetType::ComboBox, true, &shown);
+    let fill = if resp.hovered() || h.token_menu {
+        p.line
+    } else {
+        p.raised
+    };
+    ui.painter().rect_filled(rect, CornerRadius::same(8), fill);
+    crate::components::paint_text(
+        ui,
+        pos2(rect.left() + 12.0, rect.center().y),
+        Align2::LEFT_CENTER,
+        &shown,
+        font,
+        p.text,
+    );
+    a.icons.icon("chevron-down", p.muted, &p, 14.0).paint_at(
+        ui,
+        Rect::from_center_size(pos2(rect.right() - 17.0, rect.center().y), vec2(14.0, 14.0)),
+    );
+    if resp
+        .on_hover_cursor(egui::CursorIcon::PointingHand)
+        .clicked()
+    {
+        h.token_menu = !h.token_menu;
+    }
+    if !h.token_menu {
+        return;
+    }
+    // The list under it, as the wallet menu: «All» and each tracked token, the chosen one ticked.
+    let before = h.token.clone();
+    let mut close = ui.input(|i| i.key_pressed(egui::Key::Escape));
+    let area = egui::Area::new(egui::Id::new("history-token-menu"))
+        .order(egui::Order::Foreground)
+        .fixed_pos(pos2(rect.left(), rect.bottom() + 6.0))
+        .show(ui.ctx(), |ui| {
+            egui::Frame::new()
+                .fill(p.surface)
+                .stroke(Stroke::new(1.0, p.line))
+                .corner_radius(CornerRadius::same(12))
+                .inner_margin(Margin::same(6))
+                .show(ui, |ui| {
+                    ui.spacing_mut().item_spacing.y = 2.0;
+                    let all = crate::i18n::t(tr!("All")).into_owned();
+                    let choices = std::iter::once((None, all))
+                        .chain(names.into_iter().map(|(id, name)| (Some(id.clone()), name)));
+                    for (id, name) in choices {
+                        let on = h.token.as_ref().map(|(i, _)| i) == id.as_ref();
+                        let (row, resp) = ui.allocate_exact_size(vec2(220.0, 34.0), Sense::click());
+                        crate::components::named_choice(
+                            &resp,
+                            egui::WidgetType::SelectableLabel,
+                            on,
+                            &name,
+                        );
+                        if on || resp.hovered() {
+                            ui.painter()
+                                .rect_filled(row, CornerRadius::same(8), p.raised);
+                        }
+                        crate::components::paint_text(
+                            ui,
+                            pos2(row.left() + 10.0, row.center().y),
+                            Align2::LEFT_CENTER,
+                            &name,
+                            sans(13.0, Weight::Regular),
+                            p.text,
+                        );
+                        if on {
+                            a.icons.icon("check", p.accent, &p, 16.0).paint_at(
+                                ui,
+                                Rect::from_center_size(
+                                    pos2(row.right() - 16.0, row.center().y),
+                                    vec2(16.0, 16.0),
+                                ),
+                            );
+                        }
+                        if resp
+                            .on_hover_cursor(egui::CursorIcon::PointingHand)
+                            .clicked()
+                        {
+                            h.token = id.map(|i| (i, name.clone()));
+                            close = true;
+                        }
+                    }
+                });
+        });
+    // A click anywhere else closes it.
+    let elsewhere =
+        ui.input(|i| i.pointer.any_click()) && !area.response.hovered() && !resp_hovered(ui, rect);
+    if close || elsewhere {
+        h.token_menu = false;
+    }
+    if h.token != before
+        && let Some((id, _)) = &h.token
+    {
+        cx.send(Command::ReadTokenHistory {
+            token: Some(id.clone()),
+            earlier: false,
+        });
+    }
+}
+
+/// Whether the pointer is over `rect` now.
+fn resp_hovered(ui: &Ui, rect: egui::Rect) -> bool {
+    ui.input(|i| i.pointer.hover_pos())
+        .is_some_and(|p| rect.contains(p))
 }
 
 /// «Export CSV»: asks which lines when filters are on, and writes the file. Whether a file was
@@ -271,13 +450,19 @@ fn filter_row(
         .map(|l| crate::components::pill_width(ui, l))
         .sum::<f32>()
         + gap * (LAYER_PILLS.len() - 1) as f32;
-    // At 1024 with the rail the search narrows; «Filters» stays (the designer's rule).
-    let search_width = if ui.available_width() - pills_w - gap < 560.0 {
+    // At 1024 with the rail the search narrows; «Filters» stays (the designer's rule). With the
+    // seventh pill, «Tokens» (FEAT-0019 T-1), it narrows once more before the row would break.
+    let filters_w = filters_width(ui, h.filters.chips().len());
+    let fits =
+        |search: f32| pills_w + gap + search + 28.0 + gap + filters_w <= ui.available_width();
+    let search_width = if ui.available_width() - pills_w - gap >= 560.0 {
+        272.0
+    } else if fits(200.0) || !fits(150.0) {
         200.0
     } else {
-        272.0
+        150.0
     };
-    let right_w = search_width + 28.0 + gap + filters_width(ui, h.filters.chips().len());
+    let right_w = search_width + 28.0 + gap + filters_w;
     // In a narrow window the pills take a row of their own over the search and «Filters», not
     // running under them (FEAT-0034 item 9).
     if pills_w + gap + right_w > ui.available_width() {
@@ -298,7 +483,7 @@ fn filter_row(
 }
 
 /// The filter row's layer pills, by [`activity_filters::LAYERS`]' order.
-const LAYER_PILLS: [&str; 6] = [
+const LAYER_PILLS: [&str; 7] = [
     tr!("All"),
     "Core",
     // FEAT-0030 A3: mixing and payments from mixed coins.
@@ -306,6 +491,8 @@ const LAYER_PILLS: [&str; 6] = [
     "Platform",
     tr!("Private pool"),
     "Identity",
+    // FEAT-0019 T-1.
+    tr!("Tokens"),
 ];
 
 /// The height of the filter row: the search's, so the pills and «Filters» (34) are centred on
@@ -482,7 +669,7 @@ fn operation_row(ui: &mut Ui, a: &mut Assets, cx: &Ctx, act: &Activity, day: &mu
         });
         ui.add_space(4.0);
     }
-    let mut detail = format!("{} · {}", text::row_place(act), text::row_time(act, cx.now));
+    let mut detail = text::row_detail(act, cx.now);
     // How a withdrawal or a request to us stands, and which identity of ours it
     // came to (BUG-58).
     for part in [
@@ -508,6 +695,8 @@ fn operation_row(ui: &mut Ui, a: &mut Assets, cx: &Ctx, act: &Activity, day: &mu
             alert: text::activity_alert(act),
             quiet: text::credits_quiet(act),
             core_chip: text::core_chip(act),
+            neutral: matches!(act.kind, evolite_api::ActivityKind::TokenBalance { .. })
+                .then_some(tr!("from network data")),
             note: act.note.as_deref(),
             fiat: crate::fiat_lines::row(act).as_deref(),
         },

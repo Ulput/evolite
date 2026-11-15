@@ -5,6 +5,7 @@
 //! item is there and only explains (R-9, T7). Amounts are the token's own, never DASH (R-4);
 //! names are the issuer's words, so the short id and the issuer stand beside them (R-8).
 
+pub mod actions;
 mod dialogs;
 pub mod state;
 
@@ -22,6 +23,7 @@ use evolite_api::tokens::{
 };
 use evolite_api::{Command, CoreError, KeyKind, KeyLevel, KeyPurpose, ResolvedName, Wallet};
 
+pub use actions::{BuyState, ClaimState};
 pub use dialogs::{AddState, SendState};
 
 /// The widest a paragraph under a centred heading goes (T3, T7).
@@ -34,6 +36,11 @@ pub struct TokensState {
     pub sending: Option<SendState>,
     /// «Add a token».
     pub adding: Option<AddState>,
+    /// «Claim» of a row (FEAT-0019 T-2).
+    pub claiming: Option<ClaimState>,
+    /// «Buy» of a row (T-2), and the price per unit it agreed to, for P2.
+    pub buying: Option<BuyState>,
+    agreed: Option<u64>,
     /// The first search was asked for when the screen first opened (design §3).
     asked_first: bool,
 }
@@ -60,6 +67,21 @@ impl TokensState {
         }
     }
 
+    /// `Done { what: ClaimToken }`.
+    pub fn on_claimed(&mut self, result: &Result<(), CoreError>) {
+        if let Some(claim) = &mut self.claiming {
+            claim.on_answer(result);
+        }
+    }
+
+    /// `Done { what: BuyToken }`.
+    pub fn on_bought(&mut self, result: &Result<(), CoreError>) {
+        let agreed = self.agreed;
+        if let Some(buy) = &mut self.buying {
+            buy.on_answer(result, agreed);
+        }
+    }
+
     /// [`evolite_api::Event::NameResolved`]: the send dialog's recipient, before «Check».
     pub fn on_resolved(&mut self, name: &str, result: &Result<ResolvedName, CoreError>) {
         if let Some(send) = &mut self.sending {
@@ -71,6 +93,12 @@ impl TokensState {
     pub fn forget_wallet(&mut self) {
         if let Some(send) = &mut self.sending {
             send.password.forget();
+        }
+        if let Some(claim) = &mut self.claiming {
+            claim.password.forget();
+        }
+        if let Some(buy) = &mut self.buying {
+            buy.password.forget();
         }
         *self = TokensState::default();
     }
@@ -342,6 +370,24 @@ pub fn tokens(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut TokensState
     }
     if state.adding.is_some() {
         dialogs::add_dialog(ui, a, cx, state);
+    }
+    if state.claiming.is_some() {
+        actions::claim_dialog(ui, a, cx, state);
+    }
+    if let Some(buy) = &state.buying {
+        // The price per unit as shown now: what a refusal for a dearer price compares with (P2).
+        let shown = cx
+            .wallet()
+            .tokens
+            .rows
+            .iter()
+            .find(|r| r.info.token_id == buy.token_id)
+            .and_then(|r| r.offer.as_ref())
+            .and_then(|o| o.tiers.first().map(|t| t.1));
+        if !buy.waiting {
+            state.agreed = shown;
+        }
+        actions::buy_dialog(ui, a, cx, state);
     }
 }
 
@@ -719,6 +765,8 @@ fn list(
                 divider(ui, &p);
             }
             match token_row(ui, a, row, who) {
+                RowAction::Claim => state.claiming = Some(ClaimState::new(&row.info.token_id)),
+                RowAction::Buy => state.buying = Some(BuyState::new(&row.info.token_id)),
                 RowAction::Send => send = Some(row.info.token_id.clone()),
                 RowAction::Hide => hide = Some(row.info.token_id.clone()),
                 RowAction::None => {}
@@ -735,6 +783,8 @@ enum RowAction {
     None,
     Send,
     Hide,
+    Claim,
+    Buy,
 }
 
 /// Whether the row's «Send» is on: only what the row itself says keeps it off, and it says
@@ -753,8 +803,9 @@ pub(crate) fn can_send(row: &TokenRow, who: Sender) -> bool {
 fn token_row(ui: &mut Ui, a: &mut Assets, row: &TokenRow, who: Sender) -> RowAction {
     let p = a.p;
     let reason = state::row_reason(row);
+    // The designer's T-2 frames: shorter, «Claim» is beside «Send» now.
     let claim = row.claim.then_some(tr!(
-        "A distribution interval has passed since the last claim — there may be a payout. evolite does not know the amount yet and will learn to claim it in the next version."
+        "A distribution interval has passed since the last claim — there may be a payout."
     ));
     let mut action = RowAction::None;
     let balance = match row.balance {
@@ -845,6 +896,17 @@ fn token_row(ui: &mut Ui, a: &mut Assets, row: &TokenRow, who: Sender) -> RowAct
                 .clicked()
                 {
                     action = RowAction::Send;
+                }
+                // FEAT-0019 T-2 (AC-D1): text buttons left of «Send», only when possible.
+                if actions::can_claim(row)
+                    && button(ui, a, tr!("Claim"), ButtonKind::Ghost, None).clicked()
+                {
+                    action = RowAction::Claim;
+                }
+                if actions::can_buy(row)
+                    && button(ui, a, tr!("Buy"), ButtonKind::Ghost, None).clicked()
+                {
+                    action = RowAction::Buy;
                 }
                 let shown = ui.label(
                     RichText::new(balance.clone())

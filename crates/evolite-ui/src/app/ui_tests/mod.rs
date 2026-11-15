@@ -52,6 +52,7 @@ mod settings_apps;
 mod spend;
 mod sync;
 mod tab_sweep;
+mod token_actions;
 mod tokens;
 mod wallets;
 

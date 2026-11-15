@@ -6,5 +6,6 @@ pub mod claim;
 pub mod crawl;
 pub mod info;
 pub mod pace;
+pub mod purchase;
 pub mod run;
 pub mod store;

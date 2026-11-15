@@ -2,7 +2,7 @@
 //! ([`Activity::layers`], [`Activity::flow`], FEAT-0009 R-1 and R-2): the screens cannot tell
 //! a shield's source, a lock's target or whose address a withdrawal paid; the core can.
 
-use evolite_api::layer::{CORE, IDENTITY, MIXED, PLATFORM_ADDRESS, POOL};
+use evolite_api::layer::{CORE, IDENTITY, MIXED, PLATFORM_ADDRESS, POOL, TOKENS};
 use evolite_api::{Activity, ActivityKind, Chain, Flow, Wallet};
 
 /// The label a shield from an identity's credits is kept with (the journal's `Shield::from`).
@@ -80,11 +80,17 @@ pub fn of(kind: &ActivityKind, chain: Chain) -> (u8, Flow) {
         AppSignIn { .. }
         | AppRenewed { .. }
         | AppDisconnected { .. }
-        | TokenSent { .. }
         | AppSpent { .. }
         | ContactRequest { .. }
         | ProfileSaved
         | NameRegistered { .. } => (IDENTITY, Flow::Out),
+        // FEAT-0019 T-1: tokens, on the identity; their amounts are not DASH (the TOKENS layer). A
+        // token sent costs the identity its fee.
+        TokenSent { .. } => (IDENTITY | TOKENS, Flow::Out),
+        TokenReceived { .. } => (IDENTITY | TOKENS, Flow::In),
+        TokenBalance { up, .. } => (IDENTITY | TOKENS, if *up { Flow::In } else { Flow::Out }),
+        TokenClaimed { .. } => (IDENTITY | TOKENS, Flow::In),
+        TokenBought { .. } => (IDENTITY | TOKENS, Flow::Out),
         // From the wallet's Platform addresses (FEAT-0015): to anyone's Platform address, or to a
         // Core address of this wallet only (R-3).
         AddressSent { .. } => (PLATFORM_ADDRESS, Flow::Out),

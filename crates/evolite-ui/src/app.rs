@@ -857,6 +857,15 @@ impl App {
                     what: DoneWhat::SendToken,
                     result,
                 } => self.tokens.on_sent(result),
+                // FEAT-0019 T-2: «Claim» and «Buy».
+                Event::Done {
+                    what: DoneWhat::ClaimToken,
+                    result,
+                } => self.tokens.on_claimed(result),
+                Event::Done {
+                    what: DoneWhat::BuyToken,
+                    result,
+                } => self.tokens.on_bought(result),
             }
             if let Some(o) = &mut self.onboarding {
                 o.on_event(&event);

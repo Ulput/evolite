@@ -73,6 +73,9 @@ pub struct TxRow<'a> {
     pub quiet: bool,
     /// The chip names the Core transaction: the credits are not known to have arrived.
     pub core_chip: bool,
+    /// A neutral chip with these words instead of the proof's (FEAT-0019 T-1: a token's balance
+    /// changed between two reads — read with a proof, but no operation: «from network data»).
+    pub neutral: Option<&'a str>,
     /// The person's note to the operation (FEAT-0003), quoted after the line and cut with «…»
     /// before the status; its own direction kept.
     pub note: Option<&'a str>,
@@ -109,6 +112,10 @@ fn tx_row_sensed(ui: &mut Ui, a: &mut Assets, row: &TxRow, sense: Sense) -> egui
     };
     if let Some(alert) = row.alert {
         name = format!("{name} · {alert}");
+    }
+    // The neutral chip's words are what the line is (FEAT-0019 T-1): the reader hears them too.
+    if let Some(neutral) = row.neutral {
+        name = format!("{name} · {neutral}");
     }
     match row.note {
         // The note in its quotes is read apart: a « · » of the person's own would split it from
@@ -155,7 +162,30 @@ fn tx_row_sensed(ui: &mut Ui, a: &mut Assets, row: &TxRow, sense: Sense) -> egui
 
     // The chip sits left of a 150 px amount column, as in Figma.
     let mut text_right = amount_right - 150.0;
-    if let Some(proof) = row.proof {
+    if let Some(words) = row.neutral {
+        let words = crate::i18n::t(words).into_owned();
+        let font = sans(12.0, Weight::SemiBold);
+        let chip_w = 10.0 + text_width(ui, &words, font.clone()) + 10.0;
+        let chip_rect = Rect::from_min_size(
+            pos2(amount_right - 150.0 - 14.0 - chip_w, cy - 12.5),
+            vec2(chip_w, 25.0),
+        );
+        ui.painter().rect(
+            chip_rect,
+            CornerRadius::same(12),
+            egui::Color32::TRANSPARENT,
+            Stroke::new(1.0, p.line),
+            egui::StrokeKind::Inside,
+        );
+        ui.painter().text(
+            chip_rect.center(),
+            Align2::CENTER_CENTER,
+            words,
+            font,
+            p.muted,
+        );
+        text_right = chip_rect.left();
+    } else if let Some(proof) = row.proof {
         let label = status_words(proof, row.core_chip);
         let chip_w = 8.0 + 14.0 + 6.0 + text_width(ui, &label, sans(12.0, Weight::SemiBold)) + 10.0;
         let chip_rect = Rect::from_min_size(

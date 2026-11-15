@@ -577,6 +577,18 @@ impl Mock {
                 }
                 return changed;
             }
+            // The demo's token history is in its snapshot already (FEAT-0019 T-1).
+            Command::ReadTokenHistory { .. } => return changed,
+            // R-22: the demo's prices are read again, as of now.
+            Command::ReadTokenPrices => {
+                let now_ms = (demo::now().max(0) as u64) * 1_000;
+                if let Some(w) = self.snapshot.wallet.as_mut() {
+                    for offer in w.tokens.rows.iter_mut().filter_map(|r| r.offer.as_mut()) {
+                        offer.read_ms = now_ms;
+                    }
+                }
+                Event::Snapshot(Box::new(self.snapshot.clone()))
+            }
             Command::Lock => Event::Done {
                 what: DoneWhat::Lock,
                 result: Err(CoreError::NotAvailable(NO_WALLET.into())),
@@ -1746,6 +1758,15 @@ mod tests {
                 token_id: "x".into(),
                 to: "@alice".into(),
                 amount: 1,
+            },
+            Spend::ClaimToken {
+                token_id: "x".into(),
+                scheduled: false,
+            },
+            Spend::BuyToken {
+                token_id: "x".into(),
+                count: 1,
+                agreed: 1,
             },
         ]
     }

@@ -61,6 +61,8 @@ pub fn command_name(command: &Command) -> &'static str {
         Command::SearchTokens { .. } => "search_tokens",
         Command::TrackToken { .. } => "track_token",
         Command::FindMyTokens => "find_my_tokens",
+        Command::ReadTokenHistory { .. } => "read_token_history",
+        Command::ReadTokenPrices => "read_token_prices",
     }
 }
 
@@ -86,6 +88,8 @@ fn spend(op: &Spend) -> &'static str {
         Spend::ApproveApp { .. } => "approve_app",
         Spend::GiftNft { .. } => "gift_nft",
         Spend::SendToken { .. } => "send_token",
+        Spend::ClaimToken { .. } => "claim_token",
+        Spend::BuyToken { .. } => "buy_token",
         Spend::DisconnectApp { .. } => "disconnect_app",
     }
 }
@@ -101,6 +105,7 @@ pub fn error_kind(error: &CoreError) -> &'static str {
         CoreError::BadAmount => "bad_amount",
         CoreError::BadAddress => "bad_address",
         CoreError::NotEnough => "not_enough",
+        CoreError::TokenPriceGrew => "token_price_grew",
         CoreError::KeysChanged => "keys_changed",
         CoreError::NotSynced => "not_synced",
         CoreError::Failed(_) => "failed",

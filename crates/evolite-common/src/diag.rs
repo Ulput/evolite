@@ -157,6 +157,14 @@ pub enum Record {
         /// how many it moved. None on the other lines.
         moved: Option<u32>,
     },
+    /// A page of a token's history read (FEAT-0019 T-1.8): which side (`to`, `from`), why
+    /// (`moved`: a balance moved; `asked`: History asked) and how many documents it had. Only
+    /// counts: no token, identity, document id or amount.
+    TokenHistory {
+        side: &'static str,
+        why: &'static str,
+        docs: u32,
+    },
     /// A rescan from the birth for the contacts' receiving accounts ran to its end (BUG-150): for
     /// how many accounts, how many history records it brought, how long it took.
     RescanDone {
@@ -289,6 +297,9 @@ impl Record {
                     fields["moved"] = (*moved).into();
                 }
                 fields
+            }
+            Record::TokenHistory { side, why, docs } => {
+                json!({"k": "token_history", "side": side, "why": why, "docs": docs})
             }
             Record::RescanDone {
                 accounts,
@@ -607,6 +618,22 @@ impl Writer {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// FEAT-0019 T-1.8: a page of a token's history is journaled as counts only — no token,
+    /// identity, document id or amount can be in its line.
+    #[test]
+    fn a_token_history_page_is_counts_only() {
+        let line = Record::TokenHistory {
+            side: "to",
+            why: "moved",
+            docs: 3,
+        }
+        .fields();
+        assert_eq!(
+            line,
+            serde_json::json!({"k": "token_history", "side": "to", "why": "moved", "docs": 3})
+        );
+    }
 
     #[test]
     fn a_platform_error_keeps_its_type_names_only() {

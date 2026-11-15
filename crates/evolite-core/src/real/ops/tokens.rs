@@ -46,6 +46,10 @@ pub(in crate::real) struct TokenState {
     facts: Arc<Mutex<Option<(String, std::time::Instant, chain::TokenFacts)>>>,
     /// A refresh of the facts is under way.
     reading: Arc<AtomicBool>,
+    /// A page of the tokens' history is being read (FEAT-0019 T-1).
+    history_reading: Arc<AtomicBool>,
+    /// The identity the last snapshot showed: whose history History's «Tokens» asks for.
+    shown: Arc<Mutex<Option<String>>>,
     /// The kept contracts went to the provider (once per run, AC-T2).
     kept_registered: Arc<AtomicBool>,
     /// What each followed token is, from its kept contract, by token id.
@@ -76,6 +80,8 @@ impl TokenState {
             seen: Arc::default(),
             facts: Arc::default(),
             reading: Arc::default(),
+            history_reading: Arc::default(),
+            shown: Arc::default(),
             kept_registered: Arc::default(),
             infos: Mutex::default(),
             file: here.then(|| Arc::new(WalletTokens::new(path.to_path_buf()))),
@@ -160,6 +166,13 @@ impl TokenState {
 }
 
 impl TokenState {
+    /// What every followed token is (T-2).
+    pub(in crate::real) fn infos_of(&self, file: &WalletTokens) -> HashMap<String, TokenInfo> {
+        self.infos(file, &file.all())
+    }
+}
+
+impl TokenState {
     /// What the followed tokens are, from their kept contracts; decoded once per contract.
     fn infos(&self, file: &WalletTokens, tracked: &[Tracked]) -> HashMap<String, TokenInfo> {
         let mut infos = self.infos.lock().unwrap_or_else(|e| e.into_inner());
@@ -194,6 +207,7 @@ impl Real {
             .identities
             .lock()
             .unwrap_or_else(|e| e.into_inner()) = identities.clone();
+        *self.tokens.shown.lock().unwrap_or_else(|e| e.into_inner()) = identity.map(str::to_owned);
         if self.tokens.search.due() {
             self.find_my_tokens(false);
         }
@@ -214,7 +228,7 @@ impl Real {
                 .filter(|(who, _, _)| Some(who.as_str()) == identity);
             let due = current.is_none_or(|(_, at, _)| at.elapsed() >= FACTS_EVERY);
             let rows = match identity {
-                Some(id) => rows(&tracked, &infos, current.map(|(_, _, f)| f), |token| {
+                Some(id) => rows(&tracked, &infos, current.map(|(_, _, f)| f), id, |token| {
                     file.is_hidden(token, id)
                 }),
                 None => Vec::new(),
@@ -227,7 +241,9 @@ impl Real {
             && self.chain.platform_ready()
         {
             let ids = tracked.iter().map(|t| t.token_id.clone()).collect();
-            self.read_token_facts(id.to_owned(), ids, file.clone());
+            let metas = metas(&tracked, &infos);
+            let extras = extras(&infos, &file.contracts());
+            self.read_token_facts(id.to_owned(), ids, file.clone(), metas, extras);
         }
         Tokens {
             rows,
@@ -246,13 +262,21 @@ impl Real {
 
     /// One read of the facts of `tokens` on `identity`, unless one is under way. A failed read
     /// keeps what was known, and is tried again after [`FACTS_EVERY`].
-    fn read_token_facts(&self, identity: String, tokens: Vec<String>, file: Arc<WalletTokens>) {
+    fn read_token_facts(
+        &self,
+        identity: String,
+        tokens: Vec<String>,
+        file: Arc<WalletTokens>,
+        metas: Vec<super::token_history::TokenMeta>,
+        extras: Vec<(String, Vec<u8>, u16)>,
+    ) {
         if self.tokens.reading.swap(true, Ordering::AcqRel) {
             return;
         }
         let (chain, refresh) = (self.chain.clone(), self.refresher());
         let (facts, reading) = (self.tokens.facts.clone(), self.tokens.reading.clone());
         let kept_registered = self.tokens.kept_registered.clone();
+        let (journal, history_path) = (self.journal.clone(), self.paths.token_history.clone());
         let working = self.work(PlatformWork::Tokens);
         tokio::spawn(async move {
             let _working = working;
@@ -264,7 +288,29 @@ impl Real {
                 let (chain, identity) = (chain.clone(), identity.clone());
                 async move { chain.token_facts(&identity, &tokens).await }
             };
-            let result = read_within(FACTS_WAIT, read).await;
+            let mut result = read_within(FACTS_WAIT, read).await;
+            // FEAT-0019 T-2: what may be claimed and what each costs, proved, for the buttons.
+            if let Ok(read) = &mut result {
+                let more = chain.token_extras(&identity, &extras, read);
+                let _ = tokio::time::timeout(FACTS_WAIT, more).await;
+            }
+            // FEAT-0019 T-1: what the proved balances say happened since the last read.
+            if let Ok(read) = &result {
+                let balances = read
+                    .balances
+                    .iter()
+                    .map(|(token, units)| (token.clone(), *units))
+                    .collect();
+                super::token_history::after_facts(
+                    chain.clone(),
+                    journal,
+                    history_path,
+                    identity.clone(),
+                    metas,
+                    balances,
+                )
+                .await;
+            }
             {
                 let mut facts = facts.lock().unwrap_or_else(|e| e.into_inner());
                 let now = std::time::Instant::now();
@@ -420,6 +466,54 @@ mod tests {
     }
 }
 
+/// The tracked tokens' kept contracts and positions, for the reads of T-2.
+fn extras(
+    infos: &HashMap<String, TokenInfo>,
+    contracts: &[(String, Vec<u8>)],
+) -> Vec<(String, Vec<u8>, u16)> {
+    infos
+        .iter()
+        .filter_map(|(token, info)| {
+            let (_, bytes) = contracts.iter().find(|(c, _)| *c == info.contract_id)?;
+            Some((token.clone(), bytes.clone(), info.position))
+        })
+        .collect()
+}
+
+/// What may be claimed, as the screens read it (T-2.1, T-2.2).
+fn claims_of(c: &chain::Claimable) -> evolite_api::tokens::Claims {
+    use evolite_api::tokens::{Claims, Every, Perpetual, Scheduled};
+    Claims {
+        perpetual: c.perpetual.map(|p| Perpetual {
+            every: match p.every {
+                chain::Every::Blocks(n) => Every::Blocks(n),
+                chain::Every::Millis(n) => Every::Millis(n),
+                chain::Every::Epochs(n) => Every::Epochs(n),
+            },
+            at_least: p.estimate.map(|e| e.at_least),
+            capped: p.estimate.filter(|e| e.capped).map(|e| e.max_cycles),
+        }),
+        scheduled: c.scheduled.map(|s| Scheduled {
+            due: s
+                .due
+                .map(|(at, amount)| ((at / 1_000) as evolite_api::Timestamp, amount)),
+            more_due: s.due_after as u32,
+            next_at: s.next_at.map(|at| (at / 1_000) as evolite_api::Timestamp),
+        }),
+    }
+}
+
+/// The price as the screens read it (T-2.4); none for a token that is not sold.
+fn offer_of(o: &chain::Offer, read_ms: u64) -> Option<evolite_api::tokens::Offer> {
+    let (tiers, single) = evolite_chain::tokens::purchase::tiers_of(o.price.as_ref()?);
+    Some(evolite_api::tokens::Offer {
+        tiers,
+        single,
+        read_ms,
+        left: o.left,
+    })
+}
+
 /// The rows of the shown identity: the tokens followed, less the ones hidden on it (R-11);
 /// a token the search found is left out at zero, one added by hand is not. What the last read
 /// did not prove stays `None`, never 0 (AC-T5). A token whose contract cannot be read from
@@ -428,6 +522,7 @@ fn rows(
     tracked: &[Tracked],
     infos: &HashMap<String, TokenInfo>,
     facts: Option<&chain::TokenFacts>,
+    identity: &str,
     hidden: impl Fn(&str) -> bool,
 ) -> Vec<evolite_api::tokens::TokenRow> {
     use evolite_api::tokens::{TokenOrigin, TokenRow};
@@ -451,9 +546,15 @@ fn rows(
                 balance,
                 paused: facts.and_then(|f| f.paused.get(id).copied()),
                 frozen: facts.and_then(|f| f.frozen.get(id).copied()),
-                // The claim flag needs the distribution's last claim (stage 1, R-11); not read
-                // yet in this part.
-                claim: false,
+                // FEAT-0019 T-2: a payout passed or due (R-11), what may be claimed, the price.
+                // The contract's owner buys nothing of its own token (T-2.5).
+                claim: facts
+                    .and_then(|f| f.claims.get(id))
+                    .is_some_and(|c| claims_of(c).any_due(c.perpetual.is_some_and(|p| p.due))),
+                claims: facts.and_then(|f| f.claims.get(id)).map(claims_of),
+                offer: facts
+                    .filter(|_| infos.get(id).is_none_or(|i| i.issuer != identity))
+                    .and_then(|f| offer_of(f.offers.get(id)?, f.read_ms)),
             })
         })
         .collect()
@@ -507,7 +608,7 @@ mod rows_tests {
             facts.paused.insert(id.into(), id == "B");
             facts.frozen.insert(id.into(), false);
         }
-        let shown = rows(&list, &infos, Some(&facts), |id| id == "H");
+        let shown = rows(&list, &infos, Some(&facts), "ME", |id| id == "H");
         let ids: Vec<&str> = shown.iter().map(|r| r.info.token_id.as_str()).collect();
         assert_eq!(
             ids,
@@ -527,7 +628,7 @@ mod rows_tests {
             (None, None, None),
             "not read yet: not known, never zero"
         );
-        let unread = rows(&list, &infos, None, |_| false);
+        let unread = rows(&list, &infos, None, "ME", |_| false);
         assert!(unread.iter().all(|r| r.balance.is_none()));
         assert!(
             unread.iter().any(|r| r.info.token_id == "Z"),
@@ -677,6 +778,8 @@ impl Real {
                         token: token_label(&info),
                         to: to_shown,
                         amount: evolite_api::tokens::amount_text(amount, info.decimals),
+                        units: Some(amount),
+                        to_id: Some(to.to_string(Encoding::Base58)),
                     },
                     before,
                     after,
@@ -701,7 +804,66 @@ impl Real {
 
 /// The token as the History line names it (BUG-145): the English name, else the first one, else
 /// the start of its id. The journal does not know the interface's language.
-fn token_label(info: &TokenInfo) -> String {
+/// The tracked tokens as their history needs them (FEAT-0019 T-1); one whose contract is not
+/// read yet is left out until it is.
+fn metas(
+    tracked: &[Tracked],
+    infos: &HashMap<String, TokenInfo>,
+) -> Vec<super::token_history::TokenMeta> {
+    tracked
+        .iter()
+        .filter_map(|t| infos.get(&t.token_id))
+        .map(|info| super::token_history::TokenMeta {
+            token_id: info.token_id.clone(),
+            label: token_label(info),
+            decimals: info.decimals,
+            keeps_history: info.keeps_history,
+        })
+        .collect()
+}
+
+impl Real {
+    /// History's «Tokens» opened, a token chosen there, or «Show earlier» (FEAT-0019 T-1,
+    /// [`Command::ReadTokenHistory`]): a page of the transfers of the shown identity's tracked
+    /// tokens that keep a history (only `token` when given). The answer is the next snapshot.
+    pub(in crate::real) fn read_token_history(&self, token: Option<String>, earlier: bool) {
+        let Some(file) = self.tokens.file.clone() else {
+            return;
+        };
+        if !self.chain.platform_ready() || self.tokens.history_reading.swap(true, Ordering::AcqRel)
+        {
+            return;
+        }
+        let shown = self
+            .tokens
+            .shown
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
+        let Some(identity) = shown else {
+            self.tokens.history_reading.store(false, Ordering::Release);
+            return;
+        };
+        let tracked = file.all();
+        let infos = self.tokens.infos(&file, &tracked);
+        let metas: Vec<_> = metas(&tracked, &infos)
+            .into_iter()
+            .filter(|m| token.as_ref().is_none_or(|t| *t == m.token_id))
+            .collect();
+        let (chain, journal) = (self.chain.clone(), self.journal.clone());
+        let (path, refresh) = (self.paths.token_history.clone(), self.refresher());
+        let reading = self.tokens.history_reading.clone();
+        let working = self.work(PlatformWork::Tokens);
+        tokio::spawn(async move {
+            let _working = working;
+            super::token_history::read_asked(chain, journal, path, identity, metas, earlier).await;
+            reading.store(false, Ordering::Release);
+            refresh();
+        });
+    }
+}
+
+pub(in crate::real) fn token_label(info: &TokenInfo) -> String {
     let name = dashpay::shown(evolite_api::tokens::name_in(info, "en"));
     if name.is_empty() {
         info.token_id.chars().take(8).collect()
@@ -889,6 +1051,8 @@ where
         paused: facts.paused.get(id).copied(),
         frozen: facts.frozen.get(id).copied(),
         claim: false,
+        claims: None,
+        offer: None,
     };
     // Only the token's facts here: the key is platform-wallet's choice, the credits Platform's.
     let sender = Sender {

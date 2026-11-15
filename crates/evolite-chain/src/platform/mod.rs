@@ -8,6 +8,7 @@ pub mod lock_status;
 pub mod nfts;
 pub mod platform_history;
 pub mod pool;
+pub mod token_history;
 // The real core asks the network with these from FEAT-0019 part 3; this goes then.
 #[allow(dead_code)]
 pub mod tokens;

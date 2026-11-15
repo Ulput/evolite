@@ -232,14 +232,52 @@ pub enum Kind {
     },
     /// App Connect v2: an app's keys disabled.
     AppDisconnect { app: String },
-    /// A token sent: which, to whom and how much, in words. `spent` is the fee only.
+    /// A token sent: which, to whom and how much, in words. `spent` is the fee only. `units`:
+    /// the amount in the token's smallest units, kept from FEAT-0019 T-1 on (its document is
+    /// matched by it, and the balance's change since a read leaves it out); none before.
     TokenSent {
         token: String,
         to: String,
         amount: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        units: Option<u64>,
+        /// The recipient's identity id (base58), kept with `units` (the architect, T-1: two
+        /// equal sends to two people a minute apart are two documents, matched each to its own).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        to_id: Option<String>,
+    },
+    /// A token received (FEAT-0019 T-1, UC-5б): its `transfer` document, read with a proof
+    /// (`key` `tokx:<id>`). `from`: the sender. Nothing was spent.
+    TokenReceived {
+        token: String,
+        from: String,
+        amount: String,
+        units: u64,
+    },
+    /// A token's balance moved between two proved reads with no operation of this wallet (UC-5в):
+    /// the token keeps no transfer history. `up`: it grew.
+    TokenBalance {
+        token: String,
+        amount: String,
+        units: u64,
+        up: bool,
     },
     /// What an app spent from its keys' budgets, as Platform says: one entry an app a day.
     AppSpent { app: String },
+    /// A token's distribution claimed (FEAT-0019 T-2.3): the amount its proved `claim` document
+    /// says (`key` `tokx:<id>`). `spent` is the fee.
+    TokenClaimed {
+        token: String,
+        amount: String,
+        units: u64,
+    },
+    /// A token bought from its issuer (T-2.5): the count. `spent` is what it cost with the fee;
+    /// keyed `tokx:<id>` when the token keeps its purchases.
+    TokenBought {
+        token: String,
+        amount: String,
+        units: u64,
+    },
 }
 
 impl Kind {
@@ -250,6 +288,10 @@ impl Kind {
                 app.clone()
             }
             Kind::TokenSent { to, .. } => to.clone(),
+            Kind::TokenReceived { from, .. } => from.clone(),
+            Kind::TokenBalance { token, .. }
+            | Kind::TokenClaimed { token, .. }
+            | Kind::TokenBought { token, .. } => token.clone(),
         }
     }
 }
@@ -316,6 +358,40 @@ pub fn fold_app_spent(
         }
     }
     true
+}
+
+/// Gives each own token send in `local` that has no document yet the key of its `transfer`
+/// document in `network` (FEAT-0019 T-1.3): the same identity, token, recipient and units, within
+/// [`SAME_TIME`]. [`merge`] then joins them by the key, and the send is one line; a document
+/// with no send here (a restore, R-19) stays to be added. Each document keys one send at most.
+pub fn key_token_sends(local: &mut [Entry], network: &[Entry]) {
+    for found in network {
+        let (
+            Some(key),
+            Some(Kind::TokenSent {
+                token,
+                units,
+                to_id,
+                ..
+            }),
+        ) = (&found.key, &found.kind)
+        else {
+            continue;
+        };
+        if local.iter().any(|e| e.key.as_ref() == Some(key)) {
+            continue;
+        }
+        let own = local.iter_mut().find(|e| {
+            e.key.is_none()
+                && e.identity == found.identity
+                && (e.at - found.at).abs() <= SAME_TIME
+                && matches!(&e.kind, Some(Kind::TokenSent { token: t, units: u, to_id: r, .. })
+                    if t == token && u.is_some() && u == units && r.is_some() && r == to_id)
+        });
+        if let Some(own) = own {
+            own.key = Some(key.clone());
+        }
+    }
 }
 
 /// Puts what was read from Platform (`network`) into the entries (`local`): by the document's
@@ -493,6 +569,17 @@ impl Journal {
     /// when an earlier write failed (what it held is in memory only). Returns whether it
     /// changed; an error while the file does not have every entry, so that what was read is not
     /// counted as kept (the marks stay, R-33 p. 2) — this pass's or an earlier one's.
+    /// [`merge_network`](Self::merge_network) of tokens' `transfer` documents (FEAT-0019 T-1):
+    /// each own send written here first takes its document's key ([`key_token_sends`]).
+    pub fn merge_token_network(&self, network: Vec<Entry>) -> Result<bool, String> {
+        {
+            let mut entries = self.entries.lock().unwrap_or_else(|e| e.into_inner());
+            let kept = entries.get_or_insert_with(|| self.kept());
+            key_token_sends(&mut kept.all, &network);
+        }
+        self.merge_network(network)
+    }
+
     pub fn merge_network(&self, network: Vec<Entry>) -> Result<bool, String> {
         let mut entries = self.entries.lock().unwrap_or_else(|e| e.into_inner());
         let kept = entries.get_or_insert_with(|| self.kept());
@@ -588,12 +675,48 @@ pub fn activity(entry: &Entry) -> Activity {
         (Some(Kind::AppDisconnect { app }), _) => {
             ActivityKind::AppDisconnected { app: app.clone() }
         }
-        (Some(Kind::TokenSent { token, to, amount }), _) => ActivityKind::TokenSent {
+        (
+            Some(Kind::TokenSent {
+                token, to, amount, ..
+            }),
+            _,
+        ) => ActivityKind::TokenSent {
             token: token.clone(),
             to: to.clone(),
             amount: amount.clone(),
         },
+        (
+            Some(Kind::TokenReceived {
+                token,
+                from,
+                amount,
+                ..
+            }),
+            _,
+        ) => ActivityKind::TokenReceived {
+            token: token.clone(),
+            from: from.clone(),
+            amount: amount.clone(),
+        },
+        (
+            Some(Kind::TokenBalance {
+                token, amount, up, ..
+            }),
+            _,
+        ) => ActivityKind::TokenBalance {
+            token: token.clone(),
+            amount: amount.clone(),
+            up: *up,
+        },
         (Some(Kind::AppSpent { app }), _) => ActivityKind::AppSpent { app: app.clone() },
+        (Some(Kind::TokenClaimed { token, amount, .. }), _) => ActivityKind::TokenClaimed {
+            token: token.clone(),
+            amount: amount.clone(),
+        },
+        (Some(Kind::TokenBought { token, amount, .. }), _) => ActivityKind::TokenBought {
+            token: token.clone(),
+            amount: amount.clone(),
+        },
         (None, what) => match what {
             What::Credits { to } => ActivityKind::CreditTransfer { to: to.clone() },
             What::Withdrawal { to } => ActivityKind::Withdrawal {
@@ -1355,6 +1478,8 @@ mod tests {
                 token: "evoliteQA".into(),
                 to: "@qa".into(),
                 amount: "12.34".into(),
+                units: None,
+                to_id: None,
             },
             100,
             1_081,
@@ -1440,5 +1565,153 @@ mod tests {
         };
         let written = serde_json::to_string(&unknown).unwrap();
         assert!(written.contains("\"cost_known\":false"), "{written}");
+    }
+}
+
+#[cfg(test)]
+mod token_history_tests {
+    use super::*;
+
+    fn sent(at: Timestamp, units: Option<u64>) -> Entry {
+        entry_of(
+            Kind::TokenSent {
+                token: "evoliteQA".into(),
+                to: "@bob".into(),
+                amount: "12.34".into(),
+                units,
+                to_id: Some("BOBID".into()),
+            },
+            at,
+            1_000,
+            Some("ME".into()),
+        )
+    }
+
+    /// The `transfer` document of an own send, as the core makes it from TokenHistory.
+    fn document(id: &str, at: Timestamp, units: u64) -> Entry {
+        let mut entry = entry_of(
+            Kind::TokenSent {
+                token: "evoliteQA".into(),
+                to: "BOBID".into(),
+                amount: "12.34".into(),
+                units: Some(units),
+                to_id: Some("BOBID".into()),
+            },
+            at,
+            0,
+            Some("ME".into()),
+        );
+        entry.key = Some(format!("tokx:{id}"));
+        entry.source = Source::Network;
+        entry
+    }
+
+    /// T-1.3: an own send and its document are one line: the journal's line takes the
+    /// document's key, and the merge adds nothing.
+    #[test]
+    fn an_own_send_and_its_document_are_one_line() {
+        let mut local = vec![sent(1_000, Some(1_234))];
+        let network = vec![document("D1", 1_030, 1_234)];
+        key_token_sends(&mut local, &network);
+        assert_eq!(local[0].key.as_deref(), Some("tokx:D1"));
+        merge(&mut local, network);
+        assert_eq!(local.len(), 1, "one line");
+        assert_eq!(local[0].spent, 1_000, "the fee written here stays");
+    }
+
+    /// T-1.3, R-19: after a restore there is no journal line: the document is the line.
+    #[test]
+    fn after_a_restore_the_document_is_the_line() {
+        let mut local = Vec::new();
+        let network = vec![document("D1", 1_030, 1_234)];
+        key_token_sends(&mut local, &network);
+        merge(&mut local, network);
+        assert_eq!(local.len(), 1);
+        assert_eq!(local[0].key.as_deref(), Some("tokx:D1"));
+    }
+
+    /// Another amount, another hour, or a line written before units were kept: not the same
+    /// send — the document is a line of its own, never taken for another.
+    #[test]
+    fn a_send_unlike_the_document_is_not_matched() {
+        for own in [
+            sent(1_000, Some(999)),
+            sent(1_000 + 3_600, Some(1_234)),
+            sent(1_000, None),
+        ] {
+            let mut local = vec![own];
+            let network = vec![document("D1", 1_030, 1_234)];
+            key_token_sends(&mut local, &network);
+            assert_eq!(local[0].key, None);
+            merge(&mut local, network);
+            assert_eq!(local.len(), 2);
+        }
+    }
+
+    /// The architect's T-1 note: two equal sends to two people a minute apart are not merged —
+    /// each document keys the send to its own recipient.
+    #[test]
+    fn equal_sends_to_two_people_stay_two() {
+        let mut to_carol = sent(1_060, Some(1_234));
+        if let Some(Kind::TokenSent { to_id, .. }) = &mut to_carol.kind {
+            *to_id = Some("CAROLID".into());
+        }
+        let mut local = vec![sent(1_000, Some(1_234)), to_carol];
+        let mut for_carol = document("D2", 1_070, 1_234);
+        if let Some(Kind::TokenSent { to_id, .. }) = &mut for_carol.kind {
+            *to_id = Some("CAROLID".into());
+        }
+        let network = vec![for_carol, document("D1", 1_010, 1_234)];
+        key_token_sends(&mut local, &network);
+        assert_eq!(local[0].key.as_deref(), Some("tokx:D1"), "Bob's");
+        assert_eq!(local[1].key.as_deref(), Some("tokx:D2"), "Carol's");
+    }
+
+    /// Two sends of the same amount, two documents: each document keys one send, and a document
+    /// read again keys nothing more (T-1.2: no line twice).
+    #[test]
+    fn each_document_keys_one_send() {
+        let mut local = vec![sent(1_000, Some(1_234)), sent(1_100, Some(1_234))];
+        let network = vec![document("D1", 1_010, 1_234), document("D2", 1_110, 1_234)];
+        key_token_sends(&mut local, &network);
+        let keys: Vec<_> = local.iter().map(|e| e.key.clone()).collect();
+        assert_eq!(
+            keys,
+            vec![Some("tokx:D1".to_owned()), Some("tokx:D2".to_owned())]
+        );
+        merge(&mut local, network.clone());
+        key_token_sends(&mut local, &network);
+        merge(&mut local, network);
+        assert_eq!(local.len(), 2, "read again: still two");
+    }
+
+    /// T-1.2: a received document read twice is one line; it is a received token in History.
+    #[test]
+    fn a_received_token_read_twice_is_one_line() {
+        let mut received = entry_of(
+            Kind::TokenReceived {
+                token: "evoliteQA".into(),
+                from: "@alice".into(),
+                amount: "5.00".into(),
+                units: 500,
+            },
+            2_000,
+            0,
+            Some("ME".into()),
+        );
+        received.key = Some("tokx:R1".into());
+        received.source = Source::Network;
+        let mut local = Vec::new();
+        merge(&mut local, vec![received.clone()]);
+        merge(&mut local, vec![received]);
+        assert_eq!(local.len(), 1);
+        assert_eq!(
+            activity(&local[0]).kind,
+            ActivityKind::TokenReceived {
+                token: "evoliteQA".into(),
+                from: "@alice".into(),
+                amount: "5.00".into(),
+            }
+        );
     }
 }

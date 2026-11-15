@@ -8,15 +8,20 @@ use evolite_api::layer;
 use evolite_api::{Activity, ActivityKind, Credits, Flow, Proof, SavedAddress};
 
 /// The layer pills, in their order: «All», «Core», «Platform» (everything on Platform: the
-/// identity and the Platform address), «Private pool», «Identity».
-pub const LAYERS: [u8; 6] = [
+/// identity and the Platform address), «Private pool», «Identity», «Tokens» (FEAT-0019 T-1,
+/// the designer's H1: the sixth chip after «Identity»).
+pub const LAYERS: [u8; 7] = [
     0,
     layer::CORE,
     layer::MIXED,
     layer::IDENTITY | layer::PLATFORM_ADDRESS,
     layer::POOL,
     layer::IDENTITY,
+    layer::TOKENS,
 ];
+
+/// The index of «Tokens» in [`LAYERS`].
+pub const TOKENS_LAYER: usize = 6;
 
 /// How far an operation is (АРХ-1).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -85,7 +90,11 @@ pub fn kind_of(a: &Activity) -> u8 {
         AppSignIn { .. } | AppRenewed { .. } | AppDisconnected { .. } | AppSpent { .. } => {
             kind::APPS
         }
-        TokenSent { .. } => kind::IDENTITY,
+        TokenSent { .. }
+        | TokenReceived { .. }
+        | TokenBalance { .. }
+        | TokenClaimed { .. }
+        | TokenBought { .. } => kind::IDENTITY,
     }
 }
 
@@ -336,6 +345,13 @@ pub fn keep<Tz: TimeZone>(
 #[derive(Default)]
 pub struct History {
     pub filters: Filters,
+    /// «Token: …» under the «Tokens» layer (FEAT-0019 T-1, the designer's H1): the token chosen,
+    /// its id and its name as History writes it; `None` — all.
+    pub token: Option<(String, String)>,
+    /// The «Tokens» layer was open in the last frame: opening it asks for its history once.
+    pub tokens_open: bool,
+    /// «Token: …»'s list is open.
+    pub token_menu: bool,
     pub query: String,
     /// The «Filters» panel is open.
     pub open: bool,

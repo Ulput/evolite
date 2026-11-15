@@ -205,6 +205,8 @@ mod tests {
             paused: Some(paused),
             frozen: Some(frozen),
             claim: false,
+            claims: None,
+            offer: None,
         }
     }
 

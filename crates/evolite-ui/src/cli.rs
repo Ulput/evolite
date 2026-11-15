@@ -233,7 +233,7 @@ pub const PRESETS: &[&str] = &[
     "overview-mixed-unchecked", "send-mixed-name", "send-mixed-refused", "send-mixed-confirm",
     "send-mixed-agree", "send-mixed-changed", "send-mixed-refused-confirm",
     "receive", "receive-fiat",
-    "activity-fiat", "activity-card-fiat", "activity-card-fiat-old", "activity-apps",
+    "activity-fiat", "activity-card-fiat", "activity-card-fiat-old", "activity-apps", "activity-tokens",
     "identity", "identity-unfinished", "identity-created", "top-up-stopped", "top-up-awaiting",
     "edit-profile", "edit-profile-password", "edit-profile-imgur-page",
     "top-up", "top-up-bad-amount", "add-name",
@@ -248,6 +248,7 @@ pub const PRESETS: &[&str] = &[
     "tokens-empty", "tokens-send", "tokens-review", "tokens-add", "tokens-mainnet",
     "tokens-send-address", "tokens-send-more", "tokens-send-credits", "tokens-send-unknown",
     "tokens-add-one", "tokens-add-many", "tokens-add-none", "tokens-add-hidden",
+    "tokens-claim", "tokens-claim-unknown", "tokens-buy", "tokens-buy-changed",
     "probe",
     "settings", "phrase", "check-phrase", "appearance", "appearance-rate", "change-password",
     "security", "backup", "notifications", "own-node", "nodes", "nodes-dapi", "about",
@@ -347,6 +348,7 @@ fn dev_args<'a>(
                 | "activity-card-fiat"
                 | "activity-card-fiat-old"
                 | "activity-apps"
+                | "activity-tokens"
                 | "activity-notes"
                 | "activity-search-note"
                 | "activity-notes-unreadable"
@@ -482,7 +484,11 @@ fn dev_args<'a>(
                 | "tokens-add-one"
                 | "tokens-add-many"
                 | "tokens-add-none"
-                | "tokens-add-hidden",
+                | "tokens-add-hidden"
+                | "tokens-claim"
+                | "tokens-claim-unknown"
+                | "tokens-buy"
+                | "tokens-buy-changed",
             ),
         ) => Screen::Tokens,
         (None, Some("probe")) => Screen::Probe,

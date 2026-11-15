@@ -59,6 +59,125 @@ pub struct TokenRow {
     /// A perpetual distribution to this identity has passed an interval since its last claim:
     /// there may be something to claim. No amount (stage 2).
     pub claim: bool,
+    /// What this identity may claim of it, read with a proof (T-2.1, T-2.2); `None`: nothing,
+    /// or not read yet. «Claim» is shown only with something here.
+    pub claims: Option<Claims>,
+    /// The issuer's price, read with a proof (T-2.4); `None`: not sold, or not read yet.
+    /// «Buy» is shown only with a price.
+    pub offer: Option<Offer>,
+}
+
+/// How often a perpetual distribution pays.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Every {
+    Blocks(u64),
+    Millis(u64),
+    Epochs(u16),
+}
+
+/// A perpetual distribution this identity may claim (T-2.1).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct Perpetual {
+    pub every: Every,
+    /// What a claim pays at least, counted as Platform counts it; `None`: not known before the
+    /// claim (K1u).
+    pub at_least: Option<TokenAmount>,
+    /// One claim pays at most this many cycles and more stays after it.
+    pub capped: Option<u32>,
+}
+
+/// A pre-programmed distribution naming this identity (T-2.2).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct Scheduled {
+    /// The payout a claim pays now: when it was due, and how much.
+    pub due: Option<(Timestamp, TokenAmount)>,
+    /// Payouts due after it, each a claim of its own.
+    pub more_due: u32,
+    /// The next payout still to come.
+    pub next_at: Option<Timestamp>,
+}
+
+/// What this identity may claim of a token.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct Claims {
+    pub perpetual: Option<Perpetual>,
+    pub scheduled: Option<Scheduled>,
+}
+
+impl Claims {
+    /// A claim pays now: a perpetual payout passed, or a scheduled one is due.
+    pub fn any_due(&self, perpetual_due: bool) -> bool {
+        perpetual_due || self.scheduled.is_some_and(|s| s.due.is_some())
+    }
+}
+
+/// The issuer's price (T-2.4): per smallest unit of the token, in credits, from a count
+/// (`tiers`, ascending; a single price is one tier from 1).
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct Offer {
+    pub tiers: Vec<(TokenAmount, u64)>,
+    /// One price for any count: no tiers shown.
+    pub single: bool,
+    /// When it was read, in milliseconds (R-22).
+    pub read_ms: u64,
+    /// How many units may still be made under the token's limit; `None`: no limit.
+    pub left: Option<TokenAmount>,
+}
+
+/// What a count costs by an [`Offer`].
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Quote {
+    /// `total` credits: `per_unit` each, by the tier from `tier` units.
+    Total {
+        total: u64,
+        per_unit: u64,
+        tier: TokenAmount,
+    },
+    /// Fewer than the first tier: at least `minimum` units (refused before the password).
+    UnderMinimum { minimum: TokenAmount },
+    /// No count.
+    Nothing,
+    /// A total over what credits can hold.
+    TooLarge,
+}
+
+/// What `count` units cost by `tiers` (АРХ-10): the largest tier not over the count sets the
+/// price of each unit, as Platform counts it.
+pub fn quote(tiers: &[(TokenAmount, u64)], count: TokenAmount) -> Quote {
+    if count == 0 {
+        return Quote::Nothing;
+    }
+    let Some((tier, per_unit)) = tiers.iter().rev().find(|(from, _)| *from <= count).copied()
+    else {
+        return Quote::UnderMinimum {
+            minimum: tiers.first().map_or(1, |(from, _)| *from),
+        };
+    };
+    match per_unit.checked_mul(count) {
+        Some(total) => Quote::Total {
+            total,
+            per_unit,
+            tier,
+        },
+        None => Quote::TooLarge,
+    }
+}
+
+/// How old a price may be at the confirmation (R-22): older, it is read again.
+pub const PRICE_FRESH_MS: u64 = 60_000;
+
+/// Whether a price read at `read_ms` is read again at `now_ms` before the confirmation.
+pub fn stale(read_ms: u64, now_ms: u64) -> bool {
+    now_ms.saturating_sub(read_ms) > PRICE_FRESH_MS
+}
+
+/// Credits in one duff (10¹¹ credits are 1 DASH).
+pub const CREDITS_PER_DUFF: u64 = 1_000;
+
+/// A purchase's total in duffs, for FEAT-0004's confirmation threshold (T-2.6): what leaves the
+/// wallet, rounded up.
+pub fn purchase_total_duffs(credits: u64) -> u64 {
+    credits.div_ceil(CREDITS_PER_DUFF)
 }
 
 /// Where the wallet's own search of the network for its tokens stands (UC-1а, R-11).
@@ -283,7 +402,50 @@ mod tests {
             paused: Some(false),
             frozen: Some(false),
             claim: false,
+            claims: None,
+            offer: None,
         }
+    }
+
+    /// AC-T12: a single price per unit; tiers: the largest not over the count; under the first,
+    /// the minimum; an overflow refused, never wrapped.
+    #[test]
+    fn a_count_costs_by_its_tier() {
+        assert_eq!(
+            quote(&[(1, 1_000)], 250),
+            Quote::Total {
+                total: 250_000,
+                per_unit: 1_000,
+                tier: 1
+            }
+        );
+        assert_eq!(quote(&[(1, 1_000)], 0), Quote::Nothing);
+        let tiers = [(100, 50), (1_000, 40), (10_000, 30)];
+        assert_eq!(quote(&tiers, 99), Quote::UnderMinimum { minimum: 100 });
+        let at = |count| match quote(&tiers, count) {
+            Quote::Total {
+                total,
+                per_unit,
+                tier,
+            } => (tier, per_unit, total),
+            other => panic!("{other:?}"),
+        };
+        assert_eq!(at(100), (100, 50, 5_000), "right at the first tier");
+        assert_eq!(at(999), (100, 50, 49_950));
+        assert_eq!(at(1_000), (1_000, 40, 40_000));
+        assert_eq!(at(50_000), (10_000, 30, 1_500_000), "over the last tier");
+        assert_eq!(quote(&[(1, u64::MAX / 2)], 3), Quote::TooLarge);
+    }
+
+    /// R-22 and T-2.6: a price over a minute old is read again; the total in duffs rounds up.
+    #[test]
+    fn a_price_ages_and_a_total_is_in_duffs() {
+        assert!(!stale(1_000, 61_000));
+        assert!(stale(1_000, 61_001));
+        assert!(!stale(5_000, 1_000), "a clock gone back is not stale");
+        assert_eq!(purchase_total_duffs(20_000_000_000), 20_000_000, "0.2 DASH");
+        assert_eq!(purchase_total_duffs(1), 1);
+        assert_eq!(purchase_total_duffs(0), 0);
     }
 
     const SENDER: Sender = Sender {

@@ -162,6 +162,8 @@ fn row(listed: &Listed, origin: TokenOrigin) -> TokenRow {
         paused: known.then_some(false),
         frozen: known.then_some(false),
         claim: false,
+        claims: None,
+        offer: None,
     }
 }
 
@@ -174,9 +176,25 @@ pub fn demo_tokens(t: Timestamp) -> Tokens {
             .expect("an example token")
     };
     let rows = vec![
-        // Found by the search, with history and something to claim.
+        // Found by the search, with history, something to claim and a price (FEAT-0019 T-2:
+        // the designer's K1 and P1).
         TokenRow {
             claim: true,
+            claims: Some(evolite_api::tokens::Claims {
+                perpetual: Some(evolite_api::tokens::Perpetual {
+                    every: evolite_api::tokens::Every::Millis(86_400_000),
+                    at_least: Some(2_400),
+                    capped: None,
+                }),
+                scheduled: None,
+            }),
+            offer: Some(evolite_api::tokens::Offer {
+                // 0.0008 and 0.0007 DASH a whole token (2 decimals), from 1 and from 10.
+                tiers: vec![(100, 800_000), (1_000, 700_000)],
+                single: false,
+                read_ms: (t.max(0) as u64) * 1_000,
+                left: None,
+            }),
             ..row(by("Evo Coffee"), TokenOrigin::Found)
         },
         // Added by hand, no history, whole units.

@@ -843,6 +843,53 @@ pub fn demo_wallet(t: Timestamp) -> Wallet {
                     Proof::Proved,
                 )
             },
+            // FEAT-0019 T-1: a token received (its transfer document), and a token with no
+            // transfer history whose balance moved between two reads.
+            Activity {
+                detail: platform_detail(None),
+                ..act(
+                    34,
+                    TokenReceived {
+                        token: "Evo Coffee".into(),
+                        from: PEOPLE[1].id.into(),
+                        amount: "120.00".into(),
+                    },
+                    Chain::Platform,
+                    2 * day + 4 * hour,
+                    0,
+                    Proof::Proved,
+                )
+            },
+            Activity {
+                detail: platform_detail(None),
+                ..act(
+                    35,
+                    TokenBalance {
+                        token: "evoliteQA".into(),
+                        amount: "40.00".into(),
+                        up: true,
+                    },
+                    Chain::Platform,
+                    day + 6 * hour,
+                    0,
+                    Proof::Proved,
+                )
+            },
+            Activity {
+                detail: platform_detail(None),
+                ..act(
+                    36,
+                    TokenBalance {
+                        token: "evoliteQA".into(),
+                        amount: "5.00".into(),
+                        up: false,
+                    },
+                    Chain::Platform,
+                    5 * day,
+                    0,
+                    Proof::Proved,
+                )
+            },
         ],
         core_address: "yXk3Tq9mD8vJw2RfL6pN4sB7cH1eZ5aG9f2c".into(),
         platform_address: "tdash1qq7x4m9n2r8v5k3j6h0w4p2s8d5f7g9l3c0zq".into(),

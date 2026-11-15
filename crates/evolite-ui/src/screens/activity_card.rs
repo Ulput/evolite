@@ -1203,6 +1203,18 @@ fn detail_body(
             ),
         );
     }
+    // FEAT-0019 T-1 (the designer's H1): a change of a token's balance is no operation.
+    if matches!(act.kind, ActivityKind::TokenBalance { .. }) {
+        notice(
+            ui,
+            a,
+            "info",
+            p.muted,
+            tr!(
+                "This is not an operation but a change of balance between two checks. The network keeps no transfer history for this token, so the sender is unknown."
+            ),
+        );
+    }
     match detail.confirm {
         Some(confirm) => {
             let (icon, said) = match confirm {

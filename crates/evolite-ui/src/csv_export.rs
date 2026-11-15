@@ -92,6 +92,14 @@ fn line(a: &Activity, own: &Own) -> Option<Line> {
     if !crate::text::known(a.at) {
         return None;
     }
+    // FEAT-0019 T-1 (R-18): tokens are not DASH — a token received or a balance's change is no
+    // line (a token sent is its fee in credits, below).
+    if matches!(
+        a.kind,
+        ActivityKind::TokenReceived { .. } | ActivityKind::TokenBalance { .. }
+    ) {
+        return None;
+    }
     // BUG-176: what it cost is not known — not a line of zero.
     if crate::text::cost_unknown(a) {
         return None;
@@ -616,6 +624,41 @@ mod tests {
         assert!(rows[0].contains(",Expense,0.00204056,DASH,"), "{csv}");
         assert!(rows[1].contains(",Expense,0.000066,DASH,"), "{csv}");
         assert!(!csv.contains("12.34") && !csv.contains("evoliteQA") && !csv.contains("werner"));
+    }
+
+    /// FEAT-0019 T-1.7 (R-18): a token received and a token's balance change are no line of the
+    /// file — even with an amount set — and nothing of the token is in it.
+    #[test]
+    fn tokens_received_and_balance_changes_are_not_in_the_file() {
+        use ActivityKind as K;
+        let ops = vec![
+            act(
+                K::TokenReceived {
+                    token: "evoliteQA".into(),
+                    from: "@alice".into(),
+                    amount: "5.00".into(),
+                },
+                Chain::Platform,
+                300,
+                1_000,
+                "",
+            ),
+            act(
+                K::TokenBalance {
+                    token: "evoliteQA".into(),
+                    amount: "3.00".into(),
+                    up: false,
+                },
+                Chain::Platform,
+                400,
+                -1_000,
+                "",
+            ),
+        ];
+        let csv = taxbit(&ops, &own());
+        assert_eq!(csv.lines().count(), 1, "the header only: {csv}");
+        assert_eq!(lines(&ops, &own()), 0);
+        assert!(!csv.contains("evoliteQA"));
     }
 
     /// BUG-100: the count [`lines`] gives is exactly the file's, line for line; a non-final

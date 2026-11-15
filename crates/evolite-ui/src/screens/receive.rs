@@ -418,6 +418,7 @@ pub fn receive(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut ReceiveForm
                                     alert: None,
                                     quiet: false,
  core_chip: false,
+ neutral: None,
                                     note: None,
                                     fiat: None,
                                 },

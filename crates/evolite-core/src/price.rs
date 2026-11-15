@@ -254,6 +254,23 @@ pub fn declared(op: &Spend, seen: &Seen, app_cost: Duffs) -> Declared {
             fees.document_write.saturating_mul(2),
             covers(seen.credits, 0, fees.document_write.saturating_mul(2)),
         ),
+        // FEAT-0019 T-2: a claim writes as a transfer does, before the first live measure (Q3).
+        Spend::ClaimToken { .. } => of(
+            "claim_token",
+            fees.document_write.saturating_mul(2),
+            covers(seen.credits, 0, fees.document_write.saturating_mul(2)),
+        ),
+        // A purchase: the agreed total in credits (T-2.6), with a claim's fee on top.
+        Spend::BuyToken { agreed, .. } => {
+            let total = Duffs::try_from(evolite_api::tokens::purchase_total_duffs(*agreed))
+                .unwrap_or(Duffs::MAX);
+            let fee = fees.document_write.saturating_mul(2);
+            of(
+                "buy_token",
+                total.saturating_add(fee),
+                covers(seen.credits, total, fee),
+            )
+        }
         // One IdentityUpdate that disables the session keys.
         Spend::DisconnectApp { .. } => of(
             "disconnect_app",
@@ -289,7 +306,8 @@ pub fn reason(error: &CoreError) -> &'static str {
         | CoreError::BadPhrase => "bad_input",
         CoreError::TooManyTries { .. }
         | CoreError::PicturesOff(_)
-        | CoreError::MixedExcess { .. } => "refused",
+        | CoreError::MixedExcess { .. }
+        | CoreError::TokenPriceGrew => "refused",
     }
 }
 
@@ -428,6 +446,15 @@ pub(crate) mod tests {
                 token_id: "token".into(),
                 to: "@bob".into(),
                 amount: 100,
+            },
+            Spend::ClaimToken {
+                token_id: "token".into(),
+                scheduled: false,
+            },
+            Spend::BuyToken {
+                token_id: "token".into(),
+                count: 10,
+                agreed: 1_000,
             },
             Spend::DisconnectApp { id: "app".into() },
         ]
