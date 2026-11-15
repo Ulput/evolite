@@ -328,13 +328,14 @@ impl Real {
         fees.core_coins = convert::core_coins(coin_values);
         fees.core_unsignable = unsignable;
         // A funding of the address cut short: finished to the address it was signed for (or,
-        // after a restore, the one shown), with what Platform keeps by its proof (BUG-171).
+        // after a restore, the one shown), with what Platform keeps: one estimate, whatever the
+        // proof (BUG-171 AC-T5).
         let unfinished_address_top_up =
-            unfinished_address_fund.map(|(locked, holds_back, address, instant)| {
+            unfinished_address_fund.map(|(locked, holds_back, address, _instant)| {
                 evolite_api::UnfinishedAddressTopUp {
                     locked: locked as Duffs,
                     address,
-                    on_top: fees.address_fund_on_top_of(instant),
+                    on_top: fees.address_fund_on_top(),
                     holds_back,
                 }
             });

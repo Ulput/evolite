@@ -373,7 +373,7 @@ impl App {
                 } else {
                     w.platform_address.clone()
                 },
-                on_top: w.fees.address_fund_on_top_of(!recovered),
+                on_top: w.fees.address_fund_on_top(),
                 holds_back: true,
             });
         }

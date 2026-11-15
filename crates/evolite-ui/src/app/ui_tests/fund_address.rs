@@ -244,7 +244,7 @@ fn continuing_a_recovered_lock_says_where_and_how_much() {
         "the address it goes to"
     );
     let at_least =
-        crate::format::amount(10_012_000 - evolite_api::address_fund::ADDRESS_FUND_ON_TOP_CHAIN);
+        crate::format::amount(10_012_000 - evolite_api::address_fund::ADDRESS_FUND_ON_TOP);
     assert!(has_words(&kit, &at_least), "at least {at_least}");
 }
 

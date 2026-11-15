@@ -1522,8 +1522,8 @@ mod tests {
         assert_eq!(fees(0).address_fund_lock_min, 56_000);
         assert_eq!(
             fees(0).address_fund_least(),
-            36_000,
-            "«At least 0,00036 DASH to the address» (56 000 less 20 000 on top, BUG-171)"
+            35_000,
+            "«At least 0,00035 DASH to the address» (56 000 less 21 000 on top, BUG-171 AC-T5)"
         );
     }
 

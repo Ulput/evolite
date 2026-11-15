@@ -721,8 +721,8 @@ pub struct UnfinishedAddressTopUp {
     /// as recorded then; after a restore from the phrase, where there is no record, the one the
     /// wallet shows now (BUG-171).
     pub address: String,
-    /// What Platform keeps of this lock, as far as is known: more without an InstantLock
-    /// (BUG-171). The address gets `locked` less this at least.
+    /// What Platform keeps of this lock: one estimate, whatever its proof (BUG-171 AC-T5). The
+    /// address gets `locked` less this at least.
     pub on_top: Duffs,
     /// Whether it holds a new top-up back until it is finished (AC-T5): no longer once its
     /// «Continue» failed in this run (BUG-160) — it is still offered beside a new one.

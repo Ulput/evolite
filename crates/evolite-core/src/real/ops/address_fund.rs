@@ -297,7 +297,7 @@ mod tests {
     #[test]
     fn a_refused_plan_reads_as_the_form_expects() {
         assert_eq!(
-            refusal(FundRefusal::BelowLeast { least: 36_000 }),
+            refusal(FundRefusal::BelowLeast { least: 35_000 }),
             CoreError::BadAmount
         );
         assert_eq!(
