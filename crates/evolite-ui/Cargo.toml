@@ -30,9 +30,13 @@ pool = ["real", "evolite-core/pool"]
 # Tools for screenshots and checks, off in the release: `--screen`, `--open`, `--screenshot`,
 # `--window`, `--demo`, `EVOLITE_SHOT_PASSWORD`, the Figma presets and the demo core beside
 # the real one. `cargo run --features dev-tools -- --screen overview`.
-dev-tools = ["evolite-core/demo", "evolite-core/dev-stops"]
+dev-tools = ["evolite-core/demo", "evolite-core/dev-stops", "dep:tracing", "dep:tracing-subscriber"]
 
 [dependencies]
+# dev-tools only: dash-spv's peer lines (bans among them) in `logs/spv-network.log` for QA
+# (SPV P0 r1 Should 1). The release installs no `tracing` subscriber.
+tracing = { version = "0.1", optional = true }
+tracing-subscriber = { version = "0.3.23", optional = true, default-features = false, features = ["std", "fmt", "registry"] }
 evolite-api = { path = "../evolite-api" }
 evolite-core = { path = "../evolite-core", default-features = false }
 evolite-render = { path = "../evolite-render" }

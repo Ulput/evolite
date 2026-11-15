@@ -1,0 +1,1037 @@
+diff --git a/dash-spv/src/sml_engine.rs b/dash-spv/src/sml_engine.rs
+index 169f3d2c..910d7d30 100644
+--- a/dash-spv/src/sml_engine.rs
++++ b/dash-spv/src/sml_engine.rs
+@@ -7,6 +7,7 @@ use std::sync::Arc;
+ 
+ use crate::error::{StorageError, StorageResult};
+ use crate::storage::BlockHeaderStorage;
++use crate::validation::MasternodeListValidator;
+ use dashcore::bls_sig_utils::BLSSignature;
+ use dashcore::hashes::Hash;
+ use dashcore::network::constants::NetworkExt;
+@@ -95,6 +96,7 @@ pub struct MasternodeListEngine<H: BlockHeaderStorage> {
+     pub masternode_lists: BTreeMap<CoreBlockHeight, MasternodeList>,
+     rotated_quorums_per_cycle: BTreeMap<BlockHash, BTreeMap<u16, QualifiedQuorumEntry>>,
+     network: Network,
++    validator: Option<MasternodeListValidator<H>>,
+ }
+ 
+ /// The most quorums of `llmq_type` a run of `blocks` blocks can add: one per
+@@ -236,11 +238,26 @@ impl<H: BlockHeaderStorage> Drop for QRInfoRollback<'_, H> {
+ impl<H: BlockHeaderStorage> MasternodeListEngine<H> {
+     /// An empty engine for `network` that looks block heights up in `headers`.
+     pub fn new(network: Network, headers: Arc<RwLock<H>>) -> Self {
++        let validator = MasternodeListValidator::new(Arc::clone(&headers));
++        Self::with_validator(network, headers, Some(validator))
++    }
++
++    #[cfg(any(test, feature = "test-utils"))]
++    pub fn new_without_validation(network: Network, headers: Arc<RwLock<H>>) -> Self {
++        Self::with_validator(network, headers, None)
++    }
++
++    fn with_validator(
++        network: Network,
++        headers: Arc<RwLock<H>>,
++        validator: Option<MasternodeListValidator<H>>,
++    ) -> Self {
+         Self {
+             headers,
+             masternode_lists: BTreeMap::new(),
+             rotated_quorums_per_cycle: BTreeMap::new(),
+             network,
++            validator,
+         }
+     }
+ 
+@@ -1005,9 +1022,23 @@ impl<H: BlockHeaderStorage> MasternodeListEngine<H> {
+         let base_block_hash = masternode_list_diff.base_block_hash;
+         let base_height = self.required_height_of(&base_block_hash).await?;
+         let diff_end_height = self.required_height_of(&block_hash).await?;
++
++        let coinbase_tx = match &self.validator {
++            Some(validator) => {
++                validator.validate_coinbase_proof(&masternode_list_diff, diff_end_height).await?;
++                Some(masternode_list_diff.coinbase_tx.clone())
++            }
++            None => None,
++        };
++
+         if base_height == 0 {
+             let masternode_list =
+                 MasternodeList::from_diff(masternode_list_diff, diff_end_height, self.network)?;
++
++            if let (Some(validator), Some(coinbase_tx)) = (&self.validator, &coinbase_tx) {
++                validator.validate_coinbase_roots(&masternode_list, coinbase_tx)?;
++            }
++
+             self.masternode_lists.insert(diff_end_height, masternode_list);
+             return Ok(());
+         }
+@@ -1017,6 +1048,11 @@ impl<H: BlockHeaderStorage> MasternodeListEngine<H> {
+         };
+         let masternode_list =
+             base_masternode_list.apply_diff(masternode_list_diff, diff_end_height, self.network)?;
++
++        if let (Some(validator), Some(coinbase_tx)) = (&self.validator, &coinbase_tx) {
++            validator.validate_coinbase_roots(&masternode_list, coinbase_tx)?;
++        }
++
+         // A quorum the diff brings may already have a status in another list.
+         let mut changes = Vec::new();
+         for (quorum_type, quorums) in masternode_list.quorums.iter() {
+@@ -1146,28 +1182,43 @@ pub(crate) mod test_support {
+             network: Network,
+             heights: HashMap<BlockHash, CoreBlockHeight>,
+         ) -> Self {
+-            Self::new(network, Arc::new(RwLock::new(MockHeaderStorage(heights))))
++            Self::new_without_validation(
++                network,
++                Arc::new(RwLock::new(MockHeaderStorage::new(heights))),
++            )
+         }
+ 
+         pub(crate) fn headers(&self) -> Arc<RwLock<MockHeaderStorage>> {
+             self.headers.clone()
+         }
+ 
++        /// Stands in for the headers a fixture lacks.
++        pub(crate) fn feed_merkle_roots<'a>(
++            &mut self,
++            diffs: impl IntoIterator<Item = &'a MnListDiff>,
++        ) {
++            let mut headers = self.headers.try_write().expect("unlocked");
++            for diff in diffs {
++                let merkle_root = diff.coinbase_merkle_root().expect("proves its coinbase");
++                headers.merkle_roots.insert(diff.block_hash, merkle_root);
++            }
++        }
++
+         pub(crate) fn feed_block_height(&mut self, height: CoreBlockHeight, block_hash: BlockHash) {
+-            self.headers.try_write().expect("unlocked").0.insert(block_hash, height);
++            self.headers.try_write().expect("unlocked").heights.insert(block_hash, height);
+         }
+ 
+         pub(crate) fn forget_block(&mut self, block_hash: &BlockHash) {
+-            self.headers.try_write().expect("unlocked").0.remove(block_hash);
++            self.headers.try_write().expect("unlocked").heights.remove(block_hash);
+         }
+ 
+         pub(crate) fn block_height(&self, block_hash: &BlockHash) -> Option<CoreBlockHeight> {
+-            self.headers.try_read().expect("unlocked").0.get(block_hash).copied()
++            self.headers.try_read().expect("unlocked").heights.get(block_hash).copied()
+         }
+ 
+         pub(crate) fn block_hash_at(&self, height: CoreBlockHeight) -> Option<BlockHash> {
+             let headers = self.headers.try_read().expect("unlocked");
+-            headers.0.iter().find(|(_, h)| **h == height).map(|(block_hash, _)| *block_hash)
++            headers.heights.iter().find(|(_, h)| **h == height).map(|(block_hash, _)| *block_hash)
+         }
+ 
+         /// Verifies `chain_lock` as the ChainLock manager does.
+@@ -1214,13 +1265,13 @@ pub(crate) mod test_support {
+ #[cfg(test)]
+ mod tests {
+     use super::test_support::{fixture_heights, quorum_entry, TestEngine};
+-    use super::{
+-        build_cycle_quorum_map, FeedError, MasternodeListEngine, QRInfoFeedResult, WORK_DIFF_DEPTH,
+-    };
++    use super::{build_cycle_quorum_map, qr_info_diffs};
++    use super::{FeedError, MasternodeListEngine, QRInfoFeedResult, WORK_DIFF_DEPTH};
+     use crate::error::{StorageError, StorageResult};
+     use crate::storage::{BlockHeaderStorage, BlockHeaderTip};
+     use crate::test_utils::MockHeaderStorage;
+     use crate::types::HashedBlockHeader;
++    use crate::validation::MasternodeListValidator;
+     use bincode::{config, decode_from_slice, Decode};
+     use dashcore::bls_sig_utils::{BLSPublicKey, BLSSignature};
+     use dashcore::consensus::deserialize;
+@@ -1236,6 +1287,7 @@ mod tests {
+     use dashcore::sml::llmq_type::network::NetworkLLMQExt;
+     use dashcore::sml::llmq_type::{LLMQType, QUORUM_MEMBER_LIST_OFFSET};
+     use dashcore::sml::masternode_list::MasternodeList;
++    use dashcore::sml::masternode_list_entry::MasternodeListEntry;
+     use dashcore::sml::quorum_entry::qualified_quorum_entry::{
+         QualifiedQuorumEntry, VerifyingChainLockSignaturesType,
+     };
+@@ -1246,6 +1298,7 @@ mod tests {
+     use std::sync::atomic::{AtomicUsize, Ordering};
+     use std::sync::Arc;
+     use std::time::Duration;
++    use test_case::test_case;
+     use tokio::sync::RwLock;
+ 
+     fn make_qualified_quorum_entry(
+@@ -1579,18 +1632,94 @@ mod tests {
+     /// engine state mirrors production cold start: empty masternode lists
+     /// over the captured header heights.
+     fn load_qrinfo_2518986_fixture() -> (TestEngine, QRInfo) {
+-        let engine = TestEngine::knowing(
++        let heights = fixture_heights(include_bytes!(
++            "../../dash/tests/data/test_DML_diffs/block_container_2518986.dat"
++        ));
++        let mut engine = TestEngine::new(
+             Network::Mainnet,
+-            fixture_heights(include_bytes!(
+-                "../../dash/tests/data/test_DML_diffs/block_container_2518986.dat"
+-            )),
++            Arc::new(RwLock::new(MockHeaderStorage::new(heights))),
+         );
+         let qr_info: QRInfo = decode_fixture(include_bytes!(
+             "../../dash/tests/data/test_DML_diffs/qrinfo_2518986.dat"
+         ));
++        engine.feed_merkle_roots(qr_info_diffs(&qr_info));
+         (engine, qr_info)
+     }
+ 
++    /// evolite (SPV P0, AC-T4): on the real mainnet QRInfo, a single forged diff is
++    /// refused against its block's coinbase (#1200) and the engine's lists stay as
++    /// they were — a masternode added, a quorum altered, a diff under another
++    /// block's hash. A forged diff inside a QRInfo: `validate_first_qr_info…`
++    /// («off its masternode list root») and
++    /// `a_forged_qr_info_leaves_the_engine_as_it_was` below.
++    #[test_case(0; "a masternode added")]
++    #[test_case(1; "a quorum altered")]
++    #[test_case(2; "under another block's hash")]
++    #[tokio::test]
++    async fn a_forged_mn_list_diff_is_refused_and_changes_nothing(forgery: u8) {
++        use dashcore::hash_types::QuorumVVecHash;
++        let (mut engine, qr_info) = load_qrinfo_2518986_fixture();
++        engine.feed_qr_info(qr_info.clone()).await.expect("the QRInfo as mined");
++        let lists = engine.masternode_lists.clone();
++
++        let (diff, refused) = match forgery {
++            0 => {
++                let mut diff = qr_info.mn_list_diff_tip.clone();
++                diff.new_masternodes.push(MasternodeListEntry::dummy(0x11));
++                let at = diff.block_hash;
++                (diff, SmlError::CoinbaseCommitmentMismatch(at))
++            }
++            1 => {
++                let mut diff = qr_info.mn_list_diff_h.clone();
++                let quorum = diff.new_quorums.first_mut().expect("diff h brings quorums");
++                quorum.quorum_vvec_hash = QuorumVVecHash::from_byte_array([0x22; 32]);
++                let at = diff.block_hash;
++                (diff, SmlError::CoinbaseCommitmentMismatch(at))
++            }
++            _ => {
++                let other = qr_info.mn_list_diff_h.block_hash;
++                let diff = MnListDiff {
++                    block_hash: other,
++                    ..qr_info.mn_list_diff_tip.clone()
++                };
++                (diff, SmlError::InvalidCoinbaseProof(other))
++            }
++        };
++
++        let result = engine.apply_diff(diff).await;
++
++        assert!(
++            matches!(&result, Err(FeedError::Refused(error)) if *error == refused),
++            "expected {refused:?}, got {result:?}"
++        );
++        assert!(engine.masternode_lists == lists, "a refused diff changes no list");
++    }
++
++    /// evolite (SPV P0, AC-T4): a QRInfo with one forged diff is refused and the
++    /// engine stays as it was.
++    #[tokio::test]
++    async fn a_forged_qr_info_leaves_the_engine_as_it_was() {
++        let (mut engine, mut qr_info) = load_qrinfo_2518986_fixture();
++        qr_info.mn_list_diff_at_h_minus_c.new_masternodes.push(MasternodeListEntry::dummy(0x33));
++        let at = qr_info.mn_list_diff_at_h_minus_c.block_hash;
++        let lists = engine.masternode_lists.clone();
++        let cycles = engine.rotated_quorums_per_cycle.clone();
++
++        let result = engine.feed_qr_info(qr_info).await;
++
++        assert!(
++            matches!(
++                result,
++                Err(FeedError::Refused(QuorumValidationError::SMLError(
++                    SmlError::CoinbaseCommitmentMismatch(hash)
++                ))) if hash == at
++            ),
++            "got {result:?}"
++        );
++        assert!(engine.masternode_lists == lists, "no list from a forged QRInfo");
++        assert!(engine.rotated_quorums_per_cycle == cycles, "nor a cycle");
++    }
++
+     /// A QRInfo the engine refuses leaves it as it was, so a retry against
+     /// another peer starts from the same lists, and no later message builds on
+     /// lists of a QRInfo that was never stored.
+@@ -1647,9 +1776,27 @@ mod tests {
+         );
+     }
+ 
++    #[test_case(true; "matching its commitments")]
++    #[test_case(false; "off its masternode list root")]
+     #[tokio::test]
+-    async fn validate_first_qr_info_on_fresh_engine_with_mixed_cycle_quorums() {
+-        let (mut engine, qr_info) = load_qrinfo_2518986_fixture();
++    async fn validate_first_qr_info_on_fresh_engine_with_mixed_cycle_quorums(committed: bool) {
++        let (mut engine, mut qr_info) = load_qrinfo_2518986_fixture();
++        if !committed {
++            let tip = &mut qr_info.mn_list_diff_tip;
++            tip.new_masternodes.push(MasternodeListEntry::dummy(0x11));
++            let tip_hash = tip.block_hash;
++            let result = engine.feed_qr_info(qr_info).await;
++            assert!(
++                matches!(
++                    result,
++                    Err(FeedError::Refused(QuorumValidationError::SMLError(
++                        SmlError::CoinbaseCommitmentMismatch(hash)
++                    ))) if hash == tip_hash
++                ),
++                "got {result:?}"
++            );
++            return;
++        }
+ 
+         // The fixture's active set mixes cycles: quorum index 0 carries the
+         // previous cycle's commitment (its DKG failed in the current cycle),
+@@ -2084,14 +2231,22 @@ mod tests {
+         unreadable: BlockHash,
+         readable: usize,
+     ) -> MasternodeListEngine<FailingFrom> {
++        let inner = {
++            let headers = engine.headers();
++            let headers = headers.try_read().expect("unlocked");
++            MockHeaderStorage {
++                heights: headers.heights.clone(),
++                merkle_roots: headers.merkle_roots.clone(),
++            }
++        };
+         let headers = Arc::new(RwLock::new(FailingFrom {
+-            inner: MockHeaderStorage(engine.headers().try_read().expect("unlocked").0.clone()),
++            inner,
+             unreadable,
+             readable,
+             reads: AtomicUsize::new(0),
+             hangs: false,
+         }));
+-        let mut failing = MasternodeListEngine::new(engine.network, headers);
++        let mut failing = MasternodeListEngine::new_without_validation(engine.network, headers);
+         failing.masternode_lists = engine.masternode_lists.clone();
+         failing.rotated_quorums_per_cycle = engine.rotated_quorums_per_cycle.clone();
+         failing
+@@ -2152,6 +2307,38 @@ mod tests {
+         }
+     }
+ 
++    /// Our header storage failing to read a diff's block while its coinbase
++    /// proof is checked fails the feed with `HeaderStorage` rather than
++    /// refusing the QRInfo, for every diff the QRInfo carries.
++    #[tokio::test]
++    async fn a_header_storage_failure_never_refuses_a_validated_qr_info() {
++        let (engine, qr_info) = load_qrinfo_2518986_fixture();
++        let blocks: Vec<BlockHash> =
++            qr_info_diffs(&qr_info).iter().map(|diff| diff.block_hash).collect();
++
++        for unreadable in blocks {
++            let validating = |readable| {
++                let mut failing = with_reads_failing(&engine, unreadable, readable);
++                failing.validator =
++                    Some(MasternodeListValidator::new(Arc::clone(&failing.headers)));
++                failing
++            };
++            let mut fed = validating(usize::MAX);
++            let result = fed.feed_qr_info(qr_info.clone()).await;
++            assert!(result.is_ok(), "the QRInfo feeds while the storage reads, got {result:?}");
++            let reads = fed.headers.read().await.reads.load(Ordering::Relaxed);
++            assert!(reads > 0, "the feed reads {unreadable}");
++            for readable in 0..reads {
++                let result = validating(readable).feed_qr_info(qr_info.clone()).await;
++                assert!(
++                    !matches!(result, Err(FeedError::Refused(_))),
++                    "reading {unreadable} failing from its read {readable} on refused the \
++                     QRInfo: {result:?}"
++                );
++            }
++        }
++    }
++
+     /// Stopping the client, as following a fork does, aborts a manager task
+     /// still running after a grace period, dropping a QRInfo feed part way.
+     /// That leaves the engine as it was, as a refusal does, so a run started
+diff --git a/dash-spv/src/storage/masternode.rs b/dash-spv/src/storage/masternode.rs
+index 4614d9bd..816c591e 100644
+--- a/dash-spv/src/storage/masternode.rs
++++ b/dash-spv/src/storage/masternode.rs
+@@ -53,6 +53,11 @@ pub struct PersistentMasternodeStorage<H: BlockHeaderStorage> {
+     network: Network,
+     diffs: IndexMap,
+     qr_infos: IndexMap,
++    /// evolite (SPV P0): a replay checks every stored message against its block's
++    /// coinbase, as the engine does live (#1200). Off only in tests of the replay's
++    /// own mechanics, whose made-up messages prove nothing.
++    #[cfg(test)]
++    validate: bool,
+ }
+ 
+ /// The stored messages as of when it was taken. A replay runs on this, so the
+@@ -62,6 +67,8 @@ pub struct MessageLog<H: BlockHeaderStorage> {
+     network: Network,
+     diffs: IndexMap,
+     qr_infos: IndexMap,
++    #[cfg(test)]
++    validate: bool,
+ }
+ 
+ impl<H: BlockHeaderStorage> PersistentMasternodeStorage<H> {
+@@ -84,9 +91,18 @@ impl<H: BlockHeaderStorage> PersistentMasternodeStorage<H> {
+             network,
+             diffs,
+             qr_infos,
++            #[cfg(test)]
++            validate: true,
+         })
+     }
+ 
++    /// For tests of the replay's mechanics on made-up messages (evolite, SPV P0).
++    #[cfg(test)]
++    pub(crate) fn without_validation(mut self) -> Self {
++        self.validate = false;
++        self
++    }
++
+     fn folder(&self) -> PathBuf {
+         self.storage_path.join(Self::FOLDER_NAME)
+     }
+@@ -157,6 +173,8 @@ impl<H: BlockHeaderStorage> PersistentMasternodeStorage<H> {
+             network: self.network,
+             diffs: self.diffs.clone(),
+             qr_infos: self.qr_infos.clone(),
++            #[cfg(test)]
++            validate: self.validate,
+         }
+     }
+ 
+@@ -176,7 +194,14 @@ impl<H: BlockHeaderStorage> MessageLog<H> {
+         until: CoreBlockHeight,
+         mut visit: impl FnMut(&MasternodeListEngine<H>),
+     ) -> MasternodeListEngine<H> {
++        // Checked as live (#1200): a stored message that fails is «does not apply»
++        // below, and the client asks the network for the lists again.
+         let mut engine = MasternodeListEngine::new(self.network, Arc::clone(&self.headers));
++        #[cfg(test)]
++        if !self.validate {
++            engine =
++                MasternodeListEngine::new_without_validation(self.network, Arc::clone(&self.headers));
++        }
+ 
+         let entries =
+             self.diffs.range(..=until).map(|(height, path)| (*height, Kind::Diff, path)).chain(
+@@ -389,11 +414,12 @@ mod tests {
+         let map = heights.iter().map(|(b, h)| (hash(*b), *h)).collect();
+         PersistentMasternodeStorage::open(
+             dir.path(),
+-            Arc::new(RwLock::new(MockHeaderStorage(map))),
++            Arc::new(RwLock::new(MockHeaderStorage::new(map))),
+             Network::Regtest,
+         )
+         .await
+         .expect("open")
++        .without_validation()
+     }
+ 
+     #[tokio::test]
+@@ -665,11 +691,12 @@ mod tests {
+         let heights = (1..=tip).map(|height| (BlockHash::dummy(height), height)).collect();
+         let storage = S::open(
+             dir.path(),
+-            Arc::new(RwLock::new(MockHeaderStorage(heights))),
++            Arc::new(RwLock::new(MockHeaderStorage::new(heights))),
+             Network::Regtest,
+         )
+         .await
+-        .unwrap();
++        .unwrap()
++        .without_validation();
+ 
+         let engine = storage.load_engine().await;
+         assert!(engine
+@@ -726,11 +753,12 @@ mod tests {
+         let dir = TempDir::new().unwrap();
+         let mut storage = PersistentMasternodeStorage::open(
+             dir.path(),
+-            Arc::new(RwLock::new(MockHeaderStorage(heights))),
++            Arc::new(RwLock::new(MockHeaderStorage::new(heights))),
+             Network::Mainnet,
+         )
+         .await
+-        .unwrap();
++        .unwrap()
++        .without_validation();
+         storage.store_qr_info(tip_height, &qr_info).await.unwrap();
+         let diff = MnListDiff {
+             base_block_hash: base,
+@@ -746,4 +774,56 @@ mod tests {
+             "the diff on the QRInfo's h-c list replays after the QRInfo"
+         );
+     }
++
++    /// evolite (SPV P0, #1200 on our storage): a replay checks every stored message
++    /// against its block's coinbase, as the engine does live. The real QRInfo replays;
++    /// the same one with a masternode added to its tip list «does not apply» — no list
++    /// for it, no panic — and the client asks the network again.
++    #[test_case(true; "as mined")]
++    #[test_case(false; "with a forged masternode")]
++    #[tokio::test]
++    async fn replay_checks_stored_messages_against_their_coinbase(honest: bool) {
++        use crate::sml_engine::qr_info_diffs;
++        use crate::sml_engine::test_support::fixture_heights;
++        use dashcore::network::constants::NetworkExt;
++        use dashcore::sml::masternode_list_entry::MasternodeListEntry;
++
++        let mut qr_info: QRInfo = bincode::decode_from_slice(
++            include_bytes!("../../../dash/tests/data/test_DML_diffs/qrinfo_2518986.dat"),
++            bincode::config::standard(),
++        )
++        .unwrap()
++        .0;
++        let mut heights = fixture_heights(include_bytes!(
++            "../../../dash/tests/data/test_DML_diffs/block_container_2518986.dat"
++        ));
++        heights.remove(&Network::Mainnet.known_genesis_block_hash().unwrap());
++        let tip_height = heights[&qr_info.mn_list_diff_tip.block_hash];
++        // The headers a synced client holds: each diff's block and its merkle root.
++        let mut headers = MockHeaderStorage::new(heights);
++        for diff in qr_info_diffs(&qr_info) {
++            headers.merkle_roots.insert(diff.block_hash, diff.coinbase_merkle_root().unwrap());
++        }
++        if !honest {
++            qr_info.mn_list_diff_tip.new_masternodes.push(MasternodeListEntry::dummy(0x11));
++        }
++
++        let dir = TempDir::new().unwrap();
++        let mut storage = PersistentMasternodeStorage::open(
++            dir.path(),
++            Arc::new(RwLock::new(headers)),
++            Network::Mainnet,
++        )
++        .await
++        .unwrap();
++        storage.store_qr_info(tip_height, &qr_info).await.unwrap();
++
++        let engine = storage.load_engine().await;
++
++        assert_eq!(
++            engine.masternode_lists.contains_key(&tip_height),
++            honest,
++            "a stored QRInfo replays only as mined"
++        );
++    }
+ }
+diff --git a/dash-spv/src/sync/masternodes/sync_manager.rs b/dash-spv/src/sync/masternodes/sync_manager.rs
+index 8272c1e9..b8a9c921 100644
+--- a/dash-spv/src/sync/masternodes/sync_manager.rs
++++ b/dash-spv/src/sync/masternodes/sync_manager.rs
+@@ -737,7 +737,10 @@ mod tests {
+             )
+             .await
+             .unwrap();
+-        let engine = MasternodeListEngine::new(Network::Regtest, Arc::clone(&block_headers));
++        let engine = MasternodeListEngine::new_without_validation(
++            Network::Regtest,
++            Arc::clone(&block_headers),
++        );
+         let mut manager = MasternodesManager::new(
+             block_headers,
+             Arc::new(RwLock::new(engine)),
+@@ -811,7 +814,10 @@ mod tests {
+             .await
+             .unwrap();
+         let hashes: Vec<BlockHash> = headers.iter().map(|header| header.block_hash()).collect();
+-        let mut engine = MasternodeListEngine::new(Network::Regtest, Arc::clone(&block_headers));
++        let mut engine = MasternodeListEngine::new_without_validation(
++            Network::Regtest,
++            Arc::clone(&block_headers),
++        );
+         for list in lists(&hashes) {
+             engine.masternode_lists.insert(list.known_height, list);
+         }
+diff --git a/dash-spv/src/test_utils/header_storage.rs b/dash-spv/src/test_utils/header_storage.rs
+index 85bbb216..33c8d843 100644
+--- a/dash-spv/src/test_utils/header_storage.rs
++++ b/dash-spv/src/test_utils/header_storage.rs
+@@ -3,7 +3,7 @@ use std::ops::Range;
+ 
+ use async_trait::async_trait;
+ use dashcore::block::Header as BlockHeader;
+-use dashcore::BlockHash;
++use dashcore::{BlockHash, TxMerkleNode};
+ 
+ use crate::error::StorageResult;
+ use crate::storage::{BlockHeaderStorage, BlockHeaderTip};
+@@ -11,8 +11,21 @@ use crate::types::HashedBlockHeader;
+ 
+ /// A [`BlockHeaderStorage`] that answers hash and height lookups from a map
+ /// and nothing else. A header it returns carries the mapped hash on a dummy
+-/// header. Everything else is inert.
+-pub struct MockHeaderStorage(pub HashMap<BlockHash, u32>);
++/// header, with its mapped merkle root if any. Everything else is inert.
++#[derive(Default)]
++pub struct MockHeaderStorage {
++    pub heights: HashMap<BlockHash, u32>,
++    pub merkle_roots: HashMap<BlockHash, TxMerkleNode>,
++}
++
++impl MockHeaderStorage {
++    pub fn new(heights: HashMap<BlockHash, u32>) -> Self {
++        Self {
++            heights,
++            merkle_roots: HashMap::new(),
++        }
++    }
++}
+ 
+ #[async_trait]
+ impl BlockHeaderStorage for MockHeaderStorage {
+@@ -42,15 +55,19 @@ impl BlockHeaderStorage for MockHeaderStorage {
+         0
+     }
+     async fn get_header(&self, height: u32) -> StorageResult<Option<HashedBlockHeader>> {
+-        Ok(self.0.iter().find(|(_, h)| **h == height).map(|(hash, _)| {
+-            HashedBlockHeader::with_trusted_hash(BlockHeader::dummy(height), *hash)
++        Ok(self.heights.iter().find(|(_, h)| **h == height).map(|(hash, _)| {
++            let mut header = BlockHeader::dummy(height);
++            if let Some(merkle_root) = self.merkle_roots.get(hash) {
++                header.merkle_root = *merkle_root;
++            }
++            HashedBlockHeader::with_trusted_hash(header, *hash)
+         }))
+     }
+     async fn get_header_height_by_hash(&self, hash: &BlockHash) -> StorageResult<Option<u32>> {
+-        Ok(self.0.get(hash).copied())
++        Ok(self.heights.get(hash).copied())
+     }
+     async fn truncate_above(&mut self, target_height: u32) -> StorageResult<()> {
+-        self.0.retain(|_, h| *h <= target_height);
++        self.heights.retain(|_, h| *h <= target_height);
+         Ok(())
+     }
+ }
+diff --git a/dash-spv/src/validation/masternode_list.rs b/dash-spv/src/validation/masternode_list.rs
+new file mode 100644
+index 00000000..a9fcc7b0
+--- /dev/null
++++ b/dash-spv/src/validation/masternode_list.rs
+@@ -0,0 +1,59 @@
++use std::sync::Arc;
++
++use dashcore::network::message_sml::MnListDiff;
++use dashcore::prelude::CoreBlockHeight;
++use dashcore::sml::error::SmlError;
++use dashcore::sml::masternode_list::MasternodeList;
++use dashcore::Transaction;
++use tokio::sync::RwLock;
++
++use crate::sml_engine::FeedError;
++use crate::storage::BlockHeaderStorage;
++
++/// Validates a masternode list diff against its block: its merkle proof must
++/// prove its coinbase in the stored header, and the list it builds must hash
++/// to the roots that coinbase commits to.
++pub struct MasternodeListValidator<H: BlockHeaderStorage> {
++    headers: Arc<RwLock<H>>,
++}
++
++impl<H: BlockHeaderStorage> MasternodeListValidator<H> {
++    pub fn new(headers: Arc<RwLock<H>>) -> Self {
++        Self {
++            headers,
++        }
++    }
++
++    /// Fails with `HeaderStorage` when the header cannot be read, and refuses
++    /// the diff when its block is not the one stored at `height` or its proof
++    /// does not match the header's merkle root.
++    pub async fn validate_coinbase_proof(
++        &self,
++        diff: &MnListDiff,
++        height: CoreBlockHeight,
++    ) -> Result<(), FeedError<SmlError>> {
++        let header = self
++            .headers
++            .read()
++            .await
++            .get_header(height)
++            .await
++            .map_err(FeedError::HeaderStorage)?
++            .filter(|header| *header.hash() == diff.block_hash)
++            .ok_or(SmlError::BlockHashLookupFailed(diff.block_hash))?;
++
++        if diff.coinbase_merkle_root()? != header.header().merkle_root {
++            return Err(SmlError::InvalidCoinbaseProof(diff.block_hash).into());
++        }
++
++        Ok(())
++    }
++
++    pub fn validate_coinbase_roots(
++        &self,
++        masternode_list: &MasternodeList,
++        coinbase_tx: &Transaction,
++    ) -> Result<(), SmlError> {
++        masternode_list.verify_coinbase_roots(coinbase_tx)
++    }
++}
+diff --git a/dash-spv/src/validation/mod.rs b/dash-spv/src/validation/mod.rs
+index 46ee7dd3..52e6275a 100644
+--- a/dash-spv/src/validation/mod.rs
++++ b/dash-spv/src/validation/mod.rs
+@@ -5,12 +5,14 @@ mod chainlock;
+ mod filter;
+ mod header;
+ mod instantlock;
++mod masternode_list;
+ 
+ pub use block::BlockValidator;
+ pub use chainlock::ChainLockValidator;
+ pub use filter::{FilterValidationInput, FilterValidator};
+ pub use header::BlockHeaderValidator;
+ pub use instantlock::{InstantLockStructureValidator, InstantLockValidator};
++pub use masternode_list::MasternodeListValidator;
+ 
+ use crate::error::ValidationResult;
+ 
+diff --git a/dash/src/merkle_tree/block.rs b/dash/src/merkle_tree/block.rs
+index 5dfd9e6a..fb96ba00 100644
+--- a/dash/src/merkle_tree/block.rs
++++ b/dash/src/merkle_tree/block.rs
+@@ -50,6 +50,7 @@ use crate::blockdata::transaction::Transaction;
+ use crate::consensus::encode::{self, Decodable, Encodable};
+ use crate::hash_types::{TxMerkleNode, Txid};
+ use crate::io;
++use crate::network::message_sml::MnListDiff;
+ use crate::prelude::*;
+ 
+ /// Data structure that represents a block header paired to a partial merkle tree.
+@@ -208,6 +209,34 @@ pub struct PartialMerkleTree {
+ }
+ 
+ impl PartialMerkleTree {
++    /// Constructs a partial merkle tree from the given `MnListDiff`.
++    pub fn from_mn_list_diff(mn_list_diff: &MnListDiff) -> Self {
++        PartialMerkleTree::from_parts(
++            mn_list_diff.total_transactions,
++            mn_list_diff
++                .merkle_hashes
++                .iter()
++                .map(|hash| TxMerkleNode::from_raw_hash(hash.to_raw_hash()))
++                .collect(),
++            &mn_list_diff.merkle_flags,
++        )
++    }
++
++    /// `bytes` packs the bits per 8 in a byte, least significant bit first.
++    fn from_parts(num_transactions: u32, hashes: Vec<TxMerkleNode>, bytes: &[u8]) -> Self {
++        let mut bits: Vec<bool> = vec![false; bytes.len() * 8];
++
++        for (p, bit) in bits.iter_mut().enumerate() {
++            *bit = (bytes[p / 8] & (1 << (p % 8) as u8)) != 0;
++        }
++
++        PartialMerkleTree {
++            num_transactions,
++            bits,
++            hashes,
++        }
++    }
++
+     /// Returns the total number of transactions in the block.
+     pub fn num_transactions(&self) -> u32 {
+         self.num_transactions
+@@ -456,16 +485,7 @@ impl Decodable for PartialMerkleTree {
+         let hashes: Vec<TxMerkleNode> = Decodable::consensus_decode(r)?;
+ 
+         let bytes: Vec<u8> = Decodable::consensus_decode(r)?;
+-        let mut bits: Vec<bool> = vec![false; bytes.len() * 8];
+-
+-        for (p, bit) in bits.iter_mut().enumerate() {
+-            *bit = (bytes[p / 8] & (1 << (p % 8) as u8)) != 0;
+-        }
+-        Ok(PartialMerkleTree {
+-            num_transactions,
+-            hashes,
+-            bits,
+-        })
++        Ok(PartialMerkleTree::from_parts(num_transactions, hashes, &bytes))
+     }
+ }
+ 
+diff --git a/dash/src/network/message_sml.rs b/dash/src/network/message_sml.rs
+index e3d206d9..0740e6e0 100644
+--- a/dash/src/network/message_sml.rs
++++ b/dash/src/network/message_sml.rs
+@@ -2,8 +2,10 @@
+ use bincode::{Decode, Encode};
+ 
+ use crate::bls_sig_utils::BLSSignature;
+-use crate::hash_types::MerkleRootMasternodeList;
++use crate::hash_types::{MerkleRootMasternodeList, TxMerkleNode};
+ use crate::internal_macros::impl_consensus_encoding;
++use crate::merkle_tree::PartialMerkleTree;
++use crate::sml::error::SmlError;
+ use crate::sml::llmq_type::LLMQType;
+ use crate::sml::masternode_list_entry::MasternodeListEntry;
+ use crate::transaction::special_transaction::quorum_commitment::QuorumEntry;
+@@ -76,6 +78,26 @@ impl_consensus_encoding!(
+     quorums_chainlock_signatures
+ );
+ 
++impl MnListDiff {
++    /// The block merkle root the proof yields, once it proves `coinbase_tx` first.
++    pub fn coinbase_merkle_root(&self) -> Result<TxMerkleNode, SmlError> {
++        let proof = PartialMerkleTree::from_mn_list_diff(self);
++
++        let mut matches = vec![];
++        let mut indexes = vec![];
++
++        let root = proof
++            .extract_matches(&mut matches, &mut indexes)
++            .map_err(|_| SmlError::InvalidCoinbaseProof(self.block_hash))?;
++
++        if matches != [self.coinbase_tx.txid()] || indexes != [0] {
++            return Err(SmlError::InvalidCoinbaseProof(self.block_hash));
++        }
++
++        Ok(root)
++    }
++}
++
+ #[derive(PartialEq, Eq, Clone, Debug)]
+ #[cfg_attr(feature = "bincode", derive(Encode, Decode))]
+ #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+@@ -100,9 +122,30 @@ impl_consensus_encoding!(DeletedQuorum, llmq_type, quorum_hash);
+ mod tests {
+     use assert_matches::assert_matches;
+ 
++    use test_case::test_case;
++
+     use crate::consensus::{deserialize, serialize};
+     use crate::network::message::{NetworkMessage, RawNetworkMessage};
+     use crate::network::message_sml::MnListDiff;
++    use crate::sml::error::SmlError;
++
++    #[test_case(|_| {}, true; "proving its coinbase")]
++    #[test_case(|diff| diff.coinbase_tx.lock_time += 1, false; "of another coinbase")]
++    #[test_case(|diff| diff.merkle_flags.clear(), false; "malformed")]
++    fn coinbase_merkle_root(tamper: fn(&mut MnListDiff), proves: bool) {
++        let mut diff: MnListDiff = deserialize(include_bytes!(
++            "../../tests/data/test_DML_diffs/mn_list_diff_0_2227096.bin"
++        ))
++        .expect("expected to deserialize");
++        tamper(&mut diff);
++
++        let result = diff.coinbase_merkle_root();
++
++        assert_eq!(result.is_ok(), proves);
++        if !proves {
++            assert_eq!(result, Err(SmlError::InvalidCoinbaseProof(diff.block_hash)));
++        }
++    }
+ 
+     #[test]
+     fn deserialize_mn_list_diff() {
+diff --git a/dash/src/sml/error.rs b/dash/src/sml/error.rs
+index 5005ee77..2543cebf 100644
+--- a/dash/src/sml/error.rs
++++ b/dash/src/sml/error.rs
+@@ -42,4 +42,10 @@ pub enum SmlError {
+     /// Error indicating the quorum signature set is incomplete (some slots were not filled).
+     #[error("Incomplete quorum signature set; not all slots were filled")]
+     IncompleteSignatureSet,
++
++    #[error("The MnListDiff merkle proof does not prove the coinbase of block {0}")]
++    InvalidCoinbaseProof(BlockHash),
++
++    #[error("The coinbase of block {0} does not commit to the lists the MnListDiff builds")]
++    CoinbaseCommitmentMismatch(BlockHash),
+ }
+diff --git a/dash/src/sml/masternode_list/from_diff.rs b/dash/src/sml/masternode_list/from_diff.rs
+index 0b756457..029a2a4c 100644
+--- a/dash/src/sml/masternode_list/from_diff.rs
++++ b/dash/src/sml/masternode_list/from_diff.rs
+@@ -95,15 +95,7 @@ impl MasternodeList {
+             },
+         );
+ 
+-        // Construct `MasternodeList`
+-        Ok(MasternodeList {
+-            block_hash: diff.block_hash,
+-            known_height,
+-            masternode_merkle_root: diff.merkle_hashes.first().cloned(),
+-            llmq_merkle_root: None, // Adjust based on real data availability
+-            masternodes: masternodes.into(),
+-            quorums: quorums.into(),
+-        })
++        Ok(MasternodeList::build(masternodes, quorums, diff.block_hash, known_height).build())
+     }
+ }
+ 
+diff --git a/dash/src/sml/masternode_list/merkle_roots.rs b/dash/src/sml/masternode_list/merkle_roots.rs
+index 1d4e4bcb..4ba79c53 100644
+--- a/dash/src/sml/masternode_list/merkle_roots.rs
++++ b/dash/src/sml/masternode_list/merkle_roots.rs
+@@ -2,6 +2,7 @@ use hashes::{Hash, sha256d};
+ 
+ use crate::Transaction;
+ use crate::hash_types::{MerkleRootMasternodeList, MerkleRootQuorums};
++use crate::sml::error::SmlError;
+ use crate::sml::masternode_list::MasternodeList;
+ use crate::transaction::special_transaction::TransactionPayload;
+ 
+@@ -44,66 +45,34 @@ pub fn merkle_root_from_hashes(hashes: Vec<sha256d::Hash>) -> Option<sha256d::Ha
+ }
+ 
+ impl MasternodeList {
+-    /// Validates whether the stored masternode list Merkle root matches the one in the coinbase transaction.
+-    ///
+-    /// This function compares the calculated masternode Merkle root with the one provided
+-    /// in the coinbase transaction payload to verify the integrity of the masternode list.
+-    ///
+-    /// # Parameters
+-    ///
+-    /// - `coinbase_transaction`: The coinbase transaction containing the expected Merkle root.
+-    ///
+-    /// # Returns
+-    ///
+-    /// - `true` if the Merkle root matches.
+-    /// - `false` otherwise.
+-    pub fn has_valid_mn_list_root(&self, coinbase_transaction: &Transaction) -> bool {
++    /// The quorum root is in the coinbase payload from its version 2. An empty
++    /// list hashes to the all-zero root, as in Dash Core.
++    pub fn verify_coinbase_roots(
++        &self,
++        coinbase_transaction: &Transaction,
++    ) -> Result<(), SmlError> {
+         let Some(TransactionPayload::CoinbasePayloadType(coinbase_payload)) =
+             &coinbase_transaction.special_transaction_payload
+         else {
+-            return false;
++            return Err(SmlError::CoinbaseCommitmentMismatch(self.block_hash));
+         };
+-        // we need to check that the coinbase is in the transaction hashes we got back
+-        // and is in the merkle block
+-        if let Some(mn_merkle_root) = self.masternode_merkle_root {
+-            coinbase_payload.merkle_root_masternode_list == mn_merkle_root
+-        } else {
+-            false
+-        }
+-    }
+ 
+-    /// Validates whether the stored LLMQ list Merkle root matches the one in the coinbase transaction.
+-    ///
+-    /// This function compares the calculated quorum Merkle root with the one provided
+-    /// in the coinbase transaction payload to verify the integrity of the quorum list.
+-    ///
+-    /// # Parameters
+-    ///
+-    /// - `coinbase_transaction`: The coinbase transaction containing the expected Merkle root.
+-    ///
+-    /// # Returns
+-    ///
+-    /// - `true` if the Merkle root matches.
+-    /// - `false` otherwise.
+-    pub fn has_valid_llmq_list_root(&self, coinbase_transaction: &Transaction) -> bool {
+-        let Some(TransactionPayload::CoinbasePayloadType(coinbase_payload)) =
+-            &coinbase_transaction.special_transaction_payload
+-        else {
+-            return false;
+-        };
++        let calculated = self
++            .calculate_masternodes_merkle_root(self.known_height)
++            .unwrap_or_else(MerkleRootMasternodeList::all_zeros);
++        if calculated != coinbase_payload.merkle_root_masternode_list {
++            return Err(SmlError::CoinbaseCommitmentMismatch(self.block_hash));
++        }
+ 
+-        let q_merkle_root = self.llmq_merkle_root;
+-        let coinbase_merkle_root_quorums = coinbase_payload.merkle_root_quorums;
+-        let has_valid_quorum_list_root =
+-            q_merkle_root.is_some() && coinbase_merkle_root_quorums == q_merkle_root.unwrap();
+-        if !has_valid_quorum_list_root {
+-            // warn!("LLMQ Merkle root not valid for DML on block {} version {} ({:?} wanted - {:?} calculated)",
+-            //          tx.height,
+-            //          tx.base.version,
+-            //          tx.merkle_root_llmq_list.map(|q| q.to_hex()).unwrap_or("None".to_string()),
+-            //          self.llmq_merkle_root.map(|q| q.to_hex()).unwrap_or("None".to_string()));
++        if coinbase_payload.version >= 2 {
++            let calculated =
++                self.calculate_llmq_merkle_root().unwrap_or_else(MerkleRootQuorums::all_zeros);
++            if calculated != coinbase_payload.merkle_root_quorums {
++                return Err(SmlError::CoinbaseCommitmentMismatch(self.block_hash));
++            }
+         }
+-        has_valid_quorum_list_root
++
++        Ok(())
+     }
+ 
+     /// Computes the Merkle root for the masternode list at a given block height.
+@@ -184,3 +153,61 @@ impl MasternodeList {
+         llmq_commitment_hashes
+     }
+ }
++
++#[cfg(test)]
++mod tests {
++    use hashes::Hash;
++    use test_case::test_case;
++
++    use crate::consensus::deserialize;
++    use crate::hash_types::{MerkleRootMasternodeList, MerkleRootQuorums};
++    use crate::network::message_sml::MnListDiff;
++    use crate::sml::error::SmlError;
++    use crate::sml::masternode_list::MasternodeList;
++    use crate::transaction::special_transaction::TransactionPayload;
++    use crate::transaction::special_transaction::coinbase::CoinbasePayload;
++    use crate::{BlockHash, Network};
++
++    #[test_case(|_| {}, None; "matching")]
++    #[test_case(
++        |payload| payload.merkle_root_masternode_list = MerkleRootMasternodeList::all_zeros(),
++        Some(SmlError::CoinbaseCommitmentMismatch);
++        "off the masternode list root"
++    )]
++    #[test_case(
++        |payload| payload.merkle_root_quorums = MerkleRootQuorums::all_zeros(),
++        Some(SmlError::CoinbaseCommitmentMismatch);
++        "off the quorum list root"
++    )]
++    #[test_case(
++        |payload| {
++            payload.version = 1;
++            payload.merkle_root_quorums = MerkleRootQuorums::all_zeros();
++        },
++        None;
++        "a version 1 coinbase committing to no quorums"
++    )]
++    fn verify_coinbase_roots(
++        tamper: fn(&mut CoinbasePayload),
++        error: Option<fn(BlockHash) -> SmlError>,
++    ) {
++        let diff: MnListDiff = deserialize(include_bytes!(
++            "../../../tests/data/test_DML_diffs/mn_list_diff_0_2227096.bin"
++        ))
++        .expect("expected to deserialize");
++        let mut coinbase = diff.coinbase_tx.clone();
++        let list = MasternodeList::from_diff(diff, 2_227_096, Network::Mainnet).expect("builds");
++        let Some(TransactionPayload::CoinbasePayloadType(payload)) =
++            &mut coinbase.special_transaction_payload
++        else {
++            panic!("coinbase payload");
++        };
++        // The capture's masternodes do not hash to its coinbase's root, its quorums do.
++        payload.merkle_root_masternode_list = list.masternode_merkle_root.expect("masternodes");
++        tamper(payload);
++
++        let result = list.verify_coinbase_roots(&coinbase);
++
++        assert_eq!(result, error.map_or(Ok(()), |error| Err(error(list.block_hash))));
++    }
++}

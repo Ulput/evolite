@@ -22,7 +22,6 @@ use crate::sync::{
 };
 use crate::types::HashedBlockHeader;
 use crate::validation::{BlockHeaderValidator, Validator};
-#[cfg(test)]
 use dashcore::block::Header;
 use dashcore::ephemerealdata::chain_lock::ChainLock;
 use dashcore::network::message_blockdata::Inventory;
@@ -113,27 +112,39 @@ impl<H: BlockHeaderStorage, M: MetadataStorage> BlockHeadersManager<H, M> {
             .ok_or_else(|| SyncError::MissingDependency("storage not initialized".to_string()))
     }
 
-    /// Validate and store headers batch.
-    async fn store_headers(&mut self, headers: &[HashedBlockHeader]) -> SyncResult<BlockHeaderTip> {
-        debug_assert!(!headers.is_empty());
-
-        // Validate batch for internal continuity, PoW and difficulty
-        let tip = self.tip().await?;
+    /// The stored headers up to `height` the next one's difficulty is computed from.
+    async fn ancestors(&self, height: u32) -> SyncResult<Vec<Header>> {
         let storage = self.header_storage.read().await;
 
         // A storage started at a checkpoint holds less history than a full window.
-        let first = tip
-            .height()
+        let first = height
             .saturating_sub(DGW_PAST_BLOCKS as u32 - 1)
             .max(storage.get_start_height().await.unwrap_or(0));
 
-        let ancestors = storage.load_headers(first..tip.height() + 1).await?;
+        let headers = storage.load_headers(first..height + 1).await?;
+        Ok(headers.iter().map(|header| *header.header()).collect())
+    }
 
-        drop(storage);
+    /// Height and ancestors of the block `headers` extend, a stored block or a
+    /// segment's tip. `None` if it's neither, as then nothing follows from them.
+    async fn attach_point(
+        &self,
+        headers: &[HashedBlockHeader],
+    ) -> SyncResult<Option<(u32, Vec<Header>)>> {
+        let Some(first) = headers.first() else {
+            return Ok(None);
+        };
+        let parent = first.header().prev_blockhash;
+        let height = self.header_storage.read().await.get_header_height_by_hash(&parent).await?;
+        match height {
+            Some(height) => Ok(Some((height, self.ancestors(height).await?))),
+            None => Ok(self.pipeline.segment_ancestors(&parent)),
+        }
+    }
 
-        let ancestors = ancestors.iter().map(|header| *header.header()).collect();
-
-        BlockHeaderValidator::new(self.network, ancestors, tip.height()).validate(headers)?;
+    /// Store an already validated headers batch.
+    async fn store_headers(&mut self, headers: &[HashedBlockHeader]) -> SyncResult<BlockHeaderTip> {
+        debug_assert!(!headers.is_empty());
 
         // Store headers
         self.header_storage.write().await.store_headers(headers).await?;
@@ -150,6 +161,7 @@ impl<H: BlockHeaderStorage, M: MetadataStorage> BlockHeadersManager<H, M> {
     /// Handle incoming headers message (used for both initial sync and post-sync).
     pub(super) async fn handle_headers_pipeline(
         &mut self,
+        peer: SocketAddr,
         headers: &[HashedBlockHeader],
         requests: &RequestSender,
     ) -> SyncResult<Vec<SyncEvent>> {
@@ -161,6 +173,19 @@ impl<H: BlockHeaderStorage, M: MetadataStorage> BlockHeadersManager<H, M> {
 
         let was_syncing = self.state() == SyncState::Syncing;
         let tip_was_complete = self.pipeline.is_tip_complete();
+
+        // evolite (SPV P0): validated against the stored block or the segment tip they extend
+        // before routing (#1304), so a fork is never detected on headers nobody checked.
+        if let Some((height, ancestors)) = self.attach_point(headers).await? {
+            if let Err(e) = BlockHeaderValidator::new(self.network, ancestors, height).validate(headers)
+            {
+                // The peer that sent them is banned, as #1304 does — here an evolite
+                // adaptation through `RequestSender` (#1304 bans through the #902 network).
+                // Only for headers that fail validation: never on a timeout or a disconnect.
+                let _ = requests.ban_peer(peer, &format!("invalid block headers: {e}"));
+                return Err(e.into());
+            }
+        }
 
         // Route headers to the pipeline, validates checkpoint match.
         let matched = self.pipeline.receive_headers(headers)?;
@@ -501,6 +526,124 @@ mod tests {
         );
     }
 
+    /// Headers are validated as they arrive, on the tip or branching off below it:
+    /// invalid ones are neither stored nor followed, and their peer is banned.
+    #[test_case(4, true; "valid on the tip")]
+    #[test_case(4, false; "invalid on the tip")]
+    #[test_case(2, true; "valid fork")]
+    #[test_case(2, false; "invalid fork")]
+    #[tokio::test]
+    async fn test_received_headers_are_validated(parent: usize, valid: bool) {
+        let mut storage = DiskStorageManager::with_temp_dir().await.unwrap();
+        let chain: Vec<HashedBlockHeader> = Header::dummy_chain(5, BlockHash::dummy(0))
+            .iter()
+            .map(HashedBlockHeader::from)
+            .collect();
+        storage.store_headers(&chain).await.unwrap();
+        let mut manager = BlockHeadersManager::new(
+            storage.block_headers(),
+            storage.metadata(),
+            create_test_checkpoint_manager(),
+            Network::Regtest,
+        )
+        .await
+        .unwrap();
+        manager.pipeline.init(4, *chain[4].hash(), 4);
+        // evolite (SPV P0): synced as our pipeline has it, so a header on the tip is taken unasked.
+        manager.pipeline.mark_tip_complete();
+        manager.progress.set_state(SyncState::Synced);
+
+        let parent_hash = *chain[parent].hash();
+        let header = if valid {
+            Header::dummy_chain(1, parent_hash)[0]
+        } else {
+            Header {
+                prev_blockhash: parent_hash,
+                ..Header::dummy(5)
+            }
+        };
+        // evolite (SPV P0): our network is not #902's; the requests, the ban among them
+        // (evolite-fork-ban.patch), go through a `RequestSender`.
+        let (requests, mut rx) = create_test_request_sender();
+
+        let result = manager.handle_headers_pipeline(peer(), &[header.into()], &requests).await;
+
+        assert_eq!(result.is_ok(), valid, "{result:?}");
+        let mut banned = Vec::new();
+        while let Ok(request) = rx.try_recv() {
+            if let NetworkRequest::BanPeer(address, _) = request {
+                banned.push(address);
+            }
+        }
+        assert_eq!(banned, if valid { vec![] } else { vec![peer()] });
+        let forked = result.is_ok_and(|events| {
+            events.iter().any(|event| matches!(event, SyncEvent::ForkDetected { .. }))
+        });
+        assert_eq!(forked, valid && parent < 4);
+        let tip = if valid && parent == 4 {
+            5
+        } else {
+            4
+        };
+        assert_eq!(manager.tip().await.unwrap().height(), tip);
+    }
+
+    /// evolite (SPV P0, AC-T5): on the 30 real mainnet headers 1999976–2000005, a fork
+    /// off block 2000000 (the first with Dark Gravity Wave's 24 headers of history
+    /// stored below it) whose header has its own proof of work but a difficulty made
+    /// easier is refused before routing: no ForkDetected, the tip stays, the peer is
+    /// banned. Its header as mined (the real 2000001, already stored) is no fork.
+    #[tokio::test]
+    async fn a_mainnet_fork_easier_than_dgw_is_refused_and_its_peer_banned() {
+        let chain: Vec<HashedBlockHeader> =
+            Header::mainnet_fixture().iter().map(HashedBlockHeader::from).collect();
+        let first = 1_999_976;
+        let mut storage = DiskStorageManager::with_temp_dir().await.unwrap();
+        storage.store_headers_at_height(&chain, first).await.unwrap();
+        let mut manager = BlockHeadersManager::new(
+            storage.block_headers(),
+            storage.metadata(),
+            create_test_checkpoint_manager(),
+            Network::Mainnet,
+        )
+        .await
+        .unwrap();
+        let tip = first + chain.len() as u32 - 1;
+        manager.pipeline.init(tip, *chain[chain.len() - 1].hash(), tip);
+        manager.pipeline.mark_tip_complete();
+        manager.progress.set_state(SyncState::Synced);
+
+        // A sibling of the real 2000001: regtest-easy bits and a nonce found for them,
+        // so its proof of work holds and only the difficulty check can refuse it.
+        let mut forged = *chain[25].header();
+        forged.bits = dashcore::CompactTarget::from_consensus(0x207f_ffff);
+        while !forged.target().is_met_by(forged.block_hash()) {
+            forged.nonce = forged.nonce.wrapping_add(1);
+        }
+        assert_eq!(forged.prev_blockhash, *chain[24].hash(), "forked off 2000000");
+        let (requests, mut rx) = create_test_request_sender();
+
+        let result = manager.handle_headers_pipeline(peer(), &[forged.into()], &requests).await;
+
+        assert!(
+            format!("{result:?}").contains("ifficulty"),
+            "refused for its difficulty (DGW): {result:?}"
+        );
+        let mut banned = Vec::new();
+        while let Ok(request) = rx.try_recv() {
+            if let NetworkRequest::BanPeer(address, _) = request {
+                banned.push(address);
+            }
+        }
+        assert_eq!(banned, vec![peer()], "its peer banned");
+        assert_eq!(manager.tip().await.unwrap().height(), tip, "the tip stays");
+    }
+
+    /// The peer headers come from in these tests.
+    fn peer() -> SocketAddr {
+        "1.2.3.4:9999".parse().unwrap()
+    }
+
     /// Create a manager in synced state with an initialized pipeline.
     async fn create_synced_manager() -> TestBlockHeadersManager {
         let mut manager = create_test_manager().await;
@@ -642,7 +785,7 @@ mod tests {
             .map(HashedBlockHeader::from)
             .collect::<Vec<_>>();
 
-        let events = manager.handle_headers_pipeline(&headers, &sender).await.unwrap();
+        let events = manager.handle_headers_pipeline(peer(), &headers, &sender).await.unwrap();
 
         // Header should have been stored
         assert_eq!(events.len(), 1);
@@ -703,7 +846,7 @@ mod tests {
         manager.progress.set_state(SyncState::Syncing);
 
         let (requests, mut rx) = create_test_request_sender();
-        let events = manager.handle_headers_pipeline(&[chain[0].into()], &requests).await.unwrap();
+        let events = manager.handle_headers_pipeline(peer(), &[chain[0].into()], &requests).await.unwrap();
 
         assert_eq!(events.len(), ACTIVE_SEGMENT_WINDOW);
         match rx.try_recv().expect("response cycle did not refill active window") {
@@ -806,7 +949,7 @@ mod tests {
         // segment's current_tip_hash to advanced_hash.
         let header = Header::dummy_chain(1, initial_locator).remove(0);
         let advanced_hash = header.block_hash();
-        manager.handle_headers_pipeline(&[header.into()], &requests).await.unwrap();
+        manager.handle_headers_pipeline(peer(), &[header.into()], &requests).await.unwrap();
 
         // Drain the follow-up GetHeaders that send_pending issued.
         match rx.try_recv().expect("follow-up GetHeaders not sent") {
@@ -898,7 +1041,7 @@ mod tests {
         rx.try_recv().unwrap(); // drain the GetHeaders request
 
         // Peer responds with empty headers (same height as us)
-        let events = manager.handle_headers_pipeline(&[], &requests).await.unwrap();
+        let events = manager.handle_headers_pipeline(peer(), &[], &requests).await.unwrap();
 
         // No events emitted, no requests sent, tip segment stays complete
         assert!(events.is_empty());

@@ -53,6 +53,11 @@ pub struct PersistentMasternodeStorage<H: BlockHeaderStorage> {
     network: Network,
     diffs: IndexMap,
     qr_infos: IndexMap,
+    /// evolite (SPV P0): a replay checks every stored message against its block's
+    /// coinbase, as the engine does live (#1200). Off only in tests of the replay's
+    /// own mechanics, whose made-up messages prove nothing.
+    #[cfg(test)]
+    validate: bool,
 }
 
 /// The stored messages as of when it was taken. A replay runs on this, so the
@@ -62,6 +67,8 @@ pub struct MessageLog<H: BlockHeaderStorage> {
     network: Network,
     diffs: IndexMap,
     qr_infos: IndexMap,
+    #[cfg(test)]
+    validate: bool,
 }
 
 impl<H: BlockHeaderStorage> PersistentMasternodeStorage<H> {
@@ -84,7 +91,16 @@ impl<H: BlockHeaderStorage> PersistentMasternodeStorage<H> {
             network,
             diffs,
             qr_infos,
+            #[cfg(test)]
+            validate: true,
         })
+    }
+
+    /// For tests of the replay's mechanics on made-up messages (evolite, SPV P0).
+    #[cfg(test)]
+    pub(crate) fn without_validation(mut self) -> Self {
+        self.validate = false;
+        self
     }
 
     fn folder(&self) -> PathBuf {
@@ -157,6 +173,8 @@ impl<H: BlockHeaderStorage> PersistentMasternodeStorage<H> {
             network: self.network,
             diffs: self.diffs.clone(),
             qr_infos: self.qr_infos.clone(),
+            #[cfg(test)]
+            validate: self.validate,
         }
     }
 
@@ -176,7 +194,14 @@ impl<H: BlockHeaderStorage> MessageLog<H> {
         until: CoreBlockHeight,
         mut visit: impl FnMut(&MasternodeListEngine<H>),
     ) -> MasternodeListEngine<H> {
+        // Checked as live (#1200): a stored message that fails is «does not apply»
+        // below, and the client asks the network for the lists again.
         let mut engine = MasternodeListEngine::new(self.network, Arc::clone(&self.headers));
+        #[cfg(test)]
+        if !self.validate {
+            engine =
+                MasternodeListEngine::new_without_validation(self.network, Arc::clone(&self.headers));
+        }
 
         let entries =
             self.diffs.range(..=until).map(|(height, path)| (*height, Kind::Diff, path)).chain(
@@ -389,11 +414,12 @@ mod tests {
         let map = heights.iter().map(|(b, h)| (hash(*b), *h)).collect();
         PersistentMasternodeStorage::open(
             dir.path(),
-            Arc::new(RwLock::new(MockHeaderStorage(map))),
+            Arc::new(RwLock::new(MockHeaderStorage::new(map))),
             Network::Regtest,
         )
         .await
         .expect("open")
+        .without_validation()
     }
 
     #[tokio::test]
@@ -665,11 +691,12 @@ mod tests {
         let heights = (1..=tip).map(|height| (BlockHash::dummy(height), height)).collect();
         let storage = S::open(
             dir.path(),
-            Arc::new(RwLock::new(MockHeaderStorage(heights))),
+            Arc::new(RwLock::new(MockHeaderStorage::new(heights))),
             Network::Regtest,
         )
         .await
-        .unwrap();
+        .unwrap()
+        .without_validation();
 
         let engine = storage.load_engine().await;
         assert!(engine
@@ -726,11 +753,12 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let mut storage = PersistentMasternodeStorage::open(
             dir.path(),
-            Arc::new(RwLock::new(MockHeaderStorage(heights))),
+            Arc::new(RwLock::new(MockHeaderStorage::new(heights))),
             Network::Mainnet,
         )
         .await
-        .unwrap();
+        .unwrap()
+        .without_validation();
         storage.store_qr_info(tip_height, &qr_info).await.unwrap();
         let diff = MnListDiff {
             base_block_hash: base,
@@ -744,6 +772,58 @@ mod tests {
         assert!(
             engine.masternode_lists.contains_key(&work_block_height),
             "the diff on the QRInfo's h-c list replays after the QRInfo"
+        );
+    }
+
+    /// evolite (SPV P0, #1200 on our storage): a replay checks every stored message
+    /// against its block's coinbase, as the engine does live. The real QRInfo replays;
+    /// the same one with a masternode added to its tip list «does not apply» — no list
+    /// for it, no panic — and the client asks the network again.
+    #[test_case(true; "as mined")]
+    #[test_case(false; "with a forged masternode")]
+    #[tokio::test]
+    async fn replay_checks_stored_messages_against_their_coinbase(honest: bool) {
+        use crate::sml_engine::qr_info_diffs;
+        use crate::sml_engine::test_support::fixture_heights;
+        use dashcore::network::constants::NetworkExt;
+        use dashcore::sml::masternode_list_entry::MasternodeListEntry;
+
+        let mut qr_info: QRInfo = bincode::decode_from_slice(
+            include_bytes!("../../../dash/tests/data/test_DML_diffs/qrinfo_2518986.dat"),
+            bincode::config::standard(),
+        )
+        .unwrap()
+        .0;
+        let mut heights = fixture_heights(include_bytes!(
+            "../../../dash/tests/data/test_DML_diffs/block_container_2518986.dat"
+        ));
+        heights.remove(&Network::Mainnet.known_genesis_block_hash().unwrap());
+        let tip_height = heights[&qr_info.mn_list_diff_tip.block_hash];
+        // The headers a synced client holds: each diff's block and its merkle root.
+        let mut headers = MockHeaderStorage::new(heights);
+        for diff in qr_info_diffs(&qr_info) {
+            headers.merkle_roots.insert(diff.block_hash, diff.coinbase_merkle_root().unwrap());
+        }
+        if !honest {
+            qr_info.mn_list_diff_tip.new_masternodes.push(MasternodeListEntry::dummy(0x11));
+        }
+
+        let dir = TempDir::new().unwrap();
+        let mut storage = PersistentMasternodeStorage::open(
+            dir.path(),
+            Arc::new(RwLock::new(headers)),
+            Network::Mainnet,
+        )
+        .await
+        .unwrap();
+        storage.store_qr_info(tip_height, &qr_info).await.unwrap();
+
+        let engine = storage.load_engine().await;
+
+        assert_eq!(
+            engine.masternode_lists.contains_key(&tip_height),
+            honest,
+            "a stored QRInfo replays only as mined"
         );
     }
 }

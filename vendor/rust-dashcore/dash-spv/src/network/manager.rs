@@ -1043,6 +1043,16 @@ impl PeerNetworkManager {
                                     }
                                 });
                             }
+                            Some(NetworkRequest::BanPeer(peer_address, reason)) => {
+                                // evolite (SPV P0): the ban #1304 gives a peer that sent
+                                // invalid headers, through the existing manual ban.
+                                let this = this.clone();
+                                tokio::spawn(async move {
+                                    if let Err(e) = this.ban_peer(&peer_address, &reason).await {
+                                        tracing::warn!("Request processor: failed to ban peer {}: {}", peer_address, e);
+                                    }
+                                });
+                            }
                             None => {
                                 tracing::info!("Request processor: channel closed");
                                 break;

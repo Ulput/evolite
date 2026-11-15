@@ -1,0 +1,271 @@
+diff --git a/dash-spv/src/network/manager.rs b/dash-spv/src/network/manager.rs
+index f642b908..2b54a74f 100644
+--- a/dash-spv/src/network/manager.rs
++++ b/dash-spv/src/network/manager.rs
+@@ -1043,6 +1043,16 @@ impl PeerNetworkManager {
+                                     }
+                                 });
+                             }
++                            Some(NetworkRequest::BanPeer(peer_address, reason)) => {
++                                // evolite (SPV P0): the ban #1304 gives a peer that sent
++                                // invalid headers, through the existing manual ban.
++                                let this = this.clone();
++                                tokio::spawn(async move {
++                                    if let Err(e) = this.ban_peer(&peer_address, &reason).await {
++                                        tracing::warn!("Request processor: failed to ban peer {}: {}", peer_address, e);
++                                    }
++                                });
++                            }
+                             None => {
+                                 tracing::info!("Request processor: channel closed");
+                                 break;
+diff --git a/dash-spv/src/network/mod.rs b/dash-spv/src/network/mod.rs
+index ea0240bf..c32964ed 100644
+--- a/dash-spv/src/network/mod.rs
++++ b/dash-spv/src/network/mod.rs
+@@ -51,6 +51,9 @@ pub enum NetworkRequest {
+     SendMessageToPeer(NetworkMessage, SocketAddr),
+     /// Broadcast a message to all connected peers.
+     BroadcastMessage(NetworkMessage),
++    /// evolite (SPV P0, an adaptation of #1304 without the #902 network): ban a peer that
++    /// sent block headers failing validation, as `PeerNetworkManager::ban_peer` does.
++    BanPeer(SocketAddr, String),
+ }
+ 
+ /// Handle for managers to queue outgoing network requests.
+@@ -85,6 +88,14 @@ impl RequestSender {
+             .map_err(|e| NetworkError::ProtocolError(e.to_string()))
+     }
+ 
++    /// Ban `address` for sending invalid data (evolite, SPV P0: block headers that fail
++    /// validation, #1304).
++    pub fn ban_peer(&self, address: SocketAddr, reason: &str) -> NetworkResult<()> {
++        self.tx
++            .send(NetworkRequest::BanPeer(address, reason.to_owned()))
++            .map_err(|e| NetworkError::ProtocolError(e.to_string()))
++    }
++
+     /// Queue a message to be broadcast to all connected peers.
+     pub(crate) fn broadcast(&self, msg: NetworkMessage) -> NetworkResult<()> {
+         self.tx
+diff --git a/dash-spv/src/sync/block_headers/manager.rs b/dash-spv/src/sync/block_headers/manager.rs
+index 5b237bd2..787ec0fc 100644
+--- a/dash-spv/src/sync/block_headers/manager.rs
++++ b/dash-spv/src/sync/block_headers/manager.rs
+@@ -161,6 +161,7 @@ impl<H: BlockHeaderStorage, M: MetadataStorage> BlockHeadersManager<H, M> {
+     /// Handle incoming headers message (used for both initial sync and post-sync).
+     pub(super) async fn handle_headers_pipeline(
+         &mut self,
++        peer: SocketAddr,
+         headers: &[HashedBlockHeader],
+         requests: &RequestSender,
+     ) -> SyncResult<Vec<SyncEvent>> {
+@@ -174,10 +175,16 @@ impl<H: BlockHeaderStorage, M: MetadataStorage> BlockHeadersManager<H, M> {
+         let tip_was_complete = self.pipeline.is_tip_complete();
+ 
+         // evolite (SPV P0): validated against the stored block or the segment tip they extend
+-        // before routing (#1304), so a fork is never detected on headers nobody checked. The
+-        // ban of the peer that sent them (#1304) needs the network rewrite (#902), not here.
++        // before routing (#1304), so a fork is never detected on headers nobody checked.
+         if let Some((height, ancestors)) = self.attach_point(headers).await? {
+-            BlockHeaderValidator::new(self.network, ancestors, height).validate(headers)?;
++            if let Err(e) = BlockHeaderValidator::new(self.network, ancestors, height).validate(headers)
++            {
++                // The peer that sent them is banned, as #1304 does — here an evolite
++                // adaptation through `RequestSender` (#1304 bans through the #902 network).
++                // Only for headers that fail validation: never on a timeout or a disconnect.
++                let _ = requests.ban_peer(peer, &format!("invalid block headers: {e}"));
++                return Err(e.into());
++            }
+         }
+ 
+         // Route headers to the pipeline, validates checkpoint match.
+@@ -520,7 +527,7 @@ mod tests {
+     }
+ 
+     /// Headers are validated as they arrive, on the tip or branching off below it:
+-    /// invalid ones are neither stored nor followed.
++    /// invalid ones are neither stored nor followed, and their peer is banned.
+     #[test_case(4, true; "valid on the tip")]
+     #[test_case(4, false; "invalid on the tip")]
+     #[test_case(2, true; "valid fork")]
+@@ -555,13 +562,20 @@ mod tests {
+                 ..Header::dummy(5)
+             }
+         };
+-        // evolite (SPV P0): our network is not #902's; the requests go through a
+-        // `RequestSender`, and the ban comes with evolite-fork-ban.patch.
+-        let (requests, _rx) = create_test_request_sender();
++        // evolite (SPV P0): our network is not #902's; the requests, the ban among them
++        // (evolite-fork-ban.patch), go through a `RequestSender`.
++        let (requests, mut rx) = create_test_request_sender();
+ 
+-        let result = manager.handle_headers_pipeline(&[header.into()], &requests).await;
++        let result = manager.handle_headers_pipeline(peer(), &[header.into()], &requests).await;
+ 
+         assert_eq!(result.is_ok(), valid, "{result:?}");
++        let mut banned = Vec::new();
++        while let Ok(request) = rx.try_recv() {
++            if let NetworkRequest::BanPeer(address, _) = request {
++                banned.push(address);
++            }
++        }
++        assert_eq!(banned, if valid { vec![] } else { vec![peer()] });
+         let forked = result.is_ok_and(|events| {
+             events.iter().any(|event| matches!(event, SyncEvent::ForkDetected { .. }))
+         });
+@@ -574,6 +588,62 @@ mod tests {
+         assert_eq!(manager.tip().await.unwrap().height(), tip);
+     }
+ 
++    /// evolite (SPV P0, AC-T5): on the 30 real mainnet headers 1999976–2000005, a fork
++    /// off block 2000000 (the first with Dark Gravity Wave's 24 headers of history
++    /// stored below it) whose header has its own proof of work but a difficulty made
++    /// easier is refused before routing: no ForkDetected, the tip stays, the peer is
++    /// banned. Its header as mined (the real 2000001, already stored) is no fork.
++    #[tokio::test]
++    async fn a_mainnet_fork_easier_than_dgw_is_refused_and_its_peer_banned() {
++        let chain: Vec<HashedBlockHeader> =
++            Header::mainnet_fixture().iter().map(HashedBlockHeader::from).collect();
++        let first = 1_999_976;
++        let mut storage = DiskStorageManager::with_temp_dir().await.unwrap();
++        storage.store_headers_at_height(&chain, first).await.unwrap();
++        let mut manager = BlockHeadersManager::new(
++            storage.block_headers(),
++            storage.metadata(),
++            create_test_checkpoint_manager(),
++            Network::Mainnet,
++        )
++        .await
++        .unwrap();
++        let tip = first + chain.len() as u32 - 1;
++        manager.pipeline.init(tip, *chain[chain.len() - 1].hash(), tip);
++        manager.pipeline.mark_tip_complete();
++        manager.progress.set_state(SyncState::Synced);
++
++        // A sibling of the real 2000001: regtest-easy bits and a nonce found for them,
++        // so its proof of work holds and only the difficulty check can refuse it.
++        let mut forged = *chain[25].header();
++        forged.bits = dashcore::CompactTarget::from_consensus(0x207f_ffff);
++        while !forged.target().is_met_by(forged.block_hash()) {
++            forged.nonce = forged.nonce.wrapping_add(1);
++        }
++        assert_eq!(forged.prev_blockhash, *chain[24].hash(), "forked off 2000000");
++        let (requests, mut rx) = create_test_request_sender();
++
++        let result = manager.handle_headers_pipeline(peer(), &[forged.into()], &requests).await;
++
++        assert!(
++            format!("{result:?}").contains("ifficulty"),
++            "refused for its difficulty (DGW): {result:?}"
++        );
++        let mut banned = Vec::new();
++        while let Ok(request) = rx.try_recv() {
++            if let NetworkRequest::BanPeer(address, _) = request {
++                banned.push(address);
++            }
++        }
++        assert_eq!(banned, vec![peer()], "its peer banned");
++        assert_eq!(manager.tip().await.unwrap().height(), tip, "the tip stays");
++    }
++
++    /// The peer headers come from in these tests.
++    fn peer() -> SocketAddr {
++        "1.2.3.4:9999".parse().unwrap()
++    }
++
+     /// Create a manager in synced state with an initialized pipeline.
+     async fn create_synced_manager() -> TestBlockHeadersManager {
+         let mut manager = create_test_manager().await;
+@@ -715,7 +785,7 @@ mod tests {
+             .map(HashedBlockHeader::from)
+             .collect::<Vec<_>>();
+ 
+-        let events = manager.handle_headers_pipeline(&headers, &sender).await.unwrap();
++        let events = manager.handle_headers_pipeline(peer(), &headers, &sender).await.unwrap();
+ 
+         // Header should have been stored
+         assert_eq!(events.len(), 1);
+@@ -776,7 +846,7 @@ mod tests {
+         manager.progress.set_state(SyncState::Syncing);
+ 
+         let (requests, mut rx) = create_test_request_sender();
+-        let events = manager.handle_headers_pipeline(&[chain[0].into()], &requests).await.unwrap();
++        let events = manager.handle_headers_pipeline(peer(), &[chain[0].into()], &requests).await.unwrap();
+ 
+         assert_eq!(events.len(), ACTIVE_SEGMENT_WINDOW);
+         match rx.try_recv().expect("response cycle did not refill active window") {
+@@ -879,7 +949,7 @@ mod tests {
+         // segment's current_tip_hash to advanced_hash.
+         let header = Header::dummy_chain(1, initial_locator).remove(0);
+         let advanced_hash = header.block_hash();
+-        manager.handle_headers_pipeline(&[header.into()], &requests).await.unwrap();
++        manager.handle_headers_pipeline(peer(), &[header.into()], &requests).await.unwrap();
+ 
+         // Drain the follow-up GetHeaders that send_pending issued.
+         match rx.try_recv().expect("follow-up GetHeaders not sent") {
+@@ -971,7 +1041,7 @@ mod tests {
+         rx.try_recv().unwrap(); // drain the GetHeaders request
+ 
+         // Peer responds with empty headers (same height as us)
+-        let events = manager.handle_headers_pipeline(&[], &requests).await.unwrap();
++        let events = manager.handle_headers_pipeline(peer(), &[], &requests).await.unwrap();
+ 
+         // No events emitted, no requests sent, tip segment stays complete
+         assert!(events.is_empty());
+diff --git a/dash-spv/src/sync/block_headers/sync_manager.rs b/dash-spv/src/sync/block_headers/sync_manager.rs
+index 3acb85c8..80e2cdc2 100644
+--- a/dash-spv/src/sync/block_headers/sync_manager.rs
++++ b/dash-spv/src/sync/block_headers/sync_manager.rs
+@@ -124,7 +124,7 @@ impl<H: BlockHeaderStorage, M: MetadataStorage> SyncManager for BlockHeadersMana
+                         headers.iter().map(crate::types::HashedBlockHeader::from).collect()
+                     };
+                 // Always route through pipeline when initialized
+-                self.handle_headers_pipeline(&hashed_headers, requests).await
++                self.handle_headers_pipeline(msg.peer_address(), &hashed_headers, requests).await
+             }
+ 
+             NetworkMessage::Inv(inv) => {
+diff --git a/dash-spv/src/sync/filters/manager.rs b/dash-spv/src/sync/filters/manager.rs
+index c65f0fa3..9af13648 100644
+--- a/dash-spv/src/sync/filters/manager.rs
++++ b/dash-spv/src/sync/filters/manager.rs
+@@ -1280,7 +1280,11 @@ mod tests {
+         while let Ok(request) = rx.try_recv() {
+             let (NetworkRequest::SendMessage(msg)
+             | NetworkRequest::SendMessageToPeer(msg, _)
+-            | NetworkRequest::BroadcastMessage(msg)) = request;
++            | NetworkRequest::BroadcastMessage(msg)) = request
++            else {
++                // evolite (SPV P0): a ban is no message (`NetworkRequest::BanPeer`).
++                continue;
++            };
+             if matches!(msg, NetworkMessage::GetCFilters(_)) {
+                 count += 1;
+             }
+@@ -3408,7 +3412,11 @@ mod tests {
+         while let Ok(request) = rx.try_recv() {
+             let (NetworkRequest::SendMessage(msg)
+             | NetworkRequest::SendMessageToPeer(msg, _)
+-            | NetworkRequest::BroadcastMessage(msg)) = request;
++            | NetworkRequest::BroadcastMessage(msg)) = request
++            else {
++                // evolite (SPV P0): a ban is no message (`NetworkRequest::BanPeer`).
++                continue;
++            };
+             if let NetworkMessage::GetCFilters(get) = msg {
+                 assert_eq!(get.start_height, 101, "unexpected filter re-download");
+             }
+@@ -3462,7 +3470,11 @@ mod tests {
+         while let Ok(request) = rx.try_recv() {
+             let (NetworkRequest::SendMessage(msg)
+             | NetworkRequest::SendMessageToPeer(msg, _)
+-            | NetworkRequest::BroadcastMessage(msg)) = request;
++            | NetworkRequest::BroadcastMessage(msg)) = request
++            else {
++                // evolite (SPV P0): a ban is no message (`NetworkRequest::BanPeer`).
++                continue;
++            };
+             if let NetworkMessage::GetCFilters(get) = msg {
+                 assert_eq!(get.start_height, 101, "unexpected filter re-download");
+                 requested_boundary = true;

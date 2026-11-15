@@ -51,6 +51,9 @@ pub enum NetworkRequest {
     SendMessageToPeer(NetworkMessage, SocketAddr),
     /// Broadcast a message to all connected peers.
     BroadcastMessage(NetworkMessage),
+    /// evolite (SPV P0, an adaptation of #1304 without the #902 network): ban a peer that
+    /// sent block headers failing validation, as `PeerNetworkManager::ban_peer` does.
+    BanPeer(SocketAddr, String),
 }
 
 /// Handle for managers to queue outgoing network requests.
@@ -82,6 +85,14 @@ impl RequestSender {
     ) -> NetworkResult<()> {
         self.tx
             .send(NetworkRequest::SendMessageToPeer(msg, peer_address))
+            .map_err(|e| NetworkError::ProtocolError(e.to_string()))
+    }
+
+    /// Ban `address` for sending invalid data (evolite, SPV P0: block headers that fail
+    /// validation, #1304).
+    pub fn ban_peer(&self, address: SocketAddr, reason: &str) -> NetworkResult<()> {
+        self.tx
+            .send(NetworkRequest::BanPeer(address, reason.to_owned()))
             .map_err(|e| NetworkError::ProtocolError(e.to_string()))
     }
 

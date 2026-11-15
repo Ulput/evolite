@@ -35,6 +35,45 @@ pub fn start(dir: &Path) {
     }));
 }
 
+/// The file beside the journal's that [`spv_network_log`] writes.
+#[cfg(feature = "dev-tools")]
+pub const SPV_NETWORK_LOG: &str = "spv-network.log";
+
+/// dev-tools only (QA builds; SPV P0 r1 Should 1): dash-spv's own lines about its peers —
+/// `dash_spv::network` at info and above, a ban and its reason among them («Manually banning
+/// peer … invalid block headers: …») — appended to [`SPV_NETWORK_LOG`] in the journal's folder
+/// `dir`, one plain line each. The release installs no `tracing` subscriber, so there they go
+/// nowhere. Those lines name peers' addresses, which the journal itself never holds.
+#[cfg(feature = "dev-tools")]
+pub fn spv_network_log(dir: &Path) {
+    let Some(subscriber) = spv_network_subscriber(dir) else {
+        return;
+    };
+    // Already set (a second call): the first stays.
+    let _ = tracing::subscriber::set_global_default(subscriber);
+}
+
+#[cfg(feature = "dev-tools")]
+fn spv_network_subscriber(dir: &Path) -> Option<impl tracing::Subscriber + Send + Sync> {
+    use tracing_subscriber::layer::SubscriberExt;
+    let _ = std::fs::create_dir_all(dir);
+    let file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(dir.join(SPV_NETWORK_LOG))
+        .ok()?;
+    let only_network = tracing_subscriber::filter::Targets::new()
+        .with_target("dash_spv::network", tracing::Level::INFO);
+    let lines = tracing_subscriber::fmt::layer()
+        .with_ansi(false)
+        .with_writer(std::sync::Mutex::new(file));
+    Some(
+        tracing_subscriber::registry()
+            .with(lines)
+            .with(only_network),
+    )
+}
+
 /// The system's name and version, e.g. ("windows", "10.0.26200").
 pub fn os() -> (&'static str, String) {
     (std::env::consts::OS, os_version())
@@ -447,5 +486,35 @@ mod tests {
             assert!(version.starts_with("10."), "{version}");
         }
         assert!(!COMMIT.is_empty());
+    }
+
+    /// SPV P0 r1 Should 1: in a dev-tools build the file appears beside the journal and gets
+    /// dash-spv's network lines, a ban among them, and nothing from other targets.
+    #[cfg(feature = "dev-tools")]
+    #[test]
+    fn spv_network_lines_go_to_their_file_beside_the_journal() {
+        let logs = std::env::temp_dir()
+            .join(format!("evolite-spv-network-{}", std::process::id()))
+            .join("logs");
+        let _ = std::fs::remove_dir_all(&logs);
+        let subscriber = super::spv_network_subscriber(&logs).expect("the file opens");
+        tracing::subscriber::with_default(subscriber, || {
+            tracing::info!(
+                target: "dash_spv::network::manager",
+                "Manually banning peer 1.2.3.4:9999 - reason: invalid block headers: test"
+            );
+            tracing::debug!(target: "dash_spv::network::manager", "below info");
+            tracing::warn!(target: "dash_spv::sync", "another target");
+        });
+        let written = std::fs::read_to_string(logs.join(super::SPV_NETWORK_LOG)).unwrap();
+        assert!(
+            written.contains("Manually banning peer 1.2.3.4:9999"),
+            "{written}"
+        );
+        assert!(written.contains("invalid block headers"), "{written}");
+        assert!(!written.contains("below info"), "{written}");
+        assert!(!written.contains("another target"), "{written}");
+        assert_eq!(written.lines().count(), 1, "one line: {written}");
+        let _ = std::fs::remove_dir_all(logs.parent().unwrap());
     }
 }

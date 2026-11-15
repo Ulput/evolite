@@ -1280,7 +1280,11 @@ mod tests {
         while let Ok(request) = rx.try_recv() {
             let (NetworkRequest::SendMessage(msg)
             | NetworkRequest::SendMessageToPeer(msg, _)
-            | NetworkRequest::BroadcastMessage(msg)) = request;
+            | NetworkRequest::BroadcastMessage(msg)) = request
+            else {
+                // evolite (SPV P0): a ban is no message (`NetworkRequest::BanPeer`).
+                continue;
+            };
             if matches!(msg, NetworkMessage::GetCFilters(_)) {
                 count += 1;
             }
@@ -3408,7 +3412,11 @@ mod tests {
         while let Ok(request) = rx.try_recv() {
             let (NetworkRequest::SendMessage(msg)
             | NetworkRequest::SendMessageToPeer(msg, _)
-            | NetworkRequest::BroadcastMessage(msg)) = request;
+            | NetworkRequest::BroadcastMessage(msg)) = request
+            else {
+                // evolite (SPV P0): a ban is no message (`NetworkRequest::BanPeer`).
+                continue;
+            };
             if let NetworkMessage::GetCFilters(get) = msg {
                 assert_eq!(get.start_height, 101, "unexpected filter re-download");
             }
@@ -3462,7 +3470,11 @@ mod tests {
         while let Ok(request) = rx.try_recv() {
             let (NetworkRequest::SendMessage(msg)
             | NetworkRequest::SendMessageToPeer(msg, _)
-            | NetworkRequest::BroadcastMessage(msg)) = request;
+            | NetworkRequest::BroadcastMessage(msg)) = request
+            else {
+                // evolite (SPV P0): a ban is no message (`NetworkRequest::BanPeer`).
+                continue;
+            };
             if let NetworkMessage::GetCFilters(get) = msg {
                 assert_eq!(get.start_height, 101, "unexpected filter re-download");
                 requested_boundary = true;

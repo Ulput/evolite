@@ -124,7 +124,7 @@ impl<H: BlockHeaderStorage, M: MetadataStorage> SyncManager for BlockHeadersMana
                         headers.iter().map(crate::types::HashedBlockHeader::from).collect()
                     };
                 // Always route through pipeline when initialized
-                self.handle_headers_pipeline(&hashed_headers, requests).await
+                self.handle_headers_pipeline(msg.peer_address(), &hashed_headers, requests).await
             }
 
             NetworkMessage::Inv(inv) => {

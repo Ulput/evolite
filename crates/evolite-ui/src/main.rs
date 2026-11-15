@@ -94,6 +94,9 @@ fn main() {
     }
     // The journal for problem reports, beside the wallet's files (the demo's in its cache).
     diagnostics::start(&cli::logs_for(&launch.core));
+    // QA builds: dash-spv's peer lines, its bans among them, beside the journal (SPV P0 r1).
+    #[cfg(feature = "dev-tools")]
+    diagnostics::spv_network_log(&cli::logs_for(&launch.core));
     // `--stop-after asset-lock` (dev-tools, BUG-160): a top-up of the Platform address from
     // Core ends the process once its lock is made, before Platform is asked.
     #[cfg(feature = "dev-tools")]
