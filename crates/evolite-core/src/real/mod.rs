@@ -67,8 +67,8 @@ use evolite_chain::{
 };
 use evolite_local::{
     address_book, attempts, connected_apps, contact_addresses, core_balance, folders,
-    hidden_requests, journal, mempool, node, notes, pending, pool_history, rates, security, vault,
-    wallets,
+    hidden_requests, journal, mempool, name_requests, node, notes, pending, pool_history, rates,
+    security, vault, wallets,
 };
 use sync::{Phase, SyncStatus};
 use vault::{KdfParams, VaultError, VaultMeta};
@@ -159,6 +159,8 @@ pub struct Paths {
     pub vault: PathBuf,
     /// Names asked for identities still being made ([`pending::PendingNames`]).
     pub pending_names: PathBuf,
+    /// The wallet's claims on contested names (FEAT-0021, [`name_requests::NameRequests`]).
+    pub name_requests: PathBuf,
     /// What the wallet did on Platform ([`journal::Journal`]).
     pub journal: PathBuf,
     /// How far Platform was read back into the journal ([`platform_history::Marks`]).
@@ -219,6 +221,7 @@ impl Paths {
             },
             vault: wallets.join("wallet.json"),
             pending_names: wallets.join("pending-names.json"),
+            name_requests: wallets.join("name-requests.json"),
             journal: wallets.join("platform-history.json"),
             platform_sync: wallets.join("platform-sync.json"),
             lock_status: wallets.join("lock-status.json"),
@@ -432,6 +435,10 @@ struct Real {
     discovery_run: Arc<std::sync::atomic::AtomicU64>,
     /// Woken after a write: the identities' credit balances are read from Platform again.
     balances_stale: Arc<tokio::sync::Notify>,
+    /// Woken after a name claim (FEAT-0021): the open requests' votes are read at once.
+    names_stale: Arc<tokio::sync::Notify>,
+    /// This network has the identity-verify contract, read with proof (FEAT-0021 AC-T13).
+    identity_links: Arc<AtomicBool>,
     /// Every identity's credits were read from Platform in this run (BUG-115): what the store
     /// kept from before is checked.
     credits_checked: Arc<AtomicBool>,

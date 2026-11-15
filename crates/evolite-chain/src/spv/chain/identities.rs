@@ -541,17 +541,29 @@ impl Chain {
 
     /// Registers `label` in DPNS as one more name of the wallet's first identity, signed with
     /// the keys the identity has (made here or elsewhere) and paid from its credits.
+    /// `contest_fund`: a contested name's fund, at most what the person agreed to (FEAT-0021 R-2);
+    /// `needed` holds the write and the fund, so credits short of both send nothing (R-3).
     pub async fn add_name(
         &self,
         wallet: &PlatformWallet,
         keys: &key_wallet::Wallet,
         label: &str,
         needed: evolite_api::Duffs,
+        contest_fund: Option<evolite_api::Duffs>,
     ) -> Result<(), String> {
         let (identity, signer) = Self::first_identity(wallet, keys).await?;
         let id = identity.id();
-        self.write_name(wallet, &id, label, &signer, needed, false)
+        self.write_name_paying(wallet, &id, label, &signer, needed, false, contest_fund)
             .await
+    }
+
+    /// The wallet's first identity, in base58: the one names are added to.
+    pub async fn first_identity_id(
+        wallet: &PlatformWallet,
+        keys: &key_wallet::Wallet,
+    ) -> Result<String, String> {
+        let (identity, _) = Self::first_identity(wallet, keys).await?;
+        Ok(identity.id().to_string(Encoding::Base58))
     }
 
     /// The one way a DPNS name reaches Platform (BUG-97): the credits are read and judged first,
@@ -567,6 +579,23 @@ impl Chain {
         needed: evolite_api::Duffs,
         trust_store: bool,
     ) -> Result<(), String> {
+        self.write_name_paying(wallet, id, label, signer, needed, trust_store, None)
+            .await
+    }
+
+    /// [`Self::write_name`] with a contested name's fund, at most `contest_fund` duffs.
+    #[allow(clippy::too_many_arguments)]
+    async fn write_name_paying(
+        &self,
+        wallet: &PlatformWallet,
+        id: &Identifier,
+        label: &str,
+        signer: &SimpleSigner,
+        needed: evolite_api::Duffs,
+        trust_store: bool,
+        contest_fund: Option<evolite_api::Duffs>,
+    ) -> Result<(), String> {
+        let contest_fund = contest_fund.map(|duffs| (duffs.max(0) as u64).saturating_mul(1000));
         let fresh = wallet.identity().refresh_identity_balance(id).await.ok();
         let credits = match fresh {
             Some(credits) => Some(credits),
@@ -576,7 +605,7 @@ impl Chain {
         gated_write(credits, needed, async {
             wallet
                 .identity()
-                .register_name_with_external_signer(id, label, None, signer)
+                .register_name_with_external_signer(id, label, contest_fund, signer)
                 .await
                 .map(|_| ())
                 .map_err(|e| e.to_string())

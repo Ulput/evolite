@@ -125,7 +125,10 @@ pub fn to_api(managed: &ManagedIdentity) -> Identity {
         .map(|(i, n)| DpnsName {
             label: n.label.clone(),
             primary: i == 0,
-            voting_days_left: None,
+            // A contested name platform-wallet lists as soon as it is sent: the core lays its own
+            // request over this (`name_requests::apply`, FEAT-0021 AC-T3).
+            state: evolite_api::NameState::Registered,
+            contest: None,
         })
         .collect();
     let keys = identity

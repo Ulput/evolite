@@ -15,7 +15,7 @@ mod tokens;
 mod wallet;
 
 pub use contacts::{address_book, connected_apps, contact_addresses, hidden_requests};
-pub use history::{core_balance, journal, mempool, pending, pool_history};
+pub use history::{core_balance, journal, mempool, name_requests, pending, pool_history};
 pub use secrets::{attempts, notes, security, vault};
 pub use tokens::wallet_tokens;
 pub use wallet::{folders, json_file, wallets};

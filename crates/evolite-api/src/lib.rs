@@ -220,6 +220,24 @@ pub enum ActivityKind {
     NameRegistered {
         label: String,
     },
+    /// A contested name claimed into its masternode vote: the write and the fund, paid in credits
+    /// (FEAT-0021 N6). Its card opens the contest card.
+    NameClaimed {
+        label: String,
+    },
+    /// The link «where my identity is confirmed» for a claimed name written on its own, or
+    /// (`removed`) taken away, paid in credits (FEAT-0021 АРХ-6, r2 Should 2). The one written
+    /// inside a claim is in the claim's line.
+    NameLinkWritten {
+        label: String,
+        removed: bool,
+    },
+    /// How a claim's masternode vote ended, nothing paid (FEAT-0021 N6, R-11). Kept in History
+    /// whether or not the name is still listed (R-12).
+    NameContestEnded {
+        label: String,
+        outcome: NameOutcome,
+    },
     /// Sent from the wallet's Platform addresses to a Platform address (FEAT-0015 R-11).
     AddressSent {
         to: String,
@@ -652,8 +670,99 @@ pub struct IdentityKey {
 pub struct DpnsName {
     pub label: String,
     pub primary: bool,
-    /// Contested name still in the masternode vote.
-    pub voting_days_left: Option<u32>,
+    /// Registered, or where its masternode vote stands (FEAT-0021). A contested name's state comes
+    /// from the wallet's own request and the network's vote state, never from the name merely
+    /// being listed: platform-wallet lists a contested name as soon as it is sent (АРХ-1).
+    pub state: NameState,
+    /// For a name claimed in a masternode vote: what the contest card shows (FEAT-0021 N5).
+    pub contest: Option<NameContest>,
+}
+
+/// A claimed name's contest as last read with proof (FEAT-0021 N5): every claim with its votes,
+/// the fund paid, and when it was read.
+#[derive(Clone, PartialEq, Eq, Debug, Default)]
+pub struct NameContest {
+    /// Each claim's identity (base58) and votes; this identity's among them.
+    pub contenders: Vec<(String, u32)>,
+    /// The winner, once there is one: an identity in base58.
+    pub winner: Option<String>,
+    pub fund: Duffs,
+    pub sent_at: Timestamp,
+    /// When the vote state was last read with proof; `None` before the first read.
+    pub checked_at: Option<Timestamp>,
+    /// Shown among the identity's names (R-12): false once a lost or blocked one is hidden or past
+    /// its 30 days. It stays here for the contest card History opens (AC-T19).
+    pub listed: bool,
+    /// Overview's notice of the vote was closed with «×»; it stays closed until the result,
+    /// across restarts (FEAT-0021 review r1, Should 1).
+    pub notice_closed: bool,
+    /// Overview's notice of the result was closed: the result is another notice, shown anew.
+    pub result_notice_closed: bool,
+    /// The link «where my identity is confirmed» of the claim (АРХ-6), and whether it is written
+    /// on Platform: `false` after a write that failed, which «Retry» writes alone (AC-T12).
+    pub link: Option<String>,
+    pub link_written: bool,
+}
+
+impl DpnsName {
+    /// Among the identity's names in «DPNS names» (R-12).
+    pub fn listed(&self) -> bool {
+        self.contest.as_ref().is_none_or(|c| c.listed)
+    }
+}
+
+/// Where a DPNS name of an identity stands (FEAT-0021, АРХ-5).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum NameState {
+    Registered,
+    /// In the masternode vote. `contenders` counts everyone who asked, this identity included;
+    /// `ours` is the votes for this identity, `lock` the votes to block the name for all,
+    /// `abstain` the votes that abstained.
+    Voting {
+        join_until: Timestamp,
+        ends_about: Timestamp,
+        contenders: u32,
+        ours: u32,
+        lock: u32,
+        abstain: u32,
+    },
+    /// The vote's estimated end has passed and the network has not told the result yet. A result
+    /// is never made up from the clock (AC-T2).
+    AwaitingResult {
+        ends_about: Timestamp,
+    },
+    /// The vote gave the name to this identity: it is registered.
+    Won {
+        at: Timestamp,
+    },
+    /// The vote gave the name to another identity. The fund is not returned (АРХ-2).
+    Lost {
+        at: Timestamp,
+    },
+    /// Masternodes blocked the name for everyone. The fund is not returned (АРХ-2).
+    Locked {
+        at: Timestamp,
+    },
+}
+
+/// How a name's masternode vote ended for the identity that claimed it (FEAT-0021).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum NameOutcome {
+    Won,
+    Lost,
+    Locked,
+}
+
+impl NameState {
+    /// Still in the vote or waiting for its result: the request is open.
+    pub fn open(self) -> bool {
+        matches!(self, Self::Voting { .. } | Self::AwaitingResult { .. })
+    }
+
+    /// The name is this identity's: registered, or won in the vote.
+    pub fn owned(self) -> bool {
+        matches!(self, Self::Registered | Self::Won { .. })
+    }
 }
 
 #[derive(Clone, PartialEq, Debug)]
@@ -810,7 +919,7 @@ impl Identity {
     pub fn name(&self) -> Option<&str> {
         self.names
             .iter()
-            .find(|n| n.primary && n.voting_days_left.is_none())
+            .find(|n| n.primary && n.state.owned())
             .map(|n| n.label.as_str())
     }
 }
@@ -1166,6 +1275,14 @@ pub struct Fees {
     /// A DPNS name: a regular one, and a contested one (goes to a masternode vote).
     pub name_regular: Duffs,
     pub name_contested: Duffs,
+    /// The fund a contested name's claim pays, by the protocol version (FEAT-0021, AC-T5): not
+    /// returned, whoever gets the name (АРХ-2). 0.1 DASH from protocol 14.
+    pub name_contest_fund: Duffs,
+    /// How long a masternode vote on a name lasts, and how long into it others may join, in
+    /// seconds, by the protocol version and the network (AC-T5: 14 and 7 days on mainnet, 90 and
+    /// 45 minutes on testnet).
+    pub name_vote_secs: u64,
+    pub name_join_secs: u64,
     /// Adding an app key to the identity.
     pub add_key: Duffs,
     /// A DashPay contact request (a document in Platform, paid in credits).
@@ -1341,6 +1458,9 @@ pub struct Wallet {
     /// A top-up of the identity that Platform has not taken yet, or not provably.
     /// `ResumeTopUp` finishes it.
     pub unfinished_top_up: Option<UnfinishedTopUp>,
+    /// This network has the identity-verify contract, read with proof: a contested claim offers
+    /// the link «where my identity is confirmed» (FEAT-0021 АРХ-6, AC-T13).
+    pub identity_links: bool,
     /// A funding of the Platform address from Core whose lock Platform has not taken yet
     /// (FEAT-0015 stage 2). `ResumeFundAddress` finishes it; until then a new one is not
     /// offered.
@@ -1547,13 +1667,46 @@ pub enum Source {
     PlatformAddress,
 }
 
-/// Whether a DPNS name can be taken.
+/// Whether a DPNS name can be taken (FEAT-0021, АРХ-5): read from the name's domain and, for a
+/// contested label, from its proved vote state, never from «available» alone (R-1).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum NameCheck {
     Available,
-    /// Free, but short names made of letters and 0/1 go to a masternode vote.
-    Contested,
+    /// Free, but a short name of letters, 0, 1 and hyphens goes to a masternode vote: claiming it
+    /// opens one, with the fund of [`Fees::name_contest_fund`].
+    NeedsVote,
+    /// Someone asked for it and the vote takes more claims until `join_until`.
+    Joinable {
+        contenders: u32,
+        join_until: Timestamp,
+    },
+    /// In a vote that takes no more claims; it ends about `ends_about`, when its start is known.
+    JoinClosed {
+        ends_about: Option<Timestamp>,
+    },
     Taken,
+    /// Blocked by the masternodes.
+    Locked,
+    /// An identity of this wallet already asked for it: the shown one (`other` is `None`) or the
+    /// one in slot `other` (R-7: two identities of one wallet never contest one name).
+    AlreadyRequested {
+        other: Option<u32>,
+    },
+}
+
+impl NameCheck {
+    /// A claim can be made: the name is free, or its vote still takes claims.
+    pub fn claimable(self) -> bool {
+        matches!(
+            self,
+            Self::Available | Self::NeedsVote | Self::Joinable { .. }
+        )
+    }
+
+    /// A claim goes to a masternode vote and pays its fund.
+    pub fn contested(self) -> bool {
+        matches!(self, Self::NeedsVote | Self::Joinable { .. })
+    }
 }
 
 /// Where credits are shielded from.
@@ -1764,6 +1917,20 @@ pub enum Command {
     },
     /// Is this DPNS label free? Answered with [`Event::NameChecked`].
     CheckName {
+        label: String,
+    },
+    /// Hide a lost or blocked name from the identity's names, in this wallet on this computer
+    /// only; History keeps its lines (FEAT-0021 R-12). No password: nothing changes on the network.
+    /// `Done { what: DoneWhat::Name }`; hiding it again is no error.
+    HideNameRequest {
+        identity: String,
+        label: String,
+    },
+    /// «×» on Overview's notice of a claim (FEAT-0021 review r1, Should 1): the vote's notice
+    /// stays closed until the result, across restarts; once there is a result, its own notice is
+    /// the one closed. No answer: the next snapshot says it.
+    CloseNameNotice {
+        identity: String,
         label: String,
     },
     /// A link or QR text from an app (App Connect v2: `dashpay://connect`, or `dash-key:` with
@@ -2001,7 +2168,20 @@ pub enum Spend {
     ResumeIdentity,
     /// Register one more DPNS name for the shown identity, paid from its credits.
     /// `Done { what: DoneWhat::Name }`.
-    AddName { name: String },
+    /// `contest_fund`: for a contested name, the fund the person agreed to in the review
+    /// ([`Fees::name_contest_fund`] as shown); if the network's rule asks more when it is signed,
+    /// nothing is sent and [`CoreError::ContestFundChanged`] says the new one (R-2, BUG-108).
+    AddName {
+        name: String,
+        contest_fund: Option<Duffs>,
+        /// A contested claim's link «where my identity is confirmed» (FEAT-0021 АРХ-6), written
+        /// after the claim as a document of its own; a failed write leaves the claim in.
+        link: Option<String>,
+    },
+    /// Writes, changes or (`url: None`) removes the link of the shown identity's claim on
+    /// `label` (FEAT-0021 АРХ-6, AC-T12): the retry of a link not written pays only the link,
+    /// never the fund again. `Done { what: DoneWhat::Name }`.
+    SetNameLink { label: String, url: Option<String> },
     /// Move credits into the pool; the core builds the proof and reports [`Event::Progress`],
     /// then `Done { what: DoneWhat::Shield }`.
     Shield { from: ShieldSource, amount: Duffs },
@@ -2075,7 +2255,7 @@ impl Spend {
             Spend::TopUpIdentity { .. } | Spend::ResumeTopUp => DoneWhat::TopUp,
             Spend::FundAddress { .. } | Spend::ResumeFundAddress => DoneWhat::FundAddress,
             Spend::CreateIdentity { .. } | Spend::ResumeIdentity => DoneWhat::Identity,
-            Spend::AddName { .. } => DoneWhat::Name,
+            Spend::AddName { .. } | Spend::SetNameLink { .. } => DoneWhat::Name,
             Spend::Shield { .. } => DoneWhat::Shield,
             Spend::Unshield { .. } => DoneWhat::Unshield,
             Spend::TopUpFromPool { .. } => DoneWhat::PoolTopUp,
@@ -2149,6 +2329,14 @@ pub enum CoreError {
         excess: Duffs,
         suggested: Option<Duffs>,
     },
+    /// A contested name's fund is now `fund`, not the one agreed to: nothing was sent; ask again
+    /// (FEAT-0021 R-2).
+    ContestFundChanged {
+        fund: Duffs,
+    },
+    /// The name cannot be claimed as it stands now (taken, blocked, its vote closed to claims, or
+    /// already asked for by this wallet): nothing was sent (FEAT-0021).
+    NameUnavailable(NameCheck),
 }
 
 /// Why no picture from outside is drawn on this system.
@@ -2292,6 +2480,13 @@ pub enum Event {
         label: String,
         result: Result<NameCheck, CoreError>,
     },
+    /// A masternode vote on one of the wallet's name requests ended: `result` is `Won`, `Lost` or
+    /// `Locked`, proved by the network (FEAT-0021, R-11: the Windows note and the History line).
+    NameContestEnded {
+        identity: String,
+        label: String,
+        result: NameState,
+    },
     /// How far a long job has got (`what` as in `Done`), 0..=1.
     Progress {
         what: &'static str,
@@ -2354,6 +2549,9 @@ mod tests {
             address_fund_lock_min: 0,
             name_regular: 0,
             name_contested: 0,
+            name_contest_fund: 0,
+            name_vote_secs: 0,
+            name_join_secs: 0,
             add_key: 0,
             contact_request: 0,
             contact_request_balance: 0,

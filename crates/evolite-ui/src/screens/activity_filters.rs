@@ -83,7 +83,10 @@ pub fn kind_of(a: &Activity) -> u8 {
         // FEAT-0015 stage 2: from Core to the wallet's own Platform address, a move between its own.
         SelfTransfer { .. } | Mixing { .. } | IntoMixing | AddressFunded => kind::SELF_TRANSFER,
         TopUp { .. } | Withdrawal { .. } | CreditTransfer { .. } => kind::IDENTITY,
-        NameRegistered { .. } => kind::NAMES,
+        NameRegistered { .. }
+        | NameClaimed { .. }
+        | NameLinkWritten { .. }
+        | NameContestEnded { .. } => kind::NAMES,
         ContactRequest { .. } | ContactRequestIn { .. } | ProfileSaved => kind::CONTACTS,
         Shielded { .. } | PoolReceived | PoolSent => kind::POOL,
         // BUG-145: what apps did with their keys and budgets; a token sent is the identity's.

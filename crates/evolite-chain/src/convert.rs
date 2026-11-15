@@ -1255,6 +1255,11 @@ pub fn fees(coins: usize) -> Fees {
         // with a margin ([`Fees::name_on_top`]).
         name_regular: NAME_REGULAR,
         name_contested: 20_000_000,
+        // Until the SDK speaks its version, the latest protocol's fund; the vote's durations need
+        // the network too ([`contest_times`], set with every snapshot).
+        name_contest_fund: contest_fund(dpp::version::PlatformVersion::latest()),
+        name_vote_secs: 0,
+        name_join_secs: 0,
         add_key: 10_000,
         contact_request: CONTACT_REQUEST,
         contact_request_balance: CONTACT_REQUEST_BALANCE,
@@ -1276,6 +1281,38 @@ pub fn fees(coins: usize) -> Fees {
         credit_withdrawal: 400_000,
         credit_withdrawal_reserve: 400_000,
     }
+}
+
+/// The fund a contested name's claim pays at `version` (FEAT-0021, AC-T5): not returned to anyone
+/// (АРХ-2). From protocol 14 it doubles at 250 contenders and every 50 after; a claim checks the
+/// network's own figure before it is signed (R-2).
+pub fn contest_fund(version: &dpp::version::PlatformVersion) -> Duffs {
+    version
+        .fee_version
+        .vote_resolution_fund_fees
+        .contested_document_vote_resolution_fund_required_amount
+        .div_ceil(1000) as Duffs
+}
+
+/// How long a masternode vote on a name lasts and how long others may join it, by `version` and
+/// the network (FEAT-0021, АРХ-4, as DET's `contest_durations`): mainnet's production windows,
+/// every other network's testing ones.
+pub fn contest_times(fees: &mut Fees, version: &dpp::version::PlatformVersion, mainnet: bool) {
+    let voting = &version.dpp.voting_versions;
+    let joining = &version.dpp.validation.voting;
+    let (vote_ms, join_ms) = if mainnet {
+        (
+            voting.default_vote_poll_time_duration_mainnet_ms,
+            joining.allow_other_contenders_time_mainnet_ms,
+        )
+    } else {
+        (
+            voting.default_vote_poll_time_duration_test_network_ms,
+            joining.allow_other_contenders_time_testing_ms,
+        )
+    };
+    fees.name_vote_secs = vote_ms / 1000;
+    fees.name_join_secs = join_ms / 1000;
 }
 
 /// The fees of Platform writes outside the pool, at protocol `version`. Withdrawals and documents
@@ -1320,13 +1357,8 @@ pub fn platform_fees(
     if let Some(fee) = journal.last_fee(|w| matches!(w, What::Name { .. })) {
         fees.name_regular = fee;
     }
-    fees.name_contested = fees.name_regular
-        + duffs(
-            version
-                .fee_version
-                .vote_resolution_fund_fees
-                .contested_document_vote_resolution_fund_required_amount,
-        );
+    fees.name_contest_fund = contest_fund(version);
+    fees.name_contested = fees.name_regular + fees.name_contest_fund;
     // An identity is made with six keys (`identity::new_identity_keys`).
     fees.identity_lock_min = identity_lock_min(version, 6);
     fees.top_up_lock_min = top_up_lock_min(version);
@@ -1703,6 +1735,31 @@ mod tests {
             "eight transfers on it is forgotten"
         );
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// FEAT-0021 AC-T5: a contested name's fund and its vote's durations come from the protocol
+    /// version and the network, not from figures in the code: 0.1 DASH from protocol 14 (0.2
+    /// before), 14 days with 7 to join on mainnet, 90 minutes with 45 elsewhere.
+    #[test]
+    fn a_name_contest_takes_its_fund_and_times_from_the_protocol_and_the_network() {
+        let v15 = dpp::version::PlatformVersion::get(15).unwrap();
+        let v13 = dpp::version::PlatformVersion::get(13).unwrap();
+        assert_eq!(contest_fund(v15), 10_000_000);
+        assert_eq!(contest_fund(v13), 20_000_000);
+        let mut f = fees(0);
+        contest_times(&mut f, v15, true);
+        assert_eq!(
+            (f.name_vote_secs, f.name_join_secs),
+            (14 * 86_400, 7 * 86_400)
+        );
+        contest_times(&mut f, v15, false);
+        assert_eq!((f.name_vote_secs, f.name_join_secs), (90 * 60, 45 * 60));
+        let journal = super::super::journal::Journal::new(
+            std::env::temp_dir().join(format!("evolite-fund-{}.json", std::process::id())),
+        );
+        platform_fees(&mut f, v15, &journal);
+        assert_eq!(f.name_contest_fund, 10_000_000);
+        assert_eq!(f.name_contested, f.name_regular + f.name_contest_fund);
     }
 
     #[test]

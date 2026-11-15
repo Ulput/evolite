@@ -36,6 +36,24 @@ pub(in crate::real) async fn acting_identity(wallet: &PlatformWallet) -> Option<
         .map(|m| m.identity.id().to_string(Encoding::Base58))
 }
 
+/// Every identity of this wallet, in base58, with its slot (FEAT-0021 R-7: two of them never
+/// contest one name).
+pub(in crate::real) async fn wallet_identity_ids(wallet: &PlatformWallet) -> Vec<(String, u32)> {
+    let state = wallet.state().await;
+    let id = wallet.wallet_id();
+    state
+        .identity_manager
+        .managed_identities()
+        .filter(|m| m.wallet_id == Some(id))
+        .map(|m| {
+            (
+                m.identity.id().to_string(Encoding::Base58),
+                m.identity_index.unwrap_or_default(),
+            )
+        })
+        .collect()
+}
+
 /// The private pool's own lines get a card of their own (FR-3, frame 7): their direction is
 /// their kind. A payment out of the pool does not keep its recipient, and says so once (FR-6).
 fn describe_pool_lines(history: &mut [Activity]) {
@@ -433,6 +451,7 @@ impl Real {
         );
         let mut shown_wallet = Wallet {
             password_each_send: self.password_each_send,
+            identity_links: self.identity_links.load(Ordering::Relaxed),
             notes_error,
             tokens: self.shown_tokens(
                 shown.as_ref().map(|(identity, _, _)| identity.id.as_str()),
@@ -606,7 +625,7 @@ impl Real {
             .iter()
             .map(|m| IdentityChoice {
                 id: m.identity.id().to_string(Encoding::Base58),
-                name: identity::to_api(m).name().map(str::to_owned),
+                name: self.identity_of(m).name().map(str::to_owned),
                 slot: m.identity_index.unwrap_or_default(),
             })
             .collect();
@@ -760,6 +779,15 @@ impl Real {
             .collect()
     }
 
+    /// What the interface shows of `m`, its names with the wallet's requests laid over them
+    /// (FEAT-0021, AC-T3): a contested name platform-wallet lists once sent is still in its vote.
+    fn identity_of(&self, m: &ManagedIdentity) -> Identity {
+        let mut api = identity::to_api(m);
+        let requests = name_requests::NameRequests::new(self.paths.name_requests.clone()).load();
+        name_requests::apply(&mut api.names, &api.id, &requests, now());
+        api
+    }
+
     /// The identity the person works as, with its profile and contacts.
     fn shown_identity(
         &self,
@@ -777,7 +805,7 @@ impl Real {
                 refresh.clone(),
             )
         };
-        let mut api = identity::to_api(m);
+        let mut api = self.identity_of(m);
         api.profile = m
             .dashpay()
             .profile
@@ -1165,9 +1193,15 @@ impl Real {
     /// form promises is what the core charges (BUG-54).
     pub(super) async fn fees_now(&self, coins: usize) -> Fees {
         let mut fees = fees(coins);
+        let mainnet = crate::network::current() == evolite_api::Network::Mainnet;
         if let Ok(sdk) = self.chain.sdk().await {
             pool::set_fees(&mut fees, sdk.version());
             platform_fees(&mut fees, sdk.version(), &self.journal);
+            evolite_chain::convert::contest_times(&mut fees, sdk.version(), mainnet);
+        } else {
+            // A name contest's durations before the SDK is up: the latest protocol's (FEAT-0021).
+            let latest = dpp::version::PlatformVersion::latest();
+            evolite_chain::convert::contest_times(&mut fees, latest, mainnet);
         }
         fees
     }

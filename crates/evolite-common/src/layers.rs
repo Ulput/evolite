@@ -83,7 +83,9 @@ pub fn of(kind: &ActivityKind, chain: Chain) -> (u8, Flow) {
         | AppSpent { .. }
         | ContactRequest { .. }
         | ProfileSaved
-        | NameRegistered { .. } => (IDENTITY, Flow::Out),
+        | NameRegistered { .. }
+        | NameClaimed { .. }
+        | NameLinkWritten { .. } => (IDENTITY, Flow::Out),
         // FEAT-0019 T-1: tokens, on the identity; their amounts are not DASH (the TOKENS layer). A
         // token sent costs the identity its fee.
         TokenSent { .. } => (IDENTITY | TOKENS, Flow::Out),
@@ -97,8 +99,8 @@ pub fn of(kind: &ActivityKind, chain: Chain) -> (u8, Flow) {
         AddressWithdrawal { .. } => (PLATFORM_ADDRESS | CORE, Flow::Between),
         // From Core to the wallet's own Platform address (FEAT-0015 stage 2): a move between its own.
         AddressFunded => (CORE | PLATFORM_ADDRESS, Flow::Between),
-        // Costs nothing: someone asked us.
-        ContactRequestIn { .. } => (IDENTITY, Flow::In),
+        // Costs nothing: someone asked us, or a name's vote ended (FEAT-0021).
+        ContactRequestIn { .. } | NameContestEnded { .. } => (IDENTITY, Flow::In),
     }
 }
 

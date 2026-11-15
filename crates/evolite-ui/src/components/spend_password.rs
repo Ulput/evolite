@@ -221,7 +221,11 @@ mod tests {
                 top_up: 1,
             },
             Spend::ResumeIdentity,
-            Spend::AddName { name: "a".into() },
+            Spend::AddName {
+                name: "a".into(),
+                contest_fund: None,
+                link: None,
+            },
             Spend::Shield {
                 from: evolite_api::ShieldSource::Core,
                 amount: 1,

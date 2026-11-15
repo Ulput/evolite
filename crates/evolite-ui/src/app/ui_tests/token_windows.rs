@@ -120,7 +120,8 @@ fn the_credits_row_does_not_overlap_its_label() {
         i.names = vec![evolite_api::DpnsName {
             label: "qa-kestrel-1108b-a-long-name".into(),
             primary: true,
-            voting_days_left: None,
+            state: evolite_api::NameState::Registered,
+            contest: None,
         }];
     }
     kit.run_steps(3);

@@ -590,6 +590,25 @@ impl App {
         }
     }
 
+    /// Opens Identity with the contest card of `identity`'s claim on `label` (FEAT-0021, every
+    /// entry: AC-T21). When another identity of the wallet claimed it, the wallet acts as that
+    /// one first, and the card opens once the snapshot shows it.
+    pub(crate) fn open_contest(&mut self, identity: &str, label: &str) {
+        let shown = self
+            .snapshot
+            .as_ref()
+            .and_then(|s| s.wallet.as_ref())
+            .and_then(|w| w.identity.as_ref())
+            .map(|i| i.id.clone());
+        if shown.as_deref() != Some(identity) {
+            self.core.send(Command::ChooseIdentity {
+                id: identity.to_owned(),
+            });
+        }
+        self.identity.open_contest(identity, label);
+        self.screen = Screen::Identity;
+    }
+
     /// Hands each answer from the core to whoever asked.
     fn take_events(&mut self, ctx: &egui::Context) {
         for event in self.core.events() {
@@ -781,6 +800,16 @@ impl App {
                     let done = screens::shielded::PoolMove::of(*what);
                     self.pool.result = Some((done, result.clone()));
                 }
+                // FEAT-0021 R-11: a vote's result, even with the window in the background.
+                Event::NameContestEnded {
+                    identity,
+                    label,
+                    result,
+                } => {
+                    if let Some(note) = crate::notify::name_contest(label, *result) {
+                        self.notifier.show_contest(&note, identity, label);
+                    }
+                }
                 Event::NameChecked { label, result } => {
                     if *label == self.create_identity.asked {
                         self.create_identity.check = Some(result.clone());
@@ -799,8 +828,11 @@ impl App {
                     // the form starts empty for the next one.
                     if self.create_identity.on_done(result) {
                         let before = self.create_identity.before.take();
+                        // FEAT-0021 UC-5: the contested name typed, to claim on Identity now.
+                        let claim = self.create_identity.claim.take();
                         self.create_identity = Default::default();
                         self.identity.on_created(before);
+                        self.identity.claim_after = claim;
                         if self.screen == Screen::CreateIdentity {
                             self.screen = Screen::Identity;
                         }
@@ -1038,6 +1070,12 @@ impl eframe::App for App {
         }
         self.save_prefs();
         self.take_events(ui.ctx());
+        // FEAT-0021 AC-T22, entry 4: a click on a vote's result brings the window forward (from
+        // this process) and opens the claim's contest card.
+        if let Some((identity, label)) = self.notifier.take_click() {
+            ui.ctx().send_viewport_cmd(egui::ViewportCommand::Focus);
+            self.open_contest(&identity, &label);
+        }
         // Settings → Collection: whether NFT pictures move, and whether a stranger's picture waits
         // for "Show". The system's choice is read again every few seconds.
         let now = std::time::Instant::now();
@@ -1526,6 +1564,20 @@ impl eframe::App for App {
             || (back::returning(self.screen) && back::esc_or_mouse_back(ui.ctx()));
         let back_to = cx.back;
         let pay = cx.take_pay();
+        if let Some((identity, label)) = cx.take_contest() {
+            // As [`Self::open_contest`], with the frame's snapshot borrowed.
+            let shown = snapshot
+                .wallet
+                .as_ref()
+                .and_then(|w| w.identity.as_ref())
+                .map(|i| i.id.as_str());
+            if shown != Some(identity.as_str()) {
+                self.core.send(Command::ChooseIdentity {
+                    id: identity.clone(),
+                });
+            }
+            self.identity.open_contest(&identity, &label);
+        }
         if cx.take_top_up() {
             self.identity.open_top_up();
         }

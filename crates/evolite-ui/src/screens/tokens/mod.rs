@@ -128,7 +128,12 @@ pub(crate) fn sender(wallet: &Wallet) -> Sender {
 /// The shown identity's name, or its short id: «@satoshi».
 pub(crate) fn shown_name(wallet: &Wallet) -> String {
     match &wallet.identity {
-        Some(i) => match i.names.iter().find(|n| n.primary).or(i.names.first()) {
+        Some(i) => match i
+            .names
+            .iter()
+            .find(|n| n.primary)
+            .or(i.names.iter().find(|n| n.state.owned()))
+        {
             Some(n) => format!("@{}", n.label),
             None => state::short(&i.id),
         },

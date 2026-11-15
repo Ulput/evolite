@@ -113,6 +113,20 @@ pub enum What {
     Name {
         label: String,
     },
+    /// A contested name claimed into its masternode vote: the write and the fund (FEAT-0021).
+    NameClaim {
+        label: String,
+    },
+    /// The link of a claimed name written on its own, or removed (FEAT-0021 r2 Should 2).
+    NameLink {
+        label: String,
+        removed: bool,
+    },
+    /// How a claim's vote ended: "won", "lost" or "locked"; nothing paid (FEAT-0021 N6).
+    NameResult {
+        label: String,
+        outcome: String,
+    },
     /// Credits (or a Platform address's) moved into the shielded pool; `from` says which.
     Shield {
         from: String,
@@ -737,6 +751,21 @@ pub fn activity(entry: &Entry) -> Activity {
             What::Name { label } => ActivityKind::NameRegistered {
                 label: label.clone(),
             },
+            What::NameClaim { label } => ActivityKind::NameClaimed {
+                label: label.clone(),
+            },
+            What::NameLink { label, removed } => ActivityKind::NameLinkWritten {
+                label: label.clone(),
+                removed: *removed,
+            },
+            What::NameResult { label, outcome } => ActivityKind::NameContestEnded {
+                label: label.clone(),
+                outcome: match outcome.as_str() {
+                    "won" => evolite_api::NameOutcome::Won,
+                    "locked" => evolite_api::NameOutcome::Locked,
+                    _ => evolite_api::NameOutcome::Lost,
+                },
+            },
             What::Shield { from } => ActivityKind::Shielded {
                 from: Some(from.clone()),
             },
@@ -946,6 +975,30 @@ mod tests {
                 Some(12_345)
             )
         );
+        // FEAT-0021 r2 Should 2: a name's link written on its own, or removed, has its line
+        // with what it cost, on the identity.
+        for removed in [false, true] {
+            journal.add(entry(
+                What::NameLink {
+                    label: "sam".into(),
+                    removed,
+                },
+                4_321,
+                0,
+            ));
+            let entries = journal.entries();
+            let line = activity(&entries[entries.len() - 1]);
+            assert_eq!(
+                (line.kind, line.fee),
+                (
+                    ActivityKind::NameLinkWritten {
+                        label: "sam".into(),
+                        removed
+                    },
+                    Some(4_321)
+                )
+            );
+        }
         let _ = std::fs::remove_dir_all(&dir);
     }
     fn here(at: Timestamp, what: What, spent: Duffs) -> Entry {

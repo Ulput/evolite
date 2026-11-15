@@ -237,6 +237,8 @@ pub const PRESETS: &[&str] = &[
     "identity", "identity-unfinished", "identity-created", "top-up-stopped", "top-up-awaiting",
     "edit-profile", "edit-profile-password", "edit-profile-imgur-page",
     "top-up", "top-up-bad-amount", "add-name",
+    "names-contested", "contest-card", "contest-lost", "add-name-contested", "add-name-review",
+    "add-name-sent", "add-name-fund-rose", "contest-lost-hidden",
     "contacts", "add-contact", "contact-profile", "my-qr",
     "create-identity", "creating", "create-identity-nameless", "create-identity-confirm",
     "create-identity-short", "create-identity-unchecked",
@@ -424,7 +426,15 @@ fn dev_args<'a>(
                 | "edit-profile-imgur-page"
                 | "top-up"
                 | "top-up-bad-amount"
-                | "add-name",
+                | "add-name"
+                | "names-contested"
+                | "contest-card"
+                | "contest-lost"
+                | "add-name-contested"
+                | "add-name-review"
+                | "add-name-sent"
+                | "add-name-fund-rose"
+                | "contest-lost-hidden",
             ),
         ) => Screen::Identity,
         (None, Some("contacts" | "add-contact" | "contact-profile" | "my-qr")) => Screen::Contacts,

@@ -12,6 +12,7 @@ pub(super) mod identity;
 pub(super) mod kept_locks;
 mod misc;
 pub(super) mod mixed;
+mod name_contests;
 mod names;
 pub(super) mod notes;
 pub(super) mod outgoing;

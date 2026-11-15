@@ -911,12 +911,37 @@ pub fn demo_wallet(t: Timestamp) -> Wallet {
                 DpnsName {
                     label: "satoshi".into(),
                     primary: true,
-                    voting_days_left: None,
+                    state: NameState::Registered,
+                    contest: None,
                 },
+                // In the masternode vote (FEAT-0021): others may still join for 2 days, it ends in
+                // about 9.
                 DpnsName {
                     label: "nakamoto-dev".into(),
                     primary: false,
-                    voting_days_left: Some(9),
+                    state: NameState::Voting {
+                        join_until: t + 2 * day,
+                        ends_about: t + 9 * day,
+                        contenders: 2,
+                        ours: 14,
+                        lock: 3,
+                        abstain: 1,
+                    },
+                    contest: Some(NameContest {
+                        contenders: vec![
+                            (PEOPLE[0].id.into(), 14),
+                            ("9vXqKpTzR4mWdEh8LcYb2NsFgJuA6oQi3t7nZk5yHwC".into(), 9),
+                        ],
+                        winner: None,
+                        fund: 10_000_000,
+                        sent_at: t - 5 * day,
+                        checked_at: Some(t - 60),
+                        listed: true,
+                        notice_closed: false,
+                        result_notice_closed: false,
+                        link: None,
+                        link_written: false,
+                    }),
                 },
             ],
             keys: vec![
@@ -1004,6 +1029,7 @@ pub fn demo_wallet(t: Timestamp) -> Wallet {
         contacts: demo_contacts(t),
         unfinished_identity: None,
         unfinished_top_up: None,
+        identity_links: true,
         unfinished_address_top_up: None,
         // Off in the demo, as the setting was before the core kept it: its screens stay one
         // click (Settings → Security turns it on).
@@ -1234,6 +1260,9 @@ pub fn demo_wallet(t: Timestamp) -> Wallet {
             address_fund_lock_min: 56_000,
             name_regular: 1_000_000,
             name_contested: 20_000_000,
+            name_contest_fund: 10_000_000,
+            name_vote_secs: 90 * 60,
+            name_join_secs: 45 * 60,
             add_key: 10_000,
             contact_request: 10_000,
             contact_request_balance: 230_000,

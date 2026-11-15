@@ -196,3 +196,36 @@ fn a_refusal_for_a_key_says_the_keys_changed() {
     assert!(!refused_for_keys(&done(Err(CoreError::NotEnough))));
     assert!(!refused_for_keys(&done(Ok(()))));
 }
+
+/// FEAT-0021 r2 Should 1: a link write takes the identity lock first. While another write
+/// holds it, the next is refused before anything is read or sent (the network's identityVerify
+/// indices are not unique: two at once would both create, and pay twice). A write that cannot
+/// start lets the lock go.
+#[tokio::test]
+async fn a_link_write_waits_for_the_one_running() {
+    let core = core_with_vault("name-link-busy", "pw");
+
+    core.identity_busy.store(true, Ordering::Relaxed);
+    let busy = core
+        .set_name_link("sam".into(), Some("https://example.com/me".into()))
+        .await;
+    assert!(
+        matches!(&busy, Err(CoreError::NotAvailable(why)) if why.contains("already being made")),
+        "{busy:?}"
+    );
+    assert!(
+        core.identity_busy.load(Ordering::Relaxed),
+        "the running one keeps it"
+    );
+
+    core.identity_busy.store(false, Ordering::Relaxed);
+    let locked = core.set_name_link("sam".into(), None).await;
+    assert!(
+        matches!(&locked, Err(CoreError::NotAvailable(why)) if why.contains("locked")),
+        "{locked:?}"
+    );
+    assert!(
+        !core.identity_busy.load(Ordering::Relaxed),
+        "let go when it cannot start"
+    );
+}

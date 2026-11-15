@@ -29,6 +29,8 @@ pub fn command_name(command: &Command) -> &'static str {
         Command::ReadAppBudgets { .. } => "read_app_budgets",
         Command::ForgetApp { .. } => "forget_app",
         Command::CheckName { .. } => "check_name",
+        Command::HideNameRequest { .. } => "hide_name_request",
+        Command::CloseNameNotice { .. } => "close_name_notice",
         Command::OpenAppLink { .. } => "open_app_link",
         Command::DeclineApp { .. } => "decline_app",
         Command::DrawArt { .. } => "draw_art",
@@ -79,6 +81,7 @@ fn spend(op: &Spend) -> &'static str {
         Spend::CreateIdentity { .. } => "create_identity",
         Spend::ResumeIdentity => "resume_identity",
         Spend::AddName { .. } => "add_name",
+        Spend::SetNameLink { .. } => "set_name_link",
         Spend::Shield { .. } => "shield",
         Spend::Unshield { .. } => "unshield",
         Spend::TopUpFromPool { .. } => "top_up_from_pool",
@@ -115,6 +118,8 @@ pub fn error_kind(error: &CoreError) -> &'static str {
         CoreError::AppLink(_) => "app_link",
         // The excess itself stays out (FEAT-0030 AC-T11).
         CoreError::MixedExcess { .. } => "mixed_excess",
+        CoreError::ContestFundChanged { .. } => "contest_fund_changed",
+        CoreError::NameUnavailable(_) => "name_unavailable",
     }
 }
 
@@ -158,6 +163,16 @@ pub fn answer(event: &Event) -> Option<Record> {
         Event::PhraseRevealed(r) => ("phrase_revealed", outcome(r)),
         Event::Sent { result: r, .. } => ("sent", outcome(r)),
         Event::NameChecked { result, .. } => ("name_checked", outcome(result)),
+        // How it ended only: no label, no identity (FEAT-0021).
+        Event::NameContestEnded { result, .. } => (
+            "name_contest_ended",
+            match result {
+                evolite_api::NameState::Won { .. } => "won",
+                evolite_api::NameState::Lost { .. } => "lost",
+                evolite_api::NameState::Locked { .. } => "locked",
+                _ => "open",
+            },
+        ),
         Event::AppRequest(r) => ("app_request", outcome(r)),
         Event::PaymentPreview { result, .. } => ("payment_preview", outcome(result)),
         // What the coins are stays out: no outpoint, address or amount (FEAT-0013, R-11).

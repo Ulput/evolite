@@ -319,6 +319,9 @@ fn zero_fees() -> evolite_api::Fees {
         address_fund_lock_min: 0,
         name_regular: 0,
         name_contested: 0,
+        name_contest_fund: 0,
+        name_vote_secs: 0,
+        name_join_secs: 0,
         add_key: 0,
         contact_request: 0,
         contact_request_balance: 0,
@@ -961,7 +964,11 @@ fn the_price_on_record_is_the_one_the_send_form_shows() {
         fees.profile
     );
     assert_eq!(
-        price(&Spend::AddName { name: "b".into() }),
+        price(&Spend::AddName {
+            name: "b".into(),
+            contest_fund: None,
+            link: None,
+        }),
         fees.name_price(false)
     );
     let first = Seen {
@@ -969,7 +976,16 @@ fn the_price_on_record_is_the_one_the_send_form_shows() {
         ..seen.clone()
     };
     assert_eq!(
-        declared(&Spend::AddName { name: "b".into() }, &first, 0).declared,
+        declared(
+            &Spend::AddName {
+                name: "b".into(),
+                contest_fund: None,
+                link: None,
+            },
+            &first,
+            0
+        )
+        .declared,
         fees.name_price(true)
     );
     assert_eq!(

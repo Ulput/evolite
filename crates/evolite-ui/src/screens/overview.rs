@@ -56,6 +56,8 @@ pub fn overview(
     });
     // FEAT-0015 stage 2: a funding of the Platform address under way, stopped or done (23–25).
     super::fund_address::on_overview(ui, a, cx, fund);
+    // FEAT-0021 V2, entry 2: a name of the identity in its masternode vote.
+    super::identity::contest::overview_notice(ui, a, cx);
     let wallet = cx.wallet();
     total_block(ui, a, cx, wallet, &total_line, total_color, synced);
     let network = cx.snap.network;

@@ -22,7 +22,12 @@ impl Real {
             && self.nfts.due(owner)
         {
             let name = identity
-                .and_then(|i| i.names.iter().find(|n| n.primary).or(i.names.first()))
+                .and_then(|i| {
+                    i.names
+                        .iter()
+                        .find(|n| n.primary)
+                        .or(i.names.iter().find(|n| n.state.owned()))
+                })
                 .map(|n| format!("@{}", n.label))
                 .unwrap_or_else(|| owner.chars().take(8).collect());
             let (chain, nfts, refresh) = (self.chain.clone(), self.nfts.clone(), self.refresher());

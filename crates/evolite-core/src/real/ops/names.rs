@@ -186,12 +186,56 @@ impl Real {
                 label: asked,
                 result: Err(e),
             },
-            // A contested name is told by its letters alone: said at once, with no wait for
-            // Platform and no price shown first. evolite cannot take one either way.
-            Ok(label) if dpns::is_contested(&label) => Event::NameChecked {
-                label: asked,
-                result: Ok(NameCheck::Contested),
-            },
+            // A contested name (FEAT-0021, АРХ-5): its domain, then its proved vote state, then the
+            // answer — «available» alone says nothing of a vote or a block (R-1).
+            Ok(label) if dpns::is_contested(&label) => {
+                if !self.chain.platform_ready() {
+                    let _ = self.out.send(check_not_synced(asked.clone()));
+                }
+                let chain = self.chain.clone();
+                let wallet_id = self.dashpay_ready().ok().map(|(id, _)| id);
+                let fees = self.fees_now(0).await;
+                let times = (fees.name_join_secs, fees.name_vote_secs);
+                let give_up = check_not_synced(asked.clone());
+                self.answer_when_platform_ready("task:check_name", give_up, async move {
+                    let read = async move {
+                        let (shown, ids) = match wallet_id {
+                            Some(id) => match chain.wallet(&id).await {
+                                Some(w) => (
+                                    acting_identity(&w).await.unwrap_or_default(),
+                                    wallet_identity_ids(&w).await,
+                                ),
+                                None => Default::default(),
+                            },
+                            None => Default::default(),
+                        };
+                        let awarded = chain.name_awarded(&label).await?;
+                        let contest = if awarded {
+                            None
+                        } else {
+                            Some(chain.contest(&label).await?.0)
+                        };
+                        Ok::<_, String>(name_requests::classify(
+                            &label,
+                            awarded,
+                            contest.as_ref(),
+                            &shown,
+                            &ids,
+                            now(),
+                            times,
+                        ))
+                    };
+                    let result = match read_within(NAME_WAIT, read).await {
+                        Ok(check) => Ok(check),
+                        Err(e) => Err(CoreError::Failed(e)),
+                    };
+                    Event::NameChecked {
+                        label: asked,
+                        result,
+                    }
+                });
+                return (None, false);
+            }
             Ok(label) => {
                 if !self.chain.platform_ready() {
                     let _ = self.out.send(check_not_synced(asked.clone()));

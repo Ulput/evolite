@@ -4,5 +4,6 @@
 pub mod core_balance;
 pub mod journal;
 pub mod mempool;
+pub mod name_requests;
 pub mod pending;
 pub mod pool_history;

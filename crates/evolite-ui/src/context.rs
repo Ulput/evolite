@@ -25,6 +25,9 @@ pub struct Ctx<'a> {
     pay: Option<Pay>,
     /// The Identity screen asked for with "Top up the identity" open.
     top_up: bool,
+    /// The Identity screen asked for with a claim's contest card open (FEAT-0021 N5): the
+    /// identity that claimed and the label.
+    contest: Option<(String, String)>,
     /// FEAT-0015 stage 2 (frame 14): «Check and top up» on Send — the review of a funding of the
     /// Platform address for this amount, over the screen.
     fund: Option<evolite_api::Duffs>,
@@ -69,6 +72,7 @@ impl<'a> Ctx<'a> {
             go,
             pay: None,
             top_up: false,
+            contest: None,
             fund: None,
             wallets: None,
             back: Screen::Overview,
@@ -147,6 +151,19 @@ impl<'a> Ctx<'a> {
     /// Whether [`Self::top_up`] was asked this frame.
     pub fn take_top_up(&mut self) -> bool {
         std::mem::take(&mut self.top_up)
+    }
+
+    /// Opens Identity with the contest card of `identity`'s claim on `label` (FEAT-0021): one way
+    /// in for every entry (AC-T21) — the names, Overview's notice, History, the result's
+    /// notification and «Add a name». Another identity claimed it: the wallet acts as that one.
+    pub fn open_contest(&mut self, identity: &str, label: &str) {
+        self.contest = Some((identity.to_owned(), label.to_owned()));
+        self.go(Screen::Identity);
+    }
+
+    /// What [`Self::open_contest`] asked for this frame.
+    pub fn take_contest(&mut self) -> Option<(String, String)> {
+        self.contest.take()
     }
 
     /// Opens «Check the top-up» (22b) of a funding of the Platform address that gets at least

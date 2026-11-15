@@ -40,6 +40,11 @@ pub struct CreateIdentityForm {
     pub before: Option<Option<String>>,
     /// «Hide» was pressed in the steps over the form (frame 8): until the next creation.
     pub steps_hidden: bool,
+    /// A contested name typed (FEAT-0021 UC-5): the identity is made without it, and Identity
+    /// offers its claim once it is made.
+    pub claim: Option<String>,
+    /// The top-up is too small for that claim's write and fund (R-3): said before the password.
+    pub claim_short: bool,
 }
 
 impl CreateIdentityForm {
@@ -104,6 +109,8 @@ impl Default for CreateIdentityForm {
             confirming: false,
             before: None,
             steps_hidden: false,
+            claim: None,
+            claim_short: false,
         }
     }
 }
@@ -203,22 +210,25 @@ pub fn create_identity(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut Cre
     };
     // No name at all: allowed for one more identity, and then nothing is paid for one.
     let nameless = more && label.is_empty();
-    // A contested name goes to a masternode vote, which the core cannot start: it is
-    // explained at once and not offered, so the price shown is always a regular name's.
-    let name_fee = if nameless { 0 } else { fees.name_on_top() };
+    // A contested name (FEAT-0021 UC-5, AC-T23): the identity is made now without it, and the
+    // claim is a spend of its own on Identity right after — two spends, two passwords.
+    let claim = matches!(&check, Some(Ok(c)) if c.contested()).then(|| label.clone());
+    form.claim = claim.clone();
+    let without_name = nameless || claim.is_some();
+    let name_fee = if without_name { 0 } else { fees.name_on_top() };
     let top_up = crate::format::parse_amount(&form.amount).filter(|d| *d > 0);
     // What the asset lock takes — the amount asked for, whole, and on top of it the fees for
     // the name and the creation, as the core locks them (BUG-93) — and the Core fee of the
     // lock's transaction on top of that, as for a top-up.
     let core_fee = top_up.map_or(fees.core_payment, |t| {
-        fees.core_payment_for(fees.identity_lock_for(t, !nameless))
+        fees.core_payment_for(fees.identity_lock_for(t, !without_name))
     });
     let plan = top_up.map(|top_up| Plan {
-        label: (!nameless).then(|| label.clone()),
+        label: (!without_name).then(|| label.clone()),
         top_up,
         name_fee,
         create_fee: fees.identity_create,
-        lock: fees.identity_lock_for(top_up, !nameless),
+        lock: fees.identity_lock_for(top_up, !without_name),
         core_fee,
     });
     let lock = plan.as_ref().map(|plan| plan.lock);
@@ -233,9 +243,15 @@ pub fn create_identity(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut Cre
     // Platform takes no asset lock below its minimum, and the DASH in one it refuses stay
     // locked (BUG-54 review r1 must); with a name, the credits after the creation also have
     // to pay for it, or the DASH are locked and the name is refused (BUG-93).
-    let least = fees.identity_amount_least(!nameless);
+    let least = fees.identity_amount_least(!without_name);
     let too_little = top_up.is_some_and(|t| t < least);
-    let name_ok = nameless || matches!(check, Some(Ok(NameCheck::Available)));
+    // UC-5: the claim right after is paid from these credits — the write and the fund up front
+    // (R-3), said before the password.
+    form.claim_short = claim.is_some()
+        && top_up.is_some_and(|t| t < fees.name_credits_needed() + fees.name_contest_fund);
+    let name_ok = nameless
+        || matches!(check, Some(Ok(NameCheck::Available)))
+        || (claim.is_some() && !form.claim_short);
 
     let total_w = ui.available_width();
     let steps_w = 330.0;
@@ -433,17 +449,36 @@ fn name_section(ui: &mut Ui, a: &mut Assets, form: &mut CreateIdentityForm, v: &
                     p.danger,
                 ),
                 None => (None, p.muted),
-                Some(Ok(NameCheck::Available)) => (
-                    Some(format!(tr!("@{label} is free · a regular name, no vote"), label = label)),
-                    p.text,
-                ),
-                Some(Ok(NameCheck::Contested)) => (
+                // FEAT-0021 UC-5 (AC-T23): made without the name now, claimed right after on
+                // Identity — its own spend, its own password.
+                Some(Ok(NameCheck::NeedsVote | NameCheck::Joinable { .. })) if form.claim_short => (
                     Some(format!(
-                        tr!("@{label} is a contested name: masternodes award it by vote, which evolite cannot do yet. Add a digit from 2 to 9 or make the name longer than 19 characters.")
-                    , label = label)),
+                        tr!("@{label} is a contested name: its claim right after needs ≈ {needed} on the identity for the write and the fund. Make the top-up at least that."),
+                        label = label,
+                        needed = crate::format::amount(wallet.fees.name_credits_needed() + wallet.fees.name_contest_fund)
+                    )),
                     p.danger,
                 ),
-                Some(Ok(NameCheck::Taken)) => (Some(format!(tr!("@{label} is already taken"), label = label)), p.danger),
+                Some(Ok(NameCheck::NeedsVote | NameCheck::Joinable { .. })) => (
+                    Some(format!(
+                        tr!("@{label} is a contested name: masternodes award it by vote. The identity is made now without it; you claim it (fund {fund}) right after, with a button on Identity."),
+                        label = label,
+                        fund = crate::format::amount(wallet.fees.name_contest_fund)
+                    )),
+                    p.text,
+                ),
+                // FEAT-0021 N1: the other answers, in their tone.
+                Some(Ok(answer)) => {
+                    let (line, tone) = crate::screens::identity::contest::check_line(
+                        label,
+                        *answer,
+                        &v.wallet.fees,
+                        &[],
+                        &v.wallet.identities,
+                        chrono::Local::now(),
+                    );
+                    (Some(line), crate::screens::identity::contest::tone_color(tone, &p))
+                }
                 Some(Err(e)) => {
                     let (why, typo) = name_problem(e);
                     (Some(why), if typo { p.danger } else { p.muted })
@@ -910,6 +945,24 @@ fn check_new_identity(
                 None => tr!("Without a name nobody finds it by @name or adds it to DashPay contacts. You can add a name later on the Identity screen.").into(),
             };
             notice(ui, a, "eye", p.muted, &public);
+            // FEAT-0021 UC-5 (AC-T23): the contested name is not part of this spend; its claim
+            // and fund are, said here before the password.
+            if let Some(label) = &form.claim {
+                let fees = &cx.wallet().fees;
+                notice(
+                    ui,
+                    a,
+                    "vote",
+                    p.accent,
+                    &format!(
+                        tr!(
+                            "@{label} is not part of this: masternodes award it by vote. Right after, Identity offers its claim — the fund {fund}, not returned, and a password of its own."
+                        ),
+                        label = label,
+                        fund = crate::format::amount(fees.name_contest_fund)
+                    ),
+                );
+            }
             false
         },
     );

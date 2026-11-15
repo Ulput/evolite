@@ -20,6 +20,7 @@ mod calm_states;
 mod card;
 mod coins;
 mod contacts_privacy;
+mod contested_names;
 mod core_known;
 mod dialog_keys;
 mod dialog_scroll;

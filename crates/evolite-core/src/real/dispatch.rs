@@ -165,7 +165,19 @@ impl Real {
                     result: Err(e),
                 },
             },
-            Spend::AddName { name } => match self.add_name(&name).await {
+            Spend::AddName {
+                name,
+                contest_fund,
+                link,
+            } => match self.add_name(&name, contest_fund, link).await {
+                Ok(()) => return (None, true),
+                Err(e) => Event::Done {
+                    what: DoneWhat::Name,
+                    result: Err(e),
+                },
+            },
+            // FEAT-0021 АРХ-6: the claim's link alone (AC-T12).
+            Spend::SetNameLink { label, url } => match self.set_name_link(label, url).await {
                 Ok(()) => return (None, true),
                 Err(e) => Event::Done {
                     what: DoneWhat::Name,
@@ -253,6 +265,16 @@ impl Real {
             }
             Command::ResolveName { name } => return self.resolve_name(name).await,
             Command::CheckName { label: asked } => return self.check_name(asked).await,
+            // FEAT-0021 Should 1: «×» on Overview's notice, kept until the result; no answer.
+            Command::CloseNameNotice { identity, label } => {
+                let requests = name_requests::NameRequests::new(self.paths.name_requests.clone());
+                let _ = requests.update(&identity, &label, |r| r.close_notice());
+                return (None, true);
+            }
+            Command::HideNameRequest { identity, label } => Event::Done {
+                what: DoneWhat::Name,
+                result: self.hide_name_request(&identity, &label),
+            },
             Command::OpenAppLink { text } => match self.open_app_link(&text) {
                 // The decoded request comes from the background task.
                 Ok(()) => return (None, false),

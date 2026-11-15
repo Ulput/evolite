@@ -299,6 +299,37 @@ impl Mock {
                     result: Ok(()),
                 }
             }
+            // FEAT-0021 Should 1: «×» on Overview's notice, kept until the result.
+            Command::CloseNameNotice { identity, label } => {
+                if let Some(c) = self
+                    .snapshot
+                    .wallet
+                    .as_mut()
+                    .and_then(|w| w.identity.as_mut())
+                    .filter(|i| i.id == identity)
+                    .and_then(|i| i.names.iter_mut().find(|n| n.label == label))
+                    .and_then(|n| {
+                        let ended = !n.state.open();
+                        n.contest.as_mut().map(|c| (c, ended))
+                    })
+                {
+                    let (contest, ended) = c;
+                    if ended {
+                        contest.result_notice_closed = true;
+                    } else {
+                        contest.notice_closed = true;
+                    }
+                }
+                return true;
+            }
+            Command::HideNameRequest { identity, label } => {
+                let result = self.hide_name(&identity, &label);
+                changed = result.is_ok();
+                Event::Done {
+                    what: DoneWhat::Name,
+                    result,
+                }
+            }
             Command::CheckName { label } => Event::NameChecked {
                 result: check_name(&label),
                 label,
@@ -768,6 +799,26 @@ impl Mock {
                     result,
                 };
             }
+            // FEAT-0021: a regular name at once, a contested one into the vote.
+            Spend::AddName {
+                name,
+                contest_fund,
+                link,
+            } => {
+                let result = self.add_name(&name, contest_fund, link);
+                return Event::Done {
+                    what: DoneWhat::Name,
+                    result,
+                };
+            }
+            // FEAT-0021 АРХ-6: the link alone, as the real core writes it (AC-T12).
+            Spend::SetNameLink { label, url } => {
+                let result = self.set_name_link(&label, url);
+                return Event::Done {
+                    what: DoneWhat::Name,
+                    result,
+                };
+            }
             _ => NO_WALLET,
         };
         op.refused(CoreError::NotAvailable(why.into()))
@@ -795,6 +846,132 @@ impl Mock {
             .ok_or(CoreError::NotAvailable(NO_WALLET.into()))?;
         wallet.apps.retain(|a| a.id != app.id);
         wallet.apps.insert(0, app);
+        Ok(())
+    }
+
+    /// «Add a name» in the demo (FEAT-0021), as the real core answers: a name that cannot be
+    /// claimed as it stands is refused; a contested one is refused if the fund agreed to is not the
+    /// one asked now (R-2), or if the credits do not hold the write and the fund (R-3); then a
+    /// regular name is registered and a contested one goes into the vote, paid from the credits.
+    fn add_name(
+        &mut self,
+        name: &str,
+        contest_fund: Option<Duffs>,
+        link: Option<String>,
+    ) -> Result<(), CoreError> {
+        let check = check_name(name)?;
+        if !check.claimable() {
+            return Err(CoreError::NameUnavailable(check));
+        }
+        let label = evolite_common::dpns::label(name)?;
+        let wallet = self
+            .snapshot
+            .wallet
+            .as_mut()
+            .ok_or(CoreError::NotAvailable(NO_WALLET.into()))?;
+        let fees = &wallet.fees;
+        let (cost, state) = if check.contested() {
+            if contest_fund != Some(fees.name_contest_fund) {
+                return Err(CoreError::ContestFundChanged {
+                    fund: fees.name_contest_fund,
+                });
+            }
+            let now = evolite_common::now();
+            let (join_until, contenders) = match check {
+                NameCheck::Joinable {
+                    contenders,
+                    join_until,
+                } => (join_until, contenders + 1),
+                _ => (now + fees.name_join_secs as i64, 1),
+            };
+            let state = NameState::Voting {
+                join_until,
+                ends_about: join_until - fees.name_join_secs as i64 + fees.name_vote_secs as i64,
+                contenders,
+                ours: 0,
+                lock: 0,
+                abstain: 0,
+            };
+            (fees.name_contested, state)
+        } else {
+            (fees.name_regular, NameState::Registered)
+        };
+        if wallet.balances.credits < cost {
+            return Err(CoreError::NotEnough);
+        }
+        let identity = wallet
+            .identity
+            .as_mut()
+            .ok_or(CoreError::NotAvailable(NO_WALLET.into()))?;
+        wallet.balances.credits -= cost;
+        let contest = state.open().then(|| NameContest {
+            contenders: vec![(identity.id.clone(), 0)],
+            winner: None,
+            fund: fees.name_contest_fund,
+            sent_at: evolite_common::now(),
+            checked_at: None,
+            listed: true,
+            notice_closed: false,
+            result_notice_closed: false,
+            link_written: link.is_some(),
+            link,
+        });
+        identity.names.push(DpnsName {
+            label,
+            primary: false,
+            state,
+            contest,
+        });
+        Ok(())
+    }
+
+    /// The link of the shown identity's claim on `label` written, changed or removed (FEAT-0021
+    /// АРХ-6, AC-T12), as the real core answers: a link that does not pass is refused in words;
+    /// a name with no claim is not found.
+    fn set_name_link(&mut self, label: &str, url: Option<String>) -> Result<(), CoreError> {
+        let url = url
+            .map(|l| evolite_common::dpns::identity_link(&l))
+            .transpose()
+            .map_err(|_| {
+                CoreError::NotAvailable(
+                    tr!("A link https:// of at most 128 characters is needed").into(),
+                )
+            })?;
+        let contest = self
+            .snapshot
+            .wallet
+            .as_mut()
+            .and_then(|w| w.identity.as_mut())
+            .and_then(|i| i.names.iter_mut().find(|n| n.label == label))
+            .and_then(|n| n.contest.as_mut())
+            .ok_or(CoreError::NameNotFound)?;
+        contest.link_written = url.is_some();
+        contest.link = url;
+        Ok(())
+    }
+
+    /// «Hide» on a lost or blocked name (FEAT-0021 R-12): no longer listed among the names; another
+    /// identity, or a name not lost or blocked, is refused and nothing changes.
+    fn hide_name(&mut self, identity: &str, label: &str) -> Result<(), CoreError> {
+        let shown = self
+            .snapshot
+            .wallet
+            .as_mut()
+            .and_then(|w| w.identity.as_mut())
+            .filter(|i| i.id == identity)
+            .ok_or(CoreError::NameNotFound)?;
+        let at = shown
+            .names
+            .iter()
+            .position(|n| {
+                n.label == label
+                    && matches!(n.state, NameState::Lost { .. } | NameState::Locked { .. })
+            })
+            .ok_or(CoreError::NameNotFound)?;
+        // Kept for the card History opens, no longer listed (AC-T19).
+        if let Some(contest) = &mut shown.names[at].contest {
+            contest.listed = false;
+        }
         Ok(())
     }
 
@@ -839,7 +1016,8 @@ impl Mock {
             .map(|label| DpnsName {
                 label: label.clone(),
                 primary: true,
-                voting_days_left: None,
+                state: NameState::Registered,
+                contest: None,
             })
             .collect();
         wallet.identity = Some(Identity {
@@ -1730,6 +1908,8 @@ mod tests {
             Spend::ResumeIdentity,
             Spend::AddName {
                 name: "alice".into(),
+                contest_fund: None,
+                link: None,
             },
             Spend::Shield {
                 from: ShieldSource::Credits,
@@ -1945,9 +2125,140 @@ mod tests {
     #[test]
     fn checks_names_by_dpns_rules() {
         assert_eq!(check_name("satoshi"), Ok(NameCheck::Taken));
-        assert_eq!(check_name("@evolite"), Ok(NameCheck::Contested));
+        assert_eq!(check_name("@evolite"), Ok(NameCheck::NeedsVote));
         assert_eq!(check_name("evolite-2026"), Ok(NameCheck::Available));
         assert_eq!(check_name("ab"), Err(CoreError::BadName));
+    }
+
+    /// FEAT-0021 (AC-T8): the demo answers «Add a name» as the real core does — a name that
+    /// cannot be claimed, a fund other than the one asked now, too few credits: refused with
+    /// nothing paid; a regular name registered; a contested one in the vote with the protocol's
+    /// times; «Hide» only on a lost or blocked name of the shown identity.
+    #[test]
+    fn the_demo_claims_names_as_the_real_core_does() {
+        let (mut m, _tx, _rx) = mock();
+        let credits = |m: &Mock| m.snapshot.wallet.as_ref().unwrap().balances.credits;
+        let names = |m: &Mock| {
+            m.snapshot
+                .wallet
+                .as_ref()
+                .unwrap()
+                .identity
+                .clone()
+                .unwrap()
+                .names
+        };
+        let fund = m.snapshot.wallet.as_ref().unwrap().fees.name_contest_fund;
+        let before = credits(&m);
+        for name in [answers::LOCKED, answers::JOIN_CLOSED, "satoshi"] {
+            assert!(
+                matches!(
+                    m.add_name(name, Some(fund), None),
+                    Err(CoreError::NameUnavailable(
+                        NameCheck::Locked | NameCheck::JoinClosed { .. } | NameCheck::Taken
+                    ))
+                ),
+                "{name}"
+            );
+        }
+        assert_eq!(
+            m.add_name("sam", Some(fund + 1), None),
+            Err(CoreError::ContestFundChanged { fund }),
+            "R-2"
+        );
+        assert_eq!(credits(&m), before, "nothing paid");
+
+        m.add_name("evolite-2026", None, None).unwrap();
+        m.add_name("sam", Some(fund), None).unwrap();
+        let fees = m.snapshot.wallet.as_ref().unwrap().fees.clone();
+        assert_eq!(
+            credits(&m),
+            before - fees.name_regular - fees.name_contested
+        );
+        let all = names(&m);
+        let state = |label: &str| all.iter().find(|n| n.label == label).unwrap().state;
+        assert_eq!(state("evolite-2026"), NameState::Registered);
+        let NameState::Voting {
+            join_until,
+            ends_about,
+            contenders: 1,
+            ..
+        } = state("sam")
+        else {
+            panic!("in the vote: {:?}", state("sam"));
+        };
+        assert_eq!(
+            ends_about - join_until,
+            (fees.name_vote_secs - fees.name_join_secs) as i64
+        );
+
+        m.snapshot.wallet.as_mut().unwrap().balances.credits = 0;
+        assert_eq!(
+            m.add_name("bob2", Some(fund), None),
+            Err(CoreError::NotEnough),
+            "R-3"
+        );
+
+        let id = m
+            .snapshot
+            .wallet
+            .as_ref()
+            .unwrap()
+            .identity
+            .as_ref()
+            .unwrap()
+            .id
+            .clone();
+        assert_eq!(
+            m.hide_name(&id, "sam"),
+            Err(CoreError::NameNotFound),
+            "still in the vote"
+        );
+        assert_eq!(m.hide_name("other", "sam"), Err(CoreError::NameNotFound));
+    }
+
+    /// FEAT-0021 АРХ-6 (AC-T12): a claim's link is written alone — the request stays, nothing is
+    /// charged for a fund; a link that does not pass and a name not claimed are refused.
+    #[test]
+    fn the_demo_writes_a_claims_link_alone() {
+        let (mut m, _tx, _rx) = mock();
+        let fund = m.snapshot.wallet.as_ref().unwrap().fees.name_contest_fund;
+        m.add_name("sam", Some(fund), None).unwrap();
+        let credits = |m: &Mock| m.snapshot.wallet.as_ref().unwrap().balances.credits;
+        let link = |m: &Mock| {
+            let id = m
+                .snapshot
+                .wallet
+                .as_ref()
+                .unwrap()
+                .identity
+                .clone()
+                .unwrap();
+            let c = id
+                .names
+                .into_iter()
+                .find(|n| n.label == "sam")
+                .unwrap()
+                .contest
+                .unwrap();
+            (c.link, c.link_written)
+        };
+        let before = credits(&m);
+        assert_eq!(link(&m), (None, false));
+        m.set_name_link("sam", Some("https://example.com/me".into()))
+            .unwrap();
+        assert_eq!(link(&m), (Some("https://example.com/me".into()), true));
+        assert_eq!(credits(&m), before, "no fund again");
+        assert!(
+            m.set_name_link("sam", Some("http://example.com".into()))
+                .is_err()
+        );
+        assert_eq!(
+            m.set_name_link("nobody", Some("https://example.com".into())),
+            Err(CoreError::NameNotFound)
+        );
+        m.set_name_link("sam", None).unwrap();
+        assert_eq!(link(&m), (None, false), "removed");
     }
 
     /// FEAT-0023: v2 links are read, App Connect v1 ones refused in words of their own.

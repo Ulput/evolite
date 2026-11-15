@@ -133,18 +133,36 @@ pub fn preview(to: &str, contacts: &[Contact]) -> Result<String, CoreError> {
 }
 
 /// Names the mock treats as taken in DPNS.
-const TAKEN: [&str; 4] = ["satoshi", "alice", "bob", "nakamoto-dev"];
+const TAKEN: [&str; 3] = ["satoshi", "alice", "bob"];
 
-/// The DPNS rules of [`evolite_common::dpns`], with the names above taken.
+/// Contested names the demo answers every way a name check can (FEAT-0021, AC-T8): one in a vote
+/// that still takes claims, one in a vote closed to claims, one blocked, one this identity asked
+/// for, one another identity of the wallet asked for.
+pub const JOINABLE: &str = "dash";
+pub const JOIN_CLOSED: &str = "coin";
+pub const LOCKED: &str = "money";
+pub const OURS: &str = "nakamoto-dev";
+pub const OTHERS: &str = "werner";
+
+/// The DPNS rules of [`evolite_common::dpns`], with the names above taken or in a vote.
 pub fn check_name(label: &str) -> Result<NameCheck, CoreError> {
     let label = evolite_common::dpns::label(label)?;
     if TAKEN.contains(&label.as_str()) {
         return Ok(NameCheck::Taken);
     }
-    Ok(if evolite_common::dpns::is_contested(&label) {
-        NameCheck::Contested
-    } else {
-        NameCheck::Available
+    Ok(match label.as_str() {
+        JOINABLE => NameCheck::Joinable {
+            contenders: 3,
+            join_until: evolite_common::now() + 20 * 60,
+        },
+        JOIN_CLOSED => NameCheck::JoinClosed {
+            ends_about: Some(evolite_common::now() + 30 * 60),
+        },
+        LOCKED => NameCheck::Locked,
+        OURS => NameCheck::AlreadyRequested { other: None },
+        OTHERS => NameCheck::AlreadyRequested { other: Some(1) },
+        _ if evolite_common::dpns::is_contested(&label) => NameCheck::NeedsVote,
+        _ => NameCheck::Available,
     })
 }
 

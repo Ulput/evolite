@@ -190,12 +190,21 @@ impl Real {
 
     /// Checks the name at once and registers it for the shown identity in the background (one
     /// more DPNS name, paid from its credits). The answer is `Done { what: DoneWhat::Name }`.
-    pub(in crate::real) async fn add_name(&self, name: &str) -> Result<(), CoreError> {
+    /// A contested name (FEAT-0021) is claimed into its masternode vote: `contest_fund` is the fund
+    /// agreed to in the review, and the claim is kept in `name-requests.json`.
+    pub(in crate::real) async fn add_name(
+        &self,
+        name: &str,
+        contest_fund: Option<Duffs>,
+        link: Option<String>,
+    ) -> Result<(), CoreError> {
         let label = dpns::label(name)?;
         if dpns::is_contested(&label) {
-            return Err(CoreError::NotAvailable(
-                tr!("Contested names are decided by a masternode vote, which evolite cannot do yet. Add a digit from 2 to 9 to the name or make it longer than 19 characters").into(),
-            ));
+            let link = link
+                .map(|l| dpns::identity_link(&l))
+                .transpose()
+                .map_err(link_refused)?;
+            return self.claim_name(label, contest_fund, link).await;
         }
         let needed = self.fees_now(0).await.name_credits_needed();
         let (id, keys) = self.dashpay_ready()?;
@@ -219,7 +228,7 @@ impl Real {
                     let wallet = chain.wallet(&id).await.ok_or(NOT_LOADED)?;
                     let acting = acting_identity(&wallet).await;
                     let before = chain.first_identity_credits(&wallet, false).await;
-                    chain.add_name(&wallet, &keys, &label, needed).await?;
+                    chain.add_name(&wallet, &keys, &label, needed, None).await?;
                     // In the history, with what it cost: the next name is estimated from it.
                     let after = chain.first_identity_credits(&wallet, true).await;
                     journal.add(journal::Entry {
@@ -245,6 +254,243 @@ impl Real {
             }
         });
         Ok(())
+    }
+
+    /// Claims a contested name for the shown identity (FEAT-0021) in the background: the domain
+    /// and the proved vote state are read first, and nothing is sent for a name that cannot be
+    /// claimed, for a fund above the one agreed to (R-2) or for credits short of the write and the
+    /// fund (R-3, BUG-97). A write that fails is looked for in the vote before it is called a
+    /// failure (R-4): the claim may be in, and asking again would pay twice. Kept in
+    /// `name-requests.json` once in. `link` (АРХ-6), checked already, is written after the claim
+    /// as a document of its own; if that write fails the claim stays in and the request keeps the
+    /// link «not written» for its retry, which pays only the link (AC-T12).
+    async fn claim_name(
+        &self,
+        label: String,
+        agreed: Option<Duffs>,
+        link: Option<String>,
+    ) -> Result<(), CoreError> {
+        let fees = self.fees_now(0).await;
+        let (id, keys) = self.dashpay_ready()?;
+        if self.identity_busy.swap(true, Ordering::Relaxed) {
+            return Err(CoreError::NotAvailable(
+                tr!("An identity is already being made or topped up").into(),
+            ));
+        }
+        let chain = self.chain.clone();
+        let busy = self.identity_busy.clone();
+        let refresh = self.refresher();
+        let journal = self.journal.clone();
+        let requests = name_requests::NameRequests::new(self.paths.name_requests.clone());
+        let names_stale = self.names_stale.clone();
+        self.answer_later("task:claim_name", async move {
+            let result = async {
+                let wallet = chain
+                    .wallet(&id)
+                    .await
+                    .ok_or(CoreError::Failed(NOT_LOADED.into()))?;
+                let shown = acting_identity(&wallet)
+                    .await
+                    .ok_or(CoreError::NotAvailable(
+                        tr!("Make an identity first").into(),
+                    ))?;
+                let ids = wallet_identity_ids(&wallet).await;
+                let awarded = chain
+                    .name_awarded(&label)
+                    .await
+                    .map_err(CoreError::Failed)?;
+                let (contest, fund_now) = chain.contest(&label).await.map_err(CoreError::Failed)?;
+                let check = name_requests::classify(
+                    &label,
+                    awarded,
+                    Some(&contest),
+                    &shown,
+                    &ids,
+                    now(),
+                    (fees.name_join_secs, fees.name_vote_secs),
+                );
+                name_requests::judge_claim(check, fund_now, agreed)?;
+                // The write, the fund and the link's write, all from the credits before the first
+                // transition (R-3; АРХ-6: the link's line is in the review).
+                let link_cost = if link.is_some() {
+                    fees.document_write
+                } else {
+                    0
+                };
+                let needed = fees.name_credits_needed() + fund_now + link_cost;
+                let before = chain.first_identity_credits(&wallet, false).await;
+                let sent = chain
+                    .add_name(&wallet, &keys, &label, needed, Some(fund_now))
+                    .await;
+                let (contest, _) = match sent {
+                    Ok(()) => chain.contest(&label).await.unwrap_or((contest, fund_now)),
+                    Err(e) => {
+                        // R-4: in the vote after all? Then it is in; else it failed.
+                        let again = chain.contest(&label).await.ok();
+                        match again {
+                            Some((c, f)) if c.contenders.iter().any(|x| x.identity == shown) => {
+                                (c, f)
+                            }
+                            _ => return Err(identity_failure(e)),
+                        }
+                    }
+                };
+                requests
+                    .put(name_requests::NameRequest::new(
+                        &shown,
+                        &label,
+                        &contest,
+                        fund_now,
+                        now(),
+                        fees.name_join_secs,
+                        fees.name_vote_secs,
+                    ))
+                    .map_err(CoreError::Failed)?;
+                names_stale.notify_one();
+                // The link, after the claim (АРХ-6): its failure leaves the claim in.
+                if let Some(url) = &link {
+                    // r2 Should 3: as the identity whose claim this is.
+                    let written = match Identifier::from_string(&shown, Encoding::Base58) {
+                        Ok(as_identity) => chain
+                            .write_identity_link(&wallet, &keys, &as_identity, &label, Some(url))
+                            .await
+                            .is_ok(),
+                        Err(_) => false,
+                    };
+                    let _ = requests.update(&shown, &label, |r| {
+                        r.link = Some(url.clone());
+                        r.link_written = written;
+                    });
+                }
+                let after = chain.first_identity_credits(&wallet, true).await;
+                journal.add(journal::Entry {
+                    at: now(),
+                    // A claim, not a name got: History says so, and the next regular name is not
+                    // priced from it, the fund in it (FEAT-0021).
+                    what: journal::What::NameClaim {
+                        label: label.clone(),
+                    },
+                    spent: spent_credits(before, after).unwrap_or(0),
+                    moved: 0,
+                    identity: Some(shown),
+                    ..Default::default()
+                });
+                Ok(())
+            }
+            .await;
+            busy.store(false, Ordering::Relaxed);
+            refresh();
+            Event::Done {
+                what: DoneWhat::Name,
+                result,
+            }
+        });
+        Ok(())
+    }
+
+    /// The link «where my identity is confirmed» of the shown identity's claim on `label`
+    /// written, changed or (`None`) removed in the background (FEAT-0021 АРХ-6, AC-T12): the
+    /// retry of one not written, or a change during the vote. Only a claim this wallet keeps;
+    /// the credits are checked for the write; no fund is ever paid here.
+    pub(in crate::real) async fn set_name_link(
+        &self,
+        label: String,
+        url: Option<String>,
+    ) -> Result<(), CoreError> {
+        let url = url
+            .map(|l| dpns::identity_link(&l))
+            .transpose()
+            .map_err(link_refused)?;
+        // r2 Should 1: the network's identityVerify indices are not unique, so two writes at
+        // once would both find nothing, both create, and pay twice. One at a time, as a claim;
+        // taken first, so a write running refuses the next before anything else.
+        if self.identity_busy.swap(true, Ordering::Relaxed) {
+            return Err(CoreError::NotAvailable(
+                tr!("An identity is already being made or topped up").into(),
+            ));
+        }
+        let busy = self.identity_busy.clone();
+        let (id, keys) = match self.dashpay_ready() {
+            Ok(ready) => ready,
+            Err(e) => {
+                busy.store(false, Ordering::Relaxed);
+                return Err(e);
+            }
+        };
+        let journal = self.journal.clone();
+        let requests = name_requests::NameRequests::new(self.paths.name_requests.clone());
+        let chain = self.chain.clone();
+        let refresh = self.refresher();
+        self.answer_later("task:set_name_link", async move {
+            let result = async {
+                let wallet = chain
+                    .wallet(&id)
+                    .await
+                    .ok_or(CoreError::Failed(NOT_LOADED.into()))?;
+                let shown = acting_identity(&wallet)
+                    .await
+                    .ok_or(CoreError::NotAvailable(
+                        tr!("Make an identity first").into(),
+                    ))?;
+                let ours = requests
+                    .load()
+                    .into_iter()
+                    .any(|r| r.identity == shown && name_requests::same_name(&r.label, &label));
+                if !ours {
+                    return Err(CoreError::NameNotFound);
+                }
+                // r2 Should 3: signed as the identity checked above, not whichever is shown by
+                // the time of the write.
+                let as_identity = Identifier::from_string(&shown, Encoding::Base58)
+                    .map_err(|e| CoreError::Failed(e.to_string()))?;
+                let before = chain.identity_credits(&wallet, &as_identity, false).await;
+                chain
+                    .write_identity_link(&wallet, &keys, &as_identity, &label, url.as_deref())
+                    .await
+                    .map_err(identity_failure)?;
+                let _ = requests.update(&shown, &label, |r| {
+                    r.link_written = url.is_some();
+                    r.link = url.clone();
+                });
+                // r2 Should 2 (BUG-145): every spend of credits has its line with what it cost.
+                let after = chain.identity_credits(&wallet, &as_identity, true).await;
+                journal.add(journal::Entry {
+                    at: now(),
+                    what: journal::What::NameLink {
+                        label: label.clone(),
+                        removed: url.is_none(),
+                    },
+                    spent: spent_credits(before, after).unwrap_or(0),
+                    moved: 0,
+                    identity: Some(shown),
+                    ..Default::default()
+                });
+                Ok(())
+            }
+            .await;
+            busy.store(false, Ordering::Relaxed);
+            refresh();
+            Event::Done {
+                what: DoneWhat::Name,
+                result,
+            }
+        });
+        Ok(())
+    }
+
+    /// «Hide» on a lost or blocked name (FEAT-0021 R-12, AC-T18): written at once, no password;
+    /// another identity's or a name not lost or blocked is refused and nothing is written.
+    pub(in crate::real) fn hide_name_request(
+        &self,
+        identity: &str,
+        label: &str,
+    ) -> Result<(), CoreError> {
+        let requests = name_requests::NameRequests::new(self.paths.name_requests.clone());
+        match requests.hide(identity, label) {
+            Ok(true) => Ok(()),
+            Ok(false) => Err(CoreError::NameNotFound),
+            Err(e) => Err(CoreError::Failed(e)),
+        }
     }
 
     /// Finishes the cut-short top-up in the background with the lock already made: no new
@@ -442,6 +688,12 @@ impl Real {
             journal: self.journal.clone(),
         };
         let stale = self.balances_stale.clone();
+        let names_stale = self.names_stale.clone();
+        let names_path = self.paths.name_requests.clone();
+        let out = self.out.clone();
+        let names_journal = self.journal.clone();
+        let identity_links = self.identity_links.clone();
+        let mainnet = crate::network::current() == evolite_api::Network::Mainnet;
         let works = self.works.clone();
         // A new search: the credits are checked again, all of them (BUG-115).
         let checked = self.credits_checked.clone();
@@ -499,6 +751,26 @@ impl Real {
                         refresh.clone(),
                         budgets.clone(),
                         works.clone(),
+                    ));
+                    // FEAT-0021 AC-T13: whether this network offers the link of a claim.
+                    let (links_chain, links) = (chain.clone(), identity_links.clone());
+                    tokio::spawn(async move {
+                        if let Ok(Some(_)) = links_chain.identity_verify_contract().await {
+                            links.store(true, Ordering::Relaxed);
+                        }
+                    });
+                    tokio::spawn(super::name_contests::keep_name_requests_fresh(
+                        chain.clone(),
+                        id,
+                        live.clone(),
+                        super::name_contests::NamePoll {
+                            path: names_path.clone(),
+                            out: out.clone(),
+                            journal: names_journal.clone(),
+                            mainnet,
+                            wake: names_stale.clone(),
+                        },
+                        refresh.clone(),
                     ));
                 }
                 refresh();
@@ -720,6 +992,19 @@ async fn nameless_slot(
         }
     }
     None
+}
+
+/// Why a link «where my identity is confirmed» is not taken (FEAT-0021 AC-T11), in words: nothing
+/// is sent.
+pub(in crate::real) fn link_refused(problem: dpns::LinkProblem) -> CoreError {
+    CoreError::NotAvailable(
+        match problem {
+            dpns::LinkProblem::NotHttps => tr!("The link has to start with https://"),
+            dpns::LinkProblem::TooLong => tr!("The link is longer than 128 characters"),
+            dpns::LinkProblem::NotALink => tr!("This is not a link a browser opens"),
+        }
+        .into(),
+    )
 }
 
 /// A failed top-up or name, in the interface's terms. A top-up that fails after its lock loses

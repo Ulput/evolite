@@ -116,6 +116,39 @@ pub fn app_request(app: &str) -> Note {
     }
 }
 
+/// How a masternode vote on one of the wallet's names ended (FEAT-0021 N6, R-11): the History
+/// line's words as the title, what comes next as the text; no amount, no identity id. `None` for
+/// a state that is no result.
+pub fn name_contest(label: &str, result: evolite_api::NameState) -> Option<Note> {
+    use evolite_api::NameState;
+    let name = crate::i18n::own(label);
+    let (title, body) = match result {
+        NameState::Won { .. } => (
+            format!(tr!("The name @{name} is yours"), name = name),
+            tr!("The masternode vote is over. The identity has the name now."),
+        ),
+        NameState::Lost { .. } => (
+            format!(
+                tr!("The name @{name} went to another identity"),
+                name = name
+            ),
+            tr!("The masternode vote is over. You can claim another name."),
+        ),
+        NameState::Locked { .. } => (
+            format!(
+                tr!("The name @{name} is blocked by the masternodes"),
+                name = name
+            ),
+            tr!("Nobody will get this name. You can claim another one."),
+        ),
+        _ => return None,
+    };
+    Some(Note {
+        title,
+        body: body.into(),
+    })
+}
+
 /// Whether this system can show notifications at all.
 pub const SUPPORTED: bool = cfg!(windows);
 
@@ -124,11 +157,14 @@ pub const SUPPORTED: bool = cfg!(windows);
 pub struct Notifier {
     #[cfg(windows)]
     tray: Option<windows::Tray>,
+    /// The last note's contest, for a click on it (FEAT-0021 AC-T22): the identity and the label.
+    contest: Option<(String, String)>,
 }
 
 impl Notifier {
     /// Shows `note`; false when the system refused or has no notifications.
     pub fn show(&mut self, note: &Note) -> bool {
+        self.contest = None;
         #[cfg(windows)]
         {
             if self.tray.is_none() {
@@ -142,20 +178,95 @@ impl Notifier {
             false
         }
     }
+
+    /// Shows a vote's result (FEAT-0021 N6): a click on it opens the claim's contest card.
+    pub fn show_contest(&mut self, note: &Note, identity: &str, label: &str) -> bool {
+        let shown = self.show(note);
+        self.contest = Some((identity.to_owned(), label.to_owned()));
+        shown
+    }
+
+    /// The contest of the note just clicked (AC-T22), once. Windows only: elsewhere a note
+    /// takes no click (FEAT-0021 entry 4 is not there).
+    pub fn take_click(&mut self) -> Option<(String, String)> {
+        #[cfg(windows)]
+        if windows::take_clicked() {
+            return self.contest.take();
+        }
+        None
+    }
+
+    /// A click on the note of `identity`'s contest on `label`, as the system's message brings it
+    /// (tests: the balloon itself cannot be clicked there).
+    #[cfg(all(test, windows, demo_core, feature = "dev-tools"))]
+    pub fn clicked(&mut self, identity: &str, label: &str) {
+        self.contest = Some((identity.to_owned(), label.to_owned()));
+        // SAFETY: the procedure looks only at the message and its lparam on this path.
+        unsafe {
+            windows::proc(
+                std::ptr::null_mut(),
+                windows::CALLBACK,
+                0,
+                windows_sys::Win32::UI::Shell::NIN_BALLOONUSERCLICK as isize,
+            );
+        }
+    }
 }
 
 #[cfg(windows)]
 mod windows {
     use super::Note;
-    use windows_sys::Win32::Foundation::HWND;
+    use std::cell::Cell;
+    use std::sync::atomic::{AtomicIsize, Ordering};
+    use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
     use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
     use windows_sys::Win32::UI::Shell::{
-        NIF_ICON, NIF_INFO, NIF_TIP, NIIF_INFO, NIM_ADD, NIM_DELETE, NIM_MODIFY, NOTIFYICONDATAW,
-        Shell_NotifyIconW,
+        NIF_ICON, NIF_INFO, NIF_MESSAGE, NIF_TIP, NIIF_INFO, NIM_ADD, NIM_DELETE, NIM_MODIFY,
+        NIN_BALLOONUSERCLICK, NOTIFYICONDATAW, Shell_NotifyIconW,
     };
     use windows_sys::Win32::UI::WindowsAndMessaging::{
-        CreateWindowExW, DestroyWindow, HWND_MESSAGE, IDI_APPLICATION, LoadIconW,
+        CallWindowProcW, CreateWindowExW, DestroyWindow, GWLP_WNDPROC, HWND_MESSAGE,
+        IDI_APPLICATION, LoadIconW, SetWindowLongPtrW, WM_APP, WNDPROC,
     };
+
+    /// What the icon sends its window (FEAT-0021 AC-T22): a click on the balloon among them.
+    pub(super) const CALLBACK: u32 = WM_APP + 21;
+
+    thread_local! {
+        /// The balloon was clicked since [`take_clicked`] last looked. Of the UI thread: winit
+        /// dispatches the icon window's messages there, and the app's frame reads it there.
+        static CLICKED: Cell<bool> = const { Cell::new(false) };
+    }
+    /// The window procedure of the `STATIC` class, which everything else goes on to.
+    static ORIGINAL: AtomicIsize = AtomicIsize::new(0);
+
+    /// Whether the balloon was clicked, once (AC-T22).
+    pub fn take_clicked() -> bool {
+        CLICKED.replace(false)
+    }
+
+    /// The icon window's procedure: a click on the balloon is kept for the app's next frame,
+    /// which brings its window forward from its own process; anything else goes on as before.
+    pub(super) unsafe extern "system" fn proc(
+        hwnd: HWND,
+        msg: u32,
+        wparam: WPARAM,
+        lparam: LPARAM,
+    ) -> LRESULT {
+        if msg == CALLBACK && (lparam as u32 & 0xFFFF) == NIN_BALLOONUSERCLICK {
+            CLICKED.set(true);
+            return 0;
+        }
+        let original = ORIGINAL.load(Ordering::Relaxed);
+        if original == 0 {
+            return 0;
+        }
+        // SAFETY: `original` is the class's procedure, taken when this one was put in its place.
+        unsafe {
+            let original: WNDPROC = std::mem::transmute::<isize, WNDPROC>(original);
+            CallWindowProcW(original, hwnd, msg, wparam, lparam)
+        }
+    }
 
     /// A message-only window owning the notification-area icon.
     pub struct Tray {
@@ -206,9 +317,16 @@ mod windows {
             if hwnd.is_null() {
                 return None;
             }
+            // FEAT-0021 AC-T22: the icon's messages come to `proc`, the class's go on after it.
+            // SAFETY: the window is ours and lives on this thread, whose message loop is
+            // winit's; `proc` has the signature a window procedure needs.
+            let original =
+                unsafe { SetWindowLongPtrW(hwnd, GWLP_WNDPROC, proc as *const () as isize) };
+            ORIGINAL.store(original, Ordering::Relaxed);
             let tray = Tray { hwnd };
             let mut data = tray.data();
-            data.uFlags = NIF_ICON | NIF_TIP;
+            data.uFlags = NIF_ICON | NIF_TIP | NIF_MESSAGE;
+            data.uCallbackMessage = CALLBACK;
             // SAFETY: the icon resource 1 of this executable (`evolite.rc`); the system's own
             // application icon when a build has none.
             data.hIcon = unsafe {
@@ -360,5 +478,33 @@ mod tests {
             body: "From @alice · evolite notification check".into(),
         }));
         std::thread::sleep(std::time::Duration::from_secs(5));
+    }
+
+    /// FEAT-0021 AC-T22: the icon window's procedure takes a click on the balloon, once, and
+    /// nothing else; the note's contest comes back with it, and a note without one gives none.
+    #[cfg(windows)]
+    #[test]
+    fn a_click_on_a_results_note_gives_its_contest_once() {
+        use windows_sys::Win32::UI::Shell::NIN_BALLOONUSERCLICK;
+        let send = |lparam: isize| unsafe {
+            windows::proc(std::ptr::null_mut(), windows::CALLBACK, 0, lparam)
+        };
+        let _ = windows::take_clicked();
+        // Another message of the icon (a hover, a click on the icon itself) is no click on it.
+        send(0x0200);
+        assert!(!windows::take_clicked());
+        let mut notifier = Notifier {
+            contest: Some(("A".into(), "sam".into())),
+            ..Default::default()
+        };
+        send(NIN_BALLOONUSERCLICK as isize);
+        assert_eq!(notifier.take_click(), Some(("A".into(), "sam".into())));
+        assert_eq!(notifier.take_click(), None, "once");
+        send(NIN_BALLOONUSERCLICK as isize);
+        assert_eq!(
+            Notifier::default().take_click(),
+            None,
+            "a note without a contest"
+        );
     }
 }

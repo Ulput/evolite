@@ -1754,3 +1754,78 @@ async fn address_funding_fee() {
     );
     chain.stop().await;
 }
+
+/// FEAT-0021 AC-T16 «stage 0»: the identity-verify contract on testnet, read with proof, has the
+/// `identityVerify` type with the schema the architect found on mainnet — `normalizedLabel` and
+/// `normalizedParentDomainName` (≤ 63) and `url` (`^https?://`, ≤ 128), all three required.
+/// Read-only: nothing is signed or spent.
+/// `cargo test -p evolite-chain live_identity_verify_contract -- --ignored --nocapture`
+#[test]
+#[ignore = "needs testnet access and minutes"]
+fn live_identity_verify_contract() {
+    std::thread::Builder::new()
+        .stack_size(16 << 20)
+        .spawn(|| {
+            tokio::runtime::Builder::new_multi_thread()
+                .enable_all()
+                .thread_stack_size(8 << 20)
+                .build()
+                .unwrap()
+                .block_on(identity_verify_contract_read())
+        })
+        .unwrap()
+        .join()
+        .unwrap();
+}
+
+async fn identity_verify_contract_read() {
+    use dpp::data_contract::accessors::v0::DataContractV0Getters;
+    use dpp::data_contract::document_type::accessors::DocumentTypeV0Getters;
+    let dir = std::env::temp_dir().join("evolite-live-provider");
+    let paths = ChainPaths {
+        spv: dir.join("spv"),
+        store: dir.join("platform-wallet.db"),
+        core_node: dir.join("core-node.txt"),
+    };
+    let chain = Chain::default();
+    chain
+        .start(&paths, Arc::new(|_: &SyncStatus| {}))
+        .await
+        .expect("chain starts");
+    let started = Instant::now();
+    while !chain.platform_ready() {
+        assert!(
+            started.elapsed() < Duration::from_secs(30 * 60),
+            "not ready: {:?}",
+            chain.status()
+        );
+        tokio::time::sleep(Duration::from_secs(2)).await;
+    }
+    let contract = chain
+        .identity_verify_contract()
+        .await
+        .expect("a proved answer")
+        .expect("the contract is on testnet");
+    println!("owner {}", contract.owner_id().to_string(Encoding::Base58));
+    let kind = contract
+        .document_type_for_name("identityVerify")
+        .expect("the identityVerify type");
+    let schema = kind.schema();
+    println!("identityVerify schema: {schema:#?}");
+    let required: Vec<String> = kind.required_fields().iter().cloned().collect();
+    println!("required: {required:?}");
+    for field in ["normalizedLabel", "normalizedParentDomainName", "url"] {
+        assert!(required.iter().any(|r| r == field), "{field} required");
+    }
+    let props = kind.properties();
+    let url = props.get("url").expect("url");
+    println!("url: {url:#?}");
+    let text = format!("{url:?}");
+    assert!(text.contains("128"), "url at most 128: {text}");
+    assert!(text.contains("https?://"), "url pattern: {text}");
+    println!(
+        "documents mutable: {}, can be deleted: {}",
+        kind.documents_mutable(),
+        kind.documents_can_be_deleted()
+    );
+}

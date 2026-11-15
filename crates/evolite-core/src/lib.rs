@@ -19,13 +19,13 @@ pub use evolite_art::ArtOptions;
 pub use evolite_chain::network;
 #[cfg(all(test, feature = "real"))]
 pub(crate) use evolite_chain::{test_env, test_name};
+#[cfg(feature = "real")]
+pub(crate) use evolite_common::PASSWORD_NEEDED;
 #[cfg(not(feature = "real"))]
 pub use evolite_common::network;
 #[cfg(feature = "real")]
 use evolite_common::phrase_check;
-#[cfg(feature = "real")]
-pub(crate) use evolite_common::{PASSWORD_NEEDED, dpns};
-pub use evolite_common::{attempts, bip39, diag, layers, note_text};
+pub use evolite_common::{attempts, bip39, diag, dpns, layers, note_text};
 
 /// The wallets of `network` in data folder `data_dir`, counted without opening or writing
 /// anything: the network switch on the sign-in screens says how many each network has

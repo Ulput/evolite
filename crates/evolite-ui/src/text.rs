@@ -630,6 +630,38 @@ pub fn activity_title(a: &Activity) -> String {
         ActivityKind::NameRegistered { label } => {
             format!(tr!("The name @{label} is registered"), label = label)
         }
+        // FEAT-0021 N6: the claim, and how its vote ended.
+        ActivityKind::NameClaimed { label } => {
+            format!(tr!("Request for the name @{label}"), label = label)
+        }
+        ActivityKind::NameLinkWritten { label, removed } => {
+            let name = crate::i18n::own(label);
+            if *removed {
+                format!(tr!("Confirmation link for @{name} removed"), name = name)
+            } else {
+                format!(tr!("Confirmation link for @{name} written"), name = name)
+            }
+        }
+        ActivityKind::NameContestEnded { label, outcome } => {
+            let name = crate::i18n::own(label);
+            match outcome {
+                evolite_api::NameOutcome::Won => {
+                    format!(tr!("The name @{name} is yours"), name = name)
+                }
+                evolite_api::NameOutcome::Lost => {
+                    format!(
+                        tr!("The name @{name} went to another identity"),
+                        name = name
+                    )
+                }
+                evolite_api::NameOutcome::Locked => {
+                    format!(
+                        tr!("The name @{name} is blocked by the masternodes"),
+                        name = name
+                    )
+                }
+            }
+        }
     }
 }
 
@@ -816,7 +848,8 @@ pub fn activity_icon(a: &Activity) -> &'static str {
         ActivityKind::AddressFunded => "top-up",
         ActivityKind::ContactRequest { .. } | ActivityKind::ContactRequestIn { .. } => "contacts",
         ActivityKind::ProfileSaved => "identity",
-        ActivityKind::NameRegistered { .. } => "identity",
+        ActivityKind::NameRegistered { .. } | ActivityKind::NameLinkWritten { .. } => "identity",
+        ActivityKind::NameClaimed { .. } | ActivityKind::NameContestEnded { .. } => "vote",
     }
 }
 
@@ -970,6 +1003,13 @@ pub fn error_text(e: &CoreError) -> String {
             .trim_end_matches('.')
             .to_owned(),
         CoreError::MixedExcess { excess, suggested } => mixed_excess_words(*excess, *suggested),
+        // FEAT-0021: a claim on a contested name refused before anything was sent.
+        CoreError::ContestFundChanged { fund } => {
+            crate::screens::identity::contest::fund_changed(*fund)
+        }
+        CoreError::NameUnavailable(check) => {
+            crate::screens::identity::contest::unavailable(*check).into()
+        }
         CoreError::Failed(why) => failure(why).into(),
     }
 }

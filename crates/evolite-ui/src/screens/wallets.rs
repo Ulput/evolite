@@ -90,7 +90,12 @@ pub fn settings_line(w: &WalletEntry, snap: &Snapshot, now: DateTime<Local>) -> 
             .wallet
             .as_ref()
             .and_then(|wallet| wallet.identity.as_ref())
-            .and_then(|i| i.names.iter().find(|n| n.primary).or(i.names.first()));
+            .and_then(|i| {
+                i.names
+                    .iter()
+                    .find(|n| n.primary)
+                    .or(i.names.iter().find(|n| n.state.owned()))
+            });
         if let Some(name) = name {
             // One unit on its line: a break inside it left «@name» alone on the next one
             // (FEAT-0034 item 7). egui never breaks a line at a no-break space.

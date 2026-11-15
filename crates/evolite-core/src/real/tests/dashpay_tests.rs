@@ -251,22 +251,20 @@ async fn names_wait_for_the_masternode_lists() {
         }
         other => panic!("{other:?}"),
     }
-    // A contested name (letters only, under 20) is said at once, with no wait.
+    // A contested name waits too (FEAT-0021): its vote state is read with proof, like a domain.
     let (event, _) = core
         .handle(Command::CheckName {
             label: "@Evolite".into(),
         })
         .await;
-    assert!(
-        matches!(
-            &event,
-            Some(Event::NameChecked {
-                label,
-                result: Ok(NameCheck::Contested),
-            }) if label == "@Evolite"
-        ),
-        "{event:?}"
-    );
+    assert!(event.is_none(), "{event:?}");
+    match answers.try_recv() {
+        Ok(Event::NameChecked { label, result }) => {
+            assert_eq!(label, "@Evolite");
+            assert_eq!(result, Err(CoreError::NotSynced));
+        }
+        other => panic!("{other:?}"),
+    }
     // Not a name at all: refused at once, nothing waits.
     let (event, _) = core
         .handle(Command::ResolveName {

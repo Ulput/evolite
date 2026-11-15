@@ -2,6 +2,8 @@
 //! keys, all from the core's snapshot.
 
 mod add_name;
+pub(crate) mod contest;
+mod contest_card;
 mod imgur;
 mod profile;
 mod top_up;
@@ -58,6 +60,13 @@ pub struct IdentityState {
     /// «Create» was sent for another identity and the core has not answered yet: App sets it
     /// from the form before each frame (R-4: the creation under way is not in the snapshot).
     pub creating: bool,
+    /// The contest card (FEAT-0021 N5) is open on this identity's request for this label.
+    pub contest: Option<(String, String)>,
+    /// A contested name typed when the identity was made (FEAT-0021 UC-5, AC-T23): Identity
+    /// offers its claim, a spend of its own, until it is claimed or closed.
+    pub claim_after: Option<String>,
+    /// The password of «Write the link again» on the contest card (FEAT-0021 АРХ-6, AC-T12).
+    pub link_password: SpendPassword,
 }
 
 /// The banner «Identity … created» over «Work as».
@@ -104,11 +113,28 @@ impl IdentityState {
         if let Some(form) = &mut self.adding_name {
             form.waiting = false;
             form.password.on_answer(result);
+            // FEAT-0021 R-2: the fund rose between the review and the signature. Nothing was
+            // sent; the review shows the new fund and asks for the password again.
+            if let (Err(CoreError::ContestFundChanged { fund }), Some(review)) =
+                (result, &mut form.review)
+            {
+                review.was = Some(review.fund);
+                review.fund = *fund;
+                form.password.forget();
+                form.result = None;
+                return;
+            }
             // A wrong password is said under its field; the name can be registered again.
             if !form.password.is_wrong() {
                 form.result = Some(result.clone());
             }
         }
+    }
+
+    /// Opens the contest card (FEAT-0021 N5) on `identity`'s request for `label`: the one way in
+    /// of every entry (AC-T21).
+    pub fn open_contest(&mut self, identity: &str, label: &str) {
+        self.contest = Some((identity.to_owned(), label.to_owned()));
     }
 
     /// The core's answer to `TopUpIdentity` or `ResumeTopUp`.
@@ -257,7 +283,17 @@ pub fn identity(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut IdentityS
             });
             two_columns(ui, wide, |ui, first, cell| {
                 if first {
-                    names(ui, a, identity, half, cell);
+                    let mut action = None;
+                    names(ui, a, identity, &wallet.fees, half, cell, &mut action);
+                    match action {
+                        Some(NameAction::Open(label)) => state.open_contest(&identity.id, &label),
+                        Some(NameAction::Another) => state.adding_name = Some(NameForm::default()),
+                        Some(NameAction::Hide(label)) => asked.push(Command::HideNameRequest {
+                            identity: identity.id.clone(),
+                            label,
+                        }),
+                        None => {}
+                    }
                 } else {
                     keys(ui, a, identity, half, cell);
                 }
@@ -280,6 +316,9 @@ pub fn identity(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut IdentityS
     }
     if state.adding_name.is_some() {
         add_name_dialog(ui, a, state, wallet, identity, &mut asked);
+    }
+    if state.contest.is_some() {
+        contest_card::contest_card(ui, a, state, identity, &mut asked);
     }
     for command in asked {
         cx.send(command);
@@ -449,6 +488,33 @@ fn identity_choice(
     let p = a.p;
     if let Some(made) = created_banner(&mut state.created, Some(chosen.id.as_str())) {
         created_notice(ui, a, chosen, &made, state);
+    }
+    // FEAT-0021 UC-5 (AC-T23): the contested name typed at the creation, claimed now.
+    if let Some(label) = state.claim_after.clone() {
+        let answer = crate::components::notice_closable(
+            ui,
+            a,
+            "vote",
+            &format!(tr!("Claim @{label} ›"), label = label),
+            &format!(
+                tr!(
+                    "The identity is made. @{label} goes to a masternode vote: its review shows the write, the fund {fund} and when the result comes."
+                ),
+                label = label,
+                fund = crate::format::amount(wallet.fees.name_contest_fund)
+            ),
+            Some(("chevron-right", tr!("Check the request"))),
+        );
+        if answer.action {
+            state.claim_after = None;
+            state.adding_name = Some(NameForm {
+                name: label,
+                review_asap: true,
+                ..Default::default()
+            });
+        } else if answer.closed {
+            state.claim_after = None;
+        }
     }
     let shown = Some(chosen.id.as_str());
     let blocked = new_identity_blocked(wallet, state);
@@ -865,57 +931,134 @@ fn tile(ui: &mut Ui, a: &mut Assets, icon: &str, label: &str, width: f32) -> egu
     resp.on_hover_cursor(CursorIcon::PointingHand)
 }
 
-fn names(ui: &mut Ui, a: &mut Assets, id: &Identity, width: f32, cell: &mut RowCell) {
+/// What was pressed in «DPNS names» (FEAT-0021 N4).
+enum NameAction {
+    /// A claimed name's row: its contest card.
+    Open(String),
+    /// «Claim another ›».
+    Another,
+    /// «Hide» on a lost or blocked name (R-12).
+    Hide(String),
+}
+
+fn names(
+    ui: &mut Ui,
+    a: &mut Assets,
+    id: &Identity,
+    fees: &evolite_api::Fees,
+    width: f32,
+    cell: &mut RowCell,
+    action: &mut Option<NameAction>,
+) {
     list_card_in(
         ui,
         a,
         cell,
         width,
-        (tr!("DPNS names"), &id.names.len().to_string()),
+        (
+            tr!("DPNS names"),
+            &id.names.iter().filter(|n| n.listed()).count().to_string(),
+        ),
         |ui, a| {
             let p = a.p;
-            for n in &id.names {
-                let (name, primary, voting) = (&n.label, n.primary, n.voting_days_left);
+            for n in id.names.iter().filter(|n| n.listed()) {
+                let name = &n.label;
                 divider(ui, &p);
                 ui.add_space(12.0);
-                ui.horizontal(|ui| {
+                let row = ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = 12.0;
-                    let (icon, sub) = match voting {
-                        Some(days) => (
-                            "vote",
-                            format!(tr!("masternode vote · {days} more days"), days = days),
-                        ),
-                        None if primary => ("username", tr!("main · verified").to_string()),
-                        None => ("username", tr!("verified").to_string()),
-                    };
+                    // FEAT-0021 N4: registered, in the vote, or how it ended.
+                    let icon = if n.state.owned() { "username" } else { "vote" };
+                    let sub = contest::state_line(n, fees, chrono::Local::now().timestamp());
                     ui.add(a.icons.icon(icon, p.text, &p, 20.0));
                     ui.vertical(|ui| {
                         ui.spacing_mut().item_spacing.y = 2.0;
-                        ui.label(text(
-                            &format!("@{name}"),
-                            BODY.weight(Weight::SemiBold),
-                            p.text,
-                        ));
-                        ui.label(text(&sub, SMALL, p.muted));
+                        // A name in the vote or lost is not this identity's: muted (N4). Not
+                        // selectable: a claimed name's whole row takes the click (AC-D9).
+                        ui.add(
+                            egui::Label::new(text(
+                                &format!("@{name}"),
+                                BODY.weight(Weight::SemiBold),
+                                if n.state.owned() { p.text } else { p.muted },
+                            ))
+                            .selectable(false),
+                        );
+                        ui.add(egui::Label::new(text(&sub, SMALL, p.muted)).selectable(false));
                     });
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                        let (icon, color, hint) = if voting.is_some() {
+                        let (icon, color, hint) = if n.state.open() {
                             ("pending", p.muted, tr!("Waiting for the masternode vote"))
-                        } else {
+                        } else if n.state.owned() {
                             (
                                 "confirmed",
                                 p.accent,
                                 tr!("The name is confirmed by a Platform proof"),
+                            )
+                        } else {
+                            (
+                                "warning",
+                                p.muted,
+                                tr!("The vote is over: the name is not this identity's"),
                             )
                         };
                         ui.add(a.icons.icon(icon, color, &p, 18.0))
                             .on_hover_text(crate::i18n::t(hint).into_owned());
                     });
                 });
+                // FEAT-0021 N4: a claimed name's row opens its contest card, the whole row
+                // (AC-D9, entry 1).
+                if n.contest.is_some() {
+                    // Not `row.response.interact(..)`: Tab lost the focus there (BUG-40).
+                    let open = crate::a11y::row_click(ui, &row.response, "contest")
+                        .on_hover_cursor(CursorIcon::PointingHand);
+                    // A Tab stop with a name (the Tab sweep): the name and its line, a button
+                    // Enter presses too.
+                    let spoken = format!(
+                        "@{name}: {}",
+                        crate::i18n::spoken(&contest::state_line(
+                            n,
+                            fees,
+                            chrono::Local::now().timestamp()
+                        ))
+                    );
+                    open.widget_info(|| {
+                        egui::WidgetInfo::labeled(egui::WidgetType::Button, true, &spoken)
+                    });
+                    if open.clicked() {
+                        *action = Some(NameAction::Open(name.clone()));
+                    }
+                }
+                // A lost or blocked one: «Claim another ›» and «Hide», a line of their own, below
+                // the row, so the row's click does not cover them (R-12).
+                if matches!(
+                    n.state,
+                    evolite_api::NameState::Lost { .. } | evolite_api::NameState::Locked { .. }
+                ) {
+                    ui.horizontal(|ui| {
+                        ui.add_space(32.0);
+                        ui.spacing_mut().item_spacing.x = 16.0;
+                        if inline_action(ui, &p, tr!("Claim another ›")).clicked() {
+                            *action = Some(NameAction::Another);
+                        }
+                        let hide = ui
+                            .add(
+                                egui::Button::new(text(
+                                    tr!("Hide"),
+                                    SMALL.weight(Weight::Medium),
+                                    p.muted,
+                                ))
+                                .frame(false),
+                            )
+                            .on_hover_cursor(CursorIcon::PointingHand);
+                        if hide.clicked() {
+                            *action = Some(NameAction::Hide(name.clone()));
+                        }
+                    });
+                }
                 ui.add_space(12.0);
             }
             // A nameless identity (FEAT-0014, frame 6): what a name would give.
-            if id.names.is_empty() {
+            if !id.names.iter().any(|n| n.listed()) {
                 divider(ui, &p);
                 ui.add(
                     crate::components::para(

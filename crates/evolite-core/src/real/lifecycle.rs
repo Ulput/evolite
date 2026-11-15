@@ -128,6 +128,8 @@ impl Real {
             identity_search: Default::default(),
             discovery_run: Default::default(),
             balances_stale: Default::default(),
+            names_stale: Default::default(),
+            identity_links: Default::default(),
             credits_checked: Arc::new(AtomicBool::new(false)),
             phrase_check: None,
             stored_history: Vec::new(),

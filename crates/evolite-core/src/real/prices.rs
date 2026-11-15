@@ -516,7 +516,11 @@ mod tests {
     fn an_answer_ends_its_own_spend_and_no_other() {
         let (watch, dir) = watch();
         seen_by(&watch, 1_000_000_000);
-        let name = Spend::AddName { name: "a".into() };
+        let name = Spend::AddName {
+            name: "a".into(),
+            contest_fund: None,
+            link: None,
+        };
         let unshield = Spend::Unshield { amount: 1 };
         let send = |id| Spend::Send {
             coins: None,

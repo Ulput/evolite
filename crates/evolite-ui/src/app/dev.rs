@@ -49,6 +49,12 @@ pub(super) struct DevState {
     /// `--screen fund-address-unfinished` / `-resume` / `-steps`: a funding of the Platform address whose
     /// lock is made and not taken yet (FEAT-0015 stage 2, frames 23, 24, 24b).
     pub(super) fund_unfinished_preset: bool,
+    /// FEAT-0021 (AC-T8): the identity's names in every state of a contest.
+    names_preset: bool,
+    /// The lost name hidden (`contest-lost-hidden`): History keeps its lines (AC-T19).
+    hidden_preset: bool,
+    /// The contest card to open once the snapshot has the identity (`contest-card`, `contest-lost`).
+    contest_preset: Option<&'static str>,
     /// `--screen fund-address-recovered`: the stopped one is a lock found on chain after a
     /// restore — no record of where it was signed to go, so it goes to the address shown now
     /// ([`RECOVERED_TO`]), and no InstantLock (BUG-171) — with «Continue» open.
@@ -201,6 +207,22 @@ impl DevState {
             } else {
                 None
             },
+            contest_preset: if dev.preset("contest-card") {
+                Some("nakamoto-dev")
+            } else if dev.preset("contest-lost") {
+                Some("bob")
+            } else {
+                None
+            },
+            hidden_preset: dev.preset("contest-lost-hidden"),
+            names_preset: [
+                "names-contested",
+                "contest-card",
+                "contest-lost",
+                "contest-lost-hidden",
+            ]
+            .into_iter()
+            .any(|p| dev.preset(p)),
             fund_unfinished_preset: dev.preset("fund-address-unfinished")
                 || dev.preset("fund-address-resume")
                 || dev.preset("fund-address-steps")
@@ -314,6 +336,41 @@ impl App {
     /// A new snapshot: `--screen identity-unfinished` gives it a stopped creation, and `--open`
     /// opens what it asked for once the real wallet has it.
     pub(super) fn dev_snapshot(&mut self, ctx: &egui::Context) {
+        if self.dev.names_preset
+            && let Some(w) = self.snapshot.as_mut().and_then(|s| s.wallet.as_mut())
+            && let Some(id) = w.identity.as_mut()
+        {
+            let now = chrono::Local::now().timestamp();
+            id.names = contested_names(&id.id, now);
+            if self.dev.hidden_preset
+                && let Some(c) = id
+                    .names
+                    .iter_mut()
+                    .find(|n| n.label == "bob")
+                    .and_then(|n| n.contest.as_mut())
+            {
+                c.listed = false;
+            }
+            // History's lines of the claims and of the lost one's result (N6).
+            let who = evolite_api::IdentityRef {
+                id: id.id.clone(),
+                name: id.name().map(str::to_owned),
+            };
+            if !w.activity.iter().any(|a| a.id == CLAIM_IDS) {
+                w.activity
+                    .splice(0..0, contest_lines(&who, now, w.fees.name_contested));
+            }
+        }
+        if let Some(label) = self.dev.contest_preset
+            && let Some(id) = self
+                .snapshot
+                .as_ref()
+                .and_then(|s| s.wallet.as_ref())
+                .and_then(|w| w.identity.as_ref())
+        {
+            self.dev.contest_preset = None;
+            self.identity.open_contest(&id.id.clone(), label);
+        }
         if self.dev.empty_here_preset
             && let Some(s) = self.snapshot.as_mut()
         {
@@ -934,6 +991,35 @@ impl App {
             name: "satoshi-nakamoto-2026".into(),
             ..Default::default()
         });
+        // FEAT-0021: «Add a name» on a contested name (N1), its review (N2), the fund risen
+        // since (R-2), and the request sent (N3).
+        if preset("add-name-contested") {
+            self.identity.adding_name = Some(screens::identity::NameForm {
+                name: "sam".into(),
+                ..Default::default()
+            });
+        }
+        if preset("add-name-review") || preset("add-name-sent") || preset("add-name-fund-rose") {
+            let now = chrono::Local::now().timestamp();
+            let fund = 10_000_000;
+            self.identity.adding_name = Some(screens::identity::NameForm {
+                name: "sam".into(),
+                asked: "sam".into(),
+                check: Some(Ok(evolite_api::NameCheck::NeedsVote)),
+                result: preset("add-name-sent").then_some(Ok(())),
+                review: Some(screens::identity::Review {
+                    fund: if preset("add-name-fund-rose") {
+                        2 * fund
+                    } else {
+                        fund
+                    },
+                    was: preset("add-name-fund-rose").then_some(fund),
+                    join_until: now + 45 * 60,
+                    ends_about: now + 90 * 60,
+                }),
+                ..Default::default()
+            });
+        }
         // `--screen add-contact` opens 20 with @carol, `--screen contact-profile` opens 22.
         self.contacts.adding = preset("add-contact").then(|| screens::contacts::AddContact {
             name: "@carol".into(),
@@ -1250,6 +1336,140 @@ pub(crate) const LOOKALIKE: &str = "yNk2Hc8pQQQmR7vT3sLb9XeJ6uZa5Df1Gh";
 
 /// The demo's Evo Coffee: the token the send presets open (`evolite-demo`, `tokens.rs`).
 const DEMO_TOKEN: &str = "7Hq2Wd9kLm4Np8Rs3Tv6Xy1Zb5Cf2Gh7Jk9Mn4Pq8Rs";
+
+/// The identity's names in every state of a contest (FEAT-0021, AC-T8, `--screen
+/// names-contested`): registered, in the vote, waiting for the result, won, lost and blocked.
+pub(crate) fn contested_names(identity: &str, now: i64) -> Vec<evolite_api::DpnsName> {
+    use evolite_api::{DpnsName, NameContest, NameState};
+    let day = 86_400;
+    let other = "9vXqKpTzR4mWdEh8LcYb2NsFgJuA6oQi3t7nZk5yHwC";
+    let contest = |ours: u32, theirs: u32, winner: Option<&str>, listed| NameContest {
+        contenders: vec![(identity.to_owned(), ours), (other.to_owned(), theirs)],
+        winner: winner.map(str::to_owned),
+        fund: 10_000_000,
+        sent_at: now - 12 * day,
+        checked_at: Some(now - 90),
+        listed,
+        notice_closed: false,
+        result_notice_closed: false,
+        link: None,
+        link_written: false,
+    };
+    let name = |label: &str, state, contest| DpnsName {
+        label: label.into(),
+        primary: false,
+        state,
+        contest,
+    };
+    let mut names = vec![
+        name("satoshi", NameState::Registered, None),
+        name(
+            "nakamoto-dev",
+            NameState::Voting {
+                join_until: now + 2 * day,
+                ends_about: now + 9 * day,
+                contenders: 3,
+                ours: 12,
+                lock: 3,
+                abstain: 1,
+            },
+            // АРХ-6: a link the claim kept that Platform did not take (AC-T12).
+            Some(NameContest {
+                link: Some("https://example.com/sam".into()),
+                ..contest(12, 9, None, true)
+            }),
+        ),
+        name(
+            "sam",
+            NameState::AwaitingResult {
+                ends_about: now - 3600,
+            },
+            Some(contest(7, 7, None, true)),
+        ),
+        name(
+            "won",
+            NameState::Won { at: now - 5 * day },
+            Some(contest(20, 4, Some(identity), true)),
+        ),
+        name(
+            "bob",
+            NameState::Lost { at: now - 24 * day },
+            Some(contest(3, 14, Some(other), true)),
+        ),
+        name(
+            "zed",
+            NameState::Locked { at: now - 2 * day },
+            Some(contest(2, 1, None, true)),
+        ),
+    ];
+    names[0].primary = true;
+    names
+}
+
+/// The first id of [`contest_lines`]: the demo's History has them once.
+const CLAIM_IDS: u64 = 9_021_000;
+
+/// History's lines of the names preset (FEAT-0021 N6): the claims on @nakamoto-dev and @bob, the
+/// write and the fund paid, and @bob's result, nothing paid.
+fn contest_lines(
+    who: &evolite_api::IdentityRef,
+    now: i64,
+    claim: evolite_api::Duffs,
+) -> Vec<evolite_api::Activity> {
+    use evolite_api::{Activity, ActivityKind, Chain, Detail, NameOutcome, Proof};
+    let day = 86_400;
+    let line = |id: u64, kind: ActivityKind, at: i64, amount: i64| {
+        let (layers, flow) = evolite_core::layers::of(&kind, Chain::Platform);
+        Activity {
+            id,
+            kind,
+            chain: Chain::Platform,
+            at,
+            amount,
+            proof: Proof::Proved,
+            txid: None,
+            fee: None,
+            block: None,
+            address: None,
+            layers,
+            flow,
+            key: format!("contest-{id}"),
+            detail: Some(Box::new(Detail {
+                identity: Some(who.clone()),
+                ..Default::default()
+            })),
+            note: None,
+            rate: None,
+        }
+    };
+    vec![
+        line(
+            CLAIM_IDS,
+            ActivityKind::NameContestEnded {
+                label: "bob".into(),
+                outcome: NameOutcome::Lost,
+            },
+            now - 24 * day,
+            0,
+        ),
+        line(
+            CLAIM_IDS + 1,
+            ActivityKind::NameClaimed {
+                label: "nakamoto-dev".into(),
+            },
+            now - 5 * day,
+            -claim,
+        ),
+        line(
+            CLAIM_IDS + 2,
+            ActivityKind::NameClaimed {
+                label: "bob".into(),
+            },
+            now - 38 * day,
+            -claim,
+        ),
+    ]
+}
 
 /// What a `tokens-*` preset does to the snapshot.
 fn tokens_state(s: &mut evolite_api::Snapshot, name: &str) {

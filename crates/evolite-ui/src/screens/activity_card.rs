@@ -58,6 +58,10 @@ pub fn card_window(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx) {
             forget_note(ui.ctx());
             open_card(ui.ctx(), id);
         }
+        // FEAT-0021 entry 3: the claim's contest card on Identity.
+        if let Some((identity, label)) = answer.contest {
+            cx.open_contest(&identity, &label);
+        }
         // "Send again": the Send screen with the same recipient and amount.
         if let Some((to, amount)) = answer.again {
             cx.pay_again(Source::Core, to, amount);
@@ -1355,6 +1359,9 @@ struct CardAnswer {
     open: Option<u64>,
     /// The identity to work as (FEAT-0005 FR-7).
     act_as: Option<String>,
+    /// A claim's contest card to open: the identity that claimed and the label (FEAT-0021,
+    /// entry 3).
+    contest: Option<(String, String)>,
 }
 
 /// What the card reads besides its operation.
@@ -1405,12 +1412,26 @@ fn card(ui: &mut Ui, a: &mut Assets, act: &Activity, around: &Around) -> CardAns
             ..
         }
     );
+    // FEAT-0021 N6: a name's claim or result opens its contest card, not just Identity.
+    let contest = match (
+        &act.kind,
+        card_detail(act).and_then(|d| d.identity.as_ref()),
+    ) {
+        (
+            ActivityKind::NameClaimed { label }
+            | ActivityKind::NameLinkWritten { label, .. }
+            | ActivityKind::NameContestEnded { label, .. },
+            Some(id),
+        ) => Some((id.id.as_str(), label.as_str())),
+        _ => None,
+    };
     let footer = Footer {
         answer_there,
         not_added,
         repeat: &repeat,
-        identity: identity_to_open(act, around.identities),
+        identity: identity_to_open(act, around.identities).filter(|_| contest.is_none()),
         open_identity: text::credits_quiet(act),
+        contest,
     };
     // Another operation in the card, or a new opening: its middle starts at the top.
     if ui.data(|d| d.get_temp::<u64>(body_of_id())) != Some(act.id) {
@@ -1869,6 +1890,9 @@ struct Footer<'a> {
     identity: Option<&'a str>,
     /// «Open Identity»: to see the credits, with no promise to continue (FEAT-0016).
     open_identity: bool,
+    /// «Open the vote ›» on a name's claim or result (FEAT-0021 N6, entry 3): the identity and
+    /// the label.
+    contest: Option<(&'a str, &'a str)>,
 }
 
 /// The buttons under the card. Whether it closes.
@@ -1879,6 +1903,7 @@ fn card_footer(ui: &mut Ui, a: &mut Assets, footer: &Footer, answer: &mut CardAn
         repeat,
         identity,
         open_identity,
+        contest,
     } = *footer;
     let mut close = false;
     // The action on the right, «Close» on its left: as in every dialog (designer review №8).
@@ -1909,6 +1934,12 @@ fn card_footer(ui: &mut Ui, a: &mut Assets, footer: &Footer, answer: &mut CardAn
             && button(ui, a, tr!("Open Identity"), ButtonKind::Secondary, None).clicked()
         {
             answer.go = Some(crate::screens::Screen::Identity);
+            close = true;
+        }
+        if let Some((id, label)) = contest
+            && button(ui, a, tr!("Open the vote ›"), ButtonKind::Secondary, None).clicked()
+        {
+            answer.contest = Some((id.to_owned(), label.to_owned()));
             close = true;
         }
         if let Some(id) = identity

@@ -10,6 +10,7 @@
 pub mod address_fund;
 pub mod addresses;
 mod contacts;
+mod contests;
 mod identities;
 mod store_read;
 mod token_actions;

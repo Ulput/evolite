@@ -266,6 +266,8 @@ fn every_spend() -> Vec<Spend> {
         Spend::ResumeIdentity,
         Spend::AddName {
             name: "satoshi-test".into(),
+            contest_fund: None,
+            link: None,
         },
         Spend::Shield {
             from: ShieldSource::Core,

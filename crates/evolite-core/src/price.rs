@@ -190,6 +190,11 @@ pub fn declared(op: &Spend, seen: &Seen, app_cost: Duffs) -> Declared {
             let price = fees.name_price(seen.first_name);
             of("add_name", price, covers(seen.credits, 0, price))
         }
+        // FEAT-0021 АРХ-6: a link's document write; removing one costs the same write.
+        Spend::SetNameLink { .. } => {
+            let price = fees.document_write;
+            of("set_name_link", price, covers(seen.credits, 0, price))
+        }
         Spend::Shield {
             from: ShieldSource::Credits,
             amount,
@@ -307,6 +312,8 @@ pub fn reason(error: &CoreError) -> &'static str {
         CoreError::TooManyTries { .. }
         | CoreError::PicturesOff(_)
         | CoreError::MixedExcess { .. }
+        | CoreError::ContestFundChanged { .. }
+        | CoreError::NameUnavailable(_)
         | CoreError::TokenPriceGrew => "refused",
     }
 }
@@ -350,6 +357,9 @@ pub(crate) mod tests {
             address_fund_lock_min: 0,
             name_regular: 20,
             name_contested: 21,
+            name_contest_fund: 35,
+            name_vote_secs: 36,
+            name_join_secs: 37,
             add_key: 22,
             contact_request: 23,
             contact_request_balance: 34,
@@ -413,7 +423,11 @@ pub(crate) mod tests {
                 top_up: 100,
             },
             Spend::ResumeIdentity,
-            Spend::AddName { name: "bob".into() },
+            Spend::AddName {
+                name: "bob".into(),
+                contest_fund: None,
+                link: None,
+            },
             Spend::Shield {
                 from: ShieldSource::Credits,
                 amount: 100,
