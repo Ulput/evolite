@@ -383,13 +383,7 @@ impl Chain {
                 Some(manager) => manager,
                 None => self.open_store(&paths.store, handler).await?,
             };
-            let mut config = ClientConfig::new(crate::network::dash())
-                .with_storage_path(paths.spv.clone())
-                .with_user_agent(format!("/evolite:{}/", env!("CARGO_PKG_VERSION")));
-            if let Some(addr) = peer {
-                config.add_peer(addr);
-                config = config.with_restrict_to_configured_peers(true);
-            }
+            let config = client_config(crate::network::dash(), paths.spv.clone(), peer);
             manager
                 .spv_arc()
                 .start_and_spawn(config, || true)
@@ -1042,6 +1036,30 @@ pub fn wallet_id_of(phrase: &str) -> Result<WalletId, String> {
     .map_err(|e| e.to_string())?;
     Ok(wallet.compute_wallet_id())
 }
+
+/// The SPV client's configuration: `network`, its store at `storage`, and either `own_node`
+/// alone (R-14: never DNS seeds instead) or [`CORE_PEERS`] peers found by the client, at most
+/// two from one subnet (`evolite-peers.patch`).
+pub(crate) fn client_config(
+    network: key_wallet::Network,
+    storage: std::path::PathBuf,
+    own_node: Option<std::net::SocketAddr>,
+) -> ClientConfig {
+    let mut config = ClientConfig::new(network)
+        .with_storage_path(storage)
+        .with_user_agent(format!("/evolite:{}/", env!("CARGO_PKG_VERSION")));
+    // SPV item 2b: eight peers, not dash-spv's three, so that a few slow or lying ones
+    // neither stall nor eclipse us.
+    config.max_peers = CORE_PEERS;
+    if let Some(addr) = own_node {
+        config.add_peer(addr);
+        config = config.with_restrict_to_configured_peers(true);
+    }
+    config
+}
+
+/// How many Core peers the SPV client keeps (SPV item 2b).
+pub const CORE_PEERS: u32 = 8;
 
 #[cfg(test)]
 mod tests;

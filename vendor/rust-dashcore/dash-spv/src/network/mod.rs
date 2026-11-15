@@ -3,6 +3,8 @@
 pub mod addrv2;
 pub mod constants;
 pub mod discovery;
+/// evolite (SPV item 2b): outbound peers spread over subnets.
+pub mod diversity;
 mod event;
 pub mod handshake;
 mod latency;

@@ -1829,3 +1829,19 @@ async fn identity_verify_contract_read() {
         kind.documents_can_be_deleted()
     );
 }
+
+/// SPV item 2b, AC-T2б.1: eight peers on both networks; with «Own node» that node alone.
+#[test]
+fn the_client_keeps_eight_peers_on_both_networks() {
+    for network in [key_wallet::Network::Mainnet, key_wallet::Network::Testnet] {
+        let config = client_config(network, std::env::temp_dir(), None);
+        assert_eq!(config.max_peers, 8, "{network:?}");
+        assert!(config.peers.is_empty() && !config.restrict_to_configured_peers);
+        assert!(config.validate().is_ok());
+
+        let node: std::net::SocketAddr = "192.168.1.10:9999".parse().unwrap();
+        let own = client_config(network, std::env::temp_dir(), Some(node));
+        assert_eq!(own.peers, vec![node]);
+        assert!(own.restrict_to_configured_peers);
+    }
+}

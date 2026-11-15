@@ -39,6 +39,22 @@ impl PeerPool {
         connecting.insert(addr)
     }
 
+    /// evolite (SPV item 2b): marks `addr` as being connected to, unless it is already, or
+    /// its subnet already gives [`super::diversity::MAX_PEERS_PER_SUBNET`] of the peers
+    /// connected and being connected. Checked and marked under one lock, so two connects at
+    /// once can't both pass.
+    pub async fn mark_connecting_within_subnets(&self, addr: SocketAddr) -> bool {
+        let peers = self.peers.read().await;
+        let mut connecting = self.connecting.write().await;
+        if peers.contains_key(&addr) || connecting.contains(&addr) {
+            return false;
+        }
+        if super::diversity::subnet_full(&addr, peers.keys().chain(connecting.iter())) {
+            return false;
+        }
+        connecting.insert(addr)
+    }
+
     /// Add a peer to the pool
     pub async fn add_peer(&self, addr: SocketAddr, peer: Peer) -> Result<(), Error> {
         let mut peers = self.peers.write().await;

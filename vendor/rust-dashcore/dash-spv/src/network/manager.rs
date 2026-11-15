@@ -351,21 +351,30 @@ impl PeerNetworkManager {
     }
 
     /// Connect to a specific peer
-    async fn connect_to_peer(&self, addr: SocketAddr) {
+    /// Starts connecting to `addr`. Whether it started: not for a peer of bad reputation, one
+    /// connected or being connected already, or (evolite, SPV item 2b) one whose subnet
+    /// already gives us two peers, unless it is a peer the user configured (exclusive mode).
+    async fn connect_to_peer(&self, addr: SocketAddr) -> bool {
         // Check reputation first
         if !self.reputation_manager.should_connect_to_peer(&addr).await {
             tracing::warn!("Not connecting to {} due to bad reputation", addr);
-            return;
+            return false;
         }
 
         // Check if already connected or connecting
         if self.pool.is_connected(&addr).await || self.pool.is_connecting(&addr).await {
-            return;
+            return false;
         }
 
         // Mark as connecting
-        if !self.pool.mark_connecting(addr).await {
-            return; // Already being connected to
+        let marked = if self.exclusive_mode {
+            self.pool.mark_connecting(addr).await
+        } else {
+            self.pool.mark_connecting_within_subnets(addr).await
+        };
+        if !marked {
+            tracing::debug!("Not connecting to {}: connecting already, or its subnet is full", addr);
+            return false;
         }
 
         // Record connection attempt
@@ -392,7 +401,7 @@ impl PeerNetworkManager {
             guard = self.tasks.lock() => guard,
             _ = self.shutdown_token.cancelled() => {
                 self.pool.remove_peer(&addr).await;
-                return;
+                return false;
             }
         };
         tasks.spawn(async move {
@@ -514,6 +523,7 @@ impl PeerNetworkManager {
                 }
             }
         });
+        true
     }
 
     /// Decrement the connected count and emit PeerDisconnected / PeersUpdated events.
@@ -1333,9 +1343,12 @@ impl PeerNetworkManager {
                     if self.is_capability_rejected(&addr).await {
                         continue;
                     }
-                    if !self.pool.is_connected(&addr).await && !self.pool.is_connecting(&addr).await
+                    // evolite (SPV item 2b): only a connect that started counts, as one
+                    // refused for its subnet leaves the place to the next candidate.
+                    if !self.pool.is_connected(&addr).await
+                        && !self.pool.is_connecting(&addr).await
+                        && self.connect_to_peer(addr).await
                     {
-                        self.connect_to_peer(addr).await;
                         attempted += 1;
                         if attempted >= needed {
                             break;
@@ -1401,8 +1414,11 @@ impl PeerNetworkManager {
             if self.is_capability_rejected(addr).await {
                 continue;
             }
-            if !self.pool.is_connected(addr).await && !self.pool.is_connecting(addr).await {
-                self.connect_to_peer(*addr).await;
+            // evolite (SPV item 2b): only a connect that started counts.
+            if !self.pool.is_connected(addr).await
+                && !self.pool.is_connecting(addr).await
+                && self.connect_to_peer(*addr).await
+            {
                 dns_attempted += 1;
                 if dns_attempted >= needed {
                     break;
@@ -2339,5 +2355,41 @@ mod header_ordering_tests {
         assert!(context.headers2_disabled.lock().await.contains(&context.addr));
         assert!(context.reputation_manager.scores_for([context.addr]).await[&context.addr] > 0);
         assert_eq!(semaphore.available_permits(), 1);
+    }
+}
+
+/// evolite (SPV item 2b): outbound connects go through the subnet gate; the user's own peers
+/// (exclusive mode) don't.
+#[cfg(test)]
+mod subnet_tests {
+    use super::*;
+
+    /// Five addresses of one /16 in TEST-NET-1 (RFC 5737), which nothing answers: a connect
+    /// stays pending until the shutdown, so none leaves the pool between the calls.
+    fn five_in_one_subnet() -> Vec<SocketAddr> {
+        (1..=5).map(|last| SocketAddr::from(([192, 0, 2, last], 9999))).collect()
+    }
+
+    #[tokio::test]
+    async fn two_connects_start_per_subnet() {
+        let manager = PeerNetworkManager::new_for_test(ServiceFlags::NONE).await;
+        let mut started = Vec::new();
+        for addr in five_in_one_subnet() {
+            started.push(manager.connect_to_peer(addr).await);
+        }
+        manager.shutdown_token.cancel();
+        assert_eq!(started, vec![true, true, false, false, false]);
+    }
+
+    #[tokio::test]
+    async fn the_users_own_peers_are_not_held_to_it() {
+        let mut manager = PeerNetworkManager::new_for_test(ServiceFlags::NONE).await;
+        manager.exclusive_mode = true;
+        let mut started = Vec::new();
+        for addr in five_in_one_subnet() {
+            started.push(manager.connect_to_peer(addr).await);
+        }
+        manager.shutdown_token.cancel();
+        assert_eq!(started, vec![true; 5]);
     }
 }
