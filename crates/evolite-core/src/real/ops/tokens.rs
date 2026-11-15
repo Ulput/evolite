@@ -114,7 +114,17 @@ fn track(
 ) -> Result<(), CoreError> {
     // Already in the file: a hidden one comes back on the wallet's identities, keeping how it
     // came in («Вернуть в список», architect, part 4).
-    if file.get(token_id).is_some() {
+    if let Some(known) = file.get(token_id) {
+        // BUG-178: found by the search, hidden nowhere, and added by id now — it is one added by
+        // hand, shown at zero. A hidden one keeps how it came in («Вернуть в список»).
+        let hidden = identities.iter().any(|i| file.is_hidden(token_id, i));
+        if known.origin == Origin::Found && !hidden {
+            file.track(Tracked {
+                origin: Origin::ByHand,
+                ..known
+            })
+            .map_err(|e| CoreError::Failed(e.to_string()))?;
+        }
         for identity in identities {
             file.hide(token_id, identity, false)
                 .map_err(|e| CoreError::Failed(e.to_string()))?;
@@ -537,7 +547,11 @@ fn rows(
                 Origin::Found => TokenOrigin::Found,
                 Origin::ByHand => TokenOrigin::ByHand,
             };
-            if origin == TokenOrigin::Found && balance == Some(0) {
+            // BUG-178: a found token at zero stays when this identity has something to do with it:
+            // a claim (the search found it through another identity of the wallet), or a price.
+            let something =
+                facts.is_some_and(|f| f.claims.contains_key(id) || f.offers.contains_key(id));
+            if origin == TokenOrigin::Found && balance == Some(0) && !something {
                 return None;
             }
             Some(TokenRow {
@@ -634,6 +648,57 @@ mod rows_tests {
             unread.iter().any(|r| r.info.token_id == "Z"),
             "a found token is not left out before its balance is known"
         );
+    }
+
+    /// BUG-178: a token found by the search through another identity of the wallet is kept at a
+    /// zero balance when this identity has something to claim of it, or when it is sold: B of
+    /// QA pass 26 saw neither «Claim» nor «Buy». Without either, a found token at zero stays out.
+    #[test]
+    fn a_found_token_at_zero_stays_with_a_claim_or_a_price() {
+        let list = [
+            tracked("CLAIM", Origin::Found),
+            tracked("SOLD", Origin::Found),
+            tracked("PLAIN", Origin::Found),
+        ];
+        let infos: HashMap<String, TokenInfo> = ["CLAIM", "SOLD", "PLAIN"]
+            .map(|i| (i.to_owned(), info(i)))
+            .into();
+        let mut facts = chain::TokenFacts::default();
+        for id in ["CLAIM", "SOLD", "PLAIN"] {
+            facts.balances.insert(id.into(), 0);
+        }
+        facts.claims.insert(
+            "CLAIM".into(),
+            chain::Claimable {
+                perpetual: Some(chain::Perpetual {
+                    every: chain::Every::Millis(600_000),
+                    estimate: None,
+                    due: true,
+                }),
+                scheduled: None,
+            },
+        );
+        facts.offers.insert(
+            "SOLD".into(),
+            chain::Offer {
+                price: Some(
+                    dpp::tokens::token_pricing_schedule::TokenPricingSchedule::SinglePrice(1_000),
+                ),
+                left: None,
+            },
+        );
+        let shown = rows(&list, &infos, Some(&facts), "ME", |_| false);
+        let ids: Vec<&str> = shown.iter().map(|r| r.info.token_id.as_str()).collect();
+        assert_eq!(
+            ids,
+            ["CLAIM", "SOLD"],
+            "PLAIN found at zero with nothing to do: out"
+        );
+        assert!(
+            shown[0].claim && shown[0].claims.is_some(),
+            "with «something to claim»"
+        );
+        assert!(shown[1].offer.is_some());
     }
 }
 
@@ -1218,5 +1283,25 @@ mod back_tests {
             Some(Origin::Found),
             "origin kept"
         );
+    }
+
+    /// BUG-178: «Add a token» by id of a token the search found through another identity, at zero
+    /// on this one and hidden nowhere: it is now one added by hand, so it shows at zero.
+    #[test]
+    fn a_found_token_added_by_id_is_one_added_by_hand() {
+        let dir = std::env::temp_dir().join(format!("evolite-byhand-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let file = WalletTokens::new(dir.join("tokens.json"));
+        file.track(Tracked {
+            token_id: "T".into(),
+            contract_id: "C".into(),
+            position: 0,
+            origin: Origin::Found,
+            contract: None,
+        })
+        .unwrap();
+        let seen = Mutex::new(Seen::default());
+        track(&file, &seen, "T", &["A".to_owned(), "B".to_owned()]).unwrap();
+        assert_eq!(file.get("T").map(|t| t.origin), Some(Origin::ByHand));
     }
 }
