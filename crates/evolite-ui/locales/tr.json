@@ -1,4 +1,24 @@
 {
+  "No new blocks": "Yeni blok yok",
+  "{} min ago": "{} dk önce",
+  "No new blocks for {} minute. The nodes evolite is connected to may have fallen behind the network: a block usually comes every 2–3 minutes.|No new blocks for {} minutes. The nodes evolite is connected to may have fallen behind the network: a block usually comes every 2–3 minutes.": {
+    "one": "{} dakikadır yeni blok yok. evolite'in bağlı olduğu düğümler ağın gerisinde kalmış olabilir: genellikle 2–3 dakikada bir blok gelir.",
+    "other": "{} dakikadır yeni blok yok. evolite'in bağlı olduğu düğümler ağın gerisinde kalmış olabilir: genellikle 2–3 dakikada bir blok gelir."
+  },
+  "over {} hour|over {} hours": {
+    "one": "{} saatten fazla",
+    "other": "{} saatten fazla"
+  },
+  "The network is not sending new blocks": "Ağ yeni blok göndermiyor",
+  "No new blocks for over {} hour. Either the nodes evolite is connected to have fallen behind, or the network itself has stopped. The balance and received coins may be out of date.|No new blocks for over {} hours. Either the nodes evolite is connected to have fallen behind, or the network itself has stopped. The balance and received coins may be out of date.": {
+    "one": "{} saatten uzun süredir yeni blok yok. Ya evolite'in bağlı olduğu düğümler geride kaldı ya da ağ gerçekten durdu. Bakiye ve alınan coinler güncel olmayabilir.",
+    "other": "{} saatten uzun süredir yeni blok yok. Ya evolite'in bağlı olduğu düğümler geride kaldı ya da ağ gerçekten durdu. Bakiye ve alınan coinler güncel olmayabilir."
+  },
+  "You can restart evolite or set your own node: Settings › Network and nodes": "evolite'i yeniden başlatabilir veya kendi düğümünüzü belirtebilirsiniz: Ayarlar › Ağ ve düğümler",
+  "No new blocks for over {} hour: the balance and received coins may be out of date. You can still pay.|No new blocks for over {} hours: the balance and received coins may be out of date. You can still pay.": {
+    "one": "{} saatten uzun süredir yeni blok yok: bakiye ve alınan coinler güncel olmayabilir. Yine de ödeme yapabilirsiniz.",
+    "other": "{} saatten uzun süredir yeni blok yok: bakiye ve alınan coinler güncel olmayabilir. Yine de ödeme yapabilirsiniz."
+  },
   "Confirmed · checking": "Onaylandı · denetleniyor",
   "InstantLock: confirmed before evolite was closed. Its signature is checked again against the masternodes; until then its coins are not spent as final.": "InstantLock: evolite kapanmadan önce onaylandı. İmzası masternode’lara karşı yeniden denetlenir; o zamana dek coin’leri kesinleşmiş sayılarak harcanmaz.",
   "Back: {}": "Geri: {}",

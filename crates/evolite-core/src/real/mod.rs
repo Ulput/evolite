@@ -349,6 +349,11 @@ struct Real {
     works: Arc<works::Works>,
     /// The highest tip seen and when it was first seen (BUG-155): `SyncInfo::tip_at`.
     tip_seen: std::sync::Mutex<(u32, Option<evolite_api::Timestamp>)>,
+    /// SPV item 2a: the tip on this run's steady clock: when it grew, whether at all, since
+    /// when synced.
+    tip_grew: std::sync::Mutex<snapshot::TipClock>,
+    /// SPV item 2a: «no new blocks» was said; the journal line comes once on entering it.
+    stale_noted: AtomicBool,
     /// A phrase between "new / typed" and "create wallet". Never leaves the core but to the
     /// onboarding screen that must show it.
     pending: Option<(Zeroizing<String>, bool)>,

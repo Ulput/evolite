@@ -185,6 +185,10 @@ pub enum Record {
         reason: &'static str,
         held: Option<evolite_api::Duffs>,
     },
+    /// SPV item 2a: no new block for `minutes` (by both clocks), once on entering that state.
+    SyncStale {
+        minutes: u32,
+    },
     /// A funding of the Platform address went to Platform (BUG-171, QA's AC-T5): by which proof
     /// of its lock (`instant` or `chain`), the duffs locked and what the address gained (`None`:
     /// not known, or refused) — what Platform kept is the difference. Kinds and amounts only:
@@ -320,6 +324,7 @@ impl Record {
                 "k": "price", "what": what, "declared": declared, "actual": actual,
                 "enough": enough, "reason": reason, "held": held,
             }),
+            Record::SyncStale { minutes } => json!({ "k": "sync_stale", "minutes": minutes }),
             Record::AddressFund {
                 proof,
                 locked,

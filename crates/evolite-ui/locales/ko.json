@@ -1,4 +1,20 @@
 {
+  "No new blocks": "새 블록 없음",
+  "{} min ago": "{}분 전",
+  "No new blocks for {} minute. The nodes evolite is connected to may have fallen behind the network: a block usually comes every 2–3 minutes.|No new blocks for {} minutes. The nodes evolite is connected to may have fallen behind the network: a block usually comes every 2–3 minutes.": {
+    "other": "{}분째 새 블록이 없습니다. evolite가 연결된 노드가 네트워크보다 뒤처졌을 수 있습니다: 보통 2–3분마다 블록이 옵니다."
+  },
+  "over {} hour|over {} hours": {
+    "other": "{}시간 이상"
+  },
+  "The network is not sending new blocks": "네트워크가 새 블록을 보내지 않습니다",
+  "No new blocks for over {} hour. Either the nodes evolite is connected to have fallen behind, or the network itself has stopped. The balance and received coins may be out of date.|No new blocks for over {} hours. Either the nodes evolite is connected to have fallen behind, or the network itself has stopped. The balance and received coins may be out of date.": {
+    "other": "{}시간 넘게 새 블록이 없습니다. evolite가 연결된 노드가 뒤처졌거나 네트워크 자체가 멈췄습니다. 잔액과 받은 코인이 최신이 아닐 수 있습니다."
+  },
+  "You can restart evolite or set your own node: Settings › Network and nodes": "evolite를 다시 시작하거나 직접 노드를 지정할 수 있습니다: 설정 › 네트워크 및 노드",
+  "No new blocks for over {} hour: the balance and received coins may be out of date. You can still pay.|No new blocks for over {} hours: the balance and received coins may be out of date. You can still pay.": {
+    "other": "{}시간 넘게 새 블록이 없습니다: 잔액과 받은 코인이 최신이 아닐 수 있습니다. 그래도 결제할 수 있습니다."
+  },
   "Confirmed · checking": "확인됨 · 확인 중",
   "InstantLock: confirmed before evolite was closed. Its signature is checked again against the masternodes; until then its coins are not spent as final.": "InstantLock: evolite를 닫기 전에 확인됨. 서명을 마스터노드로 다시 확인하며, 그때까지 코인은 확정된 것으로 쓰이지 않습니다.",
   "Back: {}": "뒤로: {}",

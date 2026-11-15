@@ -502,6 +502,7 @@ fn action(
 /// 09 · Shield into the private pool: where from, how much, the fee, and the proof being built.
 fn shield_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut PoolState) {
     crate::format::fill_suggested(&mut state.amount, &mut state.suggested);
+    let sync = cx.snap.sync.clone();
     let wallet = cx.wallet();
     let sources = shield_sources(wallet);
     let fees = &wallet.fees;
@@ -573,6 +574,10 @@ fn shield_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut PoolStat
             }
             let (source, _, _, balance) = &sources[state.from.min(sources.len() - 1)];
             shield_source_rows(ui, a, state, &sources, busy, &shown, &unread);
+            // SPV item 2a: from Core over an hour with no new block.
+            if *source == ShieldSource::Core {
+                crate::screens::stale_core_line(ui, &p, &sync);
+            }
             // A move running or just done has its coins gone already (BUG-101): its typed amount
             // is not measured against what is left, and a lock the core remembers for it is
             // not a stopped shield.

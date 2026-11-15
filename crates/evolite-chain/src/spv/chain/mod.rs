@@ -530,6 +530,12 @@ impl Chain {
         Ok((wallet.wallet_id(), wallet))
     }
 
+    /// SPV item 2a: the time in the tip's header (seconds since 1970), while the client runs.
+    pub async fn tip_block_time(&self) -> Option<u32> {
+        let manager = self.manager().await.ok()?;
+        manager.spv_arc().tip_block_time().await
+    }
+
     /// The Core nodes connected now, each as the masternode list knows it.
     pub async fn core_peers(&self) -> Vec<evolite_api::NodeInfo> {
         use platform_wallet::spv::SpvPeerNodeType;

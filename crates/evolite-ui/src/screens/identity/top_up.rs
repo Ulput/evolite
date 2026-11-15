@@ -5,12 +5,14 @@ use crate::components::{Part, dialog_with_footer};
 
 /// "Top up the identity": DASH from Core into the identity's credits, what it costs and what
 /// it gives. Closing the window does not stop a top-up that is running.
+#[allow(clippy::too_many_arguments)] // the sync for SPV 2a's line beside the wallet and identity it shows
 pub(super) fn top_up_dialog(
     ui: &mut Ui,
     a: &mut Assets,
     state: &mut IdentityState,
     wallet: &Wallet,
     id: &Identity,
+    sync: &evolite_api::SyncInfo,
     now: chrono::DateTime<chrono::Local>,
     asked: &mut Vec<Command>,
 ) {
@@ -102,6 +104,8 @@ pub(super) fn top_up_dialog(
                 });
                 return close;
             }
+            // SPV item 2a: Core coins over an hour with no new block.
+            crate::screens::stale_core_line(ui, &p, sync);
             ui.add(
                 crate::components::para(
                         &format!(

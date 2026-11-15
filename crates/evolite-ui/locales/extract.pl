@@ -37,6 +37,12 @@ find(sub {
         $keys{"{} " . unescape($1) . "|{} " . unescape($2)} = 1;
         $in_plural{unescape($_)}++ for ($1, $2);
     }
+    # plural_in(n, tr!("… {} …"), tr!("… {} …")) → the key "a|b" as written: a sentence with the
+    # number inside (SPV 2a).
+    while ($src =~ /\bplural_in\(\s*[^,]+,\s*tr!\(\s*$lit\s*\)\s*,\s*tr!\(\s*$lit\s*\)\s*,?\s*\)/g) {
+        $keys{unescape($1) . "|" . unescape($2)} = 1;
+        $in_plural{unescape($_)}++ for ($1, $2);
+    }
     while ($src =~ /\btr!\(\s*$lit\s*\)/g) {
         my $key = unescape($1);
         # A format string: its placeholders become {} (named, positional, with a spec).
@@ -96,7 +102,7 @@ sub unescape {
 
 # The plural forms are keys of their own; their single forms are not needed again, unless the
 # same text is marked alone somewhere as well (BUG-137: the sync card's «identities»).
-my %forms = map { $_ => 1 } map { my $k = $_; $k =~ s/\{\} //g; split /\|/, $k } grep { /\|/ } keys %keys;
+my %forms = map { $_ => 1 } map { my $k = $_; my @raw = split /\|/, $k; $k =~ s/\{\} //g; (split(/\|/, $k), @raw) } grep { /\|/ } keys %keys;
 for my $form (keys %forms) {
     delete $keys{$form} unless ($marked{$form} // 0) > ($in_plural{$form} // 0);
 }

@@ -1,4 +1,40 @@
 {
+  "No new blocks": "لا كتل جديدة",
+  "{} min ago": "قبل {} د",
+  "No new blocks for {} minute. The nodes evolite is connected to may have fallen behind the network: a block usually comes every 2–3 minutes.|No new blocks for {} minutes. The nodes evolite is connected to may have fallen behind the network: a block usually comes every 2–3 minutes.": {
+    "zero": "لا كتل جديدة منذ {} دقيقة. ربما تأخرت العُقد التي يتصل بها evolite عن الشبكة: عادةً تأتي كتلة كل 2–3 دقائق.",
+    "one": "لا كتل جديدة منذ {} دقيقة. ربما تأخرت العُقد التي يتصل بها evolite عن الشبكة: عادةً تأتي كتلة كل 2–3 دقائق.",
+    "two": "لا كتل جديدة منذ {} دقيقة. ربما تأخرت العُقد التي يتصل بها evolite عن الشبكة: عادةً تأتي كتلة كل 2–3 دقائق.",
+    "few": "لا كتل جديدة منذ {} دقائق. ربما تأخرت العُقد التي يتصل بها evolite عن الشبكة: عادةً تأتي كتلة كل 2–3 دقائق.",
+    "many": "لا كتل جديدة منذ {} دقيقة. ربما تأخرت العُقد التي يتصل بها evolite عن الشبكة: عادةً تأتي كتلة كل 2–3 دقائق.",
+    "other": "لا كتل جديدة منذ {} دقيقة. ربما تأخرت العُقد التي يتصل بها evolite عن الشبكة: عادةً تأتي كتلة كل 2–3 دقائق."
+  },
+  "over {} hour|over {} hours": {
+    "zero": "أكثر من {} ساعة",
+    "one": "أكثر من {} ساعة",
+    "two": "أكثر من {} ساعة",
+    "few": "أكثر من {} ساعات",
+    "many": "أكثر من {} ساعة",
+    "other": "أكثر من {} ساعة"
+  },
+  "The network is not sending new blocks": "الشبكة لا ترسل كتلًا جديدة",
+  "No new blocks for over {} hour. Either the nodes evolite is connected to have fallen behind, or the network itself has stopped. The balance and received coins may be out of date.|No new blocks for over {} hours. Either the nodes evolite is connected to have fallen behind, or the network itself has stopped. The balance and received coins may be out of date.": {
+    "zero": "لا كتل جديدة منذ أكثر من {} ساعة. إما أن العُقد التي يتصل بها evolite متأخرة، أو أن الشبكة نفسها متوقفة. قد لا يكون الرصيد والعملات المستلمة محدّثة.",
+    "one": "لا كتل جديدة منذ أكثر من {} ساعة. إما أن العُقد التي يتصل بها evolite متأخرة، أو أن الشبكة نفسها متوقفة. قد لا يكون الرصيد والعملات المستلمة محدّثة.",
+    "two": "لا كتل جديدة منذ أكثر من {} ساعة. إما أن العُقد التي يتصل بها evolite متأخرة، أو أن الشبكة نفسها متوقفة. قد لا يكون الرصيد والعملات المستلمة محدّثة.",
+    "few": "لا كتل جديدة منذ أكثر من {} ساعات. إما أن العُقد التي يتصل بها evolite متأخرة، أو أن الشبكة نفسها متوقفة. قد لا يكون الرصيد والعملات المستلمة محدّثة.",
+    "many": "لا كتل جديدة منذ أكثر من {} ساعة. إما أن العُقد التي يتصل بها evolite متأخرة، أو أن الشبكة نفسها متوقفة. قد لا يكون الرصيد والعملات المستلمة محدّثة.",
+    "other": "لا كتل جديدة منذ أكثر من {} ساعة. إما أن العُقد التي يتصل بها evolite متأخرة، أو أن الشبكة نفسها متوقفة. قد لا يكون الرصيد والعملات المستلمة محدّثة."
+  },
+  "You can restart evolite or set your own node: Settings › Network and nodes": "يمكنك إعادة تشغيل evolite أو تحديد عقدتك الخاصة: الإعدادات › الشبكة والعُقد",
+  "No new blocks for over {} hour: the balance and received coins may be out of date. You can still pay.|No new blocks for over {} hours: the balance and received coins may be out of date. You can still pay.": {
+    "zero": "لا كتل جديدة منذ أكثر من {} ساعة: قد لا يكون الرصيد والعملات المستلمة محدّثة. لا يزال الدفع ممكنًا.",
+    "one": "لا كتل جديدة منذ أكثر من {} ساعة: قد لا يكون الرصيد والعملات المستلمة محدّثة. لا يزال الدفع ممكنًا.",
+    "two": "لا كتل جديدة منذ أكثر من {} ساعة: قد لا يكون الرصيد والعملات المستلمة محدّثة. لا يزال الدفع ممكنًا.",
+    "few": "لا كتل جديدة منذ أكثر من {} ساعات: قد لا يكون الرصيد والعملات المستلمة محدّثة. لا يزال الدفع ممكنًا.",
+    "many": "لا كتل جديدة منذ أكثر من {} ساعة: قد لا يكون الرصيد والعملات المستلمة محدّثة. لا يزال الدفع ممكنًا.",
+    "other": "لا كتل جديدة منذ أكثر من {} ساعة: قد لا يكون الرصيد والعملات المستلمة محدّثة. لا يزال الدفع ممكنًا."
+  },
   "Confirmed · checking": "مؤكَّد · قيد التحقق",
   "InstantLock: confirmed before evolite was closed. Its signature is checked again against the masternodes; until then its coins are not spent as final.": "InstantLock: مؤكَّد قبل إغلاق evolite. يُعاد التحقق من توقيعه مقابل الماسترنودات؛ وحتى ذلك الحين لا تُنفَق عملاته على أنها نهائية.",
   "Back: {}": "رجوع: {}",

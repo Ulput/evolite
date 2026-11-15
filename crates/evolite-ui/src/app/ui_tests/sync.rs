@@ -1,7 +1,7 @@
 //! BUG-60, BUG-61: what the sync says while it runs — a number only for a stage the core can
 //! count, and a name for the step after the masternode lists.
 
-use super::{Kit, demo_app, has_text, show_edited, tab_to};
+use super::{Kit, demo_app, has_text, has_words, settle, show_edited, tab_to, wait_for};
 use crate::screens::sidebar::RailMark;
 use egui_kittest::kittest::{NodeT, Queryable};
 use evolite_api::SyncStage;
@@ -846,5 +846,68 @@ fn the_menu_s_mark_goes_on_with_the_first_sync_s_cycle() {
         crate::screens::sidebar::mark_cycle(&kit.ctx),
         Some(started),
         "the same cycle goes on"
+    );
+}
+
+/// The rail's status, by its name (its title and the tooltip's words).
+fn status_words(kit: &Kit) -> String {
+    kit.query_all_by_role(egui::accesskit::Role::Status)
+        .next()
+        .and_then(|n| {
+            let n = n.accesskit_node();
+            n.label().or(n.value()).map(|s| s.to_string())
+        })
+        .unwrap_or_default()
+}
+
+/// SPV item 2a, AC-T2а.2: no new block for 34 minutes — in Russian «Нет новых блоков» and the
+/// minutes in their own plural form; for 125 minutes — «Сеть не присылает новых блоков», «больше
+/// 2 часов», and where to go.
+#[test]
+fn no_new_blocks_is_said_in_place_of_synced() {
+    let (_turn, mut kit) = demo_app("sync-stale-30", "ru");
+    kit.set_size(egui::vec2(1280.0, 900.0));
+    settle(&mut kit);
+    wait_for(&mut kit, "34 minutes", |k| {
+        status_words(k).contains("Новых блоков нет уже 34 минуты.")
+    });
+    assert!(
+        status_words(&kit).starts_with("Нет новых блоков"),
+        "{}",
+        status_words(&kit)
+    );
+    drop(kit);
+    drop(_turn);
+    let (_turn, mut kit) = demo_app("sync-stale-60", "ru");
+    kit.set_size(egui::vec2(1280.0, 900.0));
+    settle(&mut kit);
+    wait_for(&mut kit, "over 2 hours", |k| {
+        status_words(k).contains("Новых блоков нет больше 2 часов.")
+    });
+    let said = status_words(&kit);
+    assert!(said.starts_with("Сеть не присылает новых блоков"), "{said}");
+    assert!(said.contains("Настройки › Сеть и узлы"), "{said}");
+}
+
+/// SPV item 2a: over an hour without a new block, «Check the payment» from Core says so in a
+/// line — the button stays on (a warning, not a ban); under an hour, nothing.
+#[test]
+fn a_core_payment_warns_after_an_hour_without_blocks() {
+    let (_turn, mut kit) = demo_app("send-confirm", "en");
+    kit.set_size(egui::vec2(1280.0, 1000.0));
+    settle(&mut kit);
+    wait_for(&mut kit, "the review", |k| k.state().send.confirming);
+    assert!(!has_words(&kit, "No new blocks for over"));
+    show_edited(
+        &mut kit,
+        2,
+        "the line",
+        |app| {
+            if let Some(s) = app.snapshot.as_mut() {
+                s.sync.stage = evolite_api::SyncStage::Done;
+                s.sync.stale_minutes = Some(125);
+            }
+        },
+        |k| has_words(k, "No new blocks for over 2 hours: the balance"),
     );
 }

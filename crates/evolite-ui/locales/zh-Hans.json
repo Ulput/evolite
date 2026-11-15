@@ -1,4 +1,20 @@
 {
+  "No new blocks": "没有新区块",
+  "{} min ago": "{} 分钟前",
+  "No new blocks for {} minute. The nodes evolite is connected to may have fallen behind the network: a block usually comes every 2–3 minutes.|No new blocks for {} minutes. The nodes evolite is connected to may have fallen behind the network: a block usually comes every 2–3 minutes.": {
+    "other": "已有 {} 分钟没有新区块。evolite 连接的节点可能落后于网络：通常每 2–3 分钟出一个区块。"
+  },
+  "over {} hour|over {} hours": {
+    "other": "超过 {} 小时"
+  },
+  "The network is not sending new blocks": "网络没有发送新区块",
+  "No new blocks for over {} hour. Either the nodes evolite is connected to have fallen behind, or the network itself has stopped. The balance and received coins may be out of date.|No new blocks for over {} hours. Either the nodes evolite is connected to have fallen behind, or the network itself has stopped. The balance and received coins may be out of date.": {
+    "other": "已超过 {} 小时没有新区块。要么 evolite 连接的节点落后了，要么网络本身停了。余额和收到的币可能不是最新的。"
+  },
+  "You can restart evolite or set your own node: Settings › Network and nodes": "可以重启 evolite 或设置自己的节点：设置 › 网络和节点",
+  "No new blocks for over {} hour: the balance and received coins may be out of date. You can still pay.|No new blocks for over {} hours: the balance and received coins may be out of date. You can still pay.": {
+    "other": "已超过 {} 小时没有新区块：余额和收到的币可能不是最新的。仍可付款。"
+  },
   "Confirmed · checking": "已确认 · 正在核验",
   "InstantLock: confirmed before evolite was closed. Its signature is checked again against the masternodes; until then its coins are not spent as final.": "InstantLock：在关闭 evolite 之前已确认。其签名将再次通过主节点验证；在此之前，其币不会被当作最终确认的来花费。",
   "Back: {}": "返回：{}",

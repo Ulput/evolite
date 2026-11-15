@@ -127,6 +127,7 @@ pub fn synced() -> SyncInfo {
         platform: Vec::new(),
         // The tip came two and a half minutes ago (BUG-155: «updated …» in the tooltip).
         tip_at: Some(now() - 150),
+        stale_minutes: None,
     }
 }
 
@@ -1321,6 +1322,7 @@ pub fn staged_sync(elapsed: f32) -> SyncInfo {
         platform: Vec::new(),
         // The tip came two and a half minutes ago (BUG-155: «updated …» in the tooltip).
         tip_at: Some(now() - 150),
+        stale_minutes: None,
     }
 }
 

@@ -1,4 +1,20 @@
 {
+  "No new blocks": "Không có khối mới",
+  "{} min ago": "{} phút trước",
+  "No new blocks for {} minute. The nodes evolite is connected to may have fallen behind the network: a block usually comes every 2–3 minutes.|No new blocks for {} minutes. The nodes evolite is connected to may have fallen behind the network: a block usually comes every 2–3 minutes.": {
+    "other": "Không có khối mới trong {} phút. Các nút mà evolite kết nối có thể đã tụt lại so với mạng: thường cứ 2–3 phút có một khối."
+  },
+  "over {} hour|over {} hours": {
+    "other": "hơn {} giờ"
+  },
+  "The network is not sending new blocks": "Mạng không gửi khối mới",
+  "No new blocks for over {} hour. Either the nodes evolite is connected to have fallen behind, or the network itself has stopped. The balance and received coins may be out of date.|No new blocks for over {} hours. Either the nodes evolite is connected to have fallen behind, or the network itself has stopped. The balance and received coins may be out of date.": {
+    "other": "Không có khối mới trong hơn {} giờ. Hoặc các nút mà evolite kết nối đã tụt lại, hoặc chính mạng đã dừng. Số dư và tiền đã nhận có thể chưa cập nhật."
+  },
+  "You can restart evolite or set your own node: Settings › Network and nodes": "Bạn có thể khởi động lại evolite hoặc đặt nút của riêng mình: Cài đặt › Mạng và nút",
+  "No new blocks for over {} hour: the balance and received coins may be out of date. You can still pay.|No new blocks for over {} hours: the balance and received coins may be out of date. You can still pay.": {
+    "other": "Không có khối mới trong hơn {} giờ: số dư và tiền đã nhận có thể chưa cập nhật. Bạn vẫn có thể thanh toán."
+  },
   "Confirmed · checking": "Đã xác nhận · đang kiểm tra",
   "InstantLock: confirmed before evolite was closed. Its signature is checked again against the masternodes; until then its coins are not spent as final.": "InstantLock: đã xác nhận trước khi đóng evolite. Chữ ký được kiểm tra lại với các masternode; đến lúc đó, coin của nó chưa được chi như đã chốt.",
   "Back: {}": "Quay lại: {}",

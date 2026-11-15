@@ -312,7 +312,16 @@ pub fn identity(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut IdentityS
         );
     }
     if state.top_up.is_some() {
-        top_up_dialog(ui, a, state, wallet, identity, cx.now, &mut asked);
+        top_up_dialog(
+            ui,
+            a,
+            state,
+            wallet,
+            identity,
+            &cx.snap.sync,
+            cx.now,
+            &mut asked,
+        );
     }
     if state.adding_name.is_some() {
         add_name_dialog(ui, a, state, wallet, identity, &mut asked);

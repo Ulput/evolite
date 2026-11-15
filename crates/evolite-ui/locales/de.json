@@ -1,4 +1,24 @@
 {
+  "No new blocks": "Keine neuen Blöcke",
+  "{} min ago": "vor {} Min.",
+  "No new blocks for {} minute. The nodes evolite is connected to may have fallen behind the network: a block usually comes every 2–3 minutes.|No new blocks for {} minutes. The nodes evolite is connected to may have fallen behind the network: a block usually comes every 2–3 minutes.": {
+    "one": "Seit {} Minute keine neuen Blöcke. Die Knoten, mit denen evolite verbunden ist, könnten hinter dem Netzwerk zurückliegen: Normalerweise kommt alle 2–3 Minuten ein Block.",
+    "other": "Seit {} Minuten keine neuen Blöcke. Die Knoten, mit denen evolite verbunden ist, könnten hinter dem Netzwerk zurückliegen: Normalerweise kommt alle 2–3 Minuten ein Block."
+  },
+  "over {} hour|over {} hours": {
+    "one": "über {} Stunde",
+    "other": "über {} Stunden"
+  },
+  "The network is not sending new blocks": "Das Netzwerk sendet keine neuen Blöcke",
+  "No new blocks for over {} hour. Either the nodes evolite is connected to have fallen behind, or the network itself has stopped. The balance and received coins may be out of date.|No new blocks for over {} hours. Either the nodes evolite is connected to have fallen behind, or the network itself has stopped. The balance and received coins may be out of date.": {
+    "one": "Seit über {} Stunde keine neuen Blöcke. Entweder liegen die Knoten, mit denen evolite verbunden ist, zurück, oder das Netzwerk selbst steht. Guthaben und empfangene Coins sind womöglich nicht aktuell.",
+    "other": "Seit über {} Stunden keine neuen Blöcke. Entweder liegen die Knoten, mit denen evolite verbunden ist, zurück, oder das Netzwerk selbst steht. Guthaben und empfangene Coins sind womöglich nicht aktuell."
+  },
+  "You can restart evolite or set your own node: Settings › Network and nodes": "Sie können evolite neu starten oder einen eigenen Knoten angeben: Einstellungen › Netzwerk und Knoten",
+  "No new blocks for over {} hour: the balance and received coins may be out of date. You can still pay.|No new blocks for over {} hours: the balance and received coins may be out of date. You can still pay.": {
+    "one": "Seit über {} Stunde keine neuen Blöcke: Guthaben und empfangene Coins sind womöglich nicht aktuell. Zahlen ist trotzdem möglich.",
+    "other": "Seit über {} Stunden keine neuen Blöcke: Guthaben und empfangene Coins sind womöglich nicht aktuell. Zahlen ist trotzdem möglich."
+  },
   "Confirmed · checking": "Bestätigt · wird geprüft",
   "InstantLock: confirmed before evolite was closed. Its signature is checked again against the masternodes; until then its coins are not spent as final.": "InstantLock: bestätigt, bevor evolite geschlossen wurde. Seine Signatur wird erneut gegen die Masternodes geprüft; bis dahin werden seine Coins nicht als endgültig ausgegeben.",
   "Back: {}": "Zurück: {}",

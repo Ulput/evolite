@@ -857,6 +857,8 @@ fn check_new_identity(
                 });
                 return close;
             }
+            // SPV item 2a: Core coins over an hour with no new block.
+            crate::screens::stale_core_line(ui, &p, &cx.snap.sync);
             ui.spacing_mut().item_spacing.y = 14.0;
             let value = mono(13.0, Weight::Medium);
             kv_row(

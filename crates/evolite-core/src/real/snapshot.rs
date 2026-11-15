@@ -191,6 +191,8 @@ struct WalletRead {
 impl Real {
     pub(super) async fn snapshot(&mut self) -> Snapshot {
         let status = self.chain.status();
+        // SPV item 2a: the tip header's time, for «no new blocks».
+        let tip_time = turn::timed("tip_block_time", self.chain.tip_block_time()).await;
         let vault = match (&self.unlocked, &self.saved) {
             (Some(_), _) => VaultState::Unlocked,
             (None, Some(_)) => VaultState::Locked,
@@ -234,7 +236,7 @@ impl Real {
                     // Empty: back to DNS seeds at the next start.
                     (saved != status.core_node).then(|| saved.unwrap_or_default())
                 },
-                ..self.shown_sync(&status)
+                ..self.shown_sync(&status, tip_time)
             },
             vault,
             wallet,
@@ -249,7 +251,7 @@ impl Real {
     /// The sync as the screens show it. A rescan for the contacts' receiving accounts (BUG-150) takes
     /// the filters back to the birth in the background: the screens go on saying «Done», not
     /// «syncing» from the start again (the architect). A payment waits for it all the same.
-    fn shown_sync(&self, status: &sync::SyncStatus) -> SyncInfo {
+    fn shown_sync(&self, status: &sync::SyncStatus, tip_time: Option<u32>) -> SyncInfo {
         let mut shown = sync_info(status, self.unlocked.is_some());
         let rescanning = self
             .unlocked
@@ -263,7 +265,55 @@ impl Real {
             .duration_since(std::time::UNIX_EPOCH)
             .map_or(0, |d| d.as_secs() as evolite_api::Timestamp);
         shown.tip_at = self.tip_seen_at(shown.tip_height, now);
+        // SPV item 2a: no new block for a while — by both clocks — only once synced.
+        let clock = self.tip_clock(shown.tip_height, shown.stage == SyncStage::Done);
+        shown.stale_minutes = match clock.synced_for {
+            Some(synced_for) => stale_minutes(
+                TipGrowth {
+                    since_grew: clock.since_grew,
+                    grew_this_run: clock.grew_this_run,
+                    synced_for,
+                },
+                tip_time.map(i64::from),
+                now,
+            ),
+            None => None,
+        };
+        // The journal says it once, on entering the state (AC-T2а.3).
+        let was = self
+            .stale_noted
+            .swap(shown.stale_minutes.is_some(), Ordering::Relaxed);
+        if let (false, Some(minutes)) = (was, shown.stale_minutes) {
+            crate::diag::record(crate::diag::Record::SyncStale { minutes });
+        }
         shown
+    }
+
+    /// The tip on this run's steady clock (SPV item 2a): how long it has not grown, whether it
+    /// grew at all since the start, and how long the wallet has been synced (`None` while it is
+    /// not). The first tip seen (the store's, at the start) is no growth. A wall clock moved
+    /// meanwhile does not count.
+    fn tip_clock(&self, tip: u32, synced: bool) -> TipClockNow {
+        let mut clock = self.tip_grew.lock().unwrap_or_else(|e| e.into_inner());
+        let now = std::time::Instant::now();
+        if clock.tip == 0 {
+            clock.tip = tip;
+            clock.grew_at = now;
+        } else if tip > clock.tip {
+            clock.tip = tip;
+            clock.grew_at = now;
+            clock.grew_this_run = true;
+        }
+        if !synced {
+            clock.synced_at = None;
+        } else if clock.synced_at.is_none() {
+            clock.synced_at = Some(now);
+        }
+        TipClockNow {
+            since_grew: now.duration_since(clock.grew_at).as_secs(),
+            grew_this_run: clock.grew_this_run,
+            synced_for: clock.synced_at.map(|at| now.duration_since(at).as_secs()),
+        }
     }
 
     /// When the tip last grew (BUG-155 AC-A9): a higher `tip` than seen before is new at `now`.
@@ -1678,6 +1728,167 @@ mod incoming_tests {
             settle_incoming(Waiting, Some("cri:x"), |_| false, |_, _| true),
             Waiting,
             "a key without our side: nobody can tell"
+        );
+    }
+}
+
+/// Minutes with no new block worth saying (SPV item 2a): 30 and more.
+const STALE_AFTER: u64 = 30;
+
+/// How long the wallet must be synced, with the tip not grown once since the start, before the
+/// header's age alone says (SPV 2a, review r1 Should 1): an honest network brings a block well
+/// within it.
+const NO_GROWTH_SINCE_START: u64 = 10 * 60;
+
+/// The tip on this run's steady clock, as `Real::tip_grew` keeps it (SPV item 2a).
+pub(in crate::real) struct TipClock {
+    /// The highest tip seen on this run; 0 before the first.
+    tip: u32,
+    /// When it grew, or when the first tip was seen.
+    grew_at: std::time::Instant,
+    /// The tip grew past the first one seen on this run.
+    grew_this_run: bool,
+    /// Since when the wallet has been synced without a break.
+    synced_at: Option<std::time::Instant>,
+}
+
+impl TipClock {
+    pub(in crate::real) fn new() -> Self {
+        Self {
+            tip: 0,
+            grew_at: std::time::Instant::now(),
+            grew_this_run: false,
+            synced_at: None,
+        }
+    }
+}
+
+/// What `Real::tip_clock` reads off the steady clock, in seconds.
+struct TipClockNow {
+    since_grew: u64,
+    grew_this_run: bool,
+    synced_for: Option<u64>,
+}
+
+/// The growth side of `stale_minutes`, in seconds of this run's steady clock.
+#[derive(Clone, Copy)]
+pub(in crate::real) struct TipGrowth {
+    /// How long the tip has not grown (since the start, if it never did).
+    since_grew: u64,
+    /// The tip grew at least once on this run.
+    grew_this_run: bool,
+    /// How long the wallet has been synced.
+    synced_for: u64,
+}
+
+/// SPV item 2a: minutes with no new block, when both clocks say so: the tip header's own time
+/// against the computer's (`now - tip_time`), and how long the tip has not grown on this run's
+/// steady clock. The smaller of the two; `None` under 30 minutes or without the header's time.
+/// A computer clock a day ahead with a fresh tip says nothing: the tip grew a minute ago
+/// (AC-T2а.1).
+///
+/// After a restart the steady clock knows nothing of the time before it (review r1 Should 1): once
+/// the wallet has been synced for 10 minutes and the tip has not grown once on this run, the
+/// header's age alone says. The cost, accepted: a clock far ahead and a 10-minute pause in the
+/// blocks right after the start warn falsely.
+pub(in crate::real) fn stale_minutes(
+    growth: TipGrowth,
+    tip_time: Option<i64>,
+    now: evolite_api::Timestamp,
+) -> Option<u32> {
+    let by_header = now.saturating_sub(tip_time?).max(0) as u64 / 60;
+    let minutes = if !growth.grew_this_run && growth.synced_for >= NO_GROWTH_SINCE_START {
+        by_header
+    } else {
+        by_header.min(growth.since_grew / 60)
+    };
+    (minutes >= STALE_AFTER).then(|| minutes.min(u32::MAX as u64) as u32)
+}
+
+#[cfg(test)]
+mod stale_tests {
+    use super::{TipGrowth, stale_minutes};
+
+    const MIN: i64 = 60;
+
+    /// The tip grew on this run, `since` seconds ago; synced long since.
+    fn grew(since: u64) -> TipGrowth {
+        TipGrowth {
+            since_grew: since,
+            grew_this_run: true,
+            synced_for: 86_400,
+        }
+    }
+
+    /// Since the start the tip has not grown; synced for `synced` seconds.
+    fn never(synced: u64) -> TipGrowth {
+        TipGrowth {
+            since_grew: synced,
+            grew_this_run: false,
+            synced_for: synced,
+        }
+    }
+
+    /// AC-T2а.1: the thresholds by both clocks; the smaller says; a clock gone ahead by a day
+    /// while the tip keeps growing says nothing; no header time, nothing.
+    #[test]
+    fn a_tip_is_stale_only_by_both_clocks() {
+        let now = 1_800_000_000;
+        // 34 minutes by both: «34 min ago».
+        assert_eq!(
+            stale_minutes(grew(34 * 60), Some(now - 34 * MIN), now),
+            Some(34)
+        );
+        // 29 minutes: still fresh.
+        assert_eq!(
+            stale_minutes(grew(29 * 60), Some(now - 29 * MIN), now),
+            None
+        );
+        // Over an hour by both: 125 minutes, the smaller of the two.
+        assert_eq!(
+            stale_minutes(grew(130 * 60), Some(now - 125 * MIN), now),
+            Some(125)
+        );
+        // The computer's clock a day ahead, the tip grew a minute ago: nothing.
+        assert_eq!(
+            stale_minutes(grew(60), Some(now - 24 * 60 * MIN), now),
+            None
+        );
+        // The tip has not grown here for 40 minutes, but its header is 5 minutes old (a node
+        // that was behind caught up with an old block, or a clock behind): nothing.
+        assert_eq!(stale_minutes(grew(40 * 60), Some(now - 5 * MIN), now), None);
+        // A header from the future (a clock behind): nothing.
+        assert_eq!(
+            stale_minutes(grew(40 * 60), Some(now + 10 * MIN), now),
+            None
+        );
+        assert_eq!(
+            stale_minutes(grew(3_600), None, now),
+            None,
+            "no header time"
+        );
+    }
+
+    /// Review r1 Should 1: after a restart the steady clock starts anew; once synced for 10
+    /// minutes with the tip never grown, the header's age says alone. Once the tip has grown,
+    /// both clocks again.
+    #[test]
+    fn after_a_restart_the_header_says_once_synced_for_ten_minutes() {
+        let now = 1_800_000_000;
+        // 10 minutes synced, no growth, a header 5 hours old: 300.
+        assert_eq!(
+            stale_minutes(never(600), Some(now - 300 * MIN), now),
+            Some(300)
+        );
+        // 9 minutes: not yet.
+        assert_eq!(stale_minutes(never(540), Some(now - 300 * MIN), now), None);
+        // The tip grew 3 minutes ago, the header 5 hours old: nothing.
+        assert_eq!(stale_minutes(grew(180), Some(now - 300 * MIN), now), None);
+        // The documented cost: a clock a day ahead, 10 minutes without a block right after the
+        // start: a warning.
+        assert_eq!(
+            stale_minutes(never(600), Some(now - 24 * 60 * MIN), now),
+            Some(24 * 60)
         );
     }
 }

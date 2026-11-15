@@ -272,6 +272,14 @@ pub fn plural(n: u32, one: &str, other: &str) -> String {
     format!("{n} {form}")
 }
 
+/// [`plural`] for a sentence with the count inside it: `one` for 1, else `other`, the count put
+/// in for `{}`. The pair is one catalog key, "a|b" as written (`extract.pl`); other languages
+/// choose their own forms by the count (SPV 2a).
+pub fn plural_in(n: u32, one: &str, other: &str) -> String {
+    let form = if n == 1 { one } else { other };
+    form.replacen("{}", &crate::format::count(n as u64), 1)
+}
+
 /// "12 October" (the year when it is not this one).
 pub fn date_day(at: Timestamp, now: DateTime<Local>) -> String {
     let t = local(at);

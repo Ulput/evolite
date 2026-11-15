@@ -50,6 +50,7 @@ pub fn fund_dialog(
     a: &mut Assets,
     state: &mut FundAddressState,
     wallet: &Wallet,
+    sync: &evolite_api::SyncInfo,
     now: chrono::DateTime<chrono::Local>,
     asked: &mut Vec<Command>,
 ) {
@@ -117,6 +118,10 @@ pub fn fund_dialog(
                     });
                 }
                 return close;
+            }
+            // SPV item 2a: Core coins over an hour with no new block, in the review.
+            if review {
+                crate::screens::stale_core_line(ui, &p, sync);
             }
             if review {
                 kv_row(

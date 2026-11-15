@@ -116,3 +116,29 @@ pub fn place_name(screen: Screen) -> &'static str {
 }
 
 pub(crate) use crate::components::txt;
+
+/// SPV item 2a: in «Check …» of a payment that spends Core coins, over an hour without a new
+/// block — a line in the warning colour, not a ban: the button stays, nothing more is asked
+/// (the analyst).
+pub(crate) fn stale_core_line(
+    ui: &mut egui::Ui,
+    p: &crate::theme::Palette,
+    sync: &evolite_api::SyncInfo,
+) {
+    let Some(minutes) = sync.stale_minutes.filter(|m| *m >= 60) else {
+        return;
+    };
+    let said = crate::text::plural_in(
+        minutes / 60,
+        tr!(
+            "No new blocks for over {} hour: the balance and received coins may be out of date. You can still pay."
+        ),
+        tr!(
+            "No new blocks for over {} hours: the balance and received coins may be out of date. You can still pay."
+        ),
+    );
+    ui.add(
+        crate::components::para(&said, 13.0, crate::theme::Weight::Regular, p.accent)
+            .line_height(18.0),
+    );
+}

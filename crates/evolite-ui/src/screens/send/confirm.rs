@@ -163,6 +163,10 @@ pub(super) fn confirm(
                 });
                 return close || timed_out;
             }
+            // SPV item 2a: Core coins over an hour with no new block (a line, not a ban).
+            if from_core || from_mixed {
+                crate::screens::stale_core_line(ui, &p, &cx.snap.sync);
+            }
             let from = match &coin_plan {
                 // «Core · 2 of 3 coins»; all taken: «Core · 3 coins» (P1).
                 Some(plan) if plan.taken < form.coins.chosen.len() => format!(

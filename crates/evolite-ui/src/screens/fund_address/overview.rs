@@ -91,7 +91,7 @@ pub fn on_overview(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut FundAd
             state.resume_open = true;
         }
     }
-    super::fund_dialog(ui, a, state, &wallet, cx.now, &mut asked);
+    super::fund_dialog(ui, a, state, &wallet, &cx.snap.sync, cx.now, &mut asked);
     if state.running.is_some() && state.steps_open {
         steps_dialog(ui, a, state, &wallet);
     }

@@ -576,6 +576,10 @@ pub struct SyncInfo {
     /// When the wallet last saw a new tip (the tip's height grew), this computer's time; `None`
     /// before the first (BUG-155 AC-A9: «updated 14:32» in the synced card's tooltip).
     pub tip_at: Option<Timestamp>,
+    /// SPV item 2a: minutes since the last new block, by both clocks (the tip's header time and
+    /// how long the tip has not grown here), when that is 30 or more: the card says «No new
+    /// blocks» in place of «Synced», and over 60 a Core payment's review warns. `None`: fresh.
+    pub stale_minutes: Option<u32>,
 }
 
 /// A background read of Platform the wallet catches up with (BUG-137): the sync card's mark

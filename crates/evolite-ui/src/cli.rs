@@ -204,7 +204,7 @@ impl Launch {
 #[rustfmt::skip]
 pub const PRESETS: &[&str] = &[
     "create", "verify", "password", "restore", "dashpay", "sync", "sync-nodes",
-    "overview", "hidden", "units", "remind", "wallet-menu", "wallet-switch", "overview-syncing", "sync-platform", "sync-platform-short",
+    "overview", "hidden", "units", "remind", "wallet-menu", "wallet-switch", "overview-syncing", "sync-platform", "sync-platform-short", "sync-stale-30", "sync-stale-60",
     "activity", "activity-card", "activity-filters", "activity-filters-empty", "activity-long-note",
     "activity-card-self", "activity-card-received",
     "activity-card-name", "activity-card-withdrawal-waiting", "activity-card-withdrawal-paid",
@@ -308,6 +308,8 @@ fn dev_args<'a>(
                 | "wallet-switch"
                 | "wallet-switch-wait"
                 | "overview-syncing"
+                | "sync-stale-30"
+                | "sync-stale-60"
                 | "sync-platform"
                 | "sync-platform-short"
                 | "overview-mixed"

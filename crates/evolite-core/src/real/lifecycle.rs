@@ -90,6 +90,8 @@ impl Real {
                 })
             }),
             tip_seen: std::sync::Mutex::new((0, None)),
+            tip_grew: std::sync::Mutex::new(snapshot::TipClock::new()),
+            stale_noted: AtomicBool::new(false),
             dirty,
             wake,
             pending: None,

@@ -1,4 +1,28 @@
 {
+  "No new blocks": "Pas de nouveaux blocs",
+  "{} min ago": "il y a {} min",
+  "No new blocks for {} minute. The nodes evolite is connected to may have fallen behind the network: a block usually comes every 2–3 minutes.|No new blocks for {} minutes. The nodes evolite is connected to may have fallen behind the network: a block usually comes every 2–3 minutes.": {
+    "one": "Pas de nouveaux blocs depuis {} minute. Les nœuds auxquels evolite est connecté sont peut-être en retard sur le réseau : un bloc arrive d'habitude toutes les 2 à 3 minutes.",
+    "many": "Pas de nouveaux blocs depuis {} minutes. Les nœuds auxquels evolite est connecté sont peut-être en retard sur le réseau : un bloc arrive d'habitude toutes les 2 à 3 minutes.",
+    "other": "Pas de nouveaux blocs depuis {} minutes. Les nœuds auxquels evolite est connecté sont peut-être en retard sur le réseau : un bloc arrive d'habitude toutes les 2 à 3 minutes."
+  },
+  "over {} hour|over {} hours": {
+    "one": "plus de {} heure",
+    "many": "plus de {} heures",
+    "other": "plus de {} heures"
+  },
+  "The network is not sending new blocks": "Le réseau n'envoie pas de nouveaux blocs",
+  "No new blocks for over {} hour. Either the nodes evolite is connected to have fallen behind, or the network itself has stopped. The balance and received coins may be out of date.|No new blocks for over {} hours. Either the nodes evolite is connected to have fallen behind, or the network itself has stopped. The balance and received coins may be out of date.": {
+    "one": "Pas de nouveaux blocs depuis plus de {} heure. Soit les nœuds auxquels evolite est connecté sont en retard, soit le réseau lui-même est arrêté. Le solde et les pièces reçues ne sont peut-être pas à jour.",
+    "many": "Pas de nouveaux blocs depuis plus de {} heures. Soit les nœuds auxquels evolite est connecté sont en retard, soit le réseau lui-même est arrêté. Le solde et les pièces reçues ne sont peut-être pas à jour.",
+    "other": "Pas de nouveaux blocs depuis plus de {} heures. Soit les nœuds auxquels evolite est connecté sont en retard, soit le réseau lui-même est arrêté. Le solde et les pièces reçues ne sont peut-être pas à jour."
+  },
+  "You can restart evolite or set your own node: Settings › Network and nodes": "Vous pouvez redémarrer evolite ou indiquer votre propre nœud : Réglages › Réseau et nœuds",
+  "No new blocks for over {} hour: the balance and received coins may be out of date. You can still pay.|No new blocks for over {} hours: the balance and received coins may be out of date. You can still pay.": {
+    "one": "Pas de nouveaux blocs depuis plus de {} heure : le solde et les pièces reçues ne sont peut-être pas à jour. Vous pouvez quand même payer.",
+    "many": "Pas de nouveaux blocs depuis plus de {} heures : le solde et les pièces reçues ne sont peut-être pas à jour. Vous pouvez quand même payer.",
+    "other": "Pas de nouveaux blocs depuis plus de {} heures : le solde et les pièces reçues ne sont peut-être pas à jour. Vous pouvez quand même payer."
+  },
   "Confirmed · checking": "Confirmé · vérification",
   "InstantLock: confirmed before evolite was closed. Its signature is checked again against the masternodes; until then its coins are not spent as final.": "InstantLock : confirmé avant la fermeture d’evolite. Sa signature est revérifiée auprès des masternodes ; d’ici là, ses pièces ne sont pas dépensées comme définitives.",
   "Back: {}": "Retour : {}",

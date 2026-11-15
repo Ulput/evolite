@@ -1,4 +1,28 @@
 {
+  "No new blocks": "Нет новых блоков",
+  "{} min ago": "{} мин назад",
+  "No new blocks for {} minute. The nodes evolite is connected to may have fallen behind the network: a block usually comes every 2–3 minutes.|No new blocks for {} minutes. The nodes evolite is connected to may have fallen behind the network: a block usually comes every 2–3 minutes.": {
+    "one": "Новых блоков нет уже {} минуту. Узлы, к которым подключён evolite, могли отстать от сети: обычно блок приходит раз в 2–3 минуты.",
+    "few": "Новых блоков нет уже {} минуты. Узлы, к которым подключён evolite, могли отстать от сети: обычно блок приходит раз в 2–3 минуты.",
+    "many": "Новых блоков нет уже {} минут. Узлы, к которым подключён evolite, могли отстать от сети: обычно блок приходит раз в 2–3 минуты."
+  },
+  "over {} hour|over {} hours": {
+    "one": "больше {} часа",
+    "few": "больше {} часов",
+    "many": "больше {} часов"
+  },
+  "The network is not sending new blocks": "Сеть не присылает новых блоков",
+  "No new blocks for over {} hour. Either the nodes evolite is connected to have fallen behind, or the network itself has stopped. The balance and received coins may be out of date.|No new blocks for over {} hours. Either the nodes evolite is connected to have fallen behind, or the network itself has stopped. The balance and received coins may be out of date.": {
+    "one": "Новых блоков нет больше {} часа. Либо узлы, к которым подключён evolite, отстали, либо сеть и правда стоит. Баланс и полученные монеты могли устареть.",
+    "few": "Новых блоков нет больше {} часов. Либо узлы, к которым подключён evolite, отстали, либо сеть и правда стоит. Баланс и полученные монеты могли устареть.",
+    "many": "Новых блоков нет больше {} часов. Либо узлы, к которым подключён evolite, отстали, либо сеть и правда стоит. Баланс и полученные монеты могли устареть."
+  },
+  "You can restart evolite or set your own node: Settings › Network and nodes": "Можно перезапустить evolite или указать свой узел: Настройки › Сеть и узлы",
+  "No new blocks for over {} hour: the balance and received coins may be out of date. You can still pay.|No new blocks for over {} hours: the balance and received coins may be out of date. You can still pay.": {
+    "one": "Новых блоков нет больше {} часа: баланс и полученные монеты могли устареть. Платить всё равно можно.",
+    "few": "Новых блоков нет больше {} часов: баланс и полученные монеты могли устареть. Платить всё равно можно.",
+    "many": "Новых блоков нет больше {} часов: баланс и полученные монеты могли устареть. Платить всё равно можно."
+  },
   "Confirmed · checking": "Подтверждено · проверяется",
   "InstantLock: confirmed before evolite was closed. Its signature is checked again against the masternodes; until then its coins are not spent as final.": "InstantLock: подтверждён до закрытия evolite. Его подпись проверяется заново по мастернодам; до тех пор его монеты не тратятся как окончательные.",
   "Back: {}": "Назад: {}",

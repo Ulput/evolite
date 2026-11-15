@@ -1562,6 +1562,7 @@ impl eframe::App for App {
                 &mut self.a,
                 &mut self.fund_address,
                 &wallet,
+                &cx.snap.sync,
                 cx.now,
                 &mut asked,
             );

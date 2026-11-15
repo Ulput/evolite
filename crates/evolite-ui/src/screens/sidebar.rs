@@ -262,6 +262,8 @@ pub(crate) struct CardWords {
     pub detail_short: Option<String>,
     /// The title in `danger`.
     pub stopped: bool,
+    /// The title in the warning colour (SPV 2a: no new blocks for 30–60 min).
+    pub warning: bool,
     /// The tooltip's and the reader's title: a stage's full name with its percent.
     pub tip_title: String,
     /// The tooltip's and the reader's second line, whole.
@@ -289,6 +291,71 @@ fn reading(text: &str) -> std::borrow::Cow<'_, str> {
     crate::i18n::t_in(crate::i18n::current(), text)
 }
 
+/// SPV item 2a, the analyst's strings: no new block for `minutes` (30 or more, by both clocks).
+/// Under an hour «No new blocks» in the warning colour, «block {n} · {m} min ago»; over it the
+/// same title in `danger`, «block {n} · over {h} hours», the tooltip saying the network may have
+/// stopped and what to do. The card's line may drop «block {n} ·» (`detail_short`).
+fn stale_words(status: &evolite_api::SyncInfo, minutes: u32) -> CardWords {
+    let block = reading(&format!(
+        tr!("block {}"),
+        group_thousands(status.tip_height as i64)
+    ))
+    .into_owned();
+    if minutes < 60 {
+        let ago = reading(&format!(tr!("{} min ago"), minutes)).into_owned();
+        return CardWords {
+            title: tr!("No new blocks").to_string(),
+            detail: format!("{block} · {ago}"),
+            detail_short: Some(ago),
+            stopped: false,
+            warning: true,
+            tip_title: tr!("No new blocks").to_string(),
+            tip_detail: reading(&text::plural_in(
+                minutes,
+                tr!(
+                    "No new blocks for {} minute. The nodes evolite is connected to may have fallen behind the network: a block usually comes every 2–3 minutes."
+                ),
+                tr!(
+                    "No new blocks for {} minutes. The nodes evolite is connected to may have fallen behind the network: a block usually comes every 2–3 minutes."
+                ),
+            ))
+            .into_owned(),
+            bar: Bar::None,
+        };
+    }
+    let hours = minutes / 60;
+    let over = reading(&text::plural_in(
+        hours,
+        tr!("over {} hour"),
+        tr!("over {} hours"),
+    ))
+    .into_owned();
+    let body = reading(&text::plural_in(
+        hours,
+        tr!(
+            "No new blocks for over {} hour. Either the nodes evolite is connected to have fallen behind, or the network itself has stopped. The balance and received coins may be out of date."
+        ),
+        tr!(
+            "No new blocks for over {} hours. Either the nodes evolite is connected to have fallen behind, or the network itself has stopped. The balance and received coins may be out of date."
+        ),
+    ))
+    .into_owned();
+    let what = reading(tr!(
+        "You can restart evolite or set your own node: Settings › Network and nodes"
+    ))
+    .into_owned();
+    CardWords {
+        title: tr!("No new blocks").to_string(),
+        detail: format!("{block} · {over}"),
+        detail_short: Some(over),
+        stopped: true,
+        warning: false,
+        tip_title: tr!("The network is not sending new blocks").to_string(),
+        tip_detail: format!("{body}\n{what}"),
+        bar: Bar::None,
+    }
+}
+
 /// The sync card's words (BUG-155, the analyst's AC-A1…A9). `platform`: the mark goes for
 /// Platform ([`MarkClock::platform`]).
 pub(crate) fn card_words(
@@ -301,6 +368,7 @@ pub(crate) fn card_words(
         detail,
         detail_short: None,
         stopped: true,
+        warning: false,
         tip_title: tr!("The sync stopped").to_string(),
         tip_detail,
         bar: Bar::Stopped(at),
@@ -319,6 +387,12 @@ pub(crate) fn card_words(
         );
         return stopped(line.clone(), line, status.progress.unwrap_or(0.5));
     }
+    // SPV item 2a: no new block for a while — in place of «Synced» (the analyst's strings).
+    if status.stage == SyncStage::Done
+        && let Some(minutes) = status.stale_minutes
+    {
+        return stale_words(status, minutes);
+    }
     if status.stage == SyncStage::Done && platform {
         // Core done, Platform catching up (BUG-137): «Platform» and three works at most on the
         // card (the designer, BUG-155 r1), «Sync» with all of them in the tooltip.
@@ -332,6 +406,7 @@ pub(crate) fn card_words(
             detail: platform_words(&status.platform),
             detail_short: None,
             stopped: false,
+            warning: false,
             // Whatever goes (contacts, tokens…): the general «Sync» (the designer, BUG-155).
             tip_title: tr!("Sync").to_string(),
             tip_detail: format!(tr!("Platform: {works}"), works = all.join(" · ")),
@@ -352,6 +427,7 @@ pub(crate) fn card_words(
             detail: block.clone() + if status.chainlocked { CHAINLOCKED } else { "" },
             detail_short: status.chainlocked.then_some(block),
             stopped: false,
+            warning: false,
             tip_title: tr!("Synced").to_string(),
             // In Arabic each piece on its own (BUG-166): the time stood with «ChainLock», a Latin run
             // beside it, and read before «updated» (as BUG-118, BUG-119).
@@ -383,6 +459,7 @@ pub(crate) fn card_words(
         detail,
         detail_short: None,
         stopped: false,
+        warning: false,
         tip_title: text::sync_title(status),
         tip_detail: rest,
         bar,
@@ -504,7 +581,13 @@ fn sync_card(
     let (mut title_shown, mut detail_shown) = (None, None);
     if !rail {
         let title_font = sans(13.0, Weight::SemiBold);
-        let color = if words.stopped { p.danger } else { p.text };
+        let color = if words.stopped {
+            p.danger
+        } else if words.warning {
+            p.accent
+        } else {
+            p.text
+        };
         card_line(ui, &words.title, title_font.clone(), color, at, WORDS, 18.0);
         #[cfg(test)]
         {
@@ -1068,16 +1151,19 @@ pub(crate) fn card_status(
     // The reader is told only of a new stage, the end and a stop, and of Platform's turn (BUG-137
     // AC-D7): the status is a polite live region for a second after one, quiet while the percent,
     // the minutes left and the Platform works move on.
-    let key = (status.stage, status.error.is_some(), platform);
+    // SPV 2a: entering «No new blocks», or its hour, is told too.
+    let stale = status.stale_minutes.map(|m| m >= 60);
+    let key = (status.stage, status.error.is_some(), platform, stale);
     let now = ui.input(|i| i.time);
     let changed_id = id.with("changed");
-    let changed = match ui.data(|d| d.get_temp::<((SyncStage, bool, bool), f64)>(changed_id)) {
-        Some((was, at)) if was == key => at,
-        _ => {
-            ui.data_mut(|d| d.insert_temp(changed_id, (key, now)));
-            now
-        }
-    };
+    let changed =
+        match ui.data(|d| d.get_temp::<((SyncStage, bool, bool, Option<bool>), f64)>(changed_id)) {
+            Some((was, at)) if was == key => at,
+            _ => {
+                ui.data_mut(|d| d.insert_temp(changed_id, (key, now)));
+                now
+            }
+        };
     let live = if now - changed < 1.0 {
         // One frame when the second is over, for a still mark too: the status goes quiet then,
         // not at the next snapshot (review r1 nit).
@@ -1152,6 +1238,7 @@ mod tests {
             dapi_nodes: Vec::new(),
             platform: Vec::new(),
             tip_at: None,
+            stale_minutes: None,
         }
     }
 
@@ -1387,6 +1474,50 @@ mod tests {
 
     fn words(status: &evolite_api::SyncInfo, platform: bool) -> CardWords {
         card_words(status, platform, at_three())
+    }
+
+    /// SPV item 2a (AC-T2а.2): no new block for 34 minutes — «No new blocks» in the warning
+    /// colour, «block {n} · 34 min ago», the reason in the tooltip; for 125 — the same title in
+    /// danger, «over 2 hours», the network maybe stopped and what to do. Before Platform's works.
+    #[test]
+    fn no_new_blocks_says_so_in_place_of_synced() {
+        let mut s = on_platform(&[evolite_api::PlatformWork::Tokens]);
+        s.tip_height = 1_284_112;
+        s.stale_minutes = Some(34);
+        let w = words(&s, true);
+        assert_eq!(
+            (w.title.as_str(), w.warning, w.stopped),
+            ("No new blocks", true, false)
+        );
+        assert_eq!(w.detail, "block 1,284,112 · 34 min ago");
+        assert_eq!(w.detail_short.as_deref(), Some("34 min ago"));
+        assert!(
+            w.tip_detail.starts_with("No new blocks for 34 minutes."),
+            "{}",
+            w.tip_detail
+        );
+        s.stale_minutes = Some(125);
+        let w = words(&s, false);
+        assert_eq!(
+            (w.title.as_str(), w.warning, w.stopped),
+            ("No new blocks", false, true)
+        );
+        assert_eq!(w.detail, "block 1,284,112 · over 2 hours");
+        assert_eq!(w.tip_title, "The network is not sending new blocks");
+        assert!(
+            w.tip_detail.contains("No new blocks for over 2 hours."),
+            "{}",
+            w.tip_detail
+        );
+        assert!(
+            w.tip_detail.ends_with("Settings › Network and nodes"),
+            "{}",
+            w.tip_detail
+        );
+        s.stale_minutes = Some(60);
+        assert!(words(&s, false).detail.ends_with("over 1 hour"), "one hour");
+        s.stale_minutes = None;
+        assert_eq!(words(&s, false).title, "Synced");
     }
 
     /// BUG-137, BUG-155: Core first; with Core done, «Sync» and what goes, three at most on the

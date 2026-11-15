@@ -66,6 +66,9 @@ pub(super) struct DevState {
     fee_unknown_preset: bool,
     /// `--screen overview-syncing` / `send-syncing`: the screen while the sync still runs.
     syncing_preset: bool,
+    /// `--screen sync-stale-30`, `sync-stale-60` (SPV item 2a): synced, and no new block for 34
+    /// or 125 minutes.
+    stale_preset: Option<u32>,
     /// `--screen sync-platform` / `sync-platform-short` (BUG-137): Core synced, the identities and
     /// the tokens read from Platform; for 0.3 s only in the short one. When it began, and how long.
     platform_preset: Option<(std::time::Instant, Option<f64>)>,
@@ -232,6 +235,13 @@ impl DevState {
             tokens_preset: TOKEN_STATES.into_iter().find(|name| dev.preset(name)),
             fee_unknown_preset: dev.preset("activity-fee-unknown"),
             syncing_preset: dev.preset("overview-syncing") || dev.preset("send-syncing"),
+            stale_preset: if dev.preset("sync-stale-30") {
+                Some(34)
+            } else if dev.preset("sync-stale-60") {
+                Some(125)
+            } else {
+                None
+            },
             platform_preset: if dev.preset("sync-platform") {
                 Some((std::time::Instant::now(), None))
             } else if dev.preset("sync-platform-short") {
@@ -470,6 +480,12 @@ impl App {
             w.balances.core_as_of = Some(evolite_api::CoreAsOf::Checked(
                 chrono::Utc::now().timestamp() - 60 * 60,
             ));
+        }
+        if let Some(minutes) = self.dev.stale_preset
+            && let Some(s) = self.snapshot.as_mut()
+        {
+            s.sync.stage = evolite_api::SyncStage::Done;
+            s.sync.stale_minutes = Some(minutes);
         }
         if self.dev.syncing_preset
             && let Some(s) = self.snapshot.as_mut()

@@ -1,4 +1,32 @@
 {
+  "No new blocks": "Немає нових блоків",
+  "{} min ago": "{} хв тому",
+  "No new blocks for {} minute. The nodes evolite is connected to may have fallen behind the network: a block usually comes every 2–3 minutes.|No new blocks for {} minutes. The nodes evolite is connected to may have fallen behind the network: a block usually comes every 2–3 minutes.": {
+    "one": "Нових блоків немає вже {} хвилину. Вузли, до яких підключений evolite, могли відстати від мережі: зазвичай блок приходить раз на 2–3 хвилини.",
+    "few": "Нових блоків немає вже {} хвилини. Вузли, до яких підключений evolite, могли відстати від мережі: зазвичай блок приходить раз на 2–3 хвилини.",
+    "many": "Нових блоків немає вже {} хвилин. Вузли, до яких підключений evolite, могли відстати від мережі: зазвичай блок приходить раз на 2–3 хвилини.",
+    "other": "Нових блоків немає вже {} хвилини. Вузли, до яких підключений evolite, могли відстати від мережі: зазвичай блок приходить раз на 2–3 хвилини."
+  },
+  "over {} hour|over {} hours": {
+    "one": "понад {} годину",
+    "few": "понад {} години",
+    "many": "понад {} годин",
+    "other": "понад {} години"
+  },
+  "The network is not sending new blocks": "Мережа не надсилає нових блоків",
+  "No new blocks for over {} hour. Either the nodes evolite is connected to have fallen behind, or the network itself has stopped. The balance and received coins may be out of date.|No new blocks for over {} hours. Either the nodes evolite is connected to have fallen behind, or the network itself has stopped. The balance and received coins may be out of date.": {
+    "one": "Нових блоків немає понад {} годину. Або вузли, до яких підключений evolite, відстали, або мережа справді стоїть. Баланс і отримані монети могли застаріти.",
+    "few": "Нових блоків немає понад {} години. Або вузли, до яких підключений evolite, відстали, або мережа справді стоїть. Баланс і отримані монети могли застаріти.",
+    "many": "Нових блоків немає понад {} годин. Або вузли, до яких підключений evolite, відстали, або мережа справді стоїть. Баланс і отримані монети могли застаріти.",
+    "other": "Нових блоків немає понад {} години. Або вузли, до яких підключений evolite, відстали, або мережа справді стоїть. Баланс і отримані монети могли застаріти."
+  },
+  "You can restart evolite or set your own node: Settings › Network and nodes": "Можна перезапустити evolite або вказати свій вузол: Налаштування › Мережа й вузли",
+  "No new blocks for over {} hour: the balance and received coins may be out of date. You can still pay.|No new blocks for over {} hours: the balance and received coins may be out of date. You can still pay.": {
+    "one": "Нових блоків немає понад {} годину: баланс і отримані монети могли застаріти. Платити все одно можна.",
+    "few": "Нових блоків немає понад {} години: баланс і отримані монети могли застаріти. Платити все одно можна.",
+    "many": "Нових блоків немає понад {} годин: баланс і отримані монети могли застаріти. Платити все одно можна.",
+    "other": "Нових блоків немає понад {} години: баланс і отримані монети могли застаріти. Платити все одно можна."
+  },
   "Confirmed · checking": "Підтверджено · перевіряється",
   "InstantLock: confirmed before evolite was closed. Its signature is checked again against the masternodes; until then its coins are not spent as final.": "InstantLock: підтверджено до закриття evolite. Його підпис перевіряється знову за мастернодами; доти його монети не витрачаються як остаточні.",
   "Back: {}": "Назад: {}",
