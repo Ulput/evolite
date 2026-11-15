@@ -92,6 +92,10 @@ fn line(a: &Activity, own: &Own) -> Option<Line> {
     if !crate::text::known(a.at) {
         return None;
     }
+    // BUG-176: what it cost is not known — not a line of zero.
+    if crate::text::cost_unknown(a) {
+        return None;
+    }
     let inside = match &a.kind {
         // The other half of a move inside the wallet: the payout of a withdrawal, the note a
         // shield made in the pool. Its fee is on the first half.
@@ -686,6 +690,26 @@ mod tests {
     /// know when it came, nor its block — and a tax import refuses a line without a date or
     /// puts it in the wrong year. So it is no line of the file, counted out as the others left
     /// out are (BUG-100), and the note above History says so. Never 1970 either.
+    /// BUG-176: a Platform write whose fee is not known is no line: unknown is not zero.
+    #[test]
+    fn a_write_whose_fee_is_not_known_is_no_line() {
+        let mut profile = act(
+            ActivityKind::ProfileSaved,
+            Chain::Platform,
+            1_762_300_000,
+            -46_850,
+            "",
+        );
+        assert_eq!(
+            taxbit(&[profile.clone()], &Own::default()).lines().count(),
+            2
+        );
+        profile.amount = 0;
+        profile.detail.get_or_insert_default().cost_unknown = true;
+        let csv = taxbit(&[profile], &Own::default());
+        assert_eq!(csv.lines().count(), 1, "the header only: {csv}");
+    }
+
     #[test]
     fn an_operation_without_a_time_is_no_line() {
         let ops = [

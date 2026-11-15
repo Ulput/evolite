@@ -392,6 +392,9 @@ pub(in crate::real) fn dashpay_scan_of(found: chain::DashPayFound) -> Option<Das
 
 /// A failed DashPay write, in the interface's terms.
 pub(in crate::real) fn dashpay_failure(text: String) -> CoreError {
+    if super::super::about_keys(&text) {
+        return CoreError::KeysChanged;
+    }
     let lower = text.to_lowercase();
     // Platform's refusals for lack of credits, not any text about a balance: "Platform balance
     // unavailable…" is a read that failed (BUG-107).

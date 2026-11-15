@@ -261,6 +261,8 @@ fn name(doc: &Document, me: &Identifier, identity: &str) -> Option<Entry> {
         key,
     );
     entry.block = doc.created_at_block_height();
+    // BUG-176: the document carries no fee; one registered here comes with its entry.
+    entry.cost_known = false;
     Some(entry)
 }
 
@@ -277,6 +279,7 @@ fn profile(doc: &Document, identity: &str) -> Entry {
     entry.block = doc
         .updated_at_block_height()
         .or(doc.created_at_block_height());
+    entry.cost_known = false;
     entry
 }
 
@@ -537,12 +540,15 @@ fn contact_request(
     let key = request_key(me, to);
     // Named as the request written here names it.
     let shown = shown_name(&to_b58, names);
-    network(
+    let mut entry = network(
         created_at,
         What::ContactRequest { to: shown },
         &me.to_string(Encoding::Base58),
         key,
-    )
+    );
+    // BUG-176: ours, its fee unknown here; one sent from this computer comes with its entry.
+    entry.cost_known = false;
+    entry
 }
 
 #[cfg(test)]

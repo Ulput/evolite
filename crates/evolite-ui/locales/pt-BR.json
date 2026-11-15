@@ -1810,5 +1810,7 @@
   "Network nodes": "Nós da rede",
   "Masternode quorums": "Quóruns",
   "Stopped": "Parada",
-  "updated {}": "atualizada {}"
+  "updated {}": "atualizada {}",
+  "fee: no record": "taxa: sem registro",
+  "this identity's keys were changed in another app or on another device — try again": "as chaves desta identity foram alteradas em outro app ou em outro dispositivo — tente novamente"
 }

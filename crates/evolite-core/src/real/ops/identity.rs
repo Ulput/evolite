@@ -453,6 +453,17 @@ impl Real {
         tokio::spawn(async move {
             let live = move || current.load(Ordering::Relaxed) == run;
             turn::timed("gate_identities", chain.until_platform_ready()).await;
+            // BUG-175: the identities known already are read again once, at the unlock, a switch
+            // and «Search again»: their revision and keys may have changed elsewhere.
+            if live()
+                && let Some(wallet) = chain.wallet(&id).await
+            {
+                if chain.refresh_known_identities(&wallet).await > 0 {
+                    // AC-T4: one line, no id; what was known stays.
+                    crate::diag::platform_failed("identity_refresh", "failed");
+                }
+                refresh();
+            }
             let mut pause = DISCOVERY_RETRY;
             let mut names_read = std::collections::HashSet::new();
             while live() {
@@ -714,6 +725,9 @@ async fn nameless_slot(
 /// A failed top-up or name, in the interface's terms. A top-up that fails after its lock loses
 /// nothing: the snapshot shows it as unfinished and `ResumeTopUp` finishes it.
 pub(in crate::real) fn identity_failure(text: String) -> CoreError {
+    if super::super::about_keys(&text) {
+        return CoreError::KeysChanged;
+    }
     if text.contains(chain::name_credits_unknown_text()) {
         // BUG-97: said as it is, the name was not started.
         CoreError::NotAvailable(chain::name_credits_unknown_text().into())

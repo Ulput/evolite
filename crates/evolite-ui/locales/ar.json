@@ -1846,5 +1846,7 @@
   "Network nodes": "عُقد الشبكة",
   "Masternode quorums": "نصاب العُقد الرئيسية",
   "Stopped": "توقفت",
-  "updated {}": "حُدّثت {}"
+  "updated {}": "حُدّثت {}",
+  "fee: no record": "الرسوم: لا توجد بيانات",
+  "this identity's keys were changed in another app or on another device — try again": "تم تغيير مفاتيح هذه الهوية في تطبيق آخر أو على جهاز آخر — حاول مرة أخرى"
 }

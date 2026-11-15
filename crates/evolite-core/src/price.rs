@@ -274,6 +274,7 @@ pub fn app_cost(kind: &AppRequestKind) -> Duffs {
 pub fn reason(error: &CoreError) -> &'static str {
     match error {
         CoreError::NotEnough => "not_enough",
+        CoreError::KeysChanged => "refused",
         CoreError::NotSynced => "network",
         CoreError::Failed(text) if about_the_network(text) => "network",
         CoreError::Failed(_) => "refused",

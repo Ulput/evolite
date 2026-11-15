@@ -94,6 +94,51 @@ const START_AGAIN: Duration = Duration::from_secs(15);
 /// A contact's DPNS name that could not be read is asked again after this long.
 const NAME_RETRY: Duration = Duration::from_secs(30);
 
+/// Whether Platform refused a transition for a key or its signature (BUG-175): a key disabled or
+/// missing there, a purpose or level it does not allow, a revision behind, a signature that does
+/// not check — what a key set changed in another app looks like. By the consensus errors' names
+/// and their words (rs-dpp 575d961).
+fn about_keys(text: &str) -> bool {
+    const NAMES: [&str; 9] = [
+        "PublicKeyIsDisabled",
+        "IdentityPublicKeyIsDisabled",
+        "InvalidSignaturePublicKeyPurpose",
+        "InvalidSignaturePublicKeySecurityLevel",
+        "InvalidStateTransitionSignature",
+        "MissingPublicKey",
+        "InvalidIdentityRevision",
+        "WrongPublicKeyPurpose",
+        "PublicKeySecurityLevelNotMet",
+    ];
+    const WORDS: [&str; 7] = [
+        " is disabled",
+        "invalid state transition signature",
+        "doesn't exist",
+        "has invalid revision",
+        "invalid public key purpose",
+        "invalid identity key purpose",
+        "invalid public key security level",
+    ];
+    let lower = text.to_lowercase();
+    NAMES.iter().any(|n| text.contains(n))
+        || (lower.contains("key") || lower.contains("signature") || lower.contains("revision"))
+            && WORDS.iter().any(|w| lower.contains(w))
+}
+
+/// Whether an answer is a refusal for a key (BUG-175): then the identities are read again.
+fn refused_for_keys(event: &Event) -> bool {
+    matches!(
+        event,
+        Event::Done {
+            result: Err(CoreError::KeysChanged),
+            ..
+        } | Event::Sent {
+            result: Err(CoreError::KeysChanged),
+            ..
+        }
+    )
+}
+
 /// A Platform read that failed, as the UI is told: "wait for the sync" when it was not made
 /// because the masternode lists are not in yet ([`Chain::ready`]).
 fn read_failure(e: String) -> CoreError {

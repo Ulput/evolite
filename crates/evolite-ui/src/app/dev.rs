@@ -55,6 +55,9 @@ pub(super) struct DevState {
     fund_recovered_preset: bool,
     /// `--screen tokens-*` (FEAT-0019): the search or the network as that frame of the design shows it.
     tokens_preset: Option<&'static str>,
+    /// `--screen activity-fee-unknown` (BUG-176): the demo's profile saved on another device —
+    /// its line found on the network, what it cost not known.
+    fee_unknown_preset: bool,
     /// `--screen overview-syncing` / `send-syncing`: the screen while the sync still runs.
     syncing_preset: bool,
     /// `--screen sync-platform` / `sync-platform-short` (BUG-137): Core synced, the identities and
@@ -203,6 +206,7 @@ impl DevState {
                 || dev.preset("fund-address-recovered"),
             fund_recovered_preset: dev.preset("fund-address-recovered"),
             tokens_preset: TOKEN_STATES.into_iter().find(|name| dev.preset(name)),
+            fee_unknown_preset: dev.preset("activity-fee-unknown"),
             syncing_preset: dev.preset("overview-syncing") || dev.preset("send-syncing"),
             platform_preset: if dev.preset("sync-platform") {
                 Some((std::time::Instant::now(), None))
@@ -376,6 +380,18 @@ impl App {
             && let Some(s) = self.snapshot.as_mut()
         {
             tokens_state(s, name);
+        }
+        if self.dev.fee_unknown_preset
+            && let Some(w) = self.snapshot.as_mut().and_then(|s| s.wallet.as_mut())
+        {
+            for act in w
+                .activity
+                .iter_mut()
+                .filter(|a| a.kind == evolite_api::ActivityKind::ProfileSaved)
+            {
+                act.amount = 0;
+                act.detail.get_or_insert_default().cost_unknown = true;
+            }
         }
         if self.dev.password_preset
             && let Some(w) = self.snapshot.as_mut().and_then(|s| s.wallet.as_mut())

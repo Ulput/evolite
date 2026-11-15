@@ -990,3 +990,35 @@ fn hidden_amounts_hide_a_token_sent() {
         "the line stays"
     );
 }
+
+/// BUG-176 AC-T2: a profile saved on another device — its line found on the network, what it cost
+/// not known — reads «—» and «fee: no record», and its card «Fee: no record»; it is left out of
+/// the CSV.
+#[test]
+fn a_write_whose_fee_is_not_known_says_so() {
+    let (_turn, mut kit) = demo_app("activity-fee-unknown", "en");
+    kit.set_size(egui::vec2(1280.0, 1600.0));
+    wait_for(&mut kit, "the profile's line", |kit| {
+        has_words(kit, "fee: no record")
+    });
+    let profile = kit
+        .state()
+        .snapshot
+        .as_ref()
+        .and_then(|s| s.wallet.as_ref())
+        .and_then(|w| {
+            w.activity
+                .iter()
+                .find(|a| a.kind == evolite_api::ActivityKind::ProfileSaved)
+                .cloned()
+        })
+        .expect("the demo's profile line");
+    assert_eq!(crate::text::row_amount(&profile), "—");
+    assert!(
+        !has_words(&kit, "fee: no record · 0.0000"),
+        "no zero beside it"
+    );
+    crate::screens::open_card(&kit.ctx, profile.id);
+    kit.run_steps(3);
+    assert!(has_words(&kit, "Fee: no record"));
+}

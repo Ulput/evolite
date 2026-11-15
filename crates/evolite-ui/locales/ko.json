@@ -1786,5 +1786,7 @@
   "Network nodes": "네트워크 노드",
   "Masternode quorums": "마스터노드 쿼럼",
   "Stopped": "멈춤",
-  "updated {}": "{} 업데이트"
+  "updated {}": "{} 업데이트",
+  "fee: no record": "수수료: 기록 없음",
+  "this identity's keys were changed in another app or on another device — try again": "이 identity의 키가 다른 앱이나 다른 기기에서 변경되었습니다. 다시 시도하세요"
 }

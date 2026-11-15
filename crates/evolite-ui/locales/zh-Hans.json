@@ -1786,5 +1786,7 @@
   "Network nodes": "网络节点",
   "Masternode quorums": "主节点仲裁",
   "Stopped": "已停止",
-  "updated {}": "更新于 {}"
+  "updated {}": "更新于 {}",
+  "fee: no record": "手续费：无记录",
+  "this identity's keys were changed in another app or on another device — try again": "此 identity 的密钥已在其他应用或其他设备上更改——请重试"
 }

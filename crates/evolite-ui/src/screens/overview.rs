@@ -495,7 +495,12 @@ fn latest_operations(
                     title: &text::activity_title_in(act, &wallet.address_book),
                     detail: &detail,
                     proof: Some(act.proof),
-                    amount: &text::signed_amount(act.amount),
+                    // BUG-176: a write whose cost is not known shows a dash, not 0.
+                    amount: &if text::cost_unknown(act) {
+                        "—".to_owned()
+                    } else {
+                        text::signed_amount(act.amount)
+                    },
                     alert: text::activity_alert(act),
                     quiet: text::credits_quiet(act),
                     core_chip: text::core_chip(act),

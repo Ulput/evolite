@@ -152,3 +152,47 @@ fn every_name_goes_through_the_credits_check() {
     );
     assert_eq!(gated_calls, 1, "its one call");
 }
+
+/// BUG-175 AC-T3: Platform's refusals for a key or its signature read as keys changed elsewhere,
+/// by each failure mapper; the identities are read again after such an answer, not after others.
+#[test]
+fn a_refusal_for_a_key_says_the_keys_changed() {
+    for refused in [
+        "consensus error: Identity key 3 is disabled",
+        "StateTransition(InvalidStateTransitionSignatureError(..))",
+        "Invalid State Transition signature",
+        "Public key 7 doesn't exist",
+        "Identity 6yGS… has invalid revision. The current revision is 9",
+        "Invalid public key security level HIGH. The state transition requires one of CRITICAL",
+    ] {
+        assert_eq!(
+            dashpay_failure(refused.into()),
+            CoreError::KeysChanged,
+            "{refused}"
+        );
+        assert_eq!(
+            identity_failure(refused.into()),
+            CoreError::KeysChanged,
+            "{refused}"
+        );
+    }
+    for other in [
+        "timeout",
+        "Insufficient identity balance",
+        "the name is taken",
+        "document doesn't exist",
+    ] {
+        assert_ne!(
+            dashpay_failure(other.into()),
+            CoreError::KeysChanged,
+            "{other}"
+        );
+    }
+    let done = |result| Event::Done {
+        what: DoneWhat::SendToken,
+        result,
+    };
+    assert!(refused_for_keys(&done(Err(CoreError::KeysChanged))));
+    assert!(!refused_for_keys(&done(Err(CoreError::NotEnough))));
+    assert!(!refused_for_keys(&done(Ok(()))));
+}

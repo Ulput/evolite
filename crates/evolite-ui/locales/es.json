@@ -1810,5 +1810,7 @@
   "Network nodes": "Nodos de la red",
   "Masternode quorums": "Quórums",
   "Stopped": "Detenida",
-  "updated {}": "actualizada {}"
+  "updated {}": "actualizada {}",
+  "fee: no record": "comisión: sin datos",
+  "this identity's keys were changed in another app or on another device — try again": "las claves de esta identity se cambiaron en otra aplicación o en otro dispositivo: inténtalo de nuevo"
 }

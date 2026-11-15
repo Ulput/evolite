@@ -1798,5 +1798,7 @@
   "Network nodes": "Netzknoten",
   "Masternode quorums": "Masternode-Quoren",
   "Stopped": "Angehalten",
-  "updated {}": "aktualisiert {}"
+  "updated {}": "aktualisiert {}",
+  "fee: no record": "Gebühr: keine Angaben",
+  "this identity's keys were changed in another app or on another device — try again": "die Schlüssel dieser Identity wurden in einer anderen App oder auf einem anderen Gerät geändert – versuchen Sie es erneut"
 }

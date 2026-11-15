@@ -1159,7 +1159,10 @@ fn detail_body(
             value.clone(),
         );
     }
-    if let Some((label, part)) = amount_part(act) {
+    if crate::text::cost_unknown(act) {
+        // BUG-176: the fee of a write found on the network is not known here.
+        kv_row(ui, &p, tr!("Fee"), tr!("no record"), value.clone());
+    } else if let Some((label, part)) = amount_part(act) {
         kv_row(ui, &p, label, &crate::format::amount(part), value.clone());
     }
     if let Some(fee) = act.fee {
@@ -1419,7 +1422,11 @@ fn card(ui: &mut Ui, a: &mut Assets, act: &Activity, around: &Around) -> CardAns
                 ui.horizontal(|ui| {
                     crate::components::amount_label(
                         ui,
-                        &text::signed_amount(act.amount),
+                        &if text::cost_unknown(act) {
+                            "—".to_owned()
+                        } else {
+                            text::signed_amount(act.amount)
+                        },
                         mono(28.0, Weight::Medium),
                         p.text,
                     );

@@ -101,6 +101,7 @@ pub fn error_kind(error: &CoreError) -> &'static str {
         CoreError::BadAmount => "bad_amount",
         CoreError::BadAddress => "bad_address",
         CoreError::NotEnough => "not_enough",
+        CoreError::KeysChanged => "keys_changed",
         CoreError::NotSynced => "not_synced",
         CoreError::Failed(_) => "failed",
         CoreError::BadLink => "bad_link",

@@ -25,10 +25,25 @@ impl Real {
         let wake = self.wake.clone();
         let stale = self.balances_stale.clone();
         let prices = self.prices.clone();
+        let reread = (self.chain.clone(), self.unlocked.as_ref().map(|o| o.id));
+        let refresh = self.refresher();
         let question = turn::task(step, question);
         tokio::spawn(async move {
             let event = question.await;
             prices.finish(&event);
+            // BUG-175 AC-T3: refused for a key — the identities are read again, not the operation.
+            if refused_for_keys(&event)
+                && let (chain, Some(id)) = reread
+            {
+                tokio::spawn(async move {
+                    if let Some(wallet) = chain.wallet(&id).await
+                        && chain.refresh_known_identities(&wallet).await > 0
+                    {
+                        crate::diag::platform_failed("identity_refresh", "failed");
+                    }
+                    refresh();
+                });
+            }
             // A write (or a try at one) may have moved credits: read the balances again.
             if matches!(event, Event::Done { .. } | Event::Sent { .. }) {
                 stale.notify_one();

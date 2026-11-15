@@ -257,6 +257,27 @@ impl Chain {
 
     /// [`Self::discover_identities`] as the next pass of one search: the names in `names_read`
     /// were read on an earlier pass and are not read again; those read now are added.
+    /// Reads every identity of this wallet again from Platform (BUG-175): its revision and keys,
+    /// which platform-wallet otherwise reads only after an operation of this computer. One proved
+    /// request each; one that fails leaves that identity as it was. How many failed.
+    pub async fn refresh_known_identities(&self, wallet: &PlatformWallet) -> usize {
+        let ids: Vec<Identifier> = {
+            let state = wallet.state().await;
+            of_wallet(&state.identity_manager, wallet.wallet_id())
+                .map(|m| m.identity.id())
+                .collect()
+        };
+        refresh_each(&ids, |id| async move {
+            wallet
+                .identity()
+                .refresh_identity(&id)
+                .await
+                .map(|_| ())
+                .map_err(|e| e.to_string())
+        })
+        .await
+    }
+
     pub async fn discover_identities_again(
         &self,
         wallet: &PlatformWallet,
@@ -930,5 +951,52 @@ impl Chain {
         }
         let _ = wallet.identity().refresh_identity(&id).await;
         read().await.map(|(_, balance)| balance)
+    }
+}
+
+/// Asks `refresh` of each identity once, in order; one that fails does not stop the others
+/// (BUG-175 AC-T4). How many failed.
+pub(super) async fn refresh_each<F, Fut>(ids: &[Identifier], refresh: F) -> usize
+where
+    F: Fn(Identifier) -> Fut,
+    Fut: std::future::Future<Output = Result<(), String>>,
+{
+    let mut failed = 0;
+    for id in ids {
+        if refresh(*id).await.is_err() {
+            failed += 1;
+        }
+    }
+    failed
+}
+
+#[cfg(test)]
+mod refresh_tests {
+    use super::*;
+    use std::sync::Mutex;
+
+    /// BUG-175 AC-T1, AC-T4: every identity of the wallet is asked once; one that fails is
+    /// counted and the others are still read.
+    #[tokio::test]
+    async fn every_identity_is_read_again_once() {
+        let ids = [
+            Identifier::new([1; 32]),
+            Identifier::new([2; 32]),
+            Identifier::new([3; 32]),
+        ];
+        let asked = Mutex::new(Vec::new());
+        let failed = refresh_each(&ids, |id| {
+            asked.lock().unwrap().push(id);
+            async move {
+                if id == Identifier::new([2; 32]) {
+                    Err("timeout".into())
+                } else {
+                    Ok(())
+                }
+            }
+        })
+        .await;
+        assert_eq!(failed, 1);
+        assert_eq!(*asked.lock().unwrap(), ids.to_vec(), "each once, in order");
     }
 }

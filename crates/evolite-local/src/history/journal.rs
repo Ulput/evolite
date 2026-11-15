@@ -181,6 +181,19 @@ pub struct Entry {
     /// A kind of a newer build this one does not know reads as none, the same way.
     #[serde(default, deserialize_with = "lenient")]
     pub kind: Option<Kind>,
+    /// Whether `spent` is what it cost (BUG-176). `false` for a Platform write read from the
+    /// network with no entry of this computer's own: its document carries no fee. An entry of an
+    /// older build has none and reads as known; a known cost is not written.
+    #[serde(default = "known", skip_serializing_if = "is_known")]
+    pub cost_known: bool,
+}
+
+fn known() -> bool {
+    true
+}
+
+fn is_known(cost_known: &bool) -> bool {
+    *cost_known
 }
 
 impl Default for Entry {
@@ -201,6 +214,7 @@ impl Default for Entry {
             reply: None,
             transaction_index: None,
             kind: None,
+            cost_known: true,
         }
     }
 }
@@ -347,10 +361,12 @@ pub fn merge(local: &mut Vec<Entry>, network: Vec<Entry>) -> bool {
                 entry.reply = found.reply.or(entry.reply);
                 entry.transaction_index = found.transaction_index.or(entry.transaction_index);
                 entry.block = found.block.or(entry.block);
-                // An entry read before keeps up with what the document says now.
+                // An entry read before keeps up with what the document says now; one of this
+                // computer keeps its cost (BUG-176).
                 if entry.source == Source::Network {
                     entry.spent = found.spent;
                     entry.moved = found.moved;
+                    entry.cost_known = found.cost_known;
                 }
                 changed |= *entry != before;
             }
@@ -646,6 +662,7 @@ fn detail_of(entry: &Entry) -> Detail {
         incomplete: identity.is_none() && !matches!(entry.what, What::Shield { .. }),
         identity,
         document: entry.key.as_deref().and_then(document_id).map(Into::into),
+        cost_unknown: !entry.cost_known,
         ..Detail::default()
     }
 }
@@ -1373,5 +1390,55 @@ mod tests {
             activity(&read[0]).kind,
             ActivityKind::CreditTransfer { to: "@qa".into() }
         );
+    }
+
+    /// BUG-176 AC-T1: a profile read from the network with no entry here has no known cost; one
+    /// saved here keeps its cost when its document is read.
+    #[test]
+    fn a_write_found_only_on_the_network_has_no_known_cost() {
+        let found = |key: &str| Entry {
+            at: 2_000,
+            what: What::Profile,
+            identity: Some("ME".into()),
+            key: Some(key.into()),
+            source: Source::Network,
+            cost_known: false,
+            ..Default::default()
+        };
+        // Saved here, with what it cost; its document read later.
+        let mut local = vec![Entry {
+            at: 1_990,
+            what: What::Profile,
+            spent: 46_850,
+            identity: Some("ME".into()),
+            ..Default::default()
+        }];
+        merge(&mut local, vec![found("profile:P:2")]);
+        assert_eq!(local.len(), 1);
+        assert!(local[0].cost_known, "saved here: its cost");
+        assert_eq!(local[0].spent, 46_850);
+        assert!(!activity(&local[0]).detail.expect("detail").cost_unknown);
+        // Saved on another device: only the document.
+        let mut other: Vec<Entry> = Vec::new();
+        merge(&mut other, vec![found("profile:P:3")]);
+        assert!(!other[0].cost_known);
+        assert!(activity(&other[0]).detail.expect("detail").cost_unknown);
+    }
+
+    /// BUG-176 AC-T3: an entry of an older build has no field and reads as known; a known cost is
+    /// not written, an unknown one is.
+    #[test]
+    fn an_older_entry_reads_as_known() {
+        let old = r#"{"at":1,"what":"Profile","spent":46850}"#;
+        let entry: Entry = serde_json::from_str(old).expect("an older entry");
+        assert!(entry.cost_known);
+        let written = serde_json::to_string(&entry).unwrap();
+        assert!(!written.contains("cost_known"), "{written}");
+        let unknown = Entry {
+            cost_known: false,
+            ..entry
+        };
+        let written = serde_json::to_string(&unknown).unwrap();
+        assert!(written.contains("\"cost_known\":false"), "{written}");
     }
 }

@@ -334,7 +334,16 @@ pub fn source(act: &Activity) -> &'static str {
 
 /// The words before the time in a line's row: what a mixing line did (designer, H1), else its
 /// [`source`].
+/// What it cost is not known (BUG-176): a Platform write found only on the network.
+pub fn cost_unknown(act: &Activity) -> bool {
+    act.detail.as_ref().is_some_and(|d| d.cost_unknown)
+}
+
 pub fn row_place(act: &Activity) -> String {
+    // BUG-176: not «0.0000», which would say it cost nothing.
+    if cost_unknown(act) {
+        return tr!("fee: no record").into();
+    }
     match act.kind {
         ActivityKind::Mixing { fee } if fee > 0 => format!(
             tr!("A mixing round: {amount} went to the fee"),
@@ -361,6 +370,10 @@ pub fn row_place(act: &Activity) -> String {
 /// (BUG-145 AC-A3, FEAT-0019 R-17); every other line its DASH amount. The token's name is one
 /// word to «Hide amounts», so a hidden row reads «••••», not half a name.
 pub fn row_amount(act: &Activity) -> String {
+    // BUG-176: unknown is no amount; a dash, not mirrored, as a token line without one.
+    if cost_unknown(act) {
+        return "—".into();
+    }
     match &act.kind {
         ActivityKind::TokenSent { token, amount, .. } => format!(
             "−{} {}",
@@ -830,6 +843,11 @@ pub fn error_text(e: &CoreError) -> String {
             evolite_api::Network::Mainnet => tr!("this is not a Dash mainnet address").into(),
         },
         CoreError::NotEnough => tr!("not enough funds for the amount and the fee").into(),
+        // BUG-175, the analyst's words: no promise that evolite read them again.
+        CoreError::KeysChanged => {
+            tr!("this identity's keys were changed in another app or on another device — try again")
+                .into()
+        }
         CoreError::NotSynced => tr!("wait for the sync to finish").into(),
         CoreError::BadLink => tr!("this is not an app link evolite knows").into(),
         CoreError::TooManyTries { .. } => tr!("too many wrong passwords").into(),

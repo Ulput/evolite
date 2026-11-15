@@ -1822,5 +1822,7 @@
   "Network nodes": "Вузли мережі",
   "Masternode quorums": "Кворуми мастернод",
   "Stopped": "Зупинилася",
-  "updated {}": "оновлено {}"
+  "updated {}": "оновлено {}",
+  "fee: no record": "комісія: немає відомостей",
+  "this identity's keys were changed in another app or on another device — try again": "ключі цієї identity змінили в іншому застосунку або на іншому пристрої — спробуйте ще раз"
 }

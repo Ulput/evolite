@@ -317,6 +317,10 @@ pub struct Detail {
     /// Something the card needs was not kept or could not be worked out (FR-6): it says so in
     /// one line instead of drawing empty ones.
     pub incomplete: bool,
+    /// What it cost is not known (BUG-176): a Platform write found on the network with no entry
+    /// of this computer's own (another device, a restore). The row shows «—» and «fee: no
+    /// record», and the line is in no total: unknown is not zero.
+    pub cost_unknown: bool,
 }
 
 /// An identity of this wallet, as a card names it.
@@ -2058,6 +2062,9 @@ pub enum CoreError {
     BadAddress,
     /// The balance does not cover the amount and the fee.
     NotEnough,
+    /// Platform refused the transition for a key or its signature: the identity's keys were
+    /// changed elsewhere (BUG-175). The identity is read again; nothing is tried again by itself.
+    KeysChanged,
     /// Wait for the first sync: the wallet does not know its coins yet.
     NotSynced,
     /// The network refused or the build failed; the text is for the details line.
