@@ -87,6 +87,30 @@ pub(super) fn security(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut Se
         }
     }
     each_off_dialog(ui, a, cx, state);
+    // FEAT-0020 (AC-D10): where people look when something happened — the shown identity's keys.
+    let me = cx
+        .wallet()
+        .identity
+        .as_ref()
+        .map(crate::screens::identity::identity_named);
+    if let Some(me) = me {
+        let title = format!(tr!("Keys {}"), me);
+        let opened = group(
+            ui,
+            a,
+            tr!("Identity keys"),
+            vec![(
+                &title,
+                tr!(
+                    "If a key could have leaked, disable it or replace the main one. A private key can be shown there too, with the password."
+                ),
+                Control::Value(tr!("Open"), false),
+            )],
+        );
+        if opened == Some(0) {
+            cx.go(crate::screens::Screen::IdentityKeys);
+        }
+    }
     let mut hide = *state.toggle("hide-amounts");
     let mut fresh = *state.toggle("new-address");
     let mut clip = *state.toggle("clipboard");

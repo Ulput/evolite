@@ -243,6 +243,8 @@ impl Real {
         self.credits_checked.store(false, Ordering::Relaxed);
         // The right words of an unanswered phrase check go with the keys.
         self.phrase_check = None;
+        // A key change not known to have gone through is forgotten (BUG-184).
+        *self.unclear_keys.lock().unwrap_or_else(|e| e.into_inner()) = None;
         // An app's request is not answered after the next unlock with what was shown before.
         self.app_requests
             .lock()
@@ -271,6 +273,20 @@ impl Real {
         let id = self.wallet.clone();
         let before = self.attempts.begin(&id, wall_secs()).map_err(too_many)?;
         let result = self.unlock(password).await;
+        self.attempts.record(&id, before, counted(&result));
+        result
+    }
+
+    /// The open wallet's password before a secret is shown that is not the phrase (FEAT-0020
+    /// R-10: a private key): always asked, whatever "Password for every payment" says, and its
+    /// wrong tries counted with the unlock's — the same count and pause (FEAT-0004).
+    pub(in crate::real) async fn checked_vault(
+        &mut self,
+        password: &Password,
+    ) -> Result<(), CoreError> {
+        let id = self.wallet.clone();
+        let before = self.attempts.begin(&id, wall_secs()).map_err(too_many)?;
+        let result = self.open_vault(password).await.map(|_| ());
         self.attempts.record(&id, before, counted(&result));
         result
     }

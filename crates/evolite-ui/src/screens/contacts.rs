@@ -221,17 +221,25 @@ pub fn contacts(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut ContactsS
     ui.spacing_mut().item_spacing.y = 22.0;
     page_header(ui, a, tr!("Contacts"), None, |ui, a| {
         let has_identity = wallet.identity.is_some();
+        // FEAT-0020: without DashPay's keys of this wallet a request cannot go (the designer).
+        let dashpay = wallet
+            .identity
+            .as_ref()
+            .is_some_and(|id| !crate::screens::identity::needs_dashpay(id));
+        let why = if has_identity {
+            tr!("DashPay needs this wallet's keys on the identity first: “Enable DashPay…” below")
+        } else {
+            tr!("An identity is needed first: it signs the request")
+        };
         if button_enabled(
             ui,
             a,
             tr!("Add a contact"),
             ButtonKind::Primary,
             None,
-            has_identity,
+            has_identity && dashpay,
         )
-        .on_disabled_hover_text(
-            crate::i18n::t(tr!("An identity is needed first: it signs the request")).into_owned(),
-        )
+        .on_disabled_hover_text(crate::i18n::t(why).into_owned())
         .clicked()
         {
             state.adding = Some(AddContact::default());
@@ -271,6 +279,16 @@ pub fn contacts(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut ContactsS
             )
             .line_height(21.0),
         );
+        // FEAT-0020 K7: without keys DashPay can use, the list is the way to enable it.
+        if let Some(id) = wallet.identity.as_ref()
+            && crate::screens::identity::needs_dashpay(id)
+        {
+            let me = crate::screens::identity::identity_named(id);
+            if crate::screens::identity::enable_dashpay_card(ui, a, id, &me, &wallet.fees) {
+                cx.enable_dashpay();
+            }
+            return;
+        }
         state.forget_not_enough_after_top_up(
             known_credits(wallet),
             wallet.identity.as_ref().map(|i| i.id.as_str()),

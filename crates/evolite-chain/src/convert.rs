@@ -1262,6 +1262,8 @@ pub fn fees(coins: usize) -> Fees {
         name_vote_secs: 0,
         name_join_secs: 0,
         add_key: 10_000,
+        key_add_unbound: evolite_api::key_plan::KEY_ADD_UNBOUND,
+        key_add_bound: evolite_api::key_plan::KEY_ADD_BOUND,
         contact_request: CONTACT_REQUEST,
         contact_request_balance: CONTACT_REQUEST_BALANCE,
         // Not measured yet: one document like a contact request, with fewer indexes — this is
@@ -1365,6 +1367,39 @@ pub fn platform_fees(
     fees.top_up_lock_min = top_up_lock_min(version);
     fees.address_fund_lock_min = address_fund_lock_min(version);
     fees.add_key = duffs(min.identity_update + min.identity_key_in_creation_cost);
+    (fees.key_add_bound, fees.key_add_unbound) = key_add_rates(journal);
+}
+
+/// What a new key costs, bound to a contract and not (BUG-183): the default, or a third over a
+/// key of the last change of keys of that kind alone (all its new keys bound, or none), when
+/// that is more. Never below the default.
+pub fn key_add_rates(journal: &super::journal::Journal) -> (Duffs, Duffs) {
+    use super::journal::Kind;
+    use evolite_api::key_plan::{KEY_ADD_BOUND, KEY_ADD_UNBOUND};
+    let entries = journal.entries();
+    let last = |bound_kind: bool| {
+        entries.iter().rev().find_map(|e| match &e.kind {
+            Some(Kind::KeysChanged { added, bound, .. })
+                if !added.is_empty()
+                    && e.spent > 0
+                    && if bound_kind {
+                        *bound as usize == added.len()
+                    } else {
+                        *bound == 0
+                    } =>
+            {
+                Some(e.spent / added.len() as Duffs)
+            }
+            _ => None,
+        })
+    };
+    let rate = |default: Duffs, measured: Option<Duffs>| {
+        measured.map_or(default, |key| default.max((key * 4 + 2) / 3))
+    };
+    (
+        rate(KEY_ADD_BOUND, last(true)),
+        rate(KEY_ADD_UNBOUND, last(false)),
+    )
 }
 
 #[cfg(test)]
@@ -1761,6 +1796,59 @@ mod tests {
         platform_fees(&mut f, v15, &journal);
         assert_eq!(f.name_contest_fund, 10_000_000);
         assert_eq!(f.name_contested, f.name_regular + f.name_contest_fund);
+    }
+
+    /// BUG-183 AC-T1: a key without a binding 24 000 duffs, DashPay's pair 80 000, only
+    /// disabling the protocol's update; testnet's measures (17 428, 17 810 a key, 59 125 the pair)
+    /// stay under the estimate less a quarter. AC-T3: App Connect's two bound keys and its
+    /// document by the same rates.
+    #[test]
+    fn a_key_change_is_not_estimated_below_what_testnet_charged() {
+        use evolite_api::key_plan::{KeyRequest, fee, fee_of_keys};
+        let f = fees(0);
+        assert_eq!(fee(&[KeyRequest::Tokens], &f), 24_000);
+        assert_eq!(fee(&[KeyRequest::ReplaceMaster], &f), 24_000);
+        assert_eq!(fee(&[KeyRequest::DashPay], &f), 80_000);
+        assert_eq!(fee(&[], &f), f.add_key);
+        let below = |estimate: Duffs| estimate - estimate / 4;
+        for measured in [17_428, 17_810] {
+            assert!(
+                measured <= below(fee(&[KeyRequest::Transfers], &f)),
+                "{measured}"
+            );
+        }
+        assert!(59_125 <= below(fee(&[KeyRequest::DashPay], &f)));
+        assert_eq!(
+            fee_of_keys(2, 0, &f) + f.document_write,
+            80_000 + f.document_write
+        );
+    }
+
+    /// BUG-183 AC-T2: a pair that cost 70 000 lifts the bound rate to a third over 35 000 a key;
+    /// a cheap change never takes a rate below the default.
+    #[test]
+    fn a_key_change_learns_its_rate_from_the_last_one() {
+        use super::super::journal::{Journal, Kind, entry_of};
+        let dir = std::env::temp_dir().join(format!("evolite-key-rates-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let journal = Journal::new(dir.join("platform-history.json"));
+        let change = |added: Vec<u32>, bound: u32, spent: Duffs| {
+            entry_of(
+                Kind::KeysChanged {
+                    added,
+                    disabled: Vec::new(),
+                    bound,
+                },
+                1_793_000_000,
+                spent,
+                None,
+            )
+        };
+        assert_eq!(key_add_rates(&journal), (40_000, 24_000));
+        journal.add(change(vec![6, 7], 2, 70_000));
+        journal.add(change(vec![8], 0, 9_000));
+        assert_eq!(key_add_rates(&journal), (46_667, 24_000));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

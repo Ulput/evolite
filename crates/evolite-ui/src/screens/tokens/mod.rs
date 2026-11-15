@@ -118,7 +118,7 @@ impl TokensState {
 /// What the shown identity has besides the token row, for the checks before the password.
 pub(crate) fn sender(wallet: &Wallet) -> Sender {
     let has_key = wallet.identity.as_ref().is_some_and(|i| {
-        i.keys.iter().any(|k| {
+        i.active_keys().any(|k| {
             k.level == KeyLevel::Critical
                 // AUTHENTICATION below MASTER: the real core calls it «signing documents».
                 && k.purpose == KeyPurpose::Documents

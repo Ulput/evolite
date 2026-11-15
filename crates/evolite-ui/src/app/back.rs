@@ -44,19 +44,13 @@ pub(crate) fn esc_or_mouse_back(ctx: &egui::Context) -> bool {
     })
 }
 
-/// The screens that go back to where they were entered from: Send, and a token's page
-/// (FEAT-0019 T-3). FEAT-0020 adds the keys' screen (K1).
+/// The screens that go back to where they were entered from: Send, a token's page (FEAT-0019
+/// T-3) and the keys' screen K1 (FEAT-0020 AC-T17).
 pub(crate) fn returning(screen: Screen) -> bool {
-    matches!(screen, Screen::Send | Screen::TokenPage)
-}
-
-/// Where `screen` goes back to with no place remembered (opened by a preset, or the place gone):
-/// a token's page to Tokens, everything else to Overview (R-3).
-pub(crate) fn home_of(screen: Screen) -> Screen {
-    match screen {
-        Screen::TokenPage => Screen::Tokens,
-        _ => Screen::Overview,
-    }
+    matches!(
+        screen,
+        Screen::Send | Screen::TokenPage | Screen::IdentityKeys
+    )
 }
 
 /// The place to go back to after a move from `from` to `to` (AC-T1): set on entering a
@@ -78,9 +72,15 @@ pub(crate) fn back_after(from: Screen, to: Screen, back: Option<Back>, here: Her
 }
 
 /// Where going back leads (AC-T2): the place remembered while it is still there — the same
-/// wallet and identity, a screen with the menu that this network has (FEAT-0037) — else
-/// Overview (R-3).
-pub(crate) fn back_to(back: Option<&Back>, here: &Here, network: evolite_api::Network) -> Screen {
+/// wallet and identity, a screen with the menu that this network has (FEAT-0037) — else the
+/// returning `screen`'s own parent (FEAT-0020 AC-T18: K1 belongs to Identity; Send to Overview,
+/// as R-3 said).
+pub(crate) fn back_to(
+    back: Option<&Back>,
+    here: &Here,
+    network: evolite_api::Network,
+    screen: Screen,
+) -> Screen {
     match back {
         Some(b)
             if (&b.wallet, &b.identity) == (&here.0, &here.1)
@@ -89,6 +89,16 @@ pub(crate) fn back_to(back: Option<&Back>, here: &Here, network: evolite_api::Ne
         {
             b.screen
         }
+        _ => parent(screen),
+    }
+}
+
+/// A returning screen's place when it has none to go back to (AC-T18).
+pub(crate) fn parent(screen: Screen) -> Screen {
+    match screen {
+        Screen::IdentityKeys => Screen::Identity,
+        // FEAT-0019 T-3 R-3: a token's page to Tokens.
+        Screen::TokenPage => Screen::Tokens,
         _ => Screen::Overview,
     }
 }
@@ -138,26 +148,50 @@ mod tests {
     fn back_goes_to_the_place_or_overview() {
         let w = here("w1", Some("id1"));
         let back = back_after(Screen::Activity, Screen::Send, None, w.clone());
-        assert_eq!(back_to(back.as_ref(), &w, Testnet), Screen::Activity);
-        assert_eq!(back_to(None, &w, Testnet), Screen::Overview);
         assert_eq!(
-            back_to(back.as_ref(), &here("w2", Some("id1")), Testnet),
+            back_to(back.as_ref(), &w, Testnet, Screen::Send),
+            Screen::Activity
+        );
+        assert_eq!(back_to(None, &w, Testnet, Screen::Send), Screen::Overview);
+        // FEAT-0020 AC-T18: K1 without a place goes to Identity, its part.
+        assert_eq!(
+            back_to(None, &w, Testnet, Screen::IdentityKeys),
+            Screen::Identity
+        );
+        assert_eq!(
+            back_to(
+                back.as_ref(),
+                &here("w2", Some("id1")),
+                Testnet,
+                Screen::Send
+            ),
             Screen::Overview,
             "another wallet"
         );
         assert_eq!(
-            back_to(back.as_ref(), &here("w1", Some("id2")), Testnet),
+            back_to(
+                back.as_ref(),
+                &here("w1", Some("id2")),
+                Testnet,
+                Screen::Send
+            ),
             Screen::Overview,
             "another identity"
         );
         let apps = back_after(Screen::Apps, Screen::Send, None, w.clone());
-        assert_eq!(back_to(apps.as_ref(), &w, Testnet), Screen::Apps);
         assert_eq!(
-            back_to(apps.as_ref(), &w, Mainnet),
+            back_to(apps.as_ref(), &w, Testnet, Screen::Send),
+            Screen::Apps
+        );
+        assert_eq!(
+            back_to(apps.as_ref(), &w, Mainnet, Screen::Send),
             Screen::Overview,
             "not on this network"
         );
         let welcome = back_after(Screen::Welcome, Screen::Send, None, w.clone());
-        assert_eq!(back_to(welcome.as_ref(), &w, Testnet), Screen::Overview);
+        assert_eq!(
+            back_to(welcome.as_ref(), &w, Testnet, Screen::Send),
+            Screen::Overview
+        );
     }
 }

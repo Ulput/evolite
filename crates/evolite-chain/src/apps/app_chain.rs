@@ -17,11 +17,24 @@ use crate::identity;
 pub struct SignInIdentity {
     pub id: Identifier,
     pub keys: Vec<IdentityPublicKey>,
+    /// Its slot in the phrase (DIP-13 identity index): new keys are derived there.
+    pub slot: u32,
     /// Every key of it this phrase reproduces, with its private half (for signing).
     found: Vec<(IdentityPublicKey, [u8; 32])>,
 }
 
 impl SignInIdentity {
+    /// An identity of `keys` as a test reads it again: no private halves (BUG-184's tests).
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn for_tests(id: Identifier, keys: Vec<IdentityPublicKey>) -> Self {
+        Self {
+            id,
+            keys,
+            slot: 0,
+            found: Vec::new(),
+        }
+    }
+
     pub fn id_bytes(&self) -> [u8; 32] {
         self.id.to_buffer()
     }
@@ -94,6 +107,7 @@ impl Chain {
         Ok(SignInIdentity {
             id: identity.id(),
             keys: identity.public_keys().values().cloned().collect(),
+            slot,
             found,
         })
     }

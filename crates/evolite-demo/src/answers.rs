@@ -216,7 +216,7 @@ fn connect2_example(identity: String, wallet: &Wallet, renews: bool) -> AppReque
         }),
         created_at: evolite_common::now() - 60,
         callback_host: Some("yap.pr".into()),
-        cost: wallet.fees.add_key * 3 + wallet.fees.document_write,
+        cost: evolite_api::key_plan::fee_of_keys(3, 0, &wallet.fees) + wallet.fees.document_write,
     }
 }
 

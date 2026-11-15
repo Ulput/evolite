@@ -64,6 +64,13 @@ pub(super) struct DevState {
     /// `--screen activity-fee-unknown` (BUG-176): the demo's profile saved on another device —
     /// its line found on the network, what it cost not known.
     fee_unknown_preset: bool,
+    /// `--screen identity-keys-no-encryption`, `contacts-no-encryption` (FEAT-0020 K7): the demo
+    /// identity without encryption keys, as one made in a wallet that gave it none — «Enable
+    /// DashPay» on K1 and on Contacts.
+    no_encryption_preset: bool,
+    /// `--screen identity-keys-foreign`, `key-enable-dashpay-foreign` (FEAT-0020 AC-T19): the
+    /// demo's key 6 another wallet's — «Encryption · unbound», and K7 over it.
+    foreign_key_preset: bool,
     /// `--screen overview-syncing` / `send-syncing`: the screen while the sync still runs.
     syncing_preset: bool,
     /// `--screen sync-stale-30`, `sync-stale-60` (SPV item 2a): synced, and no new block for 34
@@ -234,6 +241,10 @@ impl DevState {
             fund_recovered_preset: dev.preset("fund-address-recovered"),
             tokens_preset: TOKEN_STATES.into_iter().find(|name| dev.preset(name)),
             fee_unknown_preset: dev.preset("activity-fee-unknown"),
+            no_encryption_preset: dev.preset("identity-keys-no-encryption")
+                || dev.preset("contacts-no-encryption"),
+            foreign_key_preset: dev.preset("identity-keys-foreign")
+                || dev.preset("key-enable-dashpay-foreign"),
             syncing_preset: dev.preset("overview-syncing") || dev.preset("send-syncing"),
             stale_preset: if dev.preset("sync-stale-30") {
                 Some(34)
@@ -449,6 +460,26 @@ impl App {
             && let Some(s) = self.snapshot.as_mut()
         {
             tokens_state(s, name);
+        }
+        if self.dev.foreign_key_preset
+            && let Some(key) = self
+                .snapshot
+                .as_mut()
+                .and_then(|s| s.wallet.as_mut())
+                .and_then(|w| w.identity.as_mut())
+                .and_then(|i| i.keys.iter_mut().find(|k| k.id == 6))
+        {
+            key.owner = evolite_api::KeyOwner::Other;
+        }
+        if self.dev.no_encryption_preset
+            && let Some(id) = self
+                .snapshot
+                .as_mut()
+                .and_then(|s| s.wallet.as_mut())
+                .and_then(|w| w.identity.as_mut())
+        {
+            id.keys
+                .retain(|k| k.purpose != evolite_api::KeyPurpose::Encryption);
         }
         if self.dev.fee_unknown_preset
             && let Some(w) = self.snapshot.as_mut().and_then(|s| s.wallet.as_mut())
@@ -1214,6 +1245,22 @@ impl App {
         // question, to the other network.
         if preset("network-switch") {
             self.settings.switch_to = Some(super::network::other(evolite_core::network::current()));
+        }
+        // `--screen identity-key-shown` (FEAT-0020 K6b): K1 with key 2 shown — the demo's test key.
+        if preset("identity-key-shown") {
+            self.identity_keys.reveal_for_preset();
+        }
+        // `--screen key-disable` and its kin (FEAT-0020): K3, K4, K3b, K5 over K1.
+        for name in [
+            "key-disable",
+            "key-replace-main",
+            "key-replace-dashpay",
+            "key-add",
+            "key-enable-dashpay-foreign",
+        ] {
+            if preset(name) {
+                self.identity_keys.change_for_preset(name);
+            }
         }
         // `--screen gift` opens the collection with the gift dialog.
         self.collection.gifting = preset("gift");

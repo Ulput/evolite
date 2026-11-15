@@ -288,6 +288,11 @@ pub fn declared(op: &Spend, seen: &Seen, app_cost: Duffs) -> Declared {
             of("issuer_action", fee, covers(seen.credits, 0, fee))
         }
         // One IdentityUpdate that disables the session keys.
+        // FEAT-0020 АРХ-3: roughly, by the keys added.
+        Spend::UpdateKeys { add, .. } => {
+            let price = evolite_api::key_plan::fee(add, fees);
+            of("update_keys", price, covers(seen.credits, 0, price))
+        }
         Spend::DisconnectApp { .. } => of(
             "disconnect_app",
             fees.add_key,
@@ -372,6 +377,8 @@ pub(crate) mod tests {
             name_vote_secs: 36,
             name_join_secs: 37,
             add_key: 22,
+            key_add_unbound: 24_000,
+            key_add_bound: 40_000,
             contact_request: 23,
             contact_request_balance: 34,
             profile: 24,

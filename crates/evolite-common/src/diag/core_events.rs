@@ -35,6 +35,7 @@ pub fn command_name(command: &Command) -> &'static str {
         Command::DeclineApp { .. } => "decline_app",
         Command::DrawArt { .. } => "draw_art",
         Command::RevealPhrase { .. } => "reveal_phrase",
+        Command::RevealIdentityKey { .. } => "reveal_identity_key",
         Command::HideRequest { .. } => "hide_request",
         Command::PreviewPayment { .. } => "preview_payment",
         Command::ListCoins { .. } => "list_coins",
@@ -42,6 +43,7 @@ pub fn command_name(command: &Command) -> &'static str {
         Command::PreviewMixed { .. } => "preview_mixed",
         Command::FindIdentities => "find_identities",
         Command::RefreshNfts => "refresh_nfts",
+        Command::ReadIdentityKeys { .. } => "read_identity_keys",
         Command::ChooseIdentity { .. } => "choose_identity",
         Command::DeleteWallet { .. } => "delete_wallet",
         Command::AskPhraseCheck { .. } => "ask_phrase_check",
@@ -96,6 +98,7 @@ fn spend(op: &Spend) -> &'static str {
         Spend::BuyToken { .. } => "buy_token",
         Spend::IssuerAction { .. } => "issuer_action",
         Spend::DisconnectApp { .. } => "disconnect_app",
+        Spend::UpdateKeys { .. } => "update_keys",
     }
 }
 
@@ -163,6 +166,7 @@ pub fn answer(event: &Event) -> Option<Record> {
         Event::NameResolved { result, .. } => ("name_resolved", outcome(result)),
         Event::Done { what, result } => (what.as_str(), outcome(result)),
         Event::PhraseRevealed(r) => ("phrase_revealed", outcome(r)),
+        Event::IdentityKeyRevealed(r) => ("identity_key_revealed", outcome(r)),
         Event::Sent { result: r, .. } => ("sent", outcome(r)),
         Event::NameChecked { result, .. } => ("name_checked", outcome(result)),
         // How it ended only: no label, no identity (FEAT-0021).
@@ -322,6 +326,39 @@ mod tests {
         for record in [disconnect, budgets] {
             let line = record.line(std::time::UNIX_EPOCH);
             for secret in ["Yappr", "QZ5", "hunter2"] {
+                assert!(!line.contains(secret), "{line}");
+            }
+        }
+    }
+
+    /// FEAT-0020 AC-T12: a private key's command and answer are their names and the outcome:
+    /// no identity, key, WIF, hex or password in the line.
+    #[test]
+    fn a_private_key_is_never_in_the_journal() {
+        let wif = "cMahea7zqjxrtgAbB7LSGbcQUr1uX1ojuat9jZodMN87JcbXMTcA";
+        let hex = "0000000000000000000000000000000000000000000000000000000000000001";
+        let asked = command(&Command::RevealIdentityKey {
+            identity: "HFZQD1nBpi".into(),
+            key_id: 2,
+            password: Password::new("hunter2".into()),
+        });
+        let shown = answer(&Event::IdentityKeyRevealed(Ok(evolite_api::RevealedKey {
+            identity: "HFZQD1nBpi".into(),
+            key_id: 2,
+            wif: evolite_api::Zeroizing::new(wif.into()),
+            hex: evolite_api::Zeroizing::new(hex.into()),
+        })))
+        .unwrap();
+        assert_eq!(
+            shown,
+            Record::Answer {
+                what: "identity_key_revealed",
+                outcome: "ok"
+            }
+        );
+        for record in [asked, shown] {
+            let line = record.line(std::time::UNIX_EPOCH);
+            for secret in [wif, "cMahea", "00000001", "HFZQD1", "hunter2"] {
                 assert!(!line.contains(secret), "{line}");
             }
         }

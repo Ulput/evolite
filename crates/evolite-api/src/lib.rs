@@ -10,13 +10,15 @@
 
 use std::fmt;
 use std::sync::Arc;
-use zeroize::Zeroizing;
+/// The type of [`RevealedKey`]'s values, for the cores and the interface.
+pub use zeroize::Zeroizing;
 
 pub mod address_fund;
 pub mod address_plan;
 pub mod coin_plan;
 pub mod features;
 pub mod fiat;
+pub mod key_plan;
 /// Platform tokens (FEAT-0019).
 pub mod tokens;
 
@@ -144,6 +146,12 @@ pub enum ActivityKind {
     /// App Connect v2: the app's session keys disabled (BUG-145).
     AppDisconnected {
         app: String,
+    },
+    /// FEAT-0020: the identity's keys changed — the numbers added and disabled. The line's
+    /// amount is what the update cost in credits (BUG-145).
+    KeysChanged {
+        added: Vec<u32>,
+        disabled: Vec<u32>,
     },
     /// A token sent (BUG-145): which and how much, in words, and to whom. The line's amount is the
     /// fee in credits; the token is not DASH.
@@ -665,6 +673,20 @@ pub enum KeyKind {
     Bip13Script,
 }
 
+/// Whose a key of an identity is (FEAT-0020 АРХ-1).
+#[derive(Clone, PartialEq, Debug, Default)]
+pub enum KeyOwner {
+    /// This phrase's: it signs, and can be shown (R-10).
+    This,
+    /// An app's, added through App Connect on this computer: its name.
+    App(String),
+    /// Another wallet's, or an app's signed in elsewhere: it cannot sign here.
+    Other,
+    /// Not known: the wallet is closed, or not compared yet.
+    #[default]
+    Unknown,
+}
+
 #[derive(Clone, PartialEq, Debug)]
 pub struct IdentityKey {
     pub id: u32,
@@ -674,6 +696,20 @@ pub struct IdentityKey {
     /// With [`KeyPurpose::Encryption`]: the key that reads DashPay requests (DECRYPTION), not
     /// the one they are encrypted to.
     pub decrypts: bool,
+    /// Disabled on Platform, and when (unix seconds); a disabled key never acts again
+    /// (FEAT-0020 R-4).
+    pub disabled_at: Option<i64>,
+    /// The data contract it is bound to (base58), if it is bound.
+    pub bound_to: Option<String>,
+    pub owner: KeyOwner,
+}
+
+impl Identity {
+    /// The keys that act: not disabled. What every check of «has a key for …» goes by; the keys
+    /// screen (FEAT-0020) shows the disabled ones too.
+    pub fn active_keys(&self) -> impl Iterator<Item = &IdentityKey> {
+        self.keys.iter().filter(|k| k.disabled_at.is_none())
+    }
 }
 
 #[derive(Clone, PartialEq, Debug)]
@@ -1293,8 +1329,16 @@ pub struct Fees {
     /// 45 minutes on testnet).
     pub name_vote_secs: u64,
     pub name_join_secs: u64,
-    /// Adding an app key to the identity.
+    /// An IdentityUpdate that only disables keys (and the least one costs): the protocol's
+    /// minimum for an update and a key.
     pub add_key: Duffs,
+    /// Each new key an IdentityUpdate adds, roughly (BUG-183): unbound, and bound to a contract
+    /// (DashPay's pair, an app's keys) — stored in the identity's tree, and the bound ones in the
+    /// contract's key trees too. Never below what testnet charged plus a third
+    /// ([`key_plan::KEY_ADD_UNBOUND`], [`key_plan::KEY_ADD_BOUND`]), and a third over what this
+    /// data folder last paid.
+    pub key_add_unbound: Duffs,
+    pub key_add_bound: Duffs,
     /// A DashPay contact request (a document in Platform, paid in credits).
     pub contact_request: Duffs,
     /// The balance the network wants on the identity before it writes a contact request: more
@@ -1828,6 +1872,25 @@ impl fmt::Debug for Phrase {
     }
 }
 
+/// One private key of an identity on its way to the screen (FEAT-0020 R-10): wiped on drop,
+/// never printed — `Debug` shows only which key it is.
+#[derive(Clone, PartialEq)]
+pub struct RevealedKey {
+    /// Base58.
+    pub identity: String,
+    pub key_id: u32,
+    /// WIF, compressed, with the network's prefix.
+    pub wif: Zeroizing<String>,
+    /// The 32 bytes in hex.
+    pub hex: Zeroizing<String>,
+}
+
+impl fmt::Debug for RevealedKey {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "RevealedKey {{ key_id: {}, .. }}", self.key_id)
+    }
+}
+
 /// A password typed by the user. Wiped on drop, never printed.
 #[derive(Clone, PartialEq)]
 pub struct Password(Zeroizing<String>);
@@ -1969,6 +2032,14 @@ pub enum Command {
         password: Password,
         wallet: Option<String>,
     },
+    /// Show the private key `key_id` of `identity` after the password (FEAT-0020 R-10), always
+    /// asked and counted with the unlock's wrong tries. Only this phrase's key of an identity of
+    /// its own, still acting. Answered with [`Event::IdentityKeyRevealed`].
+    RevealIdentityKey {
+        identity: String,
+        key_id: u32,
+        password: Password,
+    },
     /// Stop showing requests from this identity (kept on this computer only).
     /// `Done { what: DoneWhat::Contact }`.
     HideRequest {
@@ -2001,6 +2072,13 @@ pub enum Command {
     /// (Collection's «Try again» after a failed load). The answer is in [`Wallet::nfts`] and
     /// [`Wallet::nfts_status`].
     RefreshNfts,
+    /// Read the shown identity `identity` (base58) from Platform again, now: its keys with their
+    /// state (FEAT-0020 АРХ-4: platform-wallet keeps no keys on disk, so a key another wallet
+    /// disabled looks acting until then). `Done { what: DoneWhat::KeysRead }`; the new snapshot
+    /// has them.
+    ReadIdentityKeys {
+        identity: String,
+    },
     /// Act as this identity (base58) from now on: the Identity screen, credits, contacts,
     /// profile, top-ups and names follow it.
     ChooseIdentity {
@@ -2257,6 +2335,16 @@ pub enum Spend {
         count: tokens::TokenAmount,
         agreed: u64,
     },
+    /// Change the keys of the shown identity `identity` (base58) in one IdentityUpdate signed by
+    /// its main key (FEAT-0020): add the keys `add` asks for, from the phrase, and disable
+    /// `disable`. Planned by [`key_plan::plan`] on the identity read again, refused before
+    /// the password by the same rules; the password is always asked (R-6). `Done { what:
+    /// DoneWhat::Keys }` once the identity, read again, shows the change.
+    UpdateKeys {
+        identity: String,
+        add: Vec<key_plan::KeyRequest>,
+        disable: Vec<u32>,
+    },
     /// An issuer action on `token_id` as the shown identity (FEAT-0019 T-3). Its rights are
     /// checked again on a fresh contract right before signing (T-3.1). `Done { what:
     /// DoneWhat::IssuerAction }`.
@@ -2270,7 +2358,10 @@ impl Spend {
     /// Whether it asks for the wallet's password whatever "Password for every send" says: an App
     /// Connect v2 sign-in, which cannot be undone for the identity (FEAT-0023 round 4, R-6).
     pub fn asks_password_always(&self) -> bool {
-        matches!(self, Spend::ApproveApp { grant: Some(_), .. })
+        matches!(
+            self,
+            Spend::ApproveApp { grant: Some(_), .. } | Spend::UpdateKeys { .. }
+        )
     }
 
     /// The `what` of the operation's `Done` (or `"send"` for [`Event::Sent`]).
@@ -2293,6 +2384,7 @@ impl Spend {
             Spend::BuyToken { .. } => DoneWhat::BuyToken,
             Spend::IssuerAction { .. } => DoneWhat::IssuerAction,
             Spend::DisconnectApp { .. } => DoneWhat::Disconnect,
+            Spend::UpdateKeys { .. } => DoneWhat::Keys,
         }
     }
 
@@ -2394,6 +2486,10 @@ pub enum DoneWhat {
     Disconnect,
     Gift,
     Identity,
+    /// `UpdateKeys`: the identity's keys changed (FEAT-0020).
+    Keys,
+    /// `ReadIdentityKeys`: the identity was read from Platform again.
+    KeysRead,
     Lock,
     Name,
     Note,
@@ -2435,6 +2531,8 @@ impl DoneWhat {
             Self::Disconnect => "disconnect",
             Self::Gift => "gift",
             Self::Identity => "identity",
+            Self::Keys => "keys",
+            Self::KeysRead => "keys-read",
             Self::Lock => "lock",
             Self::Name => "name",
             Self::Note => "note",
@@ -2484,6 +2582,7 @@ pub enum Event {
         result: Result<(), CoreError>,
     },
     PhraseRevealed(Result<Phrase, CoreError>),
+    IdentityKeyRevealed(Result<RevealedKey, CoreError>),
     /// A funding of the Platform address went through (BUG-171): what the address gained, by
     /// its proved balance before and after, in duffs. Comes just before its
     /// `Done { what: DoneWhat::FundAddress }`; not at all when the amount is not known.
@@ -2581,6 +2680,8 @@ mod tests {
             name_vote_secs: 0,
             name_join_secs: 0,
             add_key: 0,
+            key_add_unbound: 0,
+            key_add_bound: 0,
             contact_request: 0,
             contact_request_balance: 0,
             profile: 0,
@@ -2663,6 +2764,28 @@ mod tests {
         );
         assert!(!printed.contains("abandon"));
         assert!(!printed.contains("hunter2"));
+        // FEAT-0020 AC-T12: a revealed key and its command print no value.
+        let key = RevealedKey {
+            identity: "Id".into(),
+            key_id: 2,
+            wif: Zeroizing::new("cMahea7zqjxrtgAbB7LSGbcQUr1uX1ojuat9jZodMN87JcbXMTcA".into()),
+            hex: Zeroizing::new("0f0e".into()),
+        };
+        let printed = format!(
+            "{:?} {:?}",
+            Event::IdentityKeyRevealed(Ok(key)),
+            Command::RevealIdentityKey {
+                identity: "Id".into(),
+                key_id: 2,
+                password: password.clone(),
+            }
+        );
+        assert!(printed.contains("key_id: 2"), "{printed}");
+        assert!(
+            !printed.contains("cMahea")
+                && !printed.contains("0f0e")
+                && !printed.contains("hunter2")
+        );
         let note = format!(
             "{:?}",
             Command::SetNote {

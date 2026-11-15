@@ -161,7 +161,8 @@ pub fn sidebar(
         .show(ui, |ui| {
             for (screen, icon, label) in items {
                 let lit = screen == active
-                    || (screen == Screen::Identity && active == Screen::CreateIdentity)
+                    || (screen == Screen::Identity
+                        && matches!(active, Screen::CreateIdentity | Screen::IdentityKeys))
                     || (screen == Screen::Tokens && active == Screen::TokenPage);
                 let resp = nav_item(ui, a, icon, label, lit, rail, height);
                 // Tab to an item under the edge brings it into view (FEAT-0036 AC-D4).

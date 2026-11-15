@@ -442,7 +442,7 @@ impl Real {
                     renews,
                     created_at: (request.created_at / 1_000) as Timestamp,
                     callback_host: link.callback.as_deref().and_then(callback_host),
-                    cost: fees.add_key * added as Duffs + fees.document_write,
+                    cost: evolite_api::key_plan::fee_of_keys(added, 0, &fees) + fees.document_write,
                 };
                 requests.lock().unwrap_or_else(|e| e.into_inner()).insert(
                     request_id,
@@ -497,6 +497,11 @@ impl Real {
                 .into(),
         ))?;
         let (wallet_id, keys) = self.dashpay_ready()?;
+        // One change of the identity's keys at a time (FEAT-0020, the review's Should 1).
+        if self.identity_busy.swap(true, Ordering::Relaxed) {
+            return Err(super::identity_keys::identity_busy());
+        }
+        let busy = self.identity_busy.clone();
         let (chain, apps, refresh) = (self.chain.clone(), self.apps.clone(), self.refresher());
         let journal = self.journal.clone();
         self.answer_later("task:approve_connect2", async move {
@@ -600,7 +605,7 @@ impl Real {
                 };
                 let added: Vec<IdentityPublicKey> = add.iter().map(|k| k.key.clone()).collect();
                 let fresh = chain
-                    .update_app_keys(&wallet, &keys, &who, add, disable)
+                    .send_key_update(&wallet, &keys, &who, add, disable)
                     .await
                     .map_err(dashpay_failure)?;
                 // DIP: no response before every new key is on the identity.
@@ -677,6 +682,7 @@ impl Real {
                 .map_err(CoreError::Failed)
             }
             .await;
+            busy.store(false, Ordering::Relaxed);
             refresh();
             Event::Done {
                 what: DoneWhat::App,
@@ -843,7 +849,7 @@ pub(in crate::real) async fn disconnect(
         who
     } else {
         chain
-            .update_app_keys(wallet, keys, &who, Vec::new(), ids)
+            .send_key_update(wallet, keys, &who, Vec::new(), ids)
             .await
             .map_err(dashpay_failure)?
     };

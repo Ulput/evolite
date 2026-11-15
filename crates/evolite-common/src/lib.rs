@@ -17,6 +17,7 @@ pub mod attempts;
 pub mod bip39;
 pub mod diag;
 pub mod dpns;
+pub mod key_refusal;
 pub mod layers;
 pub mod network;
 pub mod note_text;

@@ -9,6 +9,7 @@ pub(super) mod avatars;
 pub(super) mod core;
 pub(super) mod dashpay;
 pub(super) mod identity;
+pub(super) mod identity_keys;
 pub(super) mod kept_locks;
 mod misc;
 pub(super) mod mixed;

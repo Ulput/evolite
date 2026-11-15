@@ -4,8 +4,8 @@
 
 use chrono::{DateTime, Datelike, Local, TimeZone};
 use evolite_api::{
-    Activity, ActivityKind, Chain, CoreError, Credits, KeyLevel, KeyPurpose, Proof, RequestState,
-    SavedAddress, SyncStage, Timestamp, WithdrawalState,
+    Activity, ActivityKind, Chain, CoreError, Credits, KeyLevel, Proof, RequestState, SavedAddress,
+    SyncStage, Timestamp, WithdrawalState,
 };
 
 const MONTHS: [&str; 12] = [
@@ -619,6 +619,26 @@ pub fn activity_title(a: &Activity) -> String {
         ActivityKind::AppDisconnected { app } => {
             format!(tr!("Signed out of {app} · keys disabled"), app = app)
         }
+        // FEAT-0020: «Identity keys changed: added 7 · disabled 0».
+        ActivityKind::KeysChanged { added, disabled } => {
+            let list = |ids: &[u32]| {
+                ids.iter()
+                    .map(u32::to_string)
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            };
+            match (added.is_empty(), disabled.is_empty()) {
+                (false, false) => format!(
+                    tr!("Identity keys changed: added {} · disabled {}"),
+                    list(added),
+                    list(disabled)
+                ),
+                (false, true) => {
+                    format!(tr!("Identity keys changed: added {}"), list(added))
+                }
+                _ => format!(tr!("Identity keys changed: disabled {}"), list(disabled)),
+            }
+        }
         ActivityKind::TokenSent { to, .. } => {
             format!(tr!("Token transfer to {}"), short_address(to))
         }
@@ -891,6 +911,7 @@ pub fn activity_icon(a: &Activity) -> &'static str {
         | ActivityKind::PoolReceived => "receive",
         ActivityKind::Sent { .. } | ActivityKind::PoolSent => "send",
         ActivityKind::TopUp { .. } => "top-up",
+        ActivityKind::KeysChanged { .. } => "key",
         ActivityKind::SelfTransfer { .. } => "transfer",
         ActivityKind::Mixing { .. } | ActivityKind::IntoMixing => "mixed",
         ActivityKind::AppSignIn { .. } => "app-connect",
@@ -966,16 +987,6 @@ pub fn key_level(level: KeyLevel) -> &'static str {
         KeyLevel::Critical => "CRITICAL",
         KeyLevel::High => "HIGH",
         KeyLevel::Medium => "MEDIUM",
-    }
-}
-
-pub fn key_purpose(purpose: &KeyPurpose) -> String {
-    match purpose {
-        KeyPurpose::Identity => tr!("managing the identity").into(),
-        KeyPurpose::Documents => tr!("signing documents").into(),
-        KeyPurpose::Transfers => tr!("credit transfers").into(),
-        KeyPurpose::Encryption => tr!("DashPay encryption").into(),
-        KeyPurpose::App(app) => format!("{app} · App Connect"),
     }
 }
 
@@ -1503,47 +1514,6 @@ mod tests {
     fn groups_thousands() {
         assert_eq!(group_thousands(120_000_000_000), "120,000,000,000");
         assert_eq!(group_thousands(12), "12");
-    }
-}
-
-/// What a key is for, with the key that reads DashPay requests told apart from the one they
-/// are encrypted to.
-pub fn key_role(key: &evolite_api::IdentityKey) -> String {
-    match &key.purpose {
-        KeyPurpose::Encryption if key.decrypts => tr!("DashPay decryption").into(),
-        purpose => key_purpose(purpose),
-    }
-}
-
-/// A key's signature scheme, short, for the end of its row.
-pub fn key_kind(kind: evolite_api::KeyKind) -> &'static str {
-    match kind {
-        evolite_api::KeyKind::Ecdsa => "ECDSA",
-        evolite_api::KeyKind::EcdsaHash160 => "ECDSA · hash160",
-        evolite_api::KeyKind::Bls => "BLS",
-        evolite_api::KeyKind::EddsaHash160 => "EdDSA · hash160",
-        evolite_api::KeyKind::Bip13Script => tr!("BIP13 script"),
-    }
-}
-
-#[cfg(test)]
-mod key_label_tests {
-    use super::{key_kind, key_role};
-    use evolite_api::{IdentityKey, KeyKind, KeyLevel, KeyPurpose};
-
-    #[test]
-    fn dashpay_keys_are_told_apart_and_kinds_named() {
-        let key = |decrypts| IdentityKey {
-            id: 4,
-            level: KeyLevel::Medium,
-            purpose: KeyPurpose::Encryption,
-            kind: KeyKind::Ecdsa,
-            decrypts,
-        };
-        assert_eq!(key_role(&key(false)), tr!("DashPay encryption"));
-        assert_eq!(key_role(&key(true)), tr!("DashPay decryption"));
-        assert_eq!(key_kind(KeyKind::Bls), "BLS");
-        assert_eq!(key_kind(KeyKind::EcdsaHash160), "ECDSA · hash160");
     }
 }
 

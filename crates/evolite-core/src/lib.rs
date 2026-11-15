@@ -21,6 +21,8 @@ pub use evolite_chain::network;
 pub(crate) use evolite_chain::{test_env, test_name};
 #[cfg(feature = "real")]
 pub(crate) use evolite_common::PASSWORD_NEEDED;
+/// A key change refused, in words (FEAT-0020): the same from both cores and the screen.
+pub use evolite_common::key_refusal;
 #[cfg(not(feature = "real"))]
 pub use evolite_common::network;
 #[cfg(feature = "real")]
@@ -46,6 +48,9 @@ use evolite_demo as mock;
 /// The password the demo core refuses (the UI tests' "Wrong password").
 #[cfg(any(feature = "demo", not(feature = "real"), test))]
 pub use mock::WRONG_PASSWORD as DEMO_WRONG_PASSWORD;
+/// The test key the demo core shows as a private key (FEAT-0020 AC-T16).
+#[cfg(any(feature = "demo", not(feature = "real"), test))]
+pub use mock::{DEMO_KEY_HEX, DEMO_KEY_WIF};
 pub mod price;
 #[cfg(feature = "real")]
 mod real;

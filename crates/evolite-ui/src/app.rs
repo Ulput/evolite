@@ -60,6 +60,8 @@ pub struct App {
     tokens: screens::tokens::TokensState,
     settings: screens::settings::SettingsState,
     create_identity: screens::create_identity::CreateIdentityForm,
+    /// FEAT-0020 K1.
+    identity_keys: screens::identity::KeysState,
     unlock: screens::unlock::UnlockForm,
     onboarding: Option<Onboarding>,
     /// The screenshot tools' state (`dev-tools`).
@@ -271,6 +273,7 @@ impl App {
             tokens: Default::default(),
             settings: screens::settings::SettingsState::new(launch.dark, Section::Network, false),
             create_identity: Default::default(),
+            identity_keys: Default::default(),
             #[cfg(feature = "dev-tools")]
             dev: dev::DevState::new(&launch.dev, launch.screen),
             system_motion: None,
@@ -555,6 +558,7 @@ impl App {
         self.send.on_lock();
         self.receive = Default::default();
         self.identity = Default::default();
+        self.identity_keys.forget();
         self.contacts = Default::default();
         self.pool = Default::default();
         self.requests = Default::default();
@@ -735,6 +739,9 @@ impl App {
                     }
                 }
                 Event::PhraseRevealed(result) => self.settings.on_revealed(result.clone()),
+                Event::IdentityKeyRevealed(result) => {
+                    self.identity_keys.on_revealed(result.clone())
+                }
                 Event::PhraseCheck(result) => self.settings.on_phrase_questions(result),
                 Event::PhraseChecked { wrong } => self
                     .settings
@@ -786,6 +793,14 @@ impl App {
                     what: DoneWhat::Disconnect,
                     result,
                 } => self.requests.on_disconnected(result.clone()),
+                Event::Done {
+                    what: DoneWhat::Keys,
+                    result,
+                } => self.identity_keys.on_changed(result.clone()),
+                Event::Done {
+                    what: DoneWhat::KeysRead,
+                    result,
+                } => self.identity_keys.on_read(result.clone()),
                 // "Hide" and "Unshield" share the pool's progress: one move at a time.
                 Event::Progress {
                     what: "shield" | "unshield" | "pool-top-up",
@@ -1244,6 +1259,8 @@ impl eframe::App for App {
                 give_up_return(&mut self.contacts, ui.ctx(), given_up.screen);
             }
             self.settings.forget_secrets();
+            // And a private key shown or asked for (FEAT-0020 AC-T13).
+            self.identity_keys.forget();
             // FEAT-0009 R-5: the filters and the search go with the lock.
             self.history = Default::default();
             // And a note half edited in an operation's card (FEAT-0003).
@@ -1288,6 +1305,8 @@ impl eframe::App for App {
             start_again(ui.ctx());
         }
         self.vault = Some(snapshot.vault);
+        self.identity_keys
+            .hide_unless_on(self.screen == Screen::IdentityKeys);
         self.settings.hide_phrase_unless_shown(
             self.screen == Screen::Settings && self.settings.phrase_dialog,
         );
@@ -1318,10 +1337,7 @@ impl eframe::App for App {
         // BUG-169: where a returning screen goes back to, as its «‹ {place}» names it.
         let here = back::here(snapshot);
         let mut cx = Ctx::new(snapshot, &mut commands, &mut go);
-        cx.back = back::back_to(self.back.as_ref(), &here, snapshot.network);
-        if self.back.is_none() {
-            cx.back = back::home_of(self.screen);
-        }
+        cx.back = back::back_to(self.back.as_ref(), &here, snapshot.network, self.screen);
         // By the window's width, once a frame (responsive spec R2).
         cx.bp = crate::theme::Breakpoint::of(ui.ctx().content_rect().width());
         // A countdown preset (FEAT-0002) shows the time it names.
@@ -1525,6 +1541,12 @@ impl eframe::App for App {
                                 &mut cx,
                                 &mut self.create_identity,
                             ),
+                            Screen::IdentityKeys => screens::identity::identity_keys(
+                                ui,
+                                a,
+                                &mut cx,
+                                &mut self.identity_keys,
+                            ),
                             // Drawn above, without the sidebar.
                             Screen::Welcome | Screen::Unlock | Screen::Onboarding(_) => {}
                             #[cfg(feature = "dev-tools")]
@@ -1595,6 +1617,9 @@ impl eframe::App for App {
         }
         if cx.take_top_up() {
             self.identity.open_top_up();
+        }
+        if cx.take_enable_dashpay() {
+            self.identity_keys.open_enable_dashpay();
         }
         let wallet_request = cx.take_wallets();
         // "‹ Back to "…"" while a wallet is being added (Figma 31): back to the one it

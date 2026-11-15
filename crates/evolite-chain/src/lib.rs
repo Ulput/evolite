@@ -18,7 +18,7 @@ mod platform;
 mod spv;
 pub mod store;
 
-pub use apps::{app_chain, app_chain_v2, app_connect_v2};
+pub use apps::{app_chain, app_chain_v2, app_connect_v2, key_update};
 pub use platform::{
     dashpay, fund_intents, identity, lock_status, nfts, platform_history, pool, token_history,
     tokens,

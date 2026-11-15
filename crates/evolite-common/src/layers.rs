@@ -80,6 +80,7 @@ pub fn of(kind: &ActivityKind, chain: Chain) -> (u8, Flow) {
         AppSignIn { .. }
         | AppRenewed { .. }
         | AppDisconnected { .. }
+        | KeysChanged { .. }
         | AppSpent { .. }
         | ContactRequest { .. }
         | ProfileSaved

@@ -143,6 +143,8 @@ mod tests {
             name_vote_secs: 0,
             name_join_secs: 0,
             add_key: 0,
+            key_add_unbound: 0,
+            key_add_bound: 0,
             contact_request: 0,
             contact_request_balance: 0,
             profile: 0,

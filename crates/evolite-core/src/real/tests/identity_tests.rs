@@ -210,7 +210,7 @@ async fn a_link_write_waits_for_the_one_running() {
         .set_name_link("sam".into(), Some("https://example.com/me".into()))
         .await;
     assert!(
-        matches!(&busy, Err(CoreError::NotAvailable(why)) if why.contains("already being made")),
+        matches!(&busy, Err(CoreError::NotAvailable(why)) if why.contains("The identity is busy")),
         "{busy:?}"
     );
     assert!(

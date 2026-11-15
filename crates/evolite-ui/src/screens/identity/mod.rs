@@ -5,10 +5,14 @@ mod add_name;
 pub(crate) mod contest;
 mod contest_card;
 mod imgur;
+mod key_change;
+mod key_reveal;
+mod keys;
 mod profile;
 mod top_up;
 
 pub use add_name::*;
+pub use keys::{KeysState, enable_dashpay_card, identity_keys, identity_named, needs_dashpay};
 pub use profile::*;
 pub use top_up::*;
 
@@ -295,7 +299,10 @@ pub fn identity(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut IdentityS
                         None => {}
                     }
                 } else {
-                    keys(ui, a, identity, half, cell);
+                    // X1 (FEAT-0020): the keys summed up; K1 has them all.
+                    if keys::keys_summary(ui, a, identity, half, cell) {
+                        cx.go(Screen::IdentityKeys);
+                    }
                 }
             });
         });
@@ -980,7 +987,11 @@ fn names(
                     let icon = if n.state.owned() { "username" } else { "vote" };
                     let sub = contest::state_line(n, fees, chrono::Local::now().timestamp());
                     ui.add(a.icons.icon(icon, p.text, &p, 20.0));
+                    // The words stop short of the proof's icon on the right: a long state line
+                    // (FEAT-0021) must not widen the card past its column, the grid's (BUG-46).
+                    let words = (ui.available_width() - 20.0 - 12.0).max(0.0);
                     ui.vertical(|ui| {
+                        ui.set_max_width(words);
                         ui.spacing_mut().item_spacing.y = 2.0;
                         // A name in the vote or lost is not this identity's: muted (N4). Not
                         // selectable: a claimed name's whole row takes the click (AC-D9).
@@ -990,9 +1001,14 @@ fn names(
                                 BODY.weight(Weight::SemiBold),
                                 if n.state.owned() { p.text } else { p.muted },
                             ))
-                            .selectable(false),
+                            .selectable(false)
+                            .truncate(),
                         );
-                        ui.add(egui::Label::new(text(&sub, SMALL, p.muted)).selectable(false));
+                        ui.add(
+                            egui::Label::new(text(&sub, SMALL, p.muted))
+                                .selectable(false)
+                                .truncate(),
+                        );
                     });
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                         let (icon, color, hint) = if n.state.open() {
@@ -1076,61 +1092,6 @@ fn names(
             }
         },
     );
-}
-
-fn keys(ui: &mut Ui, a: &mut Assets, id: &Identity, width: f32, cell: &mut RowCell) {
-    // The note is the count, as on "DPNS names": every key's details are already in its row, and
-    // a "Details" there read as a link that led nowhere.
-    let count = id.keys.len().to_string();
-    list_card_in(ui, a, cell, width, (tr!("Keys"), &count), |ui, a| {
-        let p = a.p;
-        for key in &id.keys {
-            let level = text::key_level(key.level);
-            let purpose = text::key_role(key);
-            divider(ui, &p);
-            let (rect, _) =
-                ui.allocate_exact_size(vec2(ui.available_width(), 36.0), Sense::hover());
-            let cy = rect.center().y;
-            let icon = Rect::from_min_size(pos2(rect.left(), cy - 9.0), vec2(18.0, 18.0));
-            a.icons.icon("key", p.muted, &p, 18.0).paint_at(ui, icon);
-            let painter = ui.painter();
-            let mut x = icon.right() + 12.0;
-            x = painter
-                .text(
-                    pos2(x, cy),
-                    Align2::LEFT_CENTER,
-                    crate::i18n::t(&format!("#{}", key.id)),
-                    style(UI.weight(Weight::Medium).mono()),
-                    p.text,
-                )
-                .right()
-                + 12.0;
-            x = painter
-                .text(
-                    pos2(x, cy),
-                    Align2::LEFT_CENTER,
-                    crate::i18n::t(level),
-                    style(SMALL.weight(Weight::Medium).mono()),
-                    p.muted,
-                )
-                .right()
-                + 12.0;
-            painter.text(
-                pos2(x, cy),
-                Align2::LEFT_CENTER,
-                crate::i18n::t(&purpose),
-                style(UI),
-                p.text,
-            );
-            painter.text(
-                pos2(rect.right(), cy),
-                Align2::RIGHT_CENTER,
-                crate::i18n::t(text::key_kind(key.kind)),
-                style(CAPTION.mono()),
-                p.muted,
-            );
-        }
-    });
 }
 
 #[cfg(test)]

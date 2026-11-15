@@ -176,6 +176,7 @@ pub fn screen_name(screen: crate::screens::Screen) -> &'static str {
         TokenPage => "token_page",
         Settings => "settings",
         CreateIdentity => "create_identity",
+        IdentityKeys => "identity_keys",
         Onboarding(_) => "onboarding",
         #[cfg(feature = "dev-tools")]
         Probe => "probe",

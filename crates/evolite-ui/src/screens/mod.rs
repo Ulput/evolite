@@ -63,6 +63,9 @@ pub enum Screen {
     Settings,
     /// 07: opened from Identity; the sidebar keeps Identity lit.
     CreateIdentity,
+    /// FEAT-0020 K1: an identity's keys, opened from Identity, Settings or Apps; the sidebar keeps
+    /// Identity lit, «‹ {place}» goes back to where it was opened from (AC-T17).
+    IdentityKeys,
     /// O1–O6, without the sidebar.
     Onboarding(onboarding::Flow),
     /// The script check (Arabic and Hindi shaping), `--screen probe` with `dev-tools`.
@@ -106,7 +109,7 @@ pub fn shown_on(screen: Screen, network: evolite_api::Network) -> bool {
 pub fn place_name(screen: Screen) -> &'static str {
     match screen {
         Screen::Settings => tr!("Settings"),
-        Screen::CreateIdentity => tr!("Identity"),
+        Screen::CreateIdentity | Screen::IdentityKeys => tr!("Identity"),
         Screen::TokenPage => tr!("Tokens"),
         _ => NAV
             .iter()

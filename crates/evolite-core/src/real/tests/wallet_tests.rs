@@ -757,3 +757,99 @@ async fn a_v2_request_kept_open_too_long_is_refused_at_approve() {
         }))
     );
 }
+
+/// FEAT-0020 AC-T11: a private key is refused while the wallet is closed, before any password
+/// (nothing counted); the password before it is counted with the unlock's wrong tries and
+/// cleared by the right one (FEAT-0004).
+#[tokio::test]
+async fn a_private_key_needs_the_open_wallet_and_a_counted_password() {
+    let dir = fresh_dir("reveal-key");
+    seal_wallet(&dir, "aaaa0001");
+    let mut core = core_at(&dir, "aaaa0001");
+    let (event, _) = core
+        .handle(Command::RevealIdentityKey {
+            identity: "Id".into(),
+            key_id: 2,
+            password: pw("no"),
+        })
+        .await;
+    assert!(
+        matches!(
+            event,
+            Some(Event::IdentityKeyRevealed(Err(CoreError::NotAvailable(_))))
+        ),
+        "{event:?}"
+    );
+    assert_eq!(entry(&mut core, "aaaa0001").wrong_tries, 0, "not counted");
+    assert_eq!(
+        core.checked_vault(&pw("no")).await,
+        Err(CoreError::WrongPassword)
+    );
+    assert_eq!(
+        entry(&mut core, "aaaa0001").wrong_tries,
+        1,
+        "counted as the unlock's"
+    );
+    assert_eq!(core.checked_vault(&pw("pw")).await, Ok(()));
+    assert_eq!(entry(&mut core, "aaaa0001").wrong_tries, 0);
+}
+
+/// FEAT-0020, the review's Should 1: while one change of the identity is under way (a key
+/// change, an App Connect sign-in, a top-up), a second key change and an app's disconnect are
+/// refused before the password — nothing is checked, signed or sent; the first's end frees it.
+#[tokio::test]
+async fn a_second_key_change_waits_for_the_first() {
+    let dir = fresh_dir("keys-busy");
+    seal_wallet(&dir, "aaaa0001");
+    let mut core = core_at(&dir, "aaaa0001");
+    core.identity_busy.store(true, Ordering::Relaxed);
+    let busy = |event: Option<Event>, what: DoneWhat| match event {
+        Some(Event::Done {
+            what: w,
+            result: Err(CoreError::NotAvailable(words)),
+        }) => w == what && words.contains("busy"),
+        _ => false,
+    };
+    let (event, _) = core
+        .handle(Command::Spend {
+            op: Spend::UpdateKeys {
+                identity: "Id".into(),
+                add: vec![evolite_api::key_plan::KeyRequest::Tokens],
+                disable: vec![],
+            },
+            password: None,
+        })
+        .await;
+    assert!(busy(event, DoneWhat::Keys), "refused before the password");
+    let (event, _) = core
+        .handle(Command::Spend {
+            op: Spend::DisconnectApp { id: "app".into() },
+            password: None,
+        })
+        .await;
+    assert!(busy(event, DoneWhat::Disconnect));
+    // A name's link (FEAT-0021) writes for the identity too: refused the same way.
+    let (event, _) = core
+        .handle(Command::Spend {
+            op: Spend::SetNameLink {
+                label: "satoshi".into(),
+                url: None,
+            },
+            password: None,
+        })
+        .await;
+    assert!(busy(event, DoneWhat::Name));
+    // Free again: the gate answers (no password given), not the busy identity.
+    core.identity_busy.store(false, Ordering::Relaxed);
+    let (event, _) = core
+        .handle(Command::Spend {
+            op: Spend::UpdateKeys {
+                identity: "Id".into(),
+                add: vec![evolite_api::key_plan::KeyRequest::Tokens],
+                disable: vec![],
+            },
+            password: None,
+        })
+        .await;
+    assert!(!busy(event, DoneWhat::Keys));
+}

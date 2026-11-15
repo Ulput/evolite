@@ -82,7 +82,9 @@ pub fn kind_of(a: &Activity) -> u8 {
         // FEAT-0030: a mixing round and the preparation are moves between the wallet's own coins.
         // FEAT-0015 stage 2: from Core to the wallet's own Platform address, a move between its own.
         SelfTransfer { .. } | Mixing { .. } | IntoMixing | AddressFunded => kind::SELF_TRANSFER,
-        TopUp { .. } | Withdrawal { .. } | CreditTransfer { .. } => kind::IDENTITY,
+        TopUp { .. } | Withdrawal { .. } | CreditTransfer { .. } | KeysChanged { .. } => {
+            kind::IDENTITY
+        }
         NameRegistered { .. }
         | NameClaimed { .. }
         | NameLinkWritten { .. }

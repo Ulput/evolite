@@ -239,7 +239,10 @@ pub const PRESETS: &[&str] = &[
     "top-up", "top-up-bad-amount", "add-name",
     "names-contested", "contest-card", "contest-lost", "add-name-contested", "add-name-review",
     "add-name-sent", "add-name-fund-rose", "contest-lost-hidden",
-    "contacts", "add-contact", "contact-profile", "my-qr",
+    "contacts", "add-contact", "contact-profile", "my-qr", "contacts-no-encryption",
+    "identity-keys", "identity-key-shown", "identity-keys-no-encryption", "key-disable",
+    "key-replace-main", "key-replace-dashpay", "key-add", "identity-keys-foreign",
+    "key-enable-dashpay-foreign",
     "create-identity", "creating", "create-identity-nameless", "create-identity-confirm",
     "create-identity-short", "create-identity-unchecked",
     "shielded", "shield", "shield-core", "unshield", "unshield-bad-amount", "unshield-identity", "pool-address",
@@ -441,7 +444,12 @@ fn dev_args<'a>(
                 | "contest-lost-hidden",
             ),
         ) => Screen::Identity,
-        (None, Some("contacts" | "add-contact" | "contact-profile" | "my-qr")) => Screen::Contacts,
+        (
+            None,
+            Some(
+                "contacts" | "add-contact" | "contact-profile" | "my-qr" | "contacts-no-encryption",
+            ),
+        ) => Screen::Contacts,
         (
             None,
             Some(
@@ -453,6 +461,21 @@ fn dev_args<'a>(
                 | "create-identity-unchecked",
             ),
         ) => Screen::CreateIdentity,
+        // FEAT-0020 K1.
+        (
+            None,
+            Some(
+                "identity-keys"
+                | "identity-key-shown"
+                | "identity-keys-no-encryption"
+                | "key-disable"
+                | "key-replace-main"
+                | "key-replace-dashpay"
+                | "key-add"
+                | "identity-keys-foreign"
+                | "key-enable-dashpay-foreign",
+            ),
+        ) => Screen::IdentityKeys,
         (
             None,
             Some(

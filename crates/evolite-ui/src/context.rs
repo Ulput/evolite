@@ -25,6 +25,8 @@ pub struct Ctx<'a> {
     pay: Option<Pay>,
     /// The Identity screen asked for with "Top up the identity" open.
     top_up: bool,
+    /// FEAT-0020 K7: the keys screen asked for with «For DashPay» chosen.
+    enable_dashpay: bool,
     /// The Identity screen asked for with a claim's contest card open (FEAT-0021 N5): the
     /// identity that claimed and the label.
     contest: Option<(String, String)>,
@@ -72,6 +74,7 @@ impl<'a> Ctx<'a> {
             go,
             pay: None,
             top_up: false,
+            enable_dashpay: false,
             contest: None,
             fund: None,
             wallets: None,
@@ -151,6 +154,18 @@ impl<'a> Ctx<'a> {
     /// Whether [`Self::top_up`] was asked this frame.
     pub fn take_top_up(&mut self) -> bool {
         std::mem::take(&mut self.top_up)
+    }
+
+    /// FEAT-0020 K7: opens the identity's keys with DashPay's pair to add (Contacts'
+    /// «Enable DashPay…»).
+    pub fn enable_dashpay(&mut self) {
+        self.enable_dashpay = true;
+        self.go(Screen::IdentityKeys);
+    }
+
+    /// Whether [`Self::enable_dashpay`] was asked this frame.
+    pub fn take_enable_dashpay(&mut self) -> bool {
+        std::mem::take(&mut self.enable_dashpay)
     }
 
     /// Opens Identity with the contest card of `identity`'s claim on `label` (FEAT-0021): one way

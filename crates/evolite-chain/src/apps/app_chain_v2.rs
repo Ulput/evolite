@@ -147,10 +147,11 @@ impl Chain {
             .and_then(|by_purpose| by_purpose.get(&wanted).cloned().flatten()))
     }
 
-    /// Adds `add` and disables `disable` on the identity, MASTER-signed, at most
+    /// The one IdentityUpdate sender of App Connect v2 and the keys screen (FEAT-0020 АРХ-5):
+    /// adds `add` and disables `disable` on the identity, MASTER-signed, at most
     /// [`KEYS_PER_UPDATE`] new keys an update (the disabling goes with the first), then reads
     /// the identity again. The caller checks that every new key is there before it answers.
-    pub async fn update_app_keys(
+    pub async fn send_key_update(
         &self,
         wallet: &PlatformWallet,
         keys: &key_wallet::Wallet,

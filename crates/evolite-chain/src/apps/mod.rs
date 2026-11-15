@@ -3,3 +3,4 @@
 pub mod app_chain;
 pub mod app_chain_v2;
 pub mod app_connect_v2;
+pub mod key_update;

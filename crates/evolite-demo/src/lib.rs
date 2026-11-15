@@ -26,6 +26,11 @@ use evolite_common::PASSWORD_NEEDED;
 /// (BUG-16); any other opens the example wallet.
 pub const WRONG_PASSWORD: &str = "wrong";
 
+/// FEAT-0020 AC-T16: the private key the demo shows — key 1, the textbook test key, on testnet;
+/// never a wallet's. The UI tests look for it where it must not be.
+pub const DEMO_KEY_WIF: &str = "cMahea7zqjxrtgAbB7LSGbcQUr1uX1ojuat9jZodMN87JcbXMTcA";
+pub const DEMO_KEY_HEX: &str = "0000000000000000000000000000000000000000000000000000000000000001";
+
 /// A password the demo takes as wrong for a spend: empty, or [`WRONG_PASSWORD`].
 fn refused(password: &Password) -> bool {
     password.expose().is_empty() || password.expose() == WRONG_PASSWORD
@@ -421,7 +426,8 @@ impl Mock {
                                 what: DoneWhat::Identity
                                     | DoneWhat::App
                                     | DoneWhat::Disconnect
-                                    | DoneWhat::FundAddress,
+                                    | DoneWhat::FundAddress
+                                    | DoneWhat::Keys,
                                 result: Ok(())
                             }
                         );
@@ -668,6 +674,18 @@ impl Mock {
                     Err(CoreError::NotAvailable(NO_WALLET.into()))
                 })
             }
+            // FEAT-0020 AC-T16: a published test key, never a wallet's, and the real core's
+            // refusals; the password counted as the unlock's.
+            Command::RevealIdentityKey {
+                identity,
+                key_id,
+                password,
+            } => Event::IdentityKeyRevealed(self.reveal_identity_key(identity, key_id, &password)),
+            // FEAT-0020: the example identity is as Platform has it.
+            Command::ReadIdentityKeys { .. } => Event::Done {
+                what: DoneWhat::KeysRead,
+                result: Ok(()),
+            },
             // "Check the phrase" on the phrase of the Figma frames: the same four words each time.
             Command::AskPhraseCheck { password } => {
                 Event::PhraseCheck(if password.expose().is_empty() {
@@ -762,6 +780,18 @@ impl Mock {
                 tr!("This is the mockup's example: there is nothing to top up with")
             }
             // As the real core: the keys disabled, the record kept until "Remove from the list".
+            // FEAT-0020 AC-T8: the real core's plan on the example identity, with its refusals.
+            Spend::UpdateKeys {
+                identity,
+                add,
+                disable,
+            } => {
+                let result = self.update_keys(&identity, &add, &disable);
+                return Event::Done {
+                    what: DoneWhat::Keys,
+                    result,
+                };
+            }
             Spend::DisconnectApp { id } => {
                 if let Some(wallet) = &mut self.snapshot.wallet {
                     for app in wallet.apps.iter_mut().filter(|a| a.id == id) {
@@ -1266,6 +1296,114 @@ impl Mock {
         Ok(())
     }
 
+    /// FEAT-0020 AC-T8: the real core's plan on the shown identity, done at once — new keys this
+    /// wallet's, the disabled ones dated now — or refused in the same words.
+    fn update_keys(
+        &mut self,
+        identity: &str,
+        add: &[key_plan::KeyRequest],
+        disable: &[u32],
+    ) -> Result<(), CoreError> {
+        if self.snapshot.vault != VaultState::Unlocked {
+            return Err(CoreError::NotAvailable(tr!("The wallet is locked").into()));
+        }
+        let Some(id) = self
+            .snapshot
+            .wallet
+            .as_mut()
+            .and_then(|w| w.identity.as_mut())
+            .filter(|i| i.id == identity)
+        else {
+            return Err(CoreError::NotAvailable(
+                tr!("Another identity is shown now: open its keys again").into(),
+            ));
+        };
+        let plan = key_plan::plan(&id.keys, add, disable)
+            .map_err(|r| CoreError::NotAvailable(evolite_common::key_refusal::words(&r)))?;
+        let at = now();
+        for key in id.keys.iter_mut().filter(|k| plan.disable.contains(&k.id)) {
+            key.disabled_at = Some(at);
+        }
+        for new in &plan.add {
+            id.keys.push(IdentityKey {
+                id: new.id,
+                level: new.level,
+                purpose: match new.purpose {
+                    key_plan::NewPurpose::Authentication if new.level == KeyLevel::Master => {
+                        KeyPurpose::Identity
+                    }
+                    key_plan::NewPurpose::Authentication => KeyPurpose::Documents,
+                    key_plan::NewPurpose::Transfer => KeyPurpose::Transfers,
+                    key_plan::NewPurpose::Encryption | key_plan::NewPurpose::Decryption => {
+                        KeyPurpose::Encryption
+                    }
+                },
+                kind: KeyKind::Ecdsa,
+                decrypts: new.purpose == key_plan::NewPurpose::Decryption,
+                disabled_at: None,
+                bound_to: new.dashpay.then(|| key_plan::DASHPAY_CONTRACT.into()),
+                owner: KeyOwner::This,
+            });
+        }
+        Ok(())
+    }
+
+    /// FEAT-0020 R-10 in the demo: the key `key_id` of the shown identity, refused as the real
+    /// core refuses (closed wallet, no such key, disabled, an app's, another wallet's) before
+    /// the password; then [`DEMO_KEY_WIF`] — the published test key 1, never a wallet's.
+    fn reveal_identity_key(
+        &mut self,
+        identity: String,
+        key_id: u32,
+        password: &Password,
+    ) -> Result<RevealedKey, CoreError> {
+        let refuse = |words: &str| Err(CoreError::NotAvailable(words.into()));
+        if self.snapshot.vault != VaultState::Unlocked {
+            return refuse(tr!("The wallet is locked"));
+        }
+        let key = self
+            .snapshot
+            .wallet
+            .as_ref()
+            .and_then(|w| w.identity.as_ref())
+            .filter(|i| i.id == identity)
+            .and_then(|i| i.keys.iter().find(|k| k.id == key_id))
+            .cloned();
+        let Some(key) = key else {
+            return refuse(tr!("The identity has no such key"));
+        };
+        if key.disabled_at.is_some() {
+            return refuse(tr!("The key is disabled: its private key is not shown"));
+        }
+        match key.owner {
+            KeyOwner::This => {}
+            KeyOwner::App(_) => {
+                return refuse(tr!(
+                    "An app's key is not shown: it is not made from the phrase"
+                ));
+            }
+            KeyOwner::Other | KeyOwner::Unknown => {
+                return refuse(tr!(
+                    "This key is not from this wallet's phrase: evolite cannot show it"
+                ));
+            }
+        }
+        let wallet = self
+            .snapshot
+            .wallets
+            .iter()
+            .find(|w| w.open)
+            .map(|w| w.id.clone())
+            .unwrap_or_default();
+        self.check_password(&wallet, password)?;
+        Ok(RevealedKey {
+            identity,
+            key_id,
+            wif: Zeroizing::new(DEMO_KEY_WIF.into()),
+            hex: Zeroizing::new(DEMO_KEY_HEX.into()),
+        })
+    }
+
     /// A demo wallet's password checked as the real core checks one (FEAT-0002): refused
     /// unchecked in a pause; empty and [`WRONG_PASSWORD`] are wrong and counted, in memory only.
     fn check_password(&mut self, id: &str, password: &Password) -> Result<(), CoreError> {
@@ -1703,6 +1841,51 @@ mod tests {
             }
         ));
         assert_eq!(m.snapshot.wallet.as_ref().unwrap().identities.len(), 4);
+    }
+
+    /// FEAT-0020 AC-T8: the demo changes the example identity's keys by the real core's plan —
+    /// the main key replaced at max+1, the old one dated — and refuses in the same words.
+    #[test]
+    fn the_demo_changes_keys_by_the_plan() {
+        use evolite_api::key_plan::KeyRequest;
+        let (mut m, _tx, _rx) = mock();
+        m.snapshot.vault = VaultState::Unlocked;
+        let shown = |m: &Mock| {
+            m.snapshot
+                .wallet
+                .as_ref()
+                .unwrap()
+                .identity
+                .clone()
+                .unwrap()
+        };
+        let id = shown(&m).id;
+        let next = shown(&m).keys.iter().map(|k| k.id + 1).max().unwrap();
+        assert_eq!(
+            m.update_keys(&id, &[KeyRequest::ReplaceMaster], &[]),
+            Ok(())
+        );
+        let after = shown(&m);
+        let old = after.keys.iter().find(|k| k.id == 0).unwrap();
+        assert!(old.disabled_at.is_some(), "the old main key dated");
+        let new = after.keys.iter().find(|k| k.id == next).unwrap();
+        assert_eq!(
+            (new.level, new.owner.clone()),
+            (KeyLevel::Master, KeyOwner::This)
+        );
+        assert!(matches!(
+            m.update_keys(&id, &[], &[next]),
+            Err(CoreError::NotAvailable(words)) if words.contains("main key")
+        ));
+        assert!(matches!(
+            m.update_keys("someone else", &[KeyRequest::Tokens], &[]),
+            Err(CoreError::NotAvailable(_))
+        ));
+        m.snapshot.vault = VaultState::Locked;
+        assert!(
+            m.update_keys(&id, &[KeyRequest::ReplaceMaster], &[])
+                .is_err()
+        );
     }
 
     /// FEAT-0019 AC-T7: the example's tokens are added, found and searched again through the

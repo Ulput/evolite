@@ -405,9 +405,7 @@ impl Real {
         // once would both find nothing, both create, and pay twice. One at a time, as a claim;
         // taken first, so a write running refuses the next before anything else.
         if self.identity_busy.swap(true, Ordering::Relaxed) {
-            return Err(CoreError::NotAvailable(
-                tr!("An identity is already being made or topped up").into(),
-            ));
+            return Err(super::identity_keys::identity_busy());
         }
         let busy = self.identity_busy.clone();
         let (id, keys) = match self.dashpay_ready() {

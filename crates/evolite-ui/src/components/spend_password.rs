@@ -136,6 +136,7 @@ pub fn wrong_text(what: Option<DoneWhat>) -> &'static str {
         Some(DoneWhat::App) => tr!("Wrong password — the app's request was not signed."),
         Some(DoneWhat::Gift) => tr!("Wrong password — the NFT was not given."),
         Some(DoneWhat::Disconnect) => tr!("Wrong password — the app was not disconnected."),
+        Some(DoneWhat::Keys) => tr!("Wrong password — the keys did not change."),
         None => tr!("Wrong password — the setting stays on."),
         Some(_) => tr!("Wrong password — the operation did not happen."),
     }

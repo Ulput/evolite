@@ -415,6 +415,9 @@ struct Real {
     contacts: Vec<Contact>,
     /// An identity is being made or finished: its lock is not "unfinished" meanwhile.
     identity_busy: Arc<AtomicBool>,
+    /// A key change whose outcome is not known yet (BUG-184): its line waits for a read that
+    /// shows it.
+    unclear_keys: ops::identity_keys::UnclearSlot,
     /// A payment from the Platform addresses is on its way: one at a time (FEAT-0015 R-2).
     address_busy: Arc<AtomicBool>,
     /// Each Platform address (bech32m) with its credits as the last snapshot showed them: the plan the
@@ -499,6 +502,8 @@ struct Real {
     previews: Arc<std::sync::Mutex<HashMap<String, String>>>,
     /// Apps signed in as an identity.
     apps: Arc<connected_apps::ConnectedApps>,
+    /// This phrase's public keys of each identity by its revision (FEAT-0020 АРХ-1): whose a key is.
+    this_keys: ops::identity_keys::ThisKeys,
     /// App requests shown and not answered yet, by request id.
     app_requests: Arc<std::sync::Mutex<HashMap<u64, AppJob>>>,
     next_app_request: Arc<std::sync::atomic::AtomicU64>,

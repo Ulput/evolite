@@ -952,6 +952,9 @@ pub fn demo_wallet(t: Timestamp) -> Wallet {
                     purpose: KeyPurpose::Identity,
                     kind: KeyKind::Ecdsa,
                     decrypts: false,
+                    disabled_at: None,
+                    bound_to: None,
+                    owner: KeyOwner::This,
                 },
                 IdentityKey {
                     id: 1,
@@ -959,6 +962,9 @@ pub fn demo_wallet(t: Timestamp) -> Wallet {
                     purpose: KeyPurpose::Documents,
                     kind: KeyKind::Ecdsa,
                     decrypts: false,
+                    disabled_at: None,
+                    bound_to: None,
+                    owner: KeyOwner::This,
                 },
                 // evolite's key 2: AUTHENTICATION, CRITICAL, as the real core shows it; platform-wallet
                 // signs token transfers with it (FEAT-0019).
@@ -968,6 +974,9 @@ pub fn demo_wallet(t: Timestamp) -> Wallet {
                     purpose: KeyPurpose::Documents,
                     kind: KeyKind::Ecdsa,
                     decrypts: false,
+                    disabled_at: None,
+                    bound_to: None,
+                    owner: KeyOwner::This,
                 },
                 IdentityKey {
                     id: 3,
@@ -975,6 +984,9 @@ pub fn demo_wallet(t: Timestamp) -> Wallet {
                     purpose: KeyPurpose::App("Yappr".into()),
                     kind: KeyKind::Ecdsa,
                     decrypts: false,
+                    disabled_at: None,
+                    bound_to: None,
+                    owner: KeyOwner::App("Yappr".into()),
                 },
                 // Jembe's key on the Apps screen.
                 IdentityKey {
@@ -983,6 +995,33 @@ pub fn demo_wallet(t: Timestamp) -> Wallet {
                     purpose: KeyPurpose::App("Jembe".into()),
                     kind: KeyKind::Ecdsa,
                     decrypts: false,
+                    disabled_at: None,
+                    bound_to: None,
+                    owner: KeyOwner::App("Jembe".into()),
+                },
+                // FEAT-0020 K1: a key disabled earlier (the date shows), and one another wallet
+                // added (it cannot sign here, nor be shown).
+                IdentityKey {
+                    id: 5,
+                    level: KeyLevel::High,
+                    purpose: KeyPurpose::Documents,
+                    kind: KeyKind::Ecdsa,
+                    decrypts: false,
+                    disabled_at: Some(1_762_300_800),
+                    bound_to: None,
+                    owner: KeyOwner::This,
+                },
+                // This wallet's encryption key: DashPay works in the demo (FEAT-0020 AC-T19). The
+                // kittests make it another wallet's to show K7.
+                IdentityKey {
+                    id: 6,
+                    level: KeyLevel::Medium,
+                    purpose: KeyPurpose::Encryption,
+                    kind: KeyKind::Ecdsa,
+                    decrypts: false,
+                    disabled_at: None,
+                    bound_to: None,
+                    owner: KeyOwner::This,
                 },
             ],
             profile: Some(PEOPLE[0].profile()),
@@ -1265,6 +1304,8 @@ pub fn demo_wallet(t: Timestamp) -> Wallet {
             name_vote_secs: 90 * 60,
             name_join_secs: 45 * 60,
             add_key: 10_000,
+            key_add_unbound: evolite_api::key_plan::KEY_ADD_UNBOUND,
+            key_add_bound: evolite_api::key_plan::KEY_ADD_BOUND,
             contact_request: 10_000,
             contact_request_balance: 230_000,
             profile: 15_000,

@@ -856,6 +856,8 @@ impl Real {
             )
         };
         let mut api = self.identity_of(m);
+        // Whose each key is, while the wallet is open (FEAT-0020).
+        self.fill_key_owners(&mut api, m);
         api.profile = m
             .dashpay()
             .profile

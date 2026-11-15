@@ -131,10 +131,11 @@ pub fn to_api(managed: &ManagedIdentity) -> Identity {
             contest: None,
         })
         .collect();
+    // Disabled keys too, with when (FEAT-0020 АРХ-4): the keys screen shows them as such;
+    // every «has a key for …» goes by `Identity::active_keys`.
     let keys = identity
         .public_keys()
         .values()
-        .filter(|k| k.disabled_at().is_none())
         .map(|k| IdentityKey {
             id: k.id(),
             level: match k.security_level() {
@@ -159,6 +160,13 @@ pub fn to_api(managed: &ManagedIdentity) -> Identity {
                 KeyType::BIP13_SCRIPT_HASH => KeyKind::Bip13Script,
             },
             decrypts: k.purpose() == Purpose::DECRYPTION,
+            // Platform keeps milliseconds.
+            disabled_at: k.disabled_at().map(|ms| (ms / 1_000) as i64),
+            bound_to: k
+                .contract_bounds()
+                .map(|b| b.identifier().to_string(Encoding::Base58)),
+            // The open wallet's keys say whose it is (`Real` fills it, АРХ-1).
+            owner: evolite_api::KeyOwner::Unknown,
         })
         .collect();
     Identity {
@@ -1001,4 +1009,206 @@ mod tests {
         assert_eq!(choose_created(wallet, Ok(3)), Ok(()));
         assert_eq!(chain::shown_slot(wallet, slots()), Some(3));
     }
+}
+
+/// Whose a key of an identity is (FEAT-0020 АРХ-1, AC-T1).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Owner {
+    /// This phrase's DIP-13 key of the identity's slot, by the key's number: it can sign and be
+    /// shown (R-10).
+    This,
+    /// An app's, by the key ids its sign-in left on this computer (`connected_apps`): App
+    /// Connect v2 keys come from per-sign-in paths, not from the identity's slot.
+    App(String),
+    /// Neither: another wallet's, an app's signed in elsewhere, or another slot's.
+    Other,
+}
+
+/// Whose the key `id` (`kind`, `data`) is. `this`: the compressed public key this phrase
+/// derives at `id` in the identity's slot, when the wallet is open and the identity is one of
+/// its slots; `apps`: key ids with the app that added them. A `ECDSA_HASH160` key is this
+/// wallet's when its data is the hash160 of that key (АРХ-1); every byte is compared.
+pub fn key_owner(
+    kind: KeyType,
+    id: u32,
+    data: &[u8],
+    this: Option<&[u8; 33]>,
+    apps: &[(u32, String)],
+) -> Owner {
+    use key_wallet::dashcore::hashes::{Hash, hash160};
+    if let Some(public) = this {
+        let mine = match kind {
+            KeyType::ECDSA_SECP256K1 => data == public.as_slice(),
+            KeyType::ECDSA_HASH160 => data == hash160::Hash::hash(public).as_byte_array(),
+            _ => false,
+        };
+        if mine {
+            return Owner::This;
+        }
+    }
+    apps.iter()
+        .find(|(key, _)| *key == id)
+        .map_or(Owner::Other, |(_, app)| Owner::App(app.clone()))
+}
+
+/// A private key as it is shown (FEAT-0020 R-10): WIF, compressed, with the network's prefix
+/// (testnet 239, mainnet 204 as Dash Core), and the 32 bytes in hex. Wiped when dropped.
+pub struct SecretWords {
+    pub wif: zeroize::Zeroizing<String>,
+    pub hex: zeroize::Zeroizing<String>,
+}
+
+/// The private key of identity slot `slot` at number `id` by this phrase (DIP-13,
+/// `m/9'/coin'/5'/0'/0'/slot'/id'`) — only when this phrase's public key there is the
+/// identity's key `kind`, `data` ([`key_owner`]'s comparison, АРХ-1). None for any other key.
+pub fn this_wallet_secret(
+    keys: &key_wallet::Wallet,
+    slot: u32,
+    id: u32,
+    kind: KeyType,
+    data: &[u8],
+) -> Option<SecretWords> {
+    let network = crate::network::dash();
+    let (_, xprv, public) = derive_identity_auth_keypair(keys, network, slot, id).ok()?;
+    if key_owner(kind, id, data, Some(&public.to_compressed()), &[]) != Owner::This {
+        return None;
+    }
+    let secret = zeroize::Zeroizing::new(*xprv.private_key.to_bytes());
+    secret_words(&secret, network)
+}
+
+/// `secret`'s WIF and hex on `network`.
+fn secret_words(secret: &[u8; 32], network: key_wallet::Network) -> Option<SecretWords> {
+    use std::fmt::Write;
+    let key = key_wallet::dashcore::PrivateKey::from_byte_array(secret, network).ok()?;
+    let wif = zeroize::Zeroizing::new(key.to_wif());
+    let mut hex = zeroize::Zeroizing::new(String::with_capacity(64));
+    for b in secret {
+        let _ = write!(hex, "{b:02x}");
+    }
+    Some(SecretWords { wif, hex })
+}
+
+#[cfg(test)]
+mod secret_tests {
+    use super::*;
+
+    /// The BIP-39 test vector's phrase: a published test key, never a wallet's.
+    fn test_wallet() -> key_wallet::Wallet {
+        crate::keys_of(
+            "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
+        )
+        .unwrap()
+    }
+
+    /// FEAT-0020 AC-T10: WIF and hex of a known key on both networks (Dash Core's prefixes:
+    /// testnet 239 as Bitcoin's testnet, mainnet 204).
+    #[test]
+    fn wif_and_hex_on_both_networks() {
+        let mut one = [0u8; 32];
+        one[31] = 1;
+        let test = secret_words(&one, key_wallet::Network::Testnet).unwrap();
+        assert_eq!(
+            *test.wif,
+            "cMahea7zqjxrtgAbB7LSGbcQUr1uX1ojuat9jZodMN87JcbXMTcA"
+        );
+        assert_eq!(*test.hex, format!("{}1", "0".repeat(63)));
+        let main = secret_words(&one, key_wallet::Network::Mainnet).unwrap();
+        assert!(main.wif.starts_with('X'), "{}", *main.wif);
+        // Read back by dashcore: the same key, compressed, on its network.
+        let back = key_wallet::dashcore::PrivateKey::from_wif(&main.wif).unwrap();
+        assert!(back.compressed);
+        assert_eq!(back.network, key_wallet::Network::Mainnet);
+        assert_eq!(back.to_bytes(), one.to_vec());
+    }
+
+    /// FEAT-0020 AC-T10: the key shown is the one whose public key is the identity's — whole
+    /// for ECDSA, by hash160; another key's bytes at that number give nothing.
+    #[test]
+    fn only_the_identitys_own_key_is_given() {
+        use key_wallet::dashcore::hashes::{Hash, hash160};
+        let keys = test_wallet();
+        let (_, xprv, public) =
+            derive_identity_auth_keypair(&keys, crate::network::dash(), 0, 2).unwrap();
+        let public = public.to_compressed();
+        let words = this_wallet_secret(&keys, 0, 2, KeyType::ECDSA_SECP256K1, &public).unwrap();
+        // The WIF's key is the derived one, whose public key is the identity's.
+        let back = key_wallet::dashcore::PrivateKey::from_wif(&words.wif).unwrap();
+        assert_eq!(back.to_bytes(), xprv.private_key.to_bytes().to_vec());
+        assert_eq!(words.hex.len(), 64);
+        let hashed = hash160::Hash::hash(&public);
+        assert!(
+            this_wallet_secret(&keys, 0, 2, KeyType::ECDSA_HASH160, hashed.as_byte_array())
+                .is_some()
+        );
+        let mut other = public;
+        other[5] ^= 1;
+        assert!(this_wallet_secret(&keys, 0, 2, KeyType::ECDSA_SECP256K1, &other).is_none());
+        assert!(this_wallet_secret(&keys, 1, 2, KeyType::ECDSA_SECP256K1, &public).is_none());
+        assert!(this_wallet_secret(&keys, 0, 2, KeyType::BLS12_381, &public).is_none());
+    }
+}
+
+#[cfg(test)]
+mod owner_tests {
+    use super::*;
+    use key_wallet::dashcore::hashes::{Hash, hash160};
+
+    /// FEAT-0020 AC-T1: this wallet's key by its DIP-13 public key — whole for ECDSA, by
+    /// hash160 for `ECDSA_HASH160`; an app's by the ids its sign-in left; anything else
+    /// another's, also a key of the right number whose bytes differ.
+    #[test]
+    fn whose_key_it_is() {
+        let public = [2u8; 33];
+        let hashed = hash160::Hash::hash(&public).to_byte_array();
+        let apps = vec![(7, "Jembe".to_owned())];
+        let owner = |kind, id, data: &[u8], this| key_owner(kind, id, data, this, &apps);
+        assert_eq!(
+            owner(KeyType::ECDSA_SECP256K1, 2, &public, Some(&public)),
+            Owner::This
+        );
+        assert_eq!(
+            owner(KeyType::ECDSA_HASH160, 2, &hashed, Some(&public)),
+            Owner::This
+        );
+        assert_eq!(
+            owner(KeyType::ECDSA_SECP256K1, 2, &[3u8; 33], Some(&public)),
+            Owner::Other,
+            "the number alone is not enough"
+        );
+        assert_eq!(
+            owner(KeyType::ECDSA_HASH160, 2, &public[..20], Some(&public)),
+            Owner::Other
+        );
+        assert_eq!(
+            owner(KeyType::ECDSA_SECP256K1, 7, &[9u8; 33], Some(&public)),
+            Owner::App("Jembe".into())
+        );
+        assert_eq!(
+            owner(KeyType::ECDSA_SECP256K1, 2, &public, None),
+            Owner::Other,
+            "locked"
+        );
+        assert_eq!(
+            owner(KeyType::BLS12_381, 2, &public, Some(&public)),
+            Owner::Other
+        );
+    }
+}
+
+/// This phrase's DIP-13 public keys of identity slot `slot` at the numbers `ids` (FEAT-0020
+/// АРХ-1): what [`key_owner`] compares an identity's keys with. Needs the open wallet; derived
+/// once per identity and revision by the caller.
+pub fn this_wallet_keys(
+    keys: &key_wallet::Wallet,
+    slot: u32,
+    ids: impl IntoIterator<Item = u32>,
+) -> std::collections::HashMap<u32, [u8; 33]> {
+    ids.into_iter()
+        .filter_map(|id| {
+            let (_, _, public) =
+                derive_identity_auth_keypair(keys, crate::network::dash(), slot, id).ok()?;
+            Some((id, public.to_compressed()))
+        })
+        .collect()
 }

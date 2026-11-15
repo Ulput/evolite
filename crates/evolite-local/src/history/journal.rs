@@ -246,6 +246,18 @@ pub enum Kind {
     },
     /// App Connect v2: an app's keys disabled.
     AppDisconnect { app: String },
+    /// FEAT-0020: the identity's keys changed from the keys screen — the numbers added and
+    /// disabled; `spent` is what the update cost (BUG-145).
+    KeysChanged {
+        #[serde(default)]
+        added: Vec<u32>,
+        #[serde(default)]
+        disabled: Vec<u32>,
+        /// Of `added`, how many are bound to a contract (DashPay's pair): what the fee of the
+        /// next one is learnt from, a key of each kind (BUG-183). 0 before it was kept.
+        #[serde(default)]
+        bound: u32,
+    },
     /// A token sent: which, to whom and how much, in words. `spent` is the fee only. `units`:
     /// the amount in the token's smallest units, kept from FEAT-0019 T-1 on (its document is
     /// matched by it, and the balance's change since a read leaves it out); none before.
@@ -328,6 +340,7 @@ impl Kind {
                 app.clone()
             }
             Kind::TokenSent { to, .. } => to.clone(),
+            Kind::KeysChanged { .. } => "keys".into(),
             Kind::TokenReceived { from, .. } => from.clone(),
             Kind::TokenBalance { token, .. }
             | Kind::TokenClaimed { token, .. }
@@ -738,6 +751,15 @@ pub fn activity(entry: &Entry) -> Activity {
         (Some(Kind::AppDisconnect { app }), _) => {
             ActivityKind::AppDisconnected { app: app.clone() }
         }
+        (
+            Some(Kind::KeysChanged {
+                added, disabled, ..
+            }),
+            _,
+        ) => ActivityKind::KeysChanged {
+            added: added.clone(),
+            disabled: disabled.clone(),
+        },
         (
             Some(Kind::TokenSent {
                 token, to, amount, ..
@@ -1828,5 +1850,39 @@ mod token_history_tests {
                 amount: "5.00".into(),
             }
         );
+    }
+}
+
+#[cfg(test)]
+mod key_change_tests {
+    use super::*;
+
+    /// FEAT-0020, BUG-145: a change of the identity's keys is a line of its History with what it
+    /// cost — the numbers added and disabled, the credits it took, flowing out.
+    #[test]
+    fn a_key_change_is_a_line_with_its_cost() {
+        let entry = entry_of(
+            Kind::KeysChanged {
+                added: vec![7],
+                disabled: vec![0],
+                bound: 0,
+            },
+            1_793_000_000,
+            1_234,
+            Some("Id".into()),
+        );
+        let line = activity(&entry);
+        assert_eq!(
+            line.kind,
+            ActivityKind::KeysChanged {
+                added: vec![7],
+                disabled: vec![0]
+            }
+        );
+        assert_eq!(line.amount, -1_234, "the cost in duffs");
+        // Read back from the file: the kind and its numbers stay.
+        let text = serde_json::to_string(&entry).unwrap();
+        let back: Entry = serde_json::from_str(&text).unwrap();
+        assert_eq!(activity(&back).kind, line.kind);
     }
 }

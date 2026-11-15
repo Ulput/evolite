@@ -1234,6 +1234,8 @@ pub(crate) mod tests {
             name_vote_secs: 90 * 60,
             name_join_secs: 45 * 60,
             add_key: 10_000,
+            key_add_unbound: evolite_api::key_plan::KEY_ADD_UNBOUND,
+            key_add_bound: evolite_api::key_plan::KEY_ADD_BOUND,
             contact_request: 10_000,
             contact_request_balance: 230_000,
             profile: 15_000,
