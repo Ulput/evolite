@@ -546,7 +546,10 @@ fn shield_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut PoolStat
                     if button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked() {
                         close = true;
                     }
-                    let ready = !busy && can && state.password.ready(ask);
+                    // BUG-177: a shield just done is not offered again on the same amount: a new
+                    // amount typed starts the next one (`forget_success`).
+                    let done = matches!(result_of(&state.result, PoolMove::Shield), Some(Ok(())));
+                    let ready = !busy && !done && can && state.password.ready(ask);
                     let label = match (busy, resume) {
                         (true, _) => tr!("Shielding…"),
                         (false, true) => tr!("Continue"),
@@ -866,7 +869,9 @@ fn unshield_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut PoolSt
                     if button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked() {
                         close = true;
                     }
-                    let ready = !busy && fits && state.password.ready(ask);
+                    // BUG-177: the same for an unshield just done.
+                    let done = matches!(result_of(&state.result, PoolMove::Unshield), Some(Ok(())));
+                    let ready = !busy && !done && fits && state.password.ready(ask);
                     let label = if busy {
                         tr!("Unshielding…")
                     } else {

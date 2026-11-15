@@ -1855,5 +1855,6 @@
   "{} epoch|{} epochs": {"one":"{} dönem","other":"{} dönem"},
   "{} hour|{} hours": {"one":"{} saat","other":"{} saat"},
   "fee: no record": "ücret: kayıt yok",
-  "this identity's keys were changed in another app or on another device — try again": "bu identity'nin anahtarları başka bir uygulamada veya başka bir cihazda değiştirildi — tekrar deneyin"
+  "this identity's keys were changed in another app or on another device — try again": "bu identity'nin anahtarları başka bir uygulamada veya başka bir cihazda değiştirildi — tekrar deneyin",
+  "Top up again": "Tekrar yükle"
 }

@@ -1842,5 +1842,6 @@
   "{} epoch|{} epochs": {"other":"{} epoch"},
   "{} hour|{} hours": {"other":"{} jam"},
   "fee: no record": "biaya: tidak ada catatan",
-  "this identity's keys were changed in another app or on another device — try again": "kunci identity ini diubah di aplikasi lain atau di perangkat lain — coba lagi"
+  "this identity's keys were changed in another app or on another device — try again": "kunci identity ini diubah di aplikasi lain atau di perangkat lain — coba lagi",
+  "Top up again": "Isi ulang lagi"
 }

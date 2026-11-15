@@ -1868,5 +1868,6 @@
   "{} epoch|{} epochs": {"many":"{} épocas","one":"{} época","other":"{} épocas"},
   "{} hour|{} hours": {"many":"{} horas","one":"{} hora","other":"{} horas"},
   "fee: no record": "comisión: sin datos",
-  "this identity's keys were changed in another app or on another device — try again": "las claves de esta identity se cambiaron en otra aplicación o en otro dispositivo: inténtalo de nuevo"
+  "this identity's keys were changed in another app or on another device — try again": "las claves de esta identity se cambiaron en otra aplicación o en otro dispositivo: inténtalo de nuevo",
+  "Top up again": "Recargar de nuevo"
 }

@@ -1881,5 +1881,6 @@
   "{} epoch|{} epochs": {"few":"{} епохи","many":"{} епох","one":"{} епоху","other":"{} епохи"},
   "{} hour|{} hours": {"few":"{} години","many":"{} годин","one":"{} годину","other":"{} години"},
   "fee: no record": "комісія: немає відомостей",
-  "this identity's keys were changed in another app or on another device — try again": "ключі цієї identity змінили в іншому застосунку або на іншому пристрої — спробуйте ще раз"
+  "this identity's keys were changed in another app or on another device — try again": "ключі цієї identity змінили в іншому застосунку або на іншому пристрої — спробуйте ще раз",
+  "Top up again": "Поповнити ще"
 }

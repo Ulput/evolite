@@ -1855,5 +1855,6 @@
   "{} epoch|{} epochs": {"one":"{} युग","other":"{} युग"},
   "{} hour|{} hours": {"one":"{} घंटा","other":"{} घंटे"},
   "fee: no record": "शुल्क: कोई जानकारी नहीं",
-  "this identity's keys were changed in another app or on another device — try again": "इस identity की कुंजियाँ किसी दूसरे ऐप या दूसरे डिवाइस पर बदली गई हैं — फिर से कोशिश करें"
+  "this identity's keys were changed in another app or on another device — try again": "इस identity की कुंजियाँ किसी दूसरे ऐप या दूसरे डिवाइस पर बदली गई हैं — फिर से कोशिश करें",
+  "Top up again": "फिर से टॉप-अप"
 }

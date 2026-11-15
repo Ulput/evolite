@@ -1907,5 +1907,6 @@
   "{} epoch|{} epochs": {"few":"{} حقب","many":"{} حقبة","one":"حقبة واحدة","other":"{} حقبة","two":"حقبتين","zero":"{} حقبة"},
   "{} hour|{} hours": {"few":"{} ساعات","many":"{} ساعة","one":"ساعة واحدة","other":"{} ساعة","two":"ساعتين","zero":"{} ساعة"},
   "fee: no record": "الرسوم: لا توجد بيانات",
-  "this identity's keys were changed in another app or on another device — try again": "تم تغيير مفاتيح هذه الهوية في تطبيق آخر أو على جهاز آخر — حاول مرة أخرى"
+  "this identity's keys were changed in another app or on another device — try again": "تم تغيير مفاتيح هذه الهوية في تطبيق آخر أو على جهاز آخر — حاول مرة أخرى",
+  "Top up again": "شحن مرة أخرى"
 }

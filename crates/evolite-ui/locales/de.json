@@ -1855,5 +1855,6 @@
   "{} epoch|{} epochs": {"one":"{} Epoche","other":"{} Epochen"},
   "{} hour|{} hours": {"one":"{} Stunde","other":"{} Stunden"},
   "fee: no record": "Gebühr: keine Angaben",
-  "this identity's keys were changed in another app or on another device — try again": "die Schlüssel dieser Identity wurden in einer anderen App oder auf einem anderen Gerät geändert – versuchen Sie es erneut"
+  "this identity's keys were changed in another app or on another device — try again": "die Schlüssel dieser Identity wurden in einer anderen App oder auf einem anderen Gerät geändert – versuchen Sie es erneut",
+  "Top up again": "Erneut aufladen"
 }

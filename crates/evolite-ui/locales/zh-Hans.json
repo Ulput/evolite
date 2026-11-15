@@ -1842,5 +1842,6 @@
   "{} epoch|{} epochs": {"other":"{} 个纪元"},
   "{} hour|{} hours": {"other":"{} 小时"},
   "fee: no record": "手续费：无记录",
-  "this identity's keys were changed in another app or on another device — try again": "此 identity 的密钥已在其他应用或其他设备上更改——请重试"
+  "this identity's keys were changed in another app or on another device — try again": "此 identity 的密钥已在其他应用或其他设备上更改——请重试",
+  "Top up again": "再次充值"
 }

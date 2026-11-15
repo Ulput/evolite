@@ -1842,5 +1842,6 @@
   "{} epoch|{} epochs": {"other":"{} エポック"},
   "{} hour|{} hours": {"other":"{} 時間"},
   "fee: no record": "手数料：記録なし",
-  "this identity's keys were changed in another app or on another device — try again": "この identity の鍵が別のアプリまたは別のデバイスで変更されました。もう一度お試しください"
+  "this identity's keys were changed in another app or on another device — try again": "この identity の鍵が別のアプリまたは別のデバイスで変更されました。もう一度お試しください",
+  "Top up again": "もう一度チャージ"
 }

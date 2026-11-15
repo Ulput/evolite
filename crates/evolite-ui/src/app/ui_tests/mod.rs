@@ -54,6 +54,7 @@ mod sync;
 mod tab_sweep;
 mod token_actions;
 mod tokens;
+mod top_up_twice;
 mod wallets;
 
 use super::App;

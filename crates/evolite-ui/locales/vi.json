@@ -1842,5 +1842,6 @@
   "{} epoch|{} epochs": {"other":"{} kỷ nguyên"},
   "{} hour|{} hours": {"other":"{} giờ"},
   "fee: no record": "phí: không có dữ liệu",
-  "this identity's keys were changed in another app or on another device — try again": "khóa của identity này đã được đổi trong ứng dụng khác hoặc trên thiết bị khác — hãy thử lại"
+  "this identity's keys were changed in another app or on another device — try again": "khóa của identity này đã được đổi trong ứng dụng khác hoặc trên thiết bị khác — hãy thử lại",
+  "Top up again": "Nạp thêm"
 }
