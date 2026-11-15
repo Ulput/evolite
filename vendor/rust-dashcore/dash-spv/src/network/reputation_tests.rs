@@ -45,6 +45,21 @@ mod tests {
         assert!(manager.is_banned(&peer).await);
     }
 
+    /// evolite (SPV item 1): invalid block headers ban at once, for an hour; other bans
+    /// keep their day.
+    #[tokio::test]
+    async fn invalid_headers_ban_at_once_for_an_hour() {
+        let manager = PeerReputationManager::new();
+        let peer: SocketAddr = "192.168.1.2:8333".parse().unwrap();
+
+        assert!(manager.update_reputation(peer, ChangeReason::InvalidHeaders).await);
+
+        let remaining = manager.get_all_reputations().await[&peer].ban_time_remaining().unwrap();
+        assert!(remaining <= Duration::from_secs(60 * 60), "{remaining:?}");
+        assert!(remaining > Duration::from_secs(59 * 60), "{remaining:?}");
+        assert_eq!(ChangeReason::ManuallyBanned.ban_duration(), Duration::from_secs(24 * 60 * 60));
+    }
+
     #[tokio::test]
     async fn test_reputation_persistence() {
         let manager = PeerReputationManager::new();

@@ -1,0 +1,762 @@
+diff --git a/dash-spv/src/network/manager.rs b/dash-spv/src/network/manager.rs
+index 2b54a74f..5bbb1620 100644
+--- a/dash-spv/src/network/manager.rs
++++ b/dash-spv/src/network/manager.rs
+@@ -1045,14 +1045,23 @@ impl PeerNetworkManager {
+                             }
+                             Some(NetworkRequest::BanPeer(peer_address, reason)) => {
+                                 // evolite (SPV P0): the ban #1304 gives a peer that sent
+-                                // invalid headers, through the existing manual ban.
++                                // invalid headers; for an hour (SPV item 1).
+                                 let this = this.clone();
+                                 tokio::spawn(async move {
+-                                    if let Err(e) = this.ban_peer(&peer_address, &reason).await {
++                                    if let Err(e) = this.ban_peer_for(&peer_address, &reason, ChangeReason::InvalidHeaders).await {
+                                         tracing::warn!("Request processor: failed to ban peer {}: {}", peer_address, e);
+                                     }
+                                 });
+                             }
++                            Some(NetworkRequest::DisconnectPeer(peer_address, reason)) => {
++                                // evolite (SPV item 1): a fork too long without more work.
++                                let this = this.clone();
++                                tokio::spawn(async move {
++                                    if let Err(e) = this.disconnect_peer(&peer_address, &reason).await {
++                                        tracing::warn!("Request processor: failed to disconnect peer {}: {}", peer_address, e);
++                                    }
++                                });
++                            }
+                             None => {
+                                 tracing::info!("Request processor: channel closed");
+                                 break;
+@@ -1730,13 +1739,24 @@ impl PeerNetworkManager {
+ 
+     /// Ban a specific peer manually
+     pub async fn ban_peer(&self, addr: &SocketAddr, reason: &str) -> Result<(), Error> {
+-        tracing::info!("Manually banning peer {} - reason: {}", addr, reason);
++        self.ban_peer_for(addr, reason, ChangeReason::ManuallyBanned).await
++    }
++
++    /// evolite (SPV item 1): disconnect and ban `addr` for `why`, which sets how long
++    /// (`ChangeReason::ban_duration`).
++    pub async fn ban_peer_for(
++        &self,
++        addr: &SocketAddr,
++        reason: &str,
++        why: ChangeReason,
++    ) -> Result<(), Error> {
++        tracing::info!("Banning peer {} ({}) - reason: {}", addr, why, reason);
+ 
+         // Disconnect the peer first
+         self.disconnect_peer(addr, reason).await?;
+ 
+         // Update reputation to trigger ban
+-        self.reputation_manager.update_reputation(*addr, ChangeReason::ManuallyBanned).await;
++        self.reputation_manager.update_reputation(*addr, why).await;
+ 
+         Ok(())
+     }
+diff --git a/dash-spv/src/network/mod.rs b/dash-spv/src/network/mod.rs
+index c32964ed..d01e096e 100644
+--- a/dash-spv/src/network/mod.rs
++++ b/dash-spv/src/network/mod.rs
+@@ -54,6 +54,9 @@ pub enum NetworkRequest {
+     /// evolite (SPV P0, an adaptation of #1304 without the #902 network): ban a peer that
+     /// sent block headers failing validation, as `PeerNetworkManager::ban_peer` does.
+     BanPeer(SocketAddr, String),
++    /// evolite (SPV item 1): disconnect a peer, without a ban, whose fork got longer than
++    /// we hold without having more work than ours.
++    DisconnectPeer(SocketAddr, String),
+ }
+ 
+ /// Handle for managers to queue outgoing network requests.
+@@ -96,6 +99,13 @@ impl RequestSender {
+             .map_err(|e| NetworkError::ProtocolError(e.to_string()))
+     }
+ 
++    /// evolite (SPV item 1): disconnect `address`, without a ban.
++    pub fn disconnect_peer(&self, address: SocketAddr, reason: &str) -> NetworkResult<()> {
++        self.tx
++            .send(NetworkRequest::DisconnectPeer(address, reason.to_owned()))
++            .map_err(|e| NetworkError::ProtocolError(e.to_string()))
++    }
++
+     /// Queue a message to be broadcast to all connected peers.
+     pub(crate) fn broadcast(&self, msg: NetworkMessage) -> NetworkResult<()> {
+         self.tx
+diff --git a/dash-spv/src/network/reputation.rs b/dash-spv/src/network/reputation.rs
+index 7af33a3d..33d85f3e 100644
+--- a/dash-spv/src/network/reputation.rs
++++ b/dash-spv/src/network/reputation.rs
+@@ -28,6 +28,9 @@ pub enum ChangeReason {
+     PingFailed,
+     InvalidTransactionInBlock,
+     ManuallyBanned,
++    /// evolite (SPV item 1): sent block headers that fail validation (proof of work,
++    /// continuity, Dark Gravity Wave). Banned at once, for an hour.
++    InvalidHeaders,
+ }
+ 
+ impl ChangeReason {
+@@ -41,6 +44,15 @@ impl ChangeReason {
+             ChangeReason::PingFailed => 5,
+             ChangeReason::InvalidTransactionInBlock => 20,
+             ChangeReason::ManuallyBanned => 100,
++            ChangeReason::InvalidHeaders => 100,
++        }
++    }
++
++    /// evolite (SPV item 1): how long a ban this reason causes lasts.
++    pub fn ban_duration(&self) -> Duration {
++        match self {
++            ChangeReason::InvalidHeaders => INVALID_HEADERS_BAN_DURATION,
++            _ => BAN_DURATION,
+         }
+     }
+ }
+@@ -55,6 +67,7 @@ impl std::fmt::Display for ChangeReason {
+             ChangeReason::PingFailed => "Ping failed",
+             ChangeReason::InvalidTransactionInBlock => "Invalid transaction type in block",
+             ChangeReason::ManuallyBanned => "Manually banned",
++            ChangeReason::InvalidHeaders => "Invalid block headers",
+         };
+         f.write_str(label)
+     }
+@@ -63,6 +76,9 @@ impl std::fmt::Display for ChangeReason {
+ /// Ban duration for misbehaving peers
+ const BAN_DURATION: Duration = Duration::from_secs(24 * 60 * 60); // 24 hours
+ 
++/// evolite (SPV item 1): the ban for invalid block headers, an hour.
++const INVALID_HEADERS_BAN_DURATION: Duration = Duration::from_secs(60 * 60);
++
+ /// Reputation decay interval
+ const DECAY_INTERVAL: Duration = Duration::from_secs(60 * 60); // 1 hour
+ 
+@@ -286,7 +302,7 @@ impl PeerReputationManager {
+         // Check if peer should be banned
+         let should_ban = reputation.score >= MAX_MISBEHAVIOR_SCORE && !reputation.is_banned();
+         if should_ban {
+-            reputation.banned_until = Some(Instant::now() + BAN_DURATION);
++            reputation.banned_until = Some(Instant::now() + reason.ban_duration());
+             reputation.ban_count += 1;
+             tracing::warn!(
+                 "Peer {} banned for misbehavior (score: {}, ban #{}, reason: {})",
+diff --git a/dash-spv/src/network/reputation_tests.rs b/dash-spv/src/network/reputation_tests.rs
+index 71546cab..c98daa00 100644
+--- a/dash-spv/src/network/reputation_tests.rs
++++ b/dash-spv/src/network/reputation_tests.rs
+@@ -45,6 +45,21 @@ mod tests {
+         assert!(manager.is_banned(&peer).await);
+     }
+ 
++    /// evolite (SPV item 1): invalid block headers ban at once, for an hour; other bans
++    /// keep their day.
++    #[tokio::test]
++    async fn invalid_headers_ban_at_once_for_an_hour() {
++        let manager = PeerReputationManager::new();
++        let peer: SocketAddr = "192.168.1.2:8333".parse().unwrap();
++
++        assert!(manager.update_reputation(peer, ChangeReason::InvalidHeaders).await);
++
++        let remaining = manager.get_all_reputations().await[&peer].ban_time_remaining().unwrap();
++        assert!(remaining <= Duration::from_secs(60 * 60), "{remaining:?}");
++        assert!(remaining > Duration::from_secs(59 * 60), "{remaining:?}");
++        assert_eq!(ChangeReason::ManuallyBanned.ban_duration(), Duration::from_secs(24 * 60 * 60));
++    }
++
+     #[tokio::test]
+     async fn test_reputation_persistence() {
+         let manager = PeerReputationManager::new();
+diff --git a/dash-spv/src/sync/block_headers/manager.rs b/dash-spv/src/sync/block_headers/manager.rs
+index 787ec0fc..e794980f 100644
+--- a/dash-spv/src/sync/block_headers/manager.rs
++++ b/dash-spv/src/sync/block_headers/manager.rs
+@@ -11,7 +11,7 @@ use std::net::SocketAddr;
+ use std::sync::Arc;
+ use std::time::Instant;
+ 
+-use crate::chain::CheckpointManager;
++use crate::chain::{ChainWork, CheckpointManager};
+ use crate::error::{SyncError, SyncResult};
+ use crate::network::RequestSender;
+ use crate::storage::{BlockHeaderStorage, BlockHeaderTip, MetadataStorage};
+@@ -29,6 +29,27 @@ use dashcore::pow::DGW_PAST_BLOCKS;
+ use dashcore::{BlockHash, Network};
+ use tokio::sync::RwLock;
+ 
++/// evolite (SPV item 1): the most headers a branch is held in memory for while it has
++/// no more work than ours. Past that it is dropped and its peer disconnected.
++pub(super) const MAX_FORK_HEADERS: usize = 2016;
++
++/// evolite (SPV item 1): a valid branch off the stored chain below its tip, held until
++/// it has more work than ours from the fork point. Nothing is trimmed meanwhile.
++#[derive(Debug)]
++pub(super) struct ForkBranch {
++    /// The peer that sent it.
++    peer: SocketAddr,
++    /// Height of the stored block it branches off.
++    fork_height: u32,
++    /// Its headers, from the one on the fork point on, all validated.
++    headers: Vec<HashedBlockHeader>,
++}
++
++/// Total proof of work of `headers`.
++fn work(headers: &[HashedBlockHeader]) -> ChainWork {
++    headers.iter().fold(ChainWork::zero(), |work, header| work.add_header(header.header()))
++}
++
+ /// Headers manager for downloading and validating block headers.
+ ///
+ /// This manager handles:
+@@ -54,6 +75,8 @@ pub struct BlockHeadersManager<H: BlockHeaderStorage, M: MetadataStorage> {
+     pub(super) announced_peers: HashSet<SocketAddr>,
+     /// Network whose difficulty rules new headers are checked against.
+     network: Network,
++    /// evolite (SPV item 1): a branch that doesn't have more work than ours yet.
++    pub(super) fork: Option<ForkBranch>,
+ }
+ 
+ impl<H: BlockHeaderStorage, M: MetadataStorage> std::fmt::Debug for BlockHeadersManager<H, M> {
+@@ -100,6 +123,7 @@ impl<H: BlockHeaderStorage, M: MetadataStorage> BlockHeadersManager<H, M> {
+             pending_announcements: HashMap::new(),
+             announced_peers: HashSet::new(),
+             network,
++            fork: None,
+         })
+     }
+ 
+@@ -187,14 +211,29 @@ impl<H: BlockHeaderStorage, M: MetadataStorage> BlockHeadersManager<H, M> {
+             }
+         }
+ 
++        // evolite (SPV item 1): the next headers of a branch we hold.
++        if let Some(events) = self.extend_fork(peer, headers, requests).await? {
++            return Ok(events);
++        }
++
+         // Route headers to the pipeline, validates checkpoint match.
+         let matched = self.pipeline.receive_headers(headers)?;
+ 
+         if matched.is_none() && !headers.is_empty() {
+             if let Some(fork_height) = self.fork_height(headers).await? {
+-                return Ok(vec![SyncEvent::ForkDetected {
++                // evolite (SPV item 1): a fork is followed only once it has more work than
++                // our chain from the fork point; until then it is held, nothing trimmed.
++                let new = self.unstored(headers).await?;
++                if new.len() > MAX_FORK_HEADERS {
++                    self.drop_fork_peer(peer, requests);
++                    return Ok(vec![]);
++                }
++                self.fork = Some(ForkBranch {
++                    peer,
+                     fork_height,
+-                }]);
++                    headers: new,
++                });
++                return self.weigh_fork(requests).await;
+             }
+             tracing::debug!(
+                 "Headers not matched by pipeline (prev_hash: {}), may be post-sync update",
+@@ -233,6 +272,156 @@ impl<H: BlockHeaderStorage, M: MetadataStorage> BlockHeadersManager<H, M> {
+         Ok(events)
+     }
+ 
++    /// evolite (SPV item 1): `headers` past the ones we already store.
++    async fn unstored(&self, headers: &[HashedBlockHeader]) -> SyncResult<Vec<HashedBlockHeader>> {
++        let storage = self.header_storage.read().await;
++        let mut stored = 0;
++        for header in headers {
++            if storage.get_header_height_by_hash(header.hash()).await?.is_none() {
++                break;
++            }
++            stored += 1;
++        }
++        Ok(headers[stored..].to_vec())
++    }
++
++    /// evolite (SPV item 1): takes `headers` that continue the branch we hold. `None`
++    /// if they don't continue it, and the usual routing goes on.
++    ///
++    /// They are validated against the branch below them (continuity, proof of work,
++    /// Dark Gravity Wave over stored ancestors and the branch). Invalid ones drop the
++    /// branch and ban the peer; a branch past [`MAX_FORK_HEADERS`] is dropped and its
++    /// peer disconnected.
++    async fn extend_fork(
++        &mut self,
++        peer: SocketAddr,
++        headers: &[HashedBlockHeader],
++        requests: &RequestSender,
++    ) -> SyncResult<Option<Vec<SyncEvent>>> {
++        let (Some(branch), Some(first)) = (&self.fork, headers.first()) else {
++            return Ok(None);
++        };
++        let Some(branch_tip) = branch.headers.last() else {
++            return Ok(None);
++        };
++        if first.header().prev_blockhash != *branch_tip.hash() {
++            return Ok(None);
++        }
++
++        let fork_height = branch.fork_height;
++        let held = branch.headers.len();
++        let mut ancestors = self.ancestors(fork_height).await?;
++        if let Some(branch) = &self.fork {
++            ancestors.extend(branch.headers.iter().map(|header| *header.header()));
++        }
++        let ancestors = ancestors.split_off(ancestors.len().saturating_sub(DGW_PAST_BLOCKS));
++        let height = fork_height + held as u32;
++        if let Err(e) = BlockHeaderValidator::new(self.network, ancestors, height).validate(headers)
++        {
++            self.fork = None;
++            let _ = requests.ban_peer(peer, &format!("invalid fork headers: {e}"));
++            return Err(e.into());
++        }
++
++        let Some(branch) = self.fork.as_mut() else {
++            return Ok(None);
++        };
++        branch.headers.extend_from_slice(headers);
++        if branch.headers.len() > MAX_FORK_HEADERS {
++            self.drop_fork_peer(peer, requests);
++            return Ok(Some(vec![]));
++        }
++        self.weigh_fork(requests).await.map(Some)
++    }
++
++    /// evolite (SPV item 1): drops the branch we hold and disconnects `peer`, whose
++    /// branch got longer than we keep without having more work.
++    fn drop_fork_peer(&mut self, peer: SocketAddr, requests: &RequestSender) {
++        tracing::warn!(
++            "Dropping a fork of more than {} headers without more work than ours, from {}",
++            MAX_FORK_HEADERS,
++            peer
++        );
++        self.fork = None;
++        let _ = requests.disconnect_peer(peer, "fork too long without more work");
++    }
++
++    /// evolite (SPV item 1): `ForkDetected` once the branch we hold has strictly more
++    /// work than our chain from the fork point to the tip. On equal work we stay on
++    /// the chain we saw first, as Dash Core does. Below a ChainLock or checkpoint that
++    /// arrived since, the branch is dropped. Otherwise the peer is asked for more of it.
++    async fn weigh_fork(&mut self, requests: &RequestSender) -> SyncResult<Vec<SyncEvent>> {
++        let Some(fork_height) = self.fork.as_ref().map(|branch| branch.fork_height) else {
++            return Ok(vec![]);
++        };
++        let tip = self.tip().await?.height();
++        if fork_height >= tip || self.is_final(fork_height, tip).await? {
++            self.fork = None;
++            return Ok(vec![]);
++        }
++
++        let ours = self.header_storage.read().await.load_headers(fork_height + 1..tip + 1).await?;
++        let our_work = work(&ours);
++        let Some(branch) = &self.fork else {
++            return Ok(vec![]);
++        };
++        if work(&branch.headers) > our_work {
++            tracing::info!(
++                "Fork at height {} has more work than ours ({} headers against {}), switching",
++                fork_height,
++                branch.headers.len(),
++                ours.len()
++            );
++            self.fork = None;
++            return Ok(vec![SyncEvent::ForkDetected {
++                fork_height,
++            }]);
++        }
++
++        tracing::debug!(
++            "Holding a fork at height {} ({} headers) until it has more work than ours",
++            fork_height,
++            branch.headers.len()
++        );
++        if let Some(branch_tip) = branch.headers.last() {
++            let _ = requests.request_block_headers_from_peer(*branch_tip.hash(), branch.peer);
++        }
++        Ok(vec![])
++    }
++
++    /// Whether blocks above `fork_height` are final: below the newest checkpoint the
++    /// stored chain (tip `tip`) reaches, or below the best ChainLock.
++    async fn is_final(&self, fork_height: u32, tip: u32) -> SyncResult<bool> {
++        if let Some(checkpoint) = self
++            .checkpoint_manager
++            .last_checkpoint_before_height(tip)
++            .filter(|checkpoint| fork_height < checkpoint.height())
++        {
++            tracing::warn!(
++                "Ignoring a fork at height {}, below the checkpoint at {}",
++                fork_height,
++                checkpoint.height()
++            );
++            return Ok(true);
++        }
++
++        let chain_lock = self
++            .metadata_storage
++            .read()
++            .await
++            .load_metadata::<ChainLock>(BEST_CHAINLOCK_METADATA_STORAGE_KEY)
++            .await?;
++        if let Some(chain_lock) = chain_lock.filter(|cl| fork_height < cl.block_height) {
++            tracing::warn!(
++                "Ignoring a fork at height {}, below the ChainLock at {}",
++                fork_height,
++                chain_lock.block_height
++            );
++            return Ok(true);
++        }
++        Ok(false)
++    }
++
+     /// Height where `headers` branch off the stored chain below its tip, if they
+     /// do. A branch off below the best ChainLock, or below the newest checkpoint
+     /// the stored chain reaches, is not followed: the blocks they fix are final.
+@@ -247,38 +436,18 @@ impl<H: BlockHeaderStorage, M: MetadataStorage> BlockHeadersManager<H, M> {
+ 
+             let parent = storage.get_header_height_by_hash(&header.header().prev_blockhash).await?;
+             let tip = storage.get_tip_height().await;
+-            let Some(fork_height) = parent.filter(|&parent| tip.is_some_and(|tip| parent < tip))
++            let (Some(fork_height), Some(tip)) =
++                (parent.filter(|&parent| tip.is_some_and(|tip| parent < tip)), tip)
+             else {
+                 return Ok(None);
+             };
++            drop(storage);
+ 
+-            if let Some(checkpoint) = tip
+-                .and_then(|tip| self.checkpoint_manager.last_checkpoint_before_height(tip))
+-                .filter(|checkpoint| fork_height < checkpoint.height())
+-            {
+-                tracing::warn!(
+-                    "Ignoring a fork at height {}, below the checkpoint at {}",
+-                    fork_height,
+-                    checkpoint.height()
+-                );
+-                return Ok(None);
+-            }
+-
+-            let chain_lock = self
+-                .metadata_storage
+-                .read()
+-                .await
+-                .load_metadata::<ChainLock>(BEST_CHAINLOCK_METADATA_STORAGE_KEY)
+-                .await?;
+-            if let Some(chain_lock) = chain_lock.filter(|cl| fork_height < cl.block_height) {
+-                tracing::warn!(
+-                    "Ignoring a fork at height {}, below the ChainLock at {}",
+-                    fork_height,
+-                    chain_lock.block_height
+-                );
++            // evolite (SPV item 1): the same rule decides again before a held branch is
++            // followed, as a ChainLock may come meanwhile (`is_final`).
++            if self.is_final(fork_height, tip).await? {
+                 return Ok(None);
+             }
+-
+             return Ok(Some(fork_height));
+         }
+ 
+@@ -579,7 +748,9 @@ mod tests {
+         let forked = result.is_ok_and(|events| {
+             events.iter().any(|event| matches!(event, SyncEvent::ForkDetected { .. }))
+         });
+-        assert_eq!(forked, valid && parent < 4);
++        // evolite (SPV item 1): one header off 2 has less work than ours above it, so
++        // it is held, never followed (`a_valid_fork_with_more_work_is_followed`).
++        assert!(!forked, "one header has no more work than ours");
+         let tip = if valid && parent == 4 {
+             5
+         } else {
+@@ -639,6 +810,290 @@ mod tests {
+         assert_eq!(manager.tip().await.unwrap().height(), tip, "the tip stays");
+     }
+ 
++    /// evolite (SPV item 1): heights where regtest checks a header's bits against its
++    /// limit (past Dark Gravity Wave's height, 34140), with the newest testnet
++    /// checkpoint below them at 50000. Fork points in the tests are above it.
++    const FORK_BASE: u32 = 50_000;
++
++    /// Regtest's proof-of-work limit, the bits required at [`FORK_BASE`].
++    const EASY: u32 = 0x207f_ffff;
++
++    /// A header on `prev` with `bits` whose proof of work holds; `salt` sets it apart
++    /// from a sibling.
++    fn mined(prev: BlockHash, bits: u32, salt: u32) -> Header {
++        let mut header = Header {
++            prev_blockhash: prev,
++            bits: dashcore::CompactTarget::from_consensus(bits),
++            time: salt,
++            nonce: 0,
++            ..Header::dummy(0)
++        };
++        while !header.target().is_met_by(header.block_hash()) {
++            header.nonce += 1;
++        }
++        header
++    }
++
++    /// `count` mined headers on `prev`, each with `bits`.
++    fn mined_chain(prev: BlockHash, count: usize, bits: u32, salt: u32) -> Vec<HashedBlockHeader> {
++        let mut chain: Vec<HashedBlockHeader> = Vec::with_capacity(count);
++        for i in 0..count {
++            let parent = chain.last().map_or(prev, |header| *header.hash());
++            chain.push(mined(parent, bits, salt + i as u32).into());
++        }
++        chain
++    }
++
++    /// A synced regtest manager whose stored chain is `ours`, from height `start`.
++    async fn fork_manager(
++        start: u32,
++        ours: &[HashedBlockHeader],
++    ) -> (TestBlockHeadersManager, DiskStorageManager) {
++        let mut storage = DiskStorageManager::with_temp_dir().await.unwrap();
++        storage.store_headers_at_height(ours, start).await.unwrap();
++        let mut manager = BlockHeadersManager::new(
++            storage.block_headers(),
++            storage.metadata(),
++            create_test_checkpoint_manager(),
++            Network::Regtest,
++        )
++        .await
++        .unwrap();
++        let tip = start + ours.len() as u32 - 1;
++        manager.pipeline.init(tip, *ours[ours.len() - 1].hash(), tip);
++        manager.pipeline.mark_tip_complete();
++        manager.progress.set_state(SyncState::Synced);
++        (manager, storage)
++    }
++
++    /// What the manager asked the network for.
++    #[derive(Debug, Default)]
++    struct Sent {
++        banned: Vec<SocketAddr>,
++        disconnected: Vec<SocketAddr>,
++        /// Peers asked for headers, and the hash they were asked to go on from.
++        asked: Vec<(SocketAddr, BlockHash)>,
++    }
++
++    fn sent(rx: &mut tokio::sync::mpsc::UnboundedReceiver<NetworkRequest>) -> Sent {
++        let mut sent = Sent::default();
++        while let Ok(request) = rx.try_recv() {
++            match request {
++                NetworkRequest::BanPeer(address, _) => sent.banned.push(address),
++                NetworkRequest::DisconnectPeer(address, _) => sent.disconnected.push(address),
++                NetworkRequest::SendMessageToPeer(NetworkMessage::GetHeaders(message), address) => {
++                    sent.asked.push((address, message.locator_hashes[0]))
++                }
++                _ => {}
++            }
++        }
++        sent
++    }
++
++    fn fork_detected(result: &SyncResult<Vec<SyncEvent>>) -> Option<u32> {
++        result.as_ref().ok()?.iter().find_map(|event| match event {
++            SyncEvent::ForkDetected {
++                fork_height,
++            } => Some(*fork_height),
++            _ => None,
++        })
++    }
++
++    async fn store_chain_lock(manager: &TestBlockHeadersManager, height: u32) {
++        let bytes = serde_json::to_vec(&ChainLock::dummy(height)).unwrap();
++        manager
++            .metadata_storage
++            .write()
++            .await
++            .store_metadata(BEST_CHAINLOCK_METADATA_STORAGE_KEY, &bytes)
++            .await
++            .unwrap();
++    }
++
++    /// How a header in the tests below is bad.
++    #[derive(Debug, Clone, Copy)]
++    enum Bad {
++        /// Its hash doesn't meet its own target.
++        ProofOfWork,
++        /// Its proof of work holds but its bits are easier than required.
++        Difficulty,
++    }
++
++    fn bad_header(prev: BlockHash, bad: Bad) -> HashedBlockHeader {
++        match bad {
++            Bad::ProofOfWork => {
++                let mut header = mined(prev, EASY, 77);
++                while header.target().is_met_by(header.block_hash()) {
++                    header.nonce += 1;
++                }
++                header.into()
++            }
++            Bad::Difficulty => mined(prev, 0x2100_ffff, 77).into(),
++        }
++    }
++
++    /// evolite (SPV item 1, AC-T1.1, AC-T1.2): a fork header with a bad proof of work,
++    /// or with bits easier than required, above the ChainLock, is refused: no
++    /// ForkDetected, nothing trimmed or held, its peer banned. Both as the first
++    /// headers of a fork and as the next ones of a branch already held.
++    #[test_case(Bad::ProofOfWork, false; "bad proof of work, first headers")]
++    #[test_case(Bad::ProofOfWork, true; "bad proof of work, continuing a held branch")]
++    #[test_case(Bad::Difficulty, false; "easier difficulty, first headers")]
++    #[test_case(Bad::Difficulty, true; "easier difficulty, continuing a held branch")]
++    #[tokio::test]
++    async fn an_invalid_fork_is_refused_and_its_peer_banned(bad: Bad, held: bool) {
++        let ours = mined_chain(BlockHash::dummy(0), 5, EASY, 0);
++        let (mut manager, _storage) = fork_manager(FORK_BASE, &ours).await;
++        store_chain_lock(&manager, FORK_BASE + 1).await;
++        let (requests, mut rx) = create_test_request_sender();
++
++        let mut parent = *ours[2].hash();
++        if held {
++            let branch = mined_chain(parent, 1, EASY, 100);
++            let result = manager.handle_headers_pipeline(peer(), &branch, &requests).await;
++            assert_eq!(fork_detected(&result), None, "{result:?}");
++            assert!(manager.fork.is_some(), "the valid header is held");
++            parent = *branch[0].hash();
++            sent(&mut rx);
++        }
++        let result =
++            manager.handle_headers_pipeline(peer(), &[bad_header(parent, bad)], &requests).await;
++
++        let expected = match bad {
++            Bad::ProofOfWork => "proof of work",
++            Bad::Difficulty => "ifficulty",
++        };
++        assert!(format!("{result:?}").contains(expected), "{result:?}");
++        assert_eq!(fork_detected(&result), None);
++        assert!(manager.fork.is_none(), "the branch is dropped");
++        assert_eq!(sent(&mut rx).banned, vec![peer()]);
++        assert_eq!(manager.tip().await.unwrap().height(), FORK_BASE + 4, "nothing trimmed");
++    }
++
++    /// evolite (SPV item 1, AC-T1.3): a valid fork with less or as much work as our
++    /// chain from the fork point is not followed: no ForkDetected, nothing trimmed. It
++    /// is held, and its peer asked for what comes after it. Nobody is banned.
++    #[test_case(1; "less work")]
++    #[test_case(2; "equal work, the chain seen first stays")]
++    #[tokio::test]
++    async fn a_valid_fork_without_more_work_is_held_not_followed(length: usize) {
++        let ours = mined_chain(BlockHash::dummy(0), 5, EASY, 0);
++        let (mut manager, _storage) = fork_manager(FORK_BASE, &ours).await;
++        let (requests, mut rx) = create_test_request_sender();
++        let branch = mined_chain(*ours[2].hash(), length, EASY, 100);
++
++        let result = manager.handle_headers_pipeline(peer(), &branch, &requests).await;
++
++        assert_eq!(fork_detected(&result), None, "{result:?}");
++        assert_eq!(manager.tip().await.unwrap().height(), FORK_BASE + 4);
++        assert_eq!(manager.fork.as_ref().map(|fork| fork.headers.len()), Some(length));
++        let sent = sent(&mut rx);
++        assert_eq!(sent.asked, vec![(peer(), *branch[length - 1].hash())]);
++        assert!(sent.banned.is_empty() && sent.disconnected.is_empty(), "{sent:?}");
++    }
++
++    /// evolite (SPV item 1, AC-T1.4): a valid fork is followed (ForkDetected at its
++    /// fork point) once it has more work than ours from there, whether it comes in one
++    /// message or grows over several. Before that, nothing.
++    #[test_case(&[3]; "in one message")]
++    #[test_case(&[2, 1]; "equal, then one more")]
++    #[test_case(&[1, 1, 1]; "a header at a time")]
++    #[tokio::test]
++    async fn a_valid_fork_with_more_work_is_followed(messages: &[usize]) {
++        let ours = mined_chain(BlockHash::dummy(0), 5, EASY, 0);
++        let (mut manager, _storage) = fork_manager(FORK_BASE, &ours).await;
++        let (requests, mut rx) = create_test_request_sender();
++        let branch = mined_chain(*ours[2].hash(), messages.iter().sum(), EASY, 100);
++
++        let mut sent_so_far = 0;
++        for (i, &count) in messages.iter().enumerate() {
++            let part = &branch[sent_so_far..sent_so_far + count];
++            sent_so_far += count;
++            let result = manager.handle_headers_pipeline(peer(), part, &requests).await;
++            let last = i == messages.len() - 1;
++            let expected = last.then_some(FORK_BASE + 2);
++            assert_eq!(fork_detected(&result), expected, "message {i}: {result:?}");
++        }
++
++        assert!(manager.fork.is_none(), "followed, no longer held");
++        assert!(sent(&mut rx).banned.is_empty());
++    }
++
++    /// evolite (SPV item 1, AC-T1.4): work decides, not length. On regtest heights
++    /// with no difficulty rule yet, one header four thousand times harder outweighs
++    /// two of ours; three easy ones don't outweigh two hard ones of ours.
++    #[test_case(EASY, 0x1f00_ffff, 1, Some(2); "one harder header outweighs two")]
++    #[test_case(0x1f00_ffff, EASY, 3, None; "three easier headers don't")]
++    #[tokio::test]
++    async fn work_not_length_decides(
++        our_bits: u32,
++        their_bits: u32,
++        length: usize,
++        expected: Option<u32>,
++    ) {
++        let mut ours = mined_chain(BlockHash::dummy(0), 3, EASY, 0);
++        let above = mined_chain(*ours[2].hash(), 2, our_bits, 10);
++        ours.extend(above);
++        let (mut manager, _storage) = fork_manager(0, &ours).await;
++        let (requests, _rx) = create_test_request_sender();
++        let branch = mined_chain(*ours[2].hash(), length, their_bits, 100);
++
++        let result = manager.handle_headers_pipeline(peer(), &branch, &requests).await;
++
++        assert_eq!(fork_detected(&result), expected, "{result:?}");
++        assert_eq!(manager.tip().await.unwrap().height(), 4);
++    }
++
++    /// evolite (SPV item 1, AC-T1.5): a branch held while a ChainLock arrives above its
++    /// fork point is dropped, even once it has more work: the locked block is final.
++    #[tokio::test]
++    async fn a_held_fork_below_a_chain_lock_since_is_dropped() {
++        let ours = mined_chain(BlockHash::dummy(0), 5, EASY, 0);
++        let (mut manager, _storage) = fork_manager(FORK_BASE, &ours).await;
++        let (requests, _rx) = create_test_request_sender();
++        let branch = mined_chain(*ours[2].hash(), 3, EASY, 100);
++        let result = manager.handle_headers_pipeline(peer(), &branch[..1], &requests).await;
++        assert_eq!(fork_detected(&result), None, "{result:?}");
++        assert!(manager.fork.is_some());
++
++        store_chain_lock(&manager, FORK_BASE + 3).await;
++        let result = manager.handle_headers_pipeline(peer(), &branch[1..], &requests).await;
++
++        assert_eq!(fork_detected(&result), None, "{result:?}");
++        assert!(manager.fork.is_none(), "dropped");
++        assert_eq!(manager.tip().await.unwrap().height(), FORK_BASE + 4);
++    }
++
++    /// evolite (SPV item 1): a branch longer than [`MAX_FORK_HEADERS`] without more
++    /// work than ours is not held: dropped, its peer disconnected (not banned, its
++    /// headers are valid). In one message or grown past it.
++    #[test_case(&[MAX_FORK_HEADERS + 1]; "in one message")]
++    #[test_case(&[MAX_FORK_HEADERS, 1]; "grown past it")]
++    #[tokio::test]
++    async fn a_fork_too_long_without_more_work_is_dropped_and_its_peer_disconnected(
++        messages: &[usize],
++    ) {
++        let ours = mined_chain(BlockHash::dummy(0), MAX_FORK_HEADERS + 5, EASY, 0);
++        let (mut manager, _storage) = fork_manager(FORK_BASE, &ours).await;
++        let (requests, mut rx) = create_test_request_sender();
++        let branch = mined_chain(*ours[2].hash(), messages.iter().sum(), EASY, 1_000_000);
++
++        let mut sent_so_far = 0;
++        for &count in messages {
++            let part = &branch[sent_so_far..sent_so_far + count];
++            sent_so_far += count;
++            let result = manager.handle_headers_pipeline(peer(), part, &requests).await;
++            assert_eq!(fork_detected(&result), None, "{result:?}");
++            assert!(result.is_ok(), "{result:?}");
++        }
++
++        assert!(manager.fork.is_none(), "not held");
++        let sent = sent(&mut rx);
++        assert_eq!(sent.disconnected, vec![peer()]);
++        assert!(sent.banned.is_empty(), "{sent:?}");
++        assert_eq!(manager.tip().await.unwrap().height(), FORK_BASE + MAX_FORK_HEADERS as u32 + 4);
++    }
++
+     /// The peer headers come from in these tests.
+     fn peer() -> SocketAddr {
+         "1.2.3.4:9999".parse().unwrap()

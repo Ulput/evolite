@@ -54,6 +54,9 @@ pub enum NetworkRequest {
     /// evolite (SPV P0, an adaptation of #1304 without the #902 network): ban a peer that
     /// sent block headers failing validation, as `PeerNetworkManager::ban_peer` does.
     BanPeer(SocketAddr, String),
+    /// evolite (SPV item 1): disconnect a peer, without a ban, whose fork got longer than
+    /// we hold without having more work than ours.
+    DisconnectPeer(SocketAddr, String),
 }
 
 /// Handle for managers to queue outgoing network requests.
@@ -93,6 +96,13 @@ impl RequestSender {
     pub fn ban_peer(&self, address: SocketAddr, reason: &str) -> NetworkResult<()> {
         self.tx
             .send(NetworkRequest::BanPeer(address, reason.to_owned()))
+            .map_err(|e| NetworkError::ProtocolError(e.to_string()))
+    }
+
+    /// evolite (SPV item 1): disconnect `address`, without a ban.
+    pub fn disconnect_peer(&self, address: SocketAddr, reason: &str) -> NetworkResult<()> {
+        self.tx
+            .send(NetworkRequest::DisconnectPeer(address, reason.to_owned()))
             .map_err(|e| NetworkError::ProtocolError(e.to_string()))
     }
 

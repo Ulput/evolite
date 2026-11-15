@@ -1045,11 +1045,20 @@ impl PeerNetworkManager {
                             }
                             Some(NetworkRequest::BanPeer(peer_address, reason)) => {
                                 // evolite (SPV P0): the ban #1304 gives a peer that sent
-                                // invalid headers, through the existing manual ban.
+                                // invalid headers; for an hour (SPV item 1).
                                 let this = this.clone();
                                 tokio::spawn(async move {
-                                    if let Err(e) = this.ban_peer(&peer_address, &reason).await {
+                                    if let Err(e) = this.ban_peer_for(&peer_address, &reason, ChangeReason::InvalidHeaders).await {
                                         tracing::warn!("Request processor: failed to ban peer {}: {}", peer_address, e);
+                                    }
+                                });
+                            }
+                            Some(NetworkRequest::DisconnectPeer(peer_address, reason)) => {
+                                // evolite (SPV item 1): a fork too long without more work.
+                                let this = this.clone();
+                                tokio::spawn(async move {
+                                    if let Err(e) = this.disconnect_peer(&peer_address, &reason).await {
+                                        tracing::warn!("Request processor: failed to disconnect peer {}: {}", peer_address, e);
                                     }
                                 });
                             }
@@ -1730,13 +1739,24 @@ impl PeerNetworkManager {
 
     /// Ban a specific peer manually
     pub async fn ban_peer(&self, addr: &SocketAddr, reason: &str) -> Result<(), Error> {
-        tracing::info!("Manually banning peer {} - reason: {}", addr, reason);
+        self.ban_peer_for(addr, reason, ChangeReason::ManuallyBanned).await
+    }
+
+    /// evolite (SPV item 1): disconnect and ban `addr` for `why`, which sets how long
+    /// (`ChangeReason::ban_duration`).
+    pub async fn ban_peer_for(
+        &self,
+        addr: &SocketAddr,
+        reason: &str,
+        why: ChangeReason,
+    ) -> Result<(), Error> {
+        tracing::info!("Banning peer {} ({}) - reason: {}", addr, why, reason);
 
         // Disconnect the peer first
         self.disconnect_peer(addr, reason).await?;
 
         // Update reputation to trigger ban
-        self.reputation_manager.update_reputation(*addr, ChangeReason::ManuallyBanned).await;
+        self.reputation_manager.update_reputation(*addr, why).await;
 
         Ok(())
     }

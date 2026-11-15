@@ -28,6 +28,9 @@ pub enum ChangeReason {
     PingFailed,
     InvalidTransactionInBlock,
     ManuallyBanned,
+    /// evolite (SPV item 1): sent block headers that fail validation (proof of work,
+    /// continuity, Dark Gravity Wave). Banned at once, for an hour.
+    InvalidHeaders,
 }
 
 impl ChangeReason {
@@ -41,6 +44,15 @@ impl ChangeReason {
             ChangeReason::PingFailed => 5,
             ChangeReason::InvalidTransactionInBlock => 20,
             ChangeReason::ManuallyBanned => 100,
+            ChangeReason::InvalidHeaders => 100,
+        }
+    }
+
+    /// evolite (SPV item 1): how long a ban this reason causes lasts.
+    pub fn ban_duration(&self) -> Duration {
+        match self {
+            ChangeReason::InvalidHeaders => INVALID_HEADERS_BAN_DURATION,
+            _ => BAN_DURATION,
         }
     }
 }
@@ -55,6 +67,7 @@ impl std::fmt::Display for ChangeReason {
             ChangeReason::PingFailed => "Ping failed",
             ChangeReason::InvalidTransactionInBlock => "Invalid transaction type in block",
             ChangeReason::ManuallyBanned => "Manually banned",
+            ChangeReason::InvalidHeaders => "Invalid block headers",
         };
         f.write_str(label)
     }
@@ -62,6 +75,9 @@ impl std::fmt::Display for ChangeReason {
 
 /// Ban duration for misbehaving peers
 const BAN_DURATION: Duration = Duration::from_secs(24 * 60 * 60); // 24 hours
+
+/// evolite (SPV item 1): the ban for invalid block headers, an hour.
+const INVALID_HEADERS_BAN_DURATION: Duration = Duration::from_secs(60 * 60);
 
 /// Reputation decay interval
 const DECAY_INTERVAL: Duration = Duration::from_secs(60 * 60); // 1 hour
@@ -286,7 +302,7 @@ impl PeerReputationManager {
         // Check if peer should be banned
         let should_ban = reputation.score >= MAX_MISBEHAVIOR_SCORE && !reputation.is_banned();
         if should_ban {
-            reputation.banned_until = Some(Instant::now() + BAN_DURATION);
+            reputation.banned_until = Some(Instant::now() + reason.ban_duration());
             reputation.ban_count += 1;
             tracing::warn!(
                 "Peer {} banned for misbehavior (score: {}, ban #{}, reason: {})",
