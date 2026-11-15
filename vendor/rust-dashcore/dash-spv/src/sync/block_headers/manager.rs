@@ -9,7 +9,7 @@
 use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use crate::chain::{ChainWork, CheckpointManager};
 use crate::error::{SyncError, SyncResult};
@@ -33,6 +33,10 @@ use tokio::sync::RwLock;
 /// no more work than ours. Past that it is dropped and its peer disconnected.
 pub(super) const MAX_FORK_HEADERS: usize = 2016;
 
+/// evolite (SPV item 1б): how often one peer may be asked with a locator after headers or a
+/// ChainLock that don't connect to our chain.
+pub(super) const LOCATOR_ASK_INTERVAL: Duration = Duration::from_secs(30);
+
 /// evolite (SPV item 1): a valid branch off the stored chain below its tip, held until
 /// it has more work than ours from the fork point. Nothing is trimmed meanwhile.
 #[derive(Debug)]
@@ -43,6 +47,10 @@ pub(super) struct ForkBranch {
     fork_height: u32,
     /// Its headers, from the one on the fork point on, all validated.
     headers: Vec<HashedBlockHeader>,
+    /// evolite (SPV item 1б, r1 note): our tip, the work of our chain from the fork point to
+    /// it and how many headers that is, kept so a branch growing message by message doesn't
+    /// load our part again until our tip moves.
+    ours: Option<(BlockHash, ChainWork, usize)>,
 }
 
 /// Total proof of work of `headers`.
@@ -77,6 +85,9 @@ pub struct BlockHeadersManager<H: BlockHeaderStorage, M: MetadataStorage> {
     network: Network,
     /// evolite (SPV item 1): a branch that doesn't have more work than ours yet.
     pub(super) fork: Option<ForkBranch>,
+    /// evolite (SPV item 1б): when each peer (`None`: any peer) was last asked with a
+    /// locator, at most once per [`LOCATOR_ASK_INTERVAL`].
+    pub(super) locator_asked: HashMap<Option<SocketAddr>, Instant>,
 }
 
 impl<H: BlockHeaderStorage, M: MetadataStorage> std::fmt::Debug for BlockHeadersManager<H, M> {
@@ -124,6 +135,7 @@ impl<H: BlockHeaderStorage, M: MetadataStorage> BlockHeadersManager<H, M> {
             announced_peers: HashSet::new(),
             network,
             fork: None,
+            locator_asked: HashMap::new(),
         })
     }
 
@@ -200,8 +212,10 @@ impl<H: BlockHeaderStorage, M: MetadataStorage> BlockHeadersManager<H, M> {
 
         // evolite (SPV P0): validated against the stored block or the segment tip they extend
         // before routing (#1304), so a fork is never detected on headers nobody checked.
-        if let Some((height, ancestors)) = self.attach_point(headers).await? {
-            if let Err(e) = BlockHeaderValidator::new(self.network, ancestors, height).validate(headers)
+        let attached = self.attach_point(headers).await?;
+        if let Some((height, ancestors)) = &attached {
+            if let Err(e) =
+                BlockHeaderValidator::new(self.network, ancestors.clone(), *height).validate(headers)
             {
                 // The peer that sent them is banned, as #1304 does — here an evolite
                 // adaptation through `RequestSender` (#1304 bans through the #902 network).
@@ -232,8 +246,15 @@ impl<H: BlockHeaderStorage, M: MetadataStorage> BlockHeadersManager<H, M> {
                     peer,
                     fork_height,
                     headers: new,
+                    ours: None,
                 });
                 return self.weigh_fork(requests).await;
+            }
+            // evolite (SPV item 1б): synced, and they extend nothing we have — after a block
+            // race we may sit on a block the network left. The peer is asked with a locator,
+            // so it answers from our common ancestor, a branch `weigh_fork` can weigh.
+            if attached.is_none() && self.state() == SyncState::Synced {
+                self.ask_with_locator(Some(peer), requests).await?;
             }
             tracing::debug!(
                 "Headers not matched by pipeline (prev_hash: {}), may be post-sync update",
@@ -354,14 +375,30 @@ impl<H: BlockHeaderStorage, M: MetadataStorage> BlockHeadersManager<H, M> {
         let Some(fork_height) = self.fork.as_ref().map(|branch| branch.fork_height) else {
             return Ok(vec![]);
         };
-        let tip = self.tip().await?.height();
+        let tip_header = self.tip().await?;
+        let (tip, tip_hash) = (tip_header.height(), *tip_header.hash());
         if fork_height >= tip || self.is_final(fork_height, tip).await? {
             self.fork = None;
             return Ok(vec![]);
         }
 
-        let ours = self.header_storage.read().await.load_headers(fork_height + 1..tip + 1).await?;
-        let our_work = work(&ours);
+        let cached = self
+            .fork
+            .as_ref()
+            .and_then(|branch| branch.ours)
+            .filter(|(hash, _, _)| *hash == tip_hash);
+        let (our_work, our_count) = match cached {
+            Some((_, our_work, our_count)) => (our_work, our_count),
+            None => {
+                let ours =
+                    self.header_storage.read().await.load_headers(fork_height + 1..tip + 1).await?;
+                let ours = (work(&ours), ours.len());
+                if let Some(branch) = self.fork.as_mut() {
+                    branch.ours = Some((tip_hash, ours.0, ours.1));
+                }
+                ours
+            }
+        };
         let Some(branch) = &self.fork else {
             return Ok(vec![]);
         };
@@ -370,7 +407,7 @@ impl<H: BlockHeaderStorage, M: MetadataStorage> BlockHeadersManager<H, M> {
                 "Fork at height {} has more work than ours ({} headers against {}), switching",
                 fork_height,
                 branch.headers.len(),
-                ours.len()
+                our_count
             );
             self.fork = None;
             return Ok(vec![SyncEvent::ForkDetected {
@@ -387,6 +424,97 @@ impl<H: BlockHeaderStorage, M: MetadataStorage> BlockHeadersManager<H, M> {
             let _ = requests.request_block_headers_from_peer(*branch_tip.hash(), branch.peer);
         }
         Ok(vec![])
+    }
+
+    /// evolite (SPV item 1б): a block locator of the stored chain, as Dash Core builds one
+    /// (`CChain::GetLocator`): the tip, the nine before it, then steps doubling back, and the
+    /// lowest stored header last.
+    pub(super) async fn locator(&self) -> SyncResult<Vec<BlockHash>> {
+        let storage = self.header_storage.read().await;
+        let Some(tip) = storage.get_tip_height().await else {
+            return Ok(vec![]);
+        };
+        let start = storage.get_start_height().await.unwrap_or(0);
+        let mut heights = Vec::new();
+        let (mut height, mut step) = (tip, 1u32);
+        loop {
+            heights.push(height);
+            if height <= start {
+                break;
+            }
+            if heights.len() >= 10 {
+                step = step.saturating_mul(2);
+            }
+            height = height.saturating_sub(step).max(start);
+        }
+        let mut locator = Vec::with_capacity(heights.len());
+        for height in heights {
+            if let Some(header) = storage.get_header(height).await? {
+                locator.push(*header.hash());
+            }
+        }
+        Ok(locator)
+    }
+
+    /// evolite (SPV item 1б): resets the tip segment so its next getheaders carries a whole
+    /// locator, not the tip's hash alone: from a tip a block race left behind, a peer then
+    /// answers from our common ancestor instead of from genesis.
+    pub(super) async fn reset_tip_with_locator(&mut self) -> SyncResult<bool> {
+        let mut tail = self.locator().await?;
+        if !tail.is_empty() {
+            tail.remove(0);
+        }
+        Ok(self.pipeline.reset_tip_segment_with_locator(tail))
+    }
+
+    /// evolite (SPV item 1б): getheaders with our locator to `peer` (`None`: any peer), at
+    /// most once per [`LOCATOR_ASK_INTERVAL`] each. Whether it was sent.
+    pub(super) async fn ask_with_locator(
+        &mut self,
+        peer: Option<SocketAddr>,
+        requests: &RequestSender,
+    ) -> SyncResult<bool> {
+        let now = Instant::now();
+        self.locator_asked.retain(|_, at| now.duration_since(*at) < LOCATOR_ASK_INTERVAL);
+        if self.locator_asked.contains_key(&peer) {
+            return Ok(false);
+        }
+        let locator = self.locator().await?;
+        if locator.is_empty() {
+            return Ok(false);
+        }
+        tracing::info!("Asking {:?} for headers from our locator ({} hashes)", peer, locator.len());
+        self.locator_asked.insert(peer, now);
+        let _ = requests.request_block_headers_with_locator(locator, peer);
+        Ok(true)
+    }
+
+    /// evolite (SPV item 1б): a ChainLock, synced, for a block we don't store — the network
+    /// went on from another branch than ours, or we are behind. The peer that sent it and one
+    /// other are asked with our locator. Its signature is the ChainLock manager's business;
+    /// a forged one costs at most the throttled requests.
+    pub(super) async fn handle_chain_lock(
+        &mut self,
+        peer: SocketAddr,
+        chain_lock: &ChainLock,
+        requests: &RequestSender,
+    ) -> SyncResult<()> {
+        if self.state() != SyncState::Synced {
+            return Ok(());
+        }
+        let stored = self
+            .header_storage
+            .read()
+            .await
+            .get_header_height_by_hash(&chain_lock.block_hash)
+            .await?
+            .is_some();
+        if stored {
+            return Ok(());
+        }
+        self.ask_with_locator(Some(peer), requests).await?;
+        self.ask_with_locator(None, requests).await?;
+        Ok(())
     }
 
     /// Whether blocks above `fork_height` are final: below the newest checkpoint the
@@ -526,7 +654,8 @@ impl<H: BlockHeaderStorage, M: MetadataStorage> BlockHeadersManager<H, M> {
                 "Pipeline complete but {} blocks announced during sync, requesting headers",
                 self.pending_announcements.len()
             );
-            self.pipeline.reset_tip_segment();
+            // evolite (SPV item 1б): with a locator.
+            self.reset_tip_with_locator().await?;
             self.pipeline.send_pending(requests)?;
             return Ok(Vec::new());
         }
@@ -873,6 +1002,9 @@ mod tests {
         disconnected: Vec<SocketAddr>,
         /// Peers asked for headers, and the hash they were asked to go on from.
         asked: Vec<(SocketAddr, BlockHash)>,
+        /// evolite (SPV item 1б): getheaders with more than one hash, and to whom (`None`: any
+        /// peer).
+        locators: Vec<(Option<SocketAddr>, Vec<BlockHash>)>,
     }
 
     fn sent(rx: &mut tokio::sync::mpsc::UnboundedReceiver<NetworkRequest>) -> Sent {
@@ -882,7 +1014,16 @@ mod tests {
                 NetworkRequest::BanPeer(address, _) => sent.banned.push(address),
                 NetworkRequest::DisconnectPeer(address, _) => sent.disconnected.push(address),
                 NetworkRequest::SendMessageToPeer(NetworkMessage::GetHeaders(message), address) => {
-                    sent.asked.push((address, message.locator_hashes[0]))
+                    if message.locator_hashes.len() > 1 {
+                        sent.locators.push((Some(address), message.locator_hashes));
+                    } else {
+                        sent.asked.push((address, message.locator_hashes[0]))
+                    }
+                }
+                NetworkRequest::SendMessage(NetworkMessage::GetHeaders(message))
+                    if message.locator_hashes.len() > 1 =>
+                {
+                    sent.locators.push((None, message.locator_hashes))
                 }
                 _ => {}
             }
@@ -1094,6 +1235,155 @@ mod tests {
         assert_eq!(manager.tip().await.unwrap().height(), FORK_BASE + MAX_FORK_HEADERS as u32 + 4);
     }
 
+    /// evolite (SPV item 1б, r1 note): our part's work is kept while a branch grows, and
+    /// read again once our tip moves: a block on our tip meanwhile makes an equal branch
+    /// equal again, not heavier.
+    #[tokio::test]
+    async fn our_work_is_read_again_when_our_tip_moves() {
+        let ours = mined_chain(BlockHash::dummy(0), 5, EASY, 0);
+        let (mut manager, _storage) = fork_manager(FORK_BASE, &ours).await;
+        let (requests, _rx) = create_test_request_sender();
+        let branch = mined_chain(*ours[2].hash(), 3, EASY, 100);
+        let result = manager.handle_headers_pipeline(peer(), &branch[..2], &requests).await;
+        assert_eq!(fork_detected(&result), None, "equal: {result:?}");
+
+        let next = mined_chain(*ours[4].hash(), 1, EASY, 300);
+        let other: SocketAddr = "5.6.7.8:9999".parse().unwrap();
+        manager.handle_headers_pipeline(other, &next, &requests).await.unwrap();
+        assert_eq!(manager.tip().await.unwrap().height(), FORK_BASE + 5, "our tip moved");
+
+        let result = manager.handle_headers_pipeline(peer(), &branch[2..], &requests).await;
+
+        assert_eq!(fork_detected(&result), None, "three against three: {result:?}");
+        assert!(manager.fork.is_some(), "still held");
+    }
+
+    /// evolite (SPV item 1б): the locator is Dash Core's: the tip and the nine before it,
+    /// then steps doubling back, and the lowest stored header last.
+    #[tokio::test]
+    async fn the_locator_steps_back_as_dash_core_does() {
+        let ours = mined_chain(BlockHash::dummy(0), 30, EASY, 0);
+        let (manager, _storage) = fork_manager(FORK_BASE, &ours).await;
+
+        let locator = manager.locator().await.unwrap();
+
+        let mut offsets: Vec<usize> = (20..=29).rev().collect();
+        offsets.extend([18, 14, 6, 0]);
+        let expected: Vec<BlockHash> = offsets.iter().map(|&i| *ours[i].hash()).collect();
+        assert_eq!(locator, expected);
+    }
+
+    /// evolite (SPV item 1б, AC-T1б.1): a block race. We stored N₁, the network went on
+    /// N₂ → N+1. The announcement of N+1 connects to nothing we have, so its peer is asked
+    /// with our locator; it answers from our common ancestor, and that branch, with more
+    /// work, is followed (ForkDetected at N − 1; the switch to N+1 is `handle_fork`'s).
+    #[tokio::test]
+    async fn after_a_block_race_the_network_branch_is_asked_for_and_followed() {
+        let ours = mined_chain(BlockHash::dummy(0), 5, EASY, 0);
+        let (mut manager, _storage) = fork_manager(FORK_BASE, &ours).await;
+        let (requests, mut rx) = create_test_request_sender();
+        let theirs = mined_chain(*ours[3].hash(), 2, EASY, 500);
+
+        let result = manager.handle_headers_pipeline(peer(), &theirs[1..], &requests).await;
+
+        assert_eq!(fork_detected(&result), None, "{result:?}");
+        let asked = sent(&mut rx).locators;
+        assert_eq!(asked.len(), 1, "{asked:?}");
+        let (to, locator) = &asked[0];
+        assert_eq!(*to, Some(peer()));
+        assert_eq!(locator[0], *ours[4].hash(), "our tip first");
+        assert!(locator.contains(ours[3].hash()), "the common ancestor is in it");
+
+        // The peer's answer from the common ancestor.
+        let result = manager.handle_headers_pipeline(peer(), &theirs, &requests).await;
+
+        assert_eq!(fork_detected(&result), Some(FORK_BASE + 3), "{result:?}");
+        assert!(manager.fork.is_none());
+    }
+
+    /// evolite (SPV item 1б, AC-T1б.2): a ChainLock, synced, for a block we don't store asks
+    /// the peer that sent it and one other with our locator. One for our own block, or one
+    /// while still syncing, asks nobody.
+    #[tokio::test]
+    async fn a_chain_lock_for_an_unknown_block_asks_with_the_locator() {
+        let ours = mined_chain(BlockHash::dummy(0), 5, EASY, 0);
+        let (mut manager, _storage) = fork_manager(FORK_BASE, &ours).await;
+        let (requests, mut rx) = create_test_request_sender();
+        let chain_lock = |block_hash: BlockHash| {
+            let message = NetworkMessage::CLSig(ChainLock {
+                block_hash,
+                ..ChainLock::dummy(FORK_BASE + 4)
+            });
+            crate::network::Message::new(peer(), message)
+        };
+
+        manager.handle_message(chain_lock(*ours[4].hash()), &requests).await.unwrap();
+        assert!(sent(&mut rx).locators.is_empty(), "our own block");
+
+        manager.progress.set_state(SyncState::Syncing);
+        manager.handle_message(chain_lock(BlockHash::dummy(7)), &requests).await.unwrap();
+        assert!(sent(&mut rx).locators.is_empty(), "still syncing");
+
+        manager.progress.set_state(SyncState::Synced);
+        manager.handle_message(chain_lock(BlockHash::dummy(7)), &requests).await.unwrap();
+        let asked = sent(&mut rx).locators;
+        let to: Vec<_> = asked.iter().map(|(to, _)| *to).collect();
+        assert_eq!(to, vec![Some(peer()), None]);
+        assert!(asked.iter().all(|(_, locator)| locator[0] == *ours[4].hash()));
+    }
+
+    /// evolite (SPV item 1б, AC-T1б.3): a stream of announcements that connect to nothing
+    /// asks each peer once per interval, not once per announcement.
+    #[tokio::test]
+    async fn unconnecting_announcements_ask_each_peer_once_per_interval() {
+        let ours = mined_chain(BlockHash::dummy(0), 5, EASY, 0);
+        let (mut manager, _storage) = fork_manager(FORK_BASE, &ours).await;
+        let (requests, mut rx) = create_test_request_sender();
+        let other: SocketAddr = "5.6.7.8:9999".parse().unwrap();
+
+        for salt in 0..5 {
+            let orphan = mined(BlockHash::dummy(1_000 + salt), EASY, salt);
+            for from in [peer(), other] {
+                let result =
+                    manager.handle_headers_pipeline(from, &[orphan.into()], &requests).await;
+                assert!(result.is_ok(), "{result:?}");
+            }
+        }
+
+        let to: Vec<_> = sent(&mut rx).locators.iter().map(|(to, _)| *to).collect();
+        assert_eq!(to, vec![Some(peer()), Some(other)]);
+
+        // Once the interval has passed, the peer may be asked again.
+        for at in manager.locator_asked.values_mut() {
+            *at -= LOCATOR_ASK_INTERVAL;
+        }
+        let orphan = mined(BlockHash::dummy(2_000), EASY, 9);
+        manager.handle_headers_pipeline(peer(), &[orphan.into()], &requests).await.unwrap();
+        let to: Vec<_> = sent(&mut rx).locators.iter().map(|(to, _)| *to).collect();
+        assert_eq!(to, vec![Some(peer())]);
+    }
+
+    /// evolite (SPV item 1б): the fallback getheaders of the tip segment (stale `inv`
+    /// announcements, a peer ahead of us, a resumed sync) carries the whole locator, not the
+    /// tip's hash alone, which a peer on another branch would answer from genesis.
+    #[tokio::test]
+    async fn the_tip_segments_fallback_request_carries_the_locator() {
+        let ours = mined_chain(BlockHash::dummy(0), 5, EASY, 0);
+        let (mut manager, _storage) = fork_manager(FORK_BASE, &ours).await;
+        let (requests, mut rx) = create_test_request_sender();
+        let long_ago = Instant::now() - Duration::from_secs(60);
+        manager.pending_announcements.insert(BlockHash::dummy(9), long_ago);
+
+        manager.tick(&requests).await.unwrap();
+
+        let asked = sent(&mut rx).locators;
+        assert_eq!(asked.len(), 1, "{asked:?}");
+        let (to, locator) = &asked[0];
+        assert_eq!(*to, None);
+        let expected: Vec<BlockHash> = ours.iter().rev().map(|header| *header.hash()).collect();
+        assert_eq!(*locator, expected);
+    }
+
     /// The peer headers come from in these tests.
     fn peer() -> SocketAddr {
         "1.2.3.4:9999".parse().unwrap()
@@ -1187,7 +1477,11 @@ mod tests {
         let manager = create_test_manager().await;
         assert_eq!(manager.identifier(), ManagerIdentifier::BlockHeader);
         assert_eq!(manager.state(), SyncState::WaitingForConnections);
-        assert_eq!(manager.wanted_message_types(), vec![MessageType::Headers, MessageType::Inv]);
+        // evolite (SPV item 1б): ChainLocks too, for a block we don't store.
+        assert_eq!(
+            manager.wanted_message_types(),
+            vec![MessageType::Headers, MessageType::Inv, MessageType::CLSig]
+        );
     }
 
     #[tokio::test]

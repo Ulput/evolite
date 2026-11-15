@@ -346,6 +346,19 @@ impl HeadersPipeline {
         false
     }
 
+    /// evolite (SPV item 1б): as [`Self::reset_tip_segment`], and its next getheaders carries
+    /// `tail`, stored hashes below its tip (newest first), so a peer on another branch answers
+    /// from our common ancestor instead of from genesis.
+    pub fn reset_tip_segment_with_locator(&mut self, tail: Vec<BlockHash>) -> bool {
+        if !self.reset_tip_segment() {
+            return false;
+        }
+        if let Some(segment) = self.segments.iter_mut().find(|s| s.target_height.is_none()) {
+            segment.locator_tail = tail;
+        }
+        true
+    }
+
     /// Check if the tip segment has active requests in flight.
     pub fn tip_segment_has_pending_request(&self) -> bool {
         self.segments

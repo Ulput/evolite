@@ -106,6 +106,22 @@ impl RequestSender {
             .map_err(|e| NetworkError::ProtocolError(e.to_string()))
     }
 
+    /// evolite (SPV item 1б): getheaders with a whole block locator (newest first), to
+    /// `peer`, or with `None` to whichever peer the network picks. A peer on another branch
+    /// answers from our common ancestor, not from genesis as for a lone unknown hash.
+    pub fn request_block_headers_with_locator(
+        &self,
+        locator: Vec<BlockHash>,
+        peer: Option<SocketAddr>,
+    ) -> NetworkResult<()> {
+        let msg =
+            NetworkMessage::GetHeaders(GetHeadersMessage::new(locator, BlockHash::all_zeros()));
+        match peer {
+            Some(address) => self.send_message_to_peer(msg, address),
+            None => self.send_message(msg),
+        }
+    }
+
     /// Queue a message to be broadcast to all connected peers.
     pub(crate) fn broadcast(&self, msg: NetworkMessage) -> NetworkResult<()> {
         self.tx

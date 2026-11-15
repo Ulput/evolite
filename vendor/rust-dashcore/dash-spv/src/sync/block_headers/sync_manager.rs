@@ -33,7 +33,8 @@ impl<H: BlockHeaderStorage, M: MetadataStorage> SyncManager for BlockHeadersMana
     }
 
     fn wanted_message_types(&self) -> &'static [MessageType] {
-        &[MessageType::Headers, MessageType::Inv]
+        // evolite (SPV item 1б): ChainLocks too, for a block we don't store.
+        &[MessageType::Headers, MessageType::Inv, MessageType::CLSig]
     }
 
     fn on_disconnect(&mut self) {
@@ -80,7 +81,8 @@ impl<H: BlockHeaderStorage, M: MetadataStorage> SyncManager for BlockHeadersMana
             // segment is marked complete and `send_pending` would skip it.
             // Reset it so a fresh GetHeaders is fired from the preserved
             // `current_tip_hash`. No-op if the tip is still mid-sync.
-            self.pipeline.reset_tip_segment();
+            // evolite (SPV item 1б): with a locator, as the tip may be on a stale branch.
+            self.reset_tip_with_locator().await?;
             tracing::info!(
                 "Resuming parallel header sync ({} segments, {} buffered)",
                 self.pipeline.segment_count(),
@@ -129,6 +131,11 @@ impl<H: BlockHeaderStorage, M: MetadataStorage> SyncManager for BlockHeadersMana
 
             NetworkMessage::Inv(inv) => {
                 self.handle_inventory(inv, requests).await?;
+                Ok(vec![])
+            }
+
+            NetworkMessage::CLSig(chain_lock) => {
+                self.handle_chain_lock(msg.peer_address(), chain_lock, requests).await?;
                 Ok(vec![])
             }
 
@@ -196,7 +203,8 @@ impl<H: BlockHeaderStorage, M: MetadataStorage> SyncManager for BlockHeadersMana
                 );
 
                 // Reset tip segment and send requests via pipeline
-                self.pipeline.reset_tip_segment();
+                // evolite (SPV item 1б): with a locator, as the tip may be on a stale branch.
+                self.reset_tip_with_locator().await?;
                 self.pipeline.send_pending(requests)?;
 
                 for hash in stale {
@@ -273,7 +281,8 @@ impl<H: BlockHeaderStorage, M: MetadataStorage> SyncManager for BlockHeadersMana
                                     self.progress.tip_height()
                                 );
                                 // Reset tip segment and send requests via pipeline
-                                self.pipeline.reset_tip_segment();
+                                // evolite (SPV item 1б): with a locator.
+                                self.reset_tip_with_locator().await?;
                                 self.pipeline.send_pending(requests)?;
                             }
                         }

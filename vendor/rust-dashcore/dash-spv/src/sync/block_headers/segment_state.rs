@@ -29,6 +29,9 @@ pub(super) struct SegmentState {
     pub(super) buffered_headers: Vec<HashedBlockHeader>,
     /// Whether this segment has completed downloading.
     pub(super) complete: bool,
+    /// evolite (SPV item 1б): stored hashes below `current_tip_hash` the next getheaders
+    /// carries after it, once (see `HeadersPipeline::reset_tip_segment_with_locator`).
+    pub(super) locator_tail: Vec<BlockHash>,
 }
 
 impl SegmentState {
@@ -54,6 +57,7 @@ impl SegmentState {
             ),
             buffered_headers: Vec::new(),
             complete: false,
+            locator_tail: Vec::new(),
         }
     }
 
@@ -65,7 +69,14 @@ impl SegmentState {
 
     /// Send a GetHeaders request for this segment.
     pub(super) fn send_request(&mut self, requests: &RequestSender) -> SyncResult<()> {
-        requests.request_block_headers(self.current_tip_hash)?;
+        if self.locator_tail.is_empty() {
+            requests.request_block_headers(self.current_tip_hash)?;
+        } else {
+            // evolite (SPV item 1б): the tip, then hashes back, as Dash Core's locator.
+            let mut locator = vec![self.current_tip_hash];
+            locator.append(&mut self.locator_tail);
+            requests.request_block_headers_with_locator(locator, None)?;
+        }
         self.coordinator.mark_sent(&[self.current_tip_hash]);
         tracing::debug!(
             "Segment {}: sent GetHeaders from height {} hash {}",
