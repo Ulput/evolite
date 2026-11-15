@@ -13,23 +13,16 @@ use crate::components::SpendPassword;
 use evolite_api::{CoreError, Duffs};
 
 /// The form (22) and, once «Review» is pressed, the review (22b).
+/// It opens empty (BUG-172, the designer: no amount is put into what gets signed); «Max» fills
+/// it on a click.
+#[derive(Default)]
 pub struct FundForm {
     pub amount: String,
-    /// 0.1 DASH in `amount` until the person changes it (`format::fill_suggested`), as the
-    /// mockups show.
+    /// An amount put in for the person (`format::fill_suggested`) until they change it: none
+    /// when the form opens; a `--screen` frame with an amount sets one.
     pub suggested: Option<Duffs>,
     /// On the review with the password (22b).
     pub review: bool,
-}
-
-impl Default for FundForm {
-    fn default() -> Self {
-        Self {
-            amount: crate::format::input_text(10_000_000),
-            suggested: Some(10_000_000),
-            review: false,
-        }
-    }
 }
 
 /// What the funding screens keep between frames.
@@ -48,18 +41,32 @@ pub struct FundAddressState {
     /// The password of the review (22b) and of «Continue the top-up» (24b).
     pub password: SpendPassword,
     pub resume_password: SpendPassword,
+    /// What the address gained, as the core proved it (BUG-171 AC-T4), until its «Done».
+    pub credited: Option<Duffs>,
 }
 
 impl FundAddressState {
-    /// The core's answer to `FundAddress` or `ResumeFundAddress`.
+    /// `Event::AddressFunded`: what came, ahead of its «Done».
+    pub fn on_funded(&mut self, credited: Duffs) {
+        self.credited = Some(credited);
+    }
+
+    /// The core's answer to `FundAddress` or `ResumeFundAddress`. «Credited» says what came
+    /// when the core proved it (BUG-171: QA's C2 said «+0.0010» for 0.00097064), else what
+    /// was planned.
     pub fn on_done(&mut self, result: &Result<(), CoreError>) {
         self.password.settle(Some(result));
         self.resume_password.settle(Some(result));
-        let Some(duffs) = self.running.take() else {
+        let credited = self.credited.take();
+        let Some(planned) = self.running.take() else {
             return;
         };
         // A wrong password is said under its field, not as a failed top-up.
         if !matches!(result, Err(CoreError::WrongPassword)) {
+            let duffs = match result {
+                Ok(()) => credited.unwrap_or(planned),
+                Err(_) => planned,
+            };
             self.result = Some((duffs, result.clone()));
         }
     }

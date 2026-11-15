@@ -120,6 +120,8 @@ pub struct Paths {
     pub platform_sync: PathBuf,
     /// What Platform proved about the wallet's asset locks (FEAT-0016).
     pub lock_status: PathBuf,
+    /// Where each funding of the Platform address was signed to go (BUG-171).
+    pub fund_intents: PathBuf,
     /// Addresses of contacts' keys already paid ([`contact_addresses::ContactAddresses`]).
     pub contact_addresses: PathBuf,
     /// Senders whose contact requests were hidden ([`hidden_requests::HiddenRequests`]).
@@ -171,6 +173,7 @@ impl Paths {
             journal: wallets.join("platform-history.json"),
             platform_sync: wallets.join("platform-sync.json"),
             lock_status: wallets.join("lock-status.json"),
+            fund_intents: wallets.join("fund-intents.json"),
             contact_addresses: wallets.join("contact-addresses.json"),
             hidden_requests: wallets.join("hidden-requests.json"),
             pool_history: wallets.join("pool-history.json"),
@@ -403,6 +406,8 @@ struct Real {
     /// A pass reading Platform back into the journal is running (one at a time).
     history_busy: Arc<AtomicBool>,
     lock_status: Arc<evolite_chain::lock_status::LockStatuses>,
+    /// Where each funding of the Platform address was signed to go (BUG-171).
+    fund_intents: Arc<evolite_chain::fund_intents::FundIntents>,
     lock_status_busy: Arc<AtomicBool>,
     /// The address fundings whose «Continue» failed in this run, by txid: they no longer hold
     /// a new funding back (BUG-160).

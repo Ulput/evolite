@@ -154,7 +154,8 @@ struct WalletRead {
     unfinished_top_up: Option<UnfinishedTopUp>,
     /// Duffs locked for a funding of the Platform address not taken yet (FEAT-0015 stage 2),
     /// and whether it holds a new one back (BUG-160).
-    unfinished_address_fund: Option<(u64, bool)>,
+    /// With it: the address «Continue» credits and whether its lock has an InstantLock (BUG-171).
+    unfinished_address_fund: Option<(u64, bool, String, bool)>,
     lost_block: Option<mined::Lost>,
     /// How far the wallet's filters are: back where a rescan was asked, it has finished.
     synced: u32,
@@ -322,18 +323,21 @@ impl Real {
             mixed,
         } = self.read_wallet(id).await;
         let (platform_address, platform_credits) = platform.unwrap_or_default();
-        // A funding of the address cut short: finished to the address the wallet shows, its own.
-        let unfinished_address_top_up = unfinished_address_fund.map(|(locked, holds_back)| {
-            evolite_api::UnfinishedAddressTopUp {
-                locked: locked as Duffs,
-                address: platform_address.clone(),
-                holds_back,
-            }
-        });
         let (pool, unfinished_shield, connecting_pool) = self.read_pool(id).await;
         let mut fees = turn::timed("fees_now", self.fees_now(coins)).await;
         fees.core_coins = convert::core_coins(coin_values);
         fees.core_unsignable = unsignable;
+        // A funding of the address cut short: finished to the address it was signed for (or,
+        // after a restore, the one shown), with what Platform keeps by its proof (BUG-171).
+        let unfinished_address_top_up =
+            unfinished_address_fund.map(|(locked, holds_back, address, instant)| {
+                evolite_api::UnfinishedAddressTopUp {
+                    locked: locked as Duffs,
+                    address,
+                    on_top: fees.address_fund_on_top_of(instant),
+                    holds_back,
+                }
+            });
         // The pool's own operations are in the history too (only the owner sees them), and a
         // Core asset lock made for the pool says so instead of "Transfer to Platform".
         if let Some(pool) = &pool {
@@ -524,7 +528,15 @@ impl Real {
                         .fund_resume_failed
                         .lock()
                         .unwrap_or_else(|e| e.into_inner());
-                    (l.amount, !failed.contains(&l.txid))
+                    let shown = platform
+                        .as_ref()
+                        .map(|(a, _)| a.as_str())
+                        .unwrap_or_default();
+                    let address = super::ops::address_fund::resume_address(
+                        self.fund_intents.address(&l.txid),
+                        shown,
+                    );
+                    (l.amount, !failed.contains(&l.txid), address, l.instant)
                 });
         let unfinished_top_up =
             turn::timed("unfinished_top_up", self.unfinished_top_up(&wallet)).await;
@@ -946,6 +958,9 @@ impl Real {
         // too — made here or found on chain after a restore. A proved «spent» closes it (the
         // window may have closed after Platform took it); a recovered one waits for «not seen».
         let open = turn::timed("open_fund_locks", self.chain.open_fund_locks(&wallet)).await;
+        // BUG-171: the record of where a funding goes is kept while its lock is open.
+        self.fund_intents
+            .keep_only(&open.iter().map(|l| l.txid.clone()).collect::<Vec<_>>());
         self.lock_status.want_also(
             open.into_iter()
                 .filter(|l| self.lock_status.answer(&l.txid).is_none())

@@ -33,7 +33,9 @@ fn platform_address(kit: &Kit) -> evolite_api::Duffs {
 }
 
 /// 21 → 22: «Top up from Core ›» on the Platform address tile opens the form; the form counts
-/// and has no password (BUG-42: the password is on the review).
+/// and has no password (BUG-42: the password is on the review). BUG-172 (AC-D1, AC-D2, frame
+/// F1): the amount opens empty — no sum is put into what gets signed — «Total from Core» says
+/// «—» and «Review» is off; an amount typed turns it on.
 #[test]
 fn the_tile_opens_the_form_without_a_password() {
     let (_turn, mut kit) = demo_app("overview", "en");
@@ -51,6 +53,31 @@ fn the_tile_opens_the_form_without_a_password() {
         "no password in the form"
     );
     assert!(has_words(&kit, "How much to credit"), "the amount field");
+    let form = kit.state().fund_address.form.as_ref().unwrap();
+    assert!(
+        form.amount.is_empty() && form.suggested.is_none(),
+        "no amount put in"
+    );
+    assert!(!enabled(&kit, "Review"), "nothing to review yet");
+    // The rows' values are painted, not in the tree: read them off the frame.
+    fn painted(shape: &egui::Shape, out: &mut Vec<String>) {
+        match shape {
+            egui::Shape::Text(t) => out.push(t.galley.text().to_owned()),
+            egui::Shape::Vec(v) => v.iter().for_each(|s| painted(s, out)),
+            _ => {}
+        }
+    }
+    let mut texts = Vec::new();
+    for c in &kit.output().shapes {
+        painted(&c.shape, &mut texts);
+    }
+    assert!(
+        texts.iter().any(|t| t == "—"),
+        "«Total from Core» waits for an amount: {texts:?}"
+    );
+    kit.state_mut().fund_address.form.as_mut().unwrap().amount =
+        crate::format::input_text(10_000_000);
+    kit.run_steps(3);
     assert!(enabled(&kit, "Review"), "0,1 DASH is a top-up");
 }
 
@@ -197,4 +224,42 @@ fn a_failed_continue_does_not_dim_the_tile() {
         "still offered"
     );
     assert!(enabled(&kit, "Top up from Core ›"), "a new one may start");
+}
+
+/// BUG-171 AC-T2, AC-T3: «Continue» of a lock found after a restore says where it goes — the
+/// address shown now, there being no record of the one signed for — and promises the lock less
+/// what Platform keeps without an InstantLock.
+#[test]
+fn continuing_a_recovered_lock_says_where_and_how_much() {
+    let (_turn, mut kit) = demo_app("fund-address-recovered", "en");
+    kit.set_size(egui::vec2(1024.0, 1000.0));
+    settle(&mut kit);
+    wait_for(&mut kit, "the dialog", |kit| {
+        kit.state().fund_address.resume_open
+    });
+    kit.run_steps(2);
+    assert!(has_text(&kit, "To · this wallet's Platform address"));
+    assert!(
+        has_words(&kit, crate::app::dev::RECOVERED_TO),
+        "the address it goes to"
+    );
+    let at_least =
+        crate::format::amount(10_012_000 - evolite_api::address_fund::ADDRESS_FUND_ON_TOP_CHAIN);
+    assert!(has_words(&kit, &at_least), "at least {at_least}");
+}
+
+/// BUG-171 AC-T4: «Credited» says what came, as the core proved it, not what was planned.
+#[test]
+fn credited_says_what_came() {
+    let (_turn, mut kit) = demo_app("overview", "en");
+    settle(&mut kit);
+    let state = &mut kit.state_mut().fund_address;
+    state.running = Some(100_000);
+    state.on_funded(97_064);
+    state.on_done(&Ok(()));
+    assert_eq!(state.result, Some((97_064, Ok(()))));
+    // Without the proved amount: the plan's.
+    state.running = Some(100_000);
+    state.on_done(&Ok(()));
+    assert_eq!(state.result, Some((100_000, Ok(()))));
 }

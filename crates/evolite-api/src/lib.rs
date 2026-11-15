@@ -680,8 +680,13 @@ pub struct UnfinishedTopUp {
 pub struct UnfinishedAddressTopUp {
     /// Duffs locked on Core for it.
     pub locked: Duffs,
-    /// The Platform address (`tdash1…`) the lock is for.
+    /// The Platform address (`tdash1…`) «Continue» credits: the one the funding was signed for,
+    /// as recorded then; after a restore from the phrase, where there is no record, the one the
+    /// wallet shows now (BUG-171).
     pub address: String,
+    /// What Platform keeps of this lock, as far as is known: more without an InstantLock
+    /// (BUG-171). The address gets `locked` less this at least.
+    pub on_top: Duffs,
     /// Whether it holds a new top-up back until it is finished (AC-T5): no longer once its
     /// «Continue» failed in this run (BUG-160) — it is still offered beside a new one.
     pub holds_back: bool,
@@ -2191,6 +2196,12 @@ pub enum Event {
         result: Result<(), CoreError>,
     },
     PhraseRevealed(Result<Phrase, CoreError>),
+    /// A funding of the Platform address went through (BUG-171): what the address gained, by
+    /// its proved balance before and after, in duffs. Comes just before its
+    /// `Done { what: DoneWhat::FundAddress }`; not at all when the amount is not known.
+    AddressFunded {
+        credited: Duffs,
+    },
     /// The answer to `Send`, once, after the network's answer (up to about a minute).
     /// The answer to the payment `id` of [`Spend::Send`].
     Sent {

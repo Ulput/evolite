@@ -4,7 +4,7 @@
 use super::{FundAddressState, FundForm};
 use crate::components::{
     Assets, ButtonKind, Part, StepState, button, button_enabled, dialog, dialog_with_footer,
-    divider, kv_row, notice, notice_closable, numbered_step_at, numbered_step_then,
+    divider, field_label, kv_row, notice, notice_closable, numbered_step_at, numbered_step_then,
 };
 use crate::context::Ctx;
 use crate::screens::{Screen, txt};
@@ -247,9 +247,17 @@ fn resume_dialog(
                 )
                 .line_height(20.0),
             );
-            // What the lock brings, as the review says it (the designer): the lock less what is
-            // on top.
-            let on_top = wallet.fees.address_fund_on_top();
+            // Where it goes (BUG-171 AC-T2): the address it was signed for, or — after a restore,
+            // with no record of it — the one it will go to now; as the review shows it.
+            field_label(ui, &p, tr!("To · this wallet's Platform address"));
+            ui.label(
+                egui::RichText::new(&unfinished.address)
+                    .font(mono(13.0, Weight::Medium))
+                    .color(p.text),
+            );
+            // What the lock brings, as the review says it (the designer): the lock less what
+            // Platform keeps of it — more without an InstantLock (BUG-171).
+            let on_top = unfinished.on_top;
             let value = mono(13.0, Weight::Medium);
             kv_row(
                 ui,
@@ -278,11 +286,7 @@ fn resume_dialog(
     );
     if go {
         asked.push(state.resume_password.command(Spend::ResumeFundAddress, ask));
-        state.running = Some(
-            unfinished
-                .locked
-                .saturating_sub(wallet.fees.address_fund_on_top()),
-        );
+        state.running = Some(unfinished.locked.saturating_sub(unfinished.on_top));
         state.result = None;
         state.resume_open = false;
         state.steps_open = true;

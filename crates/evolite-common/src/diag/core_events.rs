@@ -138,7 +138,8 @@ fn art_reason(error: &CoreError) -> &'static str {
 /// answers (snapshots go through [`Watch`]).
 pub fn answer(event: &Event) -> Option<Record> {
     let (what, outcome) = match event {
-        Event::Snapshot(_) | Event::Progress { .. } => return None,
+        // A funding's amount is in its own line (`Record::AddressFund`, BUG-171), not here.
+        Event::Snapshot(_) | Event::Progress { .. } | Event::AddressFunded { .. } => return None,
         Event::Art { result, .. } => {
             return result.as_ref().err().map(|e| Record::Art {
                 reason: art_reason(e),

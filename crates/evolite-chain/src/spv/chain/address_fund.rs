@@ -29,6 +29,15 @@ pub struct FundLock {
     pub out_point: key_wallet::dashcore::OutPoint,
     pub amount: u64,
     pub made_here: bool,
+    /// Its proof is an InstantLock (BUG-171). Without one — found on chain after a restore, or
+    /// its InstantLock never came — Platform gets a ChainLock proof and keeps more of it.
+    pub instant: bool,
+}
+
+/// The credits a funding brought the address: its balance after less the one before, both
+/// proved (BUG-171 AC-T4); `None` when either is not known.
+pub fn credited(before: Option<u64>, after: Option<u64>) -> Option<u64> {
+    Some(after?.saturating_sub(before?))
 }
 
 /// Whether a tracked lock of `funding` in `status` funds an address and is not seen taken.
@@ -73,6 +82,7 @@ impl Chain {
                 out_point: l.out_point,
                 amount: l.amount,
                 made_here: l.status != platform_wallet::AssetLockStatus::RecoveredFromChain,
+                instant: matches!(l.proof, Some(dpp::prelude::AssetLockProof::Instant(_))),
             })
             .collect()
     }
@@ -96,19 +106,20 @@ impl Chain {
             .collect()
     }
 
-    /// QA's `--stop-after asset-lock` (dev-tools, BUG-160): the first half of
-    /// [`Self::fund_address`] alone — a lock of `lock` duffs for the address is built,
-    /// broadcast, proved (InstantSend, else the ChainLock) and stored — then nothing is sent
-    /// to Platform. The lock is left as a funding cut short, for «Continue».
-    #[cfg(feature = "dev-stops")]
-    pub async fn lock_for_address_only(
+    /// The first half of a funding (BUG-171): a lock of `lock` duffs for the address is built,
+    /// broadcast, proved (InstantSend, else — after platform-wallet's wait for it — on its way
+    /// to the ChainLock) and stored, and its out point returned, for the caller to record where
+    /// it goes before Platform is asked ([`Self::fund_address`] from it), and whether it got an
+    /// InstantLock (else Platform gets a ChainLock proof). QA's `--stop-after asset-lock` ends
+    /// the process here.
+    pub async fn lock_for_address(
         &self,
         wallet: &PlatformWallet,
         keys: &key_wallet::Wallet,
         lock: u64,
-    ) -> Result<key_wallet::dashcore::OutPoint, String> {
+    ) -> Result<(key_wallet::dashcore::OutPoint, bool), String> {
         let lock_signer = crate::identity::AssetLockSigner(keys.clone());
-        let (_, _, out_point) = wallet
+        let (out_point, instant) = match wallet
             .asset_locks()
             .create_funded_asset_lock_proof(
                 lock,
@@ -119,37 +130,45 @@ impl Chain {
                 &lock_signer,
             )
             .await
-            .map_err(|e| e.to_string())?;
-        // The store buffers its writes: on disk before the process ends.
+        {
+            Ok((proof, _, out_point)) => (
+                out_point,
+                matches!(proof, dpp::prelude::AssetLockProof::Instant(_)),
+            ),
+            // No InstantLock in time: the lock is on chain and tracked; funding from it waits
+            // for its ChainLock (platform-wallet's own fallback).
+            Err(platform_wallet::PlatformWalletError::FinalityTimeout(out_point)) => {
+                (out_point, false)
+            }
+            Err(e) => return Err(e.to_string()),
+        };
+        // The store buffers its writes: on disk before Platform is asked or the process ends.
         wallet.flush_persist().map_err(|e| e.to_string())?;
-        Ok(out_point)
+        Ok((out_point, instant))
     }
 
-    /// Credits `to`, one of the wallet's own Platform addresses, from Core: from `existing`,
-    /// a lock already made (the caller's [`waiting_lock`]), without new money; else from a new
-    /// lock of `lock` duffs. Waits for InstantSend or the ChainLock, however long that takes
-    /// (platform-wallet's own rule: a lock on chain is final), so it runs in the background.
+    /// Credits `to`, one of the wallet's own Platform addresses, from the lock at `out_point`
+    /// (made by [`Self::lock_for_address`], or a cut-short funding's): no new money. Waits for
+    /// InstantSend or the ChainLock, however long that takes (platform-wallet's own rule: a
+    /// lock on chain is final), so it runs in the background. The answer: the credits the
+    /// address gained, by its proved balance before and the one the transition proved after
+    /// (BUG-171: «Credited» says what came, not what was planned); `None` when either is not
+    /// known.
     pub async fn fund_address(
         &self,
         wallet: &PlatformWallet,
         keys: &key_wallet::Wallet,
         to: PlatformAddress,
-        lock: u64,
-        existing: Option<key_wallet::dashcore::OutPoint>,
-    ) -> Result<(), String> {
-        let funding = match existing {
-            Some(out_point) => platform_wallet::AssetLockFunding::FromExistingAssetLock {
-                out_point,
-                consume_invitation_voucher: false,
-            },
-            None => platform_wallet::AssetLockFunding::FromWalletBalance {
-                amount_duffs: lock,
-                account_index: 0,
-            },
+        out_point: key_wallet::dashcore::OutPoint,
+    ) -> Result<Option<u64>, String> {
+        let before = self.proved_balance(to).await;
+        let funding = platform_wallet::AssetLockFunding::FromExistingAssetLock {
+            out_point,
+            consume_invitation_voucher: false,
         };
         let address_signer = super::addresses::address_signer(wallet, keys).await?;
         let lock_signer = crate::identity::AssetLockSigner(keys.clone());
-        wallet
+        let changes = wallet
             .platform()
             .fund_from_asset_lock(
                 funding,
@@ -161,8 +180,32 @@ impl Chain {
                 None,
             )
             .await
-            .map(|_| ())
-            .map_err(|e| e.to_string())
+            .map_err(|e| e.to_string())?;
+        let after = changes
+            .addresses
+            .iter()
+            .rev()
+            .find(|e| PlatformAddress::P2pkh(e.address.to_bytes()) == to)
+            .map(|e| e.funds.balance);
+        Ok(credited(before, after))
+    }
+
+    /// `to`'s credits as Platform proves them now (none: an address it has not seen), or
+    /// `None` when the read fails.
+    async fn proved_balance(&self, to: PlatformAddress) -> Option<u64> {
+        use dash_sdk::platform::FetchMany;
+        use dash_sdk::query_types::{AddressInfo, AddressInfos};
+        let sdk = self.sdk().await.ok()?;
+        let proved: AddressInfos =
+            AddressInfo::fetch_many(sdk.as_ref(), std::collections::BTreeSet::from([to]))
+                .await
+                .ok()?;
+        Some(
+            proved
+                .get(&to)
+                .and_then(|info| info.as_ref())
+                .map_or(0, |i| i.balance),
+        )
     }
 }
 
@@ -212,6 +255,7 @@ mod tests {
             ),
             amount: 10_012_000,
             made_here,
+            instant: false,
         }
     }
 
@@ -262,5 +306,23 @@ mod tests {
         let locks = [lock(1, true), lock(2, false)];
         let answers = [Some(Answer::Spent), Some(Answer::NotSeen)];
         assert_eq!(waiting_lock(&locks, told(&locks, answers)), Some(&locks[1]));
+    }
+}
+
+#[cfg(test)]
+mod credited_tests {
+    use super::*;
+
+    /// BUG-171 AC-T4: «Credited» is the proved balance after less the one before — 97 064 000
+    /// credits on QA's C2, not the planned 100 000 000; unknown when either read is.
+    #[test]
+    fn credited_is_after_less_before() {
+        assert_eq!(
+            credited(Some(492_925_000), Some(589_989_000)),
+            Some(97_064_000)
+        );
+        assert_eq!(credited(Some(0), Some(103_040_000)), Some(103_040_000));
+        assert_eq!(credited(None, Some(1)), None);
+        assert_eq!(credited(Some(1), None), None);
     }
 }

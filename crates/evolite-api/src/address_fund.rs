@@ -19,6 +19,13 @@ use crate::{Duffs, Fees};
 /// its trees. What the margin leaves stays on the address.
 pub const ADDRESS_FUND_ON_TOP: Duffs = 12_000;
 
+/// What Platform keeps of a lock proved by a ChainLock instead of an InstantLock (BUG-171): a lock
+/// found on chain after a restore from the phrase kept 14 936 duffs on testnet (QA pass 24, C2)
+/// against 8 960 and 9 118 with an InstantLock. Until AC-T5 measures the ChainLock path apart
+/// from the restore, 20 000: the larger with about a third on top. A new funding is planned
+/// with it (its InstantLock may not come); «Continue» with it for a lock without one.
+pub const ADDRESS_FUND_ON_TOP_CHAIN: Duffs = 20_000;
+
 /// What testnet kept of a lock that funded an address (AC-T1): a new address, a funded one.
 pub const ADDRESS_FUND_MEASURED: [Duffs; 2] = [8_827, 8_928];
 
@@ -49,9 +56,21 @@ pub enum FundRefusal {
 
 impl Fees {
     /// What is paid on top of the amount for Platform's processing of a lock that funds an
-    /// address: never below [`ADDRESS_FUND_ON_TOP`].
+    /// address, a new one: by the dearer path (BUG-171 — the InstantLock may not come and the
+    /// lock goes with a ChainLock), never below [`ADDRESS_FUND_ON_TOP_CHAIN`].
     pub fn address_fund_on_top(&self) -> Duffs {
-        self.address_fund_on_top.max(ADDRESS_FUND_ON_TOP)
+        self.address_fund_on_top.max(ADDRESS_FUND_ON_TOP_CHAIN)
+    }
+
+    /// What Platform keeps, as far as is known, of a lock already made (BUG-171, «Continue»):
+    /// with an InstantLock, [`ADDRESS_FUND_ON_TOP`]; without one, the ChainLock path's
+    /// [`ADDRESS_FUND_ON_TOP_CHAIN`].
+    pub fn address_fund_on_top_of(&self, instant: bool) -> Duffs {
+        if instant {
+            self.address_fund_on_top.max(ADDRESS_FUND_ON_TOP)
+        } else {
+            self.address_fund_on_top()
+        }
     }
 
     /// The least amount to fund the address with: its lock (the amount and what is on top)
@@ -149,8 +168,8 @@ mod tests {
         }
     }
 
-    /// AC-T2 and the mockups (22): 0,1 DASH to the address locks 0,10012, and 0,10012522 leave
-    /// Core; the address gets at least 0,1.
+    /// AC-T2 and the mockups (22): 0,1 DASH to the address locks 0,1002 (by the ChainLock path,
+    /// BUG-171), and 0,10020522 leave Core; the address gets at least 0,1.
     #[test]
     fn the_lock_is_the_amount_and_what_is_on_top() {
         let plan = fund_plan(10_000_000, false, 50_000_000, &fees(&[50_000_000])).unwrap();
@@ -158,25 +177,25 @@ mod tests {
             plan,
             FundPlan {
                 arrives_at_least: 10_000_000,
-                on_top: 12_000,
-                lock: 10_012_000,
+                on_top: 20_000,
+                lock: 10_020_000,
                 core_fee: 522,
-                total: 10_012_522,
+                total: 10_020_522,
             }
         );
     }
 
-    /// The threshold: «At least 0,00044 DASH to the address» (56 000 − 12 000; the mockups,
-    /// drawn with 20 000 on top, say 0,00036); below it nothing is locked.
+    /// The threshold: «At least 0,00036 DASH to the address» (56 000 − 20 000, as the mockups);
+    /// below it nothing is locked.
     #[test]
     fn under_the_threshold_nothing_is_locked() {
         let fees = fees(&[50_000_000]);
-        assert_eq!(fees.address_fund_least(), 44_000);
+        assert_eq!(fees.address_fund_least(), 36_000);
         assert_eq!(
-            fund_plan(43_999, false, 50_000_000, &fees),
-            Err(FundRefusal::BelowLeast { least: 44_000 })
+            fund_plan(35_999, false, 50_000_000, &fees),
+            Err(FundRefusal::BelowLeast { least: 36_000 })
         );
-        let plan = fund_plan(44_000, false, 50_000_000, &fees).unwrap();
+        let plan = fund_plan(36_000, false, 50_000_000, &fees).unwrap();
         assert_eq!(plan.lock, 56_000, "exactly the threshold");
     }
 
@@ -184,13 +203,13 @@ mod tests {
     #[test]
     fn max_with_one_coin_spends_it_all() {
         let plan = fund_plan(0, true, 1_000_000, &fees(&[1_000_000])).unwrap();
-        assert_eq!(plan.arrives_at_least, 1_000_000 - 522 - 12_000);
+        assert_eq!(plan.arrives_at_least, 1_000_000 - 522 - 20_000);
         assert_eq!(plan.total, 1_000_000);
         // A coin too small for the threshold: not enough, nothing to lock.
         assert_eq!(
             fund_plan(0, true, 50_000, &fees(&[50_000])),
             Err(FundRefusal::NotEnough {
-                most: 50_000 - 522 - 12_000
+                most: 50_000 - 522 - 20_000
             })
         );
     }
@@ -202,10 +221,10 @@ mod tests {
         assert_eq!(
             fund_plan(990_000, false, 1_000_000, &fees),
             Err(FundRefusal::NotEnough {
-                most: 1_000_000 - 522 - 12_000
+                most: 1_000_000 - 522 - 20_000
             })
         );
-        assert!(fund_plan(1_000_000 - 522 - 12_000, false, 1_000_000, &fees).is_ok());
+        assert!(fund_plan(1_000_000 - 522 - 20_000, false, 1_000_000, &fees).is_ok());
     }
 
     /// What is on top never drops under the estimate, whatever the fees say (a demo or an old
@@ -214,7 +233,7 @@ mod tests {
     fn what_is_on_top_is_never_below_the_estimate() {
         let mut fees = fees(&[1_000_000]);
         fees.address_fund_on_top = 0;
-        assert_eq!(fees.address_fund_on_top(), ADDRESS_FUND_ON_TOP);
+        assert_eq!(fees.address_fund_on_top(), ADDRESS_FUND_ON_TOP_CHAIN);
         fees.address_fund_on_top = 30_000;
         assert_eq!(fees.address_fund_on_top(), 30_000);
     }
@@ -236,5 +255,26 @@ mod tests {
         );
         // And the threshold still leaves an amount: a lock of 56 000 is not all fee.
         assert!(fees(&[]).address_fund_least() > 0);
+    }
+
+    /// BUG-171 AC-T3: what Platform keeps by the lock's proof — 14 936 of a lock found on chain
+    /// after a restore (QA's C2) against about 9 000 with an InstantLock. A lock without one
+    /// promises «at least» the lock less the ChainLock path's estimate, which covers C2 with a
+    /// margin; one with an InstantLock, the old estimate. A new funding is planned by the dearer
+    /// path, its InstantLock may not come.
+    #[test]
+    fn what_is_on_top_follows_the_proof() {
+        let fees = fees(&[]);
+        assert_eq!(fees.address_fund_on_top_of(true), ADDRESS_FUND_ON_TOP);
+        assert_eq!(
+            fees.address_fund_on_top_of(false),
+            ADDRESS_FUND_ON_TOP_CHAIN
+        );
+        assert_eq!(fees.address_fund_on_top(), ADDRESS_FUND_ON_TOP_CHAIN);
+        let c2: Duffs = 14_936;
+        assert!(ADDRESS_FUND_ON_TOP_CHAIN >= c2 + c2 / 4, "a margin over C2");
+        // QA's C2: 112 000 locked; promised at least 100 000, 97 064 came. Now promised 92 000.
+        let locked: Duffs = 112_000;
+        assert!(locked - fees.address_fund_on_top_of(false) <= locked - c2);
     }
 }

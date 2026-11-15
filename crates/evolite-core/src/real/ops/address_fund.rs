@@ -109,14 +109,31 @@ impl Real {
     /// Finishes the cut-short funding in the background with the lock already made: no new
     /// money. Refused when nothing waits (an earlier one went through: no second transition).
     pub(in crate::real) async fn resume_fund_address(&mut self) -> Result<(), CoreError> {
-        let (wallet, keys, to) = self.fund_ready().await?;
+        let (wallet, keys, shown) = self.fund_ready().await?;
         let Some(waiting) = self.waiting_fund(&wallet).await else {
             return Err(CoreError::NotAvailable(
                 tr!("Nothing to continue: the top-up of the Platform address is already credited")
                     .into(),
             ));
         };
+        // BUG-171: to the address it was signed for, as recorded; with no record (a restore),
+        // to the one shown now — the dialog says which (`resume_address`).
+        let to = PlatformAddress::from_bech32m_string(&self.resume_address(&waiting, &shown))
+            .unwrap_or(shown);
         self.fund_in_background(wallet, keys, to, 0, Some(waiting))
+    }
+
+    /// Where «Continue» of `lock` credits (BUG-171 AC-T1, AC-T2): the address recorded when it
+    /// was built, or `shown` (the one the wallet shows now) when there is no record.
+    pub(in crate::real) fn resume_address(
+        &self,
+        lock: &FundLock,
+        shown: &PlatformAddress,
+    ) -> String {
+        resume_address(
+            self.fund_intents.address(&lock.txid),
+            &shown.to_bech32m_string(crate::network::dash()),
+        )
     }
 
     /// The funding of the address that waits for «Continue» (the chain's `waiting_lock`):
@@ -153,31 +170,67 @@ impl Real {
         let refresh = self.refresher();
         let failed = self.fund_resume_failed.clone();
         let lock_status = self.lock_status.clone();
+        let intents = self.fund_intents.clone();
+        let out = self.out.clone();
         self.answer_later("task:fund_address", async move {
-            // QA's `--stop-after asset-lock` (dev-tools, BUG-160): the lock alone, then the
-            // process ends before Platform is asked.
+            let done = |result| Event::Done {
+                what: DoneWhat::FundAddress,
+                result,
+            };
+            let (out_point, instant, locked) = match &resumed {
+                Some(l) => (l.out_point, l.instant, l.amount),
+                // A new funding: the lock first, then where it goes is recorded (BUG-171), then
+                // Platform is asked — a funding cut short after the lock credits the address it
+                // was signed for.
+                None => match chain.lock_for_address(&wallet, &keys, lock).await {
+                    Ok((out_point, instant)) => {
+                        intents.put(
+                            &out_point.txid.to_string(),
+                            &to.to_bech32m_string(crate::network::dash()),
+                        );
+                        (out_point, instant, lock)
+                    }
+                    Err(e) => {
+                        busy.store(false, Ordering::Relaxed);
+                        refresh();
+                        return done(Err(identity_failure(e)));
+                    }
+                },
+            };
+            // QA's `--stop-after asset-lock` (dev-tools, BUG-160): the lock built, recorded and
+            // stored, then the process ends before Platform is asked.
             #[cfg(feature = "dev-stops")]
             if resumed.is_none() && crate::dev_stop::wanted_after_asset_lock() {
-                let locked = chain.lock_for_address_only(&wallet, &keys, lock).await;
                 crate::diag::record_now(crate::diag::Record::Answer {
                     what: "stop_after_asset_lock",
-                    outcome: if locked.is_ok() { "exit" } else { "failed" },
+                    outcome: "exit",
                 });
-                if let Err(e) = locked {
-                    busy.store(false, Ordering::Relaxed);
-                    refresh();
-                    return Event::Done {
-                        what: DoneWhat::FundAddress,
-                        result: Err(identity_failure(e)),
-                    };
-                }
                 std::process::exit(0);
             }
-            let existing = resumed.as_ref().map(|l| l.out_point);
             let result = chain
-                .fund_address(&wallet, &keys, to, lock, existing)
+                .fund_address(&wallet, &keys, to, out_point)
                 .await
                 .map_err(identity_failure);
+            let credited =
+                result.as_ref().ok().copied().flatten().map(|credits| {
+                    (credits / evolite_api::address_plan::CREDITS_PER_DUFF) as Duffs
+                });
+            // BUG-171, QA's AC-T5: by which proof, and what came of what was locked — what
+            // Platform kept is the difference. Kinds and amounts, no txid or address.
+            crate::diag::record(crate::diag::Record::AddressFund {
+                proof: if instant { "instant" } else { "chain" },
+                locked: locked as Duffs,
+                credited,
+            });
+            if result.is_ok() {
+                // Taken: the record of where it went is not needed any more.
+                intents.remove(&out_point.txid.to_string());
+                // BUG-171 AC-T4: what came, ahead of the «Done» it belongs to.
+                if let Some(credited) = credited {
+                    let _ = out.send(Event::AddressFunded { credited });
+                }
+            }
+            let result = result.map(|_| ());
             // BUG-160: a «Continue» that failed holds no new funding back, and Platform is
             // asked again whether it took the lock (then «Continue» goes).
             if let (Some(resumed), Err(_)) = (&resumed, &result) {
@@ -189,13 +242,15 @@ impl Real {
             }
             busy.store(false, Ordering::Relaxed);
             refresh();
-            Event::Done {
-                what: DoneWhat::FundAddress,
-                result,
-            }
+            done(result)
         });
         Ok(())
     }
+}
+
+/// Where «Continue» credits: the recorded address, else the one shown now (BUG-171).
+pub(in crate::real) fn resume_address(recorded: Option<String>, shown: &str) -> String {
+    recorded.unwrap_or_else(|| shown.to_owned())
 }
 
 #[cfg(test)]
@@ -214,6 +269,7 @@ mod tests {
             ),
             amount: 10_012_000,
             made_here: true,
+            instant: true,
         };
         let mut failed = std::collections::HashSet::new();
         assert!(!holds_back(None, &failed), "nothing stopped");
@@ -247,5 +303,21 @@ mod tests {
             refusal(FundRefusal::NotEnough { most: 1 }),
             CoreError::NotEnough
         );
+    }
+}
+
+#[cfg(test)]
+mod resume_tests {
+    use super::*;
+
+    /// BUG-171 AC-T1, AC-T2: «Continue» credits the address recorded when the lock was built
+    /// (QA's C2 was signed to `kr95`); with no record — after a restore — the one shown now.
+    #[test]
+    fn continue_credits_the_recorded_address_else_the_shown_one() {
+        assert_eq!(
+            resume_address(Some("tdash1kr95".into()), "tdash1kpmx"),
+            "tdash1kr95"
+        );
+        assert_eq!(resume_address(None, "tdash1kpmx"), "tdash1kpmx");
     }
 }

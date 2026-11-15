@@ -228,7 +228,7 @@ pub const PRESETS: &[&str] = &[
     "coins-auto", "coins-not-enough", "coins-spent", "send-lookalike", "send-confirm-tall",
     "overview-mixed", "send-mixed", "coins-mixed", "coins-mixed-refused", "activity-mixed",
     "send-unsignable", "send-unsignable-short",
-    "fund-address", "fund-address-review", "fund-address-steps", "fund-address-unfinished",
+    "fund-address", "fund-address-review", "fund-address-steps", "fund-address-unfinished", "fund-address-recovered",
     "fund-address-resume", "fund-address-done",
     "overview-mixed-unchecked", "send-mixed-name", "send-mixed-refused", "send-mixed-confirm",
     "send-mixed-agree", "send-mixed-changed", "send-mixed-refused-confirm",
@@ -311,6 +311,7 @@ fn dev_args<'a>(
                 | "fund-address-review"
                 | "fund-address-steps"
                 | "fund-address-unfinished"
+                | "fund-address-recovered"
                 | "fund-address-resume"
                 | "fund-address-done",
             ),

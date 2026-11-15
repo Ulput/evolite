@@ -774,6 +774,9 @@ const CONTACT_REQUEST_BALANCE: Duffs = 230_000;
 
 /// A contact request on testnet, 2026-11-05: 0.00102028 DASH (manual run M-7), rounded up.
 const CONTACT_REQUEST: Duffs = 105_000;
+/// A DashPay profile's first write on testnet, 2026-11-15: 0.0004685 DASH (QA pass 24, C4), with
+/// about a third on top (BUG-171 P3). It was priced as a contact request, 0.00105: more than twice.
+const PROFILE: Duffs = 62_000;
 /// A regular DPNS name on testnet, 2026-11-05: 0.00057979 DASH (evolite-test-data), rounded up.
 /// What a *later* name costs: a first name on an identity measured about 77 200 and the form
 /// shows [`Fees::name_price`] (BUG-97). What it needs up front is not this: see
@@ -1247,7 +1250,7 @@ pub fn fees(coins: usize) -> Fees {
         contact_request_balance: CONTACT_REQUEST_BALANCE,
         // Not measured yet: one document like a contact request, with fewer indexes — this is
         // the upper side.
-        profile: CONTACT_REQUEST,
+        profile: PROFILE,
         // The pool: Platform's own formulas at the SDK's protocol version ([`super::pool::fees`]),
         // set in the snapshot; these are the same formulas at protocol 15, until the SDK is up.
         pool_transfer: 114_140,
@@ -1423,7 +1426,13 @@ mod tests {
             "a typical write ≈ {}",
             f.document_write
         );
-        assert!(near(f.profile), "profile ≈ {}", f.profile);
+        // A profile: 0.0004685 charged (BUG-171 P3), not priced as a contact request.
+        let profile: Duffs = 46_850;
+        assert!(
+            f.profile >= profile && (f.profile - profile) * 10 <= profile * 4,
+            "profile ≈ {}",
+            f.profile
+        );
         // werner555's 0.00449927 DASH of credits: about four contact requests, not 22.
         assert_eq!(449_927 / f.document_write, 4);
         // A regular name: 0.00057979 charged, promised at 0.0100 before part 2.
@@ -1513,8 +1522,8 @@ mod tests {
         assert_eq!(fees(0).address_fund_lock_min, 56_000);
         assert_eq!(
             fees(0).address_fund_least(),
-            44_000,
-            "«At least 0,00044 DASH to the address»"
+            36_000,
+            "«At least 0,00036 DASH to the address» (56 000 less 20 000 on top, BUG-171)"
         );
     }
 

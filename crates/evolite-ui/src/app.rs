@@ -815,6 +815,7 @@ impl App {
                     what: DoneWhat::TopUp,
                     result,
                 } => self.identity.on_top_up_done(result),
+                Event::AddressFunded { credited } => self.fund_address.on_funded(*credited),
                 Event::Done {
                     what: DoneWhat::FundAddress,
                     result,

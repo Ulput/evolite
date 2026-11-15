@@ -2,6 +2,7 @@
 //! shielded pool.
 
 pub mod dashpay;
+pub mod fund_intents;
 pub mod identity;
 pub mod lock_status;
 pub mod nfts;

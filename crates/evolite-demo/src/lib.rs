@@ -1062,7 +1062,7 @@ impl Mock {
                     .into(),
             ));
         };
-        let arrives = unfinished.locked - wallet.fees.address_fund_on_top();
+        let arrives = unfinished.locked - unfinished.on_top;
         credit_address(wallet, arrives.max(0));
         Ok(())
     }

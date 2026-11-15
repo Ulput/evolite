@@ -8,6 +8,10 @@ use crate::screens::Screen;
 use crate::screens::settings::Section;
 use evolite_api::{Command, VaultState};
 
+/// `--screen fund-address-recovered`: where «Continue» of a lock found after a restore goes —
+/// another of the wallet's Platform addresses than the one signed for (QA's C2, BUG-171).
+pub(super) const RECOVERED_TO: &str = "tdash1kpmx2t8gs39wnd5v7n4k3l2qx9y8w6e5r4t3d2wd62z";
+
 /// What the screenshot tools keep between frames.
 pub(super) struct DevState {
     /// `--screenshot <file.png>`: save the window after a few frames and quit (for checks on
@@ -45,6 +49,10 @@ pub(super) struct DevState {
     /// `--screen fund-address-unfinished` / `-resume` / `-steps`: a funding of the Platform address whose
     /// lock is made and not taken yet (FEAT-0015 stage 2, frames 23, 24, 24b).
     pub(super) fund_unfinished_preset: bool,
+    /// `--screen fund-address-recovered`: the stopped one is a lock found on chain after a
+    /// restore — no record of where it was signed to go, so it goes to the address shown now
+    /// ([`RECOVERED_TO`]), and no InstantLock (BUG-171) — with «Continue» open.
+    fund_recovered_preset: bool,
     /// `--screen tokens-*` (FEAT-0019): the search or the network as that frame of the design shows it.
     tokens_preset: Option<&'static str>,
     /// `--screen overview-syncing` / `send-syncing`: the screen while the sync still runs.
@@ -191,7 +199,9 @@ impl DevState {
             },
             fund_unfinished_preset: dev.preset("fund-address-unfinished")
                 || dev.preset("fund-address-resume")
-                || dev.preset("fund-address-steps"),
+                || dev.preset("fund-address-steps")
+                || dev.preset("fund-address-recovered"),
+            fund_recovered_preset: dev.preset("fund-address-recovered"),
             tokens_preset: TOKEN_STATES.into_iter().find(|name| dev.preset(name)),
             syncing_preset: dev.preset("overview-syncing") || dev.preset("send-syncing"),
             platform_preset: if dev.preset("sync-platform") {
@@ -349,9 +359,16 @@ impl App {
         if self.dev.fund_unfinished_preset
             && let Some(w) = self.snapshot.as_mut().and_then(|s| s.wallet.as_mut())
         {
+            let recovered = self.dev.fund_recovered_preset;
             w.unfinished_address_top_up = Some(evolite_api::UnfinishedAddressTopUp {
                 locked: 10_012_000,
-                address: w.platform_address.clone(),
+                // After a restore: the address shown now, not the one signed for (BUG-171).
+                address: if recovered {
+                    RECOVERED_TO.into()
+                } else {
+                    w.platform_address.clone()
+                },
+                on_top: w.fees.address_fund_on_top_of(!recovered),
                 holds_back: true,
             });
         }
@@ -869,16 +886,20 @@ impl App {
         });
         // FEAT-0015 stage 2: the funding of the Platform address frame by frame (22–25).
         if preset("fund-address") || preset("fund-address-review") {
+            // The frames with an amount (22, 22b): 0.1 DASH, put in as the person would type it.
+            // The form itself opens empty (BUG-172, frame F1).
             self.fund_address.form = Some(screens::fund_address::FundForm {
+                amount: crate::format::input_text(10_000_000),
+                suggested: Some(10_000_000),
                 review: preset("fund-address-review"),
-                ..Default::default()
             });
         }
         if preset("fund-address-steps") {
             self.fund_address.running = Some(10_000_000);
             self.fund_address.steps_open = true;
         }
-        self.fund_address.resume_open = preset("fund-address-resume");
+        self.fund_address.resume_open =
+            preset("fund-address-resume") || preset("fund-address-recovered");
         if preset("fund-address-done") {
             self.fund_address.result = Some((10_000_000, Ok(())));
         }

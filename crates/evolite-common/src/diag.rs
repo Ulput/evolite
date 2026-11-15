@@ -177,6 +177,15 @@ pub enum Record {
         reason: &'static str,
         held: Option<evolite_api::Duffs>,
     },
+    /// A funding of the Platform address went to Platform (BUG-171, QA's AC-T5): by which proof
+    /// of its lock (`instant` or `chain`), the duffs locked and what the address gained (`None`:
+    /// not known, or refused) — what Platform kept is the difference. Kinds and amounts only:
+    /// no txid, no address.
+    AddressFund {
+        proof: &'static str,
+        locked: evolite_api::Duffs,
+        credited: Option<evolite_api::Duffs>,
+    },
     /// A stage of the token search ended (BUG-136, the architect's measure): its name, fixed in
     /// the code (`pages`, `ids`, `versions`, `contracts`, `balances`), its requests and its ms.
     /// Counts only: no id, no token, no amount.
@@ -299,6 +308,13 @@ impl Record {
             } => json!({
                 "k": "price", "what": what, "declared": declared, "actual": actual,
                 "enough": enough, "reason": reason, "held": held,
+            }),
+            Record::AddressFund {
+                proof,
+                locked,
+                credited,
+            } => json!({
+                "k": "address_fund", "proof": proof, "locked": locked, "credited": credited,
             }),
             Record::TokenSearchStage {
                 stage,
@@ -784,6 +800,30 @@ mod tests {
         );
         assert_eq!(value["k"], "price");
         assert!(value["actual"].is_null());
+    }
+
+    /// BUG-171 (QA's AC-T5): the funding line says the lock's proof and the amounts, and holds
+    /// nothing else — no txid, no address.
+    #[test]
+    fn an_address_fund_record_is_the_proof_and_the_amounts() {
+        let line = Record::AddressFund {
+            proof: "chain",
+            locked: 112_000,
+            credited: Some(97_064),
+        }
+        .line(UNIX_EPOCH);
+        let value: serde_json::Value = serde_json::from_str(&line).unwrap();
+        let mut keys: Vec<&str> = value
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(|k| k.as_str())
+            .collect();
+        keys.sort_unstable();
+        assert_eq!(keys, ["credited", "k", "locked", "proof", "t"], "{line}");
+        assert_eq!(value["k"], "address_fund");
+        assert_eq!(value["proof"], "chain");
+        assert_eq!(value["credited"], 97_064);
     }
 
     #[test]
