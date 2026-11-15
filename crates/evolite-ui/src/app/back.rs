@@ -44,10 +44,19 @@ pub(crate) fn esc_or_mouse_back(ctx: &egui::Context) -> bool {
     })
 }
 
-/// The screens that go back to where they were entered from. FEAT-0020 adds the keys' screen
-/// (K1).
+/// The screens that go back to where they were entered from: Send, and a token's page
+/// (FEAT-0019 T-3). FEAT-0020 adds the keys' screen (K1).
 pub(crate) fn returning(screen: Screen) -> bool {
-    matches!(screen, Screen::Send)
+    matches!(screen, Screen::Send | Screen::TokenPage)
+}
+
+/// Where `screen` goes back to with no place remembered (opened by a preset, or the place gone):
+/// a token's page to Tokens, everything else to Overview (R-3).
+pub(crate) fn home_of(screen: Screen) -> Screen {
+    match screen {
+        Screen::TokenPage => Screen::Tokens,
+        _ => Screen::Overview,
+    }
 }
 
 /// The place to go back to after a move from `from` to `to` (AC-T1): set on entering a

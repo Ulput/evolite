@@ -97,7 +97,8 @@ pub fn kind_of(a: &Activity) -> u8 {
         | TokenReceived { .. }
         | TokenBalance { .. }
         | TokenClaimed { .. }
-        | TokenBought { .. } => kind::IDENTITY,
+        | TokenBought { .. }
+        | TokenIssuer { .. } => kind::IDENTITY,
     }
 }
 

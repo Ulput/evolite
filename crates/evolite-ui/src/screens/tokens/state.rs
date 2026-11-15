@@ -8,6 +8,22 @@ use evolite_api::tokens::{
 };
 
 /// The token's name in the interface's language (`name_in`: else English, else the first).
+/// `name` inside a sentence: one left-to-right run, the person's words. In the Arabic interface,
+/// where the app breaks lines itself in reading order, a line never breaks it either (the
+/// designer's ar review: «Evo Coffee» came apart at a wrap, its halves on two lines).
+pub fn in_text(name: &str) -> String {
+    if crate::i18n::rtl() {
+        crate::i18n::own(&name.replace(' ', "\u{a0}"))
+    } else {
+        crate::i18n::own(name)
+    }
+}
+
+/// A token's name inside a sentence, as [`in_text`].
+pub fn name_in_text(info: &evolite_api::tokens::TokenInfo) -> String {
+    in_text(name(info))
+}
+
 pub fn name(info: &evolite_api::tokens::TokenInfo) -> &str {
     evolite_api::tokens::name_in(info, crate::i18n::current().code())
 }
@@ -362,5 +378,19 @@ mod tests {
             "5TKGz2Jm9wDqYp4rHcV8sNbE1xUa7LfQ3kRt6WhXoP2d"
         ));
         assert!(!looks_like_address("@alice"));
+    }
+    /// The designer's ar review: in the Arabic interface a token's name in a sentence is one
+    /// run a line never breaks; elsewhere it keeps its spaces.
+    #[test]
+    fn a_name_in_a_sentence_is_kept_whole_in_arabic() {
+        crate::i18n::set(crate::i18n::Lang::Ar);
+        let ar = in_text("Evo Coffee");
+        crate::i18n::set(crate::i18n::Lang::En);
+        let en = in_text("Evo Coffee");
+        assert!(
+            !ar.contains(' ') && ar.contains("Evo\u{a0}Coffee"),
+            "{ar:?}"
+        );
+        assert!(en.contains("Evo Coffee"), "{en:?}");
     }
 }

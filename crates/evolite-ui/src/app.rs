@@ -898,6 +898,11 @@ impl App {
                     what: DoneWhat::BuyToken,
                     result,
                 } => self.tokens.on_bought(result),
+                // FEAT-0019 T-3: an issuer action.
+                Event::Done {
+                    what: DoneWhat::IssuerAction,
+                    result,
+                } => self.tokens.on_issuer(result),
             }
             if let Some(o) = &mut self.onboarding {
                 o.on_event(&event);
@@ -1314,6 +1319,9 @@ impl eframe::App for App {
         let here = back::here(snapshot);
         let mut cx = Ctx::new(snapshot, &mut commands, &mut go);
         cx.back = back::back_to(self.back.as_ref(), &here, snapshot.network);
+        if self.back.is_none() {
+            cx.back = back::home_of(self.screen);
+        }
         // By the window's width, once a frame (responsive spec R2).
         cx.bp = crate::theme::Breakpoint::of(ui.ctx().content_rect().width());
         // A countdown preset (FEAT-0002) shows the time it names.
@@ -1502,6 +1510,12 @@ impl eframe::App for App {
                             Screen::Tokens => {
                                 screens::tokens::tokens(ui, a, &mut cx, &mut self.tokens)
                             }
+                            Screen::TokenPage => screens::tokens::manage::page_screen(
+                                ui,
+                                a,
+                                &mut cx,
+                                &mut self.tokens,
+                            ),
                             Screen::Settings => {
                                 screens::settings::settings(ui, a, &mut cx, &mut self.settings)
                             }

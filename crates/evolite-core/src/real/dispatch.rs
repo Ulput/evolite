@@ -84,6 +84,10 @@ impl Real {
                 Event::Progress { .. } => return (None, true),
                 refused => refused,
             },
+            Spend::IssuerAction { token_id, op } => match self.issuer_action(token_id, op) {
+                Event::Progress { .. } => return (None, true),
+                refused => refused,
+            },
             Spend::GiftNft { .. } => Event::Done {
                 what: DoneWhat::Gift,
                 result: Err(CoreError::NotAvailable(NO_GIFTS.into())),
@@ -450,6 +454,10 @@ impl Real {
                 return (None, false);
             }
             // R-22: the facts, prices among them, are read with the next snapshot.
+            Command::ReadTokenPage { token_id, check } => {
+                self.read_token_page(token_id, check);
+                return (None, false);
+            }
             Command::ReadTokenPrices => {
                 ops::tokens::make_due(&self.tokens.facts_handle());
                 return (None, true);

@@ -620,6 +620,15 @@ impl Mock {
                 }
                 Event::Snapshot(Box::new(self.snapshot.clone()))
             }
+            // FEAT-0019 T-3: the demo's token page.
+            Command::ReadTokenPage { token_id, .. } => {
+                let now = demo::now();
+                if let Some(w) = self.snapshot.wallet.as_mut() {
+                    let me = w.identity.as_ref().map_or(String::new(), |i| i.id.clone());
+                    w.tokens.page = Some(tokens::demo_page(&token_id, &me, now));
+                }
+                Event::Snapshot(Box::new(self.snapshot.clone()))
+            }
             Command::Lock => Event::Done {
                 what: DoneWhat::Lock,
                 result: Err(CoreError::NotAvailable(NO_WALLET.into())),
@@ -1947,6 +1956,10 @@ mod tests {
                 token_id: "x".into(),
                 count: 1,
                 agreed: 1,
+            },
+            Spend::IssuerAction {
+                token_id: "x".into(),
+                op: evolite_api::tokens::IssuerOp::Pause,
             },
         ]
     }

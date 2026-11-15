@@ -179,6 +179,12 @@ pub enum ActivityKind {
         token: String,
         amount: String,
     },
+    /// An issuer action on a token (FEAT-0019 T-3.10): what was done. The line's amount is the
+    /// fee in credits.
+    TokenIssuer {
+        token: String,
+        act: tokens::TokenAct,
+    },
     /// What an app spent from its keys' budgets, as Platform says (BUG-145): one line an app a
     /// day, timed when it was read.
     AppSpent {
@@ -2108,6 +2114,14 @@ pub enum Command {
     /// «Buy» open on a price over a minute old (FEAT-0019 T-2, R-22): the shown identity's token
     /// facts, prices among them, are read again now. Only the snapshots answer.
     ReadTokenPrices,
+    /// The token page of `token_id` for the shown identity (FEAT-0019 T-3.2): its rights, supply,
+    /// settings and frozen balances, read with proofs. `check`: an identity (`@name` or id) to look
+    /// up among the frozen too («Check identity», Q2). Only the snapshots answer
+    /// ([`tokens::Tokens::page`]).
+    ReadTokenPage {
+        token_id: String,
+        check: Option<String>,
+    },
 }
 
 /// Everything that spends: Core DASH, credits or the pool. Only through [`Command::Spend`], so
@@ -2239,6 +2253,13 @@ pub enum Spend {
         count: tokens::TokenAmount,
         agreed: u64,
     },
+    /// An issuer action on `token_id` as the shown identity (FEAT-0019 T-3). Its rights are
+    /// checked again on a fresh contract right before signing (T-3.1). `Done { what:
+    /// DoneWhat::IssuerAction }`.
+    IssuerAction {
+        token_id: String,
+        op: tokens::IssuerOp,
+    },
 }
 
 impl Spend {
@@ -2266,6 +2287,7 @@ impl Spend {
             Spend::SendToken { .. } => DoneWhat::SendToken,
             Spend::ClaimToken { .. } => DoneWhat::ClaimToken,
             Spend::BuyToken { .. } => DoneWhat::BuyToken,
+            Spend::IssuerAction { .. } => DoneWhat::IssuerAction,
             Spend::DisconnectApp { .. } => DoneWhat::Disconnect,
         }
     }
@@ -2381,6 +2403,7 @@ pub enum DoneWhat {
     SendToken,
     ClaimToken,
     BuyToken,
+    IssuerAction,
     Shield,
     Switch,
     Token,
@@ -2421,6 +2444,7 @@ impl DoneWhat {
             Self::SendToken => "send-token",
             Self::ClaimToken => "claim-token",
             Self::BuyToken => "buy-token",
+            Self::IssuerAction => "issuer-action",
             Self::Shield => "shield",
             Self::Switch => "switch",
             Self::Token => "token",

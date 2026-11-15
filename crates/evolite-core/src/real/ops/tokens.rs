@@ -50,6 +50,8 @@ pub(in crate::real) struct TokenState {
     history_reading: Arc<AtomicBool>,
     /// The identity the last snapshot showed: whose history History's «Tokens» asks for.
     shown: Arc<Mutex<Option<String>>>,
+    /// The token page last read (FEAT-0019 T-3.2), and for which identity.
+    page: Arc<Mutex<Option<(String, evolite_api::tokens::TokenPage)>>>,
     /// The kept contracts went to the provider (once per run, AC-T2).
     kept_registered: Arc<AtomicBool>,
     /// What each followed token is, from its kept contract, by token id.
@@ -82,6 +84,7 @@ impl TokenState {
             reading: Arc::default(),
             history_reading: Arc::default(),
             shown: Arc::default(),
+            page: Arc::default(),
             kept_registered: Arc::default(),
             infos: Mutex::default(),
             file: here.then(|| Arc::new(WalletTokens::new(path.to_path_buf()))),
@@ -176,6 +179,17 @@ impl TokenState {
 }
 
 impl TokenState {
+    /// The identity the last snapshot showed.
+    pub(in crate::real) fn shown_identity(&self) -> Option<String> {
+        self.shown.lock().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+
+    pub(in crate::real) fn page_handle(
+        &self,
+    ) -> Arc<Mutex<Option<(String, evolite_api::tokens::TokenPage)>>> {
+        self.page.clone()
+    }
+
     /// What every followed token is (T-2).
     pub(in crate::real) fn infos_of(&self, file: &WalletTokens) -> HashMap<String, TokenInfo> {
         self.infos(file, &file.all())
@@ -255,9 +269,19 @@ impl Real {
             let extras = extras(&infos, &file.contracts());
             self.read_token_facts(id.to_owned(), ids, file.clone(), metas, extras);
         }
+        // T-3.2: the page last read, for the identity shown now only.
+        let page = self
+            .tokens
+            .page
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .as_ref()
+            .filter(|(who, _)| Some(who.as_str()) == identity)
+            .map(|(_, page)| page.clone());
         Tokens {
             rows,
             search: self.tokens.search.shown(),
+            page,
             hidden: identity
                 .map(|id| {
                     tracked

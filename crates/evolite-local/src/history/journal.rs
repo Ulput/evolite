@@ -292,6 +292,32 @@ pub enum Kind {
         amount: String,
         units: u64,
     },
+    /// An issuer action (FEAT-0019 T-3.10): what, how much (mint, burn) and on whom (freeze,
+    /// unfreeze, destroy). `spent` is the fee; keyed `tokx:<id>` when Platform wrote a document.
+    TokenIssuer {
+        token: String,
+        act: IssuerKind,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        amount: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        units: Option<u64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        who: Option<String>,
+    },
+}
+
+/// What an issuer action did ([`Kind::TokenIssuer`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum IssuerKind {
+    Minted,
+    Burned,
+    Frozen,
+    Unfrozen,
+    Destroyed,
+    Paused,
+    Resumed,
+    PriceChanged,
+    SettingsChanged,
 }
 
 impl Kind {
@@ -305,8 +331,31 @@ impl Kind {
             Kind::TokenReceived { from, .. } => from.clone(),
             Kind::TokenBalance { token, .. }
             | Kind::TokenClaimed { token, .. }
-            | Kind::TokenBought { token, .. } => token.clone(),
+            | Kind::TokenBought { token, .. }
+            | Kind::TokenIssuer { token, .. } => token.clone(),
         }
+    }
+}
+
+/// [`evolite_api::tokens::TokenAct`] of an issuer line, for History.
+fn token_act(
+    act: IssuerKind,
+    amount: Option<&str>,
+    who: Option<&str>,
+) -> evolite_api::tokens::TokenAct {
+    use evolite_api::tokens::TokenAct;
+    let amount = amount.unwrap_or_default().to_owned();
+    let who = who.unwrap_or_default().to_owned();
+    match act {
+        IssuerKind::Minted => TokenAct::Minted { amount },
+        IssuerKind::Burned => TokenAct::Burned { amount },
+        IssuerKind::Frozen => TokenAct::Frozen { who },
+        IssuerKind::Unfrozen => TokenAct::Unfrozen { who },
+        IssuerKind::Destroyed => TokenAct::Destroyed { who },
+        IssuerKind::Paused => TokenAct::Paused,
+        IssuerKind::Resumed => TokenAct::Resumed,
+        IssuerKind::PriceChanged => TokenAct::PriceChanged,
+        IssuerKind::SettingsChanged => TokenAct::SettingsChanged,
     }
 }
 
@@ -730,6 +779,19 @@ pub fn activity(entry: &Entry) -> Activity {
         (Some(Kind::TokenBought { token, amount, .. }), _) => ActivityKind::TokenBought {
             token: token.clone(),
             amount: amount.clone(),
+        },
+        (
+            Some(Kind::TokenIssuer {
+                token,
+                act,
+                amount,
+                who,
+                ..
+            }),
+            _,
+        ) => ActivityKind::TokenIssuer {
+            token: token.clone(),
+            act: token_act(*act, amount.as_deref(), who.as_deref()),
         },
         (None, what) => match what {
             What::Credits { to } => ActivityKind::CreditTransfer { to: to.clone() },

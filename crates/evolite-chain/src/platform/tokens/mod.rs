@@ -7,5 +7,7 @@ pub mod crawl;
 pub mod info;
 pub mod pace;
 pub mod purchase;
+pub mod rights;
 pub mod run;
+pub mod settings;
 pub mod store;

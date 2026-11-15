@@ -20,6 +20,7 @@ pub(super) mod platform_sending;
 pub(super) mod pool;
 pub(super) mod token_actions;
 pub(super) mod token_history;
+pub(super) mod token_manage;
 pub(super) mod token_search;
 pub(super) mod tokens;
 pub(super) mod wallet;

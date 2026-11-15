@@ -7,6 +7,7 @@
 
 pub mod actions;
 mod dialogs;
+pub mod manage;
 pub mod state;
 
 use crate::components::{
@@ -40,6 +41,9 @@ pub struct TokensState {
     pub claiming: Option<ClaimState>,
     /// «Buy» of a row (T-2), and the price per unit it agreed to, for P2.
     pub buying: Option<BuyState>,
+    /// The token page of a row (FEAT-0019 T-3), and its issuer window.
+    pub page: Option<manage::PageState>,
+    pub issuer: Option<manage::IssuerForm>,
     agreed: Option<u64>,
     /// The first search was asked for when the screen first opened (design §3).
     asked_first: bool,
@@ -71,6 +75,13 @@ impl TokensState {
     pub fn on_claimed(&mut self, result: &Result<(), CoreError>) {
         if let Some(claim) = &mut self.claiming {
             claim.on_answer(result);
+        }
+    }
+
+    /// `Done { what: IssuerAction }`.
+    pub fn on_issuer(&mut self, result: &Result<(), CoreError>) {
+        if let Some(form) = &mut self.issuer {
+            form.on_answer(result);
         }
     }
 
@@ -362,6 +373,10 @@ pub fn tokens(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut TokensState
                 });
             }
         }
+    }
+    // A name clicked in the list: its page, not asked yet, is a screen of its own (M1).
+    if state.page.as_ref().is_some_and(manage::PageState::fresh) {
+        cx.go(crate::screens::Screen::TokenPage);
     }
     keep_in_mind(ui, a);
     if find {
@@ -772,6 +787,10 @@ fn list(
             match token_row(ui, a, row, who) {
                 RowAction::Claim => state.claiming = Some(ClaimState::new(&row.info.token_id)),
                 RowAction::Buy => state.buying = Some(BuyState::new(&row.info.token_id)),
+                RowAction::Page => {
+                    state.page = Some(manage::PageState::new(&row.info.token_id));
+                    state.issuer = None;
+                }
                 RowAction::Send => send = Some(row.info.token_id.clone()),
                 RowAction::Hide => hide = Some(row.info.token_id.clone()),
                 RowAction::None => {}
@@ -790,6 +809,7 @@ enum RowAction {
     Hide,
     Claim,
     Buy,
+    Page,
 }
 
 /// Whether the row's «Send» is on: only what the row itself says keeps it off, and it says
@@ -831,12 +851,27 @@ fn token_row(ui: &mut Ui, a: &mut Assets, row: &TokenRow, who: Sender) -> RowAct
                     ui.spacing_mut().item_spacing.y = 4.0;
                     ui.horizontal_wrapped(|ui| {
                         ui.spacing_mut().item_spacing.x = 8.0;
-                        ui.label(txt(
-                            &crate::i18n::own(state::name(&row.info)),
-                            14.0,
-                            Weight::SemiBold,
-                            p.text,
-                        ));
+                        // FEAT-0019 T-3: the name opens the token page.
+                        let name = ui
+                            .add(
+                                egui::Label::new(txt(
+                                    &state::name_in_text(&row.info),
+                                    14.0,
+                                    Weight::SemiBold,
+                                    p.text,
+                                ))
+                                .sense(Sense::click()),
+                            )
+                            .on_hover_cursor(egui::CursorIcon::PointingHand);
+                        crate::components::named(
+                            &name,
+                            egui::WidgetType::Button,
+                            true,
+                            state::name(&row.info),
+                        );
+                        if name.clicked() {
+                            action = RowAction::Page;
+                        }
                         // A found token is hidden, so the search does not bring it back; one
                         // added by hand is removed from the list (BUG-131). The core tells
                         // them apart by the origin it keeps.

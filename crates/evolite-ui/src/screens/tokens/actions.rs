@@ -27,6 +27,17 @@ pub fn can_claim(row: &TokenRow) -> bool {
         .is_some_and(|c| c.perpetual.is_some() || c.scheduled.is_some_and(|s| s.due.is_some()))
 }
 
+/// What the claim window warns of (the architect's correction to T-3.6): on a proved pause the
+/// claim goes — Platform 575d961 checks the pause on a plain claim no more than on a mint — but
+/// what is claimed cannot be sent or sold until the token is resumed. A claim to the pool would
+/// be refused by the network on a pause; evolite has no such path.
+pub fn claim_warning(row: &TokenRow) -> Option<&'static str> {
+    (row.paused == Some(true)).then_some(
+        tr!(
+            "The issuer paused the token: you can claim, but these tokens cannot be transferred or sold until it is resumed."
+        ))
+}
+
 /// Whether a row offers «Buy»: the issuer sells it (R-21; not to the contract's owner, whose row
 /// the core leaves without a price).
 pub fn can_buy(row: &TokenRow) -> bool {
@@ -350,7 +361,7 @@ pub(super) fn claim_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, tokens: &m
     let mut top_up = false;
     let title = format!(
         tr!("Claim the distribution · {}"),
-        crate::i18n::own(state::name(&row.info))
+        state::name_in_text(&row.info)
     );
     let closed = dialog_with_footer(
         ui,
@@ -440,6 +451,9 @@ pub(super) fn claim_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, tokens: &m
                 &crate::i18n::own(&from),
                 value.clone(),
             );
+            if let Some(warning) = claim_warning(&row) {
+                crate::components::attention_notice(ui, a, warning);
+            }
             match &accrued {
                 // K1: the figure in mono, 15 SemiBold.
                 Some(amount) => {
@@ -644,7 +658,7 @@ pub(super) fn buy_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, tokens: &mut
         }
     }
     let mut top_up = false;
-    let title = format!(tr!("Buy {}"), crate::i18n::own(state::name(&row.info)));
+    let title = format!(tr!("Buy {}"), state::name_in_text(&row.info));
     let closed = dialog_with_footer(
         ui,
         a,
@@ -844,7 +858,7 @@ pub(super) fn buy_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, tokens: &mut
                     FieldKind::Amount,
                     |ui| {
                         ui.label(txt(
-                            &crate::i18n::own(state::name(&row.info)),
+                            &state::name_in_text(&row.info),
                             13.0,
                             Weight::Regular,
                             p.muted,
@@ -1091,5 +1105,47 @@ mod tests {
         assert!(form.result.is_none() && !form.waiting);
         form.on_answer(&Ok(()), None);
         assert!(form.result.is_none(), "not waited for: not taken");
+    }
+
+    /// The architect's pause regression (T-3 r1): on a proved pause a transfer and a purchase
+    /// are refused before the password, each with its reason. A claim is not: Platform 575d961
+    /// checks the pause on a transfer and a direct purchase, not on a plain claim
+    /// (`token_claim_transition_action` has no pause check, only the claim to the pool has), so
+    /// «Claim» stays.
+    #[test]
+    fn a_proved_pause_refuses_a_transfer_and_a_purchase_with_the_reason() {
+        let mut paused = row(true, false);
+        assert_eq!(
+            super::super::state::row_reason(&paused),
+            Some("The issuer paused the token — transfers are not available now."),
+            "a transfer"
+        );
+        assert_eq!(
+            buy_problem(&paused, &offer(None), Some(100), Some(u64::MAX), 0),
+            Some(BuyProblem::Paused),
+            "a purchase"
+        );
+        assert_eq!(
+            buy_problem(&paused, &offer(None), None, None, 0),
+            Some(BuyProblem::Paused),
+            "said before a count is typed"
+        );
+        paused.claims = Some(Claims {
+            perpetual: Some(Perpetual {
+                every: Every::Millis(86_400_000),
+                at_least: None,
+                capped: None,
+            }),
+            scheduled: None,
+        });
+        assert!(can_claim(&paused), "a claim: Platform takes it on a pause");
+        assert!(
+            claim_warning(&paused).is_some_and(|w| w.contains("you can claim")),
+            "with the warning"
+        );
+        assert!(
+            claim_warning(&row(false, false)).is_none(),
+            "not without a pause"
+        );
     }
 }

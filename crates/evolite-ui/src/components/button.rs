@@ -9,6 +9,9 @@ pub enum ButtonKind {
     Ghost,
     /// Red, white text: what cannot be undone ("Delete from the computer").
     Danger,
+    /// A red line and red text on no fill: the same, offered in a row among others («Destroy»
+    /// beside «Unfreeze», the designer's M1).
+    DangerOutline,
 }
 
 /// The height of a [`button`], and so of a row of them.
@@ -272,6 +275,15 @@ pub fn button_enabled(
             },
             Color32::TRANSPARENT,
             Color32::WHITE,
+        ),
+        ButtonKind::DangerOutline => (
+            if hovered {
+                p.raised
+            } else {
+                Color32::TRANSPARENT
+            },
+            p.danger,
+            p.danger,
         ),
     };
     let dim = |c: Color32| if enabled { c } else { c.gamma_multiply(0.45) };

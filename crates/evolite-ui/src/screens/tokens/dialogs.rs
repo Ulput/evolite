@@ -90,7 +90,7 @@ fn with_name(amount: u64, info: &TokenInfo) -> String {
     format!(
         "{} · {}",
         state::written(amount, info.decimals),
-        crate::i18n::own(state::name(info))
+        state::name_in_text(info)
     )
 }
 
@@ -99,7 +99,7 @@ fn held_with_name(amount: u64, info: &TokenInfo) -> String {
     format!(
         "{} · {}",
         state::held_amount(amount, info.decimals),
-        crate::i18n::own(state::name(info))
+        state::name_in_text(info)
     )
 }
 
@@ -297,7 +297,7 @@ pub(super) fn send_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, tokens: &mu
                     ui.horizontal(|ui| {
                         ui.vertical(|ui| {
                             ui.label(txt(
-                                &crate::i18n::own(state::name(&row.info)),
+                                &state::name_in_text(&row.info),
                                 14.0,
                                 Weight::SemiBold,
                                 p.text,
@@ -367,7 +367,7 @@ pub(super) fn send_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, tokens: &mu
                         |ui| {
                             all = crate::components::mini_button(ui, &p, tr!("Max")).clicked();
                             ui.label(txt(
-                                &crate::i18n::own(state::name(&row.info)),
+                                &state::name_in_text(&row.info),
                                 13.0,
                                 Weight::Regular,
                                 p.muted,
@@ -434,7 +434,7 @@ pub(super) fn send_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, tokens: &mu
                     ui,
                     &p,
                     tr!("Token"),
-                    &crate::i18n::own(state::name(&row.info)),
+                    &state::name_in_text(&row.info),
                     value.clone(),
                 );
                 kv_row(
@@ -633,7 +633,7 @@ fn found_row(
         ui.vertical(|ui| {
             ui.spacing_mut().item_spacing.y = 2.0;
             ui.label(txt(
-                &crate::i18n::own(state::name(info)),
+                &state::name_in_text(info),
                 14.0,
                 Weight::SemiBold,
                 p.text,

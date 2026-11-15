@@ -228,6 +228,79 @@ pub fn demo_tokens(t: Timestamp) -> Tokens {
             failed: false,
         },
         hidden: Vec::new(),
+        page: None,
+    }
+}
+
+/// The demo's token page (FEAT-0019 T-3, the designer's M1): the shown identity owns the token
+/// and takes every action alone but «Destroy frozen», which its group of three takes with two
+/// signatures; the names are locked for good; one balance is frozen.
+pub fn demo_page(token_id: &str, me: &str, t: Timestamp) -> evolite_api::tokens::TokenPage {
+    use evolite_api::tokens::{
+        IssuerAction as A, Right, SettingField as F, SettingView, Taker, TokenPage,
+    };
+    let field = |field, makers: Taker, change, never| SettingView {
+        field,
+        makers,
+        admins: if never {
+            Taker::NoOne
+        } else {
+            Taker::ContractOwner
+        },
+        change,
+        change_who: if never { Right::No } else { Right::Alone },
+        never,
+        to_no_one_allowed: true,
+    };
+    TokenPage {
+        token_id: token_id.to_owned(),
+        supply: 12_550_000,
+        max_supply: Some(100_000_000),
+        owner: me.to_owned(),
+        owner_is_me: true,
+        actions: vec![
+            (A::Mint, Right::Alone),
+            (A::Burn, Right::Alone),
+            (A::Freeze, Right::Alone),
+            (A::Unfreeze, Right::Alone),
+            (A::DestroyFrozen, Right::Group { needed: 2, of: 3 }),
+            (A::Pause, Right::Alone),
+            (A::Price, Right::Alone),
+        ],
+        paused: false,
+        choose_destination: true,
+        new_tokens_to: None,
+        tradeable: false,
+        frozen: vec!["9Xc4Wn2Pk7Lm3Qr8Ts5Vy1Bz6Hd4Fj2Gs9Ku3Mp7Nq".into()],
+        settings: vec![
+            field(F::Names, Taker::NoOne, Right::No, true),
+            field(F::MaxSupply, Taker::ContractOwner, Right::Alone, false),
+            field(F::NewTokensTo, Taker::ContractOwner, Right::Alone, false),
+            field(
+                F::ChooseDestination,
+                Taker::ContractOwner,
+                Right::Alone,
+                false,
+            ),
+            field(F::TradeMode, Taker::ContractOwner, Right::Alone, false),
+            field(F::Who(A::Mint), Taker::ContractOwner, Right::Alone, false),
+            field(F::Who(A::Burn), Taker::ContractOwner, Right::Alone, false),
+            field(F::Who(A::Freeze), Taker::ContractOwner, Right::Alone, false),
+            field(
+                F::Who(A::Unfreeze),
+                Taker::ContractOwner,
+                Right::Alone,
+                false,
+            ),
+            field(
+                F::Who(A::DestroyFrozen),
+                Taker::Group(0),
+                Right::Group { needed: 2, of: 3 },
+                false,
+            ),
+            field(F::Who(A::Pause), Taker::ContractOwner, Right::Alone, false),
+        ],
+        read_ms: (t.max(0) as u64) * 1_000,
     }
 }
 

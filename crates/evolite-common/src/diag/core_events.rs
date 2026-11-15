@@ -65,6 +65,7 @@ pub fn command_name(command: &Command) -> &'static str {
         Command::FindMyTokens => "find_my_tokens",
         Command::ReadTokenHistory { .. } => "read_token_history",
         Command::ReadTokenPrices => "read_token_prices",
+        Command::ReadTokenPage { .. } => "read_token_page",
     }
 }
 
@@ -93,6 +94,7 @@ fn spend(op: &Spend) -> &'static str {
         Spend::SendToken { .. } => "send_token",
         Spend::ClaimToken { .. } => "claim_token",
         Spend::BuyToken { .. } => "buy_token",
+        Spend::IssuerAction { .. } => "issuer_action",
         Spend::DisconnectApp { .. } => "disconnect_app",
     }
 }

@@ -93,6 +93,7 @@ pub fn of(kind: &ActivityKind, chain: Chain) -> (u8, Flow) {
         TokenBalance { up, .. } => (IDENTITY | TOKENS, if *up { Flow::In } else { Flow::Out }),
         TokenClaimed { .. } => (IDENTITY | TOKENS, Flow::In),
         TokenBought { .. } => (IDENTITY | TOKENS, Flow::Out),
+        TokenIssuer { .. } => (IDENTITY | TOKENS, Flow::Out),
         // From the wallet's Platform addresses (FEAT-0015): to anyone's Platform address, or to a
         // Core address of this wallet only (R-3).
         AddressSent { .. } => (PLATFORM_ADDRESS, Flow::Out),

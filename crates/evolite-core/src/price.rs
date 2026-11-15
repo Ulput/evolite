@@ -276,6 +276,17 @@ pub fn declared(op: &Spend, seen: &Seen, app_cost: Duffs) -> Declared {
                 covers(seen.credits, total, fee),
             )
         }
+        // FEAT-0019 T-3 (Q3): two document writes, as a transfer, until measured; a settings
+        // change rewrites the token's configuration in the contract: four.
+        Spend::IssuerAction { op, .. } => {
+            let writes = if matches!(op, evolite_api::tokens::IssuerOp::Setting(_)) {
+                4
+            } else {
+                2
+            };
+            let fee = fees.document_write.saturating_mul(writes);
+            of("issuer_action", fee, covers(seen.credits, 0, fee))
+        }
         // One IdentityUpdate that disables the session keys.
         Spend::DisconnectApp { .. } => of(
             "disconnect_app",
@@ -469,6 +480,10 @@ pub(crate) mod tests {
                 token_id: "token".into(),
                 count: 10,
                 agreed: 1_000,
+            },
+            Spend::IssuerAction {
+                token_id: "token".into(),
+                op: evolite_api::tokens::IssuerOp::Pause,
             },
             Spend::DisconnectApp { id: "app".into() },
         ]

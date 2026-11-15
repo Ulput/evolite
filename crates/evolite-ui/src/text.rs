@@ -373,7 +373,7 @@ pub fn row_place(act: &Activity) -> String {
         ActivityKind::TokenBalance { .. } => String::new(),
         // FEAT-0019 T-2 (R-17): a claim's fee, as a send's; a purchase's cost with its fee, in
         // credits.
-        ActivityKind::TokenClaimed { .. } => {
+        ActivityKind::TokenClaimed { .. } | ActivityKind::TokenIssuer { .. } => {
             format!(tr!("fee {}"), hidden_or(crate::format::amount(-act.amount)))
         }
         ActivityKind::TokenBought { .. } => {
@@ -383,6 +383,43 @@ pub fn row_place(act: &Activity) -> String {
             )
         }
         _ => source(act).into(),
+    }
+}
+
+/// An issuer action's line in History (T-3.10, the analyst's strings).
+fn issuer_title(token: &str, act: &evolite_api::tokens::TokenAct) -> String {
+    use evolite_api::tokens::TokenAct;
+    let written = crate::screens::tokens::state::plain_written;
+    match act {
+        TokenAct::Minted { amount } => format!(
+            tr!("Minted {amount} {token}"),
+            amount = written(amount),
+            token = token
+        ),
+        TokenAct::Burned { amount } => format!(
+            tr!("Burned {amount} {token}"),
+            amount = written(amount),
+            token = token
+        ),
+        TokenAct::Frozen { who } => format!(
+            tr!("{token}: balance of {who} frozen"),
+            token = token,
+            who = short_address(who)
+        ),
+        TokenAct::Unfrozen { who } => format!(
+            tr!("{token}: balance of {who} unfrozen"),
+            token = token,
+            who = short_address(who)
+        ),
+        TokenAct::Destroyed { who } => format!(
+            tr!("{token}: frozen funds of {who} destroyed"),
+            token = token,
+            who = short_address(who)
+        ),
+        TokenAct::Paused => format!(tr!("{token} paused"), token = token),
+        TokenAct::Resumed => format!(tr!("{token}: pause lifted"), token = token),
+        TokenAct::PriceChanged => format!(tr!("{token}: price changed"), token = token),
+        TokenAct::SettingsChanged => format!(tr!("{token}: settings changed"), token = token),
     }
 }
 
@@ -426,6 +463,23 @@ pub fn row_amount(act: &Activity) -> String {
             token.replace(' ', "\u{a0}")
         ),
         // FEAT-0019 T-2: what a claim or a purchase brought, in the token.
+        // FEAT-0019 T-3: what was minted or burned, in the token.
+        ActivityKind::TokenIssuer {
+            token,
+            act: evolite_api::tokens::TokenAct::Minted { amount },
+        } => format!(
+            "+{} {}",
+            crate::screens::tokens::state::plain_written(amount),
+            token.replace(' ', "\u{a0}")
+        ),
+        ActivityKind::TokenIssuer {
+            token,
+            act: evolite_api::tokens::TokenAct::Burned { amount },
+        } => format!(
+            "−{} {}",
+            crate::screens::tokens::state::plain_written(amount),
+            token.replace(' ', "\u{a0}")
+        ),
         ActivityKind::TokenClaimed { token, amount }
         | ActivityKind::TokenBought { token, amount } => {
             format!(
@@ -592,6 +646,7 @@ pub fn activity_title(a: &Activity) -> String {
             amount = crate::screens::tokens::state::plain_written(amount),
             token = token
         ),
+        ActivityKind::TokenIssuer { token, act } => issuer_title(token, act),
         ActivityKind::TokenBought { token, amount } => format!(
             tr!("Bought {amount} {token}"),
             amount = crate::screens::tokens::state::plain_written(amount),
@@ -837,7 +892,8 @@ pub fn activity_icon(a: &Activity) -> &'static str {
         ActivityKind::TokenSent { .. }
         | ActivityKind::TokenReceived { .. }
         | ActivityKind::TokenClaimed { .. }
-        | ActivityKind::TokenBought { .. } => "token",
+        | ActivityKind::TokenBought { .. }
+        | ActivityKind::TokenIssuer { .. } => "token",
         // The designer's H1: a change between reads is history, not a token's move.
         ActivityKind::TokenBalance { .. } => "activity",
         ActivityKind::CreditTransfer { .. } => "transfer",

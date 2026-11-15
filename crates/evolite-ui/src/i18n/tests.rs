@@ -243,6 +243,55 @@ fn every_catalog_covers_every_key() {
     assert!(gaps.is_empty(), "{}", gaps.join("\n"));
 }
 
+/// A value left in English is a gap the key count does not see (FEAT-0019 T-3 r2, the
+/// designer): in every catalog a value that is its own English key, of three words or more,
+/// fails; in ru and uk so does a value without a single Cyrillic letter, of two English words or
+/// more. What is kept in English on purpose is named here.
+#[test]
+fn no_catalog_keeps_an_english_sentence() {
+    const KEPT: &[(&str, &str)] = &[
+        ("de", "Name in DPNS"),
+        ("*", "dd.mm.yyyy"),
+        ("*", "asset lock"),
+        ("*", "dashpay://connect?…"),
+        ("*", "Platform (DAPI)"),
+    ];
+    let words = |s: &str| {
+        s.split(|c: char| !c.is_ascii_alphabetic())
+            .filter(|w| w.len() >= 2)
+            .count()
+    };
+    let mut left = Vec::new();
+    for lang in Lang::ALL {
+        let Some(json) = lang.catalog_json() else {
+            continue;
+        };
+        let map: serde_json::Map<String, serde_json::Value> =
+            serde_json::from_str(json).expect("a catalog");
+        let code = lang.code();
+        let cyrillic = matches!(code, "ru" | "uk");
+        for (key, value) in &map {
+            let serde_json::Value::String(value) = value else {
+                continue;
+            };
+            if KEPT
+                .iter()
+                .any(|(l, k)| (*l == "*" || *l == code) && k == key)
+            {
+                continue;
+            }
+            let same = value == key && words(key) >= 3;
+            let latin = cyrillic
+                && words(value) >= 2
+                && !value.chars().any(|c| ('\u{400}'..='\u{4FF}').contains(&c));
+            if same || latin {
+                left.push(format!("{code}: {key:?} = {value:?}"));
+            }
+        }
+    }
+    assert!(left.is_empty(), "{}", left.join("\n"));
+}
+
 #[test]
 fn pieces_and_plurals_that_count_nothing() {
     let json = r#"{

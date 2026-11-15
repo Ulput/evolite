@@ -188,6 +188,27 @@ pub fn warning(ui: &mut Ui, a: &mut Assets, text: &str) {
         });
 }
 
+/// [`warning`] in the danger colour's line: what cannot be undone (the designer's M4, «Destroy
+/// frozen funds»).
+pub fn danger_warning(ui: &mut Ui, a: &mut Assets, text: &str) {
+    let p = a.p;
+    Frame::new()
+        .fill(p.bg)
+        .stroke(Stroke::new(1.0, p.danger))
+        .corner_radius(CornerRadius::same(12))
+        .inner_margin(Margin::symmetric(14, 12))
+        .show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            ui.horizontal_top(|ui| {
+                ui.spacing_mut().item_spacing.x = 12.0;
+                ui.add(a.icons.icon("warning", p.text, &p, 18.0));
+                ui.add(
+                    crate::components::para(text, 13.0, Weight::Regular, p.text).line_height(19.5),
+                );
+            });
+        });
+}
+
 /// One muted line with an info icon: the screen shows an example, not the wallet (the demo).
 #[cfg(demo_core)]
 pub fn demo_line(ui: &mut Ui, a: &mut Assets, text: &str) {

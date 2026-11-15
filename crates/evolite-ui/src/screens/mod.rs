@@ -58,6 +58,8 @@ pub enum Screen {
     Collection,
     /// FEAT-0019: the identity's Dash Platform tokens; on mainnet it only explains (R-9).
     Tokens,
+    /// FEAT-0019 T-3: one token's page (M1), entered from Tokens; the sidebar keeps Tokens lit.
+    TokenPage,
     Settings,
     /// 07: opened from Identity; the sidebar keeps Identity lit.
     CreateIdentity,
@@ -87,7 +89,7 @@ pub const NAV: [(Screen, &str, &str); 10] = [
 pub fn feature_of(screen: Screen) -> Option<evolite_api::features::Feature> {
     use evolite_api::features::Feature;
     match screen {
-        Screen::Tokens => Some(Feature::Tokens),
+        Screen::Tokens | Screen::TokenPage => Some(Feature::Tokens),
         Screen::Apps => Some(Feature::Apps),
         Screen::Collection => Some(Feature::Collection),
         _ => None,
@@ -105,6 +107,7 @@ pub fn place_name(screen: Screen) -> &'static str {
     match screen {
         Screen::Settings => tr!("Settings"),
         Screen::CreateIdentity => tr!("Identity"),
+        Screen::TokenPage => tr!("Tokens"),
         _ => NAV
             .iter()
             .find(|(s, ..)| *s == screen)

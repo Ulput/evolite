@@ -250,6 +250,9 @@ pub struct Tokens {
     /// Ids of the followed tokens the person hid on the shown identity: «Add a token» offers
     /// them back («Return to the list») instead of «Already in the list».
     pub hidden: Vec<String>,
+    /// The token page of the token asked for ([`crate::Command::ReadTokenPage`]), once read
+    /// (FEAT-0019 T-3.2).
+    pub page: Option<TokenPage>,
 }
 
 impl Tokens {
@@ -259,6 +262,210 @@ impl Tokens {
             rows: Vec::new(),
             search: TokenSearch::off(),
             hidden: Vec::new(),
+            page: None,
+        }
+    }
+}
+
+/// An issuer action of the token page (UC-9…UC-14).
+#[derive(Clone, Copy, PartialEq, Eq, Debug, PartialOrd, Ord, Hash)]
+pub enum IssuerAction {
+    Mint,
+    Burn,
+    Freeze,
+    Unfreeze,
+    DestroyFrozen,
+    /// Pause and resume.
+    Pause,
+    Price,
+}
+
+/// What the shown identity may do with an action or a setting (AC-T13).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Right {
+    /// Alone: the button.
+    Alone,
+    /// Only with its group: «needs the group's signatures: `needed` of `of`», no button.
+    Group { needed: u32, of: u32 },
+    /// Nothing: not shown.
+    No,
+}
+
+/// Who a rule names, in words the screen says.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub enum Taker {
+    NoOne,
+    ContractOwner,
+    /// An identity (base58), with its `@name` when known.
+    Identity(String),
+    MainGroup,
+    Group(u16),
+}
+
+/// A field of the settings window (M7, the architect's Q4 table).
+#[derive(Clone, Copy, PartialEq, Eq, Debug, PartialOrd, Ord, Hash)]
+pub enum SettingField {
+    Names,
+    MaxSupply,
+    NewTokensTo,
+    ChooseDestination,
+    TradeMode,
+    /// Who takes an action.
+    Who(IssuerAction),
+}
+
+/// One field of the settings window.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct SettingView {
+    pub field: SettingField,
+    /// Who may change its value (for [`SettingField::Who`], who takes the action).
+    pub makers: Taker,
+    /// Who may change `makers`.
+    pub admins: Taker,
+    /// The shown identity may change the value.
+    pub change: Right,
+    /// The shown identity may change who may.
+    pub change_who: Right,
+    /// Locked for good: «nobody» was chosen at creation.
+    pub never: bool,
+    /// Handing `makers` to «nobody» is allowed by the rule.
+    pub to_no_one_allowed: bool,
+}
+
+/// The token page of a token this identity manages (T-3.2, M1).
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct TokenPage {
+    pub token_id: String,
+    /// In circulation, proved.
+    pub supply: TokenAmount,
+    /// The limit; `None`: none.
+    pub max_supply: Option<TokenAmount>,
+    /// The contract's owner (base58) and whether it is the shown identity.
+    pub owner: String,
+    pub owner_is_me: bool,
+    /// The actions this identity has some part in; one it has none in is left out (R-15).
+    pub actions: Vec<(IssuerAction, Right)>,
+    /// The token is paused now, proved.
+    pub paused: bool,
+    /// Whether the minter chooses where new tokens go, and where they go otherwise.
+    pub choose_destination: bool,
+    pub new_tokens_to: Option<String>,
+    /// The token may be traded (its marketplace trade mode), as the fresh contract says.
+    pub tradeable: bool,
+    /// Frozen balances among those the wallet knows of, proved (Q2).
+    pub frozen: Vec<String>,
+    pub settings: Vec<SettingView>,
+    /// When it was read, in milliseconds.
+    pub read_ms: u64,
+}
+
+impl TokenPage {
+    /// «Management» is shown (AC-D8).
+    pub fn manages(&self) -> bool {
+        !self.actions.is_empty()
+            || self
+                .settings
+                .iter()
+                .any(|s| s.change != Right::No || s.change_who != Right::No)
+    }
+
+    /// The shown identity's right to `action`.
+    pub fn right(&self, action: IssuerAction) -> Right {
+        self.actions
+            .iter()
+            .find(|(a, _)| *a == action)
+            .map_or(Right::No, |(_, r)| *r)
+    }
+}
+
+/// A change of one setting (T-3.8).
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub enum SettingChange {
+    MaxSupply(Option<TokenAmount>),
+    NewTokensTo(Option<String>),
+    ChooseDestination(bool),
+    /// Tradeable or not.
+    TradeMode(bool),
+    /// Who may change the field's value (for `Who`, who takes the action).
+    Makers(SettingField, Taker),
+    /// Who may change who may.
+    Admins(SettingField, Taker),
+}
+
+impl SettingChange {
+    /// Hands a rule to «nobody»: for good, so the window asks for the tick (AC-T14).
+    pub fn to_no_one(&self) -> bool {
+        matches!(
+            self,
+            SettingChange::Makers(_, Taker::NoOne) | SettingChange::Admins(_, Taker::NoOne)
+        )
+    }
+}
+
+/// What an issuer action did, as History says it (T-3.10, the analyst's strings); amounts in
+/// words, as other token lines.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub enum TokenAct {
+    Minted { amount: String },
+    Burned { amount: String },
+    Frozen { who: String },
+    Unfrozen { who: String },
+    Destroyed { who: String },
+    Paused,
+    Resumed,
+    PriceChanged,
+    SettingsChanged,
+}
+
+/// An issuer action, as the screen asks for it.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub enum IssuerOp {
+    /// `to`: the recipient (base58 or `@name`), when the token lets the minter choose.
+    Mint {
+        to: Option<String>,
+        amount: TokenAmount,
+    },
+    Burn {
+        amount: TokenAmount,
+    },
+    Freeze {
+        who: String,
+    },
+    Unfreeze {
+        who: String,
+    },
+    DestroyFrozen {
+        who: String,
+    },
+    Pause,
+    Resume,
+    /// `None`: not sold any more; else tiers as [`Offer::tiers`].
+    Price(Option<Vec<(TokenAmount, u64)>>),
+    Setting(SettingChange),
+}
+
+impl IssuerOp {
+    /// Its action, for the rights.
+    pub fn action(&self) -> Option<IssuerAction> {
+        Some(match self {
+            IssuerOp::Mint { .. } => IssuerAction::Mint,
+            IssuerOp::Burn { .. } => IssuerAction::Burn,
+            IssuerOp::Freeze { .. } => IssuerAction::Freeze,
+            IssuerOp::Unfreeze { .. } => IssuerAction::Unfreeze,
+            IssuerOp::DestroyFrozen { .. } => IssuerAction::DestroyFrozen,
+            IssuerOp::Pause | IssuerOp::Resume => IssuerAction::Pause,
+            IssuerOp::Price(_) => IssuerAction::Price,
+            IssuerOp::Setting(_) => return None,
+        })
+    }
+
+    /// Cannot be undone: the window asks for «I understand» (R-23): burn, destroy frozen, pause,
+    /// a rule handed to «nobody».
+    pub fn needs_tick(&self) -> bool {
+        match self {
+            IssuerOp::Burn { .. } | IssuerOp::DestroyFrozen { .. } | IssuerOp::Pause => true,
+            IssuerOp::Setting(change) => change.to_no_one(),
+            _ => false,
         }
     }
 }

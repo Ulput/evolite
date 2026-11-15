@@ -146,7 +146,7 @@ impl PausePreset {
 
 /// The `--screen` presets of the tokens screen that change the snapshot (design T1, T5, T4, T4b,
 /// T3, T7).
-const TOKEN_STATES: [&str; 13] = [
+const TOKEN_STATES: [&str; 14] = [
     "tokens-review",
     "tokens-send-credits",
     "tokens-first-search",
@@ -160,6 +160,7 @@ const TOKEN_STATES: [&str; 13] = [
     "tokens-empty",
     "tokens-mainnet",
     "tokens-claim-unknown",
+    "tokens-page-destroy",
 ];
 
 /// What `--screen create-identity-short` / `create-identity-unchecked` do to Core.
@@ -1112,6 +1113,58 @@ impl App {
             }
             self.tokens.buying = Some(buy);
         }
+        // `--screen tokens-page` and the issuer windows over it (FEAT-0019 T-3: M1, M2, M3, M4,
+        // M5, M6, M7) on the demo's Evo Coffee, whose page the demo core reads.
+        let issuer_preset = [
+            ("tokens-page", None),
+            ("tokens-page-destroy", None),
+            (
+                "tokens-mint",
+                Some(screens::tokens::manage::IssuerWindow::Mint),
+            ),
+            (
+                "tokens-burn",
+                Some(screens::tokens::manage::IssuerWindow::Burn),
+            ),
+            (
+                "tokens-destroy",
+                Some(screens::tokens::manage::IssuerWindow::Destroy(
+                    "9Xc4Wn2Pk7Lm3Qr8Ts5Vy1Bz6Hd4Fj2Gs9Ku3Mp7Nq".into(),
+                )),
+            ),
+            (
+                "tokens-suspend",
+                Some(screens::tokens::manage::IssuerWindow::Pause),
+            ),
+            (
+                "tokens-price",
+                Some(screens::tokens::manage::IssuerWindow::Price),
+            ),
+            (
+                "tokens-setting",
+                Some(screens::tokens::manage::IssuerWindow::Setting(
+                    evolite_api::tokens::SettingField::Who(evolite_api::tokens::IssuerAction::Mint),
+                    screens::tokens::manage::SettingEdit::Makers,
+                )),
+            ),
+        ]
+        .into_iter()
+        .find(|(name, _)| preset(name));
+        if let Some((_, window)) = issuer_preset {
+            self.tokens.page = Some(screens::tokens::manage::PageState::new(DEMO_TOKEN));
+            if let Some(window) = window {
+                let mut form = screens::tokens::manage::IssuerForm::new(DEMO_TOKEN, window);
+                if !real_shot {
+                    form.amount = "250".into();
+                    form.price_kind = 2;
+                    form.tiers = vec![
+                        ("1".into(), "0.001".into()),
+                        ("100".into(), "0.0008".into()),
+                    ];
+                }
+                self.tokens.issuer = Some(form);
+            }
+        }
         let add_preset = [
             ("tokens-add", ""),
             ("tokens-add-one", DEMO_TOKEN),
@@ -1481,6 +1534,17 @@ fn tokens_state(s: &mut evolite_api::Snapshot, name: &str) {
     let Some(w) = s.wallet.as_mut() else {
         return;
     };
+    // M1 (FEAT-0019 T-3, the designer): the owner destroys frozen funds alone, so «Destroy»
+    // stands beside «Unfreeze» in the frozen row; the demo gives it to a group.
+    if name == "tokens-page-destroy"
+        && let Some(page) = w.tokens.page.as_mut()
+    {
+        for (action, right) in &mut page.actions {
+            if *action == evolite_api::tokens::IssuerAction::DestroyFrozen {
+                *right = evolite_api::tokens::Right::Alone;
+            }
+        }
+    }
     // K1u (FEAT-0019 T-2): what a claim pays is not known before it.
     if name == "tokens-claim-unknown" {
         for row in &mut w.tokens.rows {
