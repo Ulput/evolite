@@ -258,13 +258,18 @@ fn suggestions(ui: &mut Ui, o: &mut Onboarding, p: &crate::theme::Palette) {
                             .x;
                         let (rect, resp) =
                             ui.allocate_exact_size(vec2(tw + 20.0, 28.0), Sense::click());
-                        crate::components::named(&resp, egui::WidgetType::Button, true, hint);
+                        crate::components::named(
+                            &resp,
+                            egui::WidgetType::Button,
+                            true,
+                            &crate::i18n::phrase_word(hint),
+                        );
                         let fill = if resp.hovered() { p.line } else { p.raised };
                         ui.painter().rect_filled(rect, CornerRadius::same(8), fill);
                         ui.painter().text(
                             rect.center(),
                             Align2::CENTER_CENTER,
-                            crate::i18n::t(hint),
+                            crate::i18n::t(&crate::i18n::phrase_word(hint)),
                             font,
                             p.text,
                         );

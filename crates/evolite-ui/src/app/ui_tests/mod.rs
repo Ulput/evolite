@@ -47,6 +47,7 @@ mod notes;
 mod onboarding;
 mod password_reveal;
 mod pause;
+mod phrase_words;
 mod pool_moves;
 mod qr;
 mod scrolling;

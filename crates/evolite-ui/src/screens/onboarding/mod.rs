@@ -159,6 +159,13 @@ impl Onboarding {
         o
     }
 
+    /// A test types `word` into the restore step's field `i`, as the field last typed in.
+    #[cfg(all(test, demo_core, feature = "dev-tools"))]
+    pub(crate) fn type_restore_word(&mut self, i: usize, word: &str) {
+        self.restore_words[i] = word.into();
+        self.focused = Some(i);
+    }
+
     /// Takes the core's answers that belong to the onboarding.
     pub fn on_event(&mut self, event: &Event) {
         match event {

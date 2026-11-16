@@ -214,7 +214,11 @@ fn word_grid(ui: &mut Ui, p: &Palette, words: &[&str], hidden: bool) {
                     ui.painter().text(
                         pos2(rect.left() + 40.0, rect.center().y),
                         Align2::LEFT_CENTER,
-                        crate::i18n::t(if hidden { "••••••" } else { word }),
+                        crate::i18n::t(&crate::i18n::phrase_word(if hidden {
+                            "••••••"
+                        } else {
+                            word
+                        })),
                         mono(14.0, Weight::Medium),
                         p.text,
                     );
@@ -300,7 +304,12 @@ pub(super) fn verify(ui: &mut Ui, a: &mut Assets, o: &mut Onboarding) {
                 for (i, word) in choices.iter().enumerate() {
                     let on = o.answers[q] == Some(i);
                     let (rect, resp) = ui.allocate_exact_size(vec2(w, 38.0), Sense::click());
-                    crate::components::named_choice(&resp, egui::WidgetType::RadioButton, on, word);
+                    crate::components::named_choice(
+                        &resp,
+                        egui::WidgetType::RadioButton,
+                        on,
+                        &crate::i18n::phrase_word(word),
+                    );
                     let (fill, stroke, color) = if on {
                         (p.ink, p.ink, p.on_ink)
                     } else if resp.hovered() {
@@ -318,7 +327,7 @@ pub(super) fn verify(ui: &mut Ui, a: &mut Assets, o: &mut Onboarding) {
                     ui.painter().text(
                         rect.center(),
                         Align2::CENTER_CENTER,
-                        crate::i18n::t(word),
+                        crate::i18n::t(&crate::i18n::phrase_word(word)),
                         mono(14.0, Weight::Medium),
                         color,
                     );

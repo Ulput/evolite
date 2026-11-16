@@ -383,6 +383,13 @@ pub fn own(text: &str) -> String {
     format!("{OWN_START}{text}{OWN_END}")
 }
 
+/// A word of a recovery phrase, or a whole phrase, as drawn and read out: marked as [`own`]
+/// words, never translated. Twelve of the 2048 words are words of the interface too
+/// («address», «open», «pool»…): a phrase written down translated restores nothing (BUG-202).
+pub fn phrase_word(word: &str) -> String {
+    own(word)
+}
+
 /// Whether `text` is one person's words marked by [`own`] (a template's place may hold one).
 fn is_own(text: &str) -> bool {
     text.starts_with(OWN_START) && text.ends_with(OWN_END)

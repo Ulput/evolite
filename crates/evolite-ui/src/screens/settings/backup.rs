@@ -248,7 +248,7 @@ pub(super) fn check_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mu
                             );
                             for (i, word) in question.choices.iter().enumerate() {
                                 let on = form.picks.get(q).copied().flatten() == Some(i);
-                                if pill(ui, &p, word, on).clicked()
+                                if pill(ui, &p, &crate::i18n::phrase_word(word), on).clicked()
                                     && let Some(pick) = form.picks.get_mut(q)
                                 {
                                     *pick = Some(i);
@@ -430,7 +430,9 @@ pub(super) fn phrase_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &m
                         Some(Err(e)) => {
                             Some((crate::text::failed(tr!("It did not work"), e), p.danger))
                         }
-                        Some(Ok(phrase)) => Some((phrase.words().join(" "), p.text)),
+                        Some(Ok(phrase)) => {
+                            Some((crate::i18n::phrase_word(&phrase.words().join(" ")), p.text))
+                        }
                         None => None,
                     };
                     if let Some((line, color)) = answer {

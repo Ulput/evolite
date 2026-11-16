@@ -897,3 +897,39 @@ fn every_string_has_its_glyphs_in_the_fonts_that_ship() {
         missing.join("\n")
     );
 }
+
+/// BUG-202: no word of a recovery phrase is translated, in any language. Twelve of the 2048
+/// words are words of the interface too («address», «open»…), and a phrase written down
+/// translated restores nothing. Every phrase screen draws and names its words through
+/// [`phrase_word`].
+#[test]
+fn no_phrase_word_is_translated_in_any_language() {
+    let mut interface_words = std::collections::BTreeSet::new();
+    for lang in Lang::ALL {
+        for word in evolite_core::bip39::words() {
+            if t_in(lang, word) != word {
+                interface_words.insert(word);
+            }
+            let shown = unmarked(t_in(lang, &phrase_word(word))).into_owned();
+            assert_eq!(shown, word, "{lang:?}");
+        }
+    }
+    // Without the mark some would be translated: the test tests something.
+    assert!(
+        interface_words.contains("address") && interface_words.len() >= 12,
+        "{interface_words:?}"
+    );
+    // A whole phrase on one line (Settings › Show the phrase) as well.
+    let line = interface_words
+        .iter()
+        .copied()
+        .collect::<Vec<_>>()
+        .join(" ");
+    for lang in Lang::ALL {
+        assert_eq!(
+            unmarked(t_in(lang, &phrase_word(&line))),
+            line.as_str(),
+            "{lang:?}"
+        );
+    }
+}
