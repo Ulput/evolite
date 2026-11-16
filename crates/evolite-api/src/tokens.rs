@@ -352,6 +352,8 @@ pub struct TokenPage {
     pub new_tokens_to: Option<String>,
     /// The token may be traded (its marketplace trade mode), as the fresh contract says.
     pub tradeable: bool,
+    /// Its names, a language each, as the fresh contract's conventions say them.
+    pub names: Vec<TokenName>,
     /// Frozen balances among those the wallet knows of, proved (Q2).
     pub frozen: Vec<String>,
     pub settings: Vec<SettingView>,
@@ -378,6 +380,77 @@ impl TokenPage {
     }
 }
 
+/// A token's name in one language, as its conventions keep it: the forms for one and for many.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct TokenName {
+    pub lang: String,
+    pub one: String,
+    pub many: String,
+    /// The issuer's hint to write it with a capital letter.
+    pub capitalize: bool,
+}
+
+/// Why names cannot be written, as Platform would refuse them with a fee
+/// (`TokenConfigurationConvention::validate_localizations` v0, 575d961).
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub enum NamesProblem {
+    /// No English name: Platform requires one.
+    NoEnglish,
+    /// Not a language code Platform takes (here: two or three letters, then at most a script of
+    /// four letters and a region of two, «zh-Hans», «pt-BR» — fewer than Platform takes, never
+    /// more).
+    Language(String),
+    /// The same language twice.
+    Twice(String),
+    /// A form not 3 to 25 bytes long.
+    Length(String),
+    /// A form with a space or a control character.
+    Spaces(String),
+}
+
+/// Whether `code` is a language code in the form [`NamesProblem::Language`] says.
+fn language_code(code: &str) -> bool {
+    let mut parts = code.split('-');
+    let letters = |s: &str, n: std::ops::RangeInclusive<usize>| {
+        n.contains(&s.len()) && s.chars().all(|c| c.is_ascii_alphabetic())
+    };
+    if !parts.next().is_some_and(|l| letters(l, 2..=3)) {
+        return false;
+    }
+    let rest: Vec<&str> = parts.collect();
+    match rest.as_slice() {
+        [] => true,
+        [one] => letters(one, 4..=4) || letters(one, 2..=2),
+        [script, region] => letters(script, 4..=4) && letters(region, 2..=2),
+        _ => false,
+    }
+}
+
+/// What refuses `names` before the password, the first found; `None`: Platform takes them.
+pub fn names_problem(names: &[TokenName]) -> Option<NamesProblem> {
+    if !names.iter().any(|n| n.lang == "en") {
+        return Some(NamesProblem::NoEnglish);
+    }
+    let mut seen = std::collections::BTreeSet::new();
+    for n in names {
+        if !language_code(&n.lang) {
+            return Some(NamesProblem::Language(n.lang.clone()));
+        }
+        if !seen.insert(n.lang.as_str()) {
+            return Some(NamesProblem::Twice(n.lang.clone()));
+        }
+        for form in [&n.one, &n.many] {
+            if form.chars().any(|c| c.is_whitespace() || c.is_control()) {
+                return Some(NamesProblem::Spaces(form.clone()));
+            }
+            if !(3..=25).contains(&form.len()) {
+                return Some(NamesProblem::Length(form.clone()));
+            }
+        }
+    }
+    None
+}
+
 /// A change of one setting (T-3.8).
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum SettingChange {
@@ -386,6 +459,8 @@ pub enum SettingChange {
     ChooseDestination(bool),
     /// Tradeable or not.
     TradeMode(bool),
+    /// The names, a language each; the decimals stay as they are (АРХ-11).
+    Names(Vec<TokenName>),
     /// Who may change the field's value (for `Who`, who takes the action).
     Makers(SettingField, Taker),
     /// Who may change who may.
@@ -877,5 +952,63 @@ mod name_tests {
             "the first, in the contract's order"
         );
         assert_eq!(name_in(&named(&[]), "en"), "");
+    }
+}
+
+#[cfg(test)]
+mod names_tests {
+    use super::*;
+
+    fn name(lang: &str, one: &str, many: &str) -> TokenName {
+        TokenName {
+            lang: lang.into(),
+            one: one.into(),
+            many: many.into(),
+            capitalize: true,
+        }
+    }
+
+    /// Names as dpp's `validate_localizations` v0 takes or refuses them.
+    #[test]
+    fn names_platform_would_refuse() {
+        let en = name("en", "Coffee", "Coffees");
+        assert_eq!(names_problem(std::slice::from_ref(&en)), None);
+        assert_eq!(
+            names_problem(&[
+                en.clone(),
+                name("ru", "Кофе", "Кофе"),
+                name("zh-Hans", "咖啡币", "咖啡币")
+            ]),
+            None
+        );
+        assert_eq!(
+            names_problem(&[name("pt-BR", "Café", "Cafés")]),
+            Some(NamesProblem::NoEnglish)
+        );
+        assert_eq!(
+            names_problem(&[en.clone(), name("e", "Kaffee", "Kaffees")]),
+            Some(NamesProblem::Language("e".into()))
+        );
+        assert_eq!(
+            names_problem(&[en.clone(), name("de-abc", "Kaffee", "Kaffees")]),
+            Some(NamesProblem::Language("de-abc".into()))
+        );
+        assert_eq!(
+            names_problem(&[en.clone(), en.clone()]),
+            Some(NamesProblem::Twice("en".into()))
+        );
+        assert_eq!(
+            names_problem(&[name("en", "Evo Coffee", "Coffees")]),
+            Some(NamesProblem::Spaces("Evo Coffee".into()))
+        );
+        assert_eq!(
+            names_problem(&[name("en", "Ab", "Coffees")]),
+            Some(NamesProblem::Length("Ab".into()))
+        );
+        // Bytes, not letters: 13 Cyrillic letters are 26 bytes.
+        assert_eq!(
+            names_problem(&[en, name("ru", "Кофекофекофек", "Кофе")]),
+            Some(NamesProblem::Length("Кофекофекофек".into()))
+        );
     }
 }

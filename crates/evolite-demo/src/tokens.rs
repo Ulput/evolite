@@ -271,6 +271,20 @@ pub fn demo_page(token_id: &str, me: &str, t: Timestamp) -> evolite_api::tokens:
         choose_destination: true,
         new_tokens_to: None,
         tradeable: false,
+        names: vec![
+            evolite_api::tokens::TokenName {
+                lang: "en".into(),
+                one: "Coffee".into(),
+                many: "Coffees".into(),
+                capitalize: true,
+            },
+            evolite_api::tokens::TokenName {
+                lang: "ru".into(),
+                one: "Кофе".into(),
+                many: "Кофе".into(),
+                capitalize: true,
+            },
+        ],
         frozen: vec!["9Xc4Wn2Pk7Lm3Qr8Ts5Vy1Bz6Hd4Fj2Gs9Ku3Mp7Nq".into()],
         settings: vec![
             field(F::Names, Taker::NoOne, Right::No, true),

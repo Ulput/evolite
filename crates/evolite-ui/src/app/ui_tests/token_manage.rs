@@ -269,3 +269,56 @@ fn a_setting_says_what_it_was_and_becomes() {
     ));
     assert!(!has_words(&kit, "It is set this way already."));
 }
+
+/// Token names: the window starts from the token's names, a row a language; their own is no
+/// change («It is set this way already»); a name Platform would refuse says why under the rows
+/// and «Sign and save» stays off; a new language is a change.
+#[test]
+fn the_names_window_edits_the_names_platform_would_take() {
+    let (_turn, mut kit) = demo_app("tokens-names", "en");
+    wait_for(&mut kit, "the names window", |kit| {
+        kit.state()
+            .tokens
+            .issuer
+            .as_ref()
+            .is_some_and(|f| f.names_read)
+    });
+    kit.run_steps(3);
+    let names = |kit: &Kit| {
+        kit.state()
+            .tokens
+            .issuer
+            .as_ref()
+            .map(|f| f.names.iter().map(|n| n.lang.clone()).collect::<Vec<_>>())
+            .unwrap_or_default()
+    };
+    assert_eq!(names(&kit), vec!["en", "ru"], "the token's own");
+    assert!(has_words(&kit, "It is set this way already."));
+    assert!(
+        !button(&kit, "Add a language")
+            .accesskit_node()
+            .is_disabled(),
+        "«Add a language»"
+    );
+    // A space: Platform would refuse it.
+    if let Some(form) = &mut kit.state_mut().tokens.issuer {
+        form.names[0].one = "Evo Coffee".into();
+    }
+    kit.run_steps(3);
+    assert!(has_words(&kit, "has a space: a name has none."));
+    assert!(button(&kit, "Sign and save").accesskit_node().is_disabled());
+    // A new language instead: a change, «was … becomes».
+    if let Some(form) = &mut kit.state_mut().tokens.issuer {
+        form.names[0].one = "Coffee".into();
+        form.names.push(evolite_api::tokens::TokenName {
+            lang: "de".into(),
+            one: "Kaffee".into(),
+            many: "Kaffees".into(),
+            capitalize: true,
+        });
+    }
+    kit.run_steps(3);
+    assert!(!has_words(&kit, "It is set this way already."));
+    assert!(!has_words(&kit, "has a space"));
+    assert!(has_words(&kit, "becomes en Coffee / Coffees, ru"));
+}

@@ -15,8 +15,8 @@ use crate::context::Ctx;
 use crate::theme::{Weight, mono, sans};
 use egui::Ui;
 use evolite_api::tokens::{
-    IssuerAction, IssuerOp, Right, SettingChange, SettingField, SettingView, Taker, TokenPage,
-    TokenRow,
+    IssuerAction, IssuerOp, NamesProblem, Right, SettingChange, SettingField, SettingView, Taker,
+    TokenName, TokenPage, TokenRow, names_problem,
 };
 use evolite_api::{Command, CoreError, Spend};
 
@@ -78,6 +78,11 @@ pub struct IssuerForm {
     pub tiers: Vec<(String, String)>,
     /// A setting's new value: a choice of who (0 nobody, 1 the owner, 2 an identity) or on/off.
     pub choice: usize,
+    /// The names as typed, a language each; the first `names_from` are the token's own (their
+    /// language fixed), the rest added here. Taken from the page once it is read.
+    pub names: Vec<TokenName>,
+    pub names_from: usize,
+    pub names_read: bool,
     pub password: SpendPassword,
     pub waiting: bool,
     pub result: Option<Result<(), CoreError>>,
@@ -95,6 +100,9 @@ impl IssuerForm {
             price_kind: 1,
             tiers: vec![(String::new(), String::new())],
             choice: 1,
+            names: Vec::new(),
+            names_from: 0,
+            names_read: false,
             password: SpendPassword::default(),
             waiting: false,
             result: None,
@@ -199,7 +207,58 @@ fn change_text(change: &SettingChange, page: &TokenPage, decimals: u8) -> String
             |id| crate::i18n::own(&state::short(id)),
         ),
         SettingChange::ChooseDestination(b) | SettingChange::TradeMode(b) => on(*b),
+        SettingChange::Names(names) => names_text(names),
         SettingChange::Makers(_, who) | SettingChange::Admins(_, who) => taker_text(who, page),
+    }
+}
+
+/// The names as typed: trimmed, a row left empty dropped; `None` while Platform would refuse
+/// them (said under the rows).
+fn names_typed(form: &IssuerForm) -> Option<Vec<TokenName>> {
+    let names: Vec<TokenName> = form
+        .names
+        .iter()
+        .map(|n| TokenName {
+            lang: n.lang.trim().to_owned(),
+            one: n.one.trim().to_owned(),
+            many: n.many.trim().to_owned(),
+            capitalize: n.capitalize,
+        })
+        .filter(|n| !(n.lang.is_empty() && n.one.is_empty() && n.many.is_empty()))
+        .collect();
+    names_problem(&names).is_none().then_some(names)
+}
+
+/// The same names, in any order.
+fn same_names(a: &[TokenName], b: &[TokenName]) -> bool {
+    let sorted = |v: &[TokenName]| {
+        let mut v = v.to_vec();
+        v.sort_by(|x, y| x.lang.cmp(&y.lang));
+        v
+    };
+    sorted(a) == sorted(b)
+}
+
+/// The names in a line: «en Coffee / Coffees, ru Кофе / Кофе».
+fn names_text(names: &[TokenName]) -> String {
+    names
+        .iter()
+        .map(|n| format!("{} {} / {}", n.lang, n.one, n.many))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// Why the names typed cannot be written, as the line under them says it.
+fn names_problem_text(problem: &NamesProblem) -> String {
+    let own = |s: &str| crate::i18n::own(s);
+    match problem {
+        NamesProblem::NoEnglish => tr!("An English name is needed: Platform requires one.").into(),
+        NamesProblem::Language(l) => {
+            format!(tr!("“{}” is not a language code Platform takes."), own(l))
+        }
+        NamesProblem::Twice(l) => format!(tr!("The language {} is there twice."), own(l)),
+        NamesProblem::Length(n) => format!(tr!("“{}” is not 3 to 25 bytes long."), own(n)),
+        NamesProblem::Spaces(n) => format!(tr!("“{}” has a space: a name has none."), own(n)),
     }
 }
 
@@ -584,7 +643,7 @@ fn setting_row(
     let value_window = if who_field {
         (s.change_who == Right::Alone).then_some(SettingEdit::Makers)
     } else {
-        (s.change == Right::Alone && s.field != SettingField::Names).then_some(SettingEdit::Value)
+        (s.change == Right::Alone).then_some(SettingEdit::Value)
     };
     let label = if s.never || value.is_empty() {
         String::new()
@@ -707,6 +766,7 @@ fn unchanged(page: &TokenPage, op: &IssuerOp) -> bool {
         SettingChange::TradeMode(on) => *on == page.tradeable,
         SettingChange::Makers(f, who) => view(*f).is_some_and(|s| s.makers == *who),
         SettingChange::Admins(f, who) => view(*f).is_some_and(|s| s.admins == *who),
+        SettingChange::Names(names) => same_names(names, &page.names),
     }
 }
 
@@ -789,6 +849,7 @@ fn op_typed(
             (SettingField::TradeMode, SettingEdit::Value) => {
                 SettingChange::TradeMode(form.choice == 1)
             }
+            (SettingField::Names, SettingEdit::Value) => SettingChange::Names(names_typed(form)?),
             (field, SettingEdit::Makers | SettingEdit::Admins) => {
                 let taker = match form.choice {
                     0 => Taker::NoOne,
@@ -819,6 +880,84 @@ fn window_title(w: &IssuerWindow, token: &str) -> String {
         IssuerWindow::Resume => format!(tr!("Resume {}"), token),
         IssuerWindow::Price => format!(tr!("Price of {}"), token),
         IssuerWindow::Setting(..) => format!(tr!("Settings of {}"), token),
+    }
+}
+
+/// The names window's rows: a language each — its code (typed for one added here), the forms for
+/// one and for many, «Remove» but for English — then «Add a language».
+fn names_rows(ui: &mut Ui, a: &mut Assets, form: &mut IssuerForm) {
+    let p = a.p;
+    let fixed = form.names_from;
+    let mut remove = None;
+    let gap = ui.spacing().item_spacing.x;
+    let remove_w = crate::components::button_width(ui, tr!("Remove"));
+    for (i, n) in form.names.iter_mut().enumerate() {
+        ui.horizontal(|ui| {
+            let lang_w = 70.0;
+            let form_w = ((ui.available_width() - lang_w - remove_w - 3.0 * gap) / 2.0).max(80.0);
+            ui.scope(|ui| {
+                // As wide in every row, so the names stand in columns.
+                ui.set_min_width(lang_w);
+                ui.set_max_width(lang_w);
+                if i < fixed {
+                    ui.label(txt(&n.lang, 13.0, Weight::Medium, p.text));
+                } else {
+                    crate::a11y::name_next_field(ui, tr!("Language"));
+                    text_field(
+                        ui,
+                        &p,
+                        &format!("token-name-lang-{i}"),
+                        &mut n.lang,
+                        "de",
+                        FieldKind::Text,
+                        |_| {},
+                    );
+                }
+            });
+            ui.scope(|ui| {
+                ui.set_max_width(form_w);
+                crate::a11y::name_next_field(ui, tr!("One"));
+                text_field(
+                    ui,
+                    &p,
+                    &format!("token-name-one-{i}"),
+                    &mut n.one,
+                    tr!("One"),
+                    FieldKind::Text,
+                    |_| {},
+                );
+            });
+            ui.scope(|ui| {
+                ui.set_max_width(form_w);
+                crate::a11y::name_next_field(ui, tr!("Many"));
+                text_field(
+                    ui,
+                    &p,
+                    &format!("token-name-many-{i}"),
+                    &mut n.many,
+                    tr!("Many"),
+                    FieldKind::Text,
+                    |_| {},
+                );
+            });
+            if n.lang != "en" && button(ui, a, tr!("Remove"), ButtonKind::Ghost, None).clicked() {
+                remove = Some(i);
+            }
+        });
+    }
+    if let Some(i) = remove {
+        form.names.remove(i);
+        if i < form.names_from {
+            form.names_from -= 1;
+        }
+    }
+    if button(ui, a, tr!("Add a language"), ButtonKind::Ghost, None).clicked() {
+        form.names.push(TokenName {
+            lang: String::new(),
+            one: String::new(),
+            many: String::new(),
+            capitalize: true,
+        });
     }
 }
 
@@ -856,6 +995,14 @@ pub(super) fn issuer_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, tokens: &
     // A burn of more than this identity has is refused before the password.
     let over = form.window == IssuerWindow::Burn
         && state::typed(&form.amount, decimals).is_ok_and(|n| n > row.balance.unwrap_or(0));
+    // The names window starts from the token's names, once its page is read.
+    if form.window == IssuerWindow::Setting(SettingField::Names, SettingEdit::Value)
+        && !form.names_read
+    {
+        form.names = page.names.clone();
+        form.names_from = form.names.len();
+        form.names_read = true;
+    }
     let me = wallet.identity.as_ref().map(|i| i.id.clone());
     let op = op_of(form, decimals, &page, me.as_deref()).filter(|_| !over);
     let same =
@@ -1236,6 +1383,41 @@ pub(super) fn issuer_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, tokens: &
                         ) => {
                             segmented(ui, &p, &[tr!("Off"), tr!("On")], &mut form.choice, true);
                         }
+                        (SettingField::Names, SettingEdit::Value) => {
+                            names_rows(ui, a, form);
+                            ui.add(para(
+                                &format!(
+                                    tr!(
+                                        "Each name takes 3 to 25 bytes and no spaces, English is needed; the decimals stay {}."
+                                    ),
+                                    decimals
+                                ),
+                                12.0,
+                                Weight::Regular,
+                                p.muted,
+                            ));
+                            let typed: Vec<TokenName> = form
+                                .names
+                                .iter()
+                                .map(|n| TokenName {
+                                    lang: n.lang.trim().to_owned(),
+                                    one: n.one.trim().to_owned(),
+                                    many: n.many.trim().to_owned(),
+                                    capitalize: n.capitalize,
+                                })
+                                .filter(|n| {
+                                    !(n.lang.is_empty() && n.one.is_empty() && n.many.is_empty())
+                                })
+                                .collect();
+                            if let Some(problem) = names_problem(&typed) {
+                                ui.add(para(
+                                    &names_problem_text(&problem),
+                                    12.0,
+                                    Weight::Regular,
+                                    p.danger,
+                                ));
+                            }
+                        }
                         (_, SettingEdit::Makers | SettingEdit::Admins) => {
                             segmented(
                                 ui,
@@ -1338,9 +1520,45 @@ mod tests {
             new_tokens_to: to.map(Into::into),
             frozen: vec![],
             tradeable: false,
+            names: vec![],
             settings: vec![],
             read_ms: 0,
         }
+    }
+
+    /// Names: the typed rows as Platform takes them, an empty row dropped; none while Platform
+    /// would refuse them, and none while they are the token's own.
+    #[test]
+    fn names_typed_are_an_operation_only_when_new_and_fit() {
+        let name = |lang: &str, one: &str, many: &str| TokenName {
+            lang: lang.into(),
+            one: one.into(),
+            many: many.into(),
+            capitalize: true,
+        };
+        let mut p = page(true, None, 0, None);
+        p.names = vec![name("en", "Coffee", "Coffees")];
+        let mut form = IssuerForm::new(
+            "T",
+            IssuerWindow::Setting(SettingField::Names, SettingEdit::Value),
+        );
+        form.names = p.names.clone();
+        assert!(op_of(&form, 2, &p, None).is_none(), "the token's own");
+        form.names.push(name(" ru ", " Кофе ", "Кофе"));
+        form.names.push(name("", "", ""));
+        match op_of(&form, 2, &p, None) {
+            Some(IssuerOp::Setting(SettingChange::Names(n))) => {
+                assert_eq!(
+                    n,
+                    vec![name("en", "Coffee", "Coffees"), name("ru", "Кофе", "Кофе")]
+                )
+            }
+            other => panic!("{other:?}"),
+        }
+        form.names[0].one = "Evo Coffee".into();
+        assert!(op_of(&form, 2, &p, None).is_none(), "a space");
+        form.names.remove(0);
+        assert!(op_of(&form, 2, &p, None).is_none(), "no English");
     }
 
     /// The architect's r2: a change to what is set already is no operation — in the values

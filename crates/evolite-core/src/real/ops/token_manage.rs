@@ -9,6 +9,7 @@ use dpp::data_contract::accessors::v0::DataContractV0Getters;
 use dpp::data_contract::accessors::v1::DataContractV1Getters;
 use dpp::data_contract::associated_token::token_configuration::TokenConfiguration;
 use dpp::data_contract::associated_token::token_configuration::accessors::v0::TokenConfigurationV0Getters;
+use dpp::data_contract::associated_token::token_configuration_convention::accessors::v0::TokenConfigurationConventionV0Getters;
 use dpp::data_contract::associated_token::token_configuration_item::TokenConfigurationChangeItem;
 use dpp::data_contract::associated_token::token_distribution_rules::accessors::v0::TokenDistributionRulesV0Getters;
 use dpp::data_contract::associated_token::token_keeps_history_rules::accessors::v0::TokenKeepsHistoryRulesV0Getters;
@@ -157,15 +158,28 @@ pub(in crate::real) fn page_of(
             .new_tokens_destination_identity()
             .map(|id| id.to_string(Encoding::Base58)),
         tradeable: chain_settings::tradeable(config),
+        names: chain_settings::names(config)
+            .into_iter()
+            .map(
+                |(lang, one, many, capitalize)| evolite_api::tokens::TokenName {
+                    lang,
+                    one,
+                    many,
+                    capitalize,
+                },
+            )
+            .collect(),
         frozen,
         settings,
         read_ms,
     }
 }
 
-/// A settings change as Platform takes it (T-3.8). The names are not offered in this round.
+/// A settings change as Platform takes it (T-3.8); new names with the token's `decimals` as they
+/// are (АРХ-11), refused before signing where Platform would refuse them.
 pub(in crate::real) fn change_item(
     change: &SettingChange,
+    decimals: u8,
 ) -> Result<TokenConfigurationChangeItem, CoreError> {
     use TokenConfigurationChangeItem as I;
     let id =
@@ -177,6 +191,18 @@ pub(in crate::real) fn change_item(
             None => None,
         }),
         SettingChange::ChooseDestination(on) => I::MintingAllowChoosingDestination(*on),
+        SettingChange::Names(names) => {
+            if evolite_api::tokens::names_problem(names).is_some() {
+                return Err(CoreError::NotAvailable(
+                    tr!("Platform would not take these names: check them and sign again").into(),
+                ));
+            }
+            let names: Vec<_> = names
+                .iter()
+                .map(|n| (n.lang.clone(), n.one.clone(), n.many.clone(), n.capitalize))
+                .collect();
+            I::Conventions(chain_settings::conventions(&names, decimals))
+        }
         SettingChange::TradeMode(on) => {
             use dpp::data_contract::associated_token::token_marketplace_rules::v0::TokenTradeMode;
             I::MarketplaceTradeMode(if *on {
@@ -246,7 +272,7 @@ pub(in crate::real) fn may_take(
 ) -> Result<bool, CoreError> {
     Ok(match op {
         IssuerOp::Setting(change) => {
-            let item = change_item(change)?;
+            let item = change_item(change, config.conventions().decimals())?;
             chain_settings::offered(&item)
                 && chain_settings::may_apply(config, &item, owner, groups, me)
         }
@@ -528,9 +554,13 @@ impl Real {
                         chain::IssuerOp::Price(tiers.as_ref().map(|t| schedule_of(t))),
                         None,
                     ),
-                    IssuerOp::Setting(change) => {
-                        (chain::IssuerOp::Config(change_item(change)?), None)
-                    }
+                    IssuerOp::Setting(change) => (
+                        chain::IssuerOp::Config(change_item(
+                            change,
+                            config.conventions().decimals(),
+                        )?),
+                        None,
+                    ),
                 };
                 // Should 1: checked, signed and paid as that one identity, whatever «Act as»
                 // shows meanwhile (BUG-13 r1 should 1).
@@ -672,11 +702,56 @@ mod tests {
         assert!(may_take(&hand_over, &c, &owner, &groups, owner).unwrap());
         // The price rule is not changed here.
         assert!(
-            change_item(&SettingChange::Makers(
-                SettingField::Who(IssuerAction::Price),
-                Taker::NoOne
-            ))
+            change_item(
+                &SettingChange::Makers(SettingField::Who(IssuerAction::Price), Taker::NoOne),
+                2
+            )
             .is_err()
+        );
+    }
+
+    /// Names: the conventions with the token's decimals as they are (АРХ-11); names Platform
+    /// would refuse are refused before signing.
+    #[test]
+    fn names_are_the_conventions_with_the_decimals_kept() {
+        use dpp::data_contract::associated_token::token_configuration_convention::accessors::v0::TokenConfigurationConventionV0Getters;
+        use dpp::data_contract::associated_token::token_configuration_localization::accessors::v0::TokenConfigurationLocalizationV0Getters;
+        use evolite_api::tokens::TokenName;
+        let name = |lang: &str, one: &str, many: &str| TokenName {
+            lang: lang.into(),
+            one: one.into(),
+            many: many.into(),
+            capitalize: true,
+        };
+        let item = change_item(
+            &SettingChange::Names(vec![
+                name("en", "Coffee", "Coffees"),
+                name("ru", "Кофе", "Кофе"),
+            ]),
+            2,
+        )
+        .unwrap();
+        let TokenConfigurationChangeItem::Conventions(conv) = item else {
+            panic!("{item:?}")
+        };
+        assert_eq!(conv.decimals(), 2, "the decimals kept");
+        let en = conv.localizations().get("en").expect("en");
+        assert_eq!(
+            (en.singular_form(), en.plural_form()),
+            ("Coffee", "Coffees")
+        );
+        assert!(conv.localizations().contains_key("ru"));
+        assert!(
+            change_item(&SettingChange::Names(vec![name("ru", "Кофе", "Кофе")]), 2).is_err(),
+            "no English"
+        );
+        assert!(
+            change_item(
+                &SettingChange::Names(vec![name("en", "Evo Coffee", "Coffees")]),
+                2
+            )
+            .is_err(),
+            "a space"
         );
     }
 
@@ -685,22 +760,22 @@ mod tests {
     fn a_change_is_the_item_platform_takes() {
         use TokenConfigurationChangeItem as I;
         assert_eq!(
-            change_item(&SettingChange::MaxSupply(Some(9))).unwrap(),
+            change_item(&SettingChange::MaxSupply(Some(9)), 2).unwrap(),
             I::MaxSupply(Some(9))
         );
         assert_eq!(
-            change_item(&SettingChange::Makers(
-                SettingField::Who(IssuerAction::Pause),
-                Taker::NoOne
-            ))
+            change_item(
+                &SettingChange::Makers(SettingField::Who(IssuerAction::Pause), Taker::NoOne),
+                2
+            )
             .unwrap(),
             I::EmergencyAction(AuthorizedActionTakers::NoOne)
         );
         assert_eq!(
-            change_item(&SettingChange::Admins(
-                SettingField::MaxSupply,
-                Taker::ContractOwner
-            ))
+            change_item(
+                &SettingChange::Admins(SettingField::MaxSupply, Taker::ContractOwner),
+                2
+            )
             .unwrap(),
             I::MaxSupplyAdminGroup(AuthorizedActionTakers::ContractOwner)
         );

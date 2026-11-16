@@ -254,7 +254,7 @@ pub const PRESETS: &[&str] = &[
     "tokens-send-address", "tokens-send-more", "tokens-send-credits", "tokens-send-unknown",
     "tokens-add-one", "tokens-add-many", "tokens-add-none", "tokens-add-hidden",
     "tokens-claim", "tokens-claim-unknown", "tokens-buy", "tokens-buy-changed",
-    "tokens-page", "tokens-page-destroy", "tokens-mint", "tokens-burn", "tokens-destroy", "tokens-suspend", "tokens-price",
+    "tokens-page", "tokens-page-destroy", "tokens-names", "tokens-mint", "tokens-burn", "tokens-destroy", "tokens-suspend", "tokens-price",
     "tokens-setting",
     "probe",
     "settings", "phrase", "check-phrase", "appearance", "appearance-rate", "change-password",
@@ -536,6 +536,7 @@ fn dev_args<'a>(
             Some(
                 "tokens-page"
                 | "tokens-page-destroy"
+                | "tokens-names"
                 | "tokens-mint"
                 | "tokens-burn"
                 | "tokens-destroy"

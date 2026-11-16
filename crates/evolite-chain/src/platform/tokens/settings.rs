@@ -66,6 +66,52 @@ impl Setting {
     }
 }
 
+/// The token's names, as its conventions keep them: (language, one, many, capitalize).
+pub fn names(config: &TokenConfiguration) -> Vec<(String, String, String, bool)> {
+    use dpp::data_contract::associated_token::token_configuration_convention::accessors::v0::TokenConfigurationConventionV0Getters;
+    use dpp::data_contract::associated_token::token_configuration_localization::accessors::v0::TokenConfigurationLocalizationV0Getters;
+    config
+        .conventions()
+        .localizations()
+        .iter()
+        .map(|(lang, l)| {
+            (
+                lang.clone(),
+                l.singular_form().to_owned(),
+                l.plural_form().to_owned(),
+                l.should_capitalize(),
+            )
+        })
+        .collect()
+}
+
+/// `names` as the conventions an update writes, with the token's `decimals` as they are.
+pub fn conventions(
+    names: &[(String, String, String, bool)],
+    decimals: u8,
+) -> dpp::data_contract::associated_token::token_configuration_convention::TokenConfigurationConvention{
+    use dpp::data_contract::associated_token::token_configuration_convention::TokenConfigurationConvention;
+    use dpp::data_contract::associated_token::token_configuration_convention::v0::TokenConfigurationConventionV0;
+    use dpp::data_contract::associated_token::token_configuration_localization::TokenConfigurationLocalization;
+    use dpp::data_contract::associated_token::token_configuration_localization::v0::TokenConfigurationLocalizationV0;
+    TokenConfigurationConvention::V0(TokenConfigurationConventionV0 {
+        localizations: names
+            .iter()
+            .map(|(lang, one, many, capitalize)| {
+                (
+                    lang.clone(),
+                    TokenConfigurationLocalization::V0(TokenConfigurationLocalizationV0 {
+                        should_capitalize: *capitalize,
+                        singular_form: one.clone(),
+                        plural_form: many.clone(),
+                    }),
+                )
+            })
+            .collect(),
+        decimals,
+    })
+}
+
 /// Whether the token may be traded: its marketplace trade mode.
 pub fn tradeable(config: &TokenConfiguration) -> bool {
     use dpp::data_contract::associated_token::token_marketplace_rules::v0::TokenTradeMode;

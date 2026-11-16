@@ -161,7 +161,7 @@ impl PausePreset {
 
 /// The `--screen` presets of the tokens screen that change the snapshot (design T1, T5, T4, T4b,
 /// T3, T7).
-const TOKEN_STATES: [&str; 14] = [
+const TOKEN_STATES: [&str; 15] = [
     "tokens-review",
     "tokens-send-credits",
     "tokens-first-search",
@@ -176,6 +176,7 @@ const TOKEN_STATES: [&str; 14] = [
     "tokens-mainnet",
     "tokens-claim-unknown",
     "tokens-page-destroy",
+    "tokens-names",
 ];
 
 /// What `--screen create-identity-short` / `create-identity-unchecked` do to Core.
@@ -1216,6 +1217,13 @@ impl App {
             ("tokens-page", None),
             ("tokens-page-destroy", None),
             (
+                "tokens-names",
+                Some(screens::tokens::manage::IssuerWindow::Setting(
+                    evolite_api::tokens::SettingField::Names,
+                    screens::tokens::manage::SettingEdit::Value,
+                )),
+            ),
+            (
                 "tokens-mint",
                 Some(screens::tokens::manage::IssuerWindow::Mint),
             ),
@@ -1660,6 +1668,20 @@ fn tokens_state(s: &mut evolite_api::Snapshot, name: &str) {
     };
     // M1 (FEAT-0019 T-3, the designer): the owner destroys frozen funds alone, so «Destroy»
     // stands beside «Unfreeze» in the frozen row; the demo gives it to a group.
+    // FEAT-0019, the names: the demo locks them for good; here this identity may change them.
+    if name == "tokens-names"
+        && let Some(page) = w.tokens.page.as_mut()
+    {
+        for s in &mut page.settings {
+            if s.field == evolite_api::tokens::SettingField::Names {
+                s.never = false;
+                s.change = evolite_api::tokens::Right::Alone;
+                s.change_who = evolite_api::tokens::Right::Alone;
+                s.makers = evolite_api::tokens::Taker::ContractOwner;
+                s.admins = evolite_api::tokens::Taker::ContractOwner;
+            }
+        }
+    }
     if name == "tokens-page-destroy"
         && let Some(page) = w.tokens.page.as_mut()
     {
