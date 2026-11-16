@@ -643,41 +643,54 @@ fn a_four_digit_balance_is_shortened_in_its_tile_and_said_in_full() {
     );
 }
 
-/// Responsive spec R4 and the designer, 2026-11-07: Collection's NFT cards (195 at the least,
-/// gap 16) stand as many in a row as fit beside the details panel (300 + 24) — left to right and
-/// mirrored (`ar`). At 800 the panel goes under the grid: 676 (margins 24, R2) - 10 (the scroll
-/// bar) holds 3; at 1024 868 - 324 - 10 = 534 holds 2; at 1600 the content is 1200 (R2) and the
-/// grid 866 holds 4. At 1280 the grid is 952 - 324 - 10 = 618 (the scroll bar of a list taller
-/// than the window takes its 10): 3 x 195 + 2 x 16 = 617 fit, so 3 (the designer, after R4 r2).
+/// BUG-188: the Collection's tiles (148–196, gap 12) stand `floor((W + 12) / 160)` in a row, left
+/// to right and mirrored (`ar`); the card stands beside them only from content of 952. At 800 the
+/// grid is 676: 4; at 1024 868: 5, no panel; at 1280 952 − 300 − 24 = 628: 4 beside the panel; at
+/// 1600 the content is 1200 and the grid 876: 5. The columns are counted on those widths; a
+/// scroll bar only narrows the tiles. Copies of one model are one tile «×N».
 #[test]
 fn the_collection_takes_as_many_columns_as_fit_at_every_width() {
     for lang in ["en", "ar"] {
-        for (width, cols) in [(800.0, 3), (1024.0, 2), (1280.0, 3), (1600.0, 4)] {
+        for (width, cols) in [(800.0, 4), (1024.0, 5), (1280.0, 4), (1600.0, 5)] {
             let (_turn, mut kit) = demo_app("collection", lang);
             kit.set_size(egui::vec2(width, 900.0));
             kit.run_steps(2);
-            let names: Vec<String> = kit
+            let nfts = kit
                 .state()
                 .snapshot
                 .as_ref()
                 .and_then(|s| s.wallet.as_ref())
-                .map(|w| w.nfts.iter().map(|n| spoken(&n.name)).collect())
+                .map(|w| w.nfts.clone())
                 .unwrap_or_default();
+            let all: Vec<usize> = (0..nfts.len()).collect();
+            let names: Vec<String> = crate::screens::collection::groups(&nfts, &all)
+                .iter()
+                .map(|g| match g.len() {
+                    1 => spoken(&nfts[g[0]].name),
+                    n => spoken(&format!("{} · ×{n}", nfts[g[0]].name)),
+                })
+                .collect();
             assert!(names.len() > 4, "{lang} {width}: the demo NFTs: {names:?}");
             let cards: Vec<egui::Rect> = names.iter().map(|n| button(&kit, n).rect()).collect();
             let first = cards.iter().map(|r| r.top()).fold(f32::MAX, f32::min);
-            let in_row = cards
-                .iter()
-                .filter(|r| (r.top() - first).abs() < 0.5)
-                .count();
             let row: Vec<_> = cards
                 .iter()
                 .filter(|r| (r.top() - first).abs() < 0.5)
                 .collect();
             let grid = row.iter().map(|r| r.right()).fold(f32::MIN, f32::max)
                 - row.iter().map(|r| r.left()).fold(f32::MAX, f32::min);
-            eprintln!("{lang} {width}: {in_row} columns in {grid}");
-            assert_eq!(in_row, cols, "{lang} {width}: the first row of {cards:?}");
+            eprintln!("{lang} {width}: {} columns in {grid}", row.len());
+            assert_eq!(
+                row.len(),
+                cols,
+                "{lang} {width}: the first row of {cards:?}"
+            );
+            for card in &row {
+                assert!(
+                    (140.0..=196.0).contains(&card.width()),
+                    "{lang} {width}: {card:?}"
+                );
+            }
         }
     }
 }

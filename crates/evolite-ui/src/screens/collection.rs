@@ -7,7 +7,7 @@
 use super::txt;
 use crate::art::ArtCache;
 use crate::components::{
-    Assets, ButtonKind, GridSpec, button, card, chip, divider, inner, kv_row, page_header, pill,
+    Assets, ButtonKind, button, card, chip, divider, inner, kv_row, page_header, pill,
 };
 #[cfg(demo_core)]
 use crate::components::{
@@ -15,17 +15,22 @@ use crate::components::{
 };
 use crate::context::Ctx;
 use crate::text;
-use crate::theme::{NFT_MIN_W, Weight, mono, sans};
+use crate::theme::{Weight, mono, sans};
 use egui::{
-    Align, Align2, CornerRadius, CursorIcon, Layout, Margin, Rect, Sense, Stroke, StrokeKind, Ui,
-    pos2, vec2,
+    Align, CornerRadius, CursorIcon, Layout, Margin, Rect, Sense, Stroke, StrokeKind, Ui, pos2,
+    vec2,
 };
 #[cfg(demo_core)]
 use evolite_api::Spend;
 use evolite_api::{Command, CoreError, Duffs, Nft, NftOrigin, NftsStatus};
 use std::collections::HashSet;
 
-const FILTERS: [&str; 3] = [tr!("All"), tr!("Jembe · gifts"), tr!("For sale")];
+/// The filters of the Collection tab (BUG-188 §5): none chosen is all of it; 1 and 2 are
+/// what `matches` takes.
+const FILTERS: [&str; 2] = [tr!("Jembe · gifts"), tr!("For sale")];
+
+/// BUG-188: a group's actions go through the Workshop's series windows, not built yet.
+const SERIES_LATER: &str = tr!("Actions on several copies come in the next version");
 
 /// Hints on the demo's buttons that are not there yet.
 #[cfg(demo_core)]
@@ -52,6 +57,10 @@ fn matches(filter: usize, nft: &Nft) -> bool {
 pub struct CollectionState {
     pub filter: usize,
     pub selected: usize,
+    /// BUG-188: the card is open as a window (content narrower than [`SIDE_FROM`]).
+    pub open: bool,
+    /// The page of a group's copies in its card, 20 a page.
+    pub page: usize,
     /// The gift dialog is open for the selected NFT.
     pub gifting: bool,
     #[cfg(demo_core)]
@@ -79,6 +88,8 @@ impl CollectionState {
     /// drawn pictures and the settings stay (BUG-45).
     pub fn forget_wallet(&mut self) {
         self.selected = 0;
+        self.open = false;
+        self.page = 0;
         self.gifting = false;
         #[cfg(demo_core)]
         self.recipient.clear();
@@ -144,11 +155,20 @@ pub fn collection(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut Collect
         }
         return;
     }
+    // BUG-188 §5: the tab «Collection» (always chosen while «New» is not built), a divider,
+    // then the filters, each on and off again; none on is all of the Collection.
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 8.0;
-        for (i, label) in FILTERS.iter().enumerate() {
-            if pill(ui, &p, label, state.filter == i).clicked() {
-                state.filter = i;
+        if pill(ui, &p, tr!("Collection"), true).clicked() {
+            state.filter = 0;
+        }
+        let (bar, _) = ui.allocate_exact_size(vec2(9.0, 20.0), Sense::hover());
+        ui.painter()
+            .vline(bar.center().x, bar.y_range(), Stroke::new(1.0, p.line));
+        for (k, label) in FILTERS.iter().enumerate() {
+            let filter = k + 1;
+            if pill(ui, &p, label, state.filter == filter).clicked() {
+                state.filter = if state.filter == filter { 0 } else { filter };
             }
         }
     });
@@ -184,47 +204,72 @@ pub fn collection(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut Collect
 
     let mut asked = Vec::new();
     let asks: Vec<bool> = nfts.iter().map(|n| state.waits_for_consent(n)).collect();
+    // BUG-188: copies of one model are one tile «×N».
+    let groups = groups(nfts, &shown);
+    let selected = groups
+        .iter()
+        .position(|g| g.contains(&state.selected))
+        .map(|k| groups[k].clone());
+    // The card beside the grid only while the grid keeps four columns: content of 952 and
+    // wider (a window of 1280); narrower, it opens as a window over the grid (BUG-188).
+    let total = ui.available_width();
+    let side = total >= SIDE_FROM;
+    let grid_w = if side {
+        total - SIDE_W - SIDE_GAP
+    } else {
+        total
+    };
+    let mut clicked = false;
     egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
-        let total = ui.available_width();
-        let side = total >= 768.0;
-        let detail_w = if side { 300.0 } else { total };
-        let grid_w = if side { total - detail_w - 24.0 } else { total };
-        // Read before the grid: a click there shows in the panel on the next frame.
-        let selected = (!shown.is_empty()).then_some(state.selected);
-        let mut grid = |ui: &mut Ui, a: &mut Assets| {
-            ui.set_width(grid_w);
+        let grid = |ui: &mut Ui,
+                    a: &mut Assets,
+                    state: &mut CollectionState,
+                    asked: &mut Vec<Command>|
+         -> bool {
+            let mut clicked = false;
+            // The scroll bar may take its 10 from the width: the columns are counted on the
+            // width the spec gives, the tiles share what is left (BUG-188).
+            let inner_w = ui.available_width().min(grid_w);
+            ui.set_width(inner_w);
             ui.spacing_mut().item_spacing.y = 16.0;
-            if shown.is_empty() {
+            if groups.is_empty() {
                 card(&p, Margin::symmetric(20, 32)).show(ui, |ui| {
-                    ui.set_width(inner(grid_w, 20));
+                    ui.set_width(inner(inner_w, 20));
                     ui.vertical_centered(|ui| {
                         ui.label(txt(tr!("Nothing with this filter"), 14.0, Weight::Regular, p.muted))
                     });
                 });
             } else {
-                // As many columns of at least an NFT card (195) as fit, up to 6 (responsive
-                // spec R4). The cards are of one size: nothing to paint at the row's height.
-                let spec = GridSpec {
-                    min_w: NFT_MIN_W,
-                    gap: vec2(16.0, 16.0),
-                    max_cols: 6,
-                    balanced: false,
-                };
-                crate::components::grid(ui, shown.len(), spec, |ui, k, card_w, _| {
-                    let i = shown[k];
-                    let (card, show) = nft_card(
-                        ui,
-                        a,
-                        &mut state.art,
-                        &mut asked,
-                        &nfts[i],
-                        (i == state.selected, asks[i]),
-                        card_w,
-                    );
-                    if show {
-                        state.shown.insert(nfts[i].id.clone());
-                    } else if card.clicked() {
-                        state.selected = i;
+                let (cols, _) = tile_grid(grid_w);
+                let tile_w = tile_width(inner_w, cols);
+                ui.vertical(|ui| {
+                    ui.spacing_mut().item_spacing.y = TILE_GAP;
+                    for row in groups.chunks(cols) {
+                        ui.horizontal(|ui| {
+                            ui.spacing_mut().item_spacing.x = TILE_GAP;
+                            for group in row {
+                                let first = group[0];
+                                let (tile, show) = nft_card(
+                                    ui,
+                                    a,
+                                    &mut state.art,
+                                    asked,
+                                    nfts,
+                                    group,
+                                    (group.contains(&state.selected), asks[first]),
+                                    tile_w,
+                                );
+                                if show {
+                                    state.shown.insert(nfts[first].id.clone());
+                                } else if tile.clicked() {
+                                    if !group.contains(&state.selected) {
+                                        state.page = 0;
+                                    }
+                                    state.selected = first;
+                                    clicked = true;
+                                }
+                            }
+                        });
                     }
                 });
             }
@@ -235,33 +280,78 @@ pub fn collection(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut Collect
                 p.muted,
                 tr!("Jembe NFTs from Dash Platform: the picture is stored in the document itself — no outside servers — and checked against its hash on this computer."),
             );
+            clicked
         };
         if side {
             ui.horizontal_top(|ui| {
-                ui.spacing_mut().item_spacing.x = 24.0;
-                ui.vertical(|ui| grid(ui, a));
-                if let Some(i) = selected {
+                ui.spacing_mut().item_spacing.x = SIDE_GAP;
+                ui.vertical(|ui| clicked = grid(ui, a, state, &mut asked));
+                if let Some(group) = &selected {
                     ui.vertical(|ui| {
-                        let (gift, trust) = detail(ui, a, &nfts[i], asks[i], gift_fee, now, detail_w);
-                        state.gifting |= gift;
-                        if trust {
-                            state.trusted.insert(nfts[i].issuer.clone());
-                        }
+                        card(&p, Margin::same(20))
+                            .corner_radius(CornerRadius::same(18))
+                            .show(ui, |ui| {
+                                ui.set_width(inner(SIDE_W, 20));
+                                let picked = card_body(
+                                    ui,
+                                    a,
+                                    (&mut state.art, &mut asked),
+                                    (nfts, group, &asks),
+                                    (gift_fee, now, &mut state.page),
+                                    true,
+                                );
+                                state.gifting |= picked.gift;
+                                if let Some(issuer) = picked.trust {
+                                    state.trusted.insert(issuer);
+                                }
+                            });
                     });
                 }
             });
         } else {
-            ui.spacing_mut().item_spacing.y = 24.0;
-            grid(ui, a);
-            if let Some(i) = selected {
-                let (gift, trust) = detail(ui, a, &nfts[i], asks[i], gift_fee, now, detail_w);
-                state.gifting |= gift;
-                if trust {
-                    state.trusted.insert(nfts[i].issuer.clone());
-                }
-            }
+            clicked = grid(ui, a, state, &mut asked);
         }
     });
+    // Narrower than 952: the card is a window of 520, opened by a click on a tile (C4).
+    state.open = !side && (state.open || clicked);
+    if state.open
+        && let Some(group) = &selected
+    {
+        let nft = &nfts[group[0]];
+        let title = if group.len() > 1 {
+            format!(tr!("{name} · ×{n}"), name = nft.name, n = group.len())
+        } else {
+            nft.name.clone()
+        };
+        let mut picked = Picked::default();
+        let close = crate::components::dialog_with_header(
+            ui,
+            a,
+            "nft-card",
+            CARD_W,
+            |ui, _| {
+                ui.label(txt(&title, 20.0, Weight::Bold, p.text));
+            },
+            |ui, a| {
+                picked = card_body(
+                    ui,
+                    a,
+                    (&mut state.art, &mut asked),
+                    (nfts, group, &asks),
+                    (gift_fee, now, &mut state.page),
+                    false,
+                );
+                picked.gift
+            },
+        );
+        state.gifting |= picked.gift;
+        if let Some(issuer) = picked.trust {
+            state.trusted.insert(issuer);
+        }
+        if close || picked.gift {
+            state.open = false;
+        }
+    }
     for command in asked {
         cx.send(command);
     }
@@ -320,27 +410,127 @@ fn empty(ui: &mut Ui, a: &mut Assets, status: &NftsStatus) -> bool {
     again
 }
 
-/// A tile: art (square), name 15 SemiBold, edition and origin. Selected — 1.5 px ink border.
-/// `(selected, ask)`: `ask` — the picture waits for "Show"; the second value says it was
-/// clicked.
+/// BUG-188: the narrowest and widest a tile may be, and the gap between tiles.
+pub(crate) const TILE_MIN: f32 = 148.0;
+pub(crate) const TILE_MAX: f32 = 196.0;
+pub(crate) const TILE_GAP: f32 = 12.0;
+/// The most columns, however wide.
+const MAX_COLS: usize = 8;
+/// The card beside the grid: its width, the gap before it, and the width of content from which
+/// it is there at all (four columns still fit beside it: a window of 1280).
+pub(crate) const SIDE_W: f32 = 300.0;
+const SIDE_GAP: f32 = 24.0;
+pub(crate) const SIDE_FROM: f32 = 952.0;
+/// The card as a window, narrower than [`SIDE_FROM`] (C4).
+const CARD_W: f32 = 520.0;
+/// The copies a group's card lists on one page.
+const PAGE: usize = 20;
+
+/// BUG-188 §2: the columns of a grid `width` wide and the width of each tile:
+/// `floor((W + 12) / 160)` columns, at most 8, one more while a tile would be wider than 196.
+/// A few tiles are not stretched over the row: the width is the same whatever their number.
+pub(crate) fn tile_grid(width: f32) -> (usize, f32) {
+    let mut cols =
+        (((width + TILE_GAP) / (TILE_MIN + TILE_GAP)).floor() as usize).clamp(1, MAX_COLS);
+    while tile_width(width, cols) > TILE_MAX && cols < MAX_COLS {
+        cols += 1;
+    }
+    (cols, tile_width(width, cols))
+}
+
+/// The width of each of `cols` tiles in `width`, [`TILE_GAP`] between them.
+fn tile_width(width: f32, cols: usize) -> f32 {
+    ((width - TILE_GAP * (cols as f32 - 1.0)) / cols as f32).max(0.0)
+}
+
+/// BUG-188 §4: the shown NFTs (`shown`, indices into `nfts` in their order) by model — one
+/// contract and one picture — each group where its first copy stands.
+pub(crate) fn groups(nfts: &[Nft], shown: &[usize]) -> Vec<Vec<usize>> {
+    let mut groups: Vec<Vec<usize>> = Vec::new();
+    for &i in shown {
+        let same = |g: &&mut Vec<usize>| {
+            let first = &nfts[g[0]];
+            first.contract == nfts[i].contract && first.art == nfts[i].art
+        };
+        match groups.iter_mut().find(same) {
+            Some(group) => group.push(i),
+            None => groups.push(vec![i]),
+        }
+    }
+    groups
+}
+
+/// A group's numbers on its tile: «№ 12 · 40 · 77», a run «№ 40–43»; one copy — «No. 3 of 100».
+pub(crate) fn numbers(nfts: &[Nft], group: &[usize]) -> String {
+    if let [one] = group {
+        return edition(&nfts[*one]);
+    }
+    let mut n: Vec<u32> = group.iter().map(|&i| nfts[i].edition.0).collect();
+    n.sort_unstable();
+    n.dedup();
+    let run = n.windows(2).all(|w| w[1] == w[0] + 1);
+    match (n.first(), n.last()) {
+        (Some(a), Some(b)) if run && n.len() > 2 => format!("№ {a}–{b}"),
+        _ => {
+            let list: Vec<String> = n.iter().map(u32::to_string).collect();
+            format!("№ {}", list.join(" · "))
+        }
+    }
+}
+
+/// Where a copy came from, in a few words: «from @alice», «issue jembe».
+fn origin(nft: &Nft) -> String {
+    match &nft.origin {
+        // A gift from an address with no name: "from " alone would stay untranslated.
+        NftOrigin::Gift { from, .. } if from.is_empty() => tr!("from an unknown address").into(),
+        NftOrigin::Gift { from, .. } => format!(tr!("from {from}"), from = from),
+        NftOrigin::Received { .. } => tr!("received").into(),
+        NftOrigin::Release => format!(tr!("issue {}"), nft.issuer),
+    }
+}
+
+/// A tile's third line: «2 for sale of 4» in the accent when any copy is for sale, else where
+/// the first came from.
+fn third_line(nfts: &[Nft], group: &[usize]) -> (String, bool) {
+    let on_sale = group.iter().filter(|&&i| nfts[i].price.is_some()).count() as u32;
+    if on_sale == 0 {
+        return (origin(&nfts[group[0]]), false);
+    }
+    let line = text::plural_in(on_sale, tr!("{} for sale of {}"), tr!("{} for sale of {}"))
+        .replacen("{}", &crate::format::count(group.len() as u64), 1);
+    (line, true)
+}
+
+/// One row of a tile's name, 14 SemiBold.
+const NAME_ROW: f32 = 19.0;
+
+/// A tile (BUG-188 §3): the picture, square, under it the name in two rows at most, the
+/// numbers and a third line, each of one row ending in «…»; «×N» on the picture's corner for
+/// a group. All tiles are of one height. Selected — 1.5 px ink border. `(selected, ask)`:
+/// `ask` — the picture waits for "Show"; the second value says it was clicked.
+#[allow(clippy::too_many_arguments)]
 fn nft_card(
     ui: &mut Ui,
     a: &mut Assets,
     art_cache: &mut ArtCache,
     asked: &mut Vec<Command>,
-    nft: &Nft,
+    nfts: &[Nft],
+    group: &[usize],
     (selected, ask): (bool, bool),
     width: f32,
 ) -> (egui::Response, bool) {
     let p = a.p;
-    let art = width - 20.0;
-    // Room for two rows of the name (design review №24), the edition under them.
-    let (rect, resp) = ui.allocate_exact_size(
-        vec2(width, 10.0 + art + 10.0 + 2.0 * NAME_ROW + 17.0 + 14.0),
-        Sense::click(),
-    );
-    crate::components::named_choice(&resp, egui::WidgetType::Button, selected, &nft.name);
-    let resp = resp.on_hover_text(crate::i18n::t(&nft.name).into_owned());
+    let nft = &nfts[group[0]];
+    let art = width - 16.0;
+    let height = 8.0 + art + 10.0 + 2.0 * NAME_ROW + 4.0 + 16.0 + 16.0 + 10.0;
+    let (rect, resp) = ui.allocate_exact_size(vec2(width, height), Sense::click());
+    let label = if group.len() > 1 {
+        format!(tr!("{name} · ×{n}"), name = nft.name, n = group.len())
+    } else {
+        nft.name.clone()
+    };
+    crate::components::named_choice(&resp, egui::WidgetType::Button, selected, &label);
+    let resp = resp.on_hover_text(crate::i18n::t(&label).into_owned());
     let stroke = if selected {
         Stroke::new(1.5, p.ink)
     } else if resp.hovered() {
@@ -350,20 +540,20 @@ fn nft_card(
     };
     ui.painter().rect(
         rect,
-        CornerRadius::same(18),
+        CornerRadius::same(14),
         p.surface,
         stroke,
         StrokeKind::Inside,
     );
-    let art_rect = Rect::from_min_size(rect.min + vec2(10.0, 10.0), vec2(art, art));
+    let art_rect = Rect::from_min_size(rect.min + vec2(8.0, 8.0), vec2(art, art));
     let mut show = false;
     if ask {
         // Nothing is drawn, not even in the sandbox, until the person asks.
         ui.painter()
-            .rect_filled(art_rect, CornerRadius::same(12), p.raised);
+            .rect_filled(art_rect, CornerRadius::same(10), p.raised);
         let mut child = ui.new_child(
             egui::UiBuilder::new()
-                .max_rect(art_rect.shrink(16.0))
+                .max_rect(art_rect.shrink(12.0))
                 .layout(Layout::top_down(Align::Center).with_main_align(Align::Center)),
         );
         child.spacing_mut().item_spacing.y = 10.0;
@@ -378,52 +568,52 @@ fn nft_card(
         // Drawn by the core's sandboxed renderer at the size of the card, not decoded here.
         art_cache.paint(ui, &p, &nft.art, art_rect, &mut |c| asked.push(c));
     }
-    let x = rect.left() + 14.0;
-    let y = art_rect.bottom() + 10.0;
     let painter = ui.painter();
-    let name = painter.layout_job(tile_name(
-        painter.ctx(),
-        &nft.name,
-        rect.width() - 28.0,
-        p.text,
-    ));
-    let edition_y = y + name.size().y + 2.0;
+    if group.len() > 1 {
+        // «×N» on the picture's top right corner (the frame mirrors it in Arabic).
+        let galley = painter.layout_no_wrap(
+            format!(tr!("×{}"), group.len()),
+            sans(12.0, Weight::SemiBold),
+            p.text,
+        );
+        let size = galley.size() + vec2(14.0, 6.0);
+        let badge = Rect::from_min_size(
+            pos2(art_rect.right() - 8.0 - size.x, art_rect.top() + 8.0),
+            size,
+        );
+        painter.rect_filled(badge, CornerRadius::same(8), p.surface.gamma_multiply(0.92));
+        painter.galley(badge.min + vec2(7.0, 3.0), galley, p.text);
+    }
+    let x = rect.left() + 8.0;
+    let room = rect.width() - 16.0;
+    let mut y = art_rect.bottom() + 10.0;
+    let name = painter.layout_job(tile_name(painter.ctx(), &nft.name, room, p.text));
     painter.galley(pos2(x, y), name, p.text);
-    let edition = painter.text(
-        pos2(x, edition_y),
-        Align2::LEFT_TOP,
-        crate::i18n::t(&edition(nft)),
-        crate::theme::figures(12.0, Weight::Medium),
-        p.muted,
-    );
-    let origin = match &nft.origin {
-        // A gift from an address with no name: "from " alone would stay untranslated.
-        NftOrigin::Gift { from, .. } if from.is_empty() => tr!("from an unknown address").into(),
-        NftOrigin::Gift { from, .. } => format!(tr!("from {from}"), from = from),
-        NftOrigin::Received { .. } => tr!("received").into(),
-        NftOrigin::Release => format!(tr!("issue {}"), nft.issuer),
+    y += 2.0 * NAME_ROW + 4.0;
+    let line = |text: &str, font: egui::FontId, color: egui::Color32, y: f32| {
+        // Arabic cut at a word in reading order, its start kept (BUG-118); egui cuts the rest.
+        let mut job = egui::text::LayoutJob::single_section(
+            crate::components::cut_to(painter.ctx(), text, &font, room, 1),
+            egui::TextFormat::simple(font, color),
+        );
+        job.wrap = egui::text::TextWrapping::truncate_at_width(room);
+        painter.galley(pos2(x, y), painter.layout_job(job), color);
     };
-    // The origin takes what the edition leaves and ends in "…" there: "No. 40 of 1000"
-    // and "issue jembe" never run into each other.
-    let room = (rect.right() - 14.0 - edition.right() - 10.0).max(0.0);
-    let font = sans(12.0, Weight::Regular);
-    // Arabic cut at a word in reading order, its start kept (BUG-118); egui cuts the rest.
-    let mut job = egui::text::LayoutJob::single_section(
-        crate::components::cut_to(painter.ctx(), &origin, &font, room, 1),
-        egui::TextFormat::simple(font, p.muted),
-    );
-    job.wrap = egui::text::TextWrapping::truncate_at_width(room);
-    let origin = painter.layout_job(job);
-    painter.galley(
-        pos2(rect.right() - 14.0 - origin.size().x, edition_y),
-        origin,
+    line(
+        &crate::i18n::t(&numbers(nfts, group)),
+        crate::theme::figures(11.0, Weight::Regular),
         p.muted,
+        y,
+    );
+    let (third, on_sale) = third_line(nfts, group);
+    line(
+        &crate::i18n::t(&third),
+        sans(11.0, Weight::Medium),
+        if on_sale { p.accent } else { p.muted },
+        y + 16.0,
     );
     (resp.on_hover_cursor(CursorIcon::PointingHand), show)
 }
-
-/// One row of a tile's name, 15 SemiBold.
-const NAME_ROW: f32 = 20.0;
 
 /// A tile's name: two rows at most, then «…» (design review №24: one row cut «Кольцо с
 /// брилли…»); the whole of it is also on hover and in the details.
@@ -433,7 +623,7 @@ fn tile_name(
     width: f32,
     color: egui::Color32,
 ) -> egui::text::LayoutJob {
-    let font = sans(15.0, Weight::SemiBold);
+    let font = sans(14.0, Weight::SemiBold);
     // In Arabic: two lines in reading order, the second cut at a word (BUG-118, BUG-119).
     let mut job = egui::text::LayoutJob::single_section(
         crate::components::cut_to(ctx, name, &font, width, 2),
@@ -446,6 +636,274 @@ fn tile_name(
         overflow_character: Some('…'),
     };
     job
+}
+
+/// What the card's buttons asked for.
+#[derive(Default)]
+struct Picked {
+    /// «Give» (the demo's, one copy).
+    gift: bool,
+    /// «Always show from …»: this issuer.
+    trust: Option<String>,
+}
+
+/// The card of the selected tile: one copy as before ([`detail`]), a group as BUG-188 §4.
+/// `panel`: beside the grid (300), else in the window (520).
+fn card_body(
+    ui: &mut Ui,
+    a: &mut Assets,
+    (art_cache, asked): (&mut ArtCache, &mut Vec<Command>),
+    (nfts, group, asks): (&[Nft], &[usize], &[bool]),
+    (gift_fee, now, page): (Option<Duffs>, chrono::DateTime<chrono::Local>, &mut usize),
+    panel: bool,
+) -> Picked {
+    let first = group[0];
+    if group.len() == 1 {
+        let (gift, trust) = detail(ui, a, &nfts[first], asks[first], gift_fee, now, panel);
+        return Picked {
+            gift,
+            trust: trust.then(|| nfts[first].issuer.clone()),
+        };
+    }
+    group_card(ui, a, (art_cache, asked), nfts, group, (now, page), panel);
+    Picked::default()
+}
+
+/// BUG-188 §4: the card of copies of one model — what each is, its price, the actions on N.
+fn group_card(
+    ui: &mut Ui,
+    a: &mut Assets,
+    (art_cache, asked): (&mut ArtCache, &mut Vec<Command>),
+    nfts: &[Nft],
+    group: &[usize],
+    (now, page): (chrono::DateTime<chrono::Local>, &mut usize),
+    panel: bool,
+) {
+    let p = a.p;
+    let nft = &nfts[group[0]];
+    let n = group.len();
+    ui.spacing_mut().item_spacing.y = 12.0;
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = 14.0;
+        let (pic, _) = ui.allocate_exact_size(vec2(72.0, 72.0), Sense::hover());
+        art_cache.paint(ui, &p, &nft.art, pic, &mut |c| asked.push(c));
+        ui.vertical(|ui| {
+            ui.spacing_mut().item_spacing.y = 4.0;
+            if panel {
+                ui.add(crate::components::para(
+                    &format!(tr!("{name} · ×{n}"), name = nft.name, n = n),
+                    18.0,
+                    Weight::Bold,
+                    p.text,
+                ));
+            }
+            let kind = match nft.origin {
+                NftOrigin::Gift { .. } | NftOrigin::Received { .. } => {
+                    format!(tr!("Gift {}"), capitalized(&nft.issuer))
+                }
+                NftOrigin::Release => format!(tr!("Issue {}"), nft.issuer),
+            };
+            let model = match nft.edition.1 {
+                0 => kind,
+                of => format!(tr!("{kind} · model of {of}"), kind = kind, of = of),
+            };
+            ui.add(
+                egui::Label::new(
+                    egui::RichText::new(crate::i18n::t(&model))
+                        .font(crate::theme::figures(12.0, Weight::Regular))
+                        .color(p.muted),
+                )
+                .wrap(),
+            );
+        });
+    });
+    // «You have 3 · 1 for sale at 0.5000 DASH · 2 not for sale».
+    let prices: Vec<Duffs> = group.iter().filter_map(|&i| nfts[i].price).collect();
+    let mut summary = text::plural_in(n as u32, tr!("You have {}"), tr!("You have {}"));
+    if let Some(low) = prices.iter().min() {
+        let sale = text::plural_in(
+            prices.len() as u32,
+            tr!("{} for sale at {}"),
+            tr!("{} for sale at {}"),
+        )
+        .replacen("{}", &crate::format::amount(*low), 1);
+        summary = format!("{summary} · {sale}");
+    }
+    let unsold = (n - prices.len()) as u32;
+    if unsold > 0 {
+        let rest = text::plural_in(unsold, tr!("{} not for sale"), tr!("{} not for sale"));
+        summary = format!("{summary} · {rest}");
+    }
+    ui.add(crate::components::para(
+        &crate::i18n::t(&summary),
+        14.0,
+        Weight::Medium,
+        p.text,
+    ));
+    ui.label(txt(tr!("COPIES"), 11.0, Weight::SemiBold, p.muted));
+    // More than 20: pages, their numbers above the list.
+    let pages = n.div_ceil(PAGE);
+    *page = (*page).min(pages - 1);
+    if pages > 1 {
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 6.0;
+            for k in 0..pages {
+                if pill(ui, &p, &(k + 1).to_string(), *page == k).clicked() {
+                    *page = k;
+                }
+            }
+        });
+    }
+    let all_verified = group.iter().all(|&i| nfts[i].art_verified);
+    let width = ui.available_width();
+    egui::Frame::new()
+        .fill(p.raised)
+        .corner_radius(CornerRadius::same(12))
+        .inner_margin(Margin::symmetric(14, 4))
+        .show(ui, |ui| {
+            ui.set_width(width - 28.0);
+            ui.spacing_mut().item_spacing.y = 0.0;
+            let shown = &group[*page * PAGE..(*page * PAGE + PAGE).min(n)];
+            for (row, &i) in shown.iter().enumerate() {
+                if row > 0 {
+                    divider(ui, &p);
+                }
+                copy_row(ui, &p, &nfts[i], (now, all_verified), panel);
+            }
+        });
+    if all_verified {
+        chip(
+            ui,
+            a,
+            "confirmed",
+            tr!("The picture matches its hash"),
+            true,
+        );
+    }
+    // The actions on N go through the Workshop's series windows (W8, W9, W9b), not here yet.
+    let actions = [
+        (tr!("Give…"), ButtonKind::Primary),
+        (tr!("Put up for sale…"), ButtonKind::Secondary),
+        (tr!("Take off sale…"), ButtonKind::Secondary),
+    ];
+    let later = crate::i18n::t(SERIES_LATER).into_owned();
+    let action = |ui: &mut Ui, a: &mut Assets, (label, kind): (&str, ButtonKind), w| {
+        crate::components::button_enabled(ui, a, label, kind, w, false)
+            .on_disabled_hover_text(later.clone());
+    };
+    if panel {
+        let w = ui.available_width();
+        for each in actions {
+            action(ui, a, each, Some(w));
+        }
+    } else {
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 8.0;
+            for each in actions {
+                action(ui, a, each, None);
+            }
+        });
+    }
+    ui.add(crate::components::para(
+        &format!(
+            tr!(
+                "“Give” and “Put up for sale” ask “How many of {n}” and check it all with one signature, as series in the Workshop. A gift removes the price; after a sale the new owner sets the price."
+            ),
+            n = n
+        ),
+        12.0,
+        Weight::Regular,
+        p.muted,
+    ));
+    divider(ui, &p);
+    ui.horizontal_wrapped(|ui| {
+        ui.spacing_mut().item_spacing.x = 12.0;
+        crate::components::button_enabled(
+            ui,
+            a,
+            tr!("Delete…"),
+            ButtonKind::DangerOutline,
+            None,
+            false,
+        )
+        .on_disabled_hover_text(later.clone());
+        ui.add(crate::components::para(
+            &format!(
+                tr!("Asks “How many of {n}”. Deleting can't be undone."),
+                n = n
+            ),
+            12.0,
+            Weight::Regular,
+            p.muted,
+        ));
+    });
+}
+
+/// One copy in a group's card: «№ 12 · from @alice · 13 Nov.» and its price or «not for sale»;
+/// in the panel shorter, «№ 12 · @alice» and the price alone. A picture that does not match its
+/// hash says so in its own row when the others do.
+fn copy_row(
+    ui: &mut Ui,
+    p: &crate::theme::Palette,
+    nft: &Nft,
+    (now, all_verified): (chrono::DateTime<chrono::Local>, bool),
+    panel: bool,
+) {
+    let number = format!("№ {}", nft.edition.0);
+    let who = match &nft.origin {
+        NftOrigin::Gift { from, .. } if !from.is_empty() => {
+            if panel {
+                from.clone()
+            } else {
+                format!(tr!("from {from}"), from = from)
+            }
+        }
+        NftOrigin::Release => {
+            if panel {
+                tr!("issue").into()
+            } else {
+                format!(tr!("issue {}"), nft.issuer)
+            }
+        }
+        _ => origin(nft),
+    };
+    let when = match &nft.origin {
+        NftOrigin::Gift { at, .. } => Some(*at),
+        NftOrigin::Received { at } => *at,
+        NftOrigin::Release => None,
+    };
+    let mut left = format!("{number} · {}", crate::i18n::t(&who));
+    if let (false, Some(at)) = (panel, when) {
+        left = format!("{left} · {}", text::date_short(at, now));
+    }
+    let (right, color) = match (nft.price, panel) {
+        (Some(d), true) => (crate::format::amount(d), p.accent),
+        (Some(d), false) => (
+            format!(tr!("for sale · {}"), crate::format::amount(d)),
+            p.accent,
+        ),
+        (None, _) => (tr!("not for sale").into(), p.muted),
+    };
+    ui.add_space(9.0);
+    ui.horizontal(|ui| {
+        ui.label(
+            egui::RichText::new(&left)
+                .font(crate::theme::figures(12.0, Weight::Regular))
+                .color(p.text),
+        );
+        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+            ui.label(txt(&right, 12.0, Weight::Medium, color));
+        });
+    });
+    if !all_verified && !nft.art_verified {
+        ui.label(txt(
+            tr!("the picture does not match"),
+            12.0,
+            Weight::Medium,
+            p.danger,
+        ));
+    }
+    ui.add_space(9.0);
 }
 
 /// The selected NFT. Returns true when "Give" was clicked.
@@ -467,7 +925,7 @@ fn detail(
     ask: bool,
     gift_fee: Option<Duffs>,
     now: chrono::DateTime<chrono::Local>,
-    width: f32,
+    title: bool,
 ) -> (bool, bool) {
     let p = a.p;
     #[cfg_attr(not(demo_core), allow(unused_mut))]
@@ -475,14 +933,15 @@ fn detail(
     #[cfg(not(demo_core))]
     let _ = gift_fee;
     let mut trust = false;
-    card(&p, Margin::same(20))
-        .corner_radius(CornerRadius::same(18))
-        .show(ui, |ui| {
-            ui.set_width(inner(width, 20));
+    // BUG-188: the body alone; the panel puts it in a card, the window under its title.
+    {
+        {
             ui.spacing_mut().item_spacing.y = 14.0;
             ui.vertical(|ui| {
                 ui.spacing_mut().item_spacing.y = 4.0;
-                ui.label(txt(&nft.name, 20.0, Weight::Bold, p.text));
+                if title {
+                    ui.label(txt(&nft.name, 20.0, Weight::Bold, p.text));
+                }
                 let kind = match nft.origin {
                     NftOrigin::Gift { .. } | NftOrigin::Received { .. } => {
                         format!(tr!("Gift {}"), capitalized(&nft.issuer))
@@ -603,7 +1062,8 @@ fn detail(
                     ));
                 }
             }
-        });
+        }
+    }
     (gift, trust)
 }
 
@@ -737,7 +1197,109 @@ fn failed_detail(why: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{failed_detail, is_dash_name};
+    use super::{failed_detail, groups, is_dash_name, numbers, third_line, tile_grid};
+    use evolite_api::{Nft, NftOrigin};
+
+    /// BUG-188 §2: the designer's table — 800 (676): 4 × 160, 1024 (868): 5 × 164, 1280 with
+    /// the panel (628): 4 × 148, 1440 (788): 5 × 148, 1600 and wider (876): 5 × 166. At most 8
+    /// columns; a tile never wider than 196 while a column can be added.
+    #[test]
+    fn the_grid_follows_the_designers_table() {
+        for (width, cols, tile) in [
+            (676.0, 4, 160.0),
+            (868.0, 5, 164.0),
+            (628.0, 4, 148.0),
+            (788.0, 5, 148.0),
+            (876.0, 5, 166.0),
+        ] {
+            let (c, w) = tile_grid(width);
+            assert_eq!(c, cols, "{width}");
+            assert!((w - tile).abs() < 0.5, "{width}: {w}");
+        }
+        assert_eq!(tile_grid(5000.0).0, 8, "no more than 8 columns");
+        // One column of 300 would be wider than 196: a second, though narrower than 148.
+        assert_eq!(tile_grid(300.0).0, 2);
+        for width in (300..1200).step_by(7) {
+            let (cols, w) = tile_grid(width as f32);
+            assert!(w <= 196.0 || cols == 8, "{width}: {cols} × {w}");
+        }
+    }
+
+    fn nft(id: &str, art: &str, edition: u32, price: Option<i64>) -> Nft {
+        Nft {
+            id: id.into(),
+            name: art.into(),
+            description: String::new(),
+            art: art.into(),
+            art_verified: true,
+            origin: NftOrigin::Release,
+            issuer: "jembe".into(),
+            contract: "jembe-nft".into(),
+            edition: (edition, 500),
+            owner: "@me".into(),
+            price,
+        }
+    }
+
+    /// BUG-188 §4: copies of one contract and one picture are one group, where its first copy
+    /// stands; another contract with the same picture is another model.
+    #[test]
+    fn copies_of_one_model_are_one_group_at_its_first_copy() {
+        let mut other = nft("o", "drum", 9, None);
+        other.contract = "neon-forge".into();
+        let nfts = vec![
+            nft("a", "drum", 12, None),
+            nft("b", "lock", 3, None),
+            nft("c", "drum", 40, Some(5)),
+            other,
+            nft("d", "drum", 77, None),
+        ];
+        let all: Vec<usize> = (0..nfts.len()).collect();
+        assert_eq!(groups(&nfts, &all), vec![vec![0, 2, 4], vec![1], vec![3]]);
+        // A filter groups what it shows.
+        assert_eq!(groups(&nfts, &[1, 2]), vec![vec![1], vec![2]]);
+    }
+
+    /// BUG-188 §3: a group's numbers — a list, a run, one copy's edition.
+    #[test]
+    fn a_groups_numbers_are_a_list_or_a_run() {
+        let nfts: Vec<Nft> = [12, 77, 40, 41, 42, 43, 3]
+            .iter()
+            .map(|&n| nft(&n.to_string(), "x", n, None))
+            .collect();
+        assert_eq!(numbers(&nfts, &[0, 2, 1]), "№ 12 · 40 · 77");
+        assert_eq!(numbers(&nfts, &[2, 3, 4, 5]), "№ 40–43");
+        assert_eq!(numbers(&nfts, &[2, 3]), "№ 40 · 41", "two are a list");
+        assert_eq!(numbers(&nfts, &[6]), "No. 3 of 500");
+    }
+
+    /// BUG-188 §3: a tile's third line — «1 for sale of 3» in the accent while a copy is for
+    /// sale (in Russian «продаётся 1 из 3», «продаются 2 из 4»), else where the first came from.
+    #[test]
+    fn a_tiles_third_line_says_how_many_are_for_sale() {
+        let nfts = vec![
+            nft("a", "x", 1, None),
+            nft("b", "x", 2, Some(5)),
+            nft("c", "x", 3, Some(5)),
+            nft("d", "x", 4, None),
+        ];
+        assert_eq!(
+            third_line(&nfts, &[0, 1, 3]),
+            ("1 for sale of 3".into(), true)
+        );
+        assert_eq!(
+            third_line(&nfts, &[0, 1, 2, 3]),
+            ("2 for sale of 4".into(), true)
+        );
+        assert_eq!(third_line(&nfts, &[0, 3]), ("issue jembe".into(), false));
+        let ru = |text: &str| crate::i18n::t_in(crate::i18n::Lang::Ru, text).into_owned();
+        assert_eq!(ru("1 for sale of 3"), "продаётся 1 из 3");
+        assert_eq!(ru("2 for sale of 4"), "продаются 2 из 4");
+        assert_eq!(
+            ru("You have 3 · 1 for sale at 0.5000 DASH · 2 not for sale"),
+            "У вас 3 · продаётся 1 по 0.5000 DASH · не продаются 2"
+        );
+    }
 
     /// BUG-10: a failed list says why and that it is asked again.
     #[test]

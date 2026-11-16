@@ -535,21 +535,13 @@ mod tests {
         assert_eq!(grid_columns(751.0, 3, apps), 2, "2 and 1 is fine here");
         assert_eq!(grid_columns(495.0, 3, apps), 1);
         assert_eq!(grid_columns(5000.0, 5, apps), 3, "no more than max_cols");
-        // NFT cards of 195 (the designer): three in Collection's 618 at 1280 (628 less the scroll bar).
-        let nfts = GridSpec {
-            min_w: crate::theme::NFT_MIN_W,
-            max_cols: 6,
-            balanced: false,
-            ..TILES
-        };
-        assert_eq!(grid_columns(618.0, 5, nfts), 3, "3 x 195 + 2 x 16 = 617");
-        assert_eq!(grid_columns(616.0, 5, nfts), 2);
+        // Collection's tiles have their own grid since BUG-188 (`collection::tile_grid`).
         assert_eq!(
-            grid_columns(5000.0, 2, nfts),
+            grid_columns(5000.0, 2, apps),
             2,
             "no more columns than cells"
         );
-        assert_eq!(grid_columns(5000.0, 0, nfts), 1);
+        assert_eq!(grid_columns(5000.0, 0, apps), 1);
     }
 
     /// Responsive spec R4: the cards of each row of a grid are one height, the row's tallest,

@@ -19,6 +19,7 @@ mod bugs;
 mod calm_states;
 mod card;
 mod coins;
+mod collection_grid;
 mod contacts_privacy;
 mod contested_names;
 mod core_known;
