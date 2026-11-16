@@ -1137,6 +1137,126 @@ pub fn payable_coins(
         .collect()
 }
 
+/// What each address of the live wallet's coin-bearing accounts is to it (BUG-194): change (an
+/// internal pool) or received, by script — the accounts `own_scripts` reads from the store: BIP44,
+/// BIP32, CoinJoin and DashPay receiving. platform-wallet writes a pool to the store only when it
+/// registers an account, so the store's table ends at the first gap window (index 0–29): change
+/// past it was not ours to the history, a payment of 0.0001 showed as its change paid out. The
+/// live wallet derives its pools past every coin it restores and the gap after (platform-wallet
+/// `rehydrate`), so it knows them.
+pub fn live_own(
+    info: &key_wallet::wallet::managed_wallet_info::ManagedWalletInfo,
+) -> std::collections::HashMap<key_wallet::dashcore::ScriptBuf, OutputRole> {
+    use key_wallet::managed_account::address_pool::AddressPoolType;
+    use key_wallet::managed_account::managed_account_trait::ManagedAccountTrait;
+    use key_wallet::wallet::managed_wallet_info::wallet_info_interface::WalletInfoInterface;
+    let a = info.accounts();
+    let accounts = a
+        .standard_bip44_accounts
+        .values()
+        .chain(a.standard_bip32_accounts.values())
+        .chain(a.coinjoin_accounts.values())
+        .chain(a.dashpay_receival_accounts.values());
+    let mut own = std::collections::HashMap::new();
+    for account in accounts {
+        for pool in account.keys().managed_account_type().address_pools() {
+            let role = if pool.pool_type == AddressPoolType::Internal {
+                OutputRole::Change
+            } else {
+                OutputRole::Received
+            };
+            for script in pool.script_pubkey_index.keys() {
+                own.entry(script.clone()).or_insert(role);
+            }
+        }
+    }
+    own
+}
+
+/// The address pools of the live wallet's BIP44, BIP32 and CoinJoin accounts as the store keeps
+/// them (BUG-194): every derived address of each pool, with whether it is used. platform-wallet
+/// itself writes them only when it registers an account; [`crate::chain::Chain::save_pools`]
+/// writes these.
+pub fn pool_entries(
+    info: &key_wallet::wallet::managed_wallet_info::ManagedWalletInfo,
+) -> Vec<platform_wallet::changeset::AccountAddressPoolEntry> {
+    use key_wallet::managed_account::managed_account_trait::ManagedAccountTrait;
+    use key_wallet::wallet::managed_wallet_info::wallet_info_interface::WalletInfoInterface;
+    let a = info.accounts();
+    a.standard_bip44_accounts
+        .values()
+        .chain(a.standard_bip32_accounts.values())
+        .chain(a.coinjoin_accounts.values())
+        .flat_map(|account| {
+            let kind = account.keys().managed_account_type();
+            let account_type = kind.to_account_type();
+            kind.address_pools()
+                .into_iter()
+                .filter(|pool| !pool.addresses.is_empty())
+                .map(
+                    move |pool| platform_wallet::changeset::AccountAddressPoolEntry {
+                        account_type,
+                        pool_type: pool.pool_type,
+                        addresses: pool.addresses.values().cloned().collect(),
+                    },
+                )
+                .collect::<Vec<_>>()
+        })
+        .collect()
+}
+
+/// The addresses of the live wallet's DashPay receiving accounts, each with the identities it
+/// is between (BUG-194): the account of identity `to` for payments from its contact `from`, both
+/// base58. Both identities are this wallet's when `from` is one of them: a payment between them.
+pub fn own_contact_receipts(
+    info: &key_wallet::wallet::managed_wallet_info::ManagedWalletInfo,
+) -> std::collections::HashMap<String, (String, String)> {
+    use dpp::platform_value::string_encoding::Encoding;
+    use dpp::prelude::Identifier;
+    use key_wallet::managed_account::managed_account_trait::ManagedAccountTrait;
+    let mut found = std::collections::HashMap::new();
+    for (key, account) in info.accounts.dashpay_receival_accounts.iter() {
+        let to = Identifier::from(key.user_identity_id).to_string(Encoding::Base58);
+        let from = Identifier::from(key.friend_identity_id).to_string(Encoding::Base58);
+        for pool in account.keys().managed_account_type().address_pools() {
+            for info in pool.addresses.values() {
+                found.insert(info.address.to_string(), (to.clone(), from.clone()));
+            }
+        }
+    }
+    found
+}
+
+/// A transfer between own addresses that paid a DashPay receiving address of one of this
+/// wallet's identities from another of them (BUG-194: @1108c → @1108b, both in one wallet): one
+/// line «Transfer between your identities», the fee only, with what moved. `ours`: this wallet's
+/// identities (base58), each as History names it («@name», or its id); `receipts`:
+/// [`own_contact_receipts`].
+pub fn name_identity_transfers(
+    history: &mut [(String, Activity)],
+    receipts: &std::collections::HashMap<String, (String, String)>,
+    ours: &std::collections::HashMap<String, String>,
+) {
+    for (_, a) in history.iter_mut() {
+        if !matches!(a.kind, ActivityKind::SelfTransfer { .. }) {
+            continue;
+        }
+        let Some(detail) = a.detail.as_deref() else {
+            continue;
+        };
+        let found = detail.own_to.iter().find_map(|(address, value)| {
+            let (to, from) = receipts.get(address)?;
+            let named = |id: &String| ours.get(id).cloned().unwrap_or_else(|| id.clone());
+            ours.contains_key(from)
+                .then(|| (named(from), named(to), *value, address.clone()))
+        });
+        if let Some((from, to, moved, address)) = found {
+            a.kind = ActivityKind::IdentityTransfer { from, to, moved };
+            a.address = Some(address);
+        }
+    }
+}
+
 /// The wallet's coins by kind of account, how many and their sum in duffs (BUG-150, the journal):
 /// BIP44, BIP32, DashPay receiving, CoinJoin.
 pub fn coin_kinds(
@@ -3671,6 +3791,126 @@ mod detail_tests {
         lock.transaction_type = TransactionType::AssetLock;
         assert!(!own_outputs(&mut lock, ours));
         assert_eq!(lock.output_details[0].role, OutputRole::Sent);
+    }
+
+    /// BUG-194 AC-T1, AC-T2 (qa-f21's kestrel7): 0.0001 from @1108c to @1108b and back, both
+    /// identities of this wallet. The store's pools end at index 29, so the change of each (3, 5)
+    /// is `Sent` in the stored records and tx2 lists no input. By the store alone tx1 showed its
+    /// change paid out (−0,1452581) and tx2 only «received +0,0001»; with the live wallet's own
+    /// addresses both are transfers between own addresses, the fee only, and tx2 spends tx1's
+    /// change.
+    #[test]
+    fn change_past_the_stored_pools_is_ours_by_the_live_wallet() {
+        const FEE: u64 = 226;
+        let coin = record(
+            tx(&[(9, 0)], &[(1, 14_535_810)]),
+            TransactionContext::Mempool,
+            TransactionDirection::Incoming,
+            Vec::new(),
+            vec![output(0, OutputRole::Received, 14_535_810, 1)],
+            14_535_810,
+        );
+        let change1 = 14_535_810 - 10_000 - FEE;
+        let mut pay1 = tx(&[(0, 0)], &[(2, 10_000), (3, change1)]);
+        pay1.input[0].previous_output = OutPoint::new(coin.txid, 0);
+        // As stored: account 0 spent the coin; 2 is @1108b's receiving address (in the stored
+        // pools), 3 the change past them.
+        let tx1 = record(
+            pay1,
+            TransactionContext::Mempool,
+            TransactionDirection::Outgoing,
+            vec![input(0, 14_535_810, 1)],
+            vec![
+                output(0, OutputRole::Received, 10_000, 2),
+                output(1, OutputRole::Sent, change1, 3),
+            ],
+            -(change1 as i64 + FEE as i64),
+        );
+        let change2 = change1 - 10_000 - FEE;
+        let mut pay2 = tx(&[(0, 0)], &[(4, 10_000), (5, change2)]);
+        pay2.input[0].previous_output = OutPoint::new(tx1.txid, 1);
+        // As stored: @1108c's receiving account's slice — its output in, nothing spent.
+        let tx2 = record(
+            pay2,
+            TransactionContext::Mempool,
+            TransactionDirection::Incoming,
+            Vec::new(),
+            vec![
+                output(0, OutputRole::Received, 10_000, 4),
+                output(1, OutputRole::Sent, change2, 5),
+            ],
+            10_000,
+        );
+        let live = |a: &Address| {
+            [3u8, 5]
+                .iter()
+                .any(|n| address(*n) == *a)
+                .then_some(OutputRole::Change)
+        };
+        let shown = |ours: &dyn Fn(&Address) -> Option<OutputRole>| {
+            let mut records = vec![coin.clone(), tx1.clone(), tx2.clone()];
+            for r in &mut records {
+                own_outputs(r, ours);
+            }
+            attribute_late_inputs(&mut records);
+            (
+                activity(&records[1], 0, true),
+                activity(&records[2], 0, true),
+            )
+        };
+        let (one, two) = shown(&live);
+        for line in [&one, &two] {
+            assert!(
+                matches!(line.kind, ActivityKind::SelfTransfer { .. }),
+                "{:?}",
+                line.kind
+            );
+            assert_eq!(line.amount, -(FEE as Duffs));
+        }
+        // Both pay a DashPay receiving address of one identity from the other: «Transfer
+        // between your identities», with what moved; a contact outside the wallet is not one.
+        let ids = |pairs: &[(&str, &str)]| {
+            pairs
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect::<std::collections::HashMap<_, _>>()
+        };
+        let ours = ids(&[("B", "@1108b"), ("C", "@1108c")]);
+        let receipts = [(2u8, ("B", "C")), (4, ("C", "B"))]
+            .into_iter()
+            .map(|(n, (to, from))| (address(n).to_string(), (to.to_string(), from.to_string())))
+            .collect();
+        let mut history = vec![
+            ("1".to_string(), one.clone()),
+            ("2".to_string(), two.clone()),
+        ];
+        name_identity_transfers(&mut history, &receipts, &ours);
+        for ((_, line), (from, to, at)) in history
+            .iter()
+            .zip([("@1108c", "@1108b", 2u8), ("@1108b", "@1108c", 4)])
+        {
+            assert_eq!(
+                line.kind,
+                ActivityKind::IdentityTransfer {
+                    from: from.into(),
+                    to: to.into(),
+                    moved: 10_000
+                }
+            );
+            assert_eq!(line.address, Some(address(at).to_string()));
+            assert_eq!(line.amount, -(FEE as Duffs));
+        }
+        let mut history = vec![("1".to_string(), one.clone())];
+        name_identity_transfers(&mut history, &receipts, &ids(&[("B", "@1108b")]));
+        assert!(matches!(
+            history[0].1.kind,
+            ActivityKind::SelfTransfer { .. }
+        ));
+        // By the store's pools alone (the mutant): the change paid out, and a receipt.
+        let (one, two) = shown(&|_| None);
+        assert!(matches!(&one.kind, ActivityKind::Sent { to } if *to == address(3).to_string()));
+        assert_eq!(one.amount, -((change1 + FEE) as Duffs));
+        assert_eq!(two.amount, 10_000);
     }
 }
 

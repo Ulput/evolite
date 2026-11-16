@@ -307,6 +307,10 @@ pub fn date_day(at: Timestamp, now: DateTime<Local>) -> String {
 
 /// An identity in a line of History: its @name as the core gives it, a nameless one by its
 /// short ID (FEAT-0014, frame 11) — the core names it by its whole ID.
+pub(crate) fn identity_named(identity: &str) -> String {
+    identity_in_line(identity)
+}
+
 fn identity_in_line(identity: &str) -> String {
     if identity.starts_with('@') {
         identity.to_owned()
@@ -579,6 +583,8 @@ pub fn activity_title(a: &Activity) -> String {
         ActivityKind::Sent { to } if to.is_empty() => tr!("Sent").into(),
         ActivityKind::Sent { to } => format!(tr!("Sent {}"), short_address(to)),
         ActivityKind::SelfTransfer { .. } => tr!("Transfer between own addresses").into(),
+        // BUG-194: one identity of this wallet paid another as a contact.
+        ActivityKind::IdentityTransfer { .. } => tr!("Transfer between your identities").into(),
         // FEAT-0030 AC-A7: made in DashPay or Dash Core; evolite does not mix yet.
         ActivityKind::Mixing { .. } => tr!("Mixing (CoinJoin)").into(),
         ActivityKind::IntoMixing => tr!("Into mixing").into(),
@@ -908,6 +914,13 @@ pub fn activity_credits(a: &Activity) -> Option<(String, Tone)> {
 /// the one ours went from: "from @name" (BUG-69).
 pub fn activity_for(a: &Activity) -> Option<String> {
     match &a.kind {
+        // BUG-194: who paid whom, and what moved (the analyst; words, not an arrow, BUG-151).
+        ActivityKind::IdentityTransfer { from, to, moved } => Some(format!(
+            tr!("from {} to {} · {}"),
+            crate::i18n::own(&identity_in_line(from)),
+            crate::i18n::own(&identity_in_line(to)),
+            crate::format::amount(*moved)
+        )),
         ActivityKind::ContactRequestIn {
             ours: Some(ours), ..
         } => Some(format!(tr!("for {name}"), name = ours)),
@@ -926,7 +939,7 @@ pub fn activity_icon(a: &Activity) -> &'static str {
         ActivityKind::Sent { .. } | ActivityKind::PoolSent => "send",
         ActivityKind::TopUp { .. } => "top-up",
         ActivityKind::KeysChanged { .. } => "key",
-        ActivityKind::SelfTransfer { .. } => "transfer",
+        ActivityKind::SelfTransfer { .. } | ActivityKind::IdentityTransfer { .. } => "transfer",
         ActivityKind::Mixing { .. } | ActivityKind::IntoMixing => "mixed",
         ActivityKind::AppSignIn { .. } => "app-connect",
         ActivityKind::AppRenewed { .. }

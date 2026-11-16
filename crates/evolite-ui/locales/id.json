@@ -1,4 +1,6 @@
 {
+  "Transfer between your identities": "Transfer antar identity Anda",
+  "from {} to {} · {}": "dari {} ke {} · {}",
   "This amount needs more than {} coins — the network will not take such a transaction. First combine the small coins: send “Max” from Core to your own address and try again": "Jumlah ini memerlukan lebih dari {} koin — jaringan tidak akan menerima transaksi seperti itu. Gabungkan dulu koin-koin kecil: kirim “Semua” dari Core ke alamat Anda sendiri, lalu coba lagi",
   "Some of the coins are not confirmed by the network yet — wait for a block": "Sebagian koin belum dikonfirmasi jaringan — tunggu satu blok",
   "View the keys": "Lihat kunci",

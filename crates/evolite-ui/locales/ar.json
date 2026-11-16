@@ -1,4 +1,6 @@
 {
+  "Transfer between your identities": "تحويل بين هوياتك (identity)",
+  "from {} to {} · {}": "من {} إلى {} · {}",
   "This amount needs more than {} coins — the network will not take such a transaction. First combine the small coins: send “Max” from Core to your own address and try again": "يحتاج هذا المبلغ إلى أكثر من {} عملة — لن تقبل الشبكة معاملة كهذه. اجمع العملات الصغيرة أولًا: أرسل «الكل» من Core إلى عنوانك ثم أعد المحاولة",
   "Some of the coins are not confirmed by the network yet — wait for a block": "بعض العملات لم تؤكدها الشبكة بعد — انتظر كتلة",
   "View the keys": "عرض المفاتيح",

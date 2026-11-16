@@ -1,4 +1,6 @@
 {
+  "Transfer between your identities": "Chuyển giữa các identity của bạn",
+  "from {} to {} · {}": "từ {} đến {} · {}",
   "This amount needs more than {} coins — the network will not take such a transaction. First combine the small coins: send “Max” from Core to your own address and try again": "Số tiền này cần hơn {} đồng xu — mạng sẽ không nhận giao dịch như vậy. Trước hết hãy gộp các đồng xu nhỏ: gửi “Tất cả” từ Core đến địa chỉ của chính bạn rồi thử lại",
   "Some of the coins are not confirmed by the network yet — wait for a block": "Một phần đồng xu chưa được mạng xác nhận — hãy chờ một khối",
   "View the keys": "Xem các khóa",

@@ -96,6 +96,9 @@ pub struct Chain {
     top_up_notes: Mutex<HashMap<key_wallet::dashcore::OutPoint, TopUpNote>>,
     /// Transactions whose InstantLock was verified (R-1): the rest are not shown as InstantSend.
     instant_locks: VerifiedLocks,
+    /// The store the manager writes through, kept to write the address pools platform-wallet
+    /// leaves out (BUG-194, [`Self::save_pools`]).
+    persister: Mutex<Option<Arc<crate::store::Store<SqlitePersister>>>>,
     /// SPV item 3: the coins this chain locked for platform-wallet's builders not to take (not
     /// final), with how many builds under way hold each: [`crate::convert::freeze_unfinal`].
     frozen: Arc<Mutex<Frozen>>,
@@ -130,6 +133,7 @@ impl Default for Chain {
             })),
             top_up_notes: Mutex::new(HashMap::new()),
             instant_locks: VerifiedLocks::default(),
+            persister: Mutex::new(None),
             frozen: Default::default(),
             #[cfg(any(test, feature = "test-support"))]
             proof_reads: Default::default(),
@@ -315,6 +319,40 @@ async fn thaw_in(
 }
 
 impl Chain {
+    /// Writes the address pools of `wallet`'s coin-bearing accounts to the store, with which
+    /// addresses are used (BUG-194): platform-wallet writes a pool only when it registers the
+    /// account, so the store's table ended at the first gap window (index 0–29), every later
+    /// change address unknown to the history after a restart and every used flag lost. The
+    /// store upserts the rows and keeps `used` once set. A failed write is journaled; the next
+    /// one writes the whole pools again.
+    pub async fn save_pools(&self, wallet: &PlatformWallet) {
+        let Some(store) = self
+            .persister
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
+        else {
+            return;
+        };
+        let pools = crate::convert::pool_entries(&wallet.state().await.core_wallet);
+        if pools.is_empty() {
+            return;
+        }
+        let id = wallet.wallet_id();
+        let changeset = platform_wallet::changeset::PlatformWalletChangeSet {
+            account_address_pools: pools,
+            ..Default::default()
+        };
+        let saved = tokio::task::spawn_blocking(move || {
+            use platform_wallet::changeset::PlatformWalletPersistence;
+            store.store(id, changeset).map_err(|e| format!("{e:?}"))
+        })
+        .await;
+        if let Ok(Err(e)) = saved {
+            crate::diag::platform_failed("save_pools", &e);
+        }
+    }
+
     /// Whether the InstantLock of `txid` was verified in this run (R-1, BUG-26).
     pub fn instant_lock_verified(&self, txid: &key_wallet::dashcore::Txid) -> bool {
         self.instant_locks.contains(txid)
@@ -405,11 +443,14 @@ impl Chain {
             .as_ref()
             .err()
             .and_then(crate::store_refusal::refused);
-        let persister =
-            crate::store::Store::new(opened.map_err(|e| e.to_string())?, store.to_path_buf());
+        let persister = Arc::new(crate::store::Store::new(
+            opened.map_err(|e| e.to_string())?,
+            store.to_path_buf(),
+        ));
+        *self.persister.lock().unwrap_or_else(|e| e.into_inner()) = Some(persister.clone());
         let manager = Arc::new(PlatformWalletManager::new(
             Arc::new(sdk),
-            Arc::new(persister),
+            persister,
             handler,
         ));
         manager.sdk().set_context_provider(SpvContextProvider::new(
@@ -511,6 +552,7 @@ impl Chain {
         if self.store_open.swap(false, Ordering::Relaxed)
             && let Some(manager) = self.manager.lock().await.take()
         {
+            self.let_persister_go();
             tear_down(&manager).await;
         }
     }
@@ -1077,8 +1119,18 @@ impl Chain {
         self.running.store(false, Ordering::Relaxed);
         self.store_open.store(false, Ordering::Relaxed);
         if let Some(manager) = manager {
+            self.let_persister_go();
             tear_down(&manager).await;
         }
+    }
+
+    /// Our handle on the store goes with the manager's (BUG-194 `save_pools`): one kept would
+    /// hold the file open, and the next open of it would be refused (one persister per file).
+    fn let_persister_go(&self) {
+        self.persister
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .take();
     }
 }
 

@@ -629,6 +629,12 @@ impl Real {
             let state = turn::timed("state_count", wallet.state()).await;
             state.core_wallet.transaction_history().len()
         };
+        // BUG-194: the pools as they are now, written to the store (platform-wallet does not):
+        // first after the load, then on each new record.
+        if self.pools_saved != Some((id, live_count)) {
+            turn::timed("save_pools", self.chain.save_pools(&wallet)).await;
+            self.pools_saved = Some((id, live_count));
+        }
         turn::timed(
             "refresh_stored_history",
             self.refresh_stored_history(id, live_count),
@@ -665,7 +671,23 @@ impl Real {
             .recall(&mut all, self.chain.status().chainlock_height);
         let unlocks = convert::asset_unlocks(&all);
         let coinjoin = convert::coinjoin_addresses(&state.core_wallet);
-        let records = self.activity_lines(&all, &coinjoin);
+        let mut records = self.activity_lines(&all, &coinjoin);
+        // BUG-194: a payment from one of this wallet's identities to another, one line.
+        let own_identities: HashMap<String, String> = state
+            .identity_manager
+            .managed_identities()
+            .filter(|m| m.wallet_id == Some(id))
+            .map(|m| {
+                let id = m.identity.id().to_string(Encoding::Base58);
+                let named = self.identity_of(m).name().map(|n| format!("@{n}"));
+                (id.clone(), named.unwrap_or(id))
+            })
+            .collect();
+        convert::name_identity_transfers(
+            &mut records,
+            &convert::own_contact_receipts(&state.core_wallet),
+            &own_identities,
+        );
         let paid_at: HashMap<String, Timestamp> =
             records.iter().map(|(t, a)| (t.clone(), a.at)).collect();
         // The interface shows one identity: the first slot of the phrase, with its
@@ -810,6 +832,14 @@ impl Real {
         // A spend recorded before the coin it spends (a restore's rescan) gets its
         // input back from our own outputs.
         let mut all: Vec<_> = self.stored_history.iter().cloned().chain(fresh).collect();
+        // BUG-194: ours is the store's pools (`stored_history`) and the live wallet's — the
+        // store's end at the first gap window. Then the inputs spending outputs of ours.
+        let live = convert::live_own(info);
+        for record in &mut all {
+            convert::own_outputs(record, |address| {
+                live.get(&address.script_pubkey()).copied()
+            });
+        }
         convert::attribute_late_inputs(&mut all);
         all
     }

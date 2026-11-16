@@ -80,6 +80,7 @@ pub(super) fn own_of(now: &[&str], activity: &[Activity], to: &str) -> bool {
                     act.kind,
                     ActivityKind::Received { .. }
                         | ActivityKind::SelfTransfer { .. }
+                        | ActivityKind::IdentityTransfer { .. }
                         | ActivityKind::PlatformReceived
                 ) && act.address.as_deref() == Some(to)
             }))

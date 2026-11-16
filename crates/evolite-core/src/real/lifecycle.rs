@@ -139,6 +139,7 @@ impl Real {
             consumed_locks: std::collections::HashSet::new(),
             top_ups: Default::default(),
             history_read: None,
+            pools_saved: None,
             mined,
             contact_scans,
             coins_after_pass: None,

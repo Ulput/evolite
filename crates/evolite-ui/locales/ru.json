@@ -1,4 +1,6 @@
 {
+  "Transfer between your identities": "Перевод между своими identity",
+  "from {} to {} · {}": "с {} на {} · {}",
   "This amount needs more than {} coins — the network will not take such a transaction. First combine the small coins: send “Max” from Core to your own address and try again": "Для этой суммы нужно больше {} монет — сеть не примет такую транзакцию. Сначала объедините мелкие монеты: отправьте «Всё» с Core на свой адрес и повторите",
   "Some of the coins are not confirmed by the network yet — wait for a block": "Часть монет ещё не подтверждена сетью — подождите блок",
   "View the keys": "Посмотреть ключи",

@@ -110,6 +110,7 @@ fn line(a: &Activity, own: &Own) -> Option<Line> {
         ActivityKind::Received { from: Some(from) } if from == WITHDRAWAL_PAYOUT => return None,
         ActivityKind::Shielded { from: None } if a.amount >= 0 => return None,
         ActivityKind::SelfTransfer { .. }
+        | ActivityKind::IdentityTransfer { .. }
         | ActivityKind::TopUp { .. }
         | ActivityKind::Shielded { .. }
         | ActivityKind::AddressFunded => true,
@@ -127,7 +128,9 @@ fn line(a: &Activity, own: &Own) -> Option<Line> {
             Some(fee) if fee > 0 => fee,
             _ if matches!(
                 a.kind,
-                ActivityKind::SelfTransfer { .. } | ActivityKind::IntoMixing
+                ActivityKind::SelfTransfer { .. }
+                    | ActivityKind::IdentityTransfer { .. }
+                    | ActivityKind::IntoMixing
             ) =>
             {
                 -a.amount

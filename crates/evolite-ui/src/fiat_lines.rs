@@ -12,6 +12,7 @@ fn worth(act: &Activity) -> Duffs {
     let fee = act.fee.unwrap_or(0);
     match act.kind {
         ActivityKind::SelfTransfer { .. }
+        | ActivityKind::IdentityTransfer { .. }
         | ActivityKind::Mixing { .. }
         | ActivityKind::IntoMixing => fee,
         _ if act.amount < 0 => act.amount.saturating_neg().saturating_sub(fee).max(0),
@@ -94,6 +95,7 @@ pub fn card(act: &Activity, now: DateTime<Local>) -> Option<CardLines> {
         !matches!(
             act.kind,
             ActivityKind::SelfTransfer { .. }
+                | ActivityKind::IdentityTransfer { .. }
                 | ActivityKind::Mixing { .. }
                 | ActivityKind::IntoMixing
         )

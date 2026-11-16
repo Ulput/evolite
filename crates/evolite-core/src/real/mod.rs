@@ -461,6 +461,10 @@ struct Real {
     /// restore left without a top-up account (BUG-57 follow-up).
     top_ups: identity::TopUpScripts,
     history_read: Option<(usize, tokio::time::Instant)>,
+    /// BUG-194: the wallet and its count of records when its address pools were last written to
+    /// the store ([`evolite_chain::chain::Chain::save_pools`]): again whenever the count moves —
+    /// a payment out, one in, a pass of the filters that found one — and on the lock.
+    pools_saved: Option<(WalletId, usize)>,
     /// Core payments of this run: who they went to, and those the history does not show yet.
     outgoing: Arc<std::sync::Mutex<outgoing::Outgoing>>,
     /// Sends on Platform of this run (credits, the pool) until the history has their lines.

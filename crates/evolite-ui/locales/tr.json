@@ -1,4 +1,6 @@
 {
+  "Transfer between your identities": "identity'leriniz arasında transfer",
+  "from {} to {} · {}": "gönderen {}, alan {} · {}",
   "This amount needs more than {} coins — the network will not take such a transaction. First combine the small coins: send “Max” from Core to your own address and try again": "Bu tutar için {} coinden fazlası gerekiyor — ağ böyle bir işlemi kabul etmez. Önce küçük coinleri birleştirin: Core’dan kendi adresinize “Tümü”nü gönderin ve yeniden deneyin",
   "Some of the coins are not confirmed by the network yet — wait for a block": "Coinlerin bir kısmı ağ tarafından henüz onaylanmadı — bir blok bekleyin",
   "View the keys": "Anahtarları görüntüle",

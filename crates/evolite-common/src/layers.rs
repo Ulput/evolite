@@ -49,7 +49,7 @@ pub fn of(kind: &ActivityKind, chain: Chain) -> (u8, Flow) {
         Sent { .. } => (CORE, Flow::Out),
         // The pool's own transfer to a private address of ours is on Platform.
         SelfTransfer { .. } if chain == Chain::Platform => (POOL, Flow::Between),
-        SelfTransfer { .. } => (CORE, Flow::Between),
+        SelfTransfer { .. } | IdentityTransfer { .. } => (CORE, Flow::Between),
         // FEAT-0030: a round stays within «Mixed»; the preparation moves Core into it.
         Mixing { .. } => (MIXED, Flow::Between),
         IntoMixing => (CORE | MIXED, Flow::Between),

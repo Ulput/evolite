@@ -245,6 +245,13 @@ impl Real {
         self.phrase_check = None;
         // A key change not known to have gone through is forgotten (BUG-184).
         *self.unclear_keys.lock().unwrap_or_else(|e| e.into_inner()) = None;
+        // BUG-194: the address pools as the lock leaves them, with what is used.
+        if let Some(open) = self.unlocked.as_ref()
+            && let Some(wallet) = self.chain.wallet(&open.id).await
+        {
+            self.chain.save_pools(&wallet).await;
+        }
+        self.pools_saved = None;
         // An app's request is not answered after the next unlock with what was shown before.
         self.app_requests
             .lock()

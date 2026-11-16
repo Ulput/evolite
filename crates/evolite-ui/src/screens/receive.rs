@@ -464,7 +464,9 @@ pub(crate) fn past_addresses(history: &[Activity], current: &str) -> Vec<PastAdd
         };
         let amount = match act.kind {
             ActivityKind::Received { .. } => act.amount,
-            ActivityKind::SelfTransfer { moved } => moved,
+            ActivityKind::SelfTransfer { moved } | ActivityKind::IdentityTransfer { moved, .. } => {
+                moved
+            }
             _ => continue,
         };
         if address == current || amount <= 0 {

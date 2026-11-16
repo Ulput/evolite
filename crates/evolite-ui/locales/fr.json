@@ -1,4 +1,6 @@
 {
+  "Transfer between your identities": "Transfert entre vos identity",
+  "from {} to {} · {}": "de {} à {} · {}",
   "This amount needs more than {} coins — the network will not take such a transaction. First combine the small coins: send “Max” from Core to your own address and try again": "Ce montant demande plus de {} pièces — le réseau n’acceptera pas une telle transaction. Regroupez d’abord les petites pièces : envoyez « Tout » de Core vers votre propre adresse, puis réessayez",
   "Some of the coins are not confirmed by the network yet — wait for a block": "Une partie des pièces n’est pas encore confirmée par le réseau — attendez un bloc",
   "View the keys": "Voir les clés",

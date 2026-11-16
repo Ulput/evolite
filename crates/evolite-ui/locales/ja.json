@@ -1,4 +1,6 @@
 {
+  "Transfer between your identities": "あなたの identity 間の送金",
+  "from {} to {} · {}": "{} から {} へ · {}",
   "This amount needs more than {} coins — the network will not take such a transaction. First combine the small coins: send “Max” from Core to your own address and try again": "この金額には {} 枚を超えるコインが必要です — ネットワークはこのようなトランザクションを受け付けません。先に小さなコインをまとめてください: Core から自分のアドレスへ「全額」を送ってから、もう一度お試しください",
   "Some of the coins are not confirmed by the network yet — wait for a block": "一部のコインはまだネットワークで承認されていません — ブロックを待ってください",
   "View the keys": "鍵を見る",

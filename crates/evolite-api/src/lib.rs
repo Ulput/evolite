@@ -116,6 +116,14 @@ pub enum ActivityKind {
     SelfTransfer {
         moved: Duffs,
     },
+    /// One identity of this wallet paid another of its identities as a DashPay contact (BUG-194):
+    /// only the fee leaves the wallet. `from`, `to`: the identities, «@name» or the id when it
+    /// has none; `moved`: what came to `to`'s receiving address, [`Activity::address`].
+    IdentityTransfer {
+        from: String,
+        to: String,
+        moved: Duffs,
+    },
     /// A mixing round of the CoinJoin account, made in DashPay or Dash Core (FEAT-0030 A3): the
     /// wallet's denominations in, as many out. `fee`: what it lost (0, or a collateral).
     Mixing {

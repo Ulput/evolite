@@ -1,4 +1,6 @@
 {
+  "Transfer between your identities": "आपकी identity के बीच ट्रांसफ़र",
+  "from {} to {} · {}": "{} से {} को · {}",
   "This amount needs more than {} coins — the network will not take such a transaction. First combine the small coins: send “Max” from Core to your own address and try again": "इस राशि के लिए {} से ज़्यादा सिक्के चाहिए — नेटवर्क ऐसा लेन-देन स्वीकार नहीं करेगा। पहले छोटे सिक्के मिला लें: Core से अपने ही पते पर “सब” भेजें और फिर कोशिश करें",
   "Some of the coins are not confirmed by the network yet — wait for a block": "कुछ सिक्कों की नेटवर्क ने अभी पुष्टि नहीं की है — एक ब्लॉक का इंतज़ार करें",
   "View the keys": "कुंजियाँ देखें",

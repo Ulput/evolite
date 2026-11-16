@@ -1,4 +1,6 @@
 {
+  "Transfer between your identities": "您的 identity 之间的转账",
+  "from {} to {} · {}": "从 {} 到 {} · {}",
   "This amount needs more than {} coins — the network will not take such a transaction. First combine the small coins: send “Max” from Core to your own address and try again": "此金额需要超过 {} 枚币 — 网络不会接受这样的交易。请先合并小额币：从 Core 向自己的地址发送“全部”，然后重试",
   "Some of the coins are not confirmed by the network yet — wait for a block": "部分币尚未被网络确认 — 请等待一个区块",
   "View the keys": "查看密钥",

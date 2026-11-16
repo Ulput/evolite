@@ -1206,3 +1206,134 @@ fn a_spent_row_with_its_spender_under_the_chain_lock_is_claimed() {
     assert!(claims.claimed.is_empty());
     assert_eq!(claims.not_in_block, 1);
 }
+
+/// BUG-194 AC-T3а: the pools platform-wallet leaves out are written through our store — change
+/// past the first gap window (index 35 here), with its used flag — and an older snapshot does
+/// not take a used flag back.
+#[test]
+fn pools_past_the_first_window_are_written_with_their_used_flags() {
+    use key_wallet::managed_account::managed_account_trait::ManagedAccountTrait;
+    use key_wallet::wallet::managed_wallet_info::ManagedWalletInfo;
+    use key_wallet::wallet::managed_wallet_info::wallet_info_interface::WalletInfoInterface;
+    let (db, store) = real_store("pools");
+    let keys = crate::keys_of(
+        "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
+    )
+    .unwrap();
+    let mut info = ManagedWalletInfo::from_wallet(&keys, 0);
+    let xpub = keys.accounts.standard_bip44_accounts[&0].account_xpub;
+    let before = crate::convert::pool_entries(&info);
+    let change = {
+        let account = info
+            .accounts_mut()
+            .standard_bip44_accounts
+            .get_mut(&0)
+            .unwrap();
+        let made = account
+            .next_change_addresses(Some(&xpub), 40, true)
+            .unwrap();
+        account
+            .keys_mut()
+            .managed_account_type_mut()
+            .mark_address_used(&made[35]);
+        made[35].clone()
+    };
+    let write = |pools| {
+        store.store(
+            ID,
+            PlatformWalletChangeSet {
+                account_address_pools: pools,
+                ..Default::default()
+            },
+        )
+    };
+    write(crate::convert::pool_entries(&info)).unwrap();
+    // An older snapshot (index 35 not used yet, or not there) comes after: the flag stays.
+    write(before).unwrap();
+    // AC-T3б: a payment with its change there, as one account's view wrote it (the change
+    // `Sent`), reads back after a restart with the change ours.
+    {
+        use key_wallet::dashcore::{Transaction, TxIn, TxOut};
+        use key_wallet::managed_account::transaction_record::{
+            InputDetail, OutputDetail, OutputRole, TransactionDirection, TransactionRecord,
+        };
+        use key_wallet::transaction_checking::TransactionContext;
+        use key_wallet::transaction_checking::transaction_router::TransactionType;
+        let payee = crate::convert::pool_entries(&info)[0].addresses[0]
+            .address
+            .clone();
+        let tx = Transaction {
+            version: 2,
+            lock_time: 0,
+            input: vec![TxIn::default()],
+            output: [(&payee, 10_000), (&change, 5_000)]
+                .map(|(a, value)| TxOut {
+                    value,
+                    script_pubkey: a.script_pubkey(),
+                })
+                .to_vec(),
+            special_transaction_payload: None,
+        };
+        let record = TransactionRecord::new(
+            tx,
+            key_wallet::account::AccountType::Standard {
+                index: 0,
+                standard_account_type: key_wallet::account::StandardAccountType::BIP44Account,
+            },
+            TransactionContext::Mempool,
+            TransactionType::Standard,
+            TransactionDirection::Outgoing,
+            vec![InputDetail {
+                index: 0,
+                value: 15_226,
+                address: payee.clone(),
+            }],
+            vec![
+                OutputDetail {
+                    index: 0,
+                    role: OutputRole::Sent,
+                    address: Some(payee.clone()),
+                    value: 10_000,
+                },
+                OutputDetail {
+                    index: 1,
+                    role: OutputRole::Sent,
+                    address: Some(change.clone()),
+                    value: 5_000,
+                },
+            ],
+            -15_226,
+        );
+        store
+            .store(
+                ID,
+                PlatformWalletChangeSet {
+                    core: Some(CoreChangeSet {
+                        records: vec![record],
+                        ..CoreChangeSet::default()
+                    }),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+    }
+    drop(store);
+    let read = crate::chain::stored_history(&db, &ID).unwrap();
+    assert_eq!(read.len(), 1);
+    assert_eq!(
+        read[0].output_details[1].role,
+        key_wallet::managed_account::transaction_record::OutputRole::Change,
+        "the change at index 35 is ours after a restart"
+    );
+    let conn = rusqlite::Connection::open(&db).unwrap();
+    let (index, used): (i64, bool) = conn
+        .query_row(
+            "SELECT address_index, used FROM core_address_pool WHERE account_type = \
+             'standard_bip44' AND pool_type = 1 AND script = ?1",
+            rusqlite::params![change.script_pubkey().as_bytes()],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .unwrap();
+    assert_eq!((index, used), (35, true));
+    let _ = std::fs::remove_dir_all(db.parent().unwrap());
+}

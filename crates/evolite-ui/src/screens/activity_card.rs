@@ -532,6 +532,7 @@ fn card_detail(act: &Activity) -> Option<&Detail> {
             ActivityKind::Received { .. }
                 | ActivityKind::Sent { .. }
                 | ActivityKind::SelfTransfer { .. }
+                | ActivityKind::IdentityTransfer { .. }
                 | ActivityKind::Mixing { .. }
                 | ActivityKind::IntoMixing
         );
@@ -619,6 +620,20 @@ fn sides(act: &Activity, detail: &Detail, book: &[SavedAddress]) -> (Vec<Side>, 
                 value: who,
             });
             (vec![from], to.into_iter().collect())
+        }
+        // BUG-194 (the analyst): «From» the paying identity, «To» the paid one at the address of
+        // its receiving key.
+        ActivityKind::IdentityTransfer { from, to, .. } => {
+            let named = |who: &str| crate::i18n::own(&text::identity_named(who));
+            let to = Side {
+                value: act.address.clone().unwrap_or_default(),
+                mono: true,
+                sub: Some(format!(
+                    tr!("{to} · a new address from the contact's key"),
+                    to = named(to)
+                )),
+            };
+            (vec![Side::words(named(from), None)], vec![to])
         }
         ActivityKind::SelfTransfer { .. }
         | ActivityKind::Mixing { .. }
@@ -1108,7 +1123,11 @@ fn detail_body(
     let words = sans(13.0, Weight::Medium);
     let value = mono(13.0, Weight::Medium);
     let moved = match act.kind {
-        ActivityKind::SelfTransfer { moved } if moved > 0 => Some(moved),
+        ActivityKind::SelfTransfer { moved } | ActivityKind::IdentityTransfer { moved, .. }
+            if moved > 0 =>
+        {
+            Some(moved)
+        }
         _ => None,
     };
     if let Some(moved) = moved {
