@@ -517,3 +517,56 @@ fn a_contested_name_at_the_creation_suggests_its_claims_least() {
         crate::format::input_text(30_000_000)
     );
 }
+
+/// BUG-220: N3 says what the claim took — its History line's debit (the credits before and
+/// after) — and, before that line is in, the claim's own estimate with «≈»: never the regular
+/// name's price plus the fund (QA: 0.10072473 for a claim that took 0.10107336).
+#[test]
+fn the_sent_claim_says_what_it_took() {
+    let (_turn, mut kit) = demo_app("add-name-sent", "en");
+    kit.set_size(egui::vec2(1024.0, 1000.0));
+    wait_for(&mut kit, "N3", |k| {
+        has_words(k, "The fund and the write were paid from the credits of")
+    });
+    let fees = kit
+        .state()
+        .snapshot
+        .as_ref()
+        .and_then(|s| s.wallet.as_ref())
+        .map(|w| w.fees.clone())
+        .expect("the wallet");
+    let fund = 10_000_000;
+    let regular = crate::format::amount(fees.name_price(false) + fund);
+    let estimate = format!(
+        "≈ {}",
+        crate::format::amount(fees.name_credits_needed() + fund)
+    );
+    assert!(has_words(&kit, &estimate), "the claim's estimate");
+    if fees.name_price(false) != fees.name_credits_needed() {
+        assert!(
+            !has_words(&kit, &format!(": {regular}.")),
+            "not a regular name's price"
+        );
+    }
+    let took = 10_107_336;
+    show_wallet_edited(
+        &mut kit,
+        1,
+        "the claim's line",
+        |w| {
+            if w.activity.iter().any(|a| a.id == 0xB220) {
+                return;
+            }
+            let mut line = w.activity.first().cloned().expect("a line");
+            line.id = 0xB220;
+            line.kind = evolite_api::ActivityKind::NameClaimed {
+                label: "sam".into(),
+            };
+            line.amount = -took;
+            line.at = chrono::Local::now().timestamp();
+            w.activity.insert(0, line);
+        },
+        |k| has_words(k, &format!(": {}.", crate::format::amount(took))),
+    );
+    assert!(!has_words(&kit, &estimate), "the fact, not the estimate");
+}

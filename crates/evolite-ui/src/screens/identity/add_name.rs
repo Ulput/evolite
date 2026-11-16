@@ -420,18 +420,48 @@ fn review_footer(
     false
 }
 
+/// BUG-220: what the newest claim of `label` took from the credits, as its History line says.
+fn claim_paid(wallet: &Wallet, label: &str) -> Option<evolite_api::Duffs> {
+    wallet
+        .activity
+        .iter()
+        .filter(|a| {
+            matches!(&a.kind, evolite_api::ActivityKind::NameClaimed { label: l }
+                if l.eq_ignore_ascii_case(label))
+        })
+        .max_by_key(|a| (a.at, a.id))
+        .map(|a| a.amount.saturating_neg())
+        .filter(|paid| *paid > 0)
+}
+
 /// N3: the claim is in; what it cost, when the result comes, and that the name is not yours yet.
 fn sent_body(ui: &mut Ui, a: &mut Assets, wallet: &Wallet, me: &str, form: &NameForm) {
     let p = a.p;
     let Some(r) = form.review else {
         return;
     };
+    // BUG-220: what the claim took, from its line in History (the credits before and after),
+    // else the claim's own estimate with «≈»: never a regular name's price with the fund.
+    let total = match claim_paid(wallet, &form.asked) {
+        Some(paid) => dash(paid),
+        None => {
+            let link = if matches!(link_of(form), Ok(Some(_))) {
+                wallet.fees.document_write
+            } else {
+                0
+            };
+            format!(
+                "≈ {}",
+                dash(wallet.fees.name_credits_needed() + r.fund + link)
+            )
+        }
+    };
     ui.add(
         crate::components::para(
             &format!(
                 tr!("The fund and the write were paid from the credits of {me}: {total}. Result about {end}. evolite tells you with a notification, even with the window minimized."),
                 me = me,
-                total = dash(wallet.fees.name_price(false) + r.fund),
+                total = total,
                 end = crate::text::date_time_in_line(r.ends_about, chrono::Local::now())
             ),
             UI.size,
