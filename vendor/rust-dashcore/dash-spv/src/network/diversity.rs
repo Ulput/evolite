@@ -43,6 +43,18 @@ pub fn subnet_full<'a>(addr: &SocketAddr, taken: impl IntoIterator<Item = &'a So
         >= MAX_PEERS_PER_SUBNET
 }
 
+/// evolite (SPV item 2в): how many masternode addresses join the peers we may connect to.
+pub const SML_PEERS: usize = 4;
+
+/// evolite (SPV item 2в): [`SML_PEERS`] of the verified masternodes' `candidates`, at random,
+/// no two subnets over [`MAX_PEERS_PER_SUBNET`].
+pub fn pick_sml_peers(candidates: &[SocketAddr], rng: &mut impl rand::Rng) -> Vec<SocketAddr> {
+    use rand::seq::SliceRandom;
+    let mut shuffled = candidates.to_vec();
+    shuffled.shuffle(rng);
+    pick_diverse(&shuffled, &[], SML_PEERS)
+}
+
 /// Of `candidates`, in their order, the ones that may be connected next to `taken`: none from
 /// a subnet already full, and at most `wanted` in all.
 pub fn pick_diverse(
@@ -133,6 +145,25 @@ mod tests {
 
         pool.remove_peer(&addr("5.9.1.1:9999")).await;
         assert!(pool.mark_connecting_within_subnets(addr("5.9.3.1:9999")).await);
+    }
+
+    /// evolite (SPV item 2в): four of the verified masternodes, at random, at most two from one
+    /// /16; fewer when there are fewer.
+    #[test]
+    fn four_masternodes_are_picked_over_subnets() {
+        use rand::SeedableRng;
+        let candidates: Vec<SocketAddr> =
+            (1..=12u8).map(|k| SocketAddr::from(([10, k % 2, k, 1], 9999))).collect();
+        for seed in 0..20 {
+            let picked = pick_sml_peers(&candidates, &mut rand::rngs::StdRng::seed_from_u64(seed));
+            assert_eq!(picked.len(), SML_PEERS, "{picked:?}");
+            assert!(picked.iter().all(|p| !subnet_full(p, &picked)), "{picked:?}");
+        }
+        let one_subnet: Vec<SocketAddr> =
+            (1..=6u8).map(|k| SocketAddr::from(([10, 0, k, 1], 9999))).collect();
+        let picked = pick_sml_peers(&one_subnet, &mut rand::rng());
+        assert_eq!(picked.len(), MAX_PEERS_PER_SUBNET, "{picked:?}");
+        assert!(pick_sml_peers(&[], &mut rand::rng()).is_empty());
     }
 
     #[test]

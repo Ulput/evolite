@@ -59,6 +59,9 @@ pub enum NetworkRequest {
     /// evolite (SPV item 1): disconnect a peer, without a ban, whose fork got longer than
     /// we hold without having more work than ours.
     DisconnectPeer(SocketAddr, String),
+    /// evolite (SPV item 2в): masternode addresses from our verified list, tried first when
+    /// peers are topped up and kept for the next start.
+    SmlPeers(Vec<SocketAddr>),
 }
 
 /// Handle for managers to queue outgoing network requests.
@@ -98,6 +101,13 @@ impl RequestSender {
     pub fn ban_peer(&self, address: SocketAddr, reason: &str) -> NetworkResult<()> {
         self.tx
             .send(NetworkRequest::BanPeer(address, reason.to_owned()))
+            .map_err(|e| NetworkError::ProtocolError(e.to_string()))
+    }
+
+    /// evolite (SPV item 2в): offer masternode addresses from our verified list as peers.
+    pub fn offer_sml_peers(&self, peers: Vec<SocketAddr>) -> NetworkResult<()> {
+        self.tx
+            .send(NetworkRequest::SmlPeers(peers))
             .map_err(|e| NetworkError::ProtocolError(e.to_string()))
     }
 

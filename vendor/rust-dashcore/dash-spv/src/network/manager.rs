@@ -177,6 +177,8 @@ pub struct PeerNetworkManager {
     initial_peers: Vec<SocketAddr>,
     /// Data directory for storage
     data_dir: PathBuf,
+    /// evolite (SPV item 2в): masternodes of our verified list, tried first at a top-up.
+    sml_peers: Arc<RwLock<Vec<SocketAddr>>>,
     /// Optional user agent to advertise
     user_agent: Option<String>,
     /// Exclusive mode: restrict to configured peers only (no DNS or peer store)
@@ -311,6 +313,7 @@ impl PeerNetworkManager {
             tasks: Arc::new(Mutex::new(JoinSet::new())),
             initial_peers: config.peers.clone(),
             data_dir,
+            sml_peers: Arc::new(RwLock::new(Vec::new())),
             user_agent: config.user_agent.clone(),
             exclusive_mode,
             required_services,
@@ -1063,6 +1066,12 @@ impl PeerNetworkManager {
                                     }
                                 });
                             }
+                            Some(NetworkRequest::SmlPeers(peers)) => {
+                                // evolite (SPV item 2в): kept, saved for the next start, and
+                                // tried first at the next top-up.
+                                let this = this.clone();
+                                tokio::spawn(async move { this.take_sml_peers(peers).await });
+                            }
                             Some(NetworkRequest::DisconnectPeer(peer_address, reason)) => {
                                 // evolite (SPV item 1): a fork too long without more work.
                                 let this = this.clone();
@@ -1335,9 +1344,23 @@ impl PeerNetworkManager {
                 // Try known addresses first, sorted by reputation
                 let known = self.addrv2_handler.get_known_addresses().await;
                 let needed = self.max_peers.saturating_sub(count);
+                let mut attempted = 0;
+                // evolite (SPV item 2в): our verified masternodes before anything else, under
+                // the same subnet gate.
+                let sml: Vec<SocketAddr> = self.sml_peers.read().await.clone();
+                for addr in sml {
+                    if attempted >= needed {
+                        break;
+                    }
+                    if !self.pool.is_connected(&addr).await
+                        && !self.pool.is_connecting(&addr).await
+                        && self.connect_to_peer(addr).await
+                    {
+                        attempted += 1;
+                    }
+                }
                 // Select best peers based on reputation
                 let best_peers = self.reputation_manager.select_best_peers(known, needed * 2).await;
-                let mut attempted = 0;
 
                 for addr in best_peers {
                     if self.is_capability_rejected(&addr).await {
@@ -1777,6 +1800,18 @@ impl PeerNetworkManager {
         Ok(())
     }
 
+    /// evolite (SPV item 2в): masternodes of our verified list, kept and saved for the next
+    /// start; the next top-up tries them first.
+    async fn take_sml_peers(&self, peers: Vec<SocketAddr>) {
+        if self.exclusive_mode {
+            return;
+        }
+        if let Err(e) = save_sml_peers(&self.data_dir, &peers) {
+            tracing::warn!("Failed to save the masternode peers: {}", e);
+        }
+        *self.sml_peers.write().await = peers;
+    }
+
     /// Unban a specific peer
     pub async fn unban_peer(&self, addr: &SocketAddr) {
         self.reputation_manager.unban_peer(addr).await;
@@ -1829,6 +1864,7 @@ impl Clone for PeerNetworkManager {
             tasks: self.tasks.clone(),
             initial_peers: self.initial_peers.clone(),
             data_dir: self.data_dir.clone(),
+            sml_peers: self.sml_peers.clone(),
             user_agent: self.user_agent.clone(),
             exclusive_mode: self.exclusive_mode,
             required_services: self.required_services,
@@ -1879,6 +1915,13 @@ impl NetworkManager for PeerNetworkManager {
                 self.initial_peers.len()
             );
         } else {
+            // evolite (SPV item 2в): the masternodes chosen last run, until this run's list
+            // offers its own.
+            let saved = load_sml_peers(&self.data_dir);
+            if !saved.is_empty() {
+                tracing::info!("{} masternodes of the last verified list as peers", saved.len());
+                *self.sml_peers.write().await = saved;
+            }
             // Load saved peers from disk
             let saved_peers = self.peer_store.load_peers().await.unwrap_or_else(|e| {
                 tracing::warn!("Failed to load peers: {}", e);
@@ -2087,6 +2130,28 @@ fn tracked_request_kind(msg: &NetworkMessage) -> Option<RequestKind> {
     }
 }
 
+/// evolite (SPV item 2в): where the masternode peers of the last verified list are kept.
+fn sml_peers_file(data_dir: &std::path::Path) -> PathBuf {
+    data_dir.join("sml_peers.json")
+}
+
+/// evolite (SPV item 2в): saves the masternode peers for the next start.
+fn save_sml_peers(data_dir: &std::path::Path, peers: &[SocketAddr]) -> std::io::Result<()> {
+    let text: Vec<String> = peers.iter().map(SocketAddr::to_string).collect();
+    let json = serde_json::to_vec(&text).map_err(std::io::Error::other)?;
+    std::fs::write(sml_peers_file(data_dir), json)
+}
+
+/// evolite (SPV item 2в): the masternode peers saved last run; none if there are none or the
+/// file can't be read.
+fn load_sml_peers(data_dir: &std::path::Path) -> Vec<SocketAddr> {
+    std::fs::read(sml_peers_file(data_dir))
+        .ok()
+        .and_then(|bytes| serde_json::from_slice::<Vec<String>>(&bytes).ok())
+        .map(|text| text.iter().filter_map(|a| a.parse().ok()).collect())
+        .unwrap_or_default()
+}
+
 /// The kind of timer an inbound message clears, or `None` if it answers nothing we
 /// timed. Unsolicited gossip (inv, tx, addr, ping) is excluded: it arrives
 /// unprompted and would clear a timer the peer has not actually answered.
@@ -2120,6 +2185,7 @@ impl PeerNetworkManager {
             tasks: Arc::new(Mutex::new(JoinSet::new())),
             initial_peers: vec![],
             data_dir: test_dir,
+            sml_peers: Arc::new(RwLock::new(Vec::new())),
             user_agent: None,
             exclusive_mode: false,
             required_services,
@@ -2379,6 +2445,30 @@ mod subnet_tests {
         }
         manager.shutdown_token.cancel();
         assert_eq!(started, vec![true, true, false, false, false]);
+    }
+
+    /// evolite (SPV item 2в): the masternode peers offered are kept, saved and read again at
+    /// the next start; the next top-up tries them first.
+    #[tokio::test]
+    async fn masternode_peers_are_kept_for_the_next_start_and_tried_first() {
+        let manager = PeerNetworkManager::new_for_test(ServiceFlags::NONE).await;
+        // Three documentation ranges (RFC 5737) and the benchmarking one (RFC 2544): four /16,
+        // and nothing answers there, so a connect stays pending until the shutdown.
+        let peers: Vec<SocketAddr> = [[192, 0, 2, 1], [198, 51, 100, 1], [203, 0, 113, 1], [198, 18, 0, 1]]
+            .into_iter()
+            .map(|ip| SocketAddr::from((ip, 9999)))
+            .collect();
+
+        manager.take_sml_peers(peers.clone()).await;
+
+        assert_eq!(*manager.sml_peers.read().await, peers);
+        assert_eq!(load_sml_peers(&manager.data_dir), peers, "saved for the next start");
+        manager.maintenance_tick().await;
+        for addr in &peers {
+            assert!(manager.pool.is_connecting(addr).await, "{addr} tried first");
+        }
+        manager.shutdown_token.cancel();
+        assert!(load_sml_peers(std::path::Path::new("no such folder")).is_empty());
     }
 
     #[tokio::test]

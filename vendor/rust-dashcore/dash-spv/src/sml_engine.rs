@@ -326,6 +326,26 @@ impl<H: BlockHeaderStorage> MasternodeListEngine<H> {
         self.masternode_lists.last_key_value().map(|(_, list)| list)
     }
 
+    /// evolite (SPV item 2в): the Core P2P addresses of the valid masternodes in the newest
+    /// list — none unless this engine checks every diff against its block's coinbase before
+    /// applying it (`evolite-mnlist-verify`): a list nobody checked could be anyone's, and a
+    /// masternode put a collateral up, which makes eclipsing us with them costly.
+    pub fn verified_peer_addresses(&self) -> Vec<std::net::SocketAddr> {
+        if self.validator.is_none() {
+            return vec![];
+        }
+        let Some(list) = self.latest_masternode_list() else {
+            return vec![];
+        };
+        list.masternodes
+            .values()
+            .map(|entry| &entry.masternode_list_entry)
+            .filter(|entry| entry.is_valid)
+            .filter_map(|entry| entry.service_address.primary_service_address())
+            .filter(|addr| addr.port() != 0 && !addr.ip().is_unspecified())
+            .collect()
+    }
+
     /// The rotated quorums of the cycle `cycle_hash`, by quorum index.
     pub fn rotated_quorums_of_cycle(
         &self,

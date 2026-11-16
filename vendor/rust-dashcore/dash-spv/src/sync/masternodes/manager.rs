@@ -262,6 +262,8 @@ pub struct MasternodesManager<H: BlockHeaderStorage> {
     pub(super) sync_state: MasternodeSyncState,
     /// Where the messages that built the engine are kept for the next start.
     message_storage: Option<Arc<RwLock<PersistentMasternodeStorage<H>>>>,
+    /// evolite (SPV item 2в): masternode peers were offered this run.
+    pub(super) sml_offered: bool,
 }
 
 impl<H: BlockHeaderStorage> MasternodesManager<H> {
@@ -296,6 +298,7 @@ impl<H: BlockHeaderStorage> MasternodesManager<H> {
             network,
             sync_state,
             message_storage,
+            sml_offered: false,
         }
     }
 
@@ -484,6 +487,34 @@ impl<H: BlockHeaderStorage> MasternodesManager<H> {
         &mut self,
         requests: &RequestSender,
     ) -> SyncResult<Vec<SyncEvent>> {
+        let events = self.complete_pipeline_mode(requests).await?;
+        // evolite (SPV item 2в): once the lists are in, four of their masternodes as peers.
+        if !self.sml_offered
+            && events.iter().any(|e| matches!(e, SyncEvent::MasternodeStateUpdated { .. }))
+        {
+            self.offer_sml_peers(requests).await;
+        }
+        Ok(events)
+    }
+
+    /// evolite (SPV item 2в): [`SML_PEERS`](crate::network::diversity::SML_PEERS) addresses of
+    /// the verified list's valid masternodes, at random and spread over subnets, offered to the
+    /// network once a run. An engine that does not verify what it applies offers none.
+    pub(super) async fn offer_sml_peers(&mut self, requests: &RequestSender) {
+        let candidates = self.engine.read().await.verified_peer_addresses();
+        let peers = crate::network::diversity::pick_sml_peers(&candidates, &mut rand::rng());
+        if peers.is_empty() {
+            return;
+        }
+        tracing::info!("Offering {} masternodes of the verified list as peers", peers.len());
+        self.sml_offered = true;
+        let _ = requests.offer_sml_peers(peers);
+    }
+
+    async fn complete_pipeline_mode(
+        &mut self,
+        requests: &RequestSender,
+    ) -> SyncResult<Vec<SyncEvent>> {
         match std::mem::take(&mut self.sync_state.pipeline_mode) {
             PipelineMode::QuorumValidation {
                 qr_info_result,
@@ -642,6 +673,8 @@ mod tests {
     use dashcore::network::message::NetworkMessage;
     use dashcore::network::message_sml::GetMnListDiff;
     use dashcore::sml::masternode_list::MasternodeList;
+    use dashcore::BlockHash;
+    use test_case::test_case;
     use tokio::sync::mpsc;
 
     type TestMasternodesManager = MasternodesManager<PersistentBlockHeaderStorage>;
@@ -741,6 +774,97 @@ mod tests {
 
     fn anchor_hash(n: u8) -> BlockHash {
         BlockHash::from_byte_array([n; 32])
+    }
+
+    /// evolite (SPV item 2в): a list of `n` masternodes over three /16 subnets (10.0, 10.1,
+    /// 10.2); the first is not valid.
+    fn masternodes(n: u8) -> MasternodeList {
+        use dashcore::sml::masternode_list_entry::qualified_masternode_list_entry::QualifiedMasternodeListEntry;
+        use dashcore::sml::masternode_list_entry::{MasternodeListEntry, MasternodeNetInfo};
+        let mut map = std::collections::BTreeMap::new();
+        for k in 1..=n {
+            let mut entry = MasternodeListEntry::dummy(k);
+            entry.service_address =
+                MasternodeNetInfo::Legacy(std::net::SocketAddr::from(([10, k % 3, k, 1], 9999)));
+            entry.is_valid = k != 1;
+            map.insert(entry.pro_reg_tx_hash, Arc::new(QualifiedMasternodeListEntry::from(entry)));
+        }
+        MasternodeList::build(map, std::collections::BTreeMap::new(), BlockHash::all_zeros(), 100)
+            .build()
+    }
+
+    /// The `SmlPeers` requests sent so far.
+    fn offered(rx: &mut mpsc::UnboundedReceiver<NetworkRequest>) -> Vec<Vec<std::net::SocketAddr>> {
+        let mut offered = Vec::new();
+        while let Ok(request) = rx.try_recv() {
+            if let NetworkRequest::SmlPeers(peers) = request {
+                offered.push(peers);
+            }
+        }
+        offered
+    }
+
+    /// evolite (SPV item 2в, AC-T2б.3): an engine that checks what it applies offers four
+    /// valid masternodes of its newest list, at most two from one /16; one that does not check
+    /// offers none.
+    #[test_case(true; "a verified list")]
+    #[test_case(false; "an unverified list gives none")]
+    #[tokio::test]
+    async fn four_masternodes_of_the_verified_list_are_offered_as_peers(verified: bool) {
+        let storage = DiskStorageManager::with_temp_dir().await.unwrap();
+        let network = dashcore::Network::Testnet;
+        let mut engine = if verified {
+            MasternodeListEngine::new(network, storage.block_headers())
+        } else {
+            MasternodeListEngine::new_without_validation(network, storage.block_headers())
+        };
+        engine.masternode_lists.insert(100, masternodes(12));
+        let mut manager = MasternodesManager::new(
+            storage.block_headers(),
+            Arc::new(RwLock::new(engine)),
+            network,
+            None,
+        )
+        .await;
+        let (tx, mut rx) = mpsc::unbounded_channel();
+
+        manager.offer_sml_peers(&RequestSender::new(tx)).await;
+
+        // The candidates: the eleven valid ones of a verified list, none of an unverified one.
+        let candidates = manager.engine.read().await.verified_peer_addresses();
+        assert_eq!(candidates.len(), if verified { 11 } else { 0 }, "{candidates:?}");
+
+        let offered = offered(&mut rx);
+        if !verified {
+            assert!(offered.is_empty(), "{offered:?}");
+            assert!(!manager.sml_offered);
+            return;
+        }
+        assert_eq!(offered.len(), 1);
+        let peers = &offered[0];
+        assert_eq!(peers.len(), 4, "{peers:?}");
+        let invalid = std::net::SocketAddr::from(([10, 1, 1, 1], 9999));
+        assert!(!peers.contains(&invalid), "not the invalid one: {peers:?}");
+        for peer in peers {
+            assert!(
+                !crate::network::diversity::subnet_full(peer, peers),
+                "two at most from one /16: {peers:?}"
+            );
+        }
+        assert!(manager.sml_offered);
+    }
+
+    /// evolite (SPV item 2в): the masternodes are offered once a run, when the first list is
+    /// in — not again at every later diff.
+    #[tokio::test]
+    async fn masternode_peers_are_offered_once_a_run() {
+        let (mut manager, requests, mut rx) = make_synced_incremental_manager(200).await;
+        manager.engine.write().await.masternode_lists.insert(200, masternodes(12));
+        for _ in 0..3 {
+            manager.sync_state.pipeline_mode = PipelineMode::Incremental;
+            manager.complete_pipeline(&requests).await.unwrap();
+        }
+        assert_eq!(offered(&mut rx).len(), 1);
     }
 
     fn add_lists<H: BlockHeaderStorage>(engine: &mut MasternodeListEngine<H>, lists: &[(u32, u8)]) {
