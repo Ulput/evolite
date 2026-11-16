@@ -2,7 +2,7 @@
 
 use super::prelude::*;
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum ButtonKind {
     Primary,
     Secondary,
@@ -286,27 +286,36 @@ pub fn button_enabled(
             p.danger,
         ),
     };
-    let dim = |c: Color32| if enabled { c } else { c.gamma_multiply(0.45) };
+    let (fill, stroke, color) = if enabled {
+        (fill, stroke, color)
+    } else {
+        disabled_look(&p, kind)
+    };
     let painter = ui.painter();
     painter.rect(
         rect,
         CornerRadius::same(10),
-        dim(fill),
-        Stroke::new(1.0, dim(stroke)),
+        fill,
+        Stroke::new(1.0, stroke),
         StrokeKind::Inside,
     );
-    paint_text(
-        ui,
-        rect.center(),
-        Align2::CENTER_CENTER,
-        label,
-        font,
-        dim(color),
-    );
+    paint_text(ui, rect.center(), Align2::CENTER_CENTER, label, font, color);
     if enabled {
         resp.on_hover_cursor(CursorIcon::PointingHand)
     } else {
-        resp
+        resp.on_hover_cursor(CursorIcon::NotAllowed)
+    }
+}
+
+/// BUG-217 (the designer's values): a button that cannot be pressed has one look whatever its
+/// kind: a flat `raised` plate, no border, `muted` text, at full opacity, the same on hover.
+/// Faded by kind, a disabled outline still read as a live button beside a faded filled one, and
+/// a red one only frightened. A ghost stays without a plate, its text muted.
+/// `(fill, stroke, text)`.
+fn disabled_look(p: &Palette, kind: ButtonKind) -> (Color32, Color32, Color32) {
+    match kind {
+        ButtonKind::Ghost => (Color32::TRANSPARENT, Color32::TRANSPARENT, p.muted),
+        _ => (p.raised, Color32::TRANSPARENT, p.muted),
     }
 }
 
@@ -456,6 +465,31 @@ pub fn take_amounts_flip(ctx: &egui::Context) -> bool {
 mod tests {
     use super::*;
     use egui::{Event, PointerButton, RawInput};
+
+    /// BUG-217: in both themes a disabled button has one look whatever its kind (a `raised`
+    /// plate, no border, `muted` text), and a disabled outline is not the live one.
+    #[test]
+    fn a_disabled_button_looks_one_way_and_not_live() {
+        use crate::theme::{DARK, LIGHT};
+        for p in [DARK, LIGHT] {
+            let flat = (p.raised, Color32::TRANSPARENT, p.muted);
+            for kind in [
+                ButtonKind::Primary,
+                ButtonKind::Secondary,
+                ButtonKind::Danger,
+                ButtonKind::DangerOutline,
+            ] {
+                assert_eq!(disabled_look(&p, kind), flat, "{kind:?}");
+            }
+            assert_eq!(
+                disabled_look(&p, ButtonKind::Ghost),
+                (Color32::TRANSPARENT, Color32::TRANSPARENT, p.muted)
+            );
+            // The live secondary: a `surface` plate, a `line` border, `text`.
+            assert_ne!(flat.0, p.surface);
+            assert_ne!(flat.2, p.text);
+        }
+    }
 
     /// Presses and lets go at `x` (from the action's left edge) over a few frames; whether the
     /// action took the click.
