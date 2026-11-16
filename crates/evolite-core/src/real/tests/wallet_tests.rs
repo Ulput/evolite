@@ -188,6 +188,8 @@ async fn switching_and_adding_go_through_the_index() {
     let mut core = core_at(&dir, "aaaa0001");
     let open: Vec<bool> = core.wallet_entries().iter().map(|w| w.open).collect();
     assert_eq!(open, [true, false]);
+    // «Show the phrase» and «Check the phrase» are an open wallet's (BUG-203 r1).
+    core.handle(Command::Unlock { password: pw("pw") }).await;
 
     // Nowhere to go: the open one, or one not here.
     for id in ["aaaa0001", "cccc0003"] {
@@ -430,6 +432,164 @@ async fn only_wrong_passwords_count_each_for_its_own_wallet() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// BUG-203: "Show the phrase" counts wrong passwords as the unlock does, for the wallet whose
+/// phrase it is: the 5th wrong one pauses it, and in the pause even the right password shows
+/// nothing. Another wallet's phrase from the open one is no way around the pause.
+#[tokio::test]
+async fn show_the_phrase_counts_wrong_passwords_and_pauses() {
+    let dir = fresh_dir("reveal-count");
+    seal_wallet(&dir, "aaaa0001");
+    seal_wallet(&dir, "bbbb0002");
+    let mut core = core_at(&dir, "aaaa0001");
+    // «Show the phrase» and «Check the phrase» are an open wallet's (BUG-203 r1).
+    core.handle(Command::Unlock { password: pw("pw") }).await;
+    let reveal = |p: &str, wallet: Option<&str>| Command::RevealPhrase {
+        password: pw(p),
+        wallet: wallet.map(str::to_owned),
+    };
+    for n in 1..=5 {
+        let (event, _) = core.handle(reveal("no", Some("bbbb0002"))).await;
+        assert!(
+            matches!(
+                event,
+                Some(Event::PhraseRevealed(Err(CoreError::WrongPassword)))
+            ),
+            "try {n}"
+        );
+        assert_eq!(entry(&mut core, "bbbb0002").wrong_tries, n);
+    }
+    assert!(entry(&mut core, "bbbb0002").wait_until.is_some());
+    let (event, _) = core.handle(reveal("pw", Some("bbbb0002"))).await;
+    assert!(
+        matches!(
+            event,
+            Some(Event::PhraseRevealed(Err(CoreError::TooManyTries { .. })))
+        ),
+        "the right password in the pause shows nothing"
+    );
+    assert_eq!(entry(&mut core, "aaaa0001").wrong_tries, 0);
+    // The open wallet's own phrase: counted for it, and the right password clears the count.
+    core.handle(reveal("no", None)).await;
+    assert_eq!(entry(&mut core, "aaaa0001").wrong_tries, 1);
+    let (event, _) = core.handle(reveal("pw", None)).await;
+    assert!(matches!(event, Some(Event::PhraseRevealed(Ok(_)))));
+    assert_eq!(entry(&mut core, "aaaa0001").wrong_tries, 0);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// BUG-203 r1 Must 1: the pause is not walked around through another password check of the
+/// same wallet. Five wrong passwords in «Check the phrase» pause the wallet, and in the pause
+/// the right password in «Show the phrase» shows nothing. Locked, neither opens the vault.
+#[tokio::test]
+async fn a_pause_from_check_the_phrase_holds_for_show_the_phrase() {
+    let dir = fresh_dir("check-pause");
+    seal_wallet(&dir, "aaaa0001");
+    let mut core = core_at(&dir, "aaaa0001");
+    let check = |p: &str| Command::AskPhraseCheck { password: pw(p) };
+    let (event, _) = core.handle(check("pw")).await;
+    assert!(
+        matches!(
+            event,
+            Some(Event::PhraseCheck(Err(CoreError::NotAvailable(_))))
+        ),
+        "locked: no check"
+    );
+    assert!(
+        core.handle(Command::Unlock { password: pw("pw") })
+            .await
+            .0
+            .is_some()
+    );
+    for n in 1..=5 {
+        let (event, _) = core.handle(check("no")).await;
+        assert!(
+            matches!(
+                event,
+                Some(Event::PhraseCheck(Err(CoreError::WrongPassword)))
+            ),
+            "try {n}"
+        );
+        assert_eq!(entry(&mut core, "aaaa0001").wrong_tries, n);
+    }
+    let (event, _) = core
+        .handle(Command::RevealPhrase {
+            password: pw("pw"),
+            wallet: None,
+        })
+        .await;
+    assert!(
+        matches!(
+            event,
+            Some(Event::PhraseRevealed(Err(CoreError::TooManyTries { .. })))
+        ),
+        "the right password in the pause shows nothing"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// BUG-203 r1 Must 1, the guard: a wallet's password is checked only through the counted opens
+/// (`open_vault_counted`, `open_other_counted`, `unlock` through `unlock_counted`); the only
+/// exception is a payment's password (`spend_gate`, FEAT-0004 R-31, until the customer decides).
+#[test]
+fn the_password_is_checked_only_counted() {
+    let sources = [
+        ("dispatch.rs", include_str!("../dispatch.rs")),
+        ("ops/wallet.rs", include_str!("../ops/wallet.rs")),
+        (
+            "ops/identity_keys.rs",
+            include_str!("../ops/identity_keys.rs"),
+        ),
+        (
+            "ops/app_connect2.rs",
+            include_str!("../ops/app_connect2.rs"),
+        ),
+        ("ops/app_jobs.rs", include_str!("../ops/app_jobs.rs")),
+        ("ops/identity.rs", include_str!("../ops/identity.rs")),
+        ("ops/misc.rs", include_str!("../ops/misc.rs")),
+    ];
+    let allowed = [
+        "open_vault_counted",
+        "open_other_counted",
+        "unlock",
+        "spend_gate",
+    ];
+    for (file, source) in sources {
+        // Each function's lines, from the line of its `fn` (in an `impl`, 4 spaces in).
+        let mut name = String::new();
+        for line in source.lines() {
+            let t = line.trim_start();
+            if line.len() - t.len() == 4 {
+                let t = t
+                    .trim_start_matches("pub(in crate::real) ")
+                    .trim_start_matches("pub(super) ")
+                    .trim_start_matches("pub ")
+                    .trim_start_matches("async ");
+                if let Some(rest) = t.strip_prefix("fn ") {
+                    name = rest[..rest.find(['(', '<']).unwrap_or(rest.len())].to_owned();
+                }
+            }
+            for bare in ["self.open_vault(", "self.open_wallet_vault("] {
+                if line.contains(bare) {
+                    assert!(
+                        allowed.contains(&name.as_str()),
+                        "{file}: {name} checks a password without the count ({bare})"
+                    );
+                }
+            }
+        }
+        // `dispatch` is one function: none there.
+        if file == "dispatch.rs" {
+            for bare in ["self.open_vault(", "self.open_wallet_vault("] {
+                assert!(!source.contains(bare), "dispatch.rs: {bare}");
+            }
+        }
+    }
+    // `unlock` checks the password bare: only `unlock_counted` may call it.
+    let wallet = include_str!("../ops/wallet.rs");
+    assert_eq!(wallet.matches("self.unlock(password)").count(), 1);
+    assert!(!include_str!("../dispatch.rs").contains("self.unlock("));
+}
+
 #[tokio::test]
 async fn renames_a_wallet_within_24_characters() {
     let dir = fresh_dir("rename");
@@ -469,6 +629,8 @@ async fn renames_a_wallet_within_24_characters() {
 #[tokio::test]
 async fn checks_the_phrase_without_giving_it_out() {
     let mut core = core_with_vault("check", "pw");
+    // «Show the phrase» and «Check the phrase» are an open wallet's (BUG-203 r1).
+    core.handle(Command::Unlock { password: pw("pw") }).await;
     let words: Vec<&str> = PHRASE.split_whitespace().collect();
     let ask = |password: &str| Command::AskPhraseCheck {
         password: pw(password),

@@ -269,9 +269,13 @@ impl Real {
                 result: self.change_password(&old, &new).await,
             },
             Command::RevealPhrase { password, wallet } => {
+                // Counted as the unlock is, for the wallet whose phrase it is (BUG-203): no
+                // guessing another wallet's password from an open one without the pause. Only
+                // from an open wallet (r1 note).
                 let opened = match wallet.filter(|id| *id != self.wallet) {
-                    Some(id) => self.open_wallet_vault(&id, &password).await,
-                    None => self.open_vault(&password).await,
+                    _ if self.unlocked.is_none() => Err(locked()),
+                    Some(id) => self.open_other_counted(&id, &password).await,
+                    None => self.open_vault_counted(&password).await,
                 };
                 let result = opened.map(|(_, phrase)| {
                     Phrase::new(phrase.split_whitespace().map(str::to_owned).collect())
@@ -427,7 +431,12 @@ impl Real {
                 self.discover_identities();
                 return (None, true);
             }
-            Command::AskPhraseCheck { password } => match self.open_vault(&password).await {
+            // Counted as the unlock is (BUG-203 r1 Must 1), and only from an open wallet: a
+            // locked one would be opened by its password here without the unlock's count.
+            Command::AskPhraseCheck { password } => match match self.unlocked {
+                None => Err(locked()),
+                Some(_) => self.open_vault_counted(&password).await,
+            } {
                 Ok((_, phrase)) => {
                     let words: Vec<&str> = phrase.split_whitespace().collect();
                     let (questions, answers) = crate::phrase_check::questions(&words, &mut os_dice);

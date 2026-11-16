@@ -113,7 +113,8 @@ impl Real {
             ));
         }
         too_short(new)?;
-        let (file, phrase) = self.open_vault(old).await?;
+        // The old password is counted as the unlock's (BUG-203 r1 Must 1).
+        let (file, phrase) = self.open_vault_counted(old).await?;
         let new = Zeroizing::new(new.expose().to_owned());
         let sealed = tokio::task::spawn_blocking(move || {
             vault::seal(&phrase, &new, file.meta, KdfParams::default())
@@ -138,7 +139,7 @@ impl Real {
             return Err(CoreError::NotAvailable(NO_VAULT.into()));
         }
         if let Some(password) = password {
-            self.open_vault(password).await?;
+            self.open_vault_counted(password).await?;
         }
         self.lock().await?;
         // Whatever happens next, the core starts again: the loop stops this chain off the
@@ -181,7 +182,7 @@ impl Real {
                 tr!("This wallet cannot be deleted now").into(),
             ));
         }
-        self.open_wallet_vault(id, password).await?;
+        self.open_other_counted(id, password).await?;
         let folder = wallets::wallet_dir(&self.paths.root, id);
         match std::fs::remove_file(folder.join("wallet.json")) {
             Ok(()) => {}
@@ -291,17 +292,27 @@ impl Real {
         &mut self,
         password: &Password,
     ) -> Result<(), CoreError> {
+        self.open_vault_counted(password).await.map(|_| ())
+    }
+
+    /// [`Self::open_vault`] with the open wallet's wrong passwords counted, as
+    /// [`Self::unlock_counted`]: "Show the phrase" (BUG-203) and [`Self::checked_vault`].
+    pub(in crate::real) async fn open_vault_counted(
+        &mut self,
+        password: &Password,
+    ) -> Result<(vault::VaultFile, Zeroizing<String>), CoreError> {
         let id = self.wallet.clone();
         let before = self.attempts.begin(&id, wall_secs()).map_err(too_many)?;
-        let result = self.open_vault(password).await.map(|_| ());
+        let result = self.open_vault(password).await;
         self.attempts.record(&id, before, counted(&result));
         result
     }
 
-    /// [`Self::open_wallet_vault`] for "Open "…"" (`SwitchWallet` with the password), counted
-    /// as [`Self::unlock_counted`] for wallet `id`. The other callers of the vault (deleting
-    /// another wallet, a payment's password) do not count: FEAT-0004 (R-31).
-    async fn open_other_counted(
+    /// [`Self::open_wallet_vault`] for "Open "…"" (`SwitchWallet` with the password) and
+    /// "Show the phrase" of another wallet (BUG-203), counted as [`Self::unlock_counted`] for
+    /// wallet `id`. The other callers of the vault (deleting another wallet, a payment's
+    /// password) do not count: FEAT-0004 (R-31).
+    pub(in crate::real) async fn open_other_counted(
         &mut self,
         id: &str,
         password: &Password,
@@ -504,6 +515,8 @@ impl Real {
         }
         match password {
             None => Err(CoreError::NotAvailable(crate::PASSWORD_NEEDED.into())),
+            // Not counted: FEAT-0004 R-31, the customer's rule (BUG-203 r1 asks it again). The
+            // only password check of a wallet outside the count (`the_password_is_checked_only_counted`).
             Some(password) => self.open_vault(password).await.map(|_| ()),
         }
     }
@@ -520,7 +533,7 @@ impl Real {
         }
         if !on {
             let password = password.ok_or(CoreError::WrongPassword)?;
-            self.open_vault(password).await?;
+            self.open_vault_counted(password).await?;
         }
         security::save(&self.paths.root, &self.wallet, on).map_err(|e| {
             CoreError::NotAvailable(format!(tr!("The setting was not saved: {e}"), e = e))
@@ -696,6 +709,11 @@ async fn open_vault_at(
         .map_err(|_| CoreError::NotAvailable(tr!("The vault did not open").into()))?
         .map_err(vault_error)?;
     Ok((file, phrase))
+}
+
+/// The answer to what needs an open wallet when it is locked.
+pub(in crate::real) fn locked() -> CoreError {
+    CoreError::NotAvailable(tr!("The wallet is locked").into())
 }
 
 /// The answer while a pause lasts (FEAT-0002).
