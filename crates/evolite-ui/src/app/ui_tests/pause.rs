@@ -184,3 +184,34 @@ fn the_countdown_reads_left_to_right_in_arabic() {
         .expect("the countdown line");
     assert!(shown.contains("0:45") && !shown.contains("45:0"), "{shown}");
 }
+
+/// BUG-203 r3 (QA, dev-046292ed): a password refused in a pause in «Show the phrase» and «Check
+/// the phrase» says the pause and its countdown, as the unlock does, not «It did not work» or
+/// «The vault did not open».
+#[test]
+fn the_phrase_dialogs_say_the_pause() {
+    let until = chrono::Utc::now().timestamp() + 30;
+    let (_turn, mut kit) = demo_app("phrase", "en");
+    kit.run_steps(3);
+    kit.state_mut()
+        .settings
+        .on_revealed(Err(evolite_api::CoreError::TooManyTries { until }));
+    kit.run_steps(3);
+    assert!(has_text(&kit, "Too many wrong passwords"));
+    assert!(has_words(&kit, "You can try again in 0:"));
+    assert!(!has_words(&kit, "It did not work"));
+    drop((_turn, kit));
+    let (_turn, mut kit) = demo_app("check-phrase", "en");
+    kit.run_steps(3);
+    // The preset opens with the words asked; the answer refuses the password step before them.
+    if let Some(form) = kit.state_mut().settings.check.as_mut() {
+        form.questions = None;
+    }
+    kit.state_mut()
+        .settings
+        .on_phrase_questions(&Err(evolite_api::CoreError::TooManyTries { until }));
+    kit.run_steps(3);
+    assert!(has_text(&kit, "Too many wrong passwords"));
+    assert!(has_words(&kit, "You can try again in 0:"));
+    assert!(!has_text(&kit, "The vault did not open"));
+}

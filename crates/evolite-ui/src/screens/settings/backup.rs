@@ -312,11 +312,17 @@ pub(super) fn check_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mu
                         {
                             form.error = None;
                         }
+                        // BUG-203 r3: the pause as the unlock says it, not «the vault did not
+                        // open»; over, nothing is said and the password can go again.
+                        if let Some(CoreError::TooManyTries { until }) = &form.error {
+                            paused_plate(ui, a, cx, *until);
+                        }
                         let line = match &form.error {
                             Some(CoreError::WrongPassword) => {
                                 Some(tr!("Wrong password").to_string())
                             }
                             Some(CoreError::NotAvailable(why)) => Some(format!("{why}.")),
+                            Some(CoreError::TooManyTries { .. }) => None,
                             Some(_) => Some(tr!("The vault did not open").to_string()),
                             None => None,
                         };
@@ -420,7 +426,12 @@ pub(super) fn phrase_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &m
                         state.revealed = None;
                         state.revealed_at = None;
                     }
+                    // BUG-203 r3: the pause as the unlock says it.
+                    if let Some(Err(CoreError::TooManyTries { until })) = &state.revealed {
+                        paused_plate(ui, a, cx, *until);
+                    }
                     let answer = match &state.revealed {
+                        Some(Err(CoreError::TooManyTries { .. })) => None,
                         Some(Err(CoreError::NotAvailable(why))) => {
                             Some((format!(tr!("{why}. No phrase."), why = why), p.muted))
                         }
@@ -490,6 +501,16 @@ pub(super) fn phrase_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &m
         state.revealed = None;
         state.revealed_at = None;
         state.password.zeroize();
+    }
+}
+
+/// A password refused in a pause (BUG-203 r3): the unlock's plate, why and the countdown, while
+/// it lasts; nothing once it is over.
+fn paused_plate(ui: &mut Ui, a: &mut Assets, cx: &Ctx, until: Timestamp) {
+    if let Some(secs) = crate::screens::pause::left(Some(until), cx.now.timestamp()) {
+        crate::screens::pause::plate(ui, a, secs, until);
+        ui.ctx()
+            .request_repaint_after(std::time::Duration::from_secs(1));
     }
 }
 
