@@ -727,6 +727,9 @@ impl Real {
                 // for this search.
                 if result.as_ref().is_ok_and(|d| d.slots_complete) {
                     complete.store(true, Ordering::Relaxed);
+                    // SYNC-0: the identities and their names, as the network has them.
+                    crate::diag::fresh("identities", "network");
+                    crate::diag::fresh("names", "network");
                 }
                 let step = discovery_step(result, was_found);
                 set_search(&search, step.status);

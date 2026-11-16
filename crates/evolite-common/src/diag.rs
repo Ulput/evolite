@@ -189,6 +189,44 @@ pub enum Record {
     SyncStale {
         minutes: u32,
     },
+    /// The first fresh picture of an area since the unlock (the sync-speed plan §4, SYNC-0):
+    /// `what` (identities, balances, names, contacts_named, token_rows, nfts, history, pool),
+    /// seconds since the unlock, and from this computer's store or the network ([`fresh`]).
+    Fresh {
+        what: &'static str,
+        since_unlock_s: u64,
+        from: &'static str,
+    },
+    /// Platform's proved reads may go, so long after the unlock; by quorums from the disk or
+    /// the network (SYNC-0). Once per unlock.
+    PlatformReady {
+        since_unlock_s: u64,
+        quorums: &'static str,
+    },
+    /// A pass reading the Platform history: identities, queries sent, how long, and how many
+    /// identities failed (SYNC-0). Counts only.
+    HistoryPass {
+        identities: u32,
+        requests: u32,
+        ms: u64,
+        failed: u32,
+    },
+    /// Contacts' names read in one go: asked of the network, shown from the store, how long.
+    ContactNames {
+        asked: u32,
+        cached: u32,
+        ms: u64,
+    },
+    /// The token rows' facts read: tokens, queries, how long (SYNC-0).
+    TokenFacts {
+        tokens: u32,
+        requests: u32,
+        ms: u64,
+    },
+    /// A token's page read, how long (SYNC-0).
+    TokenPage {
+        ms: u64,
+    },
     /// A funding of the Platform address went to Platform (BUG-171, QA's AC-T5): by which proof
     /// of its lock (`instant` or `chain`), the duffs locked and what the address gained (`None`:
     /// not known, or refused) — what Platform kept is the difference. Kinds and amounts only:
@@ -325,6 +363,37 @@ impl Record {
                 "enough": enough, "reason": reason, "held": held,
             }),
             Record::SyncStale { minutes } => json!({ "k": "sync_stale", "minutes": minutes }),
+            Record::Fresh {
+                what,
+                since_unlock_s,
+                from,
+            } => {
+                json!({"k": "fresh", "what": what, "since_unlock_s": since_unlock_s, "from": from})
+            }
+            Record::PlatformReady {
+                since_unlock_s,
+                quorums,
+            } => {
+                json!({"k": "platform_ready", "since_unlock_s": since_unlock_s, "quorums": quorums})
+            }
+            Record::HistoryPass {
+                identities,
+                requests,
+                ms,
+                failed,
+            } => json!({
+                "k": "history_pass", "identities": identities, "requests": requests, "ms": ms,
+                "failed": failed,
+            }),
+            Record::ContactNames { asked, cached, ms } => {
+                json!({"k": "contact_names", "asked": asked, "cached": cached, "ms": ms})
+            }
+            Record::TokenFacts {
+                tokens,
+                requests,
+                ms,
+            } => json!({"k": "token_facts", "tokens": tokens, "requests": requests, "ms": ms}),
+            Record::TokenPage { ms } => json!({"k": "token_page", "ms": ms}),
             Record::AddressFund {
                 proof,
                 locked,
@@ -620,6 +689,75 @@ impl Writer {
     }
 }
 
+/// The unlock's clock and the (area, source) pairs said since (SYNC-0): one process, one open
+/// wallet at a time.
+/// The unlock's instant and the (area, source) pairs said since.
+type FreshState = Option<(
+    std::time::Instant,
+    std::collections::HashSet<(&'static str, &'static str)>,
+)>;
+
+static FRESH: std::sync::Mutex<FreshState> = std::sync::Mutex::new(None);
+
+/// A wallet was unlocked or opened (switched to): the clock of [`fresh`] starts again and every
+/// area may be said once more.
+pub fn unlocked() {
+    *FRESH.lock().unwrap_or_else(|e| e.into_inner()) =
+        Some((std::time::Instant::now(), Default::default()));
+}
+
+/// The first fresh picture of `what` from `from` (`store` | `network`) since the unlock: the
+/// journal's `fresh` line, once per area and source until the next unlock (the sync-speed plan).
+pub fn fresh(what: &'static str, from: &'static str) {
+    fresh_once(what, from);
+}
+
+/// [`fresh`], saying whether this call wrote the line.
+fn fresh_once(what: &'static str, from: &'static str) -> bool {
+    let since = {
+        let mut state = FRESH.lock().unwrap_or_else(|e| e.into_inner());
+        let Some((at, said)) = state.as_mut() else {
+            return false;
+        };
+        if !said.insert((what, from)) {
+            return false;
+        }
+        at.elapsed().as_secs()
+    };
+    record(Record::Fresh {
+        what,
+        since_unlock_s: since,
+        from,
+    });
+    true
+}
+
+/// Platform's proved reads may go now (SYNC-0): `quorums` from the `disk` or the `network`. Once
+/// per unlock.
+pub fn platform_ready(quorums: &'static str) {
+    let since = {
+        let mut state = FRESH.lock().unwrap_or_else(|e| e.into_inner());
+        let Some((at, said)) = state.as_mut() else {
+            return;
+        };
+        if !said.insert(("platform_ready", quorums)) {
+            return;
+        }
+        at.elapsed().as_secs()
+    };
+    record(Record::PlatformReady {
+        since_unlock_s: since,
+        quorums,
+    });
+}
+
+/// The tests of [`fresh`] share its one clock: they take turns.
+#[cfg(test)]
+fn fresh_test_lock() -> std::sync::MutexGuard<'static, ()> {
+    static TURN: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    TURN.lock().unwrap_or_else(|e| e.into_inner())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -856,6 +994,80 @@ mod tests {
         assert_eq!(value["k"], "address_fund");
         assert_eq!(value["proof"], "chain");
         assert_eq!(value["credited"], 97_064);
+    }
+
+    /// SYNC-0: `fresh` says each area and source once per unlock; a new unlock says it again.
+    #[test]
+    fn fresh_is_said_once_per_area_and_source_until_the_next_unlock() {
+        let _guard = fresh_test_lock();
+        unlocked();
+        assert!(fresh_once("history_test", "store"));
+        assert!(!fresh_once("history_test", "store"), "once");
+        assert!(
+            fresh_once("history_test", "network"),
+            "the network's is its own"
+        );
+        unlocked();
+        assert!(fresh_once("history_test", "store"), "again after an unlock");
+    }
+
+    /// SYNC-0: the sync-speed plan's lines hold their counts and names only.
+    #[test]
+    fn the_sync_speed_lines_are_counts_only() {
+        for (record, keys) in [
+            (
+                Record::Fresh {
+                    what: "history",
+                    since_unlock_s: 41,
+                    from: "network",
+                },
+                vec!["from", "k", "since_unlock_s", "t", "what"],
+            ),
+            (
+                Record::PlatformReady {
+                    since_unlock_s: 30,
+                    quorums: "network",
+                },
+                vec!["k", "quorums", "since_unlock_s", "t"],
+            ),
+            (
+                Record::HistoryPass {
+                    identities: 8,
+                    requests: 17,
+                    ms: 5_120,
+                    failed: 1,
+                },
+                vec!["failed", "identities", "k", "ms", "requests", "t"],
+            ),
+            (
+                Record::ContactNames {
+                    asked: 3,
+                    cached: 12,
+                    ms: 900,
+                },
+                vec!["asked", "cached", "k", "ms", "t"],
+            ),
+            (
+                Record::TokenFacts {
+                    tokens: 5,
+                    requests: 3,
+                    ms: 700,
+                },
+                vec!["k", "ms", "requests", "t", "tokens"],
+            ),
+            (Record::TokenPage { ms: 1_200 }, vec!["k", "ms", "t"]),
+        ] {
+            let line = record.line(UNIX_EPOCH);
+            let value: serde_json::Value = serde_json::from_str(&line).unwrap();
+            let mut found: Vec<&str> = value
+                .as_object()
+                .unwrap()
+                .keys()
+                .map(|k| k.as_str())
+                .collect();
+            found.sort_unstable();
+            assert_eq!(found, keys, "{line}");
+        }
     }
 
     #[test]

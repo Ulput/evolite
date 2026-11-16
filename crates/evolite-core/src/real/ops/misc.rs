@@ -43,6 +43,9 @@ impl Real {
                     }
                     Err(e) => Err(e.to_string()),
                 };
+                if result.is_ok() {
+                    crate::diag::fresh("nfts", "network");
+                }
                 nfts.found(&owner, &name, result);
                 refresh();
             });

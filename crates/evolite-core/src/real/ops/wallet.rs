@@ -354,6 +354,8 @@ impl Real {
         let id = keys.compute_wallet_id();
         let seed = seed_of(&phrase)?;
         self.open_notes(seed.as_ref(), &meta.wallet_id).await;
+        // SYNC-0: the sync-speed lines count from here.
+        crate::diag::unlocked();
         self.unlocked = Some(Unlocked {
             id,
             meta,
@@ -477,6 +479,8 @@ impl Real {
         let id = keys.compute_wallet_id();
         let seed = seed_of(&phrase)?;
         self.open_notes(seed.as_ref(), &meta.wallet_id).await;
+        // SYNC-0: the sync-speed lines count from here.
+        crate::diag::unlocked();
         self.unlocked = Some(Unlocked {
             id,
             meta,

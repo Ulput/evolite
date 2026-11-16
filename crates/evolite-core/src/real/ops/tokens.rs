@@ -321,11 +321,22 @@ impl Real {
                 let kept: Vec<Vec<u8>> = file.contracts().into_iter().map(|(_, b)| b).collect();
                 chain.register_kept_contracts(&kept).await;
             }
+            let asked = tokens.len() as u32;
             let read = {
                 let (chain, identity) = (chain.clone(), identity.clone());
                 async move { chain.token_facts(&identity, &tokens).await }
             };
+            let started = std::time::Instant::now();
             let mut result = read_within(FACTS_WAIT, read).await;
+            // SYNC-0: `token_facts` asks three things per 100 tokens.
+            crate::diag::record(crate::diag::Record::TokenFacts {
+                tokens: asked,
+                requests: 3 * asked.div_ceil(100),
+                ms: started.elapsed().as_millis() as u64,
+            });
+            if result.is_ok() {
+                crate::diag::fresh("token_rows", "network");
+            }
             // FEAT-0019 T-2: what may be claimed and what each costs, proved, for the buttons.
             if let Ok(read) = &mut result {
                 let more = chain.token_extras(&identity, &extras, read);

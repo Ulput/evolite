@@ -416,7 +416,12 @@ impl Real {
                     },
                 ))
             };
-            match read.await {
+            let started = std::time::Instant::now();
+            let read = read.await;
+            crate::diag::record(crate::diag::Record::TokenPage {
+                ms: started.elapsed().as_millis() as u64,
+            });
+            match read {
                 Ok(read) => *page.lock().unwrap_or_else(|e| e.into_inner()) = Some((me, read)),
                 Err(e) => crate::diag::platform_failed("token_page", &e),
             }

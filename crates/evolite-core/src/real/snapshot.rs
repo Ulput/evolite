@@ -200,6 +200,10 @@ struct WalletRead {
 
 impl Real {
     pub(super) async fn snapshot(&mut self) -> Snapshot {
+        // SYNC-0: when Platform's proved reads may go, once per unlock.
+        if self.unlocked.is_some() && self.chain.platform_ready() {
+            crate::diag::platform_ready("network");
+        }
         let status = self.chain.status();
         // SPV item 2a: the tip header's time, for «no new blocks».
         let tip_time = turn::timed("tip_block_time", self.chain.tip_block_time()).await;
@@ -504,6 +508,10 @@ impl Real {
         )
         .await;
         let notes_error = self.put_notes_on(&mut history).await;
+        // SYNC-0: History's Platform lines shown from this computer's journal.
+        if self.journal.count() > 0 {
+            crate::diag::fresh("history", "store");
+        }
         history.sort_by_key(|a| std::cmp::Reverse(a.at));
         // Only a checked balance is shown: while the filters are not at the tip (a start, a
         // rewound pass, a rescan) the last checked one with its time, or none (BUG-77).
@@ -1410,8 +1418,20 @@ impl Real {
                 return;
             };
             let marks = platform_history::Marks::load(&marks_path);
-            let read = platform_history::read(&chain, &wallet, id, &marks, &names);
-            match turn::timed("platform_history_read", read).await {
+            let started = std::time::Instant::now();
+            let requests = std::sync::atomic::AtomicU32::new(0);
+            let read = platform_history::read(&chain, &wallet, id, &marks, &names, &requests);
+            let read = turn::timed("platform_history_read", read).await;
+            // SYNC-0: the pass's line; before SYNC-5 one failure is the whole pass's.
+            crate::diag::record(crate::diag::Record::HistoryPass {
+                identities: read
+                    .as_ref()
+                    .map_or(0, |(_, next)| next.identities.len() as u32),
+                requests: requests.load(Ordering::Relaxed),
+                ms: started.elapsed().as_millis() as u64,
+                failed: u32::from(read.is_err()),
+            });
+            match read {
                 // A lock (or a new lookup) since the start: this answer is for no one.
                 Ok(_) if current.load(Ordering::Relaxed) != run => {}
                 Ok((entries, next)) => {
@@ -1420,6 +1440,7 @@ impl Real {
                     // journal already): the marks stay where they were, the next pass reads
                     // the same again.
                     if let Ok(changed) = journal.merge_network(entries) {
+                        crate::diag::fresh("history", "network");
                         if changed {
                             refresh();
                         }
@@ -1518,6 +1539,7 @@ pub(super) async fn keep_balances_fresh(
             drop(working);
             if round_reads_all(all, &result) && live() {
                 checked.store(true, Ordering::Relaxed);
+                crate::diag::fresh("balances", "network");
             }
             if result.is_ok() {
                 let now = (

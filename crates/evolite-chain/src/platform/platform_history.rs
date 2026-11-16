@@ -86,7 +86,10 @@ pub async fn read(
     id: WalletId,
     marks: &Marks,
     names: &std::collections::HashMap<String, Option<String>>,
+    requests: &std::sync::atomic::AtomicU32,
 ) -> Result<(Vec<Entry>, Marks), String> {
+    // SYNC-0: each query counted for the journal's `history_pass` line.
+    let count = || requests.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let sdk = chain.sdk().await?;
     let version = sdk.version();
     let contract = |c| {
@@ -148,6 +151,7 @@ pub async fn read(
         let new = next.identities.entry(b58.clone()).or_default();
         // Names: a few documents per identity, no index by time — all of them each pass.
         let q = query(&dpns, "domain", "records.identity", me, None)?;
+        count();
         for doc in fetch(&sdk, q).await? {
             if let Some(entry) = name(&doc, &me, &b58) {
                 entries.push(entry);
@@ -155,6 +159,7 @@ pub async fn read(
         }
         // The profile: one document, its last revision only.
         let q = query(&dashpay, "profile", "$ownerId", me, None)?;
+        count();
         if let Some(doc) = fetch(&sdk, q).await?.into_iter().next() {
             let revision = doc.revision().unwrap_or(1);
             if revision != mark.profile_revision {
@@ -170,6 +175,7 @@ pub async fn read(
         };
         loop {
             let q = query(&withdrawals, "withdrawal", "$ownerId", me, Some(from))?;
+            count();
             let page = fetch(&sdk, q).await?;
             let full = page.len() as u32 >= PAGE;
             let last = page.iter().filter_map(|d| d.updated_at()).max();

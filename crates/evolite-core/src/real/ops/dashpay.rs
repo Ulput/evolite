@@ -302,15 +302,20 @@ impl Real {
         if !self.chain.platform_ready() {
             return;
         }
+        let ids: Vec<String> = {
+            let mut asked = self.names_asked.lock().unwrap_or_else(|e| e.into_inner());
+            ids.into_iter()
+                .filter(|id| asked.insert(id.clone()))
+                .collect()
+        };
+        // SYNC-0: the batch's line once its last name is in.
+        let batch = Arc::new(NameBatch {
+            asked: ids.len() as u32,
+            left: std::sync::atomic::AtomicU32::new(ids.len() as u32),
+            started: std::time::Instant::now(),
+        });
         for id in ids {
-            if !self
-                .names_asked
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .insert(id.clone())
-            {
-                continue;
-            }
+            let batch = batch.clone();
             let chain = self.chain.clone();
             let names = self.names.clone();
             let asked = self.names_asked.clone();
@@ -318,10 +323,12 @@ impl Real {
             let working = self.work(PlatformWork::Names);
             tokio::spawn(async move {
                 let Ok(identifier) = Identifier::from_string(&id, Encoding::Base58) else {
+                    batch.one_done();
                     return;
                 };
                 let read = turn::timed("contact_name_read", chain.name_of(identifier)).await;
                 drop(working);
+                batch.one_done();
                 match read {
                     Ok(name) => {
                         names
@@ -336,6 +343,26 @@ impl Real {
                 }
                 refresh();
             });
+        }
+    }
+}
+
+/// One `ask_names` call's reads, for its `contact_names` and `fresh` lines (SYNC-0).
+struct NameBatch {
+    asked: u32,
+    left: std::sync::atomic::AtomicU32,
+    started: std::time::Instant,
+}
+
+impl NameBatch {
+    fn one_done(&self) {
+        if self.left.fetch_sub(1, Ordering::Relaxed) == 1 {
+            crate::diag::record(crate::diag::Record::ContactNames {
+                asked: self.asked,
+                cached: 0,
+                ms: self.started.elapsed().as_millis() as u64,
+            });
+            crate::diag::fresh("contacts_named", "network");
         }
     }
 }
