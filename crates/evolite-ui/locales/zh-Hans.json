@@ -1,4 +1,5 @@
 {
+  "View the keys": "查看密钥",
   "Could not find out whether the keys changed — look at the keys again before trying once more": "无法确定密钥是否已更改 — 请先再次查看密钥，然后再重试",
   "DashPay needs this wallet's keys on the identity first: “Enable DashPay…” below": "DashPay 需要先在身份上有此钱包的密钥：见下方「启用 DashPay…」",
   "DashPay takes the encryption key with the lowest number — here key {} of another wallet or an app, so contacts do not work in evolite. Enabling DashPay adds this wallet's pair and disables that key.": "DashPay 使用编号最小的加密密钥——这里是其他钱包或应用的密钥 {}，因此联系人在 evolite 中无法使用。启用 DashPay 会添加此钱包的密钥对并停用该密钥。",
@@ -54,7 +55,6 @@
   "Replace the main key…": "更换主密钥…",
   "Replace the pair": "更换密钥对",
   "Sending and managing tokens — until you add a new key for tokens": "发送和管理代币——直到您为代币添加新密钥",
-  "Sent, but the identity read again does not show it yet: look at its keys again before trying once more": "已发送，但重新读取的身份尚未显示变化：再次尝试之前请重新查看其密钥",
   "Signing in to apps and sites connected with this key — they need to be connected again": "登录用此密钥连接的应用和网站——需要重新连接",
   "Signing in to {} and to the sites connected with this key — they need to be connected again": "登录 {} 以及用此密钥连接的网站——需要重新连接",
   "The identity already has such a key": "该身份已有这样的密钥",

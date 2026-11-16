@@ -315,10 +315,9 @@ impl Real {
                 }
                 let fresh = {
                     let state = wallet.state().await;
-                    let managed = state
-                        .identity_manager
-                        .managed_identity(&who.id)
-                        .ok_or(CoreError::NotAvailable(tr!("The wallet has no identity").into()))?;
+                    let managed = state.identity_manager.managed_identity(&who.id).ok_or(
+                        CoreError::NotAvailable(tr!("The wallet has no identity").into()),
+                    )?;
                     api_keys(managed, &keys, &app_keys(&apps.all(), &identity))
                 };
                 let plan = key_plan::plan(&fresh, &add, &disable).map_err(|r| key_refusal(&r))?;
@@ -354,10 +353,7 @@ impl Real {
                     journal.add(line);
                 }
                 match sent {
-                    Ok(after) if evolite_chain::key_update::shows(&after, &plan) => Ok(()),
-                    Ok(_) => Err(CoreError::Failed(
-                        tr!("Sent, but the identity read again does not show it yet: look at its keys again before trying once more").into(),
-                    )),
+                    Ok(after) => sent_answer(evolite_chain::key_update::shows(&after, &plan)),
                     Err(_) => {
                         // Not known: kept, for the read that shows it to write its line (BUG-184
                         // p. 2).
@@ -382,6 +378,18 @@ impl Real {
         });
         Ok(())
     }
+}
+
+/// BUG-200: the answer to a key change Platform executed (the send proved it): done. The
+/// identity read right after may still be the old one — a DAPI node a block behind — and that
+/// is only journaled (`update_keys_stale_read`); the next read of the keys catches up. Answering
+/// it as a failure made the dialog plan again on the new keys («−9, +10») with its button on: a
+/// second paid change of the main key one click away.
+pub(in crate::real) fn sent_answer(read_shows_it: bool) -> Result<(), CoreError> {
+    if !read_shows_it {
+        crate::diag::platform_failed("update_keys_stale_read", "Stale");
+    }
+    Ok(())
 }
 
 /// BUG-184: a key change whose answer did not come and whose identity, read again, did not show
@@ -577,5 +585,21 @@ mod tests {
         let done = take_if_done(&slot, "A", |plan| plan.disable == [2]).expect("shown now");
         assert_eq!(done.before, Some(1_331_644));
         assert!(take_if_done(&slot, "A", |_| true).is_none(), "once");
+    }
+
+    /// BUG-200: a send Platform executed is done, whether or not the identity read right after
+    /// already shows it; its History line is the send's (`own_spend` on `Ok`), one.
+    #[test]
+    fn a_proved_send_is_done_even_when_the_read_after_is_stale() {
+        assert_eq!(sent_answer(true), Ok(()));
+        assert_eq!(sent_answer(false), Ok(()));
+        let sent: Result<(), String> = Ok(());
+        let kind = journal::Kind::KeysChanged {
+            added: vec![10],
+            disabled: vec![9],
+            bound: 0,
+        };
+        let line = own_spend(&sent, kind, Some(1_000_000_000), Some(982_754_000), None);
+        assert_eq!(line.map(|l| l.spent), Some(17_246));
     }
 }

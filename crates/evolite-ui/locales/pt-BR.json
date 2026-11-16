@@ -1,4 +1,5 @@
 {
+  "View the keys": "Ver as chaves",
   "Could not find out whether the keys changed — look at the keys again before trying once more": "Não foi possível saber se as chaves mudaram — veja as chaves de novo antes de tentar outra vez",
   "DashPay needs this wallet's keys on the identity first: “Enable DashPay…” below": "O DashPay precisa primeiro das chaves desta carteira na identidade: «Ativar DashPay…» abaixo",
   "DashPay takes the encryption key with the lowest number — here key {} of another wallet or an app, so contacts do not work in evolite. Enabling DashPay adds this wallet's pair and disables that key.": "O DashPay usa a chave de criptografia de menor número — aqui é a chave {} de outra carteira ou app, por isso os contatos não funcionam no evolite. Ativar o DashPay adiciona o par desta carteira e desativa essa chave.",
@@ -54,7 +55,6 @@
   "Replace the main key…": "Substituir a chave principal…",
   "Replace the pair": "Substituir o par",
   "Sending and managing tokens — until you add a new key for tokens": "Enviar e gerenciar tokens — até você adicionar uma nova chave para tokens",
-  "Sent, but the identity read again does not show it yet: look at its keys again before trying once more": "Enviado, mas a identidade lida de novo ainda não mostra isso: veja as chaves dela de novo antes de tentar outra vez",
   "Signing in to apps and sites connected with this key — they need to be connected again": "Login em apps e sites conectados com esta chave — será preciso conectá-los de novo",
   "Signing in to {} and to the sites connected with this key — they need to be connected again": "Login em {} e nos sites conectados com esta chave — será preciso conectá-los de novo",
   "The identity already has such a key": "A identidade já tem uma chave assim",

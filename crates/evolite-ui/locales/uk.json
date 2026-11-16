@@ -1,4 +1,5 @@
 {
+  "View the keys": "Переглянути ключі",
   "Could not find out whether the keys changed — look at the keys again before trying once more": "Не вдалося дізнатися, чи змінилися ключі — перегляньте ключі ще раз, перш ніж повторювати",
   "DashPay needs this wallet's keys on the identity first: “Enable DashPay…” below": "Для DashPay спершу потрібні ключі цього гаманця на identity: «Увімкнути DashPay…» нижче",
   "DashPay takes the encryption key with the lowest number — here key {} of another wallet or an app, so contacts do not work in evolite. Enabling DashPay adds this wallet's pair and disables that key.": "DashPay бере ключ шифрування з найменшим номером — тут це ключ {} іншого гаманця або застосунку, тому контакти в evolite не працюють. Увімкнути DashPay — додати свою пару й вимкнути цей ключ.",
@@ -54,7 +55,6 @@
   "Replace the main key…": "Замінити головний ключ…",
   "Replace the pair": "Замінити пару",
   "Sending and managing tokens — until you add a new key for tokens": "Надсилання токенів і керування ними — доки не додасте новий ключ для токенів",
-  "Sent, but the identity read again does not show it yet: look at its keys again before trying once more": "Надіслано, але перечитана identity цього ще не показує: перегляньте її ключі знову, перш ніж пробувати ще раз",
   "Signing in to apps and sites connected with this key — they need to be connected again": "Вхід у застосунки й на сайти, під'єднані цим ключем, — їх треба під'єднати знову",
   "Signing in to {} and to the sites connected with this key — they need to be connected again": "Вхід у {} і на сайти, під'єднані цим ключем, — їх треба під'єднати знову",
   "The identity already has such a key": "Такий ключ в identity вже є",

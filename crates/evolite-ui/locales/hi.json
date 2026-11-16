@@ -1,4 +1,5 @@
 {
+  "View the keys": "कुंजियाँ देखें",
   "Could not find out whether the keys changed — look at the keys again before trying once more": "पता नहीं चल सका कि कुंजियाँ बदलीं या नहीं — दोबारा कोशिश करने से पहले कुंजियाँ फिर से देखें",
   "DashPay needs this wallet's keys on the identity first: “Enable DashPay…” below": "DashPay को पहले पहचान पर इस वॉलेट की कुंजियाँ चाहिए: नीचे «DashPay चालू करें…»",
   "DashPay takes the encryption key with the lowest number — here key {} of another wallet or an app, so contacts do not work in evolite. Enabling DashPay adds this wallet's pair and disables that key.": "DashPay सबसे छोटे नंबर वाली एन्क्रिप्शन कुंजी लेता है — यहाँ वह दूसरे वॉलेट या ऐप की कुंजी {} है, इसलिए evolite में संपर्क काम नहीं करते। DashPay चालू करने से इस वॉलेट की जोड़ी जुड़ती है और वह कुंजी बंद होती है।",
@@ -54,7 +55,6 @@
   "Replace the main key…": "मुख्य कुंजी बदलें…",
   "Replace the pair": "जोड़ी बदलें",
   "Sending and managing tokens — until you add a new key for tokens": "टोकन भेजना और प्रबंधित करना — जब तक आप टोकन के लिए नई कुंजी नहीं जोड़ते",
-  "Sent, but the identity read again does not show it yet: look at its keys again before trying once more": "भेज दिया, पर दोबारा पढ़ी गई पहचान अभी यह नहीं दिखाती: फिर कोशिश करने से पहले उसकी कुंजियाँ फिर देखें",
   "Signing in to apps and sites connected with this key — they need to be connected again": "इस कुंजी से जुड़े ऐप्स और साइटों में साइन इन — उन्हें फिर से जोड़ना होगा",
   "Signing in to {} and to the sites connected with this key — they need to be connected again": "{} और इस कुंजी से जुड़ी साइटों में साइन इन — उन्हें फिर से जोड़ना होगा",
   "The identity already has such a key": "पहचान के पास ऐसी कुंजी पहले से है",

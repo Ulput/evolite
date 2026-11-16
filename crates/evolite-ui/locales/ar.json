@@ -1,4 +1,5 @@
 {
+  "View the keys": "عرض المفاتيح",
   "Could not find out whether the keys changed — look at the keys again before trying once more": "تعذّر معرفة ما إذا تغيّرت المفاتيح — راجع المفاتيح مرة أخرى قبل المحاولة من جديد",
   "DashPay needs this wallet's keys on the identity first: “Enable DashPay…” below": "يحتاج DashPay أولًا إلى مفاتيح هذه المحفظة على الهوية: «تفعيل DashPay…» أدناه",
   "DashPay takes the encryption key with the lowest number — here key {} of another wallet or an app, so contacts do not work in evolite. Enabling DashPay adds this wallet's pair and disables that key.": "يأخذ DashPay مفتاح التشفير ذا الرقم الأصغر — وهنا هو المفتاح {} لمحفظة أو تطبيق آخر، لذا لا تعمل جهات الاتصال في evolite. تفعيل DashPay يضيف زوج هذه المحفظة ويعطّل ذلك المفتاح.",
@@ -54,7 +55,6 @@
   "Replace the main key…": "استبدال المفتاح الرئيسي…",
   "Replace the pair": "استبدال الزوج",
   "Sending and managing tokens — until you add a new key for tokens": "إرسال الرموز وإدارتها — حتى تضيف مفتاحًا جديدًا للرموز",
-  "Sent, but the identity read again does not show it yet: look at its keys again before trying once more": "أُرسل، لكن الهوية المقروءة من جديد لا تُظهر ذلك بعد: انظر إلى مفاتيحها مرة أخرى قبل أن تحاول من جديد",
   "Signing in to apps and sites connected with this key — they need to be connected again": "تسجيل الدخول إلى التطبيقات والمواقع المتصلة بهذا المفتاح — يجب توصيلها من جديد",
   "Signing in to {} and to the sites connected with this key — they need to be connected again": "تسجيل الدخول إلى {} والمواقع المتصلة بهذا المفتاح — يجب توصيلها من جديد",
   "The identity already has such a key": "لدى الهوية مفتاح كهذا بالفعل",

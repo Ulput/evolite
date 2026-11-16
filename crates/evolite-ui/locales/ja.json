@@ -1,4 +1,5 @@
 {
+  "View the keys": "鍵を見る",
   "Could not find out whether the keys changed — look at the keys again before trying once more": "鍵が変更されたかどうか確認できませんでした — もう一度試す前に、鍵をもう一度確認してください",
   "DashPay needs this wallet's keys on the identity first: “Enable DashPay…” below": "DashPay には、まずアイデンティティにこのウォレットの鍵が必要です：下の「DashPay を有効にする…」",
   "DashPay takes the encryption key with the lowest number — here key {} of another wallet or an app, so contacts do not work in evolite. Enabling DashPay adds this wallet's pair and disables that key.": "DashPay は番号がいちばん小さい暗号化鍵を使います。ここでは別のウォレットやアプリの鍵 {} なので、evolite では連絡先が使えません。DashPay を有効にすると、このウォレットのペアを追加してその鍵を無効にします。",
@@ -54,7 +55,6 @@
   "Replace the main key…": "メインの鍵を置き換える…",
   "Replace the pair": "ペアを置き換える",
   "Sending and managing tokens — until you add a new key for tokens": "トークンの送信と管理。トークン用の新しい鍵を追加するまで",
-  "Sent, but the identity read again does not show it yet: look at its keys again before trying once more": "送信しましたが、読み直したアイデンティティにはまだ反映されていません。もう一度試す前に鍵を確認してください",
   "Signing in to apps and sites connected with this key — they need to be connected again": "この鍵で接続したアプリとサイトへのサインイン。接続し直す必要があります",
   "Signing in to {} and to the sites connected with this key — they need to be connected again": "{} と、この鍵で接続したサイトへのサインイン。接続し直す必要があります",
   "The identity already has such a key": "アイデンティティにはすでにそのような鍵があります",

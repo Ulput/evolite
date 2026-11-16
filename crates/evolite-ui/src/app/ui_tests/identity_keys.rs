@@ -710,3 +710,75 @@ fn an_added_key_the_snapshot_shows_after_an_unclear_answer_is_done() {
     );
     assert!(has_words(&kit, "The keys changed"));
 }
+
+/// Says the core answered the open change dialog after its send, with `result`.
+fn answered(kit: &mut Kit, result: Result<(), evolite_api::CoreError>) {
+    if let Some(change) = &mut kit.state_mut().identity_keys.change {
+        change.sent_once = true;
+        change.waiting = false;
+        change.result = Some(result);
+    }
+    kit.run_steps(3);
+}
+
+/// BUG-200: once the change was sent and answered, K3, K3b, K4 and K5 offer no second change
+/// whatever the answer said — only «View the keys» and «Close». A plan worked out again on the
+/// new keys («−9, +10») with its button on was a second paid change one click away.
+#[test]
+fn an_answered_change_offers_no_second_one() {
+    let (_turn, mut kit) = k1("identity-keys");
+    let failed = || Err(evolite_api::CoreError::Failed("unclear".into()));
+    let none_of = |kit: &Kit| {
+        ["Disable key", "Replace key", "Replace the pair", "Add key"]
+            .iter()
+            .all(|act| kit.query_by_role_and_label(Role::Button, act).is_none())
+    };
+    // K3: disable key 1.
+    open_disable(&mut kit, 1);
+    answered(&mut kit, failed());
+    assert!(none_of(&kit), "K3 offers no change after the answer");
+    assert!(has_text(&kit, "View the keys") && has_text(&kit, "Close"));
+    kit.key_press(egui::Key::Escape);
+    kit.run_steps(3);
+    // K4: the main key.
+    button(&kit, "Replace the main key").click();
+    kit.run_steps(3);
+    answered(&mut kit, failed());
+    assert!(none_of(&kit), "K4 offers no change after the answer");
+    button(&kit, "View the keys").click();
+    kit.run_steps(3);
+    assert!(
+        kit.state().identity_keys.change.is_none(),
+        "«View the keys» shows K1"
+    );
+    // K3b: DashPay's pair.
+    kit.get_by_role_and_label(Role::Button, "Key 6 — actions")
+        .click();
+    kit.run_steps(3);
+    button(&kit, "Replace the DashPay pair…").click();
+    kit.run_steps(3);
+    answered(&mut kit, failed());
+    assert!(none_of(&kit), "K3b offers no change after the answer");
+    kit.key_press(egui::Key::Escape);
+    kit.run_steps(3);
+    // K5: a new key.
+    button(&kit, "+ Add a key").click();
+    kit.run_steps(3);
+    answered(&mut kit, failed());
+    assert!(none_of(&kit), "K5 offers no change after the answer");
+}
+
+/// BUG-200: a wrong password sent nothing — the form stays for the right one (R-6 kept).
+#[test]
+fn a_wrong_password_is_no_send() {
+    let (_turn, mut kit) = k1("identity-keys");
+    open_disable(&mut kit, 1);
+    confirm(&mut kit, evolite_core::DEMO_WRONG_PASSWORD, "Disable key");
+    wait_for(&mut kit, "wrong password", |k| {
+        has_words(k, "Wrong password — the keys did not change.")
+    });
+    assert!(
+        kit.query_by_role_and_label(Role::Button, "Disable key")
+            .is_some()
+    );
+}

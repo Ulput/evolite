@@ -80,7 +80,19 @@ impl KeyChange {
         }
         self.waiting = false;
         self.password.on_answer(&result);
+        // A wrong password sent nothing: the form stays, for the right one (R-6).
+        if matches!(result, Err(CoreError::WrongPassword)) {
+            self.sent_once = false;
+        }
         self.result = Some(result);
+    }
+
+    /// BUG-200: this dialog sent its change and the core answered — whatever it said, the
+    /// dialog offers no second change: only «Close» and «View the keys». A plan worked out again
+    /// on a snapshot that already has the change (the main key now the new one) would be a
+    /// second paid change nobody asked for.
+    pub(crate) fn answered(&self) -> bool {
+        self.sent_once && !self.waiting && self.result.is_some()
     }
 }
 
@@ -202,6 +214,21 @@ pub(super) fn change_dialog(
         let p = a.p;
         if part == Part::Footer {
             let mut close = false;
+            if change.answered() {
+                button_row(ui, |ui| {
+                    if button(ui, a, tr!("View the keys"), ButtonKind::Secondary, None).clicked() {
+                        // K1 under the dialog, read from the network again.
+                        cx.send(Command::ReadIdentityKeys {
+                            identity: id.id.clone(),
+                        });
+                        close = true;
+                    }
+                    if button(ui, a, tr!("Close"), ButtonKind::Primary, None).clicked() {
+                        close = true;
+                    }
+                });
+                return close;
+            }
             if refusal.is_some() {
                 button_row(ui, |ui| {
                     if matches!(refusal, Some(key_plan::KeyRefusal::DashPayOnlyReplaced))
@@ -279,6 +306,18 @@ pub(super) fn change_dialog(
             return close;
         }
         ui.spacing_mut().item_spacing.y = 10.0;
+        // BUG-200: after the answer, the answer alone — no plan, no fee, nothing to sign.
+        if change.answered() {
+            if let Some(Err(e)) = &change.result {
+                error_notice(
+                    ui,
+                    a,
+                    &text::failed(tr!("The keys did not change"), e),
+                    text::error_details(e).as_deref(),
+                );
+            }
+            return false;
+        }
         if let Some(r) = &refusal {
             notice(
                 ui,

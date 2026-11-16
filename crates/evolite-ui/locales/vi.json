@@ -1,4 +1,5 @@
 {
+  "View the keys": "Xem các khóa",
   "Could not find out whether the keys changed — look at the keys again before trying once more": "Không thể biết các khóa đã thay đổi hay chưa — hãy xem lại các khóa trước khi thử lại",
   "DashPay needs this wallet's keys on the identity first: “Enable DashPay…” below": "DashPay trước hết cần khóa của ví này trên danh tính: «Bật DashPay…» bên dưới",
   "DashPay takes the encryption key with the lowest number — here key {} of another wallet or an app, so contacts do not work in evolite. Enabling DashPay adds this wallet's pair and disables that key.": "DashPay dùng khóa mã hóa có số nhỏ nhất — ở đây là khóa {} của ví hoặc ứng dụng khác, nên liên hệ không hoạt động trong evolite. Bật DashPay sẽ thêm cặp của ví này và vô hiệu hóa khóa đó.",
@@ -54,7 +55,6 @@
   "Replace the main key…": "Thay khóa chính…",
   "Replace the pair": "Thay cặp",
   "Sending and managing tokens — until you add a new key for tokens": "Gửi và quản lý token — cho đến khi bạn thêm khóa mới cho token",
-  "Sent, but the identity read again does not show it yet: look at its keys again before trying once more": "Đã gửi, nhưng danh tính đọc lại chưa cho thấy điều đó: hãy xem lại các khóa của nó trước khi thử lại",
   "Signing in to apps and sites connected with this key — they need to be connected again": "Đăng nhập vào ứng dụng và trang web đã kết nối bằng khóa này — cần kết nối lại",
   "Signing in to {} and to the sites connected with this key — they need to be connected again": "Đăng nhập vào {} và các trang web đã kết nối bằng khóa này — cần kết nối lại",
   "The identity already has such a key": "Danh tính đã có khóa như vậy",

@@ -1,4 +1,5 @@
 {
+  "View the keys": "키 보기",
   "Could not find out whether the keys changed — look at the keys again before trying once more": "키가 바뀌었는지 확인하지 못했습니다 — 다시 시도하기 전에 키를 한 번 더 확인하세요",
   "DashPay needs this wallet's keys on the identity first: “Enable DashPay…” below": "DashPay에는 먼저 신원에 이 지갑의 키가 필요합니다: 아래 «DashPay 활성화…»",
   "DashPay takes the encryption key with the lowest number — here key {} of another wallet or an app, so contacts do not work in evolite. Enabling DashPay adds this wallet's pair and disables that key.": "DashPay는 번호가 가장 작은 암호화 키를 사용합니다 — 여기서는 다른 지갑이나 앱의 키 {}이므로 evolite에서 연락처가 작동하지 않습니다. DashPay를 활성화하면 이 지갑의 쌍을 추가하고 그 키를 비활성화합니다.",
@@ -54,7 +55,6 @@
   "Replace the main key…": "기본 키 교체…",
   "Replace the pair": "쌍 교체",
   "Sending and managing tokens — until you add a new key for tokens": "토큰 보내기 및 관리 — 토큰용 새 키를 추가할 때까지",
-  "Sent, but the identity read again does not show it yet: look at its keys again before trying once more": "보냈지만 다시 읽은 신원에 아직 반영되지 않았습니다: 다시 시도하기 전에 키를 다시 확인하세요",
   "Signing in to apps and sites connected with this key — they need to be connected again": "이 키로 연결한 앱과 사이트 로그인 — 다시 연결해야 합니다",
   "Signing in to {} and to the sites connected with this key — they need to be connected again": "{} 및 이 키로 연결한 사이트 로그인 — 다시 연결해야 합니다",
   "The identity already has such a key": "신원에 이미 그런 키가 있습니다",
