@@ -2235,6 +2235,8 @@
   "Who may set the price": "Кто может назначать цену",
   "was {}, becomes {}": "было {} · станет {}",
   "{} · This needs signatures from the group: {} of {}": "{} · Нужны подписи группы: {} из {}",
+  "Fund for the vote · not refunded": "Взнос за спор · не возвращается",
+  "Writes to Platform": "Записи в Platform",
   "Actions on several copies come in the next version": "Действия с несколькими экземплярами появятся в следующей версии",
   "Asks “How many of {}”. Deleting can't be undone.": "Спросит «Сколько из {}». Удалить нельзя отменить.",
   "COPIES": "ЭКЗЕМПЛЯРЫ",

@@ -219,6 +219,23 @@ fn history_keeps_a_hidden_names_lines_and_opens_its_card() {
     assert!(!has_text(&kit, "Hide from the list"), "already hidden");
 }
 
+/// BUG-191: a claim's card names the fund and the writes apart — «Fund for the vote · not
+/// refunded» and «Writes to Platform» — and calls nothing a fee.
+#[test]
+fn a_claims_card_names_the_fund_and_the_writes() {
+    let (_turn, mut kit) = demo_app("contest-lost-hidden", "en");
+    kit.state_mut().screen = crate::screens::Screen::Activity;
+    wait_for(&mut kit, "the claim's line", |k| {
+        has_words(k, "Request for the name @bob")
+    });
+    crate::screens::open_card(&kit.ctx, 9_021_002);
+    wait_for(&mut kit, "the claim's card", |k| {
+        has_words(k, "Fund for the vote · not refunded: ")
+    });
+    assert!(has_words(&kit, "Writes to Platform: "));
+    assert!(!has_words(&kit, "Fee: "), "the fund is no fee");
+}
+
 /// AC-T21, entry 2: Overview has the notice of a name in its vote, and «Open the vote» opens its
 /// card on Identity; «×» takes the notice away.
 #[test]

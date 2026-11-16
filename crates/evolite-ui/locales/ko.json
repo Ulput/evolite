@@ -2198,6 +2198,8 @@
   "Who may set the price": "가격을 정할 수 있는 사람",
   "was {}, becomes {}": "이전 {} · 이후 {}",
   "{} · This needs signatures from the group: {} of {}": "{} · 그룹 서명이 필요합니다: {} / {}",
+  "Fund for the vote · not refunded": "투표 보증금 · 환불되지 않음",
+  "Writes to Platform": "Platform 기록",
   "Actions on several copies come in the next version": "여러 사본에 대한 작업은 다음 버전에서 제공됩니다",
   "Asks “How many of {}”. Deleting can't be undone.": "“{}개 중 몇 개”를 묻습니다. 삭제는 되돌릴 수 없습니다.",
   "COPIES": "사본",

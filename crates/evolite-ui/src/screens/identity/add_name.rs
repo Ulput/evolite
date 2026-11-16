@@ -252,7 +252,9 @@ fn review_body(
         me,
         style(UI.weight(Weight::Medium)),
     );
-    let write = wallet.fees.name_price(false);
+    // BUG-190: a contested domain costs more than a regular name: the bound the credits are
+    // checked by (preorder + domain at its peak), never below what is charged.
+    let write = wallet.fees.name_credits_needed();
     kv_row(
         ui,
         &p,

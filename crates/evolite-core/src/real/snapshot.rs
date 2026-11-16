@@ -911,7 +911,12 @@ impl Real {
                     .map(|label| format!("@{label}"))
             })
         };
-        history.extend(self.journal.entries().iter().map(|entry| {
+        let entries = self.journal.entries();
+        // BUG-191: a contested name won says so by its result line alone.
+        let shown = entries
+            .iter()
+            .filter(|e| !journal::won_by_contest(e, &entries));
+        history.extend(shown.map(|entry| {
             let mut line = journal::activity(entry);
             // To one of the wallet's own Platform addresses: only the fee left (QA pass 21).
             if let ActivityKind::AddressSent { to } = &line.kind

@@ -942,10 +942,27 @@ pub fn between_own_addresses(line: &mut Activity) {
 }
 
 /// Whether a kind of entry sends money somewhere (so `spent` is more than the fee).
+/// BUG-191: a name read from Platform (a `domain` document) that this wallet claimed in a
+/// contest: its claim and its result are its lines, and «registered», at the claim's time, would
+/// say it was got while the vote went on.
+pub fn won_by_contest(entry: &Entry, entries: &[Entry]) -> bool {
+    let What::Name { label } = &entry.what else {
+        return false;
+    };
+    entry.source == Source::Network
+        && entries.iter().any(|e| {
+            matches!(&e.what, What::NameClaim { label: claimed } | What::NameResult { label: claimed, .. }
+                if claimed.eq_ignore_ascii_case(label))
+                && (e.identity.is_none() || entry.identity.is_none() || e.identity == entry.identity)
+        })
+}
+
 fn moves_money(what: &What) -> bool {
     matches!(
         what,
-        What::Credits { .. }
+        // BUG-190/191: a claim moves its fund into the vote; its fee is the writes.
+        What::NameClaim { .. }
+            | What::Credits { .. }
             | What::Withdrawal { .. }
             | What::Shield { .. }
             | What::AddressSent { .. }
@@ -1059,6 +1076,17 @@ mod tests {
                 Some(12_345)
             )
         );
+        // BUG-190/191: a claim's line takes its fund and writes; its fee is the writes alone.
+        journal.add(entry(
+            What::NameClaim {
+                label: "sam".into(),
+            },
+            10_192_905,
+            10_000_000,
+        ));
+        let entries = journal.entries();
+        let line = activity(&entries[entries.len() - 1]);
+        assert_eq!((line.amount, line.fee), (-10_192_905, Some(192_905)));
         // FEAT-0021 r2 Should 2: a name's link written on its own, or removed, has its line
         // with what it cost, on the identity.
         for removed in [false, true] {
@@ -1085,6 +1113,46 @@ mod tests {
         }
         let _ = std::fs::remove_dir_all(&dir);
     }
+    /// BUG-191: a name read from Platform that this wallet claimed in a contest is said by its
+    /// claim and result lines, not again as «registered»; a regular name read so is a line.
+    #[test]
+    fn a_name_won_by_contest_is_not_said_registered() {
+        let claim = here(
+            1_000,
+            What::NameClaim {
+                label: "Sam".into(),
+            },
+            10_192_905,
+        );
+        let read = |label: &str| Entry {
+            source: Source::Network,
+            ..here(
+                1_000,
+                What::Name {
+                    label: label.into(),
+                },
+                0,
+            )
+        };
+        let entries = vec![claim, read("sam"), read("alice")];
+        assert!(
+            won_by_contest(&entries[1], &entries),
+            "claimed: its result says it"
+        );
+        assert!(!won_by_contest(&entries[2], &entries), "a regular name");
+        let mine = here(
+            1_000,
+            What::Name {
+                label: "sam".into(),
+            },
+            57_979,
+        );
+        assert!(
+            !won_by_contest(&mine, &entries),
+            "only a name read from Platform"
+        );
+    }
+
     fn here(at: Timestamp, what: What, spent: Duffs) -> Entry {
         Entry {
             at,

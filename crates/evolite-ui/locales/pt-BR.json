@@ -2232,6 +2232,8 @@
   "Who may set the price": "Quem pode definir o preço",
   "was {}, becomes {}": "antes {} · depois {}",
   "{} · This needs signatures from the group: {} of {}": "{} · Precisa de assinaturas do grupo: {} de {}",
+  "Fund for the vote · not refunded": "Taxa da votação · não reembolsável",
+  "Writes to Platform": "Gravações na Platform",
   "Actions on several copies come in the next version": "Ações com várias cópias chegam na próxima versão",
   "Asks “How many of {}”. Deleting can't be undone.": "Vai perguntar “Quantas de {}”. Excluir não pode ser desfeito.",
   "COPIES": "CÓPIAS",

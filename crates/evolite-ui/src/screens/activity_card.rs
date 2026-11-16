@@ -981,6 +981,8 @@ fn amount_part(act: &Activity) -> Option<(&'static str, Duffs)> {
     let label = match act.kind {
         ActivityKind::Withdrawal { .. } => tr!("Withdrawn"),
         ActivityKind::Shielded { .. } => tr!("Into the pool"),
+        // BUG-191: the fund is no fee.
+        ActivityKind::NameClaimed { .. } => tr!("Fund for the vote · not refunded"),
         _ => return None,
     };
     // A shield found by the scan is the amount itself, positive; the journal's has its fee in.
@@ -1170,14 +1172,13 @@ fn detail_body(
         kv_row(ui, &p, label, &crate::format::amount(part), value.clone());
     }
     if let Some(fee) = act.fee {
-        // Already inside the amount above: shown as a size, not a second debit.
-        kv_row(
-            ui,
-            &p,
-            tr!("Fee"),
-            &crate::format::amount(fee),
-            value.clone(),
-        );
+        // Already inside the amount above: shown as a size, not a second debit. A claim's fee
+        // is its writes to Platform (BUG-191).
+        let label = match act.kind {
+            ActivityKind::NameClaimed { .. } => tr!("Writes to Platform"),
+            _ => tr!("Fee"),
+        };
+        kv_row(ui, &p, label, &crate::format::amount(fee), value.clone());
     }
     fiat_block(ui, &p, act, now);
     // An asset lock: the Core transaction's proof is the chip; the credits are apart, red when

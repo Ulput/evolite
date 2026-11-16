@@ -2283,6 +2283,8 @@
   "Who may set the price": "من يحق له تحديد السعر",
   "was {}, becomes {}": "كان {} · سيصبح {}",
   "{} · This needs signatures from the group: {} of {}": "{} · يحتاج إلى توقيعات المجموعة: {} من {}",
+  "Fund for the vote · not refunded": "رسم التصويت · غير مسترد",
+  "Writes to Platform": "عمليات الكتابة في Platform",
   "Actions on several copies come in the next version": "الإجراءات على عدة نسخ ستأتي في الإصدار التالي",
   "Asks “How many of {}”. Deleting can't be undone.": "سيسأل «كم من {}». لا يمكن التراجع عن الحذف.",
   "COPIES": "النسخ",

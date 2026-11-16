@@ -2198,6 +2198,8 @@
   "Who may set the price": "Ai được đặt giá",
   "was {}, becomes {}": "trước {} · sau {}",
   "{} · This needs signatures from the group: {} of {}": "{} · Cần chữ ký của nhóm: {} trên {}",
+  "Fund for the vote · not refunded": "Khoản góp cho cuộc bỏ phiếu · không hoàn lại",
+  "Writes to Platform": "Ghi vào Platform",
   "Actions on several copies come in the next version": "Thao tác với nhiều bản sẽ có trong phiên bản tới",
   "Asks “How many of {}”. Deleting can't be undone.": "Sẽ hỏi “Bao nhiêu trong {}”. Không thể hoàn tác việc xóa.",
   "COPIES": "CÁC BẢN",

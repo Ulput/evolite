@@ -393,8 +393,10 @@ impl App {
                 name: id.name().map(str::to_owned),
             };
             if !w.activity.iter().any(|a| a.id == CLAIM_IDS) {
-                w.activity
-                    .splice(0..0, contest_lines(&who, now, w.fees.name_contested));
+                w.activity.splice(
+                    0..0,
+                    contest_lines(&who, now, w.fees.name_contested, w.fees.name_contest_fund),
+                );
             }
         }
         if let Some(label) = self.dev.contest_preset
@@ -1584,6 +1586,7 @@ fn contest_lines(
     who: &evolite_api::IdentityRef,
     now: i64,
     claim: evolite_api::Duffs,
+    fund: evolite_api::Duffs,
 ) -> Vec<evolite_api::Activity> {
     use evolite_api::{Activity, ActivityKind, Chain, Detail, NameOutcome, Proof};
     let day = 86_400;
@@ -1611,6 +1614,11 @@ fn contest_lines(
             rate: None,
         }
     };
+    // BUG-190/191: a claim's fee is its writes; the fund is the rest of what it took.
+    let claimed = |mut line: Activity| {
+        line.fee = Some(claim.saturating_sub(fund));
+        line
+    };
     vec![
         line(
             CLAIM_IDS,
@@ -1621,22 +1629,22 @@ fn contest_lines(
             now - 24 * day,
             0,
         ),
-        line(
+        claimed(line(
             CLAIM_IDS + 1,
             ActivityKind::NameClaimed {
                 label: "nakamoto-dev".into(),
             },
             now - 5 * day,
             -claim,
-        ),
-        line(
+        )),
+        claimed(line(
             CLAIM_IDS + 2,
             ActivityKind::NameClaimed {
                 label: "bob".into(),
             },
             now - 38 * day,
             -claim,
-        ),
+        )),
     ]
 }
 

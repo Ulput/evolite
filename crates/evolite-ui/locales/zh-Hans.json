@@ -2198,6 +2198,8 @@
   "Who may set the price": "谁可以设定价格",
   "was {}, becomes {}": "原为 {} · 改为 {}",
   "{} · This needs signatures from the group: {} of {}": "{} · 需要群组签名：{} / {}",
+  "Fund for the vote · not refunded": "投票押金 · 不退还",
+  "Writes to Platform": "写入 Platform",
   "Actions on several copies come in the next version": "对多个副本的操作将在下一版本提供",
   "Asks “How many of {}”. Deleting can't be undone.": "会询问“{} 个中的几个”。删除无法撤销。",
   "COPIES": "副本",

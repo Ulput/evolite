@@ -371,7 +371,9 @@ impl Real {
                         label: label.clone(),
                     },
                     spent: spent_credits(before, after).unwrap_or(0),
-                    moved: 0,
+                    // BUG-190/191: the fund goes into the vote, it is no fee: the line's fee is
+                    // the writes alone (preorder, domain, the link), what the form estimated.
+                    moved: fund_now,
                     identity: Some(shown),
                     ..Default::default()
                 });

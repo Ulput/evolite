@@ -2215,6 +2215,8 @@
   "Who may set the price": "कौन कीमत तय कर सकता है",
   "was {}, becomes {}": "पहले {} · अब {}",
   "{} · This needs signatures from the group: {} of {}": "{} · इसके लिए समूह के हस्ताक्षर चाहिए: {} में से {}",
+  "Fund for the vote · not refunded": "मतदान का शुल्क · वापस नहीं होता",
+  "Writes to Platform": "Platform में लेखन",
   "Actions on several copies come in the next version": "कई प्रतियों पर कार्रवाइयाँ अगले संस्करण में आएँगी",
   "Asks “How many of {}”. Deleting can't be undone.": "पूछेगा “{} में से कितनी”। हटाना पूर्ववत नहीं किया जा सकता।",
   "COPIES": "प्रतियाँ",

@@ -2249,6 +2249,8 @@
   "Who may set the price": "Хто може призначати ціну",
   "was {}, becomes {}": "було {} · стане {}",
   "{} · This needs signatures from the group: {} of {}": "{} · Потрібні підписи групи: {} з {}",
+  "Fund for the vote · not refunded": "Внесок за спір · не повертається",
+  "Writes to Platform": "Записи в Platform",
   "Actions on several copies come in the next version": "Дії з кількома примірниками з'являться в наступній версії",
   "Asks “How many of {}”. Deleting can't be undone.": "Запитає «Скільки з {}». Видалення не можна скасувати.",
   "COPIES": "ПРИМІРНИКИ",

@@ -186,6 +186,22 @@ pub fn declared(op: &Spend, seen: &Seen, app_cost: Duffs) -> Declared {
         Spend::ResumeTopUp => of("resume_top_up", 0, true),
         Spend::ResumeFundAddress => of("resume_fund_address", 0, true),
         Spend::ResumeIdentity => of("resume_identity", 0, true),
+        // BUG-190: a contested name's claim — the preorder and the domain at their bound (the
+        // credits check's own), and the link's write when there is one. The fund is not a fee:
+        // it is checked as an amount.
+        Spend::AddName {
+            contest_fund: Some(fund),
+            link,
+            ..
+        } => {
+            let link = if link.is_some() {
+                fees.document_write
+            } else {
+                0
+            };
+            let price = fees.name_credits_needed().saturating_add(link);
+            of("claim_name", price, covers(seen.credits, *fund, price))
+        }
         Spend::AddName { .. } => {
             let price = fees.name_price(seen.first_name);
             of("add_name", price, covers(seen.credits, 0, price))
@@ -448,6 +464,11 @@ pub(crate) mod tests {
                 contest_fund: None,
                 link: None,
             },
+            Spend::AddName {
+                name: "sam".into(),
+                contest_fund: Some(100),
+                link: Some("https://example.com".into()),
+            },
             Spend::Shield {
                 from: ShieldSource::Credits,
                 amount: 100,
@@ -522,6 +543,32 @@ pub(crate) mod tests {
         let op = Spend::Unshield { amount: 100 };
         assert!(declared(&op, &seen(127), 0).enough);
         assert!(!declared(&op, &seen(126), 0).enough);
+    }
+
+    /// BUG-190: a contested name's claim declares its writes at the bound the credits are
+    /// checked by — preorder and domain at their peak, and the link's write — never the fund,
+    /// which is an amount. On QA's fees (a regular name 57 979, a document 102 028) it is not
+    /// below the 192 905 the writes took.
+    #[test]
+    fn a_claim_declares_its_writes_not_below_what_they_took() {
+        let mut seen = seen(1_000_000_000);
+        seen.fees.name_regular = 57_979;
+        seen.fees.document_write = 102_028;
+        let claim = |link: Option<&str>| Spend::AddName {
+            name: "qakestrelx".into(),
+            contest_fund: Some(10_000_000),
+            link: link.map(str::to_owned),
+        };
+        let d = declared(&claim(Some("https://github.com/dashpay")), &seen, 0);
+        assert_eq!(d.what, "claim_name");
+        assert!(d.declared >= 192_905, "{}", d.declared);
+        assert_eq!(d.declared, seen.fees.name_credits_needed() + 102_028);
+        let without = declared(&claim(None), &seen, 0);
+        assert_eq!(without.declared, seen.fees.name_credits_needed());
+        // The fund is checked as an amount beside it.
+        let mut short = seen.clone();
+        short.credits = 10_000_000 + without.declared - 1;
+        assert!(!declared(&claim(None), &short, 0).enough);
     }
 
     #[test]

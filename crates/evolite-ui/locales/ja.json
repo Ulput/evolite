@@ -2198,6 +2198,8 @@
   "Who may set the price": "価格を設定できる人",
   "was {}, becomes {}": "変更前 {} · 変更後 {}",
   "{} · This needs signatures from the group: {} of {}": "{} · グループの署名が必要です：{} / {}",
+  "Fund for the vote · not refunded": "投票の供託金 · 返還されません",
+  "Writes to Platform": "Platform への書き込み",
   "Actions on several copies come in the next version": "複数部数の操作は次のバージョンで追加されます",
   "Asks “How many of {}”. Deleting can't be undone.": "「{} 部のうち何部」と尋ねます。削除は元に戻せません。",
   "COPIES": "部数一覧",

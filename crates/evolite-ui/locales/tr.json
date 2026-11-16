@@ -2215,6 +2215,8 @@
   "Who may set the price": "Kimler fiyat belirleyebilir",
   "was {}, becomes {}": "önce {} · sonra {}",
   "{} · This needs signatures from the group: {} of {}": "{} · Grup imzası gerekir: {} / {}",
+  "Fund for the vote · not refunded": "Oylama katkısı · iade edilmez",
+  "Writes to Platform": "Platform'a yazımlar",
   "Actions on several copies come in the next version": "Birden çok kopyayla işlemler bir sonraki sürümde gelecek",
   "Asks “How many of {}”. Deleting can't be undone.": "“{} içinden kaç tane” diye soracak. Silme geri alınamaz.",
   "COPIES": "KOPYALAR",

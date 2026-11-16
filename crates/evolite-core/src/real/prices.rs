@@ -25,6 +25,9 @@ enum Line {
     ContactRequest,
     Profile,
     Name,
+    /// BUG-190: a contested name's claim and a link written on its own.
+    NameClaim,
+    NameLink,
     Shield,
     /// BUG-145: App Connect v2 sign-in, disconnect and a token sent.
     AppConnect,
@@ -41,7 +44,12 @@ impl Line {
             } => Some(Line::Credits),
             Spend::AddContact { .. } | Spend::AcceptContact { .. } => Some(Line::ContactRequest),
             Spend::SaveProfile { .. } => Some(Line::Profile),
+            Spend::AddName {
+                contest_fund: Some(_),
+                ..
+            } => Some(Line::NameClaim),
             Spend::AddName { .. } => Some(Line::Name),
+            Spend::SetNameLink { .. } => Some(Line::NameLink),
             Spend::ApproveApp { .. } => Some(Line::AppConnect),
             Spend::DisconnectApp { .. } => Some(Line::AppDisconnect),
             Spend::SendToken { .. } => Some(Line::TokenSent),
@@ -70,6 +78,8 @@ impl Line {
             ) | (Line::ContactRequest, What::ContactRequest { .. })
                 | (Line::Profile, What::Profile)
                 | (Line::Name, What::Name { .. })
+                | (Line::NameClaim, What::NameClaim { .. })
+                | (Line::NameLink, What::NameLink { .. })
                 | (Line::Shield, What::Shield { .. })
         )
     }

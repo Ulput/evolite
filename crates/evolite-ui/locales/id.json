@@ -2198,6 +2198,8 @@
   "Who may set the price": "Siapa yang boleh menetapkan harga",
   "was {}, becomes {}": "sebelumnya {} · menjadi {}",
   "{} · This needs signatures from the group: {} of {}": "{} · Perlu tanda tangan grup: {} dari {}",
+  "Fund for the vote · not refunded": "Dana pemungutan suara · tidak dikembalikan",
+  "Writes to Platform": "Penulisan ke Platform",
   "Actions on several copies come in the next version": "Tindakan untuk beberapa salinan hadir di versi berikutnya",
   "Asks “How many of {}”. Deleting can't be undone.": "Akan menanyakan “Berapa dari {}”. Penghapusan tidak dapat dibatalkan.",
   "COPIES": "SALINAN",
