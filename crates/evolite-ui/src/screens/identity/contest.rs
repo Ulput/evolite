@@ -91,8 +91,8 @@ pub fn check_line(
                 ),
                 label = label,
                 contenders = text::plural(contenders, tr!("contender"), tr!("contenders")),
-                until = text::date_time(join_until, now),
-                end = text::date_day(end_of(join_until), now)
+                until = text::date_time_in_line(join_until, now),
+                end = text::date_day_in_line(end_of(join_until), now)
             ),
             Tone::Claimable,
         ),
@@ -104,11 +104,11 @@ pub fn check_line(
                     "@{label} is contested, but it can no longer be joined: the window closed on {closed}. Result about {end}."
                 ),
                 label = label,
-                closed = text::date_day(
+                closed = text::date_day_in_line(
                     end - fees.name_vote_secs as i64 + fees.name_join_secs as i64,
                     now
                 ),
-                end = text::date_day(end, now)
+                end = text::date_day_in_line(end, now)
             ),
             Tone::Refused,
         ),
@@ -207,7 +207,7 @@ pub fn state_line(name: &DpnsName, fees: &Fees, now: Timestamp) -> String {
 /// ended, or when it ended and, while a lost or blocked name is still listed, when it leaves the
 /// list (R-12).
 pub fn when_line(name: &DpnsName, now: Timestamp) -> String {
-    let date = |at| text::date_day(at, chrono::Local::now());
+    let date = |at| text::date_day_in_line(at, chrono::Local::now());
     match name.state {
         NameState::Voting { ends_about, .. } => format!(
             tr!("{left} left"),
@@ -279,7 +279,7 @@ pub fn overview_notice(
                 ),
                 format!(
                     tr!("Result about {date}. {ours} of {all} are for you."),
-                    date = text::date_time(ends_about, now),
+                    date = text::date_time_in_line(ends_about, now),
                     ours = text::plural(ours, tr!("vote"), tr!("votes")),
                     all = all
                 ),

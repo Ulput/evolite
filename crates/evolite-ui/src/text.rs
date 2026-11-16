@@ -133,7 +133,8 @@ pub fn when(at: Timestamp, now: DateTime<Local>) -> String {
         return tr!("time unknown").into();
     }
     let t = local(at);
-    if (now - t).num_seconds() < 60 {
+    // BUG-189: a time still to come is never «just now».
+    if (now - t).num_seconds().abs() < 60 {
         return tr!("just now").into();
     }
     match days_between(t, now) {
@@ -149,11 +150,24 @@ pub fn time_of_day(at: Timestamp, now: DateTime<Local>) -> String {
         return tr!("time unknown").into();
     }
     let t = local(at);
-    if (now - t).num_seconds() < 60 {
+    // BUG-189: the end of a vote, still to come, is its time, not «just now».
+    if (now - t).num_seconds().abs() < 60 {
         tr!("just now").into()
     } else {
         t.format("%H:%M").to_string()
     }
+}
+
+/// BUG-189: [`date_time`] for a place in a sentence. The date is in the interface language
+/// already; marked as [`own`](crate::i18n::own) words, the sentence around it still finds its
+/// translation — unmarked, its words matched no key and the whole sentence stayed English.
+pub fn date_time_in_line(at: Timestamp, now: DateTime<Local>) -> String {
+    crate::i18n::own(&date_time(at, now))
+}
+
+/// BUG-189: [`date_day`] for a place in a sentence (see [`date_time_in_line`]).
+pub fn date_day_in_line(at: Timestamp, now: DateTime<Local>) -> String {
+    crate::i18n::own(&date_day(at, now))
 }
 
 /// «before · date»: what a line says, then when (a date from [`when`] or [`date_short`]). In
@@ -1239,6 +1253,44 @@ pub fn signed_amount(duffs: i64) -> String {
 mod tests {
     use super::*;
     use chrono::Duration;
+
+    /// BUG-189: a time still to come — the end of a vote, of the window to join — is its time,
+    /// never «just now»; within a minute either way it is.
+    #[test]
+    fn a_time_to_come_is_not_just_now() {
+        let now = Local::now();
+        let soon = (now + Duration::minutes(40)).timestamp();
+        assert_ne!(when(soon, now), tr!("just now"));
+        assert_ne!(time_of_day(soon, now), tr!("just now"));
+        assert!(!date_time_in(crate::i18n::Lang::En, soon, now).contains("just now"));
+        assert_eq!(
+            when((now + Duration::seconds(20)).timestamp(), now),
+            tr!("just now")
+        );
+    }
+
+    /// BUG-189: a sentence with a date in it is in the interface language whole: the date,
+    /// in that language already, no longer keeps the sentence from its key («Result about …»
+    /// stayed English in N3, N5 and the Overview notice).
+    #[test]
+    fn a_sentence_with_a_date_in_it_is_translated_whole() {
+        use crate::i18n::{Lang, t_in};
+        // The date as the Russian interface writes it (one language per test thread).
+        crate::i18n::set(Lang::Ru);
+        let now = Local::now();
+        let end = (now + Duration::minutes(40)).timestamp();
+        let line = format!(
+            tr!("Result about {date}. {ours} of {all} are for you."),
+            date = date_time_in_line(end, now),
+            ours = plural(0, tr!("vote"), tr!("votes")),
+            all = 0
+        );
+        let shown = t_in(Lang::Ru, &line);
+        crate::i18n::set(Lang::En);
+        for english in ["Result", "about", "votes", "are for you", "just now"] {
+            assert!(!shown.contains(english), "{shown}");
+        }
+    }
 
     /// A name's read cut off at its limit, in the core's words: what the person reads is that
     /// the network did not answer, and it is not a mistake in the name (BUG-87).

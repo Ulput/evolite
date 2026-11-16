@@ -113,7 +113,7 @@ pub(super) fn contest_card(
                 let join = if join_until > now.timestamp() {
                     format!(
                         tr!("until {date} · {left} left"),
-                        date = crate::text::date_time(join_until, now),
+                        date = crate::text::date_time_in_line(join_until, now),
                         left = super::contest::span((join_until - now.timestamp()) as u64)
                     )
                 } else {
@@ -127,7 +127,7 @@ pub(super) fn contest_card(
                 tr!("Result"),
                 &format!(
                     tr!("the vote ended about {date}, waiting for the result"),
-                    date = crate::text::date_time(ends_about, now)
+                    date = crate::text::date_time_in_line(ends_about, now)
                 ),
                 value.clone(),
             ),

@@ -359,8 +359,8 @@ fn review_body(
                 "The masternode vote lasts {span}, result about {end}. Others may join the contest until {until}. The name becomes yours only if the vote is won."
             ),
             span = super::contest::span(wallet.fees.name_vote_secs),
-            end = crate::text::date_time(r.ends_about, now),
-            until = crate::text::date_day(r.join_until, now)
+            end = crate::text::date_time_in_line(r.ends_about, now),
+            until = crate::text::date_day_in_line(r.join_until, now)
         ),
     );
     name_answer(ui, a, form);
@@ -429,7 +429,7 @@ fn sent_body(ui: &mut Ui, a: &mut Assets, wallet: &Wallet, me: &str, form: &Name
                 tr!("The fund and the write were paid from the credits of {me}: {total}. Result about {end}. evolite tells you with a notification, even with the window minimized."),
                 me = me,
                 total = dash(wallet.fees.name_price(false) + r.fund),
-                end = crate::text::date_time(r.ends_about, chrono::Local::now())
+                end = crate::text::date_time_in_line(r.ends_about, chrono::Local::now())
             ),
             UI.size,
             UI.weight,
