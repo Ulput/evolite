@@ -344,4 +344,27 @@ mod tests {
         assert_eq!(span(90 * 60), "90 minutes");
         assert_eq!(span(1), "1 minute");
     }
+
+    /// BUG-218: N5's «Others may join» in Russian is translated whole, the date and the span
+    /// inside it: not «ещё until 18 ноября…». The date is in Russian already, so it goes in
+    /// marked as own words (BUG-189); the span is English until the catalog translates it at
+    /// display, through its own key, so it goes in as it is.
+    #[test]
+    fn the_join_line_is_translated_whole() {
+        use crate::i18n::{Lang, t_in};
+        crate::i18n::set(Lang::Ru);
+        let now = chrono::Local::now();
+        let until = (now + chrono::Duration::days(2)).timestamp();
+        let line = format!(
+            tr!("until {date} · {left} left"),
+            date = text::date_time_in_line(until, now),
+            left = span((until - now.timestamp()) as u64)
+        );
+        let shown = t_in(Lang::Ru, &line);
+        crate::i18n::set(Lang::En);
+        assert!(shown.starts_with("до "), "{shown}");
+        for english in ["until", "left", "days"] {
+            assert!(!shown.contains(english), "{shown}");
+        }
+    }
 }
