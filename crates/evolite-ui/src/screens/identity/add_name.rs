@@ -158,7 +158,7 @@ pub(super) fn add_name_dialog(
             if contested {
                 kv_row(ui, &p, tr!("Fund for the vote"), &dash(fund), value.clone());
             }
-            kv_row(
+            crate::components::kv_row_fit(
                 ui,
                 &p,
                 tr!("Paid by"),
@@ -340,7 +340,8 @@ fn review_body(
         style(UI.weight(Weight::SemiBold).mono()),
     );
     let credits = wallet.balances.credits;
-    kv_row(
+    // BUG-193: a long name and two sums do not share a line: the sums go under it (BUG-180).
+    crate::components::kv_row_fit(
         ui,
         &p,
         &format!(tr!("Credits {me}"), me = me),

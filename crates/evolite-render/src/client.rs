@@ -6,7 +6,7 @@ use std::fs::File;
 use std::io::{self, BufReader, BufWriter, Write};
 use std::path::PathBuf;
 use std::sync::mpsc::{Receiver, RecvTimeoutError, channel};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use crate::frames::{Limits, PackedArt, RenderError, SandboxRefusal};
 use crate::sandbox::{self, Sandboxed};
@@ -129,6 +129,34 @@ impl Worker {
         self.process.wait();
     }
 
+    /// The request, written within `deadline` (BUG-215): a worker that stops reading would
+    /// block the write once the pipe is full, and every picture after it for the session. The
+    /// write runs on its own thread; past the deadline the worker is killed, which breaks the
+    /// pipe and ends the write. `None`: the deadline passed, the worker is killed.
+    fn write_within(
+        &mut self,
+        deadline: Duration,
+        id: u64,
+        side: u32,
+        flags: u32,
+        bytes: &[u8],
+    ) -> Option<io::Result<()>> {
+        let Self { process, input, .. } = self;
+        let (done, written) = channel();
+        std::thread::scope(|scope| {
+            scope.spawn(move || {
+                let _ = done.send(wire::write_request(input, id, side, flags, bytes));
+            });
+            match written.recv_timeout(deadline) {
+                Ok(result) => Some(result),
+                Err(_) => {
+                    process.kill();
+                    None
+                }
+            }
+        })
+    }
+
     /// [`Self::start`], with the reason said on stderr: [`RenderError::Crashed`] has no room for
     /// it, and a system that refuses the sandbox would read as a worker that died (BUG-95).
     /// Only the system's error is printed, nothing of the picture.
@@ -230,10 +258,18 @@ impl Renderer {
         };
         self.next_id += 1;
         let id = self.next_id;
-        if wire::write_request(&mut worker.input, id, side, flags, bytes).is_err() {
-            return Err(worker.stop_broken());
+        // One deadline for the picture, from the request's first byte to the answer's last.
+        let started = Instant::now();
+        match worker.write_within(self.settings.timeout, id, side, flags, bytes) {
+            Some(Ok(())) => {}
+            Some(Err(_)) => return Err(worker.stop_broken()),
+            None => {
+                worker.stop();
+                return Err(RenderError::Timeout);
+            }
         }
-        match worker.answers.recv_timeout(self.settings.timeout) {
+        let left = self.settings.timeout.saturating_sub(started.elapsed());
+        match worker.answers.recv_timeout(left) {
             Ok(Ok((answered, result))) if answered == id => {
                 // The answer is held to the limits once more: the worker read untrusted bytes.
                 let result = result.and_then(|art| art.check(&limits).map(|()| art));

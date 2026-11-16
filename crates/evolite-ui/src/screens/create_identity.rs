@@ -20,7 +20,8 @@ use evolite_api::{Command, CoreError, Duffs, NameCheck, Spend, UnfinishedIdentit
 pub struct CreateIdentityForm {
     pub name: String,
     pub amount: String,
-    /// 0.3 DASH in `amount` until the person changes it (`format::fill_suggested`).
+    /// 0.3 DASH in `amount` until the person changes it (`format::fill_suggested`); for a
+    /// contested name, the least its claim right after takes (BUG-192).
     pub suggested: Option<i64>,
     /// The label last sent to the core, and its answer.
     pub asked: String,
@@ -98,8 +99,8 @@ impl Default for CreateIdentityForm {
     fn default() -> Self {
         Self {
             name: String::new(),
-            amount: crate::format::input_text(30_000_000),
-            suggested: Some(30_000_000),
+            amount: crate::format::input_text(SUGGESTED),
+            suggested: Some(SUGGESTED),
             asked: String::new(),
             check: None,
             waiting: false,
@@ -113,6 +114,17 @@ impl Default for CreateIdentityForm {
             claim_short: false,
         }
     }
+}
+
+/// The top-up put in for the person (FEAT-0014): 0.3 DASH.
+const SUGGESTED: Duffs = 30_000_000;
+
+/// BUG-192: the top-up put in for a contested name — the least that pays its claim right after,
+/// the write and the fund (R-3), and never below what Platform takes in an asset lock.
+fn claim_least(fees: &evolite_api::Fees) -> Duffs {
+    fees.name_credits_needed()
+        .saturating_add(fees.name_contest_fund)
+        .max(fees.identity_amount_least(false))
 }
 
 fn dash(d: i64) -> String {
@@ -214,6 +226,19 @@ pub fn create_identity(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut Cre
     // claim is a spend of its own on Identity right after — two spends, two passwords.
     let claim = matches!(&check, Some(Ok(c)) if c.contested()).then(|| label.clone());
     form.claim = claim.clone();
+    // BUG-192: the suggestion follows the name while the person has not changed it: 0.3 DASH
+    // was more than a claim's write and fund together, put in unasked.
+    let suggestion = if claim.is_some() {
+        claim_least(fees)
+    } else {
+        SUGGESTED
+    };
+    if form.suggested.is_some_and(|s| s != suggestion) {
+        form.suggested = Some(suggestion);
+        form.amount = crate::format::input_text(suggestion);
+    }
+    let for_claim = claim.is_some() && form.suggested.is_some();
+    let claim_fund = claim.is_some().then_some(fees.name_contest_fund);
     let without_name = nameless || claim.is_some();
     let name_fee = if without_name { 0 } else { fees.name_on_top() };
     let top_up = crate::format::parse_amount(&form.amount).filter(|d| *d > 0);
@@ -299,6 +324,7 @@ pub fn create_identity(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut Cre
         lock_refusal,
         total,
         ready,
+        for_claim,
     };
     let mut draw_form = |ui: &mut Ui, a: &mut Assets| {
         new_identity_card(ui, a, cx, form, &facts, form_w);
@@ -307,6 +333,7 @@ pub fn create_identity(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut Cre
     let steps = Steps {
         locked: lock.unwrap_or(0),
         current,
+        claim_fund,
         // The name's step, when there may be none (frame 4): said as optional.
         name: if nameless {
             None
@@ -393,6 +420,9 @@ struct FormFacts<'a> {
     lock_refusal: Option<String>,
     total: Option<Duffs>,
     ready: bool,
+    /// The top-up holds the least for the contested name's claim, put in for the person
+    /// (BUG-192): said under the field.
+    for_claim: bool,
 }
 
 /// The form's card: the name, the top-up, what it costs and the core's answer.
@@ -509,17 +539,24 @@ fn name_section(ui: &mut Ui, a: &mut Assets, form: &mut CreateIdentityForm, v: &
             ui.add(crate::components::para(&line, 13.0, Weight::Regular, color));
         });
     }
-    // About short contested names: hidden while there is no name to be one (frame 4).
+    // About short contested names: hidden while there is no name to be one (frame 4). BUG-192:
+    // the vote's span is the network's (90 minutes on testnet), not always 14 days.
     if !nameless {
-        notice(
-            ui,
-            a,
-            "info",
-            p.muted,
+        let secs = wallet.fees.name_vote_secs;
+        let note = if secs == 0 {
             tr!(
                 "Names shorter than 20 characters made only of letters, 0, 1 and hyphens are contested: masternodes award them by a vote of up to 14 days, and they cost more. A digit from 2 to 9 makes a name regular."
-            ),
-        );
+            )
+            .to_string()
+        } else {
+            format!(
+                tr!(
+                    "Names shorter than 20 characters made only of letters, 0, 1 and hyphens are contested: masternodes award them by a vote of {span}, and they cost more. A digit from 2 to 9 makes a name regular."
+                ),
+                span = crate::i18n::own(&super::identity::contest::span(secs))
+            )
+        };
+        notice(ui, a, "info", p.muted, &note);
     }
 }
 
@@ -559,6 +596,13 @@ fn top_up_field(
                 )
             };
             ui.label(txt(&hint, 12.0, Weight::Regular, p.danger));
+        } else if v.for_claim {
+            ui.label(txt(
+                tr!("The least for the name's claim right after: its write and the fund. You may put in more."),
+                12.0,
+                Weight::Regular,
+                p.muted,
+            ));
         } else {
             ui.label(txt(fees_note(), 12.0, Weight::Regular, p.muted));
         }
@@ -703,6 +747,8 @@ struct Steps {
     locked: Duffs,
     current: Option<usize>,
     name: Option<String>,
+    /// A contested name (BUG-192): not written in this run, claimed right after with this fund.
+    claim_fund: Option<Duffs>,
 }
 
 impl Steps {
@@ -739,14 +785,22 @@ impl Steps {
         let (name_step, name_detail) = match &self.name {
             None => (
                 tr!("Name, if given").to_string(),
-                tr!("without a name this step is skipped"),
+                tr!("without a name this step is skipped").to_string(),
             ),
+            // BUG-192: the name typed, in the person's words: no «preorder + domain».
             Some(shown_name) => (
                 format!(tr!("Name {shown_name}"), shown_name = shown_name),
-                tr!("a DPNS claim, preorder + domain"),
+                match self.claim_fund {
+                    Some(fund) => format!(
+                        tr!("You claim {name} right after (fund {fund})"),
+                        name = crate::i18n::own(shown_name),
+                        fund = dash(fund)
+                    ),
+                    None => tr!("written to DPNS").to_string(),
+                },
             ),
         };
-        numbered_step_at(ui, a, 4, &name_step, name_detail, state(4));
+        numbered_step_at(ui, a, 4, &name_step, &name_detail, state(4));
         divider(ui, &p);
         ui.add(
             crate::components::para(

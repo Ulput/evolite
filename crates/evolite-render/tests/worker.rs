@@ -59,6 +59,25 @@ fn a_hanging_worker_is_stopped_at_the_deadline() {
     assert!(started.elapsed() < Duration::from_secs(20));
 }
 
+/// BUG-215: a worker that stops reading, sent more than its pipe holds: the write itself is
+/// held to the deadline and the worker is stopped (the next picture gets a fresh one). Without
+/// the deadline the write blocked for good, and every picture after it for the session.
+#[test]
+fn a_worker_that_stops_reading_is_stopped_at_the_deadline() {
+    let (done, answer) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let mut r = renderer_with(Some("--test-hang"), Duration::from_secs(3));
+        // Past any pipe's buffer, under `max_input`.
+        let big = vec![0u8; 8 * 1024 * 1024];
+        let first = r.render(&big);
+        let _ = done.send(first);
+    });
+    let first = answer
+        .recv_timeout(Duration::from_secs(20))
+        .expect("the write was held to the deadline");
+    assert_eq!(first, Err(RenderError::Timeout));
+}
+
 #[test]
 fn a_crashing_worker_is_reported() {
     let mut r = renderer(Some("--test-crash"));

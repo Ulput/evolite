@@ -428,3 +428,92 @@ fn a_link_not_written_is_offered_again_alone() {
         "the retry"
     );
 }
+
+/// BUG-193: N3's «Credits @…» with a long name and both sums: the sums go under the label, the
+/// row two lines high, as BUG-180's in «Buy».
+#[test]
+fn the_reviews_credits_row_does_not_overlap_its_label() {
+    let (_turn, mut kit) = demo_app("add-name-review", "en");
+    kit.set_size(egui::vec2(1040.0, 1000.0));
+    wait_for(&mut kit, "the review", |k| {
+        has_text(k, "Check the name request")
+    });
+    let long = |w: &mut evolite_api::Wallet| {
+        if let Some(i) = w.identity.as_mut() {
+            i.names = vec![evolite_api::DpnsName {
+                label: "qa-kestrel-1108c-a-long-name".into(),
+                primary: true,
+                state: evolite_api::NameState::Registered,
+                contest: None,
+            }];
+        }
+    };
+    let row = |kit: &Kit| {
+        kit.query_all_by(|n| {
+            n.label().or_else(|| n.value()).is_some_and(|w| {
+                w.starts_with("Credits") && w.contains("a-long-name") && w.contains("after")
+            })
+        })
+        .next()
+        .map(|n| n.rect())
+    };
+    show_wallet_edited(&mut kit, 1, "the long name", long, |k| row(k).is_some());
+    let rect = row(&kit).expect("the credits row");
+    assert!(rect.height() > 30.0, "{rect:?}");
+}
+
+/// BUG-192: «New identity» with a contested name puts in the least its claim right after takes
+/// (the write and the fund), not 0.3 DASH, and says so; the steps name the label typed and its
+/// fund, with no «preorder + domain»; the vote's span is the network's (the demo's 90 minutes).
+/// A regular name then gets the 0.3 DASH back while the person has not changed the amount.
+#[test]
+fn a_contested_name_at_the_creation_suggests_its_claims_least() {
+    let (_turn, mut kit) = demo_app("create-identity-nameless", "en");
+    kit.set_size(egui::vec2(1024.0, 1000.0));
+    kit.state_mut().create_identity.name = "sam".into();
+    wait_for(&mut kit, "the contested answer", |k| {
+        has_words(k, "@sam is a contested name: masternodes award it by vote.")
+    });
+    kit.run_steps(2);
+    let fees = kit
+        .state()
+        .snapshot
+        .as_ref()
+        .and_then(|s| s.wallet.as_ref())
+        .map(|w| w.fees.clone())
+        .expect("the wallet");
+    let least = (fees.name_credits_needed() + fees.name_contest_fund)
+        .max(fees.identity_amount_least(false));
+    assert_ne!(least, 30_000_000);
+    assert_eq!(kit.state().create_identity.suggested, Some(least));
+    assert_eq!(
+        kit.state().create_identity.amount,
+        crate::format::input_text(least)
+    );
+    assert!(has_words(
+        &kit,
+        "The least for the name's claim right after: its write and the fund."
+    ));
+    assert!(has_words(
+        &kit,
+        &format!(
+            "You claim @sam right after (fund {})",
+            crate::format::amount(fees.name_contest_fund)
+        )
+    ));
+    assert!(!has_text(&kit, "preorder"), "no inner words");
+    assert!(has_words(
+        &kit,
+        "masternodes award them by a vote of 90 minutes"
+    ));
+    assert!(!has_text(&kit, "up to 14 days"));
+
+    kit.state_mut().create_identity.name = "sam5".into();
+    wait_for(&mut kit, "the regular answer", |k| {
+        k.state().create_identity.suggested == Some(30_000_000)
+    });
+    assert_eq!(
+        kit.state().create_identity.amount,
+        crate::format::input_text(30_000_000)
+    );
+}
