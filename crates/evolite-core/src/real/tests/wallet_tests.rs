@@ -956,6 +956,63 @@ async fn a_private_key_needs_the_open_wallet_and_a_counted_password() {
     assert_eq!(entry(&mut core, "aaaa0001").wrong_tries, 0);
 }
 
+/// TECH-busy-guard AC-T2: while the identity is taken, every spend that takes it
+/// (`Spend::takes_identity`, a match over every variant) is refused before the password — with
+/// a wrong password given, the answer is «busy», not the password's.
+#[tokio::test]
+async fn every_spend_that_takes_the_identity_waits_before_the_password() {
+    let dir = fresh_dir("busy-every");
+    seal_wallet(&dir, "aaaa0001");
+    let mut core = core_at(&dir, "aaaa0001");
+    let _running = core.identity_busy.take().expect("free");
+    let spends = [
+        Spend::CreateIdentity {
+            name: Some("sam".into()),
+            top_up: 30_000_000,
+        },
+        Spend::ResumeIdentity,
+        Spend::TopUpIdentity { amount: 10_000_000 },
+        Spend::ResumeTopUp,
+        Spend::FundAddress { amount: 10_000_000 },
+        Spend::ResumeFundAddress,
+        Spend::AddName {
+            name: "sam".into(),
+            contest_fund: None,
+            link: None,
+        },
+        Spend::SetNameLink {
+            label: "sam".into(),
+            url: None,
+        },
+        Spend::UpdateKeys {
+            identity: "Id".into(),
+            add: vec![evolite_api::key_plan::KeyRequest::Tokens],
+            disable: vec![],
+        },
+        Spend::DisconnectApp { id: "app".into() },
+        Spend::ApproveApp {
+            id: 1,
+            grant: Some(evolite_api::SessionGrant { keys: vec![] }),
+        },
+    ];
+    for op in spends {
+        assert!(op.takes_identity(), "{op:?}");
+        let what = op.what();
+        let (event, _) = core
+            .handle(Command::Spend {
+                op: op.clone(),
+                password: Some(pw("wrong")),
+            })
+            .await;
+        let refused_busy = matches!(
+            &event,
+            Some(Event::Done { what: w, result: Err(CoreError::NotAvailable(words)) })
+                if *w == what && (words.contains("busy") || words.contains("already being made"))
+        );
+        assert!(refused_busy, "{op:?}: {event:?}");
+    }
+}
+
 /// FEAT-0020, the review's Should 1: while one change of the identity is under way (a key
 /// change, an App Connect sign-in, a top-up), a second key change and an app's disconnect are
 /// refused before the password — nothing is checked, signed or sent; the first's end frees it.
@@ -964,7 +1021,7 @@ async fn a_second_key_change_waits_for_the_first() {
     let dir = fresh_dir("keys-busy");
     seal_wallet(&dir, "aaaa0001");
     let mut core = core_at(&dir, "aaaa0001");
-    core.identity_busy.store(true, Ordering::Relaxed);
+    let running = core.identity_busy.take().expect("free");
     let busy = |event: Option<Event>, what: DoneWhat| match event {
         Some(Event::Done {
             what: w,
@@ -1002,7 +1059,7 @@ async fn a_second_key_change_waits_for_the_first() {
         .await;
     assert!(busy(event, DoneWhat::Name));
     // Free again: the gate answers (no password given), not the busy identity.
-    core.identity_busy.store(false, Ordering::Relaxed);
+    drop(running);
     let (event, _) = core
         .handle(Command::Spend {
             op: Spend::UpdateKeys {

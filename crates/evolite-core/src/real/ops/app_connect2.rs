@@ -498,10 +498,9 @@ impl Real {
         ))?;
         let (wallet_id, keys) = self.dashpay_ready()?;
         // One change of the identity's keys at a time (FEAT-0020, the review's Should 1).
-        if self.identity_busy.swap(true, Ordering::Relaxed) {
+        let Some(busy) = self.identity_busy.take() else {
             return Err(super::identity_keys::identity_busy());
-        }
-        let busy = self.identity_busy.clone();
+        };
         let (chain, apps, refresh) = (self.chain.clone(), self.apps.clone(), self.refresher());
         let journal = self.journal.clone();
         self.answer_later("task:approve_connect2", async move {
@@ -682,7 +681,7 @@ impl Real {
                 .map_err(CoreError::Failed)
             }
             .await;
-            busy.store(false, Ordering::Relaxed);
+            drop(busy);
             refresh();
             Event::Done {
                 what: DoneWhat::App,

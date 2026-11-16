@@ -274,7 +274,7 @@ impl Real {
         add: &[KeyRequest],
         disable: &[u32],
     ) -> Option<CoreError> {
-        if self.identity_busy.load(Ordering::Relaxed) {
+        if self.identity_busy.is_busy() {
             return Some(identity_busy());
         }
         let keys = self.current_keys(identity).await?;
@@ -295,10 +295,9 @@ impl Real {
         let (wallet_id, keys) = self.dashpay_ready()?;
         // One change of the identity at a time (the review's Should 1): two would number their
         // keys alike and the second be refused by Platform, with a fee.
-        if self.identity_busy.swap(true, Ordering::Relaxed) {
+        let Some(busy) = self.identity_busy.take() else {
             return Err(identity_busy());
-        }
-        let busy = self.identity_busy.clone();
+        };
         let (chain, apps, refresh) = (self.chain.clone(), self.apps.clone(), self.refresher());
         let (journal, unclear) = (self.journal.clone(), self.unclear_keys.clone());
         self.answer_later("task:update_keys", async move {
@@ -369,7 +368,7 @@ impl Real {
                 }
             }
             .await;
-            busy.store(false, Ordering::Relaxed);
+            drop(busy);
             refresh();
             Event::Done {
                 what: DoneWhat::Keys,

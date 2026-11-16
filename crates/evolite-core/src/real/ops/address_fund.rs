@@ -160,13 +160,12 @@ impl Real {
         lock: u64,
         resumed: Option<FundLock>,
     ) -> Result<(), CoreError> {
-        if self.identity_busy.swap(true, Ordering::Relaxed) {
+        let Some(busy) = self.identity_busy.take() else {
             return Err(CoreError::NotAvailable(
                 tr!("An identity is already being made or topped up").into(),
             ));
-        }
+        };
         let chain = self.chain.clone();
-        let busy = self.identity_busy.clone();
         let refresh = self.refresher();
         let failed = self.fund_resume_failed.clone();
         let lock_status = self.lock_status.clone();
@@ -192,7 +191,7 @@ impl Real {
                         (out_point, instant, lock)
                     }
                     Err(e) => {
-                        busy.store(false, Ordering::Relaxed);
+                        drop(busy);
                         refresh();
                         return done(Err(identity_failure(e)));
                     }
@@ -241,7 +240,7 @@ impl Real {
                     .insert(resumed.txid.clone());
                 lock_status.ask_again(&resumed.txid);
             }
-            busy.store(false, Ordering::Relaxed);
+            drop(busy);
             refresh();
             done(result)
         });

@@ -17,6 +17,7 @@
 //! Calls into platform-wallet are in [`chain`] and its neighbours (`identity`, `dashpay`, `pool`,
 //! …). Tests are in `tests/`, by area.
 
+mod busy;
 mod dispatch;
 mod lifecycle;
 mod ops;
@@ -291,6 +292,12 @@ struct Parked {
     pool_wallet: Arc<std::sync::Mutex<Option<WalletId>>>,
     contact_accounts_for: Arc<std::sync::atomic::AtomicUsize>,
     contact_accounts_busy: Arc<AtomicBool>,
+    /// TECH-busy-guard, BUG-210: the identity's flag, a key change not known to have landed
+    /// and the fundings whose resume failed go with the chain: «Back» finds a task started
+    /// before «Add a wallet» still holding the identity.
+    identity_busy: busy::BusyFlag,
+    unclear_keys: ops::identity_keys::UnclearSlot,
+    fund_resume_failed: Arc<std::sync::Mutex<std::collections::HashSet<String>>>,
 }
 
 struct Real {
@@ -414,7 +421,7 @@ struct Real {
     /// The contacts of the last snapshot: who may be paid by name from Core.
     contacts: Vec<Contact>,
     /// An identity is being made or finished: its lock is not "unfinished" meanwhile.
-    identity_busy: Arc<AtomicBool>,
+    identity_busy: busy::BusyFlag,
     /// A key change whose outcome is not known yet (BUG-184): its line waits for a read that
     /// shows it.
     unclear_keys: ops::identity_keys::UnclearSlot,

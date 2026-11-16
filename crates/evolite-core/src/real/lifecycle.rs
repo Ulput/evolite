@@ -118,7 +118,7 @@ impl Real {
             names: Default::default(),
             names_asked: Default::default(),
             contacts: Vec::new(),
-            identity_busy: Arc::new(AtomicBool::new(false)),
+            identity_busy: Default::default(),
             unclear_keys: Default::default(),
             address_busy: Arc::new(AtomicBool::new(false)),
             shown_address_inputs: Vec::new(),
@@ -346,6 +346,9 @@ impl Real {
             pool_wallet: self.pool_wallet.clone(),
             contact_accounts_for: self.contact_accounts_for.clone(),
             contact_accounts_busy: self.contact_accounts_busy.clone(),
+            identity_busy: self.identity_busy.clone(),
+            unclear_keys: self.unclear_keys.clone(),
+            fund_resume_failed: self.fund_resume_failed.clone(),
         }
     }
 
@@ -368,6 +371,11 @@ impl Real {
         self.pool_wallet = parked.pool_wallet;
         self.contact_accounts_for = parked.contact_accounts_for;
         self.contact_accounts_busy = parked.contact_accounts_busy;
+        // TECH-busy-guard, BUG-210: the same flag as before «Add a wallet», held by any task
+        // still running from then.
+        self.identity_busy = parked.identity_busy;
+        self.unclear_keys = parked.unclear_keys;
+        self.fund_resume_failed = parked.fund_resume_failed;
     }
 
     /// Any other way out of the onboarding: the parked chain is stopped — its SPV client shut

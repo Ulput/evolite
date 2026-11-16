@@ -15,9 +15,7 @@ impl Real {
         &self,
         wallet: &platform_wallet::PlatformWallet,
     ) -> Option<UnfinishedIdentity> {
-        if self.identity_busy.load(Ordering::Relaxed)
-            || !self.identities_complete.load(Ordering::Relaxed)
-        {
+        if self.identity_busy.is_busy() || !self.identities_complete.load(Ordering::Relaxed) {
             return None;
         }
         let names = self.pending_names().load();
@@ -42,14 +40,13 @@ impl Real {
     pub(in crate::real) async fn resume_identity(&self) -> Result<(), CoreError> {
         let (id, keys) = self.dashpay_ready()?;
         let needed = self.fees_now(0).await.name_credits_needed();
-        if self.identity_busy.swap(true, Ordering::Relaxed) {
+        let Some(busy) = self.identity_busy.take() else {
             return Err(CoreError::NotAvailable(
                 tr!("An identity is already being made").into(),
             ));
-        }
+        };
         let chain = self.chain.clone();
         let pending = self.pending_names();
-        let busy = self.identity_busy.clone();
         let refresh = self.refresher();
         let (out, wake) = (self.out.clone(), self.wake.clone());
         self.answer_later("task:resume_identity", async move {
@@ -61,14 +58,7 @@ impl Real {
                     None => nameless_slot(&chain, &wallet, &names).await,
                 };
                 let index = index.ok_or(tr!("There is no unfinished identity"))?;
-                watch_creation(
-                    chain.clone(),
-                    wallet.clone(),
-                    index,
-                    busy.clone(),
-                    out,
-                    wake,
-                );
+                watch_creation(chain.clone(), wallet.clone(), index, busy.flag(), out, wake);
                 chain
                     .resume_identity(
                         &wallet,
@@ -82,7 +72,7 @@ impl Real {
             }
             .await
             .map_err(core_failure);
-            busy.store(false, Ordering::Relaxed);
+            drop(busy);
             refresh();
             Event::Done {
                 what: DoneWhat::Identity,
@@ -98,9 +88,7 @@ impl Real {
         &self,
         wallet: &platform_wallet::PlatformWallet,
     ) -> Option<UnfinishedTopUp> {
-        if self.identity_busy.load(Ordering::Relaxed)
-            || !self.identities_found.load(Ordering::Relaxed)
-        {
+        if self.identity_busy.is_busy() || !self.identities_found.load(Ordering::Relaxed) {
             return None;
         }
         self.chain
@@ -160,13 +148,12 @@ impl Real {
             .keys
             .clone()
             .ok_or(CoreError::NotAvailable(tr!("The keys are not open").into()))?;
-        if self.identity_busy.swap(true, Ordering::Relaxed) {
+        let Some(busy) = self.identity_busy.take() else {
             return Err(CoreError::NotAvailable(
                 tr!("An identity is already being made or topped up").into(),
             ));
-        }
+        };
         let chain = self.chain.clone();
-        let busy = self.identity_busy.clone();
         let refresh = self.refresher();
         let journal = self.journal.clone();
         self.answer_later("task:top_up_identity", async move {
@@ -178,7 +165,7 @@ impl Real {
                 keep_added(&journal, lock, credits_before, *after);
             }
             let result = result.map(|_| ()).map_err(identity_failure);
-            busy.store(false, Ordering::Relaxed);
+            drop(busy);
             refresh();
             Event::Done {
                 what: DoneWhat::TopUp,
@@ -208,13 +195,12 @@ impl Real {
         }
         let needed = self.fees_now(0).await.name_credits_needed();
         let (id, keys) = self.dashpay_ready()?;
-        if self.identity_busy.swap(true, Ordering::Relaxed) {
+        let Some(busy) = self.identity_busy.take() else {
             return Err(CoreError::NotAvailable(
                 tr!("An identity is already being made or topped up").into(),
             ));
-        }
+        };
         let chain = self.chain.clone();
-        let busy = self.identity_busy.clone();
         let refresh = self.refresher();
         let journal = self.journal.clone();
         self.answer_later("task:add_name", async move {
@@ -246,7 +232,7 @@ impl Real {
                 .await
                 .map_err(identity_failure),
             };
-            busy.store(false, Ordering::Relaxed);
+            drop(busy);
             refresh();
             Event::Done {
                 what: DoneWhat::Name,
@@ -272,13 +258,12 @@ impl Real {
     ) -> Result<(), CoreError> {
         let fees = self.fees_now(0).await;
         let (id, keys) = self.dashpay_ready()?;
-        if self.identity_busy.swap(true, Ordering::Relaxed) {
+        let Some(busy) = self.identity_busy.take() else {
             return Err(CoreError::NotAvailable(
                 tr!("An identity is already being made or topped up").into(),
             ));
-        }
+        };
         let chain = self.chain.clone();
-        let busy = self.identity_busy.clone();
         let refresh = self.refresher();
         let journal = self.journal.clone();
         let requests = name_requests::NameRequests::new(self.paths.name_requests.clone());
@@ -380,7 +365,7 @@ impl Real {
                 Ok(())
             }
             .await;
-            busy.store(false, Ordering::Relaxed);
+            drop(busy);
             refresh();
             Event::Done {
                 what: DoneWhat::Name,
@@ -406,14 +391,13 @@ impl Real {
         // r2 Should 1: the network's identityVerify indices are not unique, so two writes at
         // once would both find nothing, both create, and pay twice. One at a time, as a claim;
         // taken first, so a write running refuses the next before anything else.
-        if self.identity_busy.swap(true, Ordering::Relaxed) {
+        let Some(busy) = self.identity_busy.take() else {
             return Err(super::identity_keys::identity_busy());
-        }
-        let busy = self.identity_busy.clone();
+        };
         let (id, keys) = match self.dashpay_ready() {
             Ok(ready) => ready,
             Err(e) => {
-                busy.store(false, Ordering::Relaxed);
+                drop(busy);
                 return Err(e);
             }
         };
@@ -468,7 +452,7 @@ impl Real {
                 Ok(())
             }
             .await;
-            busy.store(false, Ordering::Relaxed);
+            drop(busy);
             refresh();
             Event::Done {
                 what: DoneWhat::Name,
@@ -497,13 +481,12 @@ impl Real {
     /// money. The answer is `Done { what: DoneWhat::TopUp }`.
     pub(in crate::real) fn resume_top_up(&self) -> Result<(), CoreError> {
         let (id, keys) = self.dashpay_ready()?;
-        if self.identity_busy.swap(true, Ordering::Relaxed) {
+        let Some(busy) = self.identity_busy.take() else {
             return Err(CoreError::NotAvailable(
                 tr!("An identity is already being made or topped up").into(),
             ));
-        }
+        };
         let chain = self.chain.clone();
-        let busy = self.identity_busy.clone();
         let refresh = self.refresher();
         let journal = self.journal.clone();
         self.answer_later("task:resume_top_up", async move {
@@ -538,7 +521,7 @@ impl Real {
             .await
             .map(|_| ())
             .map_err(identity_failure);
-            busy.store(false, Ordering::Relaxed);
+            drop(busy);
             refresh();
             Event::Done {
                 what: DoneWhat::TopUp,
@@ -830,15 +813,14 @@ impl Real {
             .keys
             .clone()
             .ok_or(CoreError::NotAvailable(tr!("The keys are not open").into()))?;
-        if self.identity_busy.swap(true, Ordering::Relaxed) {
+        let Some(busy) = self.identity_busy.take() else {
             return Err(CoreError::NotAvailable(
                 tr!("An identity is already being made").into(),
             ));
-        }
+        };
         let chain = self.chain.clone();
         let dirty = self.dirty.clone();
         let pending = self.pending_names();
-        let busy = self.identity_busy.clone();
         let (out, wake) = (self.out.clone(), self.wake.clone());
         self.answer_later("task:create_identity", async move {
             let available = match &label {
@@ -853,14 +835,7 @@ impl Real {
                 Err(e) => Err(CoreError::Failed(e)),
                 Ok(true) => async {
                     let index = chain.next_identity_index(&wallet, &keys).await?;
-                    watch_creation(
-                        chain.clone(),
-                        wallet.clone(),
-                        index,
-                        busy.clone(),
-                        out,
-                        wake,
-                    );
+                    watch_creation(chain.clone(), wallet.clone(), index, busy.flag(), out, wake);
                     // The name is kept before any money moves: a run cut short is finished
                     // with it (ResumeIdentity). Without a name nothing is kept, or the
                     // nameless identity would look cut short for ever (R-7, `nameless_slot`).
@@ -877,7 +852,7 @@ impl Real {
             // The new identity is the one actions go from (analyst-44); on a failure the
             // choice stays.
             let result = identity::choose_created(id, result);
-            busy.store(false, Ordering::Relaxed);
+            drop(busy);
             dirty.store(true, Ordering::Relaxed);
             Event::Done {
                 what: DoneWhat::Identity,
@@ -922,13 +897,13 @@ fn watch_creation(
     chain: Arc<Chain>,
     wallet: Arc<platform_wallet::PlatformWallet>,
     index: u32,
-    busy: Arc<AtomicBool>,
+    busy: crate::real::busy::BusyFlag,
     out: Sender<Event>,
     wake: Arc<dyn Fn() + Send + Sync>,
 ) {
     tokio::spawn(async move {
         let mut last = 0;
-        while busy.load(Ordering::Relaxed) {
+        while busy.is_busy() {
             let step = chain.creation_step(&wallet, index).await;
             if step != last {
                 last = step;

@@ -2,6 +2,24 @@
 
 use super::*;
 
+/// What a spend that takes the identity says while another holds it: the words its own start
+/// says (TECH-busy-guard), now said before the password.
+fn busy_refusal(op: &Spend) -> CoreError {
+    match op {
+        Spend::CreateIdentity { .. } | Spend::ResumeIdentity => {
+            CoreError::NotAvailable(tr!("An identity is already being made").into())
+        }
+        Spend::TopUpIdentity { .. }
+        | Spend::ResumeTopUp
+        | Spend::AddName { .. }
+        | Spend::FundAddress { .. }
+        | Spend::ResumeFundAddress => {
+            CoreError::NotAvailable(tr!("An identity is already being made or topped up").into())
+        }
+        _ => ops::identity_keys::identity_busy(),
+    }
+}
+
 impl Real {
     /// A spend past [`Real::spend_gate`], answered as each operation always was.
     async fn spend(&mut self, op: Spend) -> (Option<Event>, bool) {
@@ -347,6 +365,12 @@ impl Real {
             // Every spend passes the one gate first (R-27): refused, it is answered as the
             // operation's own failure, and nothing of it was checked, locked or signed.
             Command::Spend { op, password } => {
+                // One change of the identity at a time (the review's Should 1): every spend that
+                // takes it is refused before the password while another holds it
+                // (TECH-busy-guard), in the words its own start would have said.
+                if op.takes_identity() && self.identity_busy.is_busy() {
+                    return (Some(op.refused(busy_refusal(&op))), true);
+                }
                 // An asset lock the coins cannot make (SPV Б2, item 3) is refused before the
                 // password is even looked at: no password typed in vain.
                 if let Err(why) = self.lock_coins_before_password(&op).await {
@@ -362,18 +386,6 @@ impl Real {
                     && let Some(why) = self.key_update_refused(identity, add, disable).await
                 {
                     return (Some(op.refused(why)), true);
-                }
-                // App Connect changes the keys too, and a name's link (FEAT-0021) writes for the
-                // identity: not while another change of the identity
-                // is under way (the review's Should 1).
-                if matches!(
-                    op,
-                    Spend::ApproveApp { grant: Some(_), .. }
-                        | Spend::DisconnectApp { .. }
-                        | Spend::SetNameLink { .. }
-                ) && self.identity_busy.load(Ordering::Relaxed)
-                {
-                    return (Some(op.refused(ops::identity_keys::identity_busy())), true);
                 }
                 if let Err(why) = self
                     .spend_gate(password.as_ref(), op.asks_password_always())

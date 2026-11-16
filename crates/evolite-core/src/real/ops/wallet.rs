@@ -215,7 +215,7 @@ impl Real {
             .unlocked
             .as_ref()
             .ok_or(CoreError::NotAvailable(tr!("The wallet is locked").into()))?;
-        let unfinished = self.identity_busy.load(Ordering::Relaxed)
+        let unfinished = self.identity_busy.is_busy()
             || match self.chain.wallet(&open.id).await {
                 Some(wallet) => {
                     self.unfinished_identity(&wallet).await.is_some()

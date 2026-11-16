@@ -2379,6 +2379,38 @@ impl Spend {
         )
     }
 
+    /// Whether it takes the identity for its run, one change of the identity at a time: the
+    /// core refuses it before the password while another holds the identity (TECH-busy-guard).
+    pub fn takes_identity(&self) -> bool {
+        match self {
+            Spend::CreateIdentity { .. }
+            | Spend::ResumeIdentity
+            | Spend::TopUpIdentity { .. }
+            | Spend::ResumeTopUp
+            | Spend::FundAddress { .. }
+            | Spend::ResumeFundAddress
+            | Spend::AddName { .. }
+            | Spend::SetNameLink { .. }
+            | Spend::UpdateKeys { .. }
+            | Spend::DisconnectApp { .. }
+            | Spend::ApproveApp { grant: Some(_), .. } => true,
+            Spend::ApproveApp { grant: None, .. }
+            | Spend::Send { .. }
+            | Spend::SendMixed { .. }
+            | Spend::Shield { .. }
+            | Spend::Unshield { .. }
+            | Spend::TopUpFromPool { .. }
+            | Spend::AddContact { .. }
+            | Spend::AcceptContact { .. }
+            | Spend::SaveProfile { .. }
+            | Spend::GiftNft { .. }
+            | Spend::SendToken { .. }
+            | Spend::ClaimToken { .. }
+            | Spend::BuyToken { .. }
+            | Spend::IssuerAction { .. } => false,
+        }
+    }
+
     /// The `what` of the operation's `Done` (or `"send"` for [`Event::Sent`]).
     pub fn what(&self) -> DoneWhat {
         match self {

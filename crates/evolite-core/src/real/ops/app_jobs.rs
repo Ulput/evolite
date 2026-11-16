@@ -119,13 +119,9 @@ impl Real {
     pub(in crate::real) fn disconnect_app(&self, contract: &str) -> Result<(), CoreError> {
         let (wallet_id, keys) = self.dashpay_ready()?;
         // One change of the identity's keys at a time (FEAT-0020, the review's Should 1).
-        if self
-            .identity_busy
-            .swap(true, std::sync::atomic::Ordering::Relaxed)
-        {
+        let Some(busy) = self.identity_busy.take() else {
             return Err(super::identity_keys::identity_busy());
-        }
-        let busy = self.identity_busy.clone();
+        };
         let (chain, apps, refresh) = (self.chain.clone(), self.apps.clone(), self.refresher());
         let journal = self.journal.clone();
         let contract = contract.to_owned();
@@ -159,7 +155,7 @@ impl Real {
                 done
             }
             .await;
-            busy.store(false, std::sync::atomic::Ordering::Relaxed);
+            drop(busy);
             refresh();
             Event::Done {
                 what: DoneWhat::Disconnect,

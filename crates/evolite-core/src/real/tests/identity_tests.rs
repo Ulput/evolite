@@ -205,7 +205,7 @@ fn a_refusal_for_a_key_says_the_keys_changed() {
 async fn a_link_write_waits_for_the_one_running() {
     let core = core_with_vault("name-link-busy", "pw");
 
-    core.identity_busy.store(true, Ordering::Relaxed);
+    let running = core.identity_busy.take().expect("free");
     let busy = core
         .set_name_link("sam".into(), Some("https://example.com/me".into()))
         .await;
@@ -213,19 +213,13 @@ async fn a_link_write_waits_for_the_one_running() {
         matches!(&busy, Err(CoreError::NotAvailable(why)) if why.contains("The identity is busy")),
         "{busy:?}"
     );
-    assert!(
-        core.identity_busy.load(Ordering::Relaxed),
-        "the running one keeps it"
-    );
+    assert!(core.identity_busy.is_busy(), "the running one keeps it");
 
-    core.identity_busy.store(false, Ordering::Relaxed);
+    drop(running);
     let locked = core.set_name_link("sam".into(), None).await;
     assert!(
         matches!(&locked, Err(CoreError::NotAvailable(why)) if why.contains("locked")),
         "{locked:?}"
     );
-    assert!(
-        !core.identity_busy.load(Ordering::Relaxed),
-        "let go when it cannot start"
-    );
+    assert!(!core.identity_busy.is_busy(), "let go when it cannot start");
 }
