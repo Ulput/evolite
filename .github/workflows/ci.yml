@@ -202,10 +202,12 @@ jobs:
           mkdir -p evolite-rust/target
           curl -sSfL --retry 5 --retry-all-errors --retry-delay 15 -o "evolite-rust/target/tenderdash-${TENDERDASH_VERSION}.zip" "https://github.com/dashpay/tenderdash/archive/${TENDERDASH_VERSION}.zip"
           echo "CARGO_TARGET_DIR=$GITHUB_WORKSPACE/evolite-rust/target" >> "$GITHUB_ENV"
+      # --no-fail-fast, as on macOS: one red test binary must not hide the ones after it (the
+      # render tests after orphan.rs did not run on the first red of BUG-168's tests).
       - name: tests (default features)
-        run: cargo test --workspace --locked
+        run: cargo test --workspace --locked --no-fail-fast
       - name: tests (dev-tools)
-        run: cargo test --workspace --locked --features evolite-ui/dev-tools
+        run: cargo test --workspace --locked --features evolite-ui/dev-tools --no-fail-fast
       # clippy on Linux does not see the cfg(windows) code: the sandbox, the installer, the
       # clipboard, notifications. Same `target` as the tests.
       - name: clippy (Windows code)

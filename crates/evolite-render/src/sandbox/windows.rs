@@ -127,34 +127,95 @@ unsafe impl Sync for Sid {}
 fn container() -> io::Result<&'static Sid> {
     static SID: OnceLock<Result<Sid, i32>> = OnceLock::new();
     let sid = SID.get_or_init(|| {
-        let name = wide(OsStr::new(CONTAINER));
-        let display = wide(OsStr::new("evolite renderer"));
-        let description = wide(OsStr::new("Decodes untrusted pictures for evolite"));
-        let mut sid: PSID = std::ptr::null_mut();
-        // SAFETY: valid NUL-terminated strings, no capabilities, an out pointer for the SID.
-        let hr = unsafe {
-            CreateAppContainerProfile(
-                name.as_ptr(),
-                display.as_ptr(),
-                description.as_ptr(),
-                std::ptr::null(),
-                0,
-                &mut sid,
-            )
-        };
-        if hr == (0x8007_0000u32 | ERROR_ALREADY_EXISTS) as i32 {
-            // SAFETY: as above.
-            let hr = unsafe { DeriveAppContainerSidFromAppContainerName(name.as_ptr(), &mut sid) };
-            if hr != 0 {
-                return Err(hr);
+        // CI on a fresh windows-latest runner, BUG-168's tests: two processes creating the
+        // profile at once both failed (0x8007000A ERROR_BAD_ENVIRONMENT, 0x80070002 not
+        // found), the profile half made by the other. The lock above is per process; the
+        // creation is held under a mutex of the session too, and a failure is tried again
+        // for a while, while another process may still be finishing the profile.
+        let _creating = SessionLock::take("Local\\evolite.renderer.profile");
+        let mut last = 0;
+        for attempt in 0..PROFILE_TRIES {
+            if attempt > 0 {
+                std::thread::sleep(std::time::Duration::from_millis(250));
             }
-        } else if hr != 0 {
-            return Err(hr);
+            match create_or_derive() {
+                Ok(sid) => return Ok(Sid(sid)),
+                Err(hr) => last = hr,
+            }
         }
-        Ok(Sid(sid))
+        Err(last)
     });
     sid.as_ref()
         .map_err(|hr| io::Error::from_raw_os_error(hr & 0xffff))
+}
+
+/// How many times [`container`] tries to create or find the profile: 20 × 250 ms.
+const PROFILE_TRIES: u32 = 20;
+
+/// The container's profile created, or found when it exists: its SID, or the HRESULT.
+fn create_or_derive() -> Result<PSID, i32> {
+    let name = wide(OsStr::new(CONTAINER));
+    let display = wide(OsStr::new("evolite renderer"));
+    let description = wide(OsStr::new("Decodes untrusted pictures for evolite"));
+    let mut sid: PSID = std::ptr::null_mut();
+    // SAFETY: valid NUL-terminated strings, no capabilities, an out pointer for the SID.
+    let hr = unsafe {
+        CreateAppContainerProfile(
+            name.as_ptr(),
+            display.as_ptr(),
+            description.as_ptr(),
+            std::ptr::null(),
+            0,
+            &mut sid,
+        )
+    };
+    if hr == (0x8007_0000u32 | ERROR_ALREADY_EXISTS) as i32 {
+        // SAFETY: as above.
+        let hr = unsafe { DeriveAppContainerSidFromAppContainerName(name.as_ptr(), &mut sid) };
+        if hr != 0 {
+            return Err(hr);
+        }
+    } else if hr != 0 {
+        return Err(hr);
+    }
+    Ok(sid)
+}
+
+/// A named mutex of this session, held until dropped. Without one (it cannot be made, or the
+/// wait fails) the caller goes on unlocked: the tries in [`container`] still cover a race.
+struct SessionLock(HANDLE);
+
+impl SessionLock {
+    fn take(name: &str) -> Option<Self> {
+        use windows_sys::Win32::System::Threading::CreateMutexW;
+        let name = wide(OsStr::new(name));
+        // SAFETY: a NUL-terminated name; the handle is owned by the value returned and closed
+        // on drop, or here when the wait fails.
+        unsafe {
+            let handle = CreateMutexW(std::ptr::null(), 0, name.as_ptr());
+            if handle.is_null() {
+                return None;
+            }
+            // WAIT_ABANDONED (0x80): a process that held it ended; the mutex is ours now.
+            match WaitForSingleObject(handle, 30_000) {
+                WAIT_OBJECT_0 | 0x80 => Some(Self(handle)),
+                _ => {
+                    CloseHandle(handle);
+                    None
+                }
+            }
+        }
+    }
+}
+
+impl Drop for SessionLock {
+    fn drop(&mut self) {
+        // SAFETY: a mutex this value took and owns.
+        unsafe {
+            windows_sys::Win32::System::Threading::ReleaseMutex(self.0);
+            CloseHandle(self.0);
+        }
+    }
 }
 
 /// Lets the container read and run `program`: without it the container cannot even load the
