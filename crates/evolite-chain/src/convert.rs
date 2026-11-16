@@ -1029,6 +1029,79 @@ pub fn coin_is_final(
     coin.is_confirmed || (coin.is_instantlocked && verified(&coin.outpoint.txid))
 }
 
+/// SPV item 3: locks (key-wallet's `Utxo::lock`) each coin of `info` that is not final
+/// ([`coin_is_final`] by `verified`), so that platform-wallet's own builders (the asset lock, a
+/// payment to a contact) do not take it: they choose among `is_spendable` coins, and an
+/// InstantSend mark that dash-spv set on a lock it did not check makes a coin look final to them.
+/// `keep_trusted`: our own change waiting for its block stays (a payment to a contact takes it,
+/// as a Send does, R-5). `held` counts the builds under way that froze each coin; a coin locked
+/// by someone else (a payment's reservation) is left alone. Answers the coins this build holds,
+/// for [`thaw`]. Locks are not stored: a restart frees them all.
+pub fn freeze_unfinal(
+    info: &mut key_wallet::wallet::managed_wallet_info::ManagedWalletInfo,
+    verified: impl Fn(&key_wallet::dashcore::Txid) -> bool,
+    keep_trusted: bool,
+    held: &mut std::collections::HashMap<key_wallet::dashcore::OutPoint, u32>,
+) -> Vec<key_wallet::dashcore::OutPoint> {
+    use key_wallet::wallet::managed_wallet_info::wallet_info_interface::WalletInfoInterface;
+    let mut frozen = std::collections::BTreeSet::new();
+    for account in info.accounts_mut().all_funding_accounts_mut() {
+        for utxo in account.utxos.values_mut() {
+            if coin_is_final(utxo, &verified) || (keep_trusted && utxo.is_trusted) {
+                continue;
+            }
+            // Ours already (this build's copy in another account, or another build's): held.
+            if held.contains_key(&utxo.outpoint) || frozen.contains(&utxo.outpoint) {
+                utxo.lock();
+                frozen.insert(utxo.outpoint);
+                continue;
+            }
+            if utxo.is_locked {
+                continue;
+            }
+            utxo.lock();
+            frozen.insert(utxo.outpoint);
+        }
+    }
+    for outpoint in &frozen {
+        *held.entry(*outpoint).or_insert(0) += 1;
+    }
+    info.update_balance();
+    frozen.into_iter().collect()
+}
+
+/// Undoes [`freeze_unfinal`] for the coins one build held: each is unlocked once no build holds
+/// it any more (AC-T3.4: none frozen for good, whatever the build's outcome).
+pub fn thaw(
+    info: &mut key_wallet::wallet::managed_wallet_info::ManagedWalletInfo,
+    frozen: &[key_wallet::dashcore::OutPoint],
+    held: &mut std::collections::HashMap<key_wallet::dashcore::OutPoint, u32>,
+) {
+    use key_wallet::wallet::managed_wallet_info::wallet_info_interface::WalletInfoInterface;
+    let mut free = std::collections::HashSet::new();
+    for outpoint in frozen {
+        match held.get_mut(outpoint) {
+            Some(n) if *n > 1 => *n -= 1,
+            Some(_) => {
+                held.remove(outpoint);
+                free.insert(*outpoint);
+            }
+            None => {}
+        }
+    }
+    if free.is_empty() {
+        return;
+    }
+    for account in info.accounts_mut().all_funding_accounts_mut() {
+        for utxo in account.utxos.values_mut() {
+            if free.contains(&utxo.outpoint) {
+                utxo.unlock();
+            }
+        }
+    }
+    info.update_balance();
+}
+
 /// The coins a payment may take: of the accounts of `SEND_FUNDING_SOURCES` at index 0, each once,
 /// and final ([`coin_is_final`]). Coins of another account could not be signed for. Nor a
 /// coin its account does not derive the address of (BUG-142, [`unsignable`]): a copy another
@@ -1235,6 +1308,10 @@ pub fn fees(coins: usize) -> Fees {
         // The coins themselves: [`core_coins`], once the wallet's are read.
         core_unsignable: 0,
         core_coins: Vec::new(),
+        // The final coins: the snapshot's, once read (SPV item 3).
+        lock_coins: Vec::new(),
+        // The latest protocol's, until the SDK says its own ([`lock_inputs_max`], Б2).
+        lock_inputs_max: lock_inputs_max(dpp::version::PlatformVersion::latest()),
         credit_transfer: CREDIT_TRANSFER,
         credit_transfer_to_address: CREDIT_TRANSFER_TO_ADDRESS,
         nft_transfer: 30_000,
@@ -1295,6 +1372,19 @@ pub fn contest_fund(version: &dpp::version::PlatformVersion) -> Duffs {
         .vote_resolution_fund_fees
         .contested_document_vote_resolution_fund_required_amount
         .div_ceil(1000) as Duffs
+}
+
+/// The most inputs an asset lock may have at `version` (SPV Б2): Dash Core relays no larger one
+/// and Platform validates the same bound (`max_asset_lock_transaction_inputs`).
+pub fn lock_inputs_max(version: &dpp::version::PlatformVersion) -> usize {
+    usize::from(
+        version
+            .dpp
+            .state_transitions
+            .identities
+            .asset_locks
+            .max_asset_lock_transaction_inputs,
+    )
 }
 
 /// How long a masternode vote on a name lasts and how long others may join it, by `version` and
@@ -4126,5 +4216,122 @@ mod own_address_tests {
         assert!(!is_own_platform_address(&own, &mixed), "{mixed}");
         assert!(!is_own_platform_address(&own, &text(8)));
         assert!(!is_own_platform_address(&own, "not an address"));
+    }
+}
+
+/// SPV item 3: the coins that are not final are frozen for platform-wallet's own builders, and
+/// freed after.
+#[cfg(test)]
+mod freeze_tests {
+    use super::*;
+    use key_wallet::dashcore::hashes::Hash;
+    use key_wallet::dashcore::{OutPoint, TxOut, Txid};
+    use key_wallet::managed_account::managed_account_trait::ManagedAccountTrait;
+    use key_wallet::wallet::managed_wallet_info::ManagedWalletInfo;
+    use key_wallet::wallet::managed_wallet_info::wallet_info_interface::WalletInfoInterface;
+    use std::collections::HashMap;
+
+    /// A confirmed coin, one InstantSend-locked, one marked InstantSend by a lock not verified
+    /// (dash-spv's mark, or one the store restored, BUG-173), our own change waiting for its
+    /// block, and one a payment holds (locked by its reservation).
+    fn wallet() -> (ManagedWalletInfo, [OutPoint; 5]) {
+        let keys = super::super::keys_of(
+            "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
+        )
+        .unwrap();
+        let mut info = ManagedWalletInfo::from_wallet(&keys, 0);
+        let account = info
+            .accounts_mut()
+            .standard_bip44_accounts
+            .get_mut(&0)
+            .unwrap();
+        let address = account.keys().managed_account_type().all_addresses()[0].clone();
+        let mut points = [OutPoint::null(); 5];
+        for (n, point) in points.iter_mut().enumerate() {
+            *point = OutPoint::new(Txid::from_byte_array([n as u8 + 1; 32]), 0);
+            let mut coin = key_wallet::Utxo::new(
+                *point,
+                TxOut {
+                    value: 1_000_000,
+                    script_pubkey: address.script_pubkey(),
+                },
+                address.clone(),
+                1_570_000,
+                false,
+            );
+            match n {
+                0 => coin.is_confirmed = true,
+                1 | 2 => coin.is_instantlocked = true,
+                3 => coin.is_trusted = true,
+                _ => {
+                    coin.is_confirmed = true;
+                    coin.lock();
+                }
+            }
+            account.utxos.insert(*point, coin);
+        }
+        (info, points)
+    }
+
+    fn locked(info: &ManagedWalletInfo) -> Vec<OutPoint> {
+        let mut out: Vec<_> = info.accounts().standard_bip44_accounts[&0]
+            .utxos
+            .values()
+            .filter(|u| u.is_locked)
+            .map(|u| u.outpoint)
+            .collect();
+        out.sort();
+        out
+    }
+
+    /// AC-T3.1, AC-T3.2, AC-T3.5: the coin of the lock not verified is frozen (so is our change
+    /// for an asset lock); the confirmed one and the verified one stay free. AC-T3.4: freed after,
+    /// the payment's own lock untouched.
+    #[test]
+    fn coins_not_final_are_frozen_for_the_build_and_freed_after() {
+        let (mut info, [confirmed, verified, unverified, change, reserved]) = wallet();
+        let is_verified = |txid: &Txid| *txid == verified.txid;
+        let mut held = HashMap::new();
+        let frozen = freeze_unfinal(&mut info, is_verified, false, &mut held);
+        let mut want = vec![unverified, change];
+        want.sort();
+        assert_eq!(frozen, want);
+        let mut now = vec![unverified, change, reserved];
+        now.sort();
+        assert_eq!(locked(&info), now);
+        assert!(!locked(&info).contains(&confirmed));
+        thaw(&mut info, &frozen, &mut held);
+        assert_eq!(
+            locked(&info),
+            vec![reserved],
+            "only the payment's own lock is left"
+        );
+        assert!(held.is_empty());
+    }
+
+    /// A payment to a contact may take our own change (R-5): it stays free there.
+    #[test]
+    fn a_contact_payment_keeps_our_change() {
+        let (mut info, [_, verified, unverified, _, _]) = wallet();
+        let mut held = HashMap::new();
+        let frozen = freeze_unfinal(&mut info, |t| *t == verified.txid, true, &mut held);
+        assert_eq!(frozen, vec![unverified]);
+    }
+
+    /// Two builds at once: the coin stays frozen until the last one is done.
+    #[test]
+    fn a_coin_two_builds_hold_is_freed_by_the_last() {
+        let (mut info, [_, verified, unverified, _, _]) = wallet();
+        let mut held = HashMap::new();
+        let first = freeze_unfinal(&mut info, |t| *t == verified.txid, true, &mut held);
+        let second = freeze_unfinal(&mut info, |t| *t == verified.txid, true, &mut held);
+        assert_eq!(first, second);
+        thaw(&mut info, &first, &mut held);
+        assert!(
+            locked(&info).contains(&unverified),
+            "the second build still holds it"
+        );
+        thaw(&mut info, &second, &mut held);
+        assert!(!locked(&info).contains(&unverified));
     }
 }

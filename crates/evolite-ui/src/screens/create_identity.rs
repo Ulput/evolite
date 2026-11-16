@@ -269,7 +269,17 @@ pub fn create_identity(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut Cre
     // While the core works: the steps it has done, and the one it is on.
     let current = form.step.filter(|_| form.waiting);
     let ask = password_asked(cx.snap) && !form.waiting;
-    let ready = name_ok && plan.is_some() && checked && !too_much && !too_little && !form.waiting;
+    // SPV Б2 and item 3: a lock its coins cannot make, before «Check».
+    let lock_refusal = lock
+        .filter(|_| checked && !too_much && !too_little)
+        .and_then(|l| evolite_core::lock_words::lock_refusal(fees.lock_coins(l)));
+    let ready = name_ok
+        && plan.is_some()
+        && checked
+        && !too_much
+        && !too_little
+        && lock_refusal.is_none()
+        && !form.waiting;
 
     let facts = FormFacts {
         wallet,
@@ -286,6 +296,7 @@ pub fn create_identity(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut Cre
         core_text: &core_text,
         short,
         checked,
+        lock_refusal,
         total,
         ready,
     };
@@ -378,6 +389,8 @@ struct FormFacts<'a> {
     core_text: &'a str,
     short: Option<Option<Option<Duffs>>>,
     checked: bool,
+    /// The coins cannot make the lock (SPV Б2, item 3): the core's words.
+    lock_refusal: Option<String>,
     total: Option<Duffs>,
     ready: bool,
 }
@@ -593,6 +606,10 @@ fn cost_rows(ui: &mut Ui, a: &mut Assets, v: &FormFacts) {
 fn balance_notice(ui: &mut Ui, a: &mut Assets, v: &FormFacts) {
     let p = a.p;
     let (short, core, checked) = (v.short, v.core, v.checked);
+    if let Some(words) = &v.lock_refusal {
+        crate::components::error_notice(ui, a, words, None);
+        return;
+    }
     match (short, core) {
         (Some(Some(Some(needed))), CardAmount::Now(has)) => {
             crate::components::error_notice(

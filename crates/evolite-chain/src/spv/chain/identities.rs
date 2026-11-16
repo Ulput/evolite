@@ -380,15 +380,20 @@ impl Chain {
         amount: u64,
         needed: evolite_api::Duffs,
     ) -> Result<String, String> {
+        // Only final coins (SPV item 3).
         let id = self
-            .register_identity(
+            .with_final_coins(
                 wallet,
-                keys,
-                index,
-                AssetLockFunding::FromWalletBalance {
-                    amount_duffs: amount,
-                    account_index: 0,
-                },
+                false,
+                self.register_identity(
+                    wallet,
+                    keys,
+                    index,
+                    AssetLockFunding::FromWalletBalance {
+                        amount_duffs: amount,
+                        account_index: 0,
+                    },
+                ),
             )
             .await?;
         if let Some(label) = label {
@@ -627,14 +632,19 @@ impl Chain {
         amount: u64,
     ) -> Result<u64, String> {
         let (identity, _) = Self::first_identity(wallet, keys).await?;
-        self.top_up(
+        // Only final coins (SPV item 3).
+        self.with_final_coins(
             wallet,
-            keys,
-            &identity.id(),
-            AssetLockFunding::FromWalletBalance {
-                amount_duffs: amount,
-                account_index: 0,
-            },
+            false,
+            self.top_up(
+                wallet,
+                keys,
+                &identity.id(),
+                AssetLockFunding::FromWalletBalance {
+                    amount_duffs: amount,
+                    account_index: 0,
+                },
+            ),
         )
         .await
     }

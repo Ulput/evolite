@@ -27,7 +27,7 @@ pub use evolite_common::key_refusal;
 pub use evolite_common::network;
 #[cfg(feature = "real")]
 use evolite_common::phrase_check;
-pub use evolite_common::{attempts, bip39, diag, dpns, layers, note_text};
+pub use evolite_common::{attempts, bip39, diag, dpns, layers, lock_words, note_text};
 
 /// The wallets of `network` in data folder `data_dir`, counted without opening or writing
 /// anything: the network switch on the sign-in screens says how many each network has

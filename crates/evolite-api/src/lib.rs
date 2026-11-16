@@ -19,6 +19,7 @@ pub mod coin_plan;
 pub mod features;
 pub mod fiat;
 pub mod key_plan;
+pub mod lock_coins;
 /// Platform tokens (FEAT-0019).
 pub mod tokens;
 
@@ -1287,6 +1288,12 @@ pub struct Fees {
     /// account 0 by the store's early load before its own account holds it. «Max» from Core leaves
     /// it out.
     pub core_unsignable: Duffs,
+    /// The coins an asset lock may take (SPV item 3): of [`Self::core_coins`], the final ones a
+    /// payment can sign for, in the same form. Empty when not known.
+    pub lock_coins: Vec<CoreCoin>,
+    /// The most inputs an asset lock may have (SPV Б2): the platform version's
+    /// `max_asset_lock_transaction_inputs`; 0 when not known.
+    pub lock_inputs_max: usize,
     /// The most a transfer of credits to an identity costs (what "Fee, at most" says), and to a
     /// Platform address (Platform meters both; a new address stores a row).
     pub credit_transfer: Duffs,
@@ -2662,6 +2669,8 @@ mod tests {
         let mut fees = Fees {
             core_payment: 522,
             core_unsignable: 0,
+            lock_coins: Vec::new(),
+            lock_inputs_max: 0,
             core_coins: Vec::new(),
             credit_transfer: 0,
             credit_transfer_to_address: 0,

@@ -1,4 +1,6 @@
 {
+  "This amount needs more than {} coins — the network will not take such a transaction. First combine the small coins: send “Max” from Core to your own address and try again": "Для цієї суми потрібно більше {} монет — мережа не прийме таку транзакцію. Спершу об’єднайте дрібні монети: надішліть «Усе» з Core на свою адресу й повторіть",
+  "Some of the coins are not confirmed by the network yet — wait for a block": "Частину монет ще не підтверджено мережею — зачекайте на блок",
   "View the keys": "Переглянути ключі",
   "Could not find out whether the keys changed — look at the keys again before trying once more": "Не вдалося дізнатися, чи змінилися ключі — перегляньте ключі ще раз, перш ніж повторювати",
   "DashPay needs this wallet's keys on the identity first: “Enable DashPay…” below": "Для DashPay спершу потрібні ключі цього гаманця на identity: «Увімкнути DashPay…» нижче",

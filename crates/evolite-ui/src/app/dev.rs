@@ -85,6 +85,11 @@ pub(super) struct DevState {
     /// `--screen send-unsignable` / `send-unsignable-short` (BUG-142): 0.001 DASH of Core no payment
     /// can sign for yet.
     unsignable_preset: bool,
+    /// SPV Б2 and item 3: the coins an asset lock may take. `--screen top-up-many-coins` /
+    /// `create-identity-many-coins`: 300 coins of 0.0001 DASH (`Some(true)`, more inputs than
+    /// the network takes for 0.011); `top-up-not-final`: one final coin of 0.01 (`Some(false)`),
+    /// the rest not confirmed yet.
+    lock_coins_preset: Option<bool>,
     /// `--screen overview-mixed-unchecked` (FEAT-0030 O2): Core, and «Mixed» with it, last checked an
     /// hour ago.
     core_unchecked_preset: bool,
@@ -269,6 +274,15 @@ impl DevState {
             core_unchecked_preset: dev.preset("overview-mixed-unchecked"),
             empty_here_preset: dev.preset("welcome-other"),
             unsignable_preset: dev.preset("send-unsignable") || dev.preset("send-unsignable-short"),
+            lock_coins_preset: if dev.preset("top-up-many-coins")
+                || dev.preset("create-identity-many-coins")
+            {
+                Some(true)
+            } else if dev.preset("top-up-not-final") {
+                Some(false)
+            } else {
+                None
+            },
             stale_rate_preset: dev.preset("send-fiat-stale"),
             pool_preset: if dev.preset("send-pool-unread") {
                 Some(true)
@@ -504,6 +518,28 @@ impl App {
             && let Some(w) = self.snapshot.as_mut().and_then(|s| s.wallet.as_mut())
         {
             w.fees.core_unsignable = 100_000;
+        }
+        if let Some(many) = self.dev.lock_coins_preset
+            && let Some(w) = self.snapshot.as_mut().and_then(|s| s.wallet.as_mut())
+        {
+            let values = if many {
+                vec![10_000; 300]
+            } else {
+                vec![1_000_000]
+            };
+            let coins: Vec<_> = values
+                .into_iter()
+                .enumerate()
+                .map(|(n, value)| evolite_api::CoreCoin {
+                    value,
+                    fee: 226 + 148 * n as evolite_api::Duffs,
+                })
+                .collect();
+            if many {
+                w.fees.core_coins = coins.clone();
+            }
+            w.fees.lock_coins = coins;
+            w.fees.lock_inputs_max = 100;
         }
         if self.dev.core_unchecked_preset
             && let Some(w) = self.snapshot.as_mut().and_then(|s| s.wallet.as_mut())
@@ -1003,18 +1039,30 @@ impl App {
         }
         // `--screen top-up` opens "Top up the identity" over Identity.
         // `--screen top-up-bad-amount`: with «1,234.56» typed, the line under the field (BUG-161).
-        self.identity.top_up = (preset("top-up") || preset("top-up-bad-amount")).then(|| {
-            let mut form = screens::identity::TopUpForm::default();
-            if preset("top-up-bad-amount") {
-                form.amount = "1,234.56".into();
-            } else if !real_shot {
-                // The frame with an amount, as the person would type it; the form opens empty
-                // (BUG-182).
-                form.amount = crate::format::input_text(10_000_000);
-                form.suggested = Some(10_000_000);
-            }
-            form
-        });
+        // `--screen top-up-many-coins` / `top-up-not-final` (SPV Б2, item 3): 0.011 and 0.1 DASH
+        // the coins cannot lock.
+        let lock_coins = preset("top-up-many-coins") || preset("top-up-not-final");
+        self.identity.top_up = (preset("top-up") || preset("top-up-bad-amount") || lock_coins)
+            .then(|| {
+                let mut form = screens::identity::TopUpForm::default();
+                if preset("top-up-bad-amount") {
+                    form.amount = "1,234.56".into();
+                } else if lock_coins {
+                    let amount = if preset("top-up-many-coins") {
+                        1_100_000
+                    } else {
+                        10_000_000
+                    };
+                    form.amount = crate::format::input_text(amount);
+                    form.suggested = Some(amount);
+                } else if !real_shot {
+                    // The frame with an amount, as the person would type it; the form opens empty
+                    // (BUG-182).
+                    form.amount = crate::format::input_text(10_000_000);
+                    form.suggested = Some(10_000_000);
+                }
+                form
+            });
         // FEAT-0015 stage 2: the funding of the Platform address frame by frame (22–25).
         if preset("fund-address") || preset("fund-address-review") {
             // The frames with an amount (22, 22b): 0.1 DASH, put in as the person would type it.
@@ -1290,6 +1338,11 @@ impl App {
         // same while the core is on step 2.
         if preset("create-identity") || preset("creating") || preset("create-identity-confirm") {
             self.create_identity.name = "evolite-2026".into();
+        }
+        // `--screen create-identity-many-coins` (SPV Б2): a nameless identity of 0.011 DASH from
+        // 300 coins of 0.0001.
+        if preset("create-identity-many-coins") {
+            self.create_identity.amount = crate::format::input_text(1_100_000);
         }
         // `--screen create-identity-confirm`: «Check the new identity» over it (FEAT-0014,
         // frame 7); `create-identity-nameless`, `-short`, `-unchecked` keep the name empty.

@@ -343,6 +343,11 @@ impl Real {
             // Every spend passes the one gate first (R-27): refused, it is answered as the
             // operation's own failure, and nothing of it was checked, locked or signed.
             Command::Spend { op, password } => {
+                // An asset lock the coins cannot make (SPV Б2, item 3) is refused before the
+                // password is even looked at: no password typed in vain.
+                if let Err(why) = self.lock_coins_before_password(&op).await {
+                    return (Some(op.refused(why)), true);
+                }
                 // A key change the identity cannot take is refused before the password
                 // (FEAT-0020 AC-T2).
                 if let Spend::UpdateKeys {

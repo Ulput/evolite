@@ -1,4 +1,6 @@
 {
+  "This amount needs more than {} coins — the network will not take such a transaction. First combine the small coins: send “Max” from Core to your own address and try again": "この金額には {} 枚を超えるコインが必要です — ネットワークはこのようなトランザクションを受け付けません。先に小さなコインをまとめてください: Core から自分のアドレスへ「全額」を送ってから、もう一度お試しください",
+  "Some of the coins are not confirmed by the network yet — wait for a block": "一部のコインはまだネットワークで承認されていません — ブロックを待ってください",
   "View the keys": "鍵を見る",
   "Could not find out whether the keys changed — look at the keys again before trying once more": "鍵が変更されたかどうか確認できませんでした — もう一度試す前に、鍵をもう一度確認してください",
   "DashPay needs this wallet's keys on the identity first: “Enable DashPay…” below": "DashPay には、まずアイデンティティにこのウォレットの鍵が必要です：下の「DashPay を有効にする…」",

@@ -1,4 +1,6 @@
 {
+  "This amount needs more than {} coins — the network will not take such a transaction. First combine the small coins: send “Max” from Core to your own address and try again": "Jumlah ini memerlukan lebih dari {} koin — jaringan tidak akan menerima transaksi seperti itu. Gabungkan dulu koin-koin kecil: kirim “Semua” dari Core ke alamat Anda sendiri, lalu coba lagi",
+  "Some of the coins are not confirmed by the network yet — wait for a block": "Sebagian koin belum dikonfirmasi jaringan — tunggu satu blok",
   "View the keys": "Lihat kunci",
   "Could not find out whether the keys changed — look at the keys again before trying once more": "Tidak dapat diketahui apakah kunci sudah berubah — periksa kunci sekali lagi sebelum mencoba lagi",
   "DashPay needs this wallet's keys on the identity first: “Enable DashPay…” below": "DashPay perlu kunci dompet ini pada identitas lebih dulu: «Aktifkan DashPay…» di bawah",

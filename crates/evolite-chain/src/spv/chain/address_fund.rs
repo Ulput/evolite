@@ -119,18 +119,22 @@ impl Chain {
         lock: u64,
     ) -> Result<(key_wallet::dashcore::OutPoint, bool), String> {
         let lock_signer = crate::identity::AssetLockSigner(keys.clone());
-        let (out_point, instant) = match wallet
-            .asset_locks()
-            .create_funded_asset_lock_proof(
-                lock,
-                0,
-                platform_wallet::AssetLockFundingType::AssetLockAddressTopUp,
-                // As `fund_from_asset_lock` asks for it: destination index 0.
-                0,
-                &lock_signer,
+        // Only final coins (SPV item 3).
+        let made = self
+            .with_final_coins(
+                wallet,
+                false,
+                wallet.asset_locks().create_funded_asset_lock_proof(
+                    lock,
+                    0,
+                    platform_wallet::AssetLockFundingType::AssetLockAddressTopUp,
+                    // As `fund_from_asset_lock` asks for it: destination index 0.
+                    0,
+                    &lock_signer,
+                ),
             )
-            .await
-        {
+            .await;
+        let (out_point, instant) = match made {
             Ok((proof, _, out_point)) => (
                 out_point,
                 matches!(proof, dpp::prelude::AssetLockProof::Instant(_)),

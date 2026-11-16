@@ -1830,6 +1830,104 @@ async fn identity_verify_contract_read() {
     );
 }
 
+/// SPV item 3, review r1 Should 1: a coin frozen for a build is thawed however the build ends —
+/// a panic in it, or its future dropped by a timeout — not only when it returns. Offline: the
+/// store only, a public test phrase.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_build_that_panics_or_times_out_leaves_no_coin_frozen() {
+    use key_wallet::dashcore::hashes::Hash;
+    use key_wallet::dashcore::{OutPoint, TxOut, Txid};
+    let dir = std::env::temp_dir().join(format!("evolite-thaw-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let paths = ChainPaths {
+        spv: dir.join("spv").join("testnet"),
+        store: dir
+            .join("wallets")
+            .join("testnet")
+            .join("platform-wallet.db"),
+        core_node: dir.join("core-node.txt"),
+    };
+    let chain = Arc::new(Chain::default());
+    chain
+        .open_store_only(&paths)
+        .await
+        .expect("the store opens");
+    let phrase = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
+    let (_, wallet) = chain.open_wallet(phrase, 0).await.expect("wallet opens");
+    let address = wallet
+        .core()
+        .next_receive_address_for_account(0)
+        .await
+        .expect("an address");
+    // InstantSend-marked by a lock not verified in this run: not final, frozen for a build.
+    let mut coin = key_wallet::Utxo::new(
+        OutPoint::new(Txid::from_byte_array([1; 32]), 0),
+        TxOut {
+            value: 9_000_000,
+            script_pubkey: address.script_pubkey(),
+        },
+        address.clone(),
+        100,
+        false,
+    );
+    coin.is_instantlocked = true;
+    {
+        use key_wallet::account::account_type::StandardAccountType;
+        let mut state = wallet.state_mut().await;
+        state
+            .core_wallet
+            .accounts
+            .funds_account_mut(&key_wallet::AccountType::Standard {
+                index: 0,
+                standard_account_type: StandardAccountType::BIP44Account,
+            })
+            .expect("BIP44 account 0")
+            .utxos
+            .insert(coin.outpoint, coin.clone());
+    }
+    let locked = |wallet: Arc<PlatformWallet>| async move {
+        let state = wallet.state().await;
+        crate::convert::coins_once(&state.core_wallet)
+            .iter()
+            .any(|u| u.is_locked)
+    };
+    let thawed = |wallet: Arc<PlatformWallet>| async move {
+        for _ in 0..200 {
+            if !locked(wallet.clone()).await {
+                return true;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+        false
+    };
+    // The build sees the coin frozen.
+    let seen = chain
+        .with_final_coins(&wallet, false, locked(wallet.clone()))
+        .await;
+    assert!(seen, "frozen while the build runs");
+    assert!(!locked(wallet.clone()).await, "and thawed after");
+    // A build that panics.
+    let (c, w) = (chain.clone(), wallet.clone());
+    let panicked = tokio::spawn(async move {
+        c.with_final_coins(&w, false, async { panic!("the build fails") })
+            .await
+    })
+    .await;
+    assert!(panicked.is_err());
+    assert!(thawed(wallet.clone()).await, "thawed after a panic");
+    // A build cut short by a timeout.
+    let cut = tokio::time::timeout(
+        std::time::Duration::from_millis(50),
+        chain.with_final_coins(&wallet, false, std::future::pending::<()>()),
+    )
+    .await;
+    assert!(cut.is_err());
+    assert!(thawed(wallet.clone()).await, "thawed after a timeout");
+    drop(wallet);
+    chain.stop().await;
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// SPV item 2b, AC-T2б.1: eight peers on both networks; with «Own node» that node alone.
 #[test]
 fn the_client_keeps_eight_peers_on_both_networks() {

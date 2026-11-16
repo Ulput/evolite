@@ -455,22 +455,27 @@ mod imp {
                 },
             };
             let signer = crate::identity::AssetLockSigner(keys.clone());
-            prove(async move {
-                wallet
-                    .shielded_fund_from_asset_lock(
-                        &coordinator,
-                        funding,
-                        vec![(address, None)],
-                        &signer,
-                        &CachedOrchardProver::new(),
-                        None,
-                        0,
-                        None,
-                        None,
-                    )
-                    .await
-                    .map_err(PoolError::of)
-            })
+            // Only final coins (SPV item 3).
+            self.with_final_coins(
+                wallet,
+                false,
+                prove(async move {
+                    wallet
+                        .shielded_fund_from_asset_lock(
+                            &coordinator,
+                            funding,
+                            vec![(address, None)],
+                            &signer,
+                            &CachedOrchardProver::new(),
+                            None,
+                            0,
+                            None,
+                            None,
+                        )
+                        .await
+                        .map_err(PoolError::of)
+                }),
+            )
             .await?;
             self.read_pool_now().await;
             Ok(())

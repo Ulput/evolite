@@ -126,6 +126,8 @@ mod tests {
                 .map(|&value| CoreCoin { value, fee: 522 })
                 .collect(),
             core_unsignable: 0,
+            lock_coins: Vec::new(),
+            lock_inputs_max: 0,
             credit_transfer: 0,
             credit_transfer_to_address: 0,
             pool_transfer: 0,

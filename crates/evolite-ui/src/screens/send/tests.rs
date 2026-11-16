@@ -305,6 +305,8 @@ fn zero_fees() -> evolite_api::Fees {
     evolite_api::Fees {
         core_payment: 0,
         core_unsignable: 0,
+        lock_coins: Vec::new(),
+        lock_inputs_max: 0,
         core_coins: Vec::new(),
         credit_transfer: 0,
         credit_transfer_to_address: 0,

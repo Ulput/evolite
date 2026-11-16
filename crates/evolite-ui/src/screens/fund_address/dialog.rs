@@ -60,6 +60,11 @@ pub fn fund_dialog(
     crate::format::fill_suggested(&mut form.amount, &mut form.suggested);
     let review = form.review;
     let plan = plan_of(form, wallet);
+    // SPV Б2 and item 3: a lock its coins cannot make, before «Review».
+    let lock_refusal = match plan {
+        Some(Ok(plan)) => evolite_core::lock_words::lock_refusal(wallet.fees.lock_coins(plan.lock)),
+        _ => None,
+    };
     let core_amount = CardAmount::core(&wallet.balances);
     let mut send: Option<Duffs> = None;
     let mut back = false;
@@ -85,7 +90,9 @@ pub fn fund_dialog(
                     // The password of the review (22b), always asked when the setting asks.
                     let ask = wallet.password_each_send;
                     let entered = state.password.field(ui, &p, "fund-address-password", ask);
-                    let ready = matches!(plan, Some(Ok(_))) && state.password.ready(ask);
+                    let ready = matches!(plan, Some(Ok(_)))
+                        && lock_refusal.is_none()
+                        && state.password.ready(ask);
                     crate::components::button_row_spend(ui, |ui| {
                         if button(ui, a, tr!("Back"), ButtonKind::Ghost, None).clicked() {
                             back = true;
@@ -109,7 +116,7 @@ pub fn fund_dialog(
                         if button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked() {
                             close = true;
                         }
-                        let ready = matches!(plan, Some(Ok(_)));
+                        let ready = matches!(plan, Some(Ok(_))) && lock_refusal.is_none();
                         if button_enabled(ui, a, tr!("Review"), ButtonKind::Primary, None, ready)
                             .clicked()
                         {
@@ -181,6 +188,12 @@ pub fn fund_dialog(
                     ),
                 };
                 ui.label(txt(&line, 12.0, Weight::Regular, color));
+                if let Some(words) = &lock_refusal {
+                    ui.add(
+                        crate::components::para(words, 12.0, Weight::Regular, p.danger)
+                            .line_height(18.0),
+                    );
+                }
                 crate::components::kv_row_eye_in(
                     ui,
                     a,

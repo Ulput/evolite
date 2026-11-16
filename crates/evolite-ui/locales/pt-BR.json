@@ -1,4 +1,6 @@
 {
+  "This amount needs more than {} coins — the network will not take such a transaction. First combine the small coins: send “Max” from Core to your own address and try again": "Este valor precisa de mais de {} moedas — a rede não aceita uma transação assim. Primeiro junte as moedas pequenas: envie “Tudo” do Core para o seu próprio endereço e tente de novo",
+  "Some of the coins are not confirmed by the network yet — wait for a block": "Parte das moedas ainda não foi confirmada pela rede — aguarde um bloco",
   "View the keys": "Ver as chaves",
   "Could not find out whether the keys changed — look at the keys again before trying once more": "Não foi possível saber se as chaves mudaram — veja as chaves de novo antes de tentar outra vez",
   "DashPay needs this wallet's keys on the identity first: “Enable DashPay…” below": "O DashPay precisa primeiro das chaves desta carteira na identidade: «Ativar DashPay…» abaixo",

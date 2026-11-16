@@ -452,16 +452,20 @@ impl Chain {
             );
         }
         let crypto = dashpay::SeedCrypto(keys.clone());
-        let sent = wallet
-            .identity()
-            .dashpay()
-            .send_payment(
-                &me.id(),
-                &to,
-                amount,
-                None,
-                &identity::AssetLockSigner(keys.clone()),
-                &crypto,
+        // Only final coins and our own change (SPV item 3).
+        let signer = identity::AssetLockSigner(keys.clone());
+        let sent = self
+            .with_final_coins(
+                wallet,
+                true,
+                wallet.identity().dashpay().send_payment(
+                    &me.id(),
+                    &to,
+                    amount,
+                    None,
+                    &signer,
+                    &crypto,
+                ),
             )
             .await;
         match sent {

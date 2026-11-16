@@ -161,6 +161,12 @@ pub(super) fn top_up_dialog(
                     p.danger,
                 ));
             }
+            // SPV Б2 and item 3: a lock its coins cannot make, before «Top up».
+            let lock_refused = signed.is_none()
+                && !too_much
+                && !too_little
+                && crate::screens::lock_refused_line(ui, &p, fees, amount.map(|d| d + on_top));
+            let too_much = too_much || lock_refused;
             let credits = signed.map_or(wallet.balances.credits, |s| s.credits_before);
             let after = credits.saturating_add(amount.unwrap_or(0));
             let value = style(UI.weight(Weight::Medium).mono());

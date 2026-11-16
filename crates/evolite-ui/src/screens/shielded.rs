@@ -619,6 +619,13 @@ fn shield_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut PoolStat
                     && !unread(source);
                 shield_amount_field(ui, &p, state, &cost, *source, say_limits);
             }
+            // SPV Б2 and item 3: from Core, a new lock its coins cannot make, before «Shield».
+            let lock_refused = *source == ShieldSource::Core
+                && resume.is_none()
+                && preview.is_some()
+                && !busy
+                && crate::screens::lock_refused_line(ui, &p, fees, amount);
+            let preview = preview.filter(|_| !lock_refused);
             // From credits not checked in this run, what is left is not said (BUG-116).
             let checked = wallet.balances.credits_checked;
             shield_cost_lines(ui, &p, &cost, source, resume, preview, checked);
@@ -1216,6 +1223,8 @@ pub(crate) mod tests {
         Fees {
             core_payment: 226,
             core_unsignable: 0,
+            lock_coins: Vec::new(),
+            lock_inputs_max: 0,
             core_coins: Vec::new(),
             credit_transfer: 2_000,
             credit_transfer_to_address: 20_000,

@@ -1345,6 +1345,8 @@ pub fn demo_wallet(t: Timestamp) -> Wallet {
             core_payment: 522,
             // The Core balance in three coins (BUG-55): a payment costs the coins it takes.
             core_unsignable: 0,
+            lock_coins: Vec::new(),
+            lock_inputs_max: 0,
             core_coins: vec![
                 CoreCoin {
                     value: 500_000_000,

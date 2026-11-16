@@ -483,3 +483,140 @@ fn an_own_spend_is_a_line_only_when_it_went_through() {
     // Balances not read: still the line, with nothing spent shown rather than a guess.
     assert_eq!(own_line(kind(), None, Some(1), me).spent, 0);
 }
+
+/// A wallet whose BIP44 account 0 holds `coins` (value, final) at its own first address: coins a
+/// payment can sign for (SPV Б2, item 3). Not final: InstantSend-marked by a lock not verified.
+fn wallet_of_own_coins(coins: &[(u64, bool)]) -> key_wallet::wallet::ManagedWalletInfo {
+    use key_wallet::dashcore::hashes::Hash;
+    use key_wallet::managed_account::managed_account_trait::ManagedAccountTrait;
+    let keys = keys_of(PHRASE).unwrap();
+    let mut info = key_wallet::wallet::ManagedWalletInfo::from_wallet(&keys, 0);
+    let account = info
+        .accounts_mut()
+        .standard_bip44_accounts
+        .get_mut(&0)
+        .unwrap();
+    let address = account.keys().managed_account_type().all_addresses()[0].clone();
+    for (n, (value, is_final)) in coins.iter().enumerate() {
+        let mut coin = key_wallet::Utxo::new(
+            key_wallet::dashcore::OutPoint::new(
+                key_wallet::dashcore::Txid::from_byte_array([(n % 250) as u8 + 1; 32]),
+                (n / 250) as u32,
+            ),
+            key_wallet::dashcore::TxOut {
+                value: *value,
+                script_pubkey: address.script_pubkey(),
+            },
+            address.clone(),
+            1_570_000,
+            false,
+        );
+        coin.is_confirmed = *is_final;
+        coin.is_instantlocked = !*is_final;
+        account.utxos.insert(coin.outpoint, coin);
+    }
+    info
+}
+
+/// SPV Б2 AC-T2: 150 coins of 0.0001 DASH cannot make a lock of 0.01: refused with the number
+/// before anything is built; a few large coins make it.
+#[test]
+fn a_lock_of_too_many_small_coins_is_refused_with_the_number() {
+    use crate::real::ops::lock_coins::lock_coins_allow;
+    let small = wallet_of_own_coins(&[(10_000, true); 150]);
+    let refused = lock_coins_allow(&small, 1_000_000, |_| true, 100);
+    match refused {
+        Err(CoreError::NotAvailable(words)) => {
+            assert!(words.contains("more than 90 coins"), "{words}");
+            assert!(words.contains("“Max”"), "{words}");
+        }
+        other => panic!("{other:?}"),
+    }
+    let large = wallet_of_own_coins(&[(5_000_000, true), (3_000_000, true)]);
+    assert_eq!(lock_coins_allow(&large, 6_000_000, |_| true, 100), Ok(()));
+    assert_eq!(
+        lock_coins_allow(&large, 9_000_000, |_| true, 100),
+        Err(CoreError::NotEnough)
+    );
+}
+
+/// SPV item 3 (AC-T3.3 for the core, AC-T3.5): a lock the final coins cannot make, while coins
+/// marked InstantSend by a lock not verified in this run (one the store restored) would: wait for
+/// a block. Verified, the same coin counts.
+#[test]
+fn a_lock_waits_when_only_unverified_coins_would_make_it() {
+    use crate::real::ops::lock_coins::lock_coins_allow;
+    let info = wallet_of_own_coins(&[(1_000_000, true), (5_000_000, false)]);
+    assert_eq!(
+        lock_coins_allow(&info, 3_000_000, |_| false, 100),
+        Err(CoreError::NotAvailable(
+            crate::lock_words::NOT_FINAL_YET.into()
+        ))
+    );
+    assert_eq!(lock_coins_allow(&info, 3_000_000, |_| true, 100), Ok(()));
+    assert_eq!(lock_coins_allow(&info, 500_000, |_| false, 100), Ok(()));
+}
+
+/// Б2 AC-T2 and AC-T4: each of the four paths checks the lock it would make, as it reckons it;
+/// nothing else is touched (the pool from credits or an address, a payment, a cut-short pool
+/// lock finished instead of a new one).
+#[test]
+fn the_four_lock_paths_and_nothing_else_are_checked() {
+    use crate::real::ops::lock_coins::lock_amount;
+    let fees = evolite_chain::convert::fees(1);
+    let top_up = 50_000_000;
+    assert_eq!(
+        lock_amount(
+            &Spend::CreateIdentity {
+                name: Some("satoshi".into()),
+                top_up,
+            },
+            &fees,
+            false,
+            0
+        ),
+        convert::identity_lock(top_up as u64, &fees, true)
+    );
+    assert_eq!(
+        lock_amount(&Spend::TopUpIdentity { amount: top_up }, &fees, false, 0),
+        convert::top_up_lock(top_up as u64, &fees)
+    );
+    let shield = |from| Spend::Shield {
+        from,
+        amount: top_up,
+    };
+    assert_eq!(
+        lock_amount(&shield(ShieldSource::Core), &fees, false, 0),
+        Some(top_up as u64)
+    );
+    assert_eq!(
+        lock_amount(&shield(ShieldSource::Core), &fees, true, 0),
+        None,
+        "a cut-short lock is finished: no new one"
+    );
+    assert_eq!(
+        lock_amount(
+            &Spend::FundAddress { amount: top_up },
+            &fees,
+            false,
+            1_000_000_000
+        ),
+        evolite_api::address_fund::fund_plan(top_up, false, 1_000_000_000, &fees)
+            .ok()
+            .map(|p| p.lock as u64)
+    );
+    for other in [
+        shield(ShieldSource::Credits),
+        shield(ShieldSource::PlatformAddress),
+        Spend::ResumeTopUp,
+        Spend::ResumeIdentity,
+        Spend::ResumeFundAddress,
+        Spend::Unshield { amount: top_up },
+    ] {
+        assert_eq!(
+            lock_amount(&other, &fees, false, 1_000_000_000),
+            None,
+            "{other:?}"
+        );
+    }
+}

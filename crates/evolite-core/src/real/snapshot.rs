@@ -161,6 +161,8 @@ struct WalletRead {
     addresses: usize,
     /// The coins' values for the fee of a payment (BUG-55).
     coin_values: Vec<u64>,
+    /// The values of the coins an asset lock may take: final and signable (SPV item 3).
+    lock_values: Vec<u64>,
     /// What of the balance no payment can sign for yet (BUG-142).
     unsignable: Duffs,
     /// The contacts' receiving accounts, by [`contact_scans::ContactScans::key`] (BUG-150).
@@ -380,6 +382,7 @@ impl Real {
             coins,
             addresses,
             coin_values,
+            lock_values,
             unsignable,
             contact_accounts,
             mut history,
@@ -402,6 +405,7 @@ impl Real {
         let (pool, unfinished_shield, connecting_pool) = self.read_pool(id).await;
         let mut fees = turn::timed("fees_now", self.fees_now(coins)).await;
         fees.core_coins = convert::core_coins(coin_values);
+        fees.lock_coins = convert::core_coins(lock_values);
         fees.core_unsignable = unsignable;
         // A funding of the address cut short: finished to the address it was signed for (or,
         // after a restore, the one shown), with what Platform keeps: one estimate, whatever the
@@ -725,6 +729,12 @@ impl Real {
             coins: utxos.len(),
             addresses: holding.len(),
             coin_values: utxos.iter().map(|u| u.value()).collect(),
+            lock_values: convert::payable_coins(&state.core_wallet, |txid| {
+                self.chain.instant_lock_verified(txid)
+            })
+            .iter()
+            .map(|u| u.value())
+            .collect(),
             unsignable: convert::unsignable(&state.core_wallet),
             contact_accounts: state
                 .core_wallet
@@ -1250,6 +1260,7 @@ impl Real {
             pool::set_fees(&mut fees, sdk.version());
             platform_fees(&mut fees, sdk.version(), &self.journal);
             evolite_chain::convert::contest_times(&mut fees, sdk.version(), mainnet);
+            fees.lock_inputs_max = evolite_chain::convert::lock_inputs_max(sdk.version());
         } else {
             // A name contest's durations before the SDK is up: the latest protocol's (FEAT-0021).
             let latest = dpp::version::PlatformVersion::latest();

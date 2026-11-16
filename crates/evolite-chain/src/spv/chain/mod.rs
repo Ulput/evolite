@@ -96,6 +96,9 @@ pub struct Chain {
     top_up_notes: Mutex<HashMap<key_wallet::dashcore::OutPoint, TopUpNote>>,
     /// Transactions whose InstantLock was verified (R-1): the rest are not shown as InstantSend.
     instant_locks: VerifiedLocks,
+    /// SPV item 3: the coins this chain locked for platform-wallet's builders not to take (not
+    /// final), with how many builds under way hold each: [`crate::convert::freeze_unfinal`].
+    frozen: Arc<Mutex<Frozen>>,
     /// Platform reads past [`Self::ready`]: the ones that would go to the network (BUG-78).
     #[cfg(any(test, feature = "test-support"))]
     pub proof_reads: std::sync::atomic::AtomicUsize,
@@ -127,6 +130,7 @@ impl Default for Chain {
             })),
             top_up_notes: Mutex::new(HashMap::new()),
             instant_locks: VerifiedLocks::default(),
+            frozen: Default::default(),
             #[cfg(any(test, feature = "test-support"))]
             proof_reads: Default::default(),
             #[cfg(any(test, feature = "test-support"))]
@@ -261,10 +265,90 @@ pub fn payment_builder(to: &Address, amount: u64) -> TransactionBuilder {
         .add_output(to, amount)
 }
 
+/// The coins [`Chain::with_final_coins`] froze, with how many builds hold each.
+type Frozen = HashMap<key_wallet::dashcore::OutPoint, u32>;
+
+/// The coins one build froze, thawed when it ends: at once on the normal path
+/// ([`Thaw::now`]), and from `drop` when the build's future is dropped or panics — a short task
+/// on the runtime, as the wallet's lock is async (SPV item 3, review r1 Should 1). Without one
+/// they stayed frozen until a restart.
+struct Thaw {
+    wallet: Option<PlatformWallet>,
+    held: Arc<Mutex<Frozen>>,
+    frozen: Vec<key_wallet::dashcore::OutPoint>,
+}
+
+impl Thaw {
+    async fn now(mut self) {
+        if let Some(wallet) = self.wallet.take() {
+            thaw_in(&wallet, &self.held, &self.frozen).await;
+        }
+    }
+}
+
+impl Drop for Thaw {
+    fn drop(&mut self) {
+        let Some(wallet) = self.wallet.take() else {
+            return;
+        };
+        if self.frozen.is_empty() {
+            return;
+        }
+        let (held, frozen) = (self.held.clone(), std::mem::take(&mut self.frozen));
+        if let Ok(runtime) = tokio::runtime::Handle::try_current() {
+            runtime.spawn(async move { thaw_in(&wallet, &held, &frozen).await });
+        }
+    }
+}
+
+async fn thaw_in(
+    wallet: &PlatformWallet,
+    held: &Mutex<Frozen>,
+    frozen: &[key_wallet::dashcore::OutPoint],
+) {
+    if frozen.is_empty() {
+        return;
+    }
+    let mut state = wallet.state_mut().await;
+    let mut held = held.lock().unwrap_or_else(|e| e.into_inner());
+    crate::convert::thaw(&mut state.core_wallet, frozen, &mut held);
+}
+
 impl Chain {
     /// Whether the InstantLock of `txid` was verified in this run (R-1, BUG-26).
     pub fn instant_lock_verified(&self, txid: &key_wallet::dashcore::Txid) -> bool {
         self.instant_locks.contains(txid)
+    }
+
+    /// Runs `build` (one of platform-wallet's own builders) with the coins that are not final
+    /// frozen (SPV item 3, [`crate::convert::freeze_unfinal`]), and frees them after, whatever it
+    /// answered (AC-T3.4). `keep_trusted`: a payment to a contact may take our own change.
+    pub async fn with_final_coins<T>(
+        &self,
+        wallet: &platform_wallet::PlatformWallet,
+        keep_trusted: bool,
+        build: impl std::future::Future<Output = T>,
+    ) -> T {
+        let frozen = {
+            let mut state = wallet.state_mut().await;
+            let mut held = self.frozen.lock().unwrap_or_else(|e| e.into_inner());
+            crate::convert::freeze_unfinal(
+                &mut state.core_wallet,
+                |txid| self.instant_lock_verified(txid),
+                keep_trusted,
+                &mut held,
+            )
+        };
+        // Thawed however the build ends: a panic in it or its future dropped (a timeout, a
+        // cancelled task) thaws from the guard's drop (review r1 Should 1).
+        let guard = Thaw {
+            wallet: Some(wallet.clone()),
+            held: self.frozen.clone(),
+            frozen,
+        };
+        let answer = build.await;
+        guard.now().await;
+        answer
     }
 
     /// The bytes of `txid`'s InstantLock verified in this run, while kept (BUG-173: the wallet

@@ -35,6 +35,7 @@ mod identity_pool;
 mod imgur;
 mod layout;
 mod loading;
+mod lock_coins;
 mod login;
 mod low_login;
 mod low_menu;

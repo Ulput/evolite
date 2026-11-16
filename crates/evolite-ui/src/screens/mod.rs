@@ -120,6 +120,27 @@ pub fn place_name(screen: Screen) -> &'static str {
 
 pub(crate) use crate::components::txt;
 
+/// SPV Б2 and item 3: an asset lock of `lock` duffs its coins cannot make (more inputs than the
+/// network takes, or final coins short), said under the amount in the danger colour, in the
+/// core's own words: the form refuses it before «Check» as the core would before the password.
+/// `true` when refused.
+pub(crate) fn lock_refused_line(
+    ui: &mut egui::Ui,
+    p: &crate::theme::Palette,
+    fees: &evolite_api::Fees,
+    lock: Option<evolite_api::Duffs>,
+) -> bool {
+    let Some(words) = lock.and_then(|d| evolite_core::lock_words::lock_refusal(fees.lock_coins(d)))
+    else {
+        return false;
+    };
+    let small = crate::theme::type_scale::SMALL;
+    ui.add(
+        crate::components::para(&words, small.size, small.weight, p.danger).line_height(small.line),
+    );
+    true
+}
+
 /// SPV item 2a: in «Check …» of a payment that spends Core coins, over an hour without a new
 /// block — a line in the warning colour, not a ban: the button stays, nothing more is asked
 /// (the analyst).

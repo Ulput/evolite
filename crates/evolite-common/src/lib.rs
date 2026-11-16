@@ -19,6 +19,7 @@ pub mod diag;
 pub mod dpns;
 pub mod key_refusal;
 pub mod layers;
+pub mod lock_words;
 pub mod network;
 pub mod note_text;
 pub mod phrase_check;

@@ -1,4 +1,6 @@
 {
+  "This amount needs more than {} coins — the network will not take such a transaction. First combine the small coins: send “Max” from Core to your own address and try again": "Bu tutar için {} coinden fazlası gerekiyor — ağ böyle bir işlemi kabul etmez. Önce küçük coinleri birleştirin: Core’dan kendi adresinize “Tümü”nü gönderin ve yeniden deneyin",
+  "Some of the coins are not confirmed by the network yet — wait for a block": "Coinlerin bir kısmı ağ tarafından henüz onaylanmadı — bir blok bekleyin",
   "View the keys": "Anahtarları görüntüle",
   "Could not find out whether the keys changed — look at the keys again before trying once more": "Anahtarların değişip değişmediği anlaşılamadı — yeniden denemeden önce anahtarlara bir kez daha bakın",
   "DashPay needs this wallet's keys on the identity first: “Enable DashPay…” below": "DashPay için önce kimlikte bu cüzdanın anahtarları gerekir: aşağıda «DashPay'i etkinleştir…»",
