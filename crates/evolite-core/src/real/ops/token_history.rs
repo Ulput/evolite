@@ -8,7 +8,11 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
+use std::collections::HashMap;
+use std::time::{Duration, Instant};
+
 use evolite_api::Timestamp;
+use evolite_chain::chain::IssuerDocKind;
 use evolite_chain::token_history::{Balance, Cursor, Direction, Side, State, TransferDoc};
 use evolite_local::journal::{self, Entry, Kind, Source};
 
@@ -123,6 +127,99 @@ pub(in crate::real) fn entry_of_claim(
     entry.key = Some(format!("tokx:{}", doc.id));
     entry.source = Source::Network;
     entry
+}
+
+/// An issuer action's TokenHistory document as a journal entry (T-3.10): the line an action
+/// taken here makes, keyed by the same document, so one taken here and its document are one
+/// line, and one taken on another device or before a restore comes back.
+pub(in crate::real) fn entry_of_issuer(
+    doc: &evolite_chain::chain::IssuerDoc,
+    identity: &str,
+    meta: &TokenMeta,
+) -> Entry {
+    use evolite_chain::chain::IssuerDocKind as D;
+    let act = match doc.kind {
+        D::Minted => journal::IssuerKind::Minted,
+        D::Burned => journal::IssuerKind::Burned,
+        D::Frozen => journal::IssuerKind::Frozen,
+        D::Unfrozen => journal::IssuerKind::Unfrozen,
+        D::Destroyed => journal::IssuerKind::Destroyed,
+        D::Paused => journal::IssuerKind::Paused,
+        D::Resumed => journal::IssuerKind::Resumed,
+        D::PriceChanged => journal::IssuerKind::PriceChanged,
+        D::SettingsChanged => journal::IssuerKind::SettingsChanged,
+    };
+    let kind = Kind::TokenIssuer {
+        token: meta.label.clone(),
+        act,
+        amount: doc
+            .amount
+            .map(|n| evolite_api::tokens::amount_text(n, meta.decimals)),
+        units: doc.amount,
+        who: doc.who.clone(),
+    };
+    let at = (doc.at_ms / 1_000) as Timestamp;
+    let mut entry = journal::entry_of(kind, at, 0, Some(identity.to_owned()));
+    entry.key = Some(format!("tokx:{}", doc.id));
+    entry.source = Source::Network;
+    entry
+}
+
+/// How often a token's issuer actions are read for one identity (T-3.10 review r1, should 1).
+pub(in crate::real) const ISSUER_EVERY: Duration = Duration::from_secs(5 * 60);
+
+/// The kinds of issuer action `me` has some right to — alone or with a group — on a token by its
+/// rules (`config`, of the kept contract: this reads history, it signs nothing, review r1): only
+/// those are asked of TokenHistory, and none at all without a right. Settings: when `me` may
+/// change a setting's value or who may.
+pub(in crate::real) fn issuer_kinds(
+    config: &dpp::data_contract::associated_token::token_configuration::TokenConfiguration,
+    owner: &dpp::prelude::Identifier,
+    groups: &BTreeMap<u16, dpp::data_contract::group::Group>,
+    me: dpp::prelude::Identifier,
+) -> Vec<IssuerDocKind> {
+    use evolite_chain::tokens::rights::{self, Action, Right};
+    use evolite_chain::tokens::settings;
+    let mut kinds = Vec::new();
+    for (action, right) in rights::rights(config, owner, groups, me) {
+        if right == Right::No {
+            continue;
+        }
+        match action {
+            Action::Mint => kinds.push(IssuerDocKind::Minted),
+            Action::Burn => kinds.push(IssuerDocKind::Burned),
+            Action::Freeze => kinds.push(IssuerDocKind::Frozen),
+            Action::Unfreeze => kinds.push(IssuerDocKind::Unfrozen),
+            Action::DestroyFrozen => kinds.push(IssuerDocKind::Destroyed),
+            Action::Pause => kinds.extend([IssuerDocKind::Paused, IssuerDocKind::Resumed]),
+            Action::Price => kinds.push(IssuerDocKind::PriceChanged),
+        }
+    }
+    if settings::settings_rights(config, owner, groups, me)
+        .values()
+        .any(|r| r.value != Right::No || r.who != Right::No)
+    {
+        kinds.push(IssuerDocKind::SettingsChanged);
+    }
+    kinds
+}
+
+/// Whether `token`'s issuer actions are due for `identity` at `now`: never read, or read
+/// [`ISSUER_EVERY`] ago or more. Marks the read when due.
+pub(in crate::real) fn issuer_due(
+    reads: &mut HashMap<(String, String), Instant>,
+    token: &str,
+    identity: &str,
+    now: Instant,
+) -> bool {
+    let key = (token.to_owned(), identity.to_owned());
+    let due = reads
+        .get(&key)
+        .is_none_or(|at| now.saturating_duration_since(*at) >= ISSUER_EVERY);
+    if due {
+        reads.insert(key, now);
+    }
+    due
 }
 
 /// A balance's change with no operation (UC-5в) as a journal entry, timed at the read.
@@ -404,6 +501,7 @@ pub(in crate::real) async fn read_asked(
     identity: String,
     metas: Vec<TokenMeta>,
     earlier: bool,
+    issuer: HashMap<String, Vec<IssuerDocKind>>,
 ) {
     let (mut state, writable) = load(&path);
     // T-2.7: the claims, once each time the layer opens (not for «Show earlier»).
@@ -427,6 +525,36 @@ pub(in crate::real) async fn read_asked(
                 }
                 Err(e) => crate::diag::platform_failed("token_history", &e),
             }
+            // T-3.10: what this identity did as the issuer, here or on another device — a kind
+            // at a time, so one refused does not hide the others; only the kinds it has a right
+            // to, and not more often than every 5 minutes (review r1, should 1).
+            let kinds = issuer.get(&meta.token_id).cloned().unwrap_or_default();
+            if kinds.is_empty() {
+                continue;
+            }
+            let mut docs = Vec::new();
+            for kind in kinds {
+                match chain
+                    .token_issuer_docs(&meta.token_id, &identity, kind)
+                    .await
+                {
+                    Ok(found) => docs.extend(found),
+                    Err(e) => crate::diag::platform_failed("token_history", &e),
+                }
+            }
+            let lines = docs
+                .iter()
+                .map(|d| entry_of_issuer(d, &identity, meta))
+                .collect();
+            if let Err(e) = journal.merge_token_network(lines) {
+                crate::diag::platform_failed("token_history", &e);
+            }
+            // Only counts (T-1.8).
+            crate::diag::record(crate::diag::Record::TokenHistory {
+                side: "issuer",
+                why: "asked",
+                docs: docs.len() as u32,
+            });
         }
     }
     for meta in metas.iter().filter(|m| m.keeps_history) {
@@ -688,6 +816,101 @@ mod tests {
             "the balance grew: the transfer is a line"
         );
         assert_eq!(std::fs::read(&path).unwrap(), b"{ not json");
+    }
+
+    /// T-3.10 review r1, should 1: a token where the identity only mints is one query; nothing
+    /// to do with it, none; read again within 5 minutes, none.
+    #[test]
+    fn issuer_reads_follow_the_rights_and_wait_five_minutes() {
+        use dpp::data_contract::associated_token::token_configuration::TokenConfiguration;
+        use dpp::data_contract::associated_token::token_configuration::accessors::v0::TokenConfigurationV0Setters;
+        use dpp::data_contract::associated_token::token_configuration::v0::TokenConfigurationV0;
+        use dpp::data_contract::change_control_rules::ChangeControlRules;
+        use dpp::data_contract::change_control_rules::authorized_action_takers::AuthorizedActionTakers;
+        use dpp::data_contract::change_control_rules::v0::ChangeControlRulesV0;
+        use dpp::prelude::Identifier;
+        let (owner, other) = (Identifier::new([1; 32]), Identifier::new([2; 32]));
+        let groups = BTreeMap::new();
+        let mut config = TokenConfiguration::V0(TokenConfigurationV0::default_most_restrictive());
+        // Minting by the owner; who mints decided by nobody: no settings to change.
+        config.set_manual_minting_rules(ChangeControlRules::V0(ChangeControlRulesV0 {
+            authorized_to_make_change: AuthorizedActionTakers::ContractOwner,
+            admin_action_takers: AuthorizedActionTakers::NoOne,
+            changing_authorized_action_takers_to_no_one_allowed: false,
+            changing_admin_action_takers_to_no_one_allowed: false,
+            self_changing_admin_action_takers_allowed: false,
+        }));
+        assert_eq!(
+            issuer_kinds(&config, &owner, &groups, owner),
+            vec![IssuerDocKind::Minted],
+            "one query"
+        );
+        assert!(
+            issuer_kinds(&config, &owner, &groups, other).is_empty(),
+            "no right: no query"
+        );
+        let mut reads = HashMap::new();
+        let now = Instant::now();
+        assert!(issuer_due(&mut reads, "T", "ME", now), "first");
+        assert!(
+            !issuer_due(&mut reads, "T", "ME", now + Duration::from_secs(299)),
+            "within 5 minutes: none"
+        );
+        assert!(
+            issuer_due(&mut reads, "T", "OTHER", now),
+            "another identity"
+        );
+        assert!(
+            issuer_due(&mut reads, "T", "ME", now + ISSUER_EVERY),
+            "5 minutes on"
+        );
+        reads.clear();
+        assert!(issuer_due(&mut reads, "T", "ME", now), "reset: read again");
+    }
+
+    /// T-3.10: an issuer action's document is the line an action taken here makes — its kind,
+    /// amount and whom, keyed by the document — so the two are one line.
+    #[test]
+    fn an_issuer_document_is_the_line_an_action_here_makes() {
+        use evolite_chain::chain::{IssuerDoc, IssuerDocKind};
+        let doc = IssuerDoc {
+            id: "DocMint".into(),
+            kind: IssuerDocKind::Minted,
+            amount: Some(2_500),
+            who: Some("Bob".into()),
+            at_ms: 1_700_000_000_000,
+        };
+        let entry = entry_of_issuer(&doc, "ME", &meta(true));
+        assert_eq!(entry.key.as_deref(), Some("tokx:DocMint"));
+        assert_eq!(entry.at, 1_700_000_000);
+        match &entry.kind {
+            Some(Kind::TokenIssuer {
+                act: journal::IssuerKind::Minted,
+                amount,
+                units: Some(2_500),
+                who: Some(who),
+                ..
+            }) => {
+                assert_eq!(amount.as_deref(), Some("25.00"));
+                assert_eq!(who, "Bob");
+            }
+            other => panic!("{other:?}"),
+        }
+        let paused = IssuerDoc {
+            id: "DocPause".into(),
+            kind: IssuerDocKind::Paused,
+            amount: None,
+            who: None,
+            at_ms: 1_700_000_100_000,
+        };
+        assert!(matches!(
+            entry_of_issuer(&paused, "ME", &meta(true)).kind,
+            Some(Kind::TokenIssuer {
+                act: journal::IssuerKind::Paused,
+                amount: None,
+                ..
+            })
+        ));
     }
 
     /// T-2.7: a claim document is a «Received …: distribution» line, keyed by its id, in the

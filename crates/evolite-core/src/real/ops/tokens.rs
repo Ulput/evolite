@@ -48,6 +48,8 @@ pub(in crate::real) struct TokenState {
     reading: Arc<AtomicBool>,
     /// A page of the tokens' history is being read (FEAT-0019 T-1).
     history_reading: Arc<AtomicBool>,
+    /// When each token's issuer actions were last read, for which identity (T-3.10 review r1).
+    issuer_reads: Arc<Mutex<HashMap<(String, String), std::time::Instant>>>,
     /// The identity the last snapshot showed: whose history History's «Tokens» asks for.
     shown: Arc<Mutex<Option<String>>>,
     /// The token page last read (FEAT-0019 T-3.2), and for which identity.
@@ -83,6 +85,7 @@ impl TokenState {
             facts: Arc::default(),
             reading: Arc::default(),
             history_reading: Arc::default(),
+            issuer_reads: Arc::default(),
             shown: Arc::default(),
             page: Arc::default(),
             kept_registered: Arc::default(),
@@ -939,16 +942,90 @@ impl Real {
             .into_iter()
             .filter(|m| token.as_ref().is_none_or(|t| *t == m.token_id))
             .collect();
+        // T-3.10 review r1: the issuer actions this identity has a right to, by the kept
+        // contracts' rules, each token at most every 5 minutes; none for «Show earlier».
+        let issuer = if earlier {
+            HashMap::new()
+        } else {
+            self.issuer_kinds(&file, &infos, &metas, &identity)
+        };
         let (chain, journal) = (self.chain.clone(), self.journal.clone());
         let (path, refresh) = (self.paths.token_history.clone(), self.refresher());
         let reading = self.tokens.history_reading.clone();
         let working = self.work(PlatformWork::Tokens);
         tokio::spawn(async move {
             let _working = working;
-            super::token_history::read_asked(chain, journal, path, identity, metas, earlier).await;
+            super::token_history::read_asked(
+                chain, journal, path, identity, metas, earlier, issuer,
+            )
+            .await;
             reading.store(false, Ordering::Release);
             refresh();
         });
+    }
+}
+
+impl Real {
+    /// For each of `metas`, the kinds of issuer action `identity` has a right to by its kept
+    /// contract, when due (T-3.10 review r1, should 1). A token without a kept contract, an
+    /// identity that does not decode, no right, or read less than 5 minutes ago: left out.
+    fn issuer_kinds(
+        &self,
+        file: &WalletTokens,
+        infos: &HashMap<String, TokenInfo>,
+        metas: &[super::token_history::TokenMeta],
+        identity: &str,
+    ) -> HashMap<String, Vec<evolite_chain::chain::IssuerDocKind>> {
+        use dpp::data_contract::accessors::v0::DataContractV0Getters;
+        use dpp::data_contract::accessors::v1::DataContractV1Getters;
+        use dpp::platform_value::string_encoding::Encoding;
+        let Ok(me) = dpp::prelude::Identifier::from_string(identity, Encoding::Base58) else {
+            return HashMap::new();
+        };
+        let contracts: HashMap<String, Vec<u8>> = file.contracts().into_iter().collect();
+        let mut reads = self
+            .tokens
+            .issuer_reads
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let now = std::time::Instant::now();
+        let mut out = HashMap::new();
+        for meta in metas {
+            let Some(info) = infos.get(&meta.token_id) else {
+                continue;
+            };
+            let Some(contract) = contracts
+                .get(&info.contract_id)
+                .and_then(|b| evolite_chain::tokens::info::contract_from_bytes(b))
+            else {
+                continue;
+            };
+            let Some(config) = contract.tokens().get(&info.position) else {
+                continue;
+            };
+            let kinds = super::token_history::issuer_kinds(
+                config,
+                &contract.owner_id(),
+                contract.groups(),
+                me,
+            );
+            if !kinds.is_empty()
+                && super::token_history::issuer_due(&mut reads, &meta.token_id, identity, now)
+            {
+                out.insert(meta.token_id.clone(), kinds);
+            }
+        }
+        out
+    }
+
+    /// History's «Refresh», when it comes: the issuer actions read again at once (review r1).
+    #[allow(dead_code)]
+    pub(in crate::real) fn reset_issuer_reads(&self) {
+        self.tokens
+            .issuer_reads
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clear();
     }
 }
 

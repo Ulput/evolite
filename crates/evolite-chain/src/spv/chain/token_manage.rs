@@ -45,6 +45,93 @@ pub enum IssuerOp {
     Config(TokenConfigurationChangeItem),
 }
 
+/// The kinds of issuer action TokenHistory keeps a document of (T-3.10, the architect's Q5).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum IssuerDocKind {
+    Minted,
+    Burned,
+    Frozen,
+    Unfrozen,
+    Destroyed,
+    Paused,
+    Resumed,
+    PriceChanged,
+    SettingsChanged,
+}
+
+impl IssuerDocKind {
+    pub const ALL: [IssuerDocKind; 9] = [
+        IssuerDocKind::Minted,
+        IssuerDocKind::Burned,
+        IssuerDocKind::Frozen,
+        IssuerDocKind::Unfrozen,
+        IssuerDocKind::Destroyed,
+        IssuerDocKind::Paused,
+        IssuerDocKind::Resumed,
+        IssuerDocKind::PriceChanged,
+        IssuerDocKind::SettingsChanged,
+    ];
+
+    /// The document type, and the `action` of an emergency action (0 pause, 1 resume).
+    fn doc_type(self) -> (&'static str, Option<u8>) {
+        match self {
+            IssuerDocKind::Minted => ("mint", None),
+            IssuerDocKind::Burned => ("burn", None),
+            IssuerDocKind::Frozen => ("freeze", None),
+            IssuerDocKind::Unfrozen => ("unfreeze", None),
+            IssuerDocKind::Destroyed => ("destroyFrozenFunds", None),
+            IssuerDocKind::Paused => ("emergencyAction", Some(0)),
+            IssuerDocKind::Resumed => ("emergencyAction", Some(1)),
+            IssuerDocKind::PriceChanged => ("directPricing", None),
+            IssuerDocKind::SettingsChanged => ("configUpdate", None),
+        }
+    }
+}
+
+/// One issuer action as its TokenHistory document says it (T-3.10): by whom it was taken is the
+/// document's owner; `amount` and `who` (the recipient of a mint, the identity frozen) where the
+/// document has them.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct IssuerDoc {
+    pub id: String,
+    pub kind: IssuerDocKind,
+    pub amount: Option<TokenAmount>,
+    pub who: Option<String>,
+    pub at_ms: u64,
+}
+
+/// `doc` of `kind` as the wallet keeps it.
+fn issuer_doc(doc: &Document, kind: IssuerDocKind) -> Option<IssuerDoc> {
+    let props = doc.properties();
+    let id_of_field = |name: &str| {
+        props
+            .get(name)
+            .and_then(|v| v.to_identifier().ok())
+            .map(|id| id.to_string(Encoding::Base58))
+    };
+    let amount_of = |name: &str| props.get(name).and_then(|v| v.to_integer::<u64>().ok());
+    let (amount, who) = match kind {
+        IssuerDocKind::Minted => (amount_of("amount"), id_of_field("recipientId")),
+        IssuerDocKind::Burned => (amount_of("amount"), None),
+        IssuerDocKind::Frozen | IssuerDocKind::Unfrozen => (None, id_of_field("frozenIdentityId")),
+        IssuerDocKind::Destroyed => (
+            amount_of("destroyedAmount"),
+            id_of_field("frozenIdentityId"),
+        ),
+        IssuerDocKind::Paused
+        | IssuerDocKind::Resumed
+        | IssuerDocKind::PriceChanged
+        | IssuerDocKind::SettingsChanged => (None, None),
+    };
+    Some(IssuerDoc {
+        id: doc.id().to_string(Encoding::Base58),
+        kind,
+        amount,
+        who,
+        at_ms: doc.created_at()?,
+    })
+}
+
 /// What an action came to: its TokenHistory document when Platform wrote one (the History line's
 /// key, Q5), and a balance when the answer carries one.
 #[derive(Clone, Debug, PartialEq, Eq, Default)]
@@ -83,6 +170,65 @@ impl Chain {
     }
 
     /// How much of `token` is out, proved.
+    /// The issuer actions of `kind` that `identity` took on `token` (both base58), from their
+    /// TokenHistory documents, proved: the newest 100, oldest first (T-3.10). Each kind by the
+    /// index TokenHistory v2 has for it: by the owner (`byOwnerId`), with the emergency action's
+    /// `action` and the settings' `changeItemType` in it (the settings descending by both, the
+    /// newest of each type); a price only by date, its owner checked here. One query a kind, so a kind refused does not take the others with it.
+    pub async fn token_issuer_docs(
+        &self,
+        token: &str,
+        identity: &str,
+        kind: IssuerDocKind,
+    ) -> Result<Vec<IssuerDoc>, String> {
+        let sdk = self.sdk().await?;
+        self.ready()?;
+        let contract = load_system_data_contract(SystemDataContract::TokenHistory, sdk.version())
+            .map(Arc::new)
+            .map_err(|e| format!("{e:?}"))?;
+        let (token_id, me) = (id_of(token)?, id_of(identity)?);
+        let (doc_type, action) = kind.doc_type();
+        let equal = |field: &str, value: Value| WhereClause {
+            field: field.into(),
+            operator: WhereOperator::Equal,
+            value,
+        };
+        let order = |field: &str, ascending: bool| OrderClause {
+            field: field.into(),
+            ascending,
+        };
+        let mut query = DocumentQuery::new(contract, doc_type)
+            .map_err(|e| format!("{e:?}"))?
+            .with_where(equal("tokenId", Value::Identifier(token_id.to_buffer())))
+            .with_limit(100);
+        let by_owner = kind != IssuerDocKind::PriceChanged;
+        if by_owner {
+            query = query.with_where(equal("$ownerId", Value::Identifier(me.to_buffer())));
+        }
+        if let Some(action) = action {
+            query = query.with_where(equal("action", Value::U8(action)));
+        }
+        if kind == IssuerDocKind::SettingsChanged {
+            // Both by the index, descending: the newest of each type (review r1, a note).
+            query = query
+                .with_order_by(order("changeItemType", false))
+                .with_order_by(order("$createdAt", false));
+        } else {
+            query = query.with_order_by(order("$createdAt", false));
+        }
+        let docs = Document::fetch_many(&sdk, query)
+            .await
+            .map_err(|e| format!("{e:?}"))?;
+        let mut all: Vec<IssuerDoc> = docs
+            .into_values()
+            .flatten()
+            .filter(|d| by_owner || d.owner_id() == me)
+            .filter_map(|d| issuer_doc(&d, kind))
+            .collect();
+        all.sort_by(|a, b| a.at_ms.cmp(&b.at_ms).then_with(|| a.id.cmp(&b.id)));
+        Ok(all)
+    }
+
     pub async fn token_supply(&self, token: &str) -> Result<TokenAmount, String> {
         use dpp::balances::total_single_token_balance::TotalSingleTokenBalance;
         self.ready()?;
