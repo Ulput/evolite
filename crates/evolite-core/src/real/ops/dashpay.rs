@@ -103,32 +103,25 @@ impl Real {
                 let wallet = loaded(&chain, &id).await?;
                 match job {
                     ContactJob::Accept => {
-                        let acting = acting_identity(&wallet).await;
-                        let before = chain.first_identity_credits(&wallet, false).await;
+                        let (_, me) = acting(&wallet).await.ok_or(CoreError::NotAvailable(
+                            tr!("The wallet has no identity").into(),
+                        ))?;
+                        let before = chain.identity_credits(&wallet, &me, false).await;
                         chain
-                            .accept_contact(&wallet, &keys, from)
+                            .accept_contact(&wallet, &keys, &me, from)
                             .await
                             .map_err(dashpay_failure)?;
-                        let after = chain.first_identity_credits(&wallet, true).await;
+                        let after = chain.identity_credits(&wallet, &me, true).await;
                         let spent = spent_credits(before, after).unwrap_or(0);
                         // BUG-198: keyed as the read of Platform keys our request back, so the
-                        // two are one line; unkeyed only with no identity to key it by.
-                        let me = acting
-                            .as_deref()
-                            .and_then(|a| Identifier::from_string(a, Encoding::Base58).ok());
-                        journal.add(match me {
-                            Some(me) => {
-                                platform_history::accepted_request(&me, &from, &who, now(), spent)
-                            }
-                            None => journal::Entry {
-                                at: now(),
-                                what: journal::What::ContactRequest { to: who },
-                                spent,
-                                moved: 0,
-                                identity: acting,
-                                ..Default::default()
-                            },
-                        });
+                        // two are one line.
+                        journal.add(platform_history::accepted_request(
+                            &me,
+                            &from,
+                            &who,
+                            now(),
+                            spent,
+                        ));
                         Ok(())
                     }
                     ContactJob::Hide => {
@@ -137,7 +130,7 @@ impl Real {
                             .add(&sender)
                             .map_err(|e| CoreError::Failed(e.to_string()))?;
                         chain
-                            .hide_request(&wallet, &keys, from)
+                            .hide_request(&wallet, from)
                             .await
                             .map_err(dashpay_failure)
                     }
@@ -197,19 +190,21 @@ impl Real {
                     None => None,
                 };
                 let wallet = loaded(&chain, &id).await?;
-                let acting = acting_identity(&wallet).await;
-                let before = chain.first_identity_credits(&wallet, false).await;
+                let (acting, me) = acting(&wallet).await.ok_or(CoreError::NotAvailable(
+                    tr!("The wallet has no identity").into(),
+                ))?;
+                let before = chain.identity_credits(&wallet, &me, false).await;
                 chain
-                    .save_profile(&wallet, &keys, display, about, avatar)
+                    .save_profile(&wallet, &keys, &me, display, about, avatar)
                     .await
                     .map_err(dashpay_failure)?;
-                let after = chain.first_identity_credits(&wallet, true).await;
+                let after = chain.identity_credits(&wallet, &me, true).await;
                 journal.add(journal::Entry {
                     at: now(),
                     what: journal::What::Profile,
                     spent: spent_credits(before, after).unwrap_or(0),
                     moved: 0,
-                    identity: acting,
+                    identity: Some(acting),
                     ..Default::default()
                 });
                 Ok(())

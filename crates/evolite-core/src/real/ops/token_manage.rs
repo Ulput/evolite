@@ -464,13 +464,9 @@ impl Real {
         self.answer_later("task:issuer_action", async move {
             let result = async {
                 let wallet = loaded(&chain, &id).await?;
-                let me = acting_identity(&wallet)
-                    .await
-                    .ok_or(CoreError::NotAvailable(
-                        tr!("The wallet has no identity").into(),
-                    ))?;
-                let me_id = Identifier::from_string(&me, Encoding::Base58)
-                    .map_err(|e| CoreError::Failed(e.to_string()))?;
+                let (me, me_id) = acting(&wallet).await.ok_or(CoreError::NotAvailable(
+                    tr!("The wallet has no identity").into(),
+                ))?;
                 // T-3.1, R-24: the rights again, on the contract as it is now.
                 let contract = chain
                     .fresh_contract(&token.contract_id)

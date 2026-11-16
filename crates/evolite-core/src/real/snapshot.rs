@@ -36,6 +36,14 @@ pub(in crate::real) async fn acting_identity(wallet: &PlatformWallet) -> Option<
         .map(|m| m.identity.id().to_string(Encoding::Base58))
 }
 
+/// The identity a task acts as, read once at its start (TECH-signing-identity): in base58 for
+/// its History line and as the id every check, credits read and signature of the task takes.
+pub(in crate::real) async fn acting(wallet: &PlatformWallet) -> Option<(String, Identifier)> {
+    let shown = acting_identity(wallet).await?;
+    let id = Identifier::from_string(&shown, Encoding::Base58).ok()?;
+    Some((shown, id))
+}
+
 /// Every identity of this wallet, in base58, with its slot (FEAT-0021 R-7: two of them never
 /// contest one name).
 pub(in crate::real) async fn wallet_identity_ids(wallet: &PlatformWallet) -> Vec<(String, u32)> {
@@ -1982,5 +1990,32 @@ mod tip_seen_tests {
         assert_eq!(tip_seen(&mut seen, 11, 400), Some(300), "the same tip");
         assert_eq!(tip_seen(&mut seen, 9, 500), Some(300), "a node behind");
         assert_eq!(tip_seen(&mut seen, 12, 600), Some(600));
+    }
+}
+
+/// TECH-signing-identity AC-T1, AC-T2: the core's paying tasks read the credits before and after
+/// of the identity they act as ([`acting`], once), never of whoever is shown by then.
+#[cfg(test)]
+mod signing_tests {
+    #[test]
+    fn paid_tasks_read_the_credits_of_the_identity_they_act_as() {
+        let ops = [
+            include_str!("ops/identity.rs"),
+            include_str!("ops/dashpay.rs"),
+            include_str!("ops/tokens.rs"),
+            include_str!("ops/token_actions.rs"),
+            include_str!("ops/token_manage.rs"),
+            include_str!("ops/identity_keys.rs"),
+            include_str!("ops/app_connect2.rs"),
+            include_str!("ops/app_jobs.rs"),
+            include_str!("ops/pool.rs"),
+        ];
+        let shown_credits = ["first_identity", "_credits("].concat();
+        for source in ops {
+            assert!(
+                !source.contains(&shown_credits),
+                "credits of whoever is shown"
+            );
+        }
     }
 }

@@ -180,7 +180,7 @@ impl Chain {
             .ok_or(tr!("This network has no contract for identity links"))?;
         // Signed as the identity whose claim was checked, even if "Act as" moved on since
         // (FEAT-0021 r2 Should 3, as BUG-13).
-        let (identity, signer) = Self::identity_as(wallet, keys, as_identity).await?;
+        let (identity, signer) = Self::signing(wallet, keys, as_identity).await?;
         let key = identity
             .public_keys()
             .values()

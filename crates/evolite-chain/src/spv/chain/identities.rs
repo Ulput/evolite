@@ -552,23 +552,15 @@ impl Chain {
         &self,
         wallet: &PlatformWallet,
         keys: &key_wallet::Wallet,
+        me: &Identifier,
         label: &str,
         needed: evolite_api::Duffs,
         contest_fund: Option<evolite_api::Duffs>,
     ) -> Result<(), String> {
-        let (identity, signer) = Self::first_identity(wallet, keys).await?;
+        let (identity, signer) = Self::signing(wallet, keys, me).await?;
         let id = identity.id();
         self.write_name_paying(wallet, &id, label, &signer, needed, false, contest_fund)
             .await
-    }
-
-    /// The wallet's first identity, in base58: the one names are added to.
-    pub async fn first_identity_id(
-        wallet: &PlatformWallet,
-        keys: &key_wallet::Wallet,
-    ) -> Result<String, String> {
-        let (identity, _) = Self::first_identity(wallet, keys).await?;
-        Ok(identity.id().to_string(Encoding::Base58))
     }
 
     /// The one way a DPNS name reaches Platform (BUG-97): the credits are read and judged first,
@@ -621,17 +613,17 @@ impl Chain {
         Ok(())
     }
 
-    /// Tops up the wallet's first identity (the one the interface shows) with `amount` duffs
-    /// of Core funds: an asset lock, proved by InstantSend or else ChainLock. platform-wallet
-    /// tracks the lock until Platform takes it, so a run cut short is finished by
-    /// [`Self::resume_top_up`]. Answers the identity's balance in credits.
+    /// Tops up the wallet's identity `me` with `amount` duffs of Core funds: an asset lock,
+    /// proved by InstantSend or else ChainLock. platform-wallet tracks the lock until Platform
+    /// takes it, so a run cut short is finished by [`Self::resume_top_up`]. Answers the
+    /// identity's balance in credits.
     pub async fn top_up_identity(
         &self,
         wallet: &PlatformWallet,
         keys: &key_wallet::Wallet,
+        me: &Identifier,
         amount: u64,
     ) -> Result<u64, String> {
-        let (identity, _) = Self::first_identity(wallet, keys).await?;
         // Only final coins (SPV item 3).
         self.with_final_coins(
             wallet,
@@ -639,7 +631,7 @@ impl Chain {
             self.top_up(
                 wallet,
                 keys,
-                &identity.id(),
+                me,
                 AssetLockFunding::FromWalletBalance {
                     amount_duffs: amount,
                     account_index: 0,
@@ -917,27 +909,24 @@ impl Chain {
             })
     }
 
-    /// The identity the interface shows (the chosen one, else the lowest slot: see
-    /// [`shown_slot`]), with a signer of its keys derived from `keys`. Every write that acts
-    /// "as the identity" goes through here, so they all follow the choice.
-    pub async fn first_identity(
+    /// The identity the interface shows now (the chosen one, else the lowest slot: see
+    /// [`shown_slot`]), to read. Never to sign (TECH-signing-identity): it has no signer, and a
+    /// write takes its identity as a parameter, signing with [`Self::signing`].
+    pub async fn shown_identity(
         wallet: &PlatformWallet,
-        keys: &key_wallet::Wallet,
-    ) -> Result<(dpp::identity::Identity, SimpleSigner), String> {
-        let (index, identity) = {
-            let state = wallet.state().await;
-            let mine = of_wallet(&state.identity_manager, wallet.wallet_id())
-                .filter_map(|m| Some((m.identity_index?, m.identity.clone())));
-            shown_of(wallet.wallet_id(), mine).ok_or(tr!("The wallet has no identity"))?
-        };
-        let mut signer = SimpleSigner::default();
-        signer.add_identity_public_keys(identity::found_identity_keys(keys, index, &identity));
-        Ok((identity, signer))
+    ) -> Result<dpp::identity::Identity, String> {
+        let state = wallet.state().await;
+        let mine = of_wallet(&state.identity_manager, wallet.wallet_id())
+            .filter_map(|m| Some((m.identity_index?, m.identity.clone())));
+        shown_of(wallet.wallet_id(), mine)
+            .map(|(_, identity)| identity)
+            .ok_or(tr!("The wallet has no identity").into())
     }
 
-    /// The wallet's identity `id` with a signer of its keys: a write checked as one identity is
-    /// signed as that one, even when "Act as" moved on in between (BUG-13 r1 should 1).
-    pub async fn identity_as(
+    /// The wallet's identity `id` with a signer of its keys: the only way a write signs. The
+    /// identity is the one the caller checked, even when "Act as" moved on in between (BUG-13 r1
+    /// should 1, TECH-signing-identity).
+    pub async fn signing(
         wallet: &PlatformWallet,
         keys: &key_wallet::Wallet,
         id: &Identifier,

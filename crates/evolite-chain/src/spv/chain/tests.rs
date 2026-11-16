@@ -651,6 +651,40 @@ fn the_chosen_identity_wins_while_it_exists() {
     assert_eq!(shown_slot(wallet, std::iter::empty()), None);
 }
 
+/// TECH-signing-identity AC-T1: a write signs only through [`Chain::signing`], with the identity
+/// its caller checked. No function of the chain that signs reads who is shown now
+/// ([`Chain::shown_identity`]), and the old reader with a signer is gone.
+#[test]
+fn writes_sign_as_the_identity_they_are_given() {
+    let sources = [
+        include_str!("identities.rs"),
+        include_str!("contacts.rs"),
+        include_str!("contests.rs"),
+        include_str!("mod.rs"),
+        include_str!("tokens.rs"),
+        include_str!("token_actions.rs"),
+        include_str!("token_manage.rs"),
+        include_str!("../../platform/pool.rs"),
+        include_str!("../../apps/app_chain.rs"),
+    ];
+    let old = ["first", "_identity("].concat();
+    for source in sources {
+        assert!(
+            !source.contains(&old),
+            "the old reader with a signer is back"
+        );
+        for f in source.split("pub async fn ").skip(1) {
+            let name = &f[..f.find('(').unwrap_or(0)];
+            if f.contains("Self::signing(") {
+                assert!(
+                    !f.contains("shown_identity("),
+                    "{name} signs as whoever is shown"
+                );
+            }
+        }
+    }
+}
+
 /// FEAT-0014 AC-T1: the new identity goes one past the highest slot; a lock still waiting
 /// for its identity holds its slot, and once it is finished the next one is past it.
 #[test]

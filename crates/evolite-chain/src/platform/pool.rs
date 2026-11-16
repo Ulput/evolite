@@ -287,10 +287,11 @@ mod imp {
             &self,
             wallet: &PlatformWallet,
             keys: &key_wallet::Wallet,
+            me: &dpp::prelude::Identifier,
             credits: u64,
         ) -> Result<(), PoolError> {
             let coordinator = self.coordinator().await?;
-            let (identity, signer) = Self::first_identity(wallet, keys).await?;
+            let (identity, signer) = Self::signing(wallet, keys, me).await?;
             let id = dpp::identity::accessors::IdentityGettersV0::id(&identity);
             prove(async move {
                 wallet
@@ -691,6 +692,7 @@ impl Chain {
         &self,
         _: &PlatformWallet,
         _: &key_wallet::Wallet,
+        _: &dpp::prelude::Identifier,
         _: u64,
     ) -> Result<(), PoolError> {
         Err(NO_POOL.into())

@@ -66,15 +66,14 @@ impl Real {
         self.answer_later("task:claim_token", async move {
             let result = async {
                 let wallet = loaded(&chain, &id).await?;
-                let me = acting_identity(&wallet)
-                    .await
-                    .ok_or(CoreError::NotAvailable(
-                        tr!("The wallet has no identity").into(),
-                    ))?;
-                let before = chain.first_identity_credits(&wallet, false).await;
+                let (me, me_id) = acting(&wallet).await.ok_or(CoreError::NotAvailable(
+                    tr!("The wallet has no identity").into(),
+                ))?;
+                let before = chain.identity_credits(&wallet, &me_id, false).await;
                 let claim = chain.claim_token(
                     &wallet,
                     &keys,
+                    &me_id,
                     &token.contract_id,
                     token.position,
                     scheduled,
@@ -84,7 +83,7 @@ impl Real {
                     .map_err(|_| CoreError::Failed("timed out".into()))?
                     .map_err(dashpay_failure)?;
                 make_due(&facts);
-                let after = chain.first_identity_credits(&wallet, true).await;
+                let after = chain.identity_credits(&wallet, &me_id, true).await;
                 let mut line = own_line(
                     journal::Kind::TokenClaimed {
                         token: token_label(&info),
@@ -137,15 +136,14 @@ impl Real {
         self.answer_later("task:buy_token", async move {
             let result = async {
                 let wallet = loaded(&chain, &id).await?;
-                let me = acting_identity(&wallet)
-                    .await
-                    .ok_or(CoreError::NotAvailable(
-                        tr!("The wallet has no identity").into(),
-                    ))?;
-                let before = chain.first_identity_credits(&wallet, false).await;
+                let (me, me_id) = acting(&wallet).await.ok_or(CoreError::NotAvailable(
+                    tr!("The wallet has no identity").into(),
+                ))?;
+                let before = chain.identity_credits(&wallet, &me_id, false).await;
                 let buy = chain.buy_token(
                     &wallet,
                     &keys,
+                    &me_id,
                     &token.contract_id,
                     token.position,
                     count,
@@ -165,7 +163,7 @@ impl Real {
                     }
                     Err(chain::BuyRefused::Other(e)) => return Err(dashpay_failure(e)),
                 };
-                let after = chain.first_identity_credits(&wallet, true).await;
+                let after = chain.identity_credits(&wallet, &me_id, true).await;
                 let (key, units) = match bought {
                     chain::Bought::Document { id, amount } => (Some(format!("tokx:{id}")), amount),
                     chain::Bought::Balance(_) => (None, count),

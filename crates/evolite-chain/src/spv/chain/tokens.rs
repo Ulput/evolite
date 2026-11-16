@@ -476,10 +476,12 @@ impl Chain {
     /// identity `to`, signed with its CRITICAL authentication key (platform-wallet's choice; an
     /// identity without one is refused by it). No note in stage 1. The sender's balance after
     /// it, when the proved answer says (`None` for a token that keeps its history there).
+    #[allow(clippy::too_many_arguments)]
     pub async fn send_token(
         &self,
         wallet: &platform_wallet::PlatformWallet,
         keys: &key_wallet::Wallet,
+        me: &Identifier,
         contract: &str,
         position: u16,
         to: Identifier,
@@ -491,7 +493,7 @@ impl Chain {
         let contract =
             Identifier::from_string(contract, Encoding::Base58).map_err(|e| e.to_string())?;
         self.ready()?;
-        let (from, signer) = Self::first_identity(wallet, keys).await?;
+        let (from, signer) = Self::signing(wallet, keys, me).await?;
         let result = wallet
             .identity()
             .token_transfer_with_external_signer(

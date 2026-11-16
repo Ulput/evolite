@@ -22,7 +22,6 @@ use zeroize::Zeroizing;
 
 use super::identity::own_line;
 use crate::real::connected_apps::{App, Response as Stored, Session, SessionKey as StoredKey};
-use crate::real::snapshot::acting_identity;
 use crate::real::{AppJob, Real, dashpay, dashpay_failure, journal, loaded, now};
 
 /// A v2 request shown and not answered yet.
@@ -507,12 +506,13 @@ impl Real {
             let result = async {
                 let wallet = loaded(&chain, &wallet_id).await?;
                 // BUG-145: what the update and the response cost, from the credits before and after.
-                let acting = acting_identity(&wallet).await;
-                let before = chain.first_identity_credits(&wallet, false).await;
                 let who = chain
                     .sign_in_identity(&wallet, &keys)
                     .await
                     .map_err(CoreError::NotAvailable)?;
+                // The identity signing in, for its line and both credits reads.
+                let acting = Some(base58(&who.id_bytes()));
+                let before = chain.identity_credits(&wallet, &who.id, false).await;
                 let me = who.id_bytes();
                 if me != job.identity {
                     return Err(CoreError::NotAvailable(
@@ -637,7 +637,7 @@ impl Real {
                     .publish_connect_response(&wallet, &fresh, &response)
                     .await
                     .map_err(dashpay_failure)?;
-                let after = chain.first_identity_credits(&wallet, true).await;
+                let after = chain.identity_credits(&wallet, &who.id, true).await;
                 // The app as it calls itself (R-8), else as the sign-in showed it; its own words
                 // cleaned (AC-A6).
                 let label = dashpay::shown(if request.label.trim().is_empty() {

@@ -833,21 +833,20 @@ impl Real {
                 };
                 let wallet = loaded(&chain, &id).await?;
                 // Review r1, Should 1: what is known of the token on the sender, before the fee.
-                let me = acting_identity(&wallet)
-                    .await
-                    .ok_or(CoreError::NotAvailable(
-                        tr!("The wallet has no identity").into(),
-                    ))?;
+                let (me, me_id) = acting(&wallet).await.ok_or(CoreError::NotAvailable(
+                    tr!("The wallet has no identity").into(),
+                ))?;
                 let read = {
                     let (chain, me, tokens) = (chain.clone(), me.clone(), vec![token_id.clone()]);
                     move || async move { chain.token_facts(&me, &tokens).await }
                 };
                 let checked = check_before_signing(known, &me, &info, amount, read).await?;
                 // BUG-145: the fee, from the credits before and after.
-                let before = chain.first_identity_credits(&wallet, false).await;
+                let before = chain.identity_credits(&wallet, &me_id, false).await;
                 let send = chain.send_token(
                     &wallet,
                     &keys,
+                    &me_id,
                     &token.contract_id,
                     token.position,
                     to,
@@ -864,7 +863,7 @@ impl Real {
                     &token.token_id,
                     balance,
                 );
-                let after = chain.first_identity_credits(&wallet, true).await;
+                let after = chain.identity_credits(&wallet, &me_id, true).await;
                 journal.add(own_line(
                     journal::Kind::TokenSent {
                         token: token_label(&info),

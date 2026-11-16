@@ -251,7 +251,7 @@ impl Real {
                         again.id == id && evolite_chain::key_update::shows(&again, plan)
                     })
                 {
-                    let after = chain.first_identity_credits(&wallet, true).await;
+                    let after = chain.identity_credits(&wallet, &id, true).await;
                     journal.add(own_line(done.kind, done.before, after, done.acting));
                 }
                 Ok(())
@@ -321,8 +321,9 @@ impl Real {
                 };
                 let plan = key_plan::plan(&fresh, &add, &disable).map_err(|r| key_refusal(&r))?;
                 // BUG-145: what the update cost, from the credits before and after.
-                let acting = acting_identity(&wallet).await;
-                let before = chain.first_identity_credits(&wallet, false).await;
+                // The identity whose keys change, not the one shown by now.
+                let acting = Some(identity.clone());
+                let before = chain.identity_credits(&wallet, &who.id, false).await;
                 let sent = match chain.update_keys(&wallet, &keys, &who, &plan).await {
                     Ok(after) => Ok(after),
                     Err(e) => {
@@ -340,7 +341,7 @@ impl Real {
                     }
                 };
                 let after = match &sent {
-                    Ok(_) => chain.first_identity_credits(&wallet, true).await,
+                    Ok(_) => chain.identity_credits(&wallet, &who.id, true).await,
                     Err(_) => None,
                 };
                 let kind = journal::Kind::KeysChanged {

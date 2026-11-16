@@ -157,13 +157,20 @@ impl Real {
         let refresh = self.refresher();
         let journal = self.journal.clone();
         self.answer_later("task:top_up_identity", async move {
-            let credits_before = chain.first_identity_credits(&wallet, true).await;
-            let locks_before = asset_locks(&wallet).await;
-            let result = chain.top_up_identity(&wallet, &keys, amount).await;
-            if let Ok(after) = &result {
-                let lock = new_lock(&locks_before, asset_locks(&wallet).await);
-                keep_added(&journal, lock, credits_before, *after);
-            }
+            // The identity shown at the start is the one topped up and read before and after.
+            let result = match acting(&wallet).await {
+                Some((_, me)) => {
+                    let credits_before = chain.identity_credits(&wallet, &me, true).await;
+                    let locks_before = asset_locks(&wallet).await;
+                    let result = chain.top_up_identity(&wallet, &keys, &me, amount).await;
+                    if let Ok(after) = &result {
+                        let lock = new_lock(&locks_before, asset_locks(&wallet).await);
+                        keep_added(&journal, lock, credits_before, *after);
+                    }
+                    result
+                }
+                None => Err(tr!("The wallet has no identity").to_string()),
+            };
             let result = result.map(|_| ()).map_err(identity_failure);
             drop(busy);
             refresh();
@@ -212,11 +219,15 @@ impl Real {
                 Err(e) => Err(CoreError::Failed(e)),
                 Ok(true) => async {
                     let wallet = chain.wallet(&id).await.ok_or(NOT_LOADED)?;
-                    let acting = acting_identity(&wallet).await;
-                    let before = chain.first_identity_credits(&wallet, false).await;
-                    chain.add_name(&wallet, &keys, &label, needed, None).await?;
+                    let (acting, me) = acting(&wallet)
+                        .await
+                        .ok_or_else(|| tr!("The wallet has no identity").to_string())?;
+                    let before = chain.identity_credits(&wallet, &me, false).await;
+                    chain
+                        .add_name(&wallet, &keys, &me, &label, needed, None)
+                        .await?;
                     // In the history, with what it cost: the next name is estimated from it.
-                    let after = chain.first_identity_credits(&wallet, true).await;
+                    let after = chain.identity_credits(&wallet, &me, true).await;
                     journal.add(journal::Entry {
                         at: now(),
                         what: journal::What::Name {
@@ -224,7 +235,7 @@ impl Real {
                         },
                         spent: spent_credits(before, after).unwrap_or(0),
                         moved: 0,
-                        identity: acting,
+                        identity: Some(acting),
                         ..Default::default()
                     });
                     Ok::<(), String>(())
@@ -274,11 +285,9 @@ impl Real {
                     .wallet(&id)
                     .await
                     .ok_or(CoreError::Failed(NOT_LOADED.into()))?;
-                let shown = acting_identity(&wallet)
-                    .await
-                    .ok_or(CoreError::NotAvailable(
-                        tr!("Make an identity first").into(),
-                    ))?;
+                let (shown, me) = acting(&wallet).await.ok_or(CoreError::NotAvailable(
+                    tr!("Make an identity first").into(),
+                ))?;
                 let ids = wallet_identity_ids(&wallet).await;
                 let awarded = chain
                     .name_awarded(&label)
@@ -303,9 +312,9 @@ impl Real {
                     0
                 };
                 let needed = fees.name_credits_needed() + fund_now + link_cost;
-                let before = chain.first_identity_credits(&wallet, false).await;
+                let before = chain.identity_credits(&wallet, &me, false).await;
                 let sent = chain
-                    .add_name(&wallet, &keys, &label, needed, Some(fund_now))
+                    .add_name(&wallet, &keys, &me, &label, needed, Some(fund_now))
                     .await;
                 let (contest, _) = match sent {
                     Ok(()) => chain.contest(&label).await.unwrap_or((contest, fund_now)),
@@ -347,7 +356,7 @@ impl Real {
                         r.link_written = written;
                     });
                 }
-                let after = chain.first_identity_credits(&wallet, true).await;
+                let after = chain.identity_credits(&wallet, &me, true).await;
                 journal.add(journal::Entry {
                     at: now(),
                     // A claim, not a name got: History says so, and the next regular name is not
@@ -411,11 +420,9 @@ impl Real {
                     .wallet(&id)
                     .await
                     .ok_or(CoreError::Failed(NOT_LOADED.into()))?;
-                let shown = acting_identity(&wallet)
-                    .await
-                    .ok_or(CoreError::NotAvailable(
-                        tr!("Make an identity first").into(),
-                    ))?;
+                let (shown, as_identity) = acting(&wallet).await.ok_or(CoreError::NotAvailable(
+                    tr!("Make an identity first").into(),
+                ))?;
                 let ours = requests
                     .load()
                     .into_iter()
@@ -425,8 +432,6 @@ impl Real {
                 }
                 // r2 Should 3: signed as the identity checked above, not whichever is shown by
                 // the time of the write.
-                let as_identity = Identifier::from_string(&shown, Encoding::Base58)
-                    .map_err(|e| CoreError::Failed(e.to_string()))?;
                 let before = chain.identity_credits(&wallet, &as_identity, false).await;
                 chain
                     .write_identity_link(&wallet, &keys, &as_identity, &label, url.as_deref())
@@ -594,8 +599,10 @@ impl Real {
         self.answer_later("task:send_credits", async move {
             let result = async {
                 let wallet = loaded(&chain, &id).await?;
-                let acting = acting_identity(&wallet).await;
-                let before = chain.first_identity_credits(&wallet, false).await;
+                let (acting, me) = acting(&wallet).await.ok_or(CoreError::NotAvailable(
+                    tr!("The wallet has no identity").into(),
+                ))?;
+                let before = chain.identity_credits(&wallet, &me, false).await;
                 let payee = match to {
                     To::Ready(payee) => payee,
                     To::Name(label) => match chain.resolve_name(&label).await {
@@ -608,17 +615,17 @@ impl Real {
                     },
                 };
                 chain
-                    .send_credits(&wallet, &keys, payee, credits)
+                    .send_credits(&wallet, &keys, &me, payee, credits)
                     .await
                     .map_err(dashpay_failure)?;
                 // `send_credits` read the balance back: the difference is the amount and fee.
-                let after = chain.first_identity_credits(&wallet, false).await;
+                let after = chain.identity_credits(&wallet, &me, false).await;
                 let line = journal.add(journal::Entry {
                     at: now(),
                     what,
                     spent: spent_credits(before, after).unwrap_or(amount),
                     moved: amount,
-                    identity: acting,
+                    identity: Some(acting),
                     ..Default::default()
                 });
                 // The journal's line is the transfer's for good: its note goes there (AC-T3).

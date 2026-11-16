@@ -10,7 +10,6 @@ use evolite_chain::app_connect_v2;
 use super::app_connect2;
 use super::identity::own_spend;
 use crate::real::connected_apps::App;
-use crate::real::snapshot::acting_identity;
 use crate::real::{AppJob, Real, journal, loaded, now};
 
 /// A request evolite no longer has.
@@ -90,13 +89,13 @@ impl Real {
     /// "Remove from the list" (D2): a disconnected app of the shown identity leaves the list;
     /// nothing is spent and nothing goes to Platform. `Done { what: DoneWhat::ForgetApp }`.
     pub(in crate::real) fn forget_app(&self, contract: &str) -> Result<(), CoreError> {
-        let (wallet_id, keys) = self.dashpay_ready()?;
+        let (wallet_id, _) = self.dashpay_ready()?;
         let (chain, apps, refresh) = (self.chain.clone(), self.apps.clone(), self.refresher());
         let contract = contract.to_owned();
         self.answer_later("task:forget_app", async move {
             let result = async {
                 let wallet = loaded(&chain, &wallet_id).await?;
-                let (shown, _) = evolite_chain::chain::Chain::first_identity(&wallet, &keys)
+                let shown = evolite_chain::chain::Chain::shown_identity(&wallet)
                     .await
                     .map_err(CoreError::NotAvailable)?;
                 use dpp::identity::accessors::IdentityGettersV0;
@@ -140,11 +139,12 @@ impl Real {
                         tr!("This app is no longer in the list").into(),
                     ))?;
                 // BUG-145: what disabling the keys cost, from the credits before and after.
-                let acting = acting_identity(&wallet).await;
-                let before = chain.first_identity_credits(&wallet, false).await;
+                let acting = Some(me.clone());
+                let who_id = who.id;
+                let before = chain.identity_credits(&wallet, &who_id, false).await;
                 let done = app_connect2::disconnect(&chain, &wallet, &keys, who, &app, &apps).await;
                 let after = match done {
-                    Ok(()) => chain.first_identity_credits(&wallet, true).await,
+                    Ok(()) => chain.identity_credits(&wallet, &who_id, true).await,
                     Err(_) => None,
                 };
                 let label = app_connect2::app_label(&app);

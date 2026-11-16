@@ -176,7 +176,7 @@ impl Chain {
         from: &Identifier,
         to: Identifier,
     ) -> Result<(), String> {
-        let (from, signer) = Self::identity_as(wallet, keys, from).await?;
+        let (from, signer) = Self::signing(wallet, keys, from).await?;
         let crypto = dashpay::SeedCrypto(keys.clone());
         wallet
             .identity()
@@ -199,9 +199,10 @@ impl Chain {
         &self,
         wallet: &PlatformWallet,
         keys: &key_wallet::Wallet,
+        me: &Identifier,
         from: Identifier,
     ) -> Result<(), String> {
-        let (me, signer) = Self::first_identity(wallet, keys).await?;
+        let (me, signer) = Self::signing(wallet, keys, me).await?;
         let request = {
             let state = wallet.state().await;
             state
@@ -225,10 +226,9 @@ impl Chain {
     pub async fn hide_request(
         &self,
         wallet: &PlatformWallet,
-        keys: &key_wallet::Wallet,
         from: Identifier,
     ) -> Result<(), String> {
-        let (me, _) = Self::first_identity(wallet, keys).await?;
+        let me = Self::shown_identity(wallet).await?;
         wallet
             .identity()
             .dashpay()
@@ -243,11 +243,12 @@ impl Chain {
         &self,
         wallet: &PlatformWallet,
         keys: &key_wallet::Wallet,
+        me: &Identifier,
         display: String,
         about: String,
         avatar: Option<(String, Vec<u8>)>,
     ) -> Result<(), String> {
-        let (me, signer) = Self::first_identity(wallet, keys).await?;
+        let (me, signer) = Self::signing(wallet, keys, me).await?;
         let has_profile = {
             let state = wallet.state().await;
             state
@@ -317,7 +318,7 @@ impl Chain {
         wallet: &PlatformWallet,
         keys: &key_wallet::Wallet,
     ) -> Result<usize, String> {
-        let (me, _) = Self::first_identity(wallet, keys).await?;
+        let me = Self::shown_identity(wallet).await?;
         let view = wallet.identity().dashpay();
         view.sync_contact_requests()
             .await
@@ -375,7 +376,7 @@ impl Chain {
         to: Identifier,
         paid: &[String],
     ) -> Result<Option<String>, String> {
-        let (me, _) = Self::first_identity(wallet, keys).await?;
+        let me = Self::shown_identity(wallet).await?;
         // The contact's account is built from its request on first use, as a payment does.
         let crypto = dashpay::SeedCrypto(keys.clone());
         wallet
@@ -441,7 +442,7 @@ impl Chain {
         paid: &[String],
         amount: u64,
     ) -> Result<Paid, String> {
-        let (me, _) = Self::first_identity(wallet, keys).await?;
+        let me = Self::shown_identity(wallet).await?;
         if self
             .contact_address(wallet, keys, to, paid)
             .await?

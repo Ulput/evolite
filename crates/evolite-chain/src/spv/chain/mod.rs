@@ -906,10 +906,11 @@ impl Chain {
         &self,
         wallet: &PlatformWallet,
         keys: &key_wallet::Wallet,
+        me: &Identifier,
         to: CreditPayee,
         credits: u64,
     ) -> Result<(), String> {
-        let (from, signer) = Self::first_identity(wallet, keys).await?;
+        let (from, signer) = Self::signing(wallet, keys, me).await?;
         let id = from.id();
         let identities = wallet.identity();
         match to {

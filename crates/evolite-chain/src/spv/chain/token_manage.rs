@@ -355,7 +355,7 @@ impl Chain {
         let contract_id = id_of(contract)?;
         self.ready()?;
         // The identity whose rights were checked, not the one shown now (BUG-13 r1 should 1).
-        let (me, signer) = Self::identity_as(wallet, keys, me).await?;
+        let (me, signer) = Self::signing(wallet, keys, me).await?;
         let me = me.id();
         let tokens = wallet.identity();
         let err = |e: platform_wallet::PlatformWalletError| e.to_string();

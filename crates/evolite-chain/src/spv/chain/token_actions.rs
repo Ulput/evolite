@@ -324,6 +324,7 @@ impl Chain {
         &self,
         wallet: &platform_wallet::PlatformWallet,
         keys: &key_wallet::Wallet,
+        me: &Identifier,
         contract: &str,
         position: u16,
         scheduled: bool,
@@ -332,7 +333,7 @@ impl Chain {
         use dpp::identity::accessors::IdentityGettersV0;
         let contract = id_of(contract)?;
         self.ready()?;
-        let (me, signer) = Self::first_identity(wallet, keys).await?;
+        let (me, signer) = Self::signing(wallet, keys, me).await?;
         let kind = if scheduled {
             TokenDistributionType::PreProgrammed
         } else {
@@ -351,10 +352,12 @@ impl Chain {
 
     /// Buys `count` units of the token at `position` of `contract` for the shown identity, at
     /// most `agreed` credits in all (the total shown).
+    #[allow(clippy::too_many_arguments)]
     pub async fn buy_token(
         &self,
         wallet: &platform_wallet::PlatformWallet,
         keys: &key_wallet::Wallet,
+        me: &Identifier,
         contract: &str,
         position: u16,
         count: TokenAmount,
@@ -364,7 +367,7 @@ impl Chain {
         use dpp::identity::accessors::IdentityGettersV0;
         let contract = id_of(contract).map_err(BuyRefused::Other)?;
         self.ready().map_err(BuyRefused::Other)?;
-        let (me, signer) = Self::first_identity(wallet, keys)
+        let (me, signer) = Self::signing(wallet, keys, me)
             .await
             .map_err(BuyRefused::Other)?;
         let result = wallet

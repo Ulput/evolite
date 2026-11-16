@@ -81,7 +81,7 @@ impl Chain {
         wallet: &PlatformWallet,
         keys: &key_wallet::Wallet,
     ) -> Result<SignInIdentity, String> {
-        let (shown, _) = Self::first_identity(wallet, keys).await?;
+        let shown = Self::shown_identity(wallet).await?;
         let _ = wallet.identity().refresh_identity(&shown.id()).await;
         let (identity, slot) = {
             let state = wallet.state().await;

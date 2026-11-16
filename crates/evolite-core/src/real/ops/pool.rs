@@ -134,45 +134,53 @@ impl Real {
             "shield",
             async move {
                 let wallet = loaded(&chain, &id).await?;
+                // From the credits: the identity shown at the start, for all of it.
+                let me = match from {
+                    ShieldSource::Credits => Some(acting(&wallet).await.ok_or(
+                        CoreError::NotAvailable(tr!("The wallet has no identity").into()),
+                    )?),
+                    _ => None,
+                };
                 // Credits and Platform addresses leave a line in the history (Core has its own,
                 // the asset lock); what left them is read before and after.
-                let (label, before) = match from {
+                let (label, before) = match (from, &me) {
                     // The labels the layers read the source from (FEAT-0009).
-                    ShieldSource::Credits => (
+                    (ShieldSource::Credits, Some((_, me))) => (
                         crate::layers::FROM_CREDITS,
-                        chain.first_identity_credits(&wallet, false).await,
+                        chain.identity_credits(&wallet, me, false).await,
                     ),
-                    ShieldSource::PlatformAddress => (
+                    (ShieldSource::Credits, None) => unreachable!("read above"),
+                    (ShieldSource::PlatformAddress, _) => (
                         crate::layers::FROM_PLATFORM_ADDRESS,
                         chain.platform_address(&wallet).await.ok().map(|(_, c)| c),
                     ),
-                    ShieldSource::Core => (crate::layers::FROM_CORE, None),
+                    (ShieldSource::Core, _) => (crate::layers::FROM_CORE, None),
                 };
-                match from {
-                    ShieldSource::Credits => {
-                        chain.shield_from_identity(&wallet, &keys, credits).await
+                match (from, &me) {
+                    (ShieldSource::Credits, Some((_, me))) => {
+                        chain
+                            .shield_from_identity(&wallet, &keys, me, credits)
+                            .await
                     }
-                    ShieldSource::PlatformAddress => {
+                    (ShieldSource::Credits, None) => unreachable!("read above"),
+                    (ShieldSource::PlatformAddress, _) => {
                         chain
                             .shield_from_platform_address(&wallet, &keys, credits)
                             .await
                     }
                     // Duffs locked on Core; an unfinished lock is finished instead.
-                    ShieldSource::Core => {
+                    (ShieldSource::Core, _) => {
                         chain.shield_from_core(&wallet, &keys, credits / 1000).await
                     }
                 }
                 .map_err(pool_error)?;
                 if from != ShieldSource::Core {
-                    let after = match from {
-                        ShieldSource::Credits => chain.first_identity_credits(&wallet, true).await,
-                        _ => chain.platform_address(&wallet).await.ok().map(|(_, c)| c),
+                    let after = match &me {
+                        Some((_, me)) => chain.identity_credits(&wallet, me, true).await,
+                        None => chain.platform_address(&wallet).await.ok().map(|(_, c)| c),
                     };
                     let moved = amount;
-                    let acting = match from {
-                        ShieldSource::Credits => acting_identity(&wallet).await,
-                        _ => None,
-                    };
+                    let acting = me.map(|(acting, _)| acting);
                     journal.add(journal::Entry {
                         at: now(),
                         what: journal::What::Shield {
@@ -228,13 +236,13 @@ impl Real {
     /// shows, which gets `amount`; Platform's fee comes from the notes on top.
     pub(in crate::real) fn top_up_from_pool(&self, amount: Duffs) -> Result<(), CoreError> {
         let credits = positive_credits(amount)?;
-        let (id, keys, seed) = self.pool_move()?;
+        let (id, _, seed) = self.pool_move()?;
         let chain = self.chain.clone();
         self.pool_job(
             "pool-top-up",
             async move {
                 let wallet = loaded(&chain, &id).await?;
-                let (identity, _) = Chain::first_identity(&wallet, &keys)
+                let identity = Chain::shown_identity(&wallet)
                     .await
                     .map_err(CoreError::NotAvailable)?;
                 chain
