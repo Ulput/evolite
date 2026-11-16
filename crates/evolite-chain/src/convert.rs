@@ -180,14 +180,14 @@ pub fn not_an_address(to: &str) -> Option<CoreError> {
 /// contact's identity.
 pub fn name_contact_payments(
     history: &mut [Activity],
-    keys: &std::collections::HashMap<String, String>,
+    keys: &std::collections::HashMap<String, (String, String)>,
     contacts: &[Contact],
 ) {
     for a in history {
         let ActivityKind::Sent { to } = &mut a.kind else {
             continue;
         };
-        let Some(friend) = keys.get(to.as_str()) else {
+        let Some((_, friend)) = keys.get(to.as_str()) else {
             continue;
         };
         let name = contacts
@@ -205,20 +205,30 @@ pub fn name_contact_payments(
     }
 }
 
-/// Payments to each contact as the history shows them (after [`name_contact_payments`]): a
-/// wallet restored from its phrase has none on record in platform-wallet, the chain has them.
+/// Payments to each of `me`'s contacts as the history shows them (after
+/// [`name_contact_payments`]): a wallet restored from its phrase has none on record in
+/// platform-wallet, the chain has them. `keys`: each contact key's address → (our identity, the
+/// contact). BUG-196: by the pair — the history and the keys are the whole wallet's, and its
+/// identities may share a contact; one's payments are not another's.
 pub fn count_contact_payments(
     history: &[Activity],
-    keys: &std::collections::HashMap<String, String>,
+    keys: &std::collections::HashMap<String, (String, String)>,
+    me: Option<&str>,
     contacts: &mut [Contact],
 ) {
+    let Some(me) = me else {
+        return;
+    };
     for c in contacts
         .iter_mut()
         .filter(|c| c.state == ContactState::Established)
     {
         let to_them = history.iter().filter(|a| {
             matches!(a.kind, ActivityKind::Sent { .. })
-                && a.address.as_ref().and_then(|ad| keys.get(ad)) == Some(&c.identity_id)
+                && a.address
+                    .as_ref()
+                    .and_then(|ad| keys.get(ad))
+                    .is_some_and(|(ours, friend)| ours == me && *friend == c.identity_id)
         });
         let (count, last) =
             to_them.fold((0u32, None), |(n, last), a| (n + 1, last.max(Some(a.at))));
@@ -776,6 +786,9 @@ const CREDIT_TRANSFER_TO_ADDRESS: Duffs = 20_000;
 /// How many of the last transfers "at most" looks at: enough that a cheap one after a dear one does
 /// not bring it down, few enough that one fee misread from a stale balance does not stay for good.
 const RECENT_TRANSFERS: usize = 8;
+
+/// How many of the last metered writes of a kind its estimate looks at (BUG-197).
+const RECENT_WRITES: usize = 5;
 
 /// What the network wants on the identity before it writes a contact request (BUG-107): Platform
 /// compares the balance with an estimate (`validate_fees_of_event`, a dry run at worst-case tree
@@ -1432,24 +1445,28 @@ pub fn platform_fees(
     };
     fees.credit_transfer = at_most(CREDIT_TRANSFER, true);
     fees.credit_transfer_to_address = at_most(CREDIT_TRANSFER_TO_ADDRESS, false);
-    fees.credit_withdrawal = journal
-        .last_fee(|w| matches!(w, What::Withdrawal { .. }))
-        .unwrap_or(duffs(min.credit_withdrawal));
+    // BUG-197: a metered write is promised at no less than it may take. Platform's fee for a
+    // document moves with the state of its trees (a contact answer promised at 73 936 took
+    // 74 118), so the last fee alone is too little: the default, or a quarter over the dearest of
+    // the last few writes of that kind — one rule for every fee the journal meters, as
+    // `at_most` for transfers.
+    let metered = |default: Duffs, kind: &dyn Fn(&What) -> bool| {
+        journal
+            .dearest_fee(kind, RECENT_WRITES)
+            .map_or(default, |fee| default.max(fee.saturating_mul(5) / 4))
+    };
+    fees.credit_withdrawal = metered(duffs(min.credit_withdrawal), &|w| {
+        matches!(w, What::Withdrawal { .. })
+    });
     fees.credit_withdrawal_reserve = duffs(min.credit_withdrawal);
-    if let Some(fee) = journal.last_fee(|w| matches!(w, What::ContactRequest { .. })) {
-        fees.contact_request = fee;
-    }
-    if let Some(fee) = journal.last_fee(|w| matches!(w, What::Profile)) {
-        fees.profile = fee;
-    }
-    if let Some(fee) =
-        journal.last_fee(|w| matches!(w, What::ContactRequest { .. } | What::Profile))
-    {
-        fees.document_write = fee;
-    }
-    if let Some(fee) = journal.last_fee(|w| matches!(w, What::Name { .. })) {
-        fees.name_regular = fee;
-    }
+    fees.contact_request = metered(fees.contact_request, &|w| {
+        matches!(w, What::ContactRequest { .. })
+    });
+    fees.profile = metered(fees.profile, &|w| matches!(w, What::Profile));
+    fees.document_write = metered(fees.document_write, &|w| {
+        matches!(w, What::ContactRequest { .. } | What::Profile)
+    });
+    fees.name_regular = metered(fees.name_regular, &|w| matches!(w, What::Name { .. }));
     fees.name_contest_fund = contest_fund(version);
     fees.name_contested = fees.name_regular + fees.name_contest_fund;
     // An identity is made with six keys (`identity::new_identity_keys`).
@@ -1566,6 +1583,71 @@ mod tests {
         assert_eq!(proof(&locked, true), Proof::InstantLock);
         assert_eq!(proof(&locked, false), Proof::Mempool);
         assert_eq!(proof(&TransactionContext::Mempool, true), Proof::Mempool);
+    }
+
+    /// BUG-197 AC-T1, AC-T2: a metered write is promised at a quarter over the dearest of the
+    /// last five of its kind, never below its default: a contact answer after 73 936 and 74 118
+    /// is promised at 92 647 or more; so for a profile, any document, a name, a withdrawal.
+    #[test]
+    fn metered_writes_are_promised_with_a_margin() {
+        use super::super::journal::{Entry, Journal, What};
+        let dir = std::env::temp_dir().join(format!("evolite-metered-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let journal = Journal::new(dir.join("platform-history.json"));
+        let v15 = dpp::version::PlatformVersion::get(15).unwrap();
+        let mut defaults = fees(0);
+        platform_fees(&mut defaults, v15, &journal);
+        let paid = |at: i64, what: What, fee: Duffs| {
+            // A withdrawal moves money: its fee is what was spent over what was moved.
+            let moved = if matches!(what, What::Withdrawal { .. }) {
+                1_000_000
+            } else {
+                0
+            };
+            journal.add(Entry {
+                at,
+                what,
+                spent: moved + fee,
+                moved,
+                ..Default::default()
+            })
+        };
+        paid(1, What::ContactRequest { to: "a".into() }, 73_936);
+        paid(2, What::ContactRequest { to: "b".into() }, 74_118);
+        let mut f = fees(0);
+        platform_fees(&mut f, v15, &journal);
+        assert!(f.contact_request >= 74_118 * 5 / 4, "{}", f.contact_request);
+        assert!(
+            f.contact_request >= defaults.contact_request,
+            "not below the default"
+        );
+        assert!(
+            f.document_write >= 74_118 * 5 / 4,
+            "any document: {}",
+            f.document_write
+        );
+        paid(3, What::Profile, 50_000);
+        paid(4, What::Name { label: "x".into() }, 60_000);
+        paid(5, What::Withdrawal { to: "y".into() }, 900_000);
+        let mut f = fees(0);
+        platform_fees(&mut f, v15, &journal);
+        assert!(
+            f.profile >= 62_500.max(defaults.profile),
+            "profile {}",
+            f.profile
+        );
+        assert!(f.name_regular >= 75_000, "name {}", f.name_regular);
+        assert!(
+            f.credit_withdrawal >= 1_125_000,
+            "withdrawal {}",
+            f.credit_withdrawal
+        );
+        // A cheap write does not lower it: the dearest of the last five.
+        paid(6, What::ContactRequest { to: "c".into() }, 10_000);
+        let mut f = fees(0);
+        platform_fees(&mut f, v15, &journal);
+        assert!(f.contact_request >= 74_118 * 5 / 4, "{}", f.contact_request);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// BUG-54: before the first write of a kind, the estimate is within 30 % of what testnet
@@ -1980,10 +2062,14 @@ mod tests {
             moved: 10_000,
             ..Default::default()
         });
+        // A name: a quarter over what it took, never below the default (BUG-197); a cheap
+        // transfer: still the bound.
+        let mut f = fees(0);
+        let name_default = f.name_regular;
         platform_fees(&mut f, v15, &journal);
         assert_eq!(
             (f.name_regular, f.credit_transfer),
-            (123_456, CREDIT_TRANSFER)
+            (name_default.max(123_456 * 5 / 4), CREDIT_TRANSFER)
         );
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -2093,12 +2179,16 @@ mod tests {
             payments: 0,
             last_payment: None,
         };
-        let keys = [(contact_key.to_string(), "Jonas111".to_owned())].into();
+        let keys = [(
+            contact_key.to_string(),
+            ("Me111".to_owned(), "Jonas111".to_owned()),
+        )]
+        .into();
         let mut history = vec![line];
         name_contact_payments(&mut history, &keys, std::slice::from_ref(&contact));
         assert!(matches!(&history[0].kind, ActivityKind::Sent { to } if to == "@bob"));
         let mut contacts = vec![contact];
-        count_contact_payments(&history, &keys, &mut contacts);
+        count_contact_payments(&history, &keys, Some("Me111"), &mut contacts);
         assert_eq!(contacts[0].payments, 1);
     }
 
@@ -2132,8 +2222,14 @@ mod tests {
             last_payment: None,
         };
         let keys = [
-            ("yLcB1".to_owned(), "Abc111".to_owned()),
-            ("yev72".to_owned(), "Xyz9999888".to_owned()),
+            (
+                "yLcB1".to_owned(),
+                ("Me111".to_owned(), "Abc111".to_owned()),
+            ),
+            (
+                "yev72".to_owned(),
+                ("Me111".to_owned(), "Xyz9999888".to_owned()),
+            ),
         ]
         .into();
         let contacts = [
@@ -2158,8 +2254,61 @@ mod tests {
             ]
         );
         let mut contacts = contacts;
-        count_contact_payments(&h, &keys, &mut contacts);
+        count_contact_payments(&h, &keys, Some("Me111"), &mut contacts);
         assert_eq!((contacts[0].payments, contacts[1].payments), (1, 1));
+    }
+
+    /// BUG-196 AC-T1, AC-T2: one wallet, our identities A and B, a contact C of both, three
+    /// payments A → C. A's C: 3, the last of them; B's C: none and no «last» — on record in
+    /// platform-wallet or not (a restore: none on record).
+    #[test]
+    fn payments_to_a_contact_are_counted_for_the_identity_that_paid() {
+        let sent = |at: i64, address: &str| Activity {
+            id: 1,
+            kind: ActivityKind::Sent {
+                to: "@carol".into(),
+            },
+            chain: Chain::Core,
+            at,
+            amount: -10_000,
+            proof: Proof::ChainLock,
+            txid: None,
+            fee: None,
+            block: None,
+            address: Some(address.into()),
+            layers: layer::CORE,
+            flow: Flow::Out,
+            key: String::new(),
+            detail: None,
+            note: None,
+            rate: None,
+        };
+        let carol = |payments: u32| Contact {
+            identity_id: "C111".into(),
+            name: Some("carol".into()),
+            profile: Default::default(),
+            state: ContactState::Established,
+            since: 0,
+            payments,
+            last_payment: None,
+        };
+        // A's account for C, and B's: their own addresses.
+        let keys: std::collections::HashMap<String, (String, String)> = [
+            ("yA1".to_owned(), ("A111".to_owned(), "C111".to_owned())),
+            ("yA2".to_owned(), ("A111".to_owned(), "C111".to_owned())),
+            ("yB1".to_owned(), ("B111".to_owned(), "C111".to_owned())),
+        ]
+        .into();
+        let history = vec![sent(100, "yA1"), sent(200, "yA2"), sent(300, "yA1")];
+        // On record in platform-wallet (by the pair: A 3, B 0), and after a restore (0, 0).
+        for (on_record_a, on_record_b) in [(3, 0), (0, 0)] {
+            let mut a = vec![carol(on_record_a)];
+            count_contact_payments(&history, &keys, Some("A111"), &mut a);
+            assert_eq!((a[0].payments, a[0].last_payment), (3, Some(300)), "A");
+            let mut b = vec![carol(on_record_b)];
+            count_contact_payments(&history, &keys, Some("B111"), &mut b);
+            assert_eq!((b[0].payments, b[0].last_payment), (0, None), "B");
+        }
     }
 
     #[test]

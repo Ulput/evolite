@@ -525,6 +525,27 @@ pub fn sent_request(
     }
 }
 
+/// The entry for our answer to the request from `from` (`who`, as the screen names them), sent
+/// here as `me` at `at` for `spent` duffs (BUG-198): an answer is our contact request back, so it
+/// takes that request's key ([`request_key`]); the read of Platform finds it by key and the two
+/// are one line, «Contact accepted», with what it cost here.
+pub fn accepted_request(
+    me: &Identifier,
+    from: &Identifier,
+    who: &str,
+    at: Timestamp,
+    spent: evolite_api::Duffs,
+) -> Entry {
+    Entry {
+        at,
+        what: What::ContactRequest { to: who.to_owned() },
+        spent,
+        identity: Some(me.to_string(Encoding::Base58)),
+        key: Some(request_key(me, from)),
+        ..Default::default()
+    }
+}
+
 /// A contact request we sent (or our answer to theirs), as platform-wallet holds it. Keyed by the
 /// pair, ours and theirs (`cr:<ours>:<to>`), without the account reference: a rotated key is no
 /// new request, and every one to them is the same line, at the first one's time (`journal::merge`).
@@ -959,5 +980,34 @@ mod tests {
             (50, Some(Reply::TheyAccepted))
         );
         assert_eq!(local[1].reply, Some(Reply::Accepted));
+    }
+
+    /// BUG-198 AC-T1: our answer written here and the same request read from Platform are one
+    /// line, with what it cost here.
+    #[test]
+    fn an_answer_and_its_document_are_one_line() {
+        let me = Identifier::new([1; 32]);
+        let them = Identifier::new([2; 32]);
+        let read = || contact_request(&me, &them, 1_700_000_003_000, &Default::default());
+        // Before: the answer written without a key, as the document names them otherwise — two
+        // lines, «Contact accepted» and «Contact request sent», for one answer.
+        let mut before = vec![Entry {
+            at: 1_700_000_000,
+            what: What::ContactRequest { to: "@bob".into() },
+            spent: 74_118,
+            identity: Some(me.to_string(Encoding::Base58)),
+            ..Default::default()
+        }];
+        crate::journal::merge(&mut before, vec![read()]);
+        assert_eq!(before.len(), 2, "the doubled row: {before:?}");
+        // Now: keyed as the read keys it — one line.
+        let mut local = vec![accepted_request(&me, &them, "@bob", 1_700_000_000, 74_118)];
+        crate::journal::merge(&mut local, vec![read()]);
+        assert_eq!(local.len(), 1, "{local:?}");
+        assert_eq!(local[0].spent, 74_118, "the cost paid here");
+        assert_eq!(
+            local[0].key.as_deref(),
+            Some(request_key(&me, &them).as_str())
+        );
     }
 }

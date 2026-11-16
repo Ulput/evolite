@@ -346,15 +346,17 @@ impl Chain {
     pub async fn contact_key_addresses(
         &self,
         wallet: &PlatformWallet,
-    ) -> std::collections::HashMap<String, String> {
+    ) -> std::collections::HashMap<String, (String, String)> {
         use key_wallet::managed_account::managed_account_trait::ManagedAccountTrait;
         let state = wallet.state().await;
         let mut found = std::collections::HashMap::new();
         for (key, account) in state.core_wallet.accounts.dashpay_external_accounts.iter() {
+            // BUG-196: whose account it is too — a wallet's identities may share a contact.
+            let ours = Identifier::from(key.user_identity_id).to_string(Encoding::Base58);
             let friend = Identifier::from(key.friend_identity_id).to_string(Encoding::Base58);
             for pool in account.managed_account_type().address_pools() {
                 for info in pool.addresses.values() {
-                    found.insert(info.address.to_string(), friend.clone());
+                    found.insert(info.address.to_string(), (ours.clone(), friend.clone()));
                 }
             }
         }

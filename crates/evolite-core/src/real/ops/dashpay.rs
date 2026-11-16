@@ -110,13 +110,24 @@ impl Real {
                             .await
                             .map_err(dashpay_failure)?;
                         let after = chain.first_identity_credits(&wallet, true).await;
-                        journal.add(journal::Entry {
-                            at: now(),
-                            what: journal::What::ContactRequest { to: who },
-                            spent: spent_credits(before, after).unwrap_or(0),
-                            moved: 0,
-                            identity: acting,
-                            ..Default::default()
+                        let spent = spent_credits(before, after).unwrap_or(0);
+                        // BUG-198: keyed as the read of Platform keys our request back, so the
+                        // two are one line; unkeyed only with no identity to key it by.
+                        let me = acting
+                            .as_deref()
+                            .and_then(|a| Identifier::from_string(a, Encoding::Base58).ok());
+                        journal.add(match me {
+                            Some(me) => {
+                                platform_history::accepted_request(&me, &from, &who, now(), spent)
+                            }
+                            None => journal::Entry {
+                                at: now(),
+                                what: journal::What::ContactRequest { to: who },
+                                spent,
+                                moved: 0,
+                                identity: acting,
+                                ..Default::default()
+                            },
                         });
                         Ok(())
                     }

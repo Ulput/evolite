@@ -475,7 +475,8 @@ impl Real {
             shown.as_ref().map(|(identity, _, _)| identity.id.as_str()),
             &self.app_reads.lock().unwrap_or_else(|e| e.into_inner()),
         );
-        self.name_contact_lines(id, &mut history, &mut contacts)
+        let me = shown.as_ref().map(|(identity, _, _)| identity.id.clone());
+        self.name_contact_lines(id, me.as_deref(), &mut history, &mut contacts)
             .await;
         convert::settle(&mut history, self.chain.status().chainlock_height);
         // BUG-173: own InstantLocks kept across a restart; «Confirmed · checking» from them.
@@ -1110,10 +1111,11 @@ impl Real {
         waiting
     }
 
-    /// Payments to contacts say whom, and each contact counts them.
+    /// Payments to contacts say whom, and each of `me`'s contacts counts `me`'s (BUG-196).
     async fn name_contact_lines(
         &self,
         id: WalletId,
+        me: Option<&str>,
         history: &mut [Activity],
         contacts: &mut [Contact],
     ) {
@@ -1125,14 +1127,17 @@ impl Real {
             self.chain.contact_key_addresses(&wallet),
         )
         .await;
-        // And the ones paid in earlier runs, kept beside the store.
+        // And the ones paid in earlier runs, kept beside the store by the contact only: they
+        // name the line; they count for no one unless platform-wallet's account has them, with
+        // its pair (BUG-196).
         for c in contacts.iter() {
             for address in self.contact_paid.paid(&c.identity_id) {
-                keys.insert(address, c.identity_id.clone());
+                keys.entry(address)
+                    .or_insert_with(|| (String::new(), c.identity_id.clone()));
             }
         }
         convert::name_contact_payments(history, &keys, contacts);
-        convert::count_contact_payments(history, &keys, contacts);
+        convert::count_contact_payments(history, &keys, me, contacts);
     }
 
     /// Rescans owed for payments that lost their block, and the lines waiting on one.

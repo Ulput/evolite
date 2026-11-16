@@ -1075,7 +1075,16 @@ fn accept_dialog(
                         "Your answer makes you contacts: everyone can see it, and it can't be deleted. The addresses for payments between you are hidden."
                     ),
                 );
-                let ready = !waiting && state.password.ready(ask);
+                let short = answer_short(known_credits(wallet), wallet.fees.contact_request);
+                if short {
+                    crate::components::error_notice(
+                        ui,
+                        a,
+                        &contact_error(&CoreError::NotEnough),
+                        None,
+                    );
+                }
+                let ready = !waiting && !short && state.password.ready(ask);
                 let mut close = false;
                 button_row(ui, |ui| {
                     if button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked() {
@@ -1313,6 +1322,12 @@ fn known_credits(wallet: &Wallet) -> Option<Duffs> {
         .then_some(wallet.balances.credits)
 }
 
+/// The identity's credits, read and checked, do not cover the answer as estimated (BUG-197
+/// AC-T3): «Accept» is refused before the password, with the reason.
+fn answer_short(credits: Option<Duffs>, fee: Duffs) -> bool {
+    credits.is_some_and(|c| c < fee)
+}
+
 /// [`balance_warning`] for whatever sends a contact request or an answer.
 pub(super) fn reserve_warning(wallet: &Wallet) -> Option<String> {
     balance_warning(known_credits(wallet), wallet.fees.contact_request_balance)
@@ -1366,6 +1381,18 @@ mod tests {
         assert!(
             balance_warning(None, 230_000).is_none(),
             "a balance not read yet says nothing"
+        );
+    }
+
+    /// BUG-197 AC-T3: 80 000 of credits against an answer estimated at 92 648 — refused before
+    /// the password; enough, or not read yet — not refused.
+    #[test]
+    fn an_answer_the_credits_do_not_cover_is_refused_first() {
+        assert!(answer_short(Some(80_000), 92_648));
+        assert!(!answer_short(Some(92_648), 92_648));
+        assert!(
+            !answer_short(None, 92_648),
+            "not read yet: the network decides"
         );
     }
 
