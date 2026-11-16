@@ -102,6 +102,9 @@ pub(super) struct DevState {
     pool_preset: Option<bool>,
     /// `--screen activity-notes-unreadable`: the notes file did not open (FEAT-0003, E2).
     pub(super) notes_error: Option<evolite_api::NotesError>,
+    /// `--screen <part>-set-aside`: a file of the wallet set aside (BUG-204, BUG-212); gone from
+    /// here once «Start over» went through.
+    pub(super) set_aside: Vec<evolite_api::LocalFile>,
     /// Tests only: every Core card says that part of its details was not saved (FEAT-0005a, FR-6).
     pub(super) incomplete_details: bool,
     /// `--screen activity-card-long-title`: the demo's contact request is from a name long
@@ -298,6 +301,22 @@ impl DevState {
             notes_error: dev
                 .preset("activity-notes-unreadable")
                 .then_some(evolite_api::NotesError::PutAside),
+            set_aside: {
+                use evolite_api::LocalFile::*;
+                [
+                    ("history-set-aside", Journal),
+                    ("overview-set-aside", Journal),
+                    ("top-ups-set-aside", TopUps),
+                    ("names-set-aside", NameRequests),
+                    ("apps-set-aside", ConnectedApps),
+                    ("contacts-set-aside", ContactAddresses),
+                    ("address-book-set-aside", AddressBook),
+                ]
+                .into_iter()
+                .filter(|(name, _)| dev.preset(name))
+                .map(|(_, file)| file)
+                .collect()
+            },
             frozen_now: PausePreset::of(dev)
                 .filter(|p| p.tries.is_some())
                 .map(|_| chrono::Local::now()),
@@ -587,6 +606,20 @@ impl App {
             && let Some(w) = self.snapshot.as_mut().and_then(|s| s.wallet.as_mut())
         {
             w.notes_error = Some(e);
+        }
+        // BUG-204: the files the preset set aside, where the real core would have put them.
+        if !self.dev.set_aside.is_empty()
+            && let Some(w) = self.snapshot.as_mut().and_then(|s| s.wallet.as_mut())
+        {
+            w.set_aside = self
+                .dev
+                .set_aside
+                .iter()
+                .map(|&file| evolite_api::SetAside {
+                    file,
+                    path: format!(r"C:\evolite\{file:?}.json.unreadable-1763302200"),
+                })
+                .collect();
         }
         if self.dev.incomplete_details
             && let Some(w) = self.snapshot.as_mut().and_then(|s| s.wallet.as_mut())

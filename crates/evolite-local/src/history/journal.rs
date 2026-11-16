@@ -10,13 +10,13 @@
 //! entries; it is never a reason to refuse anything. New fields are all `serde(default)`: an
 //! older build reads a newer file and the other way round.
 
+use crate::json_file::{Entries, State, Store};
 use evolite_api::{
     Activity, ActivityKind, Chain, Detail, Duffs, IdentityRef, Proof, RequestState, Timestamp,
     WithdrawalState,
 };
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::Mutex;
 
 /// Where an entry comes from.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -569,100 +569,136 @@ fn give_lines(entries: &mut [Entry]) -> bool {
 }
 
 pub struct Journal {
-    path: PathBuf,
-    /// What each top-up from this computer added, read once ([`Journal::top_ups`]).
-    top_ups: Mutex<Option<HashMap<String, Duffs>>>,
-    /// Read once, then kept up to date with what is written.
-    entries: Mutex<Option<Kept>>,
+    /// The entries, read once and kept up to date with what is written; a file that does not
+    /// read is set aside, never written over (BUG-204), and entries of a kind this build does
+    /// not know are written back as they were.
+    store: Store<Entries<Entry>>,
+    /// What each top-up from this computer added ([`Journal::top_ups`]).
+    top_ups: Store<HashMap<String, Duffs>>,
+    /// Lines added while the file was set aside (review r1, Should 1): shown, and written first
+    /// thing once the file is back or started over ([`Journal::keep_pending`]). Lost if evolite
+    /// closes before (the banner says so).
+    pending: std::sync::Mutex<Vec<Entry>>,
 }
 
-/// The entries in memory and whether the file lags behind them (a write that failed): the next
-/// [`Journal::merge_network`] writes it even when it changes nothing (BUG-58 r2).
-struct Kept {
-    all: Vec<Entry>,
-    unsaved: bool,
+/// Lines' ids for the entries read without one: by an older build, or before ids were kept.
+fn prepare(entries: &mut Entries<Entry>) {
+    give_lines(&mut entries.known);
 }
 
 impl Journal {
     pub fn new(path: PathBuf) -> Self {
         Self {
-            path,
-            top_ups: Mutex::new(None),
-            entries: Mutex::new(None),
+            top_ups: Store::new(path.with_file_name("top-up-credits.json")),
+            store: Store::with_prepare(path, prepare),
+            pending: Default::default(),
         }
     }
 
     pub fn entries(&self) -> Vec<Entry> {
-        let mut entries = self.entries.lock().unwrap_or_else(|e| e.into_inner());
-        entries.get_or_insert_with(|| self.kept()).all.clone()
+        let mut all = self.store.read(|e| e.known.clone());
+        all.extend(self.pending().iter().cloned());
+        all
     }
 
-    fn kept(&self) -> Kept {
-        Kept {
-            all: self.load(),
-            unsaved: false,
+    fn pending(&self) -> std::sync::MutexGuard<'_, Vec<Entry>> {
+        self.pending.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// The lines kept in memory while the file was set aside, into the file now that it reads
+    /// again or was started over (review r1, Should 1). Kept in memory if this write fails too.
+    pub fn keep_pending(&self) {
+        let pending = std::mem::take(&mut *self.pending());
+        if pending.is_empty() {
+            return;
+        }
+        let kept = self.store.update_kept(|e| {
+            e.known.extend(pending.iter().cloned());
+            give_lines(&mut e.known);
+            ((), true)
+        });
+        if kept.is_err() {
+            self.pending().extend(pending);
         }
     }
 
-    /// Writes the entries and says whether the file now has them all.
-    fn write(&self, kept: &mut Kept) -> Result<(), String> {
-        let result = self.save(&kept.all);
-        kept.unsaved = result.is_err();
-        result
+    /// Whether the journal's file, and the top-ups' beside it, read or were set aside
+    /// (BUG-204): the core says so to the screens.
+    pub fn state(&self) -> State {
+        self.store.state()
+    }
+
+    pub fn top_ups_state(&self) -> State {
+        self.top_ups.state()
+    }
+
+    /// The journal's file and the top-ups', for «Try again» and «Start over».
+    pub fn stores(&self) -> (&Store<Entries<Entry>>, &Store<HashMap<String, Duffs>>) {
+        (&self.store, &self.top_ups)
     }
 
     /// Keeps `entry`; written beside and renamed over, so a crash leaves the old file or the
-    /// new one. A file that cannot be written loses only the history line.
+    /// new one. A file that cannot be written loses only the history line. One set aside is not
+    /// written over (BUG-204): the line waits in memory, shown, until the file is back or started
+    /// over (review r1, Should 1).
     /// Returns the line's id ([`give_lines`]): fixed for good, so a note can go to it.
     pub fn add(&self, entry: Entry) -> Option<u64> {
-        let mut entries = self.entries.lock().unwrap_or_else(|e| e.into_inner());
-        let kept = entries.get_or_insert_with(|| self.kept());
-        kept.all.push(entry);
-        give_lines(&mut kept.all);
-        let line = kept.all.last().and_then(|e| e.line);
-        let _ = self.write(kept);
-        line
+        let mut entry = Some(entry);
+        let kept = self.store.update_kept(|e| {
+            e.known.push(entry.take().expect("one entry"));
+            give_lines(&mut e.known);
+            (e.known.last().and_then(|e| e.line), true)
+        });
+        match kept {
+            Ok((line, _)) => line,
+            Err(_) => {
+                let mut pending = self.pending();
+                pending.push(entry.take()?);
+                give_lines(&mut pending);
+                pending.last().and_then(|e| e.line)
+            }
+        }
+    }
+
+    /// How many entries there are: a new one since an earlier count says a change of the credits
+    /// has its line (BUG-147).
+    pub fn count(&self) -> usize {
+        self.store.read(|e| e.known.len()) + self.pending().len()
     }
 
     /// [`fold_app_spent`] into the file (BUG-145): what app `app` spent since the last read, as
     /// `identity`, at `at`.
-    /// How many entries there are: a new one since an earlier count says a change of the credits
-    /// has its line (BUG-147).
-    pub fn count(&self) -> usize {
-        let mut entries = self.entries.lock().unwrap_or_else(|e| e.into_inner());
-        entries.get_or_insert_with(|| self.kept()).all.len()
+    pub fn add_app_spent(&self, app: &str, identity: &str, delta: Duffs, at: Timestamp) {
+        let _ = self.store.update_kept(|e| {
+            let changed = fold_app_spent(&mut e.known, app, identity, delta, at);
+            ((), changed)
+        });
     }
 
-    pub fn add_app_spent(&self, app: &str, identity: &str, delta: Duffs, at: Timestamp) {
-        let mut entries = self.entries.lock().unwrap_or_else(|e| e.into_inner());
-        let kept = entries.get_or_insert_with(|| self.kept());
-        if fold_app_spent(&mut kept.all, app, identity, delta, at) {
-            let _ = self.write(kept);
-        }
+    /// [`merge_network`](Self::merge_network) of tokens' `transfer` documents (FEAT-0019 T-1):
+    /// each own send written here first takes its document's key ([`key_token_sends`]).
+    pub fn merge_token_network(&self, network: Vec<Entry>) -> Result<bool, String> {
+        let _ = self.store.update_kept(|e| {
+            key_token_sends(&mut e.known, &network);
+            ((), false)
+        });
+        self.merge_network(network)
     }
 
     /// [`merge`]s what was read from Platform and writes the file when anything changed, or
     /// when an earlier write failed (what it held is in memory only). Returns whether it
     /// changed; an error while the file does not have every entry, so that what was read is not
-    /// counted as kept (the marks stay, R-33 p. 2) — this pass's or an earlier one's.
-    /// [`merge_network`](Self::merge_network) of tokens' `transfer` documents (FEAT-0019 T-1):
-    /// each own send written here first takes its document's key ([`key_token_sends`]).
-    pub fn merge_token_network(&self, network: Vec<Entry>) -> Result<bool, String> {
-        {
-            let mut entries = self.entries.lock().unwrap_or_else(|e| e.into_inner());
-            let kept = entries.get_or_insert_with(|| self.kept());
-            key_token_sends(&mut kept.all, &network);
-        }
-        self.merge_network(network)
-    }
-
+    /// counted as kept (the marks stay, R-33 p. 2) — this pass's or an earlier one's — and
+    /// while the file is set aside.
     pub fn merge_network(&self, network: Vec<Entry>) -> Result<bool, String> {
-        let mut entries = self.entries.lock().unwrap_or_else(|e| e.into_inner());
-        let kept = entries.get_or_insert_with(|| self.kept());
-        let changed = merge(&mut kept.all, network);
-        if changed || kept.unsaved {
-            self.write(kept)?;
-        }
+        let (changed, written) = self
+            .store
+            .update_kept(|e| {
+                let changed = merge(&mut e.known, network);
+                (changed, changed)
+            })
+            .map_err(|e| e.to_string())?;
+        written.map_err(|e| e.to_string())?;
         Ok(changed)
     }
 
@@ -670,27 +706,16 @@ impl Journal {
     /// lock (FR-3): `top-up-credits.json` beside the journal, not an entry of it, as a top-up is
     /// a Core line and an entry would show as a second one. Nothing kept reads as empty.
     pub fn top_ups(&self) -> HashMap<String, Duffs> {
-        let mut kept = self.top_ups.lock().unwrap_or_else(|e| e.into_inner());
-        kept.get_or_insert_with(|| {
-            crate::json_file::read(&self.top_ups_path())
-                .ok()
-                .and_then(|bytes| serde_json::from_slice(&bytes).ok())
-                .unwrap_or_default()
-        })
-        .clone()
+        self.top_ups.read(HashMap::clone)
     }
 
-    /// Keeps what the top-up by the lock `txid` added. A file that cannot be written loses only
-    /// this amount: the card then says «added» without it.
+    /// Keeps what the top-up by the lock `txid` added. A file that cannot be written, or was set
+    /// aside, loses only this amount: the card then says «added» without it.
     pub fn keep_top_up(&self, txid: &str, added: Duffs) {
-        let mut all = self.top_ups();
-        all.insert(txid.to_owned(), added);
-        let _ = crate::json_file::save(&self.top_ups_path(), &all);
-        *self.top_ups.lock().unwrap_or_else(|e| e.into_inner()) = Some(all);
-    }
-
-    fn top_ups_path(&self) -> PathBuf {
-        self.path.with_file_name("top-up-credits.json")
+        let _ = self.top_ups.update(|all| {
+            all.insert(txid.to_owned(), added);
+            ((), true)
+        });
     }
 
     /// What the last entry of a kind (`kind`) cost in fees, in duffs; `None` before the first
@@ -712,21 +737,6 @@ impl Journal {
             .filter_map(fee_of)
             .take(recent)
             .max()
-    }
-
-    /// The file's entries, each with its line's id (given now to those written without one:
-    /// by an older build, or before ids were kept).
-    fn load(&self) -> Vec<Entry> {
-        let mut entries: Vec<Entry> = crate::json_file::read(&self.path)
-            .ok()
-            .and_then(|bytes| serde_json::from_slice(&bytes).ok())
-            .unwrap_or_default();
-        give_lines(&mut entries);
-        entries
-    }
-
-    fn save(&self, entries: &[Entry]) -> Result<(), String> {
-        crate::json_file::save(&self.path, &entries)
     }
 }
 
@@ -1770,6 +1780,165 @@ mod tests {
         };
         let written = serde_json::to_string(&unknown).unwrap();
         assert!(written.contains("\"cost_known\":false"), "{written}");
+    }
+
+    fn journal_dir(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "evolite-journal-{name}-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    /// The bytes of each `<file>.unreadable-*` in `dir`.
+    fn set_aside_files(dir: &std::path::Path, file: &str) -> Vec<Vec<u8>> {
+        std::fs::read_dir(dir)
+            .unwrap()
+            .flatten()
+            .filter(|e| {
+                e.file_name()
+                    .to_string_lossy()
+                    .starts_with(&format!("{file}.unreadable-"))
+            })
+            .map(|e| std::fs::read(e.path()).unwrap())
+            .collect()
+    }
+
+    /// BUG-204: an older build reads a file with a kind of `What` it does not know — it keeps
+    /// the lines it knows, and its next line does not drop the newer ones.
+    #[test]
+    fn an_older_build_keeps_the_lines_of_a_newer_kind() {
+        let dir = journal_dir("newer");
+        let path = dir.join("platform-history.json");
+        let journal = Journal::new(path.clone());
+        journal.add(here(1_000, name("a"), 100));
+        journal.add(here(2_000, name("b"), 100));
+        // A newer build wrote a kind this one does not know.
+        let text = std::fs::read_to_string(&path).unwrap();
+        let newer = text.replacen("\"Name\"", "\"SomethingLater\"", 1);
+        assert_ne!(newer, text);
+        std::fs::write(&path, &newer).unwrap();
+        let older = Journal::new(path.clone());
+        assert_eq!(older.entries().len(), 1, "the line it knows");
+        assert_eq!(older.state(), State::Readable);
+        older.add(here(3_000, name("c"), 100));
+        let back = std::fs::read_to_string(&path).unwrap();
+        assert!(
+            back.contains("SomethingLater"),
+            "the newer line is still there"
+        );
+        assert_eq!(Journal::new(path).count(), 2);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// BUG-204: a journal that does not read is set aside, not written over by the next line
+    /// nor by what is read from Platform; «Start over» begins a new one, the old one stays.
+    #[test]
+    fn a_damaged_journal_is_set_aside_not_written_over() {
+        let dir = journal_dir("damaged");
+        let path = dir.join("platform-history.json");
+        std::fs::write(&path, b"[{\"at\": 1, \"what\"").unwrap();
+        let journal = Journal::new(path.clone());
+        assert!(journal.entries().is_empty());
+        assert!(matches!(journal.state(), State::SetAside { .. }));
+        assert!(
+            journal
+                .merge_network(vec![read(2_000, name("b"), "dpns:2")])
+                .is_err()
+        );
+        assert!(!path.exists(), "nothing written in its place");
+        assert_eq!(
+            set_aside_files(&dir, "platform-history.json"),
+            [b"[{\"at\": 1, \"what\"".to_vec()]
+        );
+        journal.stores().0.start_anew();
+        journal.add(here(1_000, name("a"), 100));
+        assert_eq!(Journal::new(path).count(), 1);
+        assert_eq!(set_aside_files(&dir, "platform-history.json").len(), 1);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// BUG-204 (AC-A2): a journal another program held is set aside; once it can be read,
+    /// «Try again» puts it back and every line is there.
+    #[test]
+    fn a_held_journal_comes_back_with_try_again() {
+        let dir = journal_dir("held");
+        let path = dir.join("platform-history.json");
+        Journal::new(path.clone()).add(here(1_000, name("a"), 100));
+        let kept = std::fs::read(&path).unwrap();
+        // Not readable as a file (a folder in its place), on every system.
+        std::fs::remove_file(&path).unwrap();
+        std::fs::create_dir_all(path.join("in-the-way")).unwrap();
+        let journal = Journal::new(path.clone());
+        let State::SetAside { path: aside, .. } = journal.state() else {
+            panic!("set aside");
+        };
+        // The program let go: the file is readable where it was put.
+        std::fs::remove_dir_all(&aside).unwrap();
+        std::fs::write(&aside, &kept).unwrap();
+        assert_eq!(journal.stores().0.try_again(), State::Readable);
+        assert_eq!(journal.count(), 1);
+        journal.add(here(2_000, name("b"), 100));
+        assert_eq!(Journal::new(path).count(), 2);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Review r1, Should 1: a line added while the journal is set aside is shown and kept in
+    /// memory, not written over the file; «Start over» writes it first, and so does «Try again»
+    /// once the file reads, after what the file held.
+    #[test]
+    fn lines_added_while_set_aside_wait_and_are_written_when_it_is_back() {
+        let dir = journal_dir("pending");
+        let path = dir.join("platform-history.json");
+        std::fs::write(&path, b"[{").unwrap();
+        let journal = Journal::new(path.clone());
+        let line = journal.add(here(1_000, name("a"), 100));
+        assert!(line.is_some(), "a line id for its note");
+        assert_eq!(journal.count(), 1, "shown");
+        assert_eq!(journal.entries()[0].line, line);
+        assert!(!path.exists(), "not written over the file set aside");
+        journal.stores().0.start_anew();
+        journal.keep_pending();
+        let back = Journal::new(path.clone());
+        assert_eq!(back.count(), 1);
+        assert_eq!(back.entries()[0].line, line, "the same id: its note stays");
+        // «Try again»: what the file held, then what waited.
+        Journal::new(path.clone()).add(here(500, name("old"), 100));
+        let kept = std::fs::read(&path).unwrap();
+        std::fs::remove_file(&path).unwrap();
+        std::fs::create_dir_all(path.join("in-the-way")).unwrap();
+        let held = Journal::new(path.clone());
+        let State::SetAside { path: aside, .. } = held.state() else {
+            panic!("set aside");
+        };
+        held.add(here(2_000, name("b"), 100));
+        std::fs::remove_dir_all(&aside).unwrap();
+        std::fs::write(&aside, &kept).unwrap();
+        assert_eq!(held.stores().0.try_again(), State::Readable);
+        held.keep_pending();
+        assert_eq!(Journal::new(path).count(), 3);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// BUG-212: a top-ups file that does not read is set aside, not written over.
+    #[test]
+    fn a_damaged_top_ups_file_is_set_aside() {
+        let dir = journal_dir("top-ups");
+        let path = dir.join("platform-history.json");
+        std::fs::write(dir.join("top-up-credits.json"), b"{\"aa\": 12").unwrap();
+        let journal = Journal::new(path);
+        assert!(journal.top_ups().is_empty());
+        journal.keep_top_up("bb", 7);
+        assert!(!dir.join("top-up-credits.json").exists());
+        assert_eq!(
+            set_aside_files(&dir, "top-up-credits.json"),
+            [b"{\"aa\": 12".to_vec()]
+        );
+        assert!(matches!(journal.top_ups_state(), State::SetAside { .. }));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
 

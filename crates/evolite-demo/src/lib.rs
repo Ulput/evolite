@@ -567,6 +567,18 @@ impl Mock {
                     result,
                 }
             }
+            // BUG-204: the demo writes no file. A file set aside (a preset lays it over the
+            // snapshot) still does not read on «Try again»; «Start over» goes through.
+            Command::TryFileAgain { .. } => Event::Done {
+                what: DoneWhat::LocalFile,
+                result: Err(CoreError::NotAvailable(
+                    tr!("The file still does not read").into(),
+                )),
+            },
+            Command::StartFileOver { .. } => Event::Done {
+                what: DoneWhat::LocalFile,
+                result: Ok(()),
+            },
             Command::RenameWallet { id, name, color } => {
                 let name = name.trim().to_owned();
                 let result = match self.snapshot.wallets.iter_mut().find(|w| w.id == id) {

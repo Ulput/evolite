@@ -255,6 +255,8 @@ pub fn contacts(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut ContactsS
             state.my_qr = true;
         }
     });
+    // BUG-204, BUG-212: the files of this screen that did not read and were set aside.
+    crate::screens::set_aside::banners(ui, a, cx, &[evolite_api::LocalFile::ContactAddresses]);
 
     let requests: Vec<&Contact> = wallet
         .contacts

@@ -223,6 +223,16 @@ pub fn identity(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut IdentityS
             }
         }
     });
+    // BUG-204, BUG-212: the files of this screen that did not read and were set aside.
+    crate::screens::set_aside::banners(
+        ui,
+        a,
+        cx,
+        &[
+            evolite_api::LocalFile::NameRequests,
+            evolite_api::LocalFile::TopUps,
+        ],
+    );
     identity_choice(ui, a, cx, state, &mut asked);
     top_up_status(ui, a, wallet, state, &mut asked);
     if let Some(unfinished) = &wallet.unfinished_identity {

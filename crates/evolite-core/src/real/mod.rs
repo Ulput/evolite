@@ -495,6 +495,9 @@ struct Real {
     history_next: Option<std::time::Instant>,
     /// Addresses of contacts' keys already paid: never paid again, after a restart too.
     contact_paid: Arc<contact_addresses::ContactAddresses>,
+    /// The wallet's requests for contested names: one for the wallet, so that its changes take
+    /// turns (BUG-213).
+    name_requests: Arc<name_requests::NameRequests>,
     /// Senders whose requests were hidden: still hidden after a resync.
     hidden: Arc<hidden_requests::HiddenRequests>,
     /// The pool's operations with the amounts the scan loses after a restart.

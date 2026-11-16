@@ -277,7 +277,7 @@ impl Real {
         let chain = self.chain.clone();
         let refresh = self.refresher();
         let journal = self.journal.clone();
-        let requests = name_requests::NameRequests::new(self.paths.name_requests.clone());
+        let requests = self.name_requests.clone();
         let names_stale = self.names_stale.clone();
         self.answer_later("task:claim_name", async move {
             let result = async {
@@ -411,7 +411,7 @@ impl Real {
             }
         };
         let journal = self.journal.clone();
-        let requests = name_requests::NameRequests::new(self.paths.name_requests.clone());
+        let requests = self.name_requests.clone();
         let chain = self.chain.clone();
         let refresh = self.refresher();
         self.answer_later("task:set_name_link", async move {
@@ -474,7 +474,7 @@ impl Real {
         identity: &str,
         label: &str,
     ) -> Result<(), CoreError> {
-        let requests = name_requests::NameRequests::new(self.paths.name_requests.clone());
+        let requests = self.name_requests.clone();
         match requests.hide(identity, label) {
             Ok(true) => Ok(()),
             Ok(false) => Err(CoreError::NameNotFound),
@@ -679,7 +679,7 @@ impl Real {
         };
         let stale = self.balances_stale.clone();
         let names_stale = self.names_stale.clone();
-        let names_path = self.paths.name_requests.clone();
+        let names_path = self.name_requests.clone();
         let out = self.out.clone();
         let names_journal = self.journal.clone();
         let identity_links = self.identity_links.clone();
@@ -754,7 +754,7 @@ impl Real {
                         id,
                         live.clone(),
                         super::name_contests::NamePoll {
-                            path: names_path.clone(),
+                            requests: names_path.clone(),
                             out: out.clone(),
                             journal: names_journal.clone(),
                             mainnet,

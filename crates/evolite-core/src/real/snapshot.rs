@@ -516,6 +516,7 @@ impl Real {
             password_each_send: self.password_each_send,
             identity_links: self.identity_links.load(Ordering::Relaxed),
             notes_error,
+            set_aside: self.set_aside_files(),
             tokens: self.shown_tokens(
                 shown.as_ref().map(|(identity, _, _)| identity.id.as_str()),
                 identities.iter().map(|c| c.id.clone()).collect(),
@@ -882,7 +883,7 @@ impl Real {
     /// (FEAT-0021, AC-T3): a contested name platform-wallet lists once sent is still in its vote.
     fn identity_of(&self, m: &ManagedIdentity) -> Identity {
         let mut api = identity::to_api(m);
-        let requests = name_requests::NameRequests::new(self.paths.name_requests.clone()).load();
+        let requests = self.name_requests.load();
         name_requests::apply(&mut api.names, &api.id, &requests, now());
         api
     }
@@ -1170,6 +1171,19 @@ impl Real {
             self.chain.contact_key_addresses(&wallet),
         )
         .await;
+        // BUG-212: the wallet's own payments to addresses of contacts' keys are paid ones — kept
+        // in memory and written where the file lacks them (a file set aside or started over).
+        let seen: Vec<(String, String)> = history
+            .iter()
+            .filter(|a| a.amount < 0)
+            .filter_map(|a| {
+                let address = a.address.as_ref()?;
+                Some((keys.get(address)?.1.clone(), address.clone()))
+            })
+            .collect();
+        if !seen.is_empty() {
+            self.contact_paid.saw(&seen);
+        }
         // And the ones paid in earlier runs, kept beside the store by the contact only: they
         // name the line; they count for no one unless platform-wallet's account has them, with
         // its pair (BUG-196).

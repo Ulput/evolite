@@ -197,6 +197,7 @@ impl Real {
                 let fees = self.fees_now(0).await;
                 let times = (fees.name_join_secs, fees.name_vote_secs);
                 let give_up = check_not_synced(asked.clone());
+                let requests = self.name_requests.clone();
                 self.answer_when_platform_ready("task:check_name", give_up, async move {
                     let read = async move {
                         let (shown, ids) = match wallet_id {
@@ -213,8 +214,24 @@ impl Real {
                         let contest = if awarded {
                             None
                         } else {
-                            Some(chain.contest(&label).await?.0)
+                            Some(chain.contest(&label).await?)
                         };
+                        // BUG-204: a claim of the wallet's in the vote whose request the file
+                        // lacks (set aside, started over) is kept again — nothing is sent or paid.
+                        if let Some((contest, fund)) = &contest
+                            && let Some(request) = name_requests::restored(
+                                &label,
+                                contest,
+                                &ids,
+                                &requests.load(),
+                                *fund,
+                                now(),
+                                times,
+                            )
+                        {
+                            let _ = requests.put(request);
+                        }
+                        let contest = contest.map(|(c, _)| c);
                         Ok::<_, String>(name_requests::classify(
                             &label,
                             awarded,

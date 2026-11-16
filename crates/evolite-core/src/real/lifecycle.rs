@@ -32,6 +32,9 @@ impl Real {
         let contact_paid = Arc::new(contact_addresses::ContactAddresses::new(
             paths.contact_addresses.clone(),
         ));
+        let name_requests = Arc::new(name_requests::NameRequests::new(
+            paths.name_requests.clone(),
+        ));
         let hidden = Arc::new(hidden_requests::HiddenRequests::new(
             paths.hidden_requests.clone(),
         ));
@@ -76,6 +79,7 @@ impl Real {
             fund_resume_failed: Default::default(),
             history_next: None,
             contact_paid,
+            name_requests,
             hidden,
             pool_history,
             address_book: address_book::AddressBook::new(paths.address_book.clone()),

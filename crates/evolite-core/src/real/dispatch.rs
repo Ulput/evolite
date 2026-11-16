@@ -311,8 +311,9 @@ impl Real {
             Command::CheckName { label: asked } => return self.check_name(asked).await,
             // FEAT-0021 Should 1: «×» on Overview's notice, kept until the result; no answer.
             Command::CloseNameNotice { identity, label } => {
-                let requests = name_requests::NameRequests::new(self.paths.name_requests.clone());
-                let _ = requests.update(&identity, &label, |r| r.close_notice());
+                let _ = self
+                    .name_requests
+                    .update(&identity, &label, |r| r.close_notice());
                 return (None, true);
             }
             Command::HideNameRequest { identity, label } => Event::Done {
@@ -514,6 +515,26 @@ impl Real {
                         result,
                     }),
                     changed,
+                );
+            }
+            Command::TryFileAgain { file } => {
+                let result = self.local_file(file, true);
+                return (
+                    Some(Event::Done {
+                        what: DoneWhat::LocalFile,
+                        result,
+                    }),
+                    true,
+                );
+            }
+            Command::StartFileOver { file } => {
+                let result = self.local_file(file, false);
+                return (
+                    Some(Event::Done {
+                        what: DoneWhat::LocalFile,
+                        result,
+                    }),
+                    true,
                 );
             }
             Command::RenameWallet { id, name, color } => {

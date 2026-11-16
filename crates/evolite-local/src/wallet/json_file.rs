@@ -67,6 +67,37 @@ fn tmp_of(path: &Path) -> PathBuf {
     PathBuf::from(tmp)
 }
 
+/// Deletes the temporary files of `path` another process left (`<name>.<pid>.<n>.tmp` of a pid
+/// not this one's), a crash's leftovers (review r1, Should 2). One window per data folder, so
+/// another pid is a process gone; this process's own may be another thread's write under way.
+fn remove_orphans(path: &Path) {
+    let (Some(dir), Some(name)) = (path.parent(), path.file_name()) else {
+        return;
+    };
+    let prefix = format!("{}.", name.to_string_lossy());
+    let own = std::process::id().to_string();
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let file = entry.file_name().to_string_lossy().into_owned();
+        let Some(middle) = file
+            .strip_prefix(&prefix)
+            .and_then(|rest| rest.strip_suffix(".tmp"))
+        else {
+            continue;
+        };
+        let mut parts = middle.split('.');
+        let (Some(pid), Some(n), None) = (parts.next(), parts.next(), parts.next()) else {
+            continue;
+        };
+        let numbers = |s: &str| !s.is_empty() && s.chars().all(|c| c.is_ascii_digit());
+        if numbers(pid) && numbers(n) && pid != own {
+            let _ = std::fs::remove_file(entry.path());
+        }
+    }
+}
+
 fn write_whole(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     if let Some(dir) = path.parent() {
         crate::folders::create(dir)?;
@@ -87,9 +118,15 @@ fn write_whole(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     let mut legacy = path.as_os_str().to_owned();
     legacy.push(".tmp");
     let _ = std::fs::remove_file(legacy);
+    remove_orphans(path);
+    // The file is new already: a folder that would not flush is said in the journal, and the
+    // write is not called failed (review r1, Should 1: a store would keep the old value and the
+    // next change would drop this one).
     #[cfg(unix)]
-    if let Some(dir) = path.parent() {
-        std::fs::File::open(dir)?.sync_all()?;
+    if let Some(dir) = path.parent()
+        && let Err(e) = std::fs::File::open(dir).and_then(|d| d.sync_all())
+    {
+        evolite_common::diag::storage_failed(path, "sync dir", &e);
     }
     Ok(())
 }
@@ -147,6 +184,9 @@ struct Inner<T> {
     /// `None` until first read.
     value: Option<T>,
     state: State,
+    /// A change kept in memory whose write failed ([`Store::update_kept`]): the next change
+    /// writes it even when it changes nothing.
+    unsaved: bool,
 }
 
 /// One file of the data folder in memory (see the module): what it holds, read the first time
@@ -154,6 +194,8 @@ struct Inner<T> {
 pub struct Store<T> {
     path: PathBuf,
     inner: Mutex<Inner<T>>,
+    /// Applied to what was read, before anything looks at it (a journal gives its lines ids).
+    prepare: fn(&mut T),
 }
 
 impl<T> Store<T>
@@ -161,12 +203,19 @@ where
     T: serde::Serialize + serde::de::DeserializeOwned + Default + Clone,
 {
     pub fn new(path: PathBuf) -> Self {
+        Self::with_prepare(path, |_| {})
+    }
+
+    /// [`Self::new`] whose file, once read, goes through `prepare` first.
+    pub fn with_prepare(path: PathBuf, prepare: fn(&mut T)) -> Self {
         Self {
             path,
             inner: Mutex::new(Inner {
                 value: None,
                 state: State::Readable,
+                unsaved: false,
             }),
+            prepare,
         }
     }
 
@@ -184,7 +233,8 @@ where
     /// Changes what the file holds with `change` and writes it, as one step no other change of
     /// this store comes between. `change` works on a copy: nothing changes in memory unless it
     /// is on the disk. Nothing is written when `change` says nothing changed (`false`), nor
-    /// into a file set aside.
+    /// into a file set aside. `change` runs under this store's lock: it must not use the same
+    /// store (that would wait for itself).
     pub fn update<R>(&self, change: impl FnOnce(&mut T) -> (R, bool)) -> Result<R, StoreError> {
         let mut inner = self.lock();
         self.load(&mut inner);
@@ -193,11 +243,35 @@ where
         }
         let mut value = inner.value.clone().expect("loaded");
         let (answer, changed) = change(&mut value);
-        if changed {
+        if changed || inner.unsaved {
             save(&self.path, &value).map_err(StoreError::Write)?;
             inner.value = Some(value);
+            inner.unsaved = false;
         }
         Ok(answer)
+    }
+
+    /// [`Self::update`] whose change stays in memory even when it could not be written (the
+    /// journal's rule, BUG-58 r2): the next change writes it then, and until then what is read
+    /// has it. The second half of the answer is whether the file now has everything. Refused,
+    /// as any change, while the file is set aside.
+    pub fn update_kept<R>(
+        &self,
+        change: impl FnOnce(&mut T) -> (R, bool),
+    ) -> Result<(R, Result<(), StoreError>), StoreError> {
+        let mut inner = self.lock();
+        self.load(&mut inner);
+        if inner.state != State::Readable {
+            return Err(StoreError::SetAside);
+        }
+        let (answer, changed) = change(inner.value.as_mut().expect("loaded"));
+        let mut written = Ok(());
+        if changed || inner.unsaved {
+            written =
+                save(&self.path, inner.value.as_ref().expect("loaded")).map_err(StoreError::Write);
+            inner.unsaved = written.is_err();
+        }
+        Ok((answer, written))
     }
 
     /// The file as it stands: whether it was set aside, where and why.
@@ -213,6 +287,7 @@ where
         let mut inner = self.lock();
         inner.value = Some(T::default());
         inner.state = State::Readable;
+        inner.unsaved = false;
     }
 
     /// «Try again» (the analyst, BUG-204): the file set aside goes back under its own name and
@@ -233,6 +308,7 @@ where
             }
         }
         inner.value = None;
+        inner.unsaved = false;
         self.load(&mut inner);
         inner.state.clone()
     }
@@ -253,8 +329,36 @@ where
             },
             Err(reason) => (T::default(), set_aside(&self.path, reason)),
         };
+        let mut value = value;
+        (self.prepare)(&mut value);
         inner.value = Some(value);
         inner.state = state;
+    }
+}
+
+/// What the core does with any store's file that was set aside, whatever it holds (BUG-204).
+pub trait SetAsideFile {
+    fn state(&self) -> State;
+    /// [`Store::try_again`].
+    fn try_again(&self) -> State;
+    /// [`Store::start_anew`].
+    fn start_anew(&self);
+}
+
+impl<T> SetAsideFile for Store<T>
+where
+    T: serde::Serialize + serde::de::DeserializeOwned + Default + Clone,
+{
+    fn state(&self) -> State {
+        Store::state(self)
+    }
+
+    fn try_again(&self) -> State {
+        Store::try_again(self)
+    }
+
+    fn start_anew(&self) {
+        Store::start_anew(self)
     }
 }
 
@@ -695,6 +799,25 @@ mod tests {
             Err(StoreError::Write(_))
         ));
         assert_eq!(store.read(Vec::clone), Vec::<u32>::new());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// Review r1, Should 2: a write deletes the temporary files a process gone left, and not this
+    /// process's own (another thread may be writing one).
+    #[test]
+    fn a_write_removes_what_a_crashed_process_left() {
+        let dir = dir("orphans");
+        let path = dir.join("journal.json");
+        let gone = dir.join("journal.json.1.0.tmp");
+        let mine = dir.join(format!("journal.json.{}.999999.tmp", std::process::id()));
+        let other = dir.join("journal.json.unreadable-1.tmp");
+        for f in [&gone, &mine, &other] {
+            std::fs::write(f, b"half").unwrap();
+        }
+        save(&path, &vec![1]).unwrap();
+        assert!(!gone.exists(), "another pid's: gone");
+        assert!(mine.exists(), "this process's: left");
+        assert!(other.exists(), "not a temporary file of this write: left");
         std::fs::remove_dir_all(dir).unwrap();
     }
 }

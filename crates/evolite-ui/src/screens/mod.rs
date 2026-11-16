@@ -26,6 +26,7 @@ mod elsewhere;
 mod overview;
 #[cfg(feature = "dev-tools")]
 mod probe;
+pub mod set_aside;
 pub(crate) mod sidebar;
 pub mod switch_wallet;
 pub mod wallets;

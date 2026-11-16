@@ -4,8 +4,8 @@
 //! they belong to is only here. Public data only. A missing or unreadable file is no apps: the
 //! keys stay on the identity, and the next sign-in finds its generation again from them.
 
+use crate::json_file::{Entries, State, Store};
 use std::path::PathBuf;
-use std::sync::Mutex;
 
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct App {
@@ -74,22 +74,30 @@ pub struct Response {
 }
 
 pub struct ConnectedApps {
-    path: PathBuf,
-    /// Read once, then kept up to date with what is written.
-    apps: Mutex<Option<Vec<App>>>,
+    /// Read once, then kept up to date with what is written; a file that does not read is set
+    /// aside, never written over (BUG-212).
+    store: Store<Entries<App>>,
 }
 
 impl ConnectedApps {
     pub fn new(path: PathBuf) -> Self {
         Self {
-            path,
-            apps: Mutex::new(None),
+            store: Store::new(path),
         }
     }
 
     pub fn all(&self) -> Vec<App> {
-        let mut apps = self.apps.lock().unwrap_or_else(|e| e.into_inner());
-        apps.get_or_insert_with(|| self.load()).clone()
+        self.store.read(|e| e.known.clone())
+    }
+
+    /// Whether the file read or was set aside (BUG-212).
+    pub fn state(&self) -> State {
+        self.store.state()
+    }
+
+    /// The file, for «Try again» and «Start over».
+    pub fn store(&self) -> &Store<Entries<App>> {
+        &self.store
     }
 
     /// The app of `contract` for `identity`.
@@ -112,21 +120,15 @@ impl ConnectedApps {
         self.change(|all| all.retain(|a| !(a.contract == contract && a.identity == identity)))
     }
 
-    /// Applies `edit` to a copy and keeps it once it is on disk.
+    /// Applies `edit` to a copy and keeps it once it is on disk; refused while the file is set
+    /// aside.
     fn change(&self, edit: impl FnOnce(&mut Vec<App>)) -> Result<(), String> {
-        let mut apps = self.apps.lock().unwrap_or_else(|e| e.into_inner());
-        let mut all = apps.get_or_insert_with(|| self.load()).clone();
-        edit(&mut all);
-        crate::json_file::save(&self.path, &all)?;
-        *apps = Some(all);
-        Ok(())
-    }
-
-    fn load(&self) -> Vec<App> {
-        crate::json_file::read(&self.path)
-            .ok()
-            .and_then(|bytes| serde_json::from_slice(&bytes).ok())
-            .unwrap_or_default()
+        self.store
+            .update(|e| {
+                edit(&mut e.known);
+                ((), true)
+            })
+            .map_err(|e| e.to_string())
     }
 }
 
@@ -238,6 +240,58 @@ mod tests {
         let apps = ConnectedApps::new(path);
         assert!(apps.put(app("C1", "I1", 1)).is_err());
         assert!(apps.all().is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+    fn store_dir(name: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "evolite-store-{name}-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    /// The bytes of each `<file>.unreadable-*` in `dir`.
+    fn set_aside_files(dir: &std::path::Path, file: &str) -> Vec<Vec<u8>> {
+        std::fs::read_dir(dir)
+            .unwrap()
+            .flatten()
+            .filter(|e| {
+                e.file_name()
+                    .to_string_lossy()
+                    .starts_with(&format!("{file}.unreadable-"))
+            })
+            .map(|e| std::fs::read(e.path()).unwrap())
+            .collect()
+    }
+
+    /// BUG-212: an app this build cannot read (a newer build's) stays in the file after a
+    /// change; a damaged file is set aside and a change refused.
+    #[test]
+    fn an_app_of_a_newer_build_stays_and_a_damaged_file_is_not_written_over() {
+        let dir = store_dir("apps");
+        let path = dir.join("connected-apps.json");
+        let newer = serde_json::json!({"contract": "C9", "future": true});
+        std::fs::write(&path, serde_json::to_vec(&vec![newer.clone()]).unwrap()).unwrap();
+        let apps = ConnectedApps::new(path.clone());
+        assert!(apps.all().is_empty());
+        apps.put(app("C1", "I1", 10)).unwrap();
+        let back: Vec<serde_json::Value> =
+            serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        assert_eq!(back.len(), 2);
+        assert!(back.contains(&newer), "{back:?}");
+        assert_eq!(ConnectedApps::new(path.clone()).all().len(), 1);
+        std::fs::write(&path, b"[{").unwrap();
+        let damaged = ConnectedApps::new(path.clone());
+        assert!(damaged.put(app("C2", "I1", 20)).is_err());
+        assert!(matches!(damaged.state(), State::SetAside { .. }));
+        assert_eq!(
+            set_aside_files(&dir, "connected-apps.json"),
+            [b"[{".to_vec()]
+        );
+        assert!(!path.exists());
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

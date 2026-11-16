@@ -41,6 +41,33 @@ pub fn open(url: &str) -> bool {
     }
 }
 
+/// Opens `path`'s folder in the file manager: Explorer and Finder select the file, Linux file
+/// managers open its folder. In tests nothing opens: the folder is kept for [`opened`] as
+/// `folder:<path>`.
+pub fn show_in_folder(path: &std::path::Path) {
+    #[cfg(test)]
+    {
+        OPENED.with(|o| o.borrow_mut().push(format!("folder:{}", path.display())));
+    }
+    #[cfg(not(test))]
+    {
+        let mut command = if cfg!(windows) {
+            let mut c = std::process::Command::new("explorer");
+            c.arg(format!("/select,{}", path.display()));
+            c
+        } else if cfg!(target_os = "macos") {
+            let mut c = std::process::Command::new("open");
+            c.arg("-R").arg(path);
+            c
+        } else {
+            let mut c = std::process::Command::new("xdg-open");
+            c.arg(path.parent().unwrap_or(path));
+            c
+        };
+        let _ = command.spawn();
+    }
+}
+
 #[cfg(test)]
 thread_local! {
     static OPENED: std::cell::RefCell<Vec<String>> = const { std::cell::RefCell::new(Vec::new()) };

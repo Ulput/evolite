@@ -85,6 +85,17 @@ pub fn activity(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, h: &mut History) {
             );
         });
     });
+    // BUG-204, BUG-212: the files of this screen that did not read and were set aside.
+    crate::screens::set_aside::banners(
+        ui,
+        a,
+        cx,
+        &[
+            evolite_api::LocalFile::Journal,
+            evolite_api::LocalFile::TopUps,
+            evolite_api::LocalFile::ContactAddresses,
+        ],
+    );
     let total = wallet.activity.len();
     let mut shown: Vec<usize> = h
         .shown(&wallet.activity, &wallet.address_book, &cx.now)
@@ -406,21 +417,7 @@ fn export_banner(
                 ));
             }
             if button(ui, a, tr!("Show in folder"), ButtonKind::Ghost, None).clicked() {
-                // Explorer and Finder select the file; Linux file managers open its folder.
-                let mut command = if cfg!(windows) {
-                    let mut c = std::process::Command::new("explorer");
-                    c.arg(format!("/select,{}", path.display()));
-                    c
-                } else if cfg!(target_os = "macos") {
-                    let mut c = std::process::Command::new("open");
-                    c.arg("-R").arg(path);
-                    c
-                } else {
-                    let mut c = std::process::Command::new("xdg-open");
-                    c.arg(path.parent().unwrap_or(path.as_path()));
-                    c
-                };
-                let _ = command.spawn();
+                crate::links::show_in_folder(&path);
             }
         }
         Some(Err(why)) => notice(

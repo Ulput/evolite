@@ -563,6 +563,8 @@ pub fn send(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut SendForm) {
         }
         page_header(ui, a, tr!("Send"), None, |_, _| {});
     });
+    // BUG-212: the address book did not read and was set aside.
+    crate::screens::set_aside::banners(ui, a, cx, &[evolite_api::LocalFile::AddressBook]);
 
     // A picture dropped on the window, then what a scan brought (FEAT-0006): «To» gets it.
     if !form.confirming

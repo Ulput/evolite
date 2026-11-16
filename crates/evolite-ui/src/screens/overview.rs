@@ -455,6 +455,8 @@ fn latest_operations(
     let b = &wallet.balances;
     ui.vertical(|ui| {
         ui.spacing_mut().item_spacing.y = 4.0;
+        // BUG-204: the journal set aside — a line that leads to History's banner.
+        crate::screens::set_aside::overview_line(ui, a, cx);
         ui.allocate_ui_with_layout(
             vec2(ui.available_width(), 41.0),
             Layout::left_to_right(Align::Center),

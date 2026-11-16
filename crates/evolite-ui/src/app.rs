@@ -660,6 +660,27 @@ impl App {
                     what: DoneWhat::Note,
                     result,
                 } => screens::activity::on_note_done(ctx, result),
+                // BUG-204: «Try again» / «Start over» on a file set aside.
+                Event::Done {
+                    what: DoneWhat::LocalFile,
+                    result,
+                } => {
+                    let file = ctx.data_mut(|d| {
+                        let id = screens::set_aside::asked_id();
+                        let file = d.get_temp::<evolite_api::LocalFile>(id);
+                        d.remove::<evolite_api::LocalFile>(id);
+                        file
+                    });
+                    screens::set_aside::on_done(ctx, file, result);
+                    // Read again or started over: its banner goes now, before the next snapshot.
+                    if result.is_ok() {
+                        if let Some(w) = self.snapshot.as_mut().and_then(|s| s.wallet.as_mut()) {
+                            w.set_aside.retain(|s| Some(s.file) != file);
+                        }
+                        #[cfg(feature = "dev-tools")]
+                        self.dev.set_aside.retain(|f| Some(*f) != file);
+                    }
+                }
                 Event::Sent { id, result } => self.send.on_sent(*id, result),
                 Event::PaymentPreview { to, result } => self.send.on_preview(to, result),
                 Event::Coins { ask, result } => self.send.on_coins(*ask, result),
@@ -1090,6 +1111,18 @@ impl eframe::App for App {
         }
         self.save_prefs();
         self.take_events(ui.ctx());
+        // BUG-204: «Report a problem» from a banner of a file set aside, its subject filled in.
+        if let Some(subject) = ui
+            .ctx()
+            .data_mut(|d| d.remove_temp::<String>(screens::set_aside::report_id()))
+        {
+            self.settings.section = screens::settings::Section::About;
+            self.settings.report = Some(screens::settings::report::ReportForm {
+                summary: crate::i18n::t(&subject).into_owned(),
+                ..Default::default()
+            });
+            self.screen = Screen::Settings;
+        }
         // FEAT-0021 AC-T22, entry 4: a click on a vote's result brings the window forward (from
         // this process) and opens the claim's contest card.
         if let Some((identity, label)) = self.notifier.take_click() {

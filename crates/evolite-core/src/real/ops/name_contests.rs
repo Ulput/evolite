@@ -23,7 +23,7 @@ pub(in crate::real) fn to_read(requests: &[name_requests::NameRequest]) -> Vec<(
 /// What the poll keeps and tells: the requests' file, the events' way out, the journal for
 /// History's result line (N6), the network, and what wakes it before its time.
 pub(in crate::real) struct NamePoll {
-    pub path: PathBuf,
+    pub requests: Arc<name_requests::NameRequests>,
     pub out: Sender<Event>,
     pub journal: Arc<journal::Journal>,
     pub mainnet: bool,
@@ -62,7 +62,7 @@ pub(in crate::real) async fn keep_name_requests_fresh(
     poll: NamePoll,
     refresh: impl Fn(),
 ) {
-    let file = name_requests::NameRequests::new(poll.path);
+    let file = poll.requests.clone();
     while live() {
         let _ = file.prune(now());
         for (identity, label) in to_read(&file.load()) {
@@ -126,6 +126,7 @@ mod tests {
             result_notice_closed: false,
             link: None,
             link_written: false,
+            restored: false,
         };
         assert!(to_read(&[]).is_empty());
         assert!(to_read(&[request("won", Some((Outcome::Won, 1)))]).is_empty());

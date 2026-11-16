@@ -1497,6 +1497,33 @@ const NAME_FIRST: Duffs = 78_000;
 /// A top-up's fee on testnet: 8 130 duffs (2026-11-05, 0.01 DASH), rounded up.
 const TOP_UP_ON_TOP: Duffs = 10_000;
 
+/// One of the wallet's own files on this computer that a part of the interface stands on
+/// (BUG-204, BUG-212): each has its banner when it was set aside.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum LocalFile {
+    /// `platform-history.json`: History's Platform lines.
+    Journal,
+    /// `name-requests.json`: the requests for contested names.
+    NameRequests,
+    /// `connected-apps.json`.
+    ConnectedApps,
+    /// `contact-addresses.json`: the contacts' addresses already paid.
+    ContactAddresses,
+    /// `top-up-credits.json`: what each top-up added.
+    TopUps,
+    /// `address-book.json`.
+    AddressBook,
+}
+
+/// A file that did not read (damaged, of a newer build, or held by another program) and was
+/// moved to `path` (BUG-204): what it held is still there, nothing is written over it.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct SetAside {
+    pub file: LocalFile,
+    /// Where it is now, to show in the folder; the screens name only the file, never the path.
+    pub path: String,
+}
+
 #[derive(Clone, PartialEq, Debug)]
 pub struct Wallet {
     pub balances: Balances,
@@ -1546,6 +1573,10 @@ pub struct Wallet {
     /// What was wrong with the notes file when the wallet opened, if anything: the history
     /// shows no notes from it (FEAT-0003, E2).
     pub notes_error: Option<NotesError>,
+    /// The wallet's files that did not read and were set aside (BUG-204, BUG-212): nothing is
+    /// written into them until «Try again» or «Start over» ([`Command::TryFileAgain`],
+    /// [`Command::StartFileOver`]).
+    pub set_aside: Vec<SetAside>,
     /// Platform tokens of the identity the interface shows, and the wallet's search for them
     /// (FEAT-0019). [`tokens::Tokens::off`] on mainnet (R-9).
     pub tokens: tokens::Tokens,
@@ -2173,6 +2204,17 @@ pub enum Command {
         key: String,
         text: NoteText,
     },
+    /// «Try again» on a file set aside (BUG-204): it goes back under its name and is read
+    /// again; one that still does not read is set aside again. Answered with
+    /// `Done { what: DoneWhat::LocalFile }` (an error while it is still set aside).
+    TryFileAgain {
+        file: LocalFile,
+    },
+    /// «Start over» on a file set aside (BUG-204): that part starts from an empty file; the file
+    /// set aside stays where it is. Answered with `Done { what: DoneWhat::LocalFile }`.
+    StartFileOver {
+        file: LocalFile,
+    },
     /// Name a wallet of this computer (1–24 characters) and give it one of the six colours
     /// (Figma 30); local, never sent anywhere. Answered with `Done { what: DoneWhat::Wallet }`.
     RenameWallet {
@@ -2548,6 +2590,8 @@ pub enum DoneWhat {
     Resync,
     Send,
     SendToken,
+    /// `TryFileAgain` / `StartFileOver`: a file set aside (BUG-204).
+    LocalFile,
     ClaimToken,
     BuyToken,
     IssuerAction,
@@ -2591,6 +2635,7 @@ impl DoneWhat {
             Self::Resync => "resync",
             Self::Send => "send",
             Self::SendToken => "send-token",
+            Self::LocalFile => "local-file",
             Self::ClaimToken => "claim-token",
             Self::BuyToken => "buy-token",
             Self::IssuerAction => "issuer-action",

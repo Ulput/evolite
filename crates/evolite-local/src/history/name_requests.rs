@@ -74,6 +74,10 @@ pub struct NameRequest {
     pub link: Option<String>,
     #[serde(default)]
     pub link_written: bool,
+    /// Rebuilt from the contest by a check of the name (BUG-204), not written when it was sent:
+    /// `sent_at` is the claim's time as the contest has it, or the check's.
+    #[serde(default)]
+    pub restored: bool,
 }
 
 impl NameRequest {
@@ -341,6 +345,7 @@ impl NameRequest {
             result_notice_closed: false,
             link: None,
             link_written: false,
+            restored: false,
         };
         request.take_claims(contest, now);
         if !request.contenders.iter().any(|(id, _)| id == identity) {
@@ -348,6 +353,41 @@ impl NameRequest {
         }
         request
     }
+}
+
+/// BUG-204 (the architect): the wallet's request on `label` the contest shows and `kept` lacks —
+/// the requests' file was set aside or started over — rebuilt from the contest, with no
+/// transition and no payment, marked [`NameRequest::restored`]. `wallet`: the wallet's identities;
+/// `fund`: the contest's fund (one for the label). `None` when no claim of the wallet is in the
+/// contest, or its request is kept already.
+pub fn restored(
+    label: &str,
+    contest: &ContestSnapshot,
+    wallet: &[(String, u32)],
+    kept: &[NameRequest],
+    fund: evolite_api::Duffs,
+    now: Timestamp,
+    (join_secs, vote_secs): (u64, u64),
+) -> Option<NameRequest> {
+    let ours = contest
+        .contenders
+        .iter()
+        .find(|c| wallet.iter().any(|(id, _)| *id == c.identity))?;
+    if kept.iter().any(|r| r.is(&ours.identity, label)) {
+        return None;
+    }
+    let mut request = NameRequest::new(
+        &ours.identity,
+        label,
+        contest,
+        fund,
+        now,
+        join_secs,
+        vote_secs,
+    );
+    request.sent_at = ours.created_at.unwrap_or(now).min(now);
+    request.restored = true;
+    Some(request)
 }
 
 /// Lays the wallet's requests over `identity`'s names as listed (FEAT-0021, AC-T3): a request's
@@ -384,30 +424,51 @@ pub fn apply(
     }
 }
 
-/// The file, in the wallet's folder.
+/// The file, in the wallet's folder: one for the wallet, so that its changes take turns
+/// (BUG-213) — every change reads, changes and writes as one step.
 pub struct NameRequests {
-    path: PathBuf,
+    store: crate::json_file::Store<crate::json_file::Entries<NameRequest>>,
 }
 
 impl NameRequests {
     pub fn new(path: PathBuf) -> Self {
-        Self { path }
+        Self {
+            store: crate::json_file::Store::new(path),
+        }
     }
 
-    /// Every request kept. A missing or unreadable file is none.
+    /// Every request kept. A missing file is none; one that does not read is set aside, never
+    /// written over (BUG-212), and reads as none until «Try again» or «Start over».
     pub fn load(&self) -> Vec<NameRequest> {
-        crate::json_file::read(&self.path)
-            .ok()
-            .and_then(|bytes| serde_json::from_slice(&bytes).ok())
-            .unwrap_or_default()
+        self.store.read(|e| e.known.clone())
+    }
+
+    /// Whether the file read or was set aside (BUG-212).
+    pub fn state(&self) -> crate::json_file::State {
+        self.store.state()
+    }
+
+    /// The file, for «Try again» and «Start over».
+    pub fn store(&self) -> &crate::json_file::Store<crate::json_file::Entries<NameRequest>> {
+        &self.store
     }
 
     /// Adds `request`, or replaces the one of its identity and label.
     pub fn put(&self, request: NameRequest) -> Result<(), String> {
-        let mut all = self.load();
-        all.retain(|r| !r.is(&request.identity, &request.label));
-        all.push(request);
-        self.save(&all)
+        self.change(|all| {
+            all.retain(|r| !r.is(&request.identity, &request.label));
+            all.push(request);
+            ((), true)
+        })
+    }
+
+    fn change<R>(
+        &self,
+        edit: impl FnOnce(&mut Vec<NameRequest>) -> (R, bool),
+    ) -> Result<R, String> {
+        self.store
+            .update(|e| edit(&mut e.known))
+            .map_err(|e| e.to_string())
     }
 
     /// Changes the request of `identity` and `label` with `change`; false when there is none.
@@ -417,44 +478,41 @@ impl NameRequests {
         label: &str,
         change: impl FnOnce(&mut NameRequest),
     ) -> Result<bool, String> {
-        let mut all = self.load();
-        let Some(request) = all.iter_mut().find(|r| r.is(identity, label)) else {
-            return Ok(false);
-        };
-        let before = request.clone();
-        change(request);
-        if *request != before {
-            self.save(&all)?;
-        }
-        Ok(true)
+        // One step under the store's lock (BUG-213): «Hide» and a vote's result at once both stay.
+        self.change(|all| {
+            let Some(request) = all.iter_mut().find(|r| r.is(identity, label)) else {
+                return (false, false);
+            };
+            let before = request.clone();
+            change(request);
+            let changed = *request != before;
+            (true, changed)
+        })
     }
 
     /// «Hide» (R-12, AC-T18): only a lost or blocked request of this identity; again is no error.
     /// False, and nothing written, when there is no such request.
     pub fn hide(&self, identity: &str, label: &str) -> Result<bool, String> {
-        let all = self.load();
-        let finished = all.iter().any(|r| {
-            r.is(identity, label) && matches!(r.result, Some((Outcome::Lost | Outcome::Locked, _)))
-        });
-        if !finished {
-            return Ok(false);
-        }
-        self.update(identity, label, |r| r.hidden = true)
+        self.change(|all| {
+            let Some(request) = all.iter_mut().find(|r| {
+                r.is(identity, label)
+                    && matches!(r.result, Some((Outcome::Lost | Outcome::Locked, _)))
+            }) else {
+                return (false, false);
+            };
+            let changed = !request.hidden;
+            request.hidden = true;
+            (true, changed)
+        })
     }
 
     /// Drops what is no longer kept at `now` (90 days after a result).
     pub fn prune(&self, now: Timestamp) -> Result<(), String> {
-        let mut all = self.load();
-        let before = all.len();
-        all.retain(|r| r.kept(now));
-        if all.len() != before {
-            self.save(&all)?;
-        }
-        Ok(())
-    }
-
-    fn save(&self, all: &[NameRequest]) -> Result<(), String> {
-        crate::json_file::save(&self.path, &all)
+        self.change(|all| {
+            let before = all.len();
+            all.retain(|r| r.kept(now));
+            ((), all.len() != before)
+        })
     }
 }
 
@@ -487,6 +545,7 @@ mod tests {
             result_notice_closed: false,
             link: None,
             link_written: false,
+            restored: false,
         }
     }
 
@@ -855,5 +914,149 @@ mod tests {
         file.update("A", "sam", NameRequest::close_notice).unwrap();
         assert!(file.load()[0].contest(2_000).result_notice_closed);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+    fn store_dir(name: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "evolite-store-{name}-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    /// The bytes of each `<file>.unreadable-*` in `dir`.
+    fn set_aside_files(dir: &std::path::Path, file: &str) -> Vec<Vec<u8>> {
+        std::fs::read_dir(dir)
+            .unwrap()
+            .flatten()
+            .filter(|e| {
+                e.file_name()
+                    .to_string_lossy()
+                    .starts_with(&format!("{file}.unreadable-"))
+            })
+            .map(|e| std::fs::read(e.path()).unwrap())
+            .collect()
+    }
+
+    /// BUG-212: a request this build cannot read stays in the file after a change; a damaged
+    /// file is set aside and a change refused.
+    #[test]
+    fn a_newer_request_stays_and_a_damaged_file_is_not_written_over() {
+        let dir = store_dir("names");
+        let path = dir.join("name-requests.json");
+        let newer = serde_json::json!({"identity": "Z", "future": 1});
+        std::fs::write(&path, serde_json::to_vec(&vec![newer.clone()]).unwrap()).unwrap();
+        let requests = NameRequests::new(path.clone());
+        assert!(requests.load().is_empty());
+        requests.put(request(None)).unwrap();
+        let back: Vec<serde_json::Value> =
+            serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        assert_eq!(back.len(), 2);
+        assert!(back.contains(&newer));
+        std::fs::write(&path, b"[{\"identity\"").unwrap();
+        let damaged = NameRequests::new(path.clone());
+        assert!(damaged.put(request(None)).is_err());
+        assert!(damaged.prune(0).is_err());
+        assert_eq!(
+            set_aside_files(&dir, "name-requests.json"),
+            [b"[{\"identity\"".to_vec()]
+        );
+        assert!(!path.exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// BUG-213: «Hide» and a vote's result written at once both stay.
+    #[test]
+    fn two_changes_at_once_both_stay() {
+        let dir = store_dir("names-at-once");
+        let path = dir.join("name-requests.json");
+        let requests = NameRequests::new(path.clone());
+        for n in 0..20 {
+            requests
+                .put(NameRequest {
+                    label: format!("name{n}"),
+                    ..request(None)
+                })
+                .unwrap();
+        }
+        std::thread::scope(|s| {
+            for n in 0..20 {
+                let requests = &requests;
+                s.spawn(move || {
+                    let label = format!("name{n}");
+                    requests.update("A", &label, |r| r.hidden = true).unwrap();
+                });
+            }
+        });
+        let all = NameRequests::new(path).load();
+        assert_eq!(all.len(), 20);
+        assert!(all.iter().all(|r| r.hidden), "no change lost");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+    /// BUG-204 (the architect): the wallet's claim in the vote whose request the file lacks is
+    /// rebuilt from the contest, marked restored, with the claim's own time; once kept it is
+    /// not rebuilt again; a vote without the wallet's claim gives none; and a claim is still
+    /// refused while the request is in the vote (no second payment).
+    #[test]
+    fn a_request_in_the_vote_is_restored_once_and_never_paid_again() {
+        let contest = ContestSnapshot {
+            winner: None,
+            contenders: vec![
+                Contender {
+                    identity: "THEM".into(),
+                    votes: 3,
+                    created_at: Some(1_000),
+                },
+                Contender {
+                    identity: "A".into(),
+                    votes: 1,
+                    created_at: Some(1_500),
+                },
+            ],
+            lock: 0,
+            abstain: 0,
+        };
+        let wallet = [("A".to_owned(), 0)];
+        let times = (7 * DAY as u64, 14 * DAY as u64);
+        let back = restored("sam", &contest, &wallet, &[], 400_000, 2_000, times).unwrap();
+        assert!(back.restored);
+        assert_eq!((back.identity.as_str(), back.label.as_str()), ("A", "sam"));
+        assert_eq!(back.sent_at, 1_500, "the claim's own time");
+        assert_eq!(back.join_until, 1_000 + 7 * DAY, "from the contest's start");
+        assert_eq!(back.fund, 400_000);
+        assert_eq!(
+            restored(
+                "sam",
+                &contest,
+                &wallet,
+                std::slice::from_ref(&back),
+                400_000,
+                2_000,
+                times
+            ),
+            None,
+            "kept already: not twice"
+        );
+        assert_eq!(
+            restored(
+                "sam",
+                &contest,
+                &[("B".to_owned(), 1)],
+                &[],
+                400_000,
+                2_000,
+                times
+            ),
+            None,
+            "none of the wallet's in the vote"
+        );
+        let check = classify("sam", false, Some(&contest), "A", &wallet, 2_000, times);
+        assert_eq!(check, NameCheck::AlreadyRequested { other: None });
+        assert!(
+            judge_claim(check, 400_000, Some(400_000)).is_err(),
+            "no second claim"
+        );
     }
 }

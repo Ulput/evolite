@@ -1075,6 +1075,7 @@ pub fn demo_wallet(t: Timestamp) -> Wallet {
         // click (Settings → Security turns it on).
         password_each_send: false,
         notes_error: None,
+        set_aside: Vec::new(),
         tokens: crate::tokens::demo_tokens(t),
         identity_search: IdentitySearch::Done,
         // Two identities, so the Identity screen shows its choice.

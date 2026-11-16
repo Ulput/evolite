@@ -304,6 +304,8 @@ pub fn apps(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, requests: &mut AppRequest
             requests.qr_error = None;
         }
     });
+    // BUG-204, BUG-212: the files of this screen that did not read and were set aside.
+    crate::screens::set_aside::banners(ui, a, cx, &[evolite_api::LocalFile::ConnectedApps]);
     if let Some(why) = requests.qr_error {
         crate::components::qr_note(ui, a, &crate::components::QrNote::Error(why));
     }

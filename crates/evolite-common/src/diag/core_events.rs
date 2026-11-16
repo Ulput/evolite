@@ -59,6 +59,9 @@ pub fn command_name(command: &Command) -> &'static str {
         Command::AddWallet => "add_wallet",
         Command::CancelAddWallet => "cancel_add_wallet",
         Command::SetNote { .. } => "set_note",
+        // Which file only, never where it is (BUG-204, R-4).
+        Command::TryFileAgain { .. } => "try_file_again",
+        Command::StartFileOver { .. } => "start_file_over",
         Command::RenameWallet { .. } => "rename_wallet",
         // Which token, and the word looked for, stay off the journal.
         Command::FindToken { .. } => "find_token",
