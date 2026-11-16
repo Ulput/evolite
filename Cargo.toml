@@ -94,3 +94,15 @@ debug = false
 # times slower. Only third-party crates are affected; the workspace's own crates keep fast
 # rebuilds.
 opt-level = 2
+
+# The QA build (customer, 2026-11-16): release optimisation, but our own crates rebuild
+# incrementally and in many codegen units, so a batch's QA build takes minutes, not most of an
+# hour. Dependencies keep release's 16 units and come from sccache. A shipped build still uses
+# `--release`. Output: target/qa/.
+[profile.qa]
+inherits = "release"
+incremental = true
+codegen-units = 256
+
+[profile.qa.package."*"]
+codegen-units = 16
