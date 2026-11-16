@@ -173,6 +173,57 @@ async fn a_deleted_wallets_open_store_is_not_cleared_under_it() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// BUG-210: a change of the identity runs (here: held), «Add a wallet» → «Back»: the wallet's
+/// core is the same flag as before and the identity still taken, so a second change is refused
+/// before the password; it is free once the first task ends. Before, the core after «Back»
+/// started with a free identity of its own while the old task still ran.
+#[tokio::test(flavor = "multi_thread")]
+async fn going_back_from_adding_keeps_the_identity_taken() {
+    let dir = fresh_dir("b210-back");
+    seal_wallet(&dir, "bbbb0002");
+    let mut from = core_at(&dir, "bbbb0002");
+    let running = from.identity_busy.take().expect("free");
+    let mut adding = core_at(&dir, "cccc0003");
+    hand_on_chain(&mut from, &mut adding, true);
+    let mut back = core_at(&dir, "bbbb0002");
+    assert!(
+        !back.identity_busy.is_busy(),
+        "a core of its own starts free"
+    );
+    hand_on_chain(&mut adding, &mut back, false);
+    assert!(
+        back.identity_busy.same_as(&from.identity_busy),
+        "the same flag"
+    );
+    assert!(
+        back.identity_busy.is_busy(),
+        "still taken by the task before «Add a wallet»"
+    );
+    let (event, _) = back
+        .handle(Command::Spend {
+            op: Spend::TopUpIdentity { amount: 10_000_000 },
+            password: Some(pw("wrong")),
+        })
+        .await;
+    assert!(
+        matches!(
+            &event,
+            Some(Event::Done {
+                what: DoneWhat::TopUp,
+                result: Err(CoreError::NotAvailable(words)),
+            }) if words.contains("already being made")
+        ),
+        "{event:?}"
+    );
+    drop(running);
+    assert!(
+        !back.identity_busy.is_busy(),
+        "free once the first task ends"
+    );
+    back.chain.stop().await;
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// BUG-76: "Add a wallet" → "Back" keeps the wallet's chain — not stopped, not started
 /// again, its store open throughout — and how far it was rescanned (BUG-64). The
 /// onboarding meanwhile starts no chain of its own, not even when a retry would be due.

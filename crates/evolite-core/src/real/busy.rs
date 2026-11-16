@@ -24,6 +24,12 @@ impl BusyFlag {
     pub(in crate::real) fn is_busy(&self) -> bool {
         self.0.load(Ordering::SeqCst)
     }
+
+    /// Whether `self` and `other` are one flag (the core's and its parked chain's, BUG-210).
+    #[cfg(test)]
+    pub(in crate::real) fn same_as(&self, other: &BusyFlag) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
 }
 
 /// The identity taken; free again when this is dropped, however the task ends.
