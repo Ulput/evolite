@@ -842,6 +842,17 @@ pub fn activity(entry: &Entry) -> Activity {
                 ours: None,
             },
             What::Profile => ActivityKind::ProfileSaved,
+            // BUG-226: a contested name read back from Platform (a fresh copy, its claim not in
+            // this journal) was won in the vote, not «registered»: its domain is written when
+            // the vote is won. With the claim or result here it is hidden (`won_by_contest`).
+            What::Name { label }
+                if entry.source == Source::Network && evolite_common::dpns::is_contested(label) =>
+            {
+                ActivityKind::NameContestEnded {
+                    label: label.clone(),
+                    outcome: evolite_api::NameOutcome::Won,
+                }
+            }
             What::Name { label } => ActivityKind::NameRegistered {
                 label: label.clone(),
             },
@@ -1162,6 +1173,47 @@ mod tests {
             !won_by_contest(&mine, &entries),
             "only a name read from Platform"
         );
+    }
+
+    /// BUG-226: History rebuilt from Platform on a fresh copy, no claim in the journal: a
+    /// contested name it owns is the vote won, not «registered»; a regular name, and a contested
+    /// one registered here, are registrations.
+    #[test]
+    fn a_contested_name_read_back_alone_is_the_vote_won() {
+        let read = |label: &str| Entry {
+            source: Source::Network,
+            ..here(
+                1_000,
+                What::Name {
+                    label: label.into(),
+                },
+                0,
+            )
+        };
+        assert_eq!(
+            activity(&read("qakestrelx")).kind,
+            ActivityKind::NameContestEnded {
+                label: "qakestrelx".into(),
+                outcome: evolite_api::NameOutcome::Won,
+            }
+        );
+        assert_eq!(
+            activity(&read("ozzieq31")).kind,
+            ActivityKind::NameRegistered {
+                label: "ozzieq31".into()
+            }
+        );
+        let mine = here(
+            1_000,
+            What::Name {
+                label: "sam".into(),
+            },
+            57_979,
+        );
+        assert!(matches!(
+            activity(&mine).kind,
+            ActivityKind::NameRegistered { .. }
+        ));
     }
 
     fn here(at: Timestamp, what: What, spent: Duffs) -> Entry {

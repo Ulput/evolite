@@ -148,11 +148,17 @@ pub(super) fn add_name_dialog(
                 open = true;
             }
             let value = style(UI.weight(Weight::Medium).mono());
+            // BUG-225: a contested name's writes are its claim's, the figure N2t shows.
+            let shown = if contested {
+                wallet.fees.name_claim_writes()
+            } else {
+                fee
+            };
             kv_row(
                 ui,
                 &p,
                 tr!("Name registration"),
-                &format!("≈ {}", dash(fee)),
+                &format!("≈ {}", dash(shown)),
                 value.clone(),
             );
             if contested {
@@ -253,8 +259,9 @@ fn review_body(
         style(UI.weight(Weight::Medium)),
     );
     // BUG-190: a contested domain costs more than a regular name: the bound the credits are
-    // checked by (preorder + domain at its peak), never below what is charged.
-    let write = wallet.fees.name_credits_needed();
+    // checked by (preorder + domain at its peak), never below what is charged. BUG-225: and
+    // above the claims' writes as metered, the same figure as N2.
+    let write = wallet.fees.name_claim_writes();
     kv_row(
         ui,
         &p,
@@ -331,7 +338,7 @@ fn review_body(
         }
     }
     divider(ui, &p);
-    let total = write + r.fund + link_cost;
+    let total = wallet.fees.name_claim_total(r.fund, link_cost);
     kv_row(
         ui,
         &p,
@@ -450,10 +457,8 @@ fn sent_body(ui: &mut Ui, a: &mut Assets, wallet: &Wallet, me: &str, form: &Name
             } else {
                 0
             };
-            format!(
-                "≈ {}",
-                dash(wallet.fees.name_credits_needed() + r.fund + link)
-            )
+            // BUG-225 (review S): N2t's own total, the claims' writes as metered.
+            format!("≈ {}", dash(wallet.fees.name_claim_total(r.fund, link)))
         }
     };
     ui.add(

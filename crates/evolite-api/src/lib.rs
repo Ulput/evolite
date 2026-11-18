@@ -1345,7 +1345,8 @@ pub struct Fees {
     /// The least asset lock Platform takes to fund a Platform address (one output), from the
     /// protocol version: a smaller one is refused and its DASH stay locked.
     pub address_fund_lock_min: Duffs,
-    /// A DPNS name: a regular one, and a contested one (goes to a masternode vote).
+    /// A DPNS name: a regular one, and a contested one (goes to a masternode vote): its claim's
+    /// writes as metered (BUG-225, [`Self::name_claim_writes`]) and the vote's fund.
     pub name_regular: Duffs,
     pub name_contested: Duffs,
     /// The fund a contested name's claim pays, by the protocol version (FEAT-0021, AC-T5): not
@@ -1467,6 +1468,24 @@ impl Fees {
     /// raises it. See [`NAME_DOMAIN_PEAK`].
     pub fn name_credits_needed(&self) -> Duffs {
         NAME_PREORDER.saturating_add(NAME_DOMAIN_PEAK.max(self.name_regular))
+    }
+
+    /// BUG-225: what a contested name's claim is shown to write (the preorder and the domain),
+    /// one estimate on N2 and N2t: the claims' writes metered by BUG-197's rule (a quarter over
+    /// the dearest of the last few) and never below the bound the credits are checked by.
+    pub fn name_claim_writes(&self) -> Duffs {
+        self.name_contested
+            .saturating_sub(self.name_contest_fund)
+            .max(self.name_credits_needed())
+    }
+
+    /// BUG-225: what a contested name's claim is shown to take in all, the vote's `fund` and the
+    /// identity link's write (`link`, 0 without one) with it: N2t's total and N3's estimate
+    /// before its History line is in (BUG-220), one figure.
+    pub fn name_claim_total(&self, fund: Duffs, link: Duffs) -> Duffs {
+        self.name_claim_writes()
+            .saturating_add(fund)
+            .saturating_add(link)
     }
 
     /// What a name is shown to cost (BUG-97): a first name on an identity measured more than a

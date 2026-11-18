@@ -1612,7 +1612,12 @@ pub fn platform_fees(
     });
     fees.name_regular = metered(fees.name_regular, &|w| matches!(w, What::Name { .. }));
     fees.name_contest_fund = contest_fund(version);
-    fees.name_contested = fees.name_regular + fees.name_contest_fund;
+    // BUG-225: a claim's writes (preorder + a contested domain) are dearer than a regular
+    // name's: metered from the claims themselves, by the same rule, above the credits' bound.
+    let claim_writes = metered(fees.name_credits_needed(), &|w| {
+        matches!(w, What::NameClaim { .. })
+    });
+    fees.name_contested = claim_writes + fees.name_contest_fund;
     // An identity is made with six keys (`identity::new_identity_keys`).
     fees.identity_lock_min = identity_lock_min(version, 6);
     fees.top_up_lock_min = top_up_lock_min(version);
@@ -2111,7 +2116,10 @@ mod tests {
         );
         platform_fees(&mut f, v15, &journal);
         assert_eq!(f.name_contest_fund, 10_000_000);
-        assert_eq!(f.name_contested, f.name_regular + f.name_contest_fund);
+        assert_eq!(
+            f.name_contested,
+            f.name_credits_needed() + f.name_contest_fund
+        );
     }
 
     /// BUG-183 AC-T1: a key without a binding 24 000 duffs, DashPay's pair 80 000, only
@@ -2188,8 +2196,8 @@ mod tests {
         assert_eq!(f.add_key, 6_600);
         assert_eq!(
             f.name_contested,
-            f.name_regular + 10_000_000,
-            "plus the vote fund"
+            f.name_credits_needed() + 10_000_000,
+            "the claim's bound plus the vote fund"
         );
         // After a name and a transfer: what they really cost.
         journal.add(super::super::journal::Entry {
@@ -2215,6 +2223,21 @@ mod tests {
             (f.name_regular, f.credit_transfer),
             (name_default.max(123_456 * 5 / 4), CREDIT_TRANSFER)
         );
+        // BUG-225: a claim that wrote 107 336 (its fund apart) and one dearer: the estimate is
+        // a quarter over the dearest, above the bound; N2 and N2t show this one figure.
+        for (at, writes) in [(3, 107_336), (4, 1_400_000)] {
+            journal.add(super::super::journal::Entry {
+                at,
+                what: super::super::journal::What::NameClaim { label: "q".into() },
+                spent: 10_000_000 + writes,
+                moved: 10_000_000,
+                ..Default::default()
+            });
+        }
+        let mut f = fees(0);
+        platform_fees(&mut f, v15, &journal);
+        assert_eq!(f.name_claim_writes(), 1_400_000 * 5 / 4);
+        assert!(f.name_claim_writes() >= f.name_credits_needed());
         let _ = std::fs::remove_dir_all(&dir);
     }
 

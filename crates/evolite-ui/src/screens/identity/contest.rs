@@ -235,6 +235,16 @@ pub fn hides_in(result_at: Timestamp, now: Timestamp) -> String {
     }
 }
 
+/// BUG-227: which claim Overview's notice tells of: a vote under way before any result, then
+/// the latest result.
+fn notice_rank(state: NameState) -> (bool, Timestamp) {
+    match state {
+        NameState::Voting { ends_about, .. } => (true, ends_about),
+        NameState::Won { at } | NameState::Lost { at } | NameState::Locked { at } => (false, at),
+        _ => (false, 0),
+    }
+}
+
 /// Overview's notice of a claim of the shown identity (FEAT-0021 V2, entry 2): while it is in its
 /// vote, how long, when the result comes and the votes for it; once it has a result, the result.
 /// Both with «Open the vote». «×» closes each until the next: the vote's until the result, kept
@@ -260,7 +270,14 @@ pub fn overview_notice(
             _ => false,
         }
     };
-    let Some(name) = identity.names.iter().find(shown) else {
+    // BUG-227: one notice — a vote under way first, else the latest result: not the first
+    // name in the list (an older result stayed after a newer name was won).
+    let Some(name) = identity
+        .names
+        .iter()
+        .filter(shown)
+        .max_by_key(|n| notice_rank(n.state))
+    else {
         return;
     };
     let (title, body) = match name.state {
@@ -343,6 +360,51 @@ mod tests {
         assert_eq!(span(14 * 86_400), "14 days");
         assert_eq!(span(90 * 60), "90 minutes");
         assert_eq!(span(1), "1 minute");
+    }
+
+    /// BUG-227: two results, the older first in the list: the notice tells of the latest; a
+    /// vote under way comes before any result.
+    #[test]
+    fn the_notice_tells_of_the_latest_result() {
+        let older = NameState::Won { at: 1_000 };
+        let newer = NameState::Won { at: 2_000 };
+        let mut states = [older, newer];
+        assert_eq!(
+            states.iter().copied().max_by_key(|s| notice_rank(*s)),
+            Some(newer)
+        );
+        states.reverse();
+        assert_eq!(
+            states.iter().copied().max_by_key(|s| notice_rank(*s)),
+            Some(newer)
+        );
+        let voting = NameState::Voting {
+            join_until: 500,
+            ends_about: 600,
+            contenders: 2,
+            ours: 0,
+            lock: 0,
+            abstain: 0,
+        };
+        assert!(notice_rank(voting) > notice_rank(newer));
+    }
+
+    /// BUG-224: «New identity»'s note on contested names, in Russian, with the network's span
+    /// inside: «длительностью 90 минут», not «90 minutes».
+    #[test]
+    fn the_contested_note_says_its_span_in_the_language() {
+        use crate::i18n::{Lang, t_in};
+        crate::i18n::set(Lang::Ru);
+        let line = format!(
+            tr!(
+                "Names shorter than 20 characters made only of letters, 0, 1 and hyphens are contested: masternodes award them by a vote of {span}, and they cost more. A digit from 2 to 9 makes a name regular."
+            ),
+            span = span(90 * 60)
+        );
+        let shown = t_in(Lang::Ru, &line);
+        crate::i18n::set(Lang::En);
+        assert!(shown.contains("90 минут"), "{shown}");
+        assert!(!shown.contains("minutes"), "{shown}");
     }
 
     /// BUG-218: N5's «Others may join» in Russian is translated whole, the date and the span

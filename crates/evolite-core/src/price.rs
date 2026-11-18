@@ -199,7 +199,8 @@ pub fn declared(op: &Spend, seen: &Seen, app_cost: Duffs) -> Declared {
             } else {
                 0
             };
-            let price = fees.name_credits_needed().saturating_add(link);
+            // BUG-225: the claim's writes as N2 and N2t show them.
+            let price = fees.name_claim_writes().saturating_add(link);
             of("claim_name", price, covers(seen.credits, *fund, price))
         }
         Spend::AddName { .. } => {

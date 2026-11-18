@@ -537,9 +537,15 @@ fn the_sent_claim_says_what_it_took() {
         .expect("the wallet");
     let fund = 10_000_000;
     let regular = crate::format::amount(fees.name_price(false) + fund);
+    // BUG-225: N2t's total (its write row, the fund, no link), not the credits' bound.
+    assert_eq!(
+        fees.name_claim_total(fund, 0),
+        fees.name_claim_writes() + fund,
+        "N3's estimate is N2t's sum"
+    );
     let estimate = format!(
         "≈ {}",
-        crate::format::amount(fees.name_credits_needed() + fund)
+        crate::format::amount(fees.name_claim_total(fund, 0))
     );
     assert!(has_words(&kit, &estimate), "the claim's estimate");
     if fees.name_price(false) != fees.name_credits_needed() {

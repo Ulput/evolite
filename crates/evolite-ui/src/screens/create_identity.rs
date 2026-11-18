@@ -553,7 +553,9 @@ fn name_section(ui: &mut Ui, a: &mut Assets, form: &mut CreateIdentityForm, v: &
                 tr!(
                     "Names shorter than 20 characters made only of letters, 0, 1 and hyphens are contested: masternodes award them by a vote of {span}, and they cost more. A digit from 2 to 9 makes a name regular."
                 ),
-                span = crate::i18n::own(&super::identity::contest::span(secs))
+                // BUG-224: as it is, not marked as own words: «90 minutes» is English until the
+                // catalog translates it at display, through its own plural key (BUG-218).
+                span = super::identity::contest::span(secs)
             )
         };
         notice(ui, a, "info", p.muted, &note);
