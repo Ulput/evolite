@@ -1072,3 +1072,31 @@ async fn a_second_key_change_waits_for_the_first() {
         .await;
     assert!(!busy(event, DoneWhat::Keys));
 }
+
+/// SEC-5 (П2): a lock takes every phrase this core holds — the onboarding's and another
+/// wallet's opened by its password — not only the open wallet's keys.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_lock_drops_every_phrase_the_core_holds() {
+    let mut core = core_with_vault("sec5-lock", "pw");
+    assert_eq!(core.unlock(&pw("pw")).await, Ok(()));
+    assert!(core.attach.is_some() || core.unlocked.is_some());
+    let opened = core.open_vault(&pw("pw")).await.unwrap();
+    core.switch_opened = Some(opened);
+    core.pending = Some((Zeroizing::new("abandon ability able".into()), false));
+    core.lock().await.unwrap();
+    assert!(core.pending.is_none(), "the onboarding's phrase");
+    assert!(core.switch_opened.is_none(), "another wallet's phrase");
+    assert!(core.attach.is_none() && core.unlocked.is_none());
+}
+
+/// SEC-5 (П6): the open wallet's phrase, locked to RAM, reads back whole in any word list; one
+/// that does not fit is refused, never cut.
+#[test]
+fn a_locked_phrase_reads_back_and_one_too_long_is_refused() {
+    let phrase = "あいこくしん あいさつ あいだ あおぞら あかちゃん あきる";
+    assert_eq!(LockedPhrase::new(phrase).unwrap().as_str(), phrase);
+    assert!(LockedPhrase::new(&"x".repeat(PHRASE_BYTES)).is_none());
+    let seed = seed_of("abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about").unwrap();
+    assert_eq!(seed_bytes(&seed).len(), 64);
+    assert!(seed_bytes(&seed).iter().any(|b| *b != 0));
+}

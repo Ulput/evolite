@@ -260,6 +260,10 @@ impl Real {
             .clear();
         self.unlocked = None;
         self.attach = None;
+        // SEC-5 (П2): the onboarding's phrase and another wallet's opened by its password go
+        // with the lock too; a switch takes its own before it locks (`run.rs`).
+        self.pending = None;
+        self.switch_opened = None;
         self.receive_address = None;
         // The notes' key and every decrypted note go with the keys (AC-T6).
         *self.notes.lock().unwrap_or_else(|e| e.into_inner()) = None;
@@ -353,7 +357,7 @@ impl Real {
         // The id platform-wallet gives the wallet: from the same root key.
         let id = keys.compute_wallet_id();
         let seed = seed_of(&phrase)?;
-        self.open_notes(seed.as_ref(), &meta.wallet_id).await;
+        self.open_notes(seed_bytes(&seed), &meta.wallet_id).await;
         // SYNC-0: the sync-speed lines count from here.
         crate::diag::unlocked();
         self.unlocked = Some(Unlocked {
@@ -362,7 +366,7 @@ impl Real {
             keys: Some(keys),
             seed: Some(seed),
         });
-        self.attach = Some(phrase);
+        self.attach = Some(LockedPhrase::new(&phrase).ok_or(CoreError::BadPhrase)?);
         self.attach_failed = None;
         if let Err(e) = self.attach_wallet().await {
             // The chain runs and refused the wallet: as before, it stays locked.
@@ -478,7 +482,7 @@ impl Real {
         }
         let id = keys.compute_wallet_id();
         let seed = seed_of(&phrase)?;
-        self.open_notes(seed.as_ref(), &meta.wallet_id).await;
+        self.open_notes(seed_bytes(&seed), &meta.wallet_id).await;
         // SYNC-0: the sync-speed lines count from here.
         crate::diag::unlocked();
         self.unlocked = Some(Unlocked {
@@ -487,7 +491,7 @@ impl Real {
             keys: Some(keys),
             seed: Some(seed),
         });
-        self.attach = Some(phrase);
+        self.attach = Some(LockedPhrase::new(&phrase).ok_or(CoreError::BadPhrase)?);
         self.attach_failed = None;
         if let Err(e) = self.attach_wallet().await {
             // The vault is "Locked" now: the interface goes to the unlock screen.

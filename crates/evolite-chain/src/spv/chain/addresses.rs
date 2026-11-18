@@ -40,13 +40,13 @@ pub struct AddressPaid {
 pub(crate) async fn address_signer(
     wallet: &PlatformWallet,
     keys: &key_wallet::Wallet,
-) -> Result<SimpleSigner, String> {
+) -> Result<crate::key_signer::KeySigner, String> {
     let state = wallet.state().await;
     let account = state
         .core_wallet
         .platform_payment_managed_account_at_index(ACCOUNT)
         .ok_or(tr!("The wallet has no Platform addresses"))?;
-    let mut signer = SimpleSigner::default();
+    let mut signer = crate::key_signer::KeySigner::default();
     for info in account.addresses.addresses.values() {
         let Ok(address) = key_wallet::PlatformP2PKHAddress::from_address_info(info) else {
             continue;

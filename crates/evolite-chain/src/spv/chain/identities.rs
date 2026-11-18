@@ -572,7 +572,7 @@ impl Chain {
         wallet: &PlatformWallet,
         id: &Identifier,
         label: &str,
-        signer: &SimpleSigner,
+        signer: &crate::key_signer::KeySigner,
         needed: evolite_api::Duffs,
         trust_store: bool,
     ) -> Result<(), String> {
@@ -587,7 +587,7 @@ impl Chain {
         wallet: &PlatformWallet,
         id: &Identifier,
         label: &str,
-        signer: &SimpleSigner,
+        signer: &crate::key_signer::KeySigner,
         needed: evolite_api::Duffs,
         trust_store: bool,
         contest_fund: Option<evolite_api::Duffs>,
@@ -867,7 +867,7 @@ impl Chain {
         funding: AssetLockFunding,
     ) -> Result<Identifier, String> {
         let new_keys = identity::new_identity_keys(keys, index)?;
-        let mut signer = SimpleSigner::default();
+        let mut signer = crate::key_signer::KeySigner::default();
         signer.add_identity_public_keys(new_keys.iter().cloned());
         let public: BTreeMap<u32, IdentityPublicKey> =
             new_keys.into_iter().map(|(k, _)| (k.id(), k)).collect();
@@ -896,7 +896,7 @@ impl Chain {
         label: &str,
         (needed, trust_store): (evolite_api::Duffs, bool),
     ) -> Result<(), String> {
-        let mut signer = SimpleSigner::default();
+        let mut signer = crate::key_signer::KeySigner::default();
         signer.add_identity_public_keys(identity::new_identity_keys(keys, index)?);
         self.write_name(wallet, id, label, &signer, needed, trust_store)
             .await
@@ -930,14 +930,14 @@ impl Chain {
         wallet: &PlatformWallet,
         keys: &key_wallet::Wallet,
         id: &Identifier,
-    ) -> Result<(dpp::identity::Identity, SimpleSigner), String> {
+    ) -> Result<(dpp::identity::Identity, crate::key_signer::KeySigner), String> {
         let (index, identity) = {
             let state = wallet.state().await;
             let mine = of_wallet(&state.identity_manager, wallet.wallet_id())
                 .filter_map(|m| Some((m.identity_index?, m.identity.id(), m.identity.clone())));
             with_id(mine, id).ok_or(tr!("The wallet has no identity"))?
         };
-        let mut signer = SimpleSigner::default();
+        let mut signer = crate::key_signer::KeySigner::default();
         signer.add_identity_public_keys(identity::found_identity_keys(keys, index, &identity));
         Ok((identity, signer))
     }

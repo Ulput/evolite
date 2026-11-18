@@ -28,7 +28,11 @@ impl Real {
         let working = self.work(PlatformWork::Pool);
         tokio::spawn(async move {
             let result = match chain.wallet(&id).await {
-                Some(wallet) => chain.connect_pool(&wallet, &seed[..], &db).await,
+                Some(wallet) => {
+                    chain
+                        .connect_pool(&wallet, super::super::seed_bytes(&seed), &db)
+                        .await
+                }
                 None => Err(tr!("the wallet is not loaded").to_owned()),
             };
             drop(working);
@@ -51,7 +55,9 @@ impl Real {
 
     /// What every pool move needs: the open wallet with its keys and seed, proofs, a connected
     /// pool, and no other move under way (it is marked under way here).
-    fn pool_move(&self) -> Result<(WalletId, key_wallet::Wallet, Zeroizing<[u8; 64]>), CoreError> {
+    fn pool_move(
+        &self,
+    ) -> Result<(WalletId, key_wallet::Wallet, Arc<super::super::Seed>), CoreError> {
         let open = self
             .unlocked
             .as_ref()
@@ -220,7 +226,7 @@ impl Real {
                     .await
                     .map_err(CoreError::Failed)?;
                 chain
-                    .unshield(&wallet, &seed[..], &to, credits)
+                    .unshield(&wallet, super::super::seed_bytes(&seed), &to, credits)
                     .await
                     .map_err(pool_error)
             },
@@ -246,7 +252,12 @@ impl Real {
                     .await
                     .map_err(CoreError::NotAvailable)?;
                 chain
-                    .top_up_from_pool(&wallet, &seed[..], &identity.id(), credits)
+                    .top_up_from_pool(
+                        &wallet,
+                        super::super::seed_bytes(&seed),
+                        &identity.id(),
+                        credits,
+                    )
                     .await
                     .map_err(pool_error)
             },
@@ -307,9 +318,21 @@ impl Real {
             async move {
                 let wallet = loaded(&chain, &id).await?;
                 let sent = match kind {
-                    To::Private => chain.pool_transfer(&wallet, &seed[..], &to, credits).await,
-                    To::Platform => chain.unshield(&wallet, &seed[..], &to, credits).await,
-                    To::Core => chain.pool_withdraw(&wallet, &seed[..], &to, credits).await,
+                    To::Private => {
+                        chain
+                            .pool_transfer(&wallet, super::super::seed_bytes(&seed), &to, credits)
+                            .await
+                    }
+                    To::Platform => {
+                        chain
+                            .unshield(&wallet, super::super::seed_bytes(&seed), &to, credits)
+                            .await
+                    }
+                    To::Core => {
+                        chain
+                            .pool_withdraw(&wallet, super::super::seed_bytes(&seed), &to, credits)
+                            .await
+                    }
                 }
                 // Handed over but not proved: maybe gone, so "sent, no answer", never resent.
                 .map(|()| true)

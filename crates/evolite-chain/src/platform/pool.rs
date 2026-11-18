@@ -552,7 +552,7 @@ mod imp {
     async fn platform_address_signer(
         wallet: &PlatformWallet,
         keys: &key_wallet::Wallet,
-    ) -> Result<simple_signer::signer::SimpleSigner, String> {
+    ) -> Result<crate::key_signer::KeySigner, String> {
         crate::spv::chain::addresses::address_signer(wallet, keys).await
     }
 

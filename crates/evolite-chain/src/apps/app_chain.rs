@@ -8,7 +8,6 @@ use dpp::identity::identity_public_key::accessors::v0::IdentityPublicKeyGettersV
 use dpp::identity::{IdentityPublicKey, KeyType, Purpose, SecurityLevel};
 use dpp::prelude::Identifier;
 use platform_wallet::PlatformWallet;
-use simple_signer::signer::SimpleSigner;
 
 use crate::chain::Chain;
 use crate::identity;
@@ -50,7 +49,7 @@ impl SignInIdentity {
         &self,
         purpose: Purpose,
         level: SecurityLevel,
-    ) -> Option<(IdentityPublicKey, SimpleSigner)> {
+    ) -> Option<(IdentityPublicKey, crate::key_signer::KeySigner)> {
         let (key, private) = self.found.iter().find(|(k, _)| {
             k.purpose() == purpose
                 && k.security_level() == level
@@ -58,7 +57,7 @@ impl SignInIdentity {
                 && k.disabled_at().is_none()
                 && k.contract_bounds().is_none()
         })?;
-        let mut signer = SimpleSigner::default();
+        let mut signer = crate::key_signer::KeySigner::default();
         signer.add_identity_public_keys([(key.clone(), *private)]);
         Some((key.clone(), signer))
     }

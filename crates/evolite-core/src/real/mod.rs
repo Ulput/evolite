@@ -254,13 +254,53 @@ struct Unlocked {
     keys: Option<key_wallet::Wallet>,
     /// The phrase's BIP-39 seed: the pool derives its spending keys from it for each move.
     #[cfg_attr(not(feature = "pool"), allow(dead_code))]
-    seed: Option<Zeroizing<[u8; 64]>>,
+    seed: Option<Arc<Seed>>,
 }
 
-/// The phrase's BIP-39 seed (no passphrase), zeroed when dropped.
-fn seed_of(phrase: &str) -> Result<Zeroizing<[u8; 64]>, CoreError> {
+/// The phrase's BIP-39 seed in memory locked to RAM (SEC-5, `evolite-memlock`): shared, not
+/// copied, by the pool's moves.
+type Seed = evolite_memlock::Locked<64>;
+
+/// The seed's 64 bytes, for what takes a slice.
+fn seed_bytes(seed: &Seed) -> &[u8] {
+    seed.as_ref()
+}
+
+/// The phrase's BIP-39 seed (no passphrase), locked to RAM and zeroed when dropped (SEC-5).
+/// `to_seed`'s own array is zeroed at once.
+fn seed_of(phrase: &str) -> Result<Arc<Seed>, CoreError> {
     let mnemonic = Mnemonic::from_phrase(phrase).map_err(|_| CoreError::BadPhrase)?;
-    Ok(Zeroizing::new(mnemonic.to_seed("")))
+    let mut seed = Zeroizing::new(mnemonic.to_seed(""));
+    let mut locked = Seed::new();
+    locked.as_mut().copy_from_slice(&*seed);
+    zeroize::Zeroize::zeroize(&mut *seed);
+    Ok(Arc::new(locked))
+}
+
+/// The most bytes a phrase takes: 24 words of the longest word lists (Japanese, 3 bytes a
+/// character) with their separators.
+const PHRASE_BYTES: usize = 1024;
+
+/// The open wallet's phrase until platform-wallet has it, locked to RAM (SEC-5): its bytes, then
+/// zeros.
+pub(in crate::real) struct LockedPhrase(evolite_memlock::Locked<PHRASE_BYTES>);
+
+impl LockedPhrase {
+    /// `None` when the phrase does not fit (no phrase is that long).
+    fn new(phrase: &str) -> Option<Self> {
+        if phrase.len() >= PHRASE_BYTES {
+            return None;
+        }
+        let mut locked = evolite_memlock::Locked::new();
+        locked.as_mut()[..phrase.len()].copy_from_slice(phrase.as_bytes());
+        Some(Self(locked))
+    }
+
+    fn as_str(&self) -> &str {
+        let bytes = self.0.as_ref();
+        let len = bytes.iter().position(|b| *b == 0).unwrap_or(PHRASE_BYTES);
+        std::str::from_utf8(&bytes[..len]).unwrap_or_default()
+    }
 }
 
 /// Said when the open wallet is not (or no longer) in platform-wallet.
@@ -341,7 +381,8 @@ struct Real {
     last_start: tokio::time::Instant,
     /// The phrase of the open wallet until platform-wallet has it: unlocking does not wait for
     /// the chain (F3, BUG-24); [`Real::attach_wallet`] opens it there once the chain runs.
-    attach: Option<Zeroizing<String>>,
+    /// Locked to RAM, out of the page file (SEC-5).
+    attach: Option<LockedPhrase>,
     /// When opening it there failed last: tried again after [`RETRY_START`].
     attach_failed: Option<tokio::time::Instant>,
     /// The headers' tip the core before this one saw: a wallet made here before this chain has

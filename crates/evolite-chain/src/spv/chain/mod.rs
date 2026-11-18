@@ -51,7 +51,6 @@ use platform_wallet::{
 };
 use platform_wallet::{PlatformWallet, PlatformWalletManager, SEND_FUNDING_SOURCES};
 use platform_wallet_storage::sqlite::{SqlitePersister, SqlitePersisterConfig};
-use simple_signer::signer::SimpleSigner;
 
 use crate::provider::{NotYet, SpvContextProvider};
 use crate::sync::{Phase, Reporter, SyncStatus, VerifiedLocks};

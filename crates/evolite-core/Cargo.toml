@@ -12,6 +12,7 @@ default = ["real"]
 real = [
     "dep:evolite-chain",
     "dep:evolite-local",
+    "dep:evolite-memlock",
     "dep:key-wallet",
     "dep:key-wallet-manager",
     "dep:dpp",
@@ -40,6 +41,8 @@ evolite-chain = { path = "../evolite-chain", optional = true }
 evolite-common = { path = "../evolite-common" }
 evolite-demo = { path = "../evolite-demo" }
 evolite-local = { path = "../evolite-local", optional = true }
+# The phrase and the seed locked to RAM (SEC-5).
+evolite-memlock = { path = "../evolite-memlock", optional = true }
 sha2 = { version = "0.10", default-features = false }
 evolite-render = { path = "../evolite-render" }
 key-wallet = { workspace = true, optional = true }

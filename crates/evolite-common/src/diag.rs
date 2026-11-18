@@ -189,6 +189,12 @@ pub enum Record {
     SyncStale {
         minutes: u32,
     },
+    /// Whether the open wallet's phrase and seed are locked to RAM, out of the page file
+    /// (SEC-5, `evolite-memlock`): once a run; when not, why (`quota` or `other`).
+    Memlock {
+        ok: bool,
+        error: &'static str,
+    },
     /// The first fresh picture of an area since the unlock (the sync-speed plan §4, SYNC-0):
     /// `what` (identities, balances, names, contacts_named, token_rows, nfts, history, pool),
     /// seconds since the unlock, and from this computer's store or the network ([`fresh`]).
@@ -363,6 +369,13 @@ impl Record {
                 "enough": enough, "reason": reason, "held": held,
             }),
             Record::SyncStale { minutes } => json!({ "k": "sync_stale", "minutes": minutes }),
+            Record::Memlock { ok, error } => {
+                if *ok {
+                    json!({"k": "memlock", "ok": true})
+                } else {
+                    json!({"k": "memlock", "ok": false, "error": error})
+                }
+            }
             Record::Fresh {
                 what,
                 since_unlock_s,
@@ -994,6 +1007,29 @@ mod tests {
         assert_eq!(value["k"], "address_fund");
         assert_eq!(value["proof"], "chain");
         assert_eq!(value["credited"], 97_064);
+    }
+
+    /// SEC-5: the memlock line is whether it held and, when not, why; no address.
+    #[test]
+    fn the_memlock_line_is_ok_or_why() {
+        let ok = Record::Memlock {
+            ok: true,
+            error: "",
+        }
+        .line(UNIX_EPOCH);
+        assert_eq!(
+            ok,
+            r#"{"t":"1970-01-01T00:00:00.000Z","k":"memlock","ok":true}"#
+        );
+        let refused = Record::Memlock {
+            ok: false,
+            error: "quota",
+        }
+        .line(UNIX_EPOCH);
+        assert!(
+            refused.ends_with(r#""ok":false,"error":"quota"}"#),
+            "{refused}"
+        );
     }
 
     /// SYNC-0: `fresh` says each area and source once per unlock; a new unlock says it again.

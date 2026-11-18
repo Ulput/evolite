@@ -14,7 +14,8 @@ serde_json = { version = "1", features = ["preserve_order"] }
 aes-gcm = "0.10"
 # The notes' key, derived with HKDF.
 hkdf = "0.12"
-argon2 = "0.5"
+# `zeroize`: Argon2's working memory (64 MiB derived from the password) is wiped (SEC-5, П5).
+argon2 = { version = "0.5", features = ["zeroize"] }
 getrandom = "0.3"
 zeroize = "1"
 sha2 = { version = "0.10", default-features = false }

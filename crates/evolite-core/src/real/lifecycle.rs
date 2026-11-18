@@ -435,7 +435,11 @@ impl Real {
             // In already; the client is still starting.
             return Ok(());
         }
-        match self.chain.open_wallet(phrase, open.meta.birth_height).await {
+        match self
+            .chain
+            .open_wallet(phrase.as_str(), open.meta.birth_height)
+            .await
+        {
             Ok(_) => {
                 if running {
                     self.attach = None;

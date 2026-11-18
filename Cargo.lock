@@ -352,6 +352,7 @@ dependencies = [
  "blake2",
  "cpufeatures 0.2.17",
  "password-hash",
+ "zeroize",
 ]
 
 [[package]]
@@ -2800,6 +2801,7 @@ dependencies = [
  "evolite-common",
  "evolite-demo",
  "evolite-local",
+ "evolite-memlock",
  "evolite-render",
  "getrandom 0.3.4",
  "key-wallet",
@@ -2840,6 +2842,15 @@ dependencies = [
  "tokio",
  "ureq",
  "zeroize",
+]
+
+[[package]]
+name = "evolite-memlock"
+version = "0.1.0"
+dependencies = [
+ "evolite-common",
+ "libc",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

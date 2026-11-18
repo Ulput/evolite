@@ -6,6 +6,7 @@ members = [
     "crates/evolite-coinjoin",
     "crates/evolite-demo",
     "crates/evolite-local",
+    "crates/evolite-memlock",
     "crates/evolite-api",
     "crates/evolite-core",
     "crates/evolite-render",
