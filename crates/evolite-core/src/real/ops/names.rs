@@ -7,7 +7,7 @@ use crate::real::*;
 const LISTS_WAIT: Duration = Duration::from_secs(600);
 /// How long one Platform read of a name may take: the answer is a failure in words, not a
 /// screen that says «Checking» for minutes (BUG-87).
-const NAME_WAIT: Duration = Duration::from_secs(60);
+pub(in crate::real) const NAME_WAIT: Duration = Duration::from_secs(60);
 /// How long the profile of a found name may take; the name is good without it.
 const PROFILE_WAIT: Duration = Duration::from_secs(20);
 

@@ -523,11 +523,15 @@ impl Real {
             .as_ref()
             .map(|(_, _, contacts)| contacts.clone())
             .unwrap_or_default();
-        let unnamed = contacts
-            .iter()
-            .filter(|c| c.name.is_none())
-            .map(|c| c.identity_id.clone())
-            .collect();
+        // Unnamed, and named only from this computer's file: read from the network (SYNC-4).
+        let unnamed = {
+            let cached = self.names_cached.lock().unwrap_or_else(|e| e.into_inner());
+            contacts
+                .iter()
+                .filter(|c| c.name.is_none() || cached.contains(&c.identity_id))
+                .map(|c| c.identity_id.clone())
+                .collect()
+        };
         let (credits_read, credits_checked) = {
             let search = self
                 .identity_search

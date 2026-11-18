@@ -67,9 +67,9 @@ use evolite_chain::{
     sync, turn,
 };
 use evolite_local::{
-    address_book, attempts, connected_apps, contact_addresses, core_balance, folders,
-    hidden_requests, journal, mempool, name_requests, node, notes, pending, pool_history, rates,
-    security, vault, wallets,
+    address_book, attempts, connected_apps, contact_addresses, contact_names, core_balance,
+    folders, hidden_requests, journal, mempool, name_requests, node, notes, pending, pool_history,
+    rates, security, vault, wallets,
 };
 use sync::{Phase, SyncStatus};
 use vault::{KdfParams, VaultError, VaultMeta};
@@ -94,6 +94,9 @@ const START_WAIT: Duration = Duration::from_secs(60);
 const START_AGAIN: Duration = Duration::from_secs(15);
 /// A contact's DPNS name that could not be read is asked again after this long.
 const NAME_RETRY: Duration = Duration::from_secs(30);
+
+/// How many contacts' names are read at once (SYNC-4): less load on DAPI.
+const NAMES_AT_ONCE: usize = 4;
 
 /// Whether Platform refused a transition for a key or its signature (BUG-175): a key disabled or
 /// missing there, a purpose or level it does not allow, a revision behind, a signature that does
@@ -178,6 +181,8 @@ pub struct Paths {
     pub contact_addresses: PathBuf,
     /// Senders whose contact requests were hidden ([`hidden_requests::HiddenRequests`]).
     pub hidden_requests: PathBuf,
+    /// Contacts' names as last read ([`contact_names::ContactNames`], SYNC-4).
+    pub contact_names: PathBuf,
     /// The pool's operations as made ([`pool_history::PoolHistory`]).
     pub pool_history: PathBuf,
     /// "Sync again" was asked: [`resync_on_start`] clears at the next start.
@@ -231,6 +236,7 @@ impl Paths {
             kept_locks: wallets.join("instant-locks.json"),
             contact_addresses: wallets.join("contact-addresses.json"),
             hidden_requests: wallets.join("hidden-requests.json"),
+            contact_names: wallets.join("contact-names.json"),
             pool_history: wallets.join("pool-history.json"),
             resync: wallets.join("resync-on-start"),
             address_book: wallets.join("address-book.json"),
@@ -459,6 +465,13 @@ struct Real {
     names: Arc<std::sync::Mutex<HashMap<String, Option<String>>>>,
     /// Asked or being asked; one that failed leaves after [`NAME_RETRY`], to be asked again.
     names_asked: Arc<std::sync::Mutex<std::collections::HashSet<String>>>,
+    /// Contacts' names kept on this computer for the first paint (SYNC-4).
+    contact_names: Arc<contact_names::ContactNames>,
+    /// Names shown from that file and not read from the network yet in this run: asked all the
+    /// same (the customer: «the information must be refreshed»).
+    names_cached: Arc<std::sync::Mutex<std::collections::HashSet<String>>>,
+    /// At most [`NAMES_AT_ONCE`] names read at a time (SYNC-4).
+    names_gate: Arc<tokio::sync::Semaphore>,
     /// The contacts of the last snapshot: who may be paid by name from Core.
     contacts: Vec<Contact>,
     /// An identity is being made or finished: its lock is not "unfinished" meanwhile.

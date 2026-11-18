@@ -25,8 +25,18 @@ impl Real {
         } else if to.trim().starts_with('@') {
             let label = dpns::label(to)?;
             // By the name in the last snapshot, or one learnt since (a lookup, `ResolveName`).
+            // A name shown only from this computer's file is not one to pay by: names change
+            // hands (SYNC-4 review r1, Must 1). Until the network confirms it, it is «loading».
             let names = self.names.lock().unwrap_or_else(|e| e.into_inner()).clone();
+            let cached = self
+                .names_cached
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .clone();
             let name_of = |c: &Contact| {
+                if cached.contains(&c.identity_id) {
+                    return None;
+                }
                 c.name
                     .clone()
                     .or_else(|| names.get(&c.identity_id).cloned().flatten())

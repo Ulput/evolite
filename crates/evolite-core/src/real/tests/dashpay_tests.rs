@@ -298,3 +298,58 @@ async fn names_wait_for_the_masternode_lists() {
     tokio::time::sleep(Duration::from_millis(200)).await;
     assert!(answers.try_recv().is_err(), "the real answer has to wait");
 }
+
+/// SYNC-4: the contacts' names kept on this computer are shown right after the unlock, and
+/// each is still marked to be read from the network (the customer: refreshed, not trusted).
+#[tokio::test(flavor = "multi_thread")]
+async fn kept_contact_names_show_at_the_unlock_and_are_read_again() {
+    let mut core = core_with_vault("contact-names-seed", "pw");
+    contact_names::ContactNames::new(core.paths.contact_names.clone()).keep(
+        "CONTACT1",
+        Some("alice".into()),
+        1,
+    );
+    assert_eq!(core.unlock(&pw("pw")).await, Ok(()));
+    assert_eq!(
+        core.names.lock().unwrap().get("CONTACT1"),
+        Some(&Some("alice".to_owned())),
+        "shown from the store"
+    );
+    assert!(
+        core.names_cached.lock().unwrap().contains("CONTACT1"),
+        "still to be read from the network"
+    );
+}
+
+/// SYNC-4 review r1, Must 1: a contact's name shown only from this computer's file selects no
+/// payee — «still loading» — and once the network confirms it, the payment goes to that contact.
+#[tokio::test]
+async fn a_name_from_the_file_selects_no_payee_until_the_network_confirms_it() {
+    let dir =
+        std::env::temp_dir().join(format!("evolite-test-cached-payee-{}", std::process::id()));
+    let (out, _answers) = std::sync::mpsc::channel();
+    let mut core = Real::new(dir, TEST_WALLET.into(), out, Arc::new(|| {}));
+    let id = "F5teLR3Vq4JjzQA7jgdGjZQvJbKpMubbu5dsC4MJd1Eh";
+    core.contacts = vec![Contact {
+        identity_id: id.into(),
+        name: Some("bob".into()),
+        profile: Profile::default(),
+        state: ContactState::Established,
+        since: 0,
+        payments: 0,
+        last_payment: None,
+    }];
+    core.names_cached.lock().unwrap().insert(id.into());
+    match core.core_payee("@bob") {
+        Err(CoreError::NotAvailable(why)) => assert!(why.contains("still loading"), "{why}"),
+        Err(e) => panic!("{e:?}"),
+        Ok(_) => panic!("a name only from the file selected a payee"),
+    }
+    // The network's answer came (`ask_names` takes it off the cached ones).
+    core.names_cached.lock().unwrap().remove(id);
+    match core.core_payee("@bob") {
+        Ok(CorePayee::Contact(to)) => assert_eq!(to.to_string(Encoding::Base58), id),
+        Ok(_) => panic!("not the contact"),
+        Err(e) => panic!("{e:?}"),
+    }
+}

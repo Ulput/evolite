@@ -32,6 +32,9 @@ impl Real {
         let contact_paid = Arc::new(contact_addresses::ContactAddresses::new(
             paths.contact_addresses.clone(),
         ));
+        let contact_names = Arc::new(contact_names::ContactNames::new(
+            paths.contact_names.clone(),
+        ));
         let name_requests = Arc::new(name_requests::NameRequests::new(
             paths.name_requests.clone(),
         ));
@@ -121,6 +124,9 @@ impl Real {
             art_base: None,
             names: Default::default(),
             names_asked: Default::default(),
+            contact_names,
+            names_cached: Default::default(),
+            names_gate: Arc::new(tokio::sync::Semaphore::new(NAMES_AT_ONCE)),
             contacts: Vec::new(),
             identity_busy: Default::default(),
             unclear_keys: Default::default(),

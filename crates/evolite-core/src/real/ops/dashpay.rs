@@ -308,17 +308,29 @@ impl Real {
                 .filter(|id| asked.insert(id.clone()))
                 .collect()
         };
-        // SYNC-0: the batch's line once its last name is in.
+        if ids.is_empty() {
+            return;
+        }
+        // The batch's line once its last name is in (SYNC-4).
+        let cached = self
+            .names_cached
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .len() as u32;
         let batch = Arc::new(NameBatch {
             asked: ids.len() as u32,
+            cached,
             left: std::sync::atomic::AtomicU32::new(ids.len() as u32),
             started: std::time::Instant::now(),
         });
         for id in ids {
-            let batch = batch.clone();
             let chain = self.chain.clone();
             let names = self.names.clone();
             let asked = self.names_asked.clone();
+            let kept = self.contact_names.clone();
+            let cached = self.names_cached.clone();
+            let gate = self.names_gate.clone();
+            let batch = batch.clone();
             let refresh = self.refresher();
             let working = self.work(PlatformWork::Names);
             tokio::spawn(async move {
@@ -326,17 +338,32 @@ impl Real {
                     batch.one_done();
                     return;
                 };
-                let read = turn::timed("contact_name_read", chain.name_of(identifier)).await;
+                // At most NAMES_AT_ONCE at a time.
+                let turn = gate.acquire_owned().await;
+                // Within its limit (review r1, Should 1): a read that hangs gives its turn back.
+                let read = {
+                    let chain = chain.clone();
+                    async move { chain.name_of(identifier).await }
+                };
+                let read = turn::timed(
+                    "contact_name_read",
+                    super::names::read_within(super::names::NAME_WAIT, read),
+                )
+                .await;
+                drop(turn);
                 drop(working);
-                batch.one_done();
                 match read {
                     Ok(name) => {
+                        kept.keep(&id, name.clone(), now());
+                        cached.lock().unwrap_or_else(|e| e.into_inner()).remove(&id);
                         names
                             .lock()
                             .unwrap_or_else(|e| e.into_inner())
                             .insert(id, name);
+                        batch.one_done();
                     }
                     Err(_) => {
+                        batch.one_done();
                         tokio::time::sleep(NAME_RETRY).await;
                         asked.lock().unwrap_or_else(|e| e.into_inner()).remove(&id);
                     }
@@ -345,11 +372,30 @@ impl Real {
             });
         }
     }
+
+    /// At the unlock: the contacts' names kept on this computer, shown until the network's come
+    /// (SYNC-4). Each is read from the network all the same.
+    pub(in crate::real) fn seed_contact_names(&self) {
+        let kept = self.contact_names.all();
+        if kept.is_empty() {
+            return;
+        }
+        let mut names = self.names.lock().unwrap_or_else(|e| e.into_inner());
+        let mut cached = self.names_cached.lock().unwrap_or_else(|e| e.into_inner());
+        for (id, name) in kept {
+            if !names.contains_key(&id) {
+                names.insert(id.clone(), name);
+                cached.insert(id);
+            }
+        }
+        crate::diag::fresh("contacts_named", "store");
+    }
 }
 
-/// One `ask_names` call's reads, for its `contact_names` and `fresh` lines (SYNC-0).
+/// One `ask_names` call's reads, for its `contact_names` line and the `fresh` one (SYNC-4).
 struct NameBatch {
     asked: u32,
+    cached: u32,
     left: std::sync::atomic::AtomicU32,
     started: std::time::Instant,
 }
@@ -359,7 +405,7 @@ impl NameBatch {
         if self.left.fetch_sub(1, Ordering::Relaxed) == 1 {
             crate::diag::record(crate::diag::Record::ContactNames {
                 asked: self.asked,
-                cached: 0,
+                cached: self.cached,
                 ms: self.started.elapsed().as_millis() as u64,
             });
             crate::diag::fresh("contacts_named", "network");
