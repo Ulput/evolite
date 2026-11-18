@@ -68,7 +68,8 @@ fn words_as_they_are(kit: &Kit, words: &[String], named: bool) {
     for w in words {
         assert!(painted.iter().any(|t| t == w), "«{w}» painted: {painted:?}");
         if named {
-            assert!(has_text(kit, w), "«{w}» named");
+            // BUG-228: named by its place, not by the word, unless reading is on.
+            assert!(!has_text(kit, w), "«{w}» not in the tree");
         }
         let translated = t_in(Lang::Ru, w).into_owned();
         assert!(
@@ -129,12 +130,12 @@ fn the_phrase_in_settings_is_shown_in_its_own_words() {
         .settings
         .on_revealed(Ok(Phrase::new(words.clone())));
     let line = words.join(" ");
-    wait_for(&mut kit, "the phrase", |k| has_text(k, &line));
-    assert!(has_text(&kit, &line), "the phrase as it is");
+    wait_for(&mut kit, "the phrase", |k| painted_has(k, &line));
+    assert!(painted_has(&kit, &line), "the phrase as it is");
     // Unmarked, the line is not shown as the catalog would make it.
     let translated = t_in(Lang::Ru, &line).into_owned();
     assert!(
-        translated == line || !has_text(&kit, &translated),
+        translated == line || !painted_has(&kit, &translated),
         "«{translated}»"
     );
 }

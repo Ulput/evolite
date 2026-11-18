@@ -48,6 +48,7 @@ mod notes;
 mod onboarding;
 mod password_reveal;
 mod pause;
+mod phrase_tree;
 mod phrase_words;
 mod pool_moves;
 mod qr;
@@ -225,6 +226,28 @@ pub(super) fn has_text(kit: &Kit, text: &str) -> bool {
     kit.query_all_by(|n| n.label().as_deref() == Some(text) || n.value().as_deref() == Some(text))
         .next()
         .is_some()
+}
+
+/// The texts painted this frame, nested shapes included: what is on screen, tree or not
+/// (BUG-228: secret words are painted, not put in the tree).
+pub(super) fn painted_texts(kit: &Kit) -> Vec<String> {
+    fn walk(shape: &egui::Shape, out: &mut Vec<String>) {
+        match shape {
+            egui::Shape::Text(t) => out.push(t.galley.text().to_owned()),
+            egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, out)),
+            _ => {}
+        }
+    }
+    let mut out = Vec::new();
+    for c in &kit.output().shapes {
+        walk(&c.shape, &mut out);
+    }
+    out
+}
+
+/// Whether `part` is painted on screen this frame.
+pub(super) fn painted_has(kit: &Kit, part: &str) -> bool {
+    painted_texts(kit).iter().any(|t| t.contains(part))
 }
 
 /// Whether some node says `part` within its words.

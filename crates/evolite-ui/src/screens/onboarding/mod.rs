@@ -71,6 +71,10 @@ pub struct Onboarding {
     lock_choice: Option<usize>,
     restore_words: Zeroizing<Vec<String>>,
     restore_hidden: bool,
+    /// BUG-228: «read the words to a screen reader», one per step, for one showing.
+    phrase_reading: crate::secret_words::Reading,
+    verify_reading: crate::secret_words::Reading,
+    restore_reading: crate::secret_words::Reading,
     focused: Option<usize>,
     paste_error: bool,
     /// The new phrase from the core, and how long it was asked to be.
@@ -112,6 +116,9 @@ impl Onboarding {
             lock_choice: None,
             restore_words: Zeroizing::new(vec![String::new(); 12]),
             restore_hidden: false,
+            phrase_reading: Default::default(),
+            verify_reading: Default::default(),
+            restore_reading: Default::default(),
             focused: None,
             paste_error: false,
             phrase: None,
@@ -164,6 +171,12 @@ impl Onboarding {
     #[cfg(all(test, demo_core, feature = "dev-tools"))]
     pub(crate) fn has_phrase(&self) -> bool {
         self.phrase.is_some()
+    }
+
+    /// Whether the new phrase is hidden by «Hide» (BUG-228 r2's test).
+    #[cfg(all(test, demo_core, feature = "dev-tools"))]
+    pub(crate) fn phrase_hidden(&self) -> bool {
+        self.phrase_hidden
     }
 
     /// A test types `word` into the restore step's field `i`, as the field last typed in.

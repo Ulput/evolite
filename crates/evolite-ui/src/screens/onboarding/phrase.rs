@@ -147,7 +147,22 @@ pub(super) fn phrase(ui: &mut Ui, a: &mut Assets, o: &mut Onboarding, demo: bool
             p.muted,
         ));
     }
-    word_grid(ui, &p, &words, o.phrase_hidden);
+    // BUG-228: the words reach the tree only with reading on, for this showing.
+    let shown = !words.is_empty() && !o.phrase_hidden;
+    let read = if shown {
+        o.phrase_reading.showing(ui.ctx())
+    } else {
+        o.phrase_reading.off();
+        false
+    };
+    let reader = shown && crate::secret_words::screen_reader_running();
+    if reader {
+        crate::secret_words::toggle(ui, a, &mut o.phrase_reading);
+    }
+    word_grid(ui, &p, &words, o.phrase_hidden, read);
+    if shown && !reader {
+        crate::secret_words::toggle(ui, a, &mut o.phrase_reading);
+    }
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 20.0;
         let (icon, label) = if o.phrase_hidden {
@@ -157,6 +172,10 @@ pub(super) fn phrase(ui: &mut Ui, a: &mut Assets, o: &mut Onboarding, demo: bool
         };
         if text_action(ui, a, icon, label).clicked() {
             o.phrase_hidden = !o.phrase_hidden;
+            if o.phrase_hidden {
+                // The words drawn this pass: redone without them in the same frame (review r1, M2).
+                ui.ctx().request_discard("BUG-228: phrase hidden");
+            }
         }
         let copy_label = match clipboard::copied_at(ui.ctx()) {
             Some(at) => format!(
@@ -188,7 +207,7 @@ pub(super) fn phrase(ui: &mut Ui, a: &mut Assets, o: &mut Onboarding, demo: bool
 }
 
 /// Three words per row: raised cells, the number muted, the word in mono.
-fn word_grid(ui: &mut Ui, p: &Palette, words: &[&str], hidden: bool) {
+fn word_grid(ui: &mut Ui, p: &Palette, words: &[&str], hidden: bool, read: bool) {
     ui.vertical(|ui| {
         ui.spacing_mut().item_spacing.y = 8.0;
         let w = (ui.available_width() - 16.0) / 3.0;
@@ -196,7 +215,16 @@ fn word_grid(ui: &mut Ui, p: &Palette, words: &[&str], hidden: bool) {
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = 8.0;
                 for (c, word) in row.iter().enumerate() {
-                    let (rect, _) = ui.allocate_exact_size(vec2(w, 40.0), Sense::hover());
+                    let (rect, cell) = ui.allocate_exact_size(vec2(w, 40.0), Sense::hover());
+                    // BUG-228: one word per node, and only with reading on.
+                    if read && !hidden {
+                        crate::components::named(
+                            &cell,
+                            egui::WidgetType::Label,
+                            true,
+                            &crate::i18n::phrase_word(word),
+                        );
+                    }
                     ui.painter().rect(
                         rect,
                         CornerRadius::same(10),
@@ -267,6 +295,11 @@ pub(super) fn verify(ui: &mut Ui, a: &mut Assets, o: &mut Onboarding) {
             }
         })
         .clone();
+    // BUG-228: the choices are named by their place unless reading is on, for this showing.
+    let read = o.verify_reading.showing(ui.ctx());
+    if crate::secret_words::screen_reader_running() {
+        crate::secret_words::toggle(ui, a, &mut o.verify_reading);
+    }
     for (q, (number, choices)) in asked.iter().enumerate() {
         let right = &words[number - 1];
         card(&p, Margin::symmetric(16, 14)).show(ui, |ui| {
@@ -308,7 +341,11 @@ pub(super) fn verify(ui: &mut Ui, a: &mut Assets, o: &mut Onboarding) {
                         &resp,
                         egui::WidgetType::RadioButton,
                         on,
-                        &crate::i18n::phrase_word(word),
+                        &if read {
+                            crate::i18n::phrase_word(word)
+                        } else {
+                            format!(tr!("Choice {}"), i + 1)
+                        },
                     );
                     let (fill, stroke, color) = if on {
                         (p.ink, p.ink, p.on_ink)
@@ -337,6 +374,9 @@ pub(super) fn verify(ui: &mut Ui, a: &mut Assets, o: &mut Onboarding) {
                 }
             });
         });
+    }
+    if !crate::secret_words::screen_reader_running() {
+        crate::secret_words::toggle(ui, a, &mut o.verify_reading);
     }
     let all_right = asked.iter().enumerate().all(|(q, (number, choices))| {
         o.answers[q].is_some_and(|i| choices[i] == words[number - 1])

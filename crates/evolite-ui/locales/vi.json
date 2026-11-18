@@ -2285,5 +2285,13 @@
   "×{}": "×{}",
   "“Give” and “Put up for sale” ask “How many of {}” and check it all with one signature, as series in the Workshop. A gift removes the price; after a sale the new owner sets the price.": "“Tặng” và “Rao bán” sẽ hỏi “Bao nhiêu trong {}” và kiểm tra tất cả bằng một chữ ký, như các loạt trong “Xưởng”. Quà tặng bỏ giá; sau khi bán, chủ mới đặt giá.",
   "The token's rules could not be read from the network.": "Không thể đọc quy tắc của token từ mạng.",
-  "Trying again in {} s": "Thử lại sau {} giây"
+  "Trying again in {} s": "Thử lại sau {} giây",
+  "Contacts whose requests are encrypted to the old key cannot pay you until they send a new one.": "Các liên hệ có yêu cầu được mã hóa bằng khóa cũ sẽ không thể thanh toán cho bạn cho đến khi họ gửi yêu cầu mới.",
+  "Read the words to a screen reader": "Đọc các từ cho trình đọc màn hình",
+  "Any program on this computer can read the words now, not only a screen reader.": "Giờ mọi chương trình trên máy tính này đều đọc được các từ, không chỉ trình đọc màn hình.",
+  "The words are read aloud for this showing only: leaving the screen turns it off.": "Các từ chỉ được đọc trong lần hiển thị này: rời màn hình sẽ tắt tính năng đọc.",
+  "Recovery phrase, {} words, shown on the screen": "Cụm từ khôi phục, {} từ, đang hiển thị trên màn hình",
+  "Choice {}": "Lựa chọn {}",
+  "Suggestion {}": "Gợi ý {}",
+  "{} key, shown on the screen": "Khóa {}, đang hiển thị trên màn hình"
 }

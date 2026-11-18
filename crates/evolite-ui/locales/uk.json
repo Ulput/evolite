@@ -2336,5 +2336,13 @@
   "×{}": "×{}",
   "“Give” and “Put up for sale” ask “How many of {}” and check it all with one signature, as series in the Workshop. A gift removes the price; after a sale the new owner sets the price.": "«Подарувати» і «Виставити» запитають «Скільки з {}» і перевірять усе одним підписом, як серії в «Майстерні». Подарунок знімає ціну; після продажу ціну призначає новий власник.",
   "The token's rules could not be read from the network.": "Не вдалося прочитати правила токена з мережі.",
-  "Trying again in {} s": "Повтор через {} с"
+  "Trying again in {} s": "Повтор через {} с",
+  "Contacts whose requests are encrypted to the old key cannot pay you until they send a new one.": "Контакти, чиї запити зашифровано на старий ключ, не зможуть платити, доки не надішлють новий.",
+  "Read the words to a screen reader": "Читати слова програмі зчитування екрана",
+  "Any program on this computer can read the words now, not only a screen reader.": "Тепер слова може прочитати будь-яка програма на цьому комп’ютері, не лише програма зчитування екрана.",
+  "The words are read aloud for this showing only: leaving the screen turns it off.": "Слова читаються лише для цього показу: вихід з екрана вимикає читання.",
+  "Recovery phrase, {} words, shown on the screen": "Фраза відновлення, слів: {}, показана на екрані",
+  "Choice {}": "Варіант {}",
+  "Suggestion {}": "Підказка {}",
+  "{} key, shown on the screen": "Ключ {}, показаний на екрані"
 }

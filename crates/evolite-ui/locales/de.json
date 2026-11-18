@@ -2302,5 +2302,13 @@
   "×{}": "×{}",
   "“Give” and “Put up for sale” ask “How many of {}” and check it all with one signature, as series in the Workshop. A gift removes the price; after a sale the new owner sets the price.": "„Verschenken“ und „Anbieten“ fragen „Wie viele von {}“ und prüfen alles mit einer Signatur, wie Serien in der „Werkstatt“. Ein Geschenk entfernt den Preis; nach einem Verkauf setzt der neue Besitzer den Preis.",
   "The token's rules could not be read from the network.": "Die Regeln des Tokens konnten nicht aus dem Netzwerk gelesen werden.",
-  "Trying again in {} s": "Neuer Versuch in {} s"
+  "Trying again in {} s": "Neuer Versuch in {} s",
+  "Contacts whose requests are encrypted to the old key cannot pay you until they send a new one.": "Kontakte, deren Anfragen an den alten Schlüssel verschlüsselt sind, können Ihnen erst zahlen, wenn sie eine neue senden.",
+  "Read the words to a screen reader": "Wörter dem Bildschirmleser vorlesen lassen",
+  "Any program on this computer can read the words now, not only a screen reader.": "Jetzt kann jedes Programm auf diesem Computer die Wörter lesen, nicht nur ein Bildschirmleser.",
+  "The words are read aloud for this showing only: leaving the screen turns it off.": "Die Wörter werden nur für diese Anzeige vorgelesen: Wer den Bildschirm verlässt, schaltet es aus.",
+  "Recovery phrase, {} words, shown on the screen": "Wiederherstellungsphrase, {} Wörter, auf dem Bildschirm angezeigt",
+  "Choice {}": "Auswahl {}",
+  "Suggestion {}": "Vorschlag {}",
+  "{} key, shown on the screen": "{}-Schlüssel, auf dem Bildschirm angezeigt"
 }

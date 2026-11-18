@@ -145,8 +145,9 @@ const WIF: &str = evolite_core::DEMO_KEY_WIF;
 const HEX: &str = evolite_core::DEMO_KEY_HEX;
 
 /// The key's value is somewhere in the tree.
+/// On screen: painted (SEC-1, BUG-228: not in the tree unless reading is on).
 fn key_on_screen(kit: &Kit) -> bool {
-    has_words(kit, WIF) || has_words(kit, HEX)
+    painted_has(kit, WIF) || painted_has(kit, HEX)
 }
 
 fn k1(preset: &str) -> (std::sync::MutexGuard<'static, ()>, Kit) {
@@ -236,7 +237,9 @@ fn the_key_shows_after_i_understand_and_the_password() {
     kit.run_steps(2);
     button(&kit, "Show the key").click();
     wait_for(&mut kit, "the key", key_on_screen);
-    assert!(has_words(&kit, WIF) && has_words(&kit, HEX));
+    // On screen; not in the tree (SEC-1, BUG-228).
+    assert!(painted_has(&kit, WIF) && painted_has(&kit, HEX));
+    assert!(!has_words(&kit, WIF) && !has_words(&kit, HEX));
     for copy in ["Copy WIF", "Copy hex"] {
         assert!(button(&kit, copy).rect().width() > 0.0, "{copy}");
     }

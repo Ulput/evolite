@@ -235,6 +235,11 @@ fn pill_galley(ui: &Ui, label: &str, color: Color32) -> std::sync::Arc<egui::Gal
 
 /// A filter pill: ink when on, surface with a 1 px line when off. [`PILL_HEIGHT`] high.
 pub fn pill(ui: &mut Ui, p: &Palette, label: &str, on: bool) -> Response {
+    pill_named(ui, p, label, label, on)
+}
+
+/// [`pill`] named `name` for a screen reader, not by its words (BUG-228: a phrase's words).
+pub fn pill_named(ui: &mut Ui, p: &Palette, label: &str, name: &str, on: bool) -> Response {
     let w = pill_width(ui, label);
     let (rect, resp) = ui.allocate_exact_size(vec2(w, PILL_HEIGHT), Sense::click());
     let (fill, stroke, color) = if on {
@@ -248,7 +253,7 @@ pub fn pill(ui: &mut Ui, p: &Palette, label: &str, on: bool) -> Response {
     let galley = pill_galley(ui, label, color);
     let at = Align2::CENTER_CENTER.anchor_size(rect.center(), galley.size());
     ui.painter().galley(at.min, galley, color);
-    named_choice(&resp, egui::WidgetType::SelectableLabel, on, label);
+    named_choice(&resp, egui::WidgetType::SelectableLabel, on, name);
     resp.on_hover_cursor(CursorIcon::PointingHand)
 }
 

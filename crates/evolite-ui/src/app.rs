@@ -562,6 +562,9 @@ impl App {
         self.receive = Default::default();
         self.identity = Default::default();
         self.identity_keys.forget();
+        // BUG-228: another wallet ends the reading of a phrase shown.
+        self.settings.phrase_reading.off();
+        self.settings.check_reading.off();
         self.contacts = Default::default();
         self.pool = Default::default();
         self.requests = Default::default();

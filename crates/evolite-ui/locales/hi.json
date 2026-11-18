@@ -2302,5 +2302,13 @@
   "×{}": "×{}",
   "“Give” and “Put up for sale” ask “How many of {}” and check it all with one signature, as series in the Workshop. A gift removes the price; after a sale the new owner sets the price.": "“उपहार दें” और “बिक्री के लिए रखें” पूछेंगे “{} में से कितनी” और “कार्यशाला” की शृंखलाओं की तरह सब कुछ एक हस्ताक्षर से जाँचेंगे। उपहार कीमत हटा देता है; बिक्री के बाद कीमत नया मालिक तय करता है।",
   "The token's rules could not be read from the network.": "नेटवर्क से टोकन के नियम नहीं पढ़े जा सके।",
-  "Trying again in {} s": "{} सेकंड में फिर कोशिश"
+  "Trying again in {} s": "{} सेकंड में फिर कोशिश",
+  "Contacts whose requests are encrypted to the old key cannot pay you until they send a new one.": "जिन संपर्कों के अनुरोध पुरानी कुंजी पर एन्क्रिप्ट हैं, वे नया भेजने तक आपको भुगतान नहीं कर पाएँगे।",
+  "Read the words to a screen reader": "शब्द स्क्रीन रीडर को पढ़ने दें",
+  "Any program on this computer can read the words now, not only a screen reader.": "अब इस कंप्यूटर का कोई भी प्रोग्राम ये शब्द पढ़ सकता है, सिर्फ़ स्क्रीन रीडर नहीं।",
+  "The words are read aloud for this showing only: leaving the screen turns it off.": "शब्द सिर्फ़ इस बार दिखाने तक पढ़े जाते हैं: स्क्रीन छोड़ते ही पढ़ना बंद हो जाता है।",
+  "Recovery phrase, {} words, shown on the screen": "रिकवरी फ़्रेज़, {} शब्द, स्क्रीन पर दिखाई गई",
+  "Choice {}": "विकल्प {}",
+  "Suggestion {}": "सुझाव {}",
+  "{} key, shown on the screen": "{} कुंजी, स्क्रीन पर दिखाई गई"
 }

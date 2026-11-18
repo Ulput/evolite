@@ -26,6 +26,8 @@ pub struct Reveal {
     pub(crate) shown: Option<RevealedKey>,
     /// The last action while it is shown.
     pub(crate) touched: Option<Instant>,
+    /// SEC-1 (BUG-228): «read the words to a screen reader», for one showing.
+    pub(crate) reading: crate::secret_words::Reading,
 }
 
 impl Reveal {
@@ -128,6 +130,12 @@ pub(super) fn reveal_dialog(
                     Network::Testnet => tr!("testnet · compressed key"),
                     Network::Mainnet => tr!("mainnet · compressed key"),
                 };
+                // SEC-1 (BUG-228): the key reaches the tree only with reading on.
+                let read = r.reading.showing(ui.ctx());
+                let reader = crate::secret_words::screen_reader_running();
+                if reader {
+                    crate::secret_words::toggle(ui, a, &mut r.reading);
+                }
                 for (name, note, value, copy) in [
                     ("WIF", Some(network), &shown.wif, tr!("Copy WIF")),
                     ("hex", None, &shown.hex, tr!("Copy hex")),
@@ -151,17 +159,32 @@ pub(super) fn reveal_dialog(
                         .inner_margin(Margin::same(10))
                         .show(ui, |ui| {
                             ui.set_width(ui.available_width());
-                            // Read whole, left to right in every language; in the tree as the
-                            // phrase is (AC-T15).
-                            ui.add(
-                                egui::Label::new(
-                                    egui::RichText::new(value.as_str())
-                                        .font(crate::theme::mono(13.0, Weight::Regular))
-                                        .color(p.text),
-                                )
-                                .wrap_mode(egui::TextWrapMode::Wrap),
-                            );
+                            // Read whole, left to right in every language; in the tree only
+                            // with reading on (SEC-1).
+                            if read {
+                                ui.add(
+                                    egui::Label::new(
+                                        egui::RichText::new(value.as_str())
+                                            .font(crate::theme::mono(13.0, Weight::Regular))
+                                            .color(p.text),
+                                    )
+                                    .wrap_mode(egui::TextWrapMode::Wrap)
+                                    // Ctrl+C would copy it past `copy_secret` (review r1, M1).
+                                    .selectable(false),
+                                );
+                            } else {
+                                crate::secret_words::painted(
+                                    ui,
+                                    value.as_str(),
+                                    crate::theme::mono(13.0, Weight::Regular),
+                                    p.text,
+                                    &format!(tr!("{} key, shown on the screen"), name),
+                                );
+                            }
                         });
+                }
+                if !reader {
+                    crate::secret_words::toggle(ui, a, &mut r.reading);
                 }
                 notice(
                     ui,

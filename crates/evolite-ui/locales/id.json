@@ -2285,5 +2285,13 @@
   "×{}": "×{}",
   "“Give” and “Put up for sale” ask “How many of {}” and check it all with one signature, as series in the Workshop. A gift removes the price; after a sale the new owner sets the price.": "“Hadiahkan” dan “Jual” akan menanyakan “Berapa dari {}” dan memeriksa semuanya dengan satu tanda tangan, seperti seri di “Bengkel”. Hadiah menghapus harga; setelah terjual, pemilik baru yang menetapkan harga.",
   "The token's rules could not be read from the network.": "Aturan token tidak dapat dibaca dari jaringan.",
-  "Trying again in {} s": "Mencoba lagi dalam {} dtk"
+  "Trying again in {} s": "Mencoba lagi dalam {} dtk",
+  "Contacts whose requests are encrypted to the old key cannot pay you until they send a new one.": "Kontak yang permintaannya dienkripsi ke kunci lama tidak dapat membayar Anda sampai mereka mengirim yang baru.",
+  "Read the words to a screen reader": "Bacakan kata-kata ke pembaca layar",
+  "Any program on this computer can read the words now, not only a screen reader.": "Sekarang program apa pun di komputer ini dapat membaca kata-kata itu, bukan hanya pembaca layar.",
+  "The words are read aloud for this showing only: leaving the screen turns it off.": "Kata-kata dibacakan hanya untuk tampilan ini: meninggalkan layar mematikannya.",
+  "Recovery phrase, {} words, shown on the screen": "Frasa pemulihan, {} kata, ditampilkan di layar",
+  "Choice {}": "Pilihan {}",
+  "Suggestion {}": "Saran {}",
+  "{} key, shown on the screen": "Kunci {}, ditampilkan di layar"
 }

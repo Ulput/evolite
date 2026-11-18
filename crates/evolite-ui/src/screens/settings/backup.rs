@@ -5,7 +5,7 @@ use super::{PhraseCheckForm, SettingsState};
 use crate::components::text;
 use crate::components::{
     Assets, ButtonKind, FieldKind, Part, button, button_enabled, button_row, dialog,
-    dialog_with_footer, field_label, notice, pill, text_field,
+    dialog_with_footer, field_label, notice, text_field,
 };
 use crate::context::Ctx;
 use crate::text;
@@ -231,6 +231,12 @@ pub(super) fn check_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mu
                 (None, Some(questions)) => {
                     ui.add(crate::components::para(
                         tr!("Pick the words at these numbers. evolite does not show the phrase itself."), UI.size, UI.weight, p.muted).line_height(UI.line));
+                    // BUG-228: the choices are named by their place unless reading is on.
+                    let read = state.check_reading.showing(ui.ctx());
+                    let reader = crate::secret_words::screen_reader_running();
+                    if reader {
+                        crate::secret_words::toggle(ui, a, &mut state.check_reading);
+                    }
                     for (q, question) in questions.iter().enumerate() {
                         ui.horizontal(|ui| {
                             ui.spacing_mut().item_spacing.x = 8.0;
@@ -248,13 +254,28 @@ pub(super) fn check_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mu
                             );
                             for (i, word) in question.choices.iter().enumerate() {
                                 let on = form.picks.get(q).copied().flatten() == Some(i);
-                                if pill(ui, &p, &crate::i18n::phrase_word(word), on).clicked()
+                                let name = if read {
+                                    crate::i18n::phrase_word(word)
+                                } else {
+                                    format!(tr!("Choice {}"), i + 1)
+                                };
+                                if crate::components::pill_named(
+                                    ui,
+                                    &p,
+                                    &crate::i18n::phrase_word(word),
+                                    &name,
+                                    on,
+                                )
+                                .clicked()
                                     && let Some(pick) = form.picks.get_mut(q)
                                 {
                                     *pick = Some(i);
                                 }
                             }
                         });
+                    }
+                    if !reader {
+                        crate::secret_words::toggle(ui, a, &mut state.check_reading);
                     }
                     button_row(ui, |ui| {
                         close = button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked();
@@ -446,8 +467,40 @@ pub(super) fn phrase_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &m
                         }
                         None => None,
                     };
-                    if let Some((line, color)) = answer {
-                        ui.label(text(&line, SMALL, color));
+                    // BUG-228: the phrase is painted; its words reach the tree only with
+                    // reading on, one per node, for this showing.
+                    match &state.revealed {
+                        Some(Ok(phrase)) => {
+                            let words = phrase.words().join(" ");
+                            let read = state.phrase_reading.showing(ui.ctx());
+                            let reader = crate::secret_words::screen_reader_running();
+                            if reader {
+                                crate::secret_words::toggle(ui, a, &mut state.phrase_reading);
+                            }
+                            let font = crate::theme::sans(SMALL.size, SMALL.weight);
+                            if read {
+                                crate::secret_words::word_by_word(ui, &words, font, p.text);
+                            } else {
+                                crate::secret_words::painted(
+                                    ui,
+                                    &words,
+                                    font,
+                                    p.text,
+                                    &format!(
+                                        tr!("Recovery phrase, {} words, shown on the screen"),
+                                        phrase.words().len()
+                                    ),
+                                );
+                            }
+                            if !reader {
+                                crate::secret_words::toggle(ui, a, &mut state.phrase_reading);
+                            }
+                        }
+                        _ => {
+                            if let Some((line, color)) = answer {
+                                ui.label(text(&line, SMALL, color));
+                            }
+                        }
                     }
                     if let Some(left) = left.filter(|l| !l.is_zero()) {
                         ui.label(text(

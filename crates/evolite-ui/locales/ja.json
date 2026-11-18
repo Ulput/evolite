@@ -2285,5 +2285,13 @@
   "×{}": "×{}",
   "“Give” and “Put up for sale” ask “How many of {}” and check it all with one signature, as series in the Workshop. A gift removes the price; after a sale the new owner sets the price.": "「贈る」と「出品」は「{} 部のうち何部」と尋ね、「工房」のシリーズと同様にすべてを1回の署名で確認します。贈ると価格は外れます。売却後の価格は新しい所有者が決めます。",
   "The token's rules could not be read from the network.": "ネットワークからトークンのルールを読み取れませんでした。",
-  "Trying again in {} s": "{} 秒後に再試行"
+  "Trying again in {} s": "{} 秒後に再試行",
+  "Contacts whose requests are encrypted to the old key cannot pay you until they send a new one.": "古い鍵に暗号化されたリクエストの連絡先は、新しいリクエストを送るまであなたに支払えません。",
+  "Read the words to a screen reader": "単語をスクリーンリーダーに読ませる",
+  "Any program on this computer can read the words now, not only a screen reader.": "このコンピューター上のどのプログラムでも単語を読み取れるようになります。スクリーンリーダーだけではありません。",
+  "The words are read aloud for this showing only: leaving the screen turns it off.": "単語の読み上げはこの表示の間だけです。画面を離れるとオフになります。",
+  "Recovery phrase, {} words, shown on the screen": "リカバリーフレーズ（{} 語）が画面に表示されています",
+  "Choice {}": "選択肢 {}",
+  "Suggestion {}": "候補 {}",
+  "{} key, shown on the screen": "{} キーが画面に表示されています"
 }

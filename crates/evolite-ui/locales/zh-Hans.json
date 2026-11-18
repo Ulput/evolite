@@ -2285,5 +2285,13 @@
   "×{}": "×{}",
   "“Give” and “Put up for sale” ask “How many of {}” and check it all with one signature, as series in the Workshop. A gift removes the price; after a sale the new owner sets the price.": "“赠送”和“上架出售”会询问“{} 个中的几个”，并像“工坊”中的系列一样用一次签名检查全部。赠送会取消价格；售出后由新主人定价。",
   "The token's rules could not be read from the network.": "无法从网络读取代币规则。",
-  "Trying again in {} s": "{} 秒后重试"
+  "Trying again in {} s": "{} 秒后重试",
+  "Contacts whose requests are encrypted to the old key cannot pay you until they send a new one.": "请求以旧密钥加密的联系人，在发送新请求之前无法向您付款。",
+  "Read the words to a screen reader": "让读屏软件朗读这些词",
+  "Any program on this computer can read the words now, not only a screen reader.": "现在这台电脑上的任何程序都能读取这些词，而不只是读屏软件。",
+  "The words are read aloud for this showing only: leaving the screen turns it off.": "仅在本次显示时朗读这些词：离开此屏幕即关闭。",
+  "Recovery phrase, {} words, shown on the screen": "恢复短语（{} 个词）已显示在屏幕上",
+  "Choice {}": "选项 {}",
+  "Suggestion {}": "建议 {}",
+  "{} key, shown on the screen": "{} 密钥已显示在屏幕上"
 }

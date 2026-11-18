@@ -101,6 +101,10 @@ pub struct SettingsState {
     pub delete: Option<crate::screens::delete_wallet::DeleteForm>,
     /// "Check the phrase" is open.
     pub check: Option<PhraseCheckForm>,
+    /// BUG-228: «read the words to a screen reader» of «Show the phrase» and of «Check the
+    /// phrase», each for one showing.
+    pub phrase_reading: crate::secret_words::Reading,
+    pub check_reading: crate::secret_words::Reading,
     /// "Sync again" is open.
     pub resync: Option<resync::ResyncForm>,
     /// "Password for every payment" being turned off: the password it needs (BUG-42).
@@ -239,6 +243,8 @@ impl SettingsState {
             scroll_to_end: None,
             visits: Default::default(),
             check: None,
+            phrase_reading: Default::default(),
+            check_reading: Default::default(),
             resync: None,
             each_off: None,
             lang: None,
@@ -518,6 +524,9 @@ impl SettingsState {
 
     /// The wallet locked: nothing typed or shown that opens it stays on screen or in memory.
     pub fn forget_secrets(&mut self) {
+        // BUG-228: reading the words ends with them.
+        self.phrase_reading.off();
+        self.check_reading.off();
         self.phrase_dialog = false;
         self.phrase_wallet = None;
         self.hide_phrase_unless_shown(false);

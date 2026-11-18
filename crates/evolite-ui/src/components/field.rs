@@ -120,6 +120,10 @@ pub fn text_field(
                             crate::secret_input::focused(ui.ctx());
                         }
                     }
+                    // SEC-1 (BUG-228): a password shown is not given to the tree as text.
+                    if password && shown {
+                        crate::secret_words::mute(ui.ctx(), id);
+                    }
                     response
                 })
                 .inner

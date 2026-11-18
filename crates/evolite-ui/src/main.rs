@@ -55,6 +55,7 @@ mod qr_scan;
 mod rtl;
 mod screens;
 mod secret_input;
+mod secret_words;
 #[cfg(feature = "dev-tools")]
 mod shot;
 mod text;

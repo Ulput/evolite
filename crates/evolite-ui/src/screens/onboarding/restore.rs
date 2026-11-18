@@ -42,10 +42,19 @@ pub(super) fn restore(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, o: &mut Onboard
 
     let width = ui.available_width();
     let w = (width - 16.0) / 3.0;
+    // BUG-228: what is typed reaches the tree only with reading on, for this showing.
+    let read = o.restore_reading.showing(ui.ctx());
+    let reader = crate::secret_words::screen_reader_running();
+    if reader {
+        crate::secret_words::toggle(ui, a, &mut o.restore_reading);
+    }
     word_grid(ui, o, &p, w);
 
     // Suggestions for the field in focus.
-    suggestions(ui, o, &p);
+    suggestions(ui, o, &p, read);
+    if !reader {
+        crate::secret_words::toggle(ui, a, &mut o.restore_reading);
+    }
 
     paste_row(ui, a, o);
     if o.paste_error {
@@ -210,6 +219,9 @@ fn word_cell(
                         .desired_width(f32::INFINITY),
                 );
                 crate::components::forget_typing(ui.ctx(), id);
+                if !o.restore_reading.is_on() {
+                    crate::secret_words::mute(ui.ctx(), id);
+                }
                 // SEC-3: the words reach no IME and no text suggestions.
                 if ui.memory(|m| m.has_focus(id)) {
                     crate::secret_input::focused(ui.ctx());
@@ -233,7 +245,7 @@ fn word_cell(
 }
 
 /// Suggestions for the field in focus.
-fn suggestions(ui: &mut Ui, o: &mut Onboarding, p: &crate::theme::Palette) {
+fn suggestions(ui: &mut Ui, o: &mut Onboarding, p: &crate::theme::Palette, read: bool) {
     let p = *p;
     if let Some(i) = o.focused.filter(|i| *i < o.restore_words.len()) {
         let prefix = o.restore_words[i].trim().to_lowercase();
@@ -253,7 +265,7 @@ fn suggestions(ui: &mut Ui, o: &mut Onboarding, p: &crate::theme::Palette) {
                         Weight::Regular,
                         p.muted,
                     ));
-                    for hint in hints {
+                    for (n, hint) in hints.into_iter().enumerate() {
                         let font = mono(13.0, Weight::Medium);
                         let tw = ui
                             .painter()
@@ -266,7 +278,11 @@ fn suggestions(ui: &mut Ui, o: &mut Onboarding, p: &crate::theme::Palette) {
                             &resp,
                             egui::WidgetType::Button,
                             true,
-                            &crate::i18n::phrase_word(hint),
+                            &if read {
+                                crate::i18n::phrase_word(hint)
+                            } else {
+                                format!(tr!("Suggestion {}"), n + 1)
+                            },
                         );
                         let fill = if resp.hovered() { p.line } else { p.raised };
                         ui.painter().rect_filled(rect, CornerRadius::same(8), fill);
