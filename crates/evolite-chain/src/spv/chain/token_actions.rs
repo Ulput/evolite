@@ -94,6 +94,41 @@ pub enum BuyRefused {
 
 /// The block a claim would be counted at, from a proved answer's metadata (Platform's height,
 /// time and epoch), as rs-drive takes it.
+/// A page of the `claim` documents of `token_id` to `me`, from `after` on: TokenHistory v2's
+/// `byRecipient` index (checked offline, `query_index_tests`).
+pub(crate) fn claim_query(
+    contract: Arc<DataContract>,
+    token_id: Identifier,
+    me: Identifier,
+    after: Option<u64>,
+) -> Result<DocumentQuery, String> {
+    let mut query = DocumentQuery::new(contract, "claim")
+        .map_err(|e| format!("{e:?}"))?
+        .with_where(WhereClause {
+            field: "tokenId".into(),
+            operator: WhereOperator::Equal,
+            value: Value::Identifier(token_id.to_buffer()),
+        })
+        .with_where(WhereClause {
+            field: "recipientId".into(),
+            operator: WhereOperator::Equal,
+            value: Value::Identifier(me.to_buffer()),
+        })
+        .with_order_by(OrderClause {
+            field: "$createdAt".into(),
+            ascending: true,
+        })
+        .with_limit(100);
+    if let Some(at) = after {
+        query = query.with_where(WhereClause {
+            field: "$createdAt".into(),
+            operator: WhereOperator::GreaterThanOrEquals,
+            value: Value::U64(at),
+        });
+    }
+    Ok(query)
+}
+
 fn block_of(metadata: &dash_sdk::dapi_grpc::platform::v0::ResponseMetadata) -> BlockInfo {
     BlockInfo {
         time_ms: metadata.time_ms,
@@ -240,30 +275,7 @@ impl Chain {
         let mut after: Option<u64> = None;
         for _ in 0..CLAIM_PAGES {
             self.ready()?;
-            let mut query = DocumentQuery::new(contract.clone(), "claim")
-                .map_err(|e| format!("{e:?}"))?
-                .with_where(WhereClause {
-                    field: "tokenId".into(),
-                    operator: WhereOperator::Equal,
-                    value: Value::Identifier(token_id.to_buffer()),
-                })
-                .with_where(WhereClause {
-                    field: "recipientId".into(),
-                    operator: WhereOperator::Equal,
-                    value: Value::Identifier(me.to_buffer()),
-                })
-                .with_order_by(OrderClause {
-                    field: "$createdAt".into(),
-                    ascending: true,
-                })
-                .with_limit(100);
-            if let Some(at) = after {
-                query = query.with_where(WhereClause {
-                    field: "$createdAt".into(),
-                    operator: WhereOperator::GreaterThanOrEquals,
-                    value: Value::U64(at),
-                });
-            }
+            let query = claim_query(contract.clone(), token_id, me, after)?;
             let page: Vec<ClaimDoc> = Document::fetch_many(&sdk, query)
                 .await
                 .map_err(|e| format!("{e:?}"))?

@@ -2368,5 +2368,7 @@
   "{} · model of {}": "{} · نموذج من {}",
   "{} · ×{}": "{} · ×{}",
   "×{}": "×{}",
-  "“Give” and “Put up for sale” ask “How many of {}” and check it all with one signature, as series in the Workshop. A gift removes the price; after a sale the new owner sets the price.": "«إهداء» و«عرض للبيع» سيسألان «كم من {}» ويتحققان من كل شيء بتوقيع واحد، مثل السلاسل في «الورشة». الهدية تزيل السعر؛ بعد البيع يحدد المالك الجديد السعر."
+  "“Give” and “Put up for sale” ask “How many of {}” and check it all with one signature, as series in the Workshop. A gift removes the price; after a sale the new owner sets the price.": "«إهداء» و«عرض للبيع» سيسألان «كم من {}» ويتحققان من كل شيء بتوقيع واحد، مثل السلاسل في «الورشة». الهدية تزيل السعر؛ بعد البيع يحدد المالك الجديد السعر.",
+  "The token's rules could not be read from the network.": "تعذّرت قراءة قواعد الرمز من الشبكة.",
+  "Trying again in {} s": "إعادة المحاولة بعد {} ث"
 }

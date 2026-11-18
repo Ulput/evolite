@@ -2300,5 +2300,7 @@
   "{} · model of {}": "{} · {} का मॉडल",
   "{} · ×{}": "{} · ×{}",
   "×{}": "×{}",
-  "“Give” and “Put up for sale” ask “How many of {}” and check it all with one signature, as series in the Workshop. A gift removes the price; after a sale the new owner sets the price.": "“उपहार दें” और “बिक्री के लिए रखें” पूछेंगे “{} में से कितनी” और “कार्यशाला” की शृंखलाओं की तरह सब कुछ एक हस्ताक्षर से जाँचेंगे। उपहार कीमत हटा देता है; बिक्री के बाद कीमत नया मालिक तय करता है।"
+  "“Give” and “Put up for sale” ask “How many of {}” and check it all with one signature, as series in the Workshop. A gift removes the price; after a sale the new owner sets the price.": "“उपहार दें” और “बिक्री के लिए रखें” पूछेंगे “{} में से कितनी” और “कार्यशाला” की शृंखलाओं की तरह सब कुछ एक हस्ताक्षर से जाँचेंगे। उपहार कीमत हटा देता है; बिक्री के बाद कीमत नया मालिक तय करता है।",
+  "The token's rules could not be read from the network.": "नेटवर्क से टोकन के नियम नहीं पढ़े जा सके।",
+  "Trying again in {} s": "{} सेकंड में फिर कोशिश"
 }

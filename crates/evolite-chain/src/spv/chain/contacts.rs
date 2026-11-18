@@ -77,25 +77,8 @@ impl Chain {
             )
             .map_err(|e| e.to_string())?,
         );
-        let requests = |field: &str, order: &str| {
-            use dash_sdk::drive::query::{OrderClause, WhereClause, WhereOperator};
-            dash_sdk::platform::DocumentQuery::new(contract.clone(), "contactRequest")
-                .map(|q| {
-                    q.with_where(WhereClause {
-                        field: field.into(),
-                        operator: WhereOperator::Equal,
-                        value: dpp::platform_value::Value::Identifier(id.to_buffer()),
-                    })
-                    .with_order_by(OrderClause {
-                        field: order.into(),
-                        ascending: true,
-                    })
-                    .with_limit(100)
-                })
-                .map_err(|e| e.to_string())
-        };
-        let sent = requests("$ownerId", "$createdAt")?;
-        let got = requests("toUserId", "$createdAt")?;
+        let sent = contact_request_query(contract.clone(), "$ownerId", id)?;
+        let got = contact_request_query(contract.clone(), "toUserId", id)?;
         let sent = dpp::document::Document::fetch_many(&sdk, sent)
             .await
             .map_err(|e| e.to_string())?;
@@ -487,4 +470,28 @@ impl Chain {
             Err(e) => Err(e.to_string()),
         }
     }
+}
+
+/// DashPay `contactRequest` documents with `field` (`$ownerId` or `toUserId`) equal to `id`, by
+/// date: DashPay's indexes (checked offline, `query_index_tests`).
+pub(crate) fn contact_request_query(
+    contract: std::sync::Arc<dpp::data_contract::DataContract>,
+    field: &str,
+    id: Identifier,
+) -> Result<dash_sdk::platform::DocumentQuery, String> {
+    use dash_sdk::drive::query::{OrderClause, WhereClause, WhereOperator};
+    dash_sdk::platform::DocumentQuery::new(contract, "contactRequest")
+        .map(|q| {
+            q.with_where(WhereClause {
+                field: field.into(),
+                operator: WhereOperator::Equal,
+                value: dpp::platform_value::Value::Identifier(id.to_buffer()),
+            })
+            .with_order_by(OrderClause {
+                field: "$createdAt".into(),
+                ascending: true,
+            })
+            .with_limit(100)
+        })
+        .map_err(|e| e.to_string())
 }

@@ -2300,5 +2300,7 @@
   "{} · model of {}": "{} · {} adetlik model",
   "{} · ×{}": "{} · ×{}",
   "×{}": "×{}",
-  "“Give” and “Put up for sale” ask “How many of {}” and check it all with one signature, as series in the Workshop. A gift removes the price; after a sale the new owner sets the price.": "“Hediye et” ve “Satışa çıkar”, “{} içinden kaç tane” diye sorar ve “Atölye”deki seriler gibi hepsini tek imzayla denetler. Hediye fiyatı kaldırır; satıştan sonra fiyatı yeni sahibi belirler."
+  "“Give” and “Put up for sale” ask “How many of {}” and check it all with one signature, as series in the Workshop. A gift removes the price; after a sale the new owner sets the price.": "“Hediye et” ve “Satışa çıkar”, “{} içinden kaç tane” diye sorar ve “Atölye”deki seriler gibi hepsini tek imzayla denetler. Hediye fiyatı kaldırır; satıştan sonra fiyatı yeni sahibi belirler.",
+  "The token's rules could not be read from the network.": "Token kuralları ağdan okunamadı.",
+  "Trying again in {} s": "{} sn sonra yeniden denenecek"
 }

@@ -2283,5 +2283,7 @@
   "{} · model of {}": "{} · {}개 모델",
   "{} · ×{}": "{} · ×{}",
   "×{}": "×{}",
-  "“Give” and “Put up for sale” ask “How many of {}” and check it all with one signature, as series in the Workshop. A gift removes the price; after a sale the new owner sets the price.": "“선물하기”와 “판매 등록”은 “{}개 중 몇 개”를 묻고 “공방”의 시리즈처럼 모두 한 번의 서명으로 확인합니다. 선물하면 가격이 사라지고, 판매 후에는 새 소유자가 가격을 정합니다."
+  "“Give” and “Put up for sale” ask “How many of {}” and check it all with one signature, as series in the Workshop. A gift removes the price; after a sale the new owner sets the price.": "“선물하기”와 “판매 등록”은 “{}개 중 몇 개”를 묻고 “공방”의 시리즈처럼 모두 한 번의 서명으로 확인합니다. 선물하면 가격이 사라지고, 판매 후에는 새 소유자가 가격을 정합니다.",
+  "The token's rules could not be read from the network.": "네트워크에서 토큰 규칙을 읽을 수 없습니다.",
+  "Trying again in {} s": "{}초 후 다시 시도"
 }

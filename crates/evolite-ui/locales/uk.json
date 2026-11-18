@@ -2334,5 +2334,7 @@
   "{} · model of {}": "{} · модель з {}",
   "{} · ×{}": "{} · ×{}",
   "×{}": "×{}",
-  "“Give” and “Put up for sale” ask “How many of {}” and check it all with one signature, as series in the Workshop. A gift removes the price; after a sale the new owner sets the price.": "«Подарувати» і «Виставити» запитають «Скільки з {}» і перевірять усе одним підписом, як серії в «Майстерні». Подарунок знімає ціну; після продажу ціну призначає новий власник."
+  "“Give” and “Put up for sale” ask “How many of {}” and check it all with one signature, as series in the Workshop. A gift removes the price; after a sale the new owner sets the price.": "«Подарувати» і «Виставити» запитають «Скільки з {}» і перевірять усе одним підписом, як серії в «Майстерні». Подарунок знімає ціну; після продажу ціну призначає новий власник.",
+  "The token's rules could not be read from the network.": "Не вдалося прочитати правила токена з мережі.",
+  "Trying again in {} s": "Повтор через {} с"
 }

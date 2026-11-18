@@ -1216,4 +1216,6 @@ pub(crate) fn client_config(
 pub const CORE_PEERS: u32 = 8;
 
 #[cfg(test)]
+mod query_index_tests;
+#[cfg(test)]
 mod tests;

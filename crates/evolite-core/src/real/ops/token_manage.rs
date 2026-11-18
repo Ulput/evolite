@@ -346,6 +346,20 @@ fn kind_of(op: &IssuerOp, label: String, decimals: u8, who: Option<String>) -> j
     }
 }
 
+/// The page's failed reads after one more (BUG-222): counted on for the same identity and
+/// token, from 1 for another.
+fn next_failure(
+    before: Option<(String, String, u32)>,
+    me: String,
+    token_id: String,
+) -> (String, String, u32) {
+    let times = match before {
+        Some((who, t, n)) if who == me && t == token_id => n + 1,
+        _ => 1,
+    };
+    (me, token_id, times)
+}
+
 impl Real {
     /// [`Command::ReadTokenPage`]: the page read in the background, the snapshots answer.
     pub(in crate::real) fn read_token_page(&self, token_id: String, check: Option<String>) {
@@ -358,48 +372,70 @@ impl Real {
         let Some(me) = self.tokens.shown_identity() else {
             return;
         };
-        let (chain, page, journal) = (
+        let (chain, page, failed, journal) = (
             self.chain.clone(),
             self.tokens.page_handle(),
+            self.tokens.page_failed_handle(),
             self.journal.clone(),
         );
         let refresh = self.refresher();
         let working = self.work(PlatformWork::Tokens);
         tokio::spawn(async move {
             let _working = working;
+            // Which read failed goes to the journal (BUG-222): the page reads up to six things.
+            let at = |step: &'static str| move |e: String| (step, e);
             let read = async {
-                let contract = chain.fresh_contract(&token.contract_id).await?;
+                let contract = chain
+                    .fresh_contract(&token.contract_id)
+                    .await
+                    .map_err(at("token_page.contract"))?;
                 let config = contract
                     .tokens()
                     .get(&token.position)
                     .cloned()
-                    .ok_or("no token at the position")?;
-                let me_id =
-                    Identifier::from_string(&me, Encoding::Base58).map_err(|e| e.to_string())?;
-                let supply = chain.token_supply(&token_id).await?;
+                    .ok_or_else(|| ("token_page.contract", "no token at the position".into()))?;
+                let me_id = Identifier::from_string(&me, Encoding::Base58)
+                    .map_err(|e| ("token_page", e.to_string()))?;
+                let supply = chain
+                    .token_supply(&token_id)
+                    .await
+                    .map_err(at("token_page.supply"))?;
                 let facts = chain
                     .token_facts(&me, std::slice::from_ref(&token_id))
-                    .await?;
+                    .await
+                    .map_err(at("token_page.facts"))?;
                 let paused = facts.paused.get(&token_id).copied().unwrap_or(false);
                 // Q2: the frozen among those the wallet knows of.
                 let mut candidates = frozen_in_journal(&journal.entries(), &token_id);
                 if config.keeps_history().keeps_freezing_history() {
-                    candidates.extend(chain.freeze_targets(&token_id).await?);
+                    candidates.extend(
+                        chain
+                            .freeze_targets(&token_id)
+                            .await
+                            .map_err(at("token_page.freezes"))?,
+                    );
                 }
                 if let Some(check) = check.as_deref().map(str::trim).filter(|c| !c.is_empty()) {
                     let id = match check.strip_prefix('@') {
-                        Some(_) => chain.resolve_name(check).await?.ok_or("no such name")?,
+                        Some(_) => chain
+                            .resolve_name(check)
+                            .await
+                            .map_err(at("token_page.name"))?
+                            .ok_or_else(|| ("token_page.name", "no such name".into()))?,
                         None => check.to_owned(),
                     };
                     candidates.push(id);
                 }
                 candidates.sort();
                 candidates.dedup();
-                let frozen = chain.frozen_among(&token_id, &candidates).await?;
+                let frozen = chain
+                    .frozen_among(&token_id, &candidates)
+                    .await
+                    .map_err(at("token_page.frozen"))?;
                 let read_ms = std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
                     .map_or(0, |d| d.as_millis() as u64);
-                Ok::<_, String>(page_of(
+                Ok::<_, (&'static str, String)>(page_of(
                     &token_id,
                     &config,
                     &contract.owner_id(),
@@ -418,10 +454,21 @@ impl Real {
             crate::diag::record(crate::diag::Record::TokenPage {
                 ms: started.elapsed().as_millis() as u64,
             });
+            let mut failed = failed.lock().unwrap_or_else(|e| e.into_inner());
             match read {
-                Ok(read) => *page.lock().unwrap_or_else(|e| e.into_inner()) = Some((me, read)),
-                Err(e) => crate::diag::platform_failed("token_page", &e),
+                Ok(read) => {
+                    if failed.as_ref().is_some_and(|(_, t, _)| *t == token_id) {
+                        *failed = None;
+                    }
+                    *page.lock().unwrap_or_else(|e| e.into_inner()) = Some((me, read));
+                }
+                Err((step, e)) => {
+                    crate::diag::platform_failed(step, &e);
+                    // The page says so and tries again (BUG-222), not «Reading…» for ever.
+                    *failed = Some(next_failure(failed.take(), me, token_id));
+                }
             }
+            drop(failed);
             refresh();
         });
     }
@@ -861,5 +908,19 @@ mod tests {
             mint_to(&limited, Some(me), 2_000, 9_000, 2),
             Err(CoreError::NotAvailable(why)) if why.contains("10.00")
         ));
+    }
+
+    /// BUG-222: failed page reads are counted in a row for one identity and token, so the page
+    /// tells a new failure from one it has seen.
+    #[test]
+    fn failed_page_reads_are_counted_for_one_token_and_identity() {
+        let first = super::next_failure(None, "me".into(), "T".into());
+        assert_eq!(first, ("me".into(), "T".into(), 1));
+        let second = super::next_failure(Some(first), "me".into(), "T".into());
+        assert_eq!(second.2, 2);
+        let other = super::next_failure(Some(second.clone()), "me".into(), "U".into());
+        assert_eq!(other.2, 1, "another token");
+        let someone = super::next_failure(Some(second), "you".into(), "T".into());
+        assert_eq!(someone.2, 1, "another identity");
     }
 }

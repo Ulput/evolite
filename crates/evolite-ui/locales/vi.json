@@ -2283,5 +2283,7 @@
   "{} · model of {}": "{} · mẫu trong {}",
   "{} · ×{}": "{} · ×{}",
   "×{}": "×{}",
-  "“Give” and “Put up for sale” ask “How many of {}” and check it all with one signature, as series in the Workshop. A gift removes the price; after a sale the new owner sets the price.": "“Tặng” và “Rao bán” sẽ hỏi “Bao nhiêu trong {}” và kiểm tra tất cả bằng một chữ ký, như các loạt trong “Xưởng”. Quà tặng bỏ giá; sau khi bán, chủ mới đặt giá."
+  "“Give” and “Put up for sale” ask “How many of {}” and check it all with one signature, as series in the Workshop. A gift removes the price; after a sale the new owner sets the price.": "“Tặng” và “Rao bán” sẽ hỏi “Bao nhiêu trong {}” và kiểm tra tất cả bằng một chữ ký, như các loạt trong “Xưởng”. Quà tặng bỏ giá; sau khi bán, chủ mới đặt giá.",
+  "The token's rules could not be read from the network.": "Không thể đọc quy tắc của token từ mạng.",
+  "Trying again in {} s": "Thử lại sau {} giây"
 }

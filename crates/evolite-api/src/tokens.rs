@@ -253,6 +253,16 @@ pub struct Tokens {
     /// The token page of the token asked for ([`crate::Command::ReadTokenPage`]), once read
     /// (FEAT-0019 T-3.2).
     pub page: Option<TokenPage>,
+    /// The page's last reads failed (BUG-222): of which token, and how many times in a row.
+    /// The count grows with each failure, so the page tells a new one from one it has seen.
+    pub page_failed: Option<TokenPageFailed>,
+}
+
+/// A token page that could not be read (BUG-222).
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct TokenPageFailed {
+    pub token_id: String,
+    pub times: u32,
 }
 
 impl Tokens {
@@ -263,6 +273,7 @@ impl Tokens {
             search: TokenSearch::off(),
             hidden: Vec::new(),
             page: None,
+            page_failed: None,
         }
     }
 }

@@ -25,7 +25,19 @@ pub struct PageState {
     pub token_id: String,
     pub check: String,
     asked: bool,
+    /// The core's failed reads of the page already taken (BUG-222).
+    failures_seen: u32,
+    /// A read asked again and not answered yet: «Reading…», not the failure.
+    reading: bool,
+    /// When the page tries again by itself.
+    retry_at: Option<std::time::Instant>,
+    /// The failures counted when the page was opened: the tries again count from there.
+    opened_at: u32,
 }
+
+/// After which failed read the page tries again by itself, and in how many seconds (BUG-222):
+/// later each time, then only on «Try again».
+const AUTO_RETRY_SECS: [u64; 3] = [5, 15, 45];
 
 impl PageState {
     /// Opened, its page not asked of the core yet.
@@ -38,7 +50,51 @@ impl PageState {
             token_id: token_id.to_owned(),
             check: String::new(),
             asked: false,
+            failures_seen: 0,
+            reading: false,
+            retry_at: None,
+            opened_at: 0,
         }
+    }
+
+    /// What the core says of the page's reads (BUG-222): `failed` is how many failed in a row,
+    /// if the last did. A new failure ends «Reading…» and sets the next try, later each time.
+    /// True when it is time to ask again.
+    fn on_reads(&mut self, failed: Option<u32>, now: std::time::Instant) -> bool {
+        if let Some(times) = failed
+            && times > self.failures_seen
+        {
+            self.failures_seen = times;
+            self.reading = false;
+            self.retry_at = AUTO_RETRY_SECS
+                .get(times.saturating_sub(self.opened_at).saturating_sub(1) as usize)
+                .map(|s| now + std::time::Duration::from_secs(*s));
+        }
+        if self.retry_at.is_some_and(|at| now >= at) {
+            self.try_again();
+            return true;
+        }
+        false
+    }
+
+    /// Opened, its read asked: the failures the core counted before belong to an earlier
+    /// visit (BUG-222 review r1, Should): only one after this counts, and until then it reads.
+    fn opened(&mut self, failed: Option<u32>) {
+        self.failures_seen = failed.unwrap_or(0);
+        self.opened_at = self.failures_seen;
+        self.reading = true;
+        self.retry_at = None;
+    }
+
+    /// The page is asked again, now.
+    fn try_again(&mut self) {
+        self.retry_at = None;
+        self.reading = true;
+    }
+
+    /// The last read failed and none is under way: the page says so.
+    fn failed(&self) -> bool {
+        self.failures_seen > 0 && !self.reading
     }
 }
 
@@ -317,13 +373,34 @@ pub fn page_screen(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, tokens: &mut Token
         cx.go(crate::screens::Screen::Tokens);
         return;
     };
+    // BUG-222: a read that failed says so and is tried again, not «Reading…» for ever.
+    let failed_reads = cx
+        .wallet()
+        .tokens
+        .page_failed
+        .as_ref()
+        .filter(|f| f.token_id == pst.token_id)
+        .map(|f| f.times);
     if !pst.asked {
         pst.asked = true;
+        pst.opened(failed_reads);
         cx.send(Command::ReadTokenPage {
             token_id: pst.token_id.clone(),
             check: None,
         });
     }
+    let now = std::time::Instant::now();
+    if pst.on_reads(failed_reads, now) {
+        cx.send(Command::ReadTokenPage {
+            token_id: pst.token_id.clone(),
+            check: None,
+        });
+    }
+    let failed = pst.failed();
+    let retry_in = pst
+        .retry_at
+        .map(|at| at.saturating_duration_since(now).as_secs() + 1);
+    let mut try_again = false;
     let Some(row): Option<TokenRow> = cx
         .wallet()
         .tokens
@@ -357,12 +434,33 @@ pub fn page_screen(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, tokens: &mut Token
         'body: {
             ui.spacing_mut().item_spacing.y = 10.0;
             let Some(page) = &page else {
+                if !failed {
+                    ui.label(txt(
+                        tr!("Reading the token's rules…"),
+                        13.0,
+                        Weight::Regular,
+                        p.muted,
+                    ));
+                    break 'body;
+                }
                 ui.label(txt(
-                    tr!("Reading the token's rules…"),
+                    tr!("The token's rules could not be read from the network."),
                     13.0,
                     Weight::Regular,
-                    p.muted,
+                    p.danger,
                 ));
+                if let Some(secs) = retry_in {
+                    ui.label(txt(
+                        &format!(tr!("Trying again in {} s"), secs),
+                        12.0,
+                        Weight::Regular,
+                        p.muted,
+                    ));
+                    ui.ctx()
+                        .request_repaint_after(std::time::Duration::from_millis(500));
+                }
+                try_again =
+                    button(ui, a, tr!("Try again"), ButtonKind::Secondary, None).clicked();
                 break 'body;
             };
             let value = mono(13.0, Weight::Medium);
@@ -600,6 +698,13 @@ pub fn page_screen(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, tokens: &mut Token
                 });
         }
     });
+    if try_again {
+        pst.try_again();
+        cx.send(Command::ReadTokenPage {
+            token_id: pst.token_id.clone(),
+            check: None,
+        });
+    }
     if let Some(check) = check {
         cx.send(Command::ReadTokenPage {
             token_id: pst.token_id.clone(),
@@ -1687,5 +1792,61 @@ mod tests {
         assert_eq!(price_step(8), 100_000, "0.001 DASH");
         assert_eq!(price_of(100_000, 2), 10_000, "worked back: 0.0001 DASH");
         assert_eq!(price_step(2), 1, "any duff");
+    }
+
+    /// BUG-222: a failed read ends «Reading…»: the page says so and tries again by itself after
+    /// 5, 15 and 45 s, then only on «Try again». A failure already taken changes nothing.
+    #[test]
+    fn a_page_that_cannot_be_read_says_so_and_tries_again_later_each_time() {
+        use std::time::{Duration, Instant};
+        let mut pst = super::PageState::new("T");
+        let t0 = Instant::now();
+        assert!(!pst.on_reads(None, t0));
+        assert!(!pst.failed(), "reading");
+        assert!(!pst.on_reads(Some(1), t0), "not at once");
+        assert!(pst.failed());
+        assert_eq!(pst.retry_at, Some(t0 + Duration::from_secs(5)));
+        assert!(!pst.on_reads(Some(1), t0 + Duration::from_secs(4)));
+        assert!(
+            pst.on_reads(Some(1), t0 + Duration::from_secs(5)),
+            "after 5 s"
+        );
+        assert!(!pst.failed(), "reading again");
+        let t1 = t0 + Duration::from_secs(8);
+        assert!(!pst.on_reads(Some(2), t1));
+        assert!(pst.failed());
+        assert_eq!(pst.retry_at, Some(t1 + Duration::from_secs(15)), "later");
+        pst.try_again();
+        assert!(!pst.failed(), "«Try again»: reading");
+        assert!(!pst.on_reads(Some(3), t1));
+        assert_eq!(pst.retry_at, Some(t1 + Duration::from_secs(45)));
+        pst.try_again();
+        assert!(!pst.on_reads(Some(4), t1));
+        assert!(pst.failed());
+        assert_eq!(pst.retry_at, None, "then only on «Try again»");
+    }
+
+    /// BUG-222 review r1, Should: reopened after three failures, the page reads, and does not
+    /// say «could not be read» nor wait 45 s for a failure of the earlier visit; a new one counts.
+    #[test]
+    fn a_page_reopened_after_failures_reads_again() {
+        use std::time::{Duration, Instant};
+        let mut pst = super::PageState::new("T");
+        let t0 = Instant::now();
+        pst.opened(Some(3));
+        assert!(!pst.on_reads(Some(3), t0));
+        assert!(!pst.failed(), "reading");
+        assert_eq!(pst.retry_at, None, "no 45 s wait");
+        assert!(!pst.on_reads(Some(4), t0));
+        assert!(pst.failed(), "a failure after opening");
+        assert_eq!(
+            pst.retry_at,
+            Some(t0 + Duration::from_secs(5)),
+            "the first since opening: 5 s"
+        );
+        let mut fresh = super::PageState::new("U");
+        fresh.opened(None);
+        assert!(!fresh.on_reads(Some(1), t0));
+        assert_eq!(fresh.retry_at, Some(t0 + Duration::from_secs(5)));
     }
 }

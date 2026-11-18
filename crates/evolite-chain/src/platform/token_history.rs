@@ -12,6 +12,7 @@ use std::sync::Arc;
 
 use dash_sdk::drive::query::{OrderClause, WhereClause, WhereOperator};
 use dash_sdk::platform::{DocumentQuery, FetchMany};
+use dpp::data_contract::DataContract;
 use dpp::document::{Document, DocumentV0Getters};
 use dpp::platform_value::Value;
 use dpp::platform_value::string_encoding::Encoding;
@@ -225,6 +226,50 @@ pub fn past_cursor(
     (docs, next)
 }
 
+/// A page of `transfer` documents of `token_id`, `side` of `me`, from `at` in `dir`: TokenHistory
+/// v2's `from` and `to` indexes (checked offline, `query_index_tests`).
+pub(crate) fn transfer_query(
+    contract: Arc<DataContract>,
+    token_id: Identifier,
+    me: Identifier,
+    side: Side,
+    dir: Direction,
+    at: Option<u64>,
+) -> Result<DocumentQuery, String> {
+    let field = match side {
+        Side::To => "toIdentityId",
+        Side::From => "$ownerId",
+    };
+    let mut query = DocumentQuery::new(contract, "transfer")
+        .map_err(|e| format!("{e:?}"))?
+        .with_where(WhereClause {
+            field: "tokenId".into(),
+            operator: WhereOperator::Equal,
+            value: Value::Identifier(token_id.to_buffer()),
+        })
+        .with_where(WhereClause {
+            field: field.into(),
+            operator: WhereOperator::Equal,
+            value: Value::Identifier(me.to_buffer()),
+        })
+        .with_order_by(OrderClause {
+            field: "$createdAt".into(),
+            ascending: dir == Direction::Newer,
+        })
+        .with_limit(PAGE as u32);
+    if let Some(at) = at {
+        query = query.with_where(WhereClause {
+            field: "$createdAt".into(),
+            operator: match dir {
+                Direction::Newer => WhereOperator::GreaterThanOrEquals,
+                Direction::Older => WhereOperator::LessThanOrEquals,
+            },
+            value: Value::U64(at),
+        });
+    }
+    Ok(query)
+}
+
 impl Chain {
     /// One page of `transfer` documents of `token` for `identity` (both base58), `side` of it,
     /// past `cursor` in `dir`: proved, at most [`PAGE`], with the cursor after them. Spends
@@ -244,37 +289,7 @@ impl Chain {
             .map_err(|e| format!("{e:?}"))?;
         let id = |s: &str| Identifier::from_string(s, Encoding::Base58).map_err(|e| e.to_string());
         let (token_id, me) = (id(token)?, id(identity)?);
-        let field = match side {
-            Side::To => "toIdentityId",
-            Side::From => "$ownerId",
-        };
-        let mut query = DocumentQuery::new(contract, "transfer")
-            .map_err(|e| format!("{e:?}"))?
-            .with_where(WhereClause {
-                field: "tokenId".into(),
-                operator: WhereOperator::Equal,
-                value: Value::Identifier(token_id.to_buffer()),
-            })
-            .with_where(WhereClause {
-                field: field.into(),
-                operator: WhereOperator::Equal,
-                value: Value::Identifier(me.to_buffer()),
-            })
-            .with_order_by(OrderClause {
-                field: "$createdAt".into(),
-                ascending: dir == Direction::Newer,
-            })
-            .with_limit(PAGE as u32);
-        if let Some(c) = cursor {
-            query = query.with_where(WhereClause {
-                field: "$createdAt".into(),
-                operator: match dir {
-                    Direction::Newer => WhereOperator::GreaterThanOrEquals,
-                    Direction::Older => WhereOperator::LessThanOrEquals,
-                },
-                value: Value::U64(c.at_ms),
-            });
-        }
+        let query = transfer_query(contract, token_id, me, side, dir, cursor.map(|c| c.at_ms))?;
         let docs: Vec<TransferDoc> = Document::fetch_many(&sdk, query)
             .await
             .map_err(|e| format!("{e:?}"))?

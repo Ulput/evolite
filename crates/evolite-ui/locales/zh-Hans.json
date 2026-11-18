@@ -2283,5 +2283,7 @@
   "{} · model of {}": "{} · 共 {} 个的款式",
   "{} · ×{}": "{} · ×{}",
   "×{}": "×{}",
-  "“Give” and “Put up for sale” ask “How many of {}” and check it all with one signature, as series in the Workshop. A gift removes the price; after a sale the new owner sets the price.": "“赠送”和“上架出售”会询问“{} 个中的几个”，并像“工坊”中的系列一样用一次签名检查全部。赠送会取消价格；售出后由新主人定价。"
+  "“Give” and “Put up for sale” ask “How many of {}” and check it all with one signature, as series in the Workshop. A gift removes the price; after a sale the new owner sets the price.": "“赠送”和“上架出售”会询问“{} 个中的几个”，并像“工坊”中的系列一样用一次签名检查全部。赠送会取消价格；售出后由新主人定价。",
+  "The token's rules could not be read from the network.": "无法从网络读取代币规则。",
+  "Trying again in {} s": "{} 秒后重试"
 }

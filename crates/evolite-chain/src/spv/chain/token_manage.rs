@@ -151,6 +151,75 @@ fn doc_id(doc: &Document) -> String {
 /// Freeze documents read at most, in pages of 100.
 const FREEZE_PAGES: usize = 5;
 
+/// The query of [`Chain::token_issuer_docs`]: each kind by the index TokenHistory v2 has for it
+/// (checked offline, `query_index_tests`).
+pub(crate) fn issuer_doc_query(
+    contract: Arc<DataContract>,
+    kind: IssuerDocKind,
+    token_id: Identifier,
+    me: Identifier,
+) -> Result<DocumentQuery, String> {
+    let (doc_type, action) = kind.doc_type();
+    let equal = |field: &str, value: Value| WhereClause {
+        field: field.into(),
+        operator: WhereOperator::Equal,
+        value,
+    };
+    let order = |field: &str, ascending: bool| OrderClause {
+        field: field.into(),
+        ascending,
+    };
+    let mut query = DocumentQuery::new(contract, doc_type)
+        .map_err(|e| format!("{e:?}"))?
+        .with_where(equal("tokenId", Value::Identifier(token_id.to_buffer())))
+        .with_limit(100);
+    if kind != IssuerDocKind::PriceChanged {
+        query = query.with_where(equal("$ownerId", Value::Identifier(me.to_buffer())));
+    }
+    if let Some(action) = action {
+        query = query.with_where(equal("action", Value::U8(action)));
+    }
+    if kind == IssuerDocKind::SettingsChanged {
+        // Both by the index, descending: the newest of each type (review r1, a note).
+        query = query
+            .with_order_by(order("changeItemType", false))
+            .with_order_by(order("$createdAt", false));
+    } else {
+        query = query.with_order_by(order("$createdAt", false));
+    }
+    Ok(query)
+}
+
+/// A page of the `freeze` documents of `token_id`, by TokenHistory v2's `byFrozenIdentityId`
+/// index (tokenId, frozenIdentityId, $createdAt): ordered by whom they froze, after `after`
+/// (BUG-222 r2: by `$createdAt` alone no index serves it, and Drive refused it every time).
+pub(crate) fn freeze_query(
+    contract: Arc<DataContract>,
+    token_id: Identifier,
+    after: Option<Identifier>,
+) -> Result<DocumentQuery, String> {
+    let mut query = DocumentQuery::new(contract, "freeze")
+        .map_err(|e| format!("{e:?}"))?
+        .with_where(WhereClause {
+            field: "tokenId".into(),
+            operator: WhereOperator::Equal,
+            value: Value::Identifier(token_id.to_buffer()),
+        })
+        .with_order_by(OrderClause {
+            field: "frozenIdentityId".into(),
+            ascending: true,
+        })
+        .with_limit(100);
+    if let Some(after) = after {
+        query = query.with_where(WhereClause {
+            field: "frozenIdentityId".into(),
+            operator: WhereOperator::GreaterThan,
+            value: Value::Identifier(after.to_buffer()),
+        });
+    }
+    Ok(query)
+}
+
 impl Chain {
     /// The contract `contract` (base58) as Platform has it now, proved, and handed to the
     /// provider so the action's answer can be checked against it.
@@ -159,7 +228,7 @@ impl Chain {
         let sdk = self.sdk().await?;
         let fetched = DataContract::fetch(&sdk, id_of(contract)?)
             .await
-            .map_err(|e| e.to_string())?
+            .map_err(|e| format!("{e:?}"))?
             .ok_or("the token's contract is not on Platform")?;
         let fetched = Arc::new(fetched);
         if let Some(provider) = sdk.context_provider() {
@@ -187,35 +256,8 @@ impl Chain {
             .map(Arc::new)
             .map_err(|e| format!("{e:?}"))?;
         let (token_id, me) = (id_of(token)?, id_of(identity)?);
-        let (doc_type, action) = kind.doc_type();
-        let equal = |field: &str, value: Value| WhereClause {
-            field: field.into(),
-            operator: WhereOperator::Equal,
-            value,
-        };
-        let order = |field: &str, ascending: bool| OrderClause {
-            field: field.into(),
-            ascending,
-        };
-        let mut query = DocumentQuery::new(contract, doc_type)
-            .map_err(|e| format!("{e:?}"))?
-            .with_where(equal("tokenId", Value::Identifier(token_id.to_buffer())))
-            .with_limit(100);
         let by_owner = kind != IssuerDocKind::PriceChanged;
-        if by_owner {
-            query = query.with_where(equal("$ownerId", Value::Identifier(me.to_buffer())));
-        }
-        if let Some(action) = action {
-            query = query.with_where(equal("action", Value::U8(action)));
-        }
-        if kind == IssuerDocKind::SettingsChanged {
-            // Both by the index, descending: the newest of each type (review r1, a note).
-            query = query
-                .with_order_by(order("changeItemType", false))
-                .with_order_by(order("$createdAt", false));
-        } else {
-            query = query.with_order_by(order("$createdAt", false));
-        }
+        let query = issuer_doc_query(contract, kind, token_id, me)?;
         let docs = Document::fetch_many(&sdk, query)
             .await
             .map_err(|e| format!("{e:?}"))?;
@@ -235,7 +277,7 @@ impl Chain {
         let sdk = self.sdk().await?;
         Ok(TotalSingleTokenBalance::fetch(&sdk, id_of(token)?)
             .await
-            .map_err(|e| e.to_string())?
+            .map_err(|e| format!("{e:?}"))?
             .map_or(0, |s| s.token_supply.max(0) as u64))
     }
 
@@ -267,7 +309,7 @@ impl Chain {
             };
             let infos: IdentitiesTokenInfos = IdentityTokenInfo::fetch_many(&sdk, query)
                 .await
-                .map_err(|e| e.to_string())?;
+                .map_err(|e| format!("{e:?}"))?;
             for (who, info) in infos.iter() {
                 if info.as_ref().is_some_and(|i| i.frozen()) {
                     frozen.push(who.to_string(Encoding::Base58));
@@ -287,28 +329,10 @@ impl Chain {
             .map_err(|e| format!("{e:?}"))?;
         let token_id = id_of(token)?;
         let mut whom: Vec<String> = Vec::new();
-        let mut after: Option<u64> = None;
+        let mut after: Option<Identifier> = None;
         for _ in 0..FREEZE_PAGES {
             self.ready()?;
-            let mut query = DocumentQuery::new(contract.clone(), "freeze")
-                .map_err(|e| format!("{e:?}"))?
-                .with_where(WhereClause {
-                    field: "tokenId".into(),
-                    operator: WhereOperator::Equal,
-                    value: Value::Identifier(token_id.to_buffer()),
-                })
-                .with_order_by(OrderClause {
-                    field: "$createdAt".into(),
-                    ascending: true,
-                })
-                .with_limit(100);
-            if let Some(at) = after {
-                query = query.with_where(WhereClause {
-                    field: "$createdAt".into(),
-                    operator: WhereOperator::GreaterThan,
-                    value: Value::U64(at),
-                });
-            }
+            let query = freeze_query(contract.clone(), token_id, after)?;
             let page: Vec<Document> = Document::fetch_many(&sdk, query)
                 .await
                 .map_err(|e| format!("{e:?}"))?
@@ -322,12 +346,13 @@ impl Chain {
                     .get("frozenIdentityId")
                     .and_then(|v| v.to_identifier().ok())
                 {
-                    let who = who.to_string(Encoding::Base58);
-                    if !whom.contains(&who) {
-                        whom.push(who);
+                    let name = who.to_string(Encoding::Base58);
+                    if !whom.contains(&name) {
+                        whom.push(name);
                     }
+                    // In the index's order: the next page starts after the last one named.
+                    after = Some(after.map_or(who, |a| a.max(who)));
                 }
-                after = doc.created_at().max(after);
             }
             if !full {
                 break;

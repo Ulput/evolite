@@ -301,7 +301,7 @@ async fn read_identity(
 }
 
 /// `field == identity`, ordered by `$updatedAt` from `from` on when given.
-fn query(
+pub(crate) fn query(
     contract: &Arc<DataContract>,
     kind: &str,
     field: &str,

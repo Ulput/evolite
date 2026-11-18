@@ -229,6 +229,7 @@ pub fn demo_tokens(t: Timestamp) -> Tokens {
         },
         hidden: Vec::new(),
         page: None,
+        page_failed: None,
     }
 }
 

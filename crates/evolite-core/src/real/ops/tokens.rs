@@ -54,6 +54,8 @@ pub(in crate::real) struct TokenState {
     shown: Arc<Mutex<Option<String>>>,
     /// The token page last read (FEAT-0019 T-3.2), and for which identity.
     page: Arc<Mutex<Option<(String, evolite_api::tokens::TokenPage)>>>,
+    /// The page's failed reads in a row (BUG-222): for which identity, of which token, how many.
+    page_failed: Arc<Mutex<Option<(String, String, u32)>>>,
     /// The kept contracts went to the provider (once per run, AC-T2).
     kept_registered: Arc<AtomicBool>,
     /// What each followed token is, from its kept contract, by token id.
@@ -88,6 +90,7 @@ impl TokenState {
             issuer_reads: Arc::default(),
             shown: Arc::default(),
             page: Arc::default(),
+            page_failed: Arc::default(),
             kept_registered: Arc::default(),
             infos: Mutex::default(),
             file: here.then(|| Arc::new(WalletTokens::new(path.to_path_buf()))),
@@ -193,6 +196,10 @@ impl TokenState {
         self.page.clone()
     }
 
+    pub(in crate::real) fn page_failed_handle(&self) -> Arc<Mutex<Option<(String, String, u32)>>> {
+        self.page_failed.clone()
+    }
+
     /// What every followed token is (T-2).
     pub(in crate::real) fn infos_of(&self, file: &WalletTokens) -> HashMap<String, TokenInfo> {
         self.infos(file, &file.all())
@@ -281,10 +288,24 @@ impl Real {
             .as_ref()
             .filter(|(who, _)| Some(who.as_str()) == identity)
             .map(|(_, page)| page.clone());
+        let page_failed = self
+            .tokens
+            .page_failed
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .as_ref()
+            .filter(|(who, _, _)| Some(who.as_str()) == identity)
+            .map(
+                |(_, token_id, times)| evolite_api::tokens::TokenPageFailed {
+                    token_id: token_id.clone(),
+                    times: *times,
+                },
+            );
         Tokens {
             rows,
             search: self.tokens.search.shown(),
             page,
+            page_failed,
             hidden: identity
                 .map(|id| {
                     tracked

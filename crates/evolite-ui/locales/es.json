@@ -2317,5 +2317,7 @@
   "{} · model of {}": "{} · modelo de {}",
   "{} · ×{}": "{} · ×{}",
   "×{}": "×{}",
-  "“Give” and “Put up for sale” ask “How many of {}” and check it all with one signature, as series in the Workshop. A gift removes the price; after a sale the new owner sets the price.": "«Regalar» y «Poner a la venta» preguntarán «Cuántas de {}» y lo comprobarán todo con una sola firma, como las series del «Taller». Un regalo quita el precio; tras una venta, el precio lo pone el nuevo dueño."
+  "“Give” and “Put up for sale” ask “How many of {}” and check it all with one signature, as series in the Workshop. A gift removes the price; after a sale the new owner sets the price.": "«Regalar» y «Poner a la venta» preguntarán «Cuántas de {}» y lo comprobarán todo con una sola firma, como las series del «Taller». Un regalo quita el precio; tras una venta, el precio lo pone el nuevo dueño.",
+  "The token's rules could not be read from the network.": "No se pudieron leer las reglas del token desde la red.",
+  "Trying again in {} s": "Reintentando en {} s"
 }

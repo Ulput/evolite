@@ -232,14 +232,14 @@ impl Chain {
             };
             let balances: IdentityTokenBalances = TokenAmount::fetch_many(&sdk, query)
                 .await
-                .map_err(|e| e.to_string())?;
+                .map_err(|e| format!("{e:?}"))?;
             for (token, amount) in balances.iter() {
                 facts.balances.insert(base58(token), amount.unwrap_or(0));
             }
             self.ready()?;
             let statuses: TokenStatuses = TokenStatus::fetch_many(&sdk, batch.to_vec())
                 .await
-                .map_err(|e| e.to_string())?;
+                .map_err(|e| format!("{e:?}"))?;
             for token in batch {
                 let paused = statuses
                     .get(token)
@@ -255,7 +255,7 @@ impl Chain {
             };
             let infos: IdentityTokenInfos = IdentityTokenInfo::fetch_many(&sdk, query)
                 .await
-                .map_err(|e| e.to_string())?;
+                .map_err(|e| format!("{e:?}"))?;
             for token in batch {
                 let frozen = infos
                     .get(token)
