@@ -690,6 +690,9 @@ impl Real {
             return;
         };
         let run = self.discovery_run.fetch_add(1, Ordering::Relaxed) + 1;
+        // SYNC-2 r1 Should: the old run's balances loop, asleep on the same Notify, wakes now and
+        // ends; a later notify_one then wakes this run's loop, not the old one.
+        self.balances_stale.notify_waiters();
         let current = self.discovery_run.clone();
         let chain = self.chain.clone();
         let search = self.identity_search.clone();
@@ -719,16 +722,52 @@ impl Real {
         let task = tokio::spawn(async move {
             let live = move || current.load(Ordering::Relaxed) == run;
             turn::timed("gate_identities", chain.until_platform_ready()).await;
+            // SYNC-2: the balances loop runs once, started by whichever comes first: the
+            // identities the store has (now), or the search finding the first one.
+            let balances_started = Arc::new(AtomicBool::new(false));
+            let start_balances = {
+                let (chain, live, stale, checked, refresh, budgets, works) = (
+                    chain.clone(),
+                    live.clone(),
+                    stale.clone(),
+                    checked.clone(),
+                    refresh.clone(),
+                    budgets.clone(),
+                    works.clone(),
+                );
+                let started = balances_started.clone();
+                move || {
+                    if !started.swap(true, Ordering::Relaxed) {
+                        tokio::spawn(keep_balances_fresh(
+                            chain.clone(),
+                            id,
+                            live.clone(),
+                            stale.clone(),
+                            checked.clone(),
+                            refresh.clone(),
+                            budgets.clone(),
+                            works.clone(),
+                        ));
+                    }
+                }
+            };
             // BUG-175: the identities known already are read again once, at the unlock, a switch
-            // and «Search again»: their revision and keys may have changed elsewhere.
+            // and «Search again»: their revision and keys may have changed elsewhere. SYNC-2: in
+            // a task of its own, beside the search, and their balances at once, not after it.
             if live()
                 && let Some(wallet) = chain.wallet(&id).await
             {
-                if chain.refresh_known_identities(&wallet).await > 0 {
-                    // AC-T4: one line, no id; what was known stays.
-                    crate::diag::platform_failed("identity_refresh", "failed");
+                if !wallet_identity_ids(&wallet).await.is_empty() {
+                    start_balances();
                 }
-                refresh();
+                let (chain, refresh) = (chain.clone(), refresh.clone());
+                tokio::spawn(async move {
+                    if chain.refresh_known_identities(&wallet).await > 0 {
+                        // AC-T4: one line, no id; what was known stays.
+                        crate::diag::platform_failed("identity_refresh", "failed");
+                    }
+                    refresh();
+                });
             }
             let mut pause = DISCOVERY_RETRY;
             let mut names_read = std::collections::HashSet::new();
@@ -759,16 +798,8 @@ impl Real {
                 set_search(&search, step.status);
                 if step.found && !was_found {
                     found.store(true, Ordering::Relaxed);
-                    tokio::spawn(keep_balances_fresh(
-                        chain.clone(),
-                        id,
-                        live.clone(),
-                        stale.clone(),
-                        checked.clone(),
-                        refresh.clone(),
-                        budgets.clone(),
-                        works.clone(),
-                    ));
+                    // Unless the store's identities started it already (SYNC-2).
+                    start_balances();
                     // FEAT-0021 AC-T13: whether this network offers the link of a claim.
                     let (links_chain, links) = (chain.clone(), identity_links.clone());
                     tokio::spawn(async move {

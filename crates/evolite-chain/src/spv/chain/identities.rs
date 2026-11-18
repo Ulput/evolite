@@ -267,13 +267,16 @@ impl Chain {
                 .map(|m| m.identity.id())
                 .collect()
         };
-        refresh_each(&ids, |id| async move {
-            wallet
-                .identity()
-                .refresh_identity(&id)
-                .await
-                .map(|_| ())
-                .map_err(|e| e.to_string())
+        refresh_each(&ids, |id| {
+            let wallet = wallet.clone();
+            async move {
+                wallet
+                    .identity()
+                    .refresh_identity(&id)
+                    .await
+                    .map(|_| ())
+                    .map_err(|e| e.to_string())
+            }
         })
         .await
     }
@@ -530,14 +533,21 @@ impl Chain {
                 .map(|m| m.identity.id())
                 .collect()
         };
-        let mut read = 0;
-        let mut failed = None;
-        for id in &ids {
-            match wallet.identity().refresh_identity_balance(id).await {
-                Ok(_) => read += 1,
-                Err(e) => failed = Some(e.to_string()),
+        // SYNC-2: four at once, not one after another.
+        let answers = each_at_once(&ids, |id| {
+            let wallet = wallet.clone();
+            async move {
+                wallet
+                    .identity()
+                    .refresh_identity_balance(&id)
+                    .await
+                    .map(|_| ())
+                    .map_err(|e| e.to_string())
             }
-        }
+        })
+        .await;
+        let read = answers.iter().filter(|(_, r)| r.is_ok()).count();
+        let failed = answers.into_iter().find_map(|(_, r)| r.err());
         match failed {
             Some(why) if read == 0 && !ids.is_empty() => Err(why),
             _ => Ok((read, ids.len())),
@@ -987,15 +997,40 @@ impl Chain {
 pub(super) async fn refresh_each<F, Fut>(ids: &[Identifier], refresh: F) -> usize
 where
     F: Fn(Identifier) -> Fut,
-    Fut: std::future::Future<Output = Result<(), String>>,
+    Fut: std::future::Future<Output = Result<(), String>> + Send + 'static,
 {
-    let mut failed = 0;
-    for id in ids {
-        if refresh(*id).await.is_err() {
-            failed += 1;
+    let done = each_at_once(ids, refresh).await;
+    ids.len() - done.iter().filter(|(_, r)| r.is_ok()).count()
+}
+
+/// How many identities are read at once (SYNC-2): each read waits on the network by itself, and
+/// one at a time a wallet of 3–8 identities waited 5–15 s for its balances.
+const AT_ONCE: usize = 4;
+
+/// `read` of each of `ids`, at most [`AT_ONCE`] at a time, started in their order; what each gave,
+/// in the order they ended. A read that panicked is left out (counted as not read).
+pub(super) async fn each_at_once<F, Fut, T>(ids: &[Identifier], read: F) -> Vec<(Identifier, T)>
+where
+    F: Fn(Identifier) -> Fut,
+    Fut: std::future::Future<Output = T> + Send + 'static,
+    T: Send + 'static,
+{
+    let mut running = tokio::task::JoinSet::new();
+    let mut next = ids.iter().copied();
+    let mut done = Vec::with_capacity(ids.len());
+    loop {
+        while running.len() < AT_ONCE {
+            let Some(id) = next.next() else { break };
+            let reading = read(id);
+            running.spawn(async move { (id, reading.await) });
+        }
+        match running.join_next().await {
+            Some(Ok(answer)) => done.push(answer),
+            Some(Err(_)) => {}
+            None => break,
         }
     }
-    failed
+    done
 }
 
 #[cfg(test)]
@@ -1026,5 +1061,30 @@ mod refresh_tests {
         .await;
         assert_eq!(failed, 1);
         assert_eq!(*asked.lock().unwrap(), ids.to_vec(), "each once, in order");
+    }
+
+    /// SYNC-2: identities are read four at a time, never more, and every one is read once.
+    /// Mutant: one at a time reaches 1, not 4.
+    #[tokio::test]
+    async fn identities_are_read_four_at_a_time() {
+        use std::sync::Arc;
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let ids: Vec<Identifier> = (1..=10u8).map(|n| Identifier::new([n; 32])).collect();
+        let (now, most) = (Arc::new(AtomicUsize::new(0)), Arc::new(AtomicUsize::new(0)));
+        let done = each_at_once(&ids, |id| {
+            let (now, most) = (now.clone(), most.clone());
+            async move {
+                let at = now.fetch_add(1, Ordering::SeqCst) + 1;
+                most.fetch_max(at, Ordering::SeqCst);
+                tokio::time::sleep(std::time::Duration::from_millis(30)).await;
+                now.fetch_sub(1, Ordering::SeqCst);
+                id
+            }
+        })
+        .await;
+        assert_eq!(most.load(Ordering::SeqCst), AT_ONCE);
+        let mut read: Vec<Identifier> = done.into_iter().map(|(id, _)| id).collect();
+        read.sort();
+        assert_eq!(read, ids, "every one, once");
     }
 }
