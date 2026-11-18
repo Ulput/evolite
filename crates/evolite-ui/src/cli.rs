@@ -244,6 +244,7 @@ pub const PRESETS: &[&str] = &[
     "names-contested", "contest-card", "contest-lost", "add-name-contested", "add-name-review",
     "add-name-sent", "add-name-fund-rose", "contest-lost-hidden",
     "contacts", "add-contact", "contact-profile", "my-qr", "contacts-no-encryption",
+    "contacts-channel-broken",
     "identity-keys", "identity-key-shown", "identity-keys-no-encryption", "key-disable",
     "key-replace-main", "key-replace-dashpay", "key-add", "identity-keys-foreign",
     "key-enable-dashpay-foreign",
@@ -464,7 +465,12 @@ fn dev_args<'a>(
         (
             None,
             Some(
-                "contacts" | "add-contact" | "contact-profile" | "my-qr" | "contacts-no-encryption",
+                "contacts"
+                | "add-contact"
+                | "contact-profile"
+                | "my-qr"
+                | "contacts-no-encryption"
+                | "contacts-channel-broken",
             ),
         ) => Screen::Contacts,
         (

@@ -450,7 +450,7 @@ pub(super) fn change_dialog(
                     "warning",
                     p.accent,
                     tr!(
-                        "Contacts whose requests are encrypted to the old key cannot pay you until they send a new one."
+                        "You will not be able to pay contacts whose requests point to the old key until they send you a new request."
                     ),
                 );
             }

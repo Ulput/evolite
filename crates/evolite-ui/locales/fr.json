@@ -1,4 +1,8 @@
 {
+  "Needs a new request": "Nouvelle demande requise",
+  "You cannot pay @{} by DashPay yet: their contact request points to a disabled key. Payments will work again once they send you a new contact request.": "Vous ne pouvez pas encore payer @{} par DashPay : sa demande de contact renvoie à une clé désactivée. Les paiements fonctionneront de nouveau dès qu’il vous enverra une nouvelle demande de contact.",
+  "You cannot pay this contact by DashPay yet: their contact request points to a disabled key. Payments will work again once they send you a new contact request.": "Vous ne pouvez pas encore payer ce contact par DashPay : sa demande de contact renvoie à une clé désactivée. Les paiements fonctionneront de nouveau dès qu’il vous enverra une nouvelle demande de contact.",
+  "You will not be able to pay contacts whose requests point to the old key until they send you a new request.": "Vous ne pourrez pas payer les contacts dont les demandes renvoient à l’ancienne clé tant qu’ils ne vous auront pas envoyé une nouvelle demande.",
   "Expense": "Dépense",
   "Income": "Revenu",
   "Only for the CSV export. Kept on this computer with the notes": "Uniquement pour l'export CSV. Conservée sur cet ordinateur avec les notes",
@@ -80,7 +84,6 @@
   "At most 10 keys can be disabled at once": "10 clés au plus peuvent être désactivées à la fois",
   "At most 6 keys can be added at once": "6 clés au plus peuvent être ajoutées à la fois",
   "Changing the keys…": "Modification des clés…",
-  "Contacts whose requests are encrypted to the old key cannot pay you until they send a new one.": "Les contacts dont les demandes sont chiffrées avec l'ancienne clé ne pourront pas vous payer tant qu'ils n'en enverront pas une nouvelle.",
   "DashPay contacts for {} are not enabled yet": "Les contacts DashPay pour {} ne sont pas encore activés",
   "DashPay's encryption keys are not disabled one by one: replace the DashPay pair": "Les clés de chiffrement de DashPay ne se désactivent pas une par une : remplacez la paire DashPay",
   "DashPay's keys are replaced as a pair: the old ones are disabled and a new pair from this wallet's phrase is added in the same update.": "Les clés de DashPay se remplacent par paire : les anciennes sont désactivées et une nouvelle paire issue de la phrase de ce portefeuille est ajoutée dans la même modification.",

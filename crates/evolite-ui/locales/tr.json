@@ -1,4 +1,8 @@
 {
+  "Needs a new request": "Yeni istek gerekli",
+  "You cannot pay @{} by DashPay yet: their contact request points to a disabled key. Payments will work again once they send you a new contact request.": "@{} kişisine henüz DashPay ile ödeme yapamazsınız: kişi isteği devre dışı bir anahtarı gösteriyor. Kişi size yeni bir kişi isteği gönderdiğinde ödemeler yeniden çalışır.",
+  "You cannot pay this contact by DashPay yet: their contact request points to a disabled key. Payments will work again once they send you a new contact request.": "Bu kişiye henüz DashPay ile ödeme yapamazsınız: kişi isteği devre dışı bir anahtarı gösteriyor. Kişi size yeni bir kişi isteği gönderdiğinde ödemeler yeniden çalışır.",
+  "You will not be able to pay contacts whose requests point to the old key until they send you a new request.": "İstekleri eski anahtarı gösteren kişilere, size yeni bir istek gönderene kadar ödeme yapamayacaksınız.",
   "Expense": "Gider",
   "Income": "Gelir",
   "Only for the CSV export. Kept on this computer with the notes": "Yalnızca CSV dışa aktarımı için. Notlarla birlikte bu bilgisayarda saklanır",
@@ -80,7 +84,6 @@
   "At most 10 keys can be disabled at once": "Bir seferde en fazla 10 anahtar devre dışı bırakılabilir",
   "At most 6 keys can be added at once": "Bir seferde en fazla 6 anahtar eklenebilir",
   "Changing the keys…": "Anahtarlar değiştiriliyor…",
-  "Contacts whose requests are encrypted to the old key cannot pay you until they send a new one.": "İstekleri eski anahtara şifrelenmiş kişiler, yenisini gönderene kadar size ödeme yapamaz.",
   "DashPay contacts for {} are not enabled yet": "{} için DashPay kişileri henüz etkin değil",
   "DashPay's encryption keys are not disabled one by one: replace the DashPay pair": "DashPay'in şifreleme anahtarları tek tek devre dışı bırakılmaz: DashPay çiftini değiştirin",
   "DashPay's keys are replaced as a pair: the old ones are disabled and a new pair from this wallet's phrase is added in the same update.": "DashPay'in anahtarları çift olarak değiştirilir: eskiler devre dışı bırakılır ve bu cüzdanın ifadesinden yeni bir çift aynı güncellemede eklenir.",

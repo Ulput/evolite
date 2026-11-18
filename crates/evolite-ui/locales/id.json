@@ -1,4 +1,8 @@
 {
+  "Needs a new request": "Perlu permintaan baru",
+  "You cannot pay @{} by DashPay yet: their contact request points to a disabled key. Payments will work again once they send you a new contact request.": "Anda belum bisa membayar @{} lewat DashPay: permintaan kontaknya mengarah ke kunci yang dinonaktifkan. Pembayaran akan berfungsi lagi setelah kontak mengirimi Anda permintaan kontak baru.",
+  "You cannot pay this contact by DashPay yet: their contact request points to a disabled key. Payments will work again once they send you a new contact request.": "Anda belum bisa membayar kontak ini lewat DashPay: permintaan kontaknya mengarah ke kunci yang dinonaktifkan. Pembayaran akan berfungsi lagi setelah kontak mengirimi Anda permintaan kontak baru.",
+  "You will not be able to pay contacts whose requests point to the old key until they send you a new request.": "Anda tidak akan bisa membayar kontak yang permintaannya mengarah ke kunci lama sampai mereka mengirimi Anda permintaan baru.",
   "Expense": "Pengeluaran",
   "Income": "Pemasukan",
   "Only for the CSV export. Kept on this computer with the notes": "Hanya untuk ekspor CSV. Disimpan di komputer ini bersama catatan",
@@ -80,7 +84,6 @@
   "At most 10 keys can be disabled at once": "Paling banyak 10 kunci dapat dinonaktifkan sekaligus",
   "At most 6 keys can be added at once": "Paling banyak 6 kunci dapat ditambahkan sekaligus",
   "Changing the keys…": "Mengubah kunci…",
-  "Contacts whose requests are encrypted to the old key cannot pay you until they send a new one.": "Kontak yang permintaannya dienkripsi ke kunci lama tidak dapat membayar Anda sampai mereka mengirim yang baru.",
   "DashPay contacts for {} are not enabled yet": "Kontak DashPay untuk {} belum diaktifkan",
   "DashPay's encryption keys are not disabled one by one: replace the DashPay pair": "Kunci enkripsi DashPay tidak dinonaktifkan satu per satu: ganti pasangan DashPay",
   "DashPay's keys are replaced as a pair: the old ones are disabled and a new pair from this wallet's phrase is added in the same update.": "Kunci DashPay diganti berpasangan: yang lama dinonaktifkan dan pasangan baru dari frasa dompet ini ditambahkan dalam pembaruan yang sama.",

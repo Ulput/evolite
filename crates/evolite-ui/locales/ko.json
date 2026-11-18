@@ -1,4 +1,8 @@
 {
+  "Needs a new request": "새 요청 필요",
+  "You cannot pay @{} by DashPay yet: their contact request points to a disabled key. Payments will work again once they send you a new contact request.": "아직 DashPay로 @{}에게 지불할 수 없습니다: 상대의 연락처 요청이 비활성화된 키를 가리킵니다. 상대가 새 연락처 요청을 보내면 다시 지불할 수 있습니다.",
+  "You cannot pay this contact by DashPay yet: their contact request points to a disabled key. Payments will work again once they send you a new contact request.": "아직 DashPay로 이 연락처에 지불할 수 없습니다: 상대의 연락처 요청이 비활성화된 키를 가리킵니다. 상대가 새 연락처 요청을 보내면 다시 지불할 수 있습니다.",
+  "You will not be able to pay contacts whose requests point to the old key until they send you a new request.": "요청이 이전 키를 가리키는 연락처에는 상대가 새 요청을 보낼 때까지 지불할 수 없습니다.",
   "Expense": "지출",
   "Income": "수입",
   "Only for the CSV export. Kept on this computer with the notes": "CSV 내보내기에만 쓰입니다. 메모와 함께 이 컴퓨터에 저장됩니다",
@@ -80,7 +84,6 @@
   "At most 10 keys can be disabled at once": "한 번에 최대 10개의 키를 비활성화할 수 있습니다",
   "At most 6 keys can be added at once": "한 번에 최대 6개의 키를 추가할 수 있습니다",
   "Changing the keys…": "키 변경 중…",
-  "Contacts whose requests are encrypted to the old key cannot pay you until they send a new one.": "이전 키로 암호화된 요청을 보낸 연락처는 새 요청을 보낼 때까지 결제할 수 없습니다.",
   "DashPay contacts for {} are not enabled yet": "{}의 DashPay 연락처가 아직 활성화되지 않았습니다",
   "DashPay's encryption keys are not disabled one by one: replace the DashPay pair": "DashPay의 암호화 키는 하나씩 비활성화되지 않습니다: DashPay 쌍을 교체하세요",
   "DashPay's keys are replaced as a pair: the old ones are disabled and a new pair from this wallet's phrase is added in the same update.": "DashPay의 키는 쌍으로 교체됩니다: 이전 키는 비활성화되고 이 지갑의 문구에서 만든 새 쌍이 같은 업데이트에서 추가됩니다.",

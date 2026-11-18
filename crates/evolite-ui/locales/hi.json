@@ -1,4 +1,8 @@
 {
+  "Needs a new request": "नया अनुरोध चाहिए",
+  "You cannot pay @{} by DashPay yet: their contact request points to a disabled key. Payments will work again once they send you a new contact request.": "आप अभी @{} को DashPay से भुगतान नहीं कर सकते: उनका संपर्क अनुरोध एक बंद की गई कुंजी की ओर इशारा करता है। जब वे आपको नया संपर्क अनुरोध भेजेंगे, भुगतान फिर से काम करेंगे।",
+  "You cannot pay this contact by DashPay yet: their contact request points to a disabled key. Payments will work again once they send you a new contact request.": "आप अभी इस संपर्क को DashPay से भुगतान नहीं कर सकते: उनका संपर्क अनुरोध एक बंद की गई कुंजी की ओर इशारा करता है। जब वे आपको नया संपर्क अनुरोध भेजेंगे, भुगतान फिर से काम करेंगे।",
+  "You will not be able to pay contacts whose requests point to the old key until they send you a new request.": "जिन संपर्कों के अनुरोध पुरानी कुंजी की ओर इशारा करते हैं, उन्हें आप तब तक भुगतान नहीं कर पाएँगे जब तक वे आपको नया अनुरोध नहीं भेजते।",
   "Expense": "खर्च",
   "Income": "आय",
   "Only for the CSV export. Kept on this computer with the notes": "सिर्फ़ CSV निर्यात के लिए। नोट्स के साथ इसी कंप्यूटर पर रखा जाता है",
@@ -80,7 +84,6 @@
   "At most 10 keys can be disabled at once": "एक बार में अधिकतम 10 कुंजियाँ बंद की जा सकती हैं",
   "At most 6 keys can be added at once": "एक बार में अधिकतम 6 कुंजियाँ जोड़ी जा सकती हैं",
   "Changing the keys…": "कुंजियाँ बदली जा रही हैं…",
-  "Contacts whose requests are encrypted to the old key cannot pay you until they send a new one.": "जिन संपर्कों के अनुरोध पुरानी कुंजी पर एन्क्रिप्ट हैं, वे नया भेजने तक आपको भुगतान नहीं कर पाएँगे।",
   "DashPay contacts for {} are not enabled yet": "{} के लिए DashPay संपर्क अभी चालू नहीं हैं",
   "DashPay's encryption keys are not disabled one by one: replace the DashPay pair": "DashPay की एन्क्रिप्शन कुंजियाँ एक-एक करके बंद नहीं होतीं: DashPay जोड़ी बदलें",
   "DashPay's keys are replaced as a pair: the old ones are disabled and a new pair from this wallet's phrase is added in the same update.": "DashPay की कुंजियाँ जोड़ी में बदली जाती हैं: पुरानी बंद होती हैं और इस वॉलेट के वाक्यांश से नई जोड़ी उसी अपडेट में जोड़ी जाती है।",

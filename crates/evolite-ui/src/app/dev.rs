@@ -68,6 +68,9 @@ pub(super) struct DevState {
     /// identity without encryption keys, as one made in a wallet that gave it none — «Enable
     /// DashPay» on K1 and on Contacts.
     no_encryption_preset: bool,
+    /// `--screen contacts-channel-broken` (BUG-231): @alice's request points to a disabled key —
+    /// «Needs a new request» on her row, and a payment to her refused before the password.
+    broken_channel_preset: bool,
     /// `--screen identity-keys-foreign`, `key-enable-dashpay-foreign` (FEAT-0020 AC-T19): the
     /// demo's key 6 another wallet's — «Encryption · unbound», and K7 over it.
     foreign_key_preset: bool,
@@ -252,6 +255,7 @@ impl DevState {
             fee_unknown_preset: dev.preset("activity-fee-unknown"),
             no_encryption_preset: dev.preset("identity-keys-no-encryption")
                 || dev.preset("contacts-no-encryption"),
+            broken_channel_preset: dev.preset("contacts-channel-broken"),
             foreign_key_preset: dev.preset("identity-keys-foreign")
                 || dev.preset("key-enable-dashpay-foreign"),
             syncing_preset: dev.preset("overview-syncing") || dev.preset("send-syncing"),
@@ -516,6 +520,17 @@ impl App {
         {
             id.keys
                 .retain(|k| k.purpose != evolite_api::KeyPurpose::Encryption);
+        }
+        if self.dev.broken_channel_preset
+            && let Some(w) = self.snapshot.as_mut().and_then(|s| s.wallet.as_mut())
+        {
+            for c in w
+                .contacts
+                .iter_mut()
+                .filter(|c| c.name.as_deref() == Some("alice"))
+            {
+                c.channel_broken = true;
+            }
         }
         if self.dev.fee_unknown_preset
             && let Some(w) = self.snapshot.as_mut().and_then(|s| s.wallet.as_mut())

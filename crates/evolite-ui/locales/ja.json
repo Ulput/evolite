@@ -1,4 +1,8 @@
 {
+  "Needs a new request": "新しいリクエストが必要",
+  "You cannot pay @{} by DashPay yet: their contact request points to a disabled key. Payments will work again once they send you a new contact request.": "@{} にはまだ DashPay で支払えません。相手の連絡先リクエストが無効化された鍵を指しています。相手から新しい連絡先リクエストが届けば、支払えるようになります。",
+  "You cannot pay this contact by DashPay yet: their contact request points to a disabled key. Payments will work again once they send you a new contact request.": "この連絡先にはまだ DashPay で支払えません。相手の連絡先リクエストが無効化された鍵を指しています。相手から新しい連絡先リクエストが届けば、支払えるようになります。",
+  "You will not be able to pay contacts whose requests point to the old key until they send you a new request.": "リクエストが古い鍵を指している連絡先には、相手から新しいリクエストが届くまで支払えなくなります。",
   "Expense": "支出",
   "Income": "収入",
   "Only for the CSV export. Kept on this computer with the notes": "CSV エクスポート専用。メモと一緒にこのコンピューターに保存されます",
@@ -80,7 +84,6 @@
   "At most 10 keys can be disabled at once": "一度に無効にできる鍵は 10 個までです",
   "At most 6 keys can be added at once": "一度に追加できる鍵は 6 個までです",
   "Changing the keys…": "鍵を変更しています…",
-  "Contacts whose requests are encrypted to the old key cannot pay you until they send a new one.": "古い鍵に暗号化されたリクエストの連絡先は、新しいリクエストを送るまであなたに支払えません。",
   "DashPay contacts for {} are not enabled yet": "{} の DashPay 連絡先はまだ有効になっていません",
   "DashPay's encryption keys are not disabled one by one: replace the DashPay pair": "DashPay の暗号化鍵は 1 つずつ無効にはできません。DashPay のペアを置き換えてください",
   "DashPay's keys are replaced as a pair: the old ones are disabled and a new pair from this wallet's phrase is added in the same update.": "DashPay の鍵はペアで置き換えます。古い鍵を無効にし、このウォレットのフレーズから新しいペアを同じ更新で追加します。",

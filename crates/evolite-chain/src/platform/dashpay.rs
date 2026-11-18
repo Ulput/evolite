@@ -188,6 +188,7 @@ pub fn name_payments(
                 since: 0,
                 payments: 0,
                 last_payment: None,
+                channel_broken: false,
             }
             .handle();
             (txid.as_str(), shown)
@@ -294,7 +295,7 @@ pub fn contacts_of(
         (count, last)
     };
     let mut out = Vec::new();
-    let mut add = |id: &Identifier, state, since: u64| {
+    let mut add = |id: &Identifier, state, since: u64, channel_broken: bool| {
         let key = base58(id);
         let (payments, last_payment) = if state == ContactState::Established {
             payments(id)
@@ -309,6 +310,7 @@ pub fn contacts_of(
             since: ms(since),
             payments,
             last_payment,
+            channel_broken,
         });
     };
     for (id, contact) in dashpay.established_contacts() {
@@ -319,16 +321,21 @@ pub fn contacts_of(
             .outgoing_request
             .created_at
             .min(contact.incoming_request.created_at);
-        add(id, ContactState::Established, since);
+        add(
+            id,
+            ContactState::Established,
+            since,
+            contact.payment_channel_broken,
+        );
     }
     for (id, request) in dashpay.sent_contact_requests() {
         if !dashpay.established_contacts().contains_key(id) {
-            add(id, ContactState::Outgoing, request.created_at);
+            add(id, ContactState::Outgoing, request.created_at, false);
         }
     }
     for (id, request) in dashpay.incoming_contact_requests() {
         if !dashpay.established_contacts().contains_key(id) && !managed.is_sender_ignored(id) {
-            add(id, ContactState::Incoming, request.created_at);
+            add(id, ContactState::Incoming, request.created_at, false);
         }
     }
     out.sort_by_key(|c| std::cmp::Reverse(c.since));

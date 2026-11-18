@@ -1,4 +1,8 @@
 {
+  "Needs a new request": "Нужен новый запрос",
+  "You cannot pay @{} by DashPay yet: their contact request points to a disabled key. Payments will work again once they send you a new contact request.": "Платить @{} по DashPay пока нельзя: его запрос в контакты указывает на отключённый ключ. Платежи заработают, когда контакт пришлёт вам новый запрос.",
+  "You cannot pay this contact by DashPay yet: their contact request points to a disabled key. Payments will work again once they send you a new contact request.": "Платить этому контакту по DashPay пока нельзя: его запрос в контакты указывает на отключённый ключ. Платежи заработают, когда контакт пришлёт вам новый запрос.",
+  "You will not be able to pay contacts whose requests point to the old key until they send you a new request.": "Вы не сможете платить контактам, чьи запросы указывают на старый ключ, пока они не пришлют новый запрос.",
   "Tax category": "Налоговая категория",
   "Income": "Доход",
   "Expense": "Расход",
@@ -80,7 +84,6 @@
   "At most 10 keys can be disabled at once": "За раз можно отключить не больше 10 ключей",
   "At most 6 keys can be added at once": "За раз можно добавить не больше 6 ключей",
   "Changing the keys…": "Меняем ключи…",
-  "Contacts whose requests are encrypted to the old key cannot pay you until they send a new one.": "Контакты, чьи запросы зашифрованы на старый ключ, не смогут платить, пока не пришлют новый.",
   "DashPay contacts for {} are not enabled yet": "Контакты DashPay для {} пока не включены",
   "DashPay's encryption keys are not disabled one by one: replace the DashPay pair": "Ключи шифрования DashPay не отключаются по одному: замените пару DashPay",
   "DashPay's keys are replaced as a pair: the old ones are disabled and a new pair from this wallet's phrase is added in the same update.": "Ключи DashPay заменяются парой: старые отключаются, а новая пара из фразы этого кошелька добавляется в той же записи.",

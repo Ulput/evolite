@@ -2332,6 +2332,32 @@ mod tests {
         ));
     }
 
+    /// BUG-231 AC-A1, AC-A3: a contact whose channel is broken is refused by name, in words
+    /// and not «in a minute»; once the mark is gone its address is there again.
+    #[test]
+    fn a_broken_channel_is_refused_by_name() {
+        let mut contacts = demo_wallet(0).contacts;
+        let alice = contacts
+            .iter_mut()
+            .find(|c| c.name.as_deref() == Some("alice"))
+            .unwrap();
+        alice.channel_broken = true;
+        let Err(CoreError::NotAvailable(why)) = answers::preview("@alice", &contacts) else {
+            panic!("@alice is paid");
+        };
+        assert!(
+            why.starts_with("You cannot pay @alice by DashPay yet"),
+            "{why}"
+        );
+        assert!(!why.contains("minute"), "{why}");
+        // Another contact is paid as before.
+        assert!(answers::preview("@dash-core-dev", &contacts).is_ok());
+        for c in &mut contacts {
+            c.channel_broken = false;
+        }
+        assert!(answers::preview("@alice", &contacts).is_ok());
+    }
+
     #[test]
     fn every_demo_nft_has_its_picture_and_no_other_is_drawn() {
         let (mut m, tx, rx) = mock();

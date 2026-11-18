@@ -1,4 +1,8 @@
 {
+  "Needs a new request": "Cần yêu cầu mới",
+  "You cannot pay @{} by DashPay yet: their contact request points to a disabled key. Payments will work again once they send you a new contact request.": "Bạn chưa thể trả cho @{} qua DashPay: yêu cầu liên hệ của họ trỏ tới một khóa đã bị tắt. Thanh toán sẽ hoạt động lại khi họ gửi cho bạn một yêu cầu liên hệ mới.",
+  "You cannot pay this contact by DashPay yet: their contact request points to a disabled key. Payments will work again once they send you a new contact request.": "Bạn chưa thể trả cho liên hệ này qua DashPay: yêu cầu liên hệ của họ trỏ tới một khóa đã bị tắt. Thanh toán sẽ hoạt động lại khi họ gửi cho bạn một yêu cầu liên hệ mới.",
+  "You will not be able to pay contacts whose requests point to the old key until they send you a new request.": "Bạn sẽ không thể trả cho các liên hệ có yêu cầu trỏ tới khóa cũ cho đến khi họ gửi cho bạn yêu cầu mới.",
   "Expense": "Chi",
   "Income": "Thu",
   "Only for the CSV export. Kept on this computer with the notes": "Chỉ dùng cho xuất CSV. Lưu trên máy tính này cùng với ghi chú",
@@ -80,7 +84,6 @@
   "At most 10 keys can be disabled at once": "Mỗi lần chỉ vô hiệu hóa được tối đa 10 khóa",
   "At most 6 keys can be added at once": "Mỗi lần chỉ thêm được tối đa 6 khóa",
   "Changing the keys…": "Đang thay đổi khóa…",
-  "Contacts whose requests are encrypted to the old key cannot pay you until they send a new one.": "Các liên hệ có yêu cầu được mã hóa bằng khóa cũ sẽ không thể thanh toán cho bạn cho đến khi họ gửi yêu cầu mới.",
   "DashPay contacts for {} are not enabled yet": "Liên hệ DashPay cho {} chưa được bật",
   "DashPay's encryption keys are not disabled one by one: replace the DashPay pair": "Khóa mã hóa của DashPay không bị vô hiệu hóa từng cái: hãy thay cặp DashPay",
   "DashPay's keys are replaced as a pair: the old ones are disabled and a new pair from this wallet's phrase is added in the same update.": "Khóa của DashPay được thay theo cặp: các khóa cũ bị vô hiệu hóa và một cặp mới từ cụm từ của ví này được thêm trong cùng một lần cập nhật.",

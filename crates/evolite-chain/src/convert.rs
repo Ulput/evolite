@@ -2322,6 +2322,7 @@ mod tests {
             since: 0,
             payments: 0,
             last_payment: None,
+            channel_broken: false,
         };
         let keys = [(
             contact_key.to_string(),
@@ -2365,6 +2366,7 @@ mod tests {
             since: 0,
             payments: 0,
             last_payment: None,
+            channel_broken: false,
         };
         let keys = [
             (
@@ -2437,6 +2439,7 @@ mod tests {
             since: 0,
             payments,
             last_payment: None,
+            channel_broken: false,
         };
         // A's account for C, and B's: their own addresses.
         let keys: std::collections::HashMap<String, (String, String)> = [

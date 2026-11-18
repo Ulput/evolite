@@ -393,7 +393,7 @@ fn dashpays_key_is_only_replaced_as_a_pair() {
     assert!(has_text(&kit, "Replace the DashPay pair"));
     assert!(has_words(
         &kit,
-        "Contacts whose requests are encrypted to the old key"
+        "You will not be able to pay contacts whose requests point to the old key"
     ));
 }
 

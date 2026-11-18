@@ -211,6 +211,7 @@ async fn a_contact_is_paid_only_to_the_address_shown() {
         since: 0,
         payments: 0,
         last_payment: None,
+        channel_broken: false,
     }];
     assert!(matches!(
         core.send(0, Source::Core, "@bob", 1_000, (None, None, None))
@@ -338,6 +339,7 @@ async fn a_name_from_the_file_selects_no_payee_until_the_network_confirms_it() {
         since: 0,
         payments: 0,
         last_payment: None,
+        channel_broken: false,
     }];
     core.names_cached.lock().unwrap().insert(id.into());
     match core.core_payee("@bob") {

@@ -148,6 +148,9 @@ pub enum Record {
     /// The last run ended without closing its window (a crash, a reset): the saved window
     /// size and placement were dropped, so a maximized window does not open again at once.
     WindowReset,
+    /// BUG-231 R-6: a payment to a contact was refused before the password because its channel
+    /// is broken (its request points to a disabled key). No name, no id.
+    ContactChannelBroken,
     /// What the load did with a wallet's saved DashPay backfill record (BUG-77): `kept`, `none`
     /// or `rejected_*` and why, and how many contacts the record taken back covers.
     Backfill {
@@ -361,6 +364,7 @@ impl Record {
                 json!({"k": "platform", "op": op, "error": error})
             }
             Record::WindowReset => json!({"k": "window_reset"}),
+            Record::ContactChannelBroken => json!({"k": "contact_channel_broken"}),
             Record::Backfill { outcome, contacts } => {
                 json!({"k": "backfill", "outcome": outcome, "contacts": contacts})
             }

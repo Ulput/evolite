@@ -9,6 +9,23 @@ const TOO_SMALL: &str =
 /// Money that is there but not final yet (R-5).
 const NOT_SETTLED: &str = tr!("Part of your balance is not confirmed yet: try again in a minute");
 
+/// BUG-231 R-1: a contact whose request points to a disabled key has no address to pay to,
+/// now or in a minute: refused before the password, by name when there is one. Only that a
+/// channel is broken goes to the journal (R-6).
+fn refuse_broken(contact: &Contact, label: Option<&str>) -> Result<(), CoreError> {
+    if !contact.channel_broken {
+        return Ok(());
+    }
+    crate::diag::record(crate::diag::Record::ContactChannelBroken);
+    Err(CoreError::NotAvailable(match label {
+        Some(label) => format!(
+            tr!("You cannot pay @{} by DashPay yet: their contact request points to a disabled key. Payments will work again once they send you a new contact request."),
+            label
+        ),
+        None => tr!("You cannot pay this contact by DashPay yet: their contact request points to a disabled key. Payments will work again once they send you a new contact request.").into(),
+    }))
+}
+
 impl Real {
     /// Who a Core payment to `to` goes to: a testnet address, or an established contact by name
     /// or — one without a name — by its identity id.
@@ -18,6 +35,7 @@ impl Real {
             .iter()
             .find(|c| c.identity_id == to.trim() && c.state == ContactState::Established);
         if let Some(contact) = by_id {
+            refuse_broken(contact, None)?;
             Ok(CorePayee::Contact(
                 Identifier::from_string(&contact.identity_id, Encoding::Base58)
                     .map_err(|e| CoreError::Failed(e.to_string()))?,
@@ -61,6 +79,7 @@ impl Real {
                         , label = label))
                     }
                 })?;
+            refuse_broken(contact, Some(&label))?;
             Ok(CorePayee::Contact(
                 Identifier::from_string(&contact.identity_id, Encoding::Base58)
                     .map_err(|e| CoreError::Failed(e.to_string()))?,

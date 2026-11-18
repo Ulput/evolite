@@ -404,6 +404,12 @@ fn list(
 
 /// One contact: avatar, @name and short id, who they are to us, when, and what can be done.
 /// A click on the row opens the profile.
+/// BUG-231 R-3, R-5: «Needs a new request» on an established contact whose request points to a
+/// disabled key; gone by itself once platform-wallet clears the mark.
+fn needs_request(c: &Contact) -> Option<&'static str> {
+    (c.state == ContactState::Established && c.channel_broken).then_some(tr!("Needs a new request"))
+}
+
 fn row(
     ui: &mut Ui,
     a: &mut Assets,
@@ -418,7 +424,10 @@ fn row(
         &response,
         egui::WidgetType::Button,
         true,
-        &format!("{} · {}", c.handle(), shown_name(c)),
+        &match needs_request(c) {
+            Some(tag) => format!("{} · {} · {tag}", c.handle(), shown_name(c)),
+            None => format!("{} · {}", c.handle(), shown_name(c)),
+        },
     );
     let response = response.on_hover_cursor(egui::CursorIcon::PointingHand);
     if response.hovered() {
@@ -445,13 +454,23 @@ fn row(
         sans(15.0, Weight::SemiBold),
         p.text,
     );
-    painter.text(
+    let id_rect = painter.text(
         pos2(handle.right() + 8.0, handle.center().y),
         Align2::LEFT_CENTER,
         crate::i18n::t(&short_id(&c.identity_id)),
         mono(12.0, Weight::Regular),
         p.muted,
     );
+    // BUG-231 R-3: a contact that cannot be paid until it sends a new request.
+    if let Some(tag) = needs_request(c) {
+        painter.text(
+            pos2(id_rect.right() + 8.0, handle.center().y),
+            Align2::LEFT_CENTER,
+            crate::i18n::t(tag),
+            sans(12.0, Weight::Medium),
+            p.danger,
+        );
+    }
 
     let buttons: &[(&str, ButtonKind, f32)] = match c.state {
         ContactState::Incoming => &[
@@ -657,6 +676,18 @@ fn profile_dialog(
                     c.handle()
                 ),
             );
+            // BUG-231 R-3: over «Send», which stays: the payment is refused before the password.
+            if needs_request(c).is_some() {
+                notice(
+                    ui,
+                    a,
+                    "warning",
+                    p.danger,
+                    tr!(
+                        "You cannot pay this contact by DashPay yet: their contact request points to a disabled key. Payments will work again once they send you a new contact request."
+                    ),
+                );
+            }
             false
         },
     );

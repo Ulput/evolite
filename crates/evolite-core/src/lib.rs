@@ -1813,6 +1813,7 @@ mod tests {
             since: 0,
             payments: 0,
             last_payment: None,
+            channel_broken: false,
         }
     }
 

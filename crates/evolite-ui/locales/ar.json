@@ -1,4 +1,8 @@
 {
+  "Needs a new request": "يلزم طلب جديد",
+  "You cannot pay @{} by DashPay yet: their contact request points to a disabled key. Payments will work again once they send you a new contact request.": "لا يمكنك الدفع إلى @{} عبر DashPay بعد: طلب الاتصال الخاص به يشير إلى مفتاح معطّل. ستعمل المدفوعات مجددًا عندما يرسل إليك طلب اتصال جديدًا.",
+  "You cannot pay this contact by DashPay yet: their contact request points to a disabled key. Payments will work again once they send you a new contact request.": "لا يمكنك الدفع إلى جهة الاتصال هذه عبر DashPay بعد: طلب الاتصال الخاص بها يشير إلى مفتاح معطّل. ستعمل المدفوعات مجددًا عندما ترسل إليك طلب اتصال جديدًا.",
+  "You will not be able to pay contacts whose requests point to the old key until they send you a new request.": "لن تتمكن من الدفع إلى جهات الاتصال التي تشير طلباتها إلى المفتاح القديم حتى ترسل إليك طلبًا جديدًا.",
   "Expense": "مصروف",
   "Income": "دخل",
   "Only for the CSV export. Kept on this computer with the notes": "لتصدير CSV فقط. يُحفظ على هذا الحاسوب مع الملاحظات",
@@ -80,7 +84,6 @@
   "At most 10 keys can be disabled at once": "يمكن تعطيل 10 مفاتيح على الأكثر في المرة الواحدة",
   "At most 6 keys can be added at once": "يمكن إضافة 6 مفاتيح على الأكثر في المرة الواحدة",
   "Changing the keys…": "جارٍ تغيير المفاتيح…",
-  "Contacts whose requests are encrypted to the old key cannot pay you until they send a new one.": "جهات الاتصال التي طلباتها مشفّرة بالمفتاح القديم لن تتمكن من الدفع لك حتى ترسل طلبًا جديدًا.",
   "DashPay contacts for {} are not enabled yet": "جهات اتصال DashPay لـ {} غير مفعّلة بعد",
   "DashPay's encryption keys are not disabled one by one: replace the DashPay pair": "لا تُعطَّل مفاتيح تشفير DashPay واحدًا تلو الآخر: استبدل زوج DashPay",
   "DashPay's keys are replaced as a pair: the old ones are disabled and a new pair from this wallet's phrase is added in the same update.": "تُستبدل مفاتيح DashPay زوجًا: تُعطَّل القديمة ويُضاف زوج جديد من عبارة هذه المحفظة في التحديث نفسه.",

@@ -1,4 +1,8 @@
 {
+  "Needs a new request": "Потрібен новий запит",
+  "You cannot pay @{} by DashPay yet: their contact request points to a disabled key. Payments will work again once they send you a new contact request.": "Платити @{} через DashPay поки не можна: його запит у контакти вказує на вимкнений ключ. Платежі запрацюють, коли контакт надішле вам новий запит.",
+  "You cannot pay this contact by DashPay yet: their contact request points to a disabled key. Payments will work again once they send you a new contact request.": "Платити цьому контакту через DashPay поки не можна: його запит у контакти вказує на вимкнений ключ. Платежі запрацюють, коли контакт надішле вам новий запит.",
+  "You will not be able to pay contacts whose requests point to the old key until they send you a new request.": "Ви не зможете платити контактам, чиї запити вказують на старий ключ, доки вони не надішлють новий запит.",
   "Expense": "Витрата",
   "Income": "Дохід",
   "Only for the CSV export. Kept on this computer with the notes": "Лише для експорту CSV. Зберігається на цьому комп’ютері разом із нотатками",
@@ -80,7 +84,6 @@
   "At most 10 keys can be disabled at once": "За раз можна вимкнути не більше 10 ключів",
   "At most 6 keys can be added at once": "За раз можна додати не більше 6 ключів",
   "Changing the keys…": "Змінюємо ключі…",
-  "Contacts whose requests are encrypted to the old key cannot pay you until they send a new one.": "Контакти, чиї запити зашифровано на старий ключ, не зможуть платити, доки не надішлють новий.",
   "DashPay contacts for {} are not enabled yet": "Контакти DashPay для {} ще не ввімкнено",
   "DashPay's encryption keys are not disabled one by one: replace the DashPay pair": "Ключі шифрування DashPay не вимикаються поодинці: замініть пару DashPay",
   "DashPay's keys are replaced as a pair: the old ones are disabled and a new pair from this wallet's phrase is added in the same update.": "Ключі DashPay замінюються парою: старі вимикаються, а нова пара з фрази цього гаманця додається в тому самому записі.",

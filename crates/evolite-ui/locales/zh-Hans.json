@@ -1,4 +1,8 @@
 {
+  "Needs a new request": "需要新请求",
+  "You cannot pay @{} by DashPay yet: their contact request points to a disabled key. Payments will work again once they send you a new contact request.": "暂时无法通过 DashPay 向 @{} 付款：对方的联系人请求指向一个已停用的密钥。对方向你发送新的联系人请求后，即可恢复付款。",
+  "You cannot pay this contact by DashPay yet: their contact request points to a disabled key. Payments will work again once they send you a new contact request.": "暂时无法通过 DashPay 向此联系人付款：对方的联系人请求指向一个已停用的密钥。对方向你发送新的联系人请求后，即可恢复付款。",
+  "You will not be able to pay contacts whose requests point to the old key until they send you a new request.": "对于请求指向旧密钥的联系人，在对方向你发送新请求之前，你将无法向其付款。",
   "Expense": "支出",
   "Income": "收入",
   "Only for the CSV export. Kept on this computer with the notes": "仅用于 CSV 导出。与备注一起保存在本电脑上",
@@ -80,7 +84,6 @@
   "At most 10 keys can be disabled at once": "一次最多可停用 10 个密钥",
   "At most 6 keys can be added at once": "一次最多可添加 6 个密钥",
   "Changing the keys…": "正在更改密钥…",
-  "Contacts whose requests are encrypted to the old key cannot pay you until they send a new one.": "请求以旧密钥加密的联系人，在发送新请求之前无法向您付款。",
   "DashPay contacts for {} are not enabled yet": "{} 的 DashPay 联系人尚未启用",
   "DashPay's encryption keys are not disabled one by one: replace the DashPay pair": "DashPay 的加密密钥不能单独停用：请更换 DashPay 密钥对",
   "DashPay's keys are replaced as a pair: the old ones are disabled and a new pair from this wallet's phrase is added in the same update.": "DashPay 的密钥成对更换：旧密钥被停用，并在同一次更新中添加来自此钱包助记词的新密钥对。",

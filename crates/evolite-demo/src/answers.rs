@@ -84,6 +84,7 @@ pub fn demo_contacts(now: Timestamp) -> Vec<Contact> {
         since: now - since,
         payments,
         last_payment: last.map(|ago| now - ago),
+        channel_broken: false,
     };
     vec![
         contact(2, ContactState::Incoming, 3 * 3600, 0, None),
@@ -125,6 +126,18 @@ pub fn preview(to: &str, contacts: &[Contact]) -> Result<String, CoreError> {
         return Err(CoreError::NotAvailable(format!(
             tr!(
                 "@{} is not in your contacts: a Core payment by name goes only to a DashPay contact"
+            ),
+            person.name
+        )));
+    }
+    // BUG-231: as the real core, a broken channel is refused by name before the password.
+    if contacts
+        .iter()
+        .any(|c| c.identity_id == person.identity_id && c.channel_broken)
+    {
+        return Err(CoreError::NotAvailable(format!(
+            tr!(
+                "You cannot pay @{} by DashPay yet: their contact request points to a disabled key. Payments will work again once they send you a new contact request."
             ),
             person.name
         )));

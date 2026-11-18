@@ -1,4 +1,8 @@
 {
+  "Needs a new request": "Necesita una nueva solicitud",
+  "You cannot pay @{} by DashPay yet: their contact request points to a disabled key. Payments will work again once they send you a new contact request.": "Todavía no puede pagar a @{} por DashPay: su solicitud de contacto apunta a una clave desactivada. Los pagos volverán a funcionar cuando le envíe una nueva solicitud de contacto.",
+  "You cannot pay this contact by DashPay yet: their contact request points to a disabled key. Payments will work again once they send you a new contact request.": "Todavía no puede pagar a este contacto por DashPay: su solicitud de contacto apunta a una clave desactivada. Los pagos volverán a funcionar cuando le envíe una nueva solicitud de contacto.",
+  "You will not be able to pay contacts whose requests point to the old key until they send you a new request.": "No podrá pagar a los contactos cuyas solicitudes apuntan a la clave antigua hasta que le envíen una nueva solicitud.",
   "Expense": "Gasto",
   "Income": "Ingreso",
   "Only for the CSV export. Kept on this computer with the notes": "Solo para la exportación CSV. Se guarda en este ordenador junto con las notas",
@@ -80,7 +84,6 @@
   "At most 10 keys can be disabled at once": "Se pueden desactivar como máximo 10 claves a la vez",
   "At most 6 keys can be added at once": "Se pueden añadir como máximo 6 claves a la vez",
   "Changing the keys…": "Cambiando las claves…",
-  "Contacts whose requests are encrypted to the old key cannot pay you until they send a new one.": "Los contactos cuyas solicitudes están cifradas con la clave antigua no podrán pagarle hasta que envíen una nueva.",
   "DashPay contacts for {} are not enabled yet": "Los contactos de DashPay para {} aún no están activados",
   "DashPay's encryption keys are not disabled one by one: replace the DashPay pair": "Las claves de cifrado de DashPay no se desactivan una a una: reemplace el par de DashPay",
   "DashPay's keys are replaced as a pair: the old ones are disabled and a new pair from this wallet's phrase is added in the same update.": "Las claves de DashPay se reemplazan en par: las antiguas se desactivan y se añade un par nuevo de la frase de este monedero en el mismo cambio.",

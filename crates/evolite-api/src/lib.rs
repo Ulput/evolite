@@ -955,6 +955,10 @@ pub struct Contact {
     pub since: Timestamp,
     pub payments: u32,
     pub last_payment: Option<Timestamp>,
+    /// BUG-231: an established contact whose request points to a disabled key
+    /// (platform-wallet's `payment_channel_broken`): no address of theirs can be derived, so
+    /// it cannot be paid by DashPay until it sends a new request. Receiving still works.
+    pub channel_broken: bool,
 }
 
 impl Contact {

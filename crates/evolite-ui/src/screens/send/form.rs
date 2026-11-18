@@ -179,7 +179,14 @@ impl<'a> FormView<'a> {
             }
             Some(Err(e)) if typed_address && form.previewed == typed => Some(send_error(e)),
             _ => None,
-        };
+        }
+        // BUG-231 R-1: a contact whose request points to a disabled key, said before the
+        // password, as the core refuses it.
+        .or_else(|| {
+            (source.source == Source::Core)
+                .then(|| broken_channel(cx, &typed))
+                .flatten()
+        });
         let amount = crate::format::parse_amount(&form.amount).filter(|d| *d > 0);
         // From «Mixed» (FEAT-0030): the core plans each amount and recipient; a name or Platform
         // is refused before it is asked.
@@ -668,6 +675,15 @@ fn recipient_lines(
                 a,
                 tr!("This is your identity: the credits would stay yours, only the fee would go."),
             );
+        }
+        // BUG-231 R-1: a contact that cannot be paid by DashPay now, under its name.
+        if let Some(why) = &address_problem {
+            ui.add(crate::components::para(
+                why,
+                12.0,
+                Weight::Regular,
+                p.danger,
+            ));
         }
     } else if checking {
         ui.ctx()
@@ -1517,4 +1533,24 @@ pub(super) fn small_right(ui: &mut Ui, p: &crate::theme::Palette, line: &str) {
     ui.with_layout(Layout::top_down(Align::Max), |ui| {
         ui.label(txt(line, 12.0, Weight::Regular, p.muted));
     });
+}
+
+/// BUG-231 R-1: why @name cannot be paid by DashPay now — its channel is broken, so no address
+/// of it can be derived until it sends a new request. `None` for anyone else.
+fn broken_channel(cx: &Ctx, typed: &str) -> Option<String> {
+    let label = typed.strip_prefix('@')?.trim().to_lowercase();
+    cx.wallet()
+        .contacts
+        .iter()
+        .find(|c| {
+            c.channel_broken
+                && c.state == evolite_api::ContactState::Established
+                && c.name.as_deref().is_some_and(|n| n.to_lowercase() == label)
+        })
+        .map(|c| {
+            format!(
+                tr!("You cannot pay @{} by DashPay yet: their contact request points to a disabled key. Payments will work again once they send you a new contact request."),
+                c.name.as_deref().unwrap_or_default()
+            )
+        })
 }
