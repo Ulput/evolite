@@ -29,6 +29,21 @@ use crate::journal::{Entry, Reply, Source, What, WithdrawalStatus};
 /// Documents per page; Platform answers at most 100.
 const PAGE: u32 = 100;
 
+/// How many identities are read at once (SYNC-5).
+const AT_ONCE: usize = 4;
+
+/// What one pass read (SYNC-5): the entries, the marks to keep once they are written, and
+/// counts for the journal's `history_pass` line. An identity whose read failed keeps its marks
+/// as they were, and its entries are read again by the next pass.
+#[derive(Debug, Default)]
+pub struct Pass {
+    pub entries: Vec<Entry>,
+    pub marks: Marks,
+    pub identities: u32,
+    pub requests: u32,
+    pub failed: u32,
+}
+
 /// How far each identity was read: `{"version":1,"identities":{"<b58>":{…}}}`.
 #[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Marks {
@@ -79,17 +94,20 @@ impl Marks {
 
 /// One pass over the identities of `wallet`: the entries read and the marks to keep once the
 /// entries are written. `names`: `@name`s known for identities (base58 → label), for whom a
-/// contact request went to.
+/// contact request went to. `named`: the (identity, label) pairs the journal has names for — an
+/// identity whose names the identity search found are all there is not asked for its names
+/// again (SYNC-5: the search read the same documents).
+///
+/// Up to [`AT_ONCE`] identities at a time; one that fails does not stop the others (SYNC-5:
+/// before, one node's failure held every identity's History back to the next pass).
 pub async fn read(
     chain: &Chain,
     wallet: &PlatformWallet,
     id: WalletId,
     marks: &Marks,
     names: &std::collections::HashMap<String, Option<String>>,
-    requests: &std::sync::atomic::AtomicU32,
-) -> Result<(Vec<Entry>, Marks), String> {
-    // SYNC-0: each query counted for the journal's `history_pass` line.
-    let count = || requests.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    named: &std::collections::HashSet<(String, String)>,
+) -> Result<Pass, String> {
     let sdk = chain.sdk().await?;
     let version = sdk.version();
     let contract = |c| {
@@ -97,11 +115,11 @@ pub async fn read(
             .map(Arc::new)
             .map_err(|e| format!("{e:?}"))
     };
-    let (dpns, dashpay, withdrawals) = (
-        contract(SystemDataContract::DPNS)?,
-        contract(SystemDataContract::Dashpay)?,
-        contract(SystemDataContract::Withdrawals)?,
-    );
+    let contracts = Arc::new(Contracts {
+        dpns: contract(SystemDataContract::DPNS)?,
+        dashpay: contract(SystemDataContract::Dashpay)?,
+        withdrawals: contract(SystemDataContract::Withdrawals)?,
+    });
     // The identities and their contact requests as platform-wallet holds them now.
     let mut identities = Vec::new();
     let mut entries = Vec::new();
@@ -113,7 +131,10 @@ pub async fn read(
             .filter(|m| m.wallet_id == Some(id) && m.identity_index.is_some())
         {
             let me = m.identity.id();
-            identities.push(me);
+            let b58 = me.to_string(Encoding::Base58);
+            let names_known =
+                names_known(&b58, m.dpns_names.iter().map(|n| n.label.as_str()), named);
+            identities.push((me, names_known));
             let dashpay = m.dashpay();
             let established = dashpay.established_contacts();
             let pairs = Requests {
@@ -143,57 +164,140 @@ pub async fn read(
             entries.extend(pairs.entries(&me, names));
         }
     }
-    let mut next = marks.clone();
-    next.version = 1;
-    for me in identities {
+    let mut pass = Pass {
+        entries,
+        marks: marks.clone(),
+        identities: identities.len() as u32,
+        ..Default::default()
+    };
+    pass.marks.version = 1;
+    let gate = Arc::new(tokio::sync::Semaphore::new(AT_ONCE));
+    let mut reads = tokio::task::JoinSet::new();
+    for (me, names_known) in identities {
         let b58 = me.to_string(Encoding::Base58);
         let mark = marks.identities.get(&b58).cloned().unwrap_or_default();
-        let new = next.identities.entry(b58.clone()).or_default();
-        // Names: a few documents per identity, no index by time — all of them each pass.
-        let q = query(&dpns, "domain", "records.identity", me, None)?;
-        count();
-        for doc in fetch(&sdk, q).await? {
+        let (sdk, contracts, gate) = (sdk.clone(), contracts.clone(), gate.clone());
+        reads.spawn(async move {
+            let _turn = gate.acquire_owned().await;
+            let mut requests = 0;
+            let read = read_identity(&sdk, &contracts, me, &mark, names_known, &mut requests).await;
+            (b58, read, requests)
+        });
+    }
+    while let Some(done) = reads.join_next().await {
+        match done {
+            Ok((b58, read, requests)) => take(&mut pass, b58, read, requests),
+            // A read that panicked: its identity's marks stay.
+            Err(_) => pass.failed += 1,
+        }
+    }
+    Ok(pass)
+}
+
+/// Whether the identity `b58`'s names the search found (`labels`) are all in the journal
+/// (`named`): then its names are not asked again (SYNC-5).
+fn names_known<'a>(
+    b58: &str,
+    mut labels: impl Iterator<Item = &'a str>,
+    named: &std::collections::HashSet<(String, String)>,
+) -> bool {
+    labels.all(|label| named.contains(&(b58.to_owned(), label.to_owned())))
+}
+
+/// One identity's read into the pass: its entries and new marks, or — failed — its marks as they
+/// were, so the next pass reads it again, and the others go on (SYNC-5).
+fn take(
+    pass: &mut Pass,
+    b58: String,
+    read: Result<(Vec<Entry>, IdentityMarks), String>,
+    requests: u32,
+) {
+    pass.requests += requests;
+    match read {
+        Ok((entries, mark)) => {
+            pass.entries.extend(entries);
+            pass.marks.identities.insert(b58, mark);
+        }
+        Err(e) => {
+            pass.failed += 1;
+            crate::diag::platform_failed("platform_history", &e);
+        }
+    }
+}
+
+/// The system contracts a pass reads.
+struct Contracts {
+    dpns: Arc<DataContract>,
+    dashpay: Arc<DataContract>,
+    withdrawals: Arc<DataContract>,
+}
+
+/// One identity's names (unless `names_known`), profile and withdrawals from its marks on; the
+/// entries and its marks after. `requests` counts the queries sent.
+async fn read_identity(
+    sdk: &dash_sdk::Sdk,
+    contracts: &Contracts,
+    me: Identifier,
+    mark: &IdentityMarks,
+    names_known: bool,
+    requests: &mut u32,
+) -> Result<(Vec<Entry>, IdentityMarks), String> {
+    let b58 = me.to_string(Encoding::Base58);
+    let mut entries = Vec::new();
+    let mut new = mark.clone();
+    // Names: a few documents per identity, no index by time — all of them, unless the identity
+    // search found only names the journal has.
+    if !names_known {
+        let q = query(&contracts.dpns, "domain", "records.identity", me, None)?;
+        *requests += 1;
+        for doc in fetch(sdk, q).await? {
             if let Some(entry) = name(&doc, &me, &b58) {
                 entries.push(entry);
             }
         }
-        // The profile: one document, its last revision only.
-        let q = query(&dashpay, "profile", "$ownerId", me, None)?;
-        count();
-        if let Some(doc) = fetch(&sdk, q).await?.into_iter().next() {
-            let revision = doc.revision().unwrap_or(1);
-            if revision != mark.profile_revision {
-                entries.push(profile(&doc, &b58));
-            }
-            new.profile_revision = revision;
-        }
-        // Withdrawals: by `$updatedAt` from the mark on, page by page.
-        let mut from = if mark.withdrawal_indexes {
-            mark.withdrawals_updated_at
-        } else {
-            0
-        };
-        loop {
-            let q = query(&withdrawals, "withdrawal", "$ownerId", me, Some(from))?;
-            count();
-            let page = fetch(&sdk, q).await?;
-            let full = page.len() as u32 >= PAGE;
-            let last = page.iter().filter_map(|d| d.updated_at()).max();
-            entries.extend(page.iter().filter_map(|d| withdrawal(d, &b58)));
-            match last {
-                // A full page of one millisecond would ask the same again: stop there.
-                Some(last) if full && last > from => from = last,
-                Some(last) => {
-                    from = from.max(last);
-                    break;
-                }
-                None => break,
-            }
-        }
-        new.withdrawals_updated_at = from;
-        new.withdrawal_indexes = true;
     }
-    Ok((entries, next))
+    // The profile: one document, its last revision only.
+    let q = query(&contracts.dashpay, "profile", "$ownerId", me, None)?;
+    *requests += 1;
+    if let Some(doc) = fetch(sdk, q).await?.into_iter().next() {
+        let revision = doc.revision().unwrap_or(1);
+        if revision != mark.profile_revision {
+            entries.push(profile(&doc, &b58));
+        }
+        new.profile_revision = revision;
+    }
+    // Withdrawals: by `$updatedAt` from the mark on, page by page.
+    let mut from = if mark.withdrawal_indexes {
+        mark.withdrawals_updated_at
+    } else {
+        0
+    };
+    loop {
+        let q = query(
+            &contracts.withdrawals,
+            "withdrawal",
+            "$ownerId",
+            me,
+            Some(from),
+        )?;
+        *requests += 1;
+        let page = fetch(sdk, q).await?;
+        let full = page.len() as u32 >= PAGE;
+        let last = page.iter().filter_map(|d| d.updated_at()).max();
+        entries.extend(page.iter().filter_map(|d| withdrawal(d, &b58)));
+        match last {
+            // A full page of one millisecond would ask the same again: stop there.
+            Some(last) if full && last > from => from = last,
+            Some(last) => {
+                from = from.max(last);
+                break;
+            }
+            None => break,
+        }
+    }
+    new.withdrawals_updated_at = from;
+    new.withdrawal_indexes = true;
+    Ok((entries, new))
 }
 
 /// `field == identity`, ordered by `$updatedAt` from `from` on when given.
@@ -582,6 +686,58 @@ fn contact_request(
 mod tests {
     use super::*;
     use evolite_api::{Activity, ActivityKind, Chain, Flow, Proof};
+
+    /// SYNC-5: an identity whose found names are all in the journal is not asked for them again;
+    /// one with a name the journal lacks is.
+    #[test]
+    fn names_the_search_found_and_the_journal_has_are_not_asked_again() {
+        let named: std::collections::HashSet<(String, String)> =
+            [("ID1".to_owned(), "sam".to_owned())].into();
+        assert!(names_known("ID1", ["sam"].into_iter(), &named));
+        assert!(!names_known("ID1", ["sam", "new"].into_iter(), &named));
+        assert!(
+            !names_known("ID2", ["sam"].into_iter(), &named),
+            "another identity's"
+        );
+        assert!(
+            names_known("ID2", std::iter::empty(), &named),
+            "none found: none to ask"
+        );
+    }
+
+    /// SYNC-5: one identity's failure keeps its marks as they were and leaves the others' read.
+    #[test]
+    fn one_failure_keeps_its_marks_and_the_others_go_on() {
+        let old = IdentityMarks {
+            withdrawals_updated_at: 5,
+            profile_revision: 2,
+            withdrawal_indexes: true,
+        };
+        let mut pass = Pass {
+            marks: Marks {
+                version: 1,
+                identities: [
+                    ("BAD".to_owned(), old.clone()),
+                    ("OK".to_owned(), old.clone()),
+                ]
+                .into(),
+            },
+            identities: 2,
+            ..Default::default()
+        };
+        let read = IdentityMarks {
+            withdrawals_updated_at: 9,
+            ..old.clone()
+        };
+        let entry = withdrawal(1, Some(1), WithdrawalStatus::Complete, "yA");
+        take(&mut pass, "BAD".into(), Err("node failed".into()), 1);
+        take(&mut pass, "OK".into(), Ok((vec![entry], read.clone())), 3);
+        assert_eq!(pass.failed, 1);
+        assert_eq!(pass.requests, 4);
+        assert_eq!(pass.entries.len(), 1);
+        assert_eq!(pass.marks.identities["BAD"], old, "read again next pass");
+        assert_eq!(pass.marks.identities["OK"], read);
+    }
 
     fn withdrawal(line: u64, index: Option<u64>, status: WithdrawalStatus, to: &str) -> Entry {
         Entry {

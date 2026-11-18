@@ -1511,29 +1511,36 @@ impl Real {
                 return;
             };
             let marks = platform_history::Marks::load(&marks_path);
+            // SYNC-5: the names the journal has, so the identity search's are not asked again.
+            let named: std::collections::HashSet<(String, String)> = journal
+                .entries()
+                .into_iter()
+                .filter_map(|e| match (e.what, e.identity) {
+                    (journal::What::Name { label }, Some(identity)) => Some((identity, label)),
+                    _ => None,
+                })
+                .collect();
             let started = std::time::Instant::now();
-            let requests = std::sync::atomic::AtomicU32::new(0);
-            let read = platform_history::read(&chain, &wallet, id, &marks, &names, &requests);
-            let read = turn::timed("platform_history_read", read).await;
-            // SYNC-0: the pass's line; before SYNC-5 one failure is the whole pass's.
-            crate::diag::record(crate::diag::Record::HistoryPass {
-                identities: read
-                    .as_ref()
-                    .map_or(0, |(_, next)| next.identities.len() as u32),
-                requests: requests.load(Ordering::Relaxed),
-                ms: started.elapsed().as_millis() as u64,
-                failed: u32::from(read.is_err()),
-            });
-            match read {
+            let read = platform_history::read(&chain, &wallet, id, &marks, &names, &named);
+            match turn::timed("platform_history_read", read).await {
                 // A lock (or a new lookup) since the start: this answer is for no one.
                 Ok(_) if current.load(Ordering::Relaxed) != run => {}
-                Ok((entries, next)) => {
+                Ok(pass) => {
+                    crate::diag::record(crate::diag::Record::HistoryPass {
+                        identities: pass.identities,
+                        requests: pass.requests,
+                        ms: started.elapsed().as_millis() as u64,
+                        failed: pass.failed,
+                    });
+                    let (entries, next) = (pass.entries, pass.marks);
                     // The entries first, then the marks: a crash between them reads again,
                     // and the keys drop the repeat. Not kept (the file's failure is in the
                     // journal already): the marks stay where they were, the next pass reads
                     // the same again.
                     if let Ok(changed) = journal.merge_network(entries) {
-                        crate::diag::fresh("history", "network");
+                        if pass.failed == 0 {
+                            crate::diag::fresh("history", "network");
+                        }
                         if changed {
                             refresh();
                         }
