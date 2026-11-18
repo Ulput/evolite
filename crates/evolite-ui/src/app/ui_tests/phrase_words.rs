@@ -36,6 +36,31 @@ fn painted(kit: &Kit) -> Vec<String> {
     out
 }
 
+/// The core's phrase first, then `words` instead: given before it, the core's would replace
+/// them (a loaded run was slow enough for that, batch 26).
+fn give_phrase(kit: &mut Kit, words: &[String]) {
+    wait_for(kit, "the core's phrase", |k| {
+        k.state()
+            .onboarding
+            .as_ref()
+            .is_some_and(|o| o.has_phrase())
+    });
+    kit.state_mut()
+        .onboarding
+        .as_mut()
+        .expect("the onboarding")
+        .on_event(&Event::NewPhrase(Phrase::new(words.to_vec())));
+}
+
+/// Waits until `n` of `words` are painted: a fixed number of frames is not enough in a loaded
+/// run (batch 26, BUG-187).
+fn wait_painted(kit: &mut Kit, words: &[String], n: usize) {
+    wait_for(kit, "the words painted", |k| {
+        let painted = painted(k);
+        words.iter().filter(|w| painted.contains(w)).count() >= n
+    });
+}
+
 /// Every word in `words` is painted as it is, and named so for a screen reader when `named`;
 /// no word's translation is painted or named.
 fn words_as_they_are(kit: &Kit, words: &[String], named: bool) {
@@ -57,14 +82,9 @@ fn words_as_they_are(kit: &Kit, words: &[String], named: bool) {
 #[test]
 fn the_new_phrase_is_shown_in_its_own_words() {
     let (_turn, mut kit) = demo_app("create", "ru");
-    kit.run_steps(5);
     let words = interface_words(12);
-    kit.state_mut()
-        .onboarding
-        .as_mut()
-        .expect("the onboarding")
-        .on_event(&Event::NewPhrase(Phrase::new(words.clone())));
-    kit.run_steps(3);
+    give_phrase(&mut kit, &words);
+    wait_painted(&mut kit, &words, words.len());
     words_as_they_are(&kit, &words, false);
 }
 
@@ -72,14 +92,9 @@ fn the_new_phrase_is_shown_in_its_own_words() {
 #[test]
 fn the_check_offers_the_words_in_their_own_words() {
     let (_turn, mut kit) = demo_app("verify", "ru");
-    kit.run_steps(5);
     let words = interface_words(12);
-    kit.state_mut()
-        .onboarding
-        .as_mut()
-        .expect("the onboarding")
-        .on_event(&Event::NewPhrase(Phrase::new(words.clone())));
-    kit.run_steps(3);
+    give_phrase(&mut kit, &words);
+    wait_painted(&mut kit, &words, 3);
     // The choices are words of the phrase: each one offered is drawn and named as it is.
     let offered: Vec<String> = words
         .iter()
@@ -100,7 +115,7 @@ fn a_restore_suggests_the_word_in_its_own_words() {
         .as_mut()
         .expect("the onboarding")
         .type_restore_word(5, "addr");
-    kit.run_steps(3);
+    wait_painted(&mut kit, &["address".to_string()], 1);
     words_as_they_are(&kit, &["address".to_string()], true);
 }
 
@@ -113,8 +128,8 @@ fn the_phrase_in_settings_is_shown_in_its_own_words() {
     kit.state_mut()
         .settings
         .on_revealed(Ok(Phrase::new(words.clone())));
-    kit.run_steps(3);
     let line = words.join(" ");
+    wait_for(&mut kit, "the phrase", |k| has_text(k, &line));
     assert!(has_text(&kit, &line), "the phrase as it is");
     // Unmarked, the line is not shown as the catalog would make it.
     let translated = t_in(Lang::Ru, &line).into_owned();
@@ -149,6 +164,6 @@ fn the_settings_check_offers_the_words_in_their_own_words() {
         check.questions = Some(questions);
         check.verdict = None;
     }
-    kit.run_steps(3);
+    wait_painted(&mut kit, &words, words.len());
     words_as_they_are(&kit, &words, true);
 }

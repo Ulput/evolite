@@ -159,6 +159,13 @@ impl Onboarding {
         o
     }
 
+    /// Whether the core's phrase has come: a test's own phrase is given after it, or the core's
+    /// would replace it.
+    #[cfg(all(test, demo_core, feature = "dev-tools"))]
+    pub(crate) fn has_phrase(&self) -> bool {
+        self.phrase.is_some()
+    }
+
     /// A test types `word` into the restore step's field `i`, as the field last typed in.
     #[cfg(all(test, demo_core, feature = "dev-tools"))]
     pub(crate) fn type_restore_word(&mut self, i: usize, word: &str) {
