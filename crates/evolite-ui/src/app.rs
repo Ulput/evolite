@@ -141,6 +141,8 @@ pub struct App {
     fonts: (crate::i18n::Lang, bool),
     /// Whether the window is kept out of screen captures now (a phrase is on screen).
     capture_hidden: bool,
+    /// SEC-3: the window's input scope is a password's.
+    secret_scope: bool,
     /// Screens and long frames for the journal.
     watch: crate::diagnostics::FrameWatch,
 }
@@ -314,6 +316,7 @@ impl App {
             identity_restored: false,
             fonts: (crate::i18n::Lang::Ru, false),
             capture_hidden: false,
+            secret_scope: false,
             watch: Default::default(),
         };
         #[cfg(feature = "dev-tools")]
@@ -1807,6 +1810,12 @@ impl eframe::App for App {
         let hide = crate::capture::take();
         if hide != self.capture_hidden && (crate::capture::apply(frame, hide) || !hide) {
             self.capture_hidden = hide;
+        }
+        // SEC-3: a password's input scope while a phrase-word or password field has the
+        // focus, the default again after (the IME itself follows egui's own request).
+        let secret = crate::secret_input::take();
+        if secret != self.secret_scope && (crate::secret_input::apply(frame, secret) || !secret) {
+            self.secret_scope = secret;
         }
         #[cfg(feature = "dev-tools")]
         self.take_screenshot(&ui.ctx().clone());

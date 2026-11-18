@@ -36,6 +36,7 @@ mod cli;
 mod clipboard;
 mod components;
 mod context;
+mod crash_reports;
 mod csv_export;
 mod diagnostics;
 mod fiat_lines;
@@ -53,11 +54,25 @@ mod private_dir;
 mod qr_scan;
 mod rtl;
 mod screens;
+mod secret_input;
 #[cfg(feature = "dev-tools")]
 mod shot;
 mod text;
 mod theme;
 mod window;
+
+/// SEC-8 (Пр3): in a build with `dev-tools` only (the screenshot flags, `--open` with a
+/// password from the environment, the demo core): the installer's `--pack` finds it in the
+/// program and refuses to pack it (`setup::main::not_a_release`).
+#[cfg(feature = "dev-tools")]
+#[used]
+static DEV_TOOLS_MARK: [u8; 23] = *b"evolite:dev-tools-build";
+
+/// SEC-8 (review S2): in a build without the real core (`--no-default-features`: the demo core
+/// only, made-up money): `--pack` refuses it too.
+#[cfg(not(feature = "real"))]
+#[used]
+static DEMO_CORE_MARK: [u8; 23] = *b"evolite:demo-core-build";
 
 fn main() {
     // The same executable is the picture renderer (`evolite-render`): started with this flag
@@ -65,6 +80,13 @@ fn main() {
     if std::env::args().nth(1).as_deref() == Some(evolite_render::worker::FLAG) {
         evolite_render::worker::run();
     }
+    // SEC-4: a crash with a wallet open leaves no memory dump and no fault box.
+    crash_reports::keep_out();
+    // SEC-8 (Пр3): a dev-tools build carries its mark, kept by the linker.
+    #[cfg(feature = "dev-tools")]
+    std::hint::black_box(&DEV_TOOLS_MARK);
+    #[cfg(not(feature = "real"))]
+    std::hint::black_box(&DEMO_CORE_MARK);
     // A windowed release has no console of its own: what the screenshot tools print goes to
     // the terminal they were started from.
     #[cfg(all(windows, feature = "dev-tools"))]

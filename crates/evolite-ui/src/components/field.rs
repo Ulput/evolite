@@ -115,6 +115,10 @@ pub fn text_field(
                     );
                     if matches!(kind, FieldKind::Password) {
                         forget_typing(ui.ctx(), id);
+                        // SEC-3: no IME, a password's input scope.
+                        if response.has_focus() {
+                            crate::secret_input::focused(ui.ctx());
+                        }
                     }
                     response
                 })

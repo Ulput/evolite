@@ -73,6 +73,25 @@ fn catalog(lang: Lang) -> Option<&'static str> {
     })
 }
 
+/// SEC-8 (Пр3, review S2): why a program is no release, from the marks the app's `main.rs`
+/// puts into it: `DEV_TOOLS_MARK` (a `dev-tools` build) or `DEMO_CORE_MARK` (no real core).
+fn not_a_release(program: &[u8]) -> Option<&'static str> {
+    const MARKS: [(&[u8], &str); 2] = [
+        (
+            b"evolite:dev-tools-build",
+            "was built with --features dev-tools",
+        ),
+        (
+            b"evolite:demo-core-build",
+            "was built without the real core (--no-default-features)",
+        ),
+    ];
+    MARKS
+        .iter()
+        .find(|(mark, _)| program.windows(mark.len()).any(|w| w == *mark))
+        .map(|(_, why)| *why)
+}
+
 /// `--pack OUT`: this installer with the program from its own folder after it.
 fn pack(out: &std::path::Path) -> Result<(), String> {
     let me = std::env::current_exe().map_err(|e| e.to_string())?;
@@ -83,6 +102,12 @@ fn pack(out: &std::path::Path) -> Result<(), String> {
     let mut files = Vec::new();
     for name in [plan::APP_NAME, plan::RENDERER_NAME] {
         let bytes = std::fs::read(dir.join(name)).map_err(|e| format!("{name}: {e}"))?;
+        // SEC-8 (Пр3): a release is never packed with the screenshot flags or the demo core.
+        if let Some(why) = not_a_release(&bytes) {
+            return Err(format!(
+                "{name} {why}: build the release with the default features only"
+            ));
+        }
         files.push((name.to_owned(), bytes));
     }
     let packed = payload::pack(&stub, &files)?;

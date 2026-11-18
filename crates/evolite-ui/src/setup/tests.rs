@@ -87,3 +87,27 @@ fn every_language_has_every_text() {
         }
     }
 }
+
+/// SEC-8 (Пр3, review S2): `--pack` refuses a program built with `dev-tools` or without the
+/// real core (each carries its mark), and packs one without either.
+#[test]
+fn a_dev_tools_or_demo_only_program_is_not_packed() {
+    let mut program = vec![0u8; 4096];
+    assert_eq!(not_a_release(&program), None);
+    program[1000..1023].copy_from_slice(b"evolite:dev-tools-build");
+    assert!(not_a_release(&program).is_some_and(|why| why.contains("dev-tools")));
+    let mut program = vec![0u8; 4096];
+    program[2000..2023].copy_from_slice(b"evolite:demo-core-build");
+    assert!(not_a_release(&program).is_some_and(|why| why.contains("real core")));
+    // The app's `main.rs` puts exactly these marks into such builds.
+    let app = include_str!("../main.rs");
+    for mark in [
+        r#"static DEV_TOOLS_MARK: [u8; 23] = *b"evolite:dev-tools-build";"#,
+        r#"static DEMO_CORE_MARK: [u8; 23] = *b"evolite:demo-core-build";"#,
+    ] {
+        assert!(
+            app.contains(mark),
+            "the app's mark is the one --pack looks for: {mark}"
+        );
+    }
+}

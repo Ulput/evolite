@@ -43,6 +43,8 @@ pub struct Build {
     /// "Own node" is set: whether, never which.
     pub own_node: bool,
     pub demo: bool,
+    /// SEC-8 (Пр3): the build's features that matter: `dev-tools`, or empty.
+    pub features: &'static str,
     /// What `spv-network.log` holds (dev-tools builds): `network`, dash-spv's peer lines;
     /// `custom`, the filter `EVOLITE_SPV_LOG` gave (BUG-221 trace); `none` in other builds.
     pub spv_log: &'static str,
@@ -310,7 +312,8 @@ impl Record {
                 "k": "start", "version": b.version, "commit": b.commit, "profile": b.profile,
                 "os": b.os, "osVersion": b.os_version, "language": b.language,
                 "theme": b.theme, "scale": b.scale, "network": b.network,
-                "ownNode": b.own_node, "demo": b.demo, "spvLog": b.spv_log,
+                "ownNode": b.own_node, "demo": b.demo, "features": b.features,
+                "spvLog": b.spv_log,
             }),
             Record::Sync {
                 stage,

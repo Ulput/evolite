@@ -217,6 +217,7 @@ fn run_remove(job: &Remove, p: &Shared) -> Result<(), String> {
         }
     }
     system::remove_shortcuts(&job.known);
+    system::forget_crash_exclusion(&job.dir.join(plan::APP));
     set(p, |p| p.step = 1);
     if job.data {
         for folder in job.known.data_folders() {

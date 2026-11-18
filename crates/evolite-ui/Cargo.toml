@@ -70,7 +70,7 @@ unicode-bidi = "0.3"
 # captures (SetWindowDisplayAffinity); a new data folder's own access list. The installer: disks,
 # the «Installed apps» entry, the console of `--pack`, a hung evolite's process, the message box
 # of a start that failed.
-windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Globalization", "Win32_Security", "Win32_Security_Authorization", "Win32_Storage_FileSystem", "Win32_System_Console", "Win32_System_Diagnostics_ToolHelp", "Win32_System_LibraryLoader", "Win32_System_Registry", "Win32_System_Threading", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Globalization", "Win32_Security", "Win32_Security_Authorization", "Win32_Storage_FileSystem", "Win32_System_Console", "Win32_System_Diagnostics_Debug", "Win32_System_ErrorReporting", "Win32_System_Diagnostics_ToolHelp", "Win32_System_LibraryLoader", "Win32_System_Registry", "Win32_System_Threading", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
 # The installer: shortcuts (IShellLinkW), the folder picker and the user's known folders.
 windows = { version = "0.62", features = ["Win32_System_Com", "Win32_UI_Shell", "Win32_UI_Shell_Common"] }
 # The window's handle from eframe (already in the tree through winit).
@@ -91,6 +91,8 @@ resvg = { version = "0.45", default-features = false }
 # widgets found through AccessKit (docs/architecture/kittest.md). No image snapshots: neither the
 # `snapshot` nor the `wgpu` feature.
 egui_kittest = { version = "0.36.2", default-features = false, features = ["eframe"] }
+# SEC-8: egui's memory as eframe writes it to `app.ron` (the same ron as eframe's, already locked).
+ron = "0.12"
 
 [target.'cfg(windows)'.build-dependencies]
 # The executable's icon in Explorer, the taskbar and Alt+Tab (`evolite.rc`).

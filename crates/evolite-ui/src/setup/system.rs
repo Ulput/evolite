@@ -445,6 +445,22 @@ mod imp {
     }
 }
 
+/// SEC-4 (review S1): the app excludes itself from Windows Error Reporting's dumps at every
+/// start (`crash_reports::keep_out`, by file name, for the user); uninstalling takes it off.
+/// Best effort: nothing to undo if it was never there. Elsewhere nothing was added.
+pub fn forget_crash_exclusion(exe: &Path) {
+    #[cfg(windows)]
+    {
+        use std::os::windows::ffi::OsStrExt;
+        use windows_sys::Win32::System::ErrorReporting::WerRemoveExcludedApplication;
+        let path: Vec<u16> = exe.as_os_str().encode_wide().chain([0]).collect();
+        // SAFETY: a NUL-terminated path; FALSE: for this user only.
+        unsafe { WerRemoveExcludedApplication(path.as_ptr(), 0) };
+    }
+    #[cfg(not(windows))]
+    let _ = exe;
+}
+
 #[cfg(windows)]
 mod links {
     //! The Start menu and desktop shortcuts.

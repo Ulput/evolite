@@ -210,6 +210,10 @@ fn word_cell(
                         .desired_width(f32::INFINITY),
                 );
                 crate::components::forget_typing(ui.ctx(), id);
+                // SEC-3: the words reach no IME and no text suggestions.
+                if ui.memory(|m| m.has_focus(id)) {
+                    crate::secret_input::focused(ui.ctx());
+                }
             });
             // Enter or Tab takes the first suggestion; Enter also goes on to
             // the next field (Tab does so by itself).

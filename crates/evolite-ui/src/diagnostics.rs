@@ -163,6 +163,11 @@ pub fn build(
         },
         own_node,
         demo,
+        features: if cfg!(feature = "dev-tools") {
+            "dev-tools"
+        } else {
+            ""
+        },
         spv_log: spv_log_kind(),
     }
 }
