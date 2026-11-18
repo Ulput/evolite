@@ -136,13 +136,16 @@ impl Real {
         let (id, keys, _) = self.pool_move()?;
         let chain = self.chain.clone();
         let journal = self.journal.clone();
+        // BUG-206: the identity the screen shows when the command comes: the task checks, pays
+        // and signs as it even if the choice moves while it runs, and refuses if it is gone.
+        let pinned = self.shown_now(id);
         self.pool_job(
             "shield",
             async move {
                 let wallet = loaded(&chain, &id).await?;
                 // From the credits: the identity shown at the start, for all of it.
                 let me = match from {
-                    ShieldSource::Credits => Some(acting(&wallet).await.ok_or(
+                    ShieldSource::Credits => Some(pinned_acting(&wallet, pinned).await.ok_or(
                         CoreError::NotAvailable(tr!("The wallet has no identity").into()),
                     )?),
                     _ => None,
@@ -244,20 +247,22 @@ impl Real {
         let credits = positive_credits(amount)?;
         let (id, _, seed) = self.pool_move()?;
         let chain = self.chain.clone();
+        // BUG-206: the identity the screen shows when the command comes: the task checks, pays
+        // and signs as it even if the choice moves while it runs, and refuses if it is gone.
+        let pinned = self.shown_now(id);
         self.pool_job(
             "pool-top-up",
             async move {
                 let wallet = loaded(&chain, &id).await?;
-                let identity = Chain::shown_identity(&wallet)
-                    .await
-                    .map_err(CoreError::NotAvailable)?;
+                // The recipient is the identity shown at the command (BUG-206 r1 Must 2).
+                let (_, me) =
+                    pinned_acting(&wallet, pinned)
+                        .await
+                        .ok_or(CoreError::NotAvailable(
+                            tr!("The wallet has no identity").into(),
+                        ))?;
                 chain
-                    .top_up_from_pool(
-                        &wallet,
-                        super::super::seed_bytes(&seed),
-                        &identity.id(),
-                        credits,
-                    )
+                    .top_up_from_pool(&wallet, super::super::seed_bytes(&seed), &me, credits)
                     .await
                     .map_err(pool_error)
             },

@@ -831,6 +831,9 @@ impl Real {
         let journal = self.journal.clone();
         let refresh = self.refresher();
         let known = facts.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        // BUG-206: the identity the screen shows when the command comes: the task checks, pays
+        // and signs as it even if the choice moves while it runs, and refuses if it is gone.
+        let pinned = self.shown_now(id);
         self.answer_later("task:send_token", async move {
             let result = async {
                 let to = match to {
@@ -844,9 +847,12 @@ impl Real {
                 };
                 let wallet = loaded(&chain, &id).await?;
                 // Review r1, Should 1: what is known of the token on the sender, before the fee.
-                let (me, me_id) = acting(&wallet).await.ok_or(CoreError::NotAvailable(
-                    tr!("The wallet has no identity").into(),
-                ))?;
+                let (me, me_id) =
+                    pinned_acting(&wallet, pinned)
+                        .await
+                        .ok_or(CoreError::NotAvailable(
+                            tr!("The wallet has no identity").into(),
+                        ))?;
                 let read = {
                     let (chain, me, tokens) = (chain.clone(), me.clone(), vec![token_id.clone()]);
                     move || async move { chain.token_facts(&me, &tokens).await }

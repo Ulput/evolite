@@ -466,12 +466,18 @@ impl Real {
             self.tokens.page_handle(),
         );
         let refresh = self.refresher();
+        // BUG-206: the identity the screen shows when the command comes: the task checks, pays
+        // and signs as it even if the choice moves while it runs, and refuses if it is gone.
+        let pinned = self.shown_now(id);
         self.answer_later("task:issuer_action", async move {
             let result = async {
                 let wallet = loaded(&chain, &id).await?;
-                let (me, me_id) = acting(&wallet).await.ok_or(CoreError::NotAvailable(
-                    tr!("The wallet has no identity").into(),
-                ))?;
+                let (me, me_id) =
+                    pinned_acting(&wallet, pinned)
+                        .await
+                        .ok_or(CoreError::NotAvailable(
+                            tr!("The wallet has no identity").into(),
+                        ))?;
                 // T-3.1, R-24: the rights again, on the contract as it is now.
                 let contract = chain
                     .fresh_contract(&token.contract_id)

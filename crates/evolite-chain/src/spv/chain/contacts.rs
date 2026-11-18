@@ -373,10 +373,10 @@ impl Chain {
         &self,
         wallet: &PlatformWallet,
         keys: &key_wallet::Wallet,
+        me: &Identifier,
         to: Identifier,
         paid: &[String],
     ) -> Result<Option<String>, String> {
-        let me = Self::shown_identity(wallet).await?;
         // The contact's account is built from its request on first use, as a payment does.
         let crypto = dashpay::SeedCrypto(keys.clone());
         wallet
@@ -387,7 +387,7 @@ impl Chain {
             .map_err(|e| e.to_string())?;
         let key = DashpayAccountKey {
             index: 0,
-            user_identity_id: me.id().to_buffer(),
+            user_identity_id: me.to_buffer(),
             friend_identity_id: to.to_buffer(),
         };
         use key_wallet::managed_account::managed_account_trait::ManagedAccountTrait;
@@ -433,18 +433,20 @@ impl Chain {
     /// signed with our keys — and only if that is still `shown`, the address the person saw
     /// before signing. Never resent: when the network gives no clear answer the payment may
     /// have gone, and it is reported so (`relayed: false`, txid unknown), not as a failure.
+    #[allow(clippy::too_many_arguments)]
     pub async fn pay_contact(
         &self,
         wallet: &PlatformWallet,
         keys: &key_wallet::Wallet,
+        me: &Identifier,
         to: Identifier,
         shown: &str,
         paid: &[String],
         amount: u64,
     ) -> Result<Paid, String> {
-        let me = Self::shown_identity(wallet).await?;
+        // The pair and the identity it counts for: `me`, pinned with the command (BUG-206 r1).
         if self
-            .contact_address(wallet, keys, to, paid)
+            .contact_address(wallet, keys, me, to, paid)
             .await?
             .as_deref()
             != Some(shown)
@@ -461,14 +463,10 @@ impl Chain {
             .with_final_coins(
                 wallet,
                 true,
-                wallet.identity().dashpay().send_payment(
-                    &me.id(),
-                    &to,
-                    amount,
-                    None,
-                    &signer,
-                    &crypto,
-                ),
+                wallet
+                    .identity()
+                    .dashpay()
+                    .send_payment(me, &to, amount, None, &signer, &crypto),
             )
             .await;
         match sent {

@@ -668,6 +668,21 @@ fn writes_sign_as_the_identity_they_are_given() {
         include_str!("../../apps/app_chain.rs"),
     ];
     let old = ["first", "_identity("].concat();
+    const PAID: [&str; 13] = [
+        "pay_contact",
+        "contact_address",
+        "top_up_from_pool",
+        "top_up_identity",
+        "add_name",
+        "send_credits",
+        "send_token",
+        "claim_token",
+        "buy_token",
+        "accept_contact",
+        "save_profile",
+        "shield_from_identity",
+        "add_contact",
+    ];
     for source in sources {
         assert!(
             !source.contains(&old),
@@ -679,6 +694,14 @@ fn writes_sign_as_the_identity_they_are_given() {
                 assert!(
                     !f.contains("shown_identity("),
                     "{name} signs as whoever is shown"
+                );
+            }
+            // BUG-206 r1: paid functions that do not sign as an identity (a Core payment to a
+            // contact, the pool's top-up) take their identity too, never who is shown.
+            if PAID.contains(&name) {
+                assert!(
+                    !f.contains("shown_identity("),
+                    "{name} pays as whoever is shown"
                 );
             }
         }

@@ -98,14 +98,23 @@ impl Real {
             CorePayee::Contact(contact) => contact,
         };
         let (id, keys) = self.dashpay_ready()?;
+        // BUG-206: the identity the screen shows when the command comes: the task checks, pays
+        // and signs as it even if the choice moves while it runs, and refuses if it is gone.
+        let pinned = self.shown_now(id);
         let chain = self.chain.clone();
         let previews = self.previews.clone();
         let paid = self.contact_paid.paid(&contact.to_string(Encoding::Base58));
         self.answer_later("task:preview_payment", async move {
             let result = async {
                 let wallet = loaded(&chain, &id).await?;
+                let (_, me) =
+                    pinned_acting(&wallet, pinned)
+                        .await
+                        .ok_or(CoreError::NotAvailable(
+                            tr!("The wallet has no identity").into(),
+                        ))?;
                 let address = chain
-                    .contact_address(&wallet, &keys, contact, &paid)
+                    .contact_address(&wallet, &keys, &me, contact, &paid)
                     .await
                     .map_err(CoreError::Failed)?
                     .ok_or(CoreError::NotAvailable(
@@ -226,6 +235,9 @@ impl Real {
         let notes = self.notes.clone();
         let prices = self.prices.clone();
         let dirty = self.dirty.clone();
+        // BUG-206: the identity the screen shows when the command comes: the task checks, pays
+        // and signs as it even if the choice moves while it runs, and refuses if it is gone.
+        let pinned = self.shown_now(id);
         // Building, signing and the network's answer happen off the loop: the broadcast waits
         // for peers to relay the payment.
         tokio::spawn(async move {
@@ -239,9 +251,14 @@ impl Real {
                     let shown = shown.unwrap_or_default();
                     let contact = to.to_string(Encoding::Base58);
                     let before = contact_paid.paid(&contact);
-                    let paid = chain
-                        .pay_contact(&wallet, &keys, *to, &shown, &before, amount)
-                        .await;
+                    let paid = match pinned_acting(&wallet, pinned).await {
+                        Some((_, me)) => {
+                            chain
+                                .pay_contact(&wallet, &keys, &me, *to, &shown, &before, amount)
+                                .await
+                        }
+                        None => Err(tr!("The wallet has no identity").to_string()),
+                    };
                     // Taken, or maybe taken: never this address again, after a restart too.
                     if paid.is_ok() {
                         contact_paid.add(&contact, &shown);

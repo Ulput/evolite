@@ -442,6 +442,10 @@ struct Real {
     contact_scans: contact_scans::ContactScans,
     /// The wallet whose coins were written to the journal after the first filter pass (BUG-150).
     coins_after_pass: Option<WalletId>,
+    /// The identity the last snapshot showed as «Act as», with its wallet (BUG-206 r1): what a
+    /// command acts as, pinned when it comes. Not the raw choice: until a chosen identity has
+    /// loaded the screen shows (and the person confirms) the lowest one.
+    shown_now: Option<(WalletId, Identifier)>,
     /// The last checked Core balance, shown while the coins are not known (BUG-77).
     core_balance: core_balance::CoreBalance,
     /// The lowest height the filters were asked to be scanned again from in this run (BUG-64).

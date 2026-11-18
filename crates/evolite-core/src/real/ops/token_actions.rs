@@ -63,12 +63,18 @@ impl Real {
             self.journal.clone(),
         );
         let refresh = self.refresher();
+        // BUG-206: the identity the screen shows when the command comes: the task checks, pays
+        // and signs as it even if the choice moves while it runs, and refuses if it is gone.
+        let pinned = self.shown_now(id);
         self.answer_later("task:claim_token", async move {
             let result = async {
                 let wallet = loaded(&chain, &id).await?;
-                let (me, me_id) = acting(&wallet).await.ok_or(CoreError::NotAvailable(
-                    tr!("The wallet has no identity").into(),
-                ))?;
+                let (me, me_id) =
+                    pinned_acting(&wallet, pinned)
+                        .await
+                        .ok_or(CoreError::NotAvailable(
+                            tr!("The wallet has no identity").into(),
+                        ))?;
                 let before = chain.identity_credits(&wallet, &me_id, false).await;
                 let claim = chain.claim_token(
                     &wallet,
@@ -133,12 +139,18 @@ impl Real {
             self.journal.clone(),
         );
         let refresh = self.refresher();
+        // BUG-206: the identity the screen shows when the command comes: the task checks, pays
+        // and signs as it even if the choice moves while it runs, and refuses if it is gone.
+        let pinned = self.shown_now(id);
         self.answer_later("task:buy_token", async move {
             let result = async {
                 let wallet = loaded(&chain, &id).await?;
-                let (me, me_id) = acting(&wallet).await.ok_or(CoreError::NotAvailable(
-                    tr!("The wallet has no identity").into(),
-                ))?;
+                let (me, me_id) =
+                    pinned_acting(&wallet, pinned)
+                        .await
+                        .ok_or(CoreError::NotAvailable(
+                            tr!("The wallet has no identity").into(),
+                        ))?;
                 let before = chain.identity_credits(&wallet, &me_id, false).await;
                 let buy = chain.buy_token(
                     &wallet,

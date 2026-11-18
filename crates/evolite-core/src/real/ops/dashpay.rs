@@ -98,45 +98,49 @@ impl Real {
             .find(|c| c.identity_id == identity_id)
             .map(Contact::handle)
             .unwrap_or_else(|| identity_id.to_owned());
+        // BUG-206: the identity the screen shows when the command comes: the task checks, pays
+        // and signs as it even if the choice moves while it runs, and refuses if it is gone.
+        let pinned = self.shown_now(id);
         self.answer_later("task:contact_job", async move {
-            let result = async {
-                let wallet = loaded(&chain, &id).await?;
-                match job {
-                    ContactJob::Accept => {
-                        let (_, me) = acting(&wallet).await.ok_or(CoreError::NotAvailable(
-                            tr!("The wallet has no identity").into(),
-                        ))?;
-                        let before = chain.identity_credits(&wallet, &me, false).await;
-                        chain
-                            .accept_contact(&wallet, &keys, &me, from)
-                            .await
-                            .map_err(dashpay_failure)?;
-                        let after = chain.identity_credits(&wallet, &me, true).await;
-                        let spent = spent_credits(before, after).unwrap_or(0);
-                        // BUG-198: keyed as the read of Platform keys our request back, so the
-                        // two are one line.
-                        journal.add(platform_history::accepted_request(
-                            &me,
-                            &from,
-                            &who,
-                            now(),
-                            spent,
-                        ));
-                        Ok(())
-                    }
-                    ContactJob::Hide => {
-                        // Kept outside the store too: a resync removes the store.
-                        hidden
-                            .add(&sender)
-                            .map_err(|e| CoreError::Failed(e.to_string()))?;
-                        chain
-                            .hide_request(&wallet, from)
-                            .await
-                            .map_err(dashpay_failure)
+            let result =
+                async {
+                    let wallet = loaded(&chain, &id).await?;
+                    match job {
+                        ContactJob::Accept => {
+                            let (_, me) = pinned_acting(&wallet, pinned).await.ok_or(
+                                CoreError::NotAvailable(tr!("The wallet has no identity").into()),
+                            )?;
+                            let before = chain.identity_credits(&wallet, &me, false).await;
+                            chain
+                                .accept_contact(&wallet, &keys, &me, from)
+                                .await
+                                .map_err(dashpay_failure)?;
+                            let after = chain.identity_credits(&wallet, &me, true).await;
+                            let spent = spent_credits(before, after).unwrap_or(0);
+                            // BUG-198: keyed as the read of Platform keys our request back, so the
+                            // two are one line.
+                            journal.add(platform_history::accepted_request(
+                                &me,
+                                &from,
+                                &who,
+                                now(),
+                                spent,
+                            ));
+                            Ok(())
+                        }
+                        ContactJob::Hide => {
+                            // Kept outside the store too: a resync removes the store.
+                            hidden
+                                .add(&sender)
+                                .map_err(|e| CoreError::Failed(e.to_string()))?;
+                            chain
+                                .hide_request(&wallet, from)
+                                .await
+                                .map_err(dashpay_failure)
+                        }
                     }
                 }
-            }
-            .await;
+                .await;
             refresh();
             Event::Done {
                 what: DoneWhat::Contact,
@@ -171,6 +175,9 @@ impl Real {
         let chain = self.chain.clone();
         let refresh = self.refresher();
         let journal = self.journal.clone();
+        // BUG-206: the identity the screen shows when the command comes: the task checks, pays
+        // and signs as it even if the choice moves while it runs, and refuses if it is gone.
+        let pinned = self.shown_now(id);
         self.answer_later("task:save_profile", async move {
             let result = async {
                 let avatar = match avatar_url {
@@ -190,9 +197,12 @@ impl Real {
                     None => None,
                 };
                 let wallet = loaded(&chain, &id).await?;
-                let (acting, me) = acting(&wallet).await.ok_or(CoreError::NotAvailable(
-                    tr!("The wallet has no identity").into(),
-                ))?;
+                let (acting, me) =
+                    pinned_acting(&wallet, pinned)
+                        .await
+                        .ok_or(CoreError::NotAvailable(
+                            tr!("The wallet has no identity").into(),
+                        ))?;
                 let before = chain.identity_credits(&wallet, &me, false).await;
                 chain
                     .save_profile(&wallet, &keys, &me, display, about, avatar)

@@ -96,12 +96,36 @@ pub(in crate::real) async fn acting_identity(wallet: &PlatformWallet) -> Option<
         .map(|m| m.identity.id().to_string(Encoding::Base58))
 }
 
-/// The identity a task acts as, read once at its start (TECH-signing-identity): in base58 for
-/// its History line and as the id every check, credits read and signature of the task takes.
-pub(in crate::real) async fn acting(wallet: &PlatformWallet) -> Option<(String, Identifier)> {
-    let shown = acting_identity(wallet).await?;
-    let id = Identifier::from_string(&shown, Encoding::Base58).ok()?;
-    Some((shown, id))
+/// The identity a task acts as (TECH-signing-identity), in base58 for its History line and as the
+/// id every check, credits read and signature of the task takes: the one the screen showed when
+/// its command came (`pinned`, [`Real::shown_now`] read before the task, BUG-206), not the
+/// one it names by the time the task runs.
+pub(in crate::real) async fn pinned_acting(
+    wallet: &PlatformWallet,
+    pinned: Option<Identifier>,
+) -> Option<(String, Identifier)> {
+    let id = pinned_in(pinned, wallet_identity_ids(wallet).await.into_iter())?;
+    Some((id.to_string(Encoding::Base58), id))
+}
+
+/// The pinned identity if the wallet (`mine`, base58 with slots) still has it. Never another one
+/// in its place (BUG-206 r1): an identity shown and confirmed that is gone is a refusal, not the
+/// lowest one paying instead.
+fn pinned_in(
+    pinned: Option<Identifier>,
+    mut mine: impl Iterator<Item = (String, u32)>,
+) -> Option<Identifier> {
+    let pinned = pinned?;
+    let shown = pinned.to_string(Encoding::Base58);
+    mine.any(|(id, _)| id == shown).then_some(pinned)
+}
+
+impl Real {
+    /// What a command acts as, pinned when it comes (BUG-206): the identity the screen showed
+    /// for wallet `id` in the last snapshot; `None` before one showed any.
+    pub(in crate::real) fn shown_now(&self, id: WalletId) -> Option<Identifier> {
+        self.shown_now.filter(|(w, _)| *w == id).map(|(_, i)| i)
+    }
 }
 
 /// Every identity of this wallet, in base58, with its slot (FEAT-0021 R-7: two of them never
@@ -798,6 +822,8 @@ impl Real {
         let slot = chain::shown_slot(id, mine.iter().filter_map(|m| m.identity_index));
         // The identity the person works as (the first one until they choose).
         let first = mine.iter().copied().find(|m| m.identity_index == slot);
+        // BUG-206 r1: what the next command acts as is what this snapshot shows.
+        self.shown_now = first.map(|m| (id, m.identity.id()));
         let shown = first.map(|m| self.shown_identity(m, &names, &paid_at));
         // Payments to and from contacts say who; this run's payments too, and they
         // show until the history has them.
@@ -2157,5 +2183,107 @@ mod signing_tests {
                 "credits of whoever is shown"
             );
         }
+    }
+}
+
+/// BUG-206: every paid write that acts «as the identity» takes it when its command came
+/// ([`Real::shown_now`] before the task) and never reads «Act as» again in its task.
+/// Mutant: a task reading [`acting_identity`] (or the old per-task read) again fails here.
+#[cfg(test)]
+mod pinned_tests {
+    /// The source of `name`'s function in `source`, up to the next function of the file.
+    fn body<'a>(source: &'a str, name: &str) -> &'a str {
+        let start = source
+            .find(&format!("fn {name}("))
+            .unwrap_or_else(|| panic!("no fn {name}"));
+        let rest = &source[start + 3..];
+        let end = [
+            "\n    pub(in crate::real) ",
+            "\n    fn ",
+            "\n    async fn ",
+            "\n}\n",
+        ]
+        .iter()
+        .filter_map(|m| rest.find(m))
+        .min()
+        .unwrap_or(rest.len());
+        &rest[..end]
+    }
+
+    #[test]
+    fn paid_writes_act_as_the_identity_their_command_came_with() {
+        let files = [
+            (
+                include_str!("ops/identity.rs"),
+                &[
+                    "top_up_identity",
+                    "add_name",
+                    "claim_name",
+                    "set_name_link",
+                    "send_credits",
+                ][..],
+            ),
+            (
+                include_str!("ops/dashpay.rs"),
+                &["contact_job", "save_profile"][..],
+            ),
+            (include_str!("ops/tokens.rs"), &["send_token"][..]),
+            (
+                include_str!("ops/token_actions.rs"),
+                &["claim_token", "buy_token"][..],
+            ),
+            (include_str!("ops/token_manage.rs"), &["issuer_action"][..]),
+            (
+                include_str!("ops/pool.rs"),
+                &["shield", "top_up_from_pool"][..],
+            ),
+            (
+                include_str!("ops/core.rs"),
+                &["preview_payment", "send"][..],
+            ),
+        ];
+        for (source, names) in files {
+            for name in names {
+                let f = body(source, name);
+                assert!(f.contains("self.shown_now(id)"), "{name}: not pinned");
+                assert!(
+                    f.contains("pinned_acting(&wallet, pinned)"),
+                    "{name}: the pin not used"
+                );
+                assert!(
+                    !f.contains("acting_identity("),
+                    "{name}: reads «Act as» again"
+                );
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod shown_pin_tests {
+    use super::*;
+
+    fn b58(n: u8) -> String {
+        Identifier::new([n; 32]).to_string(Encoding::Base58)
+    }
+
+    /// BUG-206 r1 Must 1: the command acts as the identity the screen showed, not the raw choice.
+    /// Right after an unlock the chosen identity (slot 2) has not loaded: the screen shows and
+    /// the person confirms the lowest (slot 0); once slot 2 loads the task still pays as slot 0.
+    /// And an identity shown that is gone by the task is a refusal, not the lowest in its place.
+    /// Mutant: resolving the choice (as r1 did) pays as slot 2 in the first case and as slot 0 in
+    /// the second.
+    #[test]
+    fn a_command_acts_as_the_identity_shown_and_refuses_one_gone() {
+        let shown = Some(Identifier::new([1; 32]));
+        let later = [(b58(1), 0), (b58(3), 2)];
+        assert_eq!(pinned_in(shown, later.clone().into_iter()), shown);
+        let gone = [(b58(2), 1), (b58(3), 2)];
+        assert_eq!(pinned_in(shown, gone.into_iter()), None);
+        assert_eq!(
+            pinned_in(None, later.into_iter()),
+            None,
+            "none shown, none acts"
+        );
     }
 }

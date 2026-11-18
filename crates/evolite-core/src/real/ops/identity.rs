@@ -156,9 +156,12 @@ impl Real {
         let chain = self.chain.clone();
         let refresh = self.refresher();
         let journal = self.journal.clone();
+        // BUG-206: the identity the screen shows when the command comes: the task checks, pays
+        // and signs as it even if the choice moves while it runs, and refuses if it is gone.
+        let pinned = self.shown_now(id);
         self.answer_later("task:top_up_identity", async move {
             // The identity shown at the start is the one topped up and read before and after.
-            let result = match acting(&wallet).await {
+            let result = match pinned_acting(&wallet, pinned).await {
                 Some((_, me)) => {
                     let credits_before = chain.identity_credits(&wallet, &me, true).await;
                     let locks_before = asset_locks(&wallet).await;
@@ -210,6 +213,9 @@ impl Real {
         let chain = self.chain.clone();
         let refresh = self.refresher();
         let journal = self.journal.clone();
+        // BUG-206: the identity the screen shows when the command comes: the task checks, pays
+        // and signs as it even if the choice moves while it runs, and refuses if it is gone.
+        let pinned = self.shown_now(id);
         self.answer_later("task:add_name", async move {
             let result = match chain.name_available(&label).await {
                 Ok(false) => Err(CoreError::NotAvailable(format!(
@@ -219,7 +225,7 @@ impl Real {
                 Err(e) => Err(CoreError::Failed(e)),
                 Ok(true) => async {
                     let wallet = chain.wallet(&id).await.ok_or(NOT_LOADED)?;
-                    let (acting, me) = acting(&wallet)
+                    let (acting, me) = pinned_acting(&wallet, pinned)
                         .await
                         .ok_or_else(|| tr!("The wallet has no identity").to_string())?;
                     let before = chain.identity_credits(&wallet, &me, false).await;
@@ -279,15 +285,21 @@ impl Real {
         let journal = self.journal.clone();
         let requests = self.name_requests.clone();
         let names_stale = self.names_stale.clone();
+        // BUG-206: the identity the screen shows when the command comes: the task checks, pays
+        // and signs as it even if the choice moves while it runs, and refuses if it is gone.
+        let pinned = self.shown_now(id);
         self.answer_later("task:claim_name", async move {
             let result = async {
                 let wallet = chain
                     .wallet(&id)
                     .await
                     .ok_or(CoreError::Failed(NOT_LOADED.into()))?;
-                let (shown, me) = acting(&wallet).await.ok_or(CoreError::NotAvailable(
-                    tr!("Make an identity first").into(),
-                ))?;
+                let (shown, me) =
+                    pinned_acting(&wallet, pinned)
+                        .await
+                        .ok_or(CoreError::NotAvailable(
+                            tr!("Make an identity first").into(),
+                        ))?;
                 let ids = wallet_identity_ids(&wallet).await;
                 let awarded = chain
                     .name_awarded(&label)
@@ -414,15 +426,21 @@ impl Real {
         let requests = self.name_requests.clone();
         let chain = self.chain.clone();
         let refresh = self.refresher();
+        // BUG-206: the identity the screen shows when the command comes: the task checks, pays
+        // and signs as it even if the choice moves while it runs, and refuses if it is gone.
+        let pinned = self.shown_now(id);
         self.answer_later("task:set_name_link", async move {
             let result = async {
                 let wallet = chain
                     .wallet(&id)
                     .await
                     .ok_or(CoreError::Failed(NOT_LOADED.into()))?;
-                let (shown, as_identity) = acting(&wallet).await.ok_or(CoreError::NotAvailable(
-                    tr!("Make an identity first").into(),
-                ))?;
+                let (shown, as_identity) =
+                    pinned_acting(&wallet, pinned)
+                        .await
+                        .ok_or(CoreError::NotAvailable(
+                            tr!("Make an identity first").into(),
+                        ))?;
                 let ours = requests
                     .load()
                     .into_iter()
@@ -596,12 +614,18 @@ impl Real {
             amount,
             now(),
         );
+        // BUG-206: the identity the screen shows when the command comes: the task checks, pays
+        // and signs as it even if the choice moves while it runs, and refuses if it is gone.
+        let pinned = self.shown_now(id);
         self.answer_later("task:send_credits", async move {
             let result = async {
                 let wallet = loaded(&chain, &id).await?;
-                let (acting, me) = acting(&wallet).await.ok_or(CoreError::NotAvailable(
-                    tr!("The wallet has no identity").into(),
-                ))?;
+                let (acting, me) =
+                    pinned_acting(&wallet, pinned)
+                        .await
+                        .ok_or(CoreError::NotAvailable(
+                            tr!("The wallet has no identity").into(),
+                        ))?;
                 let before = chain.identity_credits(&wallet, &me, false).await;
                 let payee = match to {
                     To::Ready(payee) => payee,

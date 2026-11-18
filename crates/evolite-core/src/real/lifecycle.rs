@@ -153,6 +153,7 @@ impl Real {
             mined,
             contact_scans,
             coins_after_pass: None,
+            shown_now: None,
             core_balance,
             rescanned_from: None,
             rescan_owed: None,
