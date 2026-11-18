@@ -1073,6 +1073,36 @@ async fn a_second_key_change_waits_for_the_first() {
     assert!(!busy(event, DoneWhat::Keys));
 }
 
+/// SEC-6: «Lock» cuts the background tasks that hold the keys or the seed (the pool's
+/// connection, the DashPay jobs, the identity search) instead of letting them run on, and sets
+/// back what they marked as under way, so the next unlock starts them again.
+#[tokio::test]
+async fn the_lock_cuts_the_tasks_holding_the_keys() {
+    use crate::real::ops::keyed::{CONTACT_ACCOUNTS, POOL};
+    let mut core = core_with_vault("sec6", "pw");
+    core.handle(Command::Unlock { password: pw("pw") }).await;
+    let id = core.unlocked.as_ref().map(|o| o.id).unwrap();
+    let pool = tokio::spawn(std::future::pending::<()>());
+    core.keyed_tasks.add(POOL, pool.abort_handle());
+    *core.pool_wallet.lock().unwrap() = Some(id);
+    let accounts = tokio::spawn(std::future::pending::<()>());
+    core.keyed_tasks
+        .add(CONTACT_ACCOUNTS, accounts.abort_handle());
+    core.contact_accounts_busy.store(true, Ordering::Relaxed);
+    core.handle(Command::Lock).await;
+    assert!(
+        pool.await.unwrap_err().is_cancelled(),
+        "the pool's connection is cut"
+    );
+    assert!(accounts.await.unwrap_err().is_cancelled());
+    assert!(
+        core.pool_wallet.lock().unwrap().is_none(),
+        "connected again after the unlock"
+    );
+    assert!(!core.contact_accounts_busy.load(Ordering::Relaxed));
+    assert!(core.keyed_tasks.cut().is_empty());
+}
+
 /// SEC-5 (П2): a lock takes every phrase this core holds — the onboarding's and another
 /// wallet's opened by its password — not only the open wallet's keys.
 #[tokio::test(flavor = "multi_thread")]

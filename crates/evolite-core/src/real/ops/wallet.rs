@@ -248,6 +248,15 @@ impl Real {
         self.balances_stale.notify_one();
         // The token search stops; the next pass goes on from where it stopped.
         self.tokens.search.stop();
+        // SEC-6: the background tasks holding the keys or the seed end now, not when their pass
+        // does; what they marked as under way is set back for the next unlock.
+        let cut = self.keyed_tasks.cut();
+        if cut.contains(&super::keyed::POOL) {
+            *self.pool_wallet.lock().unwrap_or_else(|e| e.into_inner()) = None;
+        }
+        if cut.contains(&super::keyed::CONTACT_ACCOUNTS) {
+            self.contact_accounts_busy.store(false, Ordering::Relaxed);
+        }
         self.credits_checked.store(false, Ordering::Relaxed);
         // The right words of an unanswered phrase check go with the keys.
         self.phrase_check = None;

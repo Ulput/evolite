@@ -338,6 +338,7 @@ struct Parked {
     pool_wallet: Arc<std::sync::Mutex<Option<WalletId>>>,
     contact_accounts_for: Arc<std::sync::atomic::AtomicUsize>,
     contact_accounts_busy: Arc<AtomicBool>,
+    keyed_tasks: ops::keyed::KeyedTasks,
     /// TECH-busy-guard, BUG-210: the identity's flag, a key change not known to have landed
     /// and the fundings whose resume failed go with the chain: «Back» finds a task started
     /// before «Add a wallet» still holding the identity.
@@ -490,6 +491,8 @@ struct Real {
     shown_address_inputs: Vec<(String, u64)>,
     /// The wallet whose shielded pool is connected (or being connected) in this run.
     pool_wallet: Arc<std::sync::Mutex<Option<WalletId>>>,
+    /// The background tasks holding the keys or the seed, cut by the lock (SEC-6).
+    keyed_tasks: ops::keyed::KeyedTasks,
     /// A pool move (its proof) is under way: one at a time.
     pool_busy: Arc<AtomicBool>,
     /// How many established contacts had their key accounts built this run, and

@@ -11,6 +11,7 @@ pub(super) mod dashpay;
 pub(super) mod identity;
 pub(super) mod identity_keys;
 pub(super) mod kept_locks;
+pub(super) mod keyed;
 mod local_files;
 pub(super) mod lock_coins;
 mod misc;

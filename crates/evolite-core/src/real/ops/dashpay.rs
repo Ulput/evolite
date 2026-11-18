@@ -239,7 +239,7 @@ impl Real {
         let chain = self.chain.clone();
         let dirty = self.dirty.clone();
         let wake = self.wake.clone();
-        tokio::spawn(async move {
+        let task = tokio::spawn(async move {
             let Some(wallet) = chain.wallet(&id).await else {
                 return;
             };
@@ -252,6 +252,9 @@ impl Real {
                 wake();
             }
         });
+        // SEC-6: the keys go with the lock.
+        self.keyed_tasks
+            .add(super::keyed::CONTACT_COINS, task.abort_handle());
     }
 
     /// Builds the key accounts of the established contacts in the background once the DashPay
@@ -279,7 +282,7 @@ impl Real {
         let wake = self.wake.clone();
         // Contacts: the build, not the pause before a retry (BUG-137).
         let working = self.work(PlatformWork::Contacts);
-        tokio::spawn(async move {
+        let task = tokio::spawn(async move {
             let accounts = match chain.wallet(&id).await {
                 Some(wallet) => chain.build_contact_accounts(&wallet, &keys).await.ok(),
                 None => None,
@@ -299,6 +302,9 @@ impl Real {
             }
             busy.store(false, Ordering::Relaxed);
         });
+        // SEC-6: the keys go with the lock (its «busy» is set back there).
+        self.keyed_tasks
+            .add(super::keyed::CONTACT_ACCOUNTS, task.abort_handle());
     }
 
     /// Asks Platform for the DPNS names of contacts not asked about yet. An ask that failed (no

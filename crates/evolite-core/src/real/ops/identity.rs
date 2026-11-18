@@ -716,7 +716,7 @@ impl Real {
         complete.store(false, Ordering::Relaxed);
         set_search(&search, IdentitySearch::Searching);
         refresh();
-        tokio::spawn(async move {
+        let task = tokio::spawn(async move {
             let live = move || current.load(Ordering::Relaxed) == run;
             turn::timed("gate_identities", chain.until_platform_ready()).await;
             // BUG-175: the identities known already are read again once, at the unlock, a switch
@@ -803,6 +803,9 @@ impl Real {
                 pause = (pause * 2).min(DISCOVERY_RETRY_MAX);
             }
         });
+        // SEC-6: the keys go with the lock, not after the pass under way.
+        self.keyed_tasks
+            .add(super::keyed::IDENTITIES, task.abort_handle());
     }
 
     /// Checks what can be checked at once and starts the identity in the background: the name

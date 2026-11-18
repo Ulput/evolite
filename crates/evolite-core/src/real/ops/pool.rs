@@ -26,7 +26,7 @@ impl Real {
         let dirty = self.dirty.clone();
         let wake = self.wake.clone();
         let working = self.work(PlatformWork::Pool);
-        tokio::spawn(async move {
+        let task = tokio::spawn(async move {
             let result = match chain.wallet(&id).await {
                 Some(wallet) => {
                     chain
@@ -51,6 +51,9 @@ impl Real {
                 }
             }
         });
+        // SEC-6: the seed goes with the lock, not when the connection ends.
+        self.keyed_tasks
+            .add(super::keyed::POOL, task.abort_handle());
     }
 
     /// What every pool move needs: the open wallet with its keys and seed, proofs, a connected
