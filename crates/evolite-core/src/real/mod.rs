@@ -545,6 +545,8 @@ struct Real {
     fund_intents: Arc<evolite_chain::fund_intents::FundIntents>,
     /// The wallet's own InstantLocks kept across a restart (BUG-173).
     kept_locks: Arc<evolite_chain::kept_locks::KeptLocks>,
+    /// The own transactions whose lock this unlock saw verified (TECH-finality-journal).
+    own_locks: std::sync::Mutex<ops::kept_locks::OwnLocks>,
     lock_status_busy: Arc<AtomicBool>,
     /// The address fundings whose «Continue» failed in this run, by txid: they no longer hold
     /// a new funding back (BUG-160).

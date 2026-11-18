@@ -1043,6 +1043,28 @@ pub fn coin_is_final(
     coin.is_confirmed || (coin.is_instantlocked && verified(&coin.outpoint.txid))
 }
 
+/// TECH-finality-journal: of the coins of `info`'s funding accounts, how many are in a block,
+/// InstantSend-locked by a lock verified in this run (`verified`), and locked by one that was not.
+pub fn finality_counts(
+    info: &key_wallet::wallet::managed_wallet_info::ManagedWalletInfo,
+    verified: impl Fn(&key_wallet::dashcore::Txid) -> bool,
+) -> (u32, u32, u32) {
+    use key_wallet::wallet::managed_wallet_info::wallet_info_interface::WalletInfoInterface;
+    let (mut confirmed, mut is_verified, mut is_unverified) = (0, 0, 0);
+    for account in info.accounts().all_funding_accounts() {
+        for utxo in account.utxos.values() {
+            if utxo.is_confirmed {
+                confirmed += 1;
+            } else if utxo.is_instantlocked && verified(&utxo.outpoint.txid) {
+                is_verified += 1;
+            } else if utxo.is_instantlocked {
+                is_unverified += 1;
+            }
+        }
+    }
+    (confirmed, is_verified, is_unverified)
+}
+
 /// SPV item 3: locks (key-wallet's `Utxo::lock`) each coin of `info` that is not final
 /// ([`coin_is_final`] by `verified`), so that platform-wallet's own builders (the asset lock, a
 /// payment to a contact) do not take it: they choose among `is_spendable` coins, and an

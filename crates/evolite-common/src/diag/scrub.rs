@@ -8,21 +8,57 @@ const MASK: &str = "‹…›";
 /// BIP-39 words in a row from this many on are a piece of a phrase.
 const PHRASE_RUN: usize = 3;
 
+/// A whole number of this many digits and more is an amount and masked (BUG-216), unless the
+/// word right before it says it is a count or a place ([`KEPT_AFTER`]).
+const WHOLE_AMOUNT: usize = 4;
+
+/// Words after which the one whole number right after is not an amount, up to so many digits:
+/// what a report needs to stay readable. A longer number is masked all the same (review r1,
+/// Must 1: `code 150000`).
+const KEPT_AFTER: [(&str, usize); 14] = [
+    // Codes of the system, Platform and HTTP, and ports.
+    ("port", 5),
+    ("error", 5),
+    ("code", 5),
+    ("status", 5),
+    ("attempt", 5),
+    ("peers", 5),
+    ("version", 5),
+    // A place in the code: `src/app.rs:1267:13`.
+    ("line", 6),
+    ("len", 6),
+    ("index", 6),
+    ("rs", 6),
+    // Heights of the chain.
+    ("height", 8),
+    ("block", 8),
+    ("blocks", 8),
+];
+
+/// Whether a whole number of `digits` after `word` is kept.
+fn kept_after(word: &str, digits: usize) -> bool {
+    KEPT_AFTER
+        .iter()
+        .any(|(kept, most)| *kept == word && digits <= *most)
+}
+
 /// `text` with everything private masked.
 pub fn scrub(text: &str) -> String {
     let text = user_in_paths(text);
     let mut out = String::with_capacity(text.len());
     let mut chunk = String::new();
+    // The last word seen, lowercase: what a whole number after it is (BUG-216).
+    let mut word = String::new();
     for c in text.chars() {
         if c.is_whitespace() {
-            out.push_str(&scrub_chunk(&chunk));
+            out.push_str(&scrub_chunk(&chunk, &mut word));
             chunk.clear();
             out.push(c);
         } else {
             chunk.push(c);
         }
     }
-    out.push_str(&scrub_chunk(&chunk));
+    out.push_str(&scrub_chunk(&chunk, &mut word));
     mask_phrase_runs(&out, PHRASE_RUN)
 }
 
@@ -74,8 +110,9 @@ fn user_in_paths(text: &str) -> String {
     out
 }
 
-/// One whitespace-free piece of text.
-fn scrub_chunk(chunk: &str) -> String {
+/// One whitespace-free piece of text; `word` is the last word before it, and becomes the last
+/// word in it.
+fn scrub_chunk(chunk: &str, word: &mut String) -> String {
     if chunk.is_empty() {
         return String::new();
     }
@@ -95,6 +132,10 @@ fn scrub_chunk(chunk: &str) -> String {
     let mut i = 0;
     while i < chars.len() {
         if !chars[i].is_ascii_alphanumeric() {
+            // A word holds over a colon right after it (`error: 10054`), not over anything else.
+            if chars[i] != ':' {
+                word.clear();
+            }
             out.push(chars[i]);
             i += 1;
             continue;
@@ -115,12 +156,27 @@ fn scrub_chunk(chunk: &str) -> String {
                 i += 1;
             }
             out.push_str(MASK);
+            word.clear();
             continue;
         }
-        if is_secret_run(&run) {
+        let whole = run.chars().all(|c| c.is_ascii_digit());
+        let leading = run.chars().take_while(|c| c.is_ascii_digit()).count();
+        if is_secret_run(&run)
+            || (whole && run.len() >= WHOLE_AMOUNT && !kept_after(word, run.len()))
+        {
             out.push_str(MASK);
+        } else if !whole && leading >= WHOLE_AMOUNT {
+            // An amount with its unit stuck to it: `125000000duffs`.
+            out.push_str(MASK);
+            out.push_str(&run[leading..]);
         } else {
             out.push_str(&run);
+        }
+        // A word is for the one number right after it.
+        if run.chars().all(|c| c.is_ascii_alphabetic()) {
+            *word = run.to_ascii_lowercase();
+        } else {
+            word.clear();
         }
     }
     out
@@ -291,5 +347,50 @@ mod tests {
             scrub("stage Filters height 1284112"),
             "stage Filters height 1284112"
         );
+        assert_eq!(
+            scrub("block 1284101, os error 10054, port 19999"),
+            "block 1284101, os error 10054, port 19999"
+        );
+        assert_eq!(
+            scrub("panicked at crates/evolite-ui/src/app.rs:1267:13"),
+            "panicked at crates/evolite-ui/src/app.rs:1267:13"
+        );
+    }
+
+    /// BUG-216: a whole amount in an error is masked, as a decimal one is; a small number
+    /// stays.
+    #[test]
+    fn masks_whole_amounts_after_any_word_but_one_that_keeps_short_ones() {
+        // Review r1, Must 1: each of these held an amount that went through.
+        for (text, amount) in [
+            ("code 150000", "150000"),
+            ("error 125000000", "125000000"),
+            ("status 125000000", "125000000"),
+            ("error: 125000000", "125000000"),
+            ("block 1284101 125000000", "125000000"),
+            ("need 125000000duffs", "125000000"),
+            ("left 5000credits", "5000"),
+            ("height=12841010000", "12841010000"),
+        ] {
+            gone(text, amount);
+        }
+        assert_eq!(scrub("need 125000000duffs"), "need ‹…›duffs");
+        // What a report needs stays.
+        assert_eq!(scrub("error: 10054"), "error: 10054");
+        assert_eq!(scrub("block 1284101 then"), "block 1284101 then");
+    }
+
+    #[test]
+    fn masks_whole_amounts() {
+        gone(
+            "insufficient funds: need 125000000 have 99000000",
+            "125000000",
+        );
+        gone(
+            "insufficient funds: need 125000000 have 99000000",
+            "99000000",
+        );
+        gone("balance=2875 credits", "2875");
+        assert_eq!(scrub("retry 3 of 5"), "retry 3 of 5");
     }
 }

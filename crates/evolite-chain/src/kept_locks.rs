@@ -68,6 +68,14 @@ impl KeptLocks {
         f(&mut state)
     }
 
+    /// How many locks are kept (TECH-finality-journal: said at the unlock).
+    pub fn count(&self) -> usize {
+        self.with(|state| match state {
+            State::Read(locks) => locks.len(),
+            _ => 0,
+        })
+    }
+
     /// Whether a lock of `txid` is kept.
     pub fn contains(&self, txid: &str) -> bool {
         self.with(|state| matches!(state, State::Read(locks) if locks.contains_key(txid)))

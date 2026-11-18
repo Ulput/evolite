@@ -45,6 +45,17 @@ pub struct Build {
     pub demo: bool,
 }
 
+/// An amount in duffs as the journal writes it (BUG-216): two significant digits, the rest
+/// zeros (125 342 101 → 120 000 000). The size stays for a report; the exact sum, which with
+/// the time finds a transaction on the chain, does not.
+pub fn rough(duffs: i64) -> i64 {
+    let mut unit = 1i64;
+    while (duffs / unit).abs() >= 100 {
+        unit *= 10;
+    }
+    duffs / unit * unit
+}
+
 /// One record of the journal.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Record {
@@ -195,6 +206,27 @@ pub enum Record {
     SyncStale {
         minutes: u32,
     },
+    /// SPV item 3 (TECH-finality-journal): a build of platform-wallet's own (`asset_lock` or
+    /// `contact_pay`) began with the coins not final frozen — how many coins were in a block,
+    /// InstantSend-locked by a lock verified in this run, locked by one not verified, and how many
+    /// it froze. Counts of coins only: no txid, no amount.
+    FinalCoins {
+        build: &'static str,
+        confirmed: u32,
+        is_verified: u32,
+        is_unverified: u32,
+        frozen: u32,
+    },
+    /// The InstantLock of one of the wallet's own transactions was verified in this run, so long
+    /// after the unlock (TECH-finality-journal). No txid.
+    OwnIslockVerified {
+        since_unlock_s: u64,
+    },
+    /// At the unlock: how many of the wallet's InstantLocks were kept from before (BUG-173), each
+    /// read «Confirmed · checking» until verified again (TECH-finality-journal).
+    KeptIslocks {
+        count: u32,
+    },
     /// Whether the open wallet's phrase and seed are locked to RAM, out of the page file
     /// (SEC-5, `evolite-memlock`): once a run; when not, why (`quota` or `other`).
     Memlock {
@@ -342,10 +374,12 @@ impl Record {
                 coinjoin,
                 moved,
             } => {
+                // Sums rough (BUG-216): an exact one finds the wallet's coins on the chain.
                 let mut fields = json!({
                     "k": "coins", "when": when,
-                    "bip44": [bip44.0, bip44.1], "bip32": [bip32.0, bip32.1],
-                    "dashpay": [dashpay.0, dashpay.1], "coinjoin": [coinjoin.0, coinjoin.1],
+                    "bip44": [bip44.0, rough(bip44.1 as i64)], "bip32": [bip32.0, rough(bip32.1 as i64)],
+                    "dashpay": [dashpay.0, rough(dashpay.1 as i64)],
+                    "coinjoin": [coinjoin.0, rough(coinjoin.1 as i64)],
                 });
                 if let Some(moved) = moved {
                     fields["moved"] = (*moved).into();
@@ -375,10 +409,25 @@ impl Record {
                 reason,
                 held,
             } => json!({
+                // The balance rough (BUG-216); the price itself is a fee.
                 "k": "price", "what": what, "declared": declared, "actual": actual,
-                "enough": enough, "reason": reason, "held": held,
+                "enough": enough, "reason": reason, "held": (*held).map(rough),
             }),
             Record::SyncStale { minutes } => json!({ "k": "sync_stale", "minutes": minutes }),
+            Record::FinalCoins {
+                build,
+                confirmed,
+                is_verified,
+                is_unverified,
+                frozen,
+            } => json!({
+                "k": "final_coins", "build": build, "confirmed": confirmed,
+                "is_verified": is_verified, "is_unverified": is_unverified, "frozen": frozen,
+            }),
+            Record::OwnIslockVerified { since_unlock_s } => {
+                json!({"k": "own_islock_verified", "since_unlock_s": since_unlock_s})
+            }
+            Record::KeptIslocks { count } => json!({"k": "kept_islocks", "count": count}),
             Record::Memlock { ok, error } => {
                 if *ok {
                     json!({"k": "memlock", "ok": true})
@@ -422,7 +471,10 @@ impl Record {
                 locked,
                 credited,
             } => json!({
-                "k": "address_fund", "proof": proof, "locked": locked, "credited": credited,
+                // The amounts rough (BUG-216); what Platform kept, a fee, exact.
+                "k": "address_fund", "proof": proof, "locked": rough(*locked),
+                "credited": (*credited).map(rough),
+                "kept": (*credited).map(|c| locked.saturating_sub(c)),
             }),
             Record::TokenSearchStage {
                 stage,
@@ -1013,10 +1065,120 @@ mod tests {
             .map(|k| k.as_str())
             .collect();
         keys.sort_unstable();
-        assert_eq!(keys, ["credited", "k", "locked", "proof", "t"], "{line}");
+        assert_eq!(
+            keys,
+            ["credited", "k", "kept", "locked", "proof", "t"],
+            "{line}"
+        );
         assert_eq!(value["k"], "address_fund");
         assert_eq!(value["proof"], "chain");
-        assert_eq!(value["credited"], 97_064);
+        // BUG-216: the amounts rough, what Platform kept (a fee) exact.
+        assert_eq!(value["locked"], 110_000);
+        assert_eq!(value["credited"], 97_000);
+        assert_eq!(value["kept"], 14_936);
+        assert!(
+            !line.contains("97064") && !line.contains("112000"),
+            "{line}"
+        );
+    }
+
+    /// TECH-finality-journal: the three lines of the coins' finality, each its own kind with
+    /// its counts and nothing else — no txid, no amount.
+    #[test]
+    fn the_finality_lines_are_counts_only() {
+        let lines = [
+            (
+                Record::FinalCoins {
+                    build: "asset_lock",
+                    confirmed: 4,
+                    is_verified: 1,
+                    is_unverified: 2,
+                    frozen: 2,
+                },
+                vec![
+                    "build",
+                    "confirmed",
+                    "frozen",
+                    "is_unverified",
+                    "is_verified",
+                    "k",
+                    "t",
+                ],
+                "final_coins",
+            ),
+            (
+                Record::OwnIslockVerified { since_unlock_s: 31 },
+                vec!["k", "since_unlock_s", "t"],
+                "own_islock_verified",
+            ),
+            (
+                Record::KeptIslocks { count: 3 },
+                vec!["count", "k", "t"],
+                "kept_islocks",
+            ),
+        ];
+        for (record, keys, kind) in lines {
+            let line = record.line(UNIX_EPOCH);
+            let value: serde_json::Value = serde_json::from_str(&line).unwrap();
+            let mut found: Vec<&str> = value
+                .as_object()
+                .unwrap()
+                .keys()
+                .map(|k| k.as_str())
+                .collect();
+            found.sort_unstable();
+            assert_eq!(found, keys, "{line}");
+            assert_eq!(value["k"], kind);
+            // Every value but the kind, the build and the time is a small count.
+            for (key, v) in value.as_object().unwrap() {
+                if !["k", "t", "build"].contains(&key.as_str()) {
+                    assert!(v.as_u64().is_some_and(|n| n < 1_000), "{key}: {line}");
+                }
+            }
+        }
+    }
+
+    /// BUG-216: two significant digits, either sign; small amounts as they are.
+    #[test]
+    fn an_amount_in_the_journal_is_rough() {
+        assert_eq!(rough(125_342_101), 120_000_000);
+        assert_eq!(rough(-2_875), -2_800);
+        assert_eq!(rough(99), 99);
+        assert_eq!(rough(0), 0);
+        assert_eq!(rough(i64::MAX) / 10_i64.pow(17), 92);
+    }
+
+    /// BUG-216: no exact balance or sum of coins in the journal.
+    #[test]
+    fn coins_and_a_price_have_no_exact_sums() {
+        let coins = Record::Coins {
+            when: "unlock",
+            bip44: (3, 125_342_101),
+            bip32: (0, 0),
+            dashpay: (1, 7_654_321),
+            coinjoin: (0, 0),
+            moved: None,
+        }
+        .line(UNIX_EPOCH);
+        assert!(
+            coins.contains("[3,120000000]") && coins.contains("[1,7600000]"),
+            "{coins}"
+        );
+        assert!(!coins.contains("125342101") && !coins.contains("7654321"));
+        let price = Record::Price {
+            what: "send",
+            declared: 226,
+            actual: Some(226),
+            enough: false,
+            reason: "not_enough",
+            held: Some(84_120_333),
+        }
+        .line(UNIX_EPOCH);
+        assert!(price.contains(r#""held":84000000"#), "{price}");
+        assert!(
+            price.contains(r#""declared":226"#),
+            "the fee as it is: {price}"
+        );
     }
 
     /// SEC-5: the memlock line is whether it held and, when not, why; no address.

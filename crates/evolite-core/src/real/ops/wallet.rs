@@ -360,6 +360,7 @@ impl Real {
         self.open_notes(seed_bytes(&seed), &meta.wallet_id).await;
         // SYNC-0: the sync-speed lines count from here.
         crate::diag::unlocked();
+        self.note_unlock_locks();
         self.seed_contact_names();
         self.unlocked = Some(Unlocked {
             id,
@@ -486,6 +487,7 @@ impl Real {
         self.open_notes(seed_bytes(&seed), &meta.wallet_id).await;
         // SYNC-0: the sync-speed lines count from here.
         crate::diag::unlocked();
+        self.note_unlock_locks();
         self.seed_contact_names();
         self.unlocked = Some(Unlocked {
             id,

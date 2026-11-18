@@ -368,13 +368,31 @@ impl Chain {
     ) -> T {
         let frozen = {
             let mut state = wallet.state_mut().await;
+            let (confirmed, is_verified, is_unverified) =
+                crate::convert::finality_counts(&state.core_wallet, |txid| {
+                    self.instant_lock_verified(txid)
+                });
             let mut held = self.frozen.lock().unwrap_or_else(|e| e.into_inner());
-            crate::convert::freeze_unfinal(
+            let frozen = crate::convert::freeze_unfinal(
                 &mut state.core_wallet,
                 |txid| self.instant_lock_verified(txid),
                 keep_trusted,
                 &mut held,
-            )
+            );
+            // TECH-finality-journal: counts of coins only. Only a payment to a contact keeps our
+            // own change; every other build is an asset lock.
+            crate::diag::record(crate::diag::Record::FinalCoins {
+                build: if keep_trusted {
+                    "contact_pay"
+                } else {
+                    "asset_lock"
+                },
+                confirmed,
+                is_verified,
+                is_unverified,
+                frozen: frozen.len() as u32,
+            });
+            frozen
         };
         // Thawed however the build ends: a panic in it or its future dropped (a timeout, a
         // cancelled task) thaws from the guard's drop (review r1 Should 1).
