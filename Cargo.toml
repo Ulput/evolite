@@ -95,6 +95,10 @@ debug = false
 # times slower. Only third-party crates are affected; the workspace's own crates keep fast
 # rebuilds.
 opt-level = 2
+# TECH-vendor-incremental: cargo builds path dependencies (vendor/rust-dashcore through [patch])
+# incrementally, and sccache caches no incremental call; without it dash-spv, key-wallet and
+# dashcore come from the cache in every build dir. `profile.test` inherits this.
+incremental = false
 
 # The QA build (customer, 2026-11-16): release optimisation, but our own crates rebuild
 # incrementally and in many codegen units, so a batch's QA build takes minutes, not most of an
@@ -107,3 +111,5 @@ codegen-units = 256
 
 [profile.qa.package."*"]
 codegen-units = 16
+# As in dev: the vendored crates from sccache (TECH-vendor-incremental).
+incremental = false
