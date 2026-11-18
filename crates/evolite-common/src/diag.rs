@@ -43,6 +43,9 @@ pub struct Build {
     /// "Own node" is set: whether, never which.
     pub own_node: bool,
     pub demo: bool,
+    /// What `spv-network.log` holds (dev-tools builds): `network`, dash-spv's peer lines;
+    /// `custom`, the filter `EVOLITE_SPV_LOG` gave (BUG-221 trace); `none` in other builds.
+    pub spv_log: &'static str,
 }
 
 /// An amount in duffs as the journal writes it (BUG-216): two significant digits, the rest
@@ -307,7 +310,7 @@ impl Record {
                 "k": "start", "version": b.version, "commit": b.commit, "profile": b.profile,
                 "os": b.os, "osVersion": b.os_version, "language": b.language,
                 "theme": b.theme, "scale": b.scale, "network": b.network,
-                "ownNode": b.own_node, "demo": b.demo,
+                "ownNode": b.own_node, "demo": b.demo, "spvLog": b.spv_log,
             }),
             Record::Sync {
                 stage,

@@ -39,6 +39,11 @@ pub fn start(dir: &Path) {
 #[cfg(feature = "dev-tools")]
 pub const SPV_NETWORK_LOG: &str = "spv-network.log";
 
+/// dev-tools only: the variable whose filter replaces the peer lines of [`SPV_NETWORK_LOG`]
+/// (BUG-221 trace; the architect's recipe, `docs/tasks/reviews/BUG-221-r1.md`).
+#[cfg(feature = "dev-tools")]
+pub const SPV_LOG: &str = "EVOLITE_SPV_LOG";
+
 /// dev-tools only (QA builds; SPV P0 r1 Should 1): dash-spv's own lines about its peers —
 /// `dash_spv::network` at info and above, a ban and its reason among them («Manually banning
 /// peer … invalid block headers: …») — appended to [`SPV_NETWORK_LOG`] in the journal's folder
@@ -62,8 +67,12 @@ fn spv_network_subscriber(dir: &Path) -> Option<impl tracing::Subscriber + Send 
         .append(true)
         .open(dir.join(SPV_NETWORK_LOG))
         .ok()?;
-    let only_network = tracing_subscriber::filter::Targets::new()
-        .with_target("dash_spv::network", tracing::Level::INFO);
+    // BUG-221: `EVOLITE_SPV_LOG`'s filter when it is set (one QA run's trace), else the
+    // peer lines.
+    let only_network = custom_spv_filter().unwrap_or_else(|| {
+        tracing_subscriber::filter::Targets::new()
+            .with_target("dash_spv::network", tracing::Level::INFO)
+    });
     let lines = tracing_subscriber::fmt::layer()
         .with_ansi(false)
         .with_writer(std::sync::Mutex::new(file));
@@ -154,7 +163,28 @@ pub fn build(
         },
         own_node,
         demo,
+        spv_log: spv_log_kind(),
     }
+}
+
+/// What `spv-network.log` holds, for the journal's start line ([`Build::spv_log`]).
+fn spv_log_kind() -> &'static str {
+    #[cfg(feature = "dev-tools")]
+    return if custom_spv_filter().is_some() {
+        "custom"
+    } else {
+        "network"
+    };
+    #[cfg(not(feature = "dev-tools"))]
+    "none"
+}
+
+/// dev-tools only (BUG-221 trace): the `tracing` filter `EVOLITE_SPV_LOG` gives, in the
+/// `target=level,…` form (e.g. `dash_spv=debug,key_wallet_manager=debug`); `None` when it is
+/// not set or does not parse.
+#[cfg(feature = "dev-tools")]
+fn custom_spv_filter() -> Option<tracing_subscriber::filter::Targets> {
+    std::env::var(SPV_LOG).ok()?.parse().ok()
 }
 
 /// A screen's name for the journal.

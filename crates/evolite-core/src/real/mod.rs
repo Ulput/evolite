@@ -644,8 +644,9 @@ struct OwedRescan {
     lost: Vec<String>,
     /// The contacts' receiving accounts it is for (BUG-150, `contact-rescans.json`).
     contacts: Vec<String>,
-    /// For the journal: when the one for contacts was asked and how many history records there
-    /// were then (BUG-150).
+    /// When the one for contacts was asked and how many DashPay coins the wallet had then
+    /// (BUG-150; BUG-221: the coins, not history lines — a found coin of a known transaction
+    /// adds no line).
     contacts_asked: Option<(std::time::Instant, usize)>,
 }
 
@@ -682,13 +683,13 @@ impl OwedRescan {
         wallet: WalletId,
         synced: u32,
         accounts: Vec<String>,
-        records: usize,
+        coins: usize,
     ) {
         Self::add(owed, wallet, synced, Vec::new(), Vec::new());
         if let Some(o) = owed.as_mut() {
             o.contacts.extend(accounts);
             o.contacts_asked
-                .get_or_insert((std::time::Instant::now(), records));
+                .get_or_insert((std::time::Instant::now(), coins));
         }
     }
 
@@ -700,10 +701,22 @@ impl OwedRescan {
     }
 
     /// The owed rescan, taken, when `wallet`'s filters are at `synced` and that is where it
-    /// was asked from or above.
+    /// was asked to end ([`rescan_end`]) or above.
     fn finished(owed: &mut Option<Self>, wallet: &WalletId, synced: u32) -> Option<Self> {
         owed.take_if(|o| o.wallet == *wallet && synced >= o.up_to)
     }
+}
+
+/// BUG-221 (live, qa-f27): where a rescan asked now ends — the headers' tip, or the wallet's
+/// own height if that is higher. Not the wallet's height alone: adding a contact's account
+/// rewinds it to the birth by itself (rust-dashcore#649), so at the ask it may already be far
+/// below the tip, and «back where it was» was then true on the next snapshot, with the scan
+/// still ahead (`rescan_done` with `secs` 0 and `found` 0, the balance said final).
+fn rescan_end(synced: u32, status: &sync::SyncStatus) -> u32 {
+    status
+        .headers
+        .as_ref()
+        .map_or(synced, |h| synced.max(h.height))
 }
 
 /// What one pass of the identity search means for it (BUG-9).

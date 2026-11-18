@@ -8,13 +8,13 @@ impl Real {
     /// the sync is done, and only below the lowest height asked in this run, so it never
     /// repeats itself; the journal says why (`lost_block` or `stale`). What it is for — the
     /// `stale` lines of the mempool file, the `lost` ones of `mined.json` — is owed until the
-    /// wallet's filters are back at `synced`, where they stand now ([`OwedRescan`]).
+    /// wallet's filters are at `up_to`, the tip when it was asked (`rescan_end`, [`OwedRescan`]).
     pub(in crate::real) async fn rescan_from(
         &mut self,
         id: WalletId,
         from: u32,
         why: &'static str,
-        synced: u32,
+        up_to: u32,
         stale: Vec<String>,
         lost: Vec<String>,
     ) {
@@ -37,21 +37,22 @@ impl Real {
             Ok(true)
         );
         if asked {
-            OwedRescan::add(&mut self.rescan_owed, id, synced, stale, lost);
+            OwedRescan::add(&mut self.rescan_owed, id, up_to, stale, lost);
         }
     }
 
     /// BUG-150: the filters scanned again from `from` (where the contacts begin, SYNC-7) for the contacts'
-    /// receiving `accounts` built after the scan went past their coins. Asked even after another
+    /// receiving `accounts` built after the scan went past their coins. Owed until the wallet's
+    /// filters are at `up_to`, the tip when it was asked (`rescan_end`). Asked even after another
     /// rescan in this run (that one did not know these accounts), but not while one for them is
     /// under way; noted done in `contact-rescans.json` only when it has run to its end.
     pub(in crate::real) async fn rescan_for_contacts(
         &mut self,
         id: WalletId,
         from: u32,
-        synced: u32,
+        up_to: u32,
         accounts: Vec<String>,
-        records: usize,
+        coins: usize,
     ) {
         if accounts.is_empty() || self.chain.status().phase != sync::Phase::Synced {
             return;
@@ -60,6 +61,12 @@ impl Real {
             return;
         };
         self.rescanned_from = Some(self.rescanned_from.map_or(from, |asked| asked.min(from)));
+        // BUG-221: only when it is asked — not on every snapshot of the sync before it (QA saw
+        // 29 lines in 40 s).
+        crate::diag::record(crate::diag::Record::DashpayRescan {
+            accounts: accounts.len() as u32,
+            from_height: from,
+        });
         crate::diag::record(crate::diag::Record::Answer {
             what: "rescan",
             outcome: "contact_account",
@@ -70,7 +77,7 @@ impl Real {
             Ok(true)
         );
         if asked {
-            OwedRescan::add_contacts(&mut self.rescan_owed, id, synced, accounts, records);
+            OwedRescan::add_contacts(&mut self.rescan_owed, id, up_to, accounts, coins);
         }
     }
 

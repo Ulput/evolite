@@ -57,6 +57,49 @@ fn a_rescan_for_contact_accounts_is_noted_only_when_it_has_run_to_its_end() {
     );
 }
 
+/// BUG-221 (live, qa-f27): a contact's account added while the wallet's filters are below where
+/// its rescan starts — the add rewinds them to the birth by itself — is owed until they reach
+/// the headers' tip, not the wallet's height at the ask: that one was «reached» on the next
+/// snapshot, with the scan still ahead and the balance said final.
+#[test]
+fn a_contact_rescan_asked_with_the_filters_below_its_start_waits_for_the_tip() {
+    let a: WalletId = [0xa; 32];
+    let tip = 1_593_887;
+    let status = sync::SyncStatus {
+        phase: sync::Phase::Synced,
+        headers: Some(sync::Stage {
+            height: tip,
+            target: tip,
+            done: true,
+        }),
+        ..Default::default()
+    };
+    // The account's add left the wallet at the birth (1_585_000), below the start (1_585_217).
+    let rewound = 1_584_999;
+    let up_to = rescan_end(rewound, &status);
+    assert_eq!(up_to, tip, "the tip, not the wallet's height");
+    let mut owed = None;
+    let k = vec!["11-22-0".to_owned()];
+    OwedRescan::add_contacts(&mut owed, a, up_to, k.clone(), 0);
+    assert_eq!(
+        OwedRescan::finished(&mut owed, &a, rewound),
+        None,
+        "not begun"
+    );
+    assert_eq!(
+        OwedRescan::finished(&mut owed, &a, 1_590_762),
+        None,
+        "past the start, short of the tip"
+    );
+    assert_eq!(OwedRescan::contacts_under_way(&owed, &a), k.as_slice());
+    let done = OwedRescan::finished(&mut owed, &a, tip).expect("at the tip");
+    assert_eq!(done.contacts, k);
+    // A wallet already higher than the headers (they lag a block): its own height.
+    assert_eq!(rescan_end(tip + 1, &status), tip + 1);
+    // No headers yet: the wallet's height (no rescan is asked before the sync is done).
+    assert_eq!(rescan_end(rewound, &sync::SyncStatus::default()), rewound);
+}
+
 /// BUG-13: each DashPay pass makes the snapshot again, once.
 #[test]
 fn a_new_dashpay_pass_is_noticed_once() {

@@ -1033,6 +1033,11 @@ mod tests {
         const NOT_AMOUNTS: &[(&str, usize, &str)] = &[
             ("evolite-ui/src/format.rs", 2, "the one rule itself"),
             (
+                "evolite-ui/src/diagnostics.rs",
+                1,
+                "EVOLITE_SPV_LOG's tracing filter (dev-tools, BUG-221 trace), not a number",
+            ),
+            (
                 "evolite-api/src/tokens.rs",
                 1,
                 "a token's units from «1250.5», fed only by format::typed_parts",

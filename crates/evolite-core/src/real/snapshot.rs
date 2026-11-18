@@ -1315,6 +1315,15 @@ impl Real {
         convert::count_contact_payments(history, &keys, me, contacts);
     }
 
+    /// How many coins the wallet's DashPay receiving accounts hold (BUG-221: what a contacts'
+    /// rescan found).
+    async fn dashpay_coins(&self, id: &WalletId) -> usize {
+        match self.chain.wallet(id).await {
+            Some(wallet) => convert::coin_kinds(&wallet.state().await.core_wallet)[2].0 as usize,
+            None => 0,
+        }
+    }
+
     /// Rescans owed for payments that lost their block, and the lines waiting on one.
     async fn settle_rescans(
         &mut self,
@@ -1333,11 +1342,15 @@ impl Real {
         if let Some(done) = OwedRescan::finished(&mut self.rescan_owed, &id, synced) {
             self.mempool.rescanned(&done.stale);
             self.mined.rescanned(&done.lost);
-            self.contact_scans.done(&done.contacts);
-            if let Some((asked, records)) = done.contacts_asked {
+            if let Some((asked, coins)) = done.contacts_asked {
+                // BUG-221: found = DashPay coins it added; none, and it is asked once more after
+                // the next start (`ContactScans::finished`).
+                let now = self.dashpay_coins(&id).await;
+                let found = now.saturating_sub(coins);
+                self.contact_scans.finished(&done.contacts, found > 0);
                 crate::diag::record(crate::diag::Record::RescanDone {
                     accounts: done.contacts.len() as u32,
-                    found: history.len().saturating_sub(records) as u32,
+                    found: found as u32,
                     secs: asked.elapsed().as_secs(),
                 });
                 // BUG-221: the coins by kind once it is done, counts only (QA reads dashpay).
@@ -1348,13 +1361,16 @@ impl Real {
             }
         }
         // Read once, before a rescan is asked: a rescan asked below is owed in this snapshot.
-        let sync_done = self.chain.status().phase == sync::Phase::Synced;
+        let status = self.chain.status();
+        let sync_done = status.phase == sync::Phase::Synced;
+        // BUG-221: owed until the wallet's filters are at the tip, not at its height now.
+        let up_to = super::rescan_end(synced, &status);
         if let Some(lost) = lost_block {
             let from = lost.from.saturating_sub(1);
             let why = "lost_block";
             turn::timed(
                 "rescan_lost",
-                self.rescan_from(id, from, why, synced, Vec::new(), lost.txids),
+                self.rescan_from(id, from, why, up_to, Vec::new(), lost.txids),
             )
             .await;
         } else {
@@ -1362,7 +1378,7 @@ impl Real {
             if !stale.is_empty() {
                 turn::timed(
                     "rescan_stale",
-                    self.rescan_from(id, birth_height, "stale", synced, stale, Vec::new()),
+                    self.rescan_from(id, birth_height, "stale", up_to, stale, Vec::new()),
                 )
                 .await;
             }
@@ -1381,13 +1397,10 @@ impl Real {
             // SYNC-7: from where the owed contacts begin, not the birth (35 s on testnet's
             // qa wallet, and cut short by a close): the birth only for one not established.
             let from = rescan_start(contact_accounts, &owed, birth_height);
-            crate::diag::record(crate::diag::Record::DashpayRescan {
-                accounts: owed.len() as u32,
-                from_height: from,
-            });
+            let coins = self.dashpay_coins(&id).await;
             turn::timed(
                 "rescan_contacts",
-                self.rescan_for_contacts(id, from, synced, owed, history.len()),
+                self.rescan_for_contacts(id, from, up_to, owed, coins),
             )
             .await;
         }
