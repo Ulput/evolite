@@ -129,6 +129,7 @@ pub fn sync_info(s: &SyncStatus, wallet: bool) -> SyncInfo {
         // The core notes when the tip grew.
         tip_at: None,
         stale_minutes: None,
+        contacts_rescan: false,
     }
 }
 

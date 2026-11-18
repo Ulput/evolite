@@ -70,6 +70,7 @@ pub fn overview(
         unknown,
         network,
         fund.may_start(wallet),
+        cx.snap.sync.contacts_rescan,
     ) {
         fund.open();
     }
@@ -136,8 +137,10 @@ fn total_block(
         }
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 10.0;
-            // While the sync runs the wallet does not know all its coins: nothing is final.
-            if !synced {
+            // While the sync runs the wallet does not know all its coins: nothing is final. Nor
+            // while the contacts' accounts are rescanned (BUG-221): their coins may still come,
+            // and a short balance with no word read as lost money.
+            if !synced || cx.snap.sync.contacts_rescan {
                 chip(ui, a, "pending", tr!("Syncing"), false).on_hover_text(
                     crate::i18n::t(tr!("The balance may be incomplete until the sync finishes"))
                         .into_owned(),
@@ -186,6 +189,7 @@ fn balance_cards(
     unknown: bool,
     network: evolite_api::Network,
     may_fund: bool,
+    rescan: bool,
 ) -> bool {
     let mut fund = false;
     // «Top up from Core ›» only where the network matrix has it (FEAT-0037: not on mainnet).
@@ -208,6 +212,8 @@ fn balance_cards(
     );
     // Not checked in this sync: when it was, or that it is not known yet (BUG-77).
     let core_line = match &as_of {
+        // BUG-221: the contacts' coins may still come while their accounts are rescanned.
+        _ if rescan => format!("{unit} · {}", tr!("may be incomplete")),
         Some(line) if !unknown => format!("{unit} · {line}"),
         Some(line) => line.clone(),
         None => addresses,

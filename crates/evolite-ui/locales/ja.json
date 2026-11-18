@@ -1163,6 +1163,7 @@
   "The balance is not checked yet — you can send after the check.": "残高はまだ確認されていません — 確認後に送れます。",
   "The balance is not known yet: wait for it.": "残高はまだわかりません: 読み込まれるまでお待ちください。",
   "The balance may be incomplete until the sync finishes": "同期が終わるまで、残高が不完全な場合があります",
+  "may be incomplete": "不完全な可能性があります",
   "The beat every jam starts with. A gift for evolite's launch.": "すべての jam が始まるビート。evolite のリリース記念ギフト。",
   "The check has ended: start it again": "確認は終了しました：もう一度始めてください",
   "The checksum does not match: check the order and spelling of the words": "チェックサムが一致しません：単語の順序と綴りを確認してください",

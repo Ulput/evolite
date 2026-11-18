@@ -165,6 +165,12 @@ pub enum Record {
         why: &'static str,
         docs: u32,
     },
+    /// A rescan asked for the contacts' receiving accounts (BUG-221, SYNC-7): for how many, and
+    /// from which height (where the earliest of their contacts begins, else the birth).
+    DashpayRescan {
+        accounts: u32,
+        from_height: u32,
+    },
     /// A rescan from the birth for the contacts' receiving accounts ran to its end (BUG-150): for
     /// how many accounts, how many history records it brought, how long it took.
     RescanDone {
@@ -349,6 +355,10 @@ impl Record {
             Record::TokenHistory { side, why, docs } => {
                 json!({"k": "token_history", "side": side, "why": why, "docs": docs})
             }
+            Record::DashpayRescan {
+                accounts,
+                from_height,
+            } => json!({"k": "dashpay_rescan", "accounts": accounts, "from_height": from_height}),
             Record::RescanDone {
                 accounts,
                 found,

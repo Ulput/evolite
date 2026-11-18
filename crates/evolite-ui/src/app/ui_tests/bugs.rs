@@ -1351,3 +1351,35 @@ fn the_unlock_warning_in_arabic_reads_from_its_first_phrase() {
         "the second phrase's end last: {rows:?}"
     );
 }
+
+/// BUG-221: while the contacts' accounts are rescanned the sync says «Done», but their coins may
+/// still come: Overview says the balance may be incomplete, not a final-looking total.
+#[test]
+fn the_balance_says_it_may_be_incomplete_during_a_contacts_rescan() {
+    let (_turn, mut kit) = demo_app("overview", "en");
+    let words = "The balance may be incomplete until the sync finishes";
+    wait_for(&mut kit, "Overview synced", |k| {
+        k.state()
+            .snapshot
+            .as_ref()
+            .is_some_and(|s| s.sync.stage == evolite_api::SyncStage::Done)
+            && !has_words(k, words)
+    });
+    show_edited(
+        &mut kit,
+        1,
+        "a contacts' rescan",
+        |app| {
+            if let Some(s) = app.snapshot.as_mut() {
+                s.sync.contacts_rescan = true;
+            }
+        },
+        |k| has_words(k, words),
+    );
+    // QA (bug221-1): no «Final» beside the total, and the Core card says it too.
+    assert!(!has_text(&kit, "Final"), "not final during the rescan");
+    assert!(
+        has_words(&kit, "· may be incomplete"),
+        "the Core card's line"
+    );
+}

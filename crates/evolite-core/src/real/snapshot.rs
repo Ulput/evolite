@@ -21,6 +21,66 @@ fn lock_names(c: &IdentityChoice, shown: &str) -> bool {
     }
 }
 
+/// A day of blocks before the contacts' own heights (BUG-221 r1 Should): `coreHeightCreatedAt`
+/// is written by the sender's client, and our outgoing request may come from another wallet on
+/// the same phrase that wrote one too high. It costs seconds.
+const RESCAN_MARGIN: u32 = 576;
+
+/// SYNC-7: where the contacts' rescan starts: [`RESCAN_MARGIN`] before the lowest height an
+/// `owed` account's contact begins at, never below the wallet's `birth`; the birth when one of
+/// them has no such height.
+fn rescan_start(accounts: &[(String, Option<u32>)], owed: &[String], birth: u32) -> u32 {
+    owed.iter()
+        .map(|key| {
+            accounts
+                .iter()
+                .find(|(k, _)| k == key)
+                .and_then(|(_, begins)| *begins)
+        })
+        .try_fold(u32::MAX, |low, begins| begins.map(|b| low.min(b)))
+        .map_or(birth, |low| low.saturating_sub(RESCAN_MARGIN).max(birth))
+}
+
+#[cfg(test)]
+mod rescan_start_tests {
+    use super::rescan_start;
+
+    /// SYNC-7: the rescan for owed contacts starts a day of blocks before the earliest of them
+    /// begins (r1 Should: a height written too high by the sender's client), never below the
+    /// birth; one without a height (not established) falls back to the birth; an
+    /// account not owed does not lower it.
+    #[test]
+    fn the_contacts_rescan_starts_where_they_begin() {
+        let accounts = vec![
+            ("a".to_owned(), Some(1_590_000)),
+            ("b".to_owned(), Some(1_591_500)),
+            ("old".to_owned(), Some(900_000)),
+            ("none".to_owned(), None),
+        ];
+        let owed = |keys: &[&str]| keys.iter().map(|k| (*k).to_owned()).collect::<Vec<_>>();
+        assert_eq!(
+            rescan_start(&accounts, &owed(&["a", "b"]), 975_000),
+            1_590_000 - 576
+        );
+        assert_eq!(
+            rescan_start(&accounts, &owed(&["b"]), 975_000),
+            1_591_500 - 576
+        );
+        // BUG-221 r1 Should: a day before, but still never below the birth.
+        assert_eq!(rescan_start(&accounts, &owed(&["a"]), 1_589_800), 1_589_800);
+        assert_eq!(
+            rescan_start(&accounts, &owed(&["old"]), 975_000),
+            975_000,
+            "not below the birth"
+        );
+        assert_eq!(
+            rescan_start(&accounts, &owed(&["a", "none"]), 975_000),
+            975_000
+        );
+        assert_eq!(rescan_start(&accounts, &owed(&["gone"]), 975_000), 975_000);
+    }
+}
+
 /// The identity the wallet works as now (base58): the one a journal entry is written for (FR-5).
 pub(in crate::real) async fn acting_identity(wallet: &PlatformWallet) -> Option<String> {
     let state = wallet.state().await;
@@ -174,7 +234,8 @@ struct WalletRead {
     /// What of the balance no payment can sign for yet (BUG-142).
     unsignable: Duffs,
     /// The contacts' receiving accounts, by [`contact_scans::ContactScans::key`] (BUG-150).
-    contact_accounts: Vec<String>,
+    /// Each DashPay receiving account, with the height its contact begins at (SYNC-7).
+    contact_accounts: Vec<(String, Option<u32>)>,
     history: Vec<Activity>,
     shown: Option<ShownIdentity>,
     platform: Option<(String, u64)>,
@@ -274,6 +335,8 @@ impl Real {
         if rescanning && status.phase != sync::Phase::Error {
             shown.stage = SyncStage::Done;
             shown.progress = None;
+            // BUG-221: «Done», and the balance said to be possibly incomplete until it ends.
+            shown.contacts_rescan = true;
         }
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -782,11 +845,28 @@ impl Real {
                 .dashpay_receival_accounts
                 .keys()
                 .map(|k| {
-                    contact_scans::ContactScans::key(
+                    let key = contact_scans::ContactScans::key(
                         &k.user_identity_id,
                         &k.friend_identity_id,
                         k.index,
-                    )
+                    );
+                    // SYNC-7: the contact begins at the earlier of its two requests'
+                    // `coreHeightCreatedAt` (platform-wallet's own checkpoint): nothing of it
+                    // is in a block before that.
+                    let begins = state
+                        .identity_manager
+                        .managed_identity(&Identifier::from(k.user_identity_id))
+                        .and_then(|m| {
+                            m.dashpay()
+                                .established_contacts()
+                                .get(&Identifier::from(k.friend_identity_id))
+                        })
+                        .map(|e| {
+                            e.outgoing_request
+                                .core_height_created_at
+                                .min(e.incoming_request.core_height_created_at)
+                        });
+                    (key, begins)
                 })
                 .collect(),
             history,
@@ -1212,7 +1292,7 @@ impl Real {
         birth_height: u32,
         synced: u32,
         lost_block: Option<mined::Lost>,
-        contact_accounts: &[String],
+        contact_accounts: &[(String, Option<u32>)],
         history: &mut Vec<Activity>,
     ) {
         // A payment long out of a block may have lost its block before this file knew it
@@ -1230,6 +1310,11 @@ impl Real {
                     found: history.len().saturating_sub(records) as u32,
                     secs: asked.elapsed().as_secs(),
                 });
+                // BUG-221: the coins by kind once it is done, counts only (QA reads dashpay).
+                if let Some(wallet) = self.chain.wallet(&id).await {
+                    let state = wallet.state().await;
+                    crate::diag::record(convert::coins_record("after_rescan", &state.core_wallet));
+                }
             }
         }
         // Read once, before a rescan is asked: a rescan asked below is owed in this snapshot.
@@ -1255,16 +1340,24 @@ impl Real {
         // BUG-150: a contact's receiving account built after the filters went past its coins: once
         // each, from the birth, not again while one for it is under way.
         let under_way = OwedRescan::contacts_under_way(&self.rescan_owed, &id).to_vec();
+        let keys: Vec<String> = contact_accounts.iter().map(|(k, _)| k.clone()).collect();
         let owed: Vec<String> = self
             .contact_scans
-            .owed(contact_accounts)
+            .owed(&keys)
             .into_iter()
             .filter(|a| !under_way.contains(a))
             .collect();
         if !owed.is_empty() {
+            // SYNC-7: from where the owed contacts begin, not the birth (35 s on testnet's
+            // qa wallet, and cut short by a close): the birth only for one not established.
+            let from = rescan_start(contact_accounts, &owed, birth_height);
+            crate::diag::record(crate::diag::Record::DashpayRescan {
+                accounts: owed.len() as u32,
+                from_height: from,
+            });
             turn::timed(
                 "rescan_contacts",
-                self.rescan_for_contacts(id, birth_height, synced, owed, history.len()),
+                self.rescan_for_contacts(id, from, synced, owed, history.len()),
             )
             .await;
         }

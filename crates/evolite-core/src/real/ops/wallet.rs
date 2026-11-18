@@ -41,7 +41,7 @@ impl Real {
         }
     }
 
-    /// BUG-150: the filters scanned again from `from` (the wallet's birth) for the contacts'
+    /// BUG-150: the filters scanned again from `from` (where the contacts begin, SYNC-7) for the contacts'
     /// receiving `accounts` built after the scan went past their coins. Asked even after another
     /// rescan in this run (that one did not know these accounts), but not while one for them is
     /// under way; noted done in `contact-rescans.json` only when it has run to its end.

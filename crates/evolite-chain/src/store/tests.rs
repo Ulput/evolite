@@ -1337,3 +1337,104 @@ fn pools_past_the_first_window_are_written_with_their_used_flags() {
     assert_eq!((index, used), (35, true));
     let _ = std::fs::remove_dir_all(db.parent().unwrap());
 }
+
+/// BUG-221 (the architect's p. 2): a payment between two identities of one wallet, recorded
+/// by its BIP44 input before the receiving DashPay account was registered; the account comes
+/// later (the DashPay sync), and the block is processed again (the contacts' rescan,
+/// BUG-150). The coin on the new account must be credited, chain-locked block or not.
+#[tokio::test]
+async fn a_coin_to_an_account_registered_after_its_tx_is_credited_on_the_rescan() {
+    use key_wallet::dashcore::{BlockHash, Transaction, TxIn, TxOut};
+    use key_wallet::managed_account::managed_account_trait::ManagedAccountTrait;
+    use key_wallet::transaction_checking::{
+        BlockInfo, TransactionContext, WalletTransactionChecker,
+    };
+    use key_wallet::wallet::ManagedWalletInfo;
+    use key_wallet::wallet::managed_wallet_info::wallet_info_interface::WalletInfoInterface;
+    let keys = crate::keys_of(
+        "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
+    )
+    .unwrap();
+    let contact = key_wallet::Account {
+        parent_wallet_id: None,
+        account_type: key_wallet::account::AccountType::DashpayReceivingFunds {
+            index: 0,
+            user_identity_id: [1; 32],
+            friend_identity_id: [2; 32],
+        },
+        network: key_wallet::Network::Testnet,
+        account_xpub: keys.accounts.coinjoin_accounts[&0].account_xpub,
+        is_watch_only: false,
+    };
+    let dashpay = key_wallet::managed_account::ManagedCoreFundsAccount::from_account(&contact);
+    let theirs = dashpay.managed_account_type().all_addresses()[0].clone();
+    for chainlocked in [false, true] {
+        let mut keys = keys.clone();
+        let mut info = ManagedWalletInfo::from_wallet(&keys, 0);
+        let own = info.monitored_addresses();
+        let block = |h: u32| {
+            let at = BlockInfo::new(h, BlockHash::from([h as u8; 32]), 0);
+            if chainlocked {
+                TransactionContext::InChainLockedBlock(at)
+            } else {
+                TransactionContext::InBlock(at)
+            }
+        };
+        let funding = Transaction {
+            version: 2,
+            lock_time: 0,
+            input: vec![TxIn {
+                previous_output: OutPoint::new(Txid::from([50; 32]), 0),
+                ..TxIn::default()
+            }],
+            output: vec![TxOut {
+                value: 1_000_000,
+                script_pubkey: own[0].script_pubkey(),
+            }],
+            special_transaction_payload: None,
+        };
+        // tx1: from our BIP44 coin, 10 000 to the other identity's DashPay address, change back.
+        let between = Transaction {
+            version: 2,
+            lock_time: 0,
+            input: vec![TxIn {
+                previous_output: OutPoint::new(funding.txid(), 0),
+                ..TxIn::default()
+            }],
+            output: vec![
+                TxOut {
+                    value: 10_000,
+                    script_pubkey: theirs.script_pubkey(),
+                },
+                TxOut {
+                    value: 980_000,
+                    script_pubkey: own[1].script_pubkey(),
+                },
+            ],
+            special_transaction_payload: None,
+        };
+        info.check_core_transaction(&funding, block(10), &mut keys, true, true)
+            .await;
+        info.check_core_transaction(&between, block(20), &mut keys, true, true)
+            .await;
+        info.accounts_mut()
+            .insert_funds_bearing_account(dashpay.clone())
+            .unwrap();
+        // The rescan: the block of tx1 again.
+        info.check_core_transaction(&between, block(20), &mut keys, true, true)
+            .await;
+        info.update_balance();
+        let on_dashpay: u64 = info
+            .accounts()
+            .dashpay_receival_accounts
+            .values()
+            .flat_map(|a| a.utxos.values())
+            .map(|u| u.value())
+            .sum();
+        assert_eq!(
+            (on_dashpay, info.balance().total()),
+            (10_000, 990_000),
+            "chainlocked {chainlocked}"
+        );
+    }
+}

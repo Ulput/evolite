@@ -1240,6 +1240,7 @@ mod tests {
             platform: Vec::new(),
             tip_at: None,
             stale_minutes: None,
+            contacts_rescan: false,
         }
     }
 

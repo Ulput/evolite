@@ -1188,6 +1188,7 @@
   "The balance is not checked yet — you can send after the check.": "لم يتم التحقق من الرصيد بعد — يمكنك الإرسال بعد التحقق.",
   "The balance is not known yet: wait for it.": "الرصيد غير معروف بعد: انتظر حتى يُقرأ.",
   "The balance may be incomplete until the sync finishes": "قد يكون الرصيد غير مكتمل حتى تنتهي المزامنة",
+  "may be incomplete": "قد يكون غير مكتمل",
   "The beat every jam starts with. A gift for evolite's launch.": "الإيقاع الذي يبدأ به كل جام. هدية بمناسبة إطلاق evolite.",
   "The check has ended: start it again": "انتهى التحقق: ابدأه من جديد",
   "The checksum does not match: check the order and spelling of the words": "المجموع الاختباري لا يتطابق: تحقق من ترتيب الكلمات وإملائها",

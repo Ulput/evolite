@@ -1163,6 +1163,7 @@
   "The balance is not checked yet — you can send after the check.": "余额尚未检查 —— 检查后即可发送。",
   "The balance is not known yet: wait for it.": "余额尚未知道：请等它读取完成。",
   "The balance may be incomplete until the sync finishes": "同步完成前，余额可能不完整",
+  "may be incomplete": "可能不完整",
   "The beat every jam starts with. A gift for evolite's launch.": "每首 jam 开头的节拍。evolite 发布的礼物。",
   "The check has ended: start it again": "检查已结束：请重新开始",
   "The checksum does not match: check the order and spelling of the words": "校验和不符：请检查词语的顺序和拼写",

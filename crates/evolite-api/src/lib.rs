@@ -597,6 +597,10 @@ pub struct SyncInfo {
     /// how long the tip has not grown here), when that is 30 or more: the card says «No new
     /// blocks» in place of «Synced», and over 60 a Core payment's review warns. `None`: fresh.
     pub stale_minutes: Option<u32>,
+    /// BUG-221: a rescan for the contacts' receiving accounts runs. The sync still says «Done»
+    /// (the architect: not «syncing» from the start again), but coins of contacts may still be
+    /// found: Overview says the balance may be incomplete.
+    pub contacts_rescan: bool,
 }
 
 /// A background read of Platform the wallet catches up with (BUG-137): the sync card's mark

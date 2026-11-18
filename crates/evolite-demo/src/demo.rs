@@ -128,6 +128,7 @@ pub fn synced() -> SyncInfo {
         // The tip came two and a half minutes ago (BUG-155: «updated …» in the tooltip).
         tip_at: Some(now() - 150),
         stale_minutes: None,
+        contacts_rescan: false,
     }
 }
 
@@ -1439,6 +1440,7 @@ pub fn staged_sync(elapsed: f32) -> SyncInfo {
         // The tip came two and a half minutes ago (BUG-155: «updated …» in the tooltip).
         tip_at: Some(now() - 150),
         stale_minutes: None,
+        contacts_rescan: false,
     }
 }
 

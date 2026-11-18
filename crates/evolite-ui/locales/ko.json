@@ -1163,6 +1163,7 @@
   "The balance is not checked yet — you can send after the check.": "잔액을 아직 확인하지 않았습니다 — 확인 후에 보낼 수 있습니다.",
   "The balance is not known yet: wait for it.": "잔액을 아직 모릅니다: 읽힐 때까지 기다려 주세요.",
   "The balance may be incomplete until the sync finishes": "동기화가 끝날 때까지 잔액이 완전하지 않을 수 있습니다",
+  "may be incomplete": "불완전할 수 있음",
   "The beat every jam starts with. A gift for evolite's launch.": "모든 jam이 시작되는 비트. evolite 출시 기념 선물.",
   "The check has ended: start it again": "확인이 끝났습니다: 다시 시작하세요",
   "The checksum does not match: check the order and spelling of the words": "체크섬이 맞지 않습니다: 단어의 순서와 철자를 확인하세요",

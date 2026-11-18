@@ -1178,6 +1178,7 @@
   "The balance is not checked yet — you can send after the check.": "Баланс ще не перевірено — надіслати можна після перевірки.",
   "The balance is not known yet: wait for it.": "Баланс ще невідомий: зачекайте, поки він прочитається.",
   "The balance may be incomplete until the sync finishes": "Баланс може бути неповним, доки триває синхронізація",
+  "may be incomplete": "може бути неповним",
   "The beat every jam starts with. A gift for evolite's launch.": "Ритм, з якого починається кожен джем. Подарунок до запуску evolite.",
   "The check has ended: start it again": "Перевірку завершено: почніть знову",
   "The checksum does not match: check the order and spelling of the words": "Контрольна сума не сходиться: перевірте порядок і написання слів",

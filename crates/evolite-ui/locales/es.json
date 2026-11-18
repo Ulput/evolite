@@ -1173,6 +1173,7 @@
   "The balance is not checked yet — you can send after the check.": "El saldo aún no está comprobado: podrás enviar después de la comprobación.",
   "The balance is not known yet: wait for it.": "El saldo aún no se conoce: espera a que se lea.",
   "The balance may be incomplete until the sync finishes": "El saldo puede estar incompleto hasta que termine la sincronización",
+  "may be incomplete": "puede estar incompleto",
   "The beat every jam starts with. A gift for evolite's launch.": "El ritmo con el que empieza cada jam. Un regalo por el lanzamiento de evolite.",
   "The check has ended: start it again": "La comprobación terminó: empiécela de nuevo",
   "The checksum does not match: check the order and spelling of the words": "La suma de control no coincide: revise el orden y la ortografía de las palabras",

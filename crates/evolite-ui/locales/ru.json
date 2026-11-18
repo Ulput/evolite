@@ -1129,6 +1129,7 @@
   "The amount must be more than zero.": "Сумма должна быть больше нуля.",
   "The asset lock is confirmed by InstantSend in seconds; if not, we wait for a ChainLock.": "Asset lock подтвердится InstantSend за секунды; если нет — дождёмся ChainLock.",
   "The balance may be incomplete until the sync finishes": "Баланс может быть неполным, пока идёт синхронизация",
+  "may be incomplete": "может быть неполным",
   "The beat every jam starts with. A gift for evolite's launch.": "Ритм, с которого начинается любой джем. Подарено на запуск evolite.",
   "The check has ended: start it again": "Проверка закончилась: начните её заново",
   "The checksum does not match: check the order and spelling of the words": "Контрольная сумма не сходится: проверьте порядок и написание слов",
