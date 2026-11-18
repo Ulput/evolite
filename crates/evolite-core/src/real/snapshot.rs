@@ -1419,7 +1419,10 @@ impl Real {
     /// anything. A send's note waiting for its line goes there first, off the loop's thread:
     /// binding it writes the file (AC-T9, review r1 should 2). Rare: once per send out of the
     /// pool.
-    async fn put_notes_on(&self, history: &mut [Activity]) -> Option<NotesError> {
+    pub(in crate::real) async fn put_notes_on(
+        &self,
+        history: &mut [Activity],
+    ) -> Option<NotesError> {
         let to_bind = self
             .notes
             .lock()
@@ -1448,6 +1451,7 @@ impl Real {
                 for line in history.iter_mut().filter(|a| !a.key.is_empty()) {
                     line.note = notes.get(&line.key).map(str::to_owned);
                     line.rate = notes.rate(&line.key);
+                    line.tax_transfer = notes.transfer(&line.key);
                 }
                 notes.trouble()
             }

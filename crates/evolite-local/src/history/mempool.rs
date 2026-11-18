@@ -212,6 +212,7 @@ mod tests {
             detail: None,
             note: None,
             rate: None,
+            tax_transfer: false,
         }
     }
 

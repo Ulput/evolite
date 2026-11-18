@@ -357,6 +357,10 @@ pub struct Activity {
     /// The rate at the time of the operation (FEAT-0008, R-4): kept beside its note, only on
     /// this computer; `None` for operations from before the rate was on, or with it off.
     pub rate: Option<FiatRate>,
+    /// FEAT-0012 (АРХ-1): the person marked it a move of their own money — «Transfer in» or
+    /// «Transfer out» for the CSV in place of «Income» or «Expense»
+    /// ([`Command::SetTaxTransfer`]). Kept beside its note, only on this computer.
+    pub tax_transfer: bool,
     /// What the operation's card says beyond the row (FEAT-0005); `None` where the core knows
     /// nothing more. Boxed: the snapshot clones every row each frame.
     pub detail: Option<Box<Detail>>,
@@ -2208,6 +2212,13 @@ pub enum Command {
         key: String,
         text: NoteText,
     },
+    /// Mark the operation `key` ([`Activity::key`]) a move of the person's own money, or not:
+    /// its tax category in the CSV (FEAT-0012). Kept beside its note, only on this computer,
+    /// encrypted; never sent anywhere. Answered with `Done { what: DoneWhat::TaxCategory }`.
+    SetTaxTransfer {
+        key: String,
+        transfer: bool,
+    },
     /// «Try again» on a file set aside (BUG-204): it goes back under its name and is read
     /// again; one that still does not read is set aside again. Answered with
     /// `Done { what: DoneWhat::LocalFile }` (an error while it is still set aside).
@@ -2594,6 +2605,8 @@ pub enum DoneWhat {
     Resync,
     Send,
     SendToken,
+    /// `SetTaxTransfer`: an operation's tax category was written (FEAT-0012).
+    TaxCategory,
     /// `TryFileAgain` / `StartFileOver`: a file set aside (BUG-204).
     LocalFile,
     ClaimToken,
@@ -2639,6 +2652,7 @@ impl DoneWhat {
             Self::Resync => "resync",
             Self::Send => "send",
             Self::SendToken => "send-token",
+            Self::TaxCategory => "tax-category",
             Self::LocalFile => "local-file",
             Self::ClaimToken => "claim-token",
             Self::BuyToken => "buy-token",

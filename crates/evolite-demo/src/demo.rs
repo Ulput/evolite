@@ -265,6 +265,7 @@ pub fn demo_wallet(t: Timestamp) -> Wallet {
             detail: None,
             note: None,
             rate: None,
+            tax_transfer: false,
         }
     };
     use ActivityKind::*;

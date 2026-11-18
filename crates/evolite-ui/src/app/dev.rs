@@ -802,6 +802,28 @@ impl App {
             if failed {
                 screens::activity::note_failed_example(ctx, "demo:3", &note);
             }
+            // FEAT-0012: the tax category switched to a transfer on a payment out (frames 02,
+            // 04) and in (frame 03), its window open, and a change the core refused.
+            for (name, line) in [
+                ("activity-card-tax-transfer", 3),
+                ("activity-card-tax-explainer", 3),
+                ("activity-card-tax-received", 8),
+            ] {
+                if preset(name) {
+                    screens::open_card(ctx, line);
+                    self.core.send(Command::SetTaxTransfer {
+                        key: format!("demo:{line}"),
+                        transfer: true,
+                    });
+                }
+            }
+            if preset("activity-card-tax-explainer") {
+                screens::activity_tax::open_explainer(ctx);
+            }
+            if preset("activity-card-tax-error") {
+                screens::open_card(ctx, 3);
+                screens::activity_tax::tax_failed_example(ctx, "demo:3", true);
+            }
             // A word of the demo's note.
             if preset("activity-search-note") {
                 self.history.query =
@@ -1653,6 +1675,7 @@ fn contest_lines(
             })),
             note: None,
             rate: None,
+            tax_transfer: false,
         }
     };
     // BUG-190/191: a claim's fee is its writes; the fund is the rest of what it took.

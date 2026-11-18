@@ -194,6 +194,7 @@ mod tests {
             note: None,
             rate,
             detail: None,
+            tax_transfer: false,
         }
     }
 

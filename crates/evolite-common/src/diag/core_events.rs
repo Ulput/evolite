@@ -59,6 +59,8 @@ pub fn command_name(command: &Command) -> &'static str {
         Command::AddWallet => "add_wallet",
         Command::CancelAddWallet => "cancel_add_wallet",
         Command::SetNote { .. } => "set_note",
+        // Which operation, and its category, stay off the journal (FEAT-0012, AC-A5).
+        Command::SetTaxTransfer { .. } => "set_tax_transfer",
         // Which file only, never where it is (BUG-204, R-4).
         Command::TryFileAgain { .. } => "try_file_again",
         Command::StartFileOver { .. } => "start_file_over",
@@ -287,6 +289,30 @@ mod tests {
         assert_eq!(note, Record::Command { name: "set_note" });
         let line = note.line(std::time::UNIX_EPOCH);
         assert!(!line.contains("ZQX") && !line.contains("ab12"), "{line}");
+        // FEAT-0012 AC-T6: neither the operation nor its category, asked or answered.
+        let tax = command(&Command::SetTaxTransfer {
+            key: "core:cd34QZ".into(),
+            transfer: true,
+        });
+        assert_eq!(
+            tax,
+            Record::Command {
+                name: "set_tax_transfer"
+            }
+        );
+        let done = answer(&Event::Done {
+            what: DoneWhat::TaxCategory,
+            result: Ok(()),
+        })
+        .unwrap();
+        for line in [
+            tax.line(std::time::UNIX_EPOCH),
+            done.line(std::time::UNIX_EPOCH),
+        ] {
+            for secret in ["cd34QZ", "core:", "true"] {
+                assert!(!line.contains(secret), "{line}");
+            }
+        }
         // FEAT-0019: no token id, recipient, amount or word looked for.
         let send = command(&Command::Spend {
             op: Spend::SendToken {

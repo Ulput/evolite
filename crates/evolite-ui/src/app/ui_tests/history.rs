@@ -34,6 +34,7 @@ fn undated(wallet: &mut evolite_api::Wallet) {
             detail: None,
             note: None,
             rate: None,
+            tax_transfer: false,
         });
     }
 }
@@ -76,17 +77,29 @@ fn an_operation_without_a_time_is_not_dated_1970() {
 fn copy_txid_says_copied_for_a_moment() {
     let (_turn, mut kit) = demo_app("activity-card", "en");
     wait_for(&mut kit, "the card's txid", |kit| {
-        kit.query_by_label("Copy txid").is_some()
+        kit.query_by_role_and_label(Role::Button, "Copy txid")
+            .is_some()
     });
     button(&kit, "Copy txid").click();
     kit.run_steps(2);
-    assert!(kit.query_by_label("Copied").is_some(), "«Copied» at once");
-    assert!(kit.query_by_label("Copy txid").is_none());
+    assert!(
+        kit.query_by_role_and_label(Role::Button, "Copied")
+            .is_some(),
+        "«Copied» at once"
+    );
+    assert!(
+        kit.query_by_role_and_label(Role::Button, "Copy txid")
+            .is_none()
+    );
     // egui's clock moves with the frames.
     wait_for(&mut kit, "«Copy txid» back", |kit| {
-        kit.query_by_label("Copy txid").is_some()
+        kit.query_by_role_and_label(Role::Button, "Copy txid")
+            .is_some()
     });
-    assert!(kit.query_by_label("Copied").is_none());
+    assert!(
+        kit.query_by_role_and_label(Role::Button, "Copied")
+            .is_none()
+    );
 }
 
 /// BUG-39 №1: «Copy» of the private address says «Copied» too.
@@ -175,6 +188,7 @@ fn platform_op(id: u64, kind: ActivityKind, amount: i64) -> Activity {
         detail: None,
         note: None,
         rate: None,
+        tax_transfer: false,
     }
 }
 
@@ -388,6 +402,7 @@ fn lock(creates: bool, credits: evolite_api::Credits) -> Activity {
         detail: None,
         note: None,
         rate: None,
+        tax_transfer: false,
     }
 }
 

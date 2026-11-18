@@ -517,6 +517,17 @@ impl Real {
                     changed,
                 );
             }
+            Command::SetTaxTransfer { key, transfer } => {
+                let result = self.set_tax_transfer(key, transfer).await;
+                let changed = result.is_ok();
+                return (
+                    Some(Event::Done {
+                        what: DoneWhat::TaxCategory,
+                        result,
+                    }),
+                    changed,
+                );
+            }
             Command::TryFileAgain { file } => {
                 let result = self.local_file(file, true);
                 return (

@@ -215,6 +215,8 @@ pub const PRESETS: &[&str] = &[
     "activity-card-long-title", "activity-fee-unknown",
     "activity-notes", "activity-search-note", "activity-notes-unreadable", "activity-card-note",
     "activity-card-add-note", "activity-card-note-edit", "activity-card-note-error",
+    "activity-card-tax-transfer", "activity-card-tax-received", "activity-card-tax-explainer",
+    "activity-card-tax-error",
     "history-set-aside", "top-ups-set-aside", "overview-set-aside", "names-set-aside",
     "apps-set-aside", "contacts-set-aside", "address-book-set-aside",
     "send-note", "send-note-limit", "send-confirm-note", "delete-notes",
@@ -366,7 +368,11 @@ fn dev_args<'a>(
                 | "activity-card-note"
                 | "activity-card-add-note"
                 | "activity-card-note-edit"
-                | "activity-card-note-error",
+                | "activity-card-note-error"
+                | "activity-card-tax-transfer"
+                | "activity-card-tax-received"
+                | "activity-card-tax-explainer"
+                | "activity-card-tax-error",
             ),
         ) => Screen::Activity,
         (

@@ -660,6 +660,10 @@ impl App {
                     what: DoneWhat::Note,
                     result,
                 } => screens::activity::on_note_done(ctx, result),
+                Event::Done {
+                    what: DoneWhat::TaxCategory,
+                    result,
+                } => screens::activity_tax::on_tax_done(ctx, result),
                 // BUG-204: «Try again» / «Start over» on a file set aside.
                 Event::Done {
                     what: DoneWhat::LocalFile,

@@ -22,6 +22,7 @@ pub mod unlock;
 pub mod activity;
 pub mod activity_card;
 pub mod activity_filters;
+pub mod activity_tax;
 mod elsewhere;
 mod overview;
 #[cfg(feature = "dev-tools")]

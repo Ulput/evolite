@@ -280,6 +280,7 @@ async fn the_pools_lines_do_not_wait_for_the_pool() {
         detail: None,
         note: None,
         rate: None,
+        tax_transfer: false,
     };
     pool_history::PoolHistory::new(core.paths.pool_history.clone()).merge(vec![line]);
     core.pool_history = pool_history::PoolHistory::new(core.paths.pool_history.clone());
@@ -313,6 +314,7 @@ fn a_lock_takes_its_amount_from_the_status_it_has_just_got() {
         note: None,
         rate: None,
         detail: Some(Box::default()),
+        tax_transfer: false,
     };
     let top_ups: HashMap<String, Duffs> = [("aa".to_string(), 42_298)].into();
     let mine = [IdentityChoice {

@@ -567,6 +567,28 @@ impl Mock {
                     result,
                 }
             }
+            // FEAT-0012: in memory only, as the notes (FR-11).
+            Command::SetTaxTransfer { key, transfer } => {
+                let line = self.snapshot.wallet.as_mut().and_then(|w| {
+                    w.activity
+                        .iter_mut()
+                        .find(|a| !key.is_empty() && a.key == key)
+                });
+                let result = match line {
+                    None => Err(CoreError::NotAvailable(
+                        tr!("There is no such operation in the history").into(),
+                    )),
+                    Some(line) => {
+                        line.tax_transfer = transfer;
+                        changed = true;
+                        Ok(())
+                    }
+                };
+                Event::Done {
+                    what: DoneWhat::TaxCategory,
+                    result,
+                }
+            }
             // BUG-204: the demo writes no file. A file set aside (a preset lays it over the
             // snapshot) still does not read on «Try again»; «Start over» goes through.
             Command::TryFileAgain { .. } => Event::Done {
@@ -1119,6 +1141,7 @@ impl Mock {
                 note: None,
                 rate: None,
                 detail: None,
+                tax_transfer: false,
             },
         );
         Ok(())
@@ -1224,6 +1247,7 @@ impl Mock {
                 note: None,
                 rate: None,
                 detail: None,
+                tax_transfer: false,
             },
         );
         Ok(SentPayment {
@@ -1284,6 +1308,7 @@ impl Mock {
                 note: None,
                 rate: None,
                 detail: None,
+                tax_transfer: false,
             },
         );
         Ok(())

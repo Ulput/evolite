@@ -5,7 +5,9 @@
 //!   inside, JSON `{"<key>": {"text": "...", "rate"?: {...}, "updated": <unix>}, ...}`.
 //!   `rate` is the rate at the time of the operation (FEAT-0008, АРХ-1), only while «Fiat
 //!   rate» is on; an entry may have a rate and an empty text. `text` is always written, so
-//!   an older evolite still reads the file.
+//!   an older evolite still reads the file. `transfer` (FEAT-0012): the operation is a move
+//!   of the person's own money for the CSV's tax category, written only when set; an entry
+//!   stays while it has a text, a rate or this flag.
 //! - AES-256-GCM with a fresh nonce for every write; the associated data is the format and the
 //!   wallet id, so one wallet's file does not open as another's.
 //! - The key: HKDF-SHA256 of the phrase's BIP-39 seed, salted with the wallet id, info
@@ -64,7 +66,15 @@ struct Note {
     text: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     rate: Option<Rate>,
+    /// FEAT-0012 (АРХ-1): the operation moved the person's own money — «Transfer in» or
+    /// «Transfer out» in place of «Income» or «Expense». An older evolite skips the field.
+    #[serde(default, skip_serializing_if = "is_false")]
+    transfer: bool,
     updated: Timestamp,
+}
+
+fn is_false(b: &bool) -> bool {
+    !*b
 }
 
 /// The rate at the time of an operation, as the file keeps it (FEAT-0008).
@@ -323,6 +333,7 @@ impl Notes {
             let note = all.entry(key.clone()).or_insert_with(|| Note {
                 text: String::new(),
                 rate: None,
+                transfer: false,
                 updated: now(),
             });
             if replace || note.rate.is_none() {
@@ -353,19 +364,22 @@ impl Notes {
                     return Err(NoteError::TooMany);
                 }
                 let rate = all.get(key).and_then(|n| n.rate.clone());
+                let transfer = all.get(key).is_some_and(|n| n.transfer);
                 all.insert(
                     key.to_owned(),
                     Note {
                         text,
                         rate,
+                        transfer,
                         updated: now(),
                     },
                 );
             }
-            // No note: an entry that also keeps a rate stays with the rate alone.
+            // No note: an entry that also keeps a rate or the tax category's flag stays with
+            // them alone (FEAT-0012: deleting a note keeps the category).
             None => match all.get_mut(key) {
                 None => return Ok(()),
-                Some(note) if note.rate.is_some() => {
+                Some(note) if note.rate.is_some() || note.transfer => {
                     if note.text.is_empty() {
                         return Ok(());
                     }
@@ -377,6 +391,47 @@ impl Notes {
                     all.remove(key);
                 }
             },
+        }
+        self.write(all)
+    }
+
+    /// Whether the operation `key` is marked a move of the person's own money (FEAT-0012).
+    pub fn transfer(&self, key: &str) -> bool {
+        self.all.get(key).is_some_and(|n| n.transfer)
+    }
+
+    /// Marks the operation `key` a move of the person's own money, or not (FEAT-0012),
+    /// written to the file before it is kept in memory: a failed write changes nothing. An
+    /// entry left with no text, no rate and no flag goes.
+    pub fn set_transfer(&mut self, key: &str, transfer: bool) -> Result<(), NoteError> {
+        if key.is_empty() {
+            return Err(NoteError::Write("no key"));
+        }
+        let mut all = self.all.clone();
+        match all.get_mut(key) {
+            Some(note) if note.transfer == transfer => return Ok(()),
+            Some(note) if !transfer && note.text.is_empty() && note.rate.is_none() => {
+                all.remove(key);
+            }
+            Some(note) => {
+                note.transfer = transfer;
+                note.updated = now();
+            }
+            None if !transfer => return Ok(()),
+            None => {
+                if all.len() >= MAX_NOTES {
+                    return Err(NoteError::TooMany);
+                }
+                all.insert(
+                    key.to_owned(),
+                    Note {
+                        text: String::new(),
+                        rate: None,
+                        transfer: true,
+                        updated: now(),
+                    },
+                );
+            }
         }
         self.write(all)
     }
@@ -485,6 +540,8 @@ impl Notes {
                     if note.rate.is_none() {
                         note.rate = all.get(&line.key).and_then(|n| n.rate.clone());
                     }
+                    // The line's tax category stays (FEAT-0012).
+                    note.transfer |= all.get(&line.key).is_some_and(|n| n.transfer);
                     all.insert(line.key.clone(), note);
                 }
                 changed = true;
@@ -576,6 +633,7 @@ mod tests {
             detail: None,
             note: None,
             rate: None,
+            tax_transfer: false,
         }
     }
 
@@ -726,6 +784,7 @@ mod tests {
                     text: "x".into(),
                     updated: 0,
                     rate: None,
+                    transfer: false,
                 },
             );
         }
@@ -861,6 +920,7 @@ mod tests {
                 text: "rent".into(),
                 updated: 1_700_000_000,
                 rate: None,
+                transfer: false,
             },
         )]);
         let file = String::from_utf8(notes.encrypt_with(&all, [7; 12])).unwrap();
@@ -1063,6 +1123,94 @@ mod tests {
         );
         notes.bind(&[]);
         assert!(!notes.all.keys().any(|k| k.starts_with("pending:")));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+    /// AC-T3 (FEAT-0012): the tax category's flag alone is an entry, read back after a restart.
+    #[test]
+    fn a_transfer_alone_is_kept_and_read_back() {
+        let dir = dir("transfer");
+        let path = dir.join("notes.enc");
+        let mut notes = Notes::open(path.clone(), &seed(1), WALLET);
+        assert!(!notes.transfer("core:aa"));
+        notes.set_transfer("core:aa", true).unwrap();
+        assert!(notes.transfer("core:aa"));
+        assert_eq!(notes.get("core:aa"), None, "a flag is no note");
+        let back = Notes::open(path.clone(), &seed(1), WALLET);
+        assert!(back.transfer("core:aa"));
+        assert_eq!(inner(&path)["core:aa"]["transfer"], true);
+        assert!(!String::from_utf8_lossy(&all_bytes(&dir)).contains("transfer"));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// AC-T3: deleting the note keeps the flag; taking the flag off an entry with nothing
+    /// else deletes it; with a note or a rate the entry stays.
+    #[test]
+    fn a_note_and_the_transfer_go_apart() {
+        let dir = dir("transfer-note");
+        let path = dir.join("notes.enc");
+        let mut notes = Notes::open(path.clone(), &seed(1), WALLET);
+        notes.set("core:aa", Some("rent".into())).unwrap();
+        notes.set_transfer("core:aa", true).unwrap();
+        assert_eq!(notes.get("core:aa"), Some("rent"), "the note stays");
+        notes.set("core:aa", None).unwrap();
+        assert!(
+            notes.transfer("core:aa"),
+            "deleting the note keeps the flag"
+        );
+        assert!(Notes::open(path.clone(), &seed(1), WALLET).transfer("core:aa"));
+        notes.set_transfer("core:aa", false).unwrap();
+        assert!(!notes.any(), "nothing left: the entry goes");
+        assert!(inner(&path).get("core:aa").is_none());
+        // With a note or a rate the entry stays without the flag, and the file has no field.
+        notes.set("core:bb", Some("rent".into())).unwrap();
+        notes.set_transfer("core:bb", true).unwrap();
+        notes.set_transfer("core:bb", false).unwrap();
+        assert_eq!(notes.get("core:bb"), Some("rent"));
+        assert!(inner(&path)["core:bb"].get("transfer").is_none());
+        notes.set_rates(&["core:cc".into()], &usd(5), true).unwrap();
+        notes.set_transfer("core:cc", true).unwrap();
+        notes.set_transfer("core:cc", false).unwrap();
+        assert_eq!(notes.rate("core:cc"), Some(usd(5)));
+        // Taking off a flag that is not there writes nothing.
+        let before = std::fs::read(&path).unwrap();
+        notes.set_transfer("core:dd", false).unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), before);
+        assert_eq!(
+            notes.set_transfer("", true),
+            Err(NoteError::Write("no key"))
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// AC-T3: a file of before FEAT-0012 opens with no flag; a failed write keeps it as it was.
+    #[test]
+    fn a_file_without_the_transfer_reads_as_none_and_a_failed_write_changes_nothing() {
+        let dir = dir("transfer-old");
+        let path = dir.join("notes.enc");
+        let mut notes = Notes::open(path.clone(), &seed(1), WALLET);
+        notes.set("core:aa", Some("old".into())).unwrap();
+        assert!(inner(&path)["core:aa"].get("transfer").is_none());
+        let back = Notes::open(path.clone(), &seed(1), WALLET);
+        assert!(!back.transfer("core:aa"));
+        // A file that could not be read refuses the flag as it refuses a note.
+        notes.not_read = true;
+        assert_eq!(notes.set_transfer("core:aa", true), Err(NoteError::NotRead));
+        assert!(!notes.transfer("core:aa"));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A pool send's note moving to its line keeps the line's tax category (FEAT-0012).
+    #[test]
+    fn binding_a_waiting_note_keeps_the_lines_transfer() {
+        let dir = dir("transfer-bind");
+        let mut notes = Notes::open(dir.join("notes.enc"), &seed(1), WALLET);
+        let t = now();
+        notes.set_pending(Pending::Pool, (50_000, t), Some("rent".into()), None);
+        notes.set_transfer("pool:7", true).unwrap();
+        let line = line("pool:7", ActivityKind::PoolSent, t + 5, -60_000);
+        notes.bind(std::slice::from_ref(&line));
+        assert_eq!(notes.get("pool:7"), Some("rent"));
+        assert!(notes.transfer("pool:7"));
         std::fs::remove_dir_all(dir).unwrap();
     }
 }

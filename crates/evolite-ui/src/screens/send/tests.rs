@@ -360,6 +360,7 @@ fn paid(to: &str, at: Timestamp, amount: Duffs) -> Activity {
         detail: None,
         note: None,
         rate: None,
+        tax_transfer: false,
     }
 }
 

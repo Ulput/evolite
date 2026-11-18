@@ -641,6 +641,7 @@ mod tests {
             detail: None,
             note: None,
             rate: None,
+            tax_transfer: false,
         };
         let received = || ActivityKind::Received { from: None };
         let history = [
@@ -701,6 +702,7 @@ mod tests {
             detail: None,
             note: None,
             rate: None,
+            tax_transfer: false,
         }];
         assert_eq!(
             past_addresses(&history, "yNow"),

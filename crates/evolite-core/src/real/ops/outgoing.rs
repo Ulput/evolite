@@ -133,6 +133,7 @@ impl Outgoing {
                 detail: None,
                 note: None,
                 rate: None,
+                tax_transfer: false,
             }
         }));
         shown
@@ -161,6 +162,7 @@ mod tests {
             detail: None,
             note: None,
             rate: None,
+            tax_transfer: false,
         }
     }
 

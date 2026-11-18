@@ -893,6 +893,7 @@ pub fn activity(entry: &Entry) -> Activity {
         detail: Some(Box::new(detail_of(entry))),
         note: None,
         rate: None,
+        tax_transfer: false,
     }
 }
 

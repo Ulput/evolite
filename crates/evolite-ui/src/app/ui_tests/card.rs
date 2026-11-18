@@ -43,7 +43,13 @@ fn a_transfer_between_own_addresses_shows_both_addresses_and_the_fee() {
         &mut kit,
         &format!("Moved {moved} inside the wallet: only the fee left it."),
     );
-    shown(&mut kit, &format!("Moved: {moved}"));
+    // FEAT-0012 D-2: no «Moved» row, the sentence above says the sum.
+    assert!(
+        kit.query_all_by(|n| n.value().is_some_and(|v| v.starts_with("Moved: ")))
+            .next()
+            .is_none(),
+        "a «Moved» row"
+    );
     shown(&mut kit, &format!("Fee: {}", format::amount(226)));
     shown(
         &mut kit,
@@ -580,12 +586,12 @@ fn show_all_lists_the_inputs_inside_the_card_and_the_wheel_reaches_them() {
     wheel_until(&mut kit, 25, 1, reached);
     assert_inside(&kit, WINDOW);
     // The bar has its gutter in the dialog's padding: the lines are as wide as without one.
-    let moved = kit
-        .query_all_by(|n| n.value().is_some_and(|v| v.starts_with("Moved: ")))
+    let fee = kit
+        .query_all_by(|n| n.value().is_some_and(|v| v.starts_with("Fee: ")))
         .next()
-        .expect("the row «Moved»")
+        .expect("the row «Fee»")
         .rect();
-    assert_eq!(moved.right(), cross_and_close(&kit).1.right());
+    assert_eq!(fee.right(), cross_and_close(&kit).1.right());
     close_card(&mut kit);
 }
 
@@ -707,13 +713,13 @@ fn an_ordinary_card_at_1024_by_768_does_not_scroll() {
             .expect("the txid")
             .rect();
         assert!(txid.height() < 24.0, "{lang}: the txid wrapped: {txid:?}");
-        let moved_row = format!("{}: ", crate::i18n::spoken("Moved"));
-        let moved = kit
-            .query_all_by(|n| n.value().is_some_and(|v| v.starts_with(&moved_row)))
+        let fee_row = format!("{}: ", crate::i18n::spoken("Fee"));
+        let fee = kit
+            .query_all_by(|n| n.value().is_some_and(|v| v.starts_with(&fee_row)))
             .next()
-            .expect("the row «Moved»")
+            .expect("the row «Fee»")
             .rect();
-        assert_eq!(moved.right(), close.right(), "{lang}: a gutter");
+        assert_eq!(fee.right(), close.right(), "{lang}: a gutter");
         let copy = rect_named(&kit, &copy_txid);
         turn_wheel(&mut kit, -300.0, |kit| kit.run_steps(6));
         assert_eq!(

@@ -28,14 +28,25 @@ pub fn card_window(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx) {
             .as_deref()
             .and_then(|d| d.link.as_deref())
             .and_then(|key| wallet.activity.iter().find(|a| a.key == key));
+        // FEAT-0012: the category only where a line of the CSV is or will be (R-6: not in
+        // History's rows). What is the wallet's own is read only while a card is open.
+        let tax = if act.key.is_empty() {
+            None
+        } else {
+            crate::csv_export::tax_category(act, &crate::csv_export::Own::of(wallet))
+        };
         let around = Around {
             now: cx.now,
             book: &wallet.address_book,
             linked,
             identities: &wallet.identities,
+            tax,
         };
         let answer = card(ui, a, act, &around);
         if let Some(command) = answer.note {
+            cx.send(command);
+        }
+        if let Some(command) = answer.tax {
             cx.send(command);
         }
         if answer.closed {
@@ -199,8 +210,9 @@ pub fn note_failed_example(ctx: &egui::Context, key: &str, text: &str) {
     );
 }
 /// Forgets a note being edited or just written: the card closed, the wallet locked or another
-/// one opened (AC-T6).
+/// one opened (AC-T6). The tax category asked for and its window go with it (FEAT-0012).
 pub fn forget_note(ctx: &egui::Context) {
+    super::activity_tax::forget_tax(ctx);
     ctx.data_mut(|d| {
         d.remove::<NoteEdit>(note_edit_id());
         d.remove::<NoteSaved>(note_saved_id());
@@ -1175,15 +1187,7 @@ fn detail_body(
                 }
             });
     }
-    if let Some(moved) = moved {
-        kv_row(
-            ui,
-            &p,
-            tr!("Moved"),
-            &crate::format::balance(moved),
-            value.clone(),
-        );
-    }
+    // No «Moved» row: the sentence above already says the sum (FEAT-0012 D-2).
     if crate::text::cost_unknown(act) {
         // BUG-176: the fee of a write found on the network is not known here.
         kv_row(ui, &p, tr!("Fee"), tr!("no record"), value.clone());
@@ -1375,6 +1379,8 @@ struct CardAnswer {
     go: Option<crate::screens::Screen>,
     /// The note to write (FEAT-0003).
     note: Option<Command>,
+    /// The tax category to write (FEAT-0012).
+    tax: Option<Command>,
     /// The related operation whose card to open instead (FEAT-0005).
     open: Option<u64>,
     /// The identity to work as (FEAT-0005 FR-7).
@@ -1391,6 +1397,8 @@ struct Around<'a> {
     /// The operation [`Detail::link`] points at, when it is in the history.
     linked: Option<&'a Activity>,
     identities: &'a [IdentityChoice],
+    /// The operation's tax category by its direction and mark (FEAT-0012); `None`: no row.
+    tax: Option<crate::csv_export::TaxCategory>,
 }
 
 /// The identity «Open in Identity» goes to: one of this wallet's, and not on a card that already
@@ -1418,6 +1426,8 @@ fn card(ui: &mut Ui, a: &mut Assets, act: &Activity, around: &Around) -> CardAns
     let mut answer = CardAnswer::default();
     // A note edited in place: Escape and a click outside are its own, the card stays (AC-D4).
     let editing = note_edit(ui.ctx()).is_some_and(|e| !act.key.is_empty() && e.key == act.key);
+    // The tax category's window over the card has them too (FEAT-0012).
+    let held = editing || super::activity_tax::explainer_open(ui.ctx());
     let answer_there = matches!(
         act.kind,
         ActivityKind::ContactRequestIn {
@@ -1463,7 +1473,7 @@ fn card(ui: &mut Ui, a: &mut Assets, act: &Activity, around: &Around) -> CardAns
         a,
         "activity-card",
         464.0,
-        editing,
+        held,
         |ui, a| {
             card_header(ui, a, act, now, book);
         },
@@ -1504,6 +1514,10 @@ fn card(ui: &mut Ui, a: &mut Assets, act: &Activity, around: &Around) -> CardAns
                 if !act.key.is_empty() {
                     answer.note = note_block(ui, a, act);
                 }
+                // FEAT-0012: the tax category, after the note and above the txid (frames 01-03).
+                if let Some(category) = around.tax.filter(|_| !act.key.is_empty()) {
+                    answer.tax = super::activity_tax::tax_row(ui, a, act, category);
+                }
                 if let Some(txid) = &act.txid {
                     txid_block(ui, a, act, txid);
                 }
@@ -1520,6 +1534,8 @@ fn card(ui: &mut Ui, a: &mut Assets, act: &Activity, around: &Around) -> CardAns
         },
     );
     answer.closed |= closed;
+    // FEAT-0012 frame 04: over the card while open.
+    super::activity_tax::explainer(ui, a);
     answer
 }
 
@@ -1783,36 +1799,36 @@ fn txid_block(ui: &mut Ui, a: &mut Assets, act: &Activity, txid: &str) {
     let p = a.p;
     ui.vertical(|ui| {
         ui.spacing_mut().item_spacing.y = 6.0;
-        mono_block(ui, &p, "txid", txid, None);
-        ui.add_space(4.0);
+        // The caption «txid» with its two actions on the right, 16 apart (FEAT-0012 D-1): the
+        // card keeps to 1024×768 with the tax row. In Arabic the frame mirror puts them left.
         ui.horizontal(|ui| {
-            // Two outlined buttons with a gap: a ghost one beside an outlined one read as
-            // one control.
-            ui.spacing_mut().item_spacing.x = 12.0;
-            // "Copied" in its place for a moment, as on "Receive" (BUG-39 №1).
-            let copy_id = egui::Id::new("copy-txid").with(act.id);
-            let label = if crate::clipboard::just_copied(ui.ctx(), copy_id) {
-                tr!("Copied")
-            } else {
-                tr!("Copy txid")
-            };
-            if button(ui, a, label, ButtonKind::Secondary, None).clicked() {
-                crate::clipboard::copy_answered(ui.ctx(), txid.to_string(), copy_id);
-            }
-            if button(
-                ui,
-                a,
-                tr!("Open in the explorer"),
-                ButtonKind::Secondary,
-                None,
-            )
-            .on_hover_text(crate::i18n::t(&explorer(txid)).into_owned())
-            .clicked()
-            {
-                // egui's open_url does nothing without eframe's `links`.
-                crate::links::open(&explorer(txid));
-            }
+            field_label(ui, &p, "txid");
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                ui.spacing_mut().item_spacing.x = 16.0;
+                if text_action(ui, a, "link", tr!("Open in the explorer"))
+                    .on_hover_text(crate::i18n::t(&explorer(txid)).into_owned())
+                    .clicked()
+                {
+                    // egui's open_url does nothing without eframe's `links`.
+                    crate::links::open(&explorer(txid));
+                }
+                // "Copied" in its place for a moment, as on "Receive" (BUG-39 №1).
+                let copy_id = egui::Id::new("copy-txid").with(act.id);
+                let label = if crate::clipboard::just_copied(ui.ctx(), copy_id) {
+                    tr!("Copied")
+                } else {
+                    tr!("Copy txid")
+                };
+                if text_action(ui, a, "copy", label).clicked() {
+                    crate::clipboard::copy_answered(ui.ctx(), txid.to_string(), copy_id);
+                }
+            });
         });
+        ui.add(
+            crate::components::para(txid, 12.0, Weight::Regular, p.text)
+                .font(mono(12.0, Weight::Regular))
+                .line_height(18.0),
+        );
     });
     notice(
         ui,
@@ -2023,6 +2039,7 @@ mod card_tests {
             detail: None,
             note: None,
             rate: None,
+            tax_transfer: false,
         }
     }
 
@@ -2294,6 +2311,7 @@ mod again_tests {
             detail: None,
             note: None,
             rate: None,
+            tax_transfer: false,
         }
     }
 

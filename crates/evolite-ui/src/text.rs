@@ -1609,6 +1609,7 @@ mod lock_tests {
             note: None,
             rate: None,
             detail: None,
+            tax_transfer: false,
         }
     }
 

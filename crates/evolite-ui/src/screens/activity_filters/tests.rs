@@ -27,6 +27,7 @@ fn line(
         detail: None,
         note: None,
         rate: None,
+        tax_transfer: false,
     }
 }
 

@@ -538,6 +538,7 @@ pub fn activity(record: &TransactionRecord, seen: Timestamp, instant_verified: b
         detail: Some(Box::new(detail)),
         note: None,
         rate: None,
+        tax_transfer: false,
     }
 }
 
@@ -2354,6 +2355,7 @@ mod tests {
             detail: None,
             note: None,
             rate: None,
+            tax_transfer: false,
         };
         let contact = |id: &str, name: Option<&str>| Contact {
             identity_id: id.into(),
@@ -2425,6 +2427,7 @@ mod tests {
             detail: None,
             note: None,
             rate: None,
+            tax_transfer: false,
         };
         let carol = |payments: u32| Contact {
             identity_id: "C111".into(),
@@ -2473,6 +2476,7 @@ mod tests {
             detail: None,
             note: None,
             rate: None,
+            tax_transfer: false,
         };
         let mut h = vec![
             at(Some(900), Proof::InBlock),

@@ -103,7 +103,8 @@ fn wallet_names_in_the_unlock_list_are_not_translated() {
 fn the_txid_buttons_of_an_operation_card_stand_apart() {
     let (_turn, mut kit) = demo_app("activity-card", "en");
     wait_for(&mut kit, "the card's txid", |kit| {
-        kit.query_by_label("Open in the explorer").is_some()
+        kit.query_by_role_and_label(Role::Button, "Open in the explorer")
+            .is_some()
     });
     let copy = button(&kit, "Copy txid").rect();
     let open = button(&kit, "Open in the explorer").rect();

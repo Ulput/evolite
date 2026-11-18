@@ -58,6 +58,7 @@ mod settings_apps;
 mod spend;
 mod sync;
 mod tab_sweep;
+mod tax_category;
 mod token_actions;
 mod token_manage;
 mod token_windows;

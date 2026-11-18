@@ -237,6 +237,7 @@ fn line(key: &str, at: Timestamp) -> Activity {
         detail: None,
         note: None,
         rate: None,
+        tax_transfer: false,
     }
 }
 
@@ -264,4 +265,79 @@ async fn only_operations_first_seen_after_the_sync_get_the_rate() {
     assert_eq!(notes.rate("core:new"), Some(usd(3_078_000_000, now)));
     assert_eq!(notes.rate("core:old"), None);
     assert_eq!(notes.rate("core:found"), None);
+}
+
+/// FEAT-0012 AC-T4: `SetTaxTransfer` keeps the flag by the operation's key and answers
+/// `Done`; the snapshot's line carries it; a key that is no operation's, a locked wallet and a
+/// file that cannot be written are refused and change nothing.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_tax_category_is_kept_by_the_key_and_refused_when_it_cannot_be() {
+    let mut core = core_with_vault("notes-tax", "pw");
+    assert_eq!(core.unlock(&pw("pw")).await, Ok(()));
+    let tax = |key: &str, transfer: bool| Command::SetTaxTransfer {
+        key: key.into(),
+        transfer,
+    };
+    let (event, changed) = core.handle(tax("core:TAX-QZX-51", true)).await;
+    assert!(changed);
+    assert!(matches!(
+        event,
+        Some(Event::Done {
+            what: DoneWhat::TaxCategory,
+            result: Ok(())
+        })
+    ));
+    let folder = core.paths.vault.parent().unwrap().to_owned();
+    assert!(!every_file_text(&folder).contains("TAX-QZX-51"));
+    let mut history = vec![line("core:TAX-QZX-51", now()), line("core:other", now())];
+    core.put_notes_on(&mut history).await;
+    assert!(history[0].tax_transfer && !history[1].tax_transfer);
+    // No key, or not an operation's: refused.
+    for key in ["", "../wallet.json"] {
+        let (event, changed) = core.handle(tax(key, true)).await;
+        assert!(!changed);
+        assert!(matches!(
+            event,
+            Some(Event::Done {
+                what: DoneWhat::TaxCategory,
+                result: Err(CoreError::NotAvailable(_))
+            })
+        ));
+    }
+    // A file that cannot be written: refused with the notes' reason, the flag as it was.
+    std::fs::remove_file(&core.paths.notes).unwrap();
+    std::fs::create_dir_all(core.paths.notes.join("in-the-way")).unwrap();
+    let (event, changed) = core.handle(tax("core:TAX-QZX-51", false)).await;
+    assert!(!changed);
+    assert!(matches!(
+        event,
+        Some(Event::Done {
+            what: DoneWhat::TaxCategory,
+            result: Err(CoreError::Failed(_))
+        })
+    ));
+    core.put_notes_on(&mut history).await;
+    assert!(history[0].tax_transfer, "the snapshot is as it was");
+    std::fs::remove_dir_all(&core.paths.notes).unwrap();
+    // Locked: refused.
+    core.lock().await.unwrap();
+    let (event, changed) = core.handle(tax("core:TAX-QZX-51", false)).await;
+    assert!(!changed && matches!(event, Some(Event::Done { result: Err(_), .. })));
+}
+
+/// FEAT-0012 AC-T5 (R-4): the tax category is in the notes' file, so it goes with a deleted
+/// wallet's folder, and the same phrase restored into a clean folder has none.
+#[tokio::test]
+async fn a_deleted_wallets_tax_categories_go_with_its_folder() {
+    let dir = fresh_dir("tax-deleted");
+    let paths = Paths::new(dir.clone(), TEST_WALLET);
+    notes::Notes::open(paths.notes.clone(), &[1; 64], "ab")
+        .set_transfer("core:aa", true)
+        .unwrap();
+    assert!(!paths.vault.exists() && paths.notes.exists());
+    assert!(clear_leftovers(&paths).await);
+    assert!(!paths.notes.exists());
+    let restored = notes::Notes::open(paths.notes.clone(), &[1; 64], "ab");
+    assert!(!restored.transfer("core:aa") && !restored.any());
+    let _ = std::fs::remove_dir_all(&dir);
 }

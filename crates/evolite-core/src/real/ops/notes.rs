@@ -121,6 +121,36 @@ impl Real {
     }
 }
 
+impl Real {
+    /// `Command::SetTaxTransfer`: an operation's tax category (FEAT-0012), kept beside its
+    /// note and written off the loop's thread. Neither the key nor the value goes into an
+    /// error or the journal.
+    pub(in crate::real) async fn set_tax_transfer(
+        &self,
+        key: String,
+        transfer: bool,
+    ) -> Result<(), CoreError> {
+        if !["core:", "platform:", "pool:"]
+            .iter()
+            .any(|kind| key.starts_with(kind))
+        {
+            return Err(CoreError::NotAvailable(
+                tr!("There is no such operation in the history").into(),
+            ));
+        }
+        let notes = self.notes.clone();
+        tokio::task::spawn_blocking(move || {
+            let mut notes = notes.lock().unwrap_or_else(|e| e.into_inner());
+            let notes = notes
+                .as_mut()
+                .ok_or(CoreError::NotAvailable(tr!("The wallet is locked").into()))?;
+            notes.set_transfer(&key, transfer).map_err(note_error)
+        })
+        .await
+        .map_err(|_| CoreError::Failed("notes".into()))?
+    }
+}
+
 /// Why a note was not saved, for "Details": the kind of failure, never the note.
 fn note_error(e: notes::NoteError) -> CoreError {
     match e {

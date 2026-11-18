@@ -23,6 +23,7 @@ fn line(kind: ActivityKind, chain: Chain) -> Activity {
         detail: None,
         note: None,
         rate: None,
+        tax_transfer: false,
     }
 }
 

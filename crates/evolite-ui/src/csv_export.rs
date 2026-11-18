@@ -18,6 +18,10 @@
 //! unconfirmed) are left out, and so is one without a time of its own: no date can be given to
 //! it, and a line without one is refused by a tax import (BUG-128; before, an empty date, last,
 //! BUG-47).
+//!
+//! The type of a line is the operation's tax category (FEAT-0012, as DashPay's `TaxCategory`):
+//! by the sign as above, or «Transfer-in» / «Transfer-out» where the person marked it a move of
+//! their own money ([`Activity::tax_transfer`]). The card shows the same [`tax_category`].
 
 use evolite_api::{Activity, ActivityKind, Duffs, Proof, Timestamp, Wallet};
 use std::collections::HashSet;
@@ -73,11 +77,75 @@ impl Own {
     }
 }
 
-/// What a line of the file says about an operation.
+/// What a line of the file says about an operation: which way the money went and how much.
 #[derive(Debug, PartialEq)]
 enum Line {
     Income(Duffs),
     Expense(Duffs),
+}
+
+/// An operation's tax category (FEAT-0012, DashPay's `TaxCategory`): the «Transaction Type» of
+/// its line. A move of the person's own money is «Transfer» in place of «Income» or «Expense»;
+/// what went out can never be «Income» and what came in never «Expense» (R-3): the pair is
+/// fixed by which way the money went.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TaxCategory {
+    Income,
+    Expense,
+    TransferIn,
+    TransferOut,
+}
+
+impl TaxCategory {
+    /// How the file writes it, as DashPay's `TaxBitExporter` does: format codes, never
+    /// translated.
+    pub fn csv(self) -> &'static str {
+        match self {
+            Self::Income => "Income",
+            Self::Expense => "Expense",
+            Self::TransferIn => "Transfer-in",
+            Self::TransferOut => "Transfer-out",
+        }
+    }
+
+    /// Whether it is a move of the person's own money ([`Activity::tax_transfer`]).
+    pub fn is_transfer(self) -> bool {
+        matches!(self, Self::TransferIn | Self::TransferOut)
+    }
+
+    /// The two it can be switched between: the one by the sign first, then its transfer.
+    pub fn pair(self) -> [TaxCategory; 2] {
+        match self {
+            Self::Income | Self::TransferIn => [Self::Income, Self::TransferIn],
+            Self::Expense | Self::TransferOut => [Self::Expense, Self::TransferOut],
+        }
+    }
+
+    /// Its name in the interface (an English key for `tr!`'s catalogs).
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Income => tr!("Income"),
+            Self::Expense => tr!("Expense"),
+            Self::TransferIn => tr!("Transfer in"),
+            Self::TransferOut => tr!("Transfer out"),
+        }
+    }
+}
+
+/// The tax category of `a` (FEAT-0012): the direction of its line plus the person's mark. `None`
+/// for an operation that never makes a line — no amount, the other half of a move inside the
+/// wallet, a token received, no time of its own, a cost not known. One not final yet has its
+/// category already: it may be set before the network settles it.
+pub fn tax_category(a: &Activity, own: &Own) -> Option<TaxCategory> {
+    if !crate::text::known(a.at) {
+        return None;
+    }
+    Some(match (direction(a, own)?, a.tax_transfer) {
+        (Line::Income(_), false) => TaxCategory::Income,
+        (Line::Income(_), true) => TaxCategory::TransferIn,
+        (Line::Expense(_), false) => TaxCategory::Expense,
+        (Line::Expense(_), true) => TaxCategory::TransferOut,
+    })
 }
 
 /// The line of `a`, if it is one.
@@ -92,6 +160,11 @@ fn line(a: &Activity, own: &Own) -> Option<Line> {
     if !crate::text::known(a.at) {
         return None;
     }
+    direction(a, own)
+}
+
+/// Which way `a` moved the money and how much, final or not.
+fn direction(a: &Activity, own: &Own) -> Option<Line> {
     // FEAT-0019 T-1 (R-18): tokens are not DASH — a token received or a balance's change is no
     // line (a token sent is its fee in credits, below).
     if matches!(
@@ -159,18 +232,20 @@ pub fn lines<'a>(activity: impl IntoIterator<Item = &'a Activity>, own: &Own) ->
 
 /// The CSV of `activity` (any order), `own` telling moves inside the wallet apart.
 pub fn taxbit(activity: &[Activity], own: &Own) -> String {
-    let mut rows: Vec<(&Activity, Line)> = activity
+    let mut rows: Vec<(&Activity, Line, TaxCategory)> = activity
         .iter()
-        .filter_map(|a| Some((a, line(a, own)?)))
+        .filter_map(|a| Some((a, line(a, own)?, tax_category(a, own)?)))
         .collect();
     // Oldest first (an operation without a time is no line, BUG-128).
-    rows.sort_by_key(|(a, _)| (!crate::text::known(a.at), a.at));
+    rows.sort_by_key(|(a, ..)| (!crate::text::known(a.at), a.at));
     let mut out = String::from(HEADER);
     out.push('\n');
-    for (a, l) in rows {
-        let (kind, sent, received) = match l {
-            Line::Income(n) => ("Income", String::new(), dash(n)),
-            Line::Expense(n) => ("Expense", dash(n), String::new()),
+    for (a, l, category) in rows {
+        // FEAT-0012: the type is the category; the amounts are by the direction (BUG-37).
+        let kind = category.csv();
+        let (sent, received) = match l {
+            Line::Income(n) => (String::new(), dash(n)),
+            Line::Expense(n) => (dash(n), String::new()),
         };
         let line = [
             if crate::text::known(a.at) {
@@ -275,6 +350,7 @@ mod tests {
             detail: None,
             note: None,
             rate: None,
+            tax_transfer: false,
         }
     }
 
@@ -871,5 +947,150 @@ mod tests {
                 std::fs::copy(entry.path(), target).unwrap();
             }
         }
+    }
+    fn marked(mut a: Activity) -> Activity {
+        a.tax_transfer = true;
+        a
+    }
+
+    /// FEAT-0012 AC-T1: the category by the sign, the mark making it a transfer; a move inside
+    /// the wallet (BUG-37, the fee's line) is an Expense or, marked, a Transfer-out; an
+    /// operation that makes no line has none.
+    #[test]
+    fn the_tax_category_is_the_direction_and_the_mark() {
+        use TaxCategory::*;
+        let income = act(
+            ActivityKind::Received { from: None },
+            Chain::Core,
+            100,
+            5_000_000,
+            "aa",
+        );
+        let expense = act(
+            ActivityKind::Sent {
+                to: "yOther".into(),
+            },
+            Chain::Core,
+            100,
+            -1_000,
+            "bb",
+        );
+        let inside = with_fee(
+            act(
+                ActivityKind::Sent { to: "yOwn".into() },
+                Chain::Core,
+                100,
+                -100_226,
+                "cc",
+            ),
+            226,
+        );
+        let own = own();
+        for (a, by_sign, transfer) in [
+            (income, Income, TransferIn),
+            (expense, Expense, TransferOut),
+            (inside, Expense, TransferOut),
+        ] {
+            assert_eq!(tax_category(&a, &own), Some(by_sign));
+            assert_eq!(tax_category(&marked(a.clone()), &own), Some(transfer));
+            // The pair is fixed by the direction: what went out has no «Income» to switch to.
+            assert_eq!(by_sign.pair(), [by_sign, transfer]);
+            assert_eq!(transfer.pair(), [by_sign, transfer]);
+            assert!(!by_sign.is_transfer() && transfer.is_transfer());
+        }
+        // Not final yet: the category is there to set; no time, no amount: none.
+        let mut sending = act(
+            ActivityKind::Sent {
+                to: "yOther".into(),
+            },
+            Chain::Core,
+            100,
+            -1_000,
+            "",
+        );
+        sending.proof = Proof::Sending;
+        assert_eq!(tax_category(&sending, &own), Some(Expense));
+        let timeless = act(
+            ActivityKind::Received { from: None },
+            Chain::Core,
+            0,
+            1_000,
+            "",
+        );
+        assert_eq!(tax_category(&marked(timeless), &own), None);
+        let nothing = act(ActivityKind::ProfileSaved, Chain::Platform, 100, 0, "");
+        assert_eq!(tax_category(&marked(nothing), &own), None);
+        let payout = act(
+            ActivityKind::Received {
+                from: Some(WITHDRAWAL_PAYOUT.into()),
+            },
+            Chain::Core,
+            100,
+            1_000,
+            "dd",
+        );
+        assert_eq!(
+            tax_category(&payout, &own),
+            None,
+            "the other half of a move"
+        );
+    }
+
+    /// FEAT-0012 AC-T2: «Transaction Type» is the category, spelled as DashPay spells it; the
+    /// other columns stay as BUG-37 has them — the fee empty, in what was sent.
+    #[test]
+    fn the_four_categories_in_the_file() {
+        let paid = with_fee(
+            act(
+                ActivityKind::Sent {
+                    to: "yOther".into(),
+                },
+                Chain::Core,
+                100,
+                -100_226,
+                "bb",
+            ),
+            226,
+        );
+        let came = act(
+            ActivityKind::Received { from: None },
+            Chain::Core,
+            200,
+            5_000_000,
+            "aa",
+        );
+        let rows = |ops: &[Activity]| -> Vec<String> {
+            taxbit(ops, &own())
+                .lines()
+                .skip(1)
+                .map(str::to_owned)
+                .collect()
+        };
+        assert_eq!(
+            rows(&[paid.clone(), came.clone()]),
+            [
+                "1970-01-01T00:01:40Z,Expense,0.00100226,DASH,evolite,,DASH,evolite,,,,bb",
+                "1970-01-01T00:03:20Z,Income,,DASH,evolite,0.05,DASH,evolite,,,,aa",
+            ]
+        );
+        assert_eq!(
+            rows(&[marked(paid), marked(came)]),
+            [
+                "1970-01-01T00:01:40Z,Transfer-out,0.00100226,DASH,evolite,,DASH,evolite,,,,bb",
+                "1970-01-01T00:03:20Z,Transfer-in,,DASH,evolite,0.05,DASH,evolite,,,,aa",
+            ]
+        );
+        // A mark on what makes no line adds none.
+        let mut sending = act(
+            ActivityKind::Sent {
+                to: "yOther".into(),
+            },
+            Chain::Core,
+            300,
+            -1_000,
+            "",
+        );
+        sending.proof = Proof::Sending;
+        assert_eq!(rows(&[marked(sending)]), Vec::<String>::new());
     }
 }
