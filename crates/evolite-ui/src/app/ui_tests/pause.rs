@@ -185,33 +185,48 @@ fn the_countdown_reads_left_to_right_in_arabic() {
     assert!(shown.contains("0:45") && !shown.contains("45:0"), "{shown}");
 }
 
-/// BUG-203 r3 (QA, dev-046292ed): a password refused in a pause in «Show the phrase» and «Check
-/// the phrase» says the pause and its countdown, as the unlock does, not «It did not work» or
-/// «The vault did not open».
+/// BUG-203 r3 (QA, dev-046292ed): a password refused in a pause in «Show the phrase» says the
+/// pause and its countdown, as the unlock does, not «It did not work». One app per test, held
+/// with its turn to the end (the kit drops before the turn): a second app in one test let the
+/// turn go while the first was still alive.
 #[test]
-fn the_phrase_dialogs_say_the_pause() {
+fn show_the_phrase_says_the_pause() {
     let until = chrono::Utc::now().timestamp() + 30;
     let (_turn, mut kit) = demo_app("phrase", "en");
-    kit.run_steps(3);
     kit.state_mut()
         .settings
         .on_revealed(Err(evolite_api::CoreError::TooManyTries { until }));
-    kit.run_steps(3);
-    assert!(has_text(&kit, "Too many wrong passwords"));
+    wait_for(&mut kit, "the pause's plate", |kit| {
+        has_text(kit, "Too many wrong passwords")
+    });
     assert!(has_words(&kit, "You can try again in 0:"));
     assert!(!has_words(&kit, "It did not work"));
-    drop((_turn, kit));
+}
+
+/// BUG-203 r3: the same in «Check the phrase», not «The vault did not open».
+#[test]
+fn check_the_phrase_says_the_pause() {
+    let until = chrono::Utc::now().timestamp() + 30;
     let (_turn, mut kit) = demo_app("check-phrase", "en");
-    kit.run_steps(3);
-    // The preset opens with the words asked; the answer refuses the password step before them.
+    // The preset asks the core on opening: its answer first, or it would come after the refusal
+    // put in and take its place (the race the batch's run showed).
+    wait_for(&mut kit, "the core's questions", |kit| {
+        kit.state()
+            .settings
+            .check
+            .as_ref()
+            .is_some_and(|f| f.questions.is_some() && !f.waiting)
+    });
+    // The answer refuses the password step, before the words.
     if let Some(form) = kit.state_mut().settings.check.as_mut() {
         form.questions = None;
     }
     kit.state_mut()
         .settings
         .on_phrase_questions(&Err(evolite_api::CoreError::TooManyTries { until }));
-    kit.run_steps(3);
-    assert!(has_text(&kit, "Too many wrong passwords"));
+    wait_for(&mut kit, "the pause's plate", |kit| {
+        has_text(kit, "Too many wrong passwords")
+    });
     assert!(has_words(&kit, "You can try again in 0:"));
     assert!(!has_text(&kit, "The vault did not open"));
 }
