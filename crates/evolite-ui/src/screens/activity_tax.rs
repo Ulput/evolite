@@ -126,6 +126,9 @@ fn shown_transfer(ctx: &egui::Context, act: &Activity) -> bool {
     }
 }
 
+/// The pair's height: the row's, so its caption and «?» are centred on it.
+const PAIR_HEIGHT: f32 = 36.0;
+
 /// The row under the note: «Tax category», «?», the pair, and one line under them. The command
 /// to send when the other half was chosen.
 pub fn tax_row(
@@ -140,44 +143,56 @@ pub fn tax_row(
     let transfer = shown_transfer(&ctx, act);
     let shown = pair[usize::from(transfer)];
     let mut chosen = None;
-    ui.add_space(4.0);
-    ui.horizontal(|ui| {
-        ui.spacing_mut().item_spacing.x = 6.0;
-        ui.label(crate::screens::txt(
-            tr!("Tax category"),
-            13.0,
-            Weight::Regular,
-            p.muted,
-        ));
-        if help_button(ui, a).clicked() {
-            open_explainer(&ctx);
-        }
-        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-            chosen = pair_toggle(ui, a, pair, shown);
-        });
-    });
-    let refused = ctx
-        .data(|d| d.get_temp::<Refused>(refused_id()))
-        .filter(|r| r.key == act.key);
-    ui.spacing_mut().item_spacing.y = 6.0;
-    match &refused {
-        Some(refused) => {
-            ui.horizontal_top(|ui| {
+    // One block of the card (designer, 2026-11-18): the pair, 7 to the line's ink under it, and the
+    // card's own gap after the whole — not after the pair, or the line reads as txid's caption.
+    ui.vertical(|ui| {
+        // 5 + the line's leading above its ink.
+        ui.spacing_mut().item_spacing.y = 5.0;
+        // As tall as the pair, so the caption and «?» stand on its middle, not its top.
+        ui.allocate_ui_with_layout(
+            vec2(ui.available_width(), PAIR_HEIGHT),
+            Layout::left_to_right(Align::Center),
+            |ui| {
                 ui.spacing_mut().item_spacing.x = 6.0;
-                ui.add(a.icons.icon("warning", p.danger, &p, 14.0));
-                ui.vertical(|ui| {
-                    ui.spacing_mut().item_spacing.y = 4.0;
-                    ui.add(para(&refused.why, 12.0, Weight::Medium, p.danger));
-                    if let Some(details) = &refused.details {
-                        crate::components::details_line(ui, &p, details);
-                    }
+                ui.label(crate::screens::txt(
+                    tr!("Tax category"),
+                    13.0,
+                    Weight::Regular,
+                    p.muted,
+                ));
+                if help_button(ui, a).clicked() {
+                    open_explainer(&ctx);
+                }
+                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                    chosen = pair_toggle(ui, a, pair, shown);
                 });
-            });
+            },
+        );
+        let refused = ctx
+            .data(|d| d.get_temp::<Refused>(refused_id()))
+            .filter(|r| r.key == act.key);
+        match &refused {
+            Some(refused) => {
+                ui.horizontal_top(|ui| {
+                    ui.spacing_mut().item_spacing.x = 6.0;
+                    ui.add(a.icons.icon("warning", p.danger, &p, 14.0));
+                    ui.vertical(|ui| {
+                        ui.spacing_mut().item_spacing.y = 4.0;
+                        ui.add(para(&refused.why, 12.0, Weight::Medium, p.danger));
+                        if let Some(details) = &refused.details {
+                            crate::components::details_line(ui, &p, details);
+                        }
+                    });
+                });
+            }
+            None => {
+                ui.add(para(caption(shown), 12.0, Weight::Regular, p.muted));
+            }
         }
-        None => {
-            ui.add(para(caption(shown), 12.0, Weight::Regular, p.muted));
-        }
-    }
+    });
+    // 16 from the line's ink to the next block's (the designer's measure): the card's gap is
+    // between frames, and the line's leading and the txid caption's add 7 to it.
+    ui.add_space(-7.0);
     let chosen = chosen.filter(|c| *c != shown)?;
     ask(&ctx, &act.key, chosen.is_transfer());
     Some(Command::SetTaxTransfer {
@@ -233,7 +248,7 @@ fn pair_toggle(
     let p = a.p;
     let font = sans(13.0, Weight::SemiBold);
     let widths = pair.map(|c| crate::components::text_width(ui, c.label(), font.clone()) + 24.0);
-    let size = vec2(8.0 + widths[0] + widths[1] + 4.0, 36.0);
+    let size = vec2(8.0 + widths[0] + widths[1] + 4.0, PAIR_HEIGHT);
     let (rect, resp) = ui.allocate_exact_size(size, Sense::click());
     let id = resp.id;
     resp.widget_info(|| {
