@@ -260,8 +260,8 @@ impl Real {
         self.credits_checked.store(false, Ordering::Relaxed);
         // The right words of an unanswered phrase check go with the keys.
         self.phrase_check = None;
-        // A key change not known to have gone through is forgotten (BUG-184).
-        *self.unclear_keys.lock().unwrap_or_else(|e| e.into_inner()) = None;
+        // A paid write not known to have gone through is forgotten (BUG-184).
+        self.unclear.forget();
         // BUG-194: the address pools as the lock leaves them, with what is used.
         if let Some(open) = self.unlocked.as_ref()
             && let Some(wallet) = self.chain.wallet(&open.id).await

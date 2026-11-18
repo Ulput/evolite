@@ -9,10 +9,6 @@ use super::identity::own_line;
 use super::tokens::{make_due, token_label};
 use crate::real::*;
 
-/// How long a claim or a purchase may take before the answer says it timed out; it may still
-/// land, and the next read of the balances shows it.
-const ACT_WAIT: Duration = Duration::from_secs(120);
-
 impl Real {
     /// The followed token, its kept contract read, and the open keys; or why not.
     fn token_to_act(
@@ -62,6 +58,7 @@ impl Real {
             self.tokens.facts_handle(),
             self.journal.clone(),
         );
+        let unclear = self.unclear.clone();
         let refresh = self.refresher();
         // BUG-206: the identity the screen shows when the command comes: the task checks, pays
         // and signs as it even if the choice moves while it runs, and refuses if it is gone.
@@ -76,30 +73,55 @@ impl Real {
                             tr!("The wallet has no identity").into(),
                         ))?;
                 let before = chain.identity_credits(&wallet, &me_id, false).await;
-                let claim = chain.claim_token(
-                    &wallet,
-                    &keys,
-                    &me_id,
-                    &token.contract_id,
-                    token.position,
-                    scheduled,
-                );
-                let doc = tokio::time::timeout(ACT_WAIT, claim)
-                    .await
-                    .map_err(|_| CoreError::Failed("timed out".into()))?
-                    .map_err(dashpay_failure)?;
+                // TECH-after-send-outcome: never cut; without its answer, not known.
+                let claim = {
+                    let (chain, wallet, keys) = (chain.clone(), wallet.clone(), keys.clone());
+                    let (contract, position) = (token.contract_id.clone(), token.position);
+                    async move {
+                        chain
+                            .claim_token(&wallet, &keys, &me_id, &contract, position, scheduled)
+                            .await
+                    }
+                };
+                let outcome = sent::run(
+                    claim,
+                    sent::SEND_WAIT,
+                    |e: &String| sent::refused_before(e),
+                    || async { None::<()> },
+                    |_| false,
+                )
+                .await;
                 make_due(&facts);
+                let label = token_label(&info);
+                let decimals = info.decimals;
+                let doc = match outcome.answer() {
+                    Ok(doc) => doc,
+                    Err(sent::NoAnswer::Refused(e)) => return Err(dashpay_failure(e)),
+                    Err(sent::NoAnswer::Unclear(late)) => {
+                        // The amount is the claim document's: the line is made from the answer.
+                        let pending = sent::Pending::new(
+                            me.clone(),
+                            sent::Watch::Answer,
+                            None,
+                            before,
+                            Some(me),
+                        );
+                        return Err(unclear.not_known(
+                            pending,
+                            late,
+                            journal,
+                            move |doc, p| async move {
+                                let kind = claimed(label, decimals, &doc);
+                                let mut line =
+                                    sent::line_after(chain, wallet, me_id, Some(kind), p).await;
+                                line.key = Some(format!("tokx:{}", doc.id));
+                                line
+                            },
+                        ));
+                    }
+                };
                 let after = chain.identity_credits(&wallet, &me_id, true).await;
-                let mut line = own_line(
-                    journal::Kind::TokenClaimed {
-                        token: token_label(&info),
-                        amount: evolite_api::tokens::amount_text(doc.amount, info.decimals),
-                        units: doc.amount,
-                    },
-                    before,
-                    after,
-                    Some(me),
-                );
+                let mut line = own_line(claimed(label, decimals, &doc), before, after, Some(me));
                 // Q4: keyed by its document at once; the same document read later is this line.
                 line.key = Some(format!("tokx:{}", doc.id));
                 journal.add(line);
@@ -138,6 +160,7 @@ impl Real {
             self.tokens.facts_handle(),
             self.journal.clone(),
         );
+        let unclear = self.unclear.clone();
         let refresh = self.refresher();
         // BUG-206: the identity the screen shows when the command comes: the task checks, pays
         // and signs as it even if the choice moves while it runs, and refuses if it is gone.
@@ -152,44 +175,66 @@ impl Real {
                             tr!("The wallet has no identity").into(),
                         ))?;
                 let before = chain.identity_credits(&wallet, &me_id, false).await;
-                let buy = chain.buy_token(
-                    &wallet,
-                    &keys,
-                    &me_id,
-                    &token.contract_id,
-                    token.position,
-                    count,
-                    agreed,
-                );
-                let bought = tokio::time::timeout(ACT_WAIT, buy)
-                    .await
-                    .map_err(|_| CoreError::Failed("timed out".into()))?;
+                // TECH-after-send-outcome: never cut; without its answer, not known.
+                let buy = {
+                    let (chain, wallet, keys) = (chain.clone(), wallet.clone(), keys.clone());
+                    let (contract, position) = (token.contract_id.clone(), token.position);
+                    async move {
+                        chain
+                            .buy_token(&wallet, &keys, &me_id, &contract, position, count, agreed)
+                            .await
+                    }
+                };
+                let outcome = sent::run(
+                    buy,
+                    sent::SEND_WAIT,
+                    |e: &chain::BuyRefused| match e {
+                        chain::BuyRefused::PriceGrew => true,
+                        chain::BuyRefused::Other(e) => sent::refused_before(e),
+                    },
+                    || async { None::<()> },
+                    |_| false,
+                )
+                .await;
                 // Either way the balance and the price are read again: the row shows the new
                 // price after a refusal (P2), the new balance after a purchase.
                 make_due(&facts);
-                let bought = match bought {
+                let label = token_label(&info);
+                let decimals = info.decimals;
+                let bought = match outcome.answer() {
                     Ok(bought) => bought,
-                    Err(chain::BuyRefused::PriceGrew) => {
+                    Err(sent::NoAnswer::Refused(chain::BuyRefused::PriceGrew)) => {
                         refresh();
                         return Err(CoreError::TokenPriceGrew);
                     }
-                    Err(chain::BuyRefused::Other(e)) => return Err(dashpay_failure(e)),
+                    Err(sent::NoAnswer::Refused(chain::BuyRefused::Other(e))) => {
+                        return Err(dashpay_failure(e));
+                    }
+                    Err(sent::NoAnswer::Unclear(late)) => {
+                        let pending = sent::Pending::new(
+                            me.clone(),
+                            sent::Watch::Answer,
+                            None,
+                            before,
+                            Some(me),
+                        );
+                        return Err(unclear.not_known(
+                            pending,
+                            late,
+                            journal,
+                            move |bought, p| async move {
+                                let (key, kind) = bought_line(label, decimals, count, bought);
+                                let mut line =
+                                    sent::line_after(chain, wallet, me_id, Some(kind), p).await;
+                                line.key = key;
+                                line
+                            },
+                        ));
+                    }
                 };
                 let after = chain.identity_credits(&wallet, &me_id, true).await;
-                let (key, units) = match bought {
-                    chain::Bought::Document { id, amount } => (Some(format!("tokx:{id}")), amount),
-                    chain::Bought::Balance(_) => (None, count),
-                };
-                let mut line = own_line(
-                    journal::Kind::TokenBought {
-                        token: token_label(&info),
-                        amount: evolite_api::tokens::amount_text(units, info.decimals),
-                        units,
-                    },
-                    before,
-                    after,
-                    Some(me),
-                );
+                let (key, kind) = bought_line(label, decimals, count, bought);
+                let mut line = own_line(kind, before, after, Some(me));
                 line.key = key;
                 journal.add(line);
                 refresh();
@@ -206,4 +251,32 @@ impl Real {
             fraction: 0.0,
         }
     }
+}
+
+/// A claim's History line kind, from its proved document.
+fn claimed(token: String, decimals: u8, doc: &chain::ClaimDoc) -> journal::Kind {
+    journal::Kind::TokenClaimed {
+        token,
+        amount: evolite_api::tokens::amount_text(doc.amount, decimals),
+        units: doc.amount,
+    }
+}
+
+/// A purchase's History line kind and key: what its proved answer says was bought.
+fn bought_line(
+    token: String,
+    decimals: u8,
+    count: u64,
+    bought: chain::Bought,
+) -> (Option<String>, journal::Kind) {
+    let (key, units) = match bought {
+        chain::Bought::Document { id, amount } => (Some(format!("tokx:{id}")), amount),
+        chain::Bought::Balance(_) => (None, count),
+    };
+    let kind = journal::Kind::TokenBought {
+        token,
+        amount: evolite_api::tokens::amount_text(units, decimals),
+        units,
+    };
+    (key, kind)
 }

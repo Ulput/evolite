@@ -130,7 +130,7 @@ impl Real {
             names_gate: Arc::new(tokio::sync::Semaphore::new(NAMES_AT_ONCE)),
             contacts: Vec::new(),
             identity_busy: Default::default(),
-            unclear_keys: Default::default(),
+            unclear: Default::default(),
             address_busy: Arc::new(AtomicBool::new(false)),
             shown_address_inputs: Vec::new(),
             pool_wallet: Arc::new(std::sync::Mutex::new(None)),
@@ -361,7 +361,7 @@ impl Real {
             contact_accounts_busy: self.contact_accounts_busy.clone(),
             keyed_tasks: self.keyed_tasks.clone(),
             identity_busy: self.identity_busy.clone(),
-            unclear_keys: self.unclear_keys.clone(),
+            unclear: self.unclear.clone(),
             fund_resume_failed: self.fund_resume_failed.clone(),
         }
     }
@@ -389,7 +389,7 @@ impl Real {
         // TECH-busy-guard, BUG-210: the same flag as before «Add a wallet», held by any task
         // still running from then.
         self.identity_busy = parked.identity_busy;
-        self.unclear_keys = parked.unclear_keys;
+        self.unclear = parked.unclear;
         self.fund_resume_failed = parked.fund_resume_failed;
     }
 

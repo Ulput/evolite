@@ -25,9 +25,6 @@ use super::identity::own_line;
 use super::tokens::{make_due, token_label};
 use crate::real::*;
 
-/// How long an issuer action may take before the answer says it timed out.
-const ACT_WAIT: Duration = Duration::from_secs(120);
-
 fn action_of(a: Action) -> IssuerAction {
     match a {
         Action::Mint => IssuerAction::Mint,
@@ -465,6 +462,7 @@ impl Real {
             self.journal.clone(),
             self.tokens.page_handle(),
         );
+        let unclear = self.unclear.clone();
         let refresh = self.refresher();
         // BUG-206: the identity the screen shows when the command comes: the task checks, pays
         // and signs as it even if the choice moves while it runs, and refuses if it is gone.
@@ -572,27 +570,53 @@ impl Real {
                 // Should 1: checked, signed and paid as that one identity, whatever «Act as»
                 // shows meanwhile (BUG-13 r1 should 1).
                 let before = chain.identity_credits(&wallet, &me_id, false).await;
-                let act = chain.issuer_act(
-                    &wallet,
-                    &keys,
-                    &me_id,
-                    &token.contract_id,
-                    token.position,
-                    chain_op,
-                );
-                let done = tokio::time::timeout(ACT_WAIT, act)
-                    .await
-                    .map_err(|_| CoreError::Failed("timed out".into()))?
-                    .map_err(dashpay_failure)?;
+                let kind = kind_of(&op, token_label(&info), info.decimals, who);
+                // TECH-after-send-outcome: never cut; without its answer, not known.
+                let act = {
+                    let (chain, wallet, keys) = (chain.clone(), wallet.clone(), keys.clone());
+                    let (contract, position) = (token.contract_id.clone(), token.position);
+                    async move {
+                        chain
+                            .issuer_act(&wallet, &keys, &me_id, &contract, position, chain_op)
+                            .await
+                    }
+                };
+                let outcome = sent::run(
+                    act,
+                    sent::SEND_WAIT,
+                    |e: &String| sent::refused_before(e),
+                    || async { None::<()> },
+                    |_| false,
+                )
+                .await;
                 make_due(&facts);
                 *page.lock().unwrap_or_else(|e| e.into_inner()) = None;
+                let done = match outcome.answer() {
+                    Ok(done) => done,
+                    Err(sent::NoAnswer::Refused(e)) => return Err(dashpay_failure(e)),
+                    Err(sent::NoAnswer::Unclear(late)) => {
+                        let pending = sent::Pending::new(
+                            me.clone(),
+                            sent::Watch::Answer,
+                            Some(kind),
+                            before,
+                            Some(me),
+                        );
+                        return Err(unclear.not_known(
+                            pending,
+                            late,
+                            journal,
+                            move |done, p| async move {
+                                let mut line =
+                                    sent::line_after(chain, wallet, me_id, None, p).await;
+                                line.key = done.doc.map(|doc| format!("tokx:{doc}"));
+                                line
+                            },
+                        ));
+                    }
+                };
                 let after = chain.identity_credits(&wallet, &me_id, true).await;
-                let mut line = own_line(
-                    kind_of(&op, token_label(&info), info.decimals, who),
-                    before,
-                    after,
-                    Some(me),
-                );
+                let mut line = own_line(kind, before, after, Some(me));
                 line.key = done.doc.map(|doc| format!("tokx:{doc}"));
                 journal.add(line);
                 refresh();

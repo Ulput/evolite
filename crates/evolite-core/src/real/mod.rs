@@ -23,6 +23,7 @@ mod lifecycle;
 mod ops;
 mod prices;
 mod run;
+mod sent;
 mod snapshot;
 mod works;
 
@@ -343,7 +344,7 @@ struct Parked {
     /// and the fundings whose resume failed go with the chain: «Back» finds a task started
     /// before «Add a wallet» still holding the identity.
     identity_busy: busy::BusyFlag,
-    unclear_keys: ops::identity_keys::UnclearSlot,
+    unclear: sent::Unclear,
     fund_resume_failed: Arc<std::sync::Mutex<std::collections::HashSet<String>>>,
 }
 
@@ -481,9 +482,9 @@ struct Real {
     contacts: Vec<Contact>,
     /// An identity is being made or finished: its lock is not "unfinished" meanwhile.
     identity_busy: busy::BusyFlag,
-    /// A key change whose outcome is not known yet (BUG-184): its line waits for a read that
-    /// shows it.
-    unclear_keys: ops::identity_keys::UnclearSlot,
+    /// Paid writes whose outcome is not known yet (BUG-184, TECH-after-send-outcome): each
+    /// line waits for a read that shows it.
+    unclear: sent::Unclear,
     /// A payment from the Platform addresses is on its way: one at a time (FEAT-0015 R-2).
     address_busy: Arc<AtomicBool>,
     /// Each Platform address (bech32m) with its credits as the last snapshot showed them: the plan the

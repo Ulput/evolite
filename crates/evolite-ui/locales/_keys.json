@@ -363,6 +363,7 @@
   "Could not check the price — try again.",
   "Could not delete the wallet",
   "Could not find out whether the keys changed — look at the keys again before trying once more",
+  "Could not find out whether the operation went through — look again before repeating it",
   "Could not find tokens: the network's nodes do not answer. Showing what was found {} — balances may have changed.",
   "Could not load the NFTs",
   "Could not show it",

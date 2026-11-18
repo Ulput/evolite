@@ -778,10 +778,6 @@ mod recipient_tests {
     }
 }
 
-/// How long a token transfer may take before the answer says it timed out; the transfer may
-/// still land, and the next read of the balances shows it.
-const SEND_WAIT: Duration = Duration::from_secs(120);
-
 impl Real {
     /// Sends `amount` of a followed token (Spend::SendToken), past the password gate. The
     /// refusals before the password are the screen's (`send_refusal`, AC-T3); here only what
@@ -828,7 +824,7 @@ impl Real {
             return refused(CoreError::NotAvailable(tr!("The keys are not open").into()));
         };
         let (chain, facts) = (self.chain.clone(), self.tokens.facts.clone());
-        let journal = self.journal.clone();
+        let (journal, unclear) = (self.journal.clone(), self.unclear.clone());
         let refresh = self.refresher();
         let known = facts.lock().unwrap_or_else(|e| e.into_inner()).clone();
         // BUG-206: the identity the screen shows when the command comes: the task checks, pays
@@ -860,19 +856,48 @@ impl Real {
                 let checked = check_before_signing(known, &me, &info, amount, read).await?;
                 // BUG-145: the fee, from the credits before and after.
                 let before = chain.identity_credits(&wallet, &me_id, false).await;
-                let send = chain.send_token(
-                    &wallet,
-                    &keys,
-                    &me_id,
-                    &token.contract_id,
-                    token.position,
-                    to,
-                    amount,
-                );
-                let proved = tokio::time::timeout(SEND_WAIT, send)
-                    .await
-                    .map_err(|_| CoreError::Failed("timed out".into()))?
-                    .map_err(dashpay_failure)?;
+                let kind = journal::Kind::TokenSent {
+                    token: token_label(&info),
+                    to: to_shown,
+                    amount: evolite_api::tokens::amount_text(amount, info.decimals),
+                    units: Some(amount),
+                    to_id: Some(to.to_string(Encoding::Base58)),
+                };
+                // TECH-after-send-outcome: the send is never cut; without its answer it is not
+                // known, not «failed», and its line waits.
+                let send = {
+                    let (chain, wallet, keys) = (chain.clone(), wallet.clone(), keys.clone());
+                    let (contract, position) = (token.contract_id.clone(), token.position);
+                    async move {
+                        chain
+                            .send_token(&wallet, &keys, &me_id, &contract, position, to, amount)
+                            .await
+                    }
+                };
+                let outcome = sent::run(
+                    send,
+                    sent::SEND_WAIT,
+                    |e: &String| sent::refused_before(e),
+                    || async { None::<()> },
+                    |_| false,
+                )
+                .await;
+                let proved = match outcome.answer() {
+                    Ok(proved) => proved,
+                    Err(sent::NoAnswer::Refused(e)) => return Err(dashpay_failure(e)),
+                    Err(sent::NoAnswer::Unclear(late)) => {
+                        let pending = sent::Pending::new(
+                            me.clone(),
+                            sent::Watch::Answer,
+                            Some(kind),
+                            before,
+                            Some(me),
+                        );
+                        return Err(unclear.not_known(pending, late, journal, move |_, p| {
+                            sent::line_after(chain, wallet, me_id, None, p)
+                        }));
+                    }
+                };
                 let balance = balance_after(proved, checked, amount);
                 after_sent(
                     &mut facts.lock().unwrap_or_else(|e| e.into_inner()),
@@ -881,18 +906,7 @@ impl Real {
                     balance,
                 );
                 let after = chain.identity_credits(&wallet, &me_id, true).await;
-                journal.add(own_line(
-                    journal::Kind::TokenSent {
-                        token: token_label(&info),
-                        to: to_shown,
-                        amount: evolite_api::tokens::amount_text(amount, info.decimals),
-                        units: Some(amount),
-                        to_id: Some(to.to_string(Encoding::Base58)),
-                    },
-                    before,
-                    after,
-                    Some(me),
-                ));
+                journal.add(own_line(kind, before, after, Some(me)));
                 // A snapshot now: it shows the balance, or starts the read of it (BUG-146).
                 refresh();
                 Ok(())

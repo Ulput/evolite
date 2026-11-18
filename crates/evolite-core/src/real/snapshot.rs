@@ -2207,9 +2207,9 @@ mod signing_tests {
 /// ([`Real::shown_now`] before the task) and never reads «Act as» again in its task.
 /// Mutant: a task reading [`acting_identity`] (or the old per-task read) again fails here.
 #[cfg(test)]
-mod pinned_tests {
+pub(in crate::real) mod pinned_tests {
     /// The source of `name`'s function in `source`, up to the next function of the file.
-    fn body<'a>(source: &'a str, name: &str) -> &'a str {
+    pub(in crate::real) fn body<'a>(source: &'a str, name: &str) -> &'a str {
         let start = source
             .find(&format!("fn {name}("))
             .unwrap_or_else(|| panic!("no fn {name}"));

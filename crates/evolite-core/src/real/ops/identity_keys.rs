@@ -231,7 +231,7 @@ impl Real {
         let (chain, refresh) = (self.chain.clone(), self.refresher());
         let (journal, unclear, keys) = (
             self.journal.clone(),
-            self.unclear_keys.clone(),
+            self.unclear.clone(),
             open.keys.clone(),
         );
         self.answer_later("task:read_identity_keys", async move {
@@ -244,7 +244,7 @@ impl Real {
                     .map(|_| ())
                     .map_err(|e| CoreError::Failed(e.to_string()))?;
                 // BUG-184 p. 2: a change whose outcome was not known, now shown: its line.
-                let pending = unclear.lock().unwrap_or_else(|e| e.into_inner()).is_some();
+                let pending = unclear.waits(&identity, |w| matches!(w, sent::Watch::Keys(_)));
                 if let (true, Some(keys)) = (pending, keys.as_ref())
                     && let Ok(again) = chain.sign_in_identity(&wallet, keys).await
                     && let Some(done) = take_if_done(&unclear, &identity, |plan| {
@@ -252,7 +252,9 @@ impl Real {
                     })
                 {
                     let after = chain.identity_credits(&wallet, &id, true).await;
-                    journal.add(own_line(done.kind, done.before, after, done.acting));
+                    if let Some(kind) = done.kind {
+                        journal.add(own_line(kind, done.before, after, done.acting));
+                    }
                 }
                 Ok(())
             }
@@ -299,14 +301,18 @@ impl Real {
             return Err(identity_busy());
         };
         let (chain, apps, refresh) = (self.chain.clone(), self.apps.clone(), self.refresher());
-        let (journal, unclear) = (self.journal.clone(), self.unclear_keys.clone());
+        let (journal, unclear) = (self.journal.clone(), self.unclear.clone());
         self.answer_later("task:update_keys", async move {
             let result = async {
                 let wallet = loaded(&chain, &wallet_id).await?;
-                let who = chain
-                    .sign_in_identity(&wallet, &keys)
-                    .await
-                    .map_err(CoreError::NotAvailable)?;
+                // Shared with the send's own task (TECH-after-send-outcome), never copied: it holds
+                // the private halves of the identity's keys.
+                let who = Arc::new(
+                    chain
+                        .sign_in_identity(&wallet, &keys)
+                        .await
+                        .map_err(CoreError::NotAvailable)?,
+                );
                 if who.id.to_string(Encoding::Base58) != identity {
                     return Err(CoreError::NotAvailable(
                         tr!("Another identity is shown now: open its keys again").into(),
@@ -324,21 +330,33 @@ impl Real {
                 // The identity whose keys change, not the one shown by now.
                 let acting = Some(identity.clone());
                 let before = chain.identity_credits(&wallet, &who.id, false).await;
-                let sent = match chain.update_keys(&wallet, &keys, &who, &plan).await {
-                    Ok(after) => Ok(after),
-                    Err(e) => {
+                // TECH-after-send-outcome: by the one rule. Every error has the identity read
+                // again, as before (BUG-184): showing the change, it is done; never sent twice.
+                let send = {
+                    let (chain, wallet, keys) = (chain.clone(), wallet.clone(), keys.clone());
+                    let (who, plan) = (who.clone(), plan.clone());
+                    async move { chain.update_keys(&wallet, &keys, &who, &plan).await }
+                };
+                let outcome = sent::run(
+                    send,
+                    sent::SEND_WAIT,
+                    |e: &String| {
                         // The kind of the error, never its text (BUG-184 p. 4).
-                        crate::diag::platform_failed("update_keys", &e);
-                        // It may have gone through (BUG-184): the identity is read again, never
-                        // sent twice; showing the change, it is done.
-                        let again = chain.sign_in_identity(&wallet, &keys).await.ok();
-                        if done_after_error(again.as_ref(), &who, &plan) {
-                            crate::diag::platform_failed("update_keys_unclear", "Done");
-                            again.ok_or(e)
-                        } else {
-                            Err(e)
-                        }
+                        crate::diag::platform_failed("update_keys", e);
+                        false
+                    },
+                    || async { chain.sign_in_identity(&wallet, &keys).await.ok() },
+                    |again| done_after_error(Some(again), &who, &plan),
+                )
+                .await;
+                let (sent, late) = match outcome {
+                    sent::Outcome::Done(after) => (Ok(after), None),
+                    sent::Outcome::Shown(again) => {
+                        crate::diag::platform_failed("update_keys_unclear", "Done");
+                        (Ok(again), None)
                     }
+                    sent::Outcome::Unclear { late, .. } => (Err(()), late),
+                    sent::Outcome::Refused(_) => (Err(()), None),
                 };
                 let after = match &sent {
                     Ok(_) => chain.identity_credits(&wallet, &who.id, true).await,
@@ -354,16 +372,29 @@ impl Real {
                 }
                 match sent {
                     Ok(after) => sent_answer(evolite_chain::key_update::shows(&after, &plan)),
-                    Err(_) => {
-                        // Not known: kept, for the read that shows it to write its line (BUG-184
-                        // p. 2).
-                        *unclear.lock().unwrap_or_else(|e| e.into_inner()) = Some(UnclearKeys {
-                            identity: identity.clone(),
-                            plan: plan.clone(),
-                            kind,
+                    Err(()) => {
+                        // Not known: kept, for the read that shows it, or the send's own late
+                        // answer, to write its line (BUG-184 p. 2).
+                        let ticket = unclear.keep(sent::Pending::new(
+                            identity.clone(),
+                            sent::Watch::Keys(plan.clone()),
+                            Some(kind),
                             before,
                             acting,
-                        });
+                        ));
+                        if let Some(late) = late {
+                            let (chain, id) = (chain.clone(), who.id);
+                            unclear.settle_late(
+                                ticket,
+                                late,
+                                journal.clone(),
+                                move |_, p| async move {
+                                    let after = chain.identity_credits(&wallet, &id, true).await;
+                                    let kind = p.kind.expect("a key change's kind is known");
+                                    own_line(kind, p.before, after, p.acting)
+                                },
+                            );
+                        }
                         Err(CoreError::Failed(UNCLEAR.into()))
                     }
                 }
@@ -398,20 +429,6 @@ pub(in crate::real) const UNCLEAR: &str = tr!(
     "Could not find out whether the keys changed — look at the keys again before trying once more"
 );
 
-/// BUG-184: a key change sent whose outcome is not known ([`UNCLEAR`]): what its History line
-/// needs once a read of the identity shows it done. Kept until then, or the lock.
-#[derive(Clone, Debug)]
-pub(in crate::real) struct UnclearKeys {
-    pub(in crate::real) identity: String,
-    pub(in crate::real) plan: key_plan::KeyPlan,
-    pub(in crate::real) kind: journal::Kind,
-    pub(in crate::real) before: Option<u64>,
-    pub(in crate::real) acting: Option<String>,
-}
-
-/// Where [`UnclearKeys`] waits: one at a time, as one change of an identity runs at a time.
-pub(in crate::real) type UnclearSlot = Arc<std::sync::Mutex<Option<UnclearKeys>>>;
-
 /// BUG-184 p. 1: after an error of the send, whether `again` (the identity read again, if it
 /// was) is the same identity and shows `plan` done.
 pub(in crate::real) fn done_after_error(
@@ -425,19 +442,14 @@ pub(in crate::real) fn done_after_error(
 /// BUG-184 p. 2: the unclear change of `identity`, taken out once `shows` says a read of it
 /// shows the change done; its line is then written, once.
 pub(in crate::real) fn take_if_done(
-    slot: &UnclearSlot,
+    unclear: &sent::Unclear,
     identity: &str,
-    shows: impl FnOnce(&key_plan::KeyPlan) -> bool,
-) -> Option<UnclearKeys> {
-    let mut slot = slot.lock().unwrap_or_else(|e| e.into_inner());
-    if slot
-        .as_ref()
-        .is_some_and(|u| u.identity == identity && shows(&u.plan))
-    {
-        slot.take()
-    } else {
-        None
-    }
+    shows: impl Fn(&key_plan::KeyPlan) -> bool,
+) -> Option<sent::Pending> {
+    unclear.take_if(identity, |watch| match watch {
+        sent::Watch::Keys(plan) => shows(plan),
+        _ => false,
+    })
 }
 
 /// Said while another change of the identity is under way (the review's Should 1).
@@ -559,21 +571,21 @@ mod tests {
     /// its one line; another identity's read does not.
     #[test]
     fn a_late_line_is_written_once() {
-        let slot = UnclearSlot::default();
-        *slot.lock().unwrap() = Some(UnclearKeys {
-            identity: "A".into(),
-            plan: key_plan::KeyPlan {
+        let slot = sent::Unclear::default();
+        slot.keep(sent::Pending::new(
+            "A".into(),
+            sent::Watch::Keys(key_plan::KeyPlan {
                 add: Vec::new(),
                 disable: vec![2],
-            },
-            kind: journal::Kind::KeysChanged {
+            }),
+            Some(journal::Kind::KeysChanged {
                 added: Vec::new(),
                 disabled: vec![2],
                 bound: 0,
-            },
-            before: Some(1_331_644),
-            acting: None,
-        });
+            }),
+            Some(1_331_644),
+            None,
+        ));
         assert!(
             take_if_done(&slot, "A", |_| false).is_none(),
             "not shown yet"

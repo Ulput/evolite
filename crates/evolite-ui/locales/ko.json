@@ -51,6 +51,7 @@
   "Some of the coins are not confirmed by the network yet — wait for a block": "일부 코인이 아직 네트워크에서 확인되지 않았습니다 — 블록을 기다리세요",
   "View the keys": "키 보기",
   "Could not find out whether the keys changed — look at the keys again before trying once more": "키가 바뀌었는지 확인하지 못했습니다 — 다시 시도하기 전에 키를 한 번 더 확인하세요",
+  "Could not find out whether the operation went through — look again before repeating it": "작업이 처리되었는지 확인하지 못했습니다 — 다시 하기 전에 한 번 더 확인하세요",
   "DashPay needs this wallet's keys on the identity first: “Enable DashPay…” below": "DashPay에는 먼저 신원에 이 지갑의 키가 필요합니다: 아래 «DashPay 활성화…»",
   "DashPay takes the encryption key with the lowest number — here key {} of another wallet or an app, so contacts do not work in evolite. Enabling DashPay adds this wallet's pair and disables that key.": "DashPay는 번호가 가장 작은 암호화 키를 사용합니다 — 여기서는 다른 지갑이나 앱의 키 {}이므로 evolite에서 연락처가 작동하지 않습니다. DashPay를 활성화하면 이 지갑의 쌍을 추가하고 그 키를 비활성화합니다.",
   "DashPay takes the encryption key with the lowest number. Now that is key {} of another wallet or an app — contacts would not work here. Enabling DashPay adds this wallet's pair and disables {}. That wallet or app may lose access to its encrypted data.": "DashPay는 번호가 가장 작은 암호화 키를 사용합니다. 지금은 다른 지갑이나 앱의 키 {}입니다 — 여기서는 연락처가 작동하지 않습니다. DashPay를 활성화하면 이 지갑의 쌍을 추가하고 {}을(를) 비활성화합니다. 그 지갑이나 앱은 암호화된 데이터에 접근하지 못할 수 있습니다.",
