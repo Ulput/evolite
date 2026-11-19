@@ -15,8 +15,8 @@ use crate::context::Ctx;
 use crate::theme::{Weight, mono, sans};
 use egui::Ui;
 use evolite_api::tokens::{
-    IssuerAction, IssuerOp, NamesProblem, Right, SettingChange, SettingField, SettingView, Taker,
-    TokenName, TokenPage, TokenRow, names_problem,
+    FrozenAnswer, FrozenCheck, IssuerAction, IssuerOp, NamesProblem, Right, SettingChange,
+    SettingField, SettingView, Taker, TokenName, TokenPage, TokenRow, names_problem,
 };
 use evolite_api::{Command, CoreError, Spend};
 
@@ -33,6 +33,11 @@ pub struct PageState {
     retry_at: Option<std::time::Instant>,
     /// The failures counted when the page was opened: the tries again count from there.
     opened_at: u32,
+    /// «Check» (BUG-222 QA): what was sent and is not answered yet, the last answer, and a
+    /// «Check» on an empty field.
+    checking: Option<String>,
+    answer: Option<FrozenCheck>,
+    check_empty: bool,
 }
 
 /// After which failed read the page tries again by itself, and in how many seconds (BUG-222):
@@ -54,6 +59,9 @@ impl PageState {
             reading: false,
             retry_at: None,
             opened_at: 0,
+            checking: None,
+            answer: None,
+            check_empty: false,
         }
     }
 
@@ -96,6 +104,84 @@ impl PageState {
     fn failed(&self) -> bool {
         self.failures_seen > 0 && !self.reading
     }
+
+    /// «Check» pressed (BUG-222 QA): the identity to ask about, or none for an empty field,
+    /// which gets a hint instead of a read.
+    fn check_asked(&mut self) -> Option<String> {
+        let asked = self.check.trim().to_owned();
+        self.answer = None;
+        self.check_empty = asked.is_empty();
+        self.checking = (!asked.is_empty()).then(|| asked.clone());
+        self.checking.clone()
+    }
+
+    /// The field changed: what was said of the text before goes.
+    fn check_typed(&mut self) {
+        self.check_empty = false;
+        self.answer = None;
+        self.checking = None;
+    }
+
+    /// What the line under the field says now, given the page's answer, if any. A failed read
+    /// drops the question: the page says it failed.
+    fn check_said(&mut self, answered: Option<&FrozenCheck>) -> Option<CheckSaid> {
+        if let (Some(asked), Some(answered)) = (&self.checking, answered)
+            && *asked == answered.asked
+        {
+            self.answer = Some(answered.clone());
+            self.checking = None;
+        }
+        if self.failed() {
+            self.checking = None;
+        }
+        if self.check_empty {
+            Some(CheckSaid::Empty)
+        } else if self.checking.is_some() {
+            Some(CheckSaid::Checking)
+        } else {
+            self.answer.clone().map(CheckSaid::Answer)
+        }
+    }
+}
+
+/// The line under «Check» (BUG-222 QA).
+#[derive(Clone, PartialEq, Eq, Debug)]
+enum CheckSaid {
+    Empty,
+    Checking,
+    Answer(FrozenCheck),
+}
+
+fn check_line(
+    said: Option<CheckSaid>,
+    p: &crate::theme::Palette,
+) -> Option<(String, egui::Color32)> {
+    let own = |s: &str| crate::i18n::own(s);
+    Some(match said? {
+        CheckSaid::Empty => (
+            tr!("Type an @name or an identity id to check.").to_owned(),
+            p.muted,
+        ),
+        CheckSaid::Checking => (tr!("Checking…").to_owned(), p.muted),
+        CheckSaid::Answer(FrozenCheck { asked, answer }) => match answer {
+            FrozenAnswer::Frozen => (
+                format!(tr!("{} is frozen for this token."), own(&asked)),
+                p.danger,
+            ),
+            FrozenAnswer::NotFrozen => (
+                format!(tr!("{} is not frozen for this token."), own(&asked)),
+                p.text,
+            ),
+            FrozenAnswer::NoSuchName => (
+                format!(tr!("No identity has the name {}."), own(&asked)),
+                p.danger,
+            ),
+            FrozenAnswer::NotAnIdentity => (
+                format!(tr!("{} is not an @name or an identity id."), own(&asked)),
+                p.danger,
+            ),
+        },
+    })
 }
 
 /// Which issuer window is open.
@@ -656,7 +742,7 @@ pub fn page_screen(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, tokens: &mut Token
                         ui.set_max_width((ui.available_width() - check_w - gap).max(120.0));
                         // Its name for the reader: no label above it.
                         crate::a11y::name_next_field(ui, tr!("Check an identity"));
-                        text_field(
+                        if text_field(
                             ui,
                             &p,
                             "token-check",
@@ -664,14 +750,22 @@ pub fn page_screen(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, tokens: &mut Token
                             "@name",
                             FieldKind::Text,
                             |_| {},
-                        );
+                        )
+                        .changed()
+                        {
+                            pst.check_typed();
+                        }
                     });
-                    if button(ui, a, tr!("Check"), ButtonKind::Secondary, None).clicked()
-                        && !pst.check.trim().is_empty()
-                    {
-                        check = Some(pst.check.trim().to_owned());
+                    if button(ui, a, tr!("Check"), ButtonKind::Secondary, None).clicked() {
+                        check = pst.check_asked();
                     }
                 });
+                // BUG-222 QA: the answer to «Check», under the field.
+                if let Some((line, color)) =
+                    check_line(pst.check_said(page.checked.as_ref()), &p)
+                {
+                    ui.label(txt(&line, 12.0, Weight::Medium, color));
+                }
             }
             // Settings (M7): one framed list, a row each, the locked ones with a lock.
             divider(ui, &p);
@@ -1628,6 +1722,7 @@ mod tests {
             choose_destination: choose,
             new_tokens_to: to.map(Into::into),
             frozen: vec![],
+            checked: None,
             tradeable: false,
             names: vec![],
             settings: vec![],
@@ -1852,5 +1947,38 @@ mod tests {
         fresh.opened(None);
         assert!(!fresh.on_reads(Some(1), t0));
         assert_eq!(fresh.retry_at, Some(t0 + Duration::from_secs(5)));
+    }
+
+    /// BUG-222 QA: an empty «Check» asks nothing and says so; the answer to what was sent is
+    /// kept until the field changes; one for other text is not taken; a failed read drops the
+    /// question.
+    #[test]
+    fn check_asks_only_for_text_and_keeps_its_answer() {
+        let answer = |asked: &str, answer| FrozenCheck {
+            asked: asked.into(),
+            answer,
+        };
+        let mut pst = super::PageState::new("T");
+        pst.check = "  ".into();
+        assert_eq!(pst.check_asked(), None);
+        assert_eq!(pst.check_said(None), Some(CheckSaid::Empty));
+        pst.check = " @kestrel ".into();
+        pst.check_typed();
+        assert_eq!(pst.check_said(None), None);
+        assert_eq!(pst.check_asked().as_deref(), Some("@kestrel"));
+        assert_eq!(pst.check_said(None), Some(CheckSaid::Checking));
+        let other = answer("@other", FrozenAnswer::Frozen);
+        assert_eq!(pst.check_said(Some(&other)), Some(CheckSaid::Checking));
+        let mine = answer("@kestrel", FrozenAnswer::NotFrozen);
+        assert_eq!(
+            pst.check_said(Some(&mine)),
+            Some(CheckSaid::Answer(mine.clone()))
+        );
+        assert_eq!(pst.check_said(None), Some(CheckSaid::Answer(mine)));
+        pst.check_typed();
+        assert_eq!(pst.check_said(None), None);
+        assert!(pst.check_asked().is_some());
+        pst.failures_seen = 1;
+        assert_eq!(pst.check_said(None), None, "the failure is said instead");
     }
 }

@@ -16,7 +16,8 @@ use dpp::data_contract::associated_token::token_keeps_history_rules::accessors::
 use dpp::data_contract::change_control_rules::ChangeControlRules;
 use dpp::data_contract::change_control_rules::authorized_action_takers::AuthorizedActionTakers;
 use evolite_api::tokens::{
-    IssuerAction, IssuerOp, Right, SettingChange, SettingField, SettingView, Taker, TokenPage,
+    FrozenAnswer, FrozenCheck, IssuerAction, IssuerOp, Right, SettingChange, SettingField,
+    SettingView, Taker, TokenPage,
 };
 use evolite_chain::tokens::rights::{self as chain_rights, Action};
 use evolite_chain::tokens::settings::{self as chain_settings, Setting};
@@ -102,7 +103,35 @@ pub(in crate::real) struct PageFacts {
     pub supply: u64,
     pub paused: bool,
     pub frozen: Vec<String>,
+    pub checked: Option<FrozenCheck>,
     pub read_ms: u64,
+}
+
+/// Whether `s` is an identity id as Platform writes one (base58 of 32 bytes).
+fn is_identity_id(s: &str) -> bool {
+    Identifier::from_string(s, Encoding::Base58).is_ok()
+}
+
+/// «Check»'s identity (BUG-222 review r1, M1): what [`super::names::recipient_id`] made of the
+/// text. A name nobody has and text that is no identity are answers; a failed read stays one.
+fn frozen_target(
+    resolved: Result<String, CoreError>,
+) -> Result<Result<String, FrozenAnswer>, CoreError> {
+    match resolved {
+        Ok(id) => Ok(Ok(id)),
+        Err(CoreError::NameNotFound) => Ok(Err(FrozenAnswer::NoSuchName)),
+        Err(CoreError::BadAddress | CoreError::BadName) => Ok(Err(FrozenAnswer::NotAnIdentity)),
+        Err(e) => Err(e),
+    }
+}
+
+/// «Check»'s answer (BUG-222 QA): the identity found is frozen if the proved list has it.
+fn answer_of(id: Result<String, FrozenAnswer>, frozen: &[String]) -> FrozenAnswer {
+    match id {
+        Ok(id) if frozen.contains(&id) => FrozenAnswer::Frozen,
+        Ok(_) => FrozenAnswer::NotFrozen,
+        Err(why) => why,
+    }
 }
 
 /// The token page of `config` for `me` (pure, from what was read).
@@ -118,6 +147,7 @@ pub(in crate::real) fn page_of(
         supply,
         paused,
         frozen,
+        checked,
         read_ms,
     } = read;
     let rights = chain_rights::rights(config, owner, groups, me);
@@ -167,6 +197,7 @@ pub(in crate::real) fn page_of(
             )
             .collect(),
         frozen,
+        checked,
         settings,
         read_ms,
     }
@@ -415,19 +446,32 @@ impl Real {
                             .map_err(at("token_page.freezes"))?,
                     );
                 }
+                // BUG-222 QA: «Check» is answered on the page. A name nobody has, or text that is
+                // no identity id, is that answer, not a failed read of the whole page.
+                let mut asked = None;
                 if let Some(check) = check.as_deref().map(str::trim).filter(|c| !c.is_empty()) {
-                    // BUG-233: by the label, not «@name»; an id is checked.
-                    let id = super::names::recipient_id(&chain, check)
-                        .await
+                    // BUG-233: by the label, not «@name»; an id is checked. A name nobody has, or
+                    // text that is no identity, is that answer, not a failed read of the page
+                    // (BUG-222 QA, review r1 M1).
+                    let id = frozen_target(super::names::recipient_id(&chain, check).await)
                         .map_err(|e| ("token_page.name", format!("{e:?}")))?;
-                    candidates.push(id);
+                    if let Ok(id) = &id {
+                        candidates.push(id.clone());
+                    }
+                    asked = Some((check.to_owned(), id));
                 }
+                // One that does not parse would fail the read for all (BUG-222 QA).
+                candidates.retain(|c| is_identity_id(c));
                 candidates.sort();
                 candidates.dedup();
                 let frozen = chain
                     .frozen_among(&token_id, &candidates)
                     .await
                     .map_err(at("token_page.frozen"))?;
+                let checked = asked.map(|(asked, id)| FrozenCheck {
+                    answer: answer_of(id, &frozen),
+                    asked,
+                });
                 let read_ms = std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
                     .map_or(0, |d| d.as_millis() as u64);
@@ -441,6 +485,7 @@ impl Real {
                         supply,
                         paused,
                         frozen,
+                        checked,
                         read_ms,
                     },
                 ))
@@ -758,11 +803,55 @@ mod tests {
         c
     }
 
+    /// BUG-222 QA: «Check» says frozen only for one the proved list has; a name nobody has and
+    /// text that is no id are answers of their own; an id is base58 of 32 bytes.
+    #[test]
+    fn the_check_is_answered_from_the_proved_list() {
+        let id = Identifier::new([3; 32]).to_string(Encoding::Base58);
+        let frozen = vec![id.clone()];
+        assert_eq!(answer_of(Ok(id.clone()), &frozen), FrozenAnswer::Frozen);
+        assert_eq!(answer_of(Ok(id.clone()), &[]), FrozenAnswer::NotFrozen);
+        for why in [FrozenAnswer::NoSuchName, FrozenAnswer::NotAnIdentity] {
+            assert_eq!(answer_of(Err(why), &frozen), why);
+        }
+        assert!(is_identity_id(&id));
+        for not in ["", "evoliteqa", "@evoliteqa", "0OIl", &id[..20]] {
+            assert!(!is_identity_id(not), "{not}");
+        }
+    }
+
+    /// BUG-222 review r1, M1: «Check» resolves through `names::recipient_id`: «@alice» is asked
+    /// as `alice`, never with its «@»; a name nobody has and text that is no identity are
+    /// answers; a failed read stays a failure.
+    #[test]
+    fn the_check_asks_the_label_and_answers_what_is_no_identity() {
+        use super::super::names::{Recipient, recipient};
+        assert_eq!(recipient(" @alice "), Ok(Recipient::Name("alice".into())));
+        let id = Identifier::new([3; 32]).to_string(Encoding::Base58);
+        assert_eq!(frozen_target(Ok(id.clone())), Ok(Ok(id)));
+        assert_eq!(
+            frozen_target(Err(CoreError::NameNotFound)),
+            Ok(Err(FrozenAnswer::NoSuchName))
+        );
+        for text in ["alice", "@"] {
+            assert_eq!(
+                frozen_target(recipient(text).map(|_| String::new())),
+                Ok(Err(FrozenAnswer::NotAnIdentity)),
+                "{text}"
+            );
+        }
+        assert_eq!(
+            frozen_target(Err(CoreError::NotSynced)),
+            Err(CoreError::NotSynced)
+        );
+    }
+
     fn facts() -> PageFacts {
         PageFacts {
             supply: 1_000,
             paused: false,
             frozen: vec![],
+            checked: None,
             read_ms: 0,
         }
     }

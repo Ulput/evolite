@@ -672,11 +672,13 @@ impl Mock {
                 Event::Snapshot(Box::new(self.snapshot.clone()))
             }
             // FEAT-0019 T-3: the demo's token page.
-            Command::ReadTokenPage { token_id, .. } => {
+            Command::ReadTokenPage { token_id, check } => {
                 let now = demo::now();
                 if let Some(w) = self.snapshot.wallet.as_mut() {
                     let me = w.identity.as_ref().map_or(String::new(), |i| i.id.clone());
-                    w.tokens.page = Some(tokens::demo_page(&token_id, &me, now));
+                    let mut page = tokens::demo_page(&token_id, &me, now);
+                    page.checked = check.map(|c| tokens::demo_check(&page, &c));
+                    w.tokens.page = Some(page);
                 }
                 Event::Snapshot(Box::new(self.snapshot.clone()))
             }

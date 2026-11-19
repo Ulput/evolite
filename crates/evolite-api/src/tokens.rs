@@ -343,6 +343,24 @@ pub struct SettingView {
     pub to_no_one_allowed: bool,
 }
 
+/// «Check» under the frozen balances (BUG-222 QA): what was typed, as typed, and the answer.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct FrozenCheck {
+    pub asked: String,
+    pub answer: FrozenAnswer,
+}
+
+/// The answer to «Check»: proved either way, or why there is none.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum FrozenAnswer {
+    Frozen,
+    NotFrozen,
+    /// An @name no identity has.
+    NoSuchName,
+    /// Neither an @name nor an identity id.
+    NotAnIdentity,
+}
+
 /// The token page of a token this identity manages (T-3.2, M1).
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct TokenPage {
@@ -367,6 +385,8 @@ pub struct TokenPage {
     pub names: Vec<TokenName>,
     /// Frozen balances among those the wallet knows of, proved (Q2).
     pub frozen: Vec<String>,
+    /// The identity asked about by «Check» on this read, and the answer (BUG-222 QA).
+    pub checked: Option<FrozenCheck>,
     pub settings: Vec<SettingView>,
     /// When it was read, in milliseconds.
     pub read_ms: u64,

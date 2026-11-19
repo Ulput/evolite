@@ -2338,5 +2338,10 @@
   "{} suggestion|{} suggestions": {"one":"{} sugerencia","many":"{} de sugerencias","other":"{} sugerencias"},
   "The phrase was taken off the clipboard.": "La frase se quitó del portapapeles.",
   "Strangers' pictures in name suggestions": "Imágenes de desconocidos en las sugerencias de nombres",
-  "Off: pictures only of your contacts. On: evolite loads strangers' avatars from their servers, and those servers see your IP and which names you look at.": "Desactivado: solo imágenes de tus contactos. Activado: evolite descarga los avatares de desconocidos desde sus servidores, y esos servidores ven tu IP y qué nombres miras."
+  "Off: pictures only of your contacts. On: evolite loads strangers' avatars from their servers, and those servers see your IP and which names you look at.": "Desactivado: solo imágenes de tus contactos. Activado: evolite descarga los avatares de desconocidos desde sus servidores, y esos servidores ven tu IP y qué nombres miras.",
+  "No identity has the name {}.": "Ninguna identidad tiene el nombre {}.",
+  "Type an @name or an identity id to check.": "Escribe un @nombre o un id de identidad para comprobarlo.",
+  "{} is frozen for this token.": "{} está congelado para este token.",
+  "{} is not an @name or an identity id.": "{} no es un @nombre ni un id de identidad.",
+  "{} is not frozen for this token.": "{} no está congelado para este token."
 }

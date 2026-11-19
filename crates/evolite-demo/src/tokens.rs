@@ -287,6 +287,7 @@ pub fn demo_page(token_id: &str, me: &str, t: Timestamp) -> evolite_api::tokens:
             },
         ],
         frozen: vec!["9Xc4Wn2Pk7Lm3Qr8Ts5Vy1Bz6Hd4Fj2Gs9Ku3Mp7Nq".into()],
+        checked: None,
         settings: vec![
             field(F::Names, Taker::NoOne, Right::No, true),
             field(F::MaxSupply, Taker::ContractOwner, Right::Alone, false),
@@ -400,6 +401,31 @@ pub fn step(search: &mut TokenSearch, secs: f32, now: Timestamp) -> bool {
     search.checked = (CONTRACTS as f32 * fraction) as u32;
     search.left_secs = Some((PASS_SECS - secs).ceil().max(1.0) as u32);
     false
+}
+
+/// The demo's answer to «Check» under the frozen balances (BUG-222 QA): the example's frozen
+/// identity is frozen, any @name and any other id is not; other text is no identity.
+pub fn demo_check(
+    page: &evolite_api::tokens::TokenPage,
+    asked: &str,
+) -> evolite_api::tokens::FrozenCheck {
+    use evolite_api::tokens::{FrozenAnswer, FrozenCheck};
+    let asked = asked.trim();
+    let id_like = (40..=46).contains(&asked.len())
+        && asked
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() && !"0OIl".contains(c));
+    let answer = if page.frozen.iter().any(|f| f == asked) {
+        FrozenAnswer::Frozen
+    } else if asked.len() > 1 && asked.starts_with('@') || id_like {
+        FrozenAnswer::NotFrozen
+    } else {
+        FrozenAnswer::NotAnIdentity
+    };
+    FrozenCheck {
+        asked: asked.to_owned(),
+        answer,
+    }
 }
 
 #[cfg(test)]

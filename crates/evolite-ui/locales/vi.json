@@ -2304,5 +2304,10 @@
   "{} suggestion|{} suggestions": {"other":"{} gợi ý"},
   "The phrase was taken off the clipboard.": "Cụm từ đã được xóa khỏi bộ nhớ tạm.",
   "Strangers' pictures in name suggestions": "Ảnh của người lạ trong gợi ý tên",
-  "Off: pictures only of your contacts. On: evolite loads strangers' avatars from their servers, and those servers see your IP and which names you look at.": "Tắt: chỉ ảnh của danh bạ. Bật: evolite tải ảnh đại diện của người lạ từ máy chủ của họ, và các máy chủ đó thấy IP của bạn cùng những tên bạn xem."
+  "Off: pictures only of your contacts. On: evolite loads strangers' avatars from their servers, and those servers see your IP and which names you look at.": "Tắt: chỉ ảnh của danh bạ. Bật: evolite tải ảnh đại diện của người lạ từ máy chủ của họ, và các máy chủ đó thấy IP của bạn cùng những tên bạn xem.",
+  "No identity has the name {}.": "Không có danh tính nào tên {}.",
+  "Type an @name or an identity id to check.": "Nhập @tên hoặc id danh tính để kiểm tra.",
+  "{} is frozen for this token.": "{} bị đóng băng với token này.",
+  "{} is not an @name or an identity id.": "{} không phải @tên hay id danh tính.",
+  "{} is not frozen for this token.": "{} không bị đóng băng với token này."
 }

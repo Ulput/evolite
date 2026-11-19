@@ -2321,5 +2321,10 @@
   "{} suggestion|{} suggestions": {"one":"{} öneri","other":"{} öneri"},
   "The phrase was taken off the clipboard.": "İfade panodan kaldırıldı.",
   "Strangers' pictures in name suggestions": "Ad önerilerinde yabancıların resimleri",
-  "Off: pictures only of your contacts. On: evolite loads strangers' avatars from their servers, and those servers see your IP and which names you look at.": "Kapalı: yalnızca kişilerinizin resimleri. Açık: evolite yabancıların avatarlarını kendi sunucularından yükler ve bu sunucular IP adresinizi ve hangi adlara baktığınızı görür."
+  "Off: pictures only of your contacts. On: evolite loads strangers' avatars from their servers, and those servers see your IP and which names you look at.": "Kapalı: yalnızca kişilerinizin resimleri. Açık: evolite yabancıların avatarlarını kendi sunucularından yükler ve bu sunucular IP adresinizi ve hangi adlara baktığınızı görür.",
+  "No identity has the name {}.": "{} adında bir kimlik yok.",
+  "Type an @name or an identity id to check.": "Kontrol etmek için bir @ad veya kimlik kimliği yazın.",
+  "{} is frozen for this token.": "{} bu token için dondurulmuş.",
+  "{} is not an @name or an identity id.": "{} bir @ad veya kimlik kimliği değil.",
+  "{} is not frozen for this token.": "{} bu token için dondurulmamış."
 }

@@ -2341,5 +2341,10 @@
   "{} suggestion|{} suggestions": {"one":"{} подсказка","few":"{} подсказки","many":"{} подсказок"},
   "The phrase was taken off the clipboard.": "Фраза убрана из буфера обмена.",
   "Strangers' pictures in name suggestions": "Картинки незнакомых в подсказках имён",
-  "Off: pictures only of your contacts. On: evolite loads strangers' avatars from their servers, and those servers see your IP and which names you look at.": "Выключено — картинки только у контактов. Включено — evolite загружает аватары незнакомых с их серверов, и эти серверы видят ваш IP и какие имена вы смотрите."
+  "Off: pictures only of your contacts. On: evolite loads strangers' avatars from their servers, and those servers see your IP and which names you look at.": "Выключено — картинки только у контактов. Включено — evolite загружает аватары незнакомых с их серверов, и эти серверы видят ваш IP и какие имена вы смотрите.",
+  "No identity has the name {}.": "Ни у одной identity нет имени {}.",
+  "Type an @name or an identity id to check.": "Введите @имя или id identity, чтобы проверить.",
+  "{} is frozen for this token.": "{} заморожен для этого токена.",
+  "{} is not an @name or an identity id.": "{} — не @имя и не id identity.",
+  "{} is not frozen for this token.": "{} не заморожен для этого токена."
 }

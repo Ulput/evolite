@@ -322,3 +322,33 @@ fn the_names_window_edits_the_names_platform_would_take() {
     assert!(!has_words(&kit, "has a space"));
     assert!(has_words(&kit, "becomes en Coffee / Coffees, ru"));
 }
+
+/// BUG-222 QA: «Check» under the frozen balances answers on the page — frozen, not frozen, not
+/// an identity — and an empty field gets a hint.
+#[test]
+fn the_check_answers_under_the_field() {
+    let (_turn, mut kit) = demo_app("tokens", "en");
+    kit.run_steps(3);
+    button(&kit, "Evo Coffee").click();
+    page(&mut kit);
+    let frozen = "9Xc4Wn2Pk7Lm3Qr8Ts5Vy1Bz6Hd4Fj2Gs9Ku3Mp7Nq";
+    button(&kit, "Check").click();
+    kit.run_steps(3);
+    assert!(has_words(&kit, "Type an @name or an identity id to check."));
+    for (typed, said) in [
+        (frozen, "is frozen for this token."),
+        ("@qakestrel", "is not frozen for this token."),
+        ("kestrel", "is not an @name or an identity id."),
+    ] {
+        if let Some(pst) = kit.state_mut().tokens.page.as_mut() {
+            pst.check = typed.into();
+        }
+        kit.run_steps(1);
+        button(&kit, "Check").click();
+        wait_for(&mut kit, said, |kit| has_words(kit, said));
+        assert!(
+            !has_words(&kit, "Type an @name"),
+            "{typed}: the hint has gone"
+        );
+    }
+}

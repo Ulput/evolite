@@ -2304,5 +2304,10 @@
   "{} suggestion|{} suggestions": {"other":"{} 个建议"},
   "The phrase was taken off the clipboard.": "短语已从剪贴板中移除。",
   "Strangers' pictures in name suggestions": "在名称建议中显示陌生人的图片",
-  "Off: pictures only of your contacts. On: evolite loads strangers' avatars from their servers, and those servers see your IP and which names you look at.": "关闭：只显示联系人的图片。开启：evolite 从陌生人的服务器加载其头像，这些服务器会看到你的 IP 以及你查看了哪些名称。"
+  "Off: pictures only of your contacts. On: evolite loads strangers' avatars from their servers, and those servers see your IP and which names you look at.": "关闭：只显示联系人的图片。开启：evolite 从陌生人的服务器加载其头像，这些服务器会看到你的 IP 以及你查看了哪些名称。",
+  "No identity has the name {}.": "没有身份名为 {}。",
+  "Type an @name or an identity id to check.": "输入 @名称 或身份 id 进行检查。",
+  "{} is frozen for this token.": "{} 在此代币上已冻结。",
+  "{} is not an @name or an identity id.": "{} 不是 @名称，也不是身份 id。",
+  "{} is not frozen for this token.": "{} 在此代币上未冻结。"
 }
