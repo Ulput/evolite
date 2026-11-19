@@ -37,13 +37,8 @@ use evolite_api::{
 /// 1 duff = 1000 credits on Platform.
 const CREDITS_PER_DUFF: i64 = 1_000;
 
-/// How long "copied" stands in place of the ID, in seconds.
-const COPIED_FOR: f64 = 1.5;
-
 #[derive(Default)]
 pub struct IdentityState {
-    /// When the ID was copied (seconds of `ui.input(|i| i.time)`): "copied" for a moment.
-    pub copied_at: Option<f64>,
     /// "Edit profile" (23) is open.
     pub editing: Option<ProfileForm>,
     /// "Top up the identity" is open; the top-up itself outlives the window.
@@ -411,15 +406,12 @@ fn profile(
                     if let Some(display) = &display {
                         ui.label(text(display, BODY.weight(Weight::Medium), p.text));
                     }
-                    // The ID with a copy icon; the icon turns into "copied" for a moment.
-                    let now = ui.input(|i| i.time);
-                    let copied = state.copied_at.is_some_and(|at| now - at < COPIED_FOR);
-                    if copied {
-                        ui.ctx()
-                            .request_repaint_after(std::time::Duration::from_millis(200));
-                    }
+                    // The ID with a copy icon; the icon turns into «Copied» for a moment.
+                    // SEC-12: the shared copy and «Copied», as every other copy control.
+                    let what = ui.id().with("copy-identity-id");
+                    let copied = crate::clipboard::just_copied(ui.ctx(), what);
                     let label = if copied {
-                        tr!("copied").to_string()
+                        tr!("Copied").to_string()
                     } else {
                         short_id(&id.id)
                     };
@@ -441,7 +433,7 @@ fn profile(
                         })
                         .response;
                     let resp = ui
-                        .interact(row.rect, ui.id().with("copy-identity-id"), Sense::click())
+                        .interact(row.rect, what, Sense::click())
                         .on_hover_cursor(CursorIcon::PointingHand)
                         .on_hover_text(crate::i18n::t(&id.id).into_owned());
                     crate::components::named(
@@ -451,8 +443,7 @@ fn profile(
                         &format!("{} · {}", crate::i18n::spoken(tr!("Copy")), id.id),
                     );
                     if resp.clicked() {
-                        crate::clipboard::copy(ui.ctx(), id.id.clone());
-                        state.copied_at = Some(now);
+                        crate::clipboard::copy_answered(ui.ctx(), id.id.clone(), what);
                     }
                 },
             );

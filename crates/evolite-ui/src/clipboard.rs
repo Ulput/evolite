@@ -482,4 +482,34 @@ mod tests {
         assert!(!wipe_if_pasted(&format!("{words}\n"), &mut other));
         assert_eq!(other.0.as_deref(), Some("an address"));
     }
+
+    /// SEC-12: every copy in the app goes through this module — wiped with the others when
+    /// «Clipboard» is on, a secret kept out of the history — so no other file copies by itself.
+    #[test]
+    fn nothing_copies_past_the_clipboard_module() {
+        fn files(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
+            for entry in std::fs::read_dir(dir).unwrap().flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    files(&path, out);
+                } else if path.extension().is_some_and(|e| e == "rs") {
+                    out.push(path);
+                }
+            }
+        }
+        let src = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let mut all = Vec::new();
+        files(&src, &mut all);
+        let direct = ["copy", "_text("].concat();
+        let past: Vec<_> = all
+            .iter()
+            .filter(|p| !p.ends_with("clipboard.rs"))
+            .filter(|p| {
+                let text = std::fs::read_to_string(p).unwrap();
+                text.contains(&direct)
+            })
+            .collect();
+        assert!(all.len() > 50, "the scan found the sources");
+        assert!(past.is_empty(), "copied past `clipboard`: {past:?}");
+    }
 }

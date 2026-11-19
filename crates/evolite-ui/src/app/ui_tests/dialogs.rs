@@ -90,8 +90,10 @@ fn a_click_on_the_identity_id_copies_it() {
     kit.step();
     kit.drop_at(at);
     kit.run_steps(2);
-    assert!(kit.state().identity.copied_at.is_some(), "the ID is copied");
-    assert!(has_text(&kit, "copied"), "and the row says so");
+    assert!(
+        has_text(&kit, "Copied"),
+        "the ID is copied and the row says so"
+    );
 }
 
 /// BUG-39 №3: a line of error that comes and goes under a field does not move the dialog's top,
