@@ -90,10 +90,17 @@ fn the_fifth_wrong_password_pauses_the_unlock_screen() {
     assert!(has_text(&kit, "Forgot the password? · Another wallet"));
     // The pause over (its end moved to now): the plate goes, «Wrong password» does not come
     // back, the next step is named, and the typing can go (AC-D5).
-    if let Some(s) = kit.state_mut().snapshot.as_mut() {
-        s.wallets.iter_mut().for_each(|w| w.wait_until = None);
-    }
-    kit.run_steps(3);
+    show_edited(
+        &mut kit,
+        3,
+        "the pause over",
+        |app| {
+            if let Some(s) = app.snapshot.as_mut() {
+                s.wallets.iter_mut().for_each(|w| w.wait_until = None);
+            }
+        },
+        |_| true,
+    );
     assert!(!has_text(&kit, "Too many wrong passwords"));
     assert!(!has_text(&kit, "Wrong password"));
     assert!(has_text(

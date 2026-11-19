@@ -4,13 +4,19 @@
 
 use super::*;
 
-fn row_mut(kit: &mut Kit) -> &mut evolite_api::tokens::TokenRow {
-    kit.state_mut()
-        .snapshot
-        .as_mut()
-        .and_then(|s| s.wallet.as_mut())
-        .and_then(|w| w.tokens.rows.iter_mut().find(|r| r.offer.is_some()))
-        .expect("the demo's Evo Coffee")
+/// The demo's Evo Coffee changed as `edit` says, kept until frames are drawn with it.
+fn with_row(kit: &mut Kit, what: &str, edit: impl Fn(&mut evolite_api::tokens::TokenRow)) {
+    show_wallet_edited(
+        kit,
+        2,
+        what,
+        |w| {
+            if let Some(row) = w.tokens.rows.iter_mut().find(|r| r.offer.is_some()) {
+                edit(row);
+            }
+        },
+        |_| true,
+    );
 }
 
 /// The «Credits of …» row: where it is drawn and what it says.
@@ -36,14 +42,13 @@ fn credits_read(kit: &mut Kit) {
             .as_ref()
             .is_some_and(|s| s.wallet.is_some())
     });
-    if let Some(w) = kit
-        .state_mut()
-        .snapshot
-        .as_mut()
-        .and_then(|s| s.wallet.as_mut())
-    {
-        w.balances.credits_read = true;
-    }
+    show_wallet_edited(
+        kit,
+        1,
+        "the credits read",
+        |w| w.balances.credits_read = true,
+        |_| true,
+    );
 }
 
 /// BUG-179: claimed, the next distribution in the snapshot: the window still says what was
@@ -58,14 +63,12 @@ fn a_claim_done_keeps_what_was_signed() {
     // One frame: sent; the demo's refusal comes later and nobody waits for it then.
     kit.run_steps(1);
     kit.state_mut().tokens.on_claimed(&Ok(()));
-    if let Some(p) = row_mut(&mut kit)
-        .claims
-        .as_mut()
-        .and_then(|c| c.perpetual.as_mut())
-    {
-        p.at_least = Some(21_000);
-    }
-    kit.run_steps(3);
+    with_row(&mut kit, "the next distribution", |row| {
+        if let Some(p) = row.claims.as_mut().and_then(|c| c.perpetual.as_mut()) {
+            p.at_least = Some(21_000);
+        }
+    });
+    kit.run_steps(1);
     assert!(has_words(
         &kit,
         "Claimed: the amount is in the balance and in History."
@@ -90,15 +93,22 @@ fn a_purchase_done_keeps_its_credits_as_signed() {
     button(&kit, "Sign and buy").click();
     kit.run_steps(1);
     kit.state_mut().tokens.on_bought(&Ok(()));
-    if let Some(w) = kit
-        .state_mut()
+    // As much as the credits were, less the purchase: put in again over a later snapshot,
+    // never taken twice.
+    let after = kit
+        .state()
         .snapshot
-        .as_mut()
-        .and_then(|s| s.wallet.as_mut())
-    {
-        w.balances.credits -= 1_000_000;
-    }
-    kit.run_steps(3);
+        .as_ref()
+        .and_then(|s| s.wallet.as_ref())
+        .map_or(0, |w| w.balances.credits)
+        - 1_000_000;
+    show_wallet_edited(
+        &mut kit,
+        3,
+        "the credits after the purchase",
+        |w| w.balances.credits = after,
+        |_| true,
+    );
     assert!(has_words(&kit, "Bought: the tokens are in the balance."));
     assert_eq!(before(&kit), signed, "as signed");
 }
@@ -113,15 +123,9 @@ fn the_credits_row_does_not_overlap_its_label() {
     // quiet; then they are put in, again whenever a snapshot replaced them, until the row says
     // the long name — bounded by `PATIENCE`, not a count of frames.
     settle(&mut kit);
-    let long = |kit: &mut Kit| {
-        credits_read(kit);
-        if let Some(i) = kit
-            .state_mut()
-            .snapshot
-            .as_mut()
-            .and_then(|s| s.wallet.as_mut())
-            .and_then(|w| w.identity.as_mut())
-        {
+    let long = |w: &mut evolite_api::Wallet| {
+        w.balances.credits_read = true;
+        if let Some(i) = w.identity.as_mut() {
             i.names = vec![evolite_api::DpnsName {
                 label: "qa-kestrel-1108b-a-long-name".into(),
                 primary: true,
@@ -139,15 +143,7 @@ fn the_credits_row_does_not_overlap_its_label() {
         .next()
         .is_some()
     };
-    let started = std::time::Instant::now();
-    while !shown(&kit) {
-        assert!(
-            started.elapsed() < PATIENCE,
-            "no «Credits of» with the long name"
-        );
-        long(&mut kit);
-        kit.step();
-    }
+    show_wallet_edited(&mut kit, 1, "«Credits of» with the long name", long, shown);
     let (rect, _) = credits_row(&kit);
     assert!(rect.height() > 30.0, "{rect:?}");
 }
@@ -159,9 +155,11 @@ fn an_old_price_unchanged_buys_on_one_click() {
     let (_turn, mut kit) = demo_app("tokens-buy", "en");
     wait_for(&mut kit, "P1", |kit| has_text(kit, "Buy Evo Coffee"));
     // An old price, not asked again yet.
-    if let Some(offer) = row_mut(&mut kit).offer.as_mut() {
-        offer.read_ms = 1_000;
-    }
+    with_row(&mut kit, "an old price", |row| {
+        if let Some(offer) = row.offer.as_mut() {
+            offer.read_ms = 1_000;
+        }
+    });
     if let Some(buy) = &mut kit.state_mut().tokens.buying {
         buy.asked_price = true;
     }
@@ -224,7 +222,15 @@ fn now_ms() -> u64 {
 
 /// The count typed in the purchase window, in the token's smallest units.
 fn typed_count(kit: &mut Kit) -> u64 {
-    let decimals = row_mut(kit).info.decimals;
+    let decimals = kit
+        .state()
+        .snapshot
+        .as_ref()
+        .and_then(|s| s.wallet.as_ref())
+        .and_then(|w| w.tokens.rows.iter().find(|r| r.offer.is_some()))
+        .expect("the demo's Evo Coffee")
+        .info
+        .decimals;
     let typed = kit
         .state()
         .tokens
@@ -266,9 +272,11 @@ fn a_price_not_read_again_in_time_is_given_up() {
     wait_for(&mut kit, "P1", |kit| has_text(kit, "Buy Evo Coffee"));
     kit.run_steps(2);
     // The price still old, asked already: the answer never came.
-    if let Some(offer) = row_mut(&mut kit).offer.as_mut() {
-        offer.read_ms = 1_000;
-    }
+    with_row(&mut kit, "an old price", |row| {
+        if let Some(offer) = row.offer.as_mut() {
+            offer.read_ms = 1_000;
+        }
+    });
     if let Some(buy) = &mut kit.state_mut().tokens.buying {
         buy.asked_price = true;
     }

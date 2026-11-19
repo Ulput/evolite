@@ -253,15 +253,19 @@ fn open_in_identity_switches_to_that_identity() {
         .map(|c| c.id.clone())
         .find(|id| wallet(&kit).identity.is_some_and(|i| &i.id != id))
         .expect("a second identity");
-    let app = kit.state_mut();
-    if let Some(w) = app.snapshot.as_mut().and_then(|s| s.wallet.as_mut()) {
-        for d in w.activity.iter_mut().filter_map(|a| a.detail.as_mut()) {
-            if let Some(i) = d.identity.as_mut() {
-                i.id = other.clone();
+    show_wallet_edited(
+        &mut kit,
+        2,
+        "the other identity's operations",
+        |w| {
+            for d in w.activity.iter_mut().filter_map(|a| a.detail.as_mut()) {
+                if let Some(i) = d.identity.as_mut() {
+                    i.id = other.clone();
+                }
             }
-        }
-    }
-    kit.run_steps(2);
+        },
+        |_| true,
+    );
     press(&mut kit, "Open in Identity");
     wait_for(&mut kit, "the Identity screen", |kit| {
         kit.state().screen == crate::screens::Screen::Identity
@@ -374,14 +378,18 @@ fn a_card_with_details_not_saved_says_so() {
     let (_turn, mut kit) = demo_app("activity-card", "en");
     shown(&mut kit, "From: Core · this wallet · 3 inputs");
     assert!(!has_text(&kit, LINE));
-    let app = kit.state_mut();
-    app.dev.incomplete_details = true;
-    if let Some(w) = app.snapshot.as_mut().and_then(|s| s.wallet.as_mut()) {
-        for d in w.activity.iter_mut().filter_map(|a| a.detail.as_mut()) {
-            d.incomplete = true;
-        }
-    }
-    shown(&mut kit, LINE);
+    kit.state_mut().dev.incomplete_details = true;
+    show_wallet_edited(
+        &mut kit,
+        2,
+        LINE,
+        |w| {
+            for d in w.activity.iter_mut().filter_map(|a| a.detail.as_mut()) {
+                d.incomplete = true;
+            }
+        },
+        |k| has_text(k, LINE),
+    );
 }
 
 /// Review r1 should 3: in Arabic the «From → To» panel is mirrored as a whole — each row's
@@ -445,8 +453,8 @@ fn own_address(i: usize) -> String {
 
 /// The demo's transfer between own addresses (`activity-card-self`) as spent from `inputs`
 /// addresses to `outputs`, on every snapshot.
-fn tall_op(kit: &mut Kit, inputs: usize, outputs: usize) {
-    if let Some(s) = kit.state_mut().snapshot.as_mut()
+fn tall_op(app: &mut App, inputs: usize, outputs: usize) {
+    if let Some(s) = app.snapshot.as_mut()
         && let Some(act) = s
             .wallet
             .as_mut()
@@ -462,10 +470,7 @@ fn tall_op(kit: &mut Kit, inputs: usize, outputs: usize) {
 
 /// Draws the tall operation for `frames`: the demo core's own snapshots come in between.
 fn tall_frames(kit: &mut Kit, inputs: usize, outputs: usize, frames: usize) {
-    for _ in 0..frames {
-        tall_op(kit, inputs, outputs);
-        kit.run_steps(1);
-    }
+    draw_edited(kit, frames, |app| tall_op(app, inputs, outputs));
 }
 
 /// Every node named exactly `name`.
@@ -853,9 +858,9 @@ fn a_reopened_card_starts_at_the_top() {
 #[test]
 fn the_summary_counts_an_address_used_twice_once() {
     let (_turn, mut kit) = demo_app("activity-card-self", "en");
-    for _ in 0..8 {
-        tall_op(&mut kit, 3, 25);
-        if let Some(s) = kit.state_mut().snapshot.as_mut()
+    draw_edited(&mut kit, 8, |app| {
+        tall_op(app, 3, 25);
+        if let Some(s) = app.snapshot.as_mut()
             && let Some(d) = s
                 .wallet
                 .as_mut()
@@ -865,8 +870,7 @@ fn the_summary_counts_an_address_used_twice_once() {
             // 25 outputs to 24 addresses.
             d.own_to[1].0 = d.own_to[0].0.clone();
         }
-        kit.run_steps(1);
-    }
+    });
     assert!(has_text(&kit, "To: Core · this wallet · 24 addresses"));
 }
 
@@ -906,19 +910,21 @@ fn title_and_cross(kit: &mut Kit) -> (egui::Rect, egui::Rect) {
             .as_ref()
             .is_some_and(|s| s.wallet.is_some())
     });
-    if let Some(w) = kit
-        .state_mut()
-        .snapshot
-        .as_mut()
-        .and_then(|s| s.wallet.as_mut())
-        && let Some(line) = w.activity.iter_mut().find(|a| a.id == 14)
-    {
-        line.kind = evolite_api::ActivityKind::ContactRequest {
-            to: LONG_NAME.into(),
-            accepting: true,
-            ours: None,
-        };
-    }
+    show_wallet_edited(
+        kit,
+        1,
+        "the long name's request",
+        |w| {
+            if let Some(line) = w.activity.iter_mut().find(|a| a.id == 14) {
+                line.kind = evolite_api::ActivityKind::ContactRequest {
+                    to: LONG_NAME.into(),
+                    accepting: true,
+                    ours: None,
+                };
+            }
+        },
+        |_| true,
+    );
     crate::screens::open_card(&kit.ctx, 14);
     let name = &LONG_NAME[1..20];
     wait_for(kit, "the card", |kit| {

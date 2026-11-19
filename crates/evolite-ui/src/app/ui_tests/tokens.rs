@@ -395,16 +395,17 @@ fn a_transfer_sent_keeps_left_after_as_signed() {
     // One frame: sent; the demo's refusal comes later and nobody waits for it then.
     kit.run_steps(1);
     kit.state_mut().tokens.on_sent(&Ok(()));
-    if let Some(row) = kit
-        .state_mut()
-        .snapshot
-        .as_mut()
-        .and_then(|s| s.wallet.as_mut())
-        .and_then(|w| w.tokens.rows.iter_mut().find(|r| r.balance == Some(12_550)))
-    {
-        row.balance = Some(12_050);
-    }
-    kit.run_steps(3);
+    show_wallet_edited(
+        &mut kit,
+        3,
+        "the balance after the send",
+        |w| {
+            if let Some(row) = w.tokens.rows.iter_mut().find(|r| r.balance == Some(12_550)) {
+                row.balance = Some(12_050);
+            }
+        },
+        |_| true,
+    );
     assert!(has_words(&kit, "The token is sent."));
     assert!(has_words(&kit, "120.50"), "as signed");
     assert!(!has_words(&kit, "115.50"), "not reckoned again");

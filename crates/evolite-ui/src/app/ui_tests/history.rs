@@ -503,14 +503,13 @@ fn with_the_demos_first_lines(kit: &mut Kit) {
             .as_ref()
             .is_some_and(|s| s.wallet.is_some())
     });
-    if let Some(w) = kit
-        .state_mut()
-        .snapshot
-        .as_mut()
-        .and_then(|s| s.wallet.as_mut())
-    {
-        w.activity.retain(|a| a.id <= 17);
-    }
+    show_wallet_edited(
+        kit,
+        1,
+        "the demo's first lines",
+        |w| w.activity.retain(|a| a.id <= 17),
+        |_| true,
+    );
 }
 
 /// BUG-57: once «Continue» went through, the same line says so at once — no red, «added» in

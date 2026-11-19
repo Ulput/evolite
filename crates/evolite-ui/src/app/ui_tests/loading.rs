@@ -9,17 +9,11 @@ use evolite_api::{IdentitySearch, NftsStatus, Wallet};
 /// Changes the wallet the app shows and draws, again for a few frames: a snapshot of the demo
 /// core in between would put its own back.
 fn with_wallet(kit: &mut Kit, change: impl Fn(&mut Wallet)) {
-    for _ in 0..4 {
-        if let Some(w) = kit
-            .state_mut()
-            .snapshot
-            .as_mut()
-            .and_then(|s| s.wallet.as_mut())
-        {
+    draw_edited(kit, 4, |app| {
+        if let Some(w) = app.snapshot.as_mut().and_then(|s| s.wallet.as_mut()) {
             change(w);
         }
-        kit.run_steps(1);
-    }
+    });
 }
 
 /// Whether the button `name` is drawn and can be pressed.

@@ -89,31 +89,15 @@ fn a_payment_from_the_addresses_goes_through() {
 #[test]
 fn an_empty_platform_address_card_fills_the_address() {
     let (_turn, mut kit) = demo_app("send", "en");
-    let empty = |kit: &mut Kit| {
-        if let Some(w) = kit
-            .state_mut()
-            .snapshot
-            .as_mut()
-            .and_then(|s| s.wallet.as_mut())
-        {
-            w.platform_inputs = vec![1_000];
-            w.balances.platform_address = 1;
-        }
+    let empty = |w: &mut evolite_api::Wallet| {
+        w.platform_inputs = vec![1_000];
+        w.balances.platform_address = 1;
     };
     // TECH-flaky-kittests r2: a late snapshot of the demo core put the address's credits back
     // and the card was a source again («To» kept «@alice»): the core quiet first, then the
     // empty address kept in until frames are drawn with it.
     settle(&mut kit);
-    show_wallet_edited(
-        &mut kit,
-        2,
-        "the empty Platform address",
-        |w| {
-            w.platform_inputs = vec![1_000];
-            w.balances.platform_address = 1;
-        },
-        |_| true,
-    );
+    show_wallet_edited(&mut kit, 2, "the empty Platform address", empty, |_| true);
     let own = kit
         .state()
         .snapshot
@@ -122,7 +106,7 @@ fn an_empty_platform_address_card_fills_the_address() {
         .map(|w| w.platform_address.clone())
         .unwrap_or_default();
     tab_to(&mut kit, "Platform address");
-    empty(&mut kit);
+    show_wallet_edited(&mut kit, 1, "the empty Platform address", empty, |_| true);
     enter(&mut kit);
     assert_eq!(kit.state().send.recipient, own, "its own address in «To»");
     // Core, «Mixed» (the demo has mixed coins, FEAT-0030), the credits.

@@ -182,17 +182,18 @@ fn a_mint_over_the_limit_cannot_be_signed() {
 fn no_mint_without_a_destination() {
     let (_turn, mut kit) = demo_app("tokens-page", "en");
     page(&mut kit);
-    if let Some(p) = kit
-        .state_mut()
-        .snapshot
-        .as_mut()
-        .and_then(|s| s.wallet.as_mut())
-        .and_then(|w| w.tokens.page.as_mut())
-    {
-        p.choose_destination = false;
-        p.new_tokens_to = None;
-    }
-    kit.run_steps(3);
+    show_wallet_edited(
+        &mut kit,
+        3,
+        "no destination",
+        |w| {
+            if let Some(p) = w.tokens.page.as_mut() {
+                p.choose_destination = false;
+                p.new_tokens_to = None;
+            }
+        },
+        |_| true,
+    );
     assert!(has_words(&kit, "Minting is impossible"));
     assert!(
         kit.query_all_by_role_and_label(Role::Button, "Mint")

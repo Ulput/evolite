@@ -271,11 +271,14 @@ fn the_notes_line_says_what_became_of_the_file() {
         has_text(kit, ASIDE)
     });
     assert!(!has_text(&kit, NOT_READ));
-    let app = kit.state_mut();
-    app.dev.notes_error = Some(evolite_api::NotesError::NotRead);
-    if let Some(w) = app.snapshot.as_mut().and_then(|s| s.wallet.as_mut()) {
-        w.notes_error = Some(evolite_api::NotesError::NotRead);
-    }
+    kit.state_mut().dev.notes_error = Some(evolite_api::NotesError::NotRead);
+    show_wallet_edited(
+        &mut kit,
+        1,
+        "the notes not read",
+        |w| w.notes_error = Some(evolite_api::NotesError::NotRead),
+        |_| true,
+    );
     wait_for(&mut kit, "the line of a file not read", |kit| {
         has_text(kit, NOT_READ)
     });

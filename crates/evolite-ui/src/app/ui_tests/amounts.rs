@@ -230,18 +230,26 @@ fn hidden_balances_read_dots_in_the_dialogs() {
 #[test]
 fn the_core_balance_without_an_identity_hides() {
     let (_turn, mut kit) = demo_app("identity", "en");
-    let core = {
-        let wallet = kit
-            .state_mut()
+    settle(&mut kit);
+    let core = crate::format::amount(
+        kit.state()
             .snapshot
-            .as_mut()
-            .and_then(|s| s.wallet.as_mut())
-            .expect("the demo wallet");
-        wallet.identity = None;
-        wallet.unfinished_identity = None;
-        crate::format::amount(wallet.balances.core)
-    };
-    kit.run_steps(3);
+            .as_ref()
+            .and_then(|s| s.wallet.as_ref())
+            .expect("the demo wallet")
+            .balances
+            .core,
+    );
+    show_wallet_edited(
+        &mut kit,
+        3,
+        "no identity",
+        |w| {
+            w.identity = None;
+            w.unfinished_identity = None;
+        },
+        |_| true,
+    );
     assert!(
         shows(&kit, &format!("Core has {core} now")),
         "seen at first"

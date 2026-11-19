@@ -47,15 +47,22 @@ fn a_top_up_done_offers_no_second_one_of_the_same_amount() {
     let before = credits(&kit);
     // Credited: the answer, and the credits the next snapshot brings.
     kit.state_mut().identity.on_top_up_done(&Ok(()));
-    if let Some(w) = kit
-        .state_mut()
+    // As much as the credits were, plus the top-up: put in again over a later snapshot, never
+    // added twice.
+    let credited = kit
+        .state()
         .snapshot
-        .as_mut()
-        .and_then(|s| s.wallet.as_mut())
-    {
-        w.balances.credits += AMOUNT;
-    }
-    kit.run_steps(3);
+        .as_ref()
+        .and_then(|s| s.wallet.as_ref())
+        .map_or(0, |w| w.balances.credits)
+        + AMOUNT;
+    show_wallet_edited(
+        &mut kit,
+        3,
+        "the credits added",
+        |w| w.balances.credits = credited,
+        |_| true,
+    );
     assert!(has_words(&kit, "Credits added"));
     assert!(
         !has_text(&kit, &top_up_label()),

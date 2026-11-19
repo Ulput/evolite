@@ -200,17 +200,18 @@ fn a_failed_continue_does_not_dim_the_tile() {
     let (_turn, mut kit) = demo_app("fund-address-unfinished", "en");
     settle(&mut kit);
     assert!(!enabled(&kit, "Top up from Core ›"), "held back first");
-    let app = kit.state_mut();
-    app.dev.fund_unfinished_preset = false;
-    if let Some(u) = app
-        .snapshot
-        .as_mut()
-        .and_then(|s| s.wallet.as_mut())
-        .and_then(|w| w.unfinished_address_top_up.as_mut())
-    {
-        u.holds_back = false;
-    }
-    kit.run_steps(2);
+    kit.state_mut().dev.fund_unfinished_preset = false;
+    show_wallet_edited(
+        &mut kit,
+        2,
+        "the stopped one not holding back",
+        |w| {
+            if let Some(u) = w.unfinished_address_top_up.as_mut() {
+                u.holds_back = false;
+            }
+        },
+        |_| true,
+    );
     assert!(
         kit.state()
             .snapshot

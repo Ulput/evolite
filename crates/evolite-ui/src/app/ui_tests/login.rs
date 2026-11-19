@@ -23,21 +23,17 @@ fn login_screen(screen: &str) -> (MutexGuard<'static, ()>, Kit) {
         // The demo has three wallets; «Welcome back» is the screen of one. The demo core
         // sends a snapshot when a command changes it — the preset's own lock may answer after
         // the screen is up and put the three back: cut them again until it shows.
-        let started = Instant::now();
-        loop {
-            if let Some(s) = kit.state_mut().snapshot.as_mut() {
-                s.wallets.truncate(1);
-            }
-            kit.run_steps(2);
-            if has_text(&kit, "Open the wallet") {
-                break;
-            }
-            assert!(
-                started.elapsed() < Duration::from_secs(10),
-                "«Welcome back» is not shown"
-            );
-            std::thread::sleep(Duration::from_millis(5));
-        }
+        show_edited(
+            &mut kit,
+            2,
+            "«Welcome back»",
+            |app| {
+                if let Some(s) = app.snapshot.as_mut() {
+                    s.wallets.truncate(1);
+                }
+            },
+            |k| has_text(k, "Open the wallet"),
+        );
     }
     (turn, kit)
 }

@@ -591,26 +591,32 @@ fn in_arabic_the_name_keeps_its_at_before_it() {
     assert!(texts.iter().any(|t| t.contains("@satoshi")), "{texts:?}");
 }
 
-/// The shown identity's snapshot, to change what the demo core said.
-fn identity_mut(kit: &mut Kit) -> &mut evolite_api::Identity {
-    kit.state_mut()
-        .snapshot
-        .as_mut()
-        .and_then(|s| s.wallet.as_mut())
-        .and_then(|w| w.identity.as_mut())
-        .expect("an identity")
+/// The shown identity changed as `edit` says, kept until frames are drawn with it.
+fn with_identity(kit: &mut Kit, what: &str, edit: impl Fn(&mut evolite_api::Identity)) {
+    show_wallet_edited(
+        kit,
+        3,
+        what,
+        |w| {
+            if let Some(i) = w.identity.as_mut() {
+                edit(i);
+            }
+        },
+        |_| true,
+    );
 }
 
 fn set_credits(kit: &mut Kit, credits: evolite_api::Duffs) {
-    if let Some(w) = kit
-        .state_mut()
-        .snapshot
-        .as_mut()
-        .and_then(|s| s.wallet.as_mut())
-    {
-        w.balances.credits = credits;
-        w.balances.credits_checked = true;
-    }
+    show_wallet_edited(
+        kit,
+        3,
+        "the credits",
+        |w| {
+            w.balances.credits = credits;
+            w.balances.credits_checked = true;
+        },
+        |_| true,
+    );
 }
 
 /// BUG-183 AC-T4: K5 for transfers says ≈ 0.00024, K3b's pair ≈ 0.0008; with 0.0005 of
@@ -659,10 +665,11 @@ fn a_disable_the_snapshot_shows_after_an_unclear_answer_is_done() {
         change.sent_once = true;
         change.result = Some(Err(evolite_api::CoreError::Failed("unclear".into())));
     }
-    if let Some(key) = identity_mut(&mut kit).keys.iter_mut().find(|k| k.id == 1) {
-        key.disabled_at = Some(1_793_000_000);
-    }
-    kit.run_steps(3);
+    with_identity(&mut kit, "key 1 disabled", |i| {
+        if let Some(key) = i.keys.iter_mut().find(|k| k.id == 1) {
+            key.disabled_at = Some(1_793_000_000);
+        }
+    });
     assert!(
         kit.state().identity_keys.change.is_none(),
         "the dialog closed"
@@ -676,10 +683,11 @@ fn a_disable_the_snapshot_shows_after_an_unclear_answer_is_done() {
 fn before_a_send_the_plans_refusal_is_said() {
     let (_turn, mut kit) = k1("identity-keys");
     open_disable(&mut kit, 1);
-    if let Some(key) = identity_mut(&mut kit).keys.iter_mut().find(|k| k.id == 1) {
-        key.disabled_at = Some(1_793_000_000);
-    }
-    kit.run_steps(3);
+    with_identity(&mut kit, "key 1 disabled", |i| {
+        if let Some(key) = i.keys.iter_mut().find(|k| k.id == 1) {
+            key.disabled_at = Some(1_793_000_000);
+        }
+    });
     assert!(
         kit.state().identity_keys.change.is_some(),
         "still open, with the refusal"
@@ -700,13 +708,24 @@ fn an_added_key_the_snapshot_shows_after_an_unclear_answer_is_done() {
         change.sent_once = true;
         change.result = Some(Err(evolite_api::CoreError::Failed("unclear".into())));
     }
-    let mut transfer = identity_mut(&mut kit).keys[0].clone();
+    let mut transfer = kit
+        .state()
+        .snapshot
+        .as_ref()
+        .and_then(|s| s.wallet.as_ref())
+        .and_then(|w| w.identity.as_ref())
+        .expect("an identity")
+        .keys[0]
+        .clone();
     transfer.id = 7;
     transfer.purpose = evolite_api::KeyPurpose::Transfers;
     transfer.level = evolite_api::KeyLevel::Critical;
     transfer.disabled_at = None;
-    identity_mut(&mut kit).keys.push(transfer);
-    kit.run_steps(3);
+    with_identity(&mut kit, "key 7 added", |i| {
+        if !i.keys.iter().any(|k| k.id == 7) {
+            i.keys.push(transfer.clone());
+        }
+    });
     assert!(
         kit.state().identity_keys.change.is_none(),
         "the dialog closed"

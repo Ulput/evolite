@@ -79,13 +79,7 @@ fn the_request_says_what_the_app_gets_and_waits_for_the_password() {
 #[test]
 fn connecting_puts_the_app_in_the_list() {
     let (_turn, mut kit) = demo_app("apps", "en");
-    kit.state_mut()
-        .snapshot
-        .as_mut()
-        .and_then(|s| s.wallet.as_mut())
-        .unwrap()
-        .apps
-        .clear();
+    show_wallet_edited(&mut kit, 2, "no apps", |w| w.apps.clear(), |_| true);
     open_request(&mut kit);
     type_password(&mut kit, "any");
     button(&kit, "Connect").click();

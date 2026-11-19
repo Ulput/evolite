@@ -1,7 +1,9 @@
 //! BUG-60, BUG-61: what the sync says while it runs — a number only for a stage the core can
 //! count, and a name for the step after the masternode lists.
 
-use super::{Kit, demo_app, has_text, has_words, settle, show_edited, tab_to, wait_for};
+use super::{
+    Kit, demo_app, draw_edited, has_text, has_words, settle, show_edited, tab_to, wait_for,
+};
 use crate::screens::sidebar::RailMark;
 use egui_kittest::kittest::{NodeT, Queryable};
 use evolite_api::SyncStage;
@@ -392,10 +394,12 @@ fn the_rail_status_is_polite_for_a_second_after_a_change() {
     while rail_live(&kit) != Some(Live::Off) {
         frames += 1;
         assert!(frames <= 6, "the stop: still polite after a second");
-        let sync = &mut kit.state_mut().snapshot.as_mut().expect("a snapshot").sync;
-        sync.stage = SyncStage::Filters;
-        sync.error = Some("No Core nodes answer".into());
-        kit.run_steps(1);
+        draw_edited(&mut kit, 1, |app| {
+            if let Some(s) = app.snapshot.as_mut() {
+                s.sync.stage = SyncStage::Filters;
+                s.sync.error = Some("No Core nodes answer".into());
+            }
+        });
     }
     assert!(frames >= 2, "the stop: quiet before its second");
 }
@@ -432,15 +436,14 @@ fn a_refused_folder_is_said_in_words() {
 
 /// One frame (0.25 s of the app's time) with Core synced and `works` going on Platform.
 fn platform_frame(kit: &mut Kit, works: &[evolite_api::PlatformWork]) {
-    let ctx = kit.ctx.clone();
-    kit.state_mut().take_events(&ctx);
-    if let Some(s) = kit.state_mut().snapshot.as_mut() {
-        s.sync.stage = SyncStage::Done;
-        s.sync.progress = Some(1.0);
-        s.sync.error = None;
-        s.sync.platform = works.to_vec();
-    }
-    kit.step();
+    draw_edited(kit, 1, |app| {
+        if let Some(s) = app.snapshot.as_mut() {
+            s.sync.stage = SyncStage::Done;
+            s.sync.progress = Some(1.0);
+            s.sync.error = None;
+            s.sync.platform = works.to_vec();
+        }
+    });
 }
 
 fn moving(kit: &Kit) -> bool {

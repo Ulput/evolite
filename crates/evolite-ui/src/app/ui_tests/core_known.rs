@@ -213,21 +213,16 @@ fn a_core_amount_is_as_sure_as_core() {
 #[test]
 fn overview_says_platform_is_not_known_until_read() {
     let (_turn, mut kit) = demo_app("overview", "en");
-    kit.state_mut()
-        .snapshot
-        .as_mut()
-        .and_then(|s| s.wallet.as_mut())
-        .expect("wallet")
-        .balances
-        .credits_read = false;
-    kit.state_mut()
-        .snapshot
-        .as_mut()
-        .and_then(|s| s.wallet.as_mut())
-        .expect("wallet")
-        .balances
-        .platform_address_read = false;
-    kit.run_steps(3);
+    show_wallet_edited(
+        &mut kit,
+        3,
+        "Platform not read",
+        |w| {
+            w.balances.credits_read = false;
+            w.balances.platform_address_read = false;
+        },
+        |_| true,
+    );
     assert!(has_text(&kit, "Not known yet"));
     assert!(!has_text(&kit, "0.0000"), "no zero while unknown");
     assert!(
@@ -382,8 +377,11 @@ fn shield_sources_are_dashes_until_read_and_cannot_be_chosen() {
     // Coming from the Core row, the unread address cannot be taken.
     kit.state_mut().pool.from = 2;
     kit.run_steps(2);
-    unread(kit.state_mut().snapshot.as_mut().expect("a snapshot"));
-    kit.run_steps(1);
+    draw_edited(&mut kit, 1, |app| {
+        if let Some(s) = app.snapshot.as_mut() {
+            unread(s);
+        }
+    });
     kit.get_by_role_and_label(Role::ComboBox, "Platform address: —")
         .click();
     kit.run_steps(2);

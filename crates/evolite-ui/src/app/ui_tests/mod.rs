@@ -192,6 +192,107 @@ pub(super) fn show_edited(
     }
 }
 
+/// `frames` frames, each drawn with `edit` put in after the core's answers that came — the
+/// way [`show_edited`] puts it in, for a test that counts its frames or acts between them
+/// (TECH-kittest-snapshot-guard).
+pub(super) fn draw_edited(kit: &mut Kit, frames: usize, edit: impl Fn(&mut App)) {
+    for _ in 0..frames {
+        let ctx = kit.ctx.clone();
+        kit.state_mut().take_events(&ctx);
+        edit(kit.state_mut());
+        kit.step();
+    }
+}
+
+/// The tests' own edits of the snapshot that need not go through [`show_edited`],
+/// [`show_wallet_edited`] or [`draw_edited`] — `(file, function, why)`. Empty: every edit does.
+const DIRECT_SNAPSHOT_EDITS: &[(&str, &str, &str)] = &[];
+
+/// TECH-kittest-snapshot-guard: a test edits the snapshot only through the helpers above. An
+/// edit made once and drawn later is undone by a snapshot the demo core sends meanwhile, and
+/// under a loaded check that failed tests at random (TECH-flaky-kittests, r1 and r2). A new
+/// direct edit (`kit.state_mut().snapshot…`) fails here with its file and function; one that
+/// must stay goes into [`DIRECT_SNAPSHOT_EDITS`] with its reason, and a listed one gone fails too.
+#[test]
+fn snapshot_edits_go_through_the_helpers() {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/app/ui_tests");
+    let needle: String = ["state_mut()", ".snapshot"].concat();
+    let binding: String = ["=kit.", "state_mut();"].concat();
+    let mut found: Vec<(String, String)> = Vec::new();
+    let mut files: Vec<_> = std::fs::read_dir(&dir)
+        .expect("the tests' folder")
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.extension().is_some_and(|x| x == "rs"))
+        .filter(|p| p.file_name().is_some_and(|n| n != "mod.rs"))
+        .collect();
+    files.sort();
+    for path in files {
+        let text = std::fs::read_to_string(&path).expect("a test file");
+        let name = path.file_name().unwrap().to_string_lossy().into_owned();
+        // Without the spaces and line breaks, with where each kept character stood.
+        let (compact, at): (String, Vec<usize>) = text
+            .char_indices()
+            .filter(|(_, c)| !c.is_whitespace())
+            .map(|(i, c)| (c, i))
+            .unzip();
+        let starts: Vec<usize> = compact.char_indices().map(|(i, _)| i).collect();
+        let place = |k: usize| {
+            let char_no = starts.binary_search(&k).expect("a char boundary");
+            enclosing_fn(&text[..at[char_no]])
+        };
+        for (k, _) in compact.match_indices(&needle) {
+            found.push((name.clone(), place(k)));
+        }
+        // Through a binding (review r1 M1): `let app = kit.state_mut();`, then `app.snapshot` in
+        // the same function.
+        for (k, _) in compact.match_indices(&binding) {
+            let Some(var) = compact[..k]
+                .rsplit_once("let")
+                .map(|(_, v)| v.trim_start_matches("mut").to_owned())
+                .filter(|v| !v.is_empty() && v.chars().all(|c| c.is_alphanumeric() || c == '_'))
+            else {
+                continue;
+            };
+            let func = place(k);
+            let uses = format!("{var}.snapshot");
+            let edits = compact[k..]
+                .match_indices(&uses)
+                .any(|(j, _)| place(k + j) == func);
+            if edits {
+                found.push((name.clone(), func));
+            }
+        }
+    }
+    let listed: Vec<(String, String)> = DIRECT_SNAPSHOT_EDITS
+        .iter()
+        .map(|(f, n, _)| (f.to_string(), n.to_string()))
+        .collect();
+    let new: Vec<_> = found.iter().filter(|f| !listed.contains(f)).collect();
+    assert!(
+        new.is_empty(),
+        "snapshot edited directly — use show_edited / show_wallet_edited / draw_edited, or list it with its reason: {new:?}"
+    );
+    let gone: Vec<_> = listed.iter().filter(|l| !found.contains(l)).collect();
+    assert!(gone.is_empty(), "listed but no longer there: {gone:?}");
+}
+
+/// The name of the last `fn` declared in `before`: the function a position is in.
+fn enclosing_fn(before: &str) -> String {
+    before
+        .match_indices("fn ")
+        .filter(|(i, _)| *i == 0 || before[..*i].ends_with(char::is_whitespace))
+        .last()
+        .map(|(i, _)| {
+            before[i + 3..]
+                .split(|c: char| !(c.is_alphanumeric() || c == '_'))
+                .next()
+                .unwrap_or_default()
+                .to_owned()
+        })
+        .unwrap_or_default()
+}
+
 /// [`show_edited`] for the wallet in the snapshot (none: nothing to edit).
 pub(super) fn show_wallet_edited(
     kit: &mut Kit,
