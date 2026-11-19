@@ -467,7 +467,9 @@ pub fn app_request(id: u64, text: &str, wallet: &Wallet) -> Result<AppRequest, C
         return Err(CoreError::AppLink(AppLinkRefusal::Stale));
     }
     if v2 && text.contains("n=m") {
-        return Err(CoreError::AppLink(AppLinkRefusal::Mainnet));
+        return Err(CoreError::AppLink(AppLinkRefusal::LinkForNetwork {
+            network: evolite_api::Network::Mainnet,
+        }));
     }
     let kind = if v2 {
         connect2_example(identity, wallet, text.contains("&renew"))

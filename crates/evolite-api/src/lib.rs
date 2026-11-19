@@ -1069,10 +1069,12 @@ pub enum AppLinkRefusal {
     Version { v: String },
     /// Older than 10 minutes, or too far ahead.
     Stale,
-    /// For the main network, where App Connect v2 is not on yet.
-    Mainnet,
-    /// For another network: its code (`t`, `d`, …).
-    OtherNetwork { n: String },
+    /// A transitional `dash-key:` link on mainnet: by DIP-0015 mainnet takes only
+    /// `dashpay://connect` (TECH-mainnet-all). The app is asked for one.
+    MainnetCarrier,
+    /// A request for `network` (`n=m` or `n=t`) opened in evolite on the other one: switch the
+    /// network and open it again. A code of no network evolite knows is [`Self::Malformed`].
+    LinkForNetwork { network: Network },
     /// The app's contract is one of Platform's own.
     SystemContract,
     /// The app's contract is not on the network.
@@ -1617,7 +1619,7 @@ pub struct Wallet {
     /// [`Command::StartFileOver`]).
     pub set_aside: Vec<SetAside>,
     /// Platform tokens of the identity the interface shows, and the wallet's search for them
-    /// (FEAT-0019). [`tokens::Tokens::off`] on mainnet (R-9).
+    /// (FEAT-0019). [`tokens::Tokens::off`] where the network matrix turns tokens off (FEAT-0037).
     pub tokens: tokens::Tokens,
 }
 
@@ -2304,7 +2306,7 @@ pub enum Command {
     },
     /// "Add token": the token by its id, or every token of a contract by the contract's id (one
     /// field takes both), read with a proof. Answered with [`Event::TokenFound`]; nothing is
-    /// added until [`Command::TrackToken`]. Testnet only (FEAT-0019 R-9).
+    /// added until [`Command::TrackToken`]. Refused where the network matrix turns tokens off (FEAT-0037).
     FindToken {
         id: String,
     },

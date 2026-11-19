@@ -195,8 +195,13 @@ fn each_refusal_says_nothing_was_spent() {
     for why in [
         R::Version { v: "1".into() },
         R::Stale,
-        R::Mainnet,
-        R::OtherNetwork { n: "d".into() },
+        R::MainnetCarrier,
+        R::LinkForNetwork {
+            network: evolite_api::Network::Mainnet,
+        },
+        R::LinkForNetwork {
+            network: evolite_api::Network::Testnet,
+        },
         R::SystemContract,
         R::NoContract,
         R::OthersContract,

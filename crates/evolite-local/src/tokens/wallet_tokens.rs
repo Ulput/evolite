@@ -3,7 +3,7 @@
 //! of each so the provider can check a token's transition after a restart without the network
 //! (АРХ-2, AC-T2), and the "token × identity" pairs the person hid. Public data only. A missing or
 //! damaged file is no tokens: the search finds the found ones again and the person adds the rest.
-//! Not opened on mainnet (R-9).
+//! Not opened where the network matrix turns tokens off (FEAT-0037).
 
 use std::collections::BTreeSet;
 use std::path::PathBuf;

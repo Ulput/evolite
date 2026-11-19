@@ -715,20 +715,43 @@ pub fn refusal_words(why: &AppLinkRefusal, app: &str) -> (String, String, String
                 app
             ),
         ),
-        AppLinkRefusal::Mainnet => (
-            t(tr!("Testnet only")),
+        // TECH-mainnet-all: DIP-0015 keeps the transitional link off mainnet — the app has the
+        // other one.
+        AppLinkRefusal::MainnetCarrier => (
+            t(tr!("This link is not for mainnet")),
             t(tr!(
-                "App Connect v2 works only on testnet and devnet for now. This request is for mainnet."
+                "It is a transitional link (dash-key:): on mainnet only dashpay://connect links are used."
             )),
             t(tr!(
-                "Connecting on mainnet will come when the protocol is ready there. Nothing was spent."
+                "Ask the app for a dashpay://connect link. Nothing was spent."
+            )),
+        ),
+        // A request of the other network: its name, and where to switch (the analyst; each
+        // direction its own words, nothing put in).
+        AppLinkRefusal::LinkForNetwork {
+            network: evolite_api::Network::Mainnet,
+        } => (
+            t(tr!("A request for mainnet")),
+            t(tr!(
+                "This request is for mainnet, and evolite is running on testnet now."
+            )),
+            t(tr!(
+                "Switch evolite to mainnet in Settings › Network and nodes, then open the link again. Nothing was spent."
+            )),
+        ),
+        AppLinkRefusal::LinkForNetwork {
+            network: evolite_api::Network::Testnet,
+        } => (
+            t(tr!("A request for testnet")),
+            t(tr!(
+                "This request is for testnet, and evolite is running on mainnet now."
+            )),
+            t(tr!(
+                "Switch evolite to testnet in Settings › Network and nodes, then open the link again. Nothing was spent."
             )),
         ),
         other => {
             let reason = match other {
-                AppLinkRefusal::OtherNetwork { n } => {
-                    format!(tr!("The request is for another network ({})."), n)
-                }
                 AppLinkRefusal::SystemContract => {
                     t(tr!("The app asks for access to a system contract."))
                 }

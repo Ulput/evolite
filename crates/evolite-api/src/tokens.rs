@@ -183,7 +183,7 @@ pub fn purchase_total_duffs(credits: u64) -> u64 {
 /// Where the wallet's own search of the network for its tokens stands (UC-1а, R-11).
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum SearchState {
-    /// Not on this network (mainnet, R-9): nothing is searched and nothing is asked.
+    /// Not on this network (where the network matrix turns tokens off (FEAT-0037)): nothing is searched and nothing is asked.
     Off,
     /// Not started on this network yet: it starts when the tokens screen first opens.
     NotYet,
@@ -266,7 +266,7 @@ pub struct TokenPageFailed {
 }
 
 impl Tokens {
-    /// No tokens and no search (mainnet, or before the core reads anything).
+    /// No tokens and no search (where the network matrix turns tokens off (FEAT-0037), or before the core reads anything).
     pub fn off() -> Self {
         Tokens {
             rows: Vec::new(),

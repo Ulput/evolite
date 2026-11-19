@@ -160,14 +160,33 @@ fn a_refusal_says_which_kind() {
         why(Status::Unsupported, Part::Version, link, false),
         R::Version { v: "3".into() }
     );
-    assert_eq!(why(Status::Invalid, Part::Network, link, false), R::Mainnet);
+    // TECH-mainnet-all: both directions by name; a code of no network evolite knows is a
+    // link that is not right.
+    use evolite_api::Network;
+    assert_eq!(
+        why(Status::Invalid, Part::Network, link, false),
+        R::LinkForNetwork {
+            network: Network::Mainnet
+        }
+    );
+    assert_eq!(
+        why(
+            Status::Invalid,
+            Part::Network,
+            "dashpay://connect?v=2&n=t",
+            false
+        ),
+        R::LinkForNetwork {
+            network: Network::Testnet
+        }
+    );
     assert_eq!(
         why(Status::Invalid, Part::Network, "dash-key:x?n=d&v=2", false),
-        R::OtherNetwork { n: "d".into() }
+        R::Malformed
     );
     assert_eq!(
         why(Status::Unsupported, Part::Carrier, link, false),
-        R::Mainnet
+        R::MainnetCarrier
     );
     assert_eq!(why(Status::Invalid, Part::App, "", true), R::SystemContract);
     assert_eq!(why(Status::Invalid, Part::App, "", false), R::NoContract);

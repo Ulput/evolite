@@ -100,11 +100,19 @@ pub(in crate::real) fn refusal(refused: Refusal, text: &str, system: bool) -> Co
         Refusal::Refused(_, Part::Version) => AppLinkRefusal::Version {
             v: link_param(text, "v").unwrap_or_default(),
         },
-        Refusal::Refused(_, Part::Carrier) => AppLinkRefusal::Mainnet,
+        // TECH-mainnet-all: the transitional carrier on mainnet (DIP-0015's rule, kept), and a
+        // mainnet request on another network, are two different things to say.
+        Refusal::Refused(_, Part::Carrier) => AppLinkRefusal::MainnetCarrier,
         Refusal::Refused(_, Part::Network) => match link_param(text, "n") {
-            Some(n) if n == "m" => AppLinkRefusal::Mainnet,
-            Some(n) => AppLinkRefusal::OtherNetwork { n },
-            None => AppLinkRefusal::Malformed,
+            // A request of the other network: said by its name (the analyst; not «(t)»).
+            Some(n) if n == "m" => AppLinkRefusal::LinkForNetwork {
+                network: evolite_api::Network::Mainnet,
+            },
+            Some(n) if n == "t" => AppLinkRefusal::LinkForNetwork {
+                network: evolite_api::Network::Testnet,
+            },
+            // A network evolite does not know (devnet, anything else): the link is not right.
+            Some(_) | None => AppLinkRefusal::Malformed,
         },
         Refusal::Refused(Status::Unsupported, _) => AppLinkRefusal::UnknownField,
         Refusal::Refused(Status::Invalid, Part::App) if system => AppLinkRefusal::SystemContract,

@@ -154,7 +154,9 @@ async fn app_links_are_checked_before_anything_is_signed() {
     assert!(matches!(
         event,
         Some(Event::AppRequest(Err(CoreError::AppLink(
-            AppLinkRefusal::Mainnet
+            AppLinkRefusal::LinkForNetwork {
+                network: evolite_api::Network::Mainnet
+            }
         ))))
     ));
     // Declining is always answered; approving a request never shown is refused.

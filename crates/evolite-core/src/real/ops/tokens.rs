@@ -1,6 +1,7 @@
 //! Platform tokens (FEAT-0019 part 3): "Add token" by id, following a token in `tokens.json`.
-//! Testnet only (R-9): on mainnet every token command is answered at once and nothing is asked
-//! of the network (AC-T6).
+//! On both networks; where the network matrix turns tokens off (FEAT-0037; R-9 kept them off
+//! on mainnet until 2026-11), every token command is answered at once and nothing is asked of
+//! the network (AC-T6).
 
 use std::path::Path;
 use std::sync::Mutex;
@@ -40,7 +41,7 @@ struct Seen {
 
 pub(in crate::real) struct TokenState {
     seen: Arc<Mutex<Seen>>,
-    /// `tokens.json`; `None` on mainnet, where it is never opened (R-9).
+    /// `tokens.json`; `None` where the network matrix turns tokens off (FEAT-0037), where it is never opened.
     pub(in crate::real) file: Option<Arc<WalletTokens>>,
     /// The last proved facts: of which identity, when read, and what.
     facts: Arc<Mutex<Option<(String, std::time::Instant, chain::TokenFacts)>>>,
@@ -226,7 +227,7 @@ impl TokenState {
 impl Real {
     /// The shown identity's tokens for the snapshot, from the last proved read; a new read in
     /// the background once [`FACTS_EVERY`] has passed (AC-T1: after a restart the balances come
-    /// by themselves). Mainnet: nothing (R-9).
+    /// by themselves). Nothing where the network matrix turns tokens off (FEAT-0037).
     pub(in crate::real) fn shown_tokens(
         &self,
         identity: Option<&str>,

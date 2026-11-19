@@ -1,7 +1,7 @@
 //! The wallet's own search of the network for its tokens (FEAT-0019 UC-1а, R-11): one task at a
 //! time, off the core's loop (R-12). "Find my tokens" starts a pass, and so does a day passing
 //! since the last one; a lock or another wallet stops it, and the next pass goes on from where it
-//! stopped (`token-search.json`, shared by the network's wallets). Testnet only (R-9).
+//! stopped (`token-search.json`, shared by the network's wallets). Off where the network matrix turns tokens off (FEAT-0037).
 //!
 //! The speed-up (BUG-134…136, the architect's `analysis.md` §6):
 //! - the tokens found are asked of the wallet's identities while the contracts are still read,
@@ -67,7 +67,7 @@ pub(in crate::real) struct Search {
 
 impl Search {
     /// The search of the network in data folder `root`, where the last pass left it; on a network
-    /// without tokens (`here` false: mainnet, R-9) nothing is read and the search is off.
+    /// without tokens (`here` false: where the network matrix turns tokens off (FEAT-0037)) nothing is read and the search is off.
     pub(in crate::real) fn on(here: bool, root: &Path) -> Self {
         let path = store::path(root);
         if !here {
