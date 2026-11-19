@@ -162,10 +162,55 @@ mod imp {
     use evolite_api::{ActivityKind, Chain as Layer, Proof};
     use platform_wallet::wallet::shielded::{
         CachedOrchardProver, ShieldedActivityEntry, ShieldedActivityKind, ShieldedActivityStatus,
-        ShieldedDirection, ShieldedLocalBalanceState, ShieldedStore, SubwalletId,
-        sort_activity_for_display,
+        ShieldedBalanceSource, ShieldedDirection, ShieldedLocalBalanceState, ShieldedStore,
+        SubwalletId, sort_activity_for_display,
     };
     use std::sync::Arc;
+
+    /// BUG-240: the pool read as the journal says it — the ledger's state and its account's
+    /// numbers, and the unspent notes of the same read (`None`: the store was busy).
+    pub fn pool_record(
+        state: Result<&ShieldedLocalBalanceState, ()>,
+        unspent: Option<(u32, u64)>,
+    ) -> crate::diag::Record {
+        let ledger = match state {
+            Ok(ShieldedLocalBalanceState::Ready(_)) => "ready",
+            Ok(ShieldedLocalBalanceState::RestoreIncomplete) => "restore_incomplete",
+            Ok(ShieldedLocalBalanceState::Unbound) => "unbound",
+            Err(()) => "error",
+        };
+        let account = match state {
+            Ok(ShieldedLocalBalanceState::Ready(snapshot)) => snapshot.accounts.get(&ACCOUNT),
+            _ => None,
+        };
+        crate::diag::Record::PoolRead {
+            ledger,
+            has_account: account.is_some(),
+            spendable: account.map(|a| a.spendable_credits),
+            unspent: unspent.map(|(n, _)| n),
+            unspent_sum: unspent.map(|(_, sum)| sum),
+            last_scanned: account.and_then(|a| a.last_scanned_index),
+            source: match account.map(|a| a.source) {
+                Some(ShieldedBalanceSource::ScannedThisSession) => "scanned",
+                Some(ShieldedBalanceSource::Restored) => "restored",
+                Some(ShieldedBalanceSource::NoHistory) => "none",
+                None => "",
+            },
+            notes: if unspent.is_some() { "fresh" } else { "cache" },
+        }
+    }
+
+    /// The last pool read written to the journal: one line a change, not one a snapshot.
+    static LAST_POOL_RECORD: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+
+    fn note_pool_read(record: crate::diag::Record) {
+        let line = format!("{record:?}");
+        let mut last = LAST_POOL_RECORD.lock().unwrap_or_else(|e| e.into_inner());
+        if last.as_deref() != Some(line.as_str()) {
+            *last = Some(line);
+            crate::diag::record(record);
+        }
+    }
 
     /// History rows read for the screen.
     const SHOWN_OPERATIONS: usize = 50;
@@ -184,13 +229,15 @@ mod imp {
         last_pass: Option<u64>,
     ) -> (u64, Option<i64>) {
         match state {
-            Some(ShieldedLocalBalanceState::Ready(snapshot)) => (
-                snapshot
-                    .accounts
-                    .get(&ACCOUNT)
-                    .map_or(0, |a| a.spendable_credits),
-                last_pass.map(|s| s as i64),
-            ),
+            // BUG-240 (c): a ledger without the wallet's account knows nothing of it — not a
+            // known 0 (the account not registered in the coordinator while its notes are in
+            // the store).
+            Some(ShieldedLocalBalanceState::Ready(snapshot)) => {
+                match snapshot.accounts.get(&ACCOUNT) {
+                    Some(account) => (account.spendable_credits, last_pass.map(|s| s as i64)),
+                    None => (0, None),
+                }
+            }
             _ => (0, None),
         }
     }
@@ -261,17 +308,27 @@ mod imp {
                 manager.shielded_sync().last_sync_unix_seconds(),
             );
             let id = SubwalletId::new(wallet.wallet_id(), ACCOUNT);
+            let mut unspent: Option<(u32, u64)> = None;
             let (notes, operations) = match coordinator.store().try_read() {
-                Ok(store) => (
-                    store.get_unspent_notes(id).map_or(0, |n| n.len() as u32),
-                    operations(
-                        store
-                            .get_activity(id, 0, SHOWN_OPERATIONS)
-                            .unwrap_or_default(),
-                    ),
-                ),
+                Ok(store) => {
+                    let found = store.get_unspent_notes(id).unwrap_or_default();
+                    // BUG-240: the same read's count and sum, for the journal.
+                    unspent = Some((
+                        found.len() as u32,
+                        found.iter().fold(0u64, |s, n| s.saturating_add(n.value)),
+                    ));
+                    (
+                        found.len() as u32,
+                        operations(
+                            store
+                                .get_activity(id, 0, SHOWN_OPERATIONS)
+                                .unwrap_or_default(),
+                        ),
+                    )
+                }
                 Err(_) => super::last_lines(&self.last_pool, &wallet.wallet_id()),
             };
+            note_pool_read(pool_record(state.as_ref().map_err(|_| ()), unspent));
             Some(PoolView {
                 credits,
                 notes,
@@ -616,6 +673,98 @@ mod imp {
             rate: None,
             tax_transfer: false,
         })
+    }
+}
+
+#[cfg(all(test, feature = "pool"))]
+mod pool_record_tests {
+    use super::imp::pool_record;
+    use platform_wallet::wallet::shielded::{
+        ShieldedBalanceSource, ShieldedLocalAccountBalance, ShieldedLocalBalanceSnapshot,
+        ShieldedLocalBalanceState,
+    };
+
+    /// BUG-240: the journal's pool line — the ledger as it is, the same read's notes; a busy
+    /// store says so, an unready ledger has no numbers. Numbers only.
+    #[test]
+    fn a_pool_read_is_written_by_its_numbers() {
+        let ready = ShieldedLocalBalanceState::Ready(ShieldedLocalBalanceSnapshot {
+            accounts: [(
+                0,
+                ShieldedLocalAccountBalance {
+                    spendable_credits: 0,
+                    last_scanned_index: Some(4_200),
+                    source: ShieldedBalanceSource::ScannedThisSession,
+                },
+            )]
+            .into(),
+        });
+        use crate::diag::Record;
+        assert_eq!(
+            pool_record(Ok(&ready), Some((8, 10_671_340_000))),
+            Record::PoolRead {
+                ledger: "ready",
+                has_account: true,
+                spendable: Some(0),
+                unspent: Some(8),
+                unspent_sum: Some(10_671_340_000),
+                last_scanned: Some(4_200),
+                source: "scanned",
+                notes: "fresh",
+            }
+        );
+        assert_eq!(
+            pool_record(Ok(&ShieldedLocalBalanceState::RestoreIncomplete), None),
+            Record::PoolRead {
+                ledger: "restore_incomplete",
+                has_account: false,
+                spendable: None,
+                unspent: None,
+                unspent_sum: None,
+                last_scanned: None,
+                source: "",
+                notes: "cache",
+            }
+        );
+        assert!(matches!(
+            pool_record(Err(()), None),
+            Record::PoolRead {
+                ledger: "error",
+                ..
+            }
+        ));
+        // Ready without the wallet's account: said so, no numbers of it.
+        let empty = ShieldedLocalBalanceState::Ready(ShieldedLocalBalanceSnapshot::default());
+        assert!(matches!(
+            pool_record(Ok(&empty), Some((8, 1))),
+            Record::PoolRead {
+                has_account: false,
+                spendable: None,
+                ..
+            }
+        ));
+    }
+
+    /// BUG-240 (c), the architect: a ledger Ready without the wallet's account is not a known
+    /// 0 — no time, so the screens say «not known yet»; with it, its credits and the time.
+    /// Mutant: `map_or(0, …)` with the time — the 0 shown as known.
+    #[test]
+    fn a_ledger_without_the_account_is_not_known() {
+        use super::imp::read_ledger;
+        let empty = ShieldedLocalBalanceState::Ready(ShieldedLocalBalanceSnapshot::default());
+        assert_eq!(read_ledger(Some(&empty), Some(1_800)), (0, None));
+        let ready = ShieldedLocalBalanceState::Ready(ShieldedLocalBalanceSnapshot {
+            accounts: [(
+                0,
+                ShieldedLocalAccountBalance {
+                    spendable_credits: 5,
+                    last_scanned_index: None,
+                    source: ShieldedBalanceSource::ScannedThisSession,
+                },
+            )]
+            .into(),
+        });
+        assert_eq!(read_ledger(Some(&ready), Some(1_800)), (5, Some(1_800)));
     }
 }
 

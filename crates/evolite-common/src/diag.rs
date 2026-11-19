@@ -307,6 +307,23 @@ pub enum Record {
         cached: u32,
         ms: u64,
     },
+    /// BUG-240: one read of the shielded pool, when it differs from the last one written —
+    /// numbers only, no address or note: the ledger's state (`ready`, `restore_incomplete`,
+    /// `unbound`, `error`), whether the wallet's account is among its accounts, its spendable
+    /// credits (rough, BUG-216), the unspent notes read from the store and their sum (rough), and
+    /// whether those came fresh or, the store busy, from the last read (`notes`: `fresh` /
+    /// `cache`), the last scanned index and where the balance comes from (`scanned`,
+    /// `restored`, `none`).
+    PoolRead {
+        ledger: &'static str,
+        has_account: bool,
+        spendable: Option<u64>,
+        unspent: Option<u32>,
+        unspent_sum: Option<u64>,
+        last_scanned: Option<u64>,
+        source: &'static str,
+        notes: &'static str,
+    },
     /// The token rows' facts read: tokens, queries, how long (SYNC-0).
     TokenFacts {
         tokens: u32,
@@ -556,6 +573,22 @@ impl Record {
                 ms,
             } => json!({"k": "token_facts", "tokens": tokens, "requests": requests, "ms": ms}),
             Record::TokenPage { ms } => json!({"k": "token_page", "ms": ms}),
+            Record::PoolRead {
+                ledger,
+                has_account,
+                spendable,
+                unspent,
+                unspent_sum,
+                last_scanned,
+                source,
+                notes,
+            } => json!({
+                "k": "pool_read", "ledger": ledger, "hasAccount": has_account,
+                "spendable": spendable.map(|c| rough((c / 1000) as i64)),
+                "unspent": unspent,
+                "unspentSum": unspent_sum.map(|c| rough((c / 1000) as i64)),
+                "lastScanned": last_scanned, "source": source, "notes": notes,
+            }),
             Record::AddressFund {
                 proof,
                 locked,
@@ -1376,6 +1409,30 @@ mod tests {
                 vec!["k", "ms", "requests", "t", "tokens"],
             ),
             (Record::TokenPage { ms: 1_200 }, vec!["k", "ms", "t"]),
+            (
+                Record::PoolRead {
+                    ledger: "ready",
+                    has_account: false,
+                    spendable: None,
+                    unspent: Some(8),
+                    unspent_sum: Some(1_067_134_000),
+                    last_scanned: None,
+                    source: "",
+                    notes: "fresh",
+                },
+                vec![
+                    "hasAccount",
+                    "k",
+                    "lastScanned",
+                    "ledger",
+                    "notes",
+                    "source",
+                    "spendable",
+                    "t",
+                    "unspent",
+                    "unspentSum",
+                ],
+            ),
         ] {
             let line = record.line(UNIX_EPOCH);
             let value: serde_json::Value = serde_json::from_str(&line).unwrap();
