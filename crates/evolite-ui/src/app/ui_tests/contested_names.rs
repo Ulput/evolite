@@ -576,3 +576,132 @@ fn the_sent_claim_says_what_it_took() {
     );
     assert!(!has_words(&kit, &estimate), "the fact, not the estimate");
 }
+
+/// BUG-207 (the review's scenario 9): «Write the link again» writes once per click, and never
+/// again while it waits or once answered; a wrong password is said under its field and the field
+/// is empty; the lock wipes a typed password; the answer is the card's, not «Add a name»'s.
+#[test]
+fn the_link_written_again_is_one_write_per_click() {
+    const AGAIN: &str = "Write the link again";
+    let (_turn, mut kit) = demo_app("contest-card", "en");
+    wait_for(&mut kit, "the card", |k| on(k, AGAIN).is_some());
+    // Clicked first: the focus left on the button would take the keys otherwise.
+    let type_password = |kit: &mut Kit| {
+        kit.query_all_by_role(Role::PasswordInput)
+            .next()
+            .expect("the password field")
+            .click();
+        kit.run_steps(2);
+        kit.query_all_by_role(Role::PasswordInput)
+            .next()
+            .expect("the password field")
+            .type_text("pw");
+        kit.run_steps(2);
+    };
+    let waiting = |kit: &Kit| kit.state().identity.link_flow.waiting_ask();
+    // The card's own «Close», then the card opened again (from its row, as the person would).
+    let close_and_reopen = |kit: &mut Kit| {
+        let card = kit.state().identity.contest.clone();
+        kit.query_all_by_role_and_label(Role::Button, "Close")
+            .last()
+            .expect("the card's Close")
+            .click();
+        kit.run_steps(2);
+        let identity = &kit.state().identity;
+        assert!(identity.contest.is_none(), "closed");
+        assert!(
+            identity.link_flow.can_act() && !identity.link_flow.password.ready(true),
+            "closing forgets the write and its password"
+        );
+        kit.state_mut().identity.contest = card;
+        kit.run_steps(2);
+        assert!(on(kit, AGAIN).is_some(), "open again");
+    };
+    assert_eq!(on(&kit, AGAIN), Some(false), "no password yet");
+    type_password(&mut kit);
+    assert_eq!(on(&kit, AGAIN), Some(true));
+
+    // One click, one write; another click, waiting or answered (the demo answers at once),
+    // writes nothing: no new number, the button off.
+    button(&kit, AGAIN).click();
+    kit.run_steps(1);
+    let ask = waiting(&kit);
+    assert!(ask.is_some(), "written");
+    button(&kit, AGAIN).click();
+    kit.run_steps(2);
+    let flow = &kit.state().identity.link_flow;
+    assert!(!flow.can_act(), "no write again");
+    assert!(
+        flow.waiting_ask().is_none_or(|a| Some(a) == ask),
+        "no second write"
+    );
+    assert_eq!(on(&kit, AGAIN), Some(false), "the button off");
+    close_and_reopen(&mut kit);
+
+    // A wrong password: said under the field, the field empty, the card's own answer.
+    type_password(&mut kit);
+    button(&kit, AGAIN).click();
+    kit.run_steps(1);
+    let ask = waiting(&kit);
+    assert!(ask.is_some());
+    // «Add a name» open too, waiting for its own answer (its own number).
+    kit.state_mut().identity.adding_name = Some(Default::default());
+    let form = kit
+        .state_mut()
+        .identity
+        .adding_name
+        .as_mut()
+        .expect("the form");
+    let own = match form.flow.command(
+        evolite_api::Spend::AddName {
+            name: "another".into(),
+            contest_fund: None,
+            link: None,
+        },
+        false,
+        (),
+    ) {
+        Some(evolite_api::Command::Spend { ask, .. }) => Some(ask),
+        _ => None,
+    };
+    assert!(own.is_some() && own != ask);
+    kit.state_mut()
+        .identity
+        .on_name_done(ask, &Err(evolite_api::CoreError::WrongPassword));
+    let flow = &kit.state().identity.link_flow;
+    assert!(flow.can_act() && flow.password.is_wrong(), "said");
+    assert!(!flow.password.ready(true), "the field empty");
+    let form = kit.state().identity.adding_name.as_ref().expect("the form");
+    assert_eq!(
+        form.flow.waiting_ask(),
+        own,
+        "«Add a name» still waits for its own answer"
+    );
+    assert!(form.result.is_none(), "not «Add a name»'s");
+    kit.state_mut().identity.adding_name = None;
+    kit.run_steps(2);
+
+    // Typed again and answered: no second write until the card is closed.
+    type_password(&mut kit);
+    button(&kit, AGAIN).click();
+    kit.run_steps(1);
+    let ask = waiting(&kit);
+    assert!(ask.is_some());
+    kit.state_mut().identity.on_name_done(ask, &Ok(()));
+    kit.run_steps(2);
+    assert_ne!(on(&kit, AGAIN), Some(true), "answered: none again");
+
+    // The lock wipes what was typed for the next write.
+    close_and_reopen(&mut kit);
+    type_password(&mut kit);
+    assert!(kit.state().identity.link_flow.password.ready(true));
+    draw_edited(&mut kit, 1, |app| {
+        if let Some(s) = app.snapshot.as_mut() {
+            s.vault = evolite_api::VaultState::Locked;
+        }
+    });
+    assert!(
+        !kit.state().identity.link_flow.password.ready(true),
+        "wiped"
+    );
+}
