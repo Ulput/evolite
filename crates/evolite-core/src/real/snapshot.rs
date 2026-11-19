@@ -947,24 +947,21 @@ impl Real {
         }
     }
 
-    /// The store's records first: one per transaction, as platform-wallet folds the accounts it
-    /// touches. Then this run's records the store has not got yet, one per transaction too, each
-    /// input and output once over the accounts (BUG-85), so an asset lock — which touches two
-    /// accounts — is one line, not two.
+    /// One record per transaction: the store's row and this run's records of every account it
+    /// touches, merged by [`convert::one_per_transaction`] (the stored row first) — each input and
+    /// output once over the accounts (BUG-85, BUG-237), so an asset lock, which touches two
+    /// accounts, is one line, and a short stored row does not hide the live accounts' views.
     fn merged_records(
         &self,
         info: &key_wallet::wallet::managed_wallet_info::ManagedWalletInfo,
     ) -> Vec<TransactionRecord> {
-        let stored_ids: std::collections::HashSet<_> =
-            self.stored_history.iter().map(|r| r.txid).collect();
-        let fresh = convert::one_per_transaction(
-            info.transaction_history()
-                .into_iter()
-                .filter(|r| !stored_ids.contains(&r.txid)),
-        );
+        // BUG-237: the stored row and this run's slices of a transaction as one — the stored row
+        // first, then the live accounts' views — so a short stored row does not hide the full
+        // live one.
+        let slices = info.transaction_history();
+        let mut all = convert::one_per_transaction(self.stored_history.iter().chain(slices));
         // A spend recorded before the coin it spends (a restore's rescan) gets its
         // input back from our own outputs.
-        let mut all: Vec<_> = self.stored_history.iter().cloned().chain(fresh).collect();
         // BUG-194: ours is the store's pools and the live wallet's — the store's end at the
         // first gap window, the live ones after a restart may end before an address the store
         // has. One rule for both steps (BUG-232, QA batch 31): the outputs a stored slice

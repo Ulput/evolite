@@ -1646,3 +1646,102 @@ async fn a_change_spent_by_a_record_we_have_is_owed_nothing() {
     assert_eq!(info.balance().total(), 979_700);
     assert!(crate::convert::coins_of_sent_outputs(&info, &[]).is_empty());
 }
+
+/// BUG-237: the row the store keeps for a transaction, read back from the SQLite store.
+fn stored_row(
+    store: &Store<platform_wallet_storage::sqlite::SqlitePersister>,
+    txid: Txid,
+) -> TransactionRecord {
+    store
+        .get_core_tx_record(ID, &txid)
+        .unwrap()
+        .expect("a row for the transaction")
+}
+
+fn records_round(records: Vec<TransactionRecord>) -> PlatformWalletChangeSet {
+    core_round(CoreChangeSet {
+        records,
+        ..CoreChangeSet::default()
+    })
+}
+
+/// BUG-237: the spending account's slice, then a rescan's DashPay slice in a later round — the
+/// row keeps the change (it was replaced by the DashPay slice alone: «Sent −0,1452581»).
+#[test]
+fn a_later_slice_does_not_write_over_the_stored_one() {
+    use crate::convert::merge_slices_tests::{qa_f31, shape};
+    let (_db, store) = real_store("slices-later");
+    let (bip44, dashpay) = qa_f31();
+    store.store(ID, records_round(vec![bip44.clone()])).unwrap();
+    store
+        .store(ID, records_round(vec![dashpay.clone()]))
+        .unwrap();
+    let row = stored_row(&store, bip44.txid);
+    assert_eq!(
+        shape(&row),
+        shape(&crate::convert::merge_slices(&dashpay, &bip44))
+    );
+    assert_eq!(row.output_details.len(), 2, "the change is kept");
+    // The other way round too: the DashPay slice first, the spending account's after.
+    let (_db, store) = real_store("slices-later-2");
+    store
+        .store(ID, records_round(vec![dashpay.clone()]))
+        .unwrap();
+    store.store(ID, records_round(vec![bip44.clone()])).unwrap();
+    assert_eq!(stored_row(&store, bip44.txid).output_details.len(), 2);
+}
+
+/// BUG-237 (the architect's condition 1): two slices of one transaction in ONE round give one
+/// row with both — the second does not write over the first in the same write.
+#[test]
+fn two_slices_in_one_round_are_one_row() {
+    use crate::convert::merge_slices_tests::qa_f31;
+    let (_db, store) = real_store("slices-one-round");
+    let (bip44, dashpay) = qa_f31();
+    store
+        .store(ID, records_round(vec![bip44.clone(), dashpay.clone()]))
+        .unwrap();
+    let row = stored_row(&store, bip44.txid);
+    assert_eq!(row.output_details.len(), 2);
+    assert_eq!(row.input_details.len(), 1);
+    let (_db, store) = real_store("slices-one-round-2");
+    store
+        .store(ID, records_round(vec![dashpay, bip44.clone()]))
+        .unwrap();
+    assert_eq!(stored_row(&store, bip44.txid).output_details.len(), 2);
+}
+
+/// BUG-237: after a restart the merged row reads back whole — History's record of it is the
+/// same, and the store's coins (where the balances come from) are not touched by the merge.
+#[test]
+fn a_merged_row_reads_back_the_same_after_a_restart() {
+    use crate::convert::merge_slices_tests::{qa_f31, shape};
+    let (db, store) = real_store("slices-restart");
+    let (bip44, dashpay) = qa_f31();
+    let (coin, utxo) = funding_coin(50);
+    store.store(ID, core_round(funded(&[&utxo], &[]))).unwrap();
+    store.store(ID, records_round(vec![bip44.clone()])).unwrap();
+    store.store(ID, records_round(vec![dashpay])).unwrap();
+    let before = shape(&stored_row(&store, bip44.txid));
+    let coins_before = (is_spent(&db, coin), outpoints(&db, &ID, false).unwrap());
+    drop(store);
+    let sqlite = platform_wallet_storage::sqlite::SqlitePersister::open(
+        platform_wallet_storage::sqlite::SqlitePersisterConfig::new(db.clone()),
+    )
+    .unwrap();
+    // Opened again as at a restart. (The full `load` needs a wallet with its accounts in the
+    // store, which these fixtures do not make: the row, History's read and the coins are what
+    // it would take.)
+    let store = Store::new(sqlite, db.clone());
+    assert_eq!(shape(&stored_row(&store, bip44.txid)), before);
+    let history = crate::chain::stored_history(&db, &ID).unwrap();
+    let read = history
+        .iter()
+        .find(|r| r.txid == bip44.txid)
+        .expect("History reads the row");
+    assert_eq!(read.output_details.len(), 2);
+    assert_eq!(
+        (is_spent(&db, coin), outpoints(&db, &ID, false).unwrap()),
+        coins_before
+    );
+}

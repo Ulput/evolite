@@ -338,64 +338,91 @@ pub fn net_once(record: &TransactionRecord) -> i64 {
     owned.values().sum::<u64>() as i64 - spent.values().sum::<u64>() as i64
 }
 
-/// This run's records (one per account a transaction touches) as one per transaction. The base
-/// is the first record with inputs (the spending account's), else the first. An asset lock stays
-/// that record alone (its other account's details are of the lock's payload). Any other
-/// transaction gets every account's inputs and outputs, once by index — an output one account
-/// owns and another sees as `Sent` stays owned — and its net, direction and fee from them
-/// (key-wallet's rules). Picking one account's record left a transfer to an own address that
-/// spent a contact's coin as the contact account's view: the coin out, nothing back (BUG-85).
+/// This run's records (one per account a transaction touches) as one per transaction, each
+/// group folded with [`merge_slices`] in the order given. Picking one account's record left a
+/// transfer to an own address that spent a contact's coin as the contact account's view: the
+/// coin out, nothing back (BUG-85).
 pub fn one_per_transaction<'a>(
     records: impl IntoIterator<Item = &'a TransactionRecord>,
 ) -> Vec<TransactionRecord> {
-    let mut groups: Vec<Vec<&TransactionRecord>> = Vec::new();
+    let mut merged: Vec<TransactionRecord> = Vec::new();
     for r in records {
-        match groups.iter_mut().find(|g| g[0].txid == r.txid) {
-            Some(g) => g.push(r),
-            None => groups.push(vec![r]),
+        match merged.iter_mut().find(|m| m.txid == r.txid) {
+            Some(m) => *m = merge_slices(m, r),
+            None => merged.push(r.clone()),
         }
     }
-    groups
-        .into_iter()
-        .map(|group| {
-            let base = group
-                .iter()
-                .find(|r| !r.input_details.is_empty())
-                .unwrap_or(&group[0]);
-            let mut merged = (*base).clone();
-            if group.len() == 1 || merged.transaction_type == TransactionType::AssetLock {
-                return merged;
+    merged
+}
+
+/// How final a context is: ChainLock over a block, over an InstantLock, over the mempool.
+fn finality(context: &TransactionContext) -> u8 {
+    match context {
+        TransactionContext::Mempool => 0,
+        TransactionContext::InstantSend(_) => 1,
+        TransactionContext::InBlock(_) => 2,
+        TransactionContext::InChainLockedBlock(_) => 3,
+    }
+}
+
+/// Two accounts' records of one transaction as one (BUG-237: the store keeps one row per
+/// transaction, and a later account's slice wrote over the others' — a DashPay rescan's left a
+/// payment without its change). The same rule for the store's write and the screen's merge.
+///
+/// - The base, and so `account_type`, is the slice with inputs — the spending account's, which
+///   must know the transaction after a restart (the store puts a record into its account). When
+///   both or neither have inputs, `first` (the stored one).
+/// - The context is the more final one (ChainLock > block > InstantLock > mempool).
+/// - An asset lock stays its base alone: its other account's details are of the lock's payload.
+/// - Otherwise the inputs and outputs of both, once by index; an output one slice owns and the
+///   other sees as `Sent` stays owned. Net, direction and fee follow from them (key-wallet's
+///   rules) — only when something was added, so a slice merged with itself is unchanged.
+pub fn merge_slices(first: &TransactionRecord, second: &TransactionRecord) -> TransactionRecord {
+    let (base, other) = if first.input_details.is_empty() && !second.input_details.is_empty() {
+        (second, first)
+    } else {
+        (first, second)
+    };
+    let mut merged = base.clone();
+    if finality(&other.context) > finality(&merged.context) {
+        merged.context = other.context.clone();
+    }
+    if merged.transaction_type == TransactionType::AssetLock
+        || other.transaction_type == TransactionType::AssetLock
+    {
+        return merged;
+    }
+    let owned = |role: &OutputRole| matches!(role, OutputRole::Received | OutputRole::Change);
+    let mut added = false;
+    for d in &other.input_details {
+        if !merged.input_details.iter().any(|m| m.index == d.index) {
+            merged.input_details.push(d.clone());
+            added = true;
+        }
+    }
+    for d in &other.output_details {
+        match merged
+            .output_details
+            .iter_mut()
+            .find(|m| m.index == d.index)
+        {
+            Some(m) if owned(&d.role) && !owned(&m.role) => {
+                *m = d.clone();
+                added = true;
             }
-            for r in &group {
-                for d in &r.input_details {
-                    if !merged.input_details.iter().any(|m| m.index == d.index) {
-                        merged.input_details.push(d.clone());
-                    }
-                }
-                for d in &r.output_details {
-                    let owned = matches!(d.role, OutputRole::Received | OutputRole::Change);
-                    match merged
-                        .output_details
-                        .iter_mut()
-                        .find(|m| m.index == d.index)
-                    {
-                        Some(m)
-                            if owned
-                                && !matches!(m.role, OutputRole::Received | OutputRole::Change) =>
-                        {
-                            *m = d.clone()
-                        }
-                        Some(_) => {}
-                        None => merged.output_details.push(d.clone()),
-                    }
-                }
+            Some(_) => {}
+            None => {
+                merged.output_details.push(d.clone());
+                added = true;
             }
-            merged.input_details.sort_by_key(|d| d.index);
-            merged.output_details.sort_by_key(|d| d.index);
-            settle_record(&mut merged);
-            merged
-        })
-        .collect()
+        }
+    }
+    if added {
+        merged.input_details.sort_by_key(|d| d.index);
+        merged.output_details.sort_by_key(|d| d.index);
+        settle_record(&mut merged);
+    }
+    merged
 }
 
 /// A record's net, direction and fee again from its details, by key-wallet's rules: no `Sent`
@@ -5526,5 +5553,239 @@ mod gap_tests {
         let adopted = adopt_addresses_past_the_gap(&mut info, &keys, &[second, first]);
         assert_eq!(adopted.len(), 2);
         assert_eq!(change_pool(&info).highest_used, Some(last + 170));
+    }
+}
+
+/// BUG-237: [`merge_slices`], one rule for the store's write and the screen.
+#[cfg(test)]
+pub(crate) mod merge_slices_tests {
+    use super::*;
+    use key_wallet::dashcore::address::Payload;
+    use key_wallet::dashcore::hashes::Hash;
+    use key_wallet::dashcore::{BlockHash, OutPoint, PubkeyHash, Transaction, TxIn, TxOut, Txid};
+    use key_wallet::managed_account::transaction_record::{InputDetail, OutputDetail};
+    use key_wallet::transaction_checking::BlockInfo;
+
+    pub(crate) const PAID: u64 = 10_000;
+    pub(crate) const CHANGE: u64 = 14_525_584;
+    pub(crate) const FEE: u64 = 226;
+
+    fn address(n: u8) -> Address {
+        Address::new(
+            key_wallet::Network::Testnet,
+            Payload::PubkeyHash(PubkeyHash::from_byte_array([n; 20])),
+        )
+    }
+
+    /// The shape of qa-f31's tx1: one coin of ours in, 0,0001 to a DashPay contact (output 0),
+    /// the change to our internal address (output 1). (BIP44's slice, the DashPay account's.)
+    pub(crate) fn qa_f31() -> (TransactionRecord, TransactionRecord) {
+        let (mine, change, contact) = (address(7), address(8), address(9));
+        let tx = Transaction {
+            version: 2,
+            lock_time: 0,
+            input: vec![TxIn {
+                previous_output: OutPoint::new(Txid::from_byte_array([1; 32]), 0),
+                ..TxIn::default()
+            }],
+            output: vec![
+                TxOut {
+                    value: PAID,
+                    script_pubkey: contact.script_pubkey(),
+                },
+                TxOut {
+                    value: CHANGE,
+                    script_pubkey: change.script_pubkey(),
+                },
+            ],
+            special_transaction_payload: None,
+        };
+        let out = |index, role, at: &Address, value| OutputDetail {
+            index,
+            role,
+            address: Some(at.clone()),
+            value,
+        };
+        let mut bip44 = TransactionRecord::new(
+            tx.clone(),
+            key_wallet::account::AccountType::Standard {
+                index: 0,
+                standard_account_type: key_wallet::account::StandardAccountType::BIP44Account,
+            },
+            TransactionContext::Mempool,
+            TransactionType::Standard,
+            TransactionDirection::Outgoing,
+            vec![InputDetail {
+                index: 0,
+                value: PAID + CHANGE + FEE,
+                address: mine,
+            }],
+            vec![
+                out(0, OutputRole::Sent, &contact, PAID),
+                out(1, OutputRole::Change, &change, CHANGE),
+            ],
+            -((PAID + FEE) as i64),
+        );
+        // The spending account knows its fee.
+        bip44.fee = Some(FEE);
+        let dashpay = TransactionRecord::new(
+            tx,
+            key_wallet::account::AccountType::DashpayReceivingFunds {
+                index: 0,
+                user_identity_id: [2; 32],
+                friend_identity_id: [3; 32],
+            },
+            TransactionContext::Mempool,
+            TransactionType::Standard,
+            TransactionDirection::Outgoing,
+            Vec::new(),
+            vec![out(0, OutputRole::Sent, &contact, PAID)],
+            -(PAID as i64),
+        );
+        (bip44, dashpay)
+    }
+
+    /// What a merged record says, comparable: its account, inputs, outputs by role, net, fee.
+    pub(crate) type Shape = (String, Vec<u32>, Vec<(u32, OutputRole)>, i64, Option<u64>);
+
+    /// The [`Shape`] of `r`.
+    pub(crate) fn shape(r: &TransactionRecord) -> Shape {
+        (
+            format!("{:?}", r.account_type),
+            r.input_details.iter().map(|d| d.index).collect(),
+            r.output_details.iter().map(|d| (d.index, d.role)).collect(),
+            r.net_amount,
+            r.fee,
+        )
+    }
+
+    /// The store kept the DashPay slice and lost the change: merged, the row has the input, the
+    /// payment and the change, under the spending account — whichever came first.
+    #[test]
+    fn the_dashpay_slice_does_not_lose_the_change() {
+        let (bip44, dashpay) = qa_f31();
+        let merged = merge_slices(&dashpay, &bip44);
+        assert_eq!(merged.input_details.len(), 1);
+        assert_eq!(
+            shape(&merged).2,
+            [(0, OutputRole::Sent), (1, OutputRole::Change)]
+        );
+        assert!(matches!(
+            merged.account_type,
+            key_wallet::account::AccountType::Standard { .. }
+        ));
+        assert_eq!(merged.net_amount, -((PAID + FEE) as i64));
+        assert_eq!(merged.fee, Some(FEE));
+        // The order does not matter.
+        assert_eq!(shape(&merge_slices(&bip44, &dashpay)), shape(&merged));
+    }
+
+    /// Merged once is merged: the row merged again with either slice is the same.
+    #[test]
+    fn a_merge_is_idempotent() {
+        let (bip44, dashpay) = qa_f31();
+        let merged = merge_slices(&dashpay, &bip44);
+        assert_eq!(shape(&merge_slices(&merged, &bip44)), shape(&merged));
+        assert_eq!(shape(&merge_slices(&merged, &dashpay)), shape(&merged));
+        assert_eq!(shape(&merge_slices(&bip44, &bip44)), shape(&bip44));
+    }
+
+    /// An output one slice owns and the other sees as `Sent` is ours, in either order.
+    #[test]
+    fn ours_wins_over_sent() {
+        let (bip44, _) = qa_f31();
+        let mut sees_sent = bip44.clone();
+        sees_sent.output_details[1].role = OutputRole::Sent;
+        sees_sent.account_type = key_wallet::account::AccountType::Standard {
+            index: 1,
+            standard_account_type: key_wallet::account::StandardAccountType::BIP44Account,
+        };
+        for merged in [
+            merge_slices(&sees_sent, &bip44),
+            merge_slices(&bip44, &sees_sent),
+        ] {
+            assert_eq!(merged.output_details[1].role, OutputRole::Change);
+        }
+    }
+
+    /// The context is the most final of the two, not the newest: ChainLock > block >
+    /// InstantLock > mempool.
+    #[test]
+    fn the_context_is_the_most_final() {
+        let (bip44, dashpay) = qa_f31();
+        let block = BlockInfo::new(100, BlockHash::from_byte_array([4; 32]), 0);
+        let at = |r: &TransactionRecord, c: TransactionContext| {
+            let mut r = r.clone();
+            r.context = c;
+            r
+        };
+        let locked = at(&bip44, TransactionContext::InChainLockedBlock(block));
+        let mined = at(&dashpay, TransactionContext::InBlock(block));
+        let instant = at(
+            &dashpay,
+            TransactionContext::InstantSend(Default::default()),
+        );
+        for (a, b) in [(&locked, &mined), (&mined, &locked)] {
+            assert!(merge_slices(a, b).context.is_chain_locked());
+        }
+        let mempool = at(&bip44, TransactionContext::Mempool);
+        for (a, b) in [(&mempool, &instant), (&instant, &mempool)] {
+            assert!(matches!(
+                merge_slices(a, b).context,
+                TransactionContext::InstantSend(_)
+            ));
+        }
+        assert!(
+            merge_slices(&mined, &instant)
+                .context
+                .block_info()
+                .is_some()
+        );
+    }
+
+    /// An asset lock is not merged: its base stays as it is (the most final context aside).
+    #[test]
+    fn an_asset_lock_is_left_as_it_is() {
+        let (mut bip44, mut dashpay) = qa_f31();
+        bip44.transaction_type = TransactionType::AssetLock;
+        dashpay.transaction_type = TransactionType::AssetLock;
+        let merged = merge_slices(&dashpay, &bip44);
+        assert_eq!(shape(&merged), shape(&bip44));
+    }
+
+    /// `merged_records`' shape: the store's short row first, then this run's slices — the
+    /// line is the whole transaction, not the stored slice that hid the live one.
+    #[test]
+    fn a_short_stored_row_does_not_hide_the_live_slice() {
+        let (bip44, dashpay) = qa_f31();
+        let one = one_per_transaction([&dashpay, &bip44, &dashpay]);
+        assert_eq!(one.len(), 1);
+        assert_eq!(shape(&one[0]), shape(&merge_slices(&dashpay, &bip44)));
+        assert_eq!(one[0].output_details.len(), 2);
+    }
+
+    /// Neither or both with inputs: the stored one (the first) is the base.
+    #[test]
+    fn without_a_spending_slice_the_stored_one_is_the_base() {
+        let (bip44, dashpay) = qa_f31();
+        let mut other = dashpay.clone();
+        other.account_type = key_wallet::account::AccountType::Standard {
+            index: 3,
+            standard_account_type: key_wallet::account::StandardAccountType::BIP44Account,
+        };
+        assert_eq!(
+            merge_slices(&dashpay, &other).account_type,
+            dashpay.account_type
+        );
+        assert_eq!(
+            merge_slices(&other, &dashpay).account_type,
+            other.account_type
+        );
+        let mut spends_too = bip44.clone();
+        spends_too.account_type = other.account_type;
+        assert_eq!(
+            merge_slices(&bip44, &spends_too).account_type,
+            bip44.account_type
+        );
     }
 }

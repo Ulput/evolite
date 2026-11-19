@@ -189,6 +189,10 @@ pub struct Store<P> {
     db: PathBuf,
     file: PathBuf,
     wallets: Mutex<BTreeMap<WalletId, Tracked>>,
+    /// One write at a time from reading a transaction's stored row to writing the merge
+    /// (BUG-237): platform-wallet's sync and the contacts' rescan both write, and a slice read
+    /// between another's read and write would be lost again.
+    writing: Mutex<()>,
 }
 
 impl<P> Store<P> {
@@ -199,6 +203,7 @@ impl<P> Store<P> {
             inner,
             db,
             wallets: Mutex::new(BTreeMap::new()),
+            writing: Mutex::new(()),
         }
     }
 
@@ -390,6 +395,12 @@ impl<P: PlatformWalletPersistence> PlatformWalletPersistence for Store<P> {
         {
             only_credited_as_new(core);
         }
+        let _writing = self.writing.lock().unwrap_or_else(|e| e.into_inner());
+        if !plain()
+            && let Some(core) = changeset.core.as_mut()
+        {
+            self.merge_slices(wallet_id, core);
+        }
         let round = Round::of(&changeset);
         // SQLite first: the record vouches for the cursor of a committed round only.
         self.inner.store(wallet_id, changeset)?;
@@ -475,6 +486,26 @@ impl<P: PlatformWalletPersistence> PlatformWalletPersistence for Store<P> {
     ) -> Result<Option<DpnsNameStateEntry>, PersistenceError> {
         self.inner
             .get_dpns_name_state(wallet_id, wallet_identity_id, normalized_label)
+    }
+}
+
+impl<P: PlatformWalletPersistence> Store<P> {
+    /// BUG-237: the store keeps one row per transaction and its last write wins — a DashPay
+    /// rescan's slice wrote over the spending account's, and the payment lost its change. Each
+    /// record of the round is merged with the round's other slices of its transaction, then with
+    /// the row already stored ([`convert::merge_slices`], the stored one first): the row holds
+    /// every account's view. A row that does not read is written over as before.
+    fn merge_slices(&self, wallet_id: WalletId, core: &mut CoreChangeSet) {
+        let round = crate::convert::one_per_transaction(core.records.iter());
+        core.records = round
+            .into_iter()
+            .map(
+                |record| match self.inner.get_core_tx_record(wallet_id, &record.txid) {
+                    Ok(Some(stored)) => crate::convert::merge_slices(&stored, &record),
+                    _ => record,
+                },
+            )
+            .collect();
     }
 }
 
