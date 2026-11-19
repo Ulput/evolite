@@ -144,6 +144,77 @@ fn refused_for_keys(event: &Event) -> bool {
     )
 }
 
+/// A Platform write that failed, as the UI is told — one rule for every write
+/// (TECH-platform-errors, audit Д3; before, five functions disagreed):
+/// - not made because the masternode lists are not in yet: wait for the sync;
+/// - refused for a key (disabled, wrong purpose or level, a revision behind): the keys are read
+///   again ([`CoreError::KeysChanged`], BUG-175);
+/// - a name's credits not known: said as it is, nothing started (BUG-97);
+/// - Platform's refusals for lack of credits — «insufficient …», «… is not enough to pay … fee»
+///   — and only those: «Platform balance unavailable…» is a read that failed (BUG-107);
+/// - no identity yet: make one first;
+/// - else the text, for the details line.
+///
+/// What only one kind of write knows (the coins' own refusal, a top-up's chain lock) its caller
+/// says first.
+pub(in crate::real) fn platform_failure(text: String) -> CoreError {
+    let lower = text.to_lowercase();
+    if text == chain::NOT_READY {
+        CoreError::NotSynced
+    } else if about_keys(&text) {
+        CoreError::KeysChanged
+    } else if text.contains(chain::name_credits_unknown_text()) {
+        CoreError::NotAvailable(chain::name_credits_unknown_text().into())
+    } else if lower.contains("insufficient") || lower.contains("is not enough") {
+        CoreError::NotEnough
+    } else if text == tr!("The wallet has no identity") {
+        CoreError::NotAvailable(tr!("Make an identity first").into())
+    } else {
+        CoreError::Failed(text)
+    }
+}
+
+#[cfg(test)]
+mod platform_failure_tests {
+    use super::*;
+
+    /// TECH-platform-errors: one table for every write, by Platform's own words. Before, «… is
+    /// not enough to pay … fee» was `NotEnough` only for DashPay, a key's refusal was not
+    /// `KeysChanged` for a name or a pool move, and «no identity» was said two ways.
+    #[test]
+    fn every_write_reads_platforms_refusals_alike() {
+        let not_enough = [
+            "Insufficient identity abc balance 126042000 required 190000000",
+            "Current credits balance 1 is not enough to pay 2 fee",
+        ];
+        for text in not_enough {
+            assert_eq!(
+                platform_failure(text.into()),
+                CoreError::NotEnough,
+                "{text}"
+            );
+        }
+        assert_eq!(
+            platform_failure("Protocol error: IdentityPublicKeyIsDisabledError key 3".into()),
+            CoreError::KeysChanged
+        );
+        assert_eq!(
+            platform_failure(chain::NOT_READY.into()),
+            CoreError::NotSynced
+        );
+        assert_eq!(
+            platform_failure(tr!("The wallet has no identity").into()),
+            CoreError::NotAvailable(tr!("Make an identity first").into())
+        );
+        let unavailable =
+            "Platform balance unavailable for identity abc; retry against an up-to-date node";
+        assert!(matches!(
+            platform_failure(unavailable.into()),
+            CoreError::Failed(_)
+        ));
+    }
+}
+
 /// A Platform read that failed, as the UI is told: "wait for the sync" when it was not made
 /// because the masternode lists are not in yet ([`Chain::ready`]).
 fn read_failure(e: String) -> CoreError {

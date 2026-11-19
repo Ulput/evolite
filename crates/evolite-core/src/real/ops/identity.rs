@@ -1053,24 +1053,14 @@ pub(in crate::real) fn link_refused(problem: dpns::LinkProblem) -> CoreError {
 /// A failed top-up or name, in the interface's terms. A top-up that fails after its lock loses
 /// nothing: the snapshot shows it as unfinished and `ResumeTopUp` finishes it.
 pub(in crate::real) fn identity_failure(text: String) -> CoreError {
-    if super::super::about_keys(&text) {
-        return CoreError::KeysChanged;
-    }
-    if text.contains(chain::name_credits_unknown_text()) {
-        // BUG-97: said as it is, the name was not started.
-        CoreError::NotAvailable(chain::name_credits_unknown_text().into())
-    } else if text.to_lowercase().contains("insufficient") {
-        CoreError::NotEnough
-    } else if text == tr!("The wallet has no identity") {
-        CoreError::NotAvailable(tr!("Make an identity first").into())
-    } else if text == chain::awaiting_chain_lock_text()
+    if text == chain::awaiting_chain_lock_text()
         || text == chain::top_up_identity_unknown_text()
         || text == chain::top_up_settled_text()
     {
         // Not a failure of the network: what is going on and what to do, as is.
         CoreError::NotAvailable(text)
     } else {
-        CoreError::Failed(text)
+        super::super::platform_failure(text)
     }
 }
 

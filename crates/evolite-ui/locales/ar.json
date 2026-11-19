@@ -59,7 +59,6 @@
   "This amount needs more than {} coins — the network will not take such a transaction. First combine the small coins: send “Max” from Core to your own address and try again": "يحتاج هذا المبلغ إلى أكثر من {} عملة — لن تقبل الشبكة معاملة كهذه. اجمع العملات الصغيرة أولًا: أرسل «الكل» من Core إلى عنوانك ثم أعد المحاولة",
   "Some of the coins are not confirmed by the network yet — wait for a block": "بعض العملات لم تؤكدها الشبكة بعد — انتظر كتلة",
   "View the keys": "عرض المفاتيح",
-  "Could not find out whether the keys changed — look at the keys again before trying once more": "تعذّر معرفة ما إذا تغيّرت المفاتيح — راجع المفاتيح مرة أخرى قبل المحاولة من جديد",
   "Could not find out whether the operation went through — look again before repeating it": "تعذّر معرفة ما إذا تمّت العملية — راجع مرة أخرى قبل تكرارها",
   "DashPay needs this wallet's keys on the identity first: “Enable DashPay…” below": "يحتاج DashPay أولًا إلى مفاتيح هذه المحفظة على الهوية: «تفعيل DashPay…» أدناه",
   "DashPay takes the encryption key with the lowest number — here key {} of another wallet or an app, so contacts do not work in evolite. Enabling DashPay adds this wallet's pair and disables that key.": "يأخذ DashPay مفتاح التشفير ذا الرقم الأصغر — وهنا هو المفتاح {} لمحفظة أو تطبيق آخر، لذا لا تعمل جهات الاتصال في evolite. تفعيل DashPay يضيف زوج هذه المحفظة ويعطّل ذلك المفتاح.",

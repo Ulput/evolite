@@ -96,6 +96,16 @@ impl KeyChange {
     }
 }
 
+/// The answer to a change of keys, in words: a failure says the keys did not change; a change
+/// not known to have gone through (TECH-platform-errors, audit Д4) says only that — never
+/// «did not change», which it may have.
+fn said(e: &CoreError) -> String {
+    match e {
+        CoreError::Unclear | CoreError::UnclearWhich => text::error_text(e),
+        _ => text::failed(tr!("The keys did not change"), e),
+    }
+}
+
 /// What stops working when `key` is disabled (R-3), in words.
 pub(crate) fn stops(key: &IdentityKey) -> String {
     // AC-T19: an encryption key not known to be DashPay's may be another wallet's or an app's data.
@@ -258,12 +268,7 @@ pub(super) fn change_dialog(
                 .as_ref()
                 .filter(|_| !change.password.is_wrong())
             {
-                error_notice(
-                    ui,
-                    a,
-                    &text::failed(tr!("The keys did not change"), e),
-                    text::error_details(e).as_deref(),
-                );
+                error_notice(ui, a, &said(e), text::error_details(e).as_deref());
             }
             let ready = plan.is_ok()
                 && credits_short.is_none()
@@ -309,12 +314,7 @@ pub(super) fn change_dialog(
         // BUG-200: after the answer, the answer alone — no plan, no fee, nothing to sign.
         if change.answered() {
             if let Some(Err(e)) = &change.result {
-                error_notice(
-                    ui,
-                    a,
-                    &text::failed(tr!("The keys did not change"), e),
-                    text::error_details(e).as_deref(),
-                );
+                error_notice(ui, a, &said(e), text::error_details(e).as_deref());
             }
             return false;
         }
@@ -631,6 +631,15 @@ fn purpose_row(
 mod tests {
     use super::*;
     use evolite_api::KeyKind;
+
+    /// TECH-platform-errors (audit Д4): a change not known to have gone through is not said as
+    /// «The keys did not change»; a refusal is. Mutant: `text::failed` for every answer.
+    #[test]
+    fn a_change_not_known_is_not_said_as_not_done() {
+        assert!(!said(&CoreError::Unclear).contains("did not change"));
+        assert!(said(&CoreError::Unclear).contains("Could not find out"));
+        assert!(said(&CoreError::NotEnough).contains("The keys did not change"));
+    }
 
     fn key(id: u32, level: KeyLevel, purpose: KeyPurpose, owner: KeyOwner) -> IdentityKey {
         IdentityKey {

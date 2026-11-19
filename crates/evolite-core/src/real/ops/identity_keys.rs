@@ -343,61 +343,52 @@ impl Real {
                     |e: &String| {
                         // The kind of the error, never its text (BUG-184 p. 4).
                         crate::diag::platform_failed("update_keys", e);
-                        false
+                        // TECH-platform-errors (audit Д4): a refusal before the send — no
+                        // credits, a key, not ready — is said as such, not as «not known».
+                        sent::refused_before(e)
                     },
                     || async { chain.sign_in_identity(&wallet, &keys).await.ok() },
                     |again| done_after_error(Some(again), &who, &plan),
                 )
                 .await;
-                let (sent, late) = match outcome {
-                    sent::Outcome::Done(after) => (Ok(after), None),
-                    sent::Outcome::Shown(again) => {
-                        crate::diag::platform_failed("update_keys_unclear", "Done");
-                        (Ok(again), None)
-                    }
-                    sent::Outcome::Unclear { late, .. } => (Err(()), late),
-                    sent::Outcome::Refused(_) => (Err(()), None),
-                };
-                let after = match &sent {
-                    Ok(_) => chain.identity_credits(&wallet, &who.id, true).await,
-                    Err(_) => None,
-                };
                 let kind = journal::Kind::KeysChanged {
                     added: plan.add.iter().map(|k| k.id).collect(),
                     disabled: plan.disable.clone(),
                     bound: plan.add.iter().filter(|k| k.dashpay).count() as u32,
                 };
-                if let Some(line) = own_spend(&sent, kind.clone(), before, after, acting.clone()) {
-                    journal.add(line);
-                }
-                match sent {
-                    Ok(after) => sent_answer(evolite_chain::key_update::shows(&after, &plan)),
-                    Err(()) => {
+                let after_send = match outcome {
+                    sent::Outcome::Done(after) => after,
+                    sent::Outcome::Shown(again) => {
+                        crate::diag::platform_failed("update_keys_unclear", "Done");
+                        again
+                    }
+                    sent::Outcome::Refused(e) => return Err(super::super::platform_failure(e)),
+                    sent::Outcome::Unclear { late } => {
                         // Not known: kept, for the read that shows it, or the send's own late
-                        // answer, to write its line (BUG-184 p. 2).
-                        let ticket = unclear.keep(sent::Pending::new(
+                        // answer, to write its line (BUG-184 p. 2) — by the one rule (Д4).
+                        let pending = sent::Pending::new(
                             identity.clone(),
                             sent::Watch::Keys(plan.clone()),
                             Some(kind),
                             before,
                             acting,
+                        );
+                        let (chain, id) = (chain.clone(), who.id);
+                        return Err(unclear.not_known(
+                            pending,
+                            late,
+                            journal.clone(),
+                            move |_, p| async move {
+                                let after = chain.identity_credits(&wallet, &id, true).await;
+                                let kind = p.kind.expect("a key change's kind is known");
+                                own_line(kind, p.before, after, p.acting)
+                            },
                         ));
-                        if let Some(late) = late {
-                            let (chain, id) = (chain.clone(), who.id);
-                            unclear.settle_late(
-                                ticket,
-                                late,
-                                journal.clone(),
-                                move |_, p| async move {
-                                    let after = chain.identity_credits(&wallet, &id, true).await;
-                                    let kind = p.kind.expect("a key change's kind is known");
-                                    own_line(kind, p.before, after, p.acting)
-                                },
-                            );
-                        }
-                        Err(CoreError::Failed(UNCLEAR.into()))
                     }
-                }
+                };
+                let after = chain.identity_credits(&wallet, &who.id, true).await;
+                journal.add(own_line(kind, before, after, acting));
+                sent_answer(evolite_chain::key_update::shows(&after_send, &plan))
             }
             .await;
             drop(busy);
@@ -422,12 +413,6 @@ pub(in crate::real) fn sent_answer(read_shows_it: bool) -> Result<(), CoreError>
     }
     Ok(())
 }
-
-/// BUG-184: a key change whose answer did not come and whose identity, read again, did not show
-/// it.
-pub(in crate::real) const UNCLEAR: &str = tr!(
-    "Could not find out whether the keys changed — look at the keys again before trying once more"
-);
 
 /// BUG-184 p. 1: after an error of the send, whether `again` (the identity read again, if it
 /// was) is the same identity and shows `plan` done.
@@ -597,6 +582,40 @@ mod tests {
         let done = take_if_done(&slot, "A", |plan| plan.disable == [2]).expect("shown now");
         assert_eq!(done.before, Some(1_331_644));
         assert!(take_if_done(&slot, "A", |_| true).is_none(), "once");
+    }
+
+    /// TECH-platform-errors (audit Д4): a change of keys refused before it was sent — no
+    /// credits, a key — is said as that refusal, not as «not known» after a read of the keys
+    /// again; a failure of the network after it was sent is still not known. In the path, the
+    /// refusal is asked of `sent::refused_before` and answered by `platform_failure`, and «not
+    /// known» kept by `Unclear::not_known`. Mutants: the old `false`; the hand-kept slot.
+    #[test]
+    fn a_refused_change_of_keys_says_why() {
+        let not_enough = "Current credits balance 1 is not enough to pay 2 fee";
+        assert!(sent::refused_before(not_enough));
+        assert_eq!(
+            super::super::super::platform_failure(not_enough.into()),
+            CoreError::NotEnough
+        );
+        assert!(
+            !sent::refused_before("connection reset by peer"),
+            "not known"
+        );
+        let source = include_str!("identity_keys.rs");
+        let f = &source[source.find("fn update_keys(").expect("update_keys")..];
+        let f = &f[..f.find("#[cfg(test)]").expect("its end")];
+        assert!(
+            f.contains("sent::refused_before(e)"),
+            "the refusal not asked"
+        );
+        assert!(
+            f.contains(
+                "sent::Outcome::Refused(e) => return Err(super::super::platform_failure(e))"
+            ),
+            "the refusal not said"
+        );
+        assert!(f.contains("unclear.not_known("), "not by the one rule");
+        assert!(!f.contains("unclear.keep("), "kept by hand");
     }
 
     /// BUG-200: a send Platform executed is done, whether or not the identity read right after

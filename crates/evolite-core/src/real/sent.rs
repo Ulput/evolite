@@ -140,13 +140,13 @@ where
 /// but a fee may have been charged; review r1, S1). Anything else (a timeout, a DAPI error, a
 /// proof that did not check, «already in the cache») may have gone through.
 pub(in crate::real) fn refused_before(text: &str) -> bool {
-    let lower = text.to_lowercase();
-    text == chain::NOT_READY
-        || text == tr!("The wallet has no identity")
-        || lower.contains("state transition broadcast error")
-        || lower.contains("insufficient")
-        || lower.contains("is not enough")
-        || super::about_keys(text)
+    // TECH-platform-errors: whatever [`super::platform_failure`] reads as a refusal of its own.
+    text.to_lowercase()
+        .contains("state transition broadcast error")
+        || !matches!(
+            super::platform_failure(text.to_owned()),
+            CoreError::Failed(_)
+        )
 }
 
 /// What a read that shows an unclear write done looks for.

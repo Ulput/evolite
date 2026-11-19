@@ -367,13 +367,7 @@ pub(in crate::real) fn core_failure(text: String) -> CoreError {
     if let Some(reason) = text.strip_prefix(evolite_chain::coins::REFUSED) {
         return CoreError::NotAvailable(reason.to_owned());
     }
-    if text.contains(chain::name_credits_unknown_text()) {
-        CoreError::NotAvailable(chain::name_credits_unknown_text().into())
-    } else if text.to_lowercase().contains("insufficient") {
-        CoreError::NotEnough
-    } else {
-        CoreError::Failed(text)
-    }
+    super::super::platform_failure(text)
 }
 
 /// Whether a payment of `amount` can go now without a coin that is not final: neither in a block

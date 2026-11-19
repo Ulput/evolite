@@ -59,7 +59,6 @@
   "This amount needs more than {} coins — the network will not take such a transaction. First combine the small coins: send “Max” from Core to your own address and try again": "此金额需要超过 {} 枚币 — 网络不会接受这样的交易。请先合并小额币：从 Core 向自己的地址发送“全部”，然后重试",
   "Some of the coins are not confirmed by the network yet — wait for a block": "部分币尚未被网络确认 — 请等待一个区块",
   "View the keys": "查看密钥",
-  "Could not find out whether the keys changed — look at the keys again before trying once more": "无法确定密钥是否已更改 — 请先再次查看密钥，然后再重试",
   "Could not find out whether the operation went through — look again before repeating it": "无法确定操作是否已完成 — 请先再次查看，然后再重复",
   "DashPay needs this wallet's keys on the identity first: “Enable DashPay…” below": "DashPay 需要先在身份上有此钱包的密钥：见下方「启用 DashPay…」",
   "DashPay takes the encryption key with the lowest number — here key {} of another wallet or an app, so contacts do not work in evolite. Enabling DashPay adds this wallet's pair and disables that key.": "DashPay 使用编号最小的加密密钥——这里是其他钱包或应用的密钥 {}，因此联系人在 evolite 中无法使用。启用 DashPay 会添加此钱包的密钥对并停用该密钥。",

@@ -391,7 +391,8 @@ fn pool_error(error: pool::PoolError) -> CoreError {
         pool::PoolError::Unconfirmed => CoreError::Failed(
             tr!("Handed to the network, but not confirmed yet — do not repeat it: the next pool check shows the outcome").into(),
         ),
-        pool::PoolError::Failed(text) => CoreError::Failed(text),
+        // TECH-platform-errors: a key's refusal, a lack of credits — as for every write.
+        pool::PoolError::Failed(text) => super::super::platform_failure(text),
     }
 }
 

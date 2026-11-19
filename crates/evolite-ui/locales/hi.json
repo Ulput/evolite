@@ -59,7 +59,6 @@
   "This amount needs more than {} coins — the network will not take such a transaction. First combine the small coins: send “Max” from Core to your own address and try again": "इस राशि के लिए {} से ज़्यादा सिक्के चाहिए — नेटवर्क ऐसा लेन-देन स्वीकार नहीं करेगा। पहले छोटे सिक्के मिला लें: Core से अपने ही पते पर “सब” भेजें और फिर कोशिश करें",
   "Some of the coins are not confirmed by the network yet — wait for a block": "कुछ सिक्कों की नेटवर्क ने अभी पुष्टि नहीं की है — एक ब्लॉक का इंतज़ार करें",
   "View the keys": "कुंजियाँ देखें",
-  "Could not find out whether the keys changed — look at the keys again before trying once more": "पता नहीं चल सका कि कुंजियाँ बदलीं या नहीं — दोबारा कोशिश करने से पहले कुंजियाँ फिर से देखें",
   "Could not find out whether the operation went through — look again before repeating it": "पता नहीं चल सका कि कार्रवाई हुई या नहीं — दोहराने से पहले फिर से देखें",
   "DashPay needs this wallet's keys on the identity first: “Enable DashPay…” below": "DashPay को पहले पहचान पर इस वॉलेट की कुंजियाँ चाहिए: नीचे «DashPay चालू करें…»",
   "DashPay takes the encryption key with the lowest number — here key {} of another wallet or an app, so contacts do not work in evolite. Enabling DashPay adds this wallet's pair and disables that key.": "DashPay सबसे छोटे नंबर वाली एन्क्रिप्शन कुंजी लेता है — यहाँ वह दूसरे वॉलेट या ऐप की कुंजी {} है, इसलिए evolite में संपर्क काम नहीं करते। DashPay चालू करने से इस वॉलेट की जोड़ी जुड़ती है और वह कुंजी बंद होती है।",
