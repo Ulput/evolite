@@ -202,6 +202,11 @@ pub enum ActivityKind {
         token: String,
         act: tokens::TokenAct,
     },
+    /// A write of `token` Platform refused that still took credits (BUG-205): not done; the
+    /// amount is the fee.
+    NotDone {
+        token: String,
+    },
     /// What an app spent from its keys' budgets, as Platform says (BUG-145): one line an app a
     /// day, timed when it was read.
     AppSpent {
@@ -2576,6 +2581,15 @@ pub enum CoreError {
     NotSynced,
     /// The network refused or the build failed; the text is for the details line.
     Failed(String),
+    /// A paid write went to the network and whether it went through is not known (BUG-205,
+    /// TECH-after-send-outcome): not a failure. The window offers no repeat; the person looks
+    /// first. Its History line is written once a read of it or its late answer shows it. The
+    /// words are the interface's; which write it was, the answer's `DoneWhat` says.
+    Unclear,
+    /// A write of this identity with this token went through, but which one is not proved
+    /// (BUG-205 r2 S1): an earlier one not known, or another device's. No repeat, as
+    /// [`CoreError::Unclear`]; the person checks History and the balance first.
+    UnclearWhich,
     /// Not an app request the wallet knows.
     BadLink,
     /// Too many wrong passwords in a row: the next one is taken after `until` (Unix seconds);

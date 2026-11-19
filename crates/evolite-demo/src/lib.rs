@@ -26,6 +26,10 @@ use evolite_common::PASSWORD_NEEDED;
 /// (BUG-16); any other opens the example wallet.
 pub const WRONG_PASSWORD: &str = "wrong";
 
+/// BUG-205: a token amount the demo answers as «not known to have gone through»
+/// ([`CoreError::Unclear`]), as the real core does when a send's answer does not come.
+pub const UNCLEAR_UNITS: u64 = 13;
+
 /// FEAT-0020 AC-T16: the private key the demo shows — key 1, the textbook test key, on testnet;
 /// never a wallet's. The UI tests look for it where it must not be.
 pub const DEMO_KEY_WIF: &str = "cMahea7zqjxrtgAbB7LSGbcQUr1uX1ojuat9jZodMN87JcbXMTcA";
@@ -803,6 +807,13 @@ impl Mock {
                 line.rate = rate.clone();
             }
             return Event::Sent { id: *id, result };
+        }
+        // BUG-205: a token sent or bought of exactly [`UNCLEAR_UNITS`] is «not known to have gone
+        // through», for the windows' tests and presets.
+        if matches!(&op, Spend::SendToken { amount, .. } if *amount == UNCLEAR_UNITS)
+            || matches!(&op, Spend::BuyToken { count, .. } if *count == UNCLEAR_UNITS)
+        {
+            return op.refused(CoreError::Unclear);
         }
         let why = match op {
             Spend::Shield { .. } => {
@@ -2018,6 +2029,45 @@ mod tests {
         assert_eq!(labels(&ask("ale", 8)), ["Alex", "alexandra"]);
         assert!(ask("al", 9).is_empty());
         assert!(ask("zzq", 10).is_empty());
+    }
+
+    /// BUG-205: [`UNCLEAR_UNITS`] of a token sent or bought is answered «not known», as the
+    /// real core answers a send whose answer did not come; any other amount is not.
+    #[test]
+    fn a_token_amount_of_thirteen_is_not_known() {
+        let (mut m, _tx, _rx) = mock();
+        for op in [
+            Spend::SendToken {
+                token_id: "x".into(),
+                to: "@alice".into(),
+                amount: UNCLEAR_UNITS,
+            },
+            Spend::BuyToken {
+                token_id: "x".into(),
+                count: UNCLEAR_UNITS,
+                agreed: 1,
+            },
+        ] {
+            assert!(matches!(
+                m.spend(op),
+                Event::Done {
+                    result: Err(CoreError::Unclear),
+                    ..
+                }
+            ));
+        }
+        let other = m.spend(Spend::SendToken {
+            token_id: "x".into(),
+            to: "@alice".into(),
+            amount: 1,
+        });
+        assert!(!matches!(
+            other,
+            Event::Done {
+                result: Err(CoreError::Unclear),
+                ..
+            }
+        ));
     }
 
     #[test]

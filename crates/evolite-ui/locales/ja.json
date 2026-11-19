@@ -1,5 +1,8 @@
 {
+  "An earlier operation with this token went through after all — it is in History now": "このトークンでの前の操作は結局完了していました — 履歴に記録されています",
+  "An operation with this token went through, but it is not clear which — check History and the balance before repeating": "このトークンの操作が1件完了しましたが、どれかは不明です。繰り返す前に履歴と残高を確認してください",
   "Needs a new request": "新しいリクエストが必要",
+  "Not done: {}": "未完了: {}",
   "You cannot pay @{} by DashPay yet: their contact request points to a disabled key. Payments will work again once they send you a new contact request.": "@{} にはまだ DashPay で支払えません。相手の連絡先リクエストが無効化された鍵を指しています。相手から新しい連絡先リクエストが届けば、支払えるようになります。",
   "You cannot pay this contact by DashPay yet: their contact request points to a disabled key. Payments will work again once they send you a new contact request.": "この連絡先にはまだ DashPay で支払えません。相手の連絡先リクエストが無効化された鍵を指しています。相手から新しい連絡先リクエストが届けば、支払えるようになります。",
   "You will not be able to pay contacts whose requests point to the old key until they send you a new request.": "リクエストが古い鍵を指している連絡先には、相手から新しいリクエストが届くまで支払えなくなります。",

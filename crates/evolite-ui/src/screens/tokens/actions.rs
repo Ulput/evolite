@@ -390,6 +390,10 @@ pub(super) fn claim_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, tokens: &m
                         });
                         return close;
                     }
+                    // BUG-205: it may have gone through: said so, and no repeat.
+                    Some(Err(e @ (CoreError::Unclear | CoreError::UnclearWhich))) => {
+                        return super::unclear_footer(ui, a, e);
+                    }
                     Some(Err(e)) => crate::components::error_notice(
                         ui,
                         a,
@@ -693,6 +697,10 @@ pub(super) fn buy_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, tokens: &mut
                             }
                         });
                         return close;
+                    }
+                    // BUG-205: it may have gone through: said so, and no repeat.
+                    Some(Err(e @ (CoreError::Unclear | CoreError::UnclearWhich))) => {
+                        return super::unclear_footer(ui, a, e);
                     }
                     Some(Err(e)) => crate::components::error_notice(
                         ui,

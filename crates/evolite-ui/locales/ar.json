@@ -1,5 +1,8 @@
 {
+  "An earlier operation with this token went through after all — it is in History now": "عملية سابقة بهذا الرمز تمّت في النهاية — وهي الآن في السجل",
+  "An operation with this token went through, but it is not clear which — check History and the balance before repeating": "تمّت عملية بهذا الرمز، لكن ليس واضحًا أيّها — راجع السجل والرصيد قبل التكرار",
   "Needs a new request": "يلزم طلب جديد",
+  "Not done: {}": "لم تتم: {}",
   "You cannot pay @{} by DashPay yet: their contact request points to a disabled key. Payments will work again once they send you a new contact request.": "لا يمكنك الدفع إلى @{} عبر DashPay بعد: طلب الاتصال الخاص به يشير إلى مفتاح معطّل. ستعمل المدفوعات مجددًا عندما يرسل إليك طلب اتصال جديدًا.",
   "You cannot pay this contact by DashPay yet: their contact request points to a disabled key. Payments will work again once they send you a new contact request.": "لا يمكنك الدفع إلى جهة الاتصال هذه عبر DashPay بعد: طلب الاتصال الخاص بها يشير إلى مفتاح معطّل. ستعمل المدفوعات مجددًا عندما ترسل إليك طلب اتصال جديدًا.",
   "You will not be able to pay contacts whose requests point to the old key until they send you a new request.": "لن تتمكن من الدفع إلى جهات الاتصال التي تشير طلباتها إلى المفتاح القديم حتى ترسل إليك طلبًا جديدًا.",

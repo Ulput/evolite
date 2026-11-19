@@ -333,6 +333,8 @@ pub fn reason(error: &CoreError) -> &'static str {
         CoreError::NotSynced => "network",
         CoreError::Failed(text) if about_the_network(text) => "network",
         CoreError::Failed(_) => "refused",
+        // Not known to have gone through: not a refusal, and not counted as one.
+        CoreError::Unclear | CoreError::UnclearWhich => "unclear",
         CoreError::NotAvailable(_) => "not_available",
         CoreError::WrongPassword => "wrong_password",
         CoreError::BadAddress

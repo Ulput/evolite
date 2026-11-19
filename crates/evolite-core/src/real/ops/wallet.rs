@@ -312,7 +312,8 @@ impl Real {
             .clear();
         // The right words of an unanswered phrase check go with the keys.
         self.phrase_check = None;
-        // A paid write not known to have gone through is forgotten (BUG-184).
+        // A paid write not known to have gone through is forgotten (BUG-184), unless its send
+        // still runs: its late line comes after the lock too (BUG-205 S2).
         self.unclear.forget();
         // BUG-194: the address pools as the lock leaves them, with what is used.
         if let Some(open) = self.unlocked.as_ref()

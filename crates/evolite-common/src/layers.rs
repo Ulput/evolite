@@ -86,7 +86,9 @@ pub fn of(kind: &ActivityKind, chain: Chain) -> (u8, Flow) {
         | ProfileSaved
         | NameRegistered { .. }
         | NameClaimed { .. }
-        | NameLinkWritten { .. } => (IDENTITY, Flow::Out),
+        | NameLinkWritten { .. }
+        // BUG-205: refused, only its fee left the identity.
+        | NotDone { .. } => (IDENTITY, Flow::Out),
         // FEAT-0019 T-1: tokens, on the identity; their amounts are not DASH (the TOKENS layer). A
         // token sent costs the identity its fee.
         TokenSent { .. } => (IDENTITY | TOKENS, Flow::Out),

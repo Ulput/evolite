@@ -1,5 +1,8 @@
 {
+  "An earlier operation with this token went through after all — it is in History now": "Operasi sebelumnya dengan token ini ternyata berhasil — sekarang ada di Riwayat",
+  "An operation with this token went through, but it is not clear which — check History and the balance before repeating": "Satu operasi dengan token ini berhasil, tetapi tidak jelas yang mana — periksa Riwayat dan saldo sebelum mengulang",
   "Needs a new request": "Perlu permintaan baru",
+  "Not done: {}": "Tidak berhasil: {}",
   "You cannot pay @{} by DashPay yet: their contact request points to a disabled key. Payments will work again once they send you a new contact request.": "Anda belum bisa membayar @{} lewat DashPay: permintaan kontaknya mengarah ke kunci yang dinonaktifkan. Pembayaran akan berfungsi lagi setelah kontak mengirimi Anda permintaan kontak baru.",
   "You cannot pay this contact by DashPay yet: their contact request points to a disabled key. Payments will work again once they send you a new contact request.": "Anda belum bisa membayar kontak ini lewat DashPay: permintaan kontaknya mengarah ke kunci yang dinonaktifkan. Pembayaran akan berfungsi lagi setelah kontak mengirimi Anda permintaan kontak baru.",
   "You will not be able to pay contacts whose requests point to the old key until they send you a new request.": "Anda tidak akan bisa membayar kontak yang permintaannya mengarah ke kunci lama sampai mereka mengirimi Anda permintaan baru.",

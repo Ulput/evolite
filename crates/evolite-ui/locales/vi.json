@@ -1,5 +1,8 @@
 {
+  "An earlier operation with this token went through after all — it is in History now": "Thao tác trước với token này cuối cùng đã thực hiện — giờ đã có trong Lịch sử",
+  "An operation with this token went through, but it is not clear which — check History and the balance before repeating": "Một thao tác với token này đã thành công, nhưng không rõ là thao tác nào — hãy kiểm tra Lịch sử và số dư trước khi lặp lại",
   "Needs a new request": "Cần yêu cầu mới",
+  "Not done: {}": "Không thực hiện: {}",
   "You cannot pay @{} by DashPay yet: their contact request points to a disabled key. Payments will work again once they send you a new contact request.": "Bạn chưa thể trả cho @{} qua DashPay: yêu cầu liên hệ của họ trỏ tới một khóa đã bị tắt. Thanh toán sẽ hoạt động lại khi họ gửi cho bạn một yêu cầu liên hệ mới.",
   "You cannot pay this contact by DashPay yet: their contact request points to a disabled key. Payments will work again once they send you a new contact request.": "Bạn chưa thể trả cho liên hệ này qua DashPay: yêu cầu liên hệ của họ trỏ tới một khóa đã bị tắt. Thanh toán sẽ hoạt động lại khi họ gửi cho bạn một yêu cầu liên hệ mới.",
   "You will not be able to pay contacts whose requests point to the old key until they send you a new request.": "Bạn sẽ không thể trả cho các liên hệ có yêu cầu trỏ tới khóa cũ cho đến khi họ gửi cho bạn yêu cầu mới.",

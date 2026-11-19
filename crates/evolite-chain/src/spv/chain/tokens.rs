@@ -512,4 +512,28 @@ impl Chain {
             _ => None,
         })
     }
+
+    /// The nonce of `identity` with `contract`, proved (BUG-205 r1 M1): every token write of the
+    /// identity on a token of that contract moves it — from this device or another — and
+    /// nothing else does, not anyone's transfer of the token to it. 0 before its first write.
+    /// Its value only (`IDENTITY_NONCE_VALUE_FILTER`), not the missing-revision bits.
+    pub async fn contract_nonce(
+        &self,
+        identity: &Identifier,
+        contract: &str,
+    ) -> Result<u64, String> {
+        use dash_sdk::platform::Fetch;
+        use dash_sdk::query_types::IdentityContractNonceFetcher;
+        use dpp::identity::identity_nonce::IDENTITY_NONCE_VALUE_FILTER;
+        let contract =
+            Identifier::from_string(contract, Encoding::Base58).map_err(|e| e.to_string())?;
+        self.ready()?;
+        let sdk = self.sdk().await?;
+        let nonce = IdentityContractNonceFetcher::fetch(&sdk, (*identity, contract))
+            .await
+            .map_err(|e| e.to_string())?
+            .map(|found| found.0)
+            .unwrap_or(0);
+        Ok(nonce & IDENTITY_NONCE_VALUE_FILTER)
+    }
 }

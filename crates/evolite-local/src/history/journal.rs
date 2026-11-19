@@ -316,6 +316,9 @@ pub enum Kind {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         who: Option<String>,
     },
+    /// A write of `token` Platform refused that still took credits (BUG-205, review r1 S1): not
+    /// done, its fee charged. `spent` is the fee.
+    NotDone { token: String },
 }
 
 /// What an issuer action did ([`Kind::TokenIssuer`]).
@@ -345,7 +348,8 @@ impl Kind {
             Kind::TokenBalance { token, .. }
             | Kind::TokenClaimed { token, .. }
             | Kind::TokenBought { token, .. }
-            | Kind::TokenIssuer { token, .. } => token.clone(),
+            | Kind::TokenIssuer { token, .. }
+            | Kind::NotDone { token } => token.clone(),
         }
     }
 }
@@ -595,6 +599,12 @@ impl Journal {
         }
     }
 
+    /// Whether the folder this journal is kept in is still there (BUG-205 r1 C2): a line from a
+    /// task that outlived its wallet's deletion is not written, lest the folder be made again.
+    pub fn folder_there(&self) -> bool {
+        self.store.path().parent().is_some_and(|dir| dir.is_dir())
+    }
+
     pub fn entries(&self) -> Vec<Entry> {
         let mut all = self.store.read(|e| e.known.clone());
         all.extend(self.pending().iter().cloned());
@@ -825,6 +835,9 @@ pub fn activity(entry: &Entry) -> Activity {
             token: token.clone(),
             act: token_act(*act, amount.as_deref(), who.as_deref()),
         },
+        (Some(Kind::NotDone { token }), _) => ActivityKind::NotDone {
+            token: token.clone(),
+        },
         (None, what) => match what {
             What::Credits { to } => ActivityKind::CreditTransfer { to: to.clone() },
             What::Withdrawal { to } => ActivityKind::Withdrawal {
@@ -996,6 +1009,43 @@ fn moves_money(what: &What) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// BUG-205 r1 C2: a journal whose wallet folder was deleted says so, so a late line is not
+    /// written and the folder not made again.
+    #[test]
+    fn a_journal_knows_its_folder_is_gone() {
+        let dir = std::env::temp_dir().join(format!("evolite-journal-gone-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let journal = Journal::new(dir.join("platform-history.json"));
+        assert!(journal.folder_there());
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert!(!journal.folder_there());
+        assert!(!dir.exists(), "asking makes nothing");
+    }
+
+    /// BUG-205 (review r1 S1): a token write Platform refused that still took credits is a line
+    /// of its own, «not done», with the fee; it is kept in the file and read back as it was.
+    #[test]
+    fn a_refused_write_that_took_a_fee_is_a_line_of_its_own() {
+        let line = entry_of(
+            Kind::NotDone {
+                token: "Evo Coffee".into(),
+            },
+            1_700_000_000,
+            120,
+            Some("A".into()),
+        );
+        let back: Vec<Entry> =
+            serde_json::from_str(&serde_json::to_string(std::slice::from_ref(&line)).unwrap())
+                .unwrap();
+        assert_eq!(back, vec![line.clone()]);
+        assert!(matches!(
+            activity(&line).kind,
+            ActivityKind::NotDone { token } if token == "Evo Coffee"
+        ));
+        assert_eq!(line.spent, 120);
+    }
 
     /// QA pass 21 (3): 0,001 from one of the wallet's Platform addresses to another of its own: the
     /// line is the fee alone, between own addresses — not «Sent −0,00109478».

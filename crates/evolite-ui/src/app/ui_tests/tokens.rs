@@ -409,3 +409,40 @@ fn a_transfer_sent_keeps_left_after_as_signed() {
     assert!(has_words(&kit, "120.50"), "as signed");
     assert!(!has_words(&kit, "115.50"), "not reckoned again");
 }
+
+/// BUG-205: a transfer whose outcome is not known says so — not «Not sent» — and offers only
+/// «Close»: no «Sign and send» to pay it twice.
+#[test]
+fn a_transfer_not_known_offers_no_repeat() {
+    let (_turn, mut kit) = demo_app("tokens-review", "en");
+    wait_for(&mut kit, "the review", |kit| {
+        has_text(kit, "Check the transfer")
+    });
+    let send = kit
+        .state_mut()
+        .tokens
+        .sending
+        .as_mut()
+        .expect("the send window");
+    send.waiting = true;
+    send.on_sent(&Err(evolite_api::CoreError::Unclear));
+    kit.run_steps(3);
+    assert!(has_words(
+        &kit,
+        "Could not find out whether the operation went through"
+    ));
+    assert!(!has_words(&kit, "Not sent"), "not said as a failure");
+    assert!(
+        kit.query_by_label("Sign and send").is_none(),
+        "no repeat offered"
+    );
+    // The footer's «Close» (the window's own ✕ has the same name).
+    kit.query_all_by_label("Close")
+        .rfind(|n| n.accesskit_node().role() == Role::Button)
+        .expect("«Close» in the footer")
+        .click();
+    kit.run_steps(2);
+    wait_for(&mut kit, "the window closed", |kit| {
+        kit.state().tokens.sending.is_none()
+    });
+}

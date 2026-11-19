@@ -1,5 +1,8 @@
 {
+  "An earlier operation with this token went through after all — it is in History now": "Una operación anterior con este token sí se realizó: ya está en el historial",
+  "An operation with this token went through, but it is not clear which — check History and the balance before repeating": "Una operación con este token se realizó, pero no está claro cuál — revise el Historial y el saldo antes de repetirla",
   "Needs a new request": "Necesita una nueva solicitud",
+  "Not done: {}": "No realizado: {}",
   "You cannot pay @{} by DashPay yet: their contact request points to a disabled key. Payments will work again once they send you a new contact request.": "Todavía no puede pagar a @{} por DashPay: su solicitud de contacto apunta a una clave desactivada. Los pagos volverán a funcionar cuando le envíe una nueva solicitud de contacto.",
   "You cannot pay this contact by DashPay yet: their contact request points to a disabled key. Payments will work again once they send you a new contact request.": "Todavía no puede pagar a este contacto por DashPay: su solicitud de contacto apunta a una clave desactivada. Los pagos volverán a funcionar cuando le envíe una nueva solicitud de contacto.",
   "You will not be able to pay contacts whose requests point to the old key until they send you a new request.": "No podrá pagar a los contactos cuyas solicitudes apuntan a la clave antigua hasta que le envíen una nueva solicitud.",

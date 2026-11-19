@@ -123,6 +123,7 @@ pub fn error_kind(error: &CoreError) -> &'static str {
         CoreError::KeysChanged => "keys_changed",
         CoreError::NotSynced => "not_synced",
         CoreError::Failed(_) => "failed",
+        CoreError::Unclear | CoreError::UnclearWhich => "unclear",
         CoreError::BadLink => "bad_link",
         CoreError::TooManyTries { .. } => "too_many_tries",
         CoreError::PicturesOff(_) => "pictures_off",

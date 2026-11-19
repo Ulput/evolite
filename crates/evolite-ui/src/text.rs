@@ -695,6 +695,8 @@ pub fn activity_title(a: &Activity) -> String {
             token = token
         ),
         ActivityKind::TokenIssuer { token, act } => issuer_title(token, act),
+        // BUG-205: refused by Platform, its fee taken.
+        ActivityKind::NotDone { token } => format!(tr!("Not done: {}"), token),
         ActivityKind::TokenBought { token, amount } => format!(
             tr!("Bought {amount} {token}"),
             amount = crate::screens::tokens::state::plain_written(amount),
@@ -949,7 +951,8 @@ pub fn activity_icon(a: &Activity) -> &'static str {
         | ActivityKind::TokenReceived { .. }
         | ActivityKind::TokenClaimed { .. }
         | ActivityKind::TokenBought { .. }
-        | ActivityKind::TokenIssuer { .. } => "token",
+        | ActivityKind::TokenIssuer { .. }
+        | ActivityKind::NotDone { .. } => "token",
         // The designer's H1: a change between reads is history, not a token's move.
         ActivityKind::TokenBalance { .. } => "activity",
         ActivityKind::CreditTransfer { .. } => "transfer",
@@ -1113,6 +1116,16 @@ pub fn error_text(e: &CoreError) -> String {
             crate::screens::identity::contest::unavailable(*check).into()
         }
         CoreError::Failed(why) => failure(why).into(),
+        // BUG-205: not «failed» — it may have gone through.
+        CoreError::Unclear => tr!(
+            "Could not find out whether the operation went through — look again before repeating it"
+        )
+        .into(),
+        // BUG-205 r2 S1: something went through, not proved which.
+        CoreError::UnclearWhich => tr!(
+            "An operation with this token went through, but it is not clear which — check History and the balance before repeating"
+        )
+        .into(),
     }
 }
 

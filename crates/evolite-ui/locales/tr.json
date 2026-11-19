@@ -1,5 +1,8 @@
 {
+  "An earlier operation with this token went through after all — it is in History now": "Bu tokenla yapılan önceki işlem sonunda gerçekleşti — artık Geçmiş'te",
+  "An operation with this token went through, but it is not clear which — check History and the balance before repeating": "Bu tokenle bir işlem gerçekleşti, ancak hangisi olduğu belli değil — tekrarlamadan önce Geçmiş'i ve bakiyeyi kontrol edin",
   "Needs a new request": "Yeni istek gerekli",
+  "Not done: {}": "Gerçekleşmedi: {}",
   "You cannot pay @{} by DashPay yet: their contact request points to a disabled key. Payments will work again once they send you a new contact request.": "@{} kişisine henüz DashPay ile ödeme yapamazsınız: kişi isteği devre dışı bir anahtarı gösteriyor. Kişi size yeni bir kişi isteği gönderdiğinde ödemeler yeniden çalışır.",
   "You cannot pay this contact by DashPay yet: their contact request points to a disabled key. Payments will work again once they send you a new contact request.": "Bu kişiye henüz DashPay ile ödeme yapamazsınız: kişi isteği devre dışı bir anahtarı gösteriyor. Kişi size yeni bir kişi isteği gönderdiğinde ödemeler yeniden çalışır.",
   "You will not be able to pay contacts whose requests point to the old key until they send you a new request.": "İstekleri eski anahtarı gösteren kişilere, size yeni bir istek gönderene kadar ödeme yapamayacaksınız.",

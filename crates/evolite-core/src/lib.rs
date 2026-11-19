@@ -45,6 +45,9 @@ pub fn wallets_on(data_dir: &std::path::Path, network: evolite_api::Network) -> 
 }
 #[cfg(any(feature = "demo", not(feature = "real"), test))]
 use evolite_demo as mock;
+/// The token amount the demo core answers as «not known to have gone through» (BUG-205).
+#[cfg(any(feature = "demo", not(feature = "real"), test))]
+pub use mock::UNCLEAR_UNITS as DEMO_UNCLEAR_UNITS;
 /// The password the demo core refuses (the UI tests' "Wrong password").
 #[cfg(any(feature = "demo", not(feature = "real"), test))]
 pub use mock::WRONG_PASSWORD as DEMO_WRONG_PASSWORD;

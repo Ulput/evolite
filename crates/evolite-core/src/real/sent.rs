@@ -15,11 +15,6 @@ use std::future::Future;
 /// goes on: it is never cut (TECH-after-send-outcome p. 2).
 pub(in crate::real) const SEND_WAIT: Duration = Duration::from_secs(120);
 
-/// The answer to a write whose outcome is not known: it may have gone through. Nothing in it
-/// says it failed, and the window does not offer to send it again.
-pub(in crate::real) const UNCLEAR: &str =
-    tr!("Could not find out whether the operation went through — look again before repeating it");
-
 /// How a paid write ended.
 pub(in crate::real) enum Outcome<T, S, E> {
     /// The send's own proved answer.
@@ -37,22 +32,54 @@ pub(in crate::real) enum Outcome<T, S, E> {
     Refused(E),
 }
 
-/// Why a write with no read of its own has no answer.
+/// Why a write has no answer: refused before it went out, or not known.
 pub(in crate::real) enum NoAnswer<T, E> {
     Refused(E),
     /// Not known; with the send still running, if it is.
     Unclear(Option<tokio::task::JoinHandle<Result<T, E>>>),
 }
 
-impl<T, E> Outcome<T, (), E> {
-    /// The answer of a write whose state is not read again: done, refused, or not known.
-    pub(in crate::real) fn answer(self) -> Result<T, NoAnswer<T, E>> {
+/// How a token write landed (BUG-205): its own proved answer, or a proved read showing it — the
+/// identity's nonce with the token's contract moved, and the balance or the supply (the value
+/// read) past its bound.
+pub(in crate::real) enum Landed<T> {
+    Answer(T),
+    Read(u64),
+}
+
+impl<T, E> Outcome<T, TokenState, E> {
+    /// The answer of a token write whose token is read again.
+    pub(in crate::real) fn landed(self) -> Result<Landed<T>, NoAnswer<T, E>> {
         match self {
-            Outcome::Done(done) => Ok(done),
+            Outcome::Done(done) => Ok(Landed::Answer(done)),
+            Outcome::Shown(state) => Ok(Landed::Read(state.value.unwrap_or_default())),
             Outcome::Refused(e) => Err(NoAnswer::Refused(e)),
-            Outcome::Shown(()) => Err(NoAnswer::Unclear(None)),
-            Outcome::Unclear { late, .. } => Err(NoAnswer::Unclear(late)),
+            Outcome::Unclear { late } => Err(NoAnswer::Unclear(late)),
         }
+    }
+}
+
+/// BUG-205 (review r1 S1): a write Platform refused may still have taken a fee. The credits
+/// read again: lower than `before`, a «not done» line with what went (`token` names it).
+#[allow(clippy::too_many_arguments)]
+pub(in crate::real) async fn refused_line(
+    chain: &Chain,
+    wallet: &platform_wallet::PlatformWallet,
+    id: Identifier,
+    before: Option<u64>,
+    token: String,
+    acting: String,
+    journal: &journal::Journal,
+) {
+    let after = chain.identity_credits(wallet, &id, true).await;
+    if super::spent_credits(before, after).is_some() {
+        crate::diag::platform_failed("refused_fee", "Charged");
+        journal.add(own_line(
+            journal::Kind::NotDone { token },
+            before,
+            after,
+            Some(acting),
+        ));
     }
 }
 
@@ -127,11 +154,148 @@ pub(in crate::real) fn refused_before(text: &str) -> bool {
 pub(in crate::real) enum Watch {
     /// A key change (BUG-184): the identity read again shows the plan.
     Keys(key_plan::KeyPlan),
+    /// A token write (BUG-205): signed as `nonce + 1` (or later) of the identity with the
+    /// token's `contract`; a proved read of that nonce says whether any write of it landed, and
+    /// `shows` (when the write moves a value) whether it was this one.
+    Token {
+        token: String,
+        contract: String,
+        nonce: u64,
+        shows: Option<TokenShows>,
+    },
     /// Only the send's own late answer settles it.
     Answer,
 }
 
-/// A paid write sent whose outcome is not known ([`UNCLEAR`]): what its History line needs once a
+/// What a proved read of a token shows of a write of it (BUG-205): its balance on the identity,
+/// or its supply, past a bound the write reaches.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(in crate::real) enum TokenShows {
+    /// A send: the balance went down by the amount.
+    BalanceAtMost(u64),
+    /// A purchase or a claim: the balance went up.
+    BalanceAtLeast(u64),
+    /// A mint: the supply went up by the amount.
+    SupplyAtLeast(u64),
+    /// A burn: the supply went down by the amount.
+    SupplyAtMost(u64),
+}
+
+impl TokenShows {
+    /// Whether `read` (the balance or the supply) shows the write.
+    pub(in crate::real) fn met(self, read: u64) -> bool {
+        match self {
+            TokenShows::BalanceAtMost(b) | TokenShows::SupplyAtMost(b) => read <= b,
+            TokenShows::BalanceAtLeast(b) | TokenShows::SupplyAtLeast(b) => read >= b,
+        }
+    }
+}
+
+/// How long nothing of the identity with a token's contract must have landed since an
+/// unclear write's send ended before it is taken as not landed (BUG-205 r1 M1, p. 3): a
+/// transition may still wait in a node's queue, and a repeat signed with the next nonce would
+/// let both land.
+///
+/// The lock keeps a write inside its quiet ([`Unclear::forget`], review r2 M1): the SDK and its
+/// nonce cache outlive the lock, so a repeat after unlock would be signed with the next nonce.
+/// A restart is safe: the SDK built anew reads the nonce from Platform and signs the same one
+/// again, so at most one of the two lands (r2 C1). Hence what waits is not kept on disk «for
+/// safety»: kept, it would block a write that cannot land twice.
+pub(in crate::real) const QUIET: Duration = Duration::from_secs(120);
+
+/// A token write's state read again, proved (BUG-205 r1 M1): the identity's nonce with the
+/// token's contract — moved by its own writes of that contract only, from this device or
+/// another, never by anyone else's — and, when the write moves one, the balance or the supply.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(in crate::real) struct TokenState {
+    pub(in crate::real) nonce: u64,
+    pub(in crate::real) value: Option<u64>,
+}
+
+impl TokenState {
+    /// Whether it shows the write signed after nonce `n0` landed: a write of the identity with
+    /// the contract did (the nonce moved), and the value is past the write's bound. A value
+    /// alone is no proof: anyone's transfer of the same token moves a balance.
+    pub(in crate::real) fn shows(&self, n0: u64, shows: Option<TokenShows>) -> bool {
+        self.nonce > n0 && shows.zip(self.value).is_some_and(|(s, v)| s.met(v))
+    }
+}
+
+/// [`TokenState`] of `me` (`me_id`) with `token` of `contract`: the nonce, and the value `shows`
+/// looks at. `None` when a read failed.
+pub(in crate::real) async fn token_state(
+    chain: &Chain,
+    me_id: &Identifier,
+    me: &str,
+    contract: &str,
+    token: &str,
+    shows: Option<TokenShows>,
+) -> Option<TokenState> {
+    let nonce = chain.contract_nonce(me_id, contract).await.ok()?;
+    let value = match shows {
+        Some(shows) => Some(token_read(chain, me, token, shows).await?),
+        None => None,
+    };
+    Some(TokenState { nonce, value })
+}
+
+/// [`token_state`] when the nonce before the write (`n0`) is known; else no read, and the write
+/// is known only by its own answer.
+pub(in crate::real) async fn token_state_if(
+    chain: &Chain,
+    me_id: &Identifier,
+    me: &str,
+    contract: &str,
+    token: &str,
+    n0: Option<u64>,
+    shows: Option<TokenShows>,
+) -> Option<TokenState> {
+    n0?;
+    token_state(chain, me_id, me, contract, token, shows).await
+}
+
+/// What waits for a token write not known to have gone through: by the nonce before it when that
+/// was read, else only by its late answer.
+pub(in crate::real) fn token_watch(
+    token: &str,
+    contract: &str,
+    n0: Option<u64>,
+    shows: Option<TokenShows>,
+) -> Watch {
+    match n0 {
+        Some(nonce) => Watch::Token {
+            token: token.to_owned(),
+            contract: contract.to_owned(),
+            nonce,
+            shows,
+        },
+        None => Watch::Answer,
+    }
+}
+
+/// A proved read of what `shows` looks at: `identity`'s balance of `token` (none held is 0), or
+/// the token's supply. `None` when the read failed.
+pub(in crate::real) async fn token_read(
+    chain: &Chain,
+    identity: &str,
+    token: &str,
+    shows: TokenShows,
+) -> Option<u64> {
+    match shows {
+        TokenShows::BalanceAtMost(_) | TokenShows::BalanceAtLeast(_) => {
+            let facts = chain
+                .token_facts(identity, &[token.to_owned()])
+                .await
+                .ok()?;
+            Some(facts.balances.get(token).copied().unwrap_or(0))
+        }
+        TokenShows::SupplyAtLeast(_) | TokenShows::SupplyAtMost(_) => {
+            chain.token_supply(token).await.ok()
+        }
+    }
+}
+
+/// A paid write sent whose outcome is not known ([`CoreError::Unclear`]): what its History line needs once a
 /// read shows it done. Kept until then, or the lock.
 #[derive(Clone, Debug)]
 pub(in crate::real) struct Pending {
@@ -142,6 +306,10 @@ pub(in crate::real) struct Pending {
     pub(in crate::real) before: Option<u64>,
     pub(in crate::real) acting: Option<String>,
     ticket: u64,
+    /// Its send still runs past the wait (BUG-205: nothing of it is repeated meanwhile).
+    running: bool,
+    /// When its send ended, for [`QUIET`].
+    ended: Option<std::time::Instant>,
 }
 
 impl Pending {
@@ -159,7 +327,22 @@ impl Pending {
             before,
             acting,
             ticket: 0,
+            running: false,
+            ended: None,
         }
+    }
+
+    pub(in crate::real) fn ticket(&self) -> u64 {
+        self.ticket
+    }
+
+    pub(in crate::real) fn running(&self) -> bool {
+        self.running
+    }
+
+    /// How long since its send ended; `None` while it runs.
+    pub(in crate::real) fn quiet_for(&self) -> Option<Duration> {
+        self.ended.map(|at| at.elapsed())
     }
 }
 
@@ -205,6 +388,18 @@ impl Unclear {
         Some(held.1.remove(at))
     }
 
+    /// The first write of `identity` on `token` that waits, as it is (BUG-205).
+    pub(in crate::real) fn of_token(&self, identity: &str, token: &str) -> Option<Pending> {
+        self.held()
+            .1
+            .iter()
+            .find(|p| {
+                p.identity == identity
+                    && matches!(&p.watch, Watch::Token { token: t, .. } if t == token)
+            })
+            .cloned()
+    }
+
     /// The write of `ticket`, taken out if it still waits.
     pub(in crate::real) fn take(&self, ticket: u64) -> Option<Pending> {
         let mut held = self.held();
@@ -214,7 +409,7 @@ impl Unclear {
 
     /// The ending of a write whose outcome is not known: kept as `pending`; the send still
     /// running (`late`), if its answer comes and is a success, writes its line by `line`. The
-    /// answer for the window, [`UNCLEAR`].
+    /// answer for the window, [`CoreError::Unclear`].
     pub(in crate::real) fn not_known<T, E, F>(
         &self,
         pending: Pending,
@@ -227,16 +422,25 @@ impl Unclear {
         E: Send + 'static,
         F: Future<Output = journal::Entry> + Send,
     {
+        let mut pending = pending;
+        pending.running = late.is_some();
+        pending.ended = late.is_none().then(std::time::Instant::now);
         let ticket = self.keep(pending);
         if let Some(late) = late {
             self.settle_late(ticket, late, journal, line);
         }
-        CoreError::Failed(UNCLEAR.into())
+        CoreError::Unclear
     }
 
-    /// The lock: what was not known is forgotten (BUG-184).
+    /// The lock: what was not known is forgotten (BUG-184) — but a write whose send still runs
+    /// is kept: its late success writes its History line even after the lock (BUG-205, review
+    /// r1 S2: paid and gone, a line lost for good otherwise), and so is one whose send ended
+    /// less than [`QUIET`] ago (review r2 M1: a repeat after unlock is signed with the next nonce,
+    /// and both could land).
     pub(in crate::real) fn forget(&self) {
-        self.held().1.clear();
+        self.held()
+            .1
+            .retain(|p| p.running || p.quiet_for().is_some_and(|q| q < QUIET));
     }
 
     /// The send of `ticket` still running past the wait: if it ends with a success while its
@@ -254,13 +458,33 @@ impl Unclear {
     {
         let unclear = self.clone();
         tokio::spawn(async move {
-            if let Ok(Ok(answer)) = late.await
-                && let Some(pending) = unclear.take(ticket)
-            {
-                crate::diag::platform_failed("send_late", "Done");
-                journal.add(line(answer, pending).await);
+            let ended = late.await;
+            if let Ok(Ok(answer)) = ended {
+                if let Some(pending) = unclear.take(ticket) {
+                    crate::diag::platform_failed("send_late", "Done");
+                    let line = line(answer, pending).await;
+                    // Review r1 C2: the wallet deleted meanwhile — its folder is not made again.
+                    if journal.folder_there() {
+                        journal.add(line);
+                    }
+                }
+            } else if let Some(p) = unclear.held().1.iter_mut().find(|p| p.ticket == ticket) {
+                // Ended without an answer: still not known, but no longer on its way.
+                p.running = false;
+                p.ended = Some(std::time::Instant::now());
             }
         });
+    }
+}
+
+impl Watch {
+    #[cfg(test)]
+    fn clone_kind(&self) -> &'static str {
+        match self {
+            Watch::Keys(_) => "keys",
+            Watch::Token { .. } => "token",
+            Watch::Answer => "answer",
+        }
     }
 }
 
@@ -377,6 +601,148 @@ mod tests {
         }
         assert_eq!(journal.entries().len(), 1);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// BUG-205: what a token read shows of each kind of write.
+    #[test]
+    fn a_token_read_shows_a_write_past_its_bound() {
+        assert!(TokenShows::BalanceAtMost(90).met(90));
+        assert!(!TokenShows::BalanceAtMost(90).met(100), "not sent yet");
+        assert!(TokenShows::BalanceAtLeast(105).met(110));
+        assert!(!TokenShows::BalanceAtLeast(105).met(100), "not bought yet");
+        assert!(TokenShows::SupplyAtLeast(1_000).met(1_000));
+        assert!(TokenShows::SupplyAtMost(900).met(899));
+    }
+
+    /// BUG-205 r1 M1: a token write is shown landed only when the identity's nonce with the
+    /// contract moved **and** the value is past its bound. A balance alone — risen by anyone's
+    /// transfer of the same token — shows nothing. Mutant: judging by the balance as r1 did.
+    #[test]
+    fn a_token_write_is_shown_by_its_nonce_and_its_value() {
+        let bought = Some(TokenShows::BalanceAtLeast(105));
+        let state = |nonce, value| TokenState {
+            nonce,
+            value: Some(value),
+        };
+        assert!(
+            state(8, 110).shows(7, bought),
+            "nonce moved, balance shows it"
+        );
+        assert!(
+            !state(7, 110).shows(7, bought),
+            "balance risen by an incoming transfer"
+        );
+        assert!(
+            !state(8, 100).shows(7, bought),
+            "another write of ours, not this one"
+        );
+        let none = TokenState {
+            nonce: 8,
+            value: None,
+        };
+        assert!(
+            !none.shows(7, None),
+            "a write with no value to read: never by its value"
+        );
+        assert_eq!(token_watch("T", "C", None, bought).clone_kind(), "answer");
+    }
+
+    /// BUG-205: a token write that waits is found by its token; its send, running past the
+    /// wait, is marked so until it ends; one ended without an answer still waits, not running.
+    #[tokio::test]
+    async fn a_token_write_waits_marked_while_its_send_runs() {
+        let unclear = Unclear::default();
+        let journal = {
+            let dir = std::env::temp_dir().join(format!("evolite-sent-t-{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&dir);
+            std::fs::create_dir_all(&dir).unwrap();
+            Arc::new(journal::Journal::new(dir.join("history.json")))
+        };
+        let watch = token_watch("T", "C", Some(3), Some(TokenShows::BalanceAtLeast(5)));
+        let pending = Pending::new("A".into(), watch, Some(kind()), None, None);
+        let (go, gate) = tokio::sync::oneshot::channel::<()>();
+        let late = tokio::spawn(async move {
+            let _ = gate.await;
+            Err::<u32, String>("timed out".into())
+        });
+        let _ = unclear.not_known(pending, Some(late), journal, |_, p| async move {
+            own_line(p.kind.unwrap(), None, None, None)
+        });
+        assert!(unclear.of_token("B", "T").is_none(), "another identity");
+        assert!(unclear.of_token("A", "U").is_none(), "another token");
+        assert!(unclear.of_token("A", "T").unwrap().running());
+        let _ = go.send(());
+        for _ in 0..100 {
+            if !unclear.of_token("A", "T").unwrap().running() {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        panic!("still marked running after its send ended");
+    }
+
+    /// BUG-205 review r2 M1: the lock keeps a token write whose send ended less than [`QUIET`]
+    /// ago — still found by its token — and forgets it once the quiet has passed. Mutant: the
+    /// old `retain(|p| p.running)` loses it at once.
+    #[test]
+    fn the_lock_keeps_a_write_inside_its_quiet() {
+        let unclear = Unclear::default();
+        let watch = || token_watch("T", "C", Some(3), Some(TokenShows::BalanceAtLeast(5)));
+        let ended = |ago: Duration| {
+            let mut p = Pending::new("A".into(), watch(), Some(kind()), None, None);
+            p.ended = Some(std::time::Instant::now().checked_sub(ago).unwrap());
+            p
+        };
+        unclear.keep(ended(Duration::from_secs(30)));
+        unclear.forget();
+        assert!(
+            unclear.of_token("A", "T").is_some(),
+            "inside the quiet: kept"
+        );
+        let ticket = unclear.of_token("A", "T").unwrap().ticket();
+        unclear.take(ticket);
+        unclear.keep(ended(QUIET + Duration::from_secs(1)));
+        unclear.forget();
+        assert!(
+            unclear.of_token("A", "T").is_none(),
+            "past the quiet: forgotten"
+        );
+    }
+
+    /// BUG-205, review r1 S2: the lock while a send still runs past the wait keeps its write;
+    /// its late success, after the lock, writes the one line. A write whose send has ended is
+    /// forgotten as before. Mutant: `forget` clearing all, no line.
+    #[tokio::test]
+    async fn a_late_success_after_the_lock_keeps_its_line() {
+        let unclear = Unclear::default();
+        let dir = std::env::temp_dir().join(format!("evolite-sent-lock-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let journal = Arc::new(journal::Journal::new(dir.join("history.json")));
+        let (go, gate) = tokio::sync::oneshot::channel::<()>();
+        let late = tokio::spawn(async move {
+            let _ = gate.await;
+            Ok::<u32, String>(1)
+        });
+        let _ = unclear.not_known(
+            pending("A"),
+            Some(late),
+            journal.clone(),
+            |_, p| async move { own_line(p.kind.unwrap(), p.before, Some(0), p.acting) },
+        );
+        unclear.keep(pending("B"));
+        unclear.forget();
+        assert!(unclear.waits("A", |_| true), "its send runs: kept");
+        assert!(!unclear.waits("B", |_| true), "ended: forgotten");
+        let _ = go.send(());
+        for _ in 0..100 {
+            if journal.entries().len() == 1 {
+                let _ = std::fs::remove_dir_all(&dir);
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        panic!("no line after the lock");
     }
 
     /// AC-T3: no paid send in `ops/*` is cut by a `tokio::time::timeout`: each goes through

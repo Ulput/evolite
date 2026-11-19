@@ -115,6 +115,29 @@ impl TokensState {
     }
 }
 
+/// BUG-205: the footer of a token window whose write is not known to have gone through: the
+/// words of `error` ([`CoreError::Unclear`] or [`CoreError::UnclearWhich`]), and «Close» only
+/// — no «Sign» to repeat it. Whether the window closes.
+pub(crate) fn unclear_footer(ui: &mut egui::Ui, a: &mut Assets, error: &CoreError) -> bool {
+    let p = a.p;
+    crate::components::notice(ui, a, "warning", p.accent, &crate::text::error_text(error));
+    let mut close = false;
+    crate::components::button_row(ui, |ui| {
+        if crate::components::button(
+            ui,
+            a,
+            tr!("Close"),
+            crate::components::ButtonKind::Primary,
+            None,
+        )
+        .clicked()
+        {
+            close = true;
+        }
+    });
+    close
+}
+
 /// What the shown identity has besides the token row, for the checks before the password.
 pub(crate) fn sender(wallet: &Wallet) -> Sender {
     let has_key = wallet.identity.as_ref().is_some_and(|i| {

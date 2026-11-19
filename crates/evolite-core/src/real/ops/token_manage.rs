@@ -616,6 +616,28 @@ impl Real {
                 };
                 // Should 1: checked, signed and paid as that one identity, whatever «Act as»
                 // shows meanwhile (BUG-13 r1 should 1).
+                // BUG-205: an earlier write of this token not known to have gone through first;
+                // a mint or a burn is shown by the supply, read before it.
+                super::tokens::earlier_settled(
+                    &unclear, &journal, &chain, &wallet, &me, me_id, &info,
+                )
+                .await?;
+                // BUG-205 r1 M1: the identity's nonce with the token's contract, proved, before
+                // signing: only its own writes of this contract move it.
+                let n0 = chain.contract_nonce(&me_id, &token.contract_id).await.ok();
+                let shows = match &op {
+                    IssuerOp::Mint { amount, .. } => chain
+                        .token_supply(&token_id)
+                        .await
+                        .ok()
+                        .map(|s| sent::TokenShows::SupplyAtLeast(s + amount)),
+                    IssuerOp::Burn { amount } => chain
+                        .token_supply(&token_id)
+                        .await
+                        .ok()
+                        .map(|s| sent::TokenShows::SupplyAtMost(s.saturating_sub(*amount))),
+                    _ => None,
+                };
                 let before = chain.identity_credits(&wallet, &me_id, false).await;
                 let kind = kind_of(&op, token_label(&info), info.decimals, who);
                 // TECH-after-send-outcome: never cut; without its answer, not known.
@@ -632,19 +654,36 @@ impl Real {
                     act,
                     sent::SEND_WAIT,
                     |e: &String| sent::refused_before(e),
-                    || async { None::<()> },
-                    |_| false,
+                    || {
+                        sent::token_state_if(
+                            &chain,
+                            &me_id,
+                            &me,
+                            &token.contract_id,
+                            &token_id,
+                            n0,
+                            shows,
+                        )
+                    },
+                    |state| n0.is_some_and(|n0| state.shows(n0, shows)),
                 )
                 .await;
                 make_due(&facts);
                 *page.lock().unwrap_or_else(|e| e.into_inner()) = None;
-                let done = match outcome.answer() {
-                    Ok(done) => done,
-                    Err(sent::NoAnswer::Refused(e)) => return Err(dashpay_failure(e)),
+                let done = match outcome.landed() {
+                    Ok(sent::Landed::Answer(done)) => done,
+                    // The supply shows it: no document to key the line by.
+                    Ok(sent::Landed::Read(_)) => chain::IssuerDone::default(),
+                    Err(sent::NoAnswer::Refused(e)) => {
+                        let token = token_label(&info);
+                        sent::refused_line(&chain, &wallet, me_id, before, token, me, &journal)
+                            .await;
+                        return Err(dashpay_failure(e));
+                    }
                     Err(sent::NoAnswer::Unclear(late)) => {
                         let pending = sent::Pending::new(
                             me.clone(),
-                            sent::Watch::Answer,
+                            sent::token_watch(&token_id, &token.contract_id, n0, shows),
                             Some(kind),
                             before,
                             Some(me),

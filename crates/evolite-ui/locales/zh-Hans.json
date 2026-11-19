@@ -1,5 +1,8 @@
 {
+  "An earlier operation with this token went through after all — it is in History now": "此代币的上一个操作最终已完成 — 现已记入历史记录",
+  "An operation with this token went through, but it is not clear which — check History and the balance before repeating": "此代币的一项操作已完成，但不确定是哪一项——重复之前请查看历史记录和余额",
   "Needs a new request": "需要新请求",
+  "Not done: {}": "未完成：{}",
   "You cannot pay @{} by DashPay yet: their contact request points to a disabled key. Payments will work again once they send you a new contact request.": "暂时无法通过 DashPay 向 @{} 付款：对方的联系人请求指向一个已停用的密钥。对方向你发送新的联系人请求后，即可恢复付款。",
   "You cannot pay this contact by DashPay yet: their contact request points to a disabled key. Payments will work again once they send you a new contact request.": "暂时无法通过 DashPay 向此联系人付款：对方的联系人请求指向一个已停用的密钥。对方向你发送新的联系人请求后，即可恢复付款。",
   "You will not be able to pay contacts whose requests point to the old key until they send you a new request.": "对于请求指向旧密钥的联系人，在对方向你发送新请求之前，你将无法向其付款。",

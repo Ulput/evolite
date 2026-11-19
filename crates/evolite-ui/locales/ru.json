@@ -1,5 +1,8 @@
 {
+  "An earlier operation with this token went through after all — it is in History now": "Прежняя операция с этим токеном всё-таки прошла — она уже в Истории",
+  "An operation with this token went through, but it is not clear which — check History and the balance before repeating": "Операция с этим токеном прошла, но неясно какая — проверьте Историю и баланс, прежде чем повторять",
   "Needs a new request": "Нужен новый запрос",
+  "Not done: {}": "Не прошло: {}",
   "You cannot pay @{} by DashPay yet: their contact request points to a disabled key. Payments will work again once they send you a new contact request.": "Платить @{} по DashPay пока нельзя: его запрос в контакты указывает на отключённый ключ. Платежи заработают, когда контакт пришлёт вам новый запрос.",
   "You cannot pay this contact by DashPay yet: their contact request points to a disabled key. Payments will work again once they send you a new contact request.": "Платить этому контакту по DashPay пока нельзя: его запрос в контакты указывает на отключённый ключ. Платежи заработают, когда контакт пришлёт вам новый запрос.",
   "You will not be able to pay contacts whose requests point to the old key until they send you a new request.": "Вы не сможете платить контактам, чьи запросы указывают на старый ключ, пока они не пришлют новый запрос.",

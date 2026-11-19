@@ -875,6 +875,13 @@ impl Real {
                     move || async move { chain.token_facts(&me, &tokens).await }
                 };
                 let checked = check_before_signing(known, &me, &info, amount, read).await?;
+                // BUG-205: an earlier send of this token not known to have gone through first.
+                earlier_settled(&unclear, &journal, &chain, &wallet, &me, me_id, &info).await?;
+                // BUG-205 r1 M1: the identity's nonce with the token's contract, proved, before
+                // signing: only its own writes of this contract move it.
+                let n0 = chain.contract_nonce(&me_id, &token.contract_id).await.ok();
+                // r1 M2: the balance before, proved now, for what shows the send landed.
+                let held = held_now(&chain, &me, &token.token_id).await;
                 // BUG-145: the fee, from the credits before and after.
                 let before = chain.identity_credits(&wallet, &me_id, false).await;
                 let kind = journal::Kind::TokenSent {
@@ -895,21 +902,39 @@ impl Real {
                             .await
                     }
                 };
+                // BUG-205: without an answer the balance is read: down by the amount, it went.
+                let shows = held.map(|b| sent::TokenShows::BalanceAtMost(b.saturating_sub(amount)));
                 let outcome = sent::run(
                     send,
                     sent::SEND_WAIT,
                     |e: &String| sent::refused_before(e),
-                    || async { None::<()> },
-                    |_| false,
+                    || {
+                        sent::token_state_if(
+                            &chain,
+                            &me_id,
+                            &me,
+                            &token.contract_id,
+                            &token.token_id,
+                            n0,
+                            shows,
+                        )
+                    },
+                    |state| n0.is_some_and(|n0| state.shows(n0, shows)),
                 )
                 .await;
-                let proved = match outcome.answer() {
-                    Ok(proved) => proved,
-                    Err(sent::NoAnswer::Refused(e)) => return Err(dashpay_failure(e)),
+                let proved = match outcome.landed() {
+                    Ok(sent::Landed::Answer(proved)) => proved,
+                    Ok(sent::Landed::Read(read)) => Some(read),
+                    Err(sent::NoAnswer::Refused(e)) => {
+                        let token = token_label(&info);
+                        sent::refused_line(&chain, &wallet, me_id, before, token, me, &journal)
+                            .await;
+                        return Err(dashpay_failure(e));
+                    }
                     Err(sent::NoAnswer::Unclear(late)) => {
                         let pending = sent::Pending::new(
                             me.clone(),
-                            sent::Watch::Answer,
+                            sent::token_watch(&token.token_id, &token.contract_id, n0, shows),
                             Some(kind),
                             before,
                             Some(me),
@@ -943,6 +968,139 @@ impl Real {
             fraction: 0.0,
         }
     }
+}
+
+/// BUG-205: a write of `info`'s token by `me` while an earlier one of it is not known to have
+/// gone through (r1 M1: by the identity's nonce with the token's contract, never by a balance
+/// alone):
+/// - its send still runs, or ended less than [`sent::QUIET`] ago with nothing landed: not yet;
+/// - the nonce moved and the value shows it: it went through after all; its line is written and
+///   this one refused;
+/// - the nonce moved and the value does not show it: some write of this identity with this
+///   token went through (this device or another): not repeated by itself, no line; the person
+///   looks, and the next one goes;
+/// - nothing landed after the quiet: it did not; forgotten, and this one goes;
+/// - a read failed: still not known.
+///
+/// A refusal is [`CoreError::Unclear`] (r1 S2: the window offers no «Sign»), but «went through»,
+/// said as it is.
+#[allow(clippy::too_many_arguments)]
+pub(in crate::real) async fn earlier_settled(
+    unclear: &sent::Unclear,
+    journal: &journal::Journal,
+    chain: &Arc<Chain>,
+    wallet: &Arc<platform_wallet::PlatformWallet>,
+    me: &str,
+    me_id: Identifier,
+    info: &TokenInfo,
+) -> Result<(), CoreError> {
+    let Some(earlier) = unclear.of_token(me, &info.token_id) else {
+        return Ok(());
+    };
+    let sent::Watch::Token {
+        contract,
+        nonce,
+        shows,
+        ..
+    } = &earlier.watch
+    else {
+        return Ok(());
+    };
+    let (n0, shows) = (*nonce, *shows);
+    let state = if earlier.running() {
+        None
+    } else {
+        sent::token_state(chain, &me_id, me, contract, &info.token_id, shows).await
+    };
+    let read = match earlier_is(earlier.quiet_for(), n0, state, shows) {
+        Earlier::OnItsWay => return Err(CoreError::Unclear),
+        Earlier::NotKnown => return Err(CoreError::Unclear),
+        Earlier::SomethingLanded => {
+            crate::diag::platform_failed("token_earlier", "SomethingLanded");
+            unclear.take(earlier.ticket());
+            return Err(CoreError::UnclearWhich);
+        }
+        Earlier::NotLanded => {
+            crate::diag::platform_failed("token_earlier", "NotLanded");
+            unclear.take(earlier.ticket());
+            return Ok(());
+        }
+        Earlier::Landed(read) => read,
+    };
+    // Taken now: settled meanwhile by its late answer, it is not written twice.
+    let Some(earlier) = unclear.take(earlier.ticket()) else {
+        return Err(CoreError::Failed(EARLIER_WENT_THROUGH.into()));
+    };
+    crate::diag::platform_failed("token_earlier", "Done");
+    // A claim's amount is the rise the read shows.
+    let kind = match (earlier.kind.is_none(), shows) {
+        (true, Some(sent::TokenShows::BalanceAtLeast(min))) => {
+            Some(super::token_actions::claimed_units(
+                token_label(info),
+                info.decimals,
+                read.saturating_sub(min.saturating_sub(1)),
+            ))
+        }
+        _ => None,
+    };
+    if earlier.kind.is_some() || kind.is_some() {
+        journal.add(sent::line_after(chain.clone(), wallet.clone(), me_id, kind, earlier).await);
+    }
+    Err(CoreError::Failed(EARLIER_WENT_THROUGH.into()))
+}
+
+/// BUG-205: what is known of an earlier token write not known to have gone through.
+#[derive(Debug, PartialEq, Eq)]
+enum Earlier {
+    /// Its send still runs, or ended less than [`sent::QUIET`] ago with nothing landed: it may
+    /// still land; nothing of the token goes meanwhile.
+    OnItsWay,
+    /// A read failed: still not known.
+    NotKnown,
+    /// The nonce moved and the value shows it (the value read): it went through after all.
+    Landed(u64),
+    /// The nonce moved, the value does not show it: a write of this identity with this token
+    /// went through — which one is not proved.
+    SomethingLanded,
+    /// Nothing landed, and the quiet has passed: it did not.
+    NotLanded,
+}
+
+/// [`Earlier`] from how long ago its send ended (`None`: it runs), the nonce before it (`n0`),
+/// what was read again (`None`: not read or failed) and what shows it.
+fn earlier_is(
+    quiet_for: Option<Duration>,
+    n0: u64,
+    state: Option<sent::TokenState>,
+    shows: Option<sent::TokenShows>,
+) -> Earlier {
+    let Some(quiet_for) = quiet_for else {
+        return Earlier::OnItsWay;
+    };
+    let Some(state) = state else {
+        return Earlier::NotKnown;
+    };
+    if state.nonce > n0 {
+        if state.shows(n0, shows) {
+            Earlier::Landed(state.value.unwrap_or_default())
+        } else {
+            Earlier::SomethingLanded
+        }
+    } else if quiet_for >= sent::QUIET {
+        Earlier::NotLanded
+    } else {
+        Earlier::OnItsWay
+    }
+}
+
+/// BUG-205: the earlier write of a token went through after all; this one is not sent.
+pub(in crate::real) const EARLIER_WENT_THROUGH: &str =
+    tr!("An earlier operation with this token went through after all — it is in History now");
+
+/// BUG-205: `me`'s balance of `token` before a write, for the read that shows it: proved, read
+/// now (r1 M2: never the facts of up to a minute ago); `None` when the read failed.
+pub(in crate::real) async fn held_now(chain: &Chain, me: &str, token: &str) -> Option<u64> {
+    sent::token_read(chain, me, token, sent::TokenShows::BalanceAtLeast(0)).await
 }
 
 /// The token as the History line names it (BUG-145): the English name, else the first one, else
@@ -1455,5 +1613,84 @@ mod back_tests {
         let seen = Mutex::new(Seen::default());
         track(&file, &seen, "T", &["A".to_owned(), "B".to_owned()]).unwrap();
         assert_eq!(file.get("T").map(|t| t.origin), Some(Origin::ByHand));
+    }
+}
+
+#[cfg(test)]
+mod earlier_tests {
+    use super::*;
+
+    /// BUG-205 r1 M1: a repeat of a token write whose first one is not known — decided by the
+    /// identity's nonce with the token's contract, not by a balance:
+    /// - its send still runs → wait;
+    /// - the nonce did not move though a transfer in made the balance «show» it → not landed,
+    ///   but only after the quiet; before it → wait;
+    /// - the nonce moved and the balance shows it → landed;
+    /// - the nonce moved, the balance does not show it → something landed: no repeat by itself;
+    /// - a read failed → not known.
+    ///
+    /// Mutants: «by the balance» (r1) lets the first incoming case through as landed and the
+    /// fourth as not landed; «no quiet» lets the repeat go at once.
+    #[test]
+    fn a_repeat_waits_for_the_earlier_write_of_its_token() {
+        let bought = Some(sent::TokenShows::BalanceAtLeast(105));
+        let at = |nonce, value| {
+            Some(sent::TokenState {
+                nonce,
+                value: Some(value),
+            })
+        };
+        let quiet = Some(sent::QUIET);
+        let soon = Some(Duration::from_secs(30));
+        assert_eq!(earlier_is(None, 7, at(8, 110), bought), Earlier::OnItsWay);
+        assert_eq!(earlier_is(quiet, 7, at(7, 110), bought), Earlier::NotLanded);
+        assert_eq!(earlier_is(soon, 7, at(7, 110), bought), Earlier::OnItsWay);
+        assert_eq!(
+            earlier_is(quiet, 7, at(8, 110), bought),
+            Earlier::Landed(110)
+        );
+        assert_eq!(
+            earlier_is(quiet, 7, at(8, 100), bought),
+            Earlier::SomethingLanded
+        );
+        assert_eq!(earlier_is(quiet, 7, None, bought), Earlier::NotKnown);
+        // An issuer's pause: no value, only the nonce.
+        let paused = Some(sent::TokenState {
+            nonce: 8,
+            value: None,
+        });
+        assert_eq!(earlier_is(quiet, 7, paused, None), Earlier::SomethingLanded);
+    }
+
+    /// BUG-205, guard: every token write checks an earlier unclear one of its token before it
+    /// is sent, and is read again by its token when its answer does not come.
+    #[test]
+    fn every_token_write_checks_the_earlier_one_and_reads_its_token() {
+        use crate::real::snapshot::pinned_tests::body;
+        let paths = [
+            (include_str!("tokens.rs"), "send_token"),
+            (include_str!("token_actions.rs"), "claim_token"),
+            (include_str!("token_actions.rs"), "buy_token"),
+            (include_str!("token_manage.rs"), "issuer_action"),
+        ];
+        for (source, name) in paths {
+            let f = body(source, name);
+            let checked = f
+                .find("earlier_settled(")
+                .unwrap_or_else(|| panic!("{name}: no check"));
+            let run = f
+                .find("sent::run(")
+                .unwrap_or_else(|| panic!("{name}: no run"));
+            assert!(checked < run, "{name}: checked after the send");
+            assert!(
+                f.contains("sent::token_state_if("),
+                "{name}: not read again"
+            );
+            assert!(f.contains(".contract_nonce("), "{name}: no nonce before it");
+            assert!(
+                f.contains("sent::token_watch("),
+                "{name}: its wait not by its token"
+            );
+        }
     }
 }
