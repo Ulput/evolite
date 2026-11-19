@@ -1630,19 +1630,7 @@ impl Real {
     /// and what this data folder last really paid for each kind of write. One place, so what a
     /// form promises is what the core charges (BUG-54).
     pub(super) async fn fees_now(&self, coins: usize) -> Fees {
-        let mut fees = fees(coins);
-        let mainnet = crate::network::current() == evolite_api::Network::Mainnet;
-        if let Ok(sdk) = self.chain.sdk().await {
-            pool::set_fees(&mut fees, sdk.version());
-            platform_fees(&mut fees, sdk.version(), &self.journal);
-            evolite_chain::convert::contest_times(&mut fees, sdk.version(), mainnet);
-            fees.lock_inputs_max = evolite_chain::convert::lock_inputs_max(sdk.version());
-        } else {
-            // A name contest's durations before the SDK is up: the latest protocol's (FEAT-0021).
-            let latest = dpp::version::PlatformVersion::latest();
-            evolite_chain::convert::contest_times(&mut fees, latest, mainnet);
-        }
-        fees
+        fees_from(&self.chain, &self.journal, coins).await
     }
 
     /// Reads the wallet's history from the store again when the wallet in memory has new
@@ -2474,4 +2462,22 @@ mod shown_pin_tests {
             "none shown, none acts"
         );
     }
+}
+
+/// [`Real::fees_now`] from the chain and the journal alone, for a task that outlives the call
+/// (BUG-236: App Connect's price is the same as every other form's, not the defaults).
+pub(super) async fn fees_from(chain: &Chain, journal: &journal::Journal, coins: usize) -> Fees {
+    let mut fees = fees(coins);
+    let mainnet = crate::network::current() == evolite_api::Network::Mainnet;
+    if let Ok(sdk) = chain.sdk().await {
+        pool::set_fees(&mut fees, sdk.version());
+        platform_fees(&mut fees, sdk.version(), journal);
+        evolite_chain::convert::contest_times(&mut fees, sdk.version(), mainnet);
+        fees.lock_inputs_max = evolite_chain::convert::lock_inputs_max(sdk.version());
+    } else {
+        // A name contest's durations before the SDK is up: the latest protocol's (FEAT-0021).
+        let latest = dpp::version::PlatformVersion::latest();
+        evolite_chain::convert::contest_times(&mut fees, latest, mainnet);
+    }
+    fees
 }

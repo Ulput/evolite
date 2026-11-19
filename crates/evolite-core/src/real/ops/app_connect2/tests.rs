@@ -319,3 +319,18 @@ fn a_read_adds_only_what_was_spent_since_the_last() {
     assert_eq!(app_spent_step(Some(3_000), 500), (0, 500));
     assert_eq!(app_spent_step(None, 122_264_000), (122_264, 122_264_000));
 }
+
+/// BUG-236: an App Connect request is priced with the fees every other form shows — measured by
+/// the journal, at the SDK's protocol — not the defaults, so its cost is not below the keys
+/// screen's for the same keys. Mutant: `convert::fees(0)` back in `open_connect2`.
+#[test]
+fn a_request_is_priced_with_the_fees_of_every_form() {
+    let file = include_str!("../app_connect2.rs");
+    let open = &file[file.find("fn open_connect2").expect("open_connect2")..];
+    let open = &open[..open.find("\n    }\n").unwrap_or(open.len())];
+    assert!(!open.contains("convert::fees("), "the defaults");
+    assert!(
+        open.contains("snapshot::fees_from("),
+        "not the measured fees"
+    );
+}

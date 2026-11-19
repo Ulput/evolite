@@ -339,16 +339,19 @@ impl Real {
     /// groups, the encryption keys' contracts, the protocol), with the wallet's limits.
     pub(in crate::real) fn open_connect2(&self, link: v2::Link) -> Result<(), CoreError> {
         let (id, keys) = self.dashpay_ready()?;
-        let (chain, requests, apps, fees) = (
+        let (chain, requests, apps, journal) = (
             self.chain.clone(),
             self.app_requests.clone(),
             self.apps.clone(),
-            crate::real::convert::fees(0),
+            self.journal.clone(),
         );
         let reads = self.app_reads.clone();
         let request_id = self.next_app_request.fetch_add(1, Ordering::Relaxed) + 1;
         self.answer_later("task:open_connect2", async move {
             let result = async {
+                // BUG-236: the fees every other form shows (measured by the journal), not the
+                // defaults — the request's price is not below the keys screen's for the same keys.
+                let fees = crate::real::snapshot::fees_from(&chain, &journal, 0).await;
                 let wallet = loaded(&chain, &id).await?;
                 let who = chain
                     .sign_in_identity(&wallet, &keys)
