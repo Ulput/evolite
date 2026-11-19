@@ -2318,5 +2318,6 @@
   "The network did not answer — only your contacts are shown": "Das Netzwerk hat nicht geantwortet — nur Ihre Kontakte werden angezeigt",
   "No names starting with “{}”": "Keine Namen, die mit „{}“ beginnen",
   "Your identity": "Ihre Identität",
-  "{} suggestion|{} suggestions": {"one":"{} Vorschlag","other":"{} Vorschläge"}
+  "{} suggestion|{} suggestions": {"one":"{} Vorschlag","other":"{} Vorschläge"},
+  "The phrase was taken off the clipboard.": "Die Phrase wurde aus der Zwischenablage entfernt."
 }

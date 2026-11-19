@@ -437,3 +437,41 @@ fn reading_ends_with_the_showing() {
     kit.state_mut().screen = Screen::Settings;
     again(&mut kit, "another wallet");
 }
+
+/// SEC-2 B3: a word typed in the restore is not copied or cut out of its field: selected and
+/// copied, nothing reaches the clipboard (`copy_secret`'s protection would not be there).
+#[test]
+fn the_restore_words_are_not_copied_out_of_their_fields() {
+    let (_turn, mut kit) = demo_app("restore", "en");
+    kit.run_steps(5);
+    if let Some(o) = kit.state_mut().onboarding.as_mut() {
+        o.type_restore_word(0, "ability");
+    }
+    kit.run_steps(2);
+    kit.query_by_role_and_label(Role::TextInput, "Word no. 1")
+        .expect("the first field")
+        .click();
+    kit.run_steps(2);
+    kit.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::A);
+    kit.run_steps(1);
+    for event in [egui::Event::Copy, egui::Event::Cut] {
+        kit.event(event);
+        kit.step();
+        let copied = kit
+            .output()
+            .platform_output
+            .commands
+            .iter()
+            .any(|c| matches!(c, egui::OutputCommand::CopyText(_)));
+        assert!(!copied, "nothing copied");
+    }
+    assert!(painted_has(&kit, "ability"), "not cut either");
+}
+
+/// SEC-2, the customer: the new phrase has no «Copy»: it belongs on paper.
+#[test]
+fn the_new_phrase_has_no_copy() {
+    let (_turn, mut kit) = demo_app("create", "en");
+    kit.run_steps(5);
+    assert!(!has_words(&kit, "Copy"));
+}

@@ -2301,5 +2301,6 @@
   "The network did not answer — only your contacts are shown": "Jaringan tidak menjawab — hanya kontak Anda yang ditampilkan",
   "No names starting with “{}”": "Tidak ada nama yang diawali “{}”",
   "Your identity": "Identitas Anda",
-  "{} suggestion|{} suggestions": {"other":"{} saran"}
+  "{} suggestion|{} suggestions": {"other":"{} saran"},
+  "The phrase was taken off the clipboard.": "Frasa telah dihapus dari papan klip."
 }

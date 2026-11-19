@@ -150,7 +150,7 @@ pub fn word_by_word(ui: &mut Ui, text: &str, font: FontId, color: Color32) {
             .x;
         for word in text.split_whitespace() {
             // Not selectable: Ctrl+C would copy the word to the ordinary clipboard, past
-            // `copy_secret` (review r1, M1).
+            // `copy_secret` (BUG-228 review r1, M1; SEC-2 B2).
             ui.add(
                 egui::Label::new(egui::RichText::new(word).font(font.clone()).color(color))
                     .selectable(false),

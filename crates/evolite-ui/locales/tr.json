@@ -2318,5 +2318,6 @@
   "The network did not answer — only your contacts are shown": "Ağ yanıt vermedi — yalnızca kişileriniz gösteriliyor",
   "No names starting with “{}”": "“{}” ile başlayan ad yok",
   "Your identity": "Kimliğiniz",
-  "{} suggestion|{} suggestions": {"one":"{} öneri","other":"{} öneri"}
+  "{} suggestion|{} suggestions": {"one":"{} öneri","other":"{} öneri"},
+  "The phrase was taken off the clipboard.": "İfade panodan kaldırıldı."
 }

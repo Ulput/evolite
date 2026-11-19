@@ -1045,6 +1045,11 @@ mod tests {
             ("evolite-ui/src/app/dev.rs", 1, "a dev-tools flag"),
             ("evolite-ui/src/cli.rs", 2, "--window WxH"),
             (
+                "evolite-ui/src/clipboard.rs",
+                1,
+                "the hex SHA-256 of the clipboard-secret mark (SEC-2 B5)",
+            ),
+            (
                 "evolite-ui/src/components/para.rs",
                 1,
                 "an e-mail's domain, to set it in mono (BUG-159)",

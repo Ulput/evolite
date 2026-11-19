@@ -321,6 +321,10 @@ impl App {
         };
         #[cfg(feature = "dev-tools")]
         app.apply_presets(&cc.egui_ctx, &launch.dev, demo);
+        // SEC-2 B5: a secret a crashed run left on the clipboard goes now.
+        if let Some(dir) = &app.data_dir {
+            crate::clipboard::start(dir.join("clipboard-secret"));
+        }
         if let (Some(dir), Some(common)) = (&app.data_dir, &app.app_dir) {
             // The app's settings from the common folder (FEAT-0037); the network folder's file
             // from before for a wallet's part not taken yet.
@@ -1306,6 +1310,8 @@ impl eframe::App for App {
                 give_up_return(&mut self.contacts, ui.ctx(), given_up.screen);
             }
             self.settings.forget_secrets();
+            // SEC-2 B5: a secret copied leaves the clipboard with the keys.
+            crate::clipboard::wipe_secret_now(ui.ctx());
             // And a private key shown or asked for (FEAT-0020 AC-T13).
             self.identity_keys.forget();
             // FEAT-0009 R-5: the filters and the search go with the lock.

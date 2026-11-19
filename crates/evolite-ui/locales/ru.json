@@ -2338,5 +2338,6 @@
   "The network did not answer — only your contacts are shown": "Сеть не ответила — показаны только ваши контакты",
   "No names starting with “{}”": "Нет имён на «{}»",
   "Your identity": "Ваша identity",
-  "{} suggestion|{} suggestions": {"one":"{} подсказка","few":"{} подсказки","many":"{} подсказок"}
+  "{} suggestion|{} suggestions": {"one":"{} подсказка","few":"{} подсказки","many":"{} подсказок"},
+  "The phrase was taken off the clipboard.": "Фраза убрана из буфера обмена."
 }

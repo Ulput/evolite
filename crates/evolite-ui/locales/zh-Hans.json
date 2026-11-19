@@ -2301,5 +2301,6 @@
   "The network did not answer — only your contacts are shown": "网络没有响应 — 仅显示你的联系人",
   "No names starting with “{}”": "没有以“{}”开头的名称",
   "Your identity": "你的身份",
-  "{} suggestion|{} suggestions": {"other":"{} 个建议"}
+  "{} suggestion|{} suggestions": {"other":"{} 个建议"},
+  "The phrase was taken off the clipboard.": "短语已从剪贴板中移除。"
 }

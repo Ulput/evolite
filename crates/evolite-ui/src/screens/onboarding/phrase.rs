@@ -2,7 +2,6 @@
 
 use super::txt;
 use super::{Onboarding, Step, actions, heading, steps};
-use crate::clipboard;
 use crate::components::{Assets, card, checkbox, inner, segmented, text_action, warning};
 use crate::theme::{Palette, Weight, mono};
 use egui::{
@@ -177,16 +176,7 @@ pub(super) fn phrase(ui: &mut Ui, a: &mut Assets, o: &mut Onboarding, demo: bool
                 ui.ctx().request_discard("BUG-228: phrase hidden");
             }
         }
-        let copy_label = match clipboard::copied_at(ui.ctx()) {
-            Some(at) => format!(
-                tr!("Copied · wiped in {} s"),
-                clipboard::KEEP.saturating_sub(at.elapsed()).as_secs() + 1
-            ),
-            None => tr!("Copy for 60 s").to_string(),
-        };
-        if text_action(ui, a, "copy", &copy_label).clicked() {
-            clipboard::copy_secret(ui.ctx(), zeroize::Zeroizing::new(words.join(" ")));
-        }
+        // No «Copy»: the phrase belongs on paper (the customer, SEC-2).
     });
     warning(
         ui,

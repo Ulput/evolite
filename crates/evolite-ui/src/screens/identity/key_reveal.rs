@@ -169,7 +169,7 @@ pub(super) fn reveal_dialog(
                                             .color(p.text),
                                     )
                                     .wrap_mode(egui::TextWrapMode::Wrap)
-                                    // Ctrl+C would copy it past `copy_secret` (review r1, M1).
+                                    // No Ctrl+C past `copy_secret` (BUG-228 r1 M1, SEC-2 B2).
                                     .selectable(false),
                                 );
                             } else {

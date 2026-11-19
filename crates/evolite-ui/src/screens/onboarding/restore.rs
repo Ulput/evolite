@@ -39,6 +39,10 @@ pub(super) fn restore(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, o: &mut Onboard
     }
 
     take_pasted(o);
+    // The fields emptied: no line left from an earlier paste (SEC-2 review r1, could).
+    if o.restore_words.iter().all(|w| w.is_empty()) {
+        o.paste_wiped = false;
+    }
 
     let width = ui.available_width();
     let w = (width - 16.0) / 3.0;
@@ -63,6 +67,15 @@ pub(super) fn restore(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, o: &mut Onboard
             12.0,
             Weight::Regular,
             p.danger,
+        ));
+    }
+    // SEC-2 B4: the phrase pasted is not left on the clipboard.
+    if o.paste_wiped {
+        ui.label(txt(
+            tr!("The phrase was taken off the clipboard."),
+            12.0,
+            Weight::Regular,
+            p.muted,
         ));
     }
 
@@ -208,6 +221,21 @@ fn word_cell(
                         .color(p.muted),
                 );
                 crate::a11y::name_next_field(ui, &format!(tr!("Word no. {}"), i + 1));
+                // SEC-2 B3: the words are not copied or cut out of the fields.
+                if has_focus {
+                    let pasted = ui.input_mut(|input| {
+                        input
+                            .events
+                            .retain(|e| !matches!(e, egui::Event::Copy | egui::Event::Cut));
+                        pasted_phrase(&input.events)
+                    });
+                    // SEC-2 B4: a whole phrase pasted by Ctrl+V leaves the clipboard: the text
+                    // the paste brought, as the clipboard holds it, not the field after it
+                    // (review r1, S1).
+                    if let Some(text) = pasted {
+                        o.paste_wiped = crate::clipboard::wipe_pasted(&text);
+                    }
+                }
                 crate::rtl::text_edit(
                     ui,
                     egui::TextEdit::singleline(&mut o.restore_words[i])
@@ -313,15 +341,21 @@ fn paste_row(ui: &mut Ui, a: &mut Assets, o: &mut Onboarding) {
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 20.0;
         if text_action(ui, a, "paste", tr!("Paste from clipboard")).clicked() {
-            let pasted = arboard::Clipboard::new()
-                .and_then(|mut c| c.get_text())
-                .unwrap_or_default();
+            let pasted = zeroize::Zeroizing::new(
+                arboard::Clipboard::new()
+                    .and_then(|mut c| c.get_text())
+                    .unwrap_or_default(),
+            );
             let parts: Vec<String> = pasted.split_whitespace().map(str::to_lowercase).collect();
             o.paste_error = !(parts.len() == 12 || parts.len() == 24);
+            // Said only of this paste (review r1, could).
+            o.paste_wiped = false;
             if !o.paste_error {
                 spread(o, 0, &parts);
                 // A whole phrase on screen at once is easy to see over a shoulder.
                 o.restore_hidden = true;
+                // SEC-2 B4: taken, it leaves the clipboard.
+                o.paste_wiped = crate::clipboard::wipe_pasted(&pasted);
             }
         }
         let (icon, label) = if o.restore_hidden {
@@ -395,6 +429,18 @@ fn take_pasted(o: &mut Onboarding) {
             break;
         }
     }
+}
+
+/// SEC-2 B4 (review r1, S1): what a paste brings into the focused field, exactly as the
+/// clipboard holds it, when it is a whole phrase (12 parts or more): that is what is wiped from
+/// the clipboard, whatever the field held before or makes of line breaks.
+fn pasted_phrase(events: &[egui::Event]) -> Option<zeroize::Zeroizing<String>> {
+    events.iter().find_map(|e| match e {
+        egui::Event::Paste(text) if text.split_whitespace().count() >= 12 => {
+            Some(zeroize::Zeroizing::new(text.clone()))
+        }
+        _ => None,
+    })
 }
 
 /// 12 or 24 fields; the words of the fields taken away are wiped first.
@@ -573,7 +619,7 @@ pub(super) fn found(ui: &mut Ui, a: &mut Assets, o: &mut Onboarding) {
 
 #[cfg(test)]
 mod tests {
-    use super::{Flow, Onboarding, completion, set_length, take_pasted};
+    use super::{Flow, Onboarding, completion, pasted_phrase, set_length, take_pasted};
 
     #[test]
     fn the_length_switch_adds_and_takes_away_fields() {
@@ -613,5 +659,24 @@ mod tests {
         take_pasted(&mut o);
         assert_eq!(o.restore_words[11], "about");
         assert!(o.restore_hidden);
+    }
+
+    /// SEC-2 review r1, S1: Ctrl+V of a phrase ending in a line break into a field that held
+    /// «a»: the text wiped is the paste's own, not the field's; fewer than 12 parts and other
+    /// events are not a phrase.
+    #[test]
+    fn the_text_a_paste_brought_is_the_one_wiped() {
+        let phrase = ["abandon"; 11].join(" ") + " about\n";
+        let events = [
+            egui::Event::Text("a".into()),
+            egui::Event::Paste(phrase.clone()),
+        ];
+        assert_eq!(
+            pasted_phrase(&events).as_deref().map(String::as_str),
+            Some(phrase.as_str())
+        );
+        let short = [egui::Event::Paste(["abandon"; 11].join(" "))];
+        assert_eq!(pasted_phrase(&short), None);
+        assert_eq!(pasted_phrase(&[egui::Event::Copy]), None);
     }
 }

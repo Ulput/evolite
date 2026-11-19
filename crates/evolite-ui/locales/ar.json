@@ -2386,5 +2386,6 @@
   "The network did not answer — only your contacts are shown": "لم تستجب الشبكة — تُعرض جهات اتصالك فقط",
   "No names starting with “{}”": "لا أسماء تبدأ بـ «{}»",
   "Your identity": "هويتك",
-  "{} suggestion|{} suggestions": {"zero":"لا اقتراحات","one":"اقتراح واحد","two":"اقتراحان","few":"{} اقتراحات","many":"{} اقتراحًا","other":"{} اقتراح"}
+  "{} suggestion|{} suggestions": {"zero":"لا اقتراحات","one":"اقتراح واحد","two":"اقتراحان","few":"{} اقتراحات","many":"{} اقتراحًا","other":"{} اقتراح"},
+  "The phrase was taken off the clipboard.": "أُزيلت العبارة من الحافظة."
 }

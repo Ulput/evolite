@@ -6,6 +6,8 @@
 
 use sha2::{Digest, Sha256};
 use std::cell::Cell;
+use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 use std::time::{Duration, Instant};
 use zeroize::Zeroizing;
 
@@ -64,7 +66,8 @@ fn put_secret(ctx: &egui::Context, text: &str) -> bool {
     true
 }
 
-/// Notes what to wipe, only if it was copied.
+/// Notes what to wipe, only if it was copied; and, on disk, that a secret is on the clipboard
+/// (its hash only), for a start after a crash to wipe it (SEC-2 B5).
 fn remember(ctx: &egui::Context, text: &str, put: bool) -> bool {
     if put {
         let copied = Copied {
@@ -72,8 +75,72 @@ fn remember(ctx: &egui::Context, text: &str, put: bool) -> bool {
             at: Instant::now(),
         };
         ctx.data_mut(|d| d.insert_temp(id(), Some(copied)));
+        mark(Some(copied.hash));
     }
     put
+}
+
+/// The file that says a secret is on the clipboard: its SHA-256 in hex, never the text
+/// (SEC-2 B5). Set once at the start; none in demo runs without a data folder.
+static MARKER: Mutex<Option<PathBuf>> = Mutex::new(None);
+
+/// At the start: where the mark is kept, and a secret a run that ended without wiping it (a
+/// crash) left on the clipboard is wiped now, if the clipboard still holds it.
+pub fn start(marker: PathBuf) {
+    if let Some(mut board) = system_board() {
+        wipe_left(&marker, &mut board);
+    }
+    *MARKER.lock().unwrap_or_else(|e| e.into_inner()) = Some(marker);
+}
+
+/// Wipes what the mark at `marker` names, if the clipboard still holds it, and removes the
+/// mark. Whether it wiped.
+fn wipe_left(marker: &Path, board: &mut impl Board) -> bool {
+    let Some(left) = std::fs::read_to_string(marker)
+        .ok()
+        .and_then(|hex| hash_from_hex(hex.trim()))
+    else {
+        let _ = std::fs::remove_file(marker);
+        return false;
+    };
+    // Not read: nothing to compare, and a crash's copy may be long gone; it is left.
+    let wiped = board.text().is_some() && wipe_if_still(left, board, false);
+    let _ = std::fs::remove_file(marker);
+    wiped
+}
+
+fn mark(secret: Option<[u8; 32]>) {
+    let Some(path) = MARKER.lock().unwrap_or_else(|e| e.into_inner()).clone() else {
+        return;
+    };
+    match secret {
+        Some(hash) => {
+            let hex: String = hash.iter().map(|b| format!("{b:02x}")).collect();
+            let _ = std::fs::write(path, hex);
+        }
+        None => {
+            let _ = std::fs::remove_file(path);
+        }
+    }
+}
+
+fn hash_from_hex(hex: &str) -> Option<[u8; 32]> {
+    let bytes: Vec<u8> = (0..hex.len())
+        .step_by(2)
+        .map(|i| u8::from_str_radix(hex.get(i..i + 2)?, 16).ok())
+        .collect::<Option<_>>()?;
+    bytes.try_into().ok()
+}
+
+/// A phrase pasted into the restore (SEC-2 B4): the clipboard is cleared if it still holds
+/// exactly that text. Whether it was.
+pub fn wipe_pasted(text: &str) -> bool {
+    system_board().is_some_and(|mut board| wipe_if_still(hash(text), &mut board, false))
+}
+
+/// The lock (SEC-2 B5): a secret copied is wiped now, not 60 s later.
+pub fn wipe_secret_now(ctx: &egui::Context) {
+    wipe_secret(ctx);
 }
 
 /// Copies an address, a name, a txid or a link; wiped after [`KEEP`] while "Clipboard" is
@@ -167,10 +234,11 @@ pub fn wipe_now(ctx: &egui::Context) {
 
 fn wipe_secret(ctx: &egui::Context) {
     let copied = ctx.data_mut(|d| d.remove_temp::<Option<Copied>>(id()).flatten());
-    if let Some(copied) = copied
-        && let Some(mut board) = system_board()
-    {
-        wipe_if_still(copied.hash, &mut board, true);
+    if let Some(copied) = copied {
+        if let Some(mut board) = system_board() {
+            wipe_if_still(copied.hash, &mut board, true);
+        }
+        mark(None);
     }
 }
 
@@ -196,9 +264,34 @@ struct System(arboard::Clipboard);
 #[cfg(all(windows, not(test)))]
 impl System {
     fn put_secret(&mut self, text: &str) -> bool {
-        use arboard::SetExtWindows;
-        self.0.set().exclude_from_monitoring().text(text).is_ok()
+        excluded(self.0.set()).text(text).is_ok()
     }
+}
+
+/// What a secret is kept out of on Windows: clipboard managers, the history (Win+V) and the
+/// cloud clipboard (SEC-2 B1: Microsoft names the last two formats for those).
+trait Exclusions: Sized {
+    fn monitoring(self) -> Self;
+    fn history(self) -> Self;
+    fn cloud(self) -> Self;
+}
+
+#[cfg(windows)]
+impl Exclusions for arboard::Set<'_> {
+    fn monitoring(self) -> Self {
+        arboard::SetExtWindows::exclude_from_monitoring(self)
+    }
+    fn history(self) -> Self {
+        arboard::SetExtWindows::exclude_from_history(self)
+    }
+    fn cloud(self) -> Self {
+        arboard::SetExtWindows::exclude_from_cloud(self)
+    }
+}
+
+#[cfg_attr(not(all(windows, not(test))), allow(dead_code))]
+fn excluded<S: Exclusions>(set: S) -> S {
+    set.monitoring().history().cloud()
 }
 
 impl Board for System {
@@ -309,5 +402,53 @@ mod tests {
             )
         });
         assert!(copied_at(&ctx).is_some());
+    }
+
+    /// SEC-2 B1: a secret is kept out of clipboard managers, the history and the cloud.
+    #[test]
+    fn a_secret_is_kept_out_of_the_history_and_the_cloud() {
+        #[derive(Default)]
+        struct Set(Vec<&'static str>);
+        impl Exclusions for Set {
+            fn monitoring(mut self) -> Self {
+                self.0.push("monitoring");
+                self
+            }
+            fn history(mut self) -> Self {
+                self.0.push("history");
+                self
+            }
+            fn cloud(mut self) -> Self {
+                self.0.push("cloud");
+                self
+            }
+        }
+        let set = excluded(Set::default());
+        assert_eq!(set.0, ["monitoring", "history", "cloud"]);
+    }
+
+    /// SEC-2 B5: a secret a crashed run left is wiped at the next start if still there, and
+    /// the mark goes; a clipboard changed since keeps what is on it.
+    #[test]
+    fn a_secret_left_by_a_crash_is_wiped_at_the_start() {
+        let dir = std::env::temp_dir().join(format!("evolite-clip-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let marker = dir.join("clipboard-secret");
+        let hex: String = hash("zebra walnut")
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect();
+        std::fs::write(&marker, &hex).unwrap();
+        let mut board = Fake(Some("zebra walnut".into()));
+        assert!(wipe_left(&marker, &mut board));
+        assert_eq!(board.0.as_deref(), Some(""), "wiped");
+        assert!(!marker.exists(), "the mark goes");
+        std::fs::write(&marker, &hex).unwrap();
+        let mut other = Fake(Some("an address".into()));
+        assert!(!wipe_left(&marker, &mut other));
+        assert_eq!(other.0.as_deref(), Some("an address"), "copied since: kept");
+        assert!(!marker.exists());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

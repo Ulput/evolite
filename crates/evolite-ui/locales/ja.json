@@ -2301,5 +2301,6 @@
   "The network did not answer — only your contacts are shown": "ネットワークが応答しませんでした — 連絡先のみ表示しています",
   "No names starting with “{}”": "「{}」で始まる名前はありません",
   "Your identity": "あなたのアイデンティティ",
-  "{} suggestion|{} suggestions": {"other":"{} 件の候補"}
+  "{} suggestion|{} suggestions": {"other":"{} 件の候補"},
+  "The phrase was taken off the clipboard.": "フレーズをクリップボードから削除しました。"
 }

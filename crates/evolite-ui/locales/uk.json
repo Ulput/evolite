@@ -2352,5 +2352,6 @@
   "The network did not answer — only your contacts are shown": "Мережа не відповіла — показано лише ваші контакти",
   "No names starting with “{}”": "Немає імен на «{}»",
   "Your identity": "Ваша identity",
-  "{} suggestion|{} suggestions": {"one":"{} підказка","few":"{} підказки","many":"{} підказок","other":"{} підказки"}
+  "{} suggestion|{} suggestions": {"one":"{} підказка","few":"{} підказки","many":"{} підказок","other":"{} підказки"},
+  "The phrase was taken off the clipboard.": "Фразу прибрано з буфера обміну."
 }

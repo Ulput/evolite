@@ -77,6 +77,8 @@ pub struct Onboarding {
     restore_reading: crate::secret_words::Reading,
     focused: Option<usize>,
     paste_error: bool,
+    /// SEC-2 B4: the phrase pasted was taken off the clipboard: said under the fields.
+    paste_wiped: bool,
     /// The new phrase from the core, and how long it was asked to be.
     phrase: Option<Phrase>,
     asked_len: Option<usize>,
@@ -121,6 +123,7 @@ impl Onboarding {
             restore_reading: Default::default(),
             focused: None,
             paste_error: false,
+            paste_wiped: false,
             phrase: None,
             asked_len: None,
             scan: None,

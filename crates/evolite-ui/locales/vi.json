@@ -2301,5 +2301,6 @@
   "The network did not answer — only your contacts are shown": "Mạng không phản hồi — chỉ hiển thị danh bạ của bạn",
   "No names starting with “{}”": "Không có tên nào bắt đầu bằng «{}»",
   "Your identity": "Danh tính của bạn",
-  "{} suggestion|{} suggestions": {"other":"{} gợi ý"}
+  "{} suggestion|{} suggestions": {"other":"{} gợi ý"},
+  "The phrase was taken off the clipboard.": "Cụm từ đã được xóa khỏi bộ nhớ tạm."
 }
