@@ -1562,6 +1562,8 @@ fn broken_channel(cx: &Ctx, typed: &str) -> Option<String> {
                 && c.name.as_deref().is_some_and(|n| n.to_lowercase() == label)
         })
         .map(|c| {
+            // The core never hears of it (the form refuses first): the journal does (R-6).
+            crate::diagnostics::channel_broken_shown(&c.identity_id);
             format!(
                 tr!("You cannot pay @{} by DashPay yet: their contact request points to a disabled key. Payments will work again once they send you a new contact request."),
                 c.name.as_deref().unwrap_or_default()

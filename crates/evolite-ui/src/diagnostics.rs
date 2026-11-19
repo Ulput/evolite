@@ -435,9 +435,42 @@ impl FrameWatch {
     }
 }
 
+/// The contacts whose «cannot pay by DashPay yet» was told to the journal in this run.
+static CHANNEL_BROKEN_TOLD: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+
+/// BUG-231 R-6: Send refuses a contact whose request points to a disabled key before anything
+/// reaches the core, so the journal hears it from here — `contact_channel_broken`, no name, no
+/// id — once per contact in a run, not every frame it is shown. Whether it was written now.
+pub fn channel_broken_shown(identity_id: &str) -> bool {
+    let mut told = CHANNEL_BROKEN_TOLD
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    if told.iter().any(|id| id == identity_id) {
+        return false;
+    }
+    told.push(identity_id.to_owned());
+    drop(told);
+    diag::record(Record::ContactChannelBroken);
+    true
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// BUG-231 R-6: the refusal on Send is written once per contact in a run.
+    #[test]
+    fn a_broken_channel_is_told_once_per_contact() {
+        assert!(channel_broken_shown("bug231-test-a"));
+        assert!(
+            !channel_broken_shown("bug231-test-a"),
+            "the next frames say nothing"
+        );
+        assert!(
+            channel_broken_shown("bug231-test-b"),
+            "another contact is its own line"
+        );
+    }
 
     /// BUG-71: a screen that leaves its top by itself in its first second is told once, with how
     /// far; not when the person scrolled it, not after that second, not a stray fraction.
