@@ -100,8 +100,20 @@ fn an_empty_platform_address_card_fills_the_address() {
             w.balances.platform_address = 1;
         }
     };
-    empty(&mut kit);
-    kit.run_steps(2);
+    // TECH-flaky-kittests r2: a late snapshot of the demo core put the address's credits back
+    // and the card was a source again («To» kept «@alice»): the core quiet first, then the
+    // empty address kept in until frames are drawn with it.
+    settle(&mut kit);
+    show_wallet_edited(
+        &mut kit,
+        2,
+        "the empty Platform address",
+        |w| {
+            w.platform_inputs = vec![1_000];
+            w.balances.platform_address = 1;
+        },
+        |_| true,
+    );
     let own = kit
         .state()
         .snapshot

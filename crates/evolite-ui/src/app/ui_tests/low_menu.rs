@@ -129,8 +129,19 @@ fn the_menu_turns_low_below_640_and_back() {
 fn the_mainnet_band_takes_its_height_from_the_menu() {
     let (_turn, mut kit) = menu_at("en", egui::vec2(1024.0, 640.0), 0);
     assert_eq!(rhythm(&kit).0, 40.0);
-    kit.state_mut().snapshot.as_mut().unwrap().network = evolite_api::Network::Mainnet;
-    kit.run_steps(3);
+    // TECH-flaky-kittests r2: the core quiet first, then the band kept in.
+    settle(&mut kit);
+    show_edited(
+        &mut kit,
+        3,
+        "the mainnet band",
+        |app| {
+            if let Some(s) = app.snapshot.as_mut() {
+                s.network = evolite_api::Network::Mainnet;
+            }
+        },
+        |_| true,
+    );
     assert!(
         has_words(&kit, "Mainnet: real DASH"),
         "the band (FEAT-0037: its words)"

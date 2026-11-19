@@ -193,9 +193,20 @@ fn in_the_smallest_window_the_wallets_are_8_under_the_title() {
 fn on_mainnet_open_is_in_sight_under_the_band_in_the_smallest_window() {
     for lang in ["en", "ru", "ar"] {
         let (_turn, mut kit) = at("wallet-unlock", lang, LOW);
-        kit.state_mut().snapshot.as_mut().unwrap().network = evolite_api::Network::Mainnet;
-        kit.run_steps(4);
+        // TECH-flaky-kittests r2: the core quiet first, then the band kept in (a late snapshot
+        // put testnet back, as in the unlock-scroll test).
         settle(&mut kit);
+        show_edited(
+            &mut kit,
+            4,
+            "the mainnet band",
+            |app| {
+                if let Some(s) = app.snapshot.as_mut() {
+                    s.network = evolite_api::Network::Mainnet;
+                }
+            },
+            |_| true,
+        );
         let open = crate::i18n::spoken("Open");
         assert!(
             in_sight(&kit, &open),
