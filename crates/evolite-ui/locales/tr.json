@@ -2367,5 +2367,10 @@
   "This link is not for mainnet": "Bu bağlantı mainnet için değil",
   "This request is for mainnet, and evolite is running on testnet now.": "Bu istek mainnet için; evolite şu anda testnet'te çalışıyor.",
   "This request is for testnet, and evolite is running on mainnet now.": "Bu istek testnet için; evolite şu anda mainnet'te çalışıyor.",
-  "Platform's servers are lagging behind": "Platform sunucuları geride kalıyor"
+  "Platform's servers are lagging behind": "Platform sunucuları geride kalıyor",
+  "The token is hidden": "Token gizlendi",
+  "{} is now at the bottom of the page, under “Hidden tokens”: you can return it to the list from there. The search does not show it.": "{} artık sayfanın altında, “Gizli tokenler” bölümünde: oradan listeye geri alabilirsiniz. Arama onu göstermez.",
+  "Undo": "Geri al",
+  "Hidden tokens ({})": "Gizli tokenler ({})",
+  "Hidden tokens are not shown in the list and the search does not bring them back. Their balance stays where it is.": "Gizli tokenler listede gösterilmez ve arama onları geri getirmez. Bakiyeleri yerinde kalır."
 }

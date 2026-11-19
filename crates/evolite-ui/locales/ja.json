@@ -2350,5 +2350,10 @@
   "This link is not for mainnet": "このリンクは mainnet 用ではありません",
   "This request is for mainnet, and evolite is running on testnet now.": "このリクエストは mainnet 用で、evolite は今 testnet で動いています。",
   "This request is for testnet, and evolite is running on mainnet now.": "このリクエストは testnet 用で、evolite は今 mainnet で動いています。",
-  "Platform's servers are lagging behind": "Platform のサーバーが遅れています"
+  "Platform's servers are lagging behind": "Platform のサーバーが遅れています",
+  "The token is hidden": "トークンを非表示にしました",
+  "{} is now at the bottom of the page, under “Hidden tokens”: you can return it to the list from there. The search does not show it.": "{} はページ下部の「非表示のトークン」に移りました。そこから一覧に戻せます。検索には表示されません。",
+  "Undo": "元に戻す",
+  "Hidden tokens ({})": "非表示のトークン ({})",
+  "Hidden tokens are not shown in the list and the search does not bring them back. Their balance stays where it is.": "非表示のトークンは一覧に表示されず、検索でも戻りません。残高はそのままです。"
 }

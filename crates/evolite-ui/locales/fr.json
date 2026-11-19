@@ -2384,5 +2384,10 @@
   "This link is not for mainnet": "Ce lien n’est pas pour le mainnet",
   "This request is for mainnet, and evolite is running on testnet now.": "Cette demande est pour le mainnet, et evolite fonctionne actuellement sur le testnet.",
   "This request is for testnet, and evolite is running on mainnet now.": "Cette demande est pour le testnet, et evolite fonctionne actuellement sur le mainnet.",
-  "Platform's servers are lagging behind": "les serveurs de Platform sont en retard"
+  "Platform's servers are lagging behind": "les serveurs de Platform sont en retard",
+  "The token is hidden": "Le jeton est masqué",
+  "{} is now at the bottom of the page, under “Hidden tokens”: you can return it to the list from there. The search does not show it.": "{} est maintenant en bas de la page, dans « Jetons masqués » : vous pouvez l'y remettre dans la liste. La recherche ne l'affiche pas.",
+  "Undo": "Annuler",
+  "Hidden tokens ({})": "Jetons masqués ({})",
+  "Hidden tokens are not shown in the list and the search does not bring them back. Their balance stays where it is.": "Les jetons masqués ne s'affichent pas dans la liste et la recherche ne les ramène pas. Leur solde reste où il est."
 }

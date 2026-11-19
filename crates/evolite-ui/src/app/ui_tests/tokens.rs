@@ -492,3 +492,125 @@ fn a_transfer_after_some_write_went_through_offers_no_repeat() {
         kit.state().tokens.sending.is_none()
     });
 }
+
+/// BUG-238: while the first search runs, the tokens known already stay in the list under it.
+#[test]
+fn known_tokens_stay_in_sight_while_the_first_search_runs() {
+    let (_turn, mut kit) = demo_app("tokens", "en");
+    kit.run_steps(3);
+    // A first search running over a wallet with tokens kept from before.
+    let running = |w: &mut evolite_api::Wallet| {
+        w.tokens.search.state = evolite_api::tokens::SearchState::Running;
+        w.tokens.search.done = None;
+    };
+    show_wallet_edited(&mut kit, 2, "the first search", running, |kit| {
+        has_text(kit, "Looking for your tokens on the network…")
+    });
+    assert!(
+        kit.query_all_by(|n| n.value().as_deref() == Some("Evo Coffee"))
+            .next()
+            .is_some(),
+        "Evo Coffee in sight"
+    );
+}
+
+/// BUG-238: a token found in «Add a token» that is in the list already opens from there.
+#[test]
+fn a_token_already_in_the_list_opens_from_add() {
+    let (_turn, mut kit) = demo_app("tokens", "en");
+    kit.run_steps(3);
+    let (add, command) = crate::screens::tokens::AddState::asking("coffee").expect("a query");
+    kit.state_mut().tokens.adding = Some(add);
+    kit.state_mut().core.send(command);
+    wait_for(&mut kit, "«Open»", |kit| {
+        kit.query_all_by_role_and_label(Role::Button, "Open")
+            .next()
+            .is_some()
+    });
+    assert!(has_text(&kit, "Already in the list"));
+    button(&kit, "Open").click();
+    wait_for(&mut kit, "the token's page", |kit| {
+        kit.state().screen == crate::screens::Screen::TokenPage
+    });
+    assert!(kit.state().tokens.adding.is_none(), "the dialog closed");
+}
+
+fn coffee_rows(kit: &Kit) -> usize {
+    kit.query_all_by(|n| n.value().as_deref() == Some("Evo Coffee"))
+        .count()
+}
+
+fn hide_coffee(kit: &mut Kit) {
+    assert!(coffee_rows(kit) > 0, "Evo Coffee in the list");
+    kit.query_all_by_role_and_label(Role::Button, "Hide")
+        .next()
+        .expect("Evo Coffee's «Hide»")
+        .click();
+    wait_for(kit, "the row hidden", |kit| coffee_rows(kit) == 0);
+}
+
+/// BUG-230 AC-A1: «Hide» says so, with «Undo»; «Undo» brings the row back and the notice goes.
+#[test]
+fn a_hidden_token_is_said_and_undone() {
+    let (_turn, mut kit) = demo_app("tokens", "en");
+    kit.run_steps(3);
+    hide_coffee(&mut kit);
+    assert!(has_text(&kit, "The token is hidden"));
+    assert!(has_words(&kit, "under “Hidden tokens”"));
+    button(&kit, "Undo").click();
+    wait_for(&mut kit, "the row back", |kit| coffee_rows(kit) > 0);
+    assert!(!has_text(&kit, "The token is hidden"), "the notice gone");
+}
+
+/// BUG-230 AC-A2, AC-A6: «Hidden tokens (1)» under the list, a button that says whether it is
+/// open; open, «Return to the list» brings the token back and the card goes.
+#[test]
+fn hidden_tokens_open_and_return_one() {
+    let (_turn, mut kit) = demo_app("tokens", "en");
+    // Tall enough for the card under the list to be clicked where it is drawn.
+    kit.set_size(egui::vec2(1280.0, 1400.0));
+    kit.run_steps(3);
+    hide_coffee(&mut kit);
+    let card = |kit: &Kit| {
+        kit.query_all_by_role_and_label(Role::Button, "Hidden tokens (1)")
+            .next()
+            .is_some()
+    };
+    assert!(card(&kit), "«Hidden tokens (1)»");
+    assert!(
+        kit.query_all_by_role_and_label(Role::Button, "Return to the list")
+            .next()
+            .is_none(),
+        "closed by default"
+    );
+    button(&kit, "Hidden tokens (1)").click();
+    kit.run_steps(2);
+    assert_eq!(
+        button(&kit, "Hidden tokens (1)")
+            .accesskit_node()
+            .data()
+            .is_expanded(),
+        Some(true)
+    );
+    assert!(has_words(&kit, "Their balance stays where it is"));
+    button(&kit, "Return to the list").click();
+    // The open card names it too: its going is the sign, then the row is in the list.
+    wait_for(&mut kit, "no hidden ones: no card", |kit| !card(kit));
+    assert!(coffee_rows(&kit) > 0, "the row back");
+}
+
+/// BUG-230 AC-A3: every token hidden — «No tokens» and «Hidden tokens (N)» under it.
+#[test]
+fn all_hidden_shows_the_empty_list_and_the_hidden_ones() {
+    let (_turn, mut kit) = demo_app("tokens-all-hidden", "en");
+    kit.run_steps(3);
+    assert_eq!(coffee_rows(&kit), 0);
+    assert!(has_words(&kit, "No tokens found"), "the empty state");
+    assert!(
+        kit.query_all_by(|n| n.role() == Role::Button
+            && n.label().is_some_and(|l| l.starts_with("Hidden tokens (")))
+            .next()
+            .is_some(),
+        "«Hidden tokens (N)»"
+    );
+}

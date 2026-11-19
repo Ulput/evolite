@@ -312,7 +312,13 @@ impl Real {
                     tracked
                         .iter()
                         .filter(|t| file.is_hidden(&t.token_id, id))
-                        .map(|t| t.token_id.clone())
+                        // BUG-230: what its row says, from the list kept here, no network.
+                        .map(|t| evolite_api::tokens::HiddenToken {
+                            info: infos
+                                .get(&t.token_id)
+                                .cloned()
+                                .unwrap_or_else(|| bare_info(t)),
+                        })
                         .collect()
                 })
                 .unwrap_or_default(),
@@ -340,8 +346,9 @@ impl Real {
         tokio::spawn(async move {
             let _working = working;
             if !kept_registered.swap(true, Ordering::AcqRel) {
-                let kept: Vec<Vec<u8>> = file.contracts().into_iter().map(|(_, b)| b).collect();
-                chain.register_kept_contracts(&kept).await;
+                // TokenReader R1: the list's contracts in the cache, proved (not its bytes).
+                let kept: Vec<String> = file.contracts().into_iter().map(|(id, _)| id).collect();
+                chain.keep_contracts(&kept).await;
             }
             let asked = tokens.len() as u32;
             let read = {
@@ -480,9 +487,46 @@ impl Real {
     }
 }
 
+/// Review TokenReader r1, S1: the screen turned «1,5» into units by the list's decimals (`kept`); a write
+/// goes only when the contract proved now gives the same (`proved`), or decimals changed on the
+/// disk would sign 10^k times the amount meant.
+pub(in crate::real) fn same_decimals(proved: Option<u8>, kept: u8) -> Result<(), CoreError> {
+    match proved {
+        Some(d) if d == kept => Ok(()),
+        _ => Err(CoreError::Failed(
+            "the token's decimals here are not its contract's: read the token again".into(),
+        )),
+    }
+}
+
+/// What is known of a followed token whose contract is not kept (BUG-230): its ids alone; the
+/// row shows its id, not a name.
+fn bare_info(t: &Tracked) -> TokenInfo {
+    TokenInfo {
+        token_id: t.token_id.clone(),
+        contract_id: t.contract_id.clone(),
+        position: t.position,
+        names: Vec::new(),
+        decimals: 0,
+        issuer: String::new(),
+        issuer_name: None,
+        transferable: false,
+        keeps_history: false,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Review TokenReader r1, S1: decimals changed on the disk (8 kept, 2 proved) stop a write
+    /// before it is signed; a contract without the token does too.
+    #[test]
+    fn a_write_needs_the_contracts_own_decimals() {
+        assert_eq!(same_decimals(Some(8), 8), Ok(()));
+        assert!(same_decimals(Some(2), 8).is_err(), "changed on the disk");
+        assert!(same_decimals(None, 8).is_err(), "no token at the position");
+    }
 
     fn info(token: &str, contract: &str) -> TokenInfo {
         TokenInfo {
@@ -847,9 +891,18 @@ impl Real {
                 let checked = check_before_signing(known, &me, &info, amount, read).await?;
                 // BUG-205: an earlier send of this token not known to have gone through first.
                 earlier_settled(&unclear, &journal, &chain, &wallet, &me, me_id, &info).await?;
+                // TokenReader R1: the token's contract proved in this run and its position the
+                // contract's own, not the list's on the disk (review FEAT-0031-C5 r1, Must).
+                let target = chain
+                    .token_to_write(&token.token_id, &token.contract_id)
+                    .await
+                    .map_err(read_failure)?;
+                let contract_id = target.contract_id().to_string(Encoding::Base58);
+                // Review TokenReader r1, S1: the amount was made with the list's decimals.
+                same_decimals(target.decimals(), info.decimals)?;
                 // BUG-205 r1 M1: the identity's nonce with the token's contract, proved, before
                 // signing: only its own writes of this contract move it.
-                let n0 = chain.contract_nonce(&me_id, &token.contract_id).await.ok();
+                let n0 = chain.contract_nonce(&me_id, &contract_id).await.ok();
                 // r1 M2: the balance before, proved now, for what shows the send landed.
                 let held = held_now(&chain, &me, &token.token_id).await;
                 // BUG-145: the fee, from the credits before and after.
@@ -865,10 +918,10 @@ impl Real {
                 // known, not «failed», and its line waits.
                 let send = {
                     let (chain, wallet, keys) = (chain.clone(), wallet.clone(), keys.clone());
-                    let (contract, position) = (token.contract_id.clone(), token.position);
+                    let target = target.clone();
                     async move {
                         chain
-                            .send_token(&wallet, &keys, &me_id, &contract, position, to, amount)
+                            .send_token(&wallet, &keys, &me_id, &target, to, amount)
                             .await
                     }
                 };
@@ -883,7 +936,7 @@ impl Real {
                             &chain,
                             &me_id,
                             &me,
-                            &token.contract_id,
+                            &contract_id,
                             &token.token_id,
                             n0,
                             shows,
@@ -904,7 +957,7 @@ impl Real {
                     Err(sent::NoAnswer::Unclear(late)) => {
                         let pending = sent::Pending::new(
                             me.clone(),
-                            sent::token_watch(&token.token_id, &token.contract_id, n0, shows),
+                            sent::token_watch(&token.token_id, &contract_id, n0, shows),
                             Some(kind),
                             before,
                             Some(me),

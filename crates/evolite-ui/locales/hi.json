@@ -2367,5 +2367,10 @@
   "This link is not for mainnet": "यह लिंक mainnet के लिए नहीं है",
   "This request is for mainnet, and evolite is running on testnet now.": "यह अनुरोध mainnet के लिए है, और evolite अभी testnet पर चल रहा है।",
   "This request is for testnet, and evolite is running on mainnet now.": "यह अनुरोध testnet के लिए है, और evolite अभी mainnet पर चल रहा है।",
-  "Platform's servers are lagging behind": "Platform के सर्वर पीछे चल रहे हैं"
+  "Platform's servers are lagging behind": "Platform के सर्वर पीछे चल रहे हैं",
+  "The token is hidden": "टोकन छिपाया गया",
+  "{} is now at the bottom of the page, under “Hidden tokens”: you can return it to the list from there. The search does not show it.": "{} अब पेज के नीचे, “छिपे टोकन” में है: वहाँ से आप इसे सूची में वापस ला सकते हैं। खोज इसे नहीं दिखाती।",
+  "Undo": "पूर्ववत करें",
+  "Hidden tokens ({})": "छिपे टोकन ({})",
+  "Hidden tokens are not shown in the list and the search does not bring them back. Their balance stays where it is.": "छिपे टोकन सूची में नहीं दिखते और खोज उन्हें वापस नहीं लाती। उनका बैलेंस अपनी जगह रहता है।"
 }

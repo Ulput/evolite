@@ -2,6 +2,7 @@
 //! (rights are checked again right before signing, T-3.1), the supply, the frozen balances among
 //! the candidates the wallet knows of (Q2) — and the actions themselves, signed with the
 //! identity's CRITICAL authentication key as every token transition is (R-13).
+use super::WriteToken;
 
 use std::sync::Arc;
 
@@ -221,23 +222,6 @@ pub(crate) fn freeze_query(
 }
 
 impl Chain {
-    /// The contract `contract` (base58) as Platform has it now, proved, and handed to the
-    /// provider so the action's answer can be checked against it.
-    pub async fn fresh_contract(&self, contract: &str) -> Result<Arc<DataContract>, String> {
-        self.ready()?;
-        let sdk = self.sdk().await?;
-        let fetched = DataContract::fetch(&sdk, id_of(contract)?)
-            .await
-            .map_err(|e| format!("{e:?}"))?
-            .ok_or("the token's contract is not on Platform")?;
-        let fetched = Arc::new(fetched);
-        if let Some(provider) = sdk.context_provider() {
-            use dash_sdk::platform::ContextProvider as _;
-            provider.register_data_contract(fetched.clone());
-        }
-        Ok(fetched)
-    }
-
     /// How much of `token` is out, proved.
     /// The issuer actions of `kind` that `identity` took on `token` (both base58), from their
     /// TokenHistory documents, proved: the newest 100, oldest first (T-3.10). Each kind by the
@@ -368,8 +352,7 @@ impl Chain {
         wallet: &platform_wallet::PlatformWallet,
         keys: &key_wallet::Wallet,
         me: &Identifier,
-        contract: &str,
-        position: u16,
+        token: &WriteToken,
         op: IssuerOp,
     ) -> Result<IssuerDone, String> {
         use dash_sdk::platform::tokens::transitions::{
@@ -377,7 +360,7 @@ impl Chain {
             FreezeResult, MintResult, SetPriceResult, UnfreezeResult,
         };
         use dpp::identity::accessors::IdentityGettersV0;
-        let contract_id = id_of(contract)?;
+        let (contract_id, position) = (token.contract_id(), token.position());
         self.ready()?;
         // The identity whose rights were checked, not the one shown now (BUG-13 r1 should 1).
         let (me, signer) = Self::signing(wallet, keys, me).await?;
@@ -518,7 +501,7 @@ impl Chain {
             IssuerOp::Price(schedule) => {
                 // Tiers need the richer call: the contract and the key as platform-wallet takes
                 // them for the simple one.
-                let fresh = self.fresh_contract(contract).await?;
+                let fresh = token.contract().clone();
                 let key = Self::critical_key(wallet, &me, &signer).await?;
                 match tokens
                     .token_set_price_with_signer(

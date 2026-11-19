@@ -2,6 +2,7 @@
 //! contracts that carry a keyword. Each contract found is registered with the provider, so a
 //! later proof about its tokens (balances, a transfer) is checked against it (АРХ-2).
 
+use super::WriteToken;
 use std::sync::Arc;
 
 use dash_sdk::platform::{ContextProvider, DataContract, Fetch, Identifier};
@@ -138,21 +139,6 @@ impl Chain {
         }
         Ok(contract)
     }
-
-    /// Hands contracts kept in `tokens.json` to the provider at start (AC-T2), so a token's
-    /// proofs are checked after a restart before the contract is read again. A damaged one is
-    /// left out: it is read again when needed.
-    pub async fn register_kept_contracts(&self, kept: &[Vec<u8>]) {
-        let Ok(sdk) = self.sdk().await else { return };
-        let Some(provider) = sdk.context_provider() else {
-            return;
-        };
-        for bytes in kept {
-            if let Some(contract) = info::contract_from_bytes(bytes) {
-                provider.register_data_contract(Arc::new(contract));
-            }
-        }
-    }
 }
 
 /// Contracts one keyword search reads at most.
@@ -226,20 +212,31 @@ impl Chain {
         let sdk = self.sdk().await?;
         for batch in ids.chunks(PER_REQUEST) {
             self.ready()?;
-            let query = IdentityTokenBalancesQuery {
-                identity_id,
-                token_ids: batch.to_vec(),
-            };
-            let balances: IdentityTokenBalances = TokenAmount::fetch_many(&sdk, query)
-                .await
-                .map_err(|e| format!("{e:?}"))?;
+            // TokenReader R1 (SYNC-3): a batch's three reads at once, not one after another —
+            // a slow Platform costs the slowest of them, not their sum.
+            let balances = TokenAmount::fetch_many(
+                &sdk,
+                IdentityTokenBalancesQuery {
+                    identity_id,
+                    token_ids: batch.to_vec(),
+                },
+            );
+            let statuses = TokenStatus::fetch_many(&sdk, batch.to_vec());
+            let infos = IdentityTokenInfo::fetch_many(
+                &sdk,
+                IdentityTokenInfosQuery {
+                    identity_id,
+                    token_ids: batch.to_vec(),
+                },
+            );
+            let (balances, statuses, infos): (
+                IdentityTokenBalances,
+                TokenStatuses,
+                IdentityTokenInfos,
+            ) = tokio::try_join!(balances, statuses, infos).map_err(|e| format!("{e:?}"))?;
             for (token, amount) in balances.iter() {
                 facts.balances.insert(base58(token), amount.unwrap_or(0));
             }
-            self.ready()?;
-            let statuses: TokenStatuses = TokenStatus::fetch_many(&sdk, batch.to_vec())
-                .await
-                .map_err(|e| format!("{e:?}"))?;
             for token in batch {
                 let paused = statuses
                     .get(token)
@@ -248,14 +245,6 @@ impl Chain {
                     .is_some_and(|s| s.paused());
                 facts.paused.insert(base58(token), paused);
             }
-            self.ready()?;
-            let query = IdentityTokenInfosQuery {
-                identity_id,
-                token_ids: batch.to_vec(),
-            };
-            let infos: IdentityTokenInfos = IdentityTokenInfo::fetch_many(&sdk, query)
-                .await
-                .map_err(|e| format!("{e:?}"))?;
             for token in batch {
                 let frozen = infos
                     .get(token)
@@ -527,16 +516,14 @@ impl Chain {
         wallet: &platform_wallet::PlatformWallet,
         keys: &key_wallet::Wallet,
         me: &Identifier,
-        contract: &str,
-        position: u16,
+        token: &WriteToken,
         to: Identifier,
         amount: u64,
     ) -> Result<Option<u64>, String> {
         use dash_sdk::platform::tokens::transitions::TransferResult;
         use dpp::identity::accessors::IdentityGettersV0;
 
-        let contract =
-            Identifier::from_string(contract, Encoding::Base58).map_err(|e| e.to_string())?;
+        let (contract, position) = (token.contract_id(), token.position());
         self.ready()?;
         let (from, signer) = Self::signing(wallet, keys, me).await?;
         let result = wallet

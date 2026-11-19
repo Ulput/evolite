@@ -242,14 +242,22 @@ impl TokenSearch {
     }
 }
 
+/// A token the person hid (BUG-230): what its row in «Hidden tokens» says, from the list kept on
+/// this computer — no read of the network.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct HiddenToken {
+    pub info: TokenInfo,
+}
+
 /// The wallet's tokens on the shown identity, and its search.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct Tokens {
     pub rows: Vec<TokenRow>,
     pub search: TokenSearch,
-    /// Ids of the followed tokens the person hid on the shown identity: «Add a token» offers
-    /// them back («Return to the list») instead of «Already in the list».
-    pub hidden: Vec<String>,
+    /// The followed tokens the person hid on the shown identity, in the list's order: «Hidden
+    /// tokens» under the list (BUG-230) and «Add a token» offer them back («Return to the
+    /// list»).
+    pub hidden: Vec<HiddenToken>,
     /// The token page of the token asked for ([`crate::Command::ReadTokenPage`]), once read
     /// (FEAT-0019 T-3.2).
     pub page: Option<TokenPage>,

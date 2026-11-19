@@ -19,6 +19,7 @@ mod token_manage;
 mod tokens;
 
 pub use contacts::*;
+pub use contracts::WriteToken;
 pub use identities::*;
 pub use store_read::*;
 pub use token_actions::{Bought, BuyRefused, ClaimDoc, Claimable, Every, Offer, Perpetual};

@@ -47,6 +47,17 @@ pub struct TokensState {
     agreed: Option<u64>,
     /// The first search was asked for when the screen first opened (design §3).
     asked_first: bool,
+    /// BUG-230 R-1: the token just hidden (its id and name), for «The token is hidden» with
+    /// «Undo»; gone on leaving the screen (R-3).
+    pub(crate) just_hidden: Option<(String, String)>,
+    /// The pass the screen was last drawn in: a gap means it was left.
+    seen_pass: Option<u64>,
+    /// BUG-230 R-6, R-7: «Hidden tokens» open, for the run.
+    hidden_open: bool,
+    /// BUG-230 R-8: «Return to the list» sent for this token, no answer yet; R-9: why the last
+    /// one failed.
+    returning: Option<String>,
+    return_failed: Option<CoreError>,
 }
 
 impl TokensState {
@@ -61,6 +72,10 @@ impl TokensState {
     pub fn on_tracked(&mut self, result: &Result<(), CoreError>) {
         if let Some(add) = &mut self.adding {
             add.on_tracked(result);
+        }
+        // BUG-230 R-8, R-9: «Return to the list» answered.
+        if self.returning.take().is_some() {
+            self.return_failed = result.as_ref().err().cloned();
         }
     }
 
@@ -367,6 +382,7 @@ pub fn tokens(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut TokensState
         .into_iter()
         .cloned()
         .collect();
+    let hidden = wallet.tokens.hidden.clone();
     let name = shown_name(wallet);
     let done = search.done.is_some();
     // T4b: about the whole screen, so above the identities (review 3f).
@@ -374,28 +390,76 @@ pub fn tokens(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut TokensState
         find |= refresh_failed(ui, a, cx, &search);
     }
     identity_row(ui, a, cx);
-    match search.state {
-        SearchState::Running | SearchState::Paused { .. } | SearchState::NotYet if !done => {
-            searching(ui, a, cx, &search)
+    // BUG-230 R-1–R-3: the token just hidden, said once, with «Undo»; gone when the screen is
+    // left (a pass without it).
+    let pass = ui.ctx().cumulative_pass_nr();
+    if state.seen_pass.is_some_and(|seen| pass > seen + 1) {
+        state.just_hidden = None;
+    }
+    state.seen_pass = Some(pass);
+    if let Some((token_id, hidden_name)) = state.just_hidden.clone() {
+        let answer = crate::components::notice_closable(
+            ui,
+            a,
+            "info",
+            tr!("The token is hidden"),
+            &format!(
+                tr!(
+                    "{} is now at the bottom of the page, under “Hidden tokens”: you can return it to the list from there. The search does not show it."
+                ),
+                hidden_name
+            ),
+            Some(("eye", tr!("Undo"))),
+        );
+        if answer.action {
+            cx.send(Command::TrackToken { token_id, on: true });
+            state.just_hidden = None;
+        } else if answer.closed {
+            state.just_hidden = None;
         }
+    }
+    // BUG-238: before the first search is done, the tokens known already (added by hand, kept
+    // from before) stay in sight under its state, not only once it ends.
+    let first = matches!(
+        search.state,
+        SearchState::Running | SearchState::Paused { .. } | SearchState::NotYet
+    ) && !done;
+    match search.state {
+        _ if first => searching(ui, a, cx, &search),
         SearchState::NoNetwork if !done => find |= no_network(ui, a, &search),
         _ => {
             if busy {
                 searching(ui, a, cx, &search);
             }
-            if rows.is_empty() {
-                if done {
-                    add |= empty(ui, a, &name, &search);
-                }
-            } else if let Some(token_id) = list(ui, a, &rows, state, who) {
-                // Taken out: a found one is hidden, so the search does not bring it back (R-11); one added
-                // by hand leaves the list (BUG-131).
-                cx.send(Command::TrackToken {
-                    token_id,
-                    on: false,
-                });
+            if rows.is_empty() && done {
+                add |= empty(ui, a, &name, &search);
             }
         }
+    }
+    if !rows.is_empty()
+        && let Some(token_id) = list(ui, a, &rows, state, who)
+    {
+        // Taken out: a found one is hidden, so the search does not bring it back (R-11); one added
+        // by hand leaves the list (BUG-131).
+        if let Some(row) = rows
+            .iter()
+            .find(|r| r.info.token_id == token_id && r.origin == TokenOrigin::Found)
+        {
+            // BUG-230 R-1: said, with «Undo»; one notice, of the last hidden (R-3).
+            state.just_hidden = Some((token_id.clone(), state::name_in_text(&row.info)));
+        }
+        // Review r1, could 1: the next answer is this one's, not a «Return to the list»'s —
+        // its refusal is not shown under «Hidden tokens».
+        state.returning = None;
+        state.return_failed = None;
+        cx.send(Command::TrackToken {
+            token_id,
+            on: false,
+        });
+    }
+    // BUG-230 R-5: under the list — and under «No tokens» when every one is hidden.
+    if !hidden.is_empty() {
+        hidden_tokens(ui, a, cx, state, &hidden);
     }
     // A name clicked in the list: its page, not asked yet, is a screen of its own (M1).
     if state.page.as_ref().is_some_and(manage::PageState::fresh) {
@@ -787,6 +851,141 @@ fn empty(ui: &mut Ui, a: &mut Assets, name: &str, search: &TokenSearch) -> bool 
         });
     });
     add
+}
+
+/// BUG-230 R-5–R-9: «Hidden tokens (N)», a card of its own under the list (designer H2–H4):
+/// one button that opens it; open, what hidden means and a row per token with «Return to the
+/// list». No balance, no other actions, and no read of the network.
+fn hidden_tokens(
+    ui: &mut Ui,
+    a: &mut Assets,
+    cx: &mut Ctx,
+    state: &mut TokensState,
+    hidden: &[evolite_api::tokens::HiddenToken],
+) {
+    let p = a.p;
+    ui.add_space(16.0);
+    egui::Frame::new()
+        .fill(p.surface)
+        .stroke(egui::Stroke::new(1.0, p.line))
+        .corner_radius(egui::CornerRadius::same(14))
+        .show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            ui.spacing_mut().item_spacing.y = 0.0;
+            // The heading row, 52 high: the whole row is the button.
+            let label = format!(tr!("Hidden tokens ({})"), hidden.len());
+            let (rect, resp) =
+                ui.allocate_exact_size(vec2(ui.available_width(), 52.0), Sense::click());
+            let resp = resp.on_hover_cursor(egui::CursorIcon::PointingHand);
+            crate::components::named(&resp, egui::WidgetType::Button, true, &label);
+            let open = state.hidden_open;
+            ui.ctx()
+                .accesskit_node_builder(resp.id, |node| node.set_expanded(open));
+            crate::components::paint_text(
+                ui,
+                egui::pos2(rect.left() + 20.0, rect.center().y),
+                egui::Align2::LEFT_CENTER,
+                &label,
+                sans(14.0, Weight::SemiBold),
+                p.text,
+            );
+            let arrow = Rect::from_center_size(
+                egui::pos2(rect.right() - 28.0, rect.center().y),
+                vec2(16.0, 16.0),
+            );
+            let mut chevron = a.icons.icon("chevron-down", p.muted, &p, 16.0);
+            if open {
+                chevron = chevron.rotate(std::f32::consts::PI, vec2(0.5, 0.5));
+            }
+            chevron.paint_at(ui, arrow);
+            if resp.clicked() {
+                state.hidden_open = !state.hidden_open;
+            }
+            if !state.hidden_open {
+                return;
+            }
+            egui::Frame::new()
+                .inner_margin(egui::Margin {
+                    left: 20,
+                    right: 20,
+                    top: 0,
+                    bottom: 12,
+                })
+                .show(ui, |ui| {
+                    ui.add(crate::components::para(
+                        tr!(
+                            "Hidden tokens are not shown in the list and the search does not bring them back. Their balance stays where it is."
+                        ),
+                        12.0,
+                        Weight::Regular,
+                        p.muted,
+                    ));
+                });
+            for (i, token) in hidden.iter().enumerate() {
+                if i > 0 {
+                    divider(ui, &p);
+                }
+                ui.allocate_ui_with_layout(
+                    vec2(ui.available_width(), 64.0),
+                    egui::Layout::left_to_right(egui::Align::Center),
+                    |ui| {
+                        ui.add_space(20.0);
+                        let (circle, _) = ui.allocate_exact_size(vec2(44.0, 44.0), Sense::hover());
+                        ui.painter().circle_filled(circle.center(), 22.0, p.raised);
+                        a.icons.icon("token", p.text, &p, 20.0).paint_at(
+                            ui,
+                            Rect::from_center_size(circle.center(), vec2(20.0, 20.0)),
+                        );
+                        ui.add_space(12.0);
+                        ui.vertical(|ui| {
+                            ui.spacing_mut().item_spacing.y = 2.0;
+                            ui.label(txt(
+                                &state::name_in_text(&token.info),
+                                14.0,
+                                Weight::SemiBold,
+                                p.text,
+                            ));
+                            ui.label(txt(
+                                &id_line(&token.info, false),
+                                12.0,
+                                Weight::Regular,
+                                p.muted,
+                            ));
+                        });
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            ui.add_space(20.0);
+                            let waiting = state.returning.is_some();
+                            if button_enabled(
+                                ui,
+                                a,
+                                tr!("Return to the list"),
+                                ButtonKind::Secondary,
+                                None,
+                                !waiting,
+                            )
+                            .clicked()
+                            {
+                                state.returning = Some(token.info.token_id.clone());
+                                state.return_failed = None;
+                                cx.send(Command::TrackToken {
+                                    token_id: token.info.token_id.clone(),
+                                    on: true,
+                                });
+                            }
+                        });
+                    },
+                );
+            }
+        });
+    // R-9: why the last «Return to the list» did not go through.
+    if let Some(e) = &state.return_failed {
+        ui.label(txt(
+            &crate::text::failed(tr!("It did not work"), e),
+            12.0,
+            Weight::Regular,
+            p.danger,
+        ));
+    }
 }
 
 /// T2: the rows; the token whose «Hide» or «Remove» was clicked.

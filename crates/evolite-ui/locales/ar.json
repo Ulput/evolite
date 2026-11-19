@@ -2435,5 +2435,10 @@
   "This link is not for mainnet": "هذا الرابط ليس لـ mainnet",
   "This request is for mainnet, and evolite is running on testnet now.": "هذا الطلب لـ mainnet، وevolite يعمل الآن على testnet.",
   "This request is for testnet, and evolite is running on mainnet now.": "هذا الطلب لـ testnet، وevolite يعمل الآن على mainnet.",
-  "Platform's servers are lagging behind": "خوادم Platform متأخرة"
+  "Platform's servers are lagging behind": "خوادم Platform متأخرة",
+  "The token is hidden": "تم إخفاء الرمز",
+  "{} is now at the bottom of the page, under “Hidden tokens”: you can return it to the list from there. The search does not show it.": "{} الآن أسفل الصفحة، في «الرموز المخفية»: يمكنك إعادته إلى القائمة من هناك. لا يُظهره البحث.",
+  "Undo": "تراجع",
+  "Hidden tokens ({})": "الرموز المخفية ({})",
+  "Hidden tokens are not shown in the list and the search does not bring them back. Their balance stays where it is.": "الرموز المخفية لا تظهر في القائمة ولا يعيدها البحث. يبقى رصيدها كما هو."
 }

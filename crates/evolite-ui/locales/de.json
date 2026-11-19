@@ -2367,5 +2367,10 @@
   "This link is not for mainnet": "Dieser Link ist nicht für das Mainnet",
   "This request is for mainnet, and evolite is running on testnet now.": "Diese Anfrage ist für das Mainnet, und evolite läuft gerade im Testnet.",
   "This request is for testnet, and evolite is running on mainnet now.": "Diese Anfrage ist für das Testnet, und evolite läuft gerade im Mainnet.",
-  "Platform's servers are lagging behind": "die Server von Platform hinken hinterher"
+  "Platform's servers are lagging behind": "die Server von Platform hinken hinterher",
+  "The token is hidden": "Der Token ist ausgeblendet",
+  "{} is now at the bottom of the page, under “Hidden tokens”: you can return it to the list from there. The search does not show it.": "{} steht jetzt unten auf der Seite unter „Ausgeblendete Token“: Von dort können Sie ihn in die Liste zurückholen. Die Suche zeigt ihn nicht an.",
+  "Undo": "Rückgängig",
+  "Hidden tokens ({})": "Ausgeblendete Token ({})",
+  "Hidden tokens are not shown in the list and the search does not bring them back. Their balance stays where it is.": "Ausgeblendete Token werden in der Liste nicht angezeigt, und die Suche bringt sie nicht zurück. Ihr Guthaben bleibt, wo es ist."
 }

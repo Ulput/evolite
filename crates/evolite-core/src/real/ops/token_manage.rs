@@ -98,6 +98,10 @@ fn to_no_one_allowed(rules: &ChangeControlRules) -> bool {
     }
 }
 
+/// How fresh the token page wants its contract (token-reads §4.1): its version checked within
+/// a minute; a failed check shows the one kept (review C5 condition 8).
+const PAGE_FRESH: std::time::Duration = std::time::Duration::from_secs(60);
+
 /// What was read of a token for its page, besides its contract.
 pub(in crate::real) struct PageFacts {
     pub supply: u64,
@@ -416,15 +420,17 @@ impl Real {
             // Which read failed goes to the journal (BUG-222): the page reads up to six things.
             let at = |step: &'static str| move |e: String| (step, e);
             let read = async {
-                let contract = chain
-                    .fresh_contract(&token.contract_id)
+                // TokenReader R1: the cache's contract, its version checked within a minute
+                // (token-reads §4.1), the token at the contract's own position.
+                let (cached, position) = chain
+                    .token_to_read(&token.token_id, &token.contract_id, PAGE_FRESH)
                     .await
                     .map_err(at("token_page.contract"))?;
-                let config = contract
-                    .tokens()
-                    .get(&token.position)
-                    .cloned()
-                    .ok_or_else(|| ("token_page.contract", "no token at the position".into()))?;
+                let contract = cached.contract;
+                let config =
+                    contract.tokens().get(&position).cloned().ok_or_else(|| {
+                        ("token_page.contract", "no token at the position".into())
+                    })?;
                 let me_id = Identifier::from_string(&me, Encoding::Base58)
                     .map_err(|e| ("token_page", e.to_string()))?;
                 let supply = chain
@@ -565,14 +571,18 @@ impl Real {
                         .ok_or(CoreError::NotAvailable(
                             tr!("The wallet has no identity").into(),
                         ))?;
-                // T-3.1, R-24: the rights again, on the contract as it is now.
-                let contract = chain
-                    .fresh_contract(&token.contract_id)
+                // T-3.1, R-24: the rights again, on the contract as it is now — proved in this
+                // run, the token at its own position (TokenReader R1, review C5 r1 Must).
+                let target = chain
+                    .token_to_write(&token.token_id, &token.contract_id)
                     .await
                     .map_err(read_failure)?;
-                let config = contract
-                    .tokens()
-                    .get(&token.position)
+                let contract = target.contract().clone();
+                // Review TokenReader r1, S1: the amounts were made with the list's decimals.
+                super::tokens::same_decimals(target.decimals(), info.decimals)?;
+                let contract_id = target.contract_id().to_string(Encoding::Base58);
+                let config = target
+                    .config()
                     .ok_or(CoreError::Failed("no token at the position".into()))?;
                 // BUG-233: by the label, not «@name»; an id is checked before anything is asked.
                 let resolve = |to: &str| {
@@ -658,7 +668,7 @@ impl Real {
                 .await?;
                 // BUG-205 r1 M1: the identity's nonce with the token's contract, proved, before
                 // signing: only its own writes of this contract move it.
-                let n0 = chain.contract_nonce(&me_id, &token.contract_id).await.ok();
+                let n0 = chain.contract_nonce(&me_id, &contract_id).await.ok();
                 let shows = match &op {
                     IssuerOp::Mint { amount, .. } => chain
                         .token_supply(&token_id)
@@ -677,10 +687,10 @@ impl Real {
                 // TECH-after-send-outcome: never cut; without its answer, not known.
                 let act = {
                     let (chain, wallet, keys) = (chain.clone(), wallet.clone(), keys.clone());
-                    let (contract, position) = (token.contract_id.clone(), token.position);
+                    let target = target.clone();
                     async move {
                         chain
-                            .issuer_act(&wallet, &keys, &me_id, &contract, position, chain_op)
+                            .issuer_act(&wallet, &keys, &me_id, &target, chain_op)
                             .await
                     }
                 };
@@ -693,7 +703,7 @@ impl Real {
                             &chain,
                             &me_id,
                             &me,
-                            &token.contract_id,
+                            &contract_id,
                             &token_id,
                             n0,
                             shows,
@@ -717,7 +727,7 @@ impl Real {
                     Err(sent::NoAnswer::Unclear(late)) => {
                         let pending = sent::Pending::new(
                             me.clone(),
-                            sent::token_watch(&token_id, &token.contract_id, n0, shows),
+                            sent::token_watch(&token_id, &contract_id, n0, shows),
                             Some(kind),
                             before,
                             Some(me),

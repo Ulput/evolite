@@ -133,3 +133,119 @@ impl Chain {
         .await
     }
 }
+
+/// An id as base58.
+fn ident(s: &str) -> Result<Identifier, String> {
+    Identifier::from_string(s, dpp::platform_value::string_encoding::Encoding::Base58)
+        .map_err(|e| e.to_string())
+}
+
+/// A token to write to (TokenReader R1, review FEAT-0031-C5 r1 Must): its contract proved in this
+/// run and its position the contract's own for this token id. Only [`Chain::token_to_write`]
+/// makes one, and every token write takes one, so no position or contract from a file on the
+/// disk reaches a signature.
+#[derive(Clone, Debug)]
+pub struct WriteToken {
+    contract: Arc<DataContract>,
+    position: u16,
+}
+
+impl WriteToken {
+    pub fn contract(&self) -> &Arc<DataContract> {
+        &self.contract
+    }
+
+    pub fn contract_id(&self) -> Identifier {
+        use dpp::data_contract::accessors::v0::DataContractV0Getters;
+        self.contract.id()
+    }
+
+    pub fn position(&self) -> u16 {
+        self.position
+    }
+
+    /// The token's settings as the proved contract has them.
+    pub fn config(&self) -> Option<&dpp::data_contract::TokenConfiguration> {
+        use dpp::data_contract::accessors::v1::DataContractV1Getters;
+        self.contract.tokens().get(&self.position)
+    }
+
+    /// How many decimals the proved contract gives the token (review TokenReader r1, S1).
+    pub fn decimals(&self) -> Option<u8> {
+        use dpp::data_contract::associated_token::token_configuration::accessors::v0::TokenConfigurationV0Getters;
+        use dpp::data_contract::associated_token::token_configuration_convention::accessors::v0::TokenConfigurationConventionV0Getters;
+        self.config().map(|c| c.conventions().decimals())
+    }
+}
+
+impl Chain {
+    /// `token_id` (base58) to write to, through [`Self::token_for_write`]. `contract_hint` is
+    /// the contract the wallet's list says it is in: read (proved) first when the cache does not
+    /// know the token yet — a token followed before the cache — and only to find it; the
+    /// position is still the proved contract's own.
+    pub async fn token_to_write(
+        &self,
+        token_id: &str,
+        contract_hint: &str,
+    ) -> Result<WriteToken, String> {
+        let token = ident(token_id)?;
+        let checked = match self.token_for_write(&token).await {
+            Ok(found) => found,
+            Err(first) => {
+                // Not kept yet: the hinted contract, proved and kept, then the same check.
+                let hint = ident(contract_hint)?;
+                self.fresh_proved(hint)
+                    .await
+                    .map_err(|e| format!("{first}; {e}"))?;
+                self.token_for_write(&token).await?
+            }
+        };
+        let (cached, position) = checked;
+        Ok(WriteToken {
+            contract: cached.contract,
+            position,
+        })
+    }
+
+    /// `token_id` (base58) to read by (the token page): its contract fresh within `within`, and
+    /// its position the contract's own; the hint as in [`Self::token_to_write`].
+    pub async fn token_to_read(
+        &self,
+        token_id: &str,
+        contract_hint: &str,
+        within: Duration,
+    ) -> Result<(Cached, u16), String> {
+        use dpp::data_contract::accessors::v1::DataContractV1Getters;
+        let token = ident(token_id)?;
+        let contract = match self.contracts().and_then(|c| c.token(&token)) {
+            Some((contract, _)) => contract,
+            None => ident(contract_hint)?,
+        };
+        let cached = self.fresh_cached(contract, within).await?;
+        let position = cached
+            .contract
+            .tokens()
+            .keys()
+            .copied()
+            .find(|p| cached.contract.token_id(*p).as_ref() == Some(&token))
+            .ok_or("the token is not in its contract")?;
+        Ok((cached, position))
+    }
+}
+
+impl Chain {
+    /// The contracts the wallet's list names (base58), in the cache: the kept ones as they are,
+    /// the others read with proofs (TokenReader R1). In place of handing the list's bytes to the
+    /// provider unproved (review FEAT-0031-C5 r1, could). A failure is left: the contract is read
+    /// again when it is used.
+    pub async fn keep_contracts(&self, ids: &[String]) {
+        let ids: Vec<Identifier> = ids.iter().filter_map(|id| ident(id).ok()).collect();
+        if !ids.is_empty() {
+            let _ = self.fresh_many(&ids, KEPT_FOR, false).await;
+        }
+    }
+}
+
+/// How long a contract the list names stays good without a version check when it is only kept
+/// (a page or a write checks it again for itself).
+const KEPT_FOR: Duration = Duration::from_secs(24 * 3600);

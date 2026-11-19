@@ -2350,5 +2350,10 @@
   "This link is not for mainnet": "Liên kết này không dành cho mainnet",
   "This request is for mainnet, and evolite is running on testnet now.": "Yêu cầu này dành cho mainnet, còn evolite hiện đang chạy trên testnet.",
   "This request is for testnet, and evolite is running on mainnet now.": "Yêu cầu này dành cho testnet, còn evolite hiện đang chạy trên mainnet.",
-  "Platform's servers are lagging behind": "máy chủ Platform đang bị chậm"
+  "Platform's servers are lagging behind": "máy chủ Platform đang bị chậm",
+  "The token is hidden": "Token đã bị ẩn",
+  "{} is now at the bottom of the page, under “Hidden tokens”: you can return it to the list from there. The search does not show it.": "{} giờ nằm ở cuối trang, trong “Token đã ẩn”: bạn có thể đưa nó trở lại danh sách từ đó. Tìm kiếm không hiển thị nó.",
+  "Undo": "Hoàn tác",
+  "Hidden tokens ({})": "Token đã ẩn ({})",
+  "Hidden tokens are not shown in the list and the search does not bring them back. Their balance stays where it is.": "Token đã ẩn không hiện trong danh sách và tìm kiếm không đưa chúng trở lại. Số dư của chúng vẫn giữ nguyên."
 }

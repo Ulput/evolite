@@ -82,16 +82,23 @@ impl Real {
                 let held = super::tokens::held_now(&chain, &me, &token.token_id).await;
                 // BUG-205 r1 M1: the identity's nonce with the token's contract, proved, before
                 // signing: only its own writes of this contract move it.
-                let n0 = chain.contract_nonce(&me_id, &token.contract_id).await.ok();
+                // TokenReader R1: the token's contract proved in this run and its position the
+                // contract's own, not the list's on the disk (review FEAT-0031-C5 r1, Must).
+                let target = chain
+                    .token_to_write(&token.token_id, &token.contract_id)
+                    .await
+                    .map_err(read_failure)?;
+                let contract_id = target.contract_id().to_string(Encoding::Base58);
+                let n0 = chain.contract_nonce(&me_id, &contract_id).await.ok();
                 let shows = held.map(|b| sent::TokenShows::BalanceAtLeast(b + 1));
                 let before = chain.identity_credits(&wallet, &me_id, false).await;
                 // TECH-after-send-outcome: never cut; without its answer, not known.
                 let claim = {
                     let (chain, wallet, keys) = (chain.clone(), wallet.clone(), keys.clone());
-                    let (contract, position) = (token.contract_id.clone(), token.position);
+                    let target = target.clone();
                     async move {
                         chain
-                            .claim_token(&wallet, &keys, &me_id, &contract, position, scheduled)
+                            .claim_token(&wallet, &keys, &me_id, &target, scheduled)
                             .await
                     }
                 };
@@ -104,7 +111,7 @@ impl Real {
                             &chain,
                             &me_id,
                             &me,
-                            &token.contract_id,
+                            &contract_id,
                             &token.token_id,
                             n0,
                             shows,
@@ -137,7 +144,7 @@ impl Real {
                         // The amount is the claim document's: the line is made from the answer.
                         let pending = sent::Pending::new(
                             me.clone(),
-                            sent::token_watch(&token.token_id, &token.contract_id, n0, shows),
+                            sent::token_watch(&token.token_id, &contract_id, n0, shows),
                             None,
                             before,
                             Some(me),
@@ -221,16 +228,25 @@ impl Real {
                 let held = super::tokens::held_now(&chain, &me, &token.token_id).await;
                 // BUG-205 r1 M1: the identity's nonce with the token's contract, proved, before
                 // signing: only its own writes of this contract move it.
-                let n0 = chain.contract_nonce(&me_id, &token.contract_id).await.ok();
+                // TokenReader R1: the token's contract proved in this run and its position the
+                // contract's own, not the list's on the disk (review FEAT-0031-C5 r1, Must).
+                let target = chain
+                    .token_to_write(&token.token_id, &token.contract_id)
+                    .await
+                    .map_err(read_failure)?;
+                // Review TokenReader r1, S1: the count was made with the list's decimals.
+                super::tokens::same_decimals(target.decimals(), info.decimals)?;
+                let contract_id = target.contract_id().to_string(Encoding::Base58);
+                let n0 = chain.contract_nonce(&me_id, &contract_id).await.ok();
                 let shows = held.map(|b| sent::TokenShows::BalanceAtLeast(b + count));
                 let before = chain.identity_credits(&wallet, &me_id, false).await;
                 // TECH-after-send-outcome: never cut; without its answer, not known.
                 let buy = {
                     let (chain, wallet, keys) = (chain.clone(), wallet.clone(), keys.clone());
-                    let (contract, position) = (token.contract_id.clone(), token.position);
+                    let target = target.clone();
                     async move {
                         chain
-                            .buy_token(&wallet, &keys, &me_id, &contract, position, count, agreed)
+                            .buy_token(&wallet, &keys, &me_id, &target, count, agreed)
                             .await
                     }
                 };
@@ -246,7 +262,7 @@ impl Real {
                             &chain,
                             &me_id,
                             &me,
-                            &token.contract_id,
+                            &contract_id,
                             &token.token_id,
                             n0,
                             shows,
@@ -280,7 +296,7 @@ impl Real {
                                 .1;
                         let pending = sent::Pending::new(
                             me.clone(),
-                            sent::token_watch(&token.token_id, &token.contract_id, n0, shows),
+                            sent::token_watch(&token.token_id, &contract_id, n0, shows),
                             Some(kind),
                             before,
                             Some(me),

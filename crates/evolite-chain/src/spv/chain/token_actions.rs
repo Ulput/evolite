@@ -1,6 +1,7 @@
 //! Claim and purchase of tokens (FEAT-0019 T-2): what a claim would pay and what a count costs,
 //! read with proofs before the buttons are shown; the claim and the purchase themselves, signed
 //! with the identity's CRITICAL authentication key (platform-wallet's choice, as the transfer).
+use super::WriteToken;
 
 use std::sync::Arc;
 
@@ -337,13 +338,12 @@ impl Chain {
         wallet: &platform_wallet::PlatformWallet,
         keys: &key_wallet::Wallet,
         me: &Identifier,
-        contract: &str,
-        position: u16,
+        token: &WriteToken,
         scheduled: bool,
     ) -> Result<ClaimDoc, String> {
         use dash_sdk::platform::tokens::transitions::ClaimResult;
         use dpp::identity::accessors::IdentityGettersV0;
-        let contract = id_of(contract)?;
+        let (contract, position) = (token.contract_id(), token.position());
         self.ready()?;
         let (me, signer) = Self::signing(wallet, keys, me).await?;
         let kind = if scheduled {
@@ -370,14 +370,13 @@ impl Chain {
         wallet: &platform_wallet::PlatformWallet,
         keys: &key_wallet::Wallet,
         me: &Identifier,
-        contract: &str,
-        position: u16,
+        token: &WriteToken,
         count: TokenAmount,
         agreed: dpp::fee::Credits,
     ) -> Result<Bought, BuyRefused> {
         use dash_sdk::platform::tokens::transitions::DirectPurchaseResult;
         use dpp::identity::accessors::IdentityGettersV0;
-        let contract = id_of(contract).map_err(BuyRefused::Other)?;
+        let (contract, position) = (token.contract_id(), token.position());
         self.ready().map_err(BuyRefused::Other)?;
         let (me, signer) = Self::signing(wallet, keys, me)
             .await

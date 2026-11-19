@@ -402,7 +402,7 @@ impl Balances {
                 .map_err(|e| e.to_string())?;
             // Its later proofs (balances, a transfer) are checked against it (АРХ-2).
             self.chain
-                .register_kept_contracts(std::slice::from_ref(&bytes))
+                .keep_contracts(std::slice::from_ref(&info.contract_id))
                 .await;
         }
         Ok(true)

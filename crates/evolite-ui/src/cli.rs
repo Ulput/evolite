@@ -255,7 +255,7 @@ pub const PRESETS: &[&str] = &[
     "refused-mainnet", "apps-disconnected", "apps-renew", "apps-disconnect", "apps-remove",
     "collection", "gift",
     "tokens", "tokens-first-search", "tokens-first-count", "tokens-balances", "tokens-again", "tokens-no-network-first", "tokens-pause", "tokens-no-network", "tokens-refresh-failed",
-    "tokens-empty", "tokens-send", "tokens-review", "tokens-add", "tokens-mainnet",
+    "tokens-empty", "tokens-all-hidden", "tokens-send", "tokens-review", "tokens-add", "tokens-mainnet",
     "tokens-send-address", "tokens-send-more", "tokens-send-credits", "tokens-send-unknown",
     "tokens-add-one", "tokens-add-many", "tokens-add-none", "tokens-add-hidden",
     "tokens-claim", "tokens-claim-unknown", "tokens-buy", "tokens-buy-changed",
@@ -547,6 +547,7 @@ fn dev_args<'a>(
                 | "tokens-add-many"
                 | "tokens-add-none"
                 | "tokens-add-hidden"
+                | "tokens-all-hidden"
                 | "tokens-claim"
                 | "tokens-claim-unknown"
                 | "tokens-buy"

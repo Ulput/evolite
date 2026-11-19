@@ -863,6 +863,57 @@ mod tests {
         }
     }
 
+    /// TokenReader R1 (review FEAT-0031-C5 r1, Must): every token write takes its contract and
+    /// position from `token_to_write` — proved in this run, the position the contract's own —
+    /// never from the wallet's list on the disk (`token.position`, `fresh_contract`). The chain's
+    /// writes take a `WriteToken`, which only `token_to_write` makes.
+    #[test]
+    fn every_token_write_takes_a_proved_contract_and_position() {
+        use crate::real::snapshot::pinned_tests::body;
+        let writes = [
+            (include_str!("ops/tokens.rs"), "send_token"),
+            (include_str!("ops/token_actions.rs"), "claim_token"),
+            (include_str!("ops/token_actions.rs"), "buy_token"),
+            (include_str!("ops/token_manage.rs"), "issuer_action"),
+        ];
+        for (source, name) in writes {
+            let f = body(source, name);
+            assert!(
+                f.contains(".token_to_write("),
+                "{name}: not through token_to_write"
+            );
+            if name != "claim_token" {
+                // Review TokenReader r1, S1: an amount made with the list's decimals.
+                assert!(f.contains("same_decimals("), "{name}: decimals not checked");
+            }
+            for unproved in ["token.position", "fresh_contract("] {
+                assert!(!f.contains(unproved), "{name}: {unproved}");
+            }
+        }
+        let chain = [
+            include_str!("../../../evolite-chain/src/spv/chain/tokens.rs"),
+            include_str!("../../../evolite-chain/src/spv/chain/token_actions.rs"),
+            include_str!("../../../evolite-chain/src/spv/chain/token_manage.rs"),
+        ]
+        .concat();
+        // Each chain write's parameters: up to where its return type starts.
+        for write in ["send_token", "claim_token", "buy_token", "issuer_act"] {
+            let start = chain
+                .find(&format!("pub async fn {write}("))
+                .unwrap_or_else(|| panic!("no chain {write}"));
+            let rest = &chain[start..];
+            let params = &rest[..rest.find(") ->").expect("a return type")];
+            assert!(
+                params.contains("token: &WriteToken"),
+                "chain {write}: not a WriteToken"
+            );
+            assert!(
+                !params.contains("position"),
+                "chain {write}: a position of its own"
+            );
+        }
+    }
+
     /// Refused before it went out: only what never left or a node refused itself; a timeout, a
     /// transport error or the cache's duplicate may have gone through.
     #[test]

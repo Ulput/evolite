@@ -348,19 +348,22 @@ pub fn search(keyword: &str) -> Vec<TokenInfo> {
 pub fn track(tokens: &mut Tokens, token_id: &str, on: bool) -> Result<(), CoreError> {
     if !on {
         // A found one is hidden, as the real core does: it can be brought back.
-        if tokens
+        if let Some(row) = tokens
             .rows
             .iter()
-            .any(|r| r.info.token_id == token_id && r.origin == TokenOrigin::Found)
+            .find(|r| r.info.token_id == token_id && r.origin == TokenOrigin::Found)
         {
-            tokens.hidden.push(token_id.to_owned());
+            let info = row.info.clone();
+            tokens
+                .hidden
+                .push(evolite_api::tokens::HiddenToken { info });
         }
         tokens.rows.retain(|r| r.info.token_id != token_id);
         return Ok(());
     }
     // «Return to the list»: the example's own row again, as it was.
-    if tokens.hidden.iter().any(|h| h == token_id) {
-        tokens.hidden.retain(|h| h != token_id);
+    if tokens.hidden.iter().any(|h| h.info.token_id == token_id) {
+        tokens.hidden.retain(|h| h.info.token_id != token_id);
         if let Some(back) = demo_tokens(0)
             .rows
             .into_iter()

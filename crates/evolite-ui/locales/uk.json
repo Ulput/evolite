@@ -2401,5 +2401,10 @@
   "This link is not for mainnet": "Це посилання не для mainnet",
   "This request is for mainnet, and evolite is running on testnet now.": "Цей запит — для mainnet, а evolite зараз працює в testnet.",
   "This request is for testnet, and evolite is running on mainnet now.": "Цей запит — для testnet, а evolite зараз працює в mainnet.",
-  "Platform's servers are lagging behind": "сервери Platform відстають"
+  "Platform's servers are lagging behind": "сервери Platform відстають",
+  "The token is hidden": "Токен приховано",
+  "{} is now at the bottom of the page, under “Hidden tokens”: you can return it to the list from there. The search does not show it.": "{} тепер унизу сторінки, у «Прихованих токенах»: звідти його можна повернути до списку. Пошук його не показує.",
+  "Undo": "Скасувати",
+  "Hidden tokens ({})": "Приховані токени ({})",
+  "Hidden tokens are not shown in the list and the search does not bring them back. Their balance stays where it is.": "Приховані токени не показуються в списку, і пошук їх не повертає. Баланс токенів лишається на місці."
 }

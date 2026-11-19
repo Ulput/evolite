@@ -170,7 +170,7 @@ impl PausePreset {
 
 /// The `--screen` presets of the tokens screen that change the snapshot (design T1, T5, T4, T4b,
 /// T3, T7).
-const TOKEN_STATES: [&str; 15] = [
+const TOKEN_STATES: [&str; 16] = [
     "tokens-review",
     "tokens-send-credits",
     "tokens-first-search",
@@ -182,6 +182,7 @@ const TOKEN_STATES: [&str; 15] = [
     "tokens-no-network",
     "tokens-refresh-failed",
     "tokens-empty",
+    "tokens-all-hidden",
     "tokens-mainnet",
     "tokens-claim-unknown",
     "tokens-page-destroy",
@@ -1863,6 +1864,15 @@ fn tokens_state(s: &mut evolite_api::Snapshot, name: &str) {
             w.tokens.search.failed = true;
         }
         "tokens-empty" => w.tokens.rows.clear(),
+        // BUG-230 AC-T7: every token hidden on the shown identity: «No tokens» and, under it,
+        // «Hidden tokens (N)».
+        "tokens-all-hidden" => {
+            let rows = std::mem::take(&mut w.tokens.rows);
+            w.tokens.hidden = rows
+                .into_iter()
+                .map(|r| evolite_api::tokens::HiddenToken { info: r.info })
+                .collect();
+        }
         _ => {}
     }
 }

@@ -631,6 +631,15 @@ enum Listed {
     Hidden,
 }
 
+/// What a found row asks for.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum FoundAsk {
+    Nothing,
+    Add,
+    /// BUG-238: one in the list already opens.
+    Open,
+}
+
 /// A found token as a row of the list without «Send» (review, «Добавить токен»).
 fn found_row(
     ui: &mut Ui,
@@ -639,9 +648,10 @@ fn found_row(
     listed: Listed,
     added: bool,
     busy: bool,
-) -> bool {
+) -> FoundAsk {
     let p = a.p;
     let mut add = false;
+    let mut open = false;
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 12.0;
         let (circle, _) = ui.allocate_exact_size(vec2(36.0, 36.0), Sense::hover());
@@ -665,7 +675,9 @@ fn found_row(
                 ui.label(txt(tr!("Added"), 13.0, Weight::Medium, p.accent));
             } else {
                 match listed {
+                    // BUG-238: in the list already — and one click away, not a dead end.
                     Listed::Shown => {
+                        open = button(ui, a, tr!("Open"), ButtonKind::Secondary, None).clicked();
                         ui.label(txt(
                             tr!("Already in the list"),
                             13.0,
@@ -693,7 +705,11 @@ fn found_row(
             }
         });
     });
-    add
+    match (add, open) {
+        (true, _) => FoundAsk::Add,
+        (_, true) => FoundAsk::Open,
+        _ => FoundAsk::Nothing,
+    }
 }
 
 pub(super) fn add_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, tokens: &mut TokensState) {
@@ -708,7 +724,12 @@ pub(super) fn add_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, tokens: &mut
         .iter()
         .map(|r| r.info.token_id.clone())
         .collect();
-    let hidden = wallet.tokens.hidden.clone();
+    let hidden: Vec<String> = wallet
+        .tokens
+        .hidden
+        .iter()
+        .map(|h| h.info.token_id.clone())
+        .collect();
     let standing = |id: &String| {
         if hidden.contains(id) {
             Listed::Hidden
@@ -720,6 +741,7 @@ pub(super) fn add_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, tokens: &mut
     };
     let mut ask = None;
     let mut track = None;
+    let mut open: Option<String> = None;
     // Enter in the token's field, for the footer's «Find».
     let mut enter = false;
     let closed = dialog_with_footer(
@@ -791,7 +813,7 @@ pub(super) fn add_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, tokens: &mut
                             crate::components::divider(ui, &p);
                         }
                         let busy = add.adding.is_some();
-                        if found_row(
+                        match found_row(
                             ui,
                             a,
                             info,
@@ -799,7 +821,9 @@ pub(super) fn add_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, tokens: &mut
                             add.added.contains(&info.token_id),
                             busy,
                         ) {
-                            track = Some(info.token_id.clone());
+                            FoundAsk::Add => track = Some(info.token_id.clone()),
+                            FoundAsk::Open => open = Some(info.token_id.clone()),
+                            FoundAsk::Nothing => {}
                         }
                     }
                 }
@@ -824,6 +848,12 @@ pub(super) fn add_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, tokens: &mut
         add.adding = Some(token_id.clone());
         add.failed = None;
         cx.send(Command::TrackToken { token_id, on: true });
+    }
+    // BUG-238: the token's page, as a click on its name in the list opens it.
+    if let Some(token_id) = open {
+        tokens.adding = None;
+        tokens.page = Some(super::manage::PageState::new(&token_id));
+        return;
     }
     if closed {
         tokens.adding = None;

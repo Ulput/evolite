@@ -2384,5 +2384,10 @@
   "This link is not for mainnet": "Este enlace no es para mainnet",
   "This request is for mainnet, and evolite is running on testnet now.": "Esta solicitud es para mainnet, y evolite ahora funciona en testnet.",
   "This request is for testnet, and evolite is running on mainnet now.": "Esta solicitud es para testnet, y evolite ahora funciona en mainnet.",
-  "Platform's servers are lagging behind": "los servidores de Platform van con retraso"
+  "Platform's servers are lagging behind": "los servidores de Platform van con retraso",
+  "The token is hidden": "El token está oculto",
+  "{} is now at the bottom of the page, under “Hidden tokens”: you can return it to the list from there. The search does not show it.": "{} ahora está al final de la página, en «Tokens ocultos»: desde ahí puedes devolverlo a la lista. La búsqueda no lo muestra.",
+  "Undo": "Deshacer",
+  "Hidden tokens ({})": "Tokens ocultos ({})",
+  "Hidden tokens are not shown in the list and the search does not bring them back. Their balance stays where it is.": "Los tokens ocultos no se muestran en la lista y la búsqueda no los devuelve. Su saldo sigue donde está."
 }

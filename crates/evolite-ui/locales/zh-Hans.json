@@ -2350,5 +2350,10 @@
   "This link is not for mainnet": "此链接不适用于 mainnet",
   "This request is for mainnet, and evolite is running on testnet now.": "此请求适用于 mainnet，而 evolite 现在运行在 testnet 上。",
   "This request is for testnet, and evolite is running on mainnet now.": "此请求适用于 testnet，而 evolite 现在运行在 mainnet 上。",
-  "Platform's servers are lagging behind": "Platform 服务器进度落后"
+  "Platform's servers are lagging behind": "Platform 服务器进度落后",
+  "The token is hidden": "代币已隐藏",
+  "{} is now at the bottom of the page, under “Hidden tokens”: you can return it to the list from there. The search does not show it.": "{} 现在位于页面底部的“已隐藏的代币”中：可以从那里将它放回列表。搜索不会显示它。",
+  "Undo": "撤销",
+  "Hidden tokens ({})": "已隐藏的代币 ({})",
+  "Hidden tokens are not shown in the list and the search does not bring them back. Their balance stays where it is.": "已隐藏的代币不会显示在列表中，搜索也不会让它们重新出现。它们的余额保持不变。"
 }
