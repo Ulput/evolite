@@ -965,8 +965,22 @@ fn the_unlock_screen_scrolls_to_its_buttons_in_the_smallest_window() {
     for lang in ["en", "ar"] {
         let (_turn, mut kit) = demo_app("wallet-unlock", lang);
         kit.set_size(egui::vec2(800.0, 440.0));
-        kit.state_mut().snapshot.as_mut().unwrap().network = evolite_api::Network::Mainnet;
-        kit.run_steps(4);
+        // TECH-flaky-kittests: the mainnet band takes the room that makes the screen scroll. A
+        // snapshot of the demo core coming after it was set put testnet back, and under load
+        // «Add wallet» then fitted: wait for the core to go quiet, and keep the band in until
+        // frames are drawn with it.
+        settle(&mut kit);
+        show_edited(
+            &mut kit,
+            4,
+            "the mainnet band",
+            |app| {
+                if let Some(s) = app.snapshot.as_mut() {
+                    s.network = evolite_api::Network::Mainnet;
+                }
+            },
+            |_| true,
+        );
         let add = crate::i18n::spoken("Add wallet");
         let open = crate::i18n::spoken("Open");
         assert!(

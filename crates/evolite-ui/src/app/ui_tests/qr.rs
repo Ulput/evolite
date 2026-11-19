@@ -30,6 +30,21 @@ fn menu_ready(kit: &mut Kit) {
     kit.run_steps(4);
 }
 
+/// How long a picture may take to be read (TECH-flaky-kittests): its own thread decodes it, and
+/// with full checks running beside the suite that thread was kept waiting past the usual
+/// [`PATIENCE`] — the test then failed for the machine, not for the app.
+const PICTURE_PATIENCE: Duration = Duration::from_secs(60);
+
+/// [`wait_for`] with [`PICTURE_PATIENCE`]: for what comes once a picture has been read.
+fn wait_for_picture(kit: &mut Kit, what: &str, done: impl Fn(&Kit) -> bool) {
+    let started = Instant::now();
+    while !done(kit) {
+        assert!(started.elapsed() < PICTURE_PATIENCE, "no {what}");
+        std::thread::sleep(Duration::from_millis(5));
+        kit.step();
+    }
+}
+
 /// Whether the menu is open: its items are in the tree only then.
 fn menu_open(kit: &Kit) -> bool {
     kit.query_by_role_and_label(Role::Button, "Choose a picture…")
@@ -89,7 +104,7 @@ fn a_name_comes_from_a_qr_into_add_a_contact() {
         menu_ready(kit);
         button(kit, "Choose a picture…").click();
         kit.run_steps(2);
-        wait_for(kit, "the picture read", |kit| {
+        wait_for_picture(kit, "the picture read", |kit| {
             !kit.state()
                 .contacts
                 .adding
@@ -119,7 +134,7 @@ fn an_apps_qr_opens_its_request() {
     kit.run_steps(2);
     menu_ready(&mut kit);
     button(&kit, "Choose a picture…").click();
-    wait_for(&mut kit, "the answer to a payment code", |kit| {
+    wait_for_picture(&mut kit, "the answer to a payment code", |kit| {
         has_text(kit, "This is not a Dash app request")
     });
     assert!(kit.state().requests.open.is_none());
@@ -128,7 +143,7 @@ fn an_apps_qr_opens_its_request() {
     kit.run_steps(2);
     menu_ready(&mut kit);
     button(&kit, "Choose a picture…").click();
-    wait_for(&mut kit, "the app's request", |kit| {
+    wait_for_picture(&mut kit, "the app's request", |kit| {
         kit.state().requests.open.is_some()
     });
 }
@@ -171,7 +186,7 @@ fn a_payment_qr_fills_send() {
     kit.run_steps(2);
     menu_ready(&mut kit);
     button(&kit, "Choose a picture…").click();
-    wait_for(&mut kit, "the form filled in", |kit| {
+    wait_for_picture(&mut kit, "the form filled in", |kit| {
         kit.state().send.recipient == ADDR
     });
     kit.run_steps(2);
@@ -288,7 +303,7 @@ fn drop_file(kit: &mut Kit, path: std::path::PathBuf) {
 fn a_screenshot_dropped_on_send_fills_to() {
     let (_turn, mut kit) = demo_app("send", "en");
     drop_file(&mut kit, real_receive_screenshot());
-    wait_for(&mut kit, "the address from the picture", |kit| {
+    wait_for_picture(&mut kit, "the address from the picture", |kit| {
         kit.state().send.recipient == "yXk3Tq9mD8vJw2RfL6pN4sB7cH1eZ5aG9f2c"
     });
 }
