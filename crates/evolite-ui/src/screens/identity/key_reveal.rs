@@ -4,7 +4,7 @@
 //! leaving K1 and when the dialog closes. The window is kept out of captures while it shows.
 
 use super::*;
-use crate::components::{Part, dialog_with_footer};
+use crate::components::{Part, dialog_with_footer, secret_password};
 use evolite_api::{IdentityKey, KeyLevel, KeyPurpose, Network, Password, RevealedKey};
 use std::time::{Duration, Instant};
 use zeroize::{Zeroize, Zeroizing};
@@ -28,6 +28,8 @@ pub struct Reveal {
     pub(crate) touched: Option<Instant>,
     /// SEC-1 (BUG-228): «read the words to a screen reader», for one showing.
     pub(crate) reading: crate::secret_words::Reading,
+    /// SEC-11: the wallet's pause after wrong passwords, counted down as the unlock does.
+    pub(crate) cut: crate::screens::pause::Cut,
 }
 
 impl Reveal {
@@ -204,6 +206,15 @@ pub(super) fn reveal_dialog(
         None => {
             let title = format!(tr!("Show the private key {}"), key.id);
             let (purpose, _) = super::keys::key_words(&key);
+            // SEC-11: the open wallet's password is counted with the unlock's; its pause is
+            // shown and holds the button here too.
+            let now = cx.now;
+            let gate = secret_password::Gate::of(
+                cx.snap.wallets.iter().find(|w| w.open),
+                secret_password::refused(r.refused.as_ref()),
+                &mut r.cut,
+                now.timestamp(),
+            );
             dialog_with_footer(
                 ui,
                 a,
@@ -230,32 +241,37 @@ pub(super) fn reveal_dialog(
                             {
                                 r.refused = None;
                             }
-                            let answer = match &r.refused {
-                                Some(CoreError::WrongPassword) => {
-                                    Some((tr!("Wrong password").to_string(), p.danger))
-                                }
-                                Some(CoreError::NotAvailable(why)) => Some((why.clone(), p.muted)),
-                                Some(e) => {
-                                    Some((crate::text::failed(tr!("It did not work"), e), p.danger))
-                                }
-                                None => None,
-                            };
-                            if let Some((line, color)) = answer {
-                                ui.label(text(&line, SMALL, color));
+                            // Not available is no fault of the password: said in grey above the
+                            // lines every password before a secret has (SEC-11).
+                            if let Some(CoreError::NotAvailable(why)) = &r.refused {
+                                ui.label(text(why, SMALL, p.muted));
                             }
+                            let error = match &r.refused {
+                                Some(CoreError::WrongPassword) => {
+                                    Some(tr!("Wrong password").to_string())
+                                }
+                                // The pause's plate says it.
+                                Some(
+                                    CoreError::TooManyTries { .. } | CoreError::NotAvailable(_),
+                                )
+                                | None => None,
+                                Some(e) => Some(crate::text::failed(tr!("It did not work"), e)),
+                            };
+                            secret_password::lines(ui, a, &gate, error.as_deref(), now);
                         });
                         button_row(ui, |ui| {
                             if button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked() {
                                 close = true;
                             }
                             let ready = r.understood && !r.password.is_empty() && !r.waiting;
-                            if button_enabled(
+                            if secret_password::send_button(
                                 ui,
                                 a,
                                 tr!("Show the key"),
                                 ButtonKind::Primary,
                                 None,
                                 ready,
+                                &gate,
                             )
                             .clicked()
                             {

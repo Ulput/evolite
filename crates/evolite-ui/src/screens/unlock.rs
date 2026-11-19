@@ -6,7 +6,7 @@ use super::delete_wallet::{DeleteForm, delete_dialog};
 use super::pause;
 use super::txt;
 use crate::components::{
-    Assets, ButtonKind, FieldKind, button_enabled, field_label, paint_text, paint_wallet_dot,
+    Assets, ButtonKind, FieldKind, field_label, paint_text, paint_wallet_dot, secret_password,
     text_field,
 };
 use crate::context::{Ctx, WalletRequest};
@@ -85,13 +85,14 @@ pub fn unlock(
         .or_else(|| snap.wallets.iter().find(|w| w.open));
     let chosen_id = chosen.map(|w| w.id.clone());
     // Its pause after too many wrong passwords (FEAT-0002): the core's, counted down here.
-    let pause_end = form.cut.end(
-        chosen.and_then(|w| pause::until(w, form.refused)),
-        chosen.map_or(0, |w| w.wrong_tries),
-        cx.now.timestamp(),
-    );
-    let paused = pause::left(pause_end, cx.now.timestamp());
-    let wrong_tries = chosen.map_or(0, |w| w.wrong_tries);
+    // A chosen wallet alone counts: with none, no refusal stands for one either.
+    let gate = match chosen {
+        Some(w) => {
+            secret_password::Gate::of(Some(w), form.refused, &mut form.cut, cx.now.timestamp())
+        }
+        None => secret_password::Gate::default(),
+    };
+    let paused = gate.left;
     let height = height + if paused.is_some() { 96.0 } else { 0.0 };
     // The plate replaces "Wrong password", which does not come back when the pause ends (AC-D5).
     if paused.is_some() {
@@ -184,10 +185,7 @@ pub fn unlock(
                             field.request_focus();
                         }
                         let entered = field.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter));
-                        pause_lines(ui, a, form.error.as_deref(), wrong_tries, paused, pause_end);
-                        if paused.is_some() {
-                            pause::tick(ui, cx.now);
-                        }
+                        secret_password::lines(ui, a, &gate, form.error.as_deref(), cx.now);
                         // Below 640 px, 20 from the password to «Open» (FEAT-0037: «Open» under
                         // three wallets in 800×440 is in sight with the mainnet band too).
                         ui.add_space(if low { -6.0 } else { 6.0 });
@@ -198,11 +196,15 @@ pub fn unlock(
                             (false, true) => tr!("Open").to_owned(),
                             (false, false) => tr!("Open the wallet").to_owned(),
                         };
-                        let mut button =
-                            button_enabled(ui, a, &label, ButtonKind::Primary, Some(column), ready);
-                        if let Some(secs) = paused {
-                            button = pause::explain(ui, button, secs);
-                        }
+                        let button = secret_password::send_button(
+                            ui,
+                            a,
+                            &label,
+                            ButtonKind::Primary,
+                            Some(column),
+                            ready,
+                            &gate,
+                        );
                         let clicked = button.clicked();
                         if ready && (clicked || entered) {
                             // The password goes to the core and is wiped here at once.
@@ -282,54 +284,6 @@ pub fn unlock(
         && delete_dialog(ui, a, cx, forgot, None, false, false)
     {
         form.forgot = None;
-    }
-}
-
-/// Under the password field (FEAT-0002): in a pause its plate alone; else the red error, the
-/// warning after the 3rd and 4th wrong password, and after a pause what the next one costs.
-/// Shared with "Open "…"".
-pub(super) fn pause_lines(
-    ui: &mut Ui,
-    a: &mut Assets,
-    error: Option<&str>,
-    wrong_tries: u32,
-    paused: Option<u64>,
-    pause_end: Option<Timestamp>,
-) {
-    if let Some(secs) = paused {
-        pause::plate(ui, a, secs, pause_end.unwrap_or_default());
-        return;
-    }
-    // The error's line is kept from the start, empty, so that «Wrong password» moves nothing
-    // under it when it comes (FEAT-0034 item 8).
-    match error {
-        Some(error) => {
-            ui.label(txt(error, 12.0, Weight::Regular, a.p.danger));
-        }
-        None => {
-            // As tall as the error's own label would be.
-            let line = egui::WidgetText::from(txt(
-                tr!("Wrong password"),
-                12.0,
-                Weight::Regular,
-                a.p.danger,
-            ))
-            .into_galley(
-                ui,
-                Some(egui::TextWrapMode::Extend),
-                f32::INFINITY,
-                egui::TextStyle::Body,
-            )
-            .size()
-            .y;
-            ui.allocate_space(egui::vec2(0.0, line));
-        }
-    }
-    if let Some(warning) = pause::warning(wrong_tries) {
-        pause::warning_line(ui, a, &warning);
-    }
-    if let Some(after) = pause::after(wrong_tries) {
-        pause::after_line(ui, a, &after);
     }
 }
 

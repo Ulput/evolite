@@ -5,7 +5,7 @@ use super::{PhraseCheckForm, SettingsState};
 use crate::components::text;
 use crate::components::{
     Assets, ButtonKind, FieldKind, Part, button, button_enabled, button_row, dialog,
-    dialog_with_footer, field_label, notice, text_field,
+    dialog_with_footer, field_label, notice, secret_password, text_field,
 };
 use crate::context::Ctx;
 use crate::text;
@@ -317,6 +317,13 @@ pub(super) fn check_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mu
                             "evolite asks for four words of your phrase by number — pick each from three choices. The phrase itself is never shown."
                         ),
                     );
+                    // SEC-11: the open wallet's password, counted with the unlock's.
+                    let gate = secret_password::Gate::of(
+                        cx.snap.wallets.iter().find(|w| w.open),
+                        secret_password::refused(form.error.as_ref()),
+                        &mut form.cut,
+                        cx.now.timestamp(),
+                    );
                     ui.vertical(|ui| {
                         ui.spacing_mut().item_spacing.y = 6.0;
                         field_label(ui, &p, tr!("Wallet password"));
@@ -334,10 +341,8 @@ pub(super) fn check_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mu
                             form.error = None;
                         }
                         // BUG-203 r3: the pause as the unlock says it, not «the vault did not
-                        // open»; over, nothing is said and the password can go again.
-                        if let Some(CoreError::TooManyTries { until }) = &form.error {
-                            paused_plate(ui, a, cx, *until);
-                        }
+                        // open»; over, nothing is said and the password can go again. SEC-11:
+                        // with the warning before it and the button held while it lasts.
                         let line = match &form.error {
                             Some(CoreError::WrongPassword) => {
                                 Some(tr!("Wrong password").to_string())
@@ -347,9 +352,7 @@ pub(super) fn check_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mu
                             Some(_) => Some(tr!("The vault did not open").to_string()),
                             None => None,
                         };
-                        if let Some(line) = line {
-                            ui.label(text(&line, SMALL, p.danger));
-                        }
+                        secret_password::lines(ui, a, &gate, line.as_deref(), cx.now);
                     });
                     button_row(ui, |ui| {
                         close = button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked();
@@ -358,13 +361,14 @@ pub(super) fn check_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mu
                         } else {
                             tr!("Start")
                         };
-                        ask |= button_enabled(
+                        ask |= secret_password::send_button(
                             ui,
                             a,
                             label,
                             ButtonKind::Primary,
                             None,
                             !form.password.is_empty() && !form.waiting,
+                            &gate,
                         )
                         .clicked();
                     });
@@ -418,13 +422,24 @@ pub(super) fn phrase_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &m
             if part == Part::Footer {
                 // The footer (BUG-122): always in the window.
                 let mut close = false;
+                // another wallet's phrase asks that wallet's password.
+                let other = state
+                    .phrase_wallet
+                    .as_ref()
+                    .and_then(|id| cx.snap.wallets.iter().find(|w| &w.id == id && !w.open));
+                // SEC-11: that wallet's pause, or the open one's, as its unlock counts it.
+                let refused = match &state.revealed {
+                    Some(Err(e)) => secret_password::refused(Some(e)),
+                    _ => None,
+                };
+                let gate = secret_password::Gate::of(
+                    other.or_else(|| cx.snap.wallets.iter().find(|w| w.open)),
+                    refused,
+                    &mut state.phrase_cut,
+                    cx.now.timestamp(),
+                );
                 ui.vertical(|ui| {
                     ui.spacing_mut().item_spacing.y = 6.0;
-                    // another wallet's phrase asks that wallet's password.
-                    let other = state
-                        .phrase_wallet
-                        .as_ref()
-                        .and_then(|id| cx.snap.wallets.iter().find(|w| &w.id == id && !w.open));
                     match other {
                         Some(w) => field_label(
                             ui,
@@ -446,10 +461,6 @@ pub(super) fn phrase_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &m
                     {
                         state.revealed = None;
                         state.revealed_at = None;
-                    }
-                    // BUG-203 r3: the pause as the unlock says it.
-                    if let Some(Err(CoreError::TooManyTries { until })) = &state.revealed {
-                        paused_plate(ui, a, cx, *until);
                     }
                     let answer = match &state.revealed {
                         Some(Err(CoreError::TooManyTries { .. })) => None,
@@ -496,10 +507,18 @@ pub(super) fn phrase_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &m
                                 crate::secret_words::toggle(ui, a, &mut state.phrase_reading);
                             }
                         }
+                        // BUG-203 r3, SEC-11: the pause as the unlock says it, with the warning
+                        // before it; a grey answer (no phrase here) is no fault of the password.
                         _ => {
-                            if let Some((line, color)) = answer {
-                                ui.label(text(&line, SMALL, color));
-                            }
+                            let error = match answer {
+                                Some((line, color)) if color == p.danger => Some(line),
+                                Some((line, color)) => {
+                                    ui.label(text(&line, SMALL, color));
+                                    None
+                                }
+                                None => None,
+                            };
+                            secret_password::lines(ui, a, &gate, error.as_deref(), cx.now);
                         }
                     }
                     if let Some(left) = left.filter(|l| !l.is_zero()) {
@@ -515,13 +534,14 @@ pub(super) fn phrase_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &m
                         close = true;
                     }
                     let ready = !state.password.is_empty();
-                    if button_enabled(
+                    if secret_password::send_button(
                         ui,
                         a,
                         tr!("Show for 60 seconds"),
                         ButtonKind::Primary,
                         None,
                         ready,
+                        &gate,
                     )
                     .clicked()
                     {
@@ -554,16 +574,6 @@ pub(super) fn phrase_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &m
         state.revealed = None;
         state.revealed_at = None;
         state.password.zeroize();
-    }
-}
-
-/// A password refused in a pause (BUG-203 r3): the unlock's plate, why and the countdown, while
-/// it lasts; nothing once it is over.
-fn paused_plate(ui: &mut Ui, a: &mut Assets, cx: &Ctx, until: Timestamp) {
-    if let Some(secs) = crate::screens::pause::left(Some(until), cx.now.timestamp()) {
-        crate::screens::pause::plate(ui, a, secs, until);
-        ui.ctx()
-            .request_repaint_after(std::time::Duration::from_secs(1));
     }
 }
 

@@ -16,6 +16,7 @@ mod para;
 mod progress;
 mod qr;
 mod rows;
+pub mod secret_password;
 mod spend_password;
 
 pub use avatar::*;

@@ -105,6 +105,8 @@ pub struct SettingsState {
     /// phrase», each for one showing.
     pub phrase_reading: crate::secret_words::Reading,
     pub check_reading: crate::secret_words::Reading,
+    /// SEC-11: «Show the phrase»'s pause after wrong passwords, as the unlock's.
+    pub phrase_cut: crate::screens::pause::Cut,
     /// "Sync again" is open.
     pub resync: Option<resync::ResyncForm>,
     /// "Password for every payment" being turned off: the password it needs (BUG-42).
@@ -173,6 +175,8 @@ pub struct PhraseCheckForm {
     pub verdict: Option<Option<usize>>,
     /// Why the words could not be asked (a wrong password).
     pub error: Option<CoreError>,
+    /// SEC-11: the wallet's pause after wrong passwords, counted down as the unlock does.
+    pub cut: crate::screens::pause::Cut,
 }
 
 /// The change-password dialog. What is typed is wiped when it goes to the core or the dialog
@@ -245,6 +249,7 @@ impl SettingsState {
             visits: Default::default(),
             check: None,
             phrase_reading: Default::default(),
+            phrase_cut: Default::default(),
             check_reading: Default::default(),
             resync: None,
             each_off: None,

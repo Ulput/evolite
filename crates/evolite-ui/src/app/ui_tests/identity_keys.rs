@@ -785,3 +785,55 @@ fn a_wrong_password_is_no_send() {
             .is_some()
     );
 }
+
+/// SEC-11: the key window's password is counted with the unlock's. After the free tries the
+/// warning comes, then the pause: its plate with the countdown, and «Show the key» held, saying
+/// why, as on the unlock.
+#[test]
+fn wrong_passwords_in_the_key_window_pause_it_as_the_unlock_does() {
+    let (_turn, mut kit) = k1("identity-keys");
+    kit.get_by_role_and_label(Role::Button, "Key 2 — actions")
+        .click();
+    kit.run_steps(3);
+    button(&kit, "Show the private key").click();
+    kit.run_steps(3);
+    kit.get_by_role(Role::PasswordInput)
+        .type_text(evolite_core::DEMO_WRONG_PASSWORD);
+    kit.get_by(|n| {
+        n.label()
+            .is_some_and(|l| l.starts_with("I understand: this key"))
+    })
+    .click();
+    kit.run_steps(3);
+    let waiting = |k: &Kit| {
+        k.state()
+            .identity_keys
+            .reveal
+            .as_ref()
+            .is_some_and(|r| r.waiting)
+    };
+    let mut warned = false;
+    for _ in 0..10 {
+        if has_words(&kit, "Too many wrong passwords") {
+            break;
+        }
+        button(&kit, "Show the key").click();
+        kit.run_steps(2);
+        wait_for(&mut kit, "the answer", |k| !waiting(k));
+        kit.run_steps(2);
+        warned |= has_words(&kit, "attempt");
+    }
+    assert!(warned, "the warning before the pause");
+    assert!(
+        has_words(&kit, "Too many wrong passwords"),
+        "the pause's plate"
+    );
+    let show = button(&kit, "Show the key");
+    assert!(show.accesskit_node().is_disabled(), "held in the pause");
+    assert!(
+        show.accesskit_node()
+            .description()
+            .is_some_and(|d| !d.is_empty()),
+        "and says why"
+    );
+}

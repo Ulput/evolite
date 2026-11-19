@@ -727,7 +727,12 @@ impl Mock {
                 identity,
                 key_id,
                 password,
-            } => Event::IdentityKeyRevealed(self.reveal_identity_key(identity, key_id, &password)),
+            } => {
+                let revealed = self.reveal_identity_key(identity, key_id, &password);
+                // SEC-11: the wrong passwords counted, as the unlock shows them.
+                changed = true;
+                Event::IdentityKeyRevealed(revealed)
+            }
             // FEAT-0020: the example identity is as Platform has it.
             Command::ReadIdentityKeys { .. } => Event::Done {
                 what: DoneWhat::KeysRead,

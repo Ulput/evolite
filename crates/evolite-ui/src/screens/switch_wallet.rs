@@ -4,8 +4,8 @@
 
 use super::{pause, txt};
 use crate::components::{
-    Assets, ButtonKind, FieldKind, button, button_enabled, button_row, dialog_with_header,
-    field_label, notice, paint_wallet_dot, text_field,
+    Assets, ButtonKind, FieldKind, button, button_row, dialog_with_header, field_label, notice,
+    paint_wallet_dot, secret_password, text_field,
 };
 use crate::context::Ctx;
 use crate::i18n::own;
@@ -125,29 +125,23 @@ pub fn switch_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut Switc
                     field.request_focus();
                 }
                 // The wallet's pause (FEAT-0002): its plate in place of the catching-up note.
-                let pause_end = form.cut.end(
-                    pause::until(target, form.refused),
-                    target.wrong_tries,
+                let gate = secret_password::Gate::of(
+                    Some(target),
+                    form.refused,
+                    &mut form.cut,
                     cx.now.timestamp(),
                 );
-                let paused = pause::left(pause_end, cx.now.timestamp());
+                let paused = gate.left;
                 if paused.is_some() {
                     form.error = None;
                 }
-                super::unlock::pause_lines(
-                    ui,
-                    a,
-                    form.error.as_deref(),
-                    target.wrong_tries,
-                    None,
-                    None,
-                );
+                secret_password::under_field(ui, a, form.error.as_deref(), gate.wrong_tries);
                 // The line kept for the error is the gap to the note, about 23 px, not added to
                 // a gap of its own (designer, FEAT-0034 item 8 r1).
                 ui.add_space(-4.0);
                 match paused {
                     Some(secs) => {
-                        pause::plate(ui, a, secs, pause_end.unwrap_or_default());
+                        pause::plate(ui, a, secs, gate.end.unwrap_or_default());
                         pause::tick(ui, cx.now);
                     }
                     None => notice(
@@ -165,11 +159,16 @@ pub fn switch_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut Switc
                         close = true;
                     }
                     let label = if form.waiting { tr!("Opening…") } else { tr!("Open") };
-                    let mut open = button_enabled(ui, a, label, ButtonKind::Primary, None, ready);
-                    if let Some(secs) = paused {
-                        open = pause::explain(ui, open, secs);
-                    }
-                    let open = open.clicked();
+                    let open = secret_password::send_button(
+                        ui,
+                        a,
+                        label,
+                        ButtonKind::Primary,
+                        None,
+                        ready,
+                        &gate,
+                    )
+                    .clicked();
                     if ready && open {
                         // The password goes to the core and is wiped here at once.
                         cx.send(Command::SwitchWallet {
