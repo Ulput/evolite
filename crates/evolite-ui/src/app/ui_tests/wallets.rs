@@ -321,3 +321,62 @@ fn another_wallet_starts_history_from_all() {
     assert_eq!(kit.state().history.filters, Filters::default());
     assert!(kit.state().history.query.is_empty());
 }
+
+/// BUG-214 (the review's scenario 10): a wallet switch while a pool move, a new identity and a
+/// Platform address top-up wait for their answers — Main's answers, coming late, are shown in
+/// none of Savings' windows, and every one of them is ready again.
+#[test]
+fn a_wallet_switch_mid_spend_shows_none_of_the_first_ones_answers() {
+    let (_turn, mut kit) = demo_app("overview", "en");
+    wait_for(&mut kit, "Main open", |kit| {
+        open_wallet(kit).as_deref() == Some("a1b2c3d4")
+    });
+    let ask = |command: Option<Command>| match command {
+        Some(Command::Spend { ask, .. }) => Some(ask),
+        _ => None,
+    };
+    let app = kit.state_mut();
+    let pool = ask(app.pool.flow.command(
+        evolite_api::Spend::Unshield { amount: 100_000 },
+        false,
+        screens::shielded::PoolMove::Unshield,
+    ));
+    let identity = ask(app.create_identity.flow.command(
+        evolite_api::Spend::CreateIdentity {
+            name: None,
+            top_up: 100_000,
+        },
+        false,
+        (),
+    ));
+    let fund = ask(app.fund_address.flow.command(
+        evolite_api::Spend::FundAddress { amount: 100_000 },
+        false,
+        100_000,
+    ));
+    assert!(pool.is_some() && identity.is_some() && fund.is_some());
+
+    kit.state_mut().core.send(Command::SwitchWallet {
+        id: SAVINGS.into(),
+        password: Some(Password::new("savings-password".into())),
+    });
+    wait_for(&mut kit, "Savings open", |kit| {
+        open_wallet(kit).as_deref() == Some(SAVINGS)
+    });
+    kit.run_steps(2);
+    // Main's answers, late.
+    let app = kit.state_mut();
+    app.pool
+        .on_done(pool, screens::shielded::PoolMove::Unshield, &Ok(()));
+    app.create_identity.on_done(identity, &Ok(()));
+    app.fund_address.on_done(fund, &Ok(()));
+    kit.run_steps(2);
+    let app = kit.state();
+    assert!(app.pool.result.is_none(), "Main's pool move");
+    assert!(app.create_identity.result.is_none(), "Main's identity");
+    assert!(app.fund_address.result().is_none(), "Main's top-up");
+    assert!(app.pool.flow.can_act(), "the pool ready");
+    assert!(app.create_identity.flow.can_act(), "a new identity ready");
+    assert!(app.fund_address.flow.can_act(), "the top-up ready");
+    assert_eq!(app.fund_address.running(), None, "no top-up running");
+}

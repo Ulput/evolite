@@ -318,4 +318,74 @@ mod tests {
             assert!(flow.can_act(), "closed: a new window");
         }
     }
+
+    /// The files that may build a `Command::Spend`: the flow, its password, and Send's own
+    /// two (answered by `Event::Sent` with its own number).
+    const SPEND_BUILDERS: &[&str] = &[
+        "components/spend_flow.rs",
+        "components/spend_password.rs",
+        "screens/send/confirm.rs",
+        "screens/send/mixed.rs",
+    ];
+
+    /// Other files allowed to build one — `(file, why)`. Empty: every paid window goes
+    /// through [`SpendFlow`].
+    const SPEND_BUILT_ELSEWHERE: &[(&str, &str)] = &[];
+
+    /// TECH-spend-flow review r1, Should: a window that builds its `Command::Spend` itself
+    /// goes around [`SpendFlow`] (a second press sends twice, another's answer is taken). Read
+    /// from the sources: outside the tests, only the files above build one; a new one fails
+    /// here with its file, and a listed exception gone fails too.
+    #[test]
+    fn only_the_flow_builds_a_spend() {
+        let src = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let needle = ["Command::Spend", "{"].concat();
+        let mut found = Vec::new();
+        let mut dirs = vec![src.clone()];
+        while let Some(dir) = dirs.pop() {
+            for entry in std::fs::read_dir(&dir).expect("a source folder").flatten() {
+                let path = entry.path();
+                let rel = path
+                    .strip_prefix(&src)
+                    .unwrap()
+                    .to_string_lossy()
+                    .replace('\\', "/");
+                if path.is_dir() {
+                    // The kittests are tests through and through.
+                    if rel != "app/ui_tests" {
+                        dirs.push(path);
+                    }
+                    continue;
+                }
+                if path.extension().is_none_or(|x| x != "rs") {
+                    continue;
+                }
+                let text = std::fs::read_to_string(&path).expect("a source file");
+                // The code before the file's own test module, without spaces and line breaks.
+                let compact: String = text.chars().filter(|c| !c.is_whitespace()).collect();
+                let code = compact.split("#[cfg(test)]mod").next().unwrap_or_default();
+                if code.contains(&needle) {
+                    found.push(rel);
+                }
+            }
+        }
+        let allowed: Vec<&str> = SPEND_BUILDERS
+            .iter()
+            .copied()
+            .chain(SPEND_BUILT_ELSEWHERE.iter().map(|(f, _)| *f))
+            .collect();
+        let new: Vec<_> = found
+            .iter()
+            .filter(|f| !allowed.contains(&f.as_str()))
+            .collect();
+        assert!(
+            new.is_empty(),
+            "a Command::Spend built outside SpendFlow — use the flow, or list it with its reason: {new:?}"
+        );
+        let gone: Vec<_> = allowed
+            .iter()
+            .filter(|a| !found.iter().any(|f| f == *a))
+            .collect();
+        assert!(gone.is_empty(), "listed but builds none: {gone:?}");
+    }
 }
