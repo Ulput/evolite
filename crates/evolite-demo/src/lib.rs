@@ -171,6 +171,8 @@ impl Mock {
                 seq,
                 result: Ok(answers::suggest(&prefix)),
             },
+            // The example network's profiles have no pictures: the switch changes nothing here.
+            Command::StrangerPictures { .. } => return changed,
             Command::ResolveName { name } => {
                 let contacts = self
                     .snapshot

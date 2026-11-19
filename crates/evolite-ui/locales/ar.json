@@ -2387,5 +2387,7 @@
   "No names starting with “{}”": "لا أسماء تبدأ بـ «{}»",
   "Your identity": "هويتك",
   "{} suggestion|{} suggestions": {"zero":"لا اقتراحات","one":"اقتراح واحد","two":"اقتراحان","few":"{} اقتراحات","many":"{} اقتراحًا","other":"{} اقتراح"},
-  "The phrase was taken off the clipboard.": "أُزيلت العبارة من الحافظة."
+  "The phrase was taken off the clipboard.": "أُزيلت العبارة من الحافظة.",
+  "Strangers' pictures in name suggestions": "صور الغرباء في اقتراحات الأسماء",
+  "Off: pictures only of your contacts. On: evolite loads strangers' avatars from their servers, and those servers see your IP and which names you look at.": "إيقاف: صور جهات اتصالك فقط. تشغيل: يحمّل evolite صور الغرباء من خوادمهم، وترى تلك الخوادم عنوان IP الخاص بك والأسماء التي تنظر إليها."
 }

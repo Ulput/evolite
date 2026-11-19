@@ -91,7 +91,12 @@ pub fn rank(
     };
     // (group, last payment for contacts, the name's form) and the row.
     let mut all: Vec<(Group, Option<Timestamp>, String, Row)> = Vec::new();
-    let mut push = |group: Group, paid: Option<Timestamp>, label: &str, id: &str, display| {
+    let mut push = |group: Group,
+                    paid: Option<Timestamp>,
+                    label: &str,
+                    id: &str,
+                    display,
+                    picture: Option<String>| {
         let form = search_key(label).unwrap_or_default();
         let by_name = form.starts_with(&key);
         let group = if form == key { Group::Exact } else { group };
@@ -106,7 +111,9 @@ pub fn rank(
                 display: contact.and_then(|c| c.profile.display.clone()).or(display),
                 tag: tag_of(id),
                 matched: if by_name { key.chars().count() } else { 0 },
-                picture: contact.and_then(|c| c.profile.avatar.clone()),
+                // A contact's from the snapshot; a stranger's only as the core brought it
+                // (the switch on, the hash checked).
+                picture: contact.and_then(|c| c.profile.avatar.clone()).or(picture),
             },
         ));
     };
@@ -124,7 +131,7 @@ pub fn rank(
             } else {
                 Group::ContactByProfile
             };
-            push(group, c.last_payment, label, &c.identity_id, None);
+            push(group, c.last_payment, label, &c.identity_id, None, None);
         }
     }
     if place == Place::Send {
@@ -132,7 +139,7 @@ pub fn rank(
             if let Some(label) = i.name.as_deref()
                 && search_key(label).is_some_and(|f| f.starts_with(&key))
             {
-                push(Group::Own, None, label, &i.id, None);
+                push(Group::Own, None, label, &i.id, None, None);
             }
         }
     }
@@ -150,6 +157,7 @@ pub fn rank(
                 &n.label,
                 &n.identity_id,
                 n.display_name.clone(),
+                n.picture.clone(),
             );
         }
     }
@@ -206,6 +214,7 @@ mod tests {
             label: label.into(),
             identity_id: id.into(),
             display_name: None,
+            picture: None,
         }
     }
 
@@ -297,6 +306,20 @@ mod tests {
         let rows = rank("sat", Place::Send, &contacts, &[own("satoshi")], &network);
         assert_eq!(labels(&rows), ["sato", "satoshi", "satoshi-fan"]);
         assert_eq!(rows[1].tag, Tag::Own);
+    }
+
+    /// AC-A10: a stranger's picture is the one the core brought; a contact's is the snapshot's.
+    #[test]
+    fn a_strangers_picture_comes_from_the_core_a_contacts_from_the_snapshot() {
+        let mut stranger = net("alina", "s");
+        stranger.picture = Some("avatar:s:1".into());
+        let mut known = contact("alice", None, None);
+        known.profile.avatar = Some("avatar:c:2".into());
+        let mut also = net("alice", "id-alice");
+        also.picture = Some("avatar:other".into());
+        let rows = rank("ali", Place::Send, &[known], &[], &[stranger, also]);
+        let pictures: Vec<_> = rows.iter().map(|r| r.picture.as_deref()).collect();
+        assert_eq!(pictures, [Some("avatar:c:2"), Some("avatar:s:1")]);
     }
 
     /// At most five; a contact not established is a stranger.

@@ -230,6 +230,7 @@ impl NameSuggest {
         field: egui::Id,
         typed: &str,
         rows: &[Row],
+        send: &mut impl FnMut(Command),
     ) -> Option<Row> {
         let ctx = ui.ctx().clone();
         self.shown = false;
@@ -307,7 +308,7 @@ impl NameSuggest {
                             node.set_live(egui::accesskit::Live::Polite);
                         });
                         for (i, row) in rows.iter().enumerate() {
-                            let resp = self.row(ui, a, field, i, row);
+                            let resp = self.row(ui, a, field, i, row, send);
                             if resp.hovered() {
                                 self.selected = Some(i);
                             }
@@ -389,7 +390,15 @@ impl NameSuggest {
 
     /// One row: the picture, the @name with the matched part SemiBold, the profile's name under
     /// it, the tag on the right. Not a Tab stop: the focus stays in the field.
-    fn row(&self, ui: &mut Ui, a: &mut Assets, field: egui::Id, i: usize, row: &Row) -> Response {
+    fn row(
+        &self,
+        ui: &mut Ui,
+        a: &mut Assets,
+        field: egui::Id,
+        i: usize,
+        row: &Row,
+        send: &mut impl FnMut(Command),
+    ) -> Response {
         let p = a.p;
         let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), ROW), Sense::hover());
         let resp = ui.interact(rect, row_id(field, i), Sense::CLICK);
@@ -402,7 +411,7 @@ impl NameSuggest {
             pos2(rect.left() + 10.0 + 14.0, rect.center().y),
             vec2(28.0, 28.0),
         );
-        let mut drop = |_c: Command| {};
+        // A picture not drawn yet is asked of the core's renderer (`DrawArt`), as everywhere.
         super::avatar(
             ui,
             a,
@@ -410,7 +419,7 @@ impl NameSuggest {
             &row.identity_id,
             &row.label,
             row.picture.as_deref(),
-            &mut drop,
+            send,
         );
         let tag = match row.tag {
             Tag::None => None,
@@ -566,6 +575,7 @@ mod tests {
             label: "alice".into(),
             identity_id: "a".into(),
             display_name: None,
+            picture: None,
         }];
         s3.on_answer(first, &Ok(late));
         assert!(

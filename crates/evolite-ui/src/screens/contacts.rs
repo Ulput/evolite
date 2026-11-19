@@ -888,7 +888,11 @@ fn add_contact(
                     adding.qr_error = None;
                 }
                 let now_typed = adding.name.clone();
-                if let Some(row) = adding.names.show(ui, a, field, &now_typed, &rows) {
+                let mut draw = |c| asked.push(c);
+                if let Some(row) = adding
+                    .names
+                    .show(ui, a, field, &now_typed, &rows, &mut draw)
+                {
                     chosen = Some(row);
                 }
                 if let Some(row) = chosen {

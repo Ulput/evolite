@@ -112,6 +112,7 @@ pub(super) fn security(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut Se
         }
     }
     let mut hide = *state.toggle("hide-amounts");
+    let mut strangers = *state.toggle("stranger-pictures");
     let mut fresh = *state.toggle("new-address");
     let mut clip = *state.toggle("clipboard");
     group(
@@ -125,6 +126,15 @@ pub(super) fn security(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut Se
                     "Balances and history show ••••. The eye button next to an amount switches this too."
                 ),
                 Control::Toggle(&mut hide),
+            ),
+            // FEAT-0039 AC-A10, frame N7: right under «Hide amounts», off by default, the
+            // wallet's own.
+            (
+                tr!("Strangers' pictures in name suggestions"),
+                tr!(
+                    "Off: pictures only of your contacts. On: evolite loads strangers' avatars from their servers, and those servers see your IP and which names you look at."
+                ),
+                Control::Toggle(&mut strangers),
             ),
             (
                 tr!("A new address after each payment"),
@@ -143,6 +153,7 @@ pub(super) fn security(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut Se
         ],
     );
     *state.toggle("hide-amounts") = hide;
+    *state.toggle("stranger-pictures") = strangers;
     *state.toggle("new-address") = fresh;
     *state.toggle("clipboard") = clip;
     let asked = group(

@@ -2302,5 +2302,7 @@
   "No names starting with “{}”": "没有以“{}”开头的名称",
   "Your identity": "你的身份",
   "{} suggestion|{} suggestions": {"other":"{} 个建议"},
-  "The phrase was taken off the clipboard.": "短语已从剪贴板中移除。"
+  "The phrase was taken off the clipboard.": "短语已从剪贴板中移除。",
+  "Strangers' pictures in name suggestions": "在名称建议中显示陌生人的图片",
+  "Off: pictures only of your contacts. On: evolite loads strangers' avatars from their servers, and those servers see your IP and which names you look at.": "关闭：只显示联系人的图片。开启：evolite 从陌生人的服务器加载其头像，这些服务器会看到你的 IP 以及你查看了哪些名称。"
 }

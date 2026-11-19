@@ -143,6 +143,10 @@ struct State {
     running: usize,
 }
 
+/// How many downloads started (tests: a guard that nothing was asked of a picture's host).
+#[cfg(test)]
+pub static DOWNLOADS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
 /// At most this many downloads at a time: a burst of profiles waits for the next snapshot
 /// instead of starting a thread each.
 const MAX_DOWNLOADS: usize = 4;
@@ -184,6 +188,39 @@ impl Avatars {
         hash: Option<[u8; 32]>,
         ready: impl Fn() + Send + 'static,
     ) -> Option<String> {
+        self.fetch(id, url, hash, ready, None)
+    }
+
+    /// [`Self::want`] while `keep` holds (FEAT-0039, strangers' pictures in the suggestions):
+    /// nothing starts once it is off, and a download that ends after it went off is not kept —
+    /// tried again only when asked again.
+    pub fn want_while(
+        &self,
+        id: &str,
+        url: &str,
+        hash: [u8; 32],
+        ready: impl Fn() + Send + 'static,
+        keep: Arc<std::sync::atomic::AtomicBool>,
+    ) -> Option<String> {
+        self.fetch(id, Some(url), Some(hash), ready, Some(keep))
+    }
+
+    /// The key of `id`'s picture by this link and hash when it is here; never downloads.
+    pub fn here(&self, id: &str, url: &str, hash: &[u8; 32]) -> Option<String> {
+        let key = key(id, url.trim(), Some(hash));
+        self.lock().pictures.contains_key(&key).then_some(key)
+    }
+
+    fn fetch(
+        &self,
+        id: &str,
+        url: Option<&str>,
+        hash: Option<[u8; 32]>,
+        ready: impl Fn() + Send + 'static,
+        keep: Option<Arc<std::sync::atomic::AtomicBool>>,
+    ) -> Option<String> {
+        use std::sync::atomic::Ordering::Relaxed;
+        let kept = move || keep.as_ref().is_none_or(|k| k.load(Relaxed));
         let url = url?.trim();
         if !url.starts_with("https://") {
             return None;
@@ -193,6 +230,9 @@ impl Avatars {
             let mut state = self.lock();
             if state.pictures.contains_key(&key) {
                 return Some(key);
+            }
+            if !kept() {
+                return None;
             }
             if state.running >= MAX_DOWNLOADS || state.pictures.len() >= MAX_PICTURES {
                 return None;
@@ -207,8 +247,15 @@ impl Avatars {
         let started = std::thread::Builder::new()
             .name("evolite-avatar".into())
             .spawn(move || {
+                #[cfg(test)]
+                DOWNLOADS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                 let result = download(&url);
                 me.lock().running -= 1;
+                if !kept() {
+                    // Switched off meanwhile: not kept, and asked again only when it is on.
+                    me.lock().tried.remove(&key);
+                    return;
+                }
                 match result {
                     Ok(bytes) if hash.is_none_or(|h| Sha256::digest(&bytes)[..] == h[..]) => {
                         me.lock().pictures.insert(key, bytes.into());

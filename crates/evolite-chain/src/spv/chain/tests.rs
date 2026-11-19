@@ -815,6 +815,88 @@ async fn lock_status_read() {
     assert_eq!(answer(nobody), Some(Answer::NotSeen));
 }
 
+/// FEAT-0039 S1: the name suggestions' two reads on testnet, read-only, proved. A known name
+/// (`EVOLITE_TEST_NAME` in `.env.test.local`) is found by its beginning with the identity
+/// `resolve_name` gives; an answer holds at most 10 names, in DPNS's form order; the profiles of
+/// several identities come in one read, only of the ones asked.
+/// `cargo test -p evolite-chain live_name_suggestions -- --ignored --nocapture`
+#[test]
+#[ignore = "needs testnet access and minutes"]
+fn live_name_suggestions() {
+    std::thread::Builder::new()
+        .stack_size(16 << 20)
+        .spawn(|| {
+            tokio::runtime::Builder::new_multi_thread()
+                .enable_all()
+                .thread_stack_size(8 << 20)
+                .build()
+                .unwrap()
+                .block_on(name_suggestions())
+        })
+        .unwrap()
+        .join()
+        .unwrap();
+}
+
+async fn name_suggestions() {
+    let dir = std::env::temp_dir().join("evolite-live-provider");
+    let paths = ChainPaths {
+        spv: dir.join("spv"),
+        store: dir.join("platform-wallet.db"),
+        core_node: dir.join("core-node.txt"),
+    };
+    let chain = Chain::default();
+    chain
+        .start(&paths, Arc::new(|_: &SyncStatus| {}))
+        .await
+        .expect("chain starts");
+    let started = Instant::now();
+    while !chain.platform_ready() {
+        assert!(
+            started.elapsed() < Duration::from_secs(30 * 60),
+            "not ready"
+        );
+        tokio::time::sleep(Duration::from_secs(2)).await;
+    }
+    let name = crate::test_name("EVOLITE_TEST_NAME");
+    let holder = chain
+        .resolve_name(&name)
+        .await
+        .expect("proved read")
+        .expect("the test name is registered");
+    let key = evolite_common::dpns::search_key(&name).expect("a name");
+    let sorted = |found: &[FoundName]| found.windows(2).all(|w| w[0].normalized <= w[1].normalized);
+    // By its first three characters: at most 10, in order; the name among them unless the page
+    // is full of names before it.
+    let three: String = key.chars().take(3).collect();
+    let found = chain.search_names(&three).await.expect("proved search");
+    println!("«{three}»: {} names", found.len());
+    assert!(found.len() <= NAMES_PER_SEARCH as usize);
+    assert!(sorted(&found), "in DPNS's form order");
+    assert!(found.iter().all(|n| n.normalized.starts_with(&three)));
+    if found.len() < NAMES_PER_SEARCH as usize {
+        assert!(
+            found.iter().any(|n| n.identity_id == holder),
+            "not full: all are here"
+        );
+    }
+    // By the whole name: it is first, with the identity `resolve_name` gives.
+    let found = chain.search_names(&key).await.expect("proved search");
+    assert!(sorted(&found));
+    let first = found.first().expect("the name itself");
+    assert_eq!(first.normalized, key);
+    assert_eq!(first.identity_id, holder);
+    // Profiles: one read for the holder and an identity nobody has.
+    let id = Identifier::from_string(&holder, Encoding::Base58).unwrap();
+    let nobody = Identifier::new([7u8; 32]);
+    let profiles = chain.profiles_of(&[id, nobody]).await.expect("proved read");
+    println!("profiles: {} of 2", profiles.len());
+    assert!(
+        profiles.keys().all(|k| *k == id),
+        "only the identities asked, nobody has none"
+    );
+}
+
 /// Jembe's gifts of a holder on testnet (`EVOLITE_TEST_NAME` in `.env.test.local`, who got
 /// copies at the release): read with proofs, every picture checked against its `imageHash`.
 /// Read-only, no phrase.

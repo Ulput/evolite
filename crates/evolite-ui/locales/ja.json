@@ -2302,5 +2302,7 @@
   "No names starting with “{}”": "「{}」で始まる名前はありません",
   "Your identity": "あなたのアイデンティティ",
   "{} suggestion|{} suggestions": {"other":"{} 件の候補"},
-  "The phrase was taken off the clipboard.": "フレーズをクリップボードから削除しました。"
+  "The phrase was taken off the clipboard.": "フレーズをクリップボードから削除しました。",
+  "Strangers' pictures in name suggestions": "名前候補に知らない人の画像を表示",
+  "Off: pictures only of your contacts. On: evolite loads strangers' avatars from their servers, and those servers see your IP and which names you look at.": "オフ: 連絡先の画像のみ。オン: evolite は知らない人のアバターを相手のサーバーから読み込みます。そのサーバーにはあなたの IP と見ている名前が分かります。"
 }

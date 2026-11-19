@@ -191,6 +191,7 @@ pub fn suggest(prefix: &str) -> Vec<NameSuggestion> {
                     label: label.into(),
                     identity_id: id.into(),
                     display_name: display.map(Into::into),
+                    picture: None,
                 };
                 (key, row)
             })

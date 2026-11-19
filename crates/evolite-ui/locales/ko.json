@@ -2302,5 +2302,7 @@
   "No names starting with “{}”": "«{}»(으)로 시작하는 이름이 없습니다",
   "Your identity": "내 아이덴티티",
   "{} suggestion|{} suggestions": {"other":"추천 {}개"},
-  "The phrase was taken off the clipboard.": "문구를 클립보드에서 지웠습니다."
+  "The phrase was taken off the clipboard.": "문구를 클립보드에서 지웠습니다.",
+  "Strangers' pictures in name suggestions": "이름 추천에 모르는 사람의 사진",
+  "Off: pictures only of your contacts. On: evolite loads strangers' avatars from their servers, and those servers see your IP and which names you look at.": "끄기: 연락처의 사진만 표시합니다. 켜기: evolite가 모르는 사람의 아바타를 그들의 서버에서 불러오며, 그 서버는 내 IP와 내가 보는 이름을 알 수 있습니다."
 }

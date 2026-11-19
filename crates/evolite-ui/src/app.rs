@@ -74,7 +74,7 @@ pub struct App {
     /// The vault as the last snapshot had it: a lock is seen once, when it happens.
     vault: Option<VaultState>,
     /// What the core was last told of "New address…" and "Fiat rate".
-    core_told: Option<(bool, Option<&'static str>)>,
+    core_told: Option<(bool, Option<&'static str>, bool)>,
     /// When the rate was last asked for because Send or «Request an amount» needed it
     /// (FEAT-0008, AC-T4).
     rate_asked: Option<evolite_api::Timestamp>,
@@ -444,10 +444,11 @@ impl App {
         })
     }
 
-    fn core_settings(&self) -> (bool, Option<&'static str>) {
+    fn core_settings(&self) -> (bool, Option<&'static str>, bool) {
         (
             self.settings.is_on("new-address"),
             self.settings.fiat_currency(),
+            self.settings.is_on("stranger-pictures"),
         )
     }
 
@@ -1342,12 +1343,14 @@ impl eframe::App for App {
             }
             self.core_told = Some(self.core_settings());
         } else if self.core_told != Some(self.core_settings()) {
-            let (fresh, currency) = self.core_settings();
+            let (fresh, currency, strangers) = self.core_settings();
             self.core.send(Command::ReceiveAddress { fresh });
             self.core.send(Command::FiatRate {
                 currency: currency.map(str::to_owned),
             });
-            self.core_told = Some((fresh, currency));
+            // Off acts at once: nothing more is downloaded (AC-A10).
+            self.core.send(Command::StrangerPictures { on: strangers });
+            self.core_told = Some((fresh, currency, strangers));
         }
         crate::format::set_display(self.settings.display(snapshot.fiat.as_ref()));
         if let Some((now, ask)) = self.rate_to_ask(snapshot) {

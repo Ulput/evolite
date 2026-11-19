@@ -191,7 +191,7 @@ pub struct PasswordChange {
 const LOCK_AFTER_SECS: [Option<u64>; 4] = [Some(5 * 60), Some(15 * 60), Some(60 * 60), None];
 
 /// Every switch in Settings, by key: the saved file is read against this list only.
-const TOGGLES: [&str; 11] = [
+const TOGGLES: [&str; 12] = [
     "clipboard",
     "fiat-rate",
     "hide-amounts",
@@ -203,6 +203,7 @@ const TOGGLES: [&str; 11] = [
     "own-node",
     "proxy",
     "remind-check",
+    "stranger-pictures",
 ];
 
 impl SettingsState {
@@ -388,7 +389,7 @@ impl SettingsState {
 
     /// The commands that carry these settings to the core: at the start, and again when a new
     /// core takes over the folder (after a deletion).
-    pub fn core_commands(&self) -> [Command; 3] {
+    pub fn core_commands(&self) -> [Command; 4] {
         [
             Command::AutoLock {
                 after_secs: self.auto_lock_secs(),
@@ -398,6 +399,10 @@ impl SettingsState {
             },
             Command::FiatRate {
                 currency: self.fiat_currency().map(str::to_owned),
+            },
+            // FEAT-0039 AC-A10: the wallet's own switch, off unless turned on.
+            Command::StrangerPictures {
+                on: self.is_on("stranger-pictures"),
             },
         ]
     }
@@ -787,15 +792,45 @@ mod tests {
     #[test]
     fn the_core_hears_the_receive_address_and_the_rate() {
         let mut state = SettingsState::new(true, Section::Security, false);
-        let [_, fresh, rate] = state.core_commands();
+        let [_, fresh, rate, _] = state.core_commands();
         assert!(matches!(fresh, Command::ReceiveAddress { fresh: true }));
         assert!(matches!(rate, Command::FiatRate { currency: None }));
         state.set("new-address", false);
         state.set("fiat-rate", true);
         state.fiat_currency = 2;
-        let [_, fresh, rate] = state.core_commands();
+        let [_, fresh, rate, _] = state.core_commands();
         assert!(matches!(fresh, Command::ReceiveAddress { fresh: false }));
         assert!(matches!(rate, Command::FiatRate { currency: Some(c) } if c == "RUB"));
+    }
+
+    /// FEAT-0039 AC-A10: «Strangers' pictures in name suggestions» is off for a new wallet,
+    /// kept in the wallet's part of the settings (not the app's), back to off for another
+    /// wallet, and told to the core.
+    #[test]
+    fn strangers_pictures_are_off_by_default_and_the_wallets_own() {
+        let mut state = SettingsState::new(true, Section::Security, false);
+        assert!(!state.is_on("stranger-pictures"));
+        assert!(matches!(
+            state.core_commands()[3],
+            Command::StrangerPictures { on: false }
+        ));
+        state.set("stranger-pictures", true);
+        assert!(matches!(
+            state.core_commands()[3],
+            Command::StrangerPictures { on: true }
+        ));
+        let saved = state.prefs(&Default::default());
+        let (app, wallet) = crate::prefs::split(&saved);
+        assert!(!app.toggles.contains_key("stranger-pictures"));
+        assert_eq!(wallet.toggles.get("stranger-pictures"), Some(&true));
+        let mut next = SettingsState::new(true, Section::Security, false);
+        next.apply(&saved, &mut Default::default());
+        assert!(next.is_on("stranger-pictures"), "kept across a restart");
+        next.reset_wallet();
+        assert!(
+            !next.is_on("stranger-pictures"),
+            "another wallet starts off"
+        );
     }
 
     #[test]

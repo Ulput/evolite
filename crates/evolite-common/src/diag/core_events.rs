@@ -25,6 +25,7 @@ pub fn command_name(command: &Command) -> &'static str {
         Command::ChangePassword { .. } => "change_password",
         Command::ResolveName { .. } => "resolve_name",
         Command::SuggestNames { .. } => "suggest_names",
+        Command::StrangerPictures { .. } => "stranger_pictures",
         Command::Spend { op, .. } => spend(op),
         Command::SetPasswordEachSend { .. } => "set_password_each_send",
         Command::ReadAppBudgets { .. } => "read_app_budgets",

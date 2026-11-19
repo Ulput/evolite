@@ -2336,5 +2336,7 @@
   "No names starting with “{}”": "Nenhum nome começa com “{}”",
   "Your identity": "Sua identidade",
   "{} suggestion|{} suggestions": {"one":"{} sugestão","many":"{} de sugestões","other":"{} sugestões"},
-  "The phrase was taken off the clipboard.": "A frase foi removida da área de transferência."
+  "The phrase was taken off the clipboard.": "A frase foi removida da área de transferência.",
+  "Strangers' pictures in name suggestions": "Imagens de desconhecidos nas sugestões de nomes",
+  "Off: pictures only of your contacts. On: evolite loads strangers' avatars from their servers, and those servers see your IP and which names you look at.": "Desligado: só imagens dos seus contatos. Ligado: o evolite carrega avatares de desconhecidos dos servidores deles, e esses servidores veem seu IP e quais nomes você olha."
 }

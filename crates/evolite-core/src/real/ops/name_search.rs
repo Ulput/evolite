@@ -2,9 +2,13 @@
 //! their beginning, proved, with the profiles' names of the strangers shown — and a cache for
 //! the session, so a name typed letter by letter costs one or two reads, not one per letter.
 //!
+//! With «Strangers' pictures in name suggestions» on (AC-A10), the strangers' pictures too: only
+//! for the list that stays a second, only with the profile's hash, through the avatars' loader.
+//!
 //! The cache is in memory, of the open wallet: the lock clears it, nothing goes to disk.
 
 use std::collections::HashSet;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Instant;
 
 use super::names;
@@ -12,7 +16,7 @@ use crate::diag::Record;
 use crate::real::*;
 use chain::{FoundName, NAMES_PER_SEARCH};
 
-/// How long a search's answer, and a profile's name, are taken from the cache (architect §3).
+/// How long a search's answer, and a profile, are taken from the cache (architect §3).
 const KEEP: Duration = Duration::from_secs(5 * 60);
 /// The most searches the cache keeps; the oldest goes first.
 const MOST: usize = 200;
@@ -20,6 +24,9 @@ const MOST: usize = 200;
 const WAIT: Duration = Duration::from_secs(5);
 /// How many strangers' profiles are read: the most rows a list shows.
 const SHOWN: usize = 5;
+/// Strangers' pictures wait this long after the last search: only the list that stays is asked
+/// for, not each beginning typed (architect, AC-T2а).
+const SETTLED: Duration = Duration::from_secs(1);
 
 /// A search's answer as kept.
 struct Kept {
@@ -27,21 +34,41 @@ struct Kept {
     at: Instant,
 }
 
-/// The session's searches and the strangers' profile names, and the search under way.
+/// What a stranger's profile gave: its name, and its picture's link with the hash.
+#[derive(Clone)]
+struct Seen {
+    name: Option<String>,
+    /// Only with a hash: without one the host could change the picture after the choice.
+    picture: Option<(String, [u8; 32])>,
+    at: Instant,
+}
+
+/// The session's searches and the strangers' profiles, and the search under way.
 #[derive(Default)]
 pub(in crate::real) struct NameSearch {
     /// By the beginning asked, in DPNS's homograph-safe form.
     searches: HashMap<String, Kept>,
-    /// The profile's name by identity (base58); `None`: read, no name.
-    profiles: HashMap<String, (Option<String>, Instant)>,
+    /// What the profile gave, by identity (base58).
+    profiles: HashMap<String, Seen>,
     /// The search under way: a new one stops it (architect §3).
     running: Option<tokio::task::AbortHandle>,
+    /// Raised by every [`Self::clear`]: a search begun before keeps nothing and says nothing
+    /// after it — `abort` acts only at the task's next `.await`, and a read already back would
+    /// otherwise land in the cleared cache after the lock (review FEAT-0039-1 r1, C1).
+    generation: u64,
+    /// «Strangers' pictures in name suggestions» (AC-A10): off by default, the wallet's own
+    /// switch ([`Command::StrangerPictures`]); a download that ends after it went off is not kept.
+    pub(in crate::real) pictures: Arc<AtomicBool>,
 }
 
 impl NameSearch {
     /// The names for `prefix` without asking the network: its own answer, or — narrowed — the
     /// answer to a shorter beginning that was not full (fewer than [`NAMES_PER_SEARCH`] names
     /// are all there are on it). `None`: the network has to be asked.
+    ///
+    /// The narrowing counts on the SDK keeping every document of the page: it drops a domain
+    /// without `label` or `normalizedLabel` (`document_to_dpns_username`), and then a full page of
+    /// 10 would read as 9 names, «not full». Real domains always have both fields (review C2).
     fn cached(&self, prefix: &str, now: Instant) -> Option<Vec<FoundName>> {
         let fresh = |k: &Kept| now.saturating_duration_since(k.at) < KEEP;
         if let Some(kept) = self.searches.get(prefix).filter(|k| fresh(k)) {
@@ -80,44 +107,83 @@ impl NameSearch {
         }
     }
 
-    /// The profile's name of `id` if read in the last [`KEEP`]: `Some(None)` read and nameless.
-    fn profile(&self, id: &str, now: Instant) -> Option<Option<String>> {
+    /// What `id`'s profile gave, if read in the last [`KEEP`].
+    fn profile(&self, id: &str, now: Instant) -> Option<&Seen> {
         self.profiles
             .get(id)
-            .filter(|(_, at)| now.saturating_duration_since(*at) < KEEP)
-            .map(|(name, _)| name.clone())
+            .filter(|seen| now.saturating_duration_since(seen.at) < KEEP)
     }
 
-    /// Everything goes: the lock, another wallet.
+    /// The pictures to ask for: of the strangers `shown`, those whose profile has a link and a
+    /// hash — none while the switch is off (AC-A8, AC-T2).
+    fn pictures_to_load(&self, shown: &[String], now: Instant) -> Vec<(String, String, [u8; 32])> {
+        if !self.pictures.load(Ordering::Relaxed) {
+            return Vec::new();
+        }
+        shown
+            .iter()
+            .filter_map(|id| {
+                let (url, hash) = self.profile(id, now)?.picture.clone()?;
+                Some((id.clone(), url, hash))
+            })
+            .collect()
+    }
+
+    /// Everything goes: the lock, another wallet. The switch stays: the screen says it again
+    /// when the next wallet's differs.
     pub(in crate::real) fn clear(&mut self) {
         if let Some(running) = self.running.take() {
             running.abort();
         }
+        self.generation += 1;
         self.searches.clear();
         self.profiles.clear();
     }
 }
 
-/// The rows of an answer, with the profiles' names known so far.
-fn rows(names: &[FoundName], search: &NameSearch, now: Instant) -> Vec<NameSuggestion> {
+/// What a profile read gives a stranger's row: the name, and the picture only by https and
+/// with its hash.
+fn seen_of(profile: Option<&platform_wallet::DashPayProfile>, now: Instant) -> Seen {
+    Seen {
+        name: profile.and_then(|p| p.display_name.clone()),
+        picture: profile.and_then(|p| {
+            let url = p.avatar_url.as_deref()?.trim();
+            let hash = p.avatar_hash?;
+            url.starts_with("https://").then(|| (url.to_owned(), hash))
+        }),
+        at: now,
+    }
+}
+
+/// The rows of an answer, with the profiles' names known so far — and, while the switch is on,
+/// the strangers' pictures already here (never a download from here).
+fn rows(
+    names: &[FoundName],
+    search: &NameSearch,
+    avatars: &avatars::Avatars,
+    now: Instant,
+) -> Vec<NameSuggestion> {
+    let on = search.pictures.load(Ordering::Relaxed);
     names
         .iter()
-        .map(|n| NameSuggestion {
-            label: n.label.clone(),
-            identity_id: n.identity_id.clone(),
-            display_name: search.profile(&n.identity_id, now).flatten(),
+        .map(|n| {
+            let seen = search.profile(&n.identity_id, now);
+            NameSuggestion {
+                label: n.label.clone(),
+                identity_id: n.identity_id.clone(),
+                display_name: seen.and_then(|s| s.name.clone()),
+                picture: seen
+                    .and_then(|s| s.picture.as_ref())
+                    .filter(|_| on)
+                    .and_then(|(url, hash)| avatars.here(&n.identity_id, url, hash)),
+            }
         })
         .collect()
 }
 
-/// The strangers a list will show — not contacts, shorter names first, then by the name — whose
-/// profile is not known yet: at most [`SHOWN`]. Contacts' names come from the snapshot.
-fn unknown_strangers(
-    names: &[FoundName],
-    contacts: &HashSet<String>,
-    search: &NameSearch,
-    now: Instant,
-) -> Vec<String> {
+/// The strangers a list will show — not contacts, shorter names first, then by the name, one
+/// per identity — at most [`SHOWN`]. Contacts' names and pictures come from the snapshot.
+fn shown_strangers(names: &[FoundName], contacts: &HashSet<String>) -> Vec<String> {
     let mut strangers: Vec<&FoundName> = names
         .iter()
         .filter(|n| !contacts.contains(&n.identity_id))
@@ -134,13 +200,35 @@ fn unknown_strangers(
             ids.push(n.identity_id.clone());
         }
     }
+    ids
+}
+
+/// Of the strangers shown, those whose profile is not known yet: one `get_profiles` for them.
+fn unknown_strangers(
+    names: &[FoundName],
+    contacts: &HashSet<String>,
+    search: &NameSearch,
+    now: Instant,
+) -> Vec<String> {
+    let mut ids = shown_strangers(names, contacts);
     ids.retain(|id| search.profile(id, now).is_none());
     ids
 }
 
 impl Real {
+    /// [`Command::StrangerPictures`]: the wallet's switch. Off: nothing new is downloaded, and
+    /// what is under way is not kept.
+    pub(in crate::real) fn stranger_pictures(&mut self, on: bool) {
+        self.name_search
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .pictures
+            .store(on, Ordering::Relaxed);
+    }
+
     /// [`Command::SuggestNames`]: from the cache at once when it has the answer, else from the
-    /// network within [`WAIT`] — and then the strangers' profile names in a second answer.
+    /// network within [`WAIT`] — then the strangers' profile names in a second answer, and with
+    /// the switch on their pictures as they come.
     pub(in crate::real) fn suggest_names(&mut self, prefix: String, seq: u64) -> Option<Event> {
         let answer = move |result| Event::NameSuggestions { seq, result };
         let Some(prefix) = evolite_common::dpns::search_key(&prefix)
@@ -160,6 +248,7 @@ impl Real {
             .map(|c| c.identity_id.clone())
             .collect();
         let cached = state.cached(&prefix, now);
+        let generation = state.generation;
         if cached.is_none() && !self.chain.platform_ready() {
             // Platform is still connecting: the screen shows its own rows and says so at once.
             return Some(answer(Err(CoreError::NotSynced)));
@@ -169,9 +258,10 @@ impl Real {
                 found: names.len() as u32,
                 cached: true,
             });
-            answer(Ok(rows(names, &state, now)))
+            answer(Ok(rows(names, &state, &self.avatars, now)))
         });
         let chain = self.chain.clone();
+        let avatars = self.avatars.clone();
         let (out, wake) = (self.out.clone(), self.wake.clone());
         let shared = search.clone();
         let task = tokio::spawn(async move {
@@ -189,13 +279,22 @@ impl Real {
                                 cached: false,
                             });
                             let mut state = shared.lock().unwrap_or_else(|e| e.into_inner());
-                            state.keep(prefix, names.clone(), Instant::now());
-                            let _ = out.send(answer(Ok(rows(&names, &state, Instant::now()))));
+                            if state.generation != generation {
+                                return;
+                            }
+                            let now = Instant::now();
+                            state.keep(prefix, names.clone(), now);
+                            let _ = out.send(answer(Ok(rows(&names, &state, &avatars, now))));
                             drop(state);
                             wake();
                             names
                         }
                         Err(e) => {
+                            let state = shared.lock().unwrap_or_else(|e| e.into_inner());
+                            if state.generation != generation {
+                                return;
+                            }
+                            drop(state);
                             let _ = out.send(answer(Err(read_failure(e))));
                             wake();
                             return;
@@ -203,34 +302,89 @@ impl Real {
                     }
                 }
             };
-            let unknown = {
+            let (shown, unknown) = {
                 let state = shared.lock().unwrap_or_else(|e| e.into_inner());
-                unknown_strangers(&names, &contacts, &state, Instant::now())
+                let now = Instant::now();
+                (
+                    shown_strangers(&names, &contacts),
+                    unknown_strangers(&names, &contacts, &state, now),
+                )
             };
             let ids: Vec<Identifier> = unknown
                 .iter()
                 .filter_map(|id| Identifier::from_string(id, Encoding::Base58).ok())
                 .collect();
-            if ids.is_empty() {
+            if !ids.is_empty() {
+                // Without the names in time the rows stay as they are, without a word
+                // (architect §2).
+                let read = {
+                    let chain = chain.clone();
+                    async move { chain.profiles_of(&ids).await }
+                };
+                let Ok(profiles) = names::read_within(WAIT, read).await else {
+                    return;
+                };
+                let mut state = shared.lock().unwrap_or_else(|e| e.into_inner());
+                if state.generation != generation {
+                    return;
+                }
+                let now = Instant::now();
+                for id in &unknown {
+                    let profile = Identifier::from_string(id, Encoding::Base58)
+                        .ok()
+                        .and_then(|i| profiles.get(&i));
+                    state.profiles.insert(id.clone(), seen_of(profile, now));
+                }
+                let _ = out.send(answer(Ok(rows(&names, &state, &avatars, now))));
+                drop(state);
+                wake();
+            }
+            // AC-A10: the strangers' pictures, only with the switch on and only for the list that
+            // stays — a newer search stops this task during the pause.
+            let gate = shared
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .pictures
+                .clone();
+            if !gate.load(Ordering::Relaxed) {
                 return;
             }
-            // Without the names in time the rows stay as they are, without a word (architect §2).
-            let read = async move { chain.profiles_of(&ids).await };
-            let Ok(profiles) = names::read_within(WAIT, read).await else {
-                return;
+            tokio::time::sleep(SETTLED).await;
+            let to_load = {
+                let state = shared.lock().unwrap_or_else(|e| e.into_inner());
+                if state.generation != generation {
+                    return;
+                }
+                state.pictures_to_load(&shown, Instant::now())
             };
-            let mut state = shared.lock().unwrap_or_else(|e| e.into_inner());
-            let now = Instant::now();
-            for id in &unknown {
-                let name = Identifier::from_string(id, Encoding::Base58)
-                    .ok()
-                    .and_then(|i| profiles.get(&i))
-                    .and_then(|p| p.display_name.clone());
-                state.profiles.insert(id.clone(), (name, now));
+            if to_load.is_empty() {
+                return;
             }
-            let _ = out.send(answer(Ok(rows(&names, &state, now))));
-            drop(state);
-            wake();
+            let again = {
+                let (shared, avatars, names) = (shared.clone(), avatars.clone(), names.clone());
+                let (out, wake) = (out.clone(), wake.clone());
+                Arc::new(move || {
+                    let state = shared.lock().unwrap_or_else(|e| e.into_inner());
+                    // A picture that came after the lock tells the screen nothing.
+                    if state.generation != generation {
+                        return;
+                    }
+                    let rows = rows(&names, &state, &avatars, Instant::now());
+                    drop(state);
+                    let _ = out.send(answer(Ok(rows)));
+                    wake();
+                })
+            };
+            let mut here = false;
+            for (id, url, hash) in to_load {
+                let again = again.clone();
+                here |= avatars
+                    .want_while(&id, &url, hash, move || again(), gate.clone())
+                    .is_some();
+            }
+            if here {
+                again();
+            }
         });
         state.running = Some(task.abort_handle());
         first
@@ -253,6 +407,14 @@ mod tests {
         (0..n)
             .map(|i| found(&format!("ali{i}"), &format!("id{i}")))
             .collect()
+    }
+
+    fn seen(name: Option<&str>, picture: Option<&str>, now: Instant) -> Seen {
+        Seen {
+            name: name.map(Into::into),
+            picture: picture.map(|url| (url.to_owned(), [7; 32])),
+            at: now,
+        }
     }
 
     /// AC-T3: an answer that was not full is all there is on its beginning: «alice» is
@@ -314,7 +476,7 @@ mod tests {
         let now = Instant::now();
         let mut s = NameSearch::default();
         s.keep("b0b".into(), vec![found("bob", "x")], now);
-        s.profiles.insert("x".into(), (Some("Bob".into()), now));
+        s.profiles.insert("x".into(), seen(Some("Bob"), None, now));
         s.clear();
         assert!(s.cached("b0b", now).is_none());
         assert!(s.profile("x", now).is_none());
@@ -326,7 +488,7 @@ mod tests {
     fn profiles_are_read_for_the_strangers_shown_only() {
         let now = Instant::now();
         let mut s = NameSearch::default();
-        s.profiles.insert("known".into(), (None, now));
+        s.profiles.insert("known".into(), seen(None, None, now));
         let names = vec![
             found("alexandra", "long"),
             found("alice", "contact"),
@@ -342,5 +504,82 @@ mod tests {
         let ids = unknown_strangers(&names, &contacts, &s, now);
         // Shown: ali, ala (known), alio, alic, alim — only the unknown are read.
         assert_eq!(ids, ["short", "o", "twice", "m"]);
+    }
+
+    /// AC-A8, AC-T2 (the guard): with the switch off — the default — no picture is asked for;
+    /// on, only the shown strangers' with a hash.
+    #[test]
+    fn pictures_are_asked_for_only_with_the_switch_on_and_a_hash() {
+        let now = Instant::now();
+        let mut s = NameSearch::default();
+        s.profiles.insert(
+            "a".into(),
+            seen(Some("A"), Some("https://pics.example/a.png"), now),
+        );
+        s.profiles.insert("b".into(), seen(Some("B"), None, now));
+        s.profiles.insert(
+            "hidden".into(),
+            seen(None, Some("https://pics.example/h.png"), now),
+        );
+        let shown = ["a".to_string(), "b".to_string()];
+        assert!(
+            s.pictures_to_load(&shown, now).is_empty(),
+            "off by default: nothing asked"
+        );
+        s.pictures.store(true, Ordering::Relaxed);
+        let ids: Vec<_> = s
+            .pictures_to_load(&shown, now)
+            .into_iter()
+            .map(|(id, _, _)| id)
+            .collect();
+        assert_eq!(ids, ["a"], "not «b» (no hash), not one not shown");
+        s.pictures.store(false, Ordering::Relaxed);
+        assert!(s.pictures_to_load(&shown, now).is_empty(), "off at once");
+    }
+
+    /// C1: the clear raises the generation a search began under.
+    #[test]
+    fn a_clear_starts_a_new_generation() {
+        let mut s = NameSearch::default();
+        let before = s.generation;
+        s.clear();
+        assert_eq!(s.generation, before + 1);
+    }
+
+    /// A profile's picture is kept only by https and with its hash; the clear keeps the switch.
+    #[test]
+    fn a_picture_without_a_hash_or_https_is_none() {
+        let now = Instant::now();
+        let mut p = platform_wallet::DashPayProfile {
+            display_name: Some("A".into()),
+            avatar_url: Some("https://pics.example/a.png".into()),
+            ..Default::default()
+        };
+        assert!(seen_of(Some(&p), now).picture.is_none(), "no hash");
+        p.avatar_hash = Some([1; 32]);
+        assert!(seen_of(Some(&p), now).picture.is_some());
+        p.avatar_url = Some("http://pics.example/a.png".into());
+        assert!(seen_of(Some(&p), now).picture.is_none(), "not https");
+        let mut s = NameSearch::default();
+        s.pictures.store(true, Ordering::Relaxed);
+        s.clear();
+        assert!(s.pictures.load(Ordering::Relaxed));
+    }
+
+    /// AC-T2а: a download that ends after the switch went off is not kept — and nothing starts
+    /// while it is off.
+    #[test]
+    fn nothing_is_downloaded_or_kept_with_the_switch_off() {
+        let avatars = avatars::Avatars::default();
+        let off = Arc::new(AtomicBool::new(false));
+        let before = avatars::DOWNLOADS.load(Ordering::Relaxed);
+        let key = avatars.want_while("x", "https://pics.example/x.png", [3; 32], || {}, off);
+        assert!(key.is_none());
+        assert_eq!(avatars::DOWNLOADS.load(Ordering::Relaxed), before);
+        assert!(
+            avatars
+                .here("x", "https://pics.example/x.png", &[3; 32])
+                .is_none()
+        );
     }
 }

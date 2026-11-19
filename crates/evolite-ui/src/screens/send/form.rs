@@ -490,7 +490,8 @@ pub(super) fn form_card(
                 form.qr = None;
             }
             let typed = form.recipient.clone();
-            if let Some(row) = form.names.show(ui, a, to_field, &typed, &rows) {
+            let mut draw = |c| asked.commands.push(c);
+            if let Some(row) = form.names.show(ui, a, to_field, &typed, &rows, &mut draw) {
                 chosen = Some(row);
             }
             if let Some(row) = chosen {

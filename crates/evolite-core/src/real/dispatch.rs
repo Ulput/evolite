@@ -311,6 +311,10 @@ impl Real {
             Command::SuggestNames { prefix, seq } => {
                 return (self.suggest_names(prefix, seq), false);
             }
+            Command::StrangerPictures { on } => {
+                self.stranger_pictures(on);
+                return (None, false);
+            }
             Command::CheckName { label: asked } => return self.check_name(asked).await,
             // FEAT-0021 Should 1: «×» on Overview's notice, kept until the result; no answer.
             Command::CloseNameNotice { identity, label } => {

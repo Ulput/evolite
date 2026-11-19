@@ -2319,5 +2319,7 @@
   "No names starting with “{}”": "«{}» से शुरू होने वाला कोई नाम नहीं",
   "Your identity": "आपकी identity",
   "{} suggestion|{} suggestions": {"one":"{} सुझाव","other":"{} सुझाव"},
-  "The phrase was taken off the clipboard.": "फ़्रेज़ क्लिपबोर्ड से हटा दी गई।"
+  "The phrase was taken off the clipboard.": "फ़्रेज़ क्लिपबोर्ड से हटा दी गई।",
+  "Strangers' pictures in name suggestions": "नाम सुझावों में अजनबियों की तस्वीरें",
+  "Off: pictures only of your contacts. On: evolite loads strangers' avatars from their servers, and those servers see your IP and which names you look at.": "बंद: केवल आपके संपर्कों की तस्वीरें। चालू: evolite अजनबियों के अवतार उनके सर्वर से लोड करता है, और वे सर्वर आपका IP और आप कौन-से नाम देखते हैं, देख सकते हैं।"
 }

@@ -1943,6 +1943,9 @@ pub struct NameSuggestion {
     pub identity_id: String,
     /// The profile's name, once read; `None` before that or without a profile.
     pub display_name: Option<String>,
+    /// A stranger's picture to draw ([`Command::DrawArt`]), once downloaded and matching the
+    /// profile's hash — only with [`Command::StrangerPictures`] on; `None`: the initial.
+    pub picture: Option<String>,
 }
 
 /// A recovery phrase on its way to the screen or back. Wiped on drop (each word, then the
@@ -2063,6 +2066,13 @@ pub enum Command {
     SuggestNames {
         prefix: String,
         seq: u64,
+    },
+    /// Settings › Security › Privacy › «Strangers' pictures in name suggestions» (FEAT-0039
+    /// AC-A10), the wallet's own switch, off by default: on, the suggestions bring the pictures
+    /// of the strangers shown ([`NameSuggestion::picture`]); off, none is downloaded from then
+    /// on and one under way is not kept. No answer.
+    StrangerPictures {
+        on: bool,
     },
     /// Anything that spends the wallet's money or credits, behind one password gate: with
     /// [`Wallet::password_each_send`] on, `password` is checked against the vault before any

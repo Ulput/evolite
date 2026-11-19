@@ -205,3 +205,45 @@ fn add_contact_offers_no_own_identity_and_opens_a_contact() {
         "@alice's card"
     );
 }
+
+/// AC-A10, AC-D7, frame N7: «Strangers' pictures in name suggestions» stands right under
+/// «Hide amounts» in Security, off; switched on, the core is told, and off again at once.
+#[test]
+fn the_strangers_pictures_switch_is_under_hide_amounts_and_reaches_the_core() {
+    let (_turn, mut kit) = demo_app("security", "en");
+    let switch = |kit: &Kit, name: &str| {
+        kit.query_all_by_label(name)
+            .find(|n| n.accesskit_node().role() != Role::Label)
+            .unwrap_or_else(|| panic!("the switch «{name}»"))
+            .rect()
+    };
+    let hide = switch(&kit, "Hide amounts");
+    let pictures = switch(&kit, "Strangers' pictures in name suggestions");
+    let fresh = switch(&kit, "A new address after each payment");
+    assert!(hide.top() < pictures.top() && pictures.top() < fresh.top());
+    assert!(
+        !kit.state().settings.is_on("stranger-pictures"),
+        "off by default"
+    );
+    assert!(has_words(&kit, "those servers see your IP"));
+    let click = |kit: &mut Kit| {
+        kit.query_all_by_label("Strangers' pictures in name suggestions")
+            .find(|n| n.accesskit_node().role() != Role::Label)
+            .expect("the switch")
+            .click();
+        kit.run_steps(3);
+    };
+    click(&mut kit);
+    assert!(kit.state().settings.is_on("stranger-pictures"));
+    assert_eq!(
+        kit.state().core_told.map(|t| t.2),
+        Some(true),
+        "the core is told"
+    );
+    click(&mut kit);
+    assert_eq!(
+        kit.state().core_told.map(|t| t.2),
+        Some(false),
+        "off at once"
+    );
+}
