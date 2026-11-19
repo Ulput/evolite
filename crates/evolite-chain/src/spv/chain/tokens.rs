@@ -308,14 +308,22 @@ fn failure(error: dash_sdk::Error) -> CrawlFailure {
 }
 
 impl Chain {
-    /// The proved answer to one step of the search ([`crawl::Ask`]). One request, no retries and
+    /// The proved answer to one step of the search ([`crawl::Ask`]), with the contracts it read. One request, no retries and
     /// no ban: the search keeps its own pace ([`crate::platform::tokens::pace`]). With it, the
     /// contracts read that carry tokens, as [`Found`]: the search follows the ones the wallet
     /// holds from them, without reading them again (dev2-4).
+    #[allow(clippy::type_complexity)]
     pub async fn crawl_step(
         &self,
         ask: &crate::platform::tokens::crawl::Ask,
-    ) -> Result<(crate::platform::tokens::crawl::Reply<CrawlTokens>, Found), CrawlFailure> {
+    ) -> Result<
+        (
+            crate::platform::tokens::crawl::Reply<CrawlTokens>,
+            Found,
+            Vec<Arc<DataContract>>,
+        ),
+        CrawlFailure,
+    > {
         use crate::platform::tokens::crawl::{Ask, Read, Reply};
         use dash_sdk::RequestSettings;
         use dash_sdk::platform::FetchMany;
@@ -334,6 +342,8 @@ impl Chain {
         settings.retries = Some(0);
         let id = |bytes: &[u8; 32]| Identifier::from(*bytes);
         let mut found = Found::default();
+        // The contracts read with their proofs, for the cache (FEAT-0031 C5).
+        let mut proved: Vec<Arc<DataContract>> = Vec::new();
         // A contract read with its proof: what the crawl keeps of it, and its tokens found.
         let mut read = |id: Identifier, contract: &DataContract| {
             found.add(contract, None);
@@ -365,6 +375,7 @@ impl Chain {
                         CrawlFailure::Failed("a page came without its contracts".into())
                     })?;
                     reads.push(read(k, &contract));
+                    proved.push(Arc::new(contract));
                 }
                 Reply::Pages(reads)
             }
@@ -400,15 +411,22 @@ impl Chain {
                     DataContract::fetch_many_with_metadata(&sdk, ids, Some(settings))
                         .await
                         .map_err(failure)?;
-                Reply::Contracts(
-                    contracts
-                        .into_iter()
-                        .filter_map(|(k, contract)| Some(read(k, &contract?)))
-                        .collect(),
-                )
+                let mut reads = Vec::new();
+                for (k, contract) in contracts {
+                    if let Some(contract) = contract {
+                        reads.push(read(k, &contract));
+                        proved.push(Arc::new(contract));
+                    }
+                }
+                Reply::Contracts(reads)
             }
         };
-        Ok((reply, found))
+        // FEAT-0031 C5: every contract the pass read with its proof is known to the provider now,
+        // and kept by the caller with where the pass stands, in one transaction (condition 10).
+        for contract in &proved {
+            self.register(contract);
+        }
+        Ok((reply, found, proved))
     }
 }
 

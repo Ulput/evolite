@@ -489,6 +489,12 @@ pub fn resync_on_start(paths: &Paths) -> std::io::Result<bool> {
         _ => Ok(()),
     };
     gone(std::fs::remove_dir_all(&paths.chain.spv))?;
+    // FEAT-0031 C5: the network's contracts with it — read again from Platform. Nothing has
+    // opened it yet at this point (review condition 5: an open SQLite file is not deleted on
+    // Windows).
+    if let Some(dir) = evolite_chain::contracts::path_beside_spv(&paths.chain.spv).parent() {
+        gone(std::fs::remove_dir_all(dir))?;
+    }
     for suffix in ["", "-wal", "-shm"] {
         let mut file = paths.chain.store.clone().into_os_string();
         file.push(suffix);

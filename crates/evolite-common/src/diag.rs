@@ -337,6 +337,12 @@ pub enum Record {
         identities: u32,
         ms: u64,
     },
+    /// The network's contracts kept on this computer after a pass (FEAT-0031 C5): how many,
+    /// and the bytes of their bodies. Counts only.
+    ContractsCached {
+        rows: u64,
+        bytes: u64,
+    },
     /// A name search for the suggestions ended (FEAT-0039, AC-A8): how many names, and whether
     /// they came from the session's cache without asking the network. Never the text typed,
     /// the names or the pictures' addresses.
@@ -561,6 +567,9 @@ impl Record {
             }),
             Record::NameSearch { found, cached } => json!({
                 "k": "name_search", "found": found, "cached": cached,
+            }),
+            Record::ContractsCached { rows, bytes } => json!({
+                "k": "contracts_cached", "rows": rows, "bytes": bytes,
             }),
             Record::TokenSearchEnd {
                 contracts,

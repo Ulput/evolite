@@ -21,8 +21,8 @@ pub mod store;
 
 pub use apps::{app_chain, app_chain_v2, app_connect_v2, key_update};
 pub use platform::{
-    dashpay, fund_intents, identity, lock_status, nfts, platform_history, pool, token_history,
-    tokens,
+    contracts, dashpay, fund_intents, identity, lock_status, nfts, platform_history, pool,
+    token_history, tokens,
 };
 pub use spv::{chain, contact_scans, mined, provider, sync, turn};
 pub use store::store_refusal;

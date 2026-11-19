@@ -52,6 +52,9 @@ const IDENTITIES_WAIT: Duration = Duration::from_secs(120);
 /// Requests answered before their pace gives a time (design §T1).
 const PACE_AFTER: u32 = 10;
 
+/// The search's row in the contracts cache's `pass` table (FEAT-0031 C5).
+const PASS_KEY: &str = "token_search";
+
 /// The search: where it stands for the snapshot, and which run is the live one.
 pub(in crate::real) struct Search {
     pub(in crate::real) state: Arc<Mutex<TokenSearch>>,
@@ -476,7 +479,15 @@ impl Real {
             // The pass and its balances, not the waits before it (BUG-137): the identities'
             // lookup has its own guard.
             let _working = works.start(PlatformWork::Tokens);
-            let mut cache: Cache<chain::CrawlTokens> = store::load(&path);
+            // Where the pass stands: the contracts cache's row, kept with its page (FEAT-0031 C5,
+            // condition 10); before there is one, the search's own file.
+            let mut cache: Cache<chain::CrawlTokens> = chain
+                .contracts()
+                .and_then(|c| c.pass(PASS_KEY))
+                .and_then(|b| store::from_bytes(&b))
+                .unwrap_or_else(|| store::load(&path));
+            // The contracts of the steps since the last save, kept with it.
+            let pending: Arc<Mutex<Vec<Arc<dpp::data_contract::DataContract>>>> = Arc::default();
             let started = std::time::Instant::now();
             let now_ms = move || started.elapsed().as_millis() as u64;
             // A: the tokens of each step go to the balances while the contracts are read.
@@ -522,12 +533,17 @@ impl Real {
                 pace::GAP_MS,
                 |ask| {
                     let (chain, found_tx) = (chain.clone(), found_tx.clone());
+                    let pending = pending.clone();
                     async move {
                         match chain.crawl_step(&ask).await {
-                            Ok((reply, found)) => {
+                            Ok((reply, found, proved)) => {
                                 if !found.tokens.is_empty() {
                                     let _ = found_tx.send(found);
                                 }
+                                pending
+                                    .lock()
+                                    .unwrap_or_else(|e| e.into_inner())
+                                    .extend(proved);
                                 Ok(reply)
                             }
                             Err(chain::CrawlFailure::Slow(wait)) => Err(run::Failure::Slow(wait)),
@@ -551,6 +567,20 @@ impl Real {
                     refresh();
                 },
                 |c| {
+                    // FEAT-0031 C5 (condition 10, BUG-238): the page's contracts and where the
+                    // pass stands in one transaction; a cut keeps neither. The file after it, for
+                    // the first display before the cache opens.
+                    let proved =
+                        std::mem::take(&mut *pending.lock().unwrap_or_else(|e| e.into_inner()));
+                    if let (Some(contracts), Ok(bytes)) = (chain.contracts(), store::to_bytes(c)) {
+                        let now = evolite_common::wall_secs() as i64;
+                        if contracts
+                            .put_with_pass(proved, now, Some((PASS_KEY, &bytes)))
+                            .is_err()
+                        {
+                            return;
+                        }
+                    }
                     let _ = store::save(&path, c);
                 },
             )
@@ -620,6 +650,11 @@ impl Real {
                     identities: identities.len() as u32,
                     ms: now_ms(),
                 });
+                // FEAT-0031 C5 (review condition 4): what the contracts cache holds after it.
+                if let Some(cache) = chain.contracts() {
+                    let (rows, bytes) = cache.counts();
+                    diag::record(Record::ContractsCached { rows, bytes });
+                }
             }
             set(&state, |s| {
                 s.stage = SearchStage::Contracts;

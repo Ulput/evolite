@@ -1,6 +1,7 @@
 //! What is read from Platform and sent to it: identities, DashPay, NFTs, its history and the
 //! shielded pool.
 
+pub mod contracts;
 pub mod dashpay;
 pub mod fund_intents;
 pub mod identity;

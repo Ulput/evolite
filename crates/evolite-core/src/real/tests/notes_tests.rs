@@ -22,6 +22,27 @@ fn a_resync_keeps_the_payment_notes() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// FEAT-0031 C5 (review condition 5): «Sync again» takes the network's contracts with the SPV
+/// data, before anything opens them; a wallet's own files stay.
+#[test]
+fn a_resync_clears_the_contracts_cache() {
+    let dir = fresh_dir("resync-contracts");
+    let paths = Paths::new(dir.clone(), TEST_WALLET);
+    std::fs::create_dir_all(paths.chain.spv.join("headers")).unwrap();
+    let db = evolite_chain::contracts::path_beside_spv(&paths.chain.spv);
+    std::fs::create_dir_all(db.parent().unwrap()).unwrap();
+    std::fs::write(&db, b"x").unwrap();
+    std::fs::create_dir_all(paths.vault.parent().unwrap()).unwrap();
+    std::fs::write(&paths.resync, b"").unwrap();
+    assert!(resync_on_start(&paths).unwrap());
+    assert!(!db.exists(), "the contracts went with the SPV data");
+    assert!(
+        paths.vault.parent().unwrap().exists(),
+        "the wallet's folder stays"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// FEAT-0003: the notes open with the wallet and go with its lock (the key and every
 /// decrypted note), are kept encrypted only, come back after the next unlock — with a new
 /// password too, since their key is the seed's (AC-T8) — and are not taken while locked.

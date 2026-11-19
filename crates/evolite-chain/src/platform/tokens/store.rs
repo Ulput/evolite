@@ -59,6 +59,18 @@ pub fn load<P: DeserializeOwned>(path: &Path) -> Cache<P> {
     .unwrap_or_default()
 }
 
+/// The search's state as the contracts cache's pass row keeps it (FEAT-0031 C5, condition 10).
+pub fn to_bytes<P: Serialize + Clone>(cache: &Cache<P>) -> Result<Vec<u8>, String> {
+    serde_json::to_vec(&to_stored(cache)).map_err(|e| e.to_string())
+}
+
+/// The search's state from the pass row; `None` when it does not read.
+pub fn from_bytes<P: DeserializeOwned>(bytes: &[u8]) -> Option<Cache<P>> {
+    serde_json::from_slice::<Stored<P>>(bytes)
+        .ok()
+        .and_then(from_stored)
+}
+
 /// Keep `cache` at `path`.
 pub fn save<P: Serialize + Clone>(path: &Path, cache: &Cache<P>) -> Result<(), String> {
     evolite_local::json_file::save(path, &to_stored(cache))

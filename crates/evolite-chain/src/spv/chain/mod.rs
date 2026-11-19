@@ -11,6 +11,7 @@ pub mod address_fund;
 pub mod addresses;
 mod contacts;
 mod contests;
+mod contracts;
 mod identities;
 mod store_read;
 mod token_actions;
@@ -105,6 +106,8 @@ pub struct Chain {
     /// SPV item 3: the coins this chain locked for platform-wallet's builders not to take (not
     /// final), with how many builds under way hold each: [`crate::convert::freeze_unfinal`].
     frozen: Arc<Mutex<Frozen>>,
+    /// The network's contracts kept on this computer (FEAT-0031 C5), opened with the store.
+    contracts: Mutex<Option<Arc<crate::platform::contracts::ContractCache>>>,
     /// Platform reads past [`Self::ready`]: the ones that would go to the network (BUG-78).
     #[cfg(any(test, feature = "test-support"))]
     pub proof_reads: std::sync::atomic::AtomicUsize,
@@ -140,6 +143,7 @@ impl Default for Chain {
             instant_locks: VerifiedLocks::default(),
             persister: Mutex::new(None),
             frozen: Default::default(),
+            contracts: Mutex::new(None),
             #[cfg(any(test, feature = "test-support"))]
             proof_reads: Default::default(),
             #[cfg(any(test, feature = "test-support"))]
@@ -470,9 +474,10 @@ impl Chain {
     /// starts: the manager is in [`Self::manager`] from then on.
     async fn open_store(
         &self,
-        store: &std::path::Path,
+        paths: &ChainPaths,
         handler: Arc<dyn PlatformEventHandler>,
     ) -> Result<Arc<Manager>, String> {
+        let store = paths.store.as_path();
         // One persister per file (BUG-65 r1): an open store is taken, never opened again.
         debug_assert!(!self.store_open(), "the store is open already");
         // The context provider needs the manager's SPV client, the manager needs the SDK:
@@ -508,9 +513,21 @@ impl Chain {
             persister,
             handler,
         ));
+        // FEAT-0031 C5: the network's contracts, shared by its wallets, beside the SPV data.
+        let contracts = self
+            .contracts
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get_or_insert_with(|| {
+                Arc::new(crate::platform::contracts::ContractCache::new(
+                    crate::platform::contracts::path_beside_spv(&paths.spv),
+                ))
+            })
+            .clone();
         manager.sdk().set_context_provider(SpvContextProvider::new(
             manager.spv_arc(),
             self.status.clone(),
+            Some(contracts),
         ));
         manager
             .load_from_persistor()
@@ -561,7 +578,7 @@ impl Chain {
                 .filter(|_| self.store_open());
             let manager = match opened {
                 Some(manager) => manager,
-                None => self.open_store(&paths.store, handler).await?,
+                None => self.open_store(paths, handler).await?,
             };
             let config = client_config(crate::network::dash(), paths.spv.clone(), peer);
             manager
@@ -652,9 +669,7 @@ impl Chain {
         }
         let reporter = Reporter::new(self.status.clone(), publish)
             .with_instant_locks(self.instant_locks.clone());
-        self.open_store(&paths.store, Arc::new(reporter))
-            .await
-            .map(|_| ())
+        self.open_store(paths, Arc::new(reporter)).await.map(|_| ())
     }
 
     /// The first half of [`Self::start`] alone: the store at `paths` open, no SPV client.

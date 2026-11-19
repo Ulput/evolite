@@ -51,17 +51,25 @@ pub struct SpvContextProvider {
     /// The sync status: quorum keys are asked for only once the masternode lists are in.
     status: Arc<Mutex<SyncStatus>>,
     system: Arc<SystemContracts>,
-    /// Contracts the SDK fetched (with proofs) and handed back to us.
+    /// Contracts the SDK fetched (with proofs) and handed back to us, and those the chain
+    /// registered on putting them into the cache: proved in this run.
     registered: Arc<Mutex<HashMap<Identifier, Arc<DataContract>>>>,
+    /// The network's contracts kept on this computer (FEAT-0031 C5): asked last, never waited for.
+    contracts: Option<Arc<crate::platform::contracts::ContractCache>>,
 }
 
 impl SpvContextProvider {
-    pub fn new(spv: Arc<SpvRuntime>, status: Arc<Mutex<SyncStatus>>) -> Self {
+    pub fn new(
+        spv: Arc<SpvRuntime>,
+        status: Arc<Mutex<SyncStatus>>,
+        contracts: Option<Arc<crate::platform::contracts::ContractCache>>,
+    ) -> Self {
         Self {
             spv,
             status,
             system: Arc::default(),
             registered: Arc::default(),
+            contracts,
         }
     }
 
@@ -125,12 +133,21 @@ impl ContextProvider for SpvContextProvider {
         if let Some(contract) = system_contract(&self.system, id, platform_version)? {
             return Ok(Some(contract));
         }
-        Ok(self
+        if let Some(contract) = self
             .registered
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .get(id)
-            .cloned())
+            .cloned()
+        {
+            return Ok(Some(contract));
+        }
+        // FEAT-0031 C5: then the cache, without waiting for a write (`None`: the SDK reads it).
+        Ok(self
+            .contracts
+            .as_ref()
+            .and_then(|c| c.try_get(id))
+            .map(|c| c.contract))
     }
 
     fn register_data_contract(&self, contract: Arc<DataContract>) {
@@ -144,10 +161,18 @@ impl ContextProvider for SpvContextProvider {
         &self,
         token_id: &Identifier,
     ) -> Result<Option<dpp::data_contract::TokenConfiguration>, ContextProviderError> {
-        Ok(token_configuration(
+        if let Some(config) = token_configuration(
             &self.registered.lock().unwrap_or_else(|e| e.into_inner()),
             token_id,
-        ))
+        ) {
+            return Ok(Some(config));
+        }
+        // FEAT-0031 C5 (review condition 2): then the cache's, checked against the contract's
+        // own token id at that position.
+        Ok(self
+            .contracts
+            .as_ref()
+            .and_then(|c| c.token_configuration(token_id)))
     }
 
     fn get_quorum_public_key(
