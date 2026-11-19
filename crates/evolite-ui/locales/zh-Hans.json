@@ -2309,5 +2309,6 @@
   "Type an @name or an identity id to check.": "输入 @名称 或身份 id 进行检查。",
   "{} is frozen for this token.": "{} 在此代币上已冻结。",
   "{} is not an @name or an identity id.": "{} 不是 @名称，也不是身份 id。",
-  "{} is not frozen for this token.": "{} 在此代币上未冻结。"
+  "{} is not frozen for this token.": "{} 在此代币上未冻结。",
+  "The earlier change of keys may still go through: wait two minutes, then look at the keys again": "之前的密钥更改可能仍会完成：请等待两分钟，然后再次查看密钥"
 }

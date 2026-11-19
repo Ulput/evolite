@@ -295,6 +295,14 @@ impl Real {
         disable: Vec<u32>,
     ) -> Result<(), CoreError> {
         let (wallet_id, keys) = self.dashpay_ready()?;
+        // TECH-platform-errors review r1 S1, as App Connect (BUG-208 S1): an earlier change of
+        // these keys not known to have gone through may still land; signed again now, the same
+        // change could be refused with a fee. The person waits, then looks at the keys.
+        if self.unclear.keys_on_their_way(&identity) {
+            return Err(CoreError::NotAvailable(
+                tr!("The earlier change of keys may still go through: wait two minutes, then look at the keys again").into(),
+            ));
+        }
         // One change of the identity at a time (the review's Should 1): two would number their
         // keys alike and the second be refused by Platform, with a fee.
         let Some(busy) = self.identity_busy.take() else {
@@ -616,6 +624,26 @@ mod tests {
         );
         assert!(f.contains("unclear.not_known("), "not by the one rule");
         assert!(!f.contains("unclear.keep("), "kept by hand");
+    }
+
+    /// TECH-platform-errors review r1 S1: a change of keys while an earlier one of the same
+    /// identity may still land (`Unclear::keys_on_their_way`, BUG-208 S1) is not signed: the
+    /// check comes before the identity is taken and before the task that sends it.
+    /// Mutant: the check removed, or put after `sent::run(`.
+    #[test]
+    fn a_change_of_keys_waits_for_one_on_its_way() {
+        let source = include_str!("identity_keys.rs");
+        let f = &source[source.find("fn update_keys(").expect("update_keys")..];
+        let f = &f[..f.find("#[cfg(test)]").expect("its end")];
+        let check = f
+            .find("self.unclear.keys_on_their_way(&identity)")
+            .expect("the check");
+        let busy = f
+            .find("self.identity_busy.take()")
+            .expect("the identity taken");
+        let task = f.find("self.answer_later(").expect("the task");
+        let update = f.find("sent::run(").expect("the update");
+        assert!(check < busy && busy < task && task < update);
     }
 
     /// BUG-200: a send Platform executed is done, whether or not the identity read right after

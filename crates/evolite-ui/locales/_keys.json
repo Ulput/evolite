@@ -1309,6 +1309,7 @@
   "The contact's address was not shown before signing — check the payment again",
   "The credits are not added yet",
   "The current password is wrong",
+  "The earlier change of keys may still go through: wait two minutes, then look at the keys again",
   "The earlier sign-in may still go through: wait two minutes, then open the app's link again",
   "The email goes to the developers at {} from your mail app. You will see all of it before sending.",
   "The email is open in your mail app: check it and press “Send”.",

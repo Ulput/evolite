@@ -2309,5 +2309,6 @@
   "Type an @name or an identity id to check.": "確認する @名前 または ID の識別子を入力してください。",
   "{} is frozen for this token.": "{} はこのトークンで凍結されています。",
   "{} is not an @name or an identity id.": "{} は @名前 でも ID の識別子でもありません。",
-  "{} is not frozen for this token.": "{} はこのトークンで凍結されていません。"
+  "{} is not frozen for this token.": "{} はこのトークンで凍結されていません。",
+  "The earlier change of keys may still go through: wait two minutes, then look at the keys again": "前回のキーの変更がまだ完了する可能性があります。2分待ってから、キーをもう一度確認してください"
 }

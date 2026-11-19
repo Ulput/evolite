@@ -2326,5 +2326,6 @@
   "Type an @name or an identity id to check.": "Kontrol etmek için bir @ad veya kimlik kimliği yazın.",
   "{} is frozen for this token.": "{} bu token için dondurulmuş.",
   "{} is not an @name or an identity id.": "{} bir @ad veya kimlik kimliği değil.",
-  "{} is not frozen for this token.": "{} bu token için dondurulmamış."
+  "{} is not frozen for this token.": "{} bu token için dondurulmamış.",
+  "The earlier change of keys may still go through: wait two minutes, then look at the keys again": "Önceki anahtar değişikliği hâlâ gerçekleşebilir: iki dakika bekleyin, sonra anahtarlara yeniden bakın"
 }

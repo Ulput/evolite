@@ -2326,5 +2326,6 @@
   "Type an @name or an identity id to check.": "जाँचने के लिए @नाम या पहचान id लिखें।",
   "{} is frozen for this token.": "{} इस टोकन के लिए फ़्रीज़ है।",
   "{} is not an @name or an identity id.": "{} न @नाम है, न पहचान id।",
-  "{} is not frozen for this token.": "{} इस टोकन के लिए फ़्रीज़ नहीं है।"
+  "{} is not frozen for this token.": "{} इस टोकन के लिए फ़्रीज़ नहीं है।",
+  "The earlier change of keys may still go through: wait two minutes, then look at the keys again": "कुंजियों का पिछला बदलाव अभी भी पूरा हो सकता है: दो मिनट रुकें, फिर कुंजियाँ दोबारा देखें"
 }

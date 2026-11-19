@@ -2309,5 +2309,6 @@
   "Type an @name or an identity id to check.": "Nhập @tên hoặc id danh tính để kiểm tra.",
   "{} is frozen for this token.": "{} bị đóng băng với token này.",
   "{} is not an @name or an identity id.": "{} không phải @tên hay id danh tính.",
-  "{} is not frozen for this token.": "{} không bị đóng băng với token này."
+  "{} is not frozen for this token.": "{} không bị đóng băng với token này.",
+  "The earlier change of keys may still go through: wait two minutes, then look at the keys again": "Lần thay đổi khóa trước vẫn có thể thành công: hãy đợi hai phút rồi xem lại các khóa"
 }

@@ -2309,5 +2309,6 @@
   "Type an @name or an identity id to check.": "Ketik @nama atau id identitas untuk memeriksa.",
   "{} is frozen for this token.": "{} dibekukan untuk token ini.",
   "{} is not an @name or an identity id.": "{} bukan @nama maupun id identitas.",
-  "{} is not frozen for this token.": "{} tidak dibekukan untuk token ini."
+  "{} is not frozen for this token.": "{} tidak dibekukan untuk token ini.",
+  "The earlier change of keys may still go through: wait two minutes, then look at the keys again": "Perubahan kunci sebelumnya mungkin masih berhasil: tunggu dua menit, lalu periksa kunci lagi"
 }

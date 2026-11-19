@@ -2343,5 +2343,6 @@
   "Type an @name or an identity id to check.": "Digite um @nome ou um id de identidade para verificar.",
   "{} is frozen for this token.": "{} está congelado para este token.",
   "{} is not an @name or an identity id.": "{} não é um @nome nem um id de identidade.",
-  "{} is not frozen for this token.": "{} não está congelado para este token."
+  "{} is not frozen for this token.": "{} não está congelado para este token.",
+  "The earlier change of keys may still go through: wait two minutes, then look at the keys again": "A alteração anterior das chaves ainda pode ser concluída: aguarde dois minutos e confira as chaves novamente"
 }

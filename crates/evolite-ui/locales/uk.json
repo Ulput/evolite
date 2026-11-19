@@ -2360,5 +2360,6 @@
   "Type an @name or an identity id to check.": "Введіть @ім'я або id identity, щоб перевірити.",
   "{} is frozen for this token.": "{} заморожено для цього токена.",
   "{} is not an @name or an identity id.": "{} — не @ім'я і не id identity.",
-  "{} is not frozen for this token.": "{} не заморожено для цього токена."
+  "{} is not frozen for this token.": "{} не заморожено для цього токена.",
+  "The earlier change of keys may still go through: wait two minutes, then look at the keys again": "Попередня зміна ключів ще може пройти: зачекайте дві хвилини, потім перегляньте ключі знову"
 }
