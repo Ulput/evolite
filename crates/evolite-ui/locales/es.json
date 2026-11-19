@@ -3,6 +3,8 @@
   "An operation with this token went through, but it is not clear which — check History and the balance before repeating": "Una operación con este token se realizó, pero no está claro cuál — revise el Historial y el saldo antes de repetirla",
   "Needs a new request": "Necesita una nueva solicitud",
   "Not done: {}": "No realizado: {}",
+  "The app's keys are on the identity, but its answer was not published: open the app's link again to finish": "Las claves de la app ya están en la identidad, pero su respuesta no se publicó: abre otra vez el enlace de la app para terminar",
+  "The earlier sign-in may still go through: wait two minutes, then open the app's link again": "El inicio de sesión anterior aún puede completarse: espere dos minutos y vuelva a abrir el enlace de la app",
   "You cannot pay @{} by DashPay yet: their contact request points to a disabled key. Payments will work again once they send you a new contact request.": "Todavía no puede pagar a @{} por DashPay: su solicitud de contacto apunta a una clave desactivada. Los pagos volverán a funcionar cuando le envíe una nueva solicitud de contacto.",
   "You cannot pay this contact by DashPay yet: their contact request points to a disabled key. Payments will work again once they send you a new contact request.": "Todavía no puede pagar a este contacto por DashPay: su solicitud de contacto apunta a una clave desactivada. Los pagos volverán a funcionar cuando le envíe una nueva solicitud de contacto.",
   "You will not be able to pay contacts whose requests point to the old key until they send you a new request.": "No podrá pagar a los contactos cuyas solicitudes apuntan a la clave antigua hasta que le envíen una nueva solicitud.",

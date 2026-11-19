@@ -446,3 +446,40 @@ fn a_transfer_not_known_offers_no_repeat() {
         kit.state().tokens.sending.is_none()
     });
 }
+
+/// BUG-205 r2 S1 (review r3 Could): a transfer refused because some write of the token went
+/// through, not proved which, says that in its own words and offers only «Close»: no «Sign and
+/// send» to pay twice. Mutant: `UnclearWhich` left to the failure arm («Not sent», «Sign»).
+#[test]
+fn a_transfer_after_some_write_went_through_offers_no_repeat() {
+    let (_turn, mut kit) = demo_app("tokens-review", "en");
+    wait_for(&mut kit, "the review", |kit| {
+        has_text(kit, "Check the transfer")
+    });
+    let send = kit
+        .state_mut()
+        .tokens
+        .sending
+        .as_mut()
+        .expect("the send window");
+    send.waiting = true;
+    send.on_sent(&Err(evolite_api::CoreError::UnclearWhich));
+    kit.run_steps(3);
+    assert!(has_words(
+        &kit,
+        "An operation with this token went through, but it is not clear which"
+    ));
+    assert!(!has_words(&kit, "Not sent"), "not said as a failure");
+    assert!(
+        kit.query_by_label("Sign and send").is_none(),
+        "no repeat offered"
+    );
+    kit.query_all_by_label("Close")
+        .rfind(|n| n.accesskit_node().role() == Role::Button)
+        .expect("«Close» in the footer")
+        .click();
+    kit.run_steps(2);
+    wait_for(&mut kit, "the window closed", |kit| {
+        kit.state().tokens.sending.is_none()
+    });
+}

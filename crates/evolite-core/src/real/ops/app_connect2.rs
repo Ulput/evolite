@@ -7,7 +7,10 @@
 //! password, and every rule is checked before that (`app_connect_v2::grant`).
 
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::sync::atomic::Ordering;
+
+use crate::real::sent;
 
 use dpp::identity::IdentityPublicKey;
 use dpp::identity::identity_public_key::accessors::v0::IdentityPublicKeyGettersV0;
@@ -499,20 +502,31 @@ impl Real {
                 .into(),
         ))?;
         let (wallet_id, keys) = self.dashpay_ready()?;
+        // BUG-208 review r1 S1: an earlier change of these keys not known to have gone through
+        // may still land; a new one now would pay again. The person waits, as for a token.
+        if self.unclear.keys_on_their_way(&base58(&job.identity)) {
+            return Err(CoreError::NotAvailable(
+                tr!("The earlier sign-in may still go through: wait two minutes, then open the app's link again").into(),
+            ));
+        }
         // One change of the identity's keys at a time (FEAT-0020, the review's Should 1).
         let Some(busy) = self.identity_busy.take() else {
             return Err(super::identity_keys::identity_busy());
         };
         let (chain, apps, refresh) = (self.chain.clone(), self.apps.clone(), self.refresher());
-        let journal = self.journal.clone();
+        let (journal, unclear) = (self.journal.clone(), self.unclear.clone());
         self.answer_later("task:approve_connect2", async move {
             let result = async {
                 let wallet = loaded(&chain, &wallet_id).await?;
                 // BUG-145: what the update and the response cost, from the credits before and after.
-                let who = chain
-                    .sign_in_identity(&wallet, &keys)
-                    .await
-                    .map_err(CoreError::NotAvailable)?;
+                // Shared with the key update's own task (BUG-208), never copied: it holds the
+                // private halves of the identity's keys.
+                let who = Arc::new(
+                    chain
+                        .sign_in_identity(&wallet, &keys)
+                        .await
+                        .map_err(CoreError::NotAvailable)?,
+                );
                 // The identity signing in, for its line and both credits reads.
                 let acting = Some(base58(&who.id_bytes()));
                 let before = chain.identity_credits(&wallet, &who.id, false).await;
@@ -606,41 +620,6 @@ impl Real {
                     _ => Vec::new(),
                 };
                 let added: Vec<IdentityPublicKey> = add.iter().map(|k| k.key.clone()).collect();
-                let fresh = chain
-                    .send_key_update(&wallet, &keys, &who, add, disable)
-                    .await
-                    .map_err(dashpay_failure)?;
-                // DIP: no response before every new key is on the identity.
-                let all_there = added.iter().all(|new| {
-                    fresh
-                        .keys
-                        .iter()
-                        .any(|k| k.data() == new.data() && k.disabled_at().is_none())
-                });
-                if !all_there {
-                    return Err(CoreError::NotAvailable(
-                        tr!("The keys were handed to the network, but they are not on the identity yet")
-                            .into(),
-                    ));
-                }
-                // The earlier response: deleted by its values, best effort.
-                if let Some((document, values)) = previous
-                    .as_ref()
-                    .and_then(|a| a.session.as_ref())
-                    .and_then(|s| s.response.as_ref())
-                    .and_then(stored_response)
-                {
-                    let _ = chain
-                        .delete_connect_response(&wallet, &fresh, document, &values)
-                        .await;
-                }
-                let response = grant::response(&auth_slots, &enc_slots, &request.app_ephemeral, &me)
-                    .map_err(CoreError::Failed)?;
-                let document = chain
-                    .publish_connect_response(&wallet, &fresh, &response)
-                    .await
-                    .map_err(dashpay_failure)?;
-                let after = chain.identity_credits(&wallet, &who.id, true).await;
                 // The app as it calls itself (R-8), else as the sign-in showed it; its own words
                 // cleaned (AC-A6).
                 let label = dashpay::shown(if request.label.trim().is_empty() {
@@ -653,34 +632,145 @@ impl Real {
                     .get(&base58(&request.app_id), &base58(&me))
                     .and_then(|app| renewal(&app, request.connection_id.as_ref(), &Reads::new()))
                     .is_some();
-                // Reached only when every write went through: a refused one returned above.
                 let kind = journal::Kind::AppConnect {
-                    app: label,
+                    app: label.clone(),
                     renewal,
                 };
-                journal.add(own_line(kind, before, after, acting));
-                apps.put(App {
+                // The record of this sign-in; its response is added once published.
+                let record = |response: Option<Stored>| App {
                     contract: base58(&request.app_id),
-                    name: job.name,
+                    name: job.name.clone(),
                     identity: base58(&me),
                     generation: 0,
                     keys: None,
                     last_used: now(),
                     session: Some(Session {
                         connection: request.connection_id.map(|c| evolite_common::hex(&c)),
-                        keys: stored,
-                        response: Some(Stored {
-                            document: base58(&document),
-                            app_key_hash: evolite_common::hex(&response.app_key_hash),
-                            wallet_ephemeral: evolite_common::hex(&response.wallet_ephemeral),
-                            payload: evolite_common::hex(&response.payload),
-                        }),
+                        keys: stored.clone(),
+                        response,
                         label: request.label.clone(),
                         disconnected_at: None,
                         // The new keys' budgets are unspent (BUG-145).
                         spent_seen: Some(0),
                     }),
-                })
+                };
+                // BUG-208, step 1, the keys: paid on its own. A sign-in again of this request
+                // whose keys are all on the identity already pays nothing here: on to the
+                // response it did not publish.
+                let paid_keys = !(add.is_empty() && disable.is_empty());
+                let fresh = if !paid_keys {
+                    None
+                } else {
+                    let update = {
+                        let (chain, wallet, keys, who) =
+                            (chain.clone(), wallet.clone(), keys.clone(), who.clone());
+                        async move { chain.send_key_update(&wallet, &keys, &who, add, disable).await }
+                    };
+                    let shows = |again: &evolite_chain::app_chain::SignInIdentity| {
+                        again.id == who.id && all_on(&added, &again.keys)
+                    };
+                    let outcome = sent::run(
+                        update,
+                        sent::SEND_WAIT,
+                        |e: &String| sent::refused_before(e),
+                        || async { chain.sign_in_identity(&wallet, &keys).await.ok() },
+                        shows,
+                    )
+                    .await;
+                    match outcome {
+                        sent::Outcome::Done(fresh) | sent::Outcome::Shown(fresh) => Some(fresh),
+                        sent::Outcome::Refused(e) => {
+                            sent::refused_line(
+                                &chain,
+                                &wallet,
+                                who.id,
+                                before,
+                                label,
+                                base58(&me),
+                                &journal,
+                            )
+                            .await;
+                            return Err(dashpay_failure(e));
+                        }
+                        sent::Outcome::Unclear { late } => {
+                            // Not known: its line waits for the update's late answer, which also
+                            // keeps the record, so the keys show as the app's.
+                            let pending = sent::Pending::new(
+                                base58(&me),
+                                sent::Watch::Answer,
+                                Some(kind),
+                                before,
+                                acting,
+                            );
+                            let app = record(None);
+                            let (chain, wallet, id) = (chain.clone(), wallet.clone(), who.id);
+                            return Err(unclear.not_known(pending, late, journal, move |_, p| {
+                                async move {
+                                    let _ = apps.put(app);
+                                    sent::line_after(chain, wallet, id, None, p).await
+                                }
+                            }));
+                        }
+                    }
+                };
+                // DIP: no response before every new key is on the identity.
+                if let Some(fresh) = &fresh
+                    && !all_on(&added, &fresh.keys)
+                {
+                    // Paid all the same (BUG-208): its line now.
+                    let after = chain.identity_credits(&wallet, &who.id, true).await;
+                    journal.add(own_line(kind, before, after, acting));
+                    return Err(CoreError::NotAvailable(
+                        tr!("The keys were handed to the network, but they are not on the identity yet")
+                            .into(),
+                    ));
+                }
+                let fresh: &evolite_chain::app_chain::SignInIdentity = fresh.as_ref().unwrap_or(&who);
+                // The earlier response: deleted by its values, best effort.
+                if let Some((document, values)) = previous
+                    .as_ref()
+                    .and_then(|a| a.session.as_ref())
+                    .and_then(|s| s.response.as_ref())
+                    .and_then(stored_response)
+                {
+                    let _ = chain
+                        .delete_connect_response(&wallet, fresh, document, &values)
+                        .await;
+                }
+                let response = grant::response(&auth_slots, &enc_slots, &request.app_ephemeral, &me)
+                    .map_err(CoreError::Failed)?;
+                // BUG-208, step 2, the response.
+                let published = chain.publish_connect_response(&wallet, fresh, &response).await;
+                let after = chain.identity_credits(&wallet, &who.id, true).await;
+                let document = match published {
+                    Ok(document) => document,
+                    Err(e) => {
+                        let (line, keep) = after_response_failed(paid_keys);
+                        // The keys were paid: their line now, and the record, so the keys show
+                        // as the app's and the link opened again only publishes (step 1 skipped).
+                        if line {
+                            journal.add(own_line(kind, before, after, acting));
+                        }
+                        if keep {
+                            apps.put(record(None)).map_err(CoreError::Failed)?;
+                        }
+                        crate::diag::platform_failed("connect2_response", &e);
+                        return Err(match dashpay_failure(e) {
+                            CoreError::Failed(_) if paid_keys => CoreError::NotAvailable(
+                                tr!("The app's keys are on the identity, but its answer was not published: open the app's link again to finish").into(),
+                            ),
+                            other => other,
+                        });
+                    }
+                };
+                // Reached only when every write went through: a refused one returned above.
+                journal.add(own_line(kind, before, after, acting));
+                apps.put(record(Some(Stored {
+                    document: base58(&document),
+                    app_key_hash: evolite_common::hex(&response.app_key_hash),
+                    wallet_ephemeral: evolite_common::hex(&response.wallet_ephemeral),
+                    payload: evolite_common::hex(&response.payload),
+                })))
                 .map_err(CoreError::Failed)
             }
             .await;
@@ -933,6 +1023,21 @@ fn stored_response(stored: &Stored) -> Option<([u8; 32], grant::Response)> {
 }
 
 /// The host of the app's return link, to name it on the screen.
+/// Whether every key of `added` is on the identity (`keys`), active.
+fn all_on(added: &[IdentityPublicKey], keys: &[IdentityPublicKey]) -> bool {
+    added.iter().all(|new| {
+        keys.iter()
+            .any(|k| k.data() == new.data() && k.disabled_at().is_none())
+    })
+}
+
+/// BUG-208: the response not published after the keys were paid (`paid_keys`): whether to write
+/// the keys' History line now, and whether to keep the record (its keys, no response) so the
+/// keys show as the app's and the link opened again only publishes. With nothing paid, neither.
+fn after_response_failed(paid_keys: bool) -> (bool, bool) {
+    (paid_keys, paid_keys)
+}
+
 fn callback_host(url: &str) -> Option<String> {
     let rest = url.strip_prefix("https://")?;
     let host = rest.split(['/', '?', '#']).next()?;

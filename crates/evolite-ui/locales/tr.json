@@ -3,6 +3,8 @@
   "An operation with this token went through, but it is not clear which — check History and the balance before repeating": "Bu tokenle bir işlem gerçekleşti, ancak hangisi olduğu belli değil — tekrarlamadan önce Geçmiş'i ve bakiyeyi kontrol edin",
   "Needs a new request": "Yeni istek gerekli",
   "Not done: {}": "Gerçekleşmedi: {}",
+  "The app's keys are on the identity, but its answer was not published: open the app's link again to finish": "Uygulamanın anahtarları kimlikte, ancak yanıtı yayımlanmadı: tamamlamak için uygulamanın bağlantısını yeniden açın",
+  "The earlier sign-in may still go through: wait two minutes, then open the app's link again": "Önceki giriş hâlâ gerçekleşebilir: iki dakika bekleyin, sonra uygulamanın bağlantısını yeniden açın",
   "You cannot pay @{} by DashPay yet: their contact request points to a disabled key. Payments will work again once they send you a new contact request.": "@{} kişisine henüz DashPay ile ödeme yapamazsınız: kişi isteği devre dışı bir anahtarı gösteriyor. Kişi size yeni bir kişi isteği gönderdiğinde ödemeler yeniden çalışır.",
   "You cannot pay this contact by DashPay yet: their contact request points to a disabled key. Payments will work again once they send you a new contact request.": "Bu kişiye henüz DashPay ile ödeme yapamazsınız: kişi isteği devre dışı bir anahtarı gösteriyor. Kişi size yeni bir kişi isteği gönderdiğinde ödemeler yeniden çalışır.",
   "You will not be able to pay contacts whose requests point to the old key until they send you a new request.": "İstekleri eski anahtarı gösteren kişilere, size yeni bir istek gönderene kadar ödeme yapamayacaksınız.",

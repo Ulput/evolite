@@ -320,6 +320,69 @@ fn a_read_adds_only_what_was_spent_since_the_last() {
     assert_eq!(app_spent_step(None, 122_264_000), (122_264, 122_264_000));
 }
 
+/// BUG-208: the response is published only once every new key is on the identity, active; the
+/// keys read back with one missing or disabled are not «all on».
+#[test]
+fn the_response_waits_for_every_new_key_on_the_identity() {
+    let added = [key(5, false), key(6, false)];
+    assert!(all_on(
+        &added,
+        &[key(1, false), key(5, false), key(6, false)]
+    ));
+    assert!(!all_on(&added, &[key(5, false)]), "one missing");
+    assert!(
+        !all_on(&added, &[key(5, false), key(6, true)]),
+        "one disabled"
+    );
+    assert!(all_on(&[], &[key(1, false)]), "a sign-in again adds none");
+}
+
+/// BUG-208: the response not published after the keys were paid: their History line and the
+/// record (keys, no response) are written then, not lost; with nothing paid, neither. And the
+/// path writes them in that branch, after the keys went through the one rule. Mutant: returning
+/// the publish's error as before loses the paid line.
+#[test]
+fn a_paid_key_update_keeps_its_line_when_the_response_fails() {
+    assert_eq!(after_response_failed(true), (true, true));
+    assert_eq!(after_response_failed(false), (false, false));
+    let source = include_str!("../app_connect2.rs");
+    let f = &source[source.find("fn approve_connect2(").expect("approve")..];
+    let f = &f[..f
+        .find("\n    pub(in crate::real) fn read_app_budgets")
+        .expect("its end")];
+    let update = f.find("sent::run(").expect("the keys by the one rule");
+    let publish = f.find("publish_connect_response(").expect("the response");
+    let failed = f
+        .find("after_response_failed(paid_keys)")
+        .expect("its failure");
+    assert!(update < publish && publish < failed);
+    let branch = &f[failed..];
+    let line = branch
+        .find("journal.add(own_line(")
+        .expect("the keys' line");
+    let record = branch.find("apps.put(record(None))").expect("the record");
+    let back = branch.find("return Err(").expect("the answer");
+    assert!(line < back && record < back, "written before the answer");
+}
+
+/// BUG-208 review r1 S1: a second «Allow» while the first one's key update may still land does
+/// not reach the update: the check comes before the identity is taken and before the task that
+/// sends it. Mutant: the check removed, or put after `sent::run(`.
+#[test]
+fn a_second_allow_waits_for_the_first_key_update() {
+    let source = include_str!("../app_connect2.rs");
+    let f = &source[source.find("fn approve_connect2(").expect("approve")..];
+    let check = f
+        .find("self.unclear.keys_on_their_way(&base58(&job.identity))")
+        .expect("the check");
+    let busy = f
+        .find("self.identity_busy.take()")
+        .expect("the identity taken");
+    let task = f.find("self.answer_later(").expect("the task");
+    let update = f.find("sent::run(").expect("the update");
+    assert!(check < busy && busy < task && task < update);
+}
+
 /// BUG-236: an App Connect request is priced with the fees every other form shows — measured by
 /// the journal, at the SDK's protocol — not the defaults, so its cost is not below the keys
 /// screen's for the same keys. Mutant: `convert::fees(0)` back in `open_connect2`.

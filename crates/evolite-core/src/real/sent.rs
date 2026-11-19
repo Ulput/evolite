@@ -388,6 +388,18 @@ impl Unclear {
         Some(held.1.remove(at))
     }
 
+    /// Whether a change of `identity`'s keys not known to have gone through — App Connect's or
+    /// the keys screen's — may still land (BUG-208 review r1 S1): its send runs, or ended less
+    /// than [`QUIET`] ago. A new one meanwhile would pay again for keys that may be on their way.
+    pub(in crate::real) fn keys_on_their_way(&self, identity: &str) -> bool {
+        self.held().1.iter().any(|p| {
+            p.identity == identity
+                && (matches!(p.watch, Watch::Keys(_))
+                    || matches!(p.kind, Some(journal::Kind::AppConnect { .. })))
+                && (p.running || p.quiet_for().is_some_and(|q| q < QUIET))
+        })
+    }
+
     /// The first write of `identity` on `token` that waits, as it is (BUG-205).
     pub(in crate::real) fn of_token(&self, identity: &str, token: &str) -> Option<Pending> {
         self.held()
@@ -681,6 +693,52 @@ mod tests {
         panic!("still marked running after its send ended");
     }
 
+    /// BUG-208 review r1 S1: a change of keys (App Connect's or the keys screen's) not known to
+    /// have gone through holds a new one of the same identity while its send runs or its quiet
+    /// lasts; not another identity's, not a token write's, not one past its quiet.
+    /// Mutants: no check (`false`), or `running` alone (the quiet forgotten).
+    #[test]
+    fn a_key_change_on_its_way_holds_the_next() {
+        let connect = || journal::Kind::AppConnect {
+            app: "App".into(),
+            renewal: false,
+        };
+        let ended = |identity: &str, watch: Watch, kind, ago: Duration| {
+            let mut p = Pending::new(identity.into(), watch, kind, None, None);
+            p.ended = Some(std::time::Instant::now().checked_sub(ago).unwrap());
+            p
+        };
+        let unclear = Unclear::default();
+        assert!(!unclear.keys_on_their_way("A"), "nothing waits");
+        let mut running = Pending::new("A".into(), Watch::Answer, Some(connect()), None, None);
+        running.running = true;
+        let ticket = unclear.keep(running);
+        assert!(unclear.keys_on_their_way("A"), "its send runs");
+        assert!(!unclear.keys_on_their_way("B"), "another identity");
+        unclear.take(ticket);
+        let ticket = unclear.keep(ended(
+            "A",
+            Watch::Answer,
+            Some(connect()),
+            Duration::from_secs(30),
+        ));
+        assert!(unclear.keys_on_their_way("A"), "ended inside its quiet");
+        unclear.take(ticket);
+        unclear.keep(ended(
+            "A",
+            Watch::Answer,
+            Some(connect()),
+            QUIET + Duration::from_secs(1),
+        ));
+        assert!(!unclear.keys_on_their_way("A"), "past its quiet");
+        let token = token_watch("T", "C", Some(3), Some(TokenShows::BalanceAtLeast(5)));
+        unclear.keep(ended("C", token, Some(kind()), Duration::from_secs(30)));
+        assert!(
+            !unclear.keys_on_their_way("C"),
+            "a token write is not a key change"
+        );
+    }
+
     /// BUG-205 review r2 M1: the lock keeps a token write whose send ended less than [`QUIET`]
     /// ago — still found by its token — and forgets it once the quiet has passed. Mutant: the
     /// old `retain(|p| p.running)` loses it at once.
@@ -771,6 +829,11 @@ mod tests {
                 include_str!("ops/token_manage.rs"),
                 "issuer_action",
                 ".issuer_act(",
+            ),
+            (
+                include_str!("ops/app_connect2.rs"),
+                "approve_connect2",
+                ".send_key_update(",
             ),
         ];
         for (source, name, call) in paid {
