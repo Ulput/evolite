@@ -26,6 +26,8 @@ pub struct CreateIdentityForm {
     /// The label last sent to the core, and its answer.
     pub asked: String,
     pub check: Option<Result<NameCheck, CoreError>>,
+    /// When [`Self::asked`] went to the core: a long silence is said in words (Д11, BUG-87).
+    pub asked_at: Option<std::time::Instant>,
     /// Sent to the core, no answer yet: the button stays off so money is locked only once.
     pub waiting: bool,
     pub result: Option<Result<(), CoreError>>,
@@ -103,6 +105,7 @@ impl Default for CreateIdentityForm {
             suggested: Some(SUGGESTED),
             asked: String::new(),
             check: None,
+            asked_at: None,
             waiting: false,
             result: None,
             step: None,
@@ -214,6 +217,7 @@ pub fn create_identity(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut Cre
         });
         form.asked = label.clone();
         form.check = None;
+        form.asked_at = Some(std::time::Instant::now());
     }
     let check = if label.is_empty() || label != form.asked {
         None
@@ -485,7 +489,16 @@ fn name_section(ui: &mut Ui, a: &mut Assets, form: &mut CreateIdentityForm, v: &
                     Some(tr!("Without a name nobody finds it by @name or adds it to DashPay contacts. You can add a name later on the Identity screen.").to_string()),
                     p.muted,
                 ),
-                None if label.len() >= 3 => (Some(tr!("Checking the name in DPNS…").to_string()), p.muted),
+                // Д11: the same words as Send and «Add a contact» — after a while, that it is
+                // the network (BUG-87), not a «Checking…» for ever.
+                None if label.len() >= 3 => {
+                    ui.ctx()
+                        .request_repaint_after(std::time::Duration::from_secs(1));
+                    (
+                        Some(crate::text::name_waiting(form.asked_at).to_string()),
+                        p.muted,
+                    )
+                }
                 // Too short to ask DPNS about: say so instead of staying silent.
                 None if !label.is_empty() => (
                     Some(tr!("This is not a Dash name: 3–63 letters, digits and hyphens").to_string()),

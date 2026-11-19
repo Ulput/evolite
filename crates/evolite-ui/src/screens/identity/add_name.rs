@@ -32,6 +32,7 @@ pub(super) fn add_name_dialog(
         form.asked = label.clone();
         form.check = None;
         form.result = None;
+        form.asked_at = Some(std::time::Instant::now());
     }
     let check = if label.is_empty() || label != form.asked {
         None
@@ -521,8 +522,14 @@ fn name_field(
             |_| {},
         );
         let (line, color) = match &check {
+            // Д11: as Send and «Add a contact» — after a while, that it is the network.
             None if label.len() >= 3 => {
-                (Some(tr!("Checking the name in DPNS…").to_string()), p.muted)
+                ui.ctx()
+                    .request_repaint_after(std::time::Duration::from_secs(1));
+                (
+                    Some(crate::text::name_waiting(form.asked_at).to_string()),
+                    p.muted,
+                )
             }
             None if !label.is_empty() => (
                 Some(tr!("This is not a Dash name: 3–63 letters, digits and hyphens").to_string()),
@@ -673,6 +680,8 @@ pub struct NameForm {
     /// The label last sent to `CheckName`, and its answer.
     pub asked: String,
     pub check: Option<Result<NameCheck, CoreError>>,
+    /// When [`Self::asked`] went to the core: a long silence is said in words (Д11, BUG-87).
+    pub asked_at: Option<std::time::Instant>,
     /// Sent to the core, no answer yet.
     pub waiting: bool,
     pub result: Option<Result<(), CoreError>>,

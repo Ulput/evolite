@@ -616,7 +616,13 @@ pub fn send(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut SendForm) {
 
     // A name goes to the core once per change; the answer comes back as an event.
     let typed = form.recipient.trim().to_string();
-    if typed.starts_with('@') && typed.len() > 1 && typed != form.asked {
+    // Д11: from 3 characters, as «Add a contact» and the checks of a name — no DPNS name is
+    // shorter, and «@a» asked the network for nothing.
+    if typed.starts_with('@')
+        && evolite_core::dpns::search_key(&typed)
+            .is_some_and(|k| k.len() >= evolite_core::dpns::SEARCH_FROM)
+        && typed != form.asked
+    {
         cx.send(Command::ResolveName {
             name: typed.clone(),
         });

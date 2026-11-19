@@ -12,6 +12,9 @@ pub(super) enum Recipient<'a> {
     Address,
 }
 
+/// What a name too short or with other characters is, without asking the core.
+static NOT_A_NAME: CoreError = CoreError::BadName;
+
 pub(super) fn recipient<'a>(form: &'a SendForm) -> Recipient<'a> {
     let input = form.recipient.trim();
     if input.is_empty() {
@@ -19,6 +22,13 @@ pub(super) fn recipient<'a>(form: &'a SendForm) -> Recipient<'a> {
     }
     if !input.starts_with('@') {
         return Recipient::Address;
+    }
+    // Д11: a name shorter than DPNS allows is not asked of the core: said here, as «Add a
+    // contact» says it (BUG-39 №4); «@» alone is nothing typed yet.
+    match evolite_core::dpns::search_key(input) {
+        Some(key) if key.is_empty() => return Recipient::Empty,
+        Some(key) if key.len() >= evolite_core::dpns::SEARCH_FROM => {}
+        _ => return Recipient::NameProblem(&NOT_A_NAME),
     }
     match &form.resolution {
         _ if form.asked != input => Recipient::Checking,
