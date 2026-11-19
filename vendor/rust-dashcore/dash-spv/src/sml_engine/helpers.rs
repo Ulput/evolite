@@ -41,21 +41,71 @@ impl<H: BlockHeaderStorage> MasternodeListEngine<H> {
     /// base and quarters, the work block of every active quorum, and Platform's
     /// walk-back.
     fn retention_window(&self) -> CoreBlockHeight {
-        let rotation_interval = self.network.isd_llmq_type().params().dkg_params.interval;
-        let qr_info = (QRINFO_BASE_CYCLES_BEHIND + 1).saturating_mul(rotation_interval);
-        let platform = active_window(self.network.platform_type())
-            .saturating_mul(QUORUM_WALK_BACK_ACTIVE_WINDOWS);
-        let member_lists = self
-            .network
-            .enabled_llmq_types()
-            .into_iter()
-            .filter(|llmq_type| !llmq_type.is_rotating_quorum_type())
-            .map(|llmq_type| active_window(llmq_type).saturating_add(QUORUM_MEMBER_LIST_OFFSET))
-            .max()
-            .unwrap_or_default();
-        qr_info.max(platform).max(member_lists)
+        retention_window(self.network)
     }
 
+    /// evolite (TECH-spv-prune, review r1 S2): the newest list's quorums,
+    /// verified and not, for the embedder's journal.
+    pub(crate) fn quorum_counts(&self) -> (usize, usize) {
+        let Some(list) = self.latest_masternode_list() else {
+            return (0, 0);
+        };
+        let mut counts = (0, 0);
+        for quorums in list.quorums.values() {
+            for quorum in quorums.values() {
+                if quorum.verified == LLMQEntryVerificationStatus::Verified {
+                    counts.0 += 1;
+                } else {
+                    counts.1 += 1;
+                }
+            }
+        }
+        counts
+    }
+
+    /// evolite (TECH-spv-prune): after `qr_info` was fed, if it was built from
+    /// genesis (every base is genesis or none), forgets the lists it did not
+    /// build, so the requests that follow take their bases only from its lists
+    /// or newer ones and the stored messages before it stop being anyone's
+    /// base. The work-block lists come back through the usual requests.
+    /// Answers whether it cut.
+    pub(crate) async fn cut_at_qr_info_from_genesis(
+        &mut self,
+        qr_info: &dashcore::network::message_qrinfo::QRInfo,
+    ) -> bool {
+        use dashcore::hashes::Hash;
+        for base in crate::storage::qr_info_bases(qr_info) {
+            if base != dashcore::BlockHash::all_zeros()
+                && self.height_if_known(&base).await != Some(0)
+            {
+                return false;
+            }
+        }
+        let built = crate::storage::qr_info_built(qr_info);
+        self.masternode_lists.retain(|_, list| built.contains(&list.block_hash));
+        true
+    }
+}
+
+/// How far below the newest list `network`'s engine still reads a list (see
+/// [`MasternodeListEngine::retention_window`]); the stored messages building a
+/// list in it are kept (evolite, TECH-spv-prune).
+pub(crate) fn retention_window(network: dashcore::Network) -> CoreBlockHeight {
+    let rotation_interval = network.isd_llmq_type().params().dkg_params.interval;
+    let qr_info = (QRINFO_BASE_CYCLES_BEHIND + 1).saturating_mul(rotation_interval);
+    let platform =
+        active_window(network.platform_type()).saturating_mul(QUORUM_WALK_BACK_ACTIVE_WINDOWS);
+    let member_lists = network
+        .enabled_llmq_types()
+        .into_iter()
+        .filter(|llmq_type| !llmq_type.is_rotating_quorum_type())
+        .map(|llmq_type| active_window(llmq_type).saturating_add(QUORUM_MEMBER_LIST_OFFSET))
+        .max()
+        .unwrap_or_default();
+    qr_info.max(platform).max(member_lists)
+}
+
+impl<H: BlockHeaderStorage> MasternodeListEngine<H> {
     /// Once a diff on `base` moved the tip, drops the lists below the retention
     /// window, keeping `base` and the next QRInfo's base, and their cycles.
     pub(super) async fn prune_after_extending(&mut self, base: CoreBlockHeight) {

@@ -1498,6 +1498,19 @@ impl Real {
         // Read once, before a rescan is asked: a rescan asked below is owed in this snapshot.
         let status = self.chain.status();
         let sync_done = status.phase == sync::Phase::Synced;
+        // TECH-spv-prune: the stored masternode messages dash-spv pruned, once synced.
+        if sync_done && let Some(count) = self.chain.masternodes_pruned_since() {
+            crate::diag::record(crate::diag::Record::MnPruned { count });
+        }
+        // Review r1 S2: the quorums' statuses once synced, for QA to compare with the start's.
+        if sync_done
+            && let Some((verified, unverified)) = self.chain.masternode_quorums_once_synced()
+        {
+            crate::diag::record(crate::diag::Record::MnQuorums {
+                verified,
+                unverified,
+            });
+        }
         // BUG-221: owed until the wallet's filters are at the tip, not at its height now.
         let up_to = super::rescan_end(synced, &status);
         if let Some(lost) = lost_block {

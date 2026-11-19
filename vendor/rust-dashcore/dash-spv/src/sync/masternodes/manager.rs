@@ -587,7 +587,17 @@ impl<H: BlockHeaderStorage> MasternodesManager<H> {
             return Ok(vec![]);
         }
 
-        let base_hashes = {
+        // evolite (TECH-spv-prune): with more QRInfos stored than
+        // `QRINFO_CUT_AT`, this one is asked from genesis, as a fresh storage
+        // asks, so the stored ones before it stop being its base and can go.
+        let cut = match &self.message_storage {
+            Some(storage) => storage.read().await.cut_due().await,
+            None => false,
+        };
+        let base_hashes = if cut {
+            tracing::info!("Asking this QRInfo from genesis, so the stored ones can be pruned");
+            Vec::new()
+        } else {
             let engine = self.engine.read().await;
             match engine.qr_info_base_list(tip_height).map(|list| list.block_hash) {
                 Some(anchor) => vec![anchor],
@@ -629,6 +639,8 @@ impl<H: BlockHeaderStorage> MasternodesManager<H> {
         let is_initial_sync = self.state() == SyncState::Syncing;
 
         let engine = self.engine.read().await;
+        // evolite (TECH-spv-prune, review r1 S2): for the embedder's journal.
+        crate::storage::note_synced_quorums(engine.quorum_counts());
 
         if let Some(&height) = engine.masternode_lists.keys().next_back() {
             self.progress.update_current_height(height);
@@ -737,6 +749,52 @@ mod tests {
         (manager, RequestSender::new(tx), rx)
     }
 
+    /// evolite (TECH-spv-prune): with more QRInfos stored than `QRINFO_CUT_AT`
+    /// the next one is asked from genesis (no base); up to it, on the engine's
+    /// base list.
+    #[test_case(crate::storage::QRINFO_CUT_AT, false; "up to the limit, on a base")]
+    #[test_case(crate::storage::QRINFO_CUT_AT + 1, true; "past it, from genesis")]
+    #[tokio::test]
+    async fn past_the_stored_qr_info_limit_the_next_is_asked_from_genesis(
+        stored: usize,
+        from_genesis: bool,
+    ) {
+        let tip = 200;
+        let (mut manager, requests, mut rx) = make_synced_incremental_manager(tip).await;
+        add_lists(&mut *manager.engine.write().await, &[(10, 2)]);
+        let dir = tempfile::TempDir::new().unwrap();
+        let mut storage = crate::storage::PersistentMasternodeStorage::open(
+            dir.path(),
+            Arc::clone(&manager.header_storage),
+            dashcore::Network::Regtest,
+        )
+        .await
+        .unwrap();
+        for n in 0..stored {
+            storage
+                .store_qr_info(
+                    n as u32 + 1,
+                    &dashcore::network::message_qrinfo::QRInfo {
+                        // On a list, not genesis.
+                        mn_list_diff_at_h_minus_3c:
+                            dashcore::network::message_sml::MnListDiff::dummy_empty(0xF0, 0xF0),
+                        ..dashcore::network::message_qrinfo::QRInfo::dummy(n as u8)
+                    },
+                )
+                .await
+                .unwrap();
+        }
+        manager.message_storage = Some(Arc::new(RwLock::new(storage)));
+
+        manager.send_qrinfo_for_tip(&requests).await.unwrap();
+
+        let Ok(NetworkRequest::SendMessage(NetworkMessage::GetQRInfo(asked))) = rx.try_recv()
+        else {
+            panic!("a GetQRInfo is queued");
+        };
+        assert_eq!(asked.base_block_hashes.is_empty(), from_genesis);
+    }
+
     #[tokio::test]
     async fn test_masternode_manager_new() {
         let manager = create_test_manager().await;
@@ -832,7 +890,15 @@ mod tests {
 
         // The candidates: the eleven valid ones of a verified list, none of an unverified one.
         let candidates = manager.engine.read().await.verified_peer_addresses();
-        assert_eq!(candidates.len(), if verified { 11 } else { 0 }, "{candidates:?}");
+        assert_eq!(
+            candidates.len(),
+            if verified {
+                11
+            } else {
+                0
+            },
+            "{candidates:?}"
+        );
 
         let offered = offered(&mut rx);
         if !verified {

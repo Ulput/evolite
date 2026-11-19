@@ -79,6 +79,10 @@ pub struct Chain {
     starting: tokio::sync::Mutex<()>,
     /// The SPV client runs (the manager in `manager` syncs): read without waiting for its lock.
     running: AtomicBool,
+    /// TECH-spv-prune: dash-spv's pruned count last journaled ([`Self::masternodes_pruned_since`]).
+    mn_pruned_seen: std::sync::atomic::AtomicUsize,
+    /// TECH-spv-prune review r1 S2: the synced quorum counts were journaled.
+    mn_quorums_told: AtomicBool,
     /// The store is open and its wallets are loaded: a manager is in `manager`, maybe before
     /// its SPV client starts (BUG-25: that took 12 s in a release build and half a minute or
     /// more in a debug one, and the wallet's identities, balance and history waited for it).
@@ -122,6 +126,8 @@ impl Default for Chain {
             manager: tokio::sync::Mutex::new(None),
             starting: tokio::sync::Mutex::new(()),
             running: AtomicBool::new(false),
+            mn_pruned_seen: std::sync::atomic::AtomicUsize::new(0),
+            mn_quorums_told: AtomicBool::new(false),
             store_open: AtomicBool::new(false),
             #[cfg(feature = "pool")]
             last_pool: Mutex::new(None),
@@ -570,6 +576,15 @@ impl Chain {
             Ok(manager) => {
                 *self.manager.lock().await = Some(manager);
                 self.running.store(true, Ordering::Relaxed);
+                // TECH-spv-prune: how long the start's storage and masternode replay took.
+                let stats = dash_spv::masternode_storage_stats();
+                crate::diag::record(crate::diag::Record::SpvStart {
+                    storage_ms: stats.storage_ms,
+                    load_engine_ms: stats.load_engine_ms,
+                    messages: stats.messages as u32,
+                    verified: stats.quorums_at_start.0 as u32,
+                    unverified: stats.quorums_at_start.1 as u32,
+                });
                 Ok(())
             }
             Err(error) => {
@@ -581,6 +596,22 @@ impl Chain {
                 Err(error)
             }
         }
+    }
+
+    /// TECH-spv-prune review r1 S2: the newest list's quorums (verified, not) once the first
+    /// masternode sync of the process completed, the first time it is asked after that.
+    pub fn masternode_quorums_once_synced(&self) -> Option<(u32, u32)> {
+        let (verified, unverified) = dash_spv::masternode_storage_stats().quorums_synced?;
+        (!self.mn_quorums_told.swap(true, Ordering::Relaxed))
+            .then_some((verified as u32, unverified as u32))
+    }
+
+    /// TECH-spv-prune: the stored masternode messages dash-spv pruned since this was last
+    /// asked, if any.
+    pub fn masternodes_pruned_since(&self) -> Option<u32> {
+        let now = dash_spv::masternode_storage_stats().pruned;
+        let before = self.mn_pruned_seen.swap(now, Ordering::Relaxed);
+        (now > before).then(|| (now - before) as u32)
     }
 
     /// Started: the store is open and the SPV client runs.

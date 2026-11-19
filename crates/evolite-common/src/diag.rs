@@ -74,6 +74,26 @@ pub enum Record {
         chainlocked: bool,
         peers: u32,
     },
+    /// TECH-spv-prune: the SPV client started: opening its storage and replaying the stored
+    /// masternode messages into the engine took this long, with this many messages; the newest
+    /// list's quorums after the replay, verified and not (review r1 S2).
+    SpvStart {
+        storage_ms: u64,
+        load_engine_ms: u64,
+        messages: u32,
+        verified: u32,
+        unverified: u32,
+    },
+    /// TECH-spv-prune review r1 S2: the newest list's quorums once the first masternode sync
+    /// of the run completed, verified and not.
+    MnQuorums {
+        verified: u32,
+        unverified: u32,
+    },
+    /// TECH-spv-prune: stored masternode messages the replay no longer needs were deleted.
+    MnPruned {
+        count: u32,
+    },
     /// A new sync error, scrubbed.
     SyncError {
         text: String,
@@ -380,6 +400,21 @@ impl Record {
                 "backtrace": scrub(backtrace),
             }),
             Record::StartFailed { text } => json!({"k": "start_failed", "text": scrub(text)}),
+            Record::SpvStart {
+                storage_ms,
+                load_engine_ms,
+                messages,
+                verified,
+                unverified,
+            } => json!({
+                "k": "spv_start", "storageMs": storage_ms, "loadEngineMs": load_engine_ms,
+                "messages": messages, "verified": verified, "unverified": unverified,
+            }),
+            Record::MnQuorums {
+                verified,
+                unverified,
+            } => json!({"k": "mn_quorums", "verified": verified, "unverified": unverified}),
+            Record::MnPruned { count } => json!({"k": "mn_pruned", "count": count}),
             Record::Platform { op, error } => {
                 json!({"k": "platform", "op": op, "error": error})
             }

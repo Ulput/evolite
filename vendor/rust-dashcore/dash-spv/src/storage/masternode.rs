@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -19,6 +19,54 @@ use crate::error::{StorageError, StorageResult};
 use crate::storage::{io::atomic_write, BlockHeaderStorage};
 
 type IndexMap = BTreeMap<CoreBlockHeight, PathBuf>;
+
+/// evolite (TECH-spv-prune): more stored QRInfos than this, and the next one is
+/// asked from genesis. Each QRInfo is asked on a list the one before built, so
+/// without that the stored messages chain back to the first QRInfo and none can
+/// go.
+pub(crate) const QRINFO_CUT_AT: usize = 8;
+
+/// evolite (TECH-spv-prune): what this process's masternode storage did, for
+/// the embedder's journal: counts and milliseconds only.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct MasternodeStorageStats {
+    /// Opening the storage (headers, filters, blocks, the masternode index).
+    pub storage_ms: u64,
+    /// Replaying the stored masternode messages into the engine.
+    pub load_engine_ms: u64,
+    /// Messages stored when the engine was loaded.
+    pub messages: usize,
+    /// Messages pruned since the process started.
+    pub pruned: usize,
+    /// The quorums of the newest list after the replay: verified, and not.
+    pub quorums_at_start: (usize, usize),
+    /// The same once the first masternode sync of the process completed.
+    pub quorums_synced: Option<(usize, usize)>,
+}
+
+static STATS: std::sync::Mutex<MasternodeStorageStats> =
+    std::sync::Mutex::new(MasternodeStorageStats {
+        storage_ms: 0,
+        load_engine_ms: 0,
+        messages: 0,
+        pruned: 0,
+        quorums_at_start: (0, 0),
+        quorums_synced: None,
+    });
+
+/// What this process's masternode storage did so far ([`MasternodeStorageStats`]).
+pub fn masternode_storage_stats() -> MasternodeStorageStats {
+    *STATS.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+pub(crate) fn note_storage_open(storage_ms: u64) {
+    STATS.lock().unwrap_or_else(|e| e.into_inner()).storage_ms = storage_ms;
+}
+
+/// The newest list's quorums once the first masternode sync completed.
+pub(crate) fn note_synced_quorums(counts: (usize, usize)) {
+    STATS.lock().unwrap_or_else(|e| e.into_inner()).quorums_synced.get_or_insert(counts);
+}
 
 enum Message {
     Diff(Box<MnListDiff>),
@@ -179,7 +227,196 @@ impl<H: BlockHeaderStorage> PersistentMasternodeStorage<H> {
     }
 
     pub(crate) async fn load_engine(&self) -> MasternodeListEngine<H> {
-        self.message_log().replay(CoreBlockHeight::MAX, |_| {}).await
+        let started = std::time::Instant::now();
+        let engine = self.message_log().replay(CoreBlockHeight::MAX, |_| {}).await;
+        let mut stats = STATS.lock().unwrap_or_else(|e| e.into_inner());
+        stats.load_engine_ms = started.elapsed().as_millis() as u64;
+        stats.messages = self.diffs.len() + self.qr_infos.len();
+        stats.quorums_at_start = engine.quorum_counts();
+        engine
+    }
+
+    /// evolite (TECH-spv-prune): the QRInfos stored ([`QRINFO_CUT_AT`]).
+    #[cfg(test)]
+    pub(crate) fn qr_info_count(&self) -> usize {
+        self.qr_infos.len()
+    }
+
+    /// evolite (TECH-spv-prune, review r1 M1): whether the next QRInfo is asked
+    /// from genesis: more than [`QRINFO_CUT_AT`] stored, and the newest stored
+    /// one is not from genesis already (a cut whose pruning has not run asks no
+    /// second one).
+    pub(crate) async fn cut_due(&self) -> bool {
+        if self.qr_infos.len() <= QRINFO_CUT_AT {
+            return false;
+        }
+        let Some((_, path)) = self.qr_infos.last_key_value() else {
+            return false;
+        };
+        let Ok(newest) = Self::read_message::<QRInfo>(path).await else {
+            return true;
+        };
+        !self.from_genesis(&qr_info_bases(&newest).into_iter().collect::<Vec<_>>()).await
+    }
+
+    /// Whether every one of `bases` is genesis: the zero hash or a block at 0.
+    async fn from_genesis(&self, bases: &[BlockHash]) -> bool {
+        use dashcore_hashes::Hash;
+        let headers = self.headers.read().await;
+        for base in bases {
+            if *base == BlockHash::all_zeros() {
+                continue;
+            }
+            if headers.get_header_height_by_hash(base).await.ok().flatten() != Some(0) {
+                return false;
+            }
+        }
+        true
+    }
+
+    /// evolite (TECH-spv-prune): deletes the stored messages a replay no
+    /// longer needs, answering how many. Once a QRInfo from genesis is stored
+    /// (the cut), only it and the messages applied on what it and they build
+    /// (or on genesis) can stay: everything from before the cut goes at once,
+    /// whatever its height (review r1 M1). Of those, a list is needed when it
+    /// lies in the engine's retention window below the newest list (QRInfo
+    /// bases, the work blocks of active quorums, Platform's walk-back), or when
+    /// a kept message is applied on it; it is kept through the newest message
+    /// that builds it, and so are that message's own bases. Everything else
+    /// goes. A message whose block is not in the header chain, or a file that
+    /// does not read, stops the pruning: nothing it cannot judge is deleted. A
+    /// file goes before its index entry, so a failure leaves more stored, never
+    /// less.
+    pub(crate) async fn prune(&mut self) -> StorageResult<usize> {
+        struct Entry {
+            height: CoreBlockHeight,
+            kind: Kind,
+            built: Vec<BlockHash>,
+            bases: Vec<BlockHash>,
+        }
+        let mut entries = Vec::new();
+        for (kind, index) in [(Kind::Diff, &self.diffs), (Kind::QrInfo, &self.qr_infos)] {
+            for (height, path) in index {
+                let Ok(message) = Self::read_entry(path, kind).await else {
+                    return Ok(0);
+                };
+                entries.push(Entry {
+                    height: *height,
+                    kind,
+                    built: message.built_hashes(),
+                    bases: message.base_hashes(),
+                });
+            }
+        }
+        // Newest first: the first message building a list is the one kept for it.
+        entries.sort_by_key(|e| std::cmp::Reverse((e.height, e.kind)));
+
+        let mut height_of: HashMap<BlockHash, CoreBlockHeight> = HashMap::new();
+        {
+            let headers = self.headers.read().await;
+            for entry in &entries {
+                for hash in &entry.built {
+                    if height_of.contains_key(hash) {
+                        continue;
+                    }
+                    match headers.get_header_height_by_hash(hash).await {
+                        Ok(Some(height)) => {
+                            height_of.insert(*hash, height);
+                        }
+                        _ => return Ok(0),
+                    }
+                }
+            }
+        }
+        let Some(newest) = height_of.values().copied().max() else {
+            return Ok(0);
+        };
+        let floor = newest.saturating_sub(crate::sml_engine::retention_window(self.network));
+
+        // The newest QRInfo from genesis, and what is applied on it forward.
+        let mut genesis = Vec::with_capacity(entries.len());
+        for entry in &entries {
+            genesis.push(self.from_genesis(&entry.bases).await);
+        }
+        let mut eligible = vec![true; entries.len()];
+        if let Some(cut) =
+            entries.iter().zip(&genesis).position(|(e, g)| e.kind == Kind::QrInfo && *g)
+        {
+            eligible = vec![false; entries.len()];
+            eligible[cut] = true;
+            let mut built: HashSet<BlockHash> = entries[cut].built.iter().copied().collect();
+            loop {
+                let mut grew = false;
+                for (i, entry) in entries.iter().enumerate() {
+                    // Another QRInfo from genesis is an older cut, not applied on this one.
+                    let older_cut = entry.kind == Kind::QrInfo && genesis[i];
+                    if eligible[i] || older_cut {
+                        continue;
+                    }
+                    let on_kept = genesis[i] || entry.bases.iter().all(|b| built.contains(b));
+                    if on_kept {
+                        eligible[i] = true;
+                        built.extend(entry.built.iter().copied());
+                        grew = true;
+                    }
+                }
+                if !grew {
+                    break;
+                }
+            }
+        }
+
+        let mut provider: HashMap<BlockHash, usize> = HashMap::new();
+        for (i, entry) in entries.iter().enumerate() {
+            if !eligible[i] {
+                continue;
+            }
+            for hash in &entry.built {
+                provider.entry(*hash).or_insert(i);
+            }
+        }
+        let mut kept = vec![false; entries.len()];
+        let mut needed: Vec<BlockHash> = height_of
+            .iter()
+            .filter(|(_, height)| **height >= floor)
+            .map(|(hash, _)| *hash)
+            .collect();
+        while let Some(hash) = needed.pop() {
+            let Some(&i) = provider.get(&hash) else {
+                continue;
+            };
+            if !kept[i] {
+                kept[i] = true;
+                needed.extend(entries[i].bases.iter().copied());
+            }
+        }
+
+        let mut pruned = 0;
+        for (entry, keep) in entries.iter().zip(kept) {
+            if keep {
+                continue;
+            }
+            let index = match entry.kind {
+                Kind::Diff => &mut self.diffs,
+                Kind::QrInfo => &mut self.qr_infos,
+            };
+            if let Some(path) = index.get(&entry.height) {
+                match tokio::fs::remove_file(path).await {
+                    Err(e) if e.kind() != std::io::ErrorKind::NotFound => return Err(e.into()),
+                    _ => {}
+                }
+                index.remove(&entry.height);
+                pruned += 1;
+            }
+        }
+        if pruned > 0 {
+            STATS.lock().unwrap_or_else(|e| e.into_inner()).pruned += pruned;
+            tracing::info!(
+                "Pruned {pruned} masternode messages the replay no longer needs, {} kept",
+                self.diffs.len() + self.qr_infos.len()
+            );
+        }
+        Ok(pruned)
     }
 }
 
@@ -199,8 +436,10 @@ impl<H: BlockHeaderStorage> MessageLog<H> {
         let mut engine = MasternodeListEngine::new(self.network, Arc::clone(&self.headers));
         #[cfg(test)]
         if !self.validate {
-            engine =
-                MasternodeListEngine::new_without_validation(self.network, Arc::clone(&self.headers));
+            engine = MasternodeListEngine::new_without_validation(
+                self.network,
+                Arc::clone(&self.headers),
+            );
         }
 
         let entries =
@@ -317,6 +556,15 @@ impl Message {
         }
     }
 
+    /// evolite (TECH-spv-prune): block hashes of the lists this message builds.
+    fn built_hashes(&self) -> Vec<BlockHash> {
+        match self {
+            Message::Diff(diff) if diff.block_hash != diff.base_block_hash => vec![diff.block_hash],
+            Message::Diff(_) => Vec::new(),
+            Message::QrInfo(qr_info) => qr_info_built(qr_info).into_iter().collect(),
+        }
+    }
+
     /// Block hashes of the lists this message is applied on top of. A QRInfo's
     /// diffs chain from its oldest one, which Core sends as an empty diff from
     /// the base to itself, so only bases no other diff of it produces count.
@@ -329,7 +577,7 @@ impl Message {
 }
 
 /// Block hashes of the lists a QRInfo's diffs build.
-fn qr_info_built(qr_info: &QRInfo) -> HashSet<BlockHash> {
+pub(crate) fn qr_info_built(qr_info: &QRInfo) -> HashSet<BlockHash> {
     qr_info_diffs(qr_info)
         .iter()
         .filter(|d| d.block_hash != d.base_block_hash)
@@ -338,7 +586,7 @@ fn qr_info_built(qr_info: &QRInfo) -> HashSet<BlockHash> {
 }
 
 /// Block hashes of the lists a QRInfo is applied on top of.
-fn qr_info_bases(qr_info: &QRInfo) -> HashSet<BlockHash> {
+pub(crate) fn qr_info_bases(qr_info: &QRInfo) -> HashSet<BlockHash> {
     let built = qr_info_built(qr_info);
     qr_info_diffs(qr_info)
         .iter()
@@ -375,7 +623,13 @@ impl<H: BlockHeaderStorage> MasternodeStorage for PersistentMasternodeStorage<H>
             }
         }
         let folder = self.folder();
-        Self::store_message(&folder, &mut self.qr_infos, Self::QRINFO_PREFIX, height, qr_info).await
+        Self::store_message(&folder, &mut self.qr_infos, Self::QRINFO_PREFIX, height, qr_info)
+            .await?;
+        // evolite (TECH-spv-prune): once it is written, what it makes redundant goes.
+        if let Err(e) = self.prune().await {
+            tracing::warn!("Could not prune the stored masternode messages: {e}");
+        }
+        Ok(())
     }
 
     async fn truncate_above(&mut self, height: CoreBlockHeight) -> StorageResult<()> {
@@ -825,5 +1079,214 @@ mod tests {
             honest,
             "a stored QRInfo replays only as mined"
         );
+    }
+
+    // evolite (TECH-spv-prune).
+
+    /// The lists at or above `floor`, as (height, block hash).
+    fn window_lists(
+        engine: &MasternodeListEngine<MockHeaderStorage>,
+        floor: CoreBlockHeight,
+    ) -> Vec<(CoreBlockHeight, BlockHash)> {
+        engine.masternode_lists.range(floor..).map(|(h, list)| (*h, list.block_hash)).collect()
+    }
+
+    /// An old chain of 12 diffs from genesis, an older work-block list in the
+    /// retention window chained to it, a diff from genesis (the cut) and three
+    /// after it. While the window's list chains back, nothing goes; once it is
+    /// asked again from genesis, the 12 go, and a reopened storage replays the
+    /// same lists in the window, and the next diff applies on them.
+    #[tokio::test]
+    async fn a_cut_lets_the_messages_before_it_go_but_keeps_the_window() {
+        let window = crate::sml_engine::retention_window(Network::Regtest);
+        let tip = 3 * window + 100;
+        let floor = tip - window;
+        let cut = floor + 10;
+        let mut heights: Vec<(u8, u32)> = vec![(0x00, 0)];
+        heights.extend((1..=12u8).map(|b| (b, u32::from(b))));
+        heights.extend([
+            (0x30, floor + 5),
+            (0x40, cut),
+            (0x41, cut + 1),
+            (0x42, cut + 2),
+            (0x43, tip),
+            (0x44, tip + 1),
+        ]);
+        let dir = TempDir::new().unwrap();
+        let mut storage = open_storage(&dir, &heights).await;
+        for b in 1..=12u8 {
+            storage.store_diff(u32::from(b), &MnListDiff::dummy(b - 1, b)).await.unwrap();
+        }
+        storage.store_diff(floor + 5, &MnListDiff::dummy(0x0C, 0x30)).await.unwrap();
+        storage.store_diff(cut, &MnListDiff::dummy(0x00, 0x40)).await.unwrap();
+        storage.store_diff(cut + 1, &MnListDiff::dummy(0x40, 0x41)).await.unwrap();
+        storage.store_diff(cut + 2, &MnListDiff::dummy(0x41, 0x42)).await.unwrap();
+        storage.store_diff(tip, &MnListDiff::dummy(0x42, 0x43)).await.unwrap();
+        assert_eq!(storage.prune().await.unwrap(), 0, "the window's list chains back to genesis");
+
+        // After the cut its list is asked again, from genesis.
+        storage.store_diff(floor + 5, &MnListDiff::dummy(0x00, 0x30)).await.unwrap();
+        let before = window_lists(&storage.load_engine().await, floor);
+        assert_eq!(before.len(), 5);
+        assert_eq!(storage.prune().await.unwrap(), 12);
+
+        let mut reopened = open_storage(&dir, &heights).await;
+        assert_eq!(
+            reopened.diffs.keys().copied().collect::<Vec<_>>(),
+            vec![floor + 5, cut, cut + 1, cut + 2, tip]
+        );
+        assert_eq!(window_lists(&reopened.load_engine().await, floor), before);
+        reopened.store_diff(tip + 1, &MnListDiff::dummy(0x43, 0x44)).await.unwrap();
+        let engine = reopened.load_engine().await;
+        assert_eq!(engine.masternode_lists[&(tip + 1)].block_hash, hash(0x44), "the next applies");
+    }
+
+    /// Storing a QRInfo prunes once it is written: the old chain, which no
+    /// list in the window needs, goes; the QRInfo stays.
+    #[tokio::test]
+    async fn storing_a_qr_info_prunes_what_it_makes_redundant() {
+        let window = crate::sml_engine::retention_window(Network::Regtest);
+        let tip = 3 * window + 100;
+        let mut heights: Vec<(u8, u32)> = vec![(0x00, 0)];
+        heights.extend((1..=16u8).map(|b| (b, u32::from(b))));
+        heights.extend([(0x50, 0), (0x51, tip - 4), (0x52, tip - 3), (0x53, tip - 2), (0x54, tip)]);
+        let dir = TempDir::new().unwrap();
+        let mut storage = open_storage(&dir, &heights).await;
+        for b in 1..=16u8 {
+            storage.store_diff(u32::from(b), &MnListDiff::dummy(b - 1, b)).await.unwrap();
+        }
+        storage.store_qr_info(tip, &chained_qr_info(0x50, 0x54)).await.unwrap();
+        let reopened = open_storage(&dir, &heights).await;
+        assert!(reopened.diffs.is_empty());
+        assert_eq!(reopened.qr_infos.keys().copied().collect::<Vec<_>>(), vec![tip]);
+    }
+
+    /// A message the pruning cannot judge stops it: a file gone behind the
+    /// index, or a block not in the header chain. The replay skips the missing
+    /// file and applies the rest.
+    #[tokio::test]
+    async fn what_the_pruning_cannot_judge_stops_it() {
+        let mut heights: Vec<(u8, u32)> = vec![(0x00, 0)];
+        heights.extend((1..=20u8).map(|b| (b, u32::from(b) * 1000)));
+        let dir = TempDir::new().unwrap();
+        let mut storage = open_storage(&dir, &heights).await;
+        for b in 1..=20u8 {
+            storage.store_diff(u32::from(b) * 1000, &MnListDiff::dummy(0x00, b)).await.unwrap();
+        }
+        tokio::fs::remove_file(&storage.diffs[&1000]).await.unwrap();
+        assert_eq!(storage.prune().await.unwrap(), 0, "a file gone");
+        assert_eq!(storage.load_engine().await.masternode_lists.len(), 19);
+
+        let dir = TempDir::new().unwrap();
+        let mut storage = open_storage(&dir, &heights[..20]).await;
+        for b in 1..=20u8 {
+            storage.store_diff(u32::from(b) * 1000, &MnListDiff::dummy(0x00, b)).await.unwrap();
+        }
+        assert_eq!(storage.prune().await.unwrap(), 0, "a block not in the header chain");
+    }
+
+    /// A QRInfo from genesis makes the engine forget the lists it did not
+    /// build, so the next QRInfo's base is one of its lists; one on a list
+    /// leaves the engine as it was.
+    #[tokio::test]
+    async fn a_qr_info_from_genesis_leaves_only_its_lists_to_build_on() {
+        let mut heights: Vec<(u8, u32)> = vec![(0x00, 0)];
+        heights.extend((1..=12u8).map(|b| (b, u32::from(b) * 100)));
+        heights.push((0x20, 1300));
+        let dir = TempDir::new().unwrap();
+        let mut storage = open_storage(&dir, &heights).await;
+        for b in 1..=12u8 {
+            storage.store_diff(u32::from(b) * 100, &MnListDiff::dummy(b - 1, b)).await.unwrap();
+        }
+        let mut engine = storage.load_engine().await;
+        let lists = engine.masternode_lists.len();
+
+        assert!(!engine.cut_at_qr_info_from_genesis(&chained_qr_info(0x05, 0x20)).await);
+        assert_eq!(engine.masternode_lists.len(), lists, "on a list: no cut");
+
+        // From genesis, building only the newest list the engine holds; the
+        // engine holds an older one too.
+        assert!(engine.masternode_lists.values().any(|list| list.block_hash == hash(0x0B)));
+        let from_genesis = QRInfo {
+            mn_list_diff_at_h_minus_3c: MnListDiff::dummy_empty(0x00, 0x00),
+            mn_list_diff_at_h_minus_2c: MnListDiff::dummy_empty(0x00, 0x00),
+            mn_list_diff_at_h_minus_c: MnListDiff::dummy_empty(0x00, 0x00),
+            mn_list_diff_h: MnListDiff::dummy_empty(0x00, 0x0C),
+            mn_list_diff_tip: MnListDiff::dummy_empty(0x0C, 0x20),
+            ..QRInfo::dummy(0x20)
+        };
+        assert!(engine.cut_at_qr_info_from_genesis(&from_genesis).await);
+        let built = qr_info_built(&from_genesis);
+        assert!(!engine.masternode_lists.is_empty());
+        assert!(engine.masternode_lists.values().all(|list| built.contains(&list.block_hash)));
+        assert!(engine
+            .qr_info_base_list(CoreBlockHeight::MAX)
+            .is_none_or(|list| built.contains(&list.block_hash)));
+    }
+
+    /// Review r1 M1: nine QRInfos chained from the first one from genesis, an
+    /// older work-block diff on one of their lists, a work-block diff asked
+    /// again from genesis after the cut (below the cut's height), then the cut:
+    /// a QRInfo from genesis. All of it lies in the retention window. Storing
+    /// the cut prunes everything from before it at once; a restart then
+    /// replays only lists the cut and the diff after it built, the next
+    /// QRInfo's base is one of the cut's lists, and no second cut is due.
+    #[tokio::test]
+    async fn a_restart_right_after_the_cut_keeps_nothing_from_before_it() {
+        let window = crate::sml_engine::retention_window(Network::Regtest);
+        assert!(window > 0x50, "the whole scene lies in the window");
+        let mut heights: Vec<(u8, u32)> = (0x00..=0x44u8).map(|b| (b, u32::from(b))).collect();
+        heights.push((0x50, 0x50));
+        let dir = TempDir::new().unwrap();
+        let mut storage = open_storage(&dir, &heights).await;
+        // q1 on genesis, then each on the list the one before built.
+        for i in 0..9u8 {
+            let (start, tip) = (i * 4, i * 4 + 4);
+            storage.store_qr_info(u32::from(tip), &chained_qr_info(start, tip)).await.unwrap();
+        }
+        assert_eq!(storage.qr_info_count(), 9);
+        assert!(storage.cut_due().await);
+        storage.store_diff(0x2F, &MnListDiff::dummy(0x10, 0x2F)).await.unwrap();
+        // After the cut: a work-block list asked again from genesis, below the cut's height.
+        storage.store_diff(0x30, &MnListDiff::dummy(0x00, 0x30)).await.unwrap();
+        let cut = QRInfo {
+            mn_list_diff_at_h_minus_3c: MnListDiff::dummy_empty(0x00, 0x00),
+            mn_list_diff_at_h_minus_2c: MnListDiff::dummy_empty(0x00, 0x41),
+            mn_list_diff_at_h_minus_c: MnListDiff::dummy_empty(0x41, 0x42),
+            mn_list_diff_h: MnListDiff::dummy_empty(0x42, 0x43),
+            mn_list_diff_tip: MnListDiff::dummy_empty(0x43, 0x44),
+            ..QRInfo::dummy(0x44)
+        };
+        storage.store_qr_info(0x44, &cut).await.unwrap();
+
+        let reopened = open_storage(&dir, &heights).await;
+        assert_eq!(reopened.qr_infos.keys().copied().collect::<Vec<_>>(), vec![0x44]);
+        assert_eq!(reopened.diffs.keys().copied().collect::<Vec<_>>(), vec![0x30]);
+        assert!(reopened.qr_info_count() <= QRINFO_CUT_AT);
+        assert!(!reopened.cut_due().await);
+        let mut built = qr_info_built(&cut);
+        built.insert(hash(0x30));
+        let engine = reopened.load_engine().await;
+        assert!(engine.masternode_lists.values().all(|list| built.contains(&list.block_hash)));
+        let base = engine.qr_info_base_list(0x50 + 4 * 24);
+        assert!(base.is_none_or(|list| built.contains(&list.block_hash)));
+    }
+
+    /// Review r1 M1: a cut stored and not pruned yet asks no second one.
+    #[tokio::test]
+    async fn a_stored_cut_asks_no_second_one() {
+        let dir = TempDir::new().unwrap();
+        let mut storage = open_storage(&dir, &[(0x00, 0)]).await;
+        for n in 1..=9u8 {
+            // On a list of 0xF0's, not genesis.
+            let on_a_base = QRInfo {
+                mn_list_diff_at_h_minus_3c: MnListDiff::dummy_empty(0xF0, 0xF0),
+                ..QRInfo::dummy(n)
+            };
+            storage.store_qr_info(u32::from(n), &on_a_base).await.unwrap();
+        }
+        assert!(storage.cut_due().await, "nine on bases");
+        storage.store_qr_info(10, &chained_qr_info(0x00, 0x60)).await.unwrap();
+        assert!(!storage.cut_due().await, "the newest is from genesis");
     }
 }

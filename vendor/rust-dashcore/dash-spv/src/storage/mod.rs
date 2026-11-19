@@ -37,6 +37,12 @@ pub use crate::storage::block_headers::{
 pub use crate::storage::blocks::{BlockStorage, PersistentBlockStorage};
 pub use crate::storage::filter_headers::{FilterHeaderStorage, PersistentFilterHeaderStorage};
 pub use crate::storage::filters::{FilterStorage, PersistentFilterStorage};
+#[cfg(test)]
+pub(crate) use crate::storage::masternode::QRINFO_CUT_AT;
+pub use crate::storage::masternode::{masternode_storage_stats, MasternodeStorageStats};
+pub(crate) use crate::storage::masternode::{
+    note_storage_open, note_synced_quorums, qr_info_bases, qr_info_built,
+};
 pub use crate::storage::masternode::{MasternodeStorage, PersistentMasternodeStorage};
 pub use crate::storage::metadata::{MetadataStorage, PersistentMetadataStorage};
 pub use crate::storage::peers::{PeerStorage, PersistentPeerStorage};

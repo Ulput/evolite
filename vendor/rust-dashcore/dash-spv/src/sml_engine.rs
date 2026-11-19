@@ -1,4 +1,5 @@
 mod helpers;
+pub(crate) use helpers::retention_window;
 mod rotated_quorum_construction;
 mod validation;
 

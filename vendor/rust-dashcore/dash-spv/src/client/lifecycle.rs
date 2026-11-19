@@ -44,7 +44,10 @@ impl<W: WalletInterface, N: NetworkManager> DashSpvClient<W, N> {
         config.validate().map_err(SpvError::Config)?;
         config.apply_global_overrides().map_err(SpvError::Config)?;
 
+        let opened = std::time::Instant::now();
         let mut storage = DiskStorageManager::new(&config).await?;
+        // evolite (TECH-spv-prune): for the embedder's journal.
+        crate::storage::note_storage_open(opened.elapsed().as_millis() as u64);
 
         let start_from_height = Self::resolve_start_height(&config, &wallet).await;
 

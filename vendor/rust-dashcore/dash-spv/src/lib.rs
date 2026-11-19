@@ -83,6 +83,7 @@ pub use error::{
 };
 pub use logging::{init_console_logging, init_logging, LogFileConfig, LoggingConfig, LoggingGuard};
 pub use storage::BlockHeaderTip;
+pub use storage::{masternode_storage_stats, MasternodeStorageStats};
 pub use sync::{BroadcastHoldout, BroadcastResult};
 pub use tracing::level_filters::LevelFilter;
 pub use types::{FilterMatch, ValidationMode};

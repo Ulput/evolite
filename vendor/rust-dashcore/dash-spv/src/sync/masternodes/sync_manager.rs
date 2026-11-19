@@ -119,6 +119,9 @@ impl<H: BlockHeaderStorage> SyncManager for MasternodesManager<H> {
                     }
                 };
 
+                // evolite (TECH-spv-prune): a QRInfo from genesis cuts the stored
+                // chain; before the requests below take their bases.
+                engine.cut_at_qr_info_from_genesis(qr_info).await;
                 let request_pairs = engine.readable_missing_work_block_list_requests().await;
                 let tip_height = engine.height_if_known(&qr_info.mn_list_diff_tip.block_hash).await;
                 drop(engine);
