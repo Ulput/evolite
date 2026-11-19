@@ -416,14 +416,10 @@ impl Real {
                     );
                 }
                 if let Some(check) = check.as_deref().map(str::trim).filter(|c| !c.is_empty()) {
-                    let id = match check.strip_prefix('@') {
-                        Some(_) => chain
-                            .resolve_name(check)
-                            .await
-                            .map_err(at("token_page.name"))?
-                            .ok_or_else(|| ("token_page.name", "no such name".into()))?,
-                        None => check.to_owned(),
-                    };
+                    // BUG-233: by the label, not «@name»; an id is checked.
+                    let id = super::names::recipient_id(&chain, check)
+                        .await
+                        .map_err(|e| ("token_page.name", format!("{e:?}")))?;
                     candidates.push(id);
                 }
                 candidates.sort();
@@ -532,18 +528,10 @@ impl Real {
                     .tokens()
                     .get(&token.position)
                     .ok_or(CoreError::Failed("no token at the position".into()))?;
+                // BUG-233: by the label, not «@name»; an id is checked before anything is asked.
                 let resolve = |to: &str| {
-                    let (chain, to) = (chain.clone(), to.trim().to_owned());
-                    async move {
-                        match to.strip_prefix('@') {
-                            Some(_) => chain
-                                .resolve_name(&to)
-                                .await
-                                .map_err(read_failure)?
-                                .ok_or(CoreError::NameNotFound),
-                            None => Ok(to),
-                        }
-                    }
+                    let (chain, to) = (chain.clone(), to.to_owned());
+                    async move { super::names::recipient_id(&chain, &to).await }
                 };
                 // The architect's note: an @name in a setting is resolved as in a mint or a
                 // freeze, before the rights are asked of the change.

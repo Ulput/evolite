@@ -9,7 +9,7 @@ use evolite_api::tokens::TokenInfo;
 use evolite_local::wallet_tokens::{Origin, Tracked, WalletTokens};
 
 use super::identity::own_line;
-use super::names::read_within;
+use super::names::{Recipient, read_within, recipient};
 use crate::real::*;
 
 /// How long one search for a token may take.
@@ -762,43 +762,6 @@ mod rows_tests {
 }
 
 /// Whom a token goes to: an `@name` or an identity id, as credits (АРХ-5).
-#[derive(Debug, PartialEq)]
-enum Recipient {
-    Name(String),
-    Id(Identifier),
-}
-
-fn recipient(to: &str) -> Result<Recipient, CoreError> {
-    let to = to.trim();
-    if to.starts_with('@') {
-        return Ok(Recipient::Name(dpns::label(to)?));
-    }
-    Identifier::from_string(to, Encoding::Base58)
-        .map(Recipient::Id)
-        .map_err(|_| CoreError::BadAddress)
-}
-
-#[cfg(test)]
-mod recipient_tests {
-    use super::*;
-
-    #[test]
-    fn a_token_goes_to_a_name_or_an_identity_id() {
-        assert_eq!(recipient(" @Alice "), Ok(Recipient::Name("alice".into())));
-        let id = Identifier::from([7u8; 32]);
-        assert_eq!(
-            recipient(&id.to_string(Encoding::Base58)),
-            Ok(Recipient::Id(id))
-        );
-        assert_eq!(
-            recipient("yNk2Hc8pWq4mR7vT3sLb9XeJ6uZa5Df1Gh"),
-            Err(CoreError::BadAddress)
-        );
-        assert_eq!(recipient(""), Err(CoreError::BadAddress));
-        assert!(matches!(recipient("@a"), Err(CoreError::BadName)));
-    }
-}
-
 impl Real {
     /// Sends `amount` of a followed token (Spend::SendToken), past the password gate. The
     /// refusals before the password are the screen's (`send_refusal`, AC-T3); here only what

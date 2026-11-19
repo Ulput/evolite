@@ -403,3 +403,81 @@ mod tests {
         assert_eq!(answer, Err("timed out".to_owned()));
     }
 }
+
+/// Whom a payment, a token or an issuer's action goes to, as typed (BUG-233): `@name` (its
+/// DPNS label, without «@», lower-cased) or an identity id (Base58, 32 bytes). A bare name
+/// without «@» is neither: `BadAddress`, as a mistyped id.
+#[derive(Debug, PartialEq)]
+pub(in crate::real) enum Recipient {
+    Name(String),
+    Id(Identifier),
+}
+
+pub(in crate::real) fn recipient(to: &str) -> Result<Recipient, CoreError> {
+    let to = to.trim();
+    if to.starts_with('@') {
+        return Ok(Recipient::Name(dpns::label(to)?));
+    }
+    Identifier::from_string(to, Encoding::Base58)
+        .map(Recipient::Id)
+        .map_err(|_| CoreError::BadAddress)
+}
+
+#[cfg(test)]
+mod recipient_tests {
+    use super::*;
+
+    #[test]
+    fn a_token_goes_to_a_name_or_an_identity_id() {
+        assert_eq!(recipient(" @Alice "), Ok(Recipient::Name("alice".into())));
+        let id = Identifier::from([7u8; 32]);
+        assert_eq!(
+            recipient(&id.to_string(Encoding::Base58)),
+            Ok(Recipient::Id(id))
+        );
+        assert_eq!(
+            recipient("yNk2Hc8pWq4mR7vT3sLb9XeJ6uZa5Df1Gh"),
+            Err(CoreError::BadAddress)
+        );
+        assert_eq!(recipient(""), Err(CoreError::BadAddress));
+        assert!(matches!(recipient("@a"), Err(CoreError::BadName)));
+    }
+
+    /// BUG-233: «@alice» is the label `alice` — never «@alice», which no DPNS name is; a bare
+    /// «alice», an id one character short and rubbish are not recipients. Mutant: the label
+    /// with its «@» (as `token_manage` had it) fails the first assert.
+    #[test]
+    fn an_issuers_recipient_is_a_label_or_an_id() {
+        assert_eq!(recipient("@alice"), Ok(Recipient::Name("alice".into())));
+        assert_eq!(recipient("alice"), Err(CoreError::BadAddress));
+        let id = Identifier::from([9u8; 32]).to_string(Encoding::Base58);
+        assert_eq!(
+            recipient(&id),
+            Ok(Recipient::Id(Identifier::from([9u8; 32])))
+        );
+        assert_eq!(recipient(&id[1..]), Err(CoreError::BadAddress));
+        assert_eq!(recipient("0x!!"), Err(CoreError::BadAddress));
+    }
+
+    /// BUG-233, guard: an issuer's action resolves its recipient only through [`recipient_id`]
+    /// — no copy of its own that hands Platform the «@». Mutant: the old copies.
+    #[test]
+    fn an_issuers_action_resolves_through_the_one_function() {
+        let manage = include_str!("token_manage.rs");
+        assert!(!manage.contains(".resolve_name("), "a copy of its own");
+        assert_eq!(manage.matches("names::recipient_id(").count(), 2);
+    }
+}
+
+/// [`recipient`] resolved to an identity id (Base58), for an issuer's action (BUG-233): a name
+/// by its label, never with its «@».
+pub(in crate::real) async fn recipient_id(chain: &Chain, to: &str) -> Result<String, CoreError> {
+    match recipient(to)? {
+        Recipient::Id(id) => Ok(id.to_string(Encoding::Base58)),
+        Recipient::Name(label) => chain
+            .resolve_name(&label)
+            .await
+            .map_err(read_failure)?
+            .ok_or(CoreError::NameNotFound),
+    }
+}
