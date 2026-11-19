@@ -142,7 +142,8 @@ pub const MAINNET_SYNCED: u64 = 1 << 30;
 /// What is recommended to keep free on the data disk for testnet: its data after the sync and
 /// about 0.65 GiB more for its growth and the system.
 pub const RECOMMENDED_FREE: u64 = 1 << 30;
-/// The same with mainnet turned on: its data after the sync on top, with the same headroom.
+/// For both networks: mainnet's data after the sync on top of testnet's figure, with the same
+/// headroom.
 pub const RECOMMENDED_FREE_MAINNET: u64 = RECOMMENDED_FREE + MAINNET_SYNCED;
 /// What the installer itself needs beyond the files: the `.part` copies while it writes.
 const MARGIN: u64 = 64 << 20;

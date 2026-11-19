@@ -189,6 +189,18 @@ fn remove_own(known: &Known, path: &Path) -> Result<(), String> {
     }
 }
 
+/// The wallet data, when the person ticked it (`data`): every one of evolite's data folders —
+/// both networks' (mainnet's holds real money) and the app's common one — and nothing beside
+/// them. Untouched without the tick.
+fn remove_data(known: &Known, data: bool) -> Result<(), String> {
+    if data {
+        for folder in known.data_folders() {
+            remove_own(known, &folder)?;
+        }
+    }
+    Ok(())
+}
+
 fn run_remove(job: &Remove, p: &Shared) -> Result<(), String> {
     if system::running(&job.known) || system::in_use(&job.dir.join(plan::APP)) {
         return Err(tr!("evolite is running. Close it and try again.").into());
@@ -219,11 +231,7 @@ fn run_remove(job: &Remove, p: &Shared) -> Result<(), String> {
     system::remove_shortcuts(&job.known);
     system::forget_crash_exclusion(&job.dir.join(plan::APP));
     set(p, |p| p.step = 1);
-    if job.data {
-        for folder in job.known.data_folders() {
-            remove_own(&job.known, &folder)?;
-        }
-    }
+    remove_data(&job.known, job.data)?;
     set(p, |p| p.step = 2);
     remove_own(&job.known, &job.known.cache())?;
     system::remove_entry()?;
@@ -259,6 +267,44 @@ mod tests {
             roaming: root.join("Roaming"),
             programs: root.join("Programs"),
         }
+    }
+
+    /// Installer review r1, Should: the removal of the data itself. Without the tick all three
+    /// folders stay; with it exactly Roaming/evolite, evolite-mainnet and evolite-app go, and a
+    /// folder and a file beside them named alike stay — the guard of the folder with mainnet's
+    /// money.
+    #[test]
+    fn the_data_removal_takes_exactly_evolites_folders() {
+        let root = std::env::temp_dir().join(format!("evolite-setup-data-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let known = temp_known(&root);
+        let ours = [known.testnet_data(), known.mainnet_data(), known.app_data()];
+        for folder in &ours {
+            std::fs::create_dir_all(folder.join("wallets")).unwrap();
+            std::fs::write(folder.join("wallets").join("w.json"), b"{}").unwrap();
+        }
+        let beside = known.roaming.join("evolite-backup");
+        std::fs::create_dir_all(&beside).unwrap();
+        let file = known.roaming.join("evolite.txt");
+        std::fs::write(&file, b"notes").unwrap();
+        remove_data(&known, false).unwrap();
+        assert!(ours.iter().all(|f| f.exists()), "no tick: all three stay");
+        remove_data(&known, true).unwrap();
+        for folder in &ours {
+            assert!(!folder.exists(), "{} gone", folder.display());
+        }
+        assert_eq!(
+            [
+                known.testnet_data().ends_with("Roaming/evolite"),
+                known.mainnet_data().ends_with("Roaming/evolite-mainnet"),
+                known.app_data().ends_with("Roaming/evolite-app"),
+            ],
+            [true; 3],
+            "the folders the test names"
+        );
+        assert!(beside.exists(), "Roaming/evolite-backup stays");
+        assert!(file.exists(), "Roaming/evolite.txt stays");
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     /// The whole cycle on this computer, with the program, data and cache folders in a

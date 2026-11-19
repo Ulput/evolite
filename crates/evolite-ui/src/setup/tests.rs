@@ -111,3 +111,24 @@ fn a_dev_tools_or_demo_only_program_is_not_packed() {
         );
     }
 }
+
+/// Beta list §5а item 10: the removal names both networks' data folders, each with its network,
+/// whether or not they exist yet.
+#[test]
+fn the_removal_names_both_network_folders() {
+    let base = std::env::temp_dir().join(format!("evolite-removal-{}", std::process::id()));
+    let known = super::plan::Known {
+        local: base.join("Local"),
+        roaming: base.join("Roaming"),
+        programs: base.join("Local").join("Programs"),
+    };
+    let said = super::ui::removal_folders(&known);
+    assert!(
+        said.contains(&format!("{} (testnet)", known.testnet_data().display())),
+        "{said}"
+    );
+    assert!(
+        said.contains(&format!("{} (mainnet)", known.mainnet_data().display())),
+        "{said}"
+    );
+}

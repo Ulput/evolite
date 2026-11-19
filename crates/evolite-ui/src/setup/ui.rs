@@ -909,7 +909,7 @@ impl Setup {
             &p,
             tr!("What will be installed"),
             Some(tr!(
-                "evolite is a light Dash wallet for testnet. Nothing is installed until you press Install on the next step."
+                "evolite is a light Dash wallet. Nothing is installed until you press Install on the next step."
             )),
         );
         let size = self.size(self.program_bytes());
@@ -1058,21 +1058,23 @@ impl Setup {
                 self.size(self.program_bytes()),
                 p.text,
             ),
+            // Beta list §5а item 10: each row names its network outright; neither is «if turned
+            // on» (coordinator 2026-11-20: the first network is the customer's decision).
             (
-                tr!("Data after the sync"),
-                fill(tr!("on disk {} · testnet"), &[&dl]),
+                tr!("Testnet data after the sync"),
+                fill(tr!("on disk {}"), &[&dl]),
                 format!("≈ {}", self.size(plan::TESTNET_SYNCED)),
                 p.text,
             ),
             (
-                tr!("Data for mainnet, if turned on"),
+                tr!("Mainnet data after the sync"),
                 fill(tr!("on disk {}"), &[&dl]),
                 format!("≈ {}", self.size(plan::MAINNET_SYNCED)),
                 p.text,
             ),
             (
-                tr!("Recommended free space"),
-                fill(tr!("on disk {} · testnet"), &[&dl]),
+                tr!("Recommended free space for testnet"),
+                fill(tr!("on disk {}"), &[&dl]),
                 self.size(plan::RECOMMENDED_FREE),
                 if room == Some(Room::Plenty) {
                     p.accent
@@ -1081,7 +1083,7 @@ impl Setup {
                 },
             ),
             (
-                tr!("Recommended free space with mainnet"),
+                tr!("Recommended free space for both networks"),
                 fill(tr!("on disk {}"), &[&dl]),
                 self.size(plan::RECOMMENDED_FREE_MAINNET),
                 if mainnet_fits { p.accent } else { p.muted },
@@ -1342,15 +1344,10 @@ impl Setup {
             tr!(
                 "Without this, wallets, their history and settings stay in {} and open again if you install evolite later."
             ),
-            // Every data folder there is, mainnet's too (real money) and the app's common one
-            // (FEAT-0037, review r1 P3 3).
-            &[&known
-                .data_folders()
-                .iter()
-                .filter(|d| d.exists() || *d == &known.testnet_data())
-                .map(|d| d.display().to_string())
-                .collect::<Vec<_>>()
-                .join(", ")],
+            // Both networks' folders always, each named by its network — mainnet's holds real money
+            // — and the app's common one when it is there (FEAT-0037 r1 P3 3; beta list §5а
+            // item 10).
+            &[&removal_folders(&known)],
         );
         checkbox(
             ui,
@@ -1826,4 +1823,22 @@ impl Setup {
         let why = i18n::t(why).into_owned();
         notice(ui, &p, &mut self.icons, "warning", &why, p.danger);
     }
+}
+
+/// The data folders the removal names (beta list §5а item 10): testnet's and mainnet's always,
+/// each with its network, so the person knows both go — mainnet's holds real money — and the
+/// app's common one when it is there.
+pub(super) fn removal_folders(known: &plan::Known) -> String {
+    let mut folders = vec![
+        format!("{} (testnet)", known.testnet_data().display()),
+        format!("{} (mainnet)", known.mainnet_data().display()),
+    ];
+    if known.app_data().exists() {
+        // Analyst 2026-11-20: said for what it is, so it does not look like a third network.
+        folders.push(fill(
+            tr!("{} (common to both networks)"),
+            &[&known.app_data().display().to_string()],
+        ));
+    }
+    folders.join(", ")
 }
