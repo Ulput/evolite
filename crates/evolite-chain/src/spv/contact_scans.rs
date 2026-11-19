@@ -52,10 +52,8 @@ impl ContactScans {
     }
 
     fn load(path: &std::path::Path) -> BTreeSet<String> {
-        crate::json_file::read(path)
-            .ok()
-            .and_then(|b| serde_json::from_slice(&b).ok())
-            .unwrap_or_default()
+        // BUG-235: one that does not read is set aside, not written over.
+        crate::json_file::read_cache(path, |b| serde_json::from_slice(b).ok()).unwrap_or_default()
     }
 
     /// Of `accounts` (by [`Self::key`]), those not rescanned for yet, nor asked in this run.

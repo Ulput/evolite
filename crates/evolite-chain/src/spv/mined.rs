@@ -51,9 +51,8 @@ impl Mined {
     }
 
     fn load(&self) -> HashMap<String, Block> {
-        crate::json_file::read(&self.path)
-            .ok()
-            .and_then(|b| serde_json::from_slice(&b).ok())
+        // BUG-235: one that does not read is set aside, not written over.
+        crate::json_file::read_cache(&self.path, |b| serde_json::from_slice(b).ok())
             .unwrap_or_default()
     }
 

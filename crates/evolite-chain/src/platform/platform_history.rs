@@ -75,16 +75,18 @@ pub struct IdentityMarks {
 }
 
 impl Marks {
-    /// The file's marks; none (read everything) when it is missing or unreadable.
+    /// The file's marks; none (read everything) when it is missing or unreadable — and an
+    /// unreadable one is set aside, not written over (BUG-235).
     pub fn load(path: &Path) -> Self {
-        crate::json_file::read(path)
-            .ok()
-            .and_then(|bytes| serde_json::from_slice::<Marks>(&bytes).ok())
-            .filter(|m| m.version == 1)
-            .unwrap_or(Marks {
-                version: 1,
-                identities: BTreeMap::new(),
-            })
+        crate::json_file::read_cache(path, |bytes| {
+            serde_json::from_slice::<Marks>(bytes)
+                .ok()
+                .filter(|m| m.version == 1)
+        })
+        .unwrap_or(Marks {
+            version: 1,
+            identities: BTreeMap::new(),
+        })
     }
 
     pub fn save(&self, path: &Path) -> Result<(), String> {

@@ -144,9 +144,13 @@ impl Real {
         wallet: &platform_wallet::PlatformWallet,
     ) -> Option<FundLock> {
         let open = self.chain.open_fund_locks(wallet).await;
-        evolite_chain::chain::address_fund::waiting_lock(&open, |txid| {
-            self.lock_status.answer(txid)
-        })
+        // BUG-235 S1: a set-aside lock-status.json says nothing of what Platform took before.
+        let known = !self.lock_status.was_set_aside();
+        evolite_chain::chain::address_fund::waiting_lock_knowing(
+            &open,
+            |txid| self.lock_status.answer(txid),
+            known,
+        )
         .cloned()
     }
 

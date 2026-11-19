@@ -336,6 +336,29 @@ where
     }
 }
 
+/// A cache file that the network can fill again (BUG-235: the chain's lock statuses, mined
+/// blocks, contact rescans, Platform marks, the token search): what `parse` makes of it, or
+/// `None` — no file, or one that did not read. One that did not read (the tries of [`Store`],
+/// too big, or `parse` refuses it) is set aside as `<name>.unreadable-<unix>`, with its name and
+/// why in the journal, as a [`Store`]'s: what it held stays on the disk, and the next write
+/// starts a new file instead of writing over it. Unlike a [`Store`], nothing waits for the
+/// person — what it held is read from the network again.
+pub fn read_cache<T>(path: &Path, parse: impl FnOnce(&[u8]) -> Option<T>) -> Option<T> {
+    let bytes = match read_tries(path, READ_TRIES, READ_PAUSE, read) {
+        Ok(None) => return None,
+        Ok(Some(bytes)) => bytes,
+        Err(reason) => {
+            set_aside(path, reason);
+            return None;
+        }
+    };
+    let value = parse(&bytes);
+    if value.is_none() {
+        set_aside(path, Unreadable::Parse);
+    }
+    value
+}
+
 /// What the core does with any store's file that was set aside, whatever it holds (BUG-204).
 pub trait SetAsideFile {
     fn state(&self) -> State;
@@ -514,6 +537,36 @@ mod tests {
             .collect();
         names.sort();
         names
+    }
+
+    /// BUG-235: a cache that does not read is moved aside — kept, never written over — and
+    /// read as none; a missing one is none with nothing moved; a good one is read.
+    #[test]
+    fn a_cache_that_does_not_read_is_set_aside_not_written_over() {
+        let dir = dir("cache");
+        let path = dir.join("lock-status.json");
+        let parse = |b: &[u8]| serde_json::from_slice::<Vec<u32>>(b).ok();
+        assert_eq!(read_cache(&path, parse), None);
+        assert!(
+            names(&dir, "lock-status.json.unreadable-").is_empty(),
+            "nothing to move"
+        );
+        std::fs::write(&path, b"[1, 2").unwrap();
+        assert_eq!(read_cache(&path, parse), None);
+        assert!(!path.exists(), "moved, so the next write is a new file");
+        let aside = names(&dir, "lock-status.json.unreadable-");
+        assert_eq!(aside.len(), 1);
+        assert_eq!(
+            std::fs::read(dir.join(&aside[0])).unwrap(),
+            b"[1, 2",
+            "what it held"
+        );
+        save(&path, &vec![3u32]).unwrap();
+        assert_eq!(read_cache(&path, parse), Some(vec![3]));
+        // A file that parses but is not this build's (`parse` says no) is set aside too.
+        assert_eq!(read_cache(&path, |_| None::<Vec<u32>>), None);
+        assert_eq!(names(&dir, "lock-status.json.unreadable-").len(), 2);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

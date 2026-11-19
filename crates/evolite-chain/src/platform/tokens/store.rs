@@ -48,13 +48,15 @@ enum StoredPass {
     Contracts,
 }
 
-/// The cache kept at `path`, or a fresh one.
+/// The cache kept at `path`, or a fresh one; one that does not read is set aside, not written
+/// over (BUG-235).
 pub fn load<P: DeserializeOwned>(path: &Path) -> Cache<P> {
-    evolite_local::json_file::read(path)
-        .ok()
-        .and_then(|bytes| serde_json::from_slice::<Stored<P>>(&bytes).ok())
-        .and_then(from_stored)
-        .unwrap_or_default()
+    evolite_local::json_file::read_cache(path, |bytes| {
+        serde_json::from_slice::<Stored<P>>(bytes)
+            .ok()
+            .and_then(from_stored)
+    })
+    .unwrap_or_default()
 }
 
 /// Keep `cache` at `path`.

@@ -154,6 +154,9 @@ struct State {
     wanted: Vec<Lock>,
     /// A request failed: not again before this (R-5).
     not_before: Option<Instant>,
+    /// The file was there and did not read: set aside in this run (BUG-235 S1). Its «spent»
+    /// answers are not known, so a lock made here is not guessed to wait for «Continue».
+    set_aside: bool,
 }
 
 /// What Platform answered about the wallet's locks. «Spent» does not change and is kept in
@@ -177,10 +180,13 @@ impl LockStatuses {
 
     fn load(&self, state: &mut State) {
         if state.spent.is_none() {
-            let file: File = crate::json_file::read(&self.path)
-                .ok()
-                .and_then(|bytes| serde_json::from_slice(&bytes).ok())
-                .unwrap_or_default();
+            // BUG-235: one that does not read is set aside, not written over — Platform's
+            // «taken» answers in it stay on the disk (BUG-160) — and asked again.
+            let there = self.path.exists();
+            let file: Option<File> =
+                crate::json_file::read_cache(&self.path, |b| serde_json::from_slice(b).ok());
+            state.set_aside = there && file.is_none();
+            let file = file.unwrap_or_default();
             state.spent = Some(file.spent);
         }
     }
@@ -212,6 +218,14 @@ impl LockStatuses {
                 state.wanted.push(lock);
             }
         }
+    }
+
+    /// The file did not read in this run and was set aside (BUG-235 S1): what Platform took
+    /// before is not known until it answers again.
+    pub fn was_set_aside(&self) -> bool {
+        let mut state = self.state();
+        self.load(&mut state);
+        state.set_aside
     }
 
     /// What Platform proved about `txid`, if it answered (in this run, or spent in an earlier
@@ -320,6 +334,45 @@ mod tests {
 
     fn lock(id: &str) -> Lock {
         (id.to_owned(), false)
+    }
+
+    /// BUG-235: an unreadable `lock-status.json` is set aside, not written over by the next
+    /// answer — Platform's «taken» answers in it stay on the disk (BUG-160).
+    #[test]
+    fn an_unreadable_file_is_set_aside_not_written_over() {
+        let path = folder("unreadable");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, b"{\"spent\": {").unwrap();
+        let statuses = LockStatuses::new(path.clone());
+        assert_eq!(statuses.credits(&txid(1), true, false), None);
+        statuses.answered(
+            &txid(2),
+            Told {
+                answer: Answer::Spent,
+                identity: true,
+            },
+        );
+        let dir = path.parent().unwrap();
+        let aside: Vec<_> = std::fs::read_dir(dir)
+            .unwrap()
+            .flatten()
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .filter(|n| n.starts_with("lock-status.json.unreadable-"))
+            .collect();
+        assert_eq!(aside.len(), 1, "set aside: {aside:?}");
+        assert_eq!(
+            std::fs::read(dir.join(&aside[0])).unwrap(),
+            b"{\"spent\": {"
+        );
+        assert!(statuses.was_set_aside(), "said for this run");
+        let next = LockStatuses::new(path.clone());
+        assert!(next.credits(&txid(2), true, false).is_some());
+        assert!(!next.was_set_aside(), "the new file reads");
+        assert!(
+            !LockStatuses::new(folder("none")).was_set_aside(),
+            "no file is not set aside"
+        );
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     fn txid(n: usize) -> String {

@@ -59,11 +59,22 @@ pub fn waiting_lock(
     locks: &[FundLock],
     answer: impl Fn(&str) -> Option<crate::lock_status::Answer>,
 ) -> Option<&FundLock> {
+    waiting_lock_knowing(locks, answer, true)
+}
+
+/// [`waiting_lock`], with `known` false when the kept answers are not known in this run —
+/// `lock-status.json` was set aside (BUG-235 S1): then a lock made here waits for Platform's
+/// answer too before «Continue» is offered, as a recovered one does; Platform may have taken it.
+pub fn waiting_lock_knowing(
+    locks: &[FundLock],
+    answer: impl Fn(&str) -> Option<crate::lock_status::Answer>,
+    known: bool,
+) -> Option<&FundLock> {
     use crate::lock_status::Answer;
     locks.iter().find(|l| match answer(&l.txid) {
         Some(Answer::NotSeen) => true,
         Some(Answer::Spent | Answer::Partly { .. }) => false,
-        None => l.made_here,
+        None => l.made_here && known,
     })
 }
 
@@ -304,6 +315,15 @@ mod tests {
         assert_eq!(waiting_lock(&locks, told(&locks, [None])), Some(&locks[0]));
         assert_eq!(
             waiting_lock(&locks, told(&locks, [Some(Answer::NotSeen)])),
+            Some(&locks[0])
+        );
+        // BUG-235 S1: with the kept answers set aside, not before Platform answers in this run.
+        assert_eq!(
+            waiting_lock_knowing(&locks, told(&locks, [None]), false),
+            None
+        );
+        assert_eq!(
+            waiting_lock_knowing(&locks, told(&locks, [Some(Answer::NotSeen)]), false),
             Some(&locks[0])
         );
         // A used one ahead of an unseen one does not hide it.
