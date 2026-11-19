@@ -1368,8 +1368,8 @@ pub struct Fees {
     /// Each new key an IdentityUpdate adds, roughly (BUG-183): unbound, and bound to a contract
     /// (DashPay's pair, an app's keys) — stored in the identity's tree, and the bound ones in the
     /// contract's key trees too. Never below what testnet charged plus a third
-    /// ([`key_plan::KEY_ADD_UNBOUND`], [`key_plan::KEY_ADD_BOUND`]), and a third over what this
-    /// data folder last paid.
+    /// ([`key_plan::KEY_ADD_UNBOUND`], [`key_plan::KEY_ADD_BOUND`]), and a quarter over the
+    /// dearest key of the last changes this data folder paid for (TECH-key-fee-rule).
     pub key_add_unbound: Duffs,
     pub key_add_bound: Duffs,
     /// A DashPay contact request (a document in Platform, paid in credits).

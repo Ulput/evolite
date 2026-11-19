@@ -1939,35 +1939,42 @@ pub fn platform_fees(
     (fees.key_add_bound, fees.key_add_unbound) = key_add_rates(journal);
 }
 
-/// What a new key costs, bound to a contract and not (BUG-183): the default, or a third over a
-/// key of the last change of keys of that kind alone (all its new keys bound, or none), when
-/// that is more. Never below the default.
+/// What a new key costs, bound to a contract and not (BUG-183), by the rule of every metered
+/// write (BUG-197, TECH-key-fee-rule): the default, or a quarter over the dearest key of the
+/// last [`RECENT_WRITES`] changes of keys of that kind alone (all their new keys bound, or
+/// none), when that is more. Before, a third over the last change alone: one cheap change
+/// lowered the promise below a dearer one just before it.
 pub fn key_add_rates(journal: &super::journal::Journal) -> (Duffs, Duffs) {
     use super::journal::Kind;
     use evolite_api::key_plan::{KEY_ADD_BOUND, KEY_ADD_UNBOUND};
     let entries = journal.entries();
-    let last = |bound_kind: bool| {
-        entries.iter().rev().find_map(|e| match &e.kind {
-            Some(Kind::KeysChanged { added, bound, .. })
-                if !added.is_empty()
-                    && e.spent > 0
-                    && if bound_kind {
-                        *bound as usize == added.len()
-                    } else {
-                        *bound == 0
-                    } =>
-            {
-                Some(e.spent / added.len() as Duffs)
-            }
-            _ => None,
-        })
+    let dearest = |bound_kind: bool| {
+        entries
+            .iter()
+            .rev()
+            .filter_map(|e| match &e.kind {
+                Some(Kind::KeysChanged { added, bound, .. })
+                    if !added.is_empty()
+                        && e.spent > 0
+                        && if bound_kind {
+                            *bound as usize == added.len()
+                        } else {
+                            *bound == 0
+                        } =>
+                {
+                    Some(e.spent / added.len() as Duffs)
+                }
+                _ => None,
+            })
+            .take(RECENT_WRITES)
+            .max()
     };
     let rate = |default: Duffs, measured: Option<Duffs>| {
-        measured.map_or(default, |key| default.max((key * 4 + 2) / 3))
+        measured.map_or(default, |key| default.max(key.saturating_mul(5) / 4))
     };
     (
-        rate(KEY_ADD_BOUND, last(true)),
-        rate(KEY_ADD_UNBOUND, last(false)),
+        rate(KEY_ADD_BOUND, dearest(true)),
+        rate(KEY_ADD_UNBOUND, dearest(false)),
     )
 }
 
@@ -2463,8 +2470,12 @@ mod tests {
 
     /// BUG-183 AC-T2: a pair that cost 70 000 lifts the bound rate to a third over 35 000 a key;
     /// a cheap change never takes a rate below the default.
+    /// TECH-key-fee-rule: a key's rate is a quarter over the dearest of the recent changes of
+    /// that kind, as every metered write — a cheaper change after a dearer one does not lower
+    /// it; never below the default. Mutant: the last change alone, a third over (the old rule),
+    /// gives 40 000 after the cheap one.
     #[test]
-    fn a_key_change_learns_its_rate_from_the_last_one() {
+    fn a_key_change_learns_its_rate_from_the_dearest_recent_one() {
         use super::super::journal::{Journal, Kind, entry_of};
         let dir = std::env::temp_dir().join(format!("evolite-key-rates-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
@@ -2484,7 +2495,41 @@ mod tests {
         assert_eq!(key_add_rates(&journal), (40_000, 24_000));
         journal.add(change(vec![6, 7], 2, 70_000));
         journal.add(change(vec![8], 0, 9_000));
-        assert_eq!(key_add_rates(&journal), (46_667, 24_000));
+        // 35 000 a bound key, a quarter over: 43 750; the unbound one below its default.
+        assert_eq!(key_add_rates(&journal), (43_750, 24_000));
+        // A cheaper bound change after it: the dearest of the recent ones still counts.
+        journal.add(change(vec![9], 1, 30_000));
+        assert_eq!(key_add_rates(&journal), (43_750, 24_000));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// TECH-key-fee-rule: App Connect's keys (bound to the app's contract, `fee_of_keys`) and the
+    /// keys screen's (`key_plan::fee`) cost the same for the same keys, from the same measured
+    /// fees (BUG-236: App Connect prices with them too).
+    #[test]
+    fn app_connect_and_the_keys_screen_price_keys_alike() {
+        use super::super::journal::{Journal, Kind, entry_of};
+        use evolite_api::key_plan::{self, KeyRequest};
+        let dir = std::env::temp_dir().join(format!("evolite-key-alike-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let journal = Journal::new(dir.join("platform-history.json"));
+        journal.add(entry_of(
+            Kind::KeysChanged {
+                added: vec![6, 7],
+                disabled: Vec::new(),
+                bound: 2,
+            },
+            1_793_000_000,
+            80_000,
+            None,
+        ));
+        let mut f = fees(0);
+        platform_fees(&mut f, dpp::version::PlatformVersion::latest(), &journal);
+        assert_eq!(f.key_add_bound, 50_000, "a quarter over 40 000 a key");
+        let screen = key_plan::fee(&[KeyRequest::DashPay], &f);
+        let app_connect = key_plan::fee_of_keys(2, 0, &f);
+        assert_eq!(screen, 100_000);
+        assert_eq!(app_connect, screen);
         let _ = std::fs::remove_dir_all(&dir);
     }
 
