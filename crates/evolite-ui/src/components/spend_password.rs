@@ -56,7 +56,7 @@ impl SpendPassword {
     }
 
     /// Types `text` into the field (tests).
-    #[cfg(all(test, demo_core, feature = "dev-tools"))]
+    #[cfg(test)]
     pub fn type_in(&mut self, text: &str) {
         self.typed.push_str(text);
     }

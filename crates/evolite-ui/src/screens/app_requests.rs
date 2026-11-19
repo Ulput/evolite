@@ -93,6 +93,14 @@ impl AppRequests {
     pub fn on_request(&mut self, request: Result<AppRequest, CoreError>) {
         match request {
             Ok(r) => {
+                // BUG-209: another request starts clean — the password typed for the one it
+                // replaces, that one's yes under way and its banner are not this one's. Its
+                // late answer then finds no flow waiting for it.
+                if self.open.as_ref().is_none_or(|open| open.id != r.id) {
+                    self.flow.forget();
+                    self.connecting = None;
+                    self.body_to_end = false;
+                }
                 self.open = Some(r);
                 self.pasting = false;
                 self.link.clear();
@@ -625,6 +633,47 @@ mod tests {
         state.on_request(asked(9).open.ok_or_else(out_of_date));
         assert_eq!(state.consent, Consent::Asking, "a new request asks again");
         assert!(is_no(state.pick(Pick::Close, false, 0), 9));
+    }
+
+    /// BUG-209: a new request replaces the open one with nothing of it — the password typed
+    /// for it is not this one's, and its yes under way answers nothing here.
+    #[test]
+    fn another_request_takes_nothing_of_the_one_it_replaces() {
+        let password = |command: Option<Command>| match command {
+            Some(Command::Spend {
+                op: Spend::ApproveApp { id, .. },
+                password,
+                ..
+            }) => Some((id, password.is_some_and(|p| !p.expose().is_empty()))),
+            _ => None,
+        };
+        // Typed for 7; 8 comes before the yes: its yes goes without that password.
+        let mut state = asked(7);
+        state.flow.password.type_in("seven's");
+        assert!(state.flow.password.ready(true));
+        state.on_request(asked(8).open.ok_or_else(out_of_date));
+        assert!(!state.flow.password.ready(true), "the field empty for 8");
+        assert_eq!(password(state.pick(Pick::Yes, true, 0)), Some((8, false)));
+
+        // 7's yes under way; 8 comes: 8 is asked anew, and 7's answer is not 8's.
+        let mut state = asked(7);
+        state.flow.password.type_in("seven's");
+        assert_eq!(password(state.pick(Pick::Yes, true, 0)), Some((7, true)));
+        let seven = state.flow.waiting_ask();
+        state.on_request(asked(8).open.ok_or_else(out_of_date));
+        assert!(state.connecting.is_none(), "7's banner");
+        assert_eq!(state.consent, Consent::Asking);
+        state.on_answer(seven, Ok(()));
+        assert!(state.connected.is_none(), "7's sign-in is not shown as 8's");
+        assert_eq!(state.open.as_ref().map(|r| r.id), Some(8), "8 still asks");
+        assert_eq!(state.result, None);
+        assert!(state.flow.can_act(), "8's yes can go");
+
+        // The same request again (its link opened twice) keeps what was typed.
+        let mut state = asked(7);
+        state.flow.password.type_in("seven's");
+        state.on_request(asked(7).open.ok_or_else(out_of_date));
+        assert!(state.flow.password.ready(true));
     }
 
     /// BUG-52, review should: the app's own word, which the core marks «…», is quoted as the
