@@ -7,7 +7,7 @@
 use std::future::Future;
 use std::time::Duration;
 
-use super::crawl::{Ask, Cache, Limits, Pass, Reply};
+use super::crawl::{Ask, Cache, Id, Limits, Pass, Reply};
 use super::pace::{Pacer, Turn};
 
 /// How a step failed (see `chain::CrawlFailure`, which the real core maps to this).
@@ -15,6 +15,9 @@ use super::pace::{Pacer, Turn};
 pub enum Failure {
     /// Wait this long, then go on.
     Slow(Duration),
+    /// No complete answer in time: the same place is asked again with a smaller page; only at
+    /// the smallest page is it a failure (architect's decision on batch 39).
+    TimedOut(String),
     /// The network did not answer, or the proof did not check.
     Failed(String),
 }
@@ -35,6 +38,84 @@ pub const FAILURES: u32 = 3;
 
 /// The cache is written after this many answers, and when the pass ends.
 pub const SAVE_EVERY: u32 = 10;
+
+/// The sizes a request with contracts' bodies (a first pass's page, a batch of contracts) takes,
+/// smallest first: a timeout goes one down, [`GROW_AFTER`] answers in a row one up.
+const SIZES: [u32; 5] = [5, 10, 25, 50, 100];
+
+/// Where each run starts in [`SIZES`]: 25. The size lives in memory only.
+const START: usize = 2;
+
+/// Answers in a row at one size before the next larger.
+const GROW_AFTER: u32 = 3;
+
+/// The size of the requests that carry contracts' bodies, for this run.
+struct Sizer {
+    at: usize,
+    streak: u32,
+}
+
+impl Sizer {
+    fn new() -> Self {
+        Sizer {
+            at: START,
+            streak: 0,
+        }
+    }
+
+    /// Whether `pass` asks for bodies: those requests are sized.
+    fn sizes(pass: &Pass) -> bool {
+        matches!(pass, Pass::Pages { .. } | Pass::Contracts)
+    }
+
+    /// The limits for the request `pass` makes now: `base` with its sized part no larger than
+    /// the size now.
+    fn limits(&self, pass: &Pass, base: Limits) -> Limits {
+        let size = SIZES[self.at];
+        match pass {
+            Pass::Pages { .. } => Limits {
+                ids_page: base.ids_page.min(size),
+                ..base
+            },
+            Pass::Contracts => Limits {
+                batch: base.batch.min(size as usize),
+                ..base
+            },
+            _ => base,
+        }
+    }
+
+    /// An answer to a sized request: the new size when it grew.
+    fn answered(&mut self) -> Option<u32> {
+        self.streak += 1;
+        if self.streak < GROW_AFTER || self.at + 1 == SIZES.len() {
+            return None;
+        }
+        self.streak = 0;
+        self.at += 1;
+        Some(SIZES[self.at])
+    }
+
+    /// A timeout of a request for `asked` items: the new size, or `None` when it asked for the
+    /// smallest size or less already (then the timeout is a failure).
+    fn timed_out(&mut self, asked: u32) -> Option<u32> {
+        self.streak = 0;
+        if asked <= SIZES[0] {
+            return None;
+        }
+        // One below what was asked: a size above the base limit does not count.
+        self.at = SIZES.iter().rposition(|s| *s < asked).unwrap_or(0);
+        Some(SIZES[self.at])
+    }
+}
+
+/// How many items `ask` asks for.
+fn asked_items(ask: &Ask) -> u32 {
+    match ask {
+        Ask::Pages { limit, .. } | Ask::Ids { limit, .. } => *limit,
+        Ask::Versions(ids) | Ask::Contracts(ids) => ids.len() as u32,
+    }
+}
 
 /// The stage of a pass (F): what its requests read.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -90,6 +171,9 @@ pub struct Progress {
     pub stage_ms: u64,
     /// Paused by a node until this time (ms of the caller's clock).
     pub paused_until: Option<u64>,
+    /// The size of the requests with bodies changed: the new size and the ms of the request
+    /// that changed it (the journal's `crawl_page`, counts only).
+    pub resized: Option<(u32, u64)>,
 }
 
 /// One stage's count, from where it began.
@@ -104,22 +188,45 @@ struct Tally {
 impl Tally {
     /// The stage `cache` is in now, begun at `now`.
     fn begin<P>(cache: &Cache<P>, now: u64) -> Option<Tally> {
-        let stage = Stage::of(&cache.pass)?;
-        let read = cache.ids.values().filter(|v| v.is_some()).count() as u32;
-        let of = match stage {
-            Stage::Pages => None,
-            Stage::Ids => Some(cache.ids.len() as u32),
-            Stage::Versions => Some(read),
-            Stage::Contracts => Some(cache.to_read.len() as u32),
-        };
+        let (stage, done, of) = so_far(cache)?;
         Some(Tally {
             stage,
-            done: 0,
+            done,
             of,
             requests: 0,
             since: now,
         })
     }
+}
+
+/// The stage of the pass under way in `cache`, what it has done of it already (in this run or
+/// in one cut short before: the count does not go back after a cut and a retry, BUG-238) and
+/// of how many, once known. A stage of contracts to read counts from where this run takes it:
+/// what was read before a cut is not told apart from what is left.
+pub fn so_far<P>(cache: &Cache<P>) -> Option<(Stage, u32, Option<u32>)> {
+    let stage = Stage::of(&cache.pass)?;
+    let up_to = |after: Option<Id>, id: &Id| after.is_some_and(|a| *id <= a);
+    let read = cache.ids.values().filter(|v| v.is_some()).count() as u32;
+    Some(match cache.pass {
+        // A first pass's pages read every id they have.
+        Pass::Pages { .. } => (stage, cache.ids.len() as u32, None),
+        Pass::Ids { after } => (
+            stage,
+            cache.ids.keys().filter(|id| up_to(after, id)).count() as u32,
+            Some(cache.ids.len() as u32),
+        ),
+        Pass::Versions { after } => (
+            stage,
+            cache
+                .ids
+                .iter()
+                .filter(|(id, v)| v.is_some() && up_to(after, id))
+                .count() as u32,
+            Some(read),
+        ),
+        Pass::Contracts => (stage, 0, Some(cache.to_read.len() as u32)),
+        Pass::Idle => return None,
+    })
 }
 
 /// How many `ask` covers: what it counts towards its stage's `done`.
@@ -176,7 +283,10 @@ where
     let began = now_ms();
     let mut requests = 0u32;
     let mut tally = Tally::begin(cache, began);
+    let mut sizer = Sizer::new();
     let ended = loop {
+        let sized = Sizer::sizes(&cache.pass);
+        let limits = sizer.limits(&cache.pass, limits);
         let Some(ask) = cache.ask(limits) else {
             break Ended::Done;
         };
@@ -191,13 +301,18 @@ where
             }
             Turn::NoNodes => break Ended::Failed("no nodes".into()),
         }
+        let asked_at = now_ms();
         match step(ask.clone()).await {
             Ok(reply) => {
                 let n = counted(&ask, &reply);
+                let mut resized = None;
                 if cache.take(&ask, reply, limits).is_err() {
                     failures += 1;
                 } else {
                     failures = 0;
+                    if sized && let Some(size) = sizer.answered() {
+                        resized = Some((size, now_ms().saturating_sub(asked_at)));
+                    }
                     requests += 1;
                     since_save += 1;
                     if since_save >= SAVE_EVERY {
@@ -215,7 +330,9 @@ where
                 }
                 if let Some(t) = &tally {
                     let now = now_ms();
-                    progress(told(t, cache, limits, (began, now, requests), None));
+                    let mut said = told(t, cache, limits, (began, now, requests), None);
+                    said.resized = resized;
+                    progress(said);
                 }
                 // A new stage begins its own count, told from its first answer on.
                 if let Some(stage) = Stage::of(&cache.pass)
@@ -231,6 +348,28 @@ where
                     let now = now_ms();
                     let paused = pacer.all_paused_until(now);
                     progress(told(t, cache, limits, (began, now, requests), paused));
+                }
+            }
+            Err(Failure::TimedOut(e)) => {
+                // Too large for the network now: the same place again at once, smaller. Only
+                // at the smallest size is it a failure.
+                let ms = now_ms().saturating_sub(asked_at);
+                match sized.then(|| sizer.timed_out(asked_items(&ask))).flatten() {
+                    Some(size) => {
+                        if let Some(t) = &tally {
+                            let mut said =
+                                told(t, cache, limits, (began, now_ms(), requests), None);
+                            said.resized = Some((size, ms));
+                            progress(said);
+                        }
+                    }
+                    None => {
+                        failures += 1;
+                        if failures >= FAILURES {
+                            break Ended::Failed(e);
+                        }
+                        wait(Duration::from_millis(gap_ms.saturating_mul(5))).await;
+                    }
                 }
             }
             Err(Failure::Failed(e)) => {
@@ -268,6 +407,7 @@ fn told<P>(
         stage_requests: tally.requests,
         stage_ms: now.saturating_sub(tally.since),
         paused_until,
+        resized: None,
     }
 }
 
@@ -296,6 +436,10 @@ mod tests {
         contracts: BTreeMap<Id, u32>,
         script: RefCell<Vec<Option<Failure>>>,
         asked: Cell<u32>,
+        /// A page of more contracts than this times out (a slow Platform, qa-f41).
+        times_out_over: Option<u32>,
+        /// The size of each page asked, in order.
+        pages: RefCell<Vec<u32>>,
     }
 
     impl Net {
@@ -304,11 +448,19 @@ mod tests {
                 contracts: (1..=n).map(|i| (id(i), 1)).collect(),
                 script: RefCell::new(script),
                 asked: Cell::new(0),
+                times_out_over: None,
+                pages: RefCell::default(),
             }
         }
 
         fn answer(&self, ask: Ask) -> Result<Reply<String>, Failure> {
             self.asked.set(self.asked.get() + 1);
+            if let Ask::Pages { limit, .. } = ask {
+                self.pages.borrow_mut().push(limit);
+                if self.times_out_over.is_some_and(|over| limit > over) {
+                    return Err(Failure::TimedOut("deadline".into()));
+                }
+            }
             let mut script = self.script.borrow_mut();
             if !script.is_empty()
                 && let Some(failure) = script.remove(0)
@@ -359,13 +511,23 @@ mod tests {
         net: &Net,
         live: impl Fn() -> bool,
     ) -> (Ended, Vec<Duration>, u32, Vec<Progress>) {
+        run_with(LIMITS, cache, net, live)
+    }
+
+    /// [`run`] with `limits` of its own.
+    fn run_with(
+        limits: Limits,
+        cache: &mut Cache<String>,
+        net: &Net,
+        live: impl Fn() -> bool,
+    ) -> (Ended, Vec<Duration>, u32, Vec<Progress>) {
         let clock = Cell::new(0u64);
         let waits = RefCell::new(Vec::new());
         let saves = Cell::new(0);
         let seen = RefCell::new(Vec::new());
         let ended = futures_lite_block_on(pass(
             cache,
-            LIMITS,
+            limits,
             1_000,
             |ask| std::future::ready(net.answer(ask)),
             || clock.get(),
@@ -504,5 +666,94 @@ mod tests {
         let versions = seen.iter().rfind(|p| p.stage == Stage::Versions).unwrap();
         assert_eq!(versions.stage_requests, 4, "7 versions by 2");
         assert!(versions.stage_ms >= 3_000, "a second between them");
+    }
+
+    /// The search's real limits: pages and batches of 100.
+    const FULL: Limits = Limits {
+        ids_page: 100,
+        batch: 100,
+    };
+
+    /// Batch 39 (architect's decision, (a)): pages over 10 time out. A run starts at 25, the
+    /// timeout asks the same place again at once at 10 (not a failure, no wait), and after 3
+    /// answers in a row it tries 25 again. The pass ends whole.
+    #[test]
+    fn a_timeout_asks_the_same_place_smaller_and_grows_back() {
+        let mut net = Net::new(80, Vec::new());
+        net.times_out_over = Some(10);
+        let mut cache = Cache::default();
+        let (ended, waits, _, seen) = run_with(FULL, &mut cache, &net, || true);
+        assert_eq!(ended, Ended::Done);
+        assert_eq!(cache.ids.len(), 80, "every contract read");
+        let pages = net.pages.borrow().clone();
+        assert_eq!(&pages[..6], [25, 10, 10, 10, 25, 10], "{pages:?}");
+        assert!(
+            waits.iter().all(|w| *w <= Duration::from_secs(1)),
+            "a timeout is not waited out as a failure: {waits:?}"
+        );
+        let resized: Vec<u32> = seen.iter().filter_map(|p| p.resized).map(|r| r.0).collect();
+        assert_eq!(&resized[..3], [10, 25, 10], "{resized:?}");
+    }
+
+    /// Pages over 5 time out: 25, then 10, then 5, where it goes on.
+    #[test]
+    fn a_slower_network_goes_on_at_five() {
+        let mut net = Net::new(30, Vec::new());
+        net.times_out_over = Some(5);
+        let mut cache = Cache::default();
+        let (ended, _, _, _) = run_with(FULL, &mut cache, &net, || true);
+        assert_eq!(ended, Ended::Done);
+        assert_eq!(cache.ids.len(), 30);
+        let pages = net.pages.borrow().clone();
+        assert_eq!(&pages[..6], [25, 10, 5, 5, 5, 10], "{pages:?}");
+    }
+
+    /// A timeout at the smallest size is a failure: three of them end the pass, where it was.
+    #[test]
+    fn a_timeout_at_five_is_a_failure() {
+        let mut net = Net::new(30, Vec::new());
+        net.times_out_over = Some(0);
+        let mut cache = Cache::default();
+        let (ended, _, saves, _) = run_with(FULL, &mut cache, &net, || true);
+        assert_eq!(ended, Ended::Failed("deadline".into()));
+        assert_eq!(net.pages.borrow().as_slice(), [25, 10, 5, 5, 5]);
+        assert_eq!(saves, 1);
+        assert_eq!(cache.pass, Pass::Pages { after: None });
+    }
+
+    /// Batch 39, (c): after a cut and a retry the count goes on from what the pass read, not
+    /// from 0 («0 of 800» after «Retry»).
+    #[test]
+    fn the_count_does_not_go_back_after_a_cut_and_a_retry() {
+        let failed = || Some(Failure::Failed("no answer".into()));
+        let net = Net::new(7, vec![None, failed(), failed(), failed()]);
+        let mut cache = Cache::default();
+        let (_, _, _, seen) = run(&mut cache, &net, || true);
+        assert_eq!(seen.last().map(|p| p.done), Some(3));
+        assert_eq!(
+            so_far(&cache),
+            Some((Stage::Pages, 3, None)),
+            "what the retry shows first"
+        );
+        let net = Net::new(7, Vec::new());
+        let (ended, _, _, seen) = run(&mut cache, &net, || true);
+        assert_eq!(ended, Ended::Done);
+        let done: Vec<u32> = seen.iter().map(|p| p.done).collect();
+        assert_eq!(done, [6, 7], "on from 3, never back");
+    }
+
+    /// A later pass cut in its ids: the retry counts the ids already paged.
+    #[test]
+    fn a_cut_in_the_ids_counts_on_from_there() {
+        let mut cache = Cache::default();
+        run(&mut cache, &Net::new(7, Vec::new()), || true);
+        let failed = || Some(Failure::Failed("no answer".into()));
+        let net = Net::new(9, vec![None, failed(), failed(), failed()]);
+        run(&mut cache, &net, || true);
+        assert_eq!(
+            so_far(&cache),
+            Some((Stage::Ids, 3, Some(7))),
+            "of the 7 ids known when it began"
+        );
     }
 }

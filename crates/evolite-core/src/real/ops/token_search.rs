@@ -434,7 +434,8 @@ impl Real {
             }
             state.state = SearchState::Running;
             state.stage = SearchStage::Contracts;
-            state.checked = 0;
+            // What the pass read before stays on the screen until the pass row says (BUG-238,
+            // batch 39: «0 of 800» after «Retry»).
             state.left_secs = None;
             state.failed = false;
         }
@@ -486,6 +487,17 @@ impl Real {
                 .and_then(|c| c.pass(PASS_KEY))
                 .and_then(|b| store::from_bytes(&b))
                 .unwrap_or_else(|| store::load(&path));
+            // The count goes on from where the pass stands, not from this run's 0 (architect's
+            // decision on batch 39, (c)).
+            if let Some((_, done, of)) = run::so_far(&cache) {
+                set(&state, |s| {
+                    s.checked = done;
+                    if of.is_some() {
+                        s.total = of;
+                    }
+                });
+                refresh();
+            }
             // The contracts of the steps since the last save, kept with it.
             let pending: Arc<Mutex<Vec<Arc<dpp::data_contract::DataContract>>>> = Arc::default();
             let started = std::time::Instant::now();
@@ -547,6 +559,7 @@ impl Real {
                                 Ok(reply)
                             }
                             Err(chain::CrawlFailure::Slow(wait)) => Err(run::Failure::Slow(wait)),
+                            Err(chain::CrawlFailure::TimedOut(e)) => Err(run::Failure::TimedOut(e)),
                             Err(chain::CrawlFailure::Failed(e)) => Err(run::Failure::Failed(e)),
                         }
                     }
@@ -555,6 +568,10 @@ impl Real {
                 |wait| wait_live(wait, live.clone()),
                 live.clone(),
                 |p| {
+                    // The journal: the size of the requests with bodies, when it changed.
+                    if let Some((size, ms)) = p.resized {
+                        diag::record(Record::CrawlPage { size, ms });
+                    }
                     // The journal: a line for each stage that ended.
                     if let Some(last) = stage.filter(|s| s.stage != p.stage) {
                         stage_line(&last);
@@ -852,6 +869,7 @@ mod tests {
             stage_requests: 0,
             stage_ms: 0,
             paused_until: None,
+            resized: None,
         }
     }
 

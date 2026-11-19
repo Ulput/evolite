@@ -278,9 +278,17 @@ pub enum CrawlFailure {
     /// A node asked to slow down (429, `ResourceExhausted`): wait this long. The node is not
     /// held against (BUG-78): the search's requests turn the SDK's ban off.
     Slow(std::time::Duration),
+    /// No complete answer within [`CRAWL_TIMEOUT`]: the search asks the same place again with
+    /// a smaller page (architect's decision on batch 39).
+    TimedOut(String),
     /// The network did not answer, or the proof did not check.
     Failed(String),
 }
+
+/// How long one request of the search may take. A proved page of contracts with their bodies
+/// is slow by nature (about 4 s for one contract on a slow Platform), more than dapi-client's
+/// 10 s default for a full page (qa-f41, batch 39).
+pub const CRAWL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(20);
 
 /// How long to wait after a rate limit that did not say.
 const SLOW_DEFAULT: std::time::Duration = std::time::Duration::from_secs(60);
@@ -300,9 +308,17 @@ fn slow_down(error: &dash_sdk::Error) -> Option<std::time::Duration> {
     .then_some(SLOW_DEFAULT)
 }
 
+/// No complete answer in time: gRPC's `DeadlineExceeded` («Deadline expired before operation
+/// could complete», «no complete response within 10s») or a timeout of the transport.
+fn timed_out(error: &dash_sdk::Error) -> bool {
+    let text = error.to_string().to_lowercase();
+    text.contains("deadline") || text.contains("timed out") || text.contains("timeout")
+}
+
 fn failure(error: dash_sdk::Error) -> CrawlFailure {
     match slow_down(&error) {
         Some(wait) => CrawlFailure::Slow(wait),
+        None if timed_out(&error) => CrawlFailure::TimedOut(error.to_string()),
         None => CrawlFailure::Failed(error.to_string()),
     }
 }
@@ -340,6 +356,7 @@ impl Chain {
         let mut settings = RequestSettings::default();
         settings.ban_failed_address = Some(false);
         settings.retries = Some(0);
+        settings.timeout = Some(CRAWL_TIMEOUT);
         let id = |bytes: &[u8; 32]| Identifier::from(*bytes);
         let mut found = Found::default();
         // The contracts read with their proofs, for the cache (FEAT-0031 C5).
@@ -441,6 +458,16 @@ mod slow_tests {
         assert_eq!(failure(limited), CrawlFailure::Slow(SLOW_DEFAULT));
         let other = dash_sdk::Error::Generic("connection refused".into());
         assert!(matches!(failure(other), CrawlFailure::Failed(_)));
+    }
+
+    /// qa-f41's answer to a full page on a slow Platform is a timeout, not a failure.
+    #[test]
+    fn a_deadline_is_a_timeout() {
+        let late = dash_sdk::Error::Generic(
+            "Dapi client error: transport error: grpc error: code: 'Deadline expired before              operation could complete', message: \"no complete response within 10s\""
+                .into(),
+        );
+        assert!(matches!(failure(late), CrawlFailure::TimedOut(_)));
     }
 }
 

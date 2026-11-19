@@ -351,6 +351,13 @@ pub enum Record {
         requests: u32,
         ms: u64,
     },
+    /// The token search changed the size of its requests with contracts' bodies (architect's
+    /// decision on batch 39): the new size and the ms of the request that changed it (a
+    /// timeout makes it smaller, answers in a row larger). Counts only: no id.
+    CrawlPage {
+        size: u32,
+        ms: u64,
+    },
     /// A pass of the token search ended: the network's contracts, the token ids among them, the
     /// identities whose balances were asked, and its ms. Counts only.
     TokenSearchEnd {
@@ -606,6 +613,7 @@ impl Record {
             } => json!({
                 "k": "token_search_stage", "stage": stage, "requests": requests, "ms": ms,
             }),
+            Record::CrawlPage { size, ms } => json!({ "k": "crawl_page", "size": size, "ms": ms }),
             Record::NameSearch { found, cached } => json!({
                 "k": "name_search", "found": found, "cached": cached,
             }),
@@ -1108,7 +1116,12 @@ mod tests {
             identities: 8,
             ms: 150_000,
         };
+        let page = Record::CrawlPage {
+            size: 10,
+            ms: 20_000,
+        };
         for (record, kind, names) in [
+            (page, "crawl_page", &["k", "ms", "size"][..]),
             (
                 stage,
                 "token_search_stage",
