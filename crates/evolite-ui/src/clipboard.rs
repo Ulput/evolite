@@ -135,7 +135,20 @@ fn hash_from_hex(hex: &str) -> Option<[u8; 32]> {
 /// A phrase pasted into the restore (SEC-2 B4): the clipboard is cleared if it still holds
 /// exactly that text. Whether it was.
 pub fn wipe_pasted(text: &str) -> bool {
-    system_board().is_some_and(|mut board| wipe_if_still(hash(text), &mut board, false))
+    system_board().is_some_and(|mut board| wipe_if_pasted(text, &mut board))
+}
+
+/// Clears the clipboard if it holds `pasted`, line breaks aside: egui hands a Ctrl+V over with
+/// Windows' `\r\n` made `\n`, so a phrase copied from Notepad never matched (QA, batch 32).
+fn wipe_if_pasted(pasted: &str, board: &mut impl Board) -> bool {
+    let lf = |s: &str| Zeroizing::new(s.replace("\r\n", "\n"));
+    let still = board
+        .text()
+        .is_some_and(|on| hash(&lf(&on)) == hash(&lf(pasted)));
+    if still {
+        board.clear();
+    }
+    still
 }
 
 /// The lock (SEC-2 B5): a secret copied is wiped now, not 60 s later.
@@ -450,5 +463,23 @@ mod tests {
         assert_eq!(other.0.as_deref(), Some("an address"), "copied since: kept");
         assert!(!marker.exists());
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// SEC-2 B4, QA batch 32: a phrase copied with a Windows line break and pasted by Ctrl+V
+    /// (egui makes `\r\n` `\n`) leaves the clipboard; one copied since stays.
+    #[test]
+    fn a_phrase_pasted_with_a_windows_line_break_is_wiped() {
+        let words = ["abandon"; 11].join(" ") + " about";
+        let mut board = Fake(Some(format!("{words}\r\n")));
+        assert!(wipe_if_pasted(&format!("{words}\n"), &mut board));
+        assert_eq!(board.0.as_deref(), Some(""));
+        let mut button = Fake(Some(format!("{words}\r\n")));
+        assert!(
+            wipe_if_pasted(&format!("{words}\r\n"), &mut button),
+            "«Paste»: as is"
+        );
+        let mut other = Fake(Some("an address".into()));
+        assert!(!wipe_if_pasted(&format!("{words}\n"), &mut other));
+        assert_eq!(other.0.as_deref(), Some("an address"));
     }
 }
