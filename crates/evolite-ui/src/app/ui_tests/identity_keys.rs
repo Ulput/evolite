@@ -856,3 +856,72 @@ fn wrong_passwords_in_the_key_window_pause_it_as_the_unlock_does() {
         "and says why"
     );
 }
+
+/// Э4 (SEC-7b): a key shown hides when the window leaves; «Show» brings it back.
+#[test]
+fn a_shown_key_hides_when_the_window_leaves() {
+    let (_turn, mut kit) = k1("identity-keys");
+    kit.get_by_role_and_label(Role::Button, "Key 2 — actions")
+        .click();
+    kit.run_steps(3);
+    button(&kit, "Show the private key").click();
+    kit.run_steps(3);
+    kit.get_by_role(Role::PasswordInput).type_text("demo");
+    kit.get_by(|n| {
+        n.label()
+            .is_some_and(|l| l.starts_with("I understand: this key"))
+    })
+    .click();
+    kit.run_steps(3);
+    button(&kit, "Show the key").click();
+    wait_for(&mut kit, "the key", key_on_screen);
+    kit.input_mut().focused = false;
+    kit.run_steps(2);
+    kit.input_mut().focused = true;
+    kit.run_steps(2);
+    assert!(!key_on_screen(&kit), "hidden");
+    button(&kit, "Show").click();
+    kit.run_steps(3);
+    assert!(key_on_screen(&kit), "back by «Show»");
+}
+
+/// SEC-11 QA: the warning before the pause comes below «Show the key», so the button stays
+/// under the pointer from the first wrong password to the warning.
+#[test]
+fn show_the_key_stays_put_as_the_warning_comes() {
+    let (_turn, mut kit) = k1("identity-keys");
+    kit.get_by_role_and_label(Role::Button, "Key 2 — actions")
+        .click();
+    kit.run_steps(3);
+    button(&kit, "Show the private key").click();
+    kit.run_steps(3);
+    kit.get_by_role(Role::PasswordInput)
+        .type_text(evolite_core::DEMO_WRONG_PASSWORD);
+    kit.get_by(|n| {
+        n.label()
+            .is_some_and(|l| l.starts_with("I understand: this key"))
+    })
+    .click();
+    kit.run_steps(3);
+    let waiting = |k: &Kit| {
+        k.state()
+            .identity_keys
+            .reveal
+            .as_ref()
+            .is_some_and(|r| r.waiting)
+    };
+    let mut tops = Vec::new();
+    while !has_words(&kit, "attempt") {
+        assert!(tops.len() < 6, "no warning");
+        button(&kit, "Show the key").click();
+        kit.run_steps(2);
+        wait_for(&mut kit, "the answer", |k| !waiting(k));
+        kit.run_steps(3);
+        tops.push(button(&kit, "Show the key").rect().top());
+    }
+    assert!(tops.len() > 1);
+    assert!(
+        tops.windows(2).all(|t| (t[0] - t[1]).abs() < 0.5),
+        "the button moved: {tops:?}"
+    );
+}

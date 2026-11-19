@@ -76,6 +76,14 @@ pub fn lines(
 
 /// [`lines`] without the plate: for a form that puts the plate elsewhere ("Open "…"").
 pub fn under_field(ui: &mut Ui, a: &mut Assets, error: Option<&str>, wrong_tries: u32) {
+    error_line(ui, a, error);
+    tries_lines(ui, a, wrong_tries);
+}
+
+/// [`lines`] split around the button, for a dialog whose button must stay put as the lines
+/// come (SEC-11 QA: the key window grew under the pointer). Above the button: the error's line,
+/// its height kept from the start.
+pub fn error_line(ui: &mut Ui, a: &mut Assets, error: Option<&str>) {
     // The error's line is kept from the start, empty, so that «Wrong password» moves nothing
     // under it when it comes (FEAT-0034 item 8).
     match error {
@@ -101,6 +109,21 @@ pub fn under_field(ui: &mut Ui, a: &mut Assets, error: Option<&str>, wrong_tries
             ui.allocate_space(egui::vec2(0.0, line));
         }
     }
+}
+
+/// Below the button ([`error_line`] above it): the pause's plate, counting down; else the
+/// warning before a pause and the line after one.
+pub fn notes(ui: &mut Ui, a: &mut Assets, gate: &Gate, now: chrono::DateTime<chrono::Local>) {
+    if let Some(secs) = gate.left {
+        pause::plate(ui, a, secs, gate.end.unwrap_or_default());
+        pause::tick(ui, now);
+        return;
+    }
+    tries_lines(ui, a, gate.wrong_tries);
+}
+
+/// The warning after the 3rd and 4th wrong password, and after a pause what the next one costs.
+fn tries_lines(ui: &mut Ui, a: &mut Assets, wrong_tries: u32) {
     if let Some(warning) = pause::warning(wrong_tries) {
         pause::warning_line(ui, a, &warning);
     }

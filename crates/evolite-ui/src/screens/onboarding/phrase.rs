@@ -166,6 +166,10 @@ pub(super) fn phrase(
         ));
     }
     // BUG-228: the words reach the tree only with reading on, for this showing.
+    // Э4 (SEC-7b): the window left, the words hide; «Show» brings them back.
+    if !words.is_empty() && crate::secret_words::window_left(ui.ctx()) {
+        o.phrase_hidden = true;
+    }
     let shown = !words.is_empty() && !o.phrase_hidden;
     let read = if shown {
         o.phrase_reading.showing(ui.ctx())

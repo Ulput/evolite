@@ -105,6 +105,8 @@ pub struct SettingsState {
     /// phrase», each for one showing.
     pub phrase_reading: crate::secret_words::Reading,
     pub check_reading: crate::secret_words::Reading,
+    /// Э4 (SEC-7b): the phrase shown was hidden when the window left; «Show» brings it back.
+    pub phrase_hidden: bool,
     /// SEC-7: «Show the phrase» pressed in the Linux warning for the phrase now revealed, and
     /// the journal told; both again for each one revealed.
     pub phrase_warned: bool,
@@ -253,6 +255,7 @@ impl SettingsState {
             visits: Default::default(),
             check: None,
             phrase_reading: Default::default(),
+            phrase_hidden: false,
             phrase_warned: false,
             phrase_warning_told: false,
             phrase_cut: Default::default(),
@@ -435,6 +438,7 @@ impl SettingsState {
     }
 
     pub fn on_revealed(&mut self, result: Result<Phrase, CoreError>) {
+        self.phrase_hidden = false;
         self.phrase_warned = false;
         self.phrase_warning_told = false;
         self.revealed_at = result.is_ok().then(Instant::now);

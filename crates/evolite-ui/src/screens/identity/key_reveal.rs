@@ -28,6 +28,8 @@ pub struct Reveal {
     pub(crate) touched: Option<Instant>,
     /// SEC-1 (BUG-228): «read the words to a screen reader», for one showing.
     pub(crate) reading: crate::secret_words::Reading,
+    /// Э4 (SEC-7b): the key shown was hidden when the window left; «Show» brings it back.
+    pub(crate) hidden: bool,
     /// SEC-11: the wallet's pause after wrong passwords, counted down as the unlock does.
     pub(crate) cut: crate::screens::pause::Cut,
 }
@@ -132,8 +134,16 @@ pub(super) fn reveal_dialog(
                     Network::Testnet => tr!("testnet · compressed key"),
                     Network::Mainnet => tr!("mainnet · compressed key"),
                 };
+                // Э4 (SEC-7b): the window left, the key hides; «Show» brings it back.
+                if crate::secret_words::window_left(ui.ctx()) {
+                    r.hidden = true;
+                }
+                let hidden = r.hidden;
+                if hidden {
+                    r.reading.off();
+                }
                 // SEC-1 (BUG-228): the key reaches the tree only with reading on.
-                let read = r.reading.showing(ui.ctx());
+                let read = !hidden && r.reading.showing(ui.ctx());
                 let reader = crate::secret_words::screen_reader_running();
                 if reader {
                     crate::secret_words::toggle(ui, a, &mut r.reading);
@@ -163,7 +173,9 @@ pub(super) fn reveal_dialog(
                             ui.set_width(ui.available_width());
                             // Read whole, left to right in every language; in the tree only
                             // with reading on (SEC-1).
-                            if read {
+                            if hidden {
+                                ui.label(text("••••••••", SMALL, p.muted));
+                            } else if read {
                                 ui.add(
                                     egui::Label::new(
                                         egui::RichText::new(value.as_str())
@@ -185,7 +197,11 @@ pub(super) fn reveal_dialog(
                             }
                         });
                 }
-                if !reader {
+                if hidden && text_action(ui, a, "eye", tr!("Show")).clicked() {
+                    r.hidden = false;
+                    r.touched = Some(Instant::now());
+                }
+                if !reader && !hidden {
                     crate::secret_words::toggle(ui, a, &mut r.reading);
                 }
                 notice(
@@ -257,7 +273,9 @@ pub(super) fn reveal_dialog(
                                 | None => None,
                                 Some(e) => Some(crate::text::failed(tr!("It did not work"), e)),
                             };
-                            secret_password::lines(ui, a, &gate, error.as_deref(), now);
+                            // The error above the button, the warning and the pause below it:
+                            // «Show the key» stays where it is as they come (SEC-11 QA).
+                            secret_password::error_line(ui, a, error.as_deref());
                         });
                         button_row(ui, |ui| {
                             if button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked() {
@@ -278,6 +296,7 @@ pub(super) fn reveal_dialog(
                                 r.ask = true;
                             }
                         });
+                        secret_password::notes(ui, a, &gate, now);
                         return close;
                     }
                     ui.spacing_mut().item_spacing.y = 10.0;

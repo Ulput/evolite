@@ -42,6 +42,9 @@ pub(super) fn restore(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, o: &mut Onboard
     // The fields emptied: no line left from an earlier paste (SEC-2 review r1, could).
     if o.restore_words.iter().all(|w| w.is_empty()) {
         o.paste_wiped = false;
+    } else if crate::secret_words::window_left(ui.ctx()) {
+        // Э4 (SEC-7b): the window left, the typed words hide; «Show the words» brings them back.
+        o.restore_hidden = true;
     }
 
     let width = ui.available_width();

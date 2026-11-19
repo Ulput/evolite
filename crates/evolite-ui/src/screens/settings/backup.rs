@@ -5,7 +5,7 @@ use super::{PhraseCheckForm, SettingsState};
 use crate::components::text;
 use crate::components::{
     Assets, ButtonKind, FieldKind, Part, button, button_enabled, button_row, dialog,
-    dialog_with_footer, field_label, notice, secret_password, text_field,
+    dialog_with_footer, field_label, notice, secret_password, text_action, text_field,
 };
 use crate::context::Ctx;
 use crate::text;
@@ -500,6 +500,20 @@ pub(super) fn phrase_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &m
                     // BUG-228: the phrase is painted; its words reach the tree only with
                     // reading on, one per node, for this showing.
                     match &state.revealed {
+                        // Э4 (SEC-7b): the window left, the words hide; «Show» brings them back
+                        // within the 60 seconds.
+                        Some(Ok(phrase))
+                            if state.phrase_hidden
+                                || crate::secret_words::window_left(ui.ctx()) =>
+                        {
+                            state.phrase_hidden = true;
+                            state.phrase_reading.off();
+                            let dots = vec!["••••"; phrase.words().len()].join(" ");
+                            ui.label(text(&dots, SMALL, p.muted));
+                            if text_action(ui, a, "eye", tr!("Show")).clicked() {
+                                state.phrase_hidden = false;
+                            }
+                        }
                         Some(Ok(phrase)) => {
                             let words = phrase.words().join(" ");
                             let read = state.phrase_reading.showing(ui.ctx());

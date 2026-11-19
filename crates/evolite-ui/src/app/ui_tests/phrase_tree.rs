@@ -542,3 +542,63 @@ fn show_the_phrase_on_linux_warns_after_the_password() {
     assert!(!painted_has(&kit, "zebra walnut"));
     crate::capture::set_test_session(None);
 }
+
+/// Э4 (SEC-7b): the window in the background or minimized, the words leave the screen; back
+/// in front they stay hidden until «Show».
+fn window_leaves_and_comes_back(kit: &mut Kit) {
+    kit.input_mut().focused = false;
+    kit.run_steps(2);
+    kit.input_mut().focused = true;
+    kit.run_steps(2);
+}
+
+/// Э4 (SEC-7b), O1: the new phrase hides when the window leaves; «Show» brings it back.
+#[test]
+fn o1_hides_the_phrase_when_the_window_leaves() {
+    let (_turn, mut kit) = demo_app("create", "en");
+    kit.run_steps(5);
+    new_phrase(&mut kit, &phrase());
+    assert!(painted_has(&kit, "zebra"));
+    window_leaves_and_comes_back(&mut kit);
+    assert!(!painted_has(&kit, "zebra"), "hidden");
+    button(&kit, "Show").click();
+    kit.run_steps(3);
+    assert!(painted_has(&kit, "zebra"), "back by «Show»");
+}
+
+/// Э4 (SEC-7b), O3: the words typed hide when the window leaves.
+#[test]
+fn the_restore_hides_its_words_when_the_window_leaves() {
+    let (_turn, mut kit) = demo_app("restore", "en");
+    kit.run_steps(5);
+    if let Some(o) = kit.state_mut().onboarding.as_mut() {
+        o.type_restore_word(0, "ability");
+    }
+    kit.run_steps(2);
+    assert!(painted_has(&kit, "ability"));
+    window_leaves_and_comes_back(&mut kit);
+    assert!(!painted_has(&kit, "ability"), "hidden");
+    button(&kit, "Show the words").click();
+    kit.run_steps(3);
+    assert!(painted_has(&kit, "ability"), "back by «Show the words»");
+}
+
+/// Э4 (SEC-7b), Settings › Show the phrase: hidden when the window leaves, back by «Show».
+#[test]
+fn show_the_phrase_hides_it_when_the_window_leaves() {
+    let (_turn, mut kit) = demo_app("phrase", "en");
+    kit.run_steps(5);
+    let words = phrase();
+    settings_phrase(&mut kit, &words);
+    assert!(painted_has(&kit, "zebra walnut"));
+    window_leaves_and_comes_back(&mut kit);
+    assert!(!painted_has(&kit, "zebra walnut"), "hidden");
+    none_in_tree(&kit, &words, "hidden");
+    // The dialog's, drawn last: the Backup page behind has a «Show» of its own.
+    kit.query_all_by_role_and_label(Role::Button, "Show")
+        .last()
+        .expect("«Show» in the dialog")
+        .click();
+    kit.run_steps(3);
+    assert!(painted_has(&kit, "zebra walnut"), "back by «Show»");
+}

@@ -159,3 +159,9 @@ pub fn word_by_word(ui: &mut Ui, text: &str, font: FontId, color: Color32) {
         }
     });
 }
+
+/// Э4 (SEC-7b): the window is in the background or minimized — its words are hidden then, on
+/// every screen of a phrase or a key, and come back only by «Show».
+pub fn window_left(ctx: &Context) -> bool {
+    !ctx.input(|i| i.focused)
+}
