@@ -685,16 +685,34 @@ mod tests {
             ),
             226,
         );
-        let csv = taxbit(&[tx1], &own());
+        // QA batch 36: tx2, the next one between own identities, spending tx1's change.
+        let tx2 = with_fee(
+            act(
+                ActivityKind::SelfTransfer { moved: 10_000 },
+                Chain::Core,
+                110,
+                -226,
+                "4dd7815d",
+            ),
+            226,
+        );
+        let csv = taxbit(&[tx1, tx2], &own());
         let lines: Vec<&str> = csv.lines().skip(1).collect();
         assert_eq!(
             lines,
-            vec![format!(
-                "{},Expense,0.00000226,DASH,evolite,,DASH,evolite,,,,304962ab",
-                iso_utc(100)
-            )],
+            vec![
+                format!(
+                    "{},Expense,0.00000226,DASH,evolite,,DASH,evolite,,,,304962ab",
+                    iso_utc(100)
+                ),
+                format!(
+                    "{},Expense,0.00000226,DASH,evolite,,DASH,evolite,,,,4dd7815d",
+                    iso_utc(110)
+                ),
+            ],
             "{csv}"
         );
+        assert!(!csv.contains("Income"), "neither is income: {csv}");
     }
 
     /// BUG-145 AC-T2: a token sent is a line of its fee in credits only, as DASH spent; the token

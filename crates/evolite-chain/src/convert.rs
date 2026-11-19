@@ -346,7 +346,10 @@ pub fn one_per_transaction<'a>(
     records: impl IntoIterator<Item = &'a TransactionRecord>,
 ) -> Vec<TransactionRecord> {
     let mut merged: Vec<TransactionRecord> = Vec::new();
-    for r in records {
+    // BUG-239: a contact's watch account (the addresses we pay them at) sees the contact's
+    // coins as received and the contact's spends as its inputs: never ours. platform-wallet
+    // leaves these slices out of the store; this run's records leave them out too.
+    for r in records.into_iter().filter(|r| !is_contact_watch(r)) {
         match merged.iter_mut().find(|m| m.txid == r.txid) {
             Some(m) => *m = merge_slices(m, r),
             None => merged.push(r.clone()),
@@ -423,6 +426,15 @@ pub fn merge_slices(first: &TransactionRecord, second: &TransactionRecord) -> Tr
         settle_record(&mut merged);
     }
     merged
+}
+
+/// BUG-239: the record of a contact's watch account (`DashpayExternalAccount`, the addresses
+/// we pay a contact at): its «received» and its inputs are the contact's, not the wallet's.
+pub fn is_contact_watch(record: &TransactionRecord) -> bool {
+    matches!(
+        record.account_type,
+        key_wallet::account::AccountType::DashpayExternalAccount { .. }
+    )
 }
 
 /// A record's net, direction and fee again from its details, by key-wallet's rules: no `Sent`
@@ -732,18 +744,35 @@ pub fn attribute_late_inputs(
     use key_wallet::managed_account::transaction_record::{InputDetail, OutputDetail};
     use std::collections::HashMap;
 
-    let ours: HashMap<OutPoint, (u64, Address)> = records
-        .iter()
-        .flat_map(|r| {
-            r.output_details
-                .iter()
-                .filter(|d| matches!(d.role, OutputRole::Received | OutputRole::Change))
-                .filter_map(move |d| {
-                    let address = d.address.clone()?;
-                    Some((OutPoint::new(r.txid, d.index), (d.value, address)))
-                })
-        })
-        .collect();
+    // The outputs of ours the inputs are matched against: those a record lists as ours, and
+    // (BUG-232, QA batch 36: qa-f31's tx2 spends tx1's change, unlisted in tx1's stored slice)
+    // those it does not list that `is_ours` knows — the same rule as for the outputs below.
+    let mut ours: HashMap<OutPoint, (u64, Address)> = HashMap::new();
+    for r in records.iter() {
+        for (index, output) in r.transaction.output.iter().enumerate() {
+            let index = index as u32;
+            let listed = r.output_details.iter().find(|d| d.index == index);
+            // Listed as ours, or else by the same rule as the outputs (`is_ours`, by address):
+            // unlisted, or listed as paid out by an account that does not know the address.
+            // A contact's watch account lists the contact's coins as received (BUG-239): its
+            // roles are not the wallet's; only `is_ours` says.
+            let address = match listed {
+                Some(d)
+                    if !is_contact_watch(r)
+                        && matches!(d.role, OutputRole::Received | OutputRole::Change) =>
+                {
+                    d.address.clone()
+                }
+                Some(d) if d.role == OutputRole::Unspendable => None,
+                _ => Address::from_script(&output.script_pubkey, crate::network::dash())
+                    .ok()
+                    .filter(|a| is_ours(a).is_some()),
+            };
+            if let Some(address) = address {
+                ours.insert(OutPoint::new(r.txid, index), (output.value, address));
+            }
+        }
+    }
     for r in records.iter_mut() {
         let mut added = false;
         for (index, input) in r.transaction.input.iter().enumerate() {
@@ -2740,6 +2769,293 @@ mod tests {
             line.kind
         );
         assert_eq!(line.amount, -((change + fee) as i64));
+    }
+
+    /// BUG-232 (QA batch 36, qa-f31's tx1 and tx2): both kept in the store as a contact
+    /// account's slice, each listing only its 10 000 to our own DashPay address. tx2 spends
+    /// tx1's change, unlisted in tx1's slice: by the same rule of «ours» it is our coin spent, so
+    /// tx2 is a transfer between own addresses too, the fee only — not «received 0.0001».
+    #[test]
+    fn a_spend_of_an_unlisted_change_of_ours_is_ours_too() {
+        use key_wallet::dashcore::address::Payload;
+        use key_wallet::dashcore::hashes::Hash;
+        use key_wallet::dashcore::{OutPoint, PubkeyHash, Transaction, TxIn, TxOut};
+        use key_wallet::managed_account::transaction_record::OutputDetail;
+        let address = |n: u8| {
+            Address::new(
+                key_wallet::Network::Testnet,
+                Payload::PubkeyHash(PubkeyHash::from_byte_array([n; 20])),
+            )
+        };
+        let (coin_at, dashpay_1, change_1, dashpay_2, change_2) =
+            (address(1), address(2), address(3), address(4), address(5));
+        let (to_us, fee) = (10_000u64, 226u64);
+        let funded = 14_545_810u64;
+        let tx = |from: OutPoint, outputs: &[(&Address, u64)]| Transaction {
+            version: 3,
+            lock_time: 0,
+            input: vec![TxIn {
+                previous_output: from,
+                ..TxIn::default()
+            }],
+            output: outputs
+                .iter()
+                .map(|(a, value)| TxOut {
+                    value: *value,
+                    script_pubkey: a.script_pubkey(),
+                })
+                .collect(),
+            special_transaction_payload: None,
+        };
+        let funding_tx = tx(
+            OutPoint::new(key_wallet::dashcore::Txid::from_byte_array([9; 32]), 0),
+            &[(&coin_at, funded)],
+        );
+        let change_1_value = funded - to_us - fee;
+        let tx1 = tx(
+            OutPoint::new(funding_tx.txid(), 0),
+            &[(&dashpay_1, to_us), (&change_1, change_1_value)],
+        );
+        let change_2_value = change_1_value - to_us - fee;
+        let tx2 = tx(
+            OutPoint::new(tx1.txid(), 1),
+            &[(&dashpay_2, to_us), (&change_2, change_2_value)],
+        );
+        let record = |t: &Transaction, account, listed: Vec<OutputDetail>, net| {
+            TransactionRecord::new(
+                t.clone(),
+                account,
+                TransactionContext::Mempool,
+                TransactionType::Standard,
+                TransactionDirection::Incoming,
+                Vec::new(),
+                listed,
+                net,
+            )
+        };
+        let bip44 = key_wallet::account::AccountType::Standard {
+            index: 0,
+            standard_account_type: key_wallet::account::StandardAccountType::BIP44Account,
+        };
+        let slice = || key_wallet::account::AccountType::DashpayReceivingFunds {
+            index: 0,
+            user_identity_id: [1; 32],
+            friend_identity_id: [2; 32],
+        };
+        let received = |index, at: &Address, value| OutputDetail {
+            index,
+            role: OutputRole::Received,
+            address: Some(at.clone()),
+            value,
+        };
+        // A third, spending tx2's change the same way.
+        let (dashpay_3, change_3) = (address(6), address(7));
+        let tx3 = tx(
+            OutPoint::new(tx2.txid(), 1),
+            &[
+                (&dashpay_3, to_us),
+                (&change_3, change_2_value - to_us - fee),
+            ],
+        );
+        // Stored newest first (review condition 2): the rule is by address, not by what was
+        // judged before.
+        let records = || {
+            vec![
+                record(
+                    &tx3,
+                    slice(),
+                    vec![received(0, &dashpay_3, to_us)],
+                    to_us as i64,
+                ),
+                record(
+                    &tx2,
+                    slice(),
+                    vec![received(0, &dashpay_2, to_us)],
+                    to_us as i64,
+                ),
+                record(
+                    &tx1,
+                    slice(),
+                    vec![received(0, &dashpay_1, to_us)],
+                    to_us as i64,
+                ),
+                record(
+                    &funding_tx,
+                    bip44,
+                    vec![received(0, &coin_at, funded)],
+                    funded as i64,
+                ),
+            ]
+        };
+        let mut ours = records();
+        let changes = [change_1.clone(), change_2.clone(), change_3.clone()];
+        attribute_late_inputs(&mut ours, |a| {
+            changes.contains(a).then_some(OutputRole::Change)
+        });
+        for (i, name) in [(2, "tx1"), (1, "tx2"), (0, "tx3")] {
+            let line = activity(&ours[i], 0, true);
+            assert!(
+                matches!(line.kind, ActivityKind::SelfTransfer { .. }),
+                "{name}: {:?}",
+                line.kind
+            );
+            assert_eq!(line.amount, -(fee as i64), "{name}: the fee only");
+        }
+
+        // The twin (condition 3): tx1's second output paid a contact's address, not in our
+        // pools — tx2 spends no coin of ours: it is what came to us.
+        let mut theirs = records();
+        attribute_late_inputs(&mut theirs, |a| {
+            [change_2.clone(), change_3.clone()]
+                .contains(a)
+                .then_some(OutputRole::Change)
+        });
+        let tx2_line = activity(&theirs[1], 0, true);
+        assert!(
+            matches!(tx2_line.kind, ActivityKind::Received { .. }),
+            "{:?}",
+            tx2_line.kind
+        );
+        assert!(theirs[1].input_details.is_empty(), "its input is not ours");
+    }
+
+    /// BUG-239 (QA batch 37, qa-f37's tx 6a1e14…): a payment from a contact to us, spending
+    /// the contact's coins at the addresses we pay them at — coins we sent them. This run's
+    /// records include the contact's watch account (`DashpayExternalAccount`): it lists our
+    /// payment's output to the contact as received and the contact's spend as its inputs. The
+    /// line is what came to us, not a transfer between own addresses.
+    #[test]
+    fn a_contacts_payment_from_coins_we_sent_them_is_received() {
+        use key_wallet::dashcore::address::Payload;
+        use key_wallet::dashcore::hashes::Hash;
+        use key_wallet::dashcore::{OutPoint, PubkeyHash, Transaction, TxIn, TxOut};
+        use key_wallet::managed_account::transaction_record::{InputDetail, OutputDetail};
+        let address = |n: u8| {
+            Address::new(
+                key_wallet::Network::Testnet,
+                Payload::PubkeyHash(PubkeyHash::from_byte_array([n; 20])),
+            )
+        };
+        let (our_coin, their_address, our_change, our_dashpay) =
+            (address(1), address(2), address(3), address(4));
+        let tx = |from: OutPoint, outputs: &[(&Address, u64)]| Transaction {
+            version: 3,
+            lock_time: 0,
+            input: vec![TxIn {
+                previous_output: from,
+                ..TxIn::default()
+            }],
+            output: outputs
+                .iter()
+                .map(|(a, value)| TxOut {
+                    value: *value,
+                    script_pubkey: a.script_pubkey(),
+                })
+                .collect(),
+            special_transaction_payload: None,
+        };
+        let bip44 = key_wallet::account::AccountType::Standard {
+            index: 0,
+            standard_account_type: key_wallet::account::StandardAccountType::BIP44Account,
+        };
+        let watch = key_wallet::account::AccountType::DashpayExternalAccount {
+            index: 0,
+            user_identity_id: [1; 32],
+            friend_identity_id: [2; 32],
+        };
+        let receiving = key_wallet::account::AccountType::DashpayReceivingFunds {
+            index: 0,
+            user_identity_id: [1; 32],
+            friend_identity_id: [2; 32],
+        };
+        let detail = |index, role, at: &Address, value| OutputDetail {
+            index,
+            role,
+            address: Some(at.clone()),
+            value,
+        };
+        let record = |t: &Transaction, account, inputs: Vec<InputDetail>, outputs, direction| {
+            TransactionRecord::new(
+                t.clone(),
+                account,
+                TransactionContext::Mempool,
+                TransactionType::Standard,
+                direction,
+                inputs,
+                outputs,
+                0,
+            )
+        };
+        // Ours to the contact: 0.001 to their address, the change back.
+        let funding = OutPoint::new(key_wallet::dashcore::Txid::from_byte_array([9; 32]), 0);
+        let paid = tx(
+            funding,
+            &[(&their_address, 100_000), (&our_change, 899_774)],
+        );
+        let spent = InputDetail {
+            index: 0,
+            value: 1_000_000,
+            address: our_coin.clone(),
+        };
+        // The contact's payment to us from that coin.
+        let theirs = tx(OutPoint::new(paid.txid(), 0), &[(&our_dashpay, 99_774)]);
+        let watched_input = InputDetail {
+            index: 0,
+            value: 100_000,
+            address: their_address.clone(),
+        };
+        let live = [
+            record(
+                &paid,
+                bip44,
+                vec![spent],
+                vec![
+                    detail(0, OutputRole::Sent, &their_address, 100_000),
+                    detail(1, OutputRole::Change, &our_change, 899_774),
+                ],
+                TransactionDirection::Outgoing,
+            ),
+            record(
+                &paid,
+                watch,
+                vec![],
+                vec![detail(0, OutputRole::Received, &their_address, 100_000)],
+                TransactionDirection::Incoming,
+            ),
+            record(
+                &theirs,
+                watch,
+                vec![watched_input],
+                vec![],
+                TransactionDirection::Outgoing,
+            ),
+            record(
+                &theirs,
+                receiving,
+                vec![],
+                vec![detail(0, OutputRole::Received, &our_dashpay, 99_774)],
+                TransactionDirection::Incoming,
+            ),
+        ];
+        let mut records = one_per_transaction(live.iter());
+        attribute_late_inputs(&mut records, |_| None);
+        let line_of = |txid| {
+            let r = records.iter().find(|r| r.txid == txid).unwrap();
+            activity(r, 0, true)
+        };
+        let line = line_of(theirs.txid());
+        assert!(
+            matches!(line.kind, ActivityKind::Received { .. }),
+            "{:?}",
+            line.kind
+        );
+        assert_eq!(line.amount, 99_774, "what came to us");
+        let ours = line_of(paid.txid());
+        assert!(
+            matches!(ours.kind, ActivityKind::Sent { .. }),
+            "our payment to them stays sent: {:?}",
+            ours.kind
+        );
     }
 
     /// BUG-232 review (QA batch 31) condition 2: the live side of «ours» leaves out the
