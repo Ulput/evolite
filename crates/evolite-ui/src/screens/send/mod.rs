@@ -130,6 +130,12 @@ pub struct SendForm {
     /// The amount was typed in the currency: the amount in DASH follows the rate until the
     /// last look (R-3).
     pub fiat_typed: bool,
+    /// The names suggested under «To» once it starts with «@» (FEAT-0039), and their rows for
+    /// this frame.
+    pub names: crate::components::name_suggest::NameSuggest,
+    pub name_rows: Vec<crate::components::name_suggest::Row>,
+    /// «To»'s widget id as last drawn: whether it has the focus.
+    pub to_field: Option<egui::Id>,
 }
 
 impl SendForm {
@@ -542,6 +548,9 @@ impl Default for SendForm {
             fiat: String::new(),
             fiat_for: String::new(),
             fiat_typed: false,
+            names: Default::default(),
+            name_rows: Vec::new(),
+            to_field: None,
         }
     }
 }
@@ -578,6 +587,32 @@ pub fn send(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut SendForm) {
     if !form.confirming && crate::qr_scan::dragging_picture(ui.ctx()) {
         crate::components::drop_overlay(ui.ctx(), a, ui.max_rect());
     }
+
+    // The names suggested for «@…» (FEAT-0039): the network asked after a pause, while «To»
+    // has the focus; without «@» it is an address or the address book's.
+    let typing_name = form.recipient.trim_start().starts_with('@')
+        && form
+            .to_field
+            .is_some_and(|id| ui.memory(|m| m.has_focus(id)));
+    let typed_name = if typing_name {
+        form.recipient.clone()
+    } else {
+        String::new()
+    };
+    form.names
+        .follow(ui.ctx(), &typed_name, &mut |c| cx.send(c));
+    form.name_rows = if typing_name {
+        let w = cx.wallet();
+        crate::components::name_suggest::rank(
+            &typed_name,
+            crate::components::name_suggest::Place::Send,
+            &w.contacts,
+            &w.identities,
+            form.names.network(),
+        )
+    } else {
+        Vec::new()
+    };
 
     // A name goes to the core once per change; the answer comes back as an event.
     let typed = form.recipient.trim().to_string();

@@ -2293,5 +2293,10 @@
   "Recovery phrase, {} words, shown on the screen": "恢复短语（{} 个词）已显示在屏幕上",
   "Choice {}": "选项 {}",
   "Suggestion {}": "建议 {}",
-  "{} key, shown on the screen": "{} 密钥已显示在屏幕上"
+  "{} key, shown on the screen": "{} 密钥已显示在屏幕上",
+  "Searching the network…": "正在网络中搜索…",
+  "The network did not answer — only your contacts are shown": "网络没有响应 — 仅显示你的联系人",
+  "No names starting with “{}”": "没有以“{}”开头的名称",
+  "Your identity": "你的身份",
+  "{} suggestion|{} suggestions": {"other":"{} 个建议"}
 }

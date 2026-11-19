@@ -640,6 +640,10 @@ impl App {
                     #[cfg(feature = "dev-tools")]
                     self.dev_snapshot(ctx);
                 }
+                Event::NameSuggestions { seq, result } => {
+                    self.send.names.on_answer(*seq, result);
+                    self.contacts.on_suggestions(*seq, result);
+                }
                 Event::NameResolved { name, result } => {
                     if *name == self.send.asked {
                         self.send.resolution = Some(result.clone());
@@ -1715,6 +1719,11 @@ impl eframe::App for App {
         );
 
         for command in commands {
+            // `--screen names-offline`: a network that never answers the suggestions.
+            #[cfg(feature = "dev-tools")]
+            if self.dev.names_offline && matches!(command, Command::SuggestNames { .. }) {
+                continue;
+            }
             self.core.send(command);
         }
         match wallet_request {

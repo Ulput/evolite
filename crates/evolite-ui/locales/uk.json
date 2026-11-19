@@ -2344,5 +2344,10 @@
   "Recovery phrase, {} words, shown on the screen": "Фраза відновлення, слів: {}, показана на екрані",
   "Choice {}": "Варіант {}",
   "Suggestion {}": "Підказка {}",
-  "{} key, shown on the screen": "Ключ {}, показаний на екрані"
+  "{} key, shown on the screen": "Ключ {}, показаний на екрані",
+  "Searching the network…": "Шукаємо в мережі…",
+  "The network did not answer — only your contacts are shown": "Мережа не відповіла — показано лише ваші контакти",
+  "No names starting with “{}”": "Немає імен на «{}»",
+  "Your identity": "Ваша identity",
+  "{} suggestion|{} suggestions": {"one":"{} підказка","few":"{} підказки","many":"{} підказок","other":"{} підказки"}
 }

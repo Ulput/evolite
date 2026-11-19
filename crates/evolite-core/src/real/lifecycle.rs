@@ -130,6 +130,7 @@ impl Real {
             names_cached: Default::default(),
             names_gate: Arc::new(tokio::sync::Semaphore::new(NAMES_AT_ONCE)),
             contacts: Vec::new(),
+            name_search: Default::default(),
             identity_busy: Default::default(),
             unclear: Default::default(),
             address_busy: Arc::new(AtomicBool::new(false)),

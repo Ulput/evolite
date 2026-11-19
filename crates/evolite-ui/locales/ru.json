@@ -2330,5 +2330,10 @@
   "Recovery phrase, {} words, shown on the screen": "Фраза восстановления, слов: {}, показана на экране",
   "Choice {}": "Вариант {}",
   "Suggestion {}": "Подсказка {}",
-  "{} key, shown on the screen": "Ключ {}, показан на экране"
+  "{} key, shown on the screen": "Ключ {}, показан на экране",
+  "Searching the network…": "Ищем в сети…",
+  "The network did not answer — only your contacts are shown": "Сеть не ответила — показаны только ваши контакты",
+  "No names starting with “{}”": "Нет имён на «{}»",
+  "Your identity": "Ваша identity",
+  "{} suggestion|{} suggestions": {"one":"{} подсказка","few":"{} подсказки","many":"{} подсказок"}
 }

@@ -2327,5 +2327,10 @@
   "Recovery phrase, {} words, shown on the screen": "Phrase de récupération, {} mots, affichée à l’écran",
   "Choice {}": "Choix {}",
   "Suggestion {}": "Suggestion {}",
-  "{} key, shown on the screen": "Clé {}, affichée à l’écran"
+  "{} key, shown on the screen": "Clé {}, affichée à l’écran",
+  "Searching the network…": "Recherche sur le réseau…",
+  "The network did not answer — only your contacts are shown": "Le réseau n’a pas répondu — seuls vos contacts sont affichés",
+  "No names starting with “{}”": "Aucun nom ne commence par « {} »",
+  "Your identity": "Votre identité",
+  "{} suggestion|{} suggestions": {"one":"{} suggestion","many":"{} de suggestions","other":"{} suggestions"}
 }

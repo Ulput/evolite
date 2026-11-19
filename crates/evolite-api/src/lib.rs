@@ -1928,6 +1928,18 @@ pub struct ResolvedName {
     pub contact: Option<ContactState>,
 }
 
+/// A name found by [`Command::SuggestNames`]: nothing is checked for paying by it — choosing
+/// it only fills the field, and [`Command::ResolveName`] checks it as if typed.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct NameSuggestion {
+    /// The name as written on the network (its own case), without «@».
+    pub label: String,
+    /// Its identity, base58.
+    pub identity_id: String,
+    /// The profile's name, once read; `None` before that or without a profile.
+    pub display_name: Option<String>,
+}
+
 /// A recovery phrase on its way to the screen or back. Wiped on drop (each word, then the
 /// list), never printed.
 #[derive(Clone, PartialEq)]
@@ -2037,6 +2049,15 @@ pub enum Command {
     },
     ResolveName {
         name: String,
+    },
+    /// Names for the suggestions under a field where another person's @name is typed
+    /// (FEAT-0039): DPNS names that start with `prefix` (typed, with or without «@»; the core
+    /// normalizes it and asks nothing for fewer than 3 characters), read with a proof. Spends
+    /// nothing, needs no password. Answered with [`Event::NameSuggestions`] carrying the same
+    /// `seq`, a second time once the profiles' names are in. A new one stops the one before.
+    SuggestNames {
+        prefix: String,
+        seq: u64,
     },
     /// Anything that spends the wallet's money or credits, behind one password gate: with
     /// [`Wallet::password_each_send`] on, `password` is checked against the vault before any
@@ -2707,6 +2728,13 @@ pub enum Event {
     NameResolved {
         name: String,
         result: Result<ResolvedName, CoreError>,
+    },
+    /// The answer to [`Command::SuggestNames`] of the same `seq`: at most 10 names, in the
+    /// network's order. A second answer with the same `seq` may follow with the profiles'
+    /// names filled in; the screen keeps only the answer to its last `seq`.
+    NameSuggestions {
+        seq: u64,
+        result: Result<Vec<NameSuggestion>, CoreError>,
     },
     /// The result of `GiftNft`, `DisconnectApp`, `CreateWallet`, `CreateIdentity`,
     /// `Shield`, `AnswerApp`.

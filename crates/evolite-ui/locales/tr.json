@@ -2310,5 +2310,10 @@
   "Recovery phrase, {} words, shown on the screen": "Kurtarma ifadesi, {} kelime, ekranda gösteriliyor",
   "Choice {}": "Seçenek {}",
   "Suggestion {}": "Öneri {}",
-  "{} key, shown on the screen": "{} anahtarı ekranda gösteriliyor"
+  "{} key, shown on the screen": "{} anahtarı ekranda gösteriliyor",
+  "Searching the network…": "Ağda aranıyor…",
+  "The network did not answer — only your contacts are shown": "Ağ yanıt vermedi — yalnızca kişileriniz gösteriliyor",
+  "No names starting with “{}”": "“{}” ile başlayan ad yok",
+  "Your identity": "Kimliğiniz",
+  "{} suggestion|{} suggestions": {"one":"{} öneri","other":"{} öneri"}
 }

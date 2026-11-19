@@ -2293,5 +2293,10 @@
   "Recovery phrase, {} words, shown on the screen": "Cụm từ khôi phục, {} từ, đang hiển thị trên màn hình",
   "Choice {}": "Lựa chọn {}",
   "Suggestion {}": "Gợi ý {}",
-  "{} key, shown on the screen": "Khóa {}, đang hiển thị trên màn hình"
+  "{} key, shown on the screen": "Khóa {}, đang hiển thị trên màn hình",
+  "Searching the network…": "Đang tìm trên mạng…",
+  "The network did not answer — only your contacts are shown": "Mạng không phản hồi — chỉ hiển thị danh bạ của bạn",
+  "No names starting with “{}”": "Không có tên nào bắt đầu bằng «{}»",
+  "Your identity": "Danh tính của bạn",
+  "{} suggestion|{} suggestions": {"other":"{} gợi ý"}
 }

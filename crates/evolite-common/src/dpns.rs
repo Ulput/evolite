@@ -31,6 +31,26 @@ pub fn normalized(label: &str) -> String {
         .collect()
 }
 
+/// The fewest characters of a name's beginning the suggestions ask the network about
+/// (FEAT-0039, analyst-132): no DPNS name is shorter.
+pub const SEARCH_FROM: usize = 3;
+
+/// The homograph-safe form of a name's beginning as typed, for the suggestions (FEAT-0039):
+/// without the leading `@` and a whole `.dash`, lowercase, then [`normalized`]. `None` when it
+/// cannot begin a DPNS name (a space, a dot, a letter outside ASCII…): an address or an id,
+/// not a name. «AIice», «alice» and «a1ice» give one form. Empty for «@» alone.
+pub fn search_key(typed: &str) -> Option<String> {
+    let lower = typed.trim().trim_start_matches('@').to_lowercase();
+    let lower = lower.strip_suffix(".dash").unwrap_or(&lower);
+    if lower.len() > 63
+        || lower.starts_with('-')
+        || !lower.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
+    {
+        return None;
+    }
+    Some(normalized(lower))
+}
+
 /// Short names of letters, 0, 1 and hyphens only are contested: masternodes vote on them.
 pub fn is_contested(label: &str) -> bool {
     let normalized = normalized(label);
@@ -98,6 +118,22 @@ mod tests {
         assert_eq!(label("ab-"), Err(CoreError::BadName));
         assert_eq!(label("a_b"), Err(CoreError::BadName));
         assert_eq!(label(&"a".repeat(64)), Err(CoreError::BadName));
+    }
+
+    /// FEAT-0039 AC-T1: the beginning typed is asked in DPNS's own form; what cannot begin a
+    /// name is not asked at all.
+    #[test]
+    fn a_typed_beginning_is_searched_in_the_homograph_safe_form() {
+        assert_eq!(search_key("AIICE").as_deref(), Some("a11ce"));
+        assert_eq!(search_key(" @AIice ").as_deref(), Some("a11ce"));
+        assert_eq!(search_key("a1ice").as_deref(), Some("a11ce"));
+        assert_eq!(search_key("bob.dash").as_deref(), Some("b0b"));
+        assert_eq!(search_key("@").as_deref(), Some(""));
+        assert_eq!(search_key("al-"), Some("a1-".into()));
+        assert_eq!(search_key("-al"), None);
+        assert_eq!(search_key("al ice"), None);
+        assert_eq!(search_key("яна"), None);
+        assert_eq!(search_key(&"a".repeat(64)), None);
     }
 
     #[test]

@@ -162,6 +162,11 @@ impl Mock {
                     result,
                 }
             }
+            // The example network's names (FEAT-0039): nothing is asked of a network.
+            Command::SuggestNames { prefix, seq } => Event::NameSuggestions {
+                seq,
+                result: Ok(answers::suggest(&prefix)),
+            },
             Command::ResolveName { name } => {
                 let contacts = self
                     .snapshot
@@ -1978,6 +1983,41 @@ mod tests {
                 result: Err(CoreError::NotAvailable(_))
             }
         ));
+    }
+
+    /// FEAT-0039: the example network's names by their beginning, in DPNS's form and order,
+    /// the profile's name with them; nothing for fewer than 3 characters.
+    #[test]
+    fn the_demo_suggests_names_by_their_beginning() {
+        let (mut m, tx, rx) = mock();
+        let mut ask = |prefix: &str, seq| {
+            m.handle(
+                Command::SuggestNames {
+                    prefix: prefix.into(),
+                    seq,
+                },
+                &tx,
+            );
+            let Event::NameSuggestions {
+                seq: answered,
+                result: Ok(found),
+            } = rx.recv().unwrap()
+            else {
+                panic!("names");
+            };
+            assert_eq!(answered, seq);
+            found
+        };
+        let labels = |found: &[NameSuggestion]| -> Vec<String> {
+            found.iter().map(|n| n.label.clone()).collect()
+        };
+        // «AIi» is «ali» to DPNS.
+        let found = ask("@AIi", 7);
+        assert_eq!(labels(&found), ["alice", "alice-pay", "alina"]);
+        assert_eq!(found[0].display_name.as_deref(), Some("Alice Chen"));
+        assert_eq!(labels(&ask("ale", 8)), ["Alex", "alexandra"]);
+        assert!(ask("al", 9).is_empty());
+        assert!(ask("zzq", 10).is_empty());
     }
 
     #[test]

@@ -80,6 +80,11 @@ pub struct AddContact {
     pub qr_error: Option<&'static str>,
     /// When [`Self::asked`] went to the core: a long silence is said in words (BUG-87).
     pub asked_at: Option<std::time::Instant>,
+    /// The names suggested under the field (FEAT-0039), their rows for this frame, and the
+    /// field's widget id as last drawn.
+    pub names: crate::components::name_suggest::NameSuggest,
+    pub name_rows: Vec<crate::components::name_suggest::Row>,
+    pub field: Option<egui::Id>,
 }
 
 impl ContactsState {
@@ -128,6 +133,17 @@ impl ContactsState {
         self.accepting = None;
         self.privacy = false;
         self.privacy_closed = false;
+    }
+
+    /// The core's names for the suggestions (FEAT-0039).
+    pub fn on_suggestions(
+        &mut self,
+        seq: u64,
+        result: &Result<Vec<evolite_api::NameSuggestion>, CoreError>,
+    ) {
+        if let Some(adding) = &mut self.adding {
+            adding.names.on_answer(seq, result);
+        }
     }
 
     pub fn on_resolved(&mut self, name: &str, result: &Result<ResolvedName, CoreError>) {
@@ -744,6 +760,31 @@ fn add_contact(
             Err(why) => adding.qr_error = why,
         }
     }
+    // The names suggested while the field has the focus (FEAT-0039): «@» is not needed here;
+    // one's own identities are not offered, a contact is tagged and opens its card.
+    let typing = adding
+        .field
+        .is_some_and(|id| ui.memory(|m| m.has_focus(id)));
+    let typed_name = if typing {
+        adding.name.clone()
+    } else {
+        String::new()
+    };
+    adding
+        .names
+        .follow(ui.ctx(), &typed_name, &mut |c| asked.push(c));
+    adding.name_rows = if typing {
+        crate::components::name_suggest::rank(
+            &typed_name,
+            crate::components::name_suggest::Place::AddContact,
+            &wallet.contacts,
+            &wallet.identities,
+            adding.names.network(),
+        )
+    } else {
+        Vec::new()
+    };
+    let mut open_card: Option<String> = None;
     // A name goes to the core once per change; the answer comes back as an event.
     let typed = adding.name.trim().to_string();
     if typed.trim_start_matches('@').len() >= 3 && typed != adding.asked {
@@ -826,6 +867,11 @@ fn add_contact(
             ui.vertical(|ui| {
                 ui.spacing_mut().item_spacing.y = 6.0;
                 field_label(ui, &p, tr!("Name in DPNS"));
+                // FEAT-0039: the list's keys go before the field's.
+                let field = ui.make_persistent_id("add-contact-name");
+                adding.field = Some(field);
+                let rows = std::mem::take(&mut adding.name_rows);
+                let mut chosen = adding.names.keys(ui, field, &rows);
                 let scanner = &mut adding.scanner;
                 let typed = text_field(
                     ui,
@@ -841,6 +887,19 @@ fn add_contact(
                 if typed.changed() {
                     adding.qr_error = None;
                 }
+                let now_typed = adding.name.clone();
+                if let Some(row) = adding.names.show(ui, a, field, &now_typed, &rows) {
+                    chosen = Some(row);
+                }
+                if let Some(row) = chosen {
+                    // A contact already: its card, not a new request (AC-A7).
+                    if row.tag == crate::components::name_suggest::Tag::Contact {
+                        open_card = Some(row.identity_id.clone());
+                    }
+                    adding.names.choose(&mut adding.name, &row);
+                    adding.qr_error = None;
+                }
+                adding.name_rows = rows;
                 if let Some(why) = adding.qr_error {
                     crate::components::qr_note(ui, a, &crate::components::QrNote::Error(why));
                 }
@@ -949,7 +1008,11 @@ fn add_contact(
             false
         },
     );
-    if send {
+    if let Some(id) = open_card {
+        state.adding = None;
+        state.password.forget();
+        state.profile = Some(id);
+    } else if send {
         cx.send(
             state
                 .password

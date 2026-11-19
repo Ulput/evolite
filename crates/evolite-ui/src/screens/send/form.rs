@@ -460,6 +460,11 @@ pub(super) fn form_card(
         ui.vertical(|ui| {
             ui.spacing_mut().item_spacing.y = 6.0;
             field_label(ui, &p, tr!("To"));
+            // FEAT-0039: the list's keys go before the field's.
+            let to_field = ui.make_persistent_id("send-recipient");
+            form.to_field = Some(to_field);
+            let rows = std::mem::take(&mut form.name_rows);
+            let mut chosen = form.names.keys(ui, to_field, &rows);
             let scanner = &mut form.scanner;
             if text_field(
                 ui,
@@ -484,6 +489,15 @@ pub(super) fn form_card(
             if form.recipient != form.qr_about {
                 form.qr = None;
             }
+            let typed = form.recipient.clone();
+            if let Some(row) = form.names.show(ui, a, to_field, &typed, &rows) {
+                chosen = Some(row);
+            }
+            if let Some(row) = chosen {
+                form.names.choose(&mut form.recipient, &row);
+                form.result = None;
+            }
+            form.name_rows = rows;
             if let Some(note) = &form.qr {
                 crate::components::qr_note(ui, a, note);
             }

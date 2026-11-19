@@ -9,6 +9,7 @@ mod controls;
 mod dialog;
 mod fade;
 mod field;
+pub mod name_suggest;
 mod notice;
 mod page;
 mod para;

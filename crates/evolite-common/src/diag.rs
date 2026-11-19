@@ -317,6 +317,13 @@ pub enum Record {
         identities: u32,
         ms: u64,
     },
+    /// A name search for the suggestions ended (FEAT-0039, AC-A8): how many names, and whether
+    /// they came from the session's cache without asking the network. Never the text typed,
+    /// the names or the pictures' addresses.
+    NameSearch {
+        found: u32,
+        cached: bool,
+    },
 }
 
 impl Record {
@@ -516,6 +523,9 @@ impl Record {
                 ms,
             } => json!({
                 "k": "token_search_stage", "stage": stage, "requests": requests, "ms": ms,
+            }),
+            Record::NameSearch { found, cached } => json!({
+                "k": "name_search", "found": found, "cached": cached,
             }),
             Record::TokenSearchEnd {
                 contracts,
@@ -1031,6 +1041,22 @@ mod tests {
             assert_eq!(keys, names, "{fields}");
             assert_eq!(fields["k"], kind);
         }
+    }
+
+    /// FEAT-0039 AC-A8: a name search's line is a count and a flag, nothing typed.
+    #[test]
+    fn the_name_search_line_is_a_count_and_a_flag() {
+        let fields = Record::NameSearch {
+            found: 7,
+            cached: true,
+        }
+        .fields();
+        let mut keys: Vec<_> = fields.as_object().unwrap().keys().cloned().collect();
+        keys.sort();
+        assert_eq!(keys, ["cached", "found", "k"], "{fields}");
+        assert_eq!(fields["k"], "name_search");
+        assert_eq!(fields["found"], 7);
+        assert_eq!(fields["cached"], true);
     }
 
     #[test]

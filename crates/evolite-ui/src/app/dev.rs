@@ -31,6 +31,9 @@ pub(super) struct DevState {
     real_preset: Option<&'static str>,
     /// `--screen elsewhere`: the "open in another window" screen, for screenshots.
     pub(super) show_elsewhere: bool,
+    /// `--screen names-offline` (FEAT-0039 AC-A4): the network never answers the name
+    /// suggestions — their asks do not reach the core.
+    pub(super) names_offline: bool,
     /// `--screen forgot`: the unlock screen with "Forgot the password?", though the demo is open.
     pub(super) preset_forgot: bool,
     /// `--screen remind`: Overview with the phrase-check reminder.
@@ -212,6 +215,7 @@ impl DevState {
             shot_screen: dev.real_shot.then_some(screen),
             real_preset,
             show_elsewhere: dev.preset("elsewhere"),
+            names_offline: dev.preset("names-offline"),
             preset_forgot: dev.preset("forgot"),
             remind_preset: dev.preset("remind"),
             unfinished_preset: dev.preset("identity-unfinished"),
@@ -903,7 +907,7 @@ impl App {
             // `--screen send-book`: nothing typed yet, the address book offered.
             if preset("send-contact") {
                 self.send.recipient = "@carol".into();
-            } else if preset("send-book") {
+            } else if preset("send-book") || preset("names-offline") {
                 self.send.recipient.clear();
             }
             // FEAT-0015: paying from the Platform addresses: a transfer, a withdrawal costing much of

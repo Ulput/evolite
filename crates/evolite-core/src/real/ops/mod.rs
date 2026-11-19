@@ -17,6 +17,7 @@ pub(super) mod lock_coins;
 mod misc;
 pub(super) mod mixed;
 mod name_contests;
+pub(super) mod name_search;
 mod names;
 pub(super) mod notes;
 pub(super) mod outgoing;

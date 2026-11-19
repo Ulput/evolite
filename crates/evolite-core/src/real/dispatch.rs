@@ -308,6 +308,9 @@ impl Real {
                 self.reveal_identity_key(&identity, key_id, &password).await,
             ),
             Command::ResolveName { name } => return self.resolve_name(name).await,
+            Command::SuggestNames { prefix, seq } => {
+                return (self.suggest_names(prefix, seq), false);
+            }
             Command::CheckName { label: asked } => return self.check_name(asked).await,
             // FEAT-0021 Should 1: «×» on Overview's notice, kept until the result; no answer.
             Command::CloseNameNotice { identity, label } => {

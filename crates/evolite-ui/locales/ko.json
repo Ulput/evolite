@@ -2293,5 +2293,10 @@
   "Recovery phrase, {} words, shown on the screen": "복구 문구 {}단어가 화면에 표시됨",
   "Choice {}": "선택지 {}",
   "Suggestion {}": "추천 {}",
-  "{} key, shown on the screen": "{} 키가 화면에 표시됨"
+  "{} key, shown on the screen": "{} 키가 화면에 표시됨",
+  "Searching the network…": "네트워크에서 찾는 중…",
+  "The network did not answer — only your contacts are shown": "네트워크가 응답하지 않았습니다 — 연락처만 표시합니다",
+  "No names starting with “{}”": "«{}»(으)로 시작하는 이름이 없습니다",
+  "Your identity": "내 아이덴티티",
+  "{} suggestion|{} suggestions": {"other":"추천 {}개"}
 }

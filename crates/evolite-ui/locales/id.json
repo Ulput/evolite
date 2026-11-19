@@ -2293,5 +2293,10 @@
   "Recovery phrase, {} words, shown on the screen": "Frasa pemulihan, {} kata, ditampilkan di layar",
   "Choice {}": "Pilihan {}",
   "Suggestion {}": "Saran {}",
-  "{} key, shown on the screen": "Kunci {}, ditampilkan di layar"
+  "{} key, shown on the screen": "Kunci {}, ditampilkan di layar",
+  "Searching the network…": "Mencari di jaringan…",
+  "The network did not answer — only your contacts are shown": "Jaringan tidak menjawab — hanya kontak Anda yang ditampilkan",
+  "No names starting with “{}”": "Tidak ada nama yang diawali “{}”",
+  "Your identity": "Identitas Anda",
+  "{} suggestion|{} suggestions": {"other":"{} saran"}
 }

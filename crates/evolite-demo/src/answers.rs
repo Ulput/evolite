@@ -98,6 +98,25 @@ pub fn demo_contacts(now: Timestamp) -> Vec<Contact> {
 /// among `contacts`.
 pub fn resolve(name: &str, contacts: &[Contact]) -> Result<ResolvedName, CoreError> {
     let label = evolite_common::dpns::label(name)?;
+    // The suggestions' other names (FEAT-0039): found as anyone, a profile name at most.
+    if let Some((written, display, id)) = MORE_NAMES
+        .iter()
+        .find(|(n, _, _)| n.to_lowercase() == label)
+    {
+        return Ok(ResolvedName {
+            name: (*written).into(),
+            display: display.map(Into::into),
+            identity_id: (*id).into(),
+            profile: Some(Profile {
+                display: display.map(Into::into),
+                ..Profile::default()
+            }),
+            contact: contacts
+                .iter()
+                .find(|c| c.identity_id == *id)
+                .map(|c| c.state),
+        });
+    }
     let person = PEOPLE
         .iter()
         .find(|p| p.name == label)
@@ -112,6 +131,73 @@ pub fn resolve(name: &str, contacts: &[Contact]) -> Result<ResolvedName, CoreErr
             .find(|c| c.identity_id == person.id)
             .map(|c| c.state),
     })
+}
+
+/// Names the example network has besides [`PEOPLE`], for the suggestions (FEAT-0039): look-alikes
+/// of the contacts' names (`alice-pay` next to `alice`), longer and shorter ones, and the
+/// wallet's second identity. `(label as written, profile name, identity)`.
+const MORE_NAMES: [(&str, Option<&str>, &str); 9] = [
+    (
+        "alice-pay",
+        Some("Alice Payments"),
+        "7Qm4Rz8Tc2Vn6Lw9Hx3Pk5Jd1Fs8Gb2Ya4Ap",
+    ),
+    (
+        "Alex",
+        Some("Alex Novak"),
+        "7Rn5Tx9Ud3Wo7Mx1Iy4Ql6Ke2Gt9Hc3Zb5Bq",
+    ),
+    ("alexandra", None, "7So6Uy1Ve4Xp8Ny2Jz5Rm7Lf3Hu1Id4Ac6Cr"),
+    (
+        "alina",
+        Some("Alina"),
+        "7Tp7Vz2Wf5Yq9Oz3Ka6Sn8Mg4Iv2Je5Bd7Ds",
+    ),
+    (
+        "carlos",
+        Some("Carlos Ruiz"),
+        "7Uq8Wa3Xg6Zr1Pa4Lb7To9Nh5Jw3Kf6Ce8Et",
+    ),
+    ("caroline", None, "7Vr9Xb4Yh7As2Qb5Mc8Up1Oi6Kx4Lg7Df9Fu"),
+    (
+        "kate-art",
+        Some("Kate's art"),
+        "7Ws1Yc5Zi8Bt3Rc6Nd9Vq2Pj7Ly5Mh8Eg1Gv",
+    ),
+    ("bobby", None, "7Xt2Zd6Aj9Cu4Sd7Oe1Wr3Qk8Mz6Ni9Fh2Hw"),
+    (
+        "satoshi-lab",
+        None,
+        "5Kx2LabQ7pWmR9sTzV4nB8cYd1Je3HuF6gNqA2oX7wE",
+    ),
+];
+
+/// What the example network finds for [`Command::SuggestNames`]: the names whose DPNS form
+/// starts with the one of `prefix`, in that form's order, at most 10 — with the profiles' names
+/// at once (the demo has no second read). Nothing under 3 characters, as the real core.
+pub fn suggest(prefix: &str) -> Vec<NameSuggestion> {
+    use evolite_common::dpns::{SEARCH_FROM, search_key};
+    let Some(prefix) = search_key(prefix).filter(|p| p.len() >= SEARCH_FROM) else {
+        return Vec::new();
+    };
+    let mut found: Vec<(String, NameSuggestion)> = PEOPLE
+        .iter()
+        .map(|p| (p.name, p.display, p.id))
+        .chain(MORE_NAMES)
+        .filter_map(|(label, display, id)| {
+            let key = search_key(label)?;
+            key.starts_with(&prefix).then(|| {
+                let row = NameSuggestion {
+                    label: label.into(),
+                    identity_id: id.into(),
+                    display_name: display.map(Into::into),
+                };
+                (key, row)
+            })
+        })
+        .collect();
+    found.sort_by(|a, b| a.0.cmp(&b.0));
+    found.into_iter().take(10).map(|(_, row)| row).collect()
 }
 
 /// Where the mock says a Core payment to `to` goes: an address stays itself, a contact gets an

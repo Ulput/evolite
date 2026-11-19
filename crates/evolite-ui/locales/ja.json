@@ -2293,5 +2293,10 @@
   "Recovery phrase, {} words, shown on the screen": "リカバリーフレーズ（{} 語）が画面に表示されています",
   "Choice {}": "選択肢 {}",
   "Suggestion {}": "候補 {}",
-  "{} key, shown on the screen": "{} キーが画面に表示されています"
+  "{} key, shown on the screen": "{} キーが画面に表示されています",
+  "Searching the network…": "ネットワークを検索中…",
+  "The network did not answer — only your contacts are shown": "ネットワークが応答しませんでした — 連絡先のみ表示しています",
+  "No names starting with “{}”": "「{}」で始まる名前はありません",
+  "Your identity": "あなたのアイデンティティ",
+  "{} suggestion|{} suggestions": {"other":"{} 件の候補"}
 }

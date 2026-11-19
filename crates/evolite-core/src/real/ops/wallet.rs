@@ -305,6 +305,11 @@ impl Real {
             self.contact_accounts_busy.store(false, Ordering::Relaxed);
         }
         self.credits_checked.store(false, Ordering::Relaxed);
+        // The names searched in this session go with the wallet (FEAT-0039, architect §3).
+        self.name_search
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clear();
         // The right words of an unanswered phrase check go with the keys.
         self.phrase_check = None;
         // A paid write not known to have gone through is forgotten (BUG-184).

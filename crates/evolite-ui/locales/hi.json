@@ -2310,5 +2310,10 @@
   "Recovery phrase, {} words, shown on the screen": "रिकवरी फ़्रेज़, {} शब्द, स्क्रीन पर दिखाई गई",
   "Choice {}": "विकल्प {}",
   "Suggestion {}": "सुझाव {}",
-  "{} key, shown on the screen": "{} कुंजी, स्क्रीन पर दिखाई गई"
+  "{} key, shown on the screen": "{} कुंजी, स्क्रीन पर दिखाई गई",
+  "Searching the network…": "नेटवर्क में खोज रहे हैं…",
+  "The network did not answer — only your contacts are shown": "नेटवर्क ने जवाब नहीं दिया — केवल आपके संपर्क दिखाए गए हैं",
+  "No names starting with “{}”": "«{}» से शुरू होने वाला कोई नाम नहीं",
+  "Your identity": "आपकी identity",
+  "{} suggestion|{} suggestions": {"one":"{} सुझाव","other":"{} सुझाव"}
 }

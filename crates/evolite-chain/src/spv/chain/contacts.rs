@@ -12,6 +12,22 @@ pub struct DashPayFound {
     pub contacts: u32,
 }
 
+/// How many names one search for the suggestions asks for (FEAT-0039, architect §1): the exact
+/// name is always first among those starting with it, and the rest leave room for «shorter
+/// first» and for the contacts and own identities taken out.
+pub const NAMES_PER_SEARCH: u32 = 10;
+
+/// A DPNS name found by [`Chain::search_names`].
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FoundName {
+    /// As written on the network.
+    pub label: String,
+    /// DPNS's homograph-safe form.
+    pub normalized: String,
+    /// The identity it points to, base58.
+    pub identity_id: String,
+}
+
 impl Chain {
     /// The DashPay profile of any identity (proved), `None` when it has written none.
     pub async fn profile_of(
@@ -32,6 +48,59 @@ impl Chain {
             .await
             .map_err(|e| e.to_string())?;
         Ok(docs.get(&id).map(dashpay::profile_from_document))
+    }
+
+    /// The DashPay profiles of several identities in one proved read (FEAT-0039: the names of
+    /// the strangers shown in the suggestions), by identity. Those without a profile are left out.
+    pub async fn profiles_of(
+        &self,
+        ids: &[Identifier],
+    ) -> Result<HashMap<Identifier, platform_wallet::DashPayProfile>, String> {
+        if ids.is_empty() {
+            return Ok(HashMap::new());
+        }
+        self.ready()?;
+        let sdk = self.sdk().await?;
+        let contract = Arc::new(
+            dpp::system_data_contracts::load_system_data_contract(
+                dpp::data_contracts::SystemDataContract::Dashpay,
+                sdk.version(),
+            )
+            .map_err(|e| e.to_string())?,
+        );
+        let docs = sdk
+            .get_profiles(&contract, ids)
+            .await
+            .map_err(|e| e.to_string())?;
+        Ok(docs
+            .iter()
+            .map(|(id, doc)| (*id, dashpay::profile_from_document(doc)))
+            .collect())
+    }
+
+    /// DPNS names under `.dash` whose homograph-safe form starts with `prefix` (already in that
+    /// form, [`evolite_common::dpns::search_key`]), at most [`NAMES_PER_SEARCH`], in the order of
+    /// that form — proved (FEAT-0039 AC-T1). The DPNS contract comes from our context provider.
+    /// Contested and blocked names have no domain and are not found.
+    pub async fn search_names(&self, prefix: &str) -> Result<Vec<FoundName>, String> {
+        self.ready()?;
+        let found = self
+            .sdk()
+            .await?
+            .search_dpns_names(prefix, Some(NAMES_PER_SEARCH))
+            .await
+            .map_err(|e| e.to_string())?;
+        Ok(found
+            .into_iter()
+            .map(|n| FoundName {
+                identity_id: n
+                    .records_identity_id
+                    .unwrap_or(n.owner_id)
+                    .to_string(Encoding::Base58),
+                normalized: n.normalized_label,
+                label: n.label,
+            })
+            .collect())
     }
 
     /// What a phrase brings from DashPay, read from Platform before any wallet is made:

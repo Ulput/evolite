@@ -42,6 +42,7 @@ mod low_login;
 mod low_menu;
 mod mixed;
 mod mono_addresses;
+mod name_suggest;
 mod network_switch;
 mod new_identity;
 mod notes;

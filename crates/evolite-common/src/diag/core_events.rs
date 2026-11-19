@@ -24,6 +24,7 @@ pub fn command_name(command: &Command) -> &'static str {
         Command::Touch => "touch",
         Command::ChangePassword { .. } => "change_password",
         Command::ResolveName { .. } => "resolve_name",
+        Command::SuggestNames { .. } => "suggest_names",
         Command::Spend { op, .. } => spend(op),
         Command::SetPasswordEachSend { .. } => "set_password_each_send",
         Command::ReadAppBudgets { .. } => "read_app_budgets",
@@ -196,6 +197,7 @@ pub fn answer(event: &Event) -> Option<Record> {
             if wrong.is_some() { "wrong" } else { "ok" },
         ),
         Event::TokenFound { result, .. } => ("token_found", outcome(result)),
+        Event::NameSuggestions { result, .. } => ("name_suggestions", outcome(result)),
     };
     Some(Record::Answer { what, outcome })
 }

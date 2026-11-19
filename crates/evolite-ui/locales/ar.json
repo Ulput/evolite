@@ -2378,5 +2378,10 @@
   "Recovery phrase, {} words, shown on the screen": "عبارة الاسترداد، {} كلمة، معروضة على الشاشة",
   "Choice {}": "الخيار {}",
   "Suggestion {}": "الاقتراح {}",
-  "{} key, shown on the screen": "المفتاح {}، معروض على الشاشة"
+  "{} key, shown on the screen": "المفتاح {}، معروض على الشاشة",
+  "Searching the network…": "جارٍ البحث في الشبكة…",
+  "The network did not answer — only your contacts are shown": "لم تستجب الشبكة — تُعرض جهات اتصالك فقط",
+  "No names starting with “{}”": "لا أسماء تبدأ بـ «{}»",
+  "Your identity": "هويتك",
+  "{} suggestion|{} suggestions": {"zero":"لا اقتراحات","one":"اقتراح واحد","two":"اقتراحان","few":"{} اقتراحات","many":"{} اقتراحًا","other":"{} اقتراح"}
 }

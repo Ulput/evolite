@@ -486,6 +486,8 @@ struct Real {
     names_gate: Arc<tokio::sync::Semaphore>,
     /// The contacts of the last snapshot: who may be paid by name from Core.
     contacts: Vec<Contact>,
+    /// The name suggestions' cache and the search under way (FEAT-0039).
+    name_search: Arc<std::sync::Mutex<ops::name_search::NameSearch>>,
     /// An identity is being made or finished: its lock is not "unfinished" meanwhile.
     identity_busy: busy::BusyFlag,
     /// Paid writes whose outcome is not known yet (BUG-184, TECH-after-send-outcome): each
