@@ -464,6 +464,7 @@ fn pool_pass(
         new_notes: new_notes as u32,
         scanned,
         error,
+        repeated: 0,
     };
     (record, outcomes)
 }
@@ -489,17 +490,61 @@ pub(crate) fn pass_error(text: &str) -> &'static str {
     }
 }
 
-/// The last pass written: one line a change, not one a minute.
+/// The passes written: one line a change, not one a minute — and, BUG-240 r3, no pass lost:
+/// the same outcome again is counted, and written with its count when the outcome changes.
 #[cfg(feature = "pool")]
-static LAST_POOL_PASS: Mutex<Option<String>> = Mutex::new(None);
+#[derive(Default)]
+struct PassLog {
+    last: Option<crate::diag::Record>,
+    repeats: u32,
+}
+
+#[cfg(feature = "pool")]
+impl PassLog {
+    /// The lines `record` makes: none for the same outcome again; else the previous one with
+    /// how often it repeated (when it did), then this one.
+    fn step(&mut self, record: crate::diag::Record) -> Vec<crate::diag::Record> {
+        if self.last.as_ref() == Some(&record) {
+            self.repeats = self.repeats.saturating_add(1);
+            return Vec::new();
+        }
+        let mut lines = Vec::new();
+        if let Some(crate::diag::Record::PoolPass {
+            ok,
+            skipped,
+            failed,
+            new_notes,
+            scanned,
+            error,
+            ..
+        }) = self.last.take()
+            && self.repeats > 0
+        {
+            lines.push(crate::diag::Record::PoolPass {
+                ok,
+                skipped,
+                failed,
+                new_notes,
+                scanned,
+                error,
+                repeated: self.repeats,
+            });
+        }
+        self.repeats = 0;
+        self.last = Some(record.clone());
+        lines.push(record);
+        lines
+    }
+}
+
+#[cfg(feature = "pool")]
+static POOL_PASSES: Mutex<Option<PassLog>> = Mutex::new(None);
 
 #[cfg(feature = "pool")]
 fn note_pool_pass(record: crate::diag::Record) {
-    let line = format!("{record:?}");
-    let mut last = LAST_POOL_PASS.lock().unwrap_or_else(|e| e.into_inner());
-    if last.as_deref() != Some(line.as_str()) {
-        *last = Some(line);
-        crate::diag::record(record);
+    let mut log = POOL_PASSES.lock().unwrap_or_else(|e| e.into_inner());
+    for line in log.get_or_insert_with(PassLog::default).step(record) {
+        crate::diag::record(line);
     }
 }
 
@@ -533,6 +578,7 @@ mod pool_pass_tests {
                 new_notes: 0,
                 scanned: 0,
                 error: "timeout",
+                repeated: 0,
             }
         );
         assert_eq!(pass_error("proof verification failed"), "proof");
@@ -545,6 +591,40 @@ mod pool_pass_tests {
         let s = status.lock().unwrap().clone();
         assert_eq!(s.pool_failed.get(&[1; 32]), Some(&(2, "timeout")));
         assert!(s.pool_passed.is_empty(), "a failed pass is no time");
+    }
+
+    fn pass(failed: u32, error: &'static str) -> crate::diag::Record {
+        crate::diag::Record::PoolPass {
+            ok: 1 - failed,
+            skipped: 0,
+            failed,
+            new_notes: 0,
+            scanned: 0,
+            error,
+            repeated: 0,
+        }
+    }
+
+    /// BUG-240 r3 (QA batch 43): the same outcome again is not a new line, but it is not lost
+    /// either — when the outcome changes, the previous one is written with how often it
+    /// repeated; once is written once.
+    #[test]
+    fn repeated_passes_are_counted_not_dropped() {
+        let mut log = PassLog::default();
+        let net = pass(1, "network");
+        assert_eq!(log.step(net.clone()), vec![net.clone()]);
+        assert!(log.step(net.clone()).is_empty());
+        assert!(log.step(net.clone()).is_empty());
+        let ok = pass(0, "");
+        let mut net_again = net.clone();
+        if let crate::diag::Record::PoolPass { repeated, .. } = &mut net_again {
+            *repeated = 2;
+        }
+        assert_eq!(log.step(ok.clone()), vec![net_again, ok.clone()]);
+        // Once: no count line.
+        let proof = pass(1, "proof");
+        assert_eq!(log.step(proof.clone()), vec![proof.clone()]);
+        assert_eq!(log.step(ok.clone()), vec![ok]);
     }
 }
 

@@ -337,6 +337,8 @@ pub enum Record {
     /// BUG-240 r2: a pass of the pool's background scan ended — how many wallets it scanned
     /// (`ok`), skipped and failed, the notes it found and the entries it scanned, and the kind of
     /// a failure (`timeout`, `not_ready`, `proof`, `network`, `other`; never its words).
+    /// BUG-240 r3: `repeated` — how many more passes ended the same way after this line was
+    /// first written (written again with it when the outcome changes; 0 on the first).
     PoolPass {
         ok: u32,
         skipped: u32,
@@ -344,6 +346,7 @@ pub enum Record {
         new_notes: u32,
         scanned: u64,
         error: &'static str,
+        repeated: u32,
     },
     /// The token rows' facts read: tokens, queries, how long (SYNC-0).
     TokenFacts {
@@ -619,9 +622,10 @@ impl Record {
                 new_notes,
                 scanned,
                 error,
+                repeated,
             } => json!({
                 "k": "pool_pass", "ok": ok, "skipped": skipped, "failed": failed,
-                "newNotes": new_notes, "scanned": scanned, "error": error,
+                "newNotes": new_notes, "scanned": scanned, "error": error, "repeated": repeated,
             }),
             Record::PoolRead {
                 ledger,
@@ -1493,9 +1497,10 @@ mod tests {
                     new_notes: 0,
                     scanned: 0,
                     error: "timeout",
+                    repeated: 2,
                 },
                 vec![
-                    "error", "failed", "k", "newNotes", "ok", "scanned", "skipped", "t",
+                    "error", "failed", "k", "newNotes", "ok", "repeated", "scanned", "skipped", "t",
                 ],
             ),
             (

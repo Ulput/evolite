@@ -402,6 +402,15 @@ fn balance(
                 .font(crate::theme::figures(12.0, Weight::Regular))
                 .color(p.muted),
         );
+        // BUG-240 r3 (B): a balance from an earlier pass, while the passes since keep failing,
+        // says so under its «last checked» — not read as fresh.
+        if let Some(stale) = stale_line(pool) {
+            ui.label(
+                egui::RichText::new(stale)
+                    .font(crate::theme::figures(12.0, Weight::Regular))
+                    .color(p.muted),
+            );
+        }
     });
 }
 
@@ -1380,6 +1389,21 @@ fn failing_words(kind: &str) -> &'static str {
     }
 }
 
+/// «Could not read the pool», by the kind of its scan's failure (BUG-240 r2).
+fn could_not_read(kind: &str) -> String {
+    format!(
+        tr!("Could not read the pool: {}. We'll try again later"),
+        failing_words(kind)
+    )
+}
+
+/// BUG-240 r3 (B): under a balance known from an earlier pass, whether the passes since keep
+/// failing (the core says so after three in a row).
+fn stale_line(pool: &evolite_api::Pool) -> Option<String> {
+    pool.checked_at?;
+    pool.failing.as_deref().map(could_not_read)
+}
+
 /// Where the pool stands, under its balance.
 fn pool_line(pool: &evolite_api::Pool, now: chrono::DateTime<chrono::Local>) -> String {
     match pool.checked_at {
@@ -1389,10 +1413,9 @@ fn pool_line(pool: &evolite_api::Pool, now: chrono::DateTime<chrono::Local>) -> 
             text::when(at, now)
         ),
         // BUG-240 r2 (3): not «reading» for ever when the reads keep failing.
-        None if pool.failing.is_some() => format!(
-            tr!("Could not read the pool: {}. We'll try again later"),
-            failing_words(pool.failing.as_deref().unwrap_or_default())
-        ),
+        None if pool.failing.is_some() => {
+            could_not_read(pool.failing.as_deref().unwrap_or_default())
+        }
         None if pool.address.is_some() => {
             tr!("Reading the pool on Platform — the first time takes a few minutes").to_string()
         }
@@ -1426,6 +1449,33 @@ mod pool_line_tests {
         let line = pool_line(&pool, chrono::Local::now());
         assert!(line.starts_with("Could not read the pool: "), "{line}");
         assert!(line.contains("Platform did not answer in time"), "{line}");
+        assert_eq!(stale_line(&pool), None, "said once, in the line itself");
+    }
+
+    /// BUG-240 r3 (B), QA batch 43: a balance from an earlier pass whose passes since keep
+    /// failing keeps its «last checked» and says it could not be read under it; while they
+    /// go through, nothing more.
+    #[test]
+    fn a_stale_balance_says_the_pool_could_not_be_read() {
+        let mut pool = evolite_api::Pool {
+            notes: 2,
+            checked_at: Some(chrono::Local::now().timestamp() - 600),
+            address: Some("tdash1…".into()),
+            operations: Vec::new(),
+            unfinished_shield: None,
+            connecting: false,
+            failing: Some("proof".into()),
+        };
+        let now = chrono::Local::now();
+        assert!(
+            pool_line(&pool, now).contains("last checked"),
+            "the stale time stays"
+        );
+        let stale = stale_line(&pool).expect("said under it");
+        assert!(stale.starts_with("Could not read the pool: "), "{stale}");
+        assert!(stale.contains("did not check out"), "{stale}");
+        pool.failing = None;
+        assert_eq!(stale_line(&pool), None);
     }
 
     #[test]

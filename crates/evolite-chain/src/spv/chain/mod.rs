@@ -123,6 +123,13 @@ pub struct Chain {
     pub dashpay_scans: std::sync::atomic::AtomicUsize,
 }
 
+/// BUG-240 r3 (A): each wallet's pool passes in this run, as [`SyncStatus`] keeps them.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct PoolCounts {
+    pub passed: std::collections::BTreeMap<[u8; 32], u64>,
+    pub failed: std::collections::BTreeMap<[u8; 32], (u32, &'static str)>,
+}
+
 impl Default for Chain {
     fn default() -> Self {
         Self {
@@ -459,6 +466,26 @@ impl Chain {
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .clone()
+    }
+
+    /// BUG-240 r3 (A): what this run knows of each wallet's pool passes — the last success and
+    /// the failures in a row since — for the chain that follows a wallet switch. In memory only:
+    /// after a restart a pool is «not known» until a pass (r2).
+    pub fn pool_counts(&self) -> PoolCounts {
+        let status = self.status.lock().unwrap_or_else(|e| e.into_inner());
+        PoolCounts {
+            passed: status.pool_passed.clone(),
+            failed: status.pool_failed.clone(),
+        }
+    }
+
+    /// BUG-240 r3 (A): takes on what the chain before knew of each wallet's pool passes, so a
+    /// wallet switch does not start its count over (QA batch 43: three failures, each after a
+    /// switch, each counted as the first).
+    pub fn carry_pool_counts(&self, counts: PoolCounts) {
+        let mut status = self.status.lock().unwrap_or_else(|e| e.into_inner());
+        status.pool_passed.extend(counts.passed);
+        status.pool_failed.extend(counts.failed);
     }
 
     /// BUG-162: the open wallet's own synced height (none: no wallet open), which says whether

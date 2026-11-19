@@ -453,3 +453,38 @@ async fn a_switch_still_stops_the_chain_before() {
     assert_eq!(count(&to.chain.starts), 1);
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// BUG-240 r3 (A), QA batch 43: a wallet switch does not start the pool's failure count over —
+/// each wallet's last success and failures in a row go on with the chain that follows (three
+/// failures, each after a switch, had each counted as the first).
+#[tokio::test(flavor = "multi_thread")]
+async fn a_switch_keeps_each_wallets_pool_count() {
+    let dir = fresh_dir("b240-switch");
+    seal_wallet(&dir, "aaaa0001");
+    seal_wallet(&dir, "bbbb0002");
+    let mut from = core_at(&dir, "bbbb0002");
+    from.chain
+        .carry_pool_counts(evolite_chain::chain::PoolCounts {
+            passed: [([1; 32], 1_800)].into(),
+            failed: [([1; 32], (2, "proof")), ([2; 32], (1, "network"))].into(),
+        });
+    let (release, start) = held_start();
+    from.starting = Some(start);
+    let mut to = core_at(&dir, "aaaa0001");
+    hand_on_chain(&mut from, &mut to, false);
+    to.chain.retire();
+    let _ = release.send(());
+    assert_eq!(
+        to.chain.pool_counts(),
+        from.chain.pool_counts(),
+        "the next chain knows what this one knew"
+    );
+    assert_eq!(
+        to.chain.pool_counts().failed.get(&[1; 32]),
+        Some(&(2, "proof"))
+    );
+    if let Some(started) = to.starting.take() {
+        let _ = tokio::time::timeout(PATIENCE, started).await;
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}

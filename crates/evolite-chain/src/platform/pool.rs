@@ -265,11 +265,13 @@ mod imp {
         }
     }
 
-    /// BUG-240 r2 (3): the kind the screens give for a pool not known, when its scan failed
-    /// [`FAILED_PASSES`] times in a row; `None` while it is only not known yet.
-    pub fn failing(known: bool, failed: Option<&(u32, &'static str)>) -> Option<&'static str> {
+    /// BUG-240 r2 (3): the kind the screens give when the pool's scan failed
+    /// [`FAILED_PASSES`] times in a row since its last success; `None` before that. BUG-240 r3
+    /// (B): whether a balance is known or not — a known one is then from an earlier pass, and
+    /// the screens say so under it.
+    pub fn failing(failed: Option<&(u32, &'static str)>) -> Option<&'static str> {
         failed
-            .filter(|(n, _)| !known && *n >= FAILED_PASSES)
+            .filter(|(n, _)| *n >= FAILED_PASSES)
             .map(|(_, kind)| *kind)
     }
 
@@ -340,10 +342,7 @@ mod imp {
                 state.as_ref().ok(),
                 status.pool_passed.get(&wallet.wallet_id()).copied(),
             );
-            let failing = failing(
-                checked_at.is_some(),
-                status.pool_failed.get(&wallet.wallet_id()),
-            );
+            let failing = failing(status.pool_failed.get(&wallet.wallet_id()));
             let id = SubwalletId::new(wallet.wallet_id(), ACCOUNT);
             let mut unspent: Option<(u32, u64)> = None;
             let (notes, operations) = match coordinator.store().try_read() {
@@ -810,16 +809,18 @@ mod pool_record_tests {
             (0, None),
             "failed passes only"
         );
-        // (3): not known after 3 failures in a row says why; before them, or known, not.
+        // (3): 3 failures in a row since the last success say why; before them, not. r3 (B):
+        // known or not — the four cases (unknown/known × under/at 3) are the screen's, in
+        // shielded.rs `pool_line` / `stale_line`.
         use super::imp::failing;
-        assert_eq!(failing(false, Some(&(3, "timeout"))), Some("timeout"));
-        assert_eq!(failing(false, Some(&(2, "timeout"))), None, "not yet");
+        assert_eq!(failing(Some(&(3, "timeout"))), Some("timeout"));
+        assert_eq!(failing(Some(&(2, "timeout"))), None, "not yet");
         assert_eq!(
-            failing(true, Some(&(5, "proof"))),
-            None,
-            "known from a success"
+            failing(Some(&(5, "proof"))),
+            Some("proof"),
+            "after a success too"
         );
-        assert_eq!(failing(false, None), None);
+        assert_eq!(failing(None), None);
     }
 }
 

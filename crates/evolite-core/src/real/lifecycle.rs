@@ -597,6 +597,13 @@ pub(super) fn open_ahead_after(
 /// - else, as before: `old`'s chain stops off the loop, then `new`'s starts (BUG-21/22/24),
 ///   its store opened ahead only for another wallet (BUG-65).
 pub(super) fn hand_on_chain(old: &mut Real, new: &mut Real, adding: bool) {
+    // BUG-240 r3 (A): each wallet's pool passes go on with the chain that follows, whichever.
+    let pool = old.network_chain().pool_counts();
+    hand_on(old, new, adding);
+    new.network_chain().carry_pool_counts(pool);
+}
+
+fn hand_on(old: &mut Real, new: &mut Real, adding: bool) {
     new.birth_hint = old
         .network_chain()
         .status()
