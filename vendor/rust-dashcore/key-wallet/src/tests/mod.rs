@@ -22,6 +22,8 @@ mod integration_tests;
 
 mod keep_finalized_transactions_tests;
 
+mod finalized_new_outputs_tests;
+
 mod managed_account_collection_tests;
 
 mod observed_spent_outpoints_tests;

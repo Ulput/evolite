@@ -352,6 +352,38 @@ impl Chain {
         }
     }
 
+    /// BUG-232 review r1 M1: coins key-wallet credited outside a new record
+    /// ([`crate::convert::coins_of_sent_outputs`]) to the store, so a restart has them; the store
+    /// finds their account by the address (the pools first, [`Self::save_pools`]).
+    pub async fn save_coins(&self, id: WalletId, coins: Vec<key_wallet::Utxo>) {
+        let Some(store) = self
+            .persister
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
+        else {
+            return;
+        };
+        if coins.is_empty() {
+            return;
+        }
+        let changeset = platform_wallet::changeset::PlatformWalletChangeSet {
+            core: Some(platform_wallet::changeset::CoreChangeSet {
+                new_utxos: coins,
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let saved = tokio::task::spawn_blocking(move || {
+            use platform_wallet::changeset::PlatformWalletPersistence;
+            store.store(id, changeset).map_err(|e| format!("{e:?}"))
+        })
+        .await;
+        if let Ok(Err(e)) = saved {
+            crate::diag::platform_failed("save_coins", &e);
+        }
+    }
+
     /// Whether the InstantLock of `txid` was verified in this run (R-1, BUG-26).
     pub fn instant_lock_verified(&self, txid: &key_wallet::dashcore::Txid) -> bool {
         self.instant_locks.contains(txid)

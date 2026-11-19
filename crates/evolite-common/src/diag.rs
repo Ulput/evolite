@@ -197,6 +197,19 @@ pub enum Record {
         found: u32,
         secs: u64,
     },
+    /// BUG-232 review r1 M1: the rescan after addresses were taken in past the gap is done; how
+    /// many coins of outputs once read as paid out the wallet has, written to the store.
+    PastTheGapCoins {
+        coins: u32,
+    },
+    /// BUG-232: outputs paid to addresses of ours past the pools' gap were taken in: how many,
+    /// and the BIP44 account 0's change pool after it, its highest used and highest made index
+    /// (counts only, no address).
+    PastTheGap {
+        adopted: u32,
+        change_used: u32,
+        change_made: u32,
+    },
     /// A spend's price (TECH-price-check): the kind of spend, what the form promised, what was
     /// taken (`None`: not known, or refused), whether the balance covered the promise, and `ok` or
     /// the refusal's code; and the balance the core judged it by when it read one anew (`held`,
@@ -403,6 +416,17 @@ impl Record {
                 accounts,
                 from_height,
             } => json!({"k": "dashpay_rescan", "accounts": accounts, "from_height": from_height}),
+            Record::PastTheGap {
+                adopted,
+                change_used,
+                change_made,
+            } => json!({
+                "k": "past_the_gap", "adopted": adopted, "changeUsed": change_used,
+                "changeMade": change_made,
+            }),
+            Record::PastTheGapCoins { coins } => json!({
+                "k": "past_the_gap_coins", "coins": coins,
+            }),
             Record::RescanDone {
                 accounts,
                 found,

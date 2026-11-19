@@ -197,6 +197,8 @@ pub struct Paths {
     /// The DashPay receiving accounts rescanned for from the birth ([`contact_scans::ContactScans`],
     /// BUG-150).
     pub contact_scans: PathBuf,
+    /// Outputs of ours owed a rescan for their coin (BUG-232 review r2), the same rule.
+    pub gap_scans: PathBuf,
     /// The last checked Core balance and its time ([`core_balance::CoreBalance`], BUG-77).
     pub core_balance: PathBuf,
     /// The shielded pool's note store and commitment tree ([`pool`]).
@@ -244,6 +246,7 @@ impl Paths {
             mempool: wallets.join("mempool-seen.json"),
             mined: wallets.join("mined.json"),
             contact_scans: wallets.join("contact-rescans.json"),
+            gap_scans: wallets.join("gap-rescans.json"),
             core_balance: wallets.join("core-balance.json"),
             pool: wallets.join("shielded-pool.db"),
             connected_apps: wallets.join("connected-apps.json"),
@@ -442,6 +445,9 @@ struct Real {
     mined: mined::Mined,
     /// The contacts' receiving accounts whose rescan from the birth has run to its end (BUG-150).
     contact_scans: contact_scans::ContactScans,
+    /// BUG-232 review r2: outputs of ours owed a rescan for their coin, once (twice when the
+    /// first gives none), across starts.
+    gap_scans: contact_scans::ContactScans,
     /// The wallet whose coins were written to the journal after the first filter pass (BUG-150).
     coins_after_pass: Option<WalletId>,
     /// The identity the last snapshot showed as «Act as», with its wallet (BUG-206 r1): what a
@@ -534,6 +540,17 @@ struct Real {
     /// the store ([`evolite_chain::chain::Chain::save_pools`]): again whenever the count moves —
     /// a payment out, one in, a pass of the filters that found one — and on the lock.
     pools_saved: Option<(WalletId, usize)>,
+    /// BUG-232: the wallet and its counts of records (live, stored) when its outputs not known
+    /// as ours were last looked for past its pools' gap ([`Self::adopt_past_the_gap`]).
+    gap_looked: Option<(WalletId, usize, usize)>,
+    /// BUG-232 review M1: a rescan owed to the addresses taken in past the gap, from this
+    /// height, asked once the filters are synced ([`take_past_the_gap`]).
+    past_the_gap_from: Option<(WalletId, u32)>,
+    /// BUG-232 review r1: outputs of ours with no coin yet whose rescan is owed now
+    /// ([`convert::uncredited_outputs`]), each with its wallet (review r2 S1); noted in
+    /// `gap-rescans.json` when that wallet's rescan is done ([`settle_gap_pending`]), forgotten
+    /// with the lock (owed again at the next start).
+    gap_pending: Vec<(WalletId, key_wallet::dashcore::OutPoint)>,
     /// Core payments of this run: who they went to, and those the history does not show yet.
     outgoing: Arc<std::sync::Mutex<outgoing::Outgoing>>,
     /// Sends on Platform of this run (credits, the pool) until the history has their lines.
@@ -652,6 +669,9 @@ struct OwedRescan {
     /// (BUG-150; BUG-221: the coins, not history lines — a found coin of a known transaction
     /// adds no line).
     contacts_asked: Option<(std::time::Instant, usize)>,
+    /// For addresses taken in past the gap (BUG-232): once done, the coins it gave go to the
+    /// store (review r1 M1).
+    past_the_gap: bool,
 }
 
 impl OwedRescan {
@@ -673,6 +693,7 @@ impl OwedRescan {
                 lost: Vec::new(),
                 contacts: Vec::new(),
                 contacts_asked: None,
+                past_the_gap: false,
             }),
         };
         o.up_to = o.up_to.max(synced);
@@ -694,6 +715,13 @@ impl OwedRescan {
             o.contacts.extend(accounts);
             o.contacts_asked
                 .get_or_insert((std::time::Instant::now(), coins));
+        }
+    }
+
+    /// The rescan owed for `wallet` is for addresses taken in past the gap too (BUG-232).
+    fn for_past_the_gap(owed: &mut Option<Self>, wallet: &WalletId) {
+        if let Some(o) = owed.as_mut().filter(|o| o.wallet == *wallet) {
+            o.past_the_gap = true;
         }
     }
 
@@ -721,6 +749,48 @@ fn rescan_end(synced: u32, status: &sync::SyncStatus) -> u32 {
         .headers
         .as_ref()
         .map_or(synced, |h| synced.max(h.height))
+}
+
+/// BUG-232 review M1: the rescan owed to addresses taken in past the gap, noted (the lower
+/// height if one is noted already) until the filters are synced: then taken, once. One noted
+/// for another wallet gives way to this one's.
+fn note_past_the_gap(pending: &mut Option<(WalletId, u32)>, wallet: WalletId, from: u32) {
+    *pending = Some(match *pending {
+        Some((w, f)) if w == wallet => (wallet, f.min(from)),
+        _ => (wallet, from),
+    });
+}
+
+/// BUG-232 review r2 S1: `wallet`'s outputs owed a rescan for their coin, taken out of `pending`
+/// once its rescan is done and split into those still with no coin (in `uncredited`) and those
+/// that got one; another wallet's stay where they are.
+fn settle_gap_pending(
+    pending: &mut Vec<(WalletId, key_wallet::dashcore::OutPoint)>,
+    wallet: &WalletId,
+    uncredited: &[key_wallet::dashcore::OutPoint],
+) -> (
+    Vec<key_wallet::dashcore::OutPoint>,
+    Vec<key_wallet::dashcore::OutPoint>,
+) {
+    let (mine, others): (Vec<_>, Vec<_>) = std::mem::take(pending)
+        .into_iter()
+        .partition(|(w, _)| w == wallet);
+    *pending = others;
+    mine.into_iter()
+        .map(|(_, o)| o)
+        .partition(|o| uncredited.contains(o))
+}
+
+/// The height [`note_past_the_gap`] noted for `wallet`, taken when the filters are synced.
+fn take_past_the_gap(
+    pending: &mut Option<(WalletId, u32)>,
+    wallet: &WalletId,
+    synced: bool,
+) -> Option<u32> {
+    if !synced {
+        return None;
+    }
+    pending.take_if(|(w, _)| w == wallet).map(|(_, from)| from)
 }
 
 /// What one pass of the identity search means for it (BUG-9).

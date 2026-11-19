@@ -1438,3 +1438,211 @@ async fn a_coin_to_an_account_registered_after_its_tx_is_credited_on_the_rescan(
         );
     }
 }
+
+/// BUG-232 review r1 M1, qa-f29's tx1 end to end: our coin spent to another wallet with the
+/// change 3 past the change pool, both chain-locked, so the change was read as paid out. The
+/// change is taken in, the rescan reads tx1's block again, and key-wallet credits its coin
+/// (vendor `evolite-finalized-outputs.patch`); [`crate::convert::coins_of_sent_outputs`] finds it,
+/// and the store keeps it (`Chain::save_coins`'s changeset), so a restart has it.
+#[tokio::test]
+async fn a_change_taken_in_past_the_gap_gets_its_coin_on_the_rescan_and_the_store_keeps_it() {
+    use key_wallet::dashcore::{BlockHash, Transaction, TxIn, TxOut};
+    use key_wallet::managed_account::address_pool::{AddressPoolType, KeySource};
+    use key_wallet::managed_account::managed_account_trait::ManagedAccountTrait;
+    use key_wallet::transaction_checking::{
+        BlockInfo, TransactionContext, WalletTransactionChecker,
+    };
+    use key_wallet::wallet::ManagedWalletInfo;
+    use key_wallet::wallet::managed_wallet_info::wallet_info_interface::WalletInfoInterface;
+    const CHANGE: u64 = 980_000;
+    let mut keys = crate::keys_of(
+        "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
+    )
+    .unwrap();
+    let mut info = ManagedWalletInfo::from_wallet(&keys, 0);
+    let other = ManagedWalletInfo::from_wallet(
+        &crate::keys_of(
+            "legal winner thank year wave sausage worth useful legal winner thank yellow",
+        )
+        .unwrap(),
+        0,
+    )
+    .monitored_addresses()[0]
+        .clone();
+    let own = info.monitored_addresses()[0].clone();
+    let change = {
+        let mut pool = info.accounts.standard_bip44_accounts[&0]
+            .keys()
+            .managed_account_type()
+            .address_pools()
+            .into_iter()
+            .find(|p| p.pool_type == AddressPoolType::Internal)
+            .unwrap()
+            .clone();
+        let index = pool.highest_generated.unwrap() + 3;
+        pool.gap_limit = index + 1;
+        pool.maintain_gap_limit(&KeySource::Public(
+            keys.accounts.standard_bip44_accounts[&0].account_xpub,
+        ))
+        .unwrap();
+        pool.address_at_index(index).unwrap()
+    };
+    let chain_locked = |h: u32| {
+        TransactionContext::InChainLockedBlock(BlockInfo::new(h, BlockHash::from([h as u8; 32]), 0))
+    };
+    let pay = |from: OutPoint, to: Vec<(&key_wallet::dashcore::Address, u64)>| Transaction {
+        version: 2,
+        lock_time: 0,
+        input: vec![TxIn {
+            previous_output: from,
+            ..TxIn::default()
+        }],
+        output: to
+            .into_iter()
+            .map(|(a, value)| TxOut {
+                value,
+                script_pubkey: a.script_pubkey(),
+            })
+            .collect(),
+        special_transaction_payload: None,
+    };
+    let funding = pay(
+        OutPoint::new(Txid::from([50; 32]), 0),
+        vec![(&own, 1_000_000)],
+    );
+    let tx1 = pay(
+        OutPoint::new(funding.txid(), 0),
+        vec![(&other, 10_000), (&change, CHANGE)],
+    );
+    info.check_core_transaction(&funding, chain_locked(10), &mut keys, true, true)
+        .await;
+    info.check_core_transaction(&tx1, chain_locked(20), &mut keys, true, true)
+        .await;
+    assert_eq!(info.balance().total(), 0, "the change read as paid out");
+    assert_eq!(
+        crate::convert::adopt_addresses_past_the_gap(
+            &mut info,
+            &keys,
+            std::slice::from_ref(&change)
+        ),
+        vec![change.clone()]
+    );
+    let coin = OutPoint::new(tx1.txid(), 1);
+    // Before its rescan (and after a close then, the pool as the store has it, the address
+    // used): its rescan is owed, from tx1's block.
+    assert_eq!(
+        crate::convert::uncredited_outputs(&info, &[]),
+        vec![(coin, 20)]
+    );
+    assert!(crate::convert::coins_of_sent_outputs(&info, &[]).is_empty());
+    // The rescan: tx1's block again.
+    info.check_core_transaction(&tx1, chain_locked(20), &mut keys, true, true)
+        .await;
+    assert_eq!(info.balance().total(), CHANGE, "the change's coin");
+    assert!(
+        crate::convert::uncredited_outputs(&info, &[]).is_empty(),
+        "nothing owed"
+    );
+    let coins = crate::convert::coins_of_sent_outputs(&info, &[]);
+    assert_eq!(
+        coins.iter().map(|c| c.outpoint).collect::<Vec<_>>(),
+        vec![coin]
+    );
+    let (db, store) = real_store("past-the-gap");
+    store
+        .store(
+            ID,
+            core_round(CoreChangeSet {
+                new_utxos: coins,
+                ..CoreChangeSet::default()
+            }),
+        )
+        .unwrap();
+    assert_eq!(is_spent(&db, coin), Some(false), "kept, unspent");
+    drop(store);
+    let _ = std::fs::remove_dir_all(db.parent().unwrap());
+}
+
+/// The twin: a spend of that change was read (it pays our receiving address), so no rescan is
+/// owed for it and no coin is made.
+#[tokio::test]
+async fn a_change_spent_by_a_record_we_have_is_owed_nothing() {
+    use key_wallet::dashcore::{BlockHash, Transaction, TxIn, TxOut};
+    use key_wallet::managed_account::address_pool::{AddressPoolType, KeySource};
+    use key_wallet::managed_account::managed_account_trait::ManagedAccountTrait;
+    use key_wallet::transaction_checking::{
+        BlockInfo, TransactionContext, WalletTransactionChecker,
+    };
+    use key_wallet::wallet::ManagedWalletInfo;
+    use key_wallet::wallet::managed_wallet_info::wallet_info_interface::WalletInfoInterface;
+    let mut keys = crate::keys_of(
+        "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
+    )
+    .unwrap();
+    let mut info = ManagedWalletInfo::from_wallet(&keys, 0);
+    let other = ManagedWalletInfo::from_wallet(
+        &crate::keys_of(
+            "legal winner thank year wave sausage worth useful legal winner thank yellow",
+        )
+        .unwrap(),
+        0,
+    )
+    .monitored_addresses()[0]
+        .clone();
+    let own = info.monitored_addresses()[0].clone();
+    let change = {
+        let mut pool = info.accounts.standard_bip44_accounts[&0]
+            .keys()
+            .managed_account_type()
+            .address_pools()
+            .into_iter()
+            .find(|p| p.pool_type == AddressPoolType::Internal)
+            .unwrap()
+            .clone();
+        let index = pool.highest_generated.unwrap() + 3;
+        pool.gap_limit = index + 1;
+        pool.maintain_gap_limit(&KeySource::Public(
+            keys.accounts.standard_bip44_accounts[&0].account_xpub,
+        ))
+        .unwrap();
+        pool.address_at_index(index).unwrap()
+    };
+    let chain_locked = |h: u32| {
+        TransactionContext::InChainLockedBlock(BlockInfo::new(h, BlockHash::from([h as u8; 32]), 0))
+    };
+    let pay = |from: OutPoint, to: Vec<(&key_wallet::dashcore::Address, u64)>| Transaction {
+        version: 2,
+        lock_time: 0,
+        input: vec![TxIn {
+            previous_output: from,
+            ..TxIn::default()
+        }],
+        output: to
+            .into_iter()
+            .map(|(a, value)| TxOut {
+                value,
+                script_pubkey: a.script_pubkey(),
+            })
+            .collect(),
+        special_transaction_payload: None,
+    };
+    let funding = pay(
+        OutPoint::new(Txid::from([50; 32]), 0),
+        vec![(&own, 1_000_000)],
+    );
+    let tx1 = pay(
+        OutPoint::new(funding.txid(), 0),
+        vec![(&other, 10_000), (&change, 980_000)],
+    );
+    let tx2 = pay(OutPoint::new(tx1.txid(), 1), vec![(&own, 979_700)]);
+    for (tx, h) in [(&funding, 10), (&tx1, 20), (&tx2, 30)] {
+        info.check_core_transaction(tx, chain_locked(h), &mut keys, true, true)
+            .await;
+    }
+    crate::convert::adopt_addresses_past_the_gap(&mut info, &keys, std::slice::from_ref(&change));
+    assert!(crate::convert::uncredited_outputs(&info, &[]).is_empty());
+    info.check_core_transaction(&tx1, chain_locked(20), &mut keys, true, true)
+        .await;
+    assert_eq!(info.balance().total(), 979_700);
+    assert!(crate::convert::coins_of_sent_outputs(&info, &[]).is_empty());
+}

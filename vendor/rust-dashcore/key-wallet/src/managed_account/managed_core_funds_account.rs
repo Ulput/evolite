@@ -928,7 +928,24 @@ impl ManagedCoreFundsAccount {
         // Already finalized via a chainlock: the tx is immutable —
         // no record update, no UTXO refresh, no event needed.
         if self.keys.transaction_is_finalized(&txid) {
-            return None;
+            // evolite BUG-232: unless an output pays an address that became
+            // ours after the record was made (a pool that took the address in
+            // later, then a rescan): that output gets its coin, through the
+            // same rules as any other (`update_utxos`), and the record is
+            // given back so the caller sees a change. The record itself stays
+            // as it was.
+            if !self.has_uncredited_output(tx, account_match, observed_spent, spent_claims) {
+                return None;
+            }
+            self.update_utxos(
+                tx,
+                account_match,
+                context,
+                observed_spent,
+                spent_claims,
+                external_final_parents,
+            );
+            return self.keys.transactions().get(&txid).cloned();
         }
 
         if !self.keys.has_transaction(&txid) {
@@ -994,6 +1011,46 @@ impl ManagedCoreFundsAccount {
             self.keys.drop_finalized_transaction(&txid);
         }
         record_after
+    }
+
+    /// evolite BUG-232: whether an output of `tx` pays an address of
+    /// `account_match` and is neither a coin of this account nor held back
+    /// by anything `update_utxos` keeps out of `utxos` (spent by a recorded
+    /// transaction, observed spent, spent before it was funded, guarded by a
+    /// claim). False for every transaction whose outputs were all read as
+    /// ours, or not ours, when it was recorded.
+    fn has_uncredited_output(
+        &self,
+        tx: &Transaction,
+        account_match: &AccountMatch,
+        observed_spent: &BTreeMap<OutPoint, CoreBlockHeight>,
+        spent_claims: &BTreeMap<OutPoint, Option<Txid>>,
+    ) -> bool {
+        let involved: BTreeSet<Address> = account_match
+            .account_type_match
+            .all_involved_addresses()
+            .iter()
+            .map(|info| info.address.clone())
+            .collect();
+        if involved.is_empty() {
+            return false;
+        }
+        let network = self.keys.network();
+        let txid = tx.txid();
+        tx.output.iter().enumerate().any(|(vout, output)| {
+            let outpoint = OutPoint {
+                txid,
+                vout: vout as u32,
+            };
+            Address::from_script(&output.script_pubkey, network)
+                .is_ok_and(|addr| involved.contains(&addr))
+                && !self.utxos.contains_key(&outpoint)
+                && !self.is_outpoint_spent(&outpoint)
+                && !observed_spent.contains_key(&outpoint)
+                && !self.spent_before_funded.contains_key(&outpoint)
+                && !self.claim_guarded_outputs.contains_key(&outpoint)
+                && !spent_claims.contains_key(&outpoint)
+        })
     }
 
     /// Record a new transaction and update UTXOs for spendable account types.

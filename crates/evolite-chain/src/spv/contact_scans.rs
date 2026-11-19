@@ -12,6 +12,10 @@
 //! nothing, while the next start's found the contact's coins. One that adds no DashPay coin is
 //! not final: its accounts are kept in `contact-rescans-empty.json` and asked once more after
 //! the next start (never twice in one run); found empty again, they are done.
+//!
+//! BUG-232 review r2: the same rule, in `gap-rescans.json`, for outputs of ours that a rescan
+//! is owed to so they get their coin (keyed by outpoint): one that gets none is not asked on
+//! every start for ever.
 
 use std::collections::BTreeSet;
 use std::path::PathBuf;
@@ -29,8 +33,11 @@ pub struct ContactScans {
 
 impl ContactScans {
     pub fn new(path: PathBuf) -> Self {
+        let stem = path
+            .file_stem()
+            .map_or_else(String::new, |s| s.to_string_lossy().into_owned());
         Self {
-            empty_path: path.with_file_name("contact-rescans-empty.json"),
+            empty_path: path.with_file_name(format!("{stem}-empty.json")),
             path,
             done: Mutex::new(None),
             empty: Mutex::new(None),
@@ -144,5 +151,29 @@ mod tests {
         second.finished(std::slice::from_ref(&b), true);
         let third = ContactScans::new(path);
         assert!(third.owed(&both).is_empty(), "empty twice, or found: done");
+    }
+
+    /// BUG-232 review r2: the outputs owed a rescan for their coin keep their own files (the
+    /// empty one beside it), apart from the contacts': one that got no coin twice is done.
+    #[test]
+    fn the_gap_rescans_keep_their_own_files() {
+        let contacts = file("gap");
+        let gap = contacts.with_file_name("gap-rescans.json");
+        let coin = "ab:1".to_string();
+        let first = ContactScans::new(gap.clone());
+        first.finished(std::slice::from_ref(&coin), false);
+        assert!(gap.with_file_name("gap-rescans-empty.json").exists());
+        assert!(
+            !contacts
+                .with_file_name("contact-rescans-empty.json")
+                .exists()
+        );
+        assert_eq!(
+            ContactScans::new(contacts).owed(std::slice::from_ref(&coin)),
+            vec![coin.clone()]
+        );
+        let second = ContactScans::new(gap.clone());
+        second.finished(std::slice::from_ref(&coin), false);
+        assert!(ContactScans::new(gap).owed(&[coin]).is_empty());
     }
 }

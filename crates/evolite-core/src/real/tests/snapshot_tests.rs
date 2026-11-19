@@ -375,3 +375,51 @@ async fn the_snapshot_names_the_platform_work_under_way() {
     drop(identities);
     assert!(core.snapshot().await.sync.platform.is_empty());
 }
+
+/// BUG-232 review M1: the rescan owed to addresses taken in past the gap waits while the filters
+/// are not synced, is taken at the first synced snapshot, and only once; two noted keep the
+/// lower height; another wallet's is not taken for this one.
+#[test]
+fn a_rescan_past_the_gap_waits_for_the_sync_and_is_asked_once() {
+    let wallet: WalletId = [1; 32];
+    let other: WalletId = [2; 32];
+    let mut pending = None;
+    note_past_the_gap(&mut pending, wallet, 1_592_250);
+    note_past_the_gap(&mut pending, wallet, 1_590_000);
+    assert_eq!(
+        take_past_the_gap(&mut pending, &wallet, false),
+        None,
+        "not synced"
+    );
+    assert_eq!(
+        take_past_the_gap(&mut pending, &other, true),
+        None,
+        "another wallet"
+    );
+    assert_eq!(
+        take_past_the_gap(&mut pending, &wallet, true),
+        Some(1_590_000)
+    );
+    assert_eq!(take_past_the_gap(&mut pending, &wallet, true), None, "once");
+}
+
+/// BUG-232 review r2 S1: when one wallet's rescan for coins is done, only its own outputs are
+/// settled — those that got a coin and those still without one; another wallet's stay owed.
+#[test]
+fn a_rescan_for_coins_settles_only_its_own_wallets_outputs() {
+    use key_wallet::dashcore::hashes::Hash;
+    use key_wallet::dashcore::{OutPoint, Txid};
+    let (a, b): (WalletId, WalletId) = ([1; 32], [2; 32]);
+    let out = |n: u8| OutPoint::new(Txid::from_byte_array([n; 32]), 1);
+    let mut pending = vec![(a, out(1)), (b, out(2)), (b, out(3))];
+    let (none, got) = settle_gap_pending(&mut pending, &b, &[out(3)]);
+    assert_eq!((none, got), (vec![out(3)], vec![out(2)]));
+    assert_eq!(pending, vec![(a, out(1))], "the other wallet's stays owed");
+    let (none, got) = settle_gap_pending(&mut pending, &b, &[]);
+    assert!(none.is_empty() && got.is_empty(), "nothing of b's left");
+    assert_eq!(
+        settle_gap_pending(&mut pending, &a, &[]),
+        (vec![], vec![out(1)])
+    );
+    assert!(pending.is_empty());
+}

@@ -748,6 +748,12 @@ impl Real {
             self.refresh_stored_history(id, live_count),
         )
         .await;
+        // BUG-232: a payment to an address of ours past the pools' gap, before History is read.
+        turn::timed(
+            "adopt_past_the_gap",
+            self.adopt_past_the_gap(id, &wallet, live_count),
+        )
+        .await;
         let state = turn::timed("state_history", wallet.state()).await;
         let _building = turn::begin("history_build");
         let synced = state.core_wallet.synced_height();
@@ -1324,6 +1330,132 @@ impl Real {
         }
     }
 
+    /// BUG-232 (qa-f29, tx1): on a fresh copy of an older data folder, key-wallet read a payment
+    /// to our own change before its pool had made that address (a pool grows only from what it
+    /// has seen used), so History showed the change as sent, until a restart loaded the longer
+    /// pool. Once the filters are synced, and again when the wallet has new records, the outputs
+    /// not known as ours are looked for in the BIP44 and BIP32 pools a little past their end;
+    /// those found are taken in (History reads them as ours from this snapshot on), and the pools
+    /// go to the store; so are addresses the pools have made already but not marked used (review
+    /// r1 S1: a wallet restarted since, with the store's longer pool). A rescan from the first of
+    /// their blocks is owed (`settle_rescans`): its blocks give the wallet their coins — key-wallet
+    /// credits an output that became ours in a chain-locked record it reads again (vendor patch
+    /// `evolite-finalized-outputs.patch`, review r1 M1) — and the payments onward that are new to
+    /// it. The search runs on copies under the read lock; the write lock only puts a changed pool
+    /// in place.
+    async fn adopt_past_the_gap(
+        &mut self,
+        id: WalletId,
+        wallet: &PlatformWallet,
+        live_count: usize,
+    ) {
+        // During the pass the pools grow by themselves, and the records move every snapshot.
+        if self.chain.status().phase != sync::Phase::Synced {
+            return;
+        }
+        let key = (id, live_count, self.stored_history.len());
+        if self.gap_looked == Some(key)
+            || self
+                .unlocked
+                .as_ref()
+                .and_then(|o| o.keys.as_ref())
+                .is_none()
+        {
+            return;
+        }
+        self.gap_looked = Some(key);
+        let Some(keys) = self.unlocked.as_ref().and_then(|o| o.keys.as_ref()) else {
+            return;
+        };
+        let (finds, paid, uncredited) = {
+            let state = wallet.state().await;
+            let all = self.merged_records(&state.core_wallet);
+            let paid = convert::paid_outside(&all);
+            let addresses: Vec<_> = paid.iter().map(|(a, _)| a.clone()).collect();
+            (
+                convert::find_past_the_gap(&state.core_wallet, keys, &addresses),
+                paid,
+                convert::uncredited_outputs(&state.core_wallet, &all),
+            )
+        };
+        // Review r1: outputs of ours already in the pools with no coin yet (taken in before a
+        // close that came ahead of their rescan, or by a restart's longer pool): their rescan
+        // is owed again — not while one is owed, and (review r2) not for ever: once, or twice
+        // when the first gives no coin (`gap-rescans.json`).
+        let uncredited: Vec<_> = uncredited
+            .into_iter()
+            .filter(|(o, _)| !self.gap_pending.contains(&(id, *o)))
+            .collect();
+        let keys: Vec<String> = uncredited.iter().map(|(o, _)| gap_key(o)).collect();
+        let owed = self.gap_scans.owed(&keys);
+        let owed: Vec<_> = uncredited
+            .into_iter()
+            .filter(|(o, _)| owed.contains(&gap_key(o)))
+            .collect();
+        self.gap_pending.extend(owed.iter().map(|(o, _)| (id, *o)));
+        if let Some(from) = owed.iter().map(|(_, h)| *h).filter(|h| *h > 0).min() {
+            super::note_past_the_gap(&mut self.past_the_gap_from, id, from.saturating_sub(1));
+        }
+        if finds.is_empty() {
+            return;
+        }
+        let (adopted, (change_used, change_made)) = {
+            let mut state = wallet.state_mut().await;
+            let adopted = convert::take_in_past_the_gap(&mut state.core_wallet, finds);
+            (adopted, convert::change_pool_ends(&state.core_wallet))
+        };
+        if adopted.is_empty() {
+            // A pool moved meanwhile: looked at again in the next snapshot.
+            self.gap_looked = None;
+            return;
+        }
+        crate::diag::record(crate::diag::Record::PastTheGap {
+            adopted: adopted.len() as u32,
+            change_used,
+            change_made,
+        });
+        // The pools as they are now, in the store (its own read of our addresses, BUG-194).
+        self.chain.save_pools(wallet).await;
+        let from = paid
+            .iter()
+            .filter(|(a, _)| adopted.contains(a))
+            .map(|(_, height)| *height)
+            .filter(|h| *h > 0)
+            .min();
+        if let Some(from) = from {
+            super::note_past_the_gap(&mut self.past_the_gap_from, id, from.saturating_sub(1));
+        }
+    }
+
+    /// BUG-232 review r1 M1: once the rescan for addresses taken in past the gap is done, the
+    /// coins it gave (outputs once read as paid out) to the store: platform-wallet writes coins
+    /// only from new records, and these came from records the wallet had.
+    async fn save_past_the_gap_coins(&mut self, id: WalletId) {
+        let Some(wallet) = self.chain.wallet(&id).await else {
+            return;
+        };
+        let (coins, uncredited) = {
+            let state = wallet.state().await;
+            let all = self.merged_records(&state.core_wallet);
+            (
+                convert::coins_of_sent_outputs(&state.core_wallet, &all),
+                convert::uncredited_outputs(&state.core_wallet, &all),
+            )
+        };
+        crate::diag::record(crate::diag::Record::PastTheGapCoins {
+            coins: coins.len() as u32,
+        });
+        self.chain.save_coins(id, coins).await;
+        // Review r2: those still with no coin are asked once more after the next start, then
+        // left; the others are done.
+        let uncredited: Vec<_> = uncredited.into_iter().map(|(o, _)| o).collect();
+        let (none, got) = super::settle_gap_pending(&mut self.gap_pending, &id, &uncredited);
+        let keys =
+            |v: Vec<key_wallet::dashcore::OutPoint>| v.iter().map(gap_key).collect::<Vec<_>>();
+        self.gap_scans.finished(&keys(got), true);
+        self.gap_scans.finished(&keys(none), false);
+    }
+
     /// Rescans owed for payments that lost their block, and the lines waiting on one.
     async fn settle_rescans(
         &mut self,
@@ -1342,6 +1474,9 @@ impl Real {
         if let Some(done) = OwedRescan::finished(&mut self.rescan_owed, &id, synced) {
             self.mempool.rescanned(&done.stale);
             self.mined.rescanned(&done.lost);
+            if done.past_the_gap {
+                self.save_past_the_gap_coins(id).await;
+            }
             if let Some((asked, coins)) = done.contacts_asked {
                 // BUG-221: found = DashPay coins it added; none, and it is asked once more after
                 // the next start (`ContactScans::finished`).
@@ -1393,14 +1528,32 @@ impl Real {
             .into_iter()
             .filter(|a| !under_way.contains(a))
             .collect();
+        // BUG-232 (review M1): the rescan owed to addresses taken in past the gap, once synced.
+        let past_the_gap = super::take_past_the_gap(&mut self.past_the_gap_from, &id, sync_done);
         if !owed.is_empty() {
             // SYNC-7: from where the owed contacts begin, not the birth (35 s on testnet's
             // qa wallet, and cut short by a close): the birth only for one not established.
+            // BUG-232 (review C2): one rescan for both, from the lower height.
             let from = rescan_start(contact_accounts, &owed, birth_height);
+            let from = past_the_gap.map_or(from, |gap| gap.min(from));
             let coins = self.dashpay_coins(&id).await;
-            turn::timed(
+            let asked = turn::timed(
                 "rescan_contacts",
                 self.rescan_for_contacts(id, from, up_to, owed, coins),
+            )
+            .await;
+            // Review r1 S2: not asked, it stays owed.
+            match (asked, past_the_gap) {
+                (false, Some(gap)) => {
+                    super::note_past_the_gap(&mut self.past_the_gap_from, id, gap)
+                }
+                (true, Some(_)) => OwedRescan::for_past_the_gap(&mut self.rescan_owed, &id),
+                _ => {}
+            }
+        } else if let Some(from) = past_the_gap {
+            turn::timed(
+                "rescan_past_the_gap",
+                self.rescan_past_the_gap(id, from, synced, up_to),
             )
             .await;
         }
@@ -2274,6 +2427,11 @@ pub(in crate::real) mod pinned_tests {
             }
         }
     }
+}
+
+/// An output's name in `gap-rescans.json` (BUG-232 review r2): `<txid>:<vout>`.
+fn gap_key(outpoint: &key_wallet::dashcore::OutPoint) -> String {
+    format!("{}:{}", outpoint.txid, outpoint.vout)
 }
 
 #[cfg(test)]

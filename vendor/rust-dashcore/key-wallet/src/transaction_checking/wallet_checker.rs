@@ -2358,14 +2358,14 @@ mod tests {
         assert_eq!(ctx.managed_wallet.balance.spendable(), change_amount);
     }
 
-    /// The rescan recovery above has a boundary: a funding transaction that
-    /// was chainlock-finalized keeps only its txid, so re-delivering it is not
-    /// a new sighting and never reaches the only production UTXO insert site.
-    /// The coin stays absent. Documented rather than fixed — recovering it
-    /// needs a rescan deep enough to re-fetch the block, which is above this
-    /// layer.
+    /// The rescan recovery above used to have a boundary: a funding
+    /// transaction that was chainlock-finalized was not a new sighting, so
+    /// re-delivering it never reached the UTXO insert site and the coin stayed
+    /// absent. evolite BUG-232: a finalized transaction read again credits an
+    /// output of ours that nothing accounts for (`confirm_transaction`), so
+    /// the coin the abandoned spend freed comes back.
     #[tokio::test]
-    async fn test_rescan_recovery_does_not_reach_a_finalized_funding_transaction() {
+    async fn test_rescan_recovery_reaches_a_finalized_funding_transaction() {
         let mut ctx = TestWalletContext::new_random();
         let external_address = Address::p2pkh(
             &dashcore::PublicKey::from_slice(&[0x02; 33]).expect("pubkey"),
@@ -2415,13 +2415,13 @@ mod tests {
         ctx.managed_wallet.abandon_transaction(spend.txid());
         ctx.managed_wallet.update_balance();
 
-        // Re-delivering the funding block does not bring the coin back.
+        // Re-delivering the funding block brings the coin back.
         ctx.check_transaction(&funding_tx, finalized).await;
         assert_eq!(
             ctx.managed_wallet.balance.confirmed(),
-            0,
-            "a finalized funding record blocks the redelivery path this \
-             recovery depends on"
+            1_000_000,
+            "a finalized funding record no longer blocks the redelivery path \
+             this recovery depends on"
         );
     }
 

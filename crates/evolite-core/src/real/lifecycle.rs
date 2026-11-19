@@ -28,6 +28,7 @@ impl Real {
         let mempool = mempool::MempoolSeen::new(paths.mempool.clone());
         let mined = mined::Mined::new(paths.mined.clone());
         let contact_scans = contact_scans::ContactScans::new(paths.contact_scans.clone());
+        let gap_scans = contact_scans::ContactScans::new(paths.gap_scans.clone());
         let core_balance = core_balance::CoreBalance::new(paths.core_balance.clone());
         let contact_paid = Arc::new(contact_addresses::ContactAddresses::new(
             paths.contact_addresses.clone(),
@@ -152,6 +153,10 @@ impl Real {
             top_ups: Default::default(),
             history_read: None,
             pools_saved: None,
+            gap_looked: None,
+            past_the_gap_from: None,
+            gap_pending: Vec::new(),
+            gap_scans,
             mined,
             contact_scans,
             coins_after_pass: None,

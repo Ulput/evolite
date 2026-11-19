@@ -1197,6 +1197,308 @@ pub fn live_own(
     own
 }
 
+/// BUG-232: how far past the last address it has made a pool of ours is searched for a
+/// payment to it. A pool grows only from the addresses it has seen used (the gap limit, 30), and
+/// key-wallet reads each transaction once: on a fresh copy of an older data folder, a payment
+/// to an address beyond the pool as it then stood stays «sent», though the address is ours.
+pub const GAP_LOOKAHEAD: u32 = 100;
+
+/// The outputs of `records` not known as ours (role `Sent`), each with the block height of its
+/// record (0 out of a block): what [`adopt_addresses_past_the_gap`] looks for.
+pub fn paid_outside(records: &[TransactionRecord]) -> Vec<(Address, u32)> {
+    records
+        .iter()
+        .flat_map(|r| {
+            let height = r.context.block_info().map_or(0, |b| b.height());
+            r.output_details
+                .iter()
+                .filter(|d| d.role == OutputRole::Sent)
+                .filter_map(move |d| d.address.clone().map(|a| (a, height)))
+        })
+        .collect()
+}
+
+/// A pool of ours that takes in addresses past its gap ([`find_past_the_gap`]): the pool as it
+/// will be, and what it takes in.
+#[derive(Debug)]
+pub struct PastTheGap {
+    bip44: bool,
+    account: u32,
+    pool_type: key_wallet::managed_account::address_pool::AddressPoolType,
+    /// The pool's highest used and made index when it was read: put in place only if it has
+    /// not moved since (a block may have grown it meanwhile; it is looked at again then).
+    was: (Option<u32>, Option<u32>),
+    pool: key_wallet::managed_account::address_pool::AddressPool,
+    adopted: Vec<Address>,
+}
+
+/// BUG-232 (qa-f29, tx1): which of the BIP44 and BIP32 pools would take in addresses of `paid`
+/// that are theirs within [`GAP_LOOKAHEAD`] past the last address each has made, or made already
+/// and not marked used (review r1 S1), and how each
+/// would be then: made up to the furthest one found, those marked used, and the usual gap after
+/// them — as key-wallet does for an address it sees used; then again from there, so a run of
+/// them is found. Only addresses derived from our own keys can match. Read-only, on copies of
+/// the pools: the derivations happen outside the wallet's write lock.
+pub fn find_past_the_gap(
+    info: &key_wallet::wallet::managed_wallet_info::ManagedWalletInfo,
+    keys: &key_wallet::Wallet,
+    paid: &[Address],
+) -> Vec<PastTheGap> {
+    use key_wallet::managed_account::address_pool::KeySource;
+    use key_wallet::managed_account::managed_account_trait::ManagedAccountTrait;
+    let mut finds = Vec::new();
+    if paid.is_empty() {
+        return finds;
+    }
+    let accounts = keys
+        .accounts
+        .standard_bip44_accounts
+        .iter()
+        .map(|(n, a)| (true, *n, a.account_xpub))
+        .chain(
+            keys.accounts
+                .standard_bip32_accounts
+                .iter()
+                .map(|(n, a)| (false, *n, a.account_xpub)),
+        );
+    for (bip44, n, xpub) in accounts {
+        let managed = if bip44 {
+            info.accounts.standard_bip44_accounts.get(&n)
+        } else {
+            info.accounts.standard_bip32_accounts.get(&n)
+        };
+        let Some(account) = managed else {
+            continue;
+        };
+        let source = KeySource::Public(xpub);
+        for original in account.keys().managed_account_type().address_pools() {
+            let mut pool = original.clone();
+            let mut adopted: Vec<Address> = Vec::new();
+            // A run of them: each one taken in moves the pool's end; a few rounds at most.
+            for _ in 0..8 {
+                let made = pool.highest_generated.map_or(0, |h| h + 1);
+                let used = pool.highest_used.map_or(0, |h| h + 1);
+                // `maintain_gap_limit` makes up to the highest used + the gap.
+                let mut probe = pool.clone();
+                probe.gap_limit = (made + GAP_LOOKAHEAD).saturating_sub(used).max(1);
+                if probe.maintain_gap_limit(&source).is_err() {
+                    break;
+                }
+                // Past the end, or (review r1 S1: a wallet restarted since, whose pool came
+                // from the store) made already but not marked used.
+                let found: Vec<(u32, Address)> = paid
+                    .iter()
+                    .filter(|a| !adopted.contains(a))
+                    .filter_map(|a| {
+                        let i = *probe.address_index.get(a)?;
+                        (i >= made || !pool.used_indices.contains(&i)).then(|| (i, a.clone()))
+                    })
+                    .collect();
+                let Some(top) = found.iter().map(|(i, _)| *i).max() else {
+                    break;
+                };
+                // The pool itself, not the probe: made to the furthest found, those used, then
+                // its own gap after them (the probe's other addresses are not kept).
+                let gap = pool.gap_limit;
+                pool.gap_limit = (top + 1).saturating_sub(used).max(1);
+                if pool.maintain_gap_limit(&source).is_err() {
+                    break;
+                }
+                for (_, address) in &found {
+                    pool.mark_used(address);
+                }
+                pool.gap_limit = gap;
+                if pool.maintain_gap_limit(&source).is_err() {
+                    break;
+                }
+                adopted.extend(found.into_iter().map(|(_, a)| a));
+            }
+            if !adopted.is_empty() {
+                finds.push(PastTheGap {
+                    bip44,
+                    account: n,
+                    pool_type: original.pool_type,
+                    was: (original.highest_used, original.highest_generated),
+                    pool,
+                    adopted,
+                });
+            }
+        }
+    }
+    finds
+}
+
+/// Puts the pools [`find_past_the_gap`] made in place, each only if it has not moved since it
+/// was read, and tells the account its watched addresses changed (`bump_monitor_revision`, as
+/// key-wallet after its own gap upkeep). Answers the addresses taken in.
+pub fn take_in_past_the_gap(
+    info: &mut key_wallet::wallet::managed_wallet_info::ManagedWalletInfo,
+    finds: Vec<PastTheGap>,
+) -> Vec<Address> {
+    use key_wallet::managed_account::managed_account_trait::ManagedAccountTrait;
+    let mut adopted = Vec::new();
+    for find in finds {
+        let managed = if find.bip44 {
+            info.accounts.standard_bip44_accounts.get_mut(&find.account)
+        } else {
+            info.accounts.standard_bip32_accounts.get_mut(&find.account)
+        };
+        let Some(account) = managed else {
+            continue;
+        };
+        let mut put = false;
+        for pool in account
+            .keys_mut()
+            .managed_account_type_mut()
+            .address_pools_mut()
+        {
+            if pool.pool_type == find.pool_type
+                && (pool.highest_used, pool.highest_generated) == find.was
+            {
+                *pool = find.pool.clone();
+                put = true;
+            }
+        }
+        if put {
+            account.bump_monitor_revision();
+            adopted.extend(find.adopted);
+        }
+    }
+    adopted
+}
+
+/// BUG-232 review r1 M1: the live wallet's coins of outputs that `records` (and the live
+/// wallet's own) read as paid out (role `Sent`): those key-wallet credited when a rescan read a
+/// chain-locked record again after its address was taken in (vendor
+/// `evolite-finalized-outputs.patch`). platform-wallet writes a coin to the store only from a new
+/// record's `Received`/`Change` outputs, so these are written by
+/// [`crate::chain::Chain::save_coins`].
+pub fn coins_of_sent_outputs(
+    info: &key_wallet::wallet::managed_wallet_info::ManagedWalletInfo,
+    records: &[TransactionRecord],
+) -> Vec<key_wallet::Utxo> {
+    use key_wallet::wallet::managed_wallet_info::wallet_info_interface::WalletInfoInterface;
+    let accounts = info.accounts();
+    let live: Vec<TransactionRecord> = accounts
+        .all_accounts()
+        .into_iter()
+        .flat_map(|a| a.transactions().values().cloned())
+        .collect();
+    let sent: std::collections::HashSet<key_wallet::dashcore::OutPoint> = records
+        .iter()
+        .chain(live.iter())
+        .flat_map(|r| {
+            r.output_details
+                .iter()
+                .filter(|d| d.role == OutputRole::Sent)
+                .map(move |d| key_wallet::dashcore::OutPoint::new(r.txid, d.index))
+        })
+        .collect();
+    let mut coins: Vec<key_wallet::Utxo> = accounts
+        .all_funding_accounts()
+        .into_iter()
+        .flat_map(|a| a.utxos.values())
+        .filter(|u| sent.contains(&u.outpoint))
+        .cloned()
+        .collect();
+    coins.sort_by_key(|u| u.outpoint);
+    coins.dedup_by_key(|u| u.outpoint);
+    coins
+}
+
+/// BUG-232 review r1 (M1, S1, and a close before the rescan): outputs read as paid out (role
+/// `Sent`) of records in a block that pay an address of our funding accounts' pools now, and are
+/// neither a coin of ours, nor spent by a record we have (`records`, and the live wallet's own),
+/// nor seen spent by the wallet: each with its block height. A rescan of that block gives them
+/// their coin (vendor `evolite-finalized-outputs.patch`); until then, after a close too, they
+/// are found here again.
+pub fn uncredited_outputs(
+    info: &key_wallet::wallet::managed_wallet_info::ManagedWalletInfo,
+    records: &[TransactionRecord],
+) -> Vec<(key_wallet::dashcore::OutPoint, u32)> {
+    use key_wallet::managed_account::managed_account_trait::ManagedAccountTrait;
+    use key_wallet::wallet::managed_wallet_info::wallet_info_interface::WalletInfoInterface;
+    let accounts = info.accounts();
+    let live: Vec<&TransactionRecord> = accounts
+        .all_accounts()
+        .into_iter()
+        .flat_map(|a| a.transactions().values())
+        .collect();
+    let all = || records.iter().chain(live.iter().copied());
+    let spent: std::collections::HashSet<key_wallet::dashcore::OutPoint> = all()
+        .flat_map(|r| r.transaction.input.iter().map(|i| i.previous_output))
+        .chain(info.observed_spent_outpoints().keys().copied())
+        .collect();
+    let funding = accounts.all_funding_accounts();
+    let ours = |a: &Address| {
+        funding.iter().any(|f| {
+            f.keys()
+                .managed_account_type()
+                .address_pools()
+                .iter()
+                .any(|p| p.contains_address(a))
+        })
+    };
+    let mut found: Vec<(key_wallet::dashcore::OutPoint, u32)> = Vec::new();
+    for r in all() {
+        let Some(height) = r.context.block_info().map(|b| b.height()) else {
+            continue;
+        };
+        for d in r
+            .output_details
+            .iter()
+            .filter(|d| d.role == OutputRole::Sent)
+        {
+            let outpoint = key_wallet::dashcore::OutPoint::new(r.txid, d.index);
+            if d.address.as_ref().is_some_and(ours)
+                && !spent.contains(&outpoint)
+                && !funding.iter().any(|f| f.utxos.contains_key(&outpoint))
+                && !found.iter().any(|(o, _)| *o == outpoint)
+            {
+                found.push((outpoint, height));
+            }
+        }
+    }
+    found
+}
+
+/// [`find_past_the_gap`] and [`take_in_past_the_gap`] at once (tests).
+#[cfg(test)]
+pub fn adopt_addresses_past_the_gap(
+    info: &mut key_wallet::wallet::managed_wallet_info::ManagedWalletInfo,
+    keys: &key_wallet::Wallet,
+    paid: &[Address],
+) -> Vec<Address> {
+    let finds = find_past_the_gap(info, keys, paid);
+    take_in_past_the_gap(info, finds)
+}
+
+/// BUG-232: the BIP44 account 0's change pool, its highest used and highest made index (0 when
+/// none), for the journal.
+pub fn change_pool_ends(
+    info: &key_wallet::wallet::managed_wallet_info::ManagedWalletInfo,
+) -> (u32, u32) {
+    use key_wallet::managed_account::address_pool::AddressPoolType;
+    use key_wallet::managed_account::managed_account_trait::ManagedAccountTrait;
+    info.accounts
+        .standard_bip44_accounts
+        .get(&0)
+        .and_then(|a| {
+            a.keys()
+                .managed_account_type()
+                .address_pools()
+                .into_iter()
+                .find(|p| p.pool_type == AddressPoolType::Internal)
+                .map(|p| {
+                    (
+                        p.highest_used.unwrap_or_default(),
+                        p.highest_generated.unwrap_or_default(),
+                    )
+                })
+        })
+        .unwrap_or_default()
+}
+
 /// The address pools of the live wallet's BIP44, BIP32 and CoinJoin accounts as the store keeps
 /// them (BUG-194): every derived address of each pool, with whether it is used. platform-wallet
 /// itself writes them only when it registers an account; [`crate::chain::Chain::save_pools`]
@@ -4775,5 +5077,226 @@ mod freeze_tests {
         );
         thaw(&mut info, &second, &mut held);
         assert!(!locked(&info).contains(&unverified));
+    }
+}
+
+/// BUG-232: an address of ours past the pool's gap is taken in.
+#[cfg(test)]
+mod gap_tests {
+    use super::*;
+    use key_wallet::managed_account::address_pool::{AddressPool, AddressPoolType, KeySource};
+    use key_wallet::managed_account::managed_account_trait::ManagedAccountTrait;
+    use key_wallet::wallet::managed_wallet_info::ManagedWalletInfo;
+
+    const PHRASE: &str = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
+    const OTHER: &str =
+        "legal winner thank year wave sausage worth useful legal winner thank yellow";
+
+    /// The BIP44 account 0's change pool.
+    fn change_pool(info: &ManagedWalletInfo) -> &AddressPool {
+        info.accounts.standard_bip44_accounts[&0]
+            .keys()
+            .managed_account_type()
+            .address_pools()
+            .into_iter()
+            .find(|p| p.pool_type == AddressPoolType::Internal)
+            .unwrap()
+    }
+
+    /// The change address at `index`, made apart from the wallet.
+    fn change_at(info: &ManagedWalletInfo, keys: &key_wallet::Wallet, index: u32) -> Address {
+        let mut probe = change_pool(info).clone();
+        probe.gap_limit = index + 1;
+        probe
+            .maintain_gap_limit(&KeySource::Public(
+                keys.accounts.standard_bip44_accounts[&0].account_xpub,
+            ))
+            .unwrap();
+        probe.address_at_index(index).unwrap()
+    }
+
+    /// qa-f29's tx1: a change 3 past the pool's last address is ours once taken in, the pool
+    /// keeps its gap after it, and History's [`live_own`] calls it change. One far past the
+    /// look-ahead, and one of another wallet, are left.
+    #[test]
+    fn a_change_past_the_gap_is_taken_in() {
+        let keys = super::super::keys_of(PHRASE).unwrap();
+        let mut info = ManagedWalletInfo::from_wallet(&keys, 0);
+        let last = change_pool(&info).highest_generated.unwrap();
+        let near = change_at(&info, &keys, last + 3);
+        let far = change_at(&info, &keys, last + GAP_LOOKAHEAD + 40);
+        let other_info = ManagedWalletInfo::from_wallet(&super::super::keys_of(OTHER).unwrap(), 0);
+        let other = change_pool(&other_info).address_at_index(0).unwrap();
+        assert!(!live_own(&info).contains_key(&near.script_pubkey()));
+        let adopted = adopt_addresses_past_the_gap(
+            &mut info,
+            &keys,
+            &[near.clone(), far.clone(), other.clone()],
+        );
+        assert_eq!(adopted, vec![near.clone()]);
+        let pool = change_pool(&info);
+        assert_eq!(pool.highest_used, Some(last + 3));
+        // The usual gap after it, not the look-ahead (review S1).
+        assert_eq!(pool.highest_generated, Some(last + 3 + pool.gap_limit));
+        assert_eq!(
+            live_own(&info).get(&near.script_pubkey()),
+            Some(&OutputRole::Change)
+        );
+        assert!(!live_own(&info).contains_key(&other.script_pubkey()));
+        assert!(!live_own(&info).contains_key(&far.script_pubkey()));
+        // Taken in once: nothing more the second time.
+        assert!(adopt_addresses_past_the_gap(&mut info, &keys, &[near]).is_empty());
+    }
+
+    /// BUG-232 end to end, qa-f29's tx1: our coin spent to our own receiving address and to a
+    /// change 3 past the pool. Before: the change counts as sent («Sent», the change and the fee);
+    /// after taking it in, the same record in the same run reads as a transfer between own
+    /// addresses, the fee only, as the restart showed it.
+    #[test]
+    fn the_history_row_turns_into_a_self_transfer_in_the_same_run() {
+        use key_wallet::dashcore::hashes::Hash;
+        use key_wallet::dashcore::{OutPoint, Transaction, TxIn, TxOut, Txid};
+        use key_wallet::managed_account::transaction_record::{InputDetail, OutputDetail};
+        let keys = super::super::keys_of(PHRASE).unwrap();
+        let mut info = ManagedWalletInfo::from_wallet(&keys, 0);
+        let last = change_pool(&info).highest_generated.unwrap();
+        let change = change_at(&info, &keys, last + 3);
+        let receive = info.accounts.standard_bip44_accounts[&0]
+            .keys()
+            .managed_account_type()
+            .address_pools()
+            .into_iter()
+            .find(|p| p.pool_type == AddressPoolType::External)
+            .and_then(|p| p.address_at_index(0))
+            .unwrap();
+        let spent_coin = receive.clone();
+        let (fee, to_us, back) = (226u64, 10_000u64, 14_525_584u64);
+        let tx = Transaction {
+            version: 2,
+            lock_time: 0,
+            input: vec![TxIn {
+                previous_output: OutPoint::new(Txid::from_byte_array([9; 32]), 0),
+                ..TxIn::default()
+            }],
+            output: vec![
+                TxOut {
+                    value: to_us,
+                    script_pubkey: receive.script_pubkey(),
+                },
+                TxOut {
+                    value: back,
+                    script_pubkey: change.script_pubkey(),
+                },
+            ],
+            special_transaction_payload: None,
+        };
+        let row = |info: &ManagedWalletInfo| {
+            let mut r = TransactionRecord::new(
+                tx.clone(),
+                key_wallet::account::AccountType::Standard {
+                    index: 0,
+                    standard_account_type: key_wallet::account::StandardAccountType::BIP44Account,
+                },
+                TransactionContext::Mempool,
+                TransactionType::Standard,
+                TransactionDirection::Outgoing,
+                vec![InputDetail {
+                    index: 0,
+                    value: to_us + back + fee,
+                    address: spent_coin.clone(),
+                }],
+                vec![
+                    OutputDetail {
+                        index: 0,
+                        role: OutputRole::Sent,
+                        address: Some(receive.clone()),
+                        value: to_us,
+                    },
+                    OutputDetail {
+                        index: 1,
+                        role: OutputRole::Sent,
+                        address: Some(change.clone()),
+                        value: back,
+                    },
+                ],
+                -((to_us + back + fee) as i64),
+            );
+            let live = live_own(info);
+            own_outputs(&mut r, |a| live.get(&a.script_pubkey()).copied());
+            (activity(&r, 0, false).kind, r.net_amount)
+        };
+        let (before, net) = row(&info);
+        assert!(
+            !matches!(before, ActivityKind::SelfTransfer { .. }),
+            "{before:?}"
+        );
+        assert_eq!(net, -((back + fee) as i64), "the change counted as sent");
+        let paid = paid_outside(&[TransactionRecord::new(
+            tx.clone(),
+            key_wallet::account::AccountType::Standard {
+                index: 0,
+                standard_account_type: key_wallet::account::StandardAccountType::BIP44Account,
+            },
+            TransactionContext::Mempool,
+            TransactionType::Standard,
+            TransactionDirection::Outgoing,
+            vec![],
+            vec![OutputDetail {
+                index: 1,
+                role: OutputRole::Sent,
+                address: Some(change.clone()),
+                value: back,
+            }],
+            0,
+        )]);
+        let addresses: Vec<_> = paid.into_iter().map(|(a, _)| a).collect();
+        assert_eq!(
+            adopt_addresses_past_the_gap(&mut info, &keys, &addresses),
+            vec![change.clone()]
+        );
+        let (after, net) = row(&info);
+        assert!(
+            matches!(after, ActivityKind::SelfTransfer { .. }),
+            "{after:?}"
+        );
+        assert_eq!(net, -(fee as i64), "the fee only");
+    }
+
+    /// A pool that moved between the read and the write (a block grew it) is not overwritten.
+    #[test]
+    fn a_pool_that_moved_meanwhile_is_left() {
+        let keys = super::super::keys_of(PHRASE).unwrap();
+        let mut info = ManagedWalletInfo::from_wallet(&keys, 0);
+        let last = change_pool(&info).highest_generated.unwrap();
+        let near = change_at(&info, &keys, last + 3);
+        let finds = find_past_the_gap(&info, &keys, std::slice::from_ref(&near));
+        assert_eq!(finds.len(), 1);
+        let first = change_pool(&info).address_at_index(0).unwrap();
+        info.accounts
+            .standard_bip44_accounts
+            .get_mut(&0)
+            .unwrap()
+            .keys_mut()
+            .managed_account_type_mut()
+            .address_pools_mut()
+            .into_iter()
+            .find(|p| p.pool_type == AddressPoolType::Internal)
+            .unwrap()
+            .mark_used(&first);
+        assert!(take_in_past_the_gap(&mut info, finds).is_empty());
+        assert!(!live_own(&info).contains_key(&near.script_pubkey()));
+    }
+
+    /// A run of payments, each past the end the one before it leaves: both taken in.
+    #[test]
+    fn a_run_of_them_is_found() {
+        let keys = super::super::keys_of(PHRASE).unwrap();
+        let mut info = ManagedWalletInfo::from_wallet(&keys, 0);
+        let last = change_pool(&info).highest_generated.unwrap();
+        let first = change_at(&info, &keys, last + 90);
+        let second = change_at(&info, &keys, last + 90 + 80);
+        let adopted = adopt_addresses_past_the_gap(&mut info, &keys, &[second, first]);
+        assert_eq!(adopted.len(), 2);
+        assert_eq!(change_pool(&info).highest_used, Some(last + 170));
     }
 }

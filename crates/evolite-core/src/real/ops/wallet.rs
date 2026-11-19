@@ -41,11 +41,57 @@ impl Real {
         }
     }
 
+    /// BUG-232: the filters scanned again from `from` after the pools took in addresses past
+    /// their gap ([`Self::adopt_past_the_gap`]): the wallet gets their coins (a chain-locked
+    /// record's output that became ours, vendor `evolite-finalized-outputs.patch`, review r1 M1)
+    /// and reads the payments onward that are new to it. Asked even below
+    /// an earlier rescan of this run (that one did not know these addresses), and leaving
+    /// `rescanned_from` as it is (a later lost block or stale payment still gets its own).
+    /// Taking an address in happens once, so this is asked rarely. Owed until the filters are
+    /// synced (review M1); not asked when the wallet is below `from` already (an added account
+    /// rewinds it, rust-dashcore#649): that pass reads the blocks with the longer pools.
+    pub(in crate::real) async fn rescan_past_the_gap(
+        &mut self,
+        id: WalletId,
+        from: u32,
+        synced: u32,
+        up_to: u32,
+    ) {
+        // Asked from `settle_rescans` once synced; the wallet below `from` is reading those
+        // blocks already, with the longer pools: owed until it is back, for the coins it gives.
+        if synced <= from {
+            OwedRescan::add(&mut self.rescan_owed, id, up_to, Vec::new(), Vec::new());
+            OwedRescan::for_past_the_gap(&mut self.rescan_owed, &id);
+            return;
+        }
+        // Review r1 S2: not asked, it stays owed (asked again in a later snapshot).
+        let Ok(manager) = self.chain.manager().await else {
+            note_past_the_gap(&mut self.past_the_gap_from, id, from);
+            return;
+        };
+        crate::diag::record(crate::diag::Record::Answer {
+            what: "rescan",
+            outcome: "past_the_gap",
+        });
+        let asked = matches!(
+            tokio::task::spawn_blocking(move || manager.spv_rescan_filters_blocking(&id, from))
+                .await,
+            Ok(true)
+        );
+        if asked {
+            OwedRescan::add(&mut self.rescan_owed, id, up_to, Vec::new(), Vec::new());
+            OwedRescan::for_past_the_gap(&mut self.rescan_owed, &id);
+        } else {
+            note_past_the_gap(&mut self.past_the_gap_from, id, from);
+        }
+    }
+
     /// BUG-150: the filters scanned again from `from` (where the contacts begin, SYNC-7) for the contacts'
     /// receiving `accounts` built after the scan went past their coins. Owed until the wallet's
     /// filters are at `up_to`, the tip when it was asked (`rescan_end`). Asked even after another
     /// rescan in this run (that one did not know these accounts), but not while one for them is
     /// under way; noted done in `contact-rescans.json` only when it has run to its end.
+    /// Whether it was asked.
     pub(in crate::real) async fn rescan_for_contacts(
         &mut self,
         id: WalletId,
@@ -53,12 +99,12 @@ impl Real {
         up_to: u32,
         accounts: Vec<String>,
         coins: usize,
-    ) {
+    ) -> bool {
         if accounts.is_empty() || self.chain.status().phase != sync::Phase::Synced {
-            return;
+            return false;
         }
         let Ok(manager) = self.chain.manager().await else {
-            return;
+            return false;
         };
         self.rescanned_from = Some(self.rescanned_from.map_or(from, |asked| asked.min(from)));
         // BUG-221: only when it is asked — not on every snapshot of the sync before it (QA saw
@@ -79,6 +125,7 @@ impl Real {
         if asked {
             OwedRescan::add_contacts(&mut self.rescan_owed, id, up_to, accounts, coins);
         }
+        asked
     }
 
     /// Decrypts the vault with `password`; Argon2 runs off the async threads.
@@ -269,6 +316,8 @@ impl Real {
             self.chain.save_pools(&wallet).await;
         }
         self.pools_saved = None;
+        // BUG-232 review r2 S1: rescans owed for coins are owed again at the next start.
+        self.gap_pending.clear();
         // An app's request is not answered after the next unlock with what was shown before.
         self.app_requests
             .lock()
