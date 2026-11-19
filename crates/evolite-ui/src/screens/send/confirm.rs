@@ -705,6 +705,7 @@ fn sign_and_send(
             rate: rate.map(super::currency::Rate::for_core),
         },
         password: ask_password.then(|| Password::new(form.password.to_string())),
+        ask: 0,
     });
     form.waiting += 1;
     form.let_go_of_payment();

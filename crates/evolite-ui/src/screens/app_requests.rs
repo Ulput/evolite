@@ -5,8 +5,8 @@
 
 use super::txt;
 use crate::components::{
-    Assets, ButtonKind, FieldKind, Part, SpendPassword, button, button_enabled, button_row,
-    dialog_with_footer, error_notice, field_label, kv_row, notice, password_asked, text_field,
+    Assets, ButtonKind, FieldKind, Part, button, button_enabled, button_row, dialog_with_footer,
+    error_notice, field_label, kv_row, notice, password_asked, text_field,
 };
 use crate::context::Ctx;
 use crate::text;
@@ -27,14 +27,13 @@ pub struct AppRequests {
     /// "Disconnect" asked about this app (its id and name), not confirmed yet; then the core's
     /// answer while the dialog is open.
     pub disconnecting: Option<(String, String)>,
-    pub disconnect_waiting: bool,
     pub disconnect_result: Option<Result<(), CoreError>>,
-    /// "Password for every payment" before "Disconnect": it is an IdentityUpdate the identity
-    /// pays for (FEAT-0023, BUG-42).
-    pub disconnect_password: SpendPassword,
-    /// "Password for every payment" before "Allow" / "Sign": the app spends the identity's
-    /// credits or adds a key to it (BUG-42).
-    pub password: SpendPassword,
+    /// "Disconnect" (TECH-spend-flow): "password for every payment" in it — it is an
+    /// IdentityUpdate the identity pays for (FEAT-0023, BUG-42) — sent once, its own answer only.
+    pub disconnect_flow: crate::components::spend_flow::SpendFlow<()>,
+    /// "Allow" / "Sign": "password for every payment" in it — the app spends the identity's
+    /// credits or adds a key to it (BUG-42) — sent once, its own answer only.
+    pub flow: crate::components::spend_flow::SpendFlow<()>,
     /// Where the person's yes to [`Self::open`] is (BUG-30).
     pub consent: Consent,
     /// «Scan QR» (FEAT-0006, UC-4) and what it said when the code was not an app's.
@@ -117,16 +116,14 @@ impl AppRequests {
     }
 
     /// The core's answer to "Disconnect": done closes the dialog, a refusal stays in it.
-    pub fn on_disconnected(&mut self, result: Result<(), CoreError>) {
-        if !self.disconnect_waiting {
+    pub fn on_disconnected(&mut self, ask: Option<u64>, result: Result<(), CoreError>) {
+        if !self.disconnect_flow.on_done(ask, &result) {
             return;
         }
-        self.disconnect_waiting = false;
-        self.disconnect_password.on_answer(&result);
+        let _ = self.disconnect_flow.take_result();
         if result.is_ok() {
             self.disconnecting = None;
             self.disconnect_result = None;
-            self.disconnect_password.forget();
             // «… connected: limit …» no longer holds; the list shows the app disconnected.
             self.connected = None;
         } else {
@@ -134,8 +131,18 @@ impl AppRequests {
         }
     }
 
-    pub fn on_answer(&mut self, result: Result<(), CoreError>) {
-        self.password.on_answer(&result);
+    /// The core's answer to a yes ("Allow", "Sign"), taken only by the dialog that asked it
+    /// (`ask`), or to a "no" (`DeclineApp`, not a spend: no number).
+    pub fn on_answer(&mut self, ask: Option<u64>, result: Result<(), CoreError>) {
+        if ask.is_some() {
+            if !self.flow.on_done(ask, &result) {
+                return;
+            }
+            let _ = self.flow.take_result();
+        } else if self.consent == Consent::Sending {
+            // A "no" answered while a yes waits is not the yes's answer.
+            return;
+        }
         if self.consent == Consent::Sending && result == Err(CoreError::WrongPassword) {
             // The core's gate refused the password before the request was touched: it is
             // still held, so the person retypes and says yes again. The line under the field
@@ -148,7 +155,7 @@ impl AppRequests {
                 self.connected = self.connecting.take();
                 self.open = None;
                 self.consent = Consent::Asking;
-                self.password.forget();
+                self.flow.forget();
                 return;
             }
             self.connecting = None;
@@ -190,10 +197,8 @@ impl AppRequests {
                 };
                 self.consent = Consent::Sending;
                 self.result = None;
-                Some(
-                    self.password
-                        .command(Spend::ApproveApp { id, grant }, ask || v2),
-                )
+                self.flow
+                    .command(Spend::ApproveApp { id, grant }, ask || v2, ())
             }
             (Consent::Asking, Pick::No) => {
                 self.result = None;
@@ -203,14 +208,14 @@ impl AppRequests {
             (Consent::Asking, Pick::Close) => {
                 self.open = None;
                 self.result = None;
-                self.password.forget();
+                self.flow.forget();
                 Some(Command::DeclineApp { id })
             }
             (Consent::Sent | Consent::Failed, Pick::Close) => {
                 self.open = None;
                 self.result = None;
                 self.consent = Consent::Asking;
-                self.password.forget();
+                self.flow.forget();
                 None
             }
             (Consent::Sending, _) | (Consent::Sent | Consent::Failed, _) => None,
@@ -290,15 +295,16 @@ pub fn disconnect_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut 
                 // The footer (BUG-122): always in the window.
                 let mut close = false;
                 let ask = password_asked(cx.snap);
-                let entered = !state.disconnect_waiting
+                let entered = !state.disconnect_flow.waiting()
                     && state
-                        .disconnect_password
+                        .disconnect_flow
+                        .password
                         .field(ui, &p, "app-disconnect-password", ask);
-                let ready = state.disconnect_password.ready(ask);
+                let ready = state.disconnect_flow.password.ready(ask);
                 if let Some(Err(e)) = state
                     .disconnect_result
                     .as_ref()
-                    .filter(|_| !state.disconnect_password.is_wrong())
+                    .filter(|_| !state.disconnect_flow.password.is_wrong())
                 {
                     error_notice(
                         ui,
@@ -312,7 +318,7 @@ pub fn disconnect_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut 
                     if button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked() {
                         close = true;
                     }
-                    let label = if state.disconnect_waiting {
+                    let label = if state.disconnect_flow.waiting() {
                         tr!("Disconnecting…")
                     } else {
                         tr!("Disconnect")
@@ -323,15 +329,16 @@ pub fn disconnect_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut 
                         label,
                         ButtonKind::Danger,
                         None,
-                        !state.disconnect_waiting && ready,
+                        !state.disconnect_flow.waiting() && ready,
                     )
                     .clicked()
                         || (entered && ready)
                     {
                         let op = Spend::DisconnectApp { id: id.clone() };
-                        cx.send(state.disconnect_password.command(op, ask));
-                        state.disconnect_waiting = true;
-                        state.disconnect_result = None;
+                        if let Some(command) = state.disconnect_flow.command(op, ask, ()) {
+                            cx.send(command);
+                            state.disconnect_result = None;
+                        }
                     }
                 });
                 return close;
@@ -383,10 +390,10 @@ pub fn disconnect_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut 
             false
         },
     );
-    if closed && !state.disconnect_waiting {
+    if closed && !state.disconnect_flow.waiting() {
         state.disconnecting = None;
         state.disconnect_result = None;
-        state.disconnect_password.forget();
+        state.disconnect_flow.password.forget();
     }
 }
 
@@ -458,6 +465,23 @@ fn paste_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut AppReques
         state.pasting = false;
         state.link.clear();
         state.link_error = None;
+    }
+}
+
+impl crate::screen_state::ScreenState for AppRequests {
+    #[cfg(all(test, demo_core, feature = "dev-tools"))]
+    fn flows(&mut self) -> Vec<&mut dyn crate::components::spend_flow::AnyFlow> {
+        vec![&mut self.flow, &mut self.disconnect_flow]
+    }
+
+    fn forget(&mut self, why: crate::screen_state::Why) {
+        match why {
+            crate::screen_state::Why::WalletSwitch => *self = Self::default(),
+            _ => {
+                self.flow.forget();
+                self.disconnect_flow.forget();
+            }
+        }
     }
 }
 
@@ -535,7 +559,7 @@ mod tests {
     fn a_yes_that_went_through_is_shown_as_done() {
         let mut state = asked(7);
         state.pick(Pick::Yes, false, 0);
-        state.on_answer(Ok(()));
+        state.on_answer(state.flow.waiting_ask(), Ok(()));
         assert!(state.open.is_none(), "the dialog closed");
         assert!(
             state
@@ -554,7 +578,7 @@ mod tests {
     fn a_failed_yes_says_why_and_is_over() {
         let mut state = asked(7);
         state.pick(Pick::Yes, false, 0);
-        state.on_answer(Err(out_of_date()));
+        state.on_answer(state.flow.waiting_ask(), Err(out_of_date()));
         assert_eq!(state.consent, Consent::Failed);
         assert_eq!(state.result, Some(Err(out_of_date())));
         assert!(state.pick(Pick::Yes, false, 0).is_none());
@@ -570,22 +594,22 @@ mod tests {
     fn a_wrong_password_on_yes_asks_again() {
         let mut state = asked(7);
         assert!(is_yes(state.pick(Pick::Yes, true, 0), 7));
-        state.on_answer(Err(CoreError::WrongPassword));
+        state.on_answer(state.flow.waiting_ask(), Err(CoreError::WrongPassword));
         assert_eq!(state.consent, Consent::Asking, "the request is still held");
         assert!(state.open.is_some());
-        assert!(state.password.is_wrong(), "said under the field");
+        assert!(state.flow.password.is_wrong(), "said under the field");
         assert_eq!(state.result, Some(Err(CoreError::WrongPassword)));
         assert!(
             is_yes(state.pick(Pick::Yes, true, 0), 7),
             "a second try goes"
         );
         assert_eq!(state.consent, Consent::Sending);
-        state.on_answer(Ok(()));
+        state.on_answer(state.flow.waiting_ask(), Ok(()));
         assert!(
             state.open.is_none() && state.connected.is_some(),
             "connected"
         );
-        assert!(!state.password.is_wrong());
+        assert!(!state.flow.password.is_wrong());
     }
 
     /// Before any yes, "Decline" and ✕ still say "no" to the app; a new request asks again.
@@ -593,11 +617,11 @@ mod tests {
     fn before_a_yes_declining_still_says_no() {
         let mut state = asked(7);
         assert!(is_no(state.pick(Pick::No, false, 0), 7));
-        state.on_answer(Ok(()));
+        state.on_answer(state.flow.waiting_ask(), Ok(()));
         assert!(state.open.is_none(), "declined: the request is over");
         let mut state = asked(8);
         state.pick(Pick::Yes, false, 0);
-        state.on_answer(Ok(()));
+        state.on_answer(state.flow.waiting_ask(), Ok(()));
         state.on_request(asked(9).open.ok_or_else(out_of_date));
         assert_eq!(state.consent, Consent::Asking, "a new request asks again");
         assert!(is_no(state.pick(Pick::Close, false, 0), 9));
@@ -622,13 +646,17 @@ mod tests {
     fn a_disconnect_takes_the_connected_banner_away() {
         let mut state = AppRequests {
             connected: Some("Yappr connected: limit 0.51 DASH".into()),
-            disconnect_waiting: true,
             ..AppRequests::default()
         };
-        state.on_disconnected(Err(CoreError::WrongPassword));
+        state
+            .disconnect_flow
+            .set_stage(crate::components::spend_flow::Stage::Waiting { ask: 0, signed: () });
+        state.on_disconnected(Some(0), Err(CoreError::WrongPassword));
         assert!(state.connected.is_some(), "refused: nothing changed");
-        state.disconnect_waiting = true;
-        state.on_disconnected(Ok(()));
+        state
+            .disconnect_flow
+            .set_stage(crate::components::spend_flow::Stage::Waiting { ask: 0, signed: () });
+        state.on_disconnected(Some(0), Ok(()));
         assert_eq!(state.connected, None);
     }
 }

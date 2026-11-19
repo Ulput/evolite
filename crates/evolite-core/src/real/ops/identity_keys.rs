@@ -263,6 +263,7 @@ impl Real {
             Event::Done {
                 what: DoneWhat::KeysRead,
                 result,
+                ask: None,
             }
         });
         Ok(())
@@ -404,6 +405,7 @@ impl Real {
             Event::Done {
                 what: DoneWhat::Keys,
                 result,
+                ask: None,
             }
         });
         Ok(())

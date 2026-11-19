@@ -107,6 +107,7 @@ impl Real {
             Event::Done {
                 what: DoneWhat::ForgetApp,
                 result,
+                ask: None,
             }
         });
         Ok(())
@@ -160,6 +161,7 @@ impl Real {
             Event::Done {
                 what: DoneWhat::Disconnect,
                 result,
+                ask: None,
             }
         });
         Ok(())

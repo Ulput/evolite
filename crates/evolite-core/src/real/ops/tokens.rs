@@ -472,6 +472,7 @@ impl Real {
             Some(Event::Done {
                 what: DoneWhat::Token,
                 result,
+                ask: None,
             }),
             changed,
         )
@@ -771,6 +772,7 @@ impl Real {
         let refused = |e| Event::Done {
             what: DoneWhat::SendToken,
             result: Err(e),
+            ask: None,
         };
         let Some(file) = self.tokens.file.clone() else {
             return refused(off());
@@ -928,6 +930,7 @@ impl Real {
             Event::Done {
                 what: DoneWhat::SendToken,
                 result,
+                ask: None,
             }
         });
         Event::Progress {

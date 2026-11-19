@@ -209,6 +209,7 @@ fn a_refusal_for_a_key_says_the_keys_changed() {
     let done = |result| Event::Done {
         what: DoneWhat::SendToken,
         result,
+        ask: None,
     };
     assert!(refused_for_keys(&done(Err(CoreError::KeysChanged))));
     assert!(!refused_for_keys(&done(Err(CoreError::NotEnough))));

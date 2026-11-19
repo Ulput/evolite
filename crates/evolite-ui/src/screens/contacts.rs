@@ -5,8 +5,8 @@
 
 use super::txt;
 use crate::components::{
-    Assets, ButtonKind, FieldKind, Part, SpendPassword, avatar, button, button_enabled, button_row,
-    card, dialog_with_footer, dialog_with_header_and_footer, field_label, inner, kv_row, notice,
+    Assets, ButtonKind, FieldKind, Part, avatar, button, button_enabled, button_row, card,
+    dialog_with_footer, dialog_with_header_and_footer, field_label, inner, kv_row, notice,
     page_header, text_field,
 };
 use crate::context::Ctx;
@@ -47,13 +47,14 @@ pub struct ContactsState {
     pub adding: Option<AddContact>,
     /// The identity whose profile is open (22).
     pub profile: Option<String>,
-    /// A request, an answer or "Hide" went to the core, no answer yet.
-    pub waiting: bool,
+    /// "Hide" went to the core, no answer yet (not a spend: no number).
+    pub hiding: bool,
     pub result: Option<Result<(), CoreError>>,
     /// "Send" on a contact: the Send screen opens with this recipient.
     pub pay: Option<String>,
-    /// "Password for every payment" for a request or an answer: both cost credits (BUG-42).
-    pub password: SpendPassword,
+    /// A request or an answer (TECH-spend-flow): "password for every payment" in it — both
+    /// cost credits (BUG-42) — sent once, its own answer only.
+    pub flow: crate::components::spend_flow::SpendFlow<()>,
     /// "Accept" on a request: the identity whose request waits in "Accept the request" (what
     /// the answer makes public, and the password when asked).
     pub accepting: Option<String>,
@@ -110,12 +111,20 @@ impl ContactsState {
 
     /// The core's answer to a contact request, an answer or "Hide". Only one this screen
     /// sent: "Add to contacts" on the Send screen is answered the same way.
-    pub fn on_done(&mut self, result: &Result<(), CoreError>) {
-        if !self.waiting {
+    pub fn on_done(&mut self, ask: Option<u64>, result: &Result<(), CoreError>) {
+        let result = if self.flow.on_done(ask, result) {
+            // A wrong password is said under its field.
+            let Some(((), result)) = self.flow.take_result() else {
+                return;
+            };
+            result
+        } else if ask.is_none() && self.hiding {
+            self.hiding = false;
+            result.clone()
+        } else {
             return;
-        }
-        self.waiting = false;
-        self.password.settle(Some(result));
+        };
+        let result = &result;
         if result.is_ok() {
             self.adding = None;
             self.accepting = None;
@@ -125,11 +134,17 @@ impl ContactsState {
         self.refused_with = None;
     }
 
+    /// A request, an answer or "Hide" went to the core, no answer yet.
+    pub fn waiting(&self) -> bool {
+        self.flow.waiting() || self.hiding
+    }
+
     /// The wallet locked: a password typed for a request goes, and the dialogs close —
     /// «Contact privacy» too, so it does not open again after unlocking, nor its link take the
     /// focus on the next visit.
     pub fn on_lock(&mut self) {
-        self.password.forget();
+        self.flow.forget();
+        self.hiding = false;
         self.accepting = None;
         self.privacy = false;
         self.privacy_closed = false;
@@ -534,7 +549,7 @@ fn row(
         let r = Rect::from_min_size(pos2(bx, cy - 20.5), vec2(*w, 41.0));
         // A child UI: placing the button must not move the parent's cursor.
         let mut child = ui.new_child(egui::UiBuilder::new().max_rect(r));
-        let enabled = !state.waiting;
+        let enabled = !state.waiting();
         let mut resp = button_enabled(&mut child, a, label, *kind, Some(*w), enabled);
         if *label == tr!("Hide") {
             resp = hide_hint(&child, resp);
@@ -545,7 +560,7 @@ fn row(
                 // The answer is public for good: "Accept the request" says so first, and asks
                 // for the password when the wallet wants it (PRIV-1, BUG-42).
                 tr!("Accept") => {
-                    state.password.forget();
+                    state.flow.password.forget();
                     state.accepting = Some(c.identity_id.clone());
                     state.result = None;
                 }
@@ -553,7 +568,7 @@ fn row(
                     asked.push(Command::HideRequest {
                         identity_id: c.identity_id.clone(),
                     });
-                    state.waiting = true;
+                    state.hiding = true;
                     state.result = None;
                 }
                 _ => state.pay = Some(pay_to(c)),
@@ -805,11 +820,11 @@ fn add_contact(
         .and_then(|i| i.name())
         .map_or_else(|| "identity".to_string(), |n| format!("@{n}"));
     let fee = wallet.fees.contact_request;
-    let waiting = state.waiting;
+    let waiting = state.flow.waiting() || state.hiding;
     let result = state.result.clone();
     // The request costs credits: "password for every payment" asks for it here.
     let ask = crate::components::password_asked(cx.snap);
-    let password = &mut state.password;
+    let password = &mut state.flow.password;
     let mut send = false;
     let mut found_ready = false;
     let close = dialog_with_footer(
@@ -1014,19 +1029,19 @@ fn add_contact(
     );
     if let Some(id) = open_card {
         state.adding = None;
-        state.password.forget();
+        state.flow.password.forget();
         state.profile = Some(id);
     } else if send {
-        cx.send(
-            state
-                .password
-                .command(Spend::AddContact { name: typed }, ask),
-        );
-        state.waiting = true;
-        state.result = None;
+        if let Some(command) = state
+            .flow
+            .command(Spend::AddContact { name: typed }, ask, ())
+        {
+            cx.send(command);
+            state.result = None;
+        }
     } else if close && !waiting {
         state.adding = None;
-        state.password.forget();
+        state.flow.password.forget();
     }
 }
 
@@ -1144,7 +1159,7 @@ fn accept_dialog(
     };
     let p = a.p;
     let who = shown_name(contact);
-    let waiting = state.waiting;
+    let waiting = state.flow.waiting() || state.hiding;
     let ask = state.ask;
     let mut accept = false;
     let closed = dialog_with_footer(
@@ -1158,7 +1173,7 @@ fn accept_dialog(
             if part == Part::Footer {
                 // The footer (BUG-122): always in the window.
                 if let Some(Err(e)) = &state.result
-                    && !state.password.is_wrong()
+                    && !state.flow.password.is_wrong()
                 {
                     crate::components::error_notice(
                         ui,
@@ -1167,7 +1182,10 @@ fn accept_dialog(
                         crate::text::error_details(e).as_deref(),
                     );
                 }
-                let entered = state.password.field(ui, &p, "accept-contact-password", ask);
+                let entered = state
+                    .flow
+                    .password
+                    .field(ui, &p, "accept-contact-password", ask);
                 public_line(
                     ui,
                     a,
@@ -1184,7 +1202,7 @@ fn accept_dialog(
                         None,
                     );
                 }
-                let ready = !waiting && !short && state.password.ready(ask);
+                let ready = !waiting && !short && state.flow.password.ready(ask);
                 let mut close = false;
                 button_row(ui, |ui| {
                     if button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked() {
@@ -1219,16 +1237,16 @@ fn accept_dialog(
         },
     );
     if accept {
-        asked.push(
-            state
-                .password
-                .command(Spend::AcceptContact { identity_id: id }, ask),
-        );
-        state.waiting = true;
-        state.result = None;
+        if let Some(command) = state
+            .flow
+            .command(Spend::AcceptContact { identity_id: id }, ask, ())
+        {
+            asked.push(command);
+            state.result = None;
+        }
     } else if closed && !waiting {
         state.accepting = None;
-        state.password.forget();
+        state.flow.password.forget();
     }
 }
 
@@ -1468,6 +1486,20 @@ pub fn contact_error(e: &CoreError) -> String {
     }
 }
 
+impl crate::screen_state::ScreenState for ContactsState {
+    #[cfg(all(test, demo_core, feature = "dev-tools"))]
+    fn flows(&mut self) -> Vec<&mut dyn crate::components::spend_flow::AnyFlow> {
+        vec![&mut self.flow]
+    }
+
+    fn forget(&mut self, why: crate::screen_state::Why) {
+        match why {
+            crate::screen_state::Why::WalletSwitch => *self = Self::default(),
+            _ => self.on_lock(),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1534,13 +1566,13 @@ mod tests {
     #[test]
     fn a_second_refusal_is_measured_from_its_own_balance() {
         let mut state = ContactsState {
-            waiting: true,
+            hiding: true,
             ..Default::default()
         };
-        state.on_done(&Err(CoreError::NotEnough));
+        state.on_done(None, &Err(CoreError::NotEnough));
         state.forget_not_enough_after_top_up(Some(100), Some("a"));
-        state.waiting = true;
-        state.on_done(&Err(CoreError::NotEnough));
+        state.hiding = true;
+        state.on_done(None, &Err(CoreError::NotEnough));
         state.forget_not_enough_after_top_up(Some(50), Some("a"));
         state.forget_not_enough_after_top_up(Some(80), Some("a"));
         assert!(state.result.is_none(), "topped up from 50 to 80: gone");
@@ -1607,10 +1639,10 @@ mod tests {
             adding: Some(AddContact::default()),
             ..Default::default()
         };
-        state.on_done(&Ok(()));
+        state.on_done(None, &Ok(()));
         assert!(state.adding.is_some() && state.result.is_none());
-        state.waiting = true;
-        state.on_done(&Ok(()));
+        state.hiding = true;
+        state.on_done(None, &Ok(()));
         assert!(state.adding.is_none() && state.result == Some(Ok(())));
     }
 

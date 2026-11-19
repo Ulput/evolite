@@ -520,6 +520,7 @@ impl Real {
         let refused = |e| Event::Done {
             what: DoneWhat::IssuerAction,
             result: Err(e),
+            ask: None,
         };
         let Some(file) = self.tokens.file.clone() else {
             return refused(CoreError::NotAvailable(
@@ -745,6 +746,7 @@ impl Real {
             Event::Done {
                 what: DoneWhat::IssuerAction,
                 result,
+                ask: None,
             }
         });
         Event::Progress {

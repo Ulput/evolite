@@ -62,7 +62,13 @@ fn a_claim_done_keeps_what_was_signed() {
     button(&kit, "Sign and claim").click();
     // One frame: sent; the demo's refusal comes later and nobody waits for it then.
     kit.run_steps(1);
-    kit.state_mut().tokens.on_claimed(&Ok(()));
+    let ask = kit
+        .state()
+        .tokens
+        .claiming
+        .as_ref()
+        .and_then(|c| c.flow.waiting_ask());
+    kit.state_mut().tokens.on_claimed(ask, &Ok(()));
     with_row(&mut kit, "the next distribution", |row| {
         if let Some(p) = row.claims.as_mut().and_then(|c| c.perpetual.as_mut()) {
             p.at_least = Some(21_000);
@@ -92,7 +98,13 @@ fn a_purchase_done_keeps_its_credits_as_signed() {
     let signed = before(&kit);
     button(&kit, "Sign and buy").click();
     kit.run_steps(1);
-    kit.state_mut().tokens.on_bought(&Ok(()));
+    let ask = kit
+        .state()
+        .tokens
+        .buying
+        .as_ref()
+        .and_then(|b| b.flow.waiting_ask());
+    kit.state_mut().tokens.on_bought(ask, &Ok(()));
     // As much as the credits were, less the purchase: put in again over a later snapshot,
     // never taken twice.
     let after = kit
@@ -285,7 +297,7 @@ fn a_price_not_read_again_in_time_is_given_up() {
     assert!(has_words(&kit, "Could not check the price — try again."));
     let buy = kit.state().tokens.buying.as_ref().expect("the window");
     assert!(buy.pending.is_none(), "given up");
-    assert!(!buy.waiting && buy.result.is_none(), "nothing sent");
+    assert!(!buy.flow.waiting() && buy.result.is_none(), "nothing sent");
     assert!(
         !button(&kit, "Sign and buy").accesskit_node().is_disabled(),
         "on again"
@@ -307,7 +319,7 @@ fn another_count_typed_while_checking_sends_nothing() {
     kit.run_steps(4);
     let buy = kit.state().tokens.buying.as_ref().expect("the window");
     assert!(buy.pending.is_none(), "dropped");
-    assert!(!buy.waiting && buy.result.is_none(), "nothing sent");
+    assert!(!buy.flow.waiting() && buy.result.is_none(), "nothing sent");
     assert!(!has_words(&kit, "Not bought"));
 }
 
@@ -326,7 +338,7 @@ fn an_old_price_now_dearer_stops_and_says_so() {
     let (_turn, kit) = read_again(1);
     assert!(has_words(&kit, "The price grew: now"), "said");
     let buy = kit.state().tokens.buying.as_ref().expect("the window");
-    assert!(!buy.waiting && buy.result.is_none(), "nothing sent");
+    assert!(!buy.flow.waiting() && buy.result.is_none(), "nothing sent");
     assert!(buy.dearer.is_some());
     assert!(
         !button(&kit, "Sign and buy").accesskit_node().is_disabled(),

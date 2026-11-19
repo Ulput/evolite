@@ -211,7 +211,8 @@ async fn switching_and_adding_go_through_the_index() {
         event,
         Some(Event::Done {
             what: DoneWhat::Switch,
-            result: Err(CoreError::WrongPassword)
+            result: Err(CoreError::WrongPassword),
+            ..
         })
     ));
     assert!(core.switch_to.is_none());
@@ -274,7 +275,7 @@ async fn deletes_another_wallet_by_its_password_and_keeps_the_open_one() {
         wallet: Some(wallet.into()),
     };
     let answer = |event: Option<Event>| match event {
-        Some(Event::Done { what, result }) => (what, result),
+        Some(Event::Done { what, result, .. }) => (what, result),
         other => panic!("{other:?}"),
     };
     let untouched = |core: &Real| {
@@ -606,7 +607,8 @@ async fn renames_a_wallet_within_24_characters() {
             event,
             Some(Event::Done {
                 what: DoneWhat::Wallet,
-                result: Err(_)
+                result: Err(_),
+                ..
             })
         ));
     }
@@ -615,7 +617,8 @@ async fn renames_a_wallet_within_24_characters() {
         event,
         Some(Event::Done {
             what: DoneWhat::Wallet,
-            result: Ok(())
+            result: Ok(()),
+            ..
         })
     ));
     assert_eq!(wallets::load(&dir).wallets[0].name, tr!("Savings"));
@@ -724,24 +727,27 @@ async fn with_the_setting_on_no_spend_goes_without_the_right_password() {
         let none = Command::Spend {
             op: op.clone(),
             password: None,
+            ask: 0,
         };
         let (event, _) = core.handle(none).await;
         assert_eq!(
             debug(&event),
-            debug(&Some(op.refused(CoreError::NotAvailable(
-                crate::PASSWORD_NEEDED.into()
-            )))),
+            debug(&Some(
+                op.refused(CoreError::NotAvailable(crate::PASSWORD_NEEDED.into()))
+                    .answering(0)
+            )),
             "{} without the password",
             op.what()
         );
         let wrong = Command::Spend {
             op: op.clone(),
             password: Some(pw("wrong")),
+            ask: 0,
         };
         let (event, _) = core.handle(wrong).await;
         assert_eq!(
             debug(&event),
-            debug(&Some(op.refused(CoreError::WrongPassword))),
+            debug(&Some(op.refused(CoreError::WrongPassword).answering(0))),
             "{} with a wrong password",
             op.what()
         );
@@ -750,6 +756,7 @@ async fn with_the_setting_on_no_spend_goes_without_the_right_password() {
     let right = Command::Spend {
         op: every_spend().remove(0),
         password: Some(pw("right")),
+        ask: 0,
     };
     assert_eq!(
         debug(&core.handle(right).await.0),
@@ -774,7 +781,8 @@ async fn the_setting_goes_off_only_with_the_password() {
             core.handle(off(password)).await.0,
             Some(Event::Done {
                 what: DoneWhat::PasswordEachSend,
-                result: Err(CoreError::WrongPassword)
+                result: Err(CoreError::WrongPassword),
+                ..
             })
         ));
         assert!(core.password_each_send);
@@ -784,7 +792,8 @@ async fn the_setting_goes_off_only_with_the_password() {
         event,
         Some(Event::Done {
             what: DoneWhat::PasswordEachSend,
-            result: Ok(())
+            result: Ok(()),
+            ..
         })
     ));
     assert!(!core.password_each_send);
@@ -792,6 +801,7 @@ async fn the_setting_goes_off_only_with_the_password() {
     let send = Command::Spend {
         op: every_spend().remove(0),
         password: None,
+        ask: 0,
     };
     assert_eq!(
         debug(&core.handle(send).await.0),
@@ -822,11 +832,13 @@ async fn a_v2_sign_in_asks_for_the_password_whatever_the_setting() {
             grant: Some(SessionGrant { keys: Vec::new() }),
         },
         password: password.map(pw),
+        ask: 0,
     };
     let refused = |why| {
         debug(&Some(Event::Done {
             what: DoneWhat::App,
             result: Err(why),
+            ask: Some(0),
         }))
     };
     assert_eq!(
@@ -909,6 +921,7 @@ async fn a_v2_request_kept_open_too_long_is_refused_at_approve() {
                 }),
             },
             password: Some(pw("right")),
+            ask: 0,
         })
         .await;
     assert_eq!(
@@ -916,6 +929,7 @@ async fn a_v2_request_kept_open_too_long_is_refused_at_approve() {
         debug(&Some(Event::Done {
             what: DoneWhat::App,
             result: Err(CoreError::AppLink(AppLinkRefusal::Stale)),
+            ask: Some(0),
         }))
     );
 }
@@ -1002,11 +1016,12 @@ async fn every_spend_that_takes_the_identity_waits_before_the_password() {
             .handle(Command::Spend {
                 op: op.clone(),
                 password: Some(pw("wrong")),
+                ask: 0,
             })
             .await;
         let refused_busy = matches!(
             &event,
-            Some(Event::Done { what: w, result: Err(CoreError::NotAvailable(words)) })
+            Some(Event::Done { what: w, result: Err(CoreError::NotAvailable(words)), .. })
                 if *w == what && (words.contains("busy") || words.contains("already being made"))
         );
         assert!(refused_busy, "{op:?}: {event:?}");
@@ -1026,6 +1041,7 @@ async fn a_second_key_change_waits_for_the_first() {
         Some(Event::Done {
             what: w,
             result: Err(CoreError::NotAvailable(words)),
+            ..
         }) => w == what && words.contains("busy"),
         _ => false,
     };
@@ -1037,6 +1053,7 @@ async fn a_second_key_change_waits_for_the_first() {
                 disable: vec![],
             },
             password: None,
+            ask: 0,
         })
         .await;
     assert!(busy(event, DoneWhat::Keys), "refused before the password");
@@ -1044,6 +1061,7 @@ async fn a_second_key_change_waits_for_the_first() {
         .handle(Command::Spend {
             op: Spend::DisconnectApp { id: "app".into() },
             password: None,
+            ask: 0,
         })
         .await;
     assert!(busy(event, DoneWhat::Disconnect));
@@ -1055,6 +1073,7 @@ async fn a_second_key_change_waits_for_the_first() {
                 url: None,
             },
             password: None,
+            ask: 0,
         })
         .await;
     assert!(busy(event, DoneWhat::Name));
@@ -1068,6 +1087,7 @@ async fn a_second_key_change_waits_for_the_first() {
                 disable: vec![],
             },
             password: None,
+            ask: 0,
         })
         .await;
     assert!(!busy(event, DoneWhat::Keys));

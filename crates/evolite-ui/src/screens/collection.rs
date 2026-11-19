@@ -65,9 +65,10 @@ pub struct CollectionState {
     pub gifting: bool,
     #[cfg(demo_core)]
     pub recipient: String,
-    /// "Password for every payment": the transfer costs credits (BUG-42).
+    /// "Give" (TECH-spend-flow): the password for every payment — the transfer costs credits
+    /// (BUG-42) — sent once, its own answer only.
     #[cfg(demo_core)]
-    pub password: crate::components::SpendPassword,
+    pub flow: crate::components::spend_flow::SpendFlow<()>,
     /// The core's answer to the last "Give".
     pub result: Option<Result<(), CoreError>>,
     /// The pictures, drawn by the core at the size of the cards.
@@ -86,6 +87,19 @@ const TRUSTED: [&str; 1] = ["jembe"];
 impl CollectionState {
     /// Another wallet opens: the gift dialog, its answer and the pictures asked for go; the
     /// drawn pictures and the settings stay (BUG-45).
+    /// The core's answer to «Give», taken only by the dialog that asked it (`ask`). A wrong
+    /// password is said under its field.
+    pub fn on_gift_done(&mut self, ask: Option<u64>, result: &Result<(), CoreError>) {
+        #[cfg(demo_core)]
+        if self.flow.on_done(ask, result)
+            && let Some(((), result)) = self.flow.take_result()
+        {
+            self.result = Some(result);
+        }
+        #[cfg(not(demo_core))]
+        let _ = (ask, result);
+    }
+
     pub fn forget_wallet(&mut self) {
         self.selected = 0;
         self.open = false;
@@ -1099,15 +1113,15 @@ fn gift_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut Collection
         if part == Part::Footer {
             // The footer (BUG-122): always in the window.
             let ask = password_asked(cx.snap);
-            state.password.settle(state.result.as_ref());
-            let entered = state.password.field(ui, &p, "gift-password", ask);
+            let entered = state.flow.password.field(ui, &p, "gift-password", ask);
             crate::components::button_row_spend(ui, |ui| {
                 if button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked() {
                     close = true;
                 }
                 let ready = !state.recipient.trim().is_empty()
                     && error.is_none()
-                    && state.password.ready(ask);
+                    && state.flow.can_act()
+                    && state.flow.password.ready(ask);
                 if button_enabled(ui, a, tr!("Give"), ButtonKind::Primary, None, ready).clicked()
                     || (entered && ready)
                 {
@@ -1115,11 +1129,13 @@ fn gift_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut Collection
                         id: nft.id.clone(),
                         to: state.recipient.trim().to_string(),
                     };
-                    cx.send(state.password.command(op, ask));
-                    state.result = None;
+                    if let Some(command) = state.flow.command(op, ask, ()) {
+                        cx.send(command);
+                        state.result = None;
+                    }
                 }
             });
-            match state.result.as_ref().filter(|_| !state.password.is_wrong()) {
+            match state.result.as_ref() {
                 Some(Ok(())) => {
                     crate::components::notice(ui, a, "confirmed", p.accent, tr!("NFT transferred."))
                 }
@@ -1182,7 +1198,7 @@ fn gift_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut Collection
         state.gifting = false;
         state.recipient.clear();
         state.result = None;
-        state.password.forget();
+        state.flow.forget();
     }
 }
 
@@ -1193,6 +1209,21 @@ fn failed_detail(why: &str) -> String {
         tr!("{}. evolite asks Dash Platform again every minute."),
         why.trim_end_matches('.')
     )
+}
+
+impl crate::screen_state::ScreenState for CollectionState {
+    #[cfg(all(test, demo_core, feature = "dev-tools"))]
+    fn flows(&mut self) -> Vec<&mut dyn crate::components::spend_flow::AnyFlow> {
+        vec![&mut self.flow]
+    }
+
+    fn forget(&mut self, why: crate::screen_state::Why) {
+        #[cfg(demo_core)]
+        self.flow.forget();
+        if why == crate::screen_state::Why::WalletSwitch {
+            self.forget_wallet();
+        }
+    }
 }
 
 #[cfg(test)]

@@ -169,7 +169,7 @@ fn disconnecting_an_app_opens_on_cancel() {
     enter(&mut kit);
     let requests = &kit.state().requests;
     assert!(
-        requests.disconnecting.is_none() && !requests.disconnect_waiting,
+        requests.disconnecting.is_none() && !requests.disconnect_flow.waiting(),
         "Enter closes the dialog and disconnects nothing"
     );
 }

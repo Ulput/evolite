@@ -65,31 +65,31 @@ impl TokensState {
     }
 
     /// `Done { what: SendToken }`.
-    pub fn on_sent(&mut self, result: &Result<(), CoreError>) {
+    pub fn on_sent(&mut self, ask: Option<u64>, result: &Result<(), CoreError>) {
         if let Some(send) = &mut self.sending {
-            send.on_sent(result);
+            send.on_sent(ask, result);
         }
     }
 
     /// `Done { what: ClaimToken }`.
-    pub fn on_claimed(&mut self, result: &Result<(), CoreError>) {
+    pub fn on_claimed(&mut self, ask: Option<u64>, result: &Result<(), CoreError>) {
         if let Some(claim) = &mut self.claiming {
-            claim.on_answer(result);
+            claim.on_answer(ask, result);
         }
     }
 
     /// `Done { what: IssuerAction }`.
-    pub fn on_issuer(&mut self, result: &Result<(), CoreError>) {
+    pub fn on_issuer(&mut self, ask: Option<u64>, result: &Result<(), CoreError>) {
         if let Some(form) = &mut self.issuer {
-            form.on_answer(result);
+            form.on_answer(ask, result);
         }
     }
 
     /// `Done { what: BuyToken }`.
-    pub fn on_bought(&mut self, result: &Result<(), CoreError>) {
+    pub fn on_bought(&mut self, ask: Option<u64>, result: &Result<(), CoreError>) {
         let agreed = self.agreed;
         if let Some(buy) = &mut self.buying {
-            buy.on_answer(result, agreed);
+            buy.on_answer(ask, result, agreed);
         }
     }
 
@@ -103,13 +103,13 @@ impl TokensState {
     /// Lock, delete or another wallet: the dialogs and the password typed go (BUG-42).
     pub fn forget_wallet(&mut self) {
         if let Some(send) = &mut self.sending {
-            send.password.forget();
+            send.flow.forget();
         }
         if let Some(claim) = &mut self.claiming {
-            claim.password.forget();
+            claim.flow.forget();
         }
         if let Some(buy) = &mut self.buying {
-            buy.password.forget();
+            buy.flow.forget();
         }
         *self = TokensState::default();
     }
@@ -427,7 +427,7 @@ pub fn tokens(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut TokensState
             .find(|r| r.info.token_id == buy.token_id)
             .and_then(|r| r.offer.as_ref())
             .and_then(|o| o.tiers.first().map(|t| t.1));
-        if !buy.waiting {
+        if !buy.flow.waiting() {
             state.agreed = shown;
         }
         actions::buy_dialog(ui, a, cx, state);
@@ -1013,6 +1013,30 @@ fn keep_in_mind(ui: &mut Ui, a: &mut Assets) {
             None,
         );
     });
+}
+
+impl crate::screen_state::ScreenState for TokensState {
+    #[cfg(all(test, demo_core, feature = "dev-tools"))]
+    fn flows(&mut self) -> Vec<&mut dyn crate::components::spend_flow::AnyFlow> {
+        let mut flows: Vec<&mut dyn crate::components::spend_flow::AnyFlow> = Vec::new();
+        if let Some(form) = &mut self.sending {
+            flows.push(&mut form.flow);
+        }
+        if let Some(form) = &mut self.claiming {
+            flows.push(&mut form.flow);
+        }
+        if let Some(form) = &mut self.buying {
+            flows.push(&mut form.flow);
+        }
+        if let Some(form) = &mut self.issuer {
+            flows.push(&mut form.flow);
+        }
+        flows
+    }
+
+    fn forget(&mut self, _why: crate::screen_state::Why) {
+        self.forget_wallet();
+    }
 }
 
 #[cfg(test)]

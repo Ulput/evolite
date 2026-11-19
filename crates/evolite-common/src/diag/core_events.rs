@@ -172,7 +172,7 @@ pub fn answer(event: &Event) -> Option<Record> {
         Event::NewPhrase(_) => ("new_phrase", "ok"),
         Event::PhraseAccepted(r) => ("phrase_accepted", outcome(r)),
         Event::NameResolved { result, .. } => ("name_resolved", outcome(result)),
-        Event::Done { what, result } => (what.as_str(), outcome(result)),
+        Event::Done { what, result, .. } => (what.as_str(), outcome(result)),
         Event::PhraseRevealed(r) => ("phrase_revealed", outcome(r)),
         Event::IdentityKeyRevealed(r) => ("identity_key_revealed", outcome(r)),
         Event::Sent { result: r, .. } => ("sent", outcome(r)),
@@ -280,6 +280,7 @@ mod tests {
                 rate: None,
             },
             password: Some(Password::new("hunter2".into())),
+            ask: 0,
         });
         assert_eq!(record, Record::Command { name: "send" });
         let line = record.line(std::time::UNIX_EPOCH);
@@ -307,6 +308,7 @@ mod tests {
         let done = answer(&Event::Done {
             what: DoneWhat::TaxCategory,
             result: Ok(()),
+            ask: None,
         })
         .unwrap();
         for line in [
@@ -325,6 +327,7 @@ mod tests {
                 amount: 125_000,
             },
             password: Some(Password::new("hunter2".into())),
+            ask: 0,
         });
         assert_eq!(send, Record::Command { name: "send_token" });
         let search = command(&Command::SearchTokens {
@@ -352,6 +355,7 @@ mod tests {
                 id: "YapprQZ5contract".into(),
             },
             password: Some(Password::new("hunter2".into())),
+            ask: 0,
         });
         let budgets = command(&Command::ReadAppBudgets {
             id: "YapprQZ5contract".into(),
@@ -402,6 +406,7 @@ mod tests {
         let done = Event::Done {
             what: DoneWhat::Send,
             result: Err(CoreError::Failed("insufficient funds at yMrDQ…".into())),
+            ask: None,
         };
         assert_eq!(
             answer(&done),
@@ -448,6 +453,7 @@ mod tests {
                 accept_excess: 41_999,
             },
             password: Some(Password::new("hunter2".into())),
+            ask: 0,
         });
         assert_eq!(send, Record::Command { name: "send_mixed" });
         let preview = command(&Command::PreviewMixed {

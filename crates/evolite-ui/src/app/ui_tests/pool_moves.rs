@@ -126,17 +126,21 @@ fn an_unshield_at_work_is_not_told_it_is_too_much() {
 /// BUG-101: the core's answer ends «Continue» too: the next shield is one started by the person.
 #[test]
 fn the_answer_ends_a_continued_shield() {
-    use evolite_api::{Command, ShieldSource, Spend};
+    use evolite_api::{ShieldSource, Spend};
     let (_turn, mut kit) = demo_app("shield", "en");
     kit.state_mut().pool.continuing = true;
     kit.state_mut().pool.progress = Some(0.4);
-    kit.state_mut().core.send(Command::Spend {
-        op: Spend::Shield {
-            from: ShieldSource::Credits,
-            amount: 1_000,
-        },
-        password: None,
-    });
+    let op = Spend::Shield {
+        from: ShieldSource::Credits,
+        amount: 1_000,
+    };
+    let command = kit
+        .state_mut()
+        .pool
+        .flow
+        .command(op, false, crate::screens::shielded::PoolMove::Shield)
+        .unwrap();
+    kit.state_mut().core.send(command);
     wait_for(&mut kit, "the core's answer", |kit| {
         kit.state().pool.result.is_some()
     });
@@ -149,7 +153,7 @@ fn the_answer_ends_a_continued_shield() {
 /// leaves the other move's answer alone.
 #[test]
 fn another_moves_success_leaves_a_stopped_shield_offered() {
-    use evolite_api::{Command, Spend};
+    use evolite_api::Spend;
     for op in [
         Spend::Unshield { amount: 1_000 },
         Spend::TopUpFromPool { amount: 1_000 },
@@ -160,9 +164,14 @@ fn another_moves_success_leaves_a_stopped_shield_offered() {
             p.from = 2;
             p.progress = Some(0.4);
         });
-        kit.state_mut()
-            .core
-            .send(Command::Spend { op, password: None });
+        // Sent as the dialog sends it: the answer is taken by its number.
+        let command = kit
+            .state_mut()
+            .pool
+            .flow
+            .command(op, false, PoolMove::Unshield)
+            .unwrap();
+        kit.state_mut().core.send(command);
         wait_for(&mut kit, "the core's answer", |kit| {
             kit.state().pool.result.is_some()
         });

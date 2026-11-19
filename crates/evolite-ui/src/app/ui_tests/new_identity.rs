@@ -76,14 +76,14 @@ fn the_pill_is_off_while_a_creation_is_under_way() {
     let (_turn, mut kit) = demo_app("identity", "en");
     kit.run_steps(3);
     assert_eq!(on(&kit, NEW), Some(true), "«{NEW}» on before");
-    kit.state_mut().create_identity.waiting = true;
+    kit.state_mut().create_identity.set_waiting(true);
     kit.run_steps(2);
     assert_eq!(on(&kit, NEW), Some(false), "«{NEW}» off while creating");
     assert!(has_text(
         &kit,
         "Creating: asset lock, confirmation, identity and name — about a minute. Do not close evolite."
     ));
-    kit.state_mut().create_identity.waiting = false;
+    kit.state_mut().create_identity.set_waiting(false);
     kit.run_steps(2);
     assert_eq!(on(&kit, NEW), Some(true), "«{NEW}» on once answered");
 }
@@ -548,13 +548,16 @@ fn the_steps_stand_over_the_form_while_creating_and_hide() {
         !has_text(&kit, "Identity creation"),
         "no steps before «Create»"
     );
-    kit.state_mut().create_identity.waiting = true;
+    kit.state_mut().create_identity.set_waiting(true);
     kit.state_mut().create_identity.step = Some(2);
     kit.run_steps(3);
     assert!(has_text(&kit, "Identity creation"), "the steps' window");
     button(&kit, "Hide").click();
     kit.run_steps(3);
     assert!(!has_text(&kit, "Identity creation"), "hidden");
-    assert!(kit.state().create_identity.waiting, "the creation goes on");
+    assert!(
+        kit.state().create_identity.waiting(),
+        "the creation goes on"
+    );
     assert!(has_text(&kit, "What happens"));
 }

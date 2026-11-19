@@ -77,6 +77,7 @@ impl Real {
             Event::Done {
                 what: DoneWhat::Identity,
                 result,
+                ask: None,
             }
         });
         Ok(())
@@ -180,6 +181,7 @@ impl Real {
             Event::Done {
                 what: DoneWhat::TopUp,
                 result,
+                ask: None,
             }
         });
         Ok(())
@@ -258,6 +260,7 @@ impl Real {
             Event::Done {
                 what: DoneWhat::Name,
                 result,
+                ask: None,
             }
         });
         Ok(())
@@ -402,6 +405,7 @@ impl Real {
             Event::Done {
                 what: DoneWhat::Name,
                 result,
+                ask: None,
             }
         });
         Ok(())
@@ -491,6 +495,7 @@ impl Real {
             Event::Done {
                 what: DoneWhat::Name,
                 result,
+                ask: None,
             }
         });
         Ok(())
@@ -560,6 +565,7 @@ impl Real {
             Event::Done {
                 what: DoneWhat::TopUp,
                 result,
+                ask: None,
             }
         });
         Ok(())
@@ -943,6 +949,7 @@ impl Real {
             Event::Done {
                 what: DoneWhat::Identity,
                 result,
+                ask: None,
             }
         });
         Ok(())

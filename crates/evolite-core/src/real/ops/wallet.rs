@@ -647,6 +647,7 @@ impl Real {
                 Err(_) => Event::Done {
                     what: DoneWhat::Create,
                     result: Err(CoreError::BadPhrase),
+                    ask: None,
                 },
             }
         };
@@ -713,6 +714,7 @@ impl Real {
                     Some(Event::Done {
                         what: DoneWhat::Switch,
                         result: self.unlock_counted(&password).await,
+                        ask: None,
                     }),
                     true,
                 ),
@@ -729,6 +731,7 @@ impl Real {
                         Some(Event::Done {
                             what: DoneWhat::Switch,
                             result: Err(e),
+                            ask: None,
                         }),
                         true,
                     );
@@ -770,6 +773,7 @@ impl Real {
             Event::Done {
                 what: DoneWhat::Wallet,
                 result,
+                ask: None,
             }
         };
         (Some(event), true)

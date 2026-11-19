@@ -450,6 +450,7 @@ pub(super) fn sign_and_send_mixed(
             },
         },
         password: ask_password.then(|| Password::new(form.password.to_string())),
+        ask: 0,
     });
     form.waiting += 1;
     form.let_go_of_payment();

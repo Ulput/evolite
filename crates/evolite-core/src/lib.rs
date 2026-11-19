@@ -283,6 +283,7 @@ mod tests {
         Command::Spend {
             op,
             password: Some(Password::new(WARM_PASSWORD.into())),
+            ask: 0,
         }
     }
 
@@ -306,6 +307,7 @@ mod tests {
             Event::Done {
                 what: DoneWhat::Unlock,
                 result,
+                ..
             } => Some(result.clone()),
             _ => None,
         })
@@ -434,6 +436,7 @@ mod tests {
             Event::Done {
                 what: DoneWhat::Unlock,
                 result,
+                ..
             } => Some(result.clone()),
             Event::Snapshot(s) if s.sync.error.is_some() => {
                 println!("sync error: {:?}", s.sync.error);
@@ -499,6 +502,7 @@ mod tests {
                 Event::Done {
                     what: DoneWhat::Create,
                     result,
+                    ..
                 } => Some(result.clone()),
                 _ => None,
             })
@@ -512,6 +516,7 @@ mod tests {
                 Event::Done {
                     what: DoneWhat::Delete,
                     result,
+                    ..
                 } => Some(result.clone()),
                 _ => None,
             })
@@ -626,6 +631,7 @@ mod tests {
                 Event::Done {
                     what: DoneWhat::Unlock,
                     result,
+                    ..
                 } => Some(result.clone()),
                 _ => None,
             })
@@ -667,6 +673,7 @@ mod tests {
                 Event::Done {
                     what: DoneWhat::Switch,
                     result,
+                    ..
                 } => Some(result.clone()),
                 _ => None,
             })
@@ -725,6 +732,7 @@ mod tests {
             Event::Done {
                 what: DoneWhat::Create,
                 result,
+                ..
             } => Some(result.clone()),
             _ => None,
         })
@@ -763,6 +771,7 @@ mod tests {
             Event::Done {
                 what: DoneWhat::Unlock,
                 result,
+                ..
             } => Some(result.clone()),
             _ => None,
         });
@@ -774,6 +783,7 @@ mod tests {
             Event::Done {
                 what: DoneWhat::Unlock,
                 result,
+                ..
             } => Some(result.clone()),
             _ => None,
         })
@@ -1019,6 +1029,7 @@ mod tests {
                 Event::Done {
                     what: DoneWhat::Unlock,
                     result,
+                    ..
                 } => Some(result.clone()),
                 _ => None,
             });
@@ -1518,6 +1529,7 @@ mod tests {
             Event::Done {
                 what: DoneWhat::Identity,
                 result,
+                ..
             } => Some(result.clone()),
             _ => None,
         });
@@ -1596,6 +1608,7 @@ mod tests {
             Event::Done {
                 what: DoneWhat::Identity,
                 result,
+                ..
             } => Some(result.clone()),
             _ => None,
         })
@@ -1626,6 +1639,7 @@ mod tests {
             Event::Done {
                 what: DoneWhat::Delete,
                 result,
+                ..
             } => Some(result.clone()),
             _ => None,
         })
@@ -1723,6 +1737,7 @@ mod tests {
                 Event::Done {
                     what: DoneWhat::Contact,
                     result,
+                    ..
                 } => Some(result.clone()),
                 _ => None,
             });
@@ -1928,6 +1943,7 @@ mod tests {
             Event::Done {
                 what: DoneWhat::Unlock,
                 result,
+                ..
             } => Some(result.clone()),
             _ => None,
         })
@@ -1989,6 +2005,7 @@ mod tests {
                 Event::Done {
                     what: DoneWhat::Resync,
                     result,
+                    ..
                 } => Some(result.clone()),
                 _ => None,
             })
@@ -2008,6 +2025,7 @@ mod tests {
             Event::Done {
                 what: DoneWhat::Unlock,
                 result,
+                ..
             } => Some(result.clone()),
             _ => None,
         })
@@ -2178,6 +2196,7 @@ mod tests {
             Event::Done {
                 what: DoneWhat::TopUp,
                 result,
+                ..
             } => Some(result.clone()),
             _ => None,
         });
@@ -2318,6 +2337,7 @@ mod tests {
             Event::Done {
                 what: DoneWhat::Profile,
                 result,
+                ..
             } => Some(result.clone()),
             _ => None,
         });
@@ -2343,6 +2363,7 @@ mod tests {
             Event::Done {
                 what: DoneWhat::Contact,
                 result,
+                ..
             } => Some(result.clone()),
             _ => None,
         });
@@ -2449,6 +2470,7 @@ mod tests {
             Event::Done {
                 what: DoneWhat::Contact,
                 result,
+                ..
             } => Some(result.clone()),
             _ => None,
         });
@@ -2504,6 +2526,7 @@ mod tests {
             Event::Done {
                 what: DoneWhat::Contact,
                 result,
+                ..
             } => Some(result.clone()),
             _ => None,
         });
@@ -2665,6 +2688,7 @@ mod tests {
                 Event::Done {
                     what: DoneWhat::CoreNode,
                     result,
+                    ..
                 } => Some(result.clone()),
                 _ => None,
             })
@@ -2714,6 +2738,7 @@ mod tests {
                 Event::Done {
                     what: DoneWhat::CoreNode,
                     result,
+                    ..
                 } => Some(result.clone()),
                 _ => None,
             })
@@ -3039,7 +3064,9 @@ mod tests {
             let started = Instant::now();
             core.send(command);
             let result = wait_for(&core, 15, |e| match e {
-                Event::Done { what: w, result } if *w == what => Some(result.clone()),
+                Event::Done {
+                    what: w, result, ..
+                } if *w == what => Some(result.clone()),
                 _ => None,
             });
             println!("{what}: {result:?} in {} s", started.elapsed().as_secs());
@@ -3117,6 +3144,7 @@ mod tests {
             Event::Done {
                 what: DoneWhat::Shield,
                 result,
+                ..
             } => Some(result.clone()),
             _ => None,
         });
@@ -3240,7 +3268,9 @@ mod tests {
         let step = |command: Command, what: DoneWhat| {
             core.send(command);
             let result = wait_for(&core, 15, |e| match e {
-                Event::Done { what: w, result } if *w == what => Some(result.clone()),
+                Event::Done {
+                    what: w, result, ..
+                } if *w == what => Some(result.clone()),
                 _ => None,
             });
             result.unwrap_or_else(|e| panic!("{what} failed: {e:?}"));
@@ -3315,7 +3345,9 @@ mod tests {
             let started = Instant::now();
             core.send(command);
             let result = wait_for(&core, 20, |e| match e {
-                Event::Done { what: w, result } if *w == what => Some(result.clone()),
+                Event::Done {
+                    what: w, result, ..
+                } if *w == what => Some(result.clone()),
                 _ => None,
             });
             println!("{what}: {result:?} in {} s", started.elapsed().as_secs());
@@ -3452,7 +3484,9 @@ mod tests {
         let step = |command: Command, what: DoneWhat| {
             core.send(command);
             let result = wait_for(&core, 20, |e| match e {
-                Event::Done { what: w, result } if *w == what => Some(result.clone()),
+                Event::Done {
+                    what: w, result, ..
+                } if *w == what => Some(result.clone()),
                 _ => None,
             });
             println!("{what}: {result:?}");

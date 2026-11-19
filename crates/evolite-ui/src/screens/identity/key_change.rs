@@ -27,11 +27,11 @@ pub struct KeyChange {
     pub(crate) kind: ChangeKind,
     /// K5's choice.
     pub(crate) chosen: Option<KeyRequest>,
-    pub(crate) password: SpendPassword,
+    /// The change's spend (TECH-spend-flow): its password, sent once, its own answer only.
+    pub(crate) flow: crate::components::spend_flow::SpendFlow<()>,
     /// AC-T19: «I understand: a disabled key cannot be brought back» — asked when DashPay's pair
     /// would also disable another's encryption keys.
     pub(crate) understood: bool,
-    pub(crate) waiting: bool,
     /// This dialog has sent its change once (BUG-184): the plan's refusal is no answer since.
     pub(crate) sent_once: bool,
     pub(crate) result: Option<Result<(), CoreError>>,
@@ -42,9 +42,8 @@ impl KeyChange {
         Self {
             kind,
             chosen: None,
-            password: SpendPassword::default(),
+            flow: Default::default(),
             understood: false,
-            waiting: false,
             sent_once: false,
             result: None,
         }
@@ -73,18 +72,18 @@ impl KeyChange {
         (add, disable)
     }
 
-    /// The core's answer: a wrong password stays for a correction.
-    pub(crate) fn on_changed(&mut self, result: Result<(), CoreError>) {
-        if !self.waiting {
-            return;
+    /// The core's answer, taken only when this dialog asked it (`ask`): whether it was. A
+    /// wrong password sent nothing: the form stays, for the right one (R-6).
+    pub(crate) fn on_changed(&mut self, ask: Option<u64>, result: Result<(), CoreError>) -> bool {
+        if !self.flow.on_done(ask, &result) {
+            return false;
         }
-        self.waiting = false;
-        self.password.on_answer(&result);
-        // A wrong password sent nothing: the form stays, for the right one (R-6).
+        let _ = self.flow.take_result();
         if matches!(result, Err(CoreError::WrongPassword)) {
             self.sent_once = false;
         }
         self.result = Some(result);
+        true
     }
 
     /// BUG-200: this dialog sent its change and the core answered — whatever it said, the
@@ -92,7 +91,7 @@ impl KeyChange {
     /// on a snapshot that already has the change (the main key now the new one) would be a
     /// second paid change nobody asked for.
     pub(crate) fn answered(&self) -> bool {
-        self.sent_once && !self.waiting && self.result.is_some()
+        self.sent_once && !self.flow.waiting() && self.result.is_some()
     }
 }
 
@@ -181,7 +180,7 @@ pub(super) fn change_dialog(
     // After it, a refusal means the snapshot shows the change (the key disabled, the keys there):
     // done, whatever the answer could tell.
     if change.sent_once
-        && !change.waiting
+        && !change.flow.waiting()
         && matches!(&plan, Err(r) if *r != key_plan::KeyRefusal::Nothing)
     {
         *slot = None;
@@ -260,22 +259,25 @@ pub(super) fn change_dialog(
                 return close;
             }
             // The password is asked for every key change (R-6).
-            if !change.waiting {
-                change.password.field(ui, &p, "key-change-password", true);
+            if !change.flow.waiting() {
+                change
+                    .flow
+                    .password
+                    .field(ui, &p, "key-change-password", true);
             }
             if let Some(Err(e)) = change
                 .result
                 .as_ref()
-                .filter(|_| !change.password.is_wrong())
+                .filter(|_| !change.flow.password.is_wrong())
             {
                 error_notice(ui, a, &said(e), text::error_details(e).as_deref());
             }
             let ready = plan.is_ok()
                 && credits_short.is_none()
-                && change.password.ready(true)
-                && !change.waiting
+                && change.flow.password.ready(true)
+                && !change.flow.waiting()
                 && (foreign.is_empty() || change.understood);
-            let label = if change.waiting {
+            let label = if change.flow.waiting() {
                 tr!("Changing the keys…")
             } else {
                 act
@@ -303,10 +305,11 @@ pub(super) fn change_dialog(
                     add: add.clone(),
                     disable: disable.clone(),
                 };
-                cx.send(change.password.command(op, true));
-                change.waiting = true;
-                change.sent_once = true;
-                change.result = None;
+                if let Some(command) = change.flow.command(op, true, ()) {
+                    cx.send(command);
+                    change.sent_once = true;
+                    change.result = None;
+                }
             }
             return close;
         }
@@ -689,8 +692,22 @@ mod tests {
         );
         assert_eq!(KeyChange::new(ChangeKind::Add).asked(&[]), (vec![], vec![]));
         let mut change = KeyChange::new(ChangeKind::ReplaceMaster);
-        change.waiting = true;
-        change.on_changed(Err(CoreError::WrongPassword));
-        assert!(change.password.is_wrong() && !change.waiting);
+        let Some(evolite_api::Command::Spend { ask, .. }) = change.flow.command(
+            evolite_api::Spend::UpdateKeys {
+                identity: "id".into(),
+                add: vec![KeyRequest::ReplaceMaster],
+                disable: vec![],
+            },
+            true,
+            (),
+        ) else {
+            panic!("sent");
+        };
+        assert!(
+            !change.on_changed(Some(ask + 1), Err(CoreError::WrongPassword)),
+            "another's"
+        );
+        assert!(change.on_changed(Some(ask), Err(CoreError::WrongPassword)));
+        assert!(change.flow.password.is_wrong() && !change.flow.waiting());
     }
 }

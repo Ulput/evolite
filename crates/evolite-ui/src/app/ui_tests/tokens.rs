@@ -394,7 +394,13 @@ fn a_transfer_sent_keeps_left_after_as_signed() {
     button(&kit, "Sign and send").click();
     // One frame: sent; the demo's refusal comes later and nobody waits for it then.
     kit.run_steps(1);
-    kit.state_mut().tokens.on_sent(&Ok(()));
+    let ask = kit
+        .state()
+        .tokens
+        .sending
+        .as_ref()
+        .and_then(|s| s.flow.waiting_ask());
+    kit.state_mut().tokens.on_sent(ask, &Ok(()));
     show_wallet_edited(
         &mut kit,
         3,
@@ -425,8 +431,9 @@ fn a_transfer_not_known_offers_no_repeat() {
         .sending
         .as_mut()
         .expect("the send window");
-    send.waiting = true;
-    send.on_sent(&Err(evolite_api::CoreError::Unclear));
+    send.flow
+        .set_stage(crate::components::spend_flow::Stage::Waiting { ask: 0, signed: () });
+    send.on_sent(Some(0), &Err(evolite_api::CoreError::Unclear));
     kit.run_steps(3);
     assert!(has_words(
         &kit,
@@ -463,8 +470,9 @@ fn a_transfer_after_some_write_went_through_offers_no_repeat() {
         .sending
         .as_mut()
         .expect("the send window");
-    send.waiting = true;
-    send.on_sent(&Err(evolite_api::CoreError::UnclearWhich));
+    send.flow
+        .set_stage(crate::components::spend_flow::Stage::Waiting { ask: 0, signed: () });
+    send.on_sent(Some(0), &Err(evolite_api::CoreError::UnclearWhich));
     kit.run_steps(3);
     assert!(has_words(
         &kit,

@@ -81,6 +81,10 @@ struct Mock {
     sync_started: Option<Instant>,
     /// When the staged proof for "Hide in the pool" started.
     shield_started: Option<Instant>,
+    /// TECH-spend-flow: the number of the spend being handled, and of the shield started, for
+    /// its answer later.
+    spend_ask: u64,
+    shield_ask: u64,
     /// When the staged "Find my tokens" started (FEAT-0019).
     tokens_started: Option<Instant>,
     next_request: u64,
@@ -164,6 +168,7 @@ impl Mock {
                 Event::Done {
                     what: DoneWhat::Create,
                     result,
+                    ask: None,
                 }
             }
             // The example network's names (FEAT-0039): nothing is asked of a network.
@@ -193,6 +198,7 @@ impl Mock {
                 Event::Done {
                     what: DoneWhat::Contact,
                     result: Ok(()),
+                    ask: None,
                 }
             }
             Command::PreviewPayment { to } => {
@@ -247,6 +253,7 @@ impl Mock {
                 Event::Done {
                     what: DoneWhat::AddressBook,
                     result,
+                    ask: None,
                 }
             }
             Command::ForgetAddress { address } => {
@@ -257,6 +264,7 @@ impl Mock {
                 Event::Done {
                     what: DoneWhat::AddressBook,
                     result: Ok(()),
+                    ask: None,
                 }
             }
             Command::DrawArt { art, side, urgent } => {
@@ -299,6 +307,7 @@ impl Mock {
                 Event::Done {
                     what: DoneWhat::ForgetApp,
                     result,
+                    ask: None,
                 }
             }
             Command::ReadAppBudgets { id } => {
@@ -313,6 +322,7 @@ impl Mock {
                 Event::Done {
                     what: DoneWhat::AppBudgets,
                     result: Ok(()),
+                    ask: None,
                 }
             }
             // FEAT-0021 Should 1: «×» on Overview's notice, kept until the result.
@@ -344,6 +354,7 @@ impl Mock {
                 Event::Done {
                     what: DoneWhat::Name,
                     result,
+                    ask: None,
                 }
             }
             Command::CheckName { label } => Event::NameChecked {
@@ -387,6 +398,7 @@ impl Mock {
                     changed = true;
                     Ok(())
                 },
+                ask: None,
             },
             // The example wallet is not on this computer to delete.
             Command::DeleteWallet { .. } => Event::Done {
@@ -394,6 +406,7 @@ impl Mock {
                 result: Err(CoreError::NotAvailable(
                     tr!("This is the mockup's example: there is nothing to delete").into(),
                 )),
+                ask: None,
             },
             // Nor is there a chain behind it to sync again.
             Command::Resync => Event::Done {
@@ -401,6 +414,7 @@ impl Mock {
                 result: Err(CoreError::NotAvailable(
                     tr!("This is the mockup's example: there is nothing to sync").into(),
                 )),
+                ask: None,
             },
             Command::OpenAppLink { text } => {
                 self.next_request += 1;
@@ -422,11 +436,14 @@ impl Mock {
             Command::DeclineApp { .. } => Event::Done {
                 what: DoneWhat::App,
                 result: Ok(()),
+                ask: None,
             },
             // The same gate as the real core's, in memory: the demo wallets take any password
             // but an empty one and [`WRONG_PASSWORD`].
-            Command::Spend { op, password } => {
-                match self.spend_gate(password.as_ref(), op.asks_password_always()) {
+            // TECH-spend-flow: the answer carries the window's number back.
+            Command::Spend { op, password, ask } => {
+                self.spend_ask = ask;
+                let event = match self.spend_gate(password.as_ref(), op.asks_password_always()) {
                     Err(why) => op.refused(why),
                     Ok(()) => {
                         let event = self.spend(op);
@@ -439,14 +456,16 @@ impl Mock {
                                     | DoneWhat::Disconnect
                                     | DoneWhat::FundAddress
                                     | DoneWhat::Keys,
-                                result: Ok(())
+                                result: Ok(()),
+                                ..
                             }
                         );
                         // So does a payment from the Platform addresses (FEAT-0015).
                         changed |= matches!(event, Event::Sent { result: Ok(_), .. });
                         event
                     }
-                }
+                };
+                event.answering(ask)
             }
             Command::SetPasswordEachSend { on, password } => {
                 let result = match &mut self.snapshot.wallet {
@@ -463,6 +482,7 @@ impl Mock {
                 Event::Done {
                     what: DoneWhat::PasswordEachSend,
                     result,
+                    ask: None,
                 }
             }
             // The demo wallets have no password: any opens them, but an empty one and
@@ -486,6 +506,7 @@ impl Mock {
                 Event::Done {
                     what: DoneWhat::Unlock,
                     result,
+                    ask: None,
                 }
             }
             // Another demo wallet opens at its unlock screen, as the real core's does (locked,
@@ -509,6 +530,7 @@ impl Mock {
                         Event::Done {
                             what: DoneWhat::Switch,
                             result,
+                            ask: None,
                         }
                     }
                     None => {
@@ -576,6 +598,7 @@ impl Mock {
                 Event::Done {
                     what: DoneWhat::Note,
                     result,
+                    ask: None,
                 }
             }
             // FEAT-0012: in memory only, as the notes (FR-11).
@@ -598,6 +621,7 @@ impl Mock {
                 Event::Done {
                     what: DoneWhat::TaxCategory,
                     result,
+                    ask: None,
                 }
             }
             // BUG-204: the demo writes no file. A file set aside (a preset lays it over the
@@ -607,10 +631,12 @@ impl Mock {
                 result: Err(CoreError::NotAvailable(
                     tr!("The file still does not read").into(),
                 )),
+                ask: None,
             },
             Command::StartFileOver { .. } => Event::Done {
                 what: DoneWhat::LocalFile,
                 result: Ok(()),
+                ask: None,
             },
             Command::RenameWallet { id, name, color } => {
                 let name = name.trim().to_owned();
@@ -631,6 +657,7 @@ impl Mock {
                 Event::Done {
                     what: DoneWhat::Wallet,
                     result,
+                    ask: None,
                 }
             }
             // The example network's tokens (FEAT-0019 AC-T7); nothing is asked of a network.
@@ -651,6 +678,7 @@ impl Mock {
                 Event::Done {
                     what: DoneWhat::Token,
                     result,
+                    ask: None,
                 }
             }
             Command::FindMyTokens => {
@@ -685,6 +713,7 @@ impl Mock {
             Command::Lock => Event::Done {
                 what: DoneWhat::Lock,
                 result: Err(CoreError::NotAvailable(NO_WALLET.into())),
+                ask: None,
             },
             // The demo wallet has no keys to forget.
             Command::AutoLock { .. } | Command::Touch => return changed,
@@ -694,6 +723,7 @@ impl Mock {
                 result: Err(CoreError::NotAvailable(
                     tr!("This is the mockup's example: it does not connect to the network").into(),
                 )),
+                ask: None,
             },
             // The example's price, so the screens show where it goes; no service is asked.
             Command::FiatRate { currency } => {
@@ -713,6 +743,7 @@ impl Mock {
                 } else {
                     Err(CoreError::NotAvailable(NO_WALLET.into()))
                 },
+                ask: None,
             },
             Command::RevealPhrase { password, .. } => {
                 Event::PhraseRevealed(if password.expose().is_empty() {
@@ -737,6 +768,7 @@ impl Mock {
             Command::ReadIdentityKeys { .. } => Event::Done {
                 what: DoneWhat::KeysRead,
                 result: Ok(()),
+                ask: None,
             },
             // "Check the phrase" on the phrase of the Figma frames: the same four words each time.
             Command::AskPhraseCheck { password } => {
@@ -827,6 +859,7 @@ impl Mock {
         let why = match op {
             Spend::Shield { .. } => {
                 self.shield_started = Some(Instant::now());
+                self.shield_ask = self.spend_ask;
                 return Event::Progress {
                     what: "shield",
                     fraction: 0.0,
@@ -849,6 +882,7 @@ impl Mock {
                 return Event::Done {
                     what: DoneWhat::Keys,
                     result,
+                    ask: None,
                 };
             }
             Spend::DisconnectApp { id } => {
@@ -863,6 +897,7 @@ impl Mock {
                 return Event::Done {
                     what: DoneWhat::Disconnect,
                     result: Ok(()),
+                    ask: None,
                 };
             }
             Spend::ApproveApp {
@@ -873,6 +908,7 @@ impl Mock {
                 return Event::Done {
                     what: DoneWhat::App,
                     result,
+                    ask: None,
                 };
             }
             Spend::CreateIdentity { name, top_up } => {
@@ -880,6 +916,7 @@ impl Mock {
                 return Event::Done {
                     what: DoneWhat::Identity,
                     result,
+                    ask: None,
                 };
             }
             // FEAT-0015 stage 2 (AC-T10).
@@ -888,6 +925,7 @@ impl Mock {
                 return Event::Done {
                     what: DoneWhat::FundAddress,
                     result,
+                    ask: None,
                 };
             }
             Spend::ResumeFundAddress => {
@@ -895,6 +933,7 @@ impl Mock {
                 return Event::Done {
                     what: DoneWhat::FundAddress,
                     result,
+                    ask: None,
                 };
             }
             // FEAT-0021: a regular name at once, a contested one into the vote.
@@ -907,6 +946,7 @@ impl Mock {
                 return Event::Done {
                     what: DoneWhat::Name,
                     result,
+                    ask: None,
                 };
             }
             // FEAT-0021 АРХ-6: the link alone, as the real core writes it (AC-T12).
@@ -915,6 +955,7 @@ impl Mock {
                 return Event::Done {
                     what: DoneWhat::Name,
                     result,
+                    ask: None,
                 };
             }
             _ => NO_WALLET,
@@ -1510,6 +1551,7 @@ impl Mock {
                 let _ = out.send(Event::Done {
                     what: DoneWhat::Shield,
                     result: Err(CoreError::NotAvailable(NO_WALLET.into())),
+                    ask: Some(self.shield_ask),
                 });
             } else {
                 let _ = out.send(Event::Progress {
@@ -1571,6 +1613,8 @@ pub fn run(
         pending: None,
         sync_started: None,
         shield_started: None,
+        spend_ask: 0,
+        shield_ask: 0,
         tokens_started: None,
         next_request: 0,
         asked_v2: None,
@@ -1627,6 +1671,8 @@ mod tests {
             pending: None,
             sync_started: None,
             shield_started: None,
+            spend_ask: 0,
+            shield_ask: 0,
             tokens_started: None,
             next_request: 0,
             asked_v2: None,
@@ -1650,7 +1696,8 @@ mod tests {
             rx.recv().unwrap(),
             Event::Done {
                 what: DoneWhat::Unlock,
-                result: Err(CoreError::WrongPassword)
+                result: Err(CoreError::WrongPassword),
+                ..
             }
         ));
         assert_eq!(m.snapshot.vault, VaultState::Locked);
@@ -1659,7 +1706,8 @@ mod tests {
             rx.recv().unwrap(),
             Event::Done {
                 what: DoneWhat::Unlock,
-                result: Ok(())
+                result: Ok(()),
+                ..
             }
         ));
         assert_eq!(m.snapshot.vault, VaultState::Unlocked);
@@ -1667,7 +1715,7 @@ mod tests {
 
     fn done(rx: &Receiver<Event>) -> (DoneWhat, Result<(), CoreError>) {
         match rx.recv().unwrap() {
-            Event::Done { what, result } => (what, result),
+            Event::Done { what, result, .. } => (what, result),
             other => panic!("{other:?}"),
         }
     }
@@ -1797,7 +1845,8 @@ mod tests {
             rx.recv().unwrap(),
             Event::Done {
                 what: DoneWhat::Note,
-                result: Ok(())
+                result: Ok(()),
+                ..
             }
         ));
         assert_eq!(shown(&m).as_deref(), Some("For the logo"));
@@ -1806,7 +1855,8 @@ mod tests {
             rx.recv().unwrap(),
             Event::Done {
                 what: DoneWhat::Note,
-                result: Err(CoreError::NotAvailable(_))
+                result: Err(CoreError::NotAvailable(_)),
+                ..
             }
         ));
         assert_eq!(shown(&m).as_deref(), Some("For the logo"));
@@ -1815,7 +1865,8 @@ mod tests {
             rx.recv().unwrap(),
             Event::Done {
                 what: DoneWhat::Note,
-                result: Ok(())
+                result: Ok(()),
+                ..
             }
         ));
         assert_eq!(shown(&m), None);
@@ -1824,7 +1875,8 @@ mod tests {
             rx.recv().unwrap(),
             Event::Done {
                 what: DoneWhat::Note,
-                result: Err(_)
+                result: Err(_),
+                ..
             }
         ));
         m.handle(note("", "x"), &tx);
@@ -1832,7 +1884,8 @@ mod tests {
             rx.recv().unwrap(),
             Event::Done {
                 what: DoneWhat::Note,
-                result: Err(_)
+                result: Err(_),
+                ..
             }
         ));
     }
@@ -1845,6 +1898,7 @@ mod tests {
                     top_up: 30_000_000,
                 },
                 password: None,
+                ask: 0,
             },
             tx,
         );
@@ -1863,7 +1917,8 @@ mod tests {
             rx.recv().unwrap(),
             Event::Done {
                 what: DoneWhat::Identity,
-                result: Ok(())
+                result: Ok(()),
+                ..
             }
         ));
         let w = m.snapshot.wallet.as_ref().unwrap();
@@ -2000,7 +2055,8 @@ mod tests {
             refused,
             Event::Done {
                 what: DoneWhat::SendToken,
-                result: Err(CoreError::NotAvailable(_))
+                result: Err(CoreError::NotAvailable(_)),
+                ..
             }
         ));
     }
@@ -2094,6 +2150,7 @@ mod tests {
                     rate: None,
                 },
                 password: None,
+                ask: 0,
             },
             &tx,
         );
@@ -2131,6 +2188,7 @@ mod tests {
                     rate: None,
                 },
                 password: None,
+                ask: 0,
             },
             &tx,
         );
@@ -2162,6 +2220,7 @@ mod tests {
                         rate: None,
                     },
                     password: None,
+                    ask: 0,
                 },
                 &tx,
             );
@@ -2289,6 +2348,7 @@ mod tests {
             Event::Done {
                 what,
                 result: Err(e),
+                ..
             } => (what, e),
             other => panic!("not a refusal: {other:?}"),
         }
@@ -2318,6 +2378,7 @@ mod tests {
                 Command::Spend {
                     op: op.clone(),
                     password: None,
+                    ask: 0,
                 },
                 &tx,
             );
@@ -2330,6 +2391,7 @@ mod tests {
                 Command::Spend {
                     op: op.clone(),
                     password: Some(Password::new(String::new())),
+                    ask: 0,
                 },
                 &tx,
             );
@@ -2350,6 +2412,7 @@ mod tests {
                     amount: 1,
                 },
                 password: Some(Password::new("any".into())),
+                ask: 0,
             },
             &tx,
         );
@@ -2361,7 +2424,14 @@ mod tests {
         let (mut m, tx, rx) = mock();
         m.snapshot.wallet = Some(demo_wallet(now()));
         for op in every_spend() {
-            m.handle(Command::Spend { op, password: None }, &tx);
+            m.handle(
+                Command::Spend {
+                    op,
+                    password: None,
+                    ask: 0,
+                },
+                &tx,
+            );
             let event = rx.recv().unwrap();
             if let Event::Sent { result: Err(e), .. } | Event::Done { result: Err(e), .. } = &event
             {
@@ -2659,6 +2729,7 @@ mod tests {
                 Event::Done {
                     what: DoneWhat::App,
                     result,
+                    ..
                 } => Some(result),
                 _ => None,
             })
@@ -2669,6 +2740,7 @@ mod tests {
                 grant: Some(SessionGrant { keys }),
             },
             password: Some(Password::new("any".into())),
+            ask: 0,
         };
         let link = |text: &str| Command::OpenAppLink { text: text.into() };
         m.handle(link("dashpay://connect?v=2&n=t&r=AQ"), &tx);

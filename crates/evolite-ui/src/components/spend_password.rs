@@ -19,8 +19,6 @@ pub struct SpendPassword {
     typed: Zeroizing<String>,
     /// The core said the last one was wrong.
     wrong: bool,
-    /// A spend with this password went to the core; its answer is awaited ([`Self::settle`]).
-    pending: bool,
     /// The operation of the last [`Self::command`] ([`Spend::what`]), named in the "wrong
     /// password" line; none for the setting itself.
     what: Option<DoneWhat>,
@@ -57,6 +55,12 @@ impl SpendPassword {
         entered
     }
 
+    /// Types `text` into the field (tests).
+    #[cfg(all(test, demo_core, feature = "dev-tools"))]
+    pub fn type_in(&mut self, text: &str) {
+        self.typed.push_str(text);
+    }
+
     /// The step's main button may go: nothing is asked, or something is typed.
     pub fn ready(&self, asked: bool) -> bool {
         !asked || !self.typed.is_empty()
@@ -69,43 +73,37 @@ impl SpendPassword {
         Command::Spend {
             op,
             password: self.password(asked),
+            ask: 0,
         }
     }
 
     /// A copy of the typed password for a command, when asked (turning the setting off takes
     /// it too); its answer is awaited from now on.
     pub fn password(&mut self, asked: bool) -> Option<Password> {
-        self.pending = true;
         asked.then(|| Password::new(self.typed.to_string()))
     }
 
-    /// Each frame, with the answer the screen keeps for its spend: the first answer after
-    /// [`Self::command`] goes to [`Self::on_answer`]. A screen whose answer is routed to its
-    /// state may call that directly instead.
-    pub fn settle<T>(&mut self, answer: Option<&Result<T, CoreError>>) {
-        if self.pending
-            && let Some(result) = answer
-        {
-            self.on_answer(result);
-        }
-    }
-
-    /// The core's answer to the spend: a wrong password keeps the typing for a correction and
-    /// says so under the field; anything else forgets it.
+    /// The core's answer to the spend: a wrong password empties the field and says so under it
+    /// (TECH-spend-flow review U3: typed again, never sent twice as it was); anything else
+    /// forgets it.
     pub fn on_answer<T>(&mut self, result: &Result<T, CoreError>) {
-        self.pending = false;
         if matches!(result, Err(CoreError::WrongPassword)) {
-            self.wrong = true;
+            self.on_wrong();
         } else {
             self.forget();
         }
+    }
+
+    /// The core said the password was wrong: the field empty, the line under it shown.
+    pub fn on_wrong(&mut self) {
+        self.typed.zeroize();
+        self.wrong = true;
     }
 
     /// Wipes what was typed (cancel, lock, the step closed).
     pub fn forget(&mut self) {
         self.typed.zeroize();
         self.wrong = false;
-        self.pending = false;
     }
 
     /// The last answer was a wrong password (shown under the field; a screen leaves out its
@@ -169,42 +167,27 @@ mod tests {
         assert!(password.is_none());
         form.typed.push_str("hunter2");
         assert!(form.ready(true));
-        let Command::Spend { password, op } = form.command(send(), true) else {
+        let Command::Spend { password, op, .. } = form.command(send(), true) else {
             panic!()
         };
         assert_eq!(password.unwrap().expose(), "hunter2");
         assert_eq!(op, send());
     }
 
+    /// TECH-spend-flow review U3: a wrong password empties the field (typed again, never sent
+    /// twice as it was) and says so; anything else forgets it.
     #[test]
-    fn a_wrong_password_stays_to_be_corrected_and_anything_else_forgets_it() {
+    fn a_wrong_password_is_typed_again_and_anything_else_forgets_it() {
         let mut form = SpendPassword::default();
         form.typed.push_str("hunter3");
         form.on_answer::<()>(&Err(CoreError::WrongPassword));
-        assert!(form.is_wrong() && form.ready(true));
+        assert!(form.is_wrong() && !form.ready(true));
+        form.typed.push_str("hunter2");
         form.on_answer::<()>(&Err(CoreError::NotEnough));
         assert!(!form.is_wrong() && !form.ready(true));
         form.typed.push_str("hunter2");
         form.on_answer(&Ok(()));
         assert!(!form.ready(true));
-    }
-
-    #[test]
-    fn only_the_answer_after_a_spend_settles_it() {
-        let mut form = SpendPassword::default();
-        form.typed.push_str("hunter2");
-        // An answer from before (a result still on screen) leaves the typing alone.
-        form.settle::<()>(Some(&Err(CoreError::WrongPassword)));
-        assert!(!form.is_wrong() && form.ready(true));
-        let _ = form.command(send(), true);
-        form.settle::<()>(None);
-        assert!(form.ready(true));
-        form.settle::<()>(Some(&Err(CoreError::WrongPassword)));
-        assert!(form.is_wrong());
-        // Settled once: the same answer next frame changes nothing.
-        form.typed.push('x');
-        form.settle::<()>(Some(&Ok(())));
-        assert!(form.ready(true));
     }
 
     /// The analyst: «Неверный пароль — <операция> не выполнена.» — every spend is named, none

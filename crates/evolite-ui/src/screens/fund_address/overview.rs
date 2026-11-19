@@ -20,14 +20,14 @@ impl FundAddressState {
     /// «Top up from Core ›» on the Platform address tile: opens the form.
     pub fn open(&mut self) {
         self.form = Some(FundForm::default());
-        self.result = None;
+        self.close_result();
     }
 
     /// Whether a new funding may be started: none running, none stopped that holds it back (24:
     /// the tile's action is dim and inactive then). A stopped one whose «Continue» failed holds
     /// nothing back (BUG-160).
     pub fn may_start(&self, wallet: &Wallet) -> bool {
-        self.running.is_none()
+        self.running().is_none()
             && !wallet
                 .unfinished_address_top_up
                 .as_ref()
@@ -41,7 +41,7 @@ pub fn on_overview(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut FundAd
     let wallet = cx.wallet().clone();
     let p = a.p;
     let mut asked = Vec::new();
-    match &state.result {
+    match state.result() {
         Some((duffs, Ok(()))) => {
             let answer = notice_closable(
                 ui,
@@ -49,7 +49,7 @@ pub fn on_overview(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut FundAd
                 "confirmed",
                 &format!(
                     tr!("Credited to the Platform address: {}"),
-                    format!("+{}", dash(*duffs))
+                    format!("+{}", dash(duffs))
                 ),
                 tr!(
                     "In History — “Transfer from Core to the Platform address”. The amount on the address is visible to everyone."
@@ -60,20 +60,20 @@ pub fn on_overview(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut FundAd
                 cx.go(Screen::Activity);
             }
             if answer.closed || answer.action {
-                state.result = None;
+                state.close_result();
             }
         }
         Some((_, Err(e))) => {
             let text = crate::text::failed(tr!("The Platform address was not topped up"), e);
             let answer = notice_closable(ui, a, "warning", &text, "", None);
             if answer.closed {
-                state.result = None;
+                state.close_result();
             }
         }
         None => {}
     }
     if let Some(unfinished) = &wallet.unfinished_address_top_up
-        && state.running.is_none()
+        && state.running().is_none()
     {
         notice(
             ui,
@@ -92,7 +92,7 @@ pub fn on_overview(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut FundAd
         }
     }
     super::fund_dialog(ui, a, state, &wallet, &cx.snap.sync, cx.now, &mut asked);
-    if state.running.is_some() && state.steps_open {
+    if state.running().is_some() && state.steps_open {
         steps_dialog(ui, a, state, &wallet);
     }
     if state.resume_open {
@@ -105,7 +105,7 @@ pub fn on_overview(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut FundAd
 
 /// «Topping up the Platform address» (23): the three steps, the one under way, and «Hide».
 fn steps_dialog(ui: &mut Ui, a: &mut Assets, state: &mut FundAddressState, wallet: &Wallet) {
-    let Some(amount) = state.running else {
+    let Some(amount) = state.running() else {
         return;
     };
     // Step 1 is done once the lock is made: the snapshot holds it, not taken yet.
@@ -211,9 +211,10 @@ fn resume_dialog(
             if part == Part::Footer {
                 let entered =
                     state
-                        .resume_password
+                        .resume
+                        .password
                         .field(ui, &p, "fund-address-resume-password", ask);
-                let ready = state.resume_password.ready(ask);
+                let ready = state.resume.password.ready(ask);
                 let mut close = false;
                 crate::components::button_row_spend(ui, |ui| {
                     if button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked() {
@@ -285,13 +286,18 @@ fn resume_dialog(
         },
     );
     if go {
-        asked.push(state.resume_password.command(Spend::ResumeFundAddress, ask));
-        state.running = Some(unfinished.locked.saturating_sub(unfinished.on_top));
-        state.result = None;
-        state.resume_open = false;
-        state.steps_open = true;
+        let expected = unfinished.locked.saturating_sub(unfinished.on_top);
+        state.close_result();
+        if let Some(command) = state
+            .resume
+            .command(Spend::ResumeFundAddress, ask, expected)
+        {
+            asked.push(command);
+            state.resume_open = false;
+            state.steps_open = true;
+        }
     } else if close {
         state.resume_open = false;
-        state.resume_password.forget();
+        state.resume.password.forget();
     }
 }

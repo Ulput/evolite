@@ -110,6 +110,7 @@ async fn a_disconnect_is_not_taken_for_an_answer_to_a_request() {
         .handle(Command::Spend {
             op: Spend::DisconnectApp { id: "app".into() },
             password: Some(pw("pw")),
+            ask: 0,
         })
         .await;
     assert!(matches!(
@@ -161,6 +162,7 @@ async fn app_links_are_checked_before_anything_is_signed() {
         true => Command::Spend {
             op: Spend::ApproveApp { id, grant: None },
             password: Some(pw("pw")),
+            ask: 0,
         },
         false => Command::DeclineApp { id },
     };
@@ -169,7 +171,8 @@ async fn app_links_are_checked_before_anything_is_signed() {
         event,
         Some(Event::Done {
             what: DoneWhat::App,
-            result: Ok(())
+            result: Ok(()),
+            ..
         })
     ));
     let (event, _) = core.handle(answer(7, true)).await;
@@ -177,7 +180,8 @@ async fn app_links_are_checked_before_anything_is_signed() {
         event,
         Some(Event::Done {
             what: DoneWhat::App,
-            result: Err(CoreError::NotAvailable(_))
+            result: Err(CoreError::NotAvailable(_)),
+            ..
         })
     ));
 }
@@ -434,6 +438,7 @@ async fn a_refused_payment_says_its_number_back() {
             rate: None,
         },
         password,
+        ask: 0,
     };
     let mut core = core_with_vault("sent-id", "pw");
     assert_eq!(core.unlock(&pw("pw")).await, Ok(()));

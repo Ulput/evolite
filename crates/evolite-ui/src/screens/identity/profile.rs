@@ -35,7 +35,7 @@ pub(super) fn edit_profile(
                 let url = form.avatar_url.trim();
                 let url_ok = url.is_empty() || url.starts_with("https://");
                 if let Some(Err(e)) = &form.result
-                    && !form.password.is_wrong()
+                    && !form.flow.password.is_wrong()
                 {
                     notice(
                         ui,
@@ -45,20 +45,20 @@ pub(super) fn edit_profile(
                         &super::super::contacts::contact_error(e),
                     );
                 }
-                let entered = form.password.field(ui, &p, "profile-password", ask);
-                let ready = url_ok && !form.waiting && form.password.ready(ask);
+                let entered = form.flow.password.field(ui, &p, "profile-password", ask);
+                let ready = url_ok && !form.flow.waiting() && form.flow.password.ready(ask);
                 let mut close = false;
                 let changed = form.changes(id.profile.as_ref());
                 button_row(ui, |ui| {
                     // Why «Save» is off: a write costs credits, the same profile again buys
                     // nothing.
-                    if !changed && !form.waiting {
+                    if !changed && !form.flow.waiting() {
                         ui.label(text(tr!("Nothing has changed yet"), SMALL, p.muted));
                     }
                     if button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked() {
                         close = true;
                     }
-                    let label = if form.waiting {
+                    let label = if form.flow.waiting() {
                         tr!("Saving…")
                     } else {
                         tr!("Save")
@@ -181,10 +181,11 @@ pub(super) fn edit_profile(
             about: form.about.trim().to_owned(),
             avatar_url: (!url.is_empty()).then(|| url.to_owned()),
         };
-        asked.push(form.password.command(op, ask));
-        form.waiting = true;
-        form.result = None;
-    } else if close && !form.waiting {
+        if let Some(command) = form.flow.command(op, ask, ()) {
+            asked.push(command);
+            form.result = None;
+        }
+    } else if close && !form.flow.waiting() {
         state.editing = None;
     }
 }
@@ -267,11 +268,10 @@ pub struct ProfileForm {
     pub display: String,
     pub about: String,
     pub avatar_url: String,
-    /// Sent to the core, no answer yet.
-    pub waiting: bool,
     pub result: Option<Result<(), CoreError>>,
-    /// "Password for every payment": writing the profile costs credits.
-    pub password: SpendPassword,
+    /// The profile's write (TECH-spend-flow): sent once, its own answer only, "password for
+    /// every payment" in it — writing the profile costs credits.
+    pub flow: crate::components::spend_flow::SpendFlow<()>,
 }
 
 impl ProfileForm {

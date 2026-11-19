@@ -7,9 +7,9 @@
 use super::{TokensState, sender, shown_name, state};
 use crate::components::para;
 use crate::components::{
-    Assets, ButtonKind, FieldKind, Part, SpendPassword, button, button_enabled, button_row,
-    button_row_spend, checkbox, dialog_with_footer, divider, field_label, kv_row, notice,
-    password_asked, segmented, text_field, txt,
+    Assets, ButtonKind, FieldKind, Part, button, button_enabled, button_row, button_row_spend,
+    checkbox, dialog_with_footer, divider, field_label, kv_row, notice, password_asked, segmented,
+    text_field, txt,
 };
 use crate::context::Ctx;
 use crate::theme::{Weight, mono, sans};
@@ -225,8 +225,8 @@ pub struct IssuerForm {
     pub names: Vec<TokenName>,
     pub names_from: usize,
     pub names_read: bool,
-    pub password: SpendPassword,
-    pub waiting: bool,
+    /// Its spend (TECH-spend-flow): the password, sent once, its own answer only.
+    pub flow: crate::components::spend_flow::SpendFlow<()>,
     pub result: Option<Result<(), CoreError>>,
 }
 
@@ -245,8 +245,7 @@ impl IssuerForm {
             names: Vec::new(),
             names_from: 0,
             names_read: false,
-            password: SpendPassword::default(),
-            waiting: false,
+            flow: Default::default(),
             result: None,
         }
     }
@@ -265,12 +264,11 @@ impl IssuerForm {
     }
 
     /// `Done { what: IssuerAction }`: only an answer this window waits for.
-    pub fn on_answer(&mut self, result: &Result<(), CoreError>) {
-        if !self.waiting {
+    pub fn on_answer(&mut self, ask: Option<u64>, result: &Result<(), CoreError>) {
+        if !self.flow.on_done(ask, result) {
             return;
         }
-        self.waiting = false;
-        self.password.on_answer(result);
+        let _ = self.flow.take_result();
         self.result = Some(result.clone());
     }
 }
@@ -1261,8 +1259,14 @@ pub(super) fn issuer_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, tokens: &
                     };
                     checkbox(ui, a, &mut form.understood, &words);
                 }
-                form.password.field(ui, &p, "token-issuer-password", ask);
-                match form.result.as_ref().filter(|_| !form.password.is_wrong()) {
+                form.flow
+                    .password
+                    .field(ui, &p, "token-issuer-password", ask);
+                match form
+                    .result
+                    .as_ref()
+                    .filter(|_| !form.flow.password.is_wrong())
+                {
                     Some(Ok(())) => {
                         notice(ui, a, "confirmed", p.accent, tr!("Done: it is in History."));
                         button_row(ui, |ui| {
@@ -1288,11 +1292,11 @@ pub(super) fn issuer_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, tokens: &
                     if button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked() {
                         close = true;
                     }
-                    let ready = !form.waiting
+                    let ready = !form.flow.waiting()
                         && op.is_some()
                         && (!tick || form.understood)
                         && !no_credits
-                        && form.password.ready(ask);
+                        && form.flow.password.ready(ask);
                     let kind = if danger {
                         ButtonKind::Danger
                     } else {
@@ -1686,13 +1690,14 @@ pub(super) fn issuer_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, tokens: &
             false
         },
     );
-    if let Some(op) = send {
-        cx.send(form.password.command(op, ask));
-        form.waiting = true;
+    if let Some(op) = send
+        && let Some(command) = form.flow.command(op, ask, ())
+    {
+        cx.send(command);
         form.result = None;
     }
     if closed {
-        form.password.forget();
+        form.flow.password.forget();
         let done = matches!(form.result, Some(Ok(())));
         let token = form.token_id.clone();
         tokens.issuer = None;

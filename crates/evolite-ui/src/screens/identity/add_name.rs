@@ -98,7 +98,7 @@ pub(super) fn add_name_dialog(
                     return review_footer(ui, a, form, fund, (&mut register, &mut back));
                 }
                 let ask = wallet.password_each_send && form.result.is_none() && !contested;
-                let entered = form.password.field(ui, &p, "add-name-password", ask);
+                let entered = form.flow.password.field(ui, &p, "add-name-password", ask);
                 let mut close = false;
                 button_row(ui, |ui| {
                     if button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked() {
@@ -108,10 +108,10 @@ pub(super) fn add_name_dialog(
                     let ready = claimable
                         && read
                         && !short
-                        && !form.waiting
+                        && !form.flow.waiting()
                         && form.result.is_none()
-                        && (contested || form.password.ready(ask));
-                    let label = if form.waiting {
+                        && (contested || form.flow.password.ready(ask));
+                    let label = if form.flow.waiting() {
                         tr!("Writing…")
                     } else if contested {
                         tr!("Check the request")
@@ -201,10 +201,10 @@ pub(super) fn add_name_dialog(
             ends_about: join_until - fees.name_join_secs as i64 + fees.name_vote_secs as i64,
         });
         form.result = None;
-    } else if back && !form.waiting {
+    } else if back && !form.flow.waiting() {
         form.review = None;
         form.result = None;
-        form.password.forget();
+        form.flow.password.forget();
     } else if register {
         let op = Spend::AddName {
             name: form.asked.clone(),
@@ -216,18 +216,19 @@ pub(super) fn add_name_dialog(
         };
         // A claim pays a fund that is not returned: the password every time (R-8).
         let ask = form.review.is_some() || wallet.password_each_send;
-        asked.push(form.password.command(op, ask));
-        form.waiting = true;
-        form.result = None;
+        if let Some(command) = form.flow.command(op, ask, ()) {
+            asked.push(command);
+            form.result = None;
+        }
     } else if open {
         let label = form.asked.clone();
         state.adding_name = None;
         state.open_contest(&id.id, &label);
-    } else if top_up && !form.waiting {
+    } else if top_up && !form.flow.waiting() {
         // «Top up ›»: the name waits, the top-up opens (or says why it cannot now).
         state.adding_name = None;
         state.top_up_clicked(wallet);
-    } else if close && !form.waiting {
+    } else if close && !form.flow.waiting() {
         state.adding_name = None;
     }
 }
@@ -407,14 +408,14 @@ fn review_footer(
             fund = dash(fund)
         ),
     );
-    let entered = form.password.field(ui, &p, "add-name-password", true);
+    let entered = form.flow.password.field(ui, &p, "add-name-password", true);
     button_row(ui, |ui| {
         if button(ui, a, tr!("Back"), ButtonKind::Ghost, None).clicked() {
             *back = true;
         }
         // A link that does not pass holds the claim back, in words above (AC-T11).
-        let ready = !form.waiting && form.password.ready(true) && link_of(form).is_ok();
-        let label = if form.waiting {
+        let ready = !form.flow.waiting() && form.flow.password.ready(true) && link_of(form).is_ok();
+        let label = if form.flow.waiting() {
             tr!("Writing…")
         } else {
             tr!("Sign and send the request")
@@ -633,7 +634,7 @@ fn credits_state(
 fn name_answer(ui: &mut Ui, a: &mut Assets, form: &NameForm) {
     let p = a.p;
     match &form.result {
-        _ if form.waiting => notice(
+        _ if form.flow.waiting() => notice(
             ui,
             a,
             "pending",
@@ -682,11 +683,10 @@ pub struct NameForm {
     pub check: Option<Result<NameCheck, CoreError>>,
     /// When [`Self::asked`] went to the core: a long silence is said in words (Д11, BUG-87).
     pub asked_at: Option<std::time::Instant>,
-    /// Sent to the core, no answer yet.
-    pub waiting: bool,
     pub result: Option<Result<(), CoreError>>,
-    /// "Password for every payment": the name is paid from the credits.
-    pub password: SpendPassword,
+    /// The name's spend (TECH-spend-flow): sent once, its own answer only, "password for every
+    /// payment" in it — the name is paid from the credits.
+    pub flow: crate::components::spend_flow::SpendFlow<()>,
     /// A contested name under review (FEAT-0021 N2), and after it the request sent (N3).
     pub review: Option<Review>,
     /// Opened from Identity's «Claim @x ›» (UC-5): straight to the review once the check says

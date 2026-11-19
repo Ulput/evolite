@@ -35,6 +35,37 @@ enum WalletBusy {
 /// "Switching…" goes after this long even with no answer: never a spinner for good.
 const WALLET_BUSY_FOR: std::time::Duration = std::time::Duration::from_secs(60);
 
+/// TECH-spend-flow: every screen state that forgets, in one list (AC-T2): the lock, a wallet
+/// switch and an identity switch go through it. A macro over the fields, so it borrows only
+/// them (the lock's frame holds the snapshot meanwhile).
+macro_rules! screen_states {
+    ($app:expr) => {
+        [
+            &mut $app.fund_address as &mut dyn crate::screen_state::ScreenState,
+            &mut $app.identity,
+            &mut $app.pool,
+            &mut $app.collection,
+            &mut $app.contacts,
+            &mut $app.create_identity,
+            &mut $app.requests,
+            &mut $app.tokens,
+            &mut $app.identity_keys,
+            &mut $app.send,
+        ]
+    };
+}
+
+/// Each screen state of [`screen_states`] forgets, for `$why`.
+macro_rules! forget_screens {
+    ($app:expr, $why:expr) => {
+        for state in screen_states!($app) {
+            state.forget($why);
+        }
+    };
+}
+#[cfg(all(test, demo_core, feature = "dev-tools"))]
+pub(crate) use {forget_screens, screen_states};
+
 pub struct App {
     a: Assets,
     pub core: Core,
@@ -123,6 +154,9 @@ pub struct App {
     wallet_busy: Option<(std::time::Instant, WalletBusy)>,
     /// The open wallet the screens' state belongs to: another one clears it (BUG-45).
     screens_wallet: Option<String>,
+    /// TECH-spend-flow: the identity the wallet acts as, for the screens' state: another one
+    /// ends the paid windows asked for the last one (`Why::IdentitySwitch`).
+    screens_identity: Option<String>,
     /// "Open "…"" over the screen (Figma 29), while open.
     switching: Option<screens::switch_wallet::SwitchForm>,
     /// While a wallet is being added: the name of the one "‹ Back to "…"" goes back to.
@@ -305,6 +339,7 @@ impl App {
             forgot_other: None,
             wallet_busy: None,
             screens_wallet: None,
+            screens_identity: None,
             switching: None,
             adding_back: None,
             named: Default::default(),
@@ -552,6 +587,28 @@ impl App {
     /// CSV, answers, forms half typed — is not shown in the next one. Only when another wallet
     /// opens: "Add wallet" then "Back to" the same one keeps it.
     fn follow_wallet_screens(&mut self, ctx: &egui::Context, snapshot: &Snapshot) {
+        // TECH-spend-flow: the wallet acts as another identity of its own (the same wallet):
+        // a window asked for the last one is over; the core still finishes what it was asked.
+        let identity = snapshot
+            .wallet
+            .as_ref()
+            .and_then(|w| w.identity.as_ref())
+            .map(|i| i.id.clone());
+        let same_wallet = snapshot
+            .wallets
+            .iter()
+            .find(|w| w.open)
+            .is_some_and(|open| self.screens_wallet.as_deref() == Some(open.id.as_str()));
+        if same_wallet
+            && identity.is_some()
+            && self.screens_identity.is_some()
+            && identity != self.screens_identity
+        {
+            forget_screens!(self, crate::screen_state::Why::IdentitySwitch);
+        }
+        if identity.is_some() {
+            self.screens_identity = identity;
+        }
         let Some(open) = snapshot.wallets.iter().find(|w| w.open) else {
             return;
         };
@@ -563,19 +620,11 @@ impl App {
         }
         // Another wallet's screens open at the top (BUG-102).
         self.visits.forget();
-        self.send.on_lock();
+        forget_screens!(self, crate::screen_state::Why::WalletSwitch);
         self.receive = Default::default();
-        self.identity = Default::default();
-        self.identity_keys.forget();
         // BUG-228: another wallet ends the reading of a phrase shown.
         self.settings.phrase_reading.off();
         self.settings.check_reading.off();
-        self.contacts = Default::default();
-        self.pool = Default::default();
-        self.requests = Default::default();
-        self.create_identity = Default::default();
-        self.collection.forget_wallet();
-        self.tokens.forget_wallet();
         screens::activity::forget(ctx);
         // FEAT-0009 R-5: another wallet starts from «All».
         self.history = Default::default();
@@ -659,30 +708,36 @@ impl App {
                 Event::Done {
                     what: DoneWhat::Contact,
                     result,
+                    ask,
                 } => {
-                    self.contacts.on_done(result);
-                    self.send.on_contact_done(result);
+                    self.contacts.on_done(*ask, result);
+                    self.send.on_contact_done(*ask, result);
                 }
                 Event::Done {
                     what: DoneWhat::AddressBook,
                     result,
+                    ..
                 } => self.send.on_book_done(result),
                 Event::Done {
                     what: DoneWhat::Profile,
                     result,
-                } => self.identity.on_profile_saved(result),
+                    ask,
+                } => self.identity.on_profile_saved(*ask, result),
                 Event::Done {
                     what: DoneWhat::Note,
                     result,
+                    ..
                 } => screens::activity::on_note_done(ctx, result),
                 Event::Done {
                     what: DoneWhat::TaxCategory,
                     result,
+                    ..
                 } => screens::activity_tax::on_tax_done(ctx, result),
                 // BUG-204: «Try again» / «Start over» on a file set aside.
                 Event::Done {
                     what: DoneWhat::LocalFile,
                     result,
+                    ..
                 } => {
                     let file = ctx.data_mut(|d| {
                         let id = screens::set_aside::asked_id();
@@ -708,15 +763,18 @@ impl App {
                 Event::Done {
                     what: DoneWhat::Gift,
                     result,
-                } => self.collection.result = Some(result.clone()),
+                    ask,
+                } => self.collection.on_gift_done(*ask, result),
                 Event::Done {
                     what: DoneWhat::Unlock,
                     result,
+                    ..
                 } => self.unlock.on_answer(result),
                 // Another wallet by its password: from "Open "…"" or the unlock screen.
                 Event::Done {
                     what: DoneWhat::Switch,
                     result,
+                    ..
                 } => match &mut self.switching {
                     Some(form) => {
                         if form.on_done(result) {
@@ -730,6 +788,7 @@ impl App {
                 Event::Done {
                     what: DoneWhat::Resync,
                     result,
+                    ..
                 } => {
                     let marked = self
                         .settings
@@ -744,6 +803,7 @@ impl App {
                 Event::Done {
                     what: DoneWhat::Delete,
                     result,
+                    ..
                 } => {
                     let mut gone = false;
                     for form in [&mut self.settings.delete, &mut self.unlock.forgot]
@@ -768,6 +828,7 @@ impl App {
                 Event::Done {
                     what: DoneWhat::DeleteOther,
                     result,
+                    ..
                 } => {
                     if self
                         .settings
@@ -789,14 +850,17 @@ impl App {
                 Event::Done {
                     what: DoneWhat::Password,
                     result,
+                    ..
                 } => self.settings.on_password_changed(result),
                 Event::Done {
                     what: DoneWhat::PasswordEachSend,
                     result,
+                    ..
                 } => self.settings.on_password_each_send(result),
                 Event::Done {
                     what: DoneWhat::Wallet,
                     result,
+                    ..
                 } => {
                     if self
                         .settings
@@ -813,6 +877,7 @@ impl App {
                 Event::Done {
                     what: DoneWhat::CoreNode,
                     result,
+                    ..
                 } => self.settings.on_node_saved(result),
                 Event::AppRequest(request) => {
                     if let Ok(request) = request
@@ -828,18 +893,22 @@ impl App {
                 Event::Done {
                     what: DoneWhat::App,
                     result,
-                } => self.requests.on_answer(result.clone()),
+                    ask,
+                } => self.requests.on_answer(*ask, result.clone()),
                 Event::Done {
                     what: DoneWhat::Disconnect,
                     result,
-                } => self.requests.on_disconnected(result.clone()),
+                    ask,
+                } => self.requests.on_disconnected(*ask, result.clone()),
                 Event::Done {
                     what: DoneWhat::Keys,
                     result,
-                } => self.identity_keys.on_changed(result.clone()),
+                    ask,
+                } => self.identity_keys.on_changed(*ask, result.clone()),
                 Event::Done {
                     what: DoneWhat::KeysRead,
                     result,
+                    ..
                 } => self.identity_keys.on_read(result.clone()),
                 // "Hide" and "Unshield" share the pool's progress: one move at a time.
                 Event::Progress {
@@ -849,11 +918,10 @@ impl App {
                 Event::Done {
                     what: what @ (DoneWhat::Shield | DoneWhat::Unshield | DoneWhat::PoolTopUp),
                     result,
+                    ask,
                 } => {
-                    self.pool.progress = None;
-                    self.pool.continuing = false;
                     let done = screens::shielded::PoolMove::of(*what);
-                    self.pool.result = Some((done, result.clone()));
+                    self.pool.on_done(*ask, done, result);
                 }
                 // FEAT-0021 R-11: a vote's result, even with the window in the background.
                 Event::NameContestEnded {
@@ -874,14 +942,16 @@ impl App {
                 Event::Done {
                     what: DoneWhat::Name,
                     result,
-                } => self.identity.on_name_done(result),
+                    ask,
+                } => self.identity.on_name_done(*ask, result),
                 Event::Done {
                     what: DoneWhat::Identity,
                     result,
+                    ask,
                 } => {
                     // Made (FEAT-0014, analyst-44): Identity shows it chosen, with its banner;
                     // the form starts empty for the next one.
-                    if self.create_identity.on_done(result) {
+                    if self.create_identity.on_done(*ask, result) {
                         let before = self.create_identity.before.take();
                         // FEAT-0021 UC-5: the contested name typed, to claim on Identity now.
                         let claim = self.create_identity.claim.take();
@@ -901,12 +971,14 @@ impl App {
                 Event::Done {
                     what: DoneWhat::TopUp,
                     result,
-                } => self.identity.on_top_up_done(result),
+                    ask,
+                } => self.identity.on_top_up_done(*ask, result),
                 Event::AddressFunded { credited } => self.fund_address.on_funded(*credited),
                 Event::Done {
                     what: DoneWhat::FundAddress,
                     result,
-                } => self.fund_address.on_done(result),
+                    ask,
+                } => self.fund_address.on_done(*ask, result),
                 Event::Art {
                     art,
                     side,
@@ -939,25 +1011,30 @@ impl App {
                 Event::Done {
                     what: DoneWhat::Token,
                     result,
+                    ..
                 } => self.tokens.on_tracked(result),
                 Event::Done {
                     what: DoneWhat::SendToken,
                     result,
-                } => self.tokens.on_sent(result),
+                    ask,
+                } => self.tokens.on_sent(*ask, result),
                 // FEAT-0019 T-2: «Claim» and «Buy».
                 Event::Done {
                     what: DoneWhat::ClaimToken,
                     result,
-                } => self.tokens.on_claimed(result),
+                    ask,
+                } => self.tokens.on_claimed(*ask, result),
                 Event::Done {
                     what: DoneWhat::BuyToken,
                     result,
-                } => self.tokens.on_bought(result),
+                    ask,
+                } => self.tokens.on_bought(*ask, result),
                 // FEAT-0019 T-3: an issuer action.
                 Event::Done {
                     what: DoneWhat::IssuerAction,
                     result,
-                } => self.tokens.on_issuer(result),
+                    ask,
+                } => self.tokens.on_issuer(*ask, result),
             }
             if let Some(o) = &mut self.onboarding {
                 o.on_event(&event);
@@ -1304,7 +1381,6 @@ impl eframe::App for App {
         if keys_gone(self.vault, snapshot.vault) {
             // A QR picture still being read is dropped when it ends (FEAT-0006).
             crate::qr_scan::on_lock();
-            self.send.on_lock();
             // BUG-169 R-3: after a lock there is no place to go back to; what was left open for
             // it closes (r1 Should 1).
             if let Some(given_up) = self.back.take() {
@@ -1314,25 +1390,14 @@ impl eframe::App for App {
             // SEC-2 B5: a secret copied leaves the clipboard with the keys.
             crate::clipboard::wipe_secret_now(ui.ctx());
             // And a private key shown or asked for (FEAT-0020 AC-T13).
-            self.identity_keys.forget();
             // FEAT-0009 R-5: the filters and the search go with the lock.
             self.history = Default::default();
             // And a note half edited in an operation's card (FEAT-0003).
             screens::activity::forget_note(ui.ctx());
             // And what was typed for a spend (BUG-42).
-            self.identity.on_lock();
-            self.fund_address.on_lock();
-            self.contacts.on_lock();
+            forget_screens!(self, crate::screen_state::Why::Lock);
             // The lock ends the visit: the screen after it opens at the top (BUG-102).
             self.visits.forget();
-            self.pool.password.forget();
-            self.create_identity.password.forget();
-            self.create_identity.confirming = false;
-            self.requests.password.forget();
-            self.requests.disconnect_password.forget();
-            self.tokens.forget_wallet();
-            #[cfg(demo_core)]
-            self.collection.password.forget();
         }
         // A deleted wallet: the new core over the folder knows none of the settings.
         let deleted = snapshot.vault == VaultState::NoWallet
@@ -1563,7 +1628,7 @@ impl eframe::App for App {
                                 screens::receive::receive(ui, a, &mut cx, &mut self.receive)
                             }
                             Screen::Identity => {
-                                self.identity.creating = self.create_identity.waiting;
+                                self.identity.creating = self.create_identity.waiting();
                                 screens::identity::identity(ui, a, &mut cx, &mut self.identity)
                             }
                             Screen::Shielded => {

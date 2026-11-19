@@ -61,6 +61,7 @@ mod send_back;
 mod set_aside;
 mod settings_apps;
 mod spend;
+mod spend_flows;
 mod sync;
 mod tab_sweep;
 mod tax_category;

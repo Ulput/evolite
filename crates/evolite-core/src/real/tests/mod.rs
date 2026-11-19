@@ -216,7 +216,7 @@ fn entry(core: &mut Real, id: &str) -> WalletEntry {
 
 fn answer_of(event: Option<Event>) -> (DoneWhat, Result<(), CoreError>) {
     match event {
-        Some(Event::Done { what, result }) => (what, result),
+        Some(Event::Done { what, result, .. }) => (what, result),
         other => panic!("{other:?}"),
     }
 }

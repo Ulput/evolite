@@ -192,7 +192,7 @@ impl PriceWatch {
                 result.as_ref().err(),
                 result.as_ref().ok().map_or(0, |paid| paid.fee),
             ),
-            Event::Done { what, result } => (Answer::Done(*what), result.as_ref().err(), 0),
+            Event::Done { what, result, .. } => (Answer::Done(*what), result.as_ref().err(), 0),
             _ => return None,
         };
         let spend = {
@@ -321,6 +321,7 @@ mod tests {
         let record = watch.ended(&Event::Done {
             what: DoneWhat::Disconnect,
             result: Ok(()),
+            ask: None,
         });
         let Some(Record::Price { actual, .. }) = record else {
             panic!("no record: {record:?}");
@@ -506,6 +507,7 @@ mod tests {
         let hide = Event::Done {
             what: DoneWhat::Contact,
             result: Ok(()),
+            ask: None,
         };
         assert_eq!(watch.ended(&hide), None);
         // No snapshot yet.

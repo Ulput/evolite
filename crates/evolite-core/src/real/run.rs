@@ -23,13 +23,18 @@ impl Real {
     ) {
         let out = self.out.clone();
         let wake = self.wake.clone();
+        // TECH-spend-flow: a job started for a spend answers with its number.
+        let ask = self.spend_ask;
         let stale = self.balances_stale.clone();
         let prices = self.prices.clone();
         let reread = (self.chain.clone(), self.unlocked.as_ref().map(|o| o.id));
         let refresh = self.refresher();
         let question = turn::task(step, question);
         tokio::spawn(async move {
-            let event = question.await;
+            let mut event = question.await;
+            if let Some(ask) = ask {
+                event = event.answering(ask);
+            }
             prices.finish(&event);
             // BUG-175 AC-T3: refused for a key — the identities are read again, not the operation.
             if refused_for_keys(&event)
@@ -252,6 +257,7 @@ pub fn run(
                                 let _ = out.send(Event::Done {
                                     what: DoneWhat::Switch,
                                     result,
+                                    ask: None,
                                 });
                             }
                             core.dirty.store(false, Ordering::Relaxed);
@@ -273,6 +279,7 @@ pub fn run(
                 let _ = out.send(Event::Done {
                     what: DoneWhat::Lock,
                     result,
+                    ask: None,
                 });
                 core.dirty.store(true, Ordering::Relaxed);
             }

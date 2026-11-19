@@ -16,6 +16,7 @@ pub(super) fn top_up_dialog(
     now: chrono::DateTime<chrono::Local>,
     asked: &mut Vec<Command>,
 ) {
+    let running = state.topping_up();
     let Some(form) = &mut state.top_up else {
         return;
     };
@@ -29,7 +30,6 @@ pub(super) fn top_up_dialog(
     let core = core_amount.known();
     // The asset lock is one Core transaction: its fee is about a typical payment's.
     let fee = fees.core_payment;
-    let running = state.topping_up;
     // BUG-177: what was signed stays shown while it runs and once it is done; a top-up that did
     // not go through (an error, a wrong password) gives the form back with its amount.
     let done = state
@@ -80,7 +80,10 @@ pub(super) fn top_up_dialog(
                     return close;
                 }
                 let ask = wallet.password_each_send && running.is_none();
-                let entered = state.top_up_password.field(ui, &p, "top-up-password", ask);
+                let entered = state
+                    .top_up_flow
+                    .password
+                    .field(ui, &p, "top-up-password", ask);
                 let mut close = false;
                 crate::components::button_row_spend(ui, |ui| {
                     if button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked() {
@@ -95,7 +98,7 @@ pub(super) fn top_up_dialog(
                         && amount.is_some()
                         && !too_much
                         && !too_little
-                        && state.top_up_password.ready(ask);
+                        && state.top_up_flow.password.ready(ask);
                     if button_enabled(ui, a, &label, ButtonKind::Primary, None, ready).clicked()
                         || (entered && ready)
                     {
@@ -274,16 +277,17 @@ pub(super) fn top_up_dialog(
             on_top: fees.top_up_on_top(),
         });
         let ask = wallet.password_each_send;
-        asked.push(
+        if let Some(command) =
             state
-                .top_up_password
-                .command(Spend::TopUpIdentity { amount }, ask),
-        );
-        state.topping_up = Some(amount);
-        state.top_up_result = None;
+                .top_up_flow
+                .command(Spend::TopUpIdentity { amount }, ask, amount)
+        {
+            asked.push(command);
+            state.top_up_result = None;
+        }
     } else if close {
         state.top_up = None;
-        state.top_up_password.forget();
+        state.top_up_flow.password.forget();
     }
 }
 
@@ -298,7 +302,7 @@ pub(super) fn top_up_status(
 ) {
     let p = a.p;
     if state.top_up.is_none() {
-        match (&state.topping_up, &state.top_up_result) {
+        match (&state.topping_up(), &state.top_up_result) {
             (Some(duffs), _) => notice(
                 ui,
                 a,
@@ -318,7 +322,7 @@ pub(super) fn top_up_status(
     let Some(unfinished) = wallet.unfinished_top_up else {
         return;
     };
-    if state.topping_up.is_some() {
+    if state.topping_up().is_some() {
         return;
     }
     let (text, action) = unfinished_top_up_text(&unfinished, state.top_up_result.as_ref());
@@ -326,14 +330,17 @@ pub(super) fn top_up_status(
     // Continuing spends the lock already made: "password for every payment" asks too.
     let ask = wallet.password_each_send;
     let entered = state
-        .resume_password
+        .resume_flow
+        .password
         .field(ui, &p, "resume-top-up-password", ask);
-    let ready = state.resume_password.ready(ask);
-    if button_enabled(ui, a, action, ButtonKind::Primary, None, ready).clicked()
-        || (entered && ready)
+    let ready = state.resume_flow.password.ready(ask);
+    if (button_enabled(ui, a, action, ButtonKind::Primary, None, ready).clicked()
+        || (entered && ready))
+        && let Some(command) = state
+            .resume_flow
+            .command(Spend::ResumeTopUp, ask, unfinished.locked)
     {
-        asked.push(state.resume_password.command(Spend::ResumeTopUp, ask));
-        state.topping_up = Some(unfinished.locked);
+        asked.push(command);
         state.top_up_result = None;
     }
 }
@@ -479,7 +486,7 @@ pub(super) fn top_up_blocked(wallet: &Wallet, state: &IdentityState) -> Option<&
     top_up_blocked_by(
         wallet.identity.is_some(),
         wallet.unfinished_top_up,
-        state.topping_up.is_some(),
+        state.topping_up().is_some(),
     )
 }
 

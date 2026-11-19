@@ -578,13 +578,17 @@ mod tests {
             ..Default::default()
         };
         // Not asked yet: an answer is someone else's.
-        requests.on_disconnected(Ok(()));
+        requests.on_disconnected(Some(0), Ok(()));
         assert!(requests.disconnecting.is_some());
-        requests.disconnect_waiting = true;
-        requests.on_disconnected(Err(CoreError::NotEnough));
+        requests
+            .disconnect_flow
+            .set_stage(crate::components::spend_flow::Stage::Waiting { ask: 0, signed: () });
+        requests.on_disconnected(Some(0), Err(CoreError::NotEnough));
         assert!(requests.disconnecting.is_some() && requests.disconnect_result.is_some());
-        requests.disconnect_waiting = true;
-        requests.on_disconnected(Ok(()));
+        requests
+            .disconnect_flow
+            .set_stage(crate::components::spend_flow::Stage::Waiting { ask: 0, signed: () });
+        requests.on_disconnected(Some(0), Ok(()));
         assert!(requests.disconnecting.is_none());
     }
 }

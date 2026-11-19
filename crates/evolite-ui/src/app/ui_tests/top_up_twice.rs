@@ -26,7 +26,7 @@ fn signed_top_up() -> (MutexGuard<'static, ()>, Kit) {
     // One frame: the click is taken and the top-up sent; the demo's refusal comes on the next
     // frame, so the answer is the test's (an answer nobody waits for is dropped).
     kit.run_steps(1);
-    assert_eq!(kit.state().identity.topping_up, Some(AMOUNT), "sent once");
+    assert_eq!(kit.state().identity.topping_up(), Some(AMOUNT), "sent once");
     (turn, kit)
 }
 
@@ -46,7 +46,8 @@ fn a_top_up_done_offers_no_second_one_of_the_same_amount() {
     let (_turn, mut kit) = signed_top_up();
     let before = credits(&kit);
     // Credited: the answer, and the credits the next snapshot brings.
-    kit.state_mut().identity.on_top_up_done(&Ok(()));
+    let ask = kit.state().identity.top_up_flow.waiting_ask();
+    kit.state_mut().identity.on_top_up_done(ask, &Ok(()));
     // As much as the credits were, plus the top-up: put in again over a later snapshot, never
     // added twice.
     let credited = kit
@@ -91,9 +92,10 @@ fn a_top_up_done_offers_no_second_one_of_the_same_amount() {
 #[test]
 fn a_failed_top_up_gives_the_form_back() {
     let (_turn, mut kit) = signed_top_up();
+    let ask = kit.state().identity.top_up_flow.waiting_ask();
     kit.state_mut()
         .identity
-        .on_top_up_done(&Err(evolite_api::CoreError::NotSynced));
+        .on_top_up_done(ask, &Err(evolite_api::CoreError::NotSynced));
     kit.run_steps(3);
     assert!(
         has_text(&kit, &top_up_label()),

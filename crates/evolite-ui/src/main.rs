@@ -54,6 +54,7 @@ mod prefs;
 mod private_dir;
 mod qr_scan;
 mod rtl;
+mod screen_state;
 mod screens;
 mod secret_input;
 mod secret_words;

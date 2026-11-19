@@ -35,7 +35,10 @@ fn the_imgur_link_opens_the_upload_page_and_nothing_else() {
         "the upload page, nothing added"
     );
     let form = kit.state().identity.editing.as_ref().expect("still open");
-    assert!(!form.waiting && form.result.is_none(), "nothing saved");
+    assert!(
+        !form.flow.waiting() && form.result.is_none(),
+        "nothing saved"
+    );
 }
 
 /// AC-T4 (R-4): a link to the page of one picture gets the warning at once, before «Save», in
@@ -65,7 +68,10 @@ fn a_page_link_warns_and_the_direct_link_replaces_it() {
     click_words_of(&mut kit, "Use the direct link");
     assert_eq!(typed(&kit), "https://i.imgur.com/MXLYfwq.png");
     let form = kit.state().identity.editing.as_ref().unwrap();
-    assert!(!form.waiting && form.result.is_none(), "nothing saved");
+    assert!(
+        !form.flow.waiting() && form.result.is_none(),
+        "nothing saved"
+    );
     kit.run_steps(2);
     assert!(!has_words(&kit, PAGE), "a direct link: no warning");
     assert!(has_words(&kit, "No link? Upload the picture"));

@@ -213,6 +213,7 @@ impl Real {
             |result| Event::Done {
                 what: DoneWhat::Shield,
                 result,
+                ask: None,
             },
         );
         Ok(())
@@ -239,6 +240,7 @@ impl Real {
             |result| Event::Done {
                 what: DoneWhat::Unshield,
                 result,
+                ask: None,
             },
         );
         Ok(())
@@ -272,6 +274,7 @@ impl Real {
             |result| Event::Done {
                 what: DoneWhat::PoolTopUp,
                 result,
+                ask: None,
             },
         );
         Ok(())

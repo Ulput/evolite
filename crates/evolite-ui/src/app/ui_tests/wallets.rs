@@ -166,8 +166,8 @@ fn another_wallet_opens_without_the_first_ones_banners() {
     );
     assert!(kit.state().contacts.result.is_none());
     assert!(screens::activity::saved(&kit.ctx).is_none(), "Main's CSV");
-    // A late answer to Main's top-up is not Savings' either.
-    kit.state_mut().identity.on_top_up_done(&Ok(()));
+    // A late answer to Main's top-up is not Savings' either (its number is Main's flow's).
+    kit.state_mut().identity.on_top_up_done(Some(1), &Ok(()));
     assert!(kit.state().identity.top_up_result.is_none());
 }
 

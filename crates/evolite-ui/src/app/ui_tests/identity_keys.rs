@@ -737,7 +737,7 @@ fn an_added_key_the_snapshot_shows_after_an_unclear_answer_is_done() {
 fn answered(kit: &mut Kit, result: Result<(), evolite_api::CoreError>) {
     if let Some(change) = &mut kit.state_mut().identity_keys.change {
         change.sent_once = true;
-        change.waiting = false;
+        change.flow.forget();
         change.result = Some(result);
     }
     kit.run_steps(3);

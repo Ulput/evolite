@@ -78,6 +78,7 @@ impl Real {
             Event::Done {
                 what: DoneWhat::Contact,
                 result,
+                ask: None,
             }
         });
         Ok(())
@@ -151,6 +152,7 @@ impl Real {
             Event::Done {
                 what: DoneWhat::Contact,
                 result,
+                ask: None,
             }
         });
         Ok(())
@@ -230,6 +232,7 @@ impl Real {
             Event::Done {
                 what: DoneWhat::Profile,
                 result,
+                ask: None,
             }
         });
         Ok(())

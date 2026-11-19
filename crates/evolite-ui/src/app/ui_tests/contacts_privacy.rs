@@ -112,7 +112,7 @@ fn accept_says_what_the_answer_makes_public_before_it_goes() {
         .click();
     // The demo core refuses every spend: its answer coming back is the answer having gone.
     wait_for(&mut kit, "the core's answer", |kit| {
-        kit.state().contacts.result.is_some() && !kit.state().contacts.waiting
+        kit.state().contacts.result.is_some() && !kit.state().contacts.waiting()
     });
     assert_eq!(kit.state().contacts.accepting.as_deref(), Some(id.as_str()));
 }
@@ -187,7 +187,7 @@ fn accept_with_the_password_setting_asks_for_it_and_sends_it() {
         .click();
     kit.run_steps(3);
     assert!(
-        !kit.state().contacts.waiting && kit.state().contacts.result.is_none(),
+        !kit.state().contacts.waiting() && kit.state().contacts.result.is_none(),
         "an answer went with no password"
     );
     kit.query_all_by_role(Role::PasswordInput)
@@ -206,7 +206,7 @@ fn accept_with_the_password_setting_asks_for_it_and_sends_it() {
         .expect("the dialog's «Accept»")
         .click();
     wait_for(&mut kit, "the core's answer", |kit| {
-        kit.state().contacts.result.is_some() && !kit.state().contacts.waiting
+        kit.state().contacts.result.is_some() && !kit.state().contacts.waiting()
     });
     let result = kit.state().contacts.result.clone();
     // The demo core's gate: «asks for the password for every send» when none came.

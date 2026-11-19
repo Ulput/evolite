@@ -787,7 +787,7 @@ fn contact_first(
         super::super::contacts::reserve_line(ui, &p, warning);
     }
     if let Some(Err(e)) = &form.contact_result
-        && !form.contact_password.is_wrong()
+        && !form.contact_flow.password.is_wrong()
     {
         crate::components::error_notice(
             ui,
@@ -799,31 +799,31 @@ fn contact_first(
     // The request costs credits: "password for every payment" asks here too.
     let ask = action.is_some() && name.contact != Some(ContactState::Incoming) && v.ask_password;
     let entered = form
-        .contact_password
+        .contact_flow
+        .password
         .field(ui, &p, "send-contact-password", ask);
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 10.0;
         if let Some(action) = action {
-            let label = if form.contact_waiting {
+            let label = if form.contact_flow.waiting() {
                 tr!("Sending…").to_string()
             } else {
                 action
             };
-            let ready = !form.contact_waiting && form.contact_password.ready(ask);
+            let ready = !form.contact_flow.waiting() && form.contact_flow.password.ready(ask);
             if button_enabled(ui, a, &label, ButtonKind::Primary, None, ready).clicked()
                 || (entered && ready)
             {
                 if name.contact == Some(ContactState::Incoming) {
                     asked.open_contacts = true;
                 } else {
-                    asked.commands.push(form.contact_password.command(
-                        Spend::AddContact {
-                            name: format!("@{}", name.name),
-                        },
-                        ask,
-                    ));
-                    form.contact_waiting = true;
-                    form.contact_result = None;
+                    let op = Spend::AddContact {
+                        name: format!("@{}", name.name),
+                    };
+                    if let Some(command) = form.contact_flow.command(op, ask, ()) {
+                        asked.commands.push(command);
+                        form.contact_result = None;
+                    }
                 }
             }
         }

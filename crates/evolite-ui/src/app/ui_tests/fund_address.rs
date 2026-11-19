@@ -123,7 +123,7 @@ fn the_review_asks_the_password_and_the_address_is_credited() {
         .unwrap()
         .click();
     wait_for(&mut kit, "the answer", |kit| {
-        matches!(kit.state().fund_address.result, Some((_, Ok(()))))
+        matches!(kit.state().fund_address.result(), Some((_, Ok(()))))
     });
     wait_for(&mut kit, "the address credited", |kit| {
         platform_address(kit) >= before + 10_000_000
@@ -160,7 +160,7 @@ fn the_steps_show_and_hide() {
         .click();
     kit.run_steps(3);
     assert!(!kit.state().fund_address.steps_open);
-    assert!(kit.state().fund_address.running.is_some(), "it goes on");
+    assert!(kit.state().fund_address.running().is_some(), "it goes on");
 }
 
 /// 24 → 24b: a stopped one: the banner and «Continue the top-up», the tile's action dim; the
@@ -189,7 +189,7 @@ fn a_stopped_one_is_continued() {
         .unwrap()
         .click();
     wait_for(&mut kit, "the answer", |kit| {
-        kit.state().fund_address.result.is_some()
+        kit.state().fund_address.result().is_some()
     });
 }
 
@@ -255,12 +255,24 @@ fn credited_says_what_came() {
     let (_turn, mut kit) = demo_app("overview", "en");
     settle(&mut kit);
     let state = &mut kit.state_mut().fund_address;
-    state.running = Some(100_000);
+    let ask = |command: evolite_api::Command| match command {
+        evolite_api::Command::Spend { ask, .. } => Some(ask),
+        _ => None,
+    };
+    let fund = || evolite_api::Spend::FundAddress { amount: 100_000 };
+    let asked = ask(state.flow.command(fund(), false, 100_000).unwrap());
     state.on_funded(97_064);
-    state.on_done(&Ok(()));
-    assert_eq!(state.result, Some((97_064, Ok(()))));
+    state.on_done(asked, &Ok(()));
+    assert_eq!(state.result(), Some((97_064, &Ok(()))));
     // Without the proved amount: the plan's.
-    state.running = Some(100_000);
-    state.on_done(&Ok(()));
-    assert_eq!(state.result, Some((100_000, Ok(()))));
+    state.close_result();
+    let asked = ask(state.flow.command(fund(), false, 100_000).unwrap());
+    state.on_done(asked, &Ok(()));
+    assert_eq!(state.result(), Some((100_000, &Ok(()))));
+    // BUG-214: an answer asked by another window (another wallet's) is not this one's.
+    state.close_result();
+    let asked = ask(state.flow.command(fund(), false, 100_000).unwrap());
+    state.on_done(asked.map(|a| a + 1), &Ok(()));
+    assert!(state.result().is_none());
+    assert_eq!(state.running(), Some(100_000));
 }

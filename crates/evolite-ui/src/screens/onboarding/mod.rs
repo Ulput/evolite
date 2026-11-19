@@ -230,6 +230,7 @@ impl Onboarding {
             Event::Done {
                 what: DoneWhat::Create,
                 result,
+                ..
             } if self.waiting => {
                 self.waiting = false;
                 match result {

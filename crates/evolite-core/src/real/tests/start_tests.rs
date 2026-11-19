@@ -203,6 +203,7 @@ async fn going_back_from_adding_keeps_the_identity_taken() {
         .handle(Command::Spend {
             op: Spend::TopUpIdentity { amount: 10_000_000 },
             password: Some(pw("wrong")),
+            ask: 0,
         })
         .await;
     assert!(
@@ -211,6 +212,7 @@ async fn going_back_from_adding_keeps_the_identity_taken() {
             Some(Event::Done {
                 what: DoneWhat::TopUp,
                 result: Err(CoreError::NotAvailable(words)),
+                ..
             }) if words.contains("already being made")
         ),
         "{event:?}"

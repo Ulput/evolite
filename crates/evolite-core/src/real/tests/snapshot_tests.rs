@@ -128,13 +128,15 @@ fn an_answer_without_a_new_snapshot_still_wakes_the_interface() {
         Some(Event::Done {
             what: DoneWhat::Unlock,
             result: Err(CoreError::WrongPassword),
+            ask: None,
         }),
     );
     assert!(matches!(
         events.try_recv(),
         Ok(Event::Done {
             what: DoneWhat::Unlock,
-            result: Err(CoreError::WrongPassword)
+            result: Err(CoreError::WrongPassword),
+            ..
         })
     ));
     assert_eq!(woken.load(Ordering::Relaxed), 1);

@@ -87,10 +87,10 @@ pub struct SendForm {
     /// A refusal has just come with the dialog closed: its line is brought into view, once.
     pub reveal_result: bool,
     /// "Add to contacts" from here went to the core, no answer yet; then its answer.
-    pub contact_waiting: bool,
     pub contact_result: Option<Result<(), CoreError>>,
     /// "Password for every payment" for that request: it spends credits too (BUG-42).
-    pub contact_password: crate::components::SpendPassword,
+    /// «Add to contacts» (TECH-spend-flow): its password, sent once, its own answer only.
+    pub contact_flow: crate::components::spend_flow::SpendFlow<()>,
     /// The recipient whose Core address the core was asked for (the last look before
     /// signing), and its answer: the address the payment will go to.
     pub previewed: String,
@@ -196,17 +196,16 @@ impl SendForm {
         if let Some(note) = &mut self.link_note {
             note.zeroize();
         }
-        self.contact_password.forget();
+        self.contact_flow.forget();
         self.replace(SendForm::empty());
     }
 
-    pub fn on_contact_done(&mut self, result: &Result<(), CoreError>) {
-        if !self.contact_waiting {
+    pub fn on_contact_done(&mut self, ask: Option<u64>, result: &Result<(), CoreError>) {
+        if !self.contact_flow.on_done(ask, result) {
             return;
         }
-        self.contact_waiting = false;
+        let _ = self.contact_flow.take_result();
         self.contact_result = Some(result.clone());
-        self.contact_password.on_answer(result);
         if result.is_ok() {
             // Asked again: the answer now says where the name stands among the contacts.
             self.asked.clear();
@@ -528,9 +527,8 @@ impl Default for SendForm {
             password_wrong: false,
             refocus_password: false,
             reveal_result: false,
-            contact_waiting: false,
             contact_result: None,
-            contact_password: Default::default(),
+            contact_flow: Default::default(),
             previewed: String::new(),
             preview: None,
             coins: Default::default(),
@@ -709,6 +707,20 @@ pub fn send(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut SendForm) {
         );
     }
     coins::coins_dialog(ui, a, form, &view);
+}
+
+impl crate::screen_state::ScreenState for SendForm {
+    #[cfg(all(test, demo_core, feature = "dev-tools"))]
+    fn flows(&mut self) -> Vec<&mut dyn crate::components::spend_flow::AnyFlow> {
+        vec![&mut self.contact_flow]
+    }
+
+    fn forget(&mut self, why: crate::screen_state::Why) {
+        match why {
+            crate::screen_state::Why::IdentitySwitch => self.contact_flow.forget(),
+            _ => self.on_lock(),
+        }
+    }
 }
 
 #[cfg(test)]

@@ -62,7 +62,8 @@ async fn the_notes_open_with_the_wallet_and_go_with_its_lock() {
         event,
         Some(Event::Done {
             what: DoneWhat::Note,
-            result: Ok(())
+            result: Ok(()),
+            ..
         })
     ));
     assert!(core.paths.notes.exists());
@@ -123,7 +124,8 @@ async fn a_notes_file_not_read_at_the_unlock_is_kept_until_one_reads_it() {
         event,
         Some(Event::Done {
             what: DoneWhat::Note,
-            result: Err(CoreError::NotAvailable(_))
+            result: Err(CoreError::NotAvailable(_)),
+            ..
         })
     ));
     assert!(core.paths.notes.join("in-the-way").is_dir());
@@ -305,7 +307,8 @@ async fn the_tax_category_is_kept_by_the_key_and_refused_when_it_cannot_be() {
         event,
         Some(Event::Done {
             what: DoneWhat::TaxCategory,
-            result: Ok(())
+            result: Ok(()),
+            ..
         })
     ));
     let folder = core.paths.vault.parent().unwrap().to_owned();
@@ -321,7 +324,8 @@ async fn the_tax_category_is_kept_by_the_key_and_refused_when_it_cannot_be() {
             event,
             Some(Event::Done {
                 what: DoneWhat::TaxCategory,
-                result: Err(CoreError::NotAvailable(_))
+                result: Err(CoreError::NotAvailable(_)),
+                ..
             })
         ));
     }
@@ -334,7 +338,8 @@ async fn the_tax_category_is_kept_by_the_key_and_refused_when_it_cannot_be() {
         event,
         Some(Event::Done {
             what: DoneWhat::TaxCategory,
-            result: Err(CoreError::Failed(_))
+            result: Err(CoreError::Failed(_)),
+            ..
         })
     ));
     core.put_notes_on(&mut history).await;

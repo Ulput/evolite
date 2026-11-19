@@ -1151,13 +1151,23 @@ impl App {
             });
         }
         if preset("fund-address-steps") {
-            self.fund_address.running = Some(10_000_000);
+            self.fund_address
+                .flow
+                .set_stage(crate::components::spend_flow::Stage::Waiting {
+                    ask: 0,
+                    signed: 10_000_000,
+                });
             self.fund_address.steps_open = true;
         }
         self.fund_address.resume_open =
             preset("fund-address-resume") || preset("fund-address-recovered");
         if preset("fund-address-done") {
-            self.fund_address.result = Some((10_000_000, Ok(())));
+            self.fund_address
+                .flow
+                .set_stage(crate::components::spend_flow::Stage::Answered {
+                    signed: 10_000_000,
+                    result: Ok(()),
+                });
         }
         // `--screen add-name` opens "Add a name" with a name being checked.
         self.identity.adding_name = preset("add-name").then(|| screens::identity::NameForm {
@@ -1434,7 +1444,7 @@ impl App {
         // `--screen identity-created`: the banner after a creation (frame 5).
         self.identity.created =
             preset("identity-created").then_some(screens::identity::Created::Awaiting(None));
-        self.create_identity.waiting = preset("creating");
+        self.create_identity.set_waiting(preset("creating"));
         self.create_identity.step = preset("creating").then_some(2);
         self.wallet_menu = preset("wallet-menu");
         // `--screen check-phrase` opens "Check the phrase" over Backup with the words asked.

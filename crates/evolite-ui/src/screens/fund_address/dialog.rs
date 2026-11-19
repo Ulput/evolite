@@ -89,10 +89,13 @@ pub fn fund_dialog(
                 if review {
                     // The password of the review (22b), always asked when the setting asks.
                     let ask = wallet.password_each_send;
-                    let entered = state.password.field(ui, &p, "fund-address-password", ask);
+                    let entered = state
+                        .flow
+                        .password
+                        .field(ui, &p, "fund-address-password", ask);
                     let ready = matches!(plan, Some(Ok(_)))
                         && lock_refusal.is_none()
-                        && state.password.ready(ask);
+                        && state.flow.password.ready(ask);
                     crate::components::button_row_spend(ui, |ui| {
                         if button(ui, a, tr!("Back"), ButtonKind::Ghost, None).clicked() {
                             back = true;
@@ -272,23 +275,27 @@ pub fn fund_dialog(
     );
     if let Some(amount) = send {
         let ask = wallet.password_each_send;
-        asked.push(state.password.command(Spend::FundAddress { amount }, ask));
-        state.running = Some(amount);
-        state.steps_open = true;
-        state.result = None;
-        state.form = None;
+        state.close_result();
+        if let Some(command) = state
+            .flow
+            .command(Spend::FundAddress { amount }, ask, amount)
+        {
+            asked.push(command);
+            state.steps_open = true;
+            state.form = None;
+        }
     } else if back {
         if let Some(form) = &mut state.form {
             form.review = false;
         }
-        state.password.forget();
+        state.flow.password.forget();
     } else if to_review {
         if let Some(form) = &mut state.form {
             form.review = true;
         }
     } else if close {
         state.form = None;
-        state.password.forget();
+        state.flow.password.forget();
     }
 }
 

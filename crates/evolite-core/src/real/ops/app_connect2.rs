@@ -779,6 +779,7 @@ impl Real {
             Event::Done {
                 what: DoneWhat::App,
                 result,
+                ask: None,
             }
         });
         Ok(())
@@ -815,10 +816,12 @@ impl Real {
                 Ok(()) => Event::Done {
                     what: DoneWhat::AppBudgets,
                     result: Ok(()),
+                    ask: None,
                 },
                 Err(e) => Event::Done {
                     what: DoneWhat::AppBudgets,
                     result: Err(e),
+                    ask: None,
                 },
             }
         });

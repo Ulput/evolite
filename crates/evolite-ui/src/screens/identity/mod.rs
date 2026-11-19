@@ -17,11 +17,12 @@ pub use profile::*;
 pub use top_up::*;
 
 use super::Screen;
+use crate::components::spend_flow::SpendFlow;
 use crate::components::text;
 use crate::components::{
-    Assets, ButtonKind, CardAmount, FieldKind, RowCell, SpendPassword, amount_field, avatar,
-    button, button_enabled, button_row, card, chip, divider, field_label, inner, kv_row,
-    list_card_in, notice, page_header, pill, text_action, text_field, two_columns,
+    Assets, ButtonKind, CardAmount, FieldKind, RowCell, amount_field, avatar, button,
+    button_enabled, button_row, card, chip, divider, field_label, inner, kv_row, list_card_in,
+    notice, page_header, pill, text_action, text_field, two_columns,
 };
 use crate::context::Ctx;
 use crate::text::{self, group_thousands, short_id};
@@ -43,16 +44,14 @@ pub struct IdentityState {
     pub editing: Option<ProfileForm>,
     /// "Top up the identity" is open; the top-up itself outlives the window.
     pub top_up: Option<TopUpForm>,
-    /// The duffs of a top-up sent to the core, no answer yet.
-    pub topping_up: Option<i64>,
+    /// «Top up the identity» (TECH-spend-flow): the duffs signed, while it waits.
+    pub top_up_flow: SpendFlow<i64>,
+    /// «Continue the top-up» on the screen itself: the duffs locked.
+    pub resume_flow: SpendFlow<i64>,
     /// The last top-up's duffs and answer, until a new one starts.
     pub top_up_result: Option<(i64, Result<(), CoreError>)>,
     /// "Add a name" is open.
     pub adding_name: Option<NameForm>,
-    /// "Password for every payment" in "Top up the identity" (BUG-42).
-    pub top_up_password: SpendPassword,
-    /// The same for "Continue the top-up" on the screen itself.
-    pub resume_password: SpendPassword,
     /// The banner after «Create» (FEAT-0014, analyst-44), until closed or another identity is
     /// chosen.
     pub created: Option<Created>,
@@ -64,8 +63,9 @@ pub struct IdentityState {
     /// A contested name typed when the identity was made (FEAT-0021 UC-5, AC-T23): Identity
     /// offers its claim, a spend of its own, until it is claimed or closed.
     pub claim_after: Option<String>,
-    /// The password of «Write the link again» on the contest card (FEAT-0021 АРХ-6, AC-T12).
-    pub link_password: SpendPassword,
+    /// «Write the link again» on the contest card (FEAT-0021 АРХ-6, AC-T12): its password, and
+    /// its answer kept until the card closes (TECH-spend-flow, BUG-207).
+    pub link_flow: SpendFlow<()>,
 }
 
 /// The banner «Identity … created» over «Work as».
@@ -107,27 +107,34 @@ impl IdentityState {
         }
     }
 
-    /// The core's answer to `AddName`.
-    pub fn on_name_done(&mut self, result: &Result<(), CoreError>) {
-        if let Some(form) = &mut self.adding_name {
-            form.waiting = false;
-            form.password.on_answer(result);
-            // FEAT-0021 R-2: the fund rose between the review and the signature. Nothing was
-            // sent; the review shows the new fund and asks for the password again.
-            if let (Err(CoreError::ContestFundChanged { fund }), Some(review)) =
-                (result, &mut form.review)
-            {
-                review.was = Some(review.fund);
-                review.fund = *fund;
-                form.password.forget();
-                form.result = None;
-                return;
-            }
-            // A wrong password is said under its field; the name can be registered again.
-            if !form.password.is_wrong() {
-                form.result = Some(result.clone());
-            }
+    /// The core's answer to `AddName` or `SetNameLink`, taken only by the window that asked it
+    /// (`ask`; BUG-207: the link written again from the contest card is not «Add a name»'s).
+    pub fn on_name_done(&mut self, ask: Option<u64>, result: &Result<(), CoreError>) {
+        // The contest card keeps its answer: no second write until it is closed (BUG-207).
+        if self.link_flow.on_done(ask, result) {
+            return;
         }
+        let Some(form) = &mut self.adding_name else {
+            return;
+        };
+        if !form.flow.on_done(ask, result) {
+            return;
+        }
+        // A wrong password is said under its field; the name can be registered again.
+        let Some(((), result)) = form.flow.take_result() else {
+            return;
+        };
+        // FEAT-0021 R-2: the fund rose between the review and the signature. Nothing was sent;
+        // the review shows the new fund and asks for the password again.
+        if let (Err(CoreError::ContestFundChanged { fund }), Some(review)) =
+            (&result, &mut form.review)
+        {
+            review.was = Some(review.fund);
+            review.fund = *fund;
+            form.result = None;
+            return;
+        }
+        form.result = Some(result);
     }
 
     /// Opens the contest card (FEAT-0021 N5) on `identity`'s request for `label`: the one way in
@@ -136,18 +143,25 @@ impl IdentityState {
         self.contest = Some((identity.to_owned(), label.to_owned()));
     }
 
-    /// The core's answer to `TopUpIdentity` or `ResumeTopUp`.
-    /// Only for a top-up this state sent: the answer of a wallet left meanwhile is not this
-    /// one's (BUG-45).
-    pub fn on_top_up_done(&mut self, result: &Result<(), CoreError>) {
-        let Some(duffs) = self.topping_up.take() else {
-            return;
-        };
-        self.top_up_password.settle(Some(result));
-        self.resume_password.settle(Some(result));
-        // A wrong password is said under its field, not as a failed top-up.
-        if !matches!(result, Err(CoreError::WrongPassword)) {
-            self.top_up_result = Some((duffs, result.clone()));
+    /// The duffs of a top-up sent to the core, no answer yet.
+    pub fn topping_up(&self) -> Option<i64> {
+        [&self.top_up_flow, &self.resume_flow]
+            .into_iter()
+            .find(|f| f.waiting())
+            .and_then(|f| f.signed().copied())
+    }
+
+    /// The core's answer to `TopUpIdentity` or `ResumeTopUp`, taken only by the flow that
+    /// asked it (`ask`): the answer of a wallet left meanwhile is not this one's (BUG-45,
+    /// BUG-214). A wrong password is said under its field, not as a failed top-up.
+    pub fn on_top_up_done(&mut self, ask: Option<u64>, result: &Result<(), CoreError>) {
+        for flow in [&mut self.top_up_flow, &mut self.resume_flow] {
+            if flow.on_done(ask, result) {
+                if let Some(answer) = flow.take_result() {
+                    self.top_up_result = Some(answer);
+                }
+                return;
+            }
         }
     }
 
@@ -159,27 +173,65 @@ impl IdentityState {
         }
     }
 
-    /// The wallet locked: what was typed for a spend goes.
-    pub fn on_lock(&mut self) {
-        self.top_up_password.forget();
-        self.resume_password.forget();
+    /// The wallet locked: what was typed for a spend goes, and its windows wait for nothing.
+    fn on_lock(&mut self) {
+        self.top_up_flow.forget();
+        self.resume_flow.forget();
+        self.link_flow.forget();
         if let Some(form) = &mut self.adding_name {
-            form.password.forget();
+            form.flow.forget();
         }
         if let Some(form) = &mut self.editing {
-            form.password.forget();
+            form.flow.forget();
         }
     }
 
-    pub fn on_profile_saved(&mut self, result: &Result<(), CoreError>) {
+    /// The core's answer to `SaveProfile`, taken only by the form that asked it (`ask`).
+    pub fn on_profile_saved(&mut self, ask: Option<u64>, result: &Result<(), CoreError>) {
+        let Some(form) = &mut self.editing else {
+            return;
+        };
+        if !form.flow.on_done(ask, result) {
+            return;
+        }
+        // A wrong password is said under its field.
+        let Some(((), result)) = form.flow.take_result() else {
+            return;
+        };
+        if result.is_ok() {
+            self.editing = None;
+        } else {
+            form.result = Some(result);
+        }
+    }
+}
+
+impl crate::screen_state::ScreenState for IdentityState {
+    #[cfg(all(test, demo_core, feature = "dev-tools"))]
+    fn flows(&mut self) -> Vec<&mut dyn crate::components::spend_flow::AnyFlow> {
+        let mut flows: Vec<&mut dyn crate::components::spend_flow::AnyFlow> = vec![
+            &mut self.top_up_flow,
+            &mut self.resume_flow,
+            &mut self.link_flow,
+        ];
+        if let Some(form) = &mut self.adding_name {
+            flows.push(&mut form.flow);
+        }
         if let Some(form) = &mut self.editing {
-            form.waiting = false;
-            form.password.on_answer(result);
-            if result.is_ok() {
-                self.editing = None;
-            } else {
-                form.result = Some(result.clone());
-            }
+            flows.push(&mut form.flow);
+        }
+        flows
+    }
+
+    fn forget(&mut self, why: crate::screen_state::Why) {
+        use crate::screen_state::Why;
+        match why {
+            Why::Lock => self.on_lock(),
+            // Nothing of another wallet is shown (BUG-45, BUG-214).
+            Why::WalletSwitch => *self = Self::default(),
+            // A spend asked for the last identity waits for nothing now (History shows what it
+            // did); a form opened for the new one (a claim's top-up after «Create») stays.
+            Why::IdentitySwitch => self.on_lock(),
         }
     }
 }
@@ -600,7 +652,7 @@ fn new_identity_blocked(wallet: &Wallet, state: &IdentityState) -> Option<String
     // A running top-up only (R-4): a stopped one does not hold a creation back (the core makes
     // a new lock for it), and the pill never sends anyone to continue a top-up (review r1
     // must 2: werner555's stopped 0.5 DASH top-up must not be continued).
-    top_up_blocked_by(true, None, state.topping_up.is_some()).map(String::from)
+    top_up_blocked_by(true, None, state.topping_up().is_some()).map(String::from)
 }
 
 /// «Identity … created» (frame 5; without a name frame 6, with «Add a name»): actions now go
@@ -788,7 +840,7 @@ impl IdentityState {
     /// "Top up the identity" opens (from Identity or from Overview). The last top-up's answer
     /// stays only while that top-up is running.
     pub fn open_top_up(&mut self) {
-        if self.topping_up.is_none() {
+        if self.topping_up().is_none() {
             self.top_up_result = None;
         }
         self.top_up = Some(TopUpForm::default());
@@ -803,7 +855,7 @@ impl IdentityState {
         match blocked {
             None => self.open_top_up(),
             // A top-up running shows its own notice already.
-            Some(_) if self.topping_up.is_some() => {}
+            Some(_) if self.topping_up().is_some() => {}
             Some(why) => {
                 self.top_up_result = Some((0, Err(CoreError::NotAvailable(why.into()))));
             }
@@ -1238,12 +1290,20 @@ mod tests {
 
     #[test]
     fn a_top_up_answer_ends_the_running_one() {
-        let mut state = IdentityState {
-            topping_up: Some(100_000),
-            ..Default::default()
+        let mut state = IdentityState::default();
+        let Some(evolite_api::Command::Spend { ask, .. }) = state.top_up_flow.command(
+            evolite_api::Spend::TopUpIdentity { amount: 100_000 },
+            false,
+            100_000,
+        ) else {
+            panic!("sent");
         };
-        state.on_top_up_done(&Ok(()));
-        assert_eq!(state.topping_up, None);
+        assert_eq!(state.topping_up(), Some(100_000));
+        // Another window's answer (another wallet's, BUG-214) is not this one's.
+        state.on_top_up_done(Some(ask + 1), &Ok(()));
+        assert_eq!(state.topping_up(), Some(100_000));
+        state.on_top_up_done(Some(ask), &Ok(()));
+        assert_eq!(state.topping_up(), None);
         assert_eq!(state.top_up_result, Some((100_000, Ok(()))));
     }
 

@@ -58,6 +58,7 @@ impl Real {
                     Err(e) => Event::Done {
                         what: DoneWhat::Identity,
                         result: Err(e),
+                        ask: None,
                     },
                 }
             }
@@ -66,6 +67,7 @@ impl Real {
                 Err(e) => Event::Done {
                     what: DoneWhat::Identity,
                     result: Err(e),
+                    ask: None,
                 },
             },
             Spend::Shield { from, amount } => match self.shield(from, amount) {
@@ -76,6 +78,7 @@ impl Real {
                 Err(e) => Event::Done {
                     what: DoneWhat::Shield,
                     result: Err(e),
+                    ask: None,
                 },
             },
             Spend::SendToken {
@@ -109,12 +112,14 @@ impl Real {
             Spend::GiftNft { .. } => Event::Done {
                 what: DoneWhat::Gift,
                 result: Err(CoreError::NotAvailable(NO_GIFTS.into())),
+                ask: None,
             },
             Spend::AddContact { name } => match self.add_contact(&name) {
                 Ok(()) => return (None, false),
                 Err(e) => Event::Done {
                     what: DoneWhat::Contact,
                     result: Err(e),
+                    ask: None,
                 },
             },
             Spend::AcceptContact { identity_id } => {
@@ -123,6 +128,7 @@ impl Real {
                     Err(e) => Event::Done {
                         what: DoneWhat::Contact,
                         result: Err(e),
+                        ask: None,
                     },
                 }
             }
@@ -135,6 +141,7 @@ impl Real {
                 Err(e) => Event::Done {
                     what: DoneWhat::Profile,
                     result: Err(e),
+                    ask: None,
                 },
             },
             Spend::TopUpIdentity { amount } => match self.top_up_identity(amount).await {
@@ -143,6 +150,7 @@ impl Real {
                 Err(e) => Event::Done {
                     what: DoneWhat::TopUp,
                     result: Err(e),
+                    ask: None,
                 },
             },
             Spend::ResumeTopUp => match self.resume_top_up() {
@@ -150,6 +158,7 @@ impl Real {
                 Err(e) => Event::Done {
                     what: DoneWhat::TopUp,
                     result: Err(e),
+                    ask: None,
                 },
             },
             // FEAT-0015 stage 2: the answer comes from the background task.
@@ -158,6 +167,7 @@ impl Real {
                 Err(e) => Event::Done {
                     what: DoneWhat::FundAddress,
                     result: Err(e),
+                    ask: None,
                 },
             },
             Spend::ResumeFundAddress => match self.resume_fund_address().await {
@@ -165,6 +175,7 @@ impl Real {
                 Err(e) => Event::Done {
                     what: DoneWhat::FundAddress,
                     result: Err(e),
+                    ask: None,
                 },
             },
             Spend::Unshield { amount } => match self.unshield(amount) {
@@ -175,6 +186,7 @@ impl Real {
                 Err(e) => Event::Done {
                     what: DoneWhat::Unshield,
                     result: Err(e),
+                    ask: None,
                 },
             },
             Spend::TopUpFromPool { amount } => match self.top_up_from_pool(amount) {
@@ -185,6 +197,7 @@ impl Real {
                 Err(e) => Event::Done {
                     what: DoneWhat::PoolTopUp,
                     result: Err(e),
+                    ask: None,
                 },
             },
             Spend::AddName {
@@ -196,6 +209,7 @@ impl Real {
                 Err(e) => Event::Done {
                     what: DoneWhat::Name,
                     result: Err(e),
+                    ask: None,
                 },
             },
             // FEAT-0021 АРХ-6: the claim's link alone (AC-T12).
@@ -204,6 +218,7 @@ impl Real {
                 Err(e) => Event::Done {
                     what: DoneWhat::Name,
                     result: Err(e),
+                    ask: None,
                 },
             },
             Spend::UpdateKeys {
@@ -215,6 +230,7 @@ impl Real {
                 Err(e) => Event::Done {
                     what: DoneWhat::Keys,
                     result: Err(e),
+                    ask: None,
                 },
             },
             Spend::DisconnectApp { id } => match self.disconnect_app(&id) {
@@ -222,6 +238,7 @@ impl Real {
                 Err(e) => Event::Done {
                     what: DoneWhat::Disconnect,
                     result: Err(e),
+                    ask: None,
                 },
             },
             Spend::ApproveApp { id, grant } => match self.answer_app(id, true, grant) {
@@ -230,14 +247,59 @@ impl Real {
                 Ok(false) => Event::Done {
                     what: DoneWhat::App,
                     result: Ok(()),
+                    ask: None,
                 },
                 Err(e) => Event::Done {
                     what: DoneWhat::App,
                     result: Err(e),
+                    ask: None,
                 },
             },
         };
         (Some(event), true)
+    }
+
+    /// A spend through the one gate (R-27): refused, it is answered as the operation's own
+    /// failure, and nothing of it was checked, locked or signed.
+    async fn handle_spend(
+        &mut self,
+        op: Spend,
+        password: Option<Password>,
+    ) -> (Option<Event>, bool) {
+        // One change of the identity at a time (the review's Should 1): every spend that
+        // takes it is refused before the password while another holds it
+        // (TECH-busy-guard), in the words its own start would have said.
+        if op.takes_identity() && self.identity_busy.is_busy() {
+            return (Some(op.refused(busy_refusal(&op))), true);
+        }
+        // An asset lock the coins cannot make (SPV Б2, item 3) is refused before the
+        // password is even looked at: no password typed in vain.
+        if let Err(why) = self.lock_coins_before_password(&op).await {
+            return (Some(op.refused(why)), true);
+        }
+        // A key change the identity cannot take is refused before the password
+        // (FEAT-0020 AC-T2).
+        if let Spend::UpdateKeys {
+            identity,
+            add,
+            disable,
+        } = &op
+            && let Some(why) = self.key_update_refused(identity, add, disable).await
+        {
+            return (Some(op.refused(why)), true);
+        }
+        if let Err(why) = self
+            .spend_gate(password.as_ref(), op.asks_password_always())
+            .await
+        {
+            return (Some(op.refused(why)), true);
+        }
+        self.prices.begin(&op, now());
+        let (event, changed) = self.spend(op).await;
+        if let Some(event) = &event {
+            self.prices.finish(event);
+        }
+        (event, changed)
     }
 
     pub(super) async fn handle(&mut self, command: Command) -> (Option<Event>, bool) {
@@ -249,18 +311,22 @@ impl Real {
             Command::CreateWallet { .. } if self.leftovers => Event::Done {
                 what: DoneWhat::Create,
                 result: Err(CoreError::NotAvailable(LEFTOVERS.into())),
+                ask: None,
             },
             Command::CreateWallet { password } => Event::Done {
                 what: DoneWhat::Create,
                 result: self.create(&password).await,
+                ask: None,
             },
             Command::Unlock { password } => Event::Done {
                 what: DoneWhat::Unlock,
                 result: self.unlock_counted(&password).await,
+                ask: None,
             },
             Command::Lock => Event::Done {
                 what: DoneWhat::Lock,
                 result: self.lock().await,
+                ask: None,
             },
             Command::AutoLock { after_secs } => {
                 self.auto_lock = after_secs.map(Duration::from_secs);
@@ -285,6 +351,7 @@ impl Real {
             Command::ChangePassword { old, new } => Event::Done {
                 what: DoneWhat::Password,
                 result: self.change_password(&old, &new).await,
+                ask: None,
             },
             Command::RevealPhrase { password, wallet } => {
                 // Counted as the unlock is, for the wallet whose phrase it is (BUG-203): no
@@ -326,6 +393,7 @@ impl Real {
             Command::HideNameRequest { identity, label } => Event::Done {
                 what: DoneWhat::Name,
                 result: self.hide_name_request(&identity, &label),
+                ask: None,
             },
             Command::OpenAppLink { text } => match self.open_app_link(&text) {
                 // The decoded request comes from the background task.
@@ -341,6 +409,7 @@ impl Real {
                     Err(e) => Event::Done {
                         what: DoneWhat::Contact,
                         result: Err(e),
+                        ask: None,
                     },
                 }
             }
@@ -361,6 +430,7 @@ impl Real {
                 Err(e) => Event::Done {
                     what: DoneWhat::ForgetApp,
                     result: Err(e),
+                    ask: None,
                 },
             },
             Command::ReadAppBudgets { id } => match self.read_app_budgets(&id) {
@@ -368,59 +438,35 @@ impl Real {
                 Err(e) => Event::Done {
                     what: DoneWhat::AppBudgets,
                     result: Err(e),
+                    ask: None,
                 },
             },
             // Every spend passes the one gate first (R-27): refused, it is answered as the
             // operation's own failure, and nothing of it was checked, locked or signed.
-            Command::Spend { op, password } => {
-                // One change of the identity at a time (the review's Should 1): every spend that
-                // takes it is refused before the password while another holds it
-                // (TECH-busy-guard), in the words its own start would have said.
-                if op.takes_identity() && self.identity_busy.is_busy() {
-                    return (Some(op.refused(busy_refusal(&op))), true);
-                }
-                // An asset lock the coins cannot make (SPV Б2, item 3) is refused before the
-                // password is even looked at: no password typed in vain.
-                if let Err(why) = self.lock_coins_before_password(&op).await {
-                    return (Some(op.refused(why)), true);
-                }
-                // A key change the identity cannot take is refused before the password
-                // (FEAT-0020 AC-T2).
-                if let Spend::UpdateKeys {
-                    identity,
-                    add,
-                    disable,
-                } = &op
-                    && let Some(why) = self.key_update_refused(identity, add, disable).await
-                {
-                    return (Some(op.refused(why)), true);
-                }
-                if let Err(why) = self
-                    .spend_gate(password.as_ref(), op.asks_password_always())
-                    .await
-                {
-                    return (Some(op.refused(why)), true);
-                }
-                self.prices.begin(&op, now());
-                let (event, changed) = self.spend(op).await;
-                if let Some(event) = &event {
-                    self.prices.finish(event);
-                }
-                return (event, changed);
+            Command::Spend { op, password, ask } => {
+                // TECH-spend-flow: the answer carries the window's number back, whether it comes
+                // now or from a job started for it ([`Self::answer_later`]).
+                self.spend_ask = Some(ask);
+                let (event, changed) = self.handle_spend(op, password).await;
+                self.spend_ask = None;
+                return (event.map(|e| e.answering(ask)), changed);
             }
             Command::SetPasswordEachSend { on, password } => Event::Done {
                 what: DoneWhat::PasswordEachSend,
                 result: self.set_password_each_send(on, password.as_ref()).await,
+                ask: None,
             },
             // Turning a request down spends nothing: no password.
             Command::DeclineApp { id } => match self.answer_app(id, false, None) {
                 Ok(_) => Event::Done {
                     what: DoneWhat::App,
                     result: Ok(()),
+                    ask: None,
                 },
                 Err(e) => Event::Done {
                     what: DoneWhat::App,
                     result: Err(e),
+                    ask: None,
                 },
             },
             Command::SaveAddress { address, label } => return self.save_address(address, label),
@@ -433,6 +479,7 @@ impl Real {
                 Event::Done {
                     what: DoneWhat::AddressBook,
                     result,
+                    ask: None,
                 }
             }
             // Asked with the next snapshot (`shown_nfts`), as a due refresh is.
@@ -445,6 +492,7 @@ impl Real {
                 Err(e) => Event::Done {
                     what: DoneWhat::KeysRead,
                     result: Err(e),
+                    ask: None,
                 },
             },
             Command::FindIdentities => {
@@ -481,16 +529,19 @@ impl Real {
                     Some(id) => Event::Done {
                         what: DoneWhat::DeleteOther,
                         result: self.delete_other(&id, password.as_ref()).await,
+                        ask: None,
                     },
                     None => Event::Done {
                         what: DoneWhat::Delete,
                         result: self.delete_wallet(password.as_ref()).await,
+                        ask: None,
                     },
                 }
             }
             Command::Resync => Event::Done {
                 what: DoneWhat::Resync,
                 result: self.ask_resync().await,
+                ask: None,
             },
             Command::SwitchWallet { id, password } => {
                 return self.switch_wallet(id, password).await;
@@ -520,6 +571,7 @@ impl Real {
                     Some(Event::Done {
                         what: DoneWhat::Note,
                         result,
+                        ask: None,
                     }),
                     changed,
                 );
@@ -531,6 +583,7 @@ impl Real {
                     Some(Event::Done {
                         what: DoneWhat::TaxCategory,
                         result,
+                        ask: None,
                     }),
                     changed,
                 );
@@ -541,6 +594,7 @@ impl Real {
                     Some(Event::Done {
                         what: DoneWhat::LocalFile,
                         result,
+                        ask: None,
                     }),
                     true,
                 );
@@ -551,6 +605,7 @@ impl Real {
                     Some(Event::Done {
                         what: DoneWhat::LocalFile,
                         result,
+                        ask: None,
                     }),
                     true,
                 );

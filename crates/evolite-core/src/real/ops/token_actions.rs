@@ -50,6 +50,7 @@ impl Real {
                 return Event::Done {
                     what: DoneWhat::ClaimToken,
                     result: Err(e),
+                    ask: None,
                 };
             }
         };
@@ -167,6 +168,7 @@ impl Real {
             Event::Done {
                 what: DoneWhat::ClaimToken,
                 result,
+                ask: None,
             }
         });
         Event::Progress {
@@ -182,6 +184,7 @@ impl Real {
         let refused = |e| Event::Done {
             what: DoneWhat::BuyToken,
             result: Err(e),
+            ask: None,
         };
         if count == 0 || agreed == 0 {
             return refused(CoreError::BadAmount);
@@ -308,6 +311,7 @@ impl Real {
             Event::Done {
                 what: DoneWhat::BuyToken,
                 result,
+                ask: None,
             }
         });
         Event::Progress {

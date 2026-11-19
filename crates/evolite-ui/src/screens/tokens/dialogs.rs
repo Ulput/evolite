@@ -5,9 +5,8 @@
 
 use super::{TokensState, id_line, issuer, sender, shown_name, state};
 use crate::components::{
-    Assets, ButtonKind, FieldKind, Part, SpendPassword, button, button_enabled, button_row,
-    button_row_spend, card, dialog_with_footer, field_label, kv_row, notice, password_asked,
-    text_field, txt,
+    Assets, ButtonKind, FieldKind, Part, button, button_enabled, button_row, button_row_spend,
+    card, dialog_with_footer, field_label, kv_row, notice, password_asked, text_field, txt,
 };
 use crate::context::Ctx;
 use crate::theme::{Weight, mono, sans};
@@ -22,9 +21,8 @@ pub struct SendState {
     pub amount: String,
     /// The second step, «Check the transfer», with the password.
     pub review: bool,
-    pub password: SpendPassword,
-    /// Sent, waiting for the core's answer.
-    pub waiting: bool,
+    /// Its spend (TECH-spend-flow): the password, sent once, its own answer only.
+    pub flow: crate::components::spend_flow::SpendFlow<()>,
     pub result: Option<Result<(), CoreError>>,
     /// The `@name` asked of the network on «Check», until its answer.
     pub checking: Option<String>,
@@ -47,8 +45,7 @@ impl SendState {
             to: String::new(),
             amount: String::new(),
             review: false,
-            password: SpendPassword::default(),
-            waiting: false,
+            flow: Default::default(),
             result: None,
             checking: None,
             signed_balance: None,
@@ -59,12 +56,11 @@ impl SendState {
     }
 
     /// `Done { what: SendToken }`: only an answer this dialog waits for.
-    pub fn on_sent(&mut self, result: &Result<(), CoreError>) {
-        if !self.waiting {
+    pub fn on_sent(&mut self, ask: Option<u64>, result: &Result<(), CoreError>) {
+        if !self.flow.on_done(ask, result) {
             return;
         }
-        self.waiting = false;
-        self.password.on_answer(result);
+        let _ = self.flow.take_result();
         self.result = Some(result.clone());
     }
 
@@ -188,7 +184,7 @@ pub(super) fn send_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, tokens: &mu
     let fee = wallet.fees.document_write.saturating_mul(2);
     // BUG-186: what was signed stays shown while it runs and once sent; an error drops it.
     let sent = matches!(form.result, Some(Ok(())));
-    if !form.waiting && !sent {
+    if !form.flow.waiting() && !sent {
         form.signed_balance = None;
     }
     let balance = form
@@ -255,8 +251,12 @@ pub(super) fn send_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, tokens: &mu
                     let amount = amount.unwrap_or(0);
                     let (_, to_id) = form.recipient.clone().unwrap_or_default();
                     // The wallet's password, as for every spend (R-6, BUG-42).
-                    form.password.field(ui, &p, "token-password", ask);
-                    match form.result.as_ref().filter(|_| !form.password.is_wrong()) {
+                    form.flow.password.field(ui, &p, "token-password", ask);
+                    match form
+                        .result
+                        .as_ref()
+                        .filter(|_| !form.flow.password.is_wrong())
+                    {
                         Some(Ok(())) => {
                             notice(ui, a, "confirmed", p.accent, tr!("The token is sent."));
                             button_row(ui, |ui| {
@@ -283,7 +283,9 @@ pub(super) fn send_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, tokens: &mu
                             form.review = false;
                             form.result = None;
                         }
-                        let ready = !form.waiting && form.password.ready(ask) && problem.is_none();
+                        let ready = !form.flow.waiting()
+                            && form.flow.password.ready(ask)
+                            && problem.is_none();
                         if button_enabled(
                             ui,
                             a,
@@ -520,14 +522,15 @@ pub(super) fn send_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, tokens: &mu
     if top_up {
         cx.top_up();
     }
-    if let Some(op) = send {
-        cx.send(form.password.command(op, ask));
-        form.waiting = true;
+    if let Some(op) = send
+        && let Some(command) = form.flow.command(op, ask, ())
+    {
+        cx.send(command);
         form.result = None;
         form.signed_balance = Some(balance);
     }
     if closed {
-        form.password.forget();
+        form.flow.password.forget();
         tokens.sending = None;
     }
 }
@@ -862,12 +865,13 @@ mod tests {
     #[test]
     fn a_send_answer_counts_only_while_waited_for() {
         let mut send = SendState::new("T");
-        send.on_sent(&Ok(()));
+        send.on_sent(Some(0), &Ok(()));
         assert!(send.result.is_none(), "nobody asked");
-        send.waiting = true;
-        send.on_sent(&Err(CoreError::NotEnough));
+        send.flow
+            .set_stage(crate::components::spend_flow::Stage::Waiting { ask: 0, signed: () });
+        send.on_sent(Some(0), &Err(CoreError::NotEnough));
         assert_eq!(send.result, Some(Err(CoreError::NotEnough)));
-        assert!(!send.waiting);
+        assert!(!send.flow.waiting());
     }
 
     /// R-3: a name not on the network is said under «To» before the review; a found one goes to

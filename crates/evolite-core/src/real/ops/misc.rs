@@ -135,6 +135,7 @@ impl Real {
             Event::Done {
                 what: DoneWhat::CoreNode,
                 result,
+                ask: None,
             }
         };
         (Some(event), true)
@@ -192,6 +193,7 @@ impl Real {
             Event::Done {
                 what: DoneWhat::AddressBook,
                 result,
+                ask: None,
             }
         };
         (Some(event), true)

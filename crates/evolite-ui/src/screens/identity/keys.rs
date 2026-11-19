@@ -179,14 +179,17 @@ impl KeysState {
 
     /// The core's answer to `UpdateKeys`: done closes the dialog and says so; anything else
     /// stays in the dialog.
-    pub fn on_changed(&mut self, result: Result<(), CoreError>) {
+    pub fn on_changed(&mut self, ask: Option<u64>, result: Result<(), CoreError>) {
         if let Some(change) = &mut self.change {
-            self.changed = result.is_ok() && change.waiting;
+            let ok = result.is_ok();
+            if !change.on_changed(ask, result) {
+                return;
+            }
+            self.changed = ok;
             // The core read the identity again to see the change.
             if self.changed {
                 self.read = Some(Ok(chrono::Local::now().timestamp()));
             }
-            change.on_changed(result);
         }
     }
 
@@ -730,6 +733,22 @@ fn row_menu(
     });
     let esc = ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape));
     (outside || esc).then_some(None)
+}
+
+impl crate::screen_state::ScreenState for KeysState {
+    #[cfg(all(test, demo_core, feature = "dev-tools"))]
+    fn flows(&mut self) -> Vec<&mut dyn crate::components::spend_flow::AnyFlow> {
+        match &mut self.change {
+            Some(change) => vec![&mut change.flow],
+            None => Vec::new(),
+        }
+    }
+
+    fn forget(&mut self, _why: crate::screen_state::Why) {
+        // A lock, another wallet or another identity: the menu, the dialogs, the password and
+        // the key go.
+        KeysState::forget(self);
+    }
 }
 
 #[cfg(test)]

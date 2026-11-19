@@ -24,6 +24,7 @@ pub(super) fn contest_card(
         .flatten();
     let Some(name) = name else {
         state.contest = None;
+        state.link_flow.forget();
         return;
     };
     let contest = name.contest.clone().unwrap_or_default();
@@ -47,7 +48,9 @@ pub(super) fn contest_card(
         .link
         .clone()
         .filter(|_| !contest.link_written && name.state.open());
-    let password = &mut state.link_password;
+    // One write at a time, and none again once answered, until the card is closed (BUG-207).
+    let can_write = state.link_flow.can_act();
+    let password = &mut state.link_flow.password;
     let close = dialog_with_footer(ui, a, "contest", "vote", &title, 520.0, |ui, a, part| {
         let p = a.p;
         if part == Part::Footer {
@@ -63,7 +66,7 @@ pub(super) fn contest_card(
                         tr!("Write the link again"),
                         ButtonKind::Secondary,
                         None,
-                        password.ready(true),
+                        can_write && password.ready(true),
                     )
                     .clicked()
                 {
@@ -229,7 +232,9 @@ pub(super) fn contest_card(
             label: label.clone(),
             url: Some(url),
         };
-        asked.push(state.link_password.command(op, true));
+        if let Some(command) = state.link_flow.command(op, true, ()) {
+            asked.push(command);
+        }
     }
     if hide {
         asked.push(Command::HideNameRequest {
@@ -237,11 +242,14 @@ pub(super) fn contest_card(
             label: label.clone(),
         });
         state.contest = None;
+        state.link_flow.forget();
     } else if another {
         state.contest = None;
+        state.link_flow.forget();
         state.adding_name = Some(NameForm::default());
     } else if close {
         state.contest = None;
+        state.link_flow.forget();
     }
 }
 

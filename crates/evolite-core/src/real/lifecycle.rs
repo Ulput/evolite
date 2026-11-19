@@ -157,6 +157,7 @@ impl Real {
             pools_saved: None,
             gap_looked: None,
             past_the_gap_from: None,
+            spend_ask: None,
             gap_pending: Vec::new(),
             gap_scans,
             mined,

@@ -2085,6 +2085,9 @@ pub enum Command {
     Spend {
         op: Spend,
         password: Option<Password>,
+        /// TECH-spend-flow: the window's request number, handed back in the answer's
+        /// [`Event::Done::ask`] (the core carries it without looking); 0 when nobody waits.
+        ask: u64,
     },
     /// Settings → Security → "Password for every send". Turning it off needs the password
     /// (else anyone at the unlocked computer could switch it off and spend); turning it on does
@@ -2565,6 +2568,7 @@ impl Spend {
             _ => Event::Done {
                 what: self.what(),
                 result: Err(why),
+                ask: None,
             },
         }
     }
@@ -2768,6 +2772,9 @@ pub enum Event {
     Done {
         what: DoneWhat,
         result: Result<(), CoreError>,
+        /// TECH-spend-flow: the `ask` of the [`Command::Spend`] this answers; `None` for an
+        /// answer to anything else. A paid window takes only the answer with its own number.
+        ask: Option<u64>,
     },
     PhraseRevealed(Result<Phrase, CoreError>),
     IdentityKeyRevealed(Result<RevealedKey, CoreError>),
@@ -2836,6 +2843,17 @@ pub enum Event {
         query: String,
         result: Result<Vec<tokens::TokenInfo>, CoreError>,
     },
+}
+
+impl Event {
+    /// TECH-spend-flow: this answer to the [`Command::Spend`] numbered `ask` carries it back
+    /// (a `Done`; other events are left as they are).
+    pub fn answering(mut self, ask: u64) -> Self {
+        if let Event::Done { ask: carried, .. } = &mut self {
+            *carried = Some(ask);
+        }
+        self
+    }
 }
 
 #[cfg(test)]

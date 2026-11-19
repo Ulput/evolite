@@ -625,6 +625,9 @@ struct Real {
     /// BUG-232 review M1: a rescan owed to the addresses taken in past the gap, from this
     /// height, asked once the filters are synced ([`take_past_the_gap`]).
     past_the_gap_from: Option<(WalletId, u32)>,
+    /// TECH-spend-flow: the number of the `Command::Spend` being handled, for the answer of a
+    /// job it starts ([`Self::answer_later`]).
+    spend_ask: Option<u64>,
     /// BUG-232 review r1: outputs of ours with no coin yet whose rescan is owed now
     /// ([`convert::uncredited_outputs`]), each with its wallet (review r2 S1); noted in
     /// `gap-rescans.json` when that wallet's rescan is done ([`settle_gap_pending`]), forgotten

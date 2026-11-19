@@ -4,9 +4,9 @@
 
 use super::{TokensState, issuer, sender, shown_name, state};
 use crate::components::{
-    Assets, ButtonKind, FieldKind, Part, SpendPassword, button, button_enabled, button_row,
-    button_row_spend, card, dialog_with_footer, divider, field_label, kv_row, notice,
-    password_asked, text_field, txt,
+    Assets, ButtonKind, FieldKind, Part, button, button_enabled, button_row, button_row_spend,
+    card, dialog_with_footer, divider, field_label, kv_row, notice, password_asked, text_field,
+    txt,
 };
 use crate::context::Ctx;
 use crate::theme::{Weight, mono, sans};
@@ -133,8 +133,8 @@ fn every_text(every: Every) -> String {
 /// «Claim»: one token.
 pub struct ClaimState {
     pub token_id: String,
-    pub password: SpendPassword,
-    pub waiting: bool,
+    /// Its spend (TECH-spend-flow): the password, sent once, its own answer only.
+    pub flow: crate::components::spend_flow::SpendFlow<()>,
     pub result: Option<Result<(), CoreError>>,
     /// What «Sign and claim» signed (BUG-179): shown while it runs and once done, not the next
     /// distribution reckoned on the new balances.
@@ -145,20 +145,18 @@ impl ClaimState {
     pub fn new(token_id: &str) -> Self {
         ClaimState {
             token_id: token_id.to_owned(),
-            password: SpendPassword::default(),
-            waiting: false,
+            flow: Default::default(),
             result: None,
             signed: None,
         }
     }
 
     /// `Done { what: ClaimToken }`: only an answer this window waits for.
-    pub fn on_answer(&mut self, result: &Result<(), CoreError>) {
-        if !self.waiting {
+    pub fn on_answer(&mut self, ask: Option<u64>, result: &Result<(), CoreError>) {
+        if !self.flow.on_done(ask, result) {
             return;
         }
-        self.waiting = false;
-        self.password.on_answer(result);
+        let _ = self.flow.take_result();
         self.result = Some(result.clone());
     }
 }
@@ -167,8 +165,8 @@ impl ClaimState {
 pub struct BuyState {
     pub token_id: String,
     pub count: String,
-    pub password: SpendPassword,
-    pub waiting: bool,
+    /// Its spend (TECH-spend-flow): the password, sent once, its own answer only.
+    pub flow: crate::components::spend_flow::SpendFlow<()>,
     pub result: Option<Result<(), CoreError>>,
     /// The price per unit the last purchase agreed to, when the network said it grew (P2).
     pub was: Option<u64>,
@@ -253,8 +251,7 @@ impl BuyState {
         BuyState {
             token_id: token_id.to_owned(),
             count: String::new(),
-            password: SpendPassword::default(),
-            waiting: false,
+            flow: Default::default(),
             result: None,
             was: None,
             asked_price: false,
@@ -267,18 +264,21 @@ impl BuyState {
 
     /// `Done { what: BuyToken }`. A price that grew: nothing was taken; the password goes, so
     /// the new price is a new decision (P2).
-    pub fn on_answer(&mut self, result: &Result<(), CoreError>, agreed_per_unit: Option<u64>) {
-        if !self.waiting {
+    pub fn on_answer(
+        &mut self,
+        ask: Option<u64>,
+        result: &Result<(), CoreError>,
+        agreed_per_unit: Option<u64>,
+    ) {
+        if !self.flow.on_done(ask, result) {
             return;
         }
-        self.waiting = false;
+        let _ = self.flow.take_result();
         if result == &Err(CoreError::TokenPriceGrew) {
             self.was = agreed_per_unit;
-            self.password.forget();
             self.result = None;
             return;
         }
-        self.password.on_answer(result);
         self.result = Some(result.clone());
     }
 }
@@ -342,7 +342,7 @@ pub(super) fn claim_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, tokens: &m
     // BUG-179: what was signed stays shown while it runs and once done; an error gives the
     // window back to what is to claim now.
     let done = matches!(form.result, Some(Ok(())));
-    if !form.waiting && !done {
+    if !form.flow.waiting() && !done {
         form.signed = None;
     }
     let Some(claims) = form.signed.or(row.claims) else {
@@ -373,8 +373,14 @@ pub(super) fn claim_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, tokens: &m
         |ui, a, part| {
             if part == Part::Footer {
                 let mut close = false;
-                form.password.field(ui, &p, "token-claim-password", ask);
-                match form.result.as_ref().filter(|_| !form.password.is_wrong()) {
+                form.flow
+                    .password
+                    .field(ui, &p, "token-claim-password", ask);
+                match form
+                    .result
+                    .as_ref()
+                    .filter(|_| !form.flow.password.is_wrong())
+                {
                     Some(Ok(())) => {
                         notice(
                             ui,
@@ -406,7 +412,8 @@ pub(super) fn claim_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, tokens: &m
                     if button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked() {
                         close = true;
                     }
-                    let ready = !form.waiting && form.password.ready(ask) && !no_credits;
+                    let ready =
+                        !form.flow.waiting() && form.flow.password.ready(ask) && !no_credits;
                     if button_enabled(
                         ui,
                         a,
@@ -516,14 +523,15 @@ pub(super) fn claim_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, tokens: &m
     if top_up {
         cx.top_up();
     }
-    if let Some(op) = claim {
-        cx.send(form.password.command(op, ask));
-        form.waiting = true;
+    if let Some(op) = claim
+        && let Some(command) = form.flow.command(op, ask, ())
+    {
+        cx.send(command);
         form.result = None;
         form.signed = Some(claims);
     }
     if closed {
-        form.password.forget();
+        form.flow.password.forget();
         tokens.claiming = None;
     }
 }
@@ -591,7 +599,7 @@ pub(super) fn buy_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, tokens: &mut
     };
     // BUG-179: what was signed stays shown while it runs and once done.
     let done = matches!(form.result, Some(Ok(())));
-    if !form.waiting && !done {
+    if !form.flow.waiting() && !done {
         form.signed = None;
     }
     let offer = form
@@ -647,7 +655,9 @@ pub(super) fn buy_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, tokens: &mut
     }
     // BUG-181: pressed on an old price, read again now: by the total — the same or less goes on
     // that click, more is said and waits, what cannot be bought is the form's own refusal.
-    if let Some(Pending { total: shown, .. }) = form.pending.filter(|_| !old && !form.waiting) {
+    if let Some(Pending { total: shown, .. }) =
+        form.pending.filter(|_| !old && !form.flow.waiting())
+    {
         form.pending = None;
         match (after_reread(shown, quoted, problem.is_some()), count) {
             (Reread::Buy, Some(count)) => {
@@ -673,8 +683,12 @@ pub(super) fn buy_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, tokens: &mut
         |ui, a, part| {
             if part == Part::Footer {
                 let mut close = false;
-                form.password.field(ui, &p, "token-buy-password", ask);
-                match form.result.as_ref().filter(|_| !form.password.is_wrong()) {
+                form.flow.password.field(ui, &p, "token-buy-password", ask);
+                match form
+                    .result
+                    .as_ref()
+                    .filter(|_| !form.flow.password.is_wrong())
+                {
                     Some(Ok(())) => {
                         notice(
                             ui,
@@ -725,11 +739,11 @@ pub(super) fn buy_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, tokens: &mut
                     if button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked() {
                         close = true;
                     }
-                    let ready = !form.waiting
+                    let ready = !form.flow.waiting()
                         && form.pending.is_none()
                         && problem.is_none()
                         && total.is_some()
-                        && form.password.ready(ask);
+                        && form.flow.password.ready(ask);
                     if button_enabled(ui, a, tr!("Sign and buy"), ButtonKind::Primary, None, ready)
                         .clicked()
                         && let (Some(count), Some(total)) = (count, total)
@@ -949,9 +963,10 @@ pub(super) fn buy_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, tokens: &mut
     if top_up {
         cx.top_up();
     }
-    if let Some(op) = buy {
-        cx.send(form.password.command(op, ask));
-        form.waiting = true;
+    if let Some(op) = buy
+        && let Some(command) = form.flow.command(op, ask, ())
+    {
+        cx.send(command);
         form.result = None;
         form.was = None;
         form.signed = Some(SignedBuy {
@@ -961,7 +976,7 @@ pub(super) fn buy_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, tokens: &mut
         });
     }
     if closed {
-        form.password.forget();
+        form.flow.password.forget();
         tokens.buying = None;
     }
 }
@@ -1107,11 +1122,12 @@ mod tests {
     #[test]
     fn a_price_that_grew_is_a_new_decision() {
         let mut form = BuyState::new("T");
-        form.waiting = true;
-        form.on_answer(&Err(CoreError::TokenPriceGrew), Some(40_000));
+        form.flow
+            .set_stage(crate::components::spend_flow::Stage::Waiting { ask: 0, signed: () });
+        form.on_answer(Some(0), &Err(CoreError::TokenPriceGrew), Some(40_000));
         assert_eq!(form.was, Some(40_000));
-        assert!(form.result.is_none() && !form.waiting);
-        form.on_answer(&Ok(()), None);
+        assert!(form.result.is_none() && !form.flow.waiting());
+        form.on_answer(Some(0), &Ok(()), None);
         assert!(form.result.is_none(), "not waited for: not taken");
     }
 

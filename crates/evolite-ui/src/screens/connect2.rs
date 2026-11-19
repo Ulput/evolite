@@ -394,13 +394,17 @@ pub fn request(
                 // Pinned: the password and the buttons (asked always: this cannot be undone). The
                 // app asks, not the person: Enter in the field never connects (rule b′, BUG-30).
                 if state.consent == Consent::Asking {
-                    state.password.field(ui, &p, "app-request-password", true);
+                    state
+                        .flow
+                        .password
+                        .field(ui, &p, "app-request-password", true);
                 }
                 let end = state.choice.end(limits, now.timestamp());
                 let limit = state.choice.limit(limits);
                 let fits =
                     limit.is_some_and(|l| split(sessions, &state.choice.kept, l, 0).is_some());
-                let ready = state.password.ready(true) && end.is_some() && limit.is_some() && fits;
+                let ready =
+                    state.flow.password.ready(true) && end.is_some() && limit.is_some() && fits;
                 let yes = if renews.is_some() {
                     tr!("Renew")
                 } else {
@@ -426,7 +430,7 @@ pub fn request(
                     }
                 });
                 if state.consent == Consent::Asking {
-                    let why = if !state.password.ready(true) {
+                    let why = if !state.flow.password.ready(true) {
                         Some(tr!("Enter the password"))
                     } else if limit.is_none() {
                         Some(tr!("Choose a limit of at most 5 DASH"))
@@ -442,7 +446,7 @@ pub fn request(
                     }
                 }
                 if let Some(Err(e)) = &state.result
-                    && !state.password.is_wrong()
+                    && !state.flow.password.is_wrong()
                 {
                     crate::components::error_notice(
                         ui,

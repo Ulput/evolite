@@ -6,10 +6,9 @@
 
 use super::txt;
 use crate::components::{
-    Assets, ButtonKind, CardAmount, CardColumn, FieldKind, Part, SpendPassword, StepState,
-    amount_field, button, button_enabled, card, dialog_with_footer, divider, field_label, inner,
-    kv_row, notice, numbered_step_at, option_card_in, option_card_width, page_header,
-    password_asked, text_field,
+    Assets, ButtonKind, CardAmount, CardColumn, FieldKind, Part, StepState, amount_field, button,
+    button_enabled, card, dialog_with_footer, divider, field_label, inner, kv_row, notice,
+    numbered_step_at, option_card_in, option_card_width, page_header, password_asked, text_field,
 };
 use crate::context::Ctx;
 use crate::text::name_problem;
@@ -28,13 +27,12 @@ pub struct CreateIdentityForm {
     pub check: Option<Result<NameCheck, CoreError>>,
     /// When [`Self::asked`] went to the core: a long silence is said in words (Д11, BUG-87).
     pub asked_at: Option<std::time::Instant>,
-    /// Sent to the core, no answer yet: the button stays off so money is locked only once.
-    pub waiting: bool,
     pub result: Option<Result<(), CoreError>>,
     /// The step the core is on (1–4, "What happens"), from its progress.
     pub step: Option<usize>,
-    /// "Password for every payment": creating and continuing lock Core DASH (BUG-42).
-    pub password: SpendPassword,
+    /// Creating or continuing (TECH-spend-flow): "password for every payment" in it — both lock
+    /// Core DASH (BUG-42) — sent once, so money is locked only once, its own answer only.
+    pub flow: crate::components::spend_flow::SpendFlow<()>,
     /// «Check the new identity» is open over the form (FEAT-0014, frame 7); the password, when
     /// asked, is typed there.
     pub confirming: bool,
@@ -53,18 +51,36 @@ pub struct CreateIdentityForm {
 impl CreateIdentityForm {
     /// The core's answer to `CreateIdentity` or `ResumeIdentity`: true when the identity is made
     /// (the app then shows it on Identity with its banner).
-    pub fn on_done(&mut self, result: &Result<(), CoreError>) -> bool {
-        self.waiting = false;
-        self.step = None;
-        self.password.on_answer(result);
-        // A wrong password is said under its field, in the review it was typed in: nothing
-        // was locked.
-        if self.password.is_wrong() {
-            self.confirming = true;
+    pub fn on_done(&mut self, ask: Option<u64>, result: &Result<(), CoreError>) -> bool {
+        if !self.flow.on_done(ask, result) {
             return false;
         }
-        self.result = Some(result.clone());
-        result.is_ok()
+        self.step = None;
+        // A wrong password is said under its field, in the review it was typed in: nothing
+        // was locked.
+        let Some(((), result)) = self.flow.take_result() else {
+            self.confirming = true;
+            return false;
+        };
+        let made = result.is_ok();
+        self.result = Some(result);
+        made
+    }
+
+    /// Sent to the core, no answer yet: the button stays off.
+    pub fn waiting(&self) -> bool {
+        self.flow.waiting()
+    }
+
+    /// A creation under way or not, set directly: the `--screen` frames and tests.
+    #[cfg(feature = "dev-tools")]
+    pub fn set_waiting(&mut self, on: bool) {
+        if on {
+            self.flow
+                .set_stage(crate::components::spend_flow::Stage::Waiting { ask: 0, signed: () });
+        } else {
+            self.flow.forget();
+        }
     }
 
     /// The core's progress: `fraction` is the step it is on out of four.
@@ -74,10 +90,12 @@ impl CreateIdentityForm {
 
     /// The creation (or its continuation) goes to the core from here: `chosen` is the identity
     /// the wallet acts as now.
-    fn sent(&mut self, command: Command, chosen: Option<String>, cx: &mut Ctx) {
+    fn sent(&mut self, command: Option<Command>, chosen: Option<String>, cx: &mut Ctx) {
+        let Some(command) = command else {
+            return;
+        };
         cx.send(command);
         self.result = None;
-        self.waiting = true;
         self.before = Some(chosen);
         self.steps_hidden = false;
     }
@@ -106,10 +124,9 @@ impl Default for CreateIdentityForm {
             asked: String::new(),
             check: None,
             asked_at: None,
-            waiting: false,
             result: None,
             step: None,
-            password: SpendPassword::default(),
+            flow: Default::default(),
             confirming: false,
             before: None,
             steps_hidden: false,
@@ -296,8 +313,8 @@ pub fn create_identity(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut Cre
         format!("@{label}")
     };
     // While the core works: the steps it has done, and the one it is on.
-    let current = form.step.filter(|_| form.waiting);
-    let ask = password_asked(cx.snap) && !form.waiting;
+    let current = form.step.filter(|_| form.waiting());
+    let ask = password_asked(cx.snap) && !form.waiting();
     // SPV Б2 and item 3: a lock its coins cannot make, before «Check».
     let lock_refusal = lock
         .filter(|_| checked && !too_much && !too_little)
@@ -308,7 +325,7 @@ pub fn create_identity(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut Cre
         && !too_much
         && !too_little
         && lock_refusal.is_none()
-        && !form.waiting;
+        && !form.waiting();
 
     let facts = FormFacts {
         wallet,
@@ -372,7 +389,7 @@ pub fn create_identity(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut Cre
 
     // Frame 8 (AC-D9): while the core works, its steps over the form until «Hide»; they go on
     // in «What happens» beside it.
-    if form.waiting && !form.steps_hidden {
+    if form.waiting() && !form.steps_hidden {
         let title = if label.is_empty() {
             tr!("Identity creation").to_string()
         } else {
@@ -397,7 +414,7 @@ pub fn create_identity(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut Cre
             // No amount any more: nothing to review.
             None => {
                 form.confirming = false;
-                form.password.forget();
+                form.flow.password.forget();
             }
         }
     }
@@ -733,7 +750,7 @@ fn form_buttons(
 fn form_answer(ui: &mut Ui, a: &mut Assets, form: &CreateIdentityForm) {
     let p = a.p;
     match &form.result {
-        _ if form.waiting => notice(
+        _ if form.waiting() => notice(
             ui,
             a,
             "pending",
@@ -919,13 +936,15 @@ fn check_new_identity(
             if part == Part::Footer {
                 // The footer (BUG-122): always in the window.
                 // In a dialog Enter in the field presses the row's primary (`button_row_spend`).
-                form.password.field(ui, &p, "create-identity-password", ask);
+                form.flow
+                    .password
+                    .field(ui, &p, "create-identity-password", ask);
                 let mut close = false;
                 crate::components::button_row_spend(ui, |ui| {
                     if button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked() {
                         close = true;
                     }
-                    let ready = form_ready && form.password.ready(ask);
+                    let ready = form_ready && form.flow.password.ready(ask);
                     if button_enabled(
                         ui,
                         a,
@@ -1059,12 +1078,12 @@ fn check_new_identity(
             name: plan.label.clone(),
             top_up: plan.top_up,
         };
-        let command = form.password.command(op, ask);
+        let command = form.flow.command(op, ask, ());
         form.sent(command, chosen, cx);
         form.confirming = false;
     } else if closed {
         form.confirming = false;
-        form.password.forget();
+        form.flow.password.forget();
     }
 }
 
@@ -1116,7 +1135,7 @@ fn resume_card(
                 cx.top_up();
             }
         }
-        if form.waiting {
+        if form.waiting() {
             notice(
                 ui,
                 a,
@@ -1125,7 +1144,7 @@ fn resume_card(
                 tr!("Continuing: confirmation, identity and name — about a minute. Do not close evolite."),
             );
         }
-        let ask = password_asked(cx.snap) && !form.waiting;
+        let ask = password_asked(cx.snap) && !form.waiting();
         // BUG-97: the made identity's credits have to carry the name again; only known for
         // the identity shown, the core refuses the others itself, before anything is sent.
         let wallet = cx.wallet();
@@ -1150,16 +1169,33 @@ fn resume_card(
                 cx.top_up();
             }
         }
-        let entered = form.password.field(ui, &p, "resume-identity-password", ask);
-        let ready = !form.waiting && form.password.ready(ask) && !shown_short;
-        let label = if form.waiting { tr!("Continuing…") } else { tr!("Continue") };
+        let entered = form.flow.password.field(ui, &p, "resume-identity-password", ask);
+        let ready = !form.waiting() && form.flow.password.ready(ask) && !shown_short;
+        let label = if form.waiting() { tr!("Continuing…") } else { tr!("Continue") };
         if button_enabled(ui, a, label, ButtonKind::Primary, None, ready).clicked()
             || (entered && ready)
         {
-            let command = form.password.command(Spend::ResumeIdentity, ask);
+            let command = form.flow.command(Spend::ResumeIdentity, ask, ());
             form.sent(command, chosen, cx);
         }
     });
+}
+
+impl crate::screen_state::ScreenState for CreateIdentityForm {
+    #[cfg(all(test, demo_core, feature = "dev-tools"))]
+    fn flows(&mut self) -> Vec<&mut dyn crate::components::spend_flow::AnyFlow> {
+        vec![&mut self.flow]
+    }
+
+    fn forget(&mut self, why: crate::screen_state::Why) {
+        match why {
+            crate::screen_state::Why::WalletSwitch => *self = Self::default(),
+            _ => {
+                self.flow.forget();
+                self.confirming = false;
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -1190,16 +1226,29 @@ mod tests {
     /// counts as made.
     #[test]
     fn a_wrong_password_reopens_the_review() {
-        let mut form = CreateIdentityForm {
-            waiting: true,
-            ..Default::default()
+        let mut form = CreateIdentityForm::default();
+        let send = |form: &mut CreateIdentityForm| match form.flow.command(
+            evolite_api::Spend::ResumeIdentity,
+            false,
+            (),
+        ) {
+            Some(evolite_api::Command::Spend { ask, .. }) => Some(ask),
+            _ => None,
         };
-        assert!(!form.on_done(&Err(CoreError::WrongPassword)));
-        assert!(form.confirming && !form.waiting && form.result.is_none());
+        let ask = send(&mut form);
+        assert!(!form.on_done(ask, &Err(CoreError::WrongPassword)));
+        assert!(form.confirming && !form.waiting() && form.result.is_none());
         form.confirming = false;
-        assert!(!form.on_done(&Err(CoreError::NotEnough)));
+        let ask = send(&mut form);
+        assert!(
+            !form.on_done(ask.map(|a| a + 1), &Ok(())),
+            "another's answer"
+        );
+        assert!(!form.on_done(ask, &Err(CoreError::NotEnough)));
         assert!(!form.confirming);
-        assert!(form.on_done(&Ok(())));
+        form.flow.forget();
+        let ask = send(&mut form);
+        assert!(form.on_done(ask, &Ok(())));
     }
 
     /// TECH-price-check AC-T2: the fees on top of the amount, as this form's plan adds them

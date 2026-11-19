@@ -179,6 +179,7 @@ impl Real {
             let done = |result| Event::Done {
                 what: DoneWhat::FundAddress,
                 result,
+                ask: None,
             };
             let (out_point, instant, locked) = match &resumed {
                 Some(l) => (l.out_point, l.instant, l.amount),
