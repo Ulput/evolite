@@ -90,6 +90,15 @@ pub struct SyncStatus {
     /// Platform has answered for the address balances this run (BUG-91): before that a 0 there is
     /// not an amount.
     pub platform_address_read: bool,
+    /// BUG-240 r2: when a pass of the pool's scan last succeeded for each wallet in this run
+    /// (unix seconds). Before that its balance is not known: platform-wallet stamps a failed
+    /// pass too, and a pool bound without notes on disk reads as a confident 0.
+    #[serde(skip)]
+    pub pool_passed: std::collections::BTreeMap<[u8; 32], u64>,
+    /// BUG-240 r2 (3): the failed passes in a row of each wallet's pool since its last success,
+    /// and the kind of the last failure.
+    #[serde(skip)]
+    pub pool_failed: std::collections::BTreeMap<[u8; 32], (u32, &'static str)>,
     /// Height of the best ChainLock whose BLS signature was verified (this run or, restored
     /// from storage, an earlier one). The counters below cover this run only.
     pub chainlock_height: Option<u32>,
@@ -381,6 +390,161 @@ impl PlatformEventHandler for Reporter {
         // Platform address balances: the snapshot is rebuilt from the wallet.
         let answered = address_pass_answered(summary);
         self.update(|s| s.platform_address_read |= answered);
+    }
+
+    /// BUG-240 r2: a pass of the pool's scan — its outcome in the journal; for each wallet it
+    /// scanned, the time (only then is its balance known); for each it failed, one more failure
+    /// in a row. Before, every outcome was dropped.
+    #[cfg(feature = "pool")]
+    fn on_shielded_sync_completed(
+        &self,
+        summary: &platform_wallet::manager::shielded_sync::ShieldedSyncPassSummary,
+    ) {
+        let (record, outcomes) = pool_pass(summary);
+        note_pool_pass(record);
+        if outcomes.is_empty() {
+            return;
+        }
+        let at = summary.sync_unix_seconds;
+        self.update(|s| {
+            for (wallet, failed) in outcomes {
+                match failed {
+                    None => {
+                        s.pool_passed.insert(wallet, at);
+                        s.pool_failed.remove(&wallet);
+                    }
+                    Some(kind) => {
+                        let row = s.pool_failed.entry(wallet).or_insert((0, kind));
+                        *row = (row.0 + 1, kind);
+                    }
+                }
+            }
+        });
+    }
+}
+
+/// Each wallet a pass of the pool scanned (`None`) or failed (`Some(kind)`).
+#[cfg(feature = "pool")]
+type PassOutcomes = Vec<([u8; 32], Option<&'static str>)>;
+
+/// BUG-240 r2: one pass of the pool's scan as the journal says it, and each wallet it scanned
+/// (`None`) or failed (`Some(kind)`); a skipped one is neither.
+#[cfg(feature = "pool")]
+fn pool_pass(
+    summary: &platform_wallet::manager::shielded_sync::ShieldedSyncPassSummary,
+) -> (crate::diag::Record, PassOutcomes) {
+    use platform_wallet::manager::shielded_sync::WalletShieldedOutcome;
+    let (mut ok, mut skipped, mut failed, mut new_notes, mut scanned) = (0, 0, 0, 0usize, 0u64);
+    let mut error = "";
+    let mut outcomes = Vec::new();
+    for (wallet, outcome) in &summary.wallet_results {
+        match outcome {
+            WalletShieldedOutcome::Ok(done) => {
+                ok += 1;
+                new_notes += done
+                    .notes_result
+                    .new_notes_per_account
+                    .values()
+                    .sum::<usize>();
+                scanned += done.notes_result.total_scanned;
+                outcomes.push((*wallet, None));
+            }
+            WalletShieldedOutcome::Skipped => skipped += 1,
+            WalletShieldedOutcome::Err(text) => {
+                failed += 1;
+                error = pass_error(text);
+                outcomes.push((*wallet, Some(error)));
+            }
+        }
+    }
+    let record = crate::diag::Record::PoolPass {
+        ok,
+        skipped,
+        failed,
+        new_notes: new_notes as u32,
+        scanned,
+        error,
+    };
+    (record, outcomes)
+}
+
+/// The kind of a failed pass, never its words (they may name an address).
+#[cfg(feature = "pool")]
+pub(crate) fn pass_error(text: &str) -> &'static str {
+    let lower = text.to_lowercase();
+    if lower.contains("timeout") || lower.contains("timed out") || lower.contains("deadline") {
+        "timeout"
+    } else if text == crate::chain::NOT_READY || lower.contains("not ready") {
+        "not_ready"
+    } else if lower.contains("proof") || lower.contains("verif") {
+        "proof"
+    } else if lower.contains("connect")
+        || lower.contains("transport")
+        || lower.contains("unavailable")
+        || lower.contains("dapi")
+    {
+        "network"
+    } else {
+        "other"
+    }
+}
+
+/// The last pass written: one line a change, not one a minute.
+#[cfg(feature = "pool")]
+static LAST_POOL_PASS: Mutex<Option<String>> = Mutex::new(None);
+
+#[cfg(feature = "pool")]
+fn note_pool_pass(record: crate::diag::Record) {
+    let line = format!("{record:?}");
+    let mut last = LAST_POOL_PASS.lock().unwrap_or_else(|e| e.into_inner());
+    if last.as_deref() != Some(line.as_str()) {
+        *last = Some(line);
+        crate::diag::record(record);
+    }
+}
+
+#[cfg(all(test, feature = "pool"))]
+mod pool_pass_tests {
+    use super::*;
+    use platform_wallet::manager::shielded_sync::{ShieldedSyncPassSummary, WalletShieldedOutcome};
+
+    /// BUG-240 r2: a failed pass is a line with its kind (never its words) and a failure of its
+    /// wallet; a skip is neither; the reporter counts the failures in a row and a success
+    /// clears them and stamps its time.
+    #[test]
+    fn a_failed_pass_is_said_by_its_kind_and_counted() {
+        let mut summary = ShieldedSyncPassSummary::default();
+        summary.wallet_results.insert(
+            [1; 32],
+            WalletShieldedOutcome::Err("request timed out after 10s at yAbc…".into()),
+        );
+        summary
+            .wallet_results
+            .insert([2; 32], WalletShieldedOutcome::Skipped);
+        summary.sync_unix_seconds = 1_800;
+        let (record, outcomes) = pool_pass(&summary);
+        assert_eq!(outcomes, vec![([1; 32], Some("timeout"))]);
+        assert_eq!(
+            record,
+            crate::diag::Record::PoolPass {
+                ok: 0,
+                skipped: 1,
+                failed: 1,
+                new_notes: 0,
+                scanned: 0,
+                error: "timeout",
+            }
+        );
+        assert_eq!(pass_error("proof verification failed"), "proof");
+        assert_eq!(pass_error("something else"), "other");
+        let status = Arc::new(Mutex::new(SyncStatus::default()));
+        let reporter = Reporter::new(status.clone(), Arc::new(|_| {}));
+        use platform_wallet::PlatformEventHandler;
+        reporter.on_shielded_sync_completed(&summary);
+        reporter.on_shielded_sync_completed(&summary);
+        let s = status.lock().unwrap().clone();
+        assert_eq!(s.pool_failed.get(&[1; 32]), Some(&(2, "timeout")));
+        assert!(s.pool_passed.is_empty(), "a failed pass is no time");
     }
 }
 

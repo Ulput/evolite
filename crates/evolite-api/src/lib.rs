@@ -1012,6 +1012,9 @@ pub struct Pool {
     pub unfinished_shield: Option<Duffs>,
     /// The pool is being connected (keys bound, notes read): minutes the first time.
     pub connecting: bool,
+    /// BUG-240 r2: its scan failed several times in a row and it is not known — the kind of
+    /// failure (`timeout`, `network`, `proof`, `not_ready`, `other`): «Could not read the pool».
+    pub failing: Option<String>,
 }
 
 /// An app signed in by App Connect v2 (FEAT-0023), connected or disconnected.

@@ -229,6 +229,7 @@ fn shown_pool(
             unfinished_shield,
             connecting: false,
             operations: pool.operations,
+            failing: pool.failing.map(str::to_owned),
         },
         None => Pool {
             notes: 0,
@@ -237,6 +238,7 @@ fn shown_pool(
             unfinished_shield,
             connecting,
             operations: Vec::new(),
+            failing: None,
         },
     }
 }

@@ -1340,6 +1340,17 @@ pub(crate) mod tests {
     }
 }
 
+/// Why the pool could not be read, by the kind of its scan's failure (BUG-240 r2).
+fn failing_words(kind: &str) -> &'static str {
+    match kind {
+        "timeout" => tr!("Platform did not answer in time"),
+        "network" => tr!("no connection to Platform"),
+        "proof" => tr!("Platform's answer did not check out"),
+        "not_ready" => tr!("the network is still syncing"),
+        _ => tr!("an error on Platform"),
+    }
+}
+
 /// Where the pool stands, under its balance.
 fn pool_line(pool: &evolite_api::Pool, now: chrono::DateTime<chrono::Local>) -> String {
     match pool.checked_at {
@@ -1347,6 +1358,11 @@ fn pool_line(pool: &evolite_api::Pool, now: chrono::DateTime<chrono::Local>) -> 
             tr!("{} · last checked {}"),
             notes(pool.notes),
             text::when(at, now)
+        ),
+        // BUG-240 r2 (3): not «reading» for ever when the reads keep failing.
+        None if pool.failing.is_some() => format!(
+            tr!("Could not read the pool: {}. We'll try again later"),
+            failing_words(pool.failing.as_deref().unwrap_or_default())
         ),
         None if pool.address.is_some() => {
             tr!("Reading the pool on Platform — the first time takes a few minutes").to_string()
@@ -1365,6 +1381,24 @@ fn pool_line(pool: &evolite_api::Pool, now: chrono::DateTime<chrono::Local>) -> 
 mod pool_line_tests {
     use super::*;
 
+    /// BUG-240 r2 (3): a pool not known whose reads keep failing says so, by kind — not
+    /// «reading the pool» for ever.
+    #[test]
+    fn a_pool_that_cannot_be_read_says_why() {
+        let pool = evolite_api::Pool {
+            notes: 0,
+            checked_at: None,
+            address: Some("tdash1…".into()),
+            operations: Vec::new(),
+            unfinished_shield: None,
+            connecting: false,
+            failing: Some("timeout".into()),
+        };
+        let line = pool_line(&pool, chrono::Local::now());
+        assert!(line.starts_with("Could not read the pool: "), "{line}");
+        assert!(line.contains("Platform did not answer in time"), "{line}");
+    }
+
     #[test]
     fn says_the_pool_is_being_connected() {
         let mut pool = evolite_api::Pool {
@@ -1374,6 +1408,7 @@ mod pool_line_tests {
             operations: Vec::new(),
             unfinished_shield: None,
             connecting: false,
+            failing: None,
         };
         let now = chrono::Local::now();
         assert_eq!(pool_line(&pool, now), POOL_CONNECTING);

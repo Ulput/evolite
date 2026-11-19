@@ -1038,6 +1038,7 @@ pub fn demo_wallet(t: Timestamp) -> Wallet {
             ),
             unfinished_shield: None,
             connecting: false,
+            failing: None,
             operations: vec![
                 act(
                     101,

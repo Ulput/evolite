@@ -23,7 +23,13 @@ pub struct PoolView {
     pub checked_at: Option<i64>,
     /// Newest first.
     pub operations: Vec<Activity>,
+    /// BUG-240 r2 (3): the pool's scan failed [`FAILED_PASSES`] times in a row with no success
+    /// in this run — the kind of the last failure; the screens say so instead of «not known».
+    pub failing: Option<&'static str>,
 }
+
+/// How many failed passes in a row say the pool cannot be read, not «not yet» (BUG-240 r2).
+pub const FAILED_PASSES: u32 = 3;
 
 /// Why a pool move did not end in a clear yes.
 #[derive(Debug)]
@@ -200,11 +206,29 @@ mod imp {
         }
     }
 
-    /// The last pool read written to the journal: one line a change, not one a snapshot.
+    /// The last pool read written to the journal: one line a change, not one a snapshot. Kept
+    /// as the journal writes it — sums rough (review r1 Could): no exact amount in memory.
     static LAST_POOL_RECORD: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
 
     fn note_pool_read(record: crate::diag::Record) {
-        let line = format!("{record:?}");
+        let rough = |c: Option<u64>| c.map(|c| crate::diag::rough((c / 1000) as i64));
+        let line = match &record {
+            crate::diag::Record::PoolRead {
+                ledger,
+                has_account,
+                spendable,
+                unspent,
+                unspent_sum,
+                last_scanned,
+                source,
+                notes,
+            } => format!(
+                "{ledger}|{has_account}|{:?}|{unspent:?}|{:?}|{last_scanned:?}|{source}|{notes}",
+                rough(*spendable),
+                rough(*unspent_sum)
+            ),
+            other => format!("{other:?}"),
+        };
         let mut last = LAST_POOL_RECORD.lock().unwrap_or_else(|e| e.into_inner());
         if last.as_deref() != Some(line.as_str()) {
             *last = Some(line);
@@ -221,25 +245,32 @@ mod imp {
     const POOL_READ_WAIT: std::time::Duration = std::time::Duration::from_millis(200);
 
     /// The account's spendable credits by the store's ledger, and when the pool was read: the
-    /// time of the last pass only while the ledger is ready (BUG-84). platform-wallet stamps a
-    /// pass that failed too, and a ledger not ready reads as 0 — that 0 is not known, so no
-    /// time, and the screens say «not known yet».
+    /// time of this run's last SUCCESSFUL pass of the wallet (`passed`, BUG-240 r2), and only
+    /// while the ledger is ready with the wallet's account (BUG-84, BUG-240 (c)). Anything else
+    /// is not known — no time, and the screens say «not known yet»: platform-wallet stamps a
+    /// failed pass too, and a pool bound without notes on disk is «ready» with 0 before any
+    /// scan.
     pub fn read_ledger(
         state: Option<&ShieldedLocalBalanceState>,
-        last_pass: Option<u64>,
+        passed: Option<u64>,
     ) -> (u64, Option<i64>) {
-        match state {
-            // BUG-240 (c): a ledger without the wallet's account knows nothing of it — not a
-            // known 0 (the account not registered in the coordinator while its notes are in
-            // the store).
-            Some(ShieldedLocalBalanceState::Ready(snapshot)) => {
+        match (state, passed) {
+            (Some(ShieldedLocalBalanceState::Ready(snapshot)), Some(at)) => {
                 match snapshot.accounts.get(&ACCOUNT) {
-                    Some(account) => (account.spendable_credits, last_pass.map(|s| s as i64)),
+                    Some(account) => (account.spendable_credits, Some(at as i64)),
                     None => (0, None),
                 }
             }
             _ => (0, None),
         }
+    }
+
+    /// BUG-240 r2 (3): the kind the screens give for a pool not known, when its scan failed
+    /// [`FAILED_PASSES`] times in a row; `None` while it is only not known yet.
+    pub fn failing(known: bool, failed: Option<&(u32, &'static str)>) -> Option<&'static str> {
+        failed
+            .filter(|(n, _)| !known && *n >= FAILED_PASSES)
+            .map(|(_, kind)| *kind)
     }
 
     /// The Core fee rate of a withdrawal from the pool, duffs a byte (the network minimum).
@@ -303,9 +334,15 @@ mod imp {
                 .ok()?
                 .to_bech32m_string(crate::network::dash());
             let state = coordinator.local_balance_snapshot(wallet.wallet_id()).await;
+            // BUG-240 r2: this run's last successful pass of this wallet, not the last pass.
+            let status = self.status();
             let (credits, checked_at) = read_ledger(
                 state.as_ref().ok(),
-                manager.shielded_sync().last_sync_unix_seconds(),
+                status.pool_passed.get(&wallet.wallet_id()).copied(),
+            );
+            let failing = failing(
+                checked_at.is_some(),
+                status.pool_failed.get(&wallet.wallet_id()),
             );
             let id = SubwalletId::new(wallet.wallet_id(), ACCOUNT);
             let mut unspent: Option<(u32, u64)> = None;
@@ -335,6 +372,7 @@ mod imp {
                 address,
                 checked_at,
                 operations,
+                failing,
             })
         }
 
@@ -765,6 +803,23 @@ mod pool_record_tests {
             .into(),
         });
         assert_eq!(read_ledger(Some(&ready), Some(1_800)), (5, Some(1_800)));
+        // BUG-240 r2: no successful pass in this run — not known, whatever the ledger says;
+        // a successful one makes it known, with its time. Mutant: the time of any pass.
+        assert_eq!(
+            read_ledger(Some(&ready), None),
+            (0, None),
+            "failed passes only"
+        );
+        // (3): not known after 3 failures in a row says why; before them, or known, not.
+        use super::imp::failing;
+        assert_eq!(failing(false, Some(&(3, "timeout"))), Some("timeout"));
+        assert_eq!(failing(false, Some(&(2, "timeout"))), None, "not yet");
+        assert_eq!(
+            failing(true, Some(&(5, "proof"))),
+            None,
+            "known from a success"
+        );
+        assert_eq!(failing(false, None), None);
     }
 }
 
@@ -1004,6 +1059,7 @@ mod tests {
             address: "tdash1".to_owned(),
             checked_at: None,
             operations,
+            failing: None,
         }
     }
 
@@ -1098,8 +1154,9 @@ mod tests {
             imp::read_ledger(Some(&ready(250_000)), stamp),
             (250_000, Some(1_793_000_000))
         );
-        // Ready before the first pass of this run (restored): the amount, no time yet.
-        assert_eq!(imp::read_ledger(Some(&ready(7)), None), (7, None));
+        // Ready before the first successful pass of this run: not known (BUG-240 r2) — no
+        // notes are kept on disk, so a «ready» amount before a scan is no amount.
+        assert_eq!(imp::read_ledger(Some(&ready(7)), None), (0, None));
     }
 
     /// What testnet charged on 2026-10-31 (protocol 15): an unshield of 0.005 DASH took

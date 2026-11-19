@@ -324,6 +324,17 @@ pub enum Record {
         source: &'static str,
         notes: &'static str,
     },
+    /// BUG-240 r2: a pass of the pool's background scan ended — how many wallets it scanned
+    /// (`ok`), skipped and failed, the notes it found and the entries it scanned, and the kind of
+    /// a failure (`timeout`, `not_ready`, `proof`, `network`, `other`; never its words).
+    PoolPass {
+        ok: u32,
+        skipped: u32,
+        failed: u32,
+        new_notes: u32,
+        scanned: u64,
+        error: &'static str,
+    },
     /// The token rows' facts read: tokens, queries, how long (SYNC-0).
     TokenFacts {
         tokens: u32,
@@ -580,6 +591,17 @@ impl Record {
                 ms,
             } => json!({"k": "token_facts", "tokens": tokens, "requests": requests, "ms": ms}),
             Record::TokenPage { ms } => json!({"k": "token_page", "ms": ms}),
+            Record::PoolPass {
+                ok,
+                skipped,
+                failed,
+                new_notes,
+                scanned,
+                error,
+            } => json!({
+                "k": "pool_pass", "ok": ok, "skipped": skipped, "failed": failed,
+                "newNotes": new_notes, "scanned": scanned, "error": error,
+            }),
             Record::PoolRead {
                 ledger,
                 has_account,
@@ -1422,6 +1444,19 @@ mod tests {
                 vec!["k", "ms", "requests", "t", "tokens"],
             ),
             (Record::TokenPage { ms: 1_200 }, vec!["k", "ms", "t"]),
+            (
+                Record::PoolPass {
+                    ok: 0,
+                    skipped: 0,
+                    failed: 1,
+                    new_notes: 0,
+                    scanned: 0,
+                    error: "timeout",
+                },
+                vec![
+                    "error", "failed", "k", "newNotes", "ok", "scanned", "skipped", "t",
+                ],
+            ),
             (
                 Record::PoolRead {
                     ledger: "ready",
