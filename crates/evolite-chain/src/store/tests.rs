@@ -1745,3 +1745,274 @@ fn a_merged_row_reads_back_the_same_after_a_restart() {
         coins_before
     );
 }
+
+/// BUG-242 (platform #5716): an asset lock's transaction as the wallet records it when it is sent,
+/// and as it comes back after a resume — its record re-emitted with its block and no output
+/// details (the funding transaction re-inserted without the account's classification). `vout 0`
+/// is the credit burn, `vout 1` our change.
+fn asset_lock_record(
+    context: key_wallet::transaction_checking::TransactionContext,
+    change: &key_wallet::Utxo,
+    with_details: bool,
+) -> TransactionRecord {
+    use key_wallet::dashcore::{ScriptBuf, Transaction, TxIn, TxOut};
+    use key_wallet::managed_account::transaction_record::{
+        OutputDetail, OutputRole, TransactionDirection,
+    };
+    let tx = Transaction {
+        version: 3,
+        lock_time: 0,
+        input: vec![TxIn {
+            previous_output: OutPoint::new(Txid::from([41; 32]), 0),
+            ..TxIn::default()
+        }],
+        output: vec![
+            TxOut {
+                value: 400_000,
+                script_pubkey: ScriptBuf::new_op_return(&[0u8; 0]),
+            },
+            change.txout.clone(),
+        ],
+        special_transaction_payload: None,
+    };
+    let details = with_details
+        .then(|| OutputDetail {
+            index: 1,
+            role: OutputRole::Change,
+            address: Some(change.address.clone()),
+            value: change.value(),
+        })
+        .into_iter()
+        .collect();
+    TransactionRecord::new(
+        tx,
+        key_wallet::account::AccountType::Standard {
+            index: 0,
+            standard_account_type: key_wallet::account::StandardAccountType::BIP44Account,
+        },
+        context,
+        key_wallet::transaction_checking::TransactionType::AssetLock,
+        TransactionDirection::Internal,
+        Vec::new(),
+        details,
+        -400_000,
+    )
+}
+
+/// The height the store keeps for `txid`'s transaction: what a coin of it loads confirmed by
+/// (platform-wallet-storage `load_state`: `is_confirmed = height.is_some()`).
+fn stored_height(db: &Path, txid: Txid) -> Option<u32> {
+    let conn = rusqlite::Connection::open(db).unwrap();
+    conn.query_row(
+        "SELECT height FROM core_transactions WHERE wallet_id = ?1 AND txid = ?2",
+        rusqlite::params![ID.as_slice(), AsRef::<[u8]>::as_ref(&txid)],
+        |row| row.get::<_, Option<i64>>(0),
+    )
+    .unwrap()
+    .map(|h| h as u32)
+}
+
+/// BUG-242 test 1: the change of an asset lock sent before a close is in the store unconfirmed;
+/// after the resume its record comes back in a block with no output details (#5716's case). Our
+/// SQLite store takes a coin's confirmation from its transaction's height, not from the record's
+/// details: the change loads confirmed at that height, and is spent as final.
+#[test]
+fn a_resumed_asset_locks_change_is_confirmed_by_its_record_in_a_block() {
+    use key_wallet::dashcore::BlockHash;
+    use key_wallet::transaction_checking::{BlockInfo, TransactionContext};
+    const H: u32 = 1_234;
+    let (db, store) = real_store("resumed-lock");
+    // The wallet's BIP44 account and its addresses, so that a restart rebuilds it with its coins.
+    {
+        use key_wallet::account::{AccountType, StandardAccountType};
+        let keys = crate::keys_of(
+            "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
+        )
+        .unwrap();
+        let info = key_wallet::wallet::ManagedWalletInfo::from_wallet(&keys, 0);
+        store
+            .store(
+                ID,
+                PlatformWalletChangeSet {
+                    account_registrations: vec![
+                        platform_wallet::changeset::AccountRegistrationEntry {
+                            account_type: AccountType::Standard {
+                                index: 0,
+                                standard_account_type: StandardAccountType::BIP44Account,
+                            },
+                            account_xpub: keys.accounts.standard_bip44_accounts[&0].account_xpub,
+                        },
+                    ],
+                    account_address_pools: crate::convert::pool_entries(&info),
+                    ..PlatformWalletChangeSet::default()
+                },
+            )
+            .unwrap();
+    }
+    let (_, funding) = funding_coin(41);
+    let sent = asset_lock_record(TransactionContext::Mempool, &funding, true);
+    let txid = sent.txid;
+    let change = key_wallet::Utxo::new(
+        OutPoint::new(txid, 1),
+        sent.transaction.output[1].clone(),
+        funding.address.clone(),
+        0,
+        false,
+    );
+    assert!(!change.is_confirmed);
+    // Sent: the record and its change, unconfirmed — then the close.
+    let mut first = funded(&[&change], &[]);
+    first.records = vec![sent];
+    store.store(ID, core_round(first)).unwrap();
+    assert_eq!(stored_height(&db, txid), None, "unconfirmed");
+    assert_eq!(is_spent(&db, change.outpoint), Some(false));
+
+    // The resume: its block comes, the record re-emitted as it stands — no output details.
+    let block = BlockInfo::new(H, BlockHash::from([12; 32]), 0);
+    let back = asset_lock_record(TransactionContext::InBlock(block), &change, false);
+    let round = CoreChangeSet {
+        records: vec![back],
+        ..CoreChangeSet::default()
+    };
+    store.store(ID, core_round(round)).unwrap();
+    drop(store);
+
+    assert_eq!(stored_height(&db, txid), Some(H), "confirmed at its block");
+    assert_eq!(is_spent(&db, change.outpoint), Some(false), "still ours");
+    // Read back as the app does at its next start.
+    let sqlite = platform_wallet_storage::sqlite::SqlitePersister::open(
+        platform_wallet_storage::sqlite::SqlitePersisterConfig::new(db.clone()),
+    )
+    .unwrap();
+    let loaded = sqlite.load().unwrap();
+    let coin = loaded.wallets.get(&ID).and_then(|w| {
+        w.wallet_info
+            .accounts
+            .all_funding_accounts()
+            .into_iter()
+            .find_map(|a| a.utxos.get(&change.outpoint).cloned())
+    });
+    let coin = coin.expect("the change after a restart");
+    assert!(coin.is_confirmed && coin.height == H, "{coin:?}");
+    assert!(
+        crate::convert::coin_is_final(&coin, |_| false),
+        "spent as final"
+    );
+    let _ = std::fs::remove_dir_all(db.parent().unwrap());
+}
+
+/// BUG-242 test 2 (the architect's): the app closed before the round with the change reached the
+/// store — #5716's window between the send and the InstantLock. The store then has no record of
+/// the asset lock and no coin. Our store loads no records into the wallet, so after the resume the
+/// transaction comes as new: key-wallet classifies it, credits the change, and the record it emits
+/// lists the change (what `derive_new_utxos` makes the coin from), which the store keeps confirmed.
+#[tokio::test]
+async fn an_asset_locks_change_never_stored_is_credited_when_its_block_comes() {
+    use key_wallet::dashcore::blockdata::transaction::special_transaction::TransactionPayload;
+    use key_wallet::dashcore::blockdata::transaction::special_transaction::asset_lock::AssetLockPayload;
+    use key_wallet::dashcore::{BlockHash, ScriptBuf, Transaction, TxIn, TxOut};
+    use key_wallet::managed_account::address_pool::AddressPoolType;
+    use key_wallet::managed_account::managed_account_trait::ManagedAccountTrait;
+    use key_wallet::managed_account::transaction_record::OutputRole;
+    use key_wallet::transaction_checking::{
+        BlockInfo, TransactionContext, WalletTransactionChecker,
+    };
+    use key_wallet::wallet::ManagedWalletInfo;
+    use key_wallet::wallet::managed_wallet_info::wallet_info_interface::WalletInfoInterface;
+    const H: u32 = 2_000;
+    const CHANGE: u64 = 580_000;
+    let mut keys = crate::keys_of(
+        "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
+    )
+    .unwrap();
+    let mut info = ManagedWalletInfo::from_wallet(&keys, 0);
+    let own = info.monitored_addresses()[0].clone();
+    let change = info.accounts.standard_bip44_accounts[&0]
+        .keys()
+        .managed_account_type()
+        .address_pools()
+        .into_iter()
+        .find(|p| p.pool_type == AddressPoolType::Internal)
+        .unwrap()
+        .address_at_index(0)
+        .unwrap();
+    let block =
+        |h: u32| TransactionContext::InBlock(BlockInfo::new(h, BlockHash::from([h as u8; 32]), 0));
+    let funding = Transaction {
+        version: 2,
+        lock_time: 0,
+        input: vec![TxIn {
+            previous_output: OutPoint::new(Txid::from([60; 32]), 0),
+            ..TxIn::default()
+        }],
+        output: vec![TxOut {
+            value: 1_000_000,
+            script_pubkey: own.script_pubkey(),
+        }],
+        special_transaction_payload: None,
+    };
+    info.check_core_transaction(&funding, block(10), &mut keys, true, true)
+        .await;
+    // The asset lock: the credit burned, the change ours. Sent, then the close before its round
+    // reached the store; after the resume its block comes.
+    let lock = Transaction {
+        version: 3,
+        lock_time: 0,
+        input: vec![TxIn {
+            previous_output: OutPoint::new(funding.txid(), 0),
+            ..TxIn::default()
+        }],
+        output: vec![
+            TxOut {
+                value: 400_000,
+                script_pubkey: ScriptBuf::new_op_return(&[0u8; 0]),
+            },
+            TxOut {
+                value: CHANGE,
+                script_pubkey: change.script_pubkey(),
+            },
+        ],
+        special_transaction_payload: Some(TransactionPayload::AssetLockPayloadType(
+            AssetLockPayload {
+                version: 1,
+                credit_outputs: vec![TxOut {
+                    value: 400_000,
+                    script_pubkey: own.script_pubkey(),
+                }],
+            },
+        )),
+    };
+    info.check_core_transaction(&lock, block(H), &mut keys, true, true)
+        .await;
+    let coin = OutPoint::new(lock.txid(), 1);
+    let account = &info.accounts.standard_bip44_accounts[&0];
+    let utxo = account
+        .utxos
+        .get(&coin)
+        .cloned()
+        .expect("the change credited");
+    assert!(utxo.is_confirmed && utxo.height == H, "{utxo:?}");
+    let record = account
+        .transactions()
+        .get(&lock.txid())
+        .cloned()
+        .expect("the lock's record");
+    assert!(
+        record
+            .output_details
+            .iter()
+            .any(|d| d.index == 1 && matches!(d.role, OutputRole::Change | OutputRole::Received)),
+        "the record lists the change: {:?}",
+        record.output_details
+    );
+
+    // Stored as platform-wallet emits it, and read back at the next start: confirmed.
+    let (db, store) = real_store("lock-never-stored");
+    let mut round = funded(&[&utxo], &[]);
+    round.records = vec![record];
+    store.store(ID, core_round(round)).unwrap();
+    drop(store);
+    assert_eq!(stored_height(&db, lock.txid()), Some(H));
+    assert_eq!(is_spent(&db, coin), Some(false));
+    let _ = std::fs::remove_dir_all(db.parent().unwrap());
+}
