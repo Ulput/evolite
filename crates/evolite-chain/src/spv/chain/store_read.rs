@@ -29,6 +29,18 @@ pub fn stored_history(
     Ok(records)
 }
 
+/// BUG-232 (QA batch 31): the store's own scripts ([`own_scripts`]) by themselves, for the
+/// history's one rule of what is ours, with the live wallet's pools (the store's may be longer).
+pub fn stored_own(
+    store: &std::path::Path,
+    wallet: &WalletId,
+) -> Result<
+    std::collections::HashMap<Vec<u8>, key_wallet::managed_account::transaction_record::OutputRole>,
+    String,
+> {
+    Ok(own_scripts(&open_read_only(store)?, wallet))
+}
+
 pub(super) fn open_read_only(store: &std::path::Path) -> Result<rusqlite::Connection, String> {
     use rusqlite::OpenFlags;
     rusqlite::Connection::open_with_flags(

@@ -324,6 +324,13 @@ impl Real {
         self.pools_saved = None;
         // BUG-232 review r2 S1: rescans owed for coins are owed again at the next start.
         self.gap_pending.clear();
+        // BUG-232 review S1 (fbc4326f): what was read of this wallet's store goes with it, so a
+        // read of the next wallet's that fails never shows this one's (its own addresses would
+        // make a payment between the two wallets read as between own addresses).
+        self.stored_history.clear();
+        self.stored_own.clear();
+        self.consumed_locks.clear();
+        self.history_read = None;
         // An app's request is not answered after the next unlock with what was shown before.
         self.app_requests
             .lock()

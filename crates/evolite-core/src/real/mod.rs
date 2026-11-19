@@ -532,6 +532,12 @@ struct Real {
     /// The wallet's history as the store keeps it (one record per transaction), and when it
     /// was read: how many records the wallet in memory had then.
     stored_history: Vec<key_wallet::managed_account::transaction_record::TransactionRecord>,
+    /// The store's own scripts with what each is to the wallet (`chain::stored_own`), read with
+    /// [`Self::stored_history`]: with the live pools, what is ours to the history (BUG-232).
+    stored_own: std::collections::HashMap<
+        Vec<u8>,
+        key_wallet::managed_account::transaction_record::OutputRole,
+    >,
     /// The asset locks the store keeps as consumed (BUG-57 r1), read with the history.
     consumed_locks: std::collections::HashSet<String>,
     /// The top-up addresses of the identities' slots, derived from the keys, for the locks a

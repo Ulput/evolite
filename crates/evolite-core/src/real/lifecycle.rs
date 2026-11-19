@@ -150,6 +150,7 @@ impl Real {
             credits_checked: Arc::new(AtomicBool::new(false)),
             phrase_check: None,
             stored_history: Vec::new(),
+            stored_own: Default::default(),
             consumed_locks: std::collections::HashSet::new(),
             top_ups: Default::default(),
             history_read: None,

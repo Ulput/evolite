@@ -669,6 +669,34 @@ mod tests {
         assert!(!csv.contains("Transfer"));
     }
 
+    /// BUG-232 (QA batch 31, qa-f31's tx1): the payment between own identities whose stored
+    /// slice listed only the contact output now reads as a transfer between own addresses
+    /// (`convert::attribute_late_inputs`, the change ours): its CSV line is the fee alone, an
+    /// expense of 0.00000226 — not the change and fee, 0.14525810, as before the fix.
+    #[test]
+    fn the_payment_between_own_identities_is_its_fee_only() {
+        let tx1 = with_fee(
+            act(
+                ActivityKind::SelfTransfer { moved: 10_000 },
+                Chain::Core,
+                100,
+                -226,
+                "304962ab",
+            ),
+            226,
+        );
+        let csv = taxbit(&[tx1], &own());
+        let lines: Vec<&str> = csv.lines().skip(1).collect();
+        assert_eq!(
+            lines,
+            vec![format!(
+                "{},Expense,0.00000226,DASH,evolite,,DASH,evolite,,,,304962ab",
+                iso_utc(100)
+            )],
+            "{csv}"
+        );
+    }
+
     /// BUG-145 AC-T2: a token sent is a line of its fee in credits only, as DASH spent; the token
     /// and its amount are not DASH and stay out of the file. An app's spending from its limit is
     /// an expense too.

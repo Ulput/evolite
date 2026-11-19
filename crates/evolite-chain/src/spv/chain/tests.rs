@@ -229,7 +229,7 @@ fn store_contexts() {
     // the same lines, but for the ones the fix is for.
     let conn = open_read_only(std::path::Path::new(&store)).unwrap();
     let lines = |mut records: Vec<_>| {
-        crate::convert::attribute_late_inputs(&mut records);
+        crate::convert::attribute_late_inputs(&mut records, |_| None);
         records
             .iter()
             .map(|r| {

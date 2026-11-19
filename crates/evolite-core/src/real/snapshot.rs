@@ -965,15 +965,21 @@ impl Real {
         // A spend recorded before the coin it spends (a restore's rescan) gets its
         // input back from our own outputs.
         let mut all: Vec<_> = self.stored_history.iter().cloned().chain(fresh).collect();
-        // BUG-194: ours is the store's pools (`stored_history`) and the live wallet's — the
-        // store's end at the first gap window. Then the inputs spending outputs of ours.
+        // BUG-194: ours is the store's pools and the live wallet's — the store's end at the
+        // first gap window, the live ones after a restart may end before an address the store
+        // has. One rule for both steps (BUG-232, QA batch 31): the outputs a stored slice
+        // lists, then those it did not list once its inputs are ours.
         let live = convert::live_own(info);
+        let ours = |address: &key_wallet::dashcore::Address| {
+            let script = address.script_pubkey();
+            live.get(&script)
+                .or_else(|| self.stored_own.get(script.as_bytes()))
+                .copied()
+        };
         for record in &mut all {
-            convert::own_outputs(record, |address| {
-                live.get(&address.script_pubkey()).copied()
-            });
+            convert::own_outputs(record, ours);
         }
-        convert::attribute_late_inputs(&mut all);
+        convert::attribute_late_inputs(&mut all, ours);
         all
     }
 
@@ -1649,12 +1655,16 @@ impl Real {
             (
                 chain::stored_history(&store, &id),
                 chain::consumed_locks(&store, &id),
+                chain::stored_own(&store, &id),
             )
         })
         .await;
-        if let Ok((records, consumed)) = read {
+        if let Ok((records, consumed, own)) = read {
             if let Ok(records) = records {
                 self.stored_history = records;
+            }
+            if let Ok(own) = own {
+                self.stored_own = own;
             }
             if let Ok(consumed) = consumed {
                 self.consumed_locks = consumed;

@@ -78,6 +78,24 @@ async fn locking_ends_the_identity_lookup() {
     );
 }
 
+/// BUG-232 review S1: what was read of the wallet's store — its history, its own scripts, the
+/// locks it consumed — goes with the lock; a switch locks first.
+#[tokio::test]
+async fn locking_forgets_what_was_read_of_the_store() {
+    let mut core = core_with_vault("store-read", "pw");
+    core.stored_own.insert(
+        vec![1, 2, 3],
+        key_wallet::managed_account::transaction_record::OutputRole::Change,
+    );
+    core.consumed_locks.insert("lock".into());
+    core.history_read = Some((1, tokio::time::Instant::now()));
+    core.lock().await.unwrap();
+    assert!(core.stored_own.is_empty());
+    assert!(core.consumed_locks.is_empty());
+    assert!(core.stored_history.is_empty());
+    assert!(core.history_read.is_none());
+}
+
 /// BUG-97: a name's preorder is charged only when the credits can also carry the domain. The
 /// balance is in credits (1000 a duff), what a name needs in duffs.
 #[test]
