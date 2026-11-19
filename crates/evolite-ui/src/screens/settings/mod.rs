@@ -105,6 +105,10 @@ pub struct SettingsState {
     /// phrase», each for one showing.
     pub phrase_reading: crate::secret_words::Reading,
     pub check_reading: crate::secret_words::Reading,
+    /// SEC-7: «Show the phrase» pressed in the Linux warning for the phrase now revealed, and
+    /// the journal told; both again for each one revealed.
+    pub phrase_warned: bool,
+    pub phrase_warning_told: bool,
     /// SEC-11: «Show the phrase»'s pause after wrong passwords, as the unlock's.
     pub phrase_cut: crate::screens::pause::Cut,
     /// "Sync again" is open.
@@ -249,6 +253,8 @@ impl SettingsState {
             visits: Default::default(),
             check: None,
             phrase_reading: Default::default(),
+            phrase_warned: false,
+            phrase_warning_told: false,
             phrase_cut: Default::default(),
             check_reading: Default::default(),
             resync: None,
@@ -429,6 +435,8 @@ impl SettingsState {
     }
 
     pub fn on_revealed(&mut self, result: Result<Phrase, CoreError>) {
+        self.phrase_warned = false;
+        self.phrase_warning_told = false;
         self.revealed_at = result.is_ok().then(Instant::now);
         self.revealed = Some(result);
     }

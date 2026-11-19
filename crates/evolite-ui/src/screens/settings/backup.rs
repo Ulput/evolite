@@ -398,6 +398,25 @@ pub(super) fn check_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mu
 /// 17 · Show the phrase: a warning, the wallet password, "Show for 60 seconds".
 pub(super) fn phrase_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut SettingsState) {
     let p = a.p;
+    // SEC-7: on Linux the phrase the password opened waits behind the warning, which takes
+    // this dialog's place; its 60 seconds start at «Show the phrase».
+    if matches!(state.revealed, Some(Ok(_)))
+        && !state.phrase_warned
+        && let Some(session) = crate::capture::phrase_warning()
+    {
+        use crate::phrase_warning::{Choice, dialog};
+        match dialog(ui, a, session, &mut state.phrase_warning_told) {
+            Some(Choice::Show) => {
+                state.phrase_warned = true;
+                state.revealed_at = Some(std::time::Instant::now());
+            }
+            Some(Choice::Cancel) => {
+                close_phrase(state);
+                return;
+            }
+            None => return,
+        }
+    }
     if words_shown(state) {
         crate::capture::keep_out();
     }
@@ -568,13 +587,17 @@ pub(super) fn phrase_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &m
         },
     );
     if closed {
-        state.phrase_dialog = false;
-        state.phrase_wallet = None;
-        // Neither the phrase nor the password outlives the dialog.
-        state.revealed = None;
-        state.revealed_at = None;
-        state.password.zeroize();
+        close_phrase(state);
     }
+}
+
+/// «Show the phrase» closed: neither the phrase nor the password outlives the dialog.
+fn close_phrase(state: &mut SettingsState) {
+    state.phrase_dialog = false;
+    state.phrase_wallet = None;
+    state.revealed = None;
+    state.revealed_at = None;
+    state.password.zeroize();
 }
 
 /// The words of the phrase are on screen: only then is the window kept out of captures. A

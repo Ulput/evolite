@@ -49,6 +49,7 @@ mod motion;
 mod network_choice;
 mod notify;
 mod payment_uri;
+mod phrase_warning;
 mod prefs;
 mod private_dir;
 mod qr_scan;

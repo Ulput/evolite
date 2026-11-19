@@ -475,3 +475,70 @@ fn the_new_phrase_has_no_copy() {
     kit.run_steps(5);
     assert!(!has_words(&kit, "Copy"));
 }
+
+const CAPTURED: &str = "The phrase can be captured from the screen";
+
+/// SEC-7, AC-A1: on Linux (X11) O1 warns before the new phrase. Until «Show the phrase» no word
+/// is painted or in the tree, nor the 12 / 24 switch; then the words are as before. On Windows
+/// (every other test here) there is no warning (AC-A4).
+#[test]
+fn o1_on_linux_warns_before_the_phrase() {
+    crate::capture::set_test_session(Some(crate::capture::Session::X11));
+    let (_turn, mut kit) = demo_app("create", "en");
+    kit.run_steps(5);
+    let words = phrase();
+    new_phrase(&mut kit, &words);
+    assert!(has_text(&kit, CAPTURED), "the warning");
+    assert!(has_words(&kit, "On Linux with X11"), "the X11 text");
+    assert!(!painted_has(&kit, "zebra"), "no word painted");
+    none_in_tree(&kit, &words, "O1 behind the warning");
+    assert!(!has_words(&kit, "24 words"), "no length switch");
+    button(&kit, "Show the phrase").click();
+    kit.run_steps(3);
+    assert!(!has_text(&kit, CAPTURED));
+    assert!(painted_has(&kit, "zebra"), "shown once chosen");
+    crate::capture::set_test_session(None);
+}
+
+/// SEC-7, AC-A2: «Cancel» in O1's warning goes back to the step before: no phrase shown.
+#[test]
+fn o1_cancel_in_the_warning_goes_back() {
+    crate::capture::set_test_session(Some(crate::capture::Session::Wayland));
+    let (_turn, mut kit) = demo_app("create", "en");
+    kit.run_steps(5);
+    new_phrase(&mut kit, &phrase());
+    assert!(has_words(&kit, "On Linux with Wayland"), "the Wayland text");
+    button(&kit, "Cancel").click();
+    kit.run_steps(3);
+    assert!(!has_text(&kit, CAPTURED));
+    assert!(!painted_has(&kit, "zebra"));
+    assert_eq!(kit.state().screen, Screen::Welcome);
+    crate::capture::set_test_session(None);
+}
+
+/// SEC-7, AC-A1, AC-A2: Settings › Show the phrase on Linux (Wayland): after the password, the
+/// warning in place of the dialog; «Show the phrase» shows it, «Cancel» closes it all.
+#[test]
+fn show_the_phrase_on_linux_warns_after_the_password() {
+    crate::capture::set_test_session(Some(crate::capture::Session::Wayland));
+    let (_turn, mut kit) = demo_app("phrase", "en");
+    kit.run_steps(5);
+    let words = phrase();
+    settings_phrase(&mut kit, &words);
+    assert!(has_text(&kit, CAPTURED));
+    assert!(has_words(&kit, "On Linux with Wayland"));
+    assert!(!painted_has(&kit, "zebra walnut"));
+    none_in_tree(&kit, &words, "Show the phrase behind the warning");
+    button(&kit, "Show the phrase").click();
+    kit.run_steps(3);
+    assert!(painted_has(&kit, "zebra walnut"), "shown once chosen");
+    // Again, cancelled: the dialog and the phrase go.
+    settings_phrase(&mut kit, &words);
+    assert!(has_text(&kit, CAPTURED), "each showing warns");
+    button(&kit, "Cancel").click();
+    kit.run_steps(3);
+    assert!(!kit.state().settings.phrase_dialog);
+    assert!(kit.state().settings.revealed.is_none());
+    assert!(!painted_has(&kit, "zebra walnut"));
+    crate::capture::set_test_session(None);
+}

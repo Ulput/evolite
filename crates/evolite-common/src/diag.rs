@@ -171,6 +171,11 @@ pub enum Record {
     /// BUG-231 R-6: a payment to a contact was refused before the password because its channel
     /// is broken (its request points to a disabled key). No name, no id.
     ContactChannelBroken,
+    /// SEC-7: the warning before the phrase was shown on Linux, for this kind of session:
+    /// `x11`, `wayland` or `unknown`. Never a word of the phrase.
+    PhraseWarning {
+        session: &'static str,
+    },
     /// What the load did with a wallet's saved DashPay backfill record (BUG-77): `kept`, `none`
     /// or `rejected_*` and why, and how many contacts the record taken back covers.
     Backfill {
@@ -426,6 +431,9 @@ impl Record {
             }
             Record::WindowReset => json!({"k": "window_reset"}),
             Record::ContactChannelBroken => json!({"k": "contact_channel_broken"}),
+            Record::PhraseWarning { session } => {
+                json!({"k": "phrase_warning", "session": session})
+            }
             Record::Backfill { outcome, contacts } => {
                 json!({"k": "backfill", "outcome": outcome, "contacts": contacts})
             }

@@ -91,8 +91,13 @@ fn random_checks(words: &[String], dice: &mut Dice) -> Checks {
         .collect()
 }
 
-/// O1 · Recovery phrase.
-pub(super) fn phrase(ui: &mut Ui, a: &mut Assets, o: &mut Onboarding, demo: bool) {
+/// O1 · Recovery phrase. `Some` when the step is left from here: «Cancel» in the warning.
+pub(super) fn phrase(
+    ui: &mut Ui,
+    a: &mut Assets,
+    o: &mut Onboarding,
+    demo: bool,
+) -> Option<super::Outcome> {
     let p = a.p;
     steps(ui, &p, 1);
     heading(
@@ -103,6 +108,20 @@ pub(super) fn phrase(ui: &mut Ui, a: &mut Assets, o: &mut Onboarding, demo: bool
             "These words are your wallet. With them it can be restored on any device; without them, never. evolite keeps them nowhere but on this computer, encrypted."
         ),
     );
+    // SEC-7: on Linux, the warning first; until «Show the phrase» neither the length nor the
+    // words are drawn, so none of them reaches the screen or the tree.
+    if !o.phrase_warned
+        && let Some(session) = crate::capture::phrase_warning()
+    {
+        match crate::phrase_warning::dialog(ui, a, session, &mut o.phrase_warning_told) {
+            Some(crate::phrase_warning::Choice::Show) => o.phrase_warned = true,
+            Some(crate::phrase_warning::Choice::Cancel) => return Some(o.back()),
+            None => {}
+        }
+        if !o.phrase_warned {
+            return None;
+        }
+    }
     #[cfg(demo_core)]
     if demo {
         crate::components::demo_line(
@@ -194,6 +213,7 @@ pub(super) fn phrase(ui: &mut Ui, a: &mut Assets, o: &mut Onboarding, demo: bool
     if actions(ui, a, None, tr!("Continue"), o.written && !words.is_empty()).1 {
         o.next();
     }
+    None
 }
 
 /// Three words per row: raised cells, the number muted, the word in mono.

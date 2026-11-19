@@ -56,6 +56,10 @@ pub struct Onboarding {
     pub step: Step,
     long_phrase: bool,
     phrase_hidden: bool,
+    /// SEC-7: «Show the phrase» was pressed in the Linux warning, and the journal heard of
+    /// it: once for this phrase.
+    phrase_warned: bool,
+    phrase_warning_told: bool,
     written: bool,
     answers: [Option<usize>; 3],
     /// What O2 asks about the current phrase, chosen when O2 first shows it.
@@ -107,6 +111,8 @@ impl Onboarding {
             },
             long_phrase: false,
             phrase_hidden: false,
+            phrase_warned: false,
+            phrase_warning_told: false,
             written: false,
             answers: [None; 3],
             checks: None,
@@ -336,7 +342,11 @@ pub fn onboarding(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, o: &mut Onboarding)
                         crate::capture::keep_out();
                     }
                     match o.step {
-                        Step::Phrase => phrase(ui, a, o, crate::is_demo(cx.snap)),
+                        Step::Phrase => {
+                            if let Some(next) = phrase(ui, a, o, crate::is_demo(cx.snap)) {
+                                outcome = next;
+                            }
+                        }
                         Step::Verify => verify(ui, a, o),
                         Step::Restore => restore(ui, a, cx, o),
                         Step::Found => found(ui, a, o),

@@ -1828,6 +1828,8 @@ impl eframe::App for App {
         self.watch.frame(frame_started.elapsed());
         // A screen with the phrase on it keeps the window out of screenshots and recordings
         // from this very frame; the window comes back once no such screen is drawn.
+        // SEC-7: which protocol the window speaks, for the Linux warning (once it is known).
+        crate::capture::note_window(frame);
         let hide = crate::capture::take();
         if hide != self.capture_hidden && (crate::capture::apply(frame, hide) || !hide) {
             self.capture_hidden = hide;
