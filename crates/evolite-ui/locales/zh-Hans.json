@@ -2349,5 +2349,6 @@
   "Switch evolite to testnet in Settings › Network and nodes, then open the link again. Nothing was spent.": "请在「设置 › 网络与节点」中将 evolite 切换到 testnet，然后再次打开链接。没有任何花费。",
   "This link is not for mainnet": "此链接不适用于 mainnet",
   "This request is for mainnet, and evolite is running on testnet now.": "此请求适用于 mainnet，而 evolite 现在运行在 testnet 上。",
-  "This request is for testnet, and evolite is running on mainnet now.": "此请求适用于 testnet，而 evolite 现在运行在 mainnet 上。"
+  "This request is for testnet, and evolite is running on mainnet now.": "此请求适用于 testnet，而 evolite 现在运行在 mainnet 上。",
+  "Platform's servers are lagging behind": "Platform 服务器进度落后"
 }

@@ -1038,6 +1038,7 @@
   "Platform withdraws through a queue: the DASH usually reach Core within an hour",
   "Platform would not take these names: check them and sign again",
   "Platform's answer did not check out",
+  "Platform's servers are lagging behind",
   "Platform: identities and names",
   "Platform: {}",
   "Pool",

@@ -2366,5 +2366,6 @@
   "Switch evolite to testnet in Settings › Network and nodes, then open the link again. Nothing was spent.": "evolite'i Ayarlar › Ağ ve düğümler bölümünden testnet'e geçirin, sonra bağlantıyı yeniden açın. Hiçbir şey harcanmadı.",
   "This link is not for mainnet": "Bu bağlantı mainnet için değil",
   "This request is for mainnet, and evolite is running on testnet now.": "Bu istek mainnet için; evolite şu anda testnet'te çalışıyor.",
-  "This request is for testnet, and evolite is running on mainnet now.": "Bu istek testnet için; evolite şu anda mainnet'te çalışıyor."
+  "This request is for testnet, and evolite is running on mainnet now.": "Bu istek testnet için; evolite şu anda mainnet'te çalışıyor.",
+  "Platform's servers are lagging behind": "Platform sunucuları geride kalıyor"
 }

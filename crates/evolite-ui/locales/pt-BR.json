@@ -2383,5 +2383,6 @@
   "Switch evolite to testnet in Settings › Network and nodes, then open the link again. Nothing was spent.": "Mude o evolite para a testnet em Configurações › Rede e nós e abra o link de novo. Nada foi gasto.",
   "This link is not for mainnet": "Este link não é para a mainnet",
   "This request is for mainnet, and evolite is running on testnet now.": "Esta solicitação é para a mainnet, e o evolite está rodando na testnet agora.",
-  "This request is for testnet, and evolite is running on mainnet now.": "Esta solicitação é para a testnet, e o evolite está rodando na mainnet agora."
+  "This request is for testnet, and evolite is running on mainnet now.": "Esta solicitação é para a testnet, e o evolite está rodando na mainnet agora.",
+  "Platform's servers are lagging behind": "os servidores da Platform estão atrasados"
 }

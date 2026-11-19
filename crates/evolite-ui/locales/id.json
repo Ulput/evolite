@@ -2349,5 +2349,6 @@
   "Switch evolite to testnet in Settings › Network and nodes, then open the link again. Nothing was spent.": "Ganti evolite ke testnet di Pengaturan › Jaringan dan node, lalu buka tautan lagi. Tidak ada yang terpakai.",
   "This link is not for mainnet": "Tautan ini bukan untuk mainnet",
   "This request is for mainnet, and evolite is running on testnet now.": "Permintaan ini untuk mainnet, sedangkan evolite sekarang berjalan di testnet.",
-  "This request is for testnet, and evolite is running on mainnet now.": "Permintaan ini untuk testnet, sedangkan evolite sekarang berjalan di mainnet."
+  "This request is for testnet, and evolite is running on mainnet now.": "Permintaan ini untuk testnet, sedangkan evolite sekarang berjalan di mainnet.",
+  "Platform's servers are lagging behind": "server Platform tertinggal"
 }

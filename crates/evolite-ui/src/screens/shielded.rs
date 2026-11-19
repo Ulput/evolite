@@ -1384,7 +1384,9 @@ fn failing_words(kind: &str) -> &'static str {
         "timeout" => tr!("Platform did not answer in time"),
         "network" => tr!("no connection to Platform"),
         "proof" => tr!("Platform's answer did not check out"),
-        "not_ready" => tr!("the network is still syncing"),
+        "not_ready" | "quorum_wait" => tr!("the network is still syncing"),
+        // BUG-240 r4: Platform's nodes answering from a few blocks behind, again and again.
+        "stale_node" => tr!("Platform's servers are lagging behind"),
         _ => tr!("an error on Platform"),
     }
 }

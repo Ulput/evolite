@@ -2400,5 +2400,6 @@
   "Switch evolite to testnet in Settings › Network and nodes, then open the link again. Nothing was spent.": "Перемкніть evolite на testnet у «Налаштування › Мережа й вузли», потім відкрийте посилання знову. Нічого не витрачено.",
   "This link is not for mainnet": "Це посилання не для mainnet",
   "This request is for mainnet, and evolite is running on testnet now.": "Цей запит — для mainnet, а evolite зараз працює в testnet.",
-  "This request is for testnet, and evolite is running on mainnet now.": "Цей запит — для testnet, а evolite зараз працює в mainnet."
+  "This request is for testnet, and evolite is running on mainnet now.": "Цей запит — для testnet, а evolite зараз працює в mainnet.",
+  "Platform's servers are lagging behind": "сервери Platform відстають"
 }

@@ -336,9 +336,13 @@ pub enum Record {
     },
     /// BUG-240 r2: a pass of the pool's background scan ended — how many wallets it scanned
     /// (`ok`), skipped and failed, the notes it found and the entries it scanned, and the kind of
-    /// a failure (`timeout`, `not_ready`, `proof`, `network`, `other`; never its words).
+    /// a failure (`timeout`, `not_ready`, `quorum_wait`, `proof`, `network`, `other`; never its
+    /// words).
     /// BUG-240 r3: `repeated` — how many more passes ended the same way after this line was
     /// first written (written again with it when the outcome changes; 0 on the first).
+    /// BUG-240 r4: `stale_retries` — the SDK's retries for a node behind since the last pass
+    /// (all Platform reads in that time, the pass's mostly); `None` where they are not counted
+    /// (builds without dev-tools install no `tracing` subscriber).
     PoolPass {
         ok: u32,
         skipped: u32,
@@ -347,6 +351,7 @@ pub enum Record {
         scanned: u64,
         error: &'static str,
         repeated: u32,
+        stale_retries: Option<u32>,
     },
     /// The token rows' facts read: tokens, queries, how long (SYNC-0).
     TokenFacts {
@@ -623,9 +628,11 @@ impl Record {
                 scanned,
                 error,
                 repeated,
+                stale_retries,
             } => json!({
                 "k": "pool_pass", "ok": ok, "skipped": skipped, "failed": failed,
                 "newNotes": new_notes, "scanned": scanned, "error": error, "repeated": repeated,
+                "staleRetries": stale_retries,
             }),
             Record::PoolRead {
                 ledger,
@@ -814,6 +821,28 @@ pub fn init(dir: &Path) {
             lines: Mutex::new(tx),
         });
     }
+}
+
+/// BUG-240 r4: the SDK's retries for a node behind since they were last taken.
+static STALE_RETRIES: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+/// Whether anything counts them (a dev-tools build's `tracing` layer).
+static STALE_COUNTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// BUG-240 r4: from now on the SDK's retries for a node behind are counted ([`stale_retry`]).
+pub fn count_stale_retries() {
+    STALE_COUNTED.store(true, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// BUG-240 r4: the SDK asked another node, this one behind.
+pub fn stale_retry() {
+    STALE_RETRIES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// BUG-240 r4: the retries for a node behind since the last call; `None` when not counted.
+pub fn take_stale_retries() -> Option<u32> {
+    STALE_COUNTED
+        .load(std::sync::atomic::Ordering::Relaxed)
+        .then(|| STALE_RETRIES.swap(0, std::sync::atomic::Ordering::Relaxed))
 }
 
 /// Keeps `record`, when the journal is on.
@@ -1498,9 +1527,19 @@ mod tests {
                     scanned: 0,
                     error: "timeout",
                     repeated: 2,
+                    stale_retries: Some(14),
                 },
                 vec![
-                    "error", "failed", "k", "newNotes", "ok", "repeated", "scanned", "skipped", "t",
+                    "error",
+                    "failed",
+                    "k",
+                    "newNotes",
+                    "ok",
+                    "repeated",
+                    "scanned",
+                    "skipped",
+                    "staleRetries",
+                    "t",
                 ],
             ),
             (

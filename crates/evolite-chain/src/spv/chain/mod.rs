@@ -91,6 +91,9 @@ pub struct Chain {
     /// The pool as last read, with its wallet: shown while a read has to wait (BUG-105).
     #[cfg(feature = "pool")]
     pub(crate) last_pool: Mutex<Option<(WalletId, crate::platform::pool::PoolView)>>,
+    /// BUG-240 r4 (R3): told after a pool pass that failed on something passing; the pool's
+    /// task makes one early pass (`connect_pool`).
+    pub(crate) pool_retry: Arc<tokio::sync::Notify>,
     /// Its core has been replaced: a start not yet made is not made.
     retired: AtomicBool,
     status: Arc<Mutex<SyncStatus>>,
@@ -123,11 +126,42 @@ pub struct Chain {
     pub dashpay_scans: std::sync::atomic::AtomicUsize,
 }
 
+/// BUG-240 r4 (R1): how often the SDK asks another node before a read fails. Its own default is
+/// 3; the pool's scan reads its notes in many long chunks, and on testnet one chunk spent all
+/// three on nodes a block or two behind and failed the whole pass (QA batch 45). A broadcast
+/// tried again elsewhere is the same signed transition with the same nonce: no second write. The
+/// waits stay capped by `sent::run` and `names::within`.
+const PLATFORM_RETRIES: usize = 8;
+
+/// BUG-240 r4 (R1b): how many blocks a node's answer may be behind the highest height seen
+/// before the SDK calls the node stale and asks another — the SDK's own 1, set here in one
+/// place. On testnet nearly every node is 2–3 behind and the pool's scan asks again and again;
+/// a wider tolerance (6, measured on its own QA branch) waits for BUG-243: a read right after a
+/// write of ours that decides on «absent» must first count «not seen» as not known. Never
+/// `with_time_tolerance(None)`: the signed time within 31 minutes is the absolute guard.
+pub(crate) const PLATFORM_HEIGHT_TOLERANCE: u64 = 1;
+
+/// The SDK for `network`, with this app's request rules (BUG-240 r4).
+fn sdk_builder(network: evolite_api::Network) -> SdkBuilder {
+    let builder = match network {
+        evolite_api::Network::Testnet => SdkBuilder::new_testnet(),
+        evolite_api::Network::Mainnet => SdkBuilder::new_mainnet(),
+    };
+    builder
+        .with_settings(dash_sdk::RequestSettings {
+            retries: Some(PLATFORM_RETRIES),
+            ..Default::default()
+        })
+        .with_height_tolerance(Some(PLATFORM_HEIGHT_TOLERANCE))
+}
+
 /// BUG-240 r3 (A): each wallet's pool passes in this run, as [`SyncStatus`] keeps them.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct PoolCounts {
     pub passed: std::collections::BTreeMap<[u8; 32], u64>,
     pub failed: std::collections::BTreeMap<[u8; 32], (u32, &'static str)>,
+    /// BUG-240 r4 (R2): the passes failed on something passing, counted apart.
+    pub waited: std::collections::BTreeMap<[u8; 32], (u32, &'static str)>,
 }
 
 impl Default for Chain {
@@ -141,6 +175,7 @@ impl Default for Chain {
             store_open: AtomicBool::new(false),
             #[cfg(feature = "pool")]
             last_pool: Mutex::new(None),
+            pool_retry: Arc::new(tokio::sync::Notify::new()),
             retired: AtomicBool::new(false),
             status: Arc::new(Mutex::new(SyncStatus {
                 network: crate::network::name(),
@@ -476,6 +511,7 @@ impl Chain {
         PoolCounts {
             passed: status.pool_passed.clone(),
             failed: status.pool_failed.clone(),
+            waited: status.pool_waited.clone(),
         }
     }
 
@@ -486,6 +522,7 @@ impl Chain {
         let mut status = self.status.lock().unwrap_or_else(|e| e.into_inner());
         status.pool_passed.extend(counts.passed);
         status.pool_failed.extend(counts.failed);
+        status.pool_waited.extend(counts.waited);
     }
 
     /// BUG-162: the open wallet's own synced height (none: no wallet open), which says whether
@@ -509,13 +546,10 @@ impl Chain {
         debug_assert!(!self.store_open(), "the store is open already");
         // The context provider needs the manager's SPV client, the manager needs the SDK:
         // the SDK is built with a placeholder and gets ours once the manager exists.
-        let sdk = match crate::network::current() {
-            evolite_api::Network::Testnet => SdkBuilder::new_testnet(),
-            evolite_api::Network::Mainnet => SdkBuilder::new_mainnet(),
-        }
-        .with_context_provider(NotYet)
-        .build()
-        .map_err(|e| e.to_string())?;
+        let sdk = sdk_builder(crate::network::current())
+            .with_context_provider(NotYet)
+            .build()
+            .map_err(|e| e.to_string())?;
         if let Some(dir) = store.parent() {
             crate::folders::create(dir).map_err(|e| e.to_string())?;
         }
@@ -580,7 +614,8 @@ impl Chain {
             return Ok(());
         }
         let reporter = Reporter::new(self.status.clone(), publish)
-            .with_instant_locks(self.instant_locks.clone());
+            .with_instant_locks(self.instant_locks.clone())
+            .with_pool_retry(self.pool_retry.clone());
         reporter.update(|s| {
             s.phase = Phase::Starting;
             s.error = None;
@@ -695,7 +730,8 @@ impl Chain {
             return Ok(());
         }
         let reporter = Reporter::new(self.status.clone(), publish)
-            .with_instant_locks(self.instant_locks.clone());
+            .with_instant_locks(self.instant_locks.clone())
+            .with_pool_retry(self.pool_retry.clone());
         self.open_store(paths, Arc::new(reporter)).await.map(|_| ())
     }
 

@@ -2349,5 +2349,6 @@
   "Switch evolite to testnet in Settings › Network and nodes, then open the link again. Nothing was spent.": "設定 › ネットワークとノード で evolite を testnet に切り替えてから、リンクをもう一度開いてください。何も支払われていません。",
   "This link is not for mainnet": "このリンクは mainnet 用ではありません",
   "This request is for mainnet, and evolite is running on testnet now.": "このリクエストは mainnet 用で、evolite は今 testnet で動いています。",
-  "This request is for testnet, and evolite is running on mainnet now.": "このリクエストは testnet 用で、evolite は今 mainnet で動いています。"
+  "This request is for testnet, and evolite is running on mainnet now.": "このリクエストは testnet 用で、evolite は今 mainnet で動いています。",
+  "Platform's servers are lagging behind": "Platform のサーバーが遅れています"
 }

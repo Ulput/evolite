@@ -2366,5 +2366,6 @@
   "Switch evolite to testnet in Settings › Network and nodes, then open the link again. Nothing was spent.": "सेटिंग › नेटवर्क और नोड में evolite को testnet पर करें, फिर लिंक दोबारा खोलें। कुछ भी खर्च नहीं हुआ।",
   "This link is not for mainnet": "यह लिंक mainnet के लिए नहीं है",
   "This request is for mainnet, and evolite is running on testnet now.": "यह अनुरोध mainnet के लिए है, और evolite अभी testnet पर चल रहा है।",
-  "This request is for testnet, and evolite is running on mainnet now.": "यह अनुरोध testnet के लिए है, और evolite अभी mainnet पर चल रहा है।"
+  "This request is for testnet, and evolite is running on mainnet now.": "यह अनुरोध testnet के लिए है, और evolite अभी mainnet पर चल रहा है।",
+  "Platform's servers are lagging behind": "Platform के सर्वर पीछे चल रहे हैं"
 }

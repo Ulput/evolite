@@ -2082,3 +2082,43 @@ fn the_client_keeps_eight_peers_on_both_networks() {
         assert!(own.restrict_to_configured_peers);
     }
 }
+
+/// BUG-240 r4 (R1b): the SDK this app builds takes an answer up to
+/// [`PLATFORM_HEIGHT_TOLERANCE`] blocks behind the highest height seen and calls one further
+/// behind stale (it asks another node); the signed-time check stays on. Mutant: the builder
+/// without `with_height_tolerance` (the SDK's own) or with another value fails one side.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_sdk_takes_answers_within_the_height_tolerance() {
+    use dash_sdk::dapi_grpc::platform::v0::ResponseMetadata;
+    let sdk = sdk_builder(evolite_api::Network::Testnet)
+        .with_context_provider(NotYet)
+        .build()
+        .expect("the SDK builds offline");
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as u64;
+    let at = |height: u64| ResponseMetadata {
+        height,
+        time_ms: now,
+        ..Default::default()
+    };
+    sdk.verify_response_metadata("get_identity", &at(1_000))
+        .expect("the first answer sets the height seen");
+    sdk.verify_response_metadata("get_identity", &at(1_000 - PLATFORM_HEIGHT_TOLERANCE))
+        .unwrap_or_else(|e| panic!("{PLATFORM_HEIGHT_TOLERANCE} behind is taken: {e}"));
+    let stale = sdk
+        .verify_response_metadata("get_identity", &at(1_000 - PLATFORM_HEIGHT_TOLERANCE - 1))
+        .expect_err("one more behind is stale");
+    assert!(matches!(stale, dash_sdk::Error::StaleNode(_)), "{stale}");
+    let old_time = ResponseMetadata {
+        height: 1_000,
+        time_ms: now - 40 * 60 * 1000,
+        ..Default::default()
+    };
+    assert!(
+        sdk.verify_response_metadata("get_identity", &old_time)
+            .is_err(),
+        "an answer signed 40 minutes ago is still stale"
+    );
+}

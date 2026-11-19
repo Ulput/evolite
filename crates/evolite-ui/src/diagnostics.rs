@@ -76,11 +76,52 @@ fn spv_network_subscriber(dir: &Path) -> Option<impl tracing::Subscriber + Send 
     let lines = tracing_subscriber::fmt::layer()
         .with_ansi(false)
         .with_writer(std::sync::Mutex::new(file));
+    use tracing_subscriber::Layer;
+    // BUG-240 r4: the SDK's retries for a node behind, counted for the journal's pool_pass.
+    let stale = tracing_subscriber::filter::Targets::new()
+        .with_target("dash_sdk::sync", tracing::Level::WARN);
+    diag::count_stale_retries();
     Some(
         tracing_subscriber::registry()
-            .with(lines)
-            .with(only_network),
+            .with(lines.with_filter(only_network))
+            .with(StaleRetries.with_filter(stale)),
     )
+}
+
+/// BUG-240 r4 (dev-tools): counts the SDK's «retrying request» lines whose error is a node
+/// behind (`StaleNode`) into [`diag::stale_retry`]; writes nothing.
+#[cfg(feature = "dev-tools")]
+struct StaleRetries;
+
+#[cfg(feature = "dev-tools")]
+impl<S: tracing::Subscriber> tracing_subscriber::Layer<S> for StaleRetries {
+    fn on_event(&self, event: &tracing::Event<'_>, _: tracing_subscriber::layer::Context<'_, S>) {
+        if stale_retry_line(event) {
+            diag::stale_retry();
+        }
+    }
+}
+
+/// Whether `event` is the SDK's «retrying request» for a node behind.
+#[cfg(feature = "dev-tools")]
+fn stale_retry_line(event: &tracing::Event<'_>) -> bool {
+    #[derive(Default)]
+    struct Fields {
+        message: String,
+        error: String,
+    }
+    impl tracing::field::Visit for Fields {
+        fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
+            match field.name() {
+                "message" => self.message = format!("{value:?}"),
+                "error" => self.error = format!("{value:?}"),
+                _ => {}
+            }
+        }
+    }
+    let mut fields = Fields::default();
+    event.record(&mut fields);
+    fields.message.contains("retrying request") && fields.error.contains("StaleNode")
 }
 
 /// The system's name and version, e.g. ("windows", "10.0.26200").
@@ -586,5 +627,29 @@ mod tests {
         assert!(!written.contains("another target"), "{written}");
         assert_eq!(written.lines().count(), 1, "one line: {written}");
         let _ = std::fs::remove_dir_all(logs.parent().unwrap());
+    }
+}
+
+#[cfg(all(test, feature = "dev-tools"))]
+mod stale_retry_tests {
+    use super::*;
+
+    /// BUG-240 r4: the SDK's «retrying request» for a node behind counts once; one for another
+    /// error, or another line, does not.
+    #[test]
+    fn the_sdks_retries_for_a_node_behind_are_counted() {
+        use tracing_subscriber::layer::SubscriberExt;
+        diag::count_stale_retries();
+        let _ = diag::take_stale_retries();
+        let subscriber = tracing_subscriber::registry().with(StaleRetries);
+        tracing::subscriber::with_default(subscriber, || {
+            let stale = "ExecutionError { inner: StaleNode(Height { expected_height: 9 }) }";
+            tracing::warn!(target: "dash_sdk::sync", retry = 1, error = ?stale, "retrying request");
+            let other = "ExecutionError { inner: Proof(QuorumKeyUnavailable) }";
+            tracing::warn!(target: "dash_sdk::sync", retry = 1, error = ?other, "retrying request");
+            tracing::warn!(target: "dash_sdk::sync", error = ?stale, "request failed, retrying");
+        });
+        assert_eq!(diag::take_stale_retries(), Some(1));
+        assert_eq!(diag::take_stale_retries(), Some(0), "taken");
     }
 }

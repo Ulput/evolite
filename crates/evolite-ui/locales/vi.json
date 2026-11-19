@@ -2349,5 +2349,6 @@
   "Switch evolite to testnet in Settings › Network and nodes, then open the link again. Nothing was spent.": "Chuyển evolite sang testnet trong Cài đặt › Mạng và nút, rồi mở lại liên kết. Không có gì bị chi.",
   "This link is not for mainnet": "Liên kết này không dành cho mainnet",
   "This request is for mainnet, and evolite is running on testnet now.": "Yêu cầu này dành cho mainnet, còn evolite hiện đang chạy trên testnet.",
-  "This request is for testnet, and evolite is running on mainnet now.": "Yêu cầu này dành cho testnet, còn evolite hiện đang chạy trên mainnet."
+  "This request is for testnet, and evolite is running on mainnet now.": "Yêu cầu này dành cho testnet, còn evolite hiện đang chạy trên mainnet.",
+  "Platform's servers are lagging behind": "máy chủ Platform đang bị chậm"
 }

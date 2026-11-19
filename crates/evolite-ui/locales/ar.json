@@ -2434,5 +2434,6 @@
   "Switch evolite to testnet in Settings › Network and nodes, then open the link again. Nothing was spent.": "حوّل evolite إلى testnet في الإعدادات › الشبكة والعقد، ثم افتح الرابط مجددًا. لم يُنفق شيء.",
   "This link is not for mainnet": "هذا الرابط ليس لـ mainnet",
   "This request is for mainnet, and evolite is running on testnet now.": "هذا الطلب لـ mainnet، وevolite يعمل الآن على testnet.",
-  "This request is for testnet, and evolite is running on mainnet now.": "هذا الطلب لـ testnet، وevolite يعمل الآن على mainnet."
+  "This request is for testnet, and evolite is running on mainnet now.": "هذا الطلب لـ testnet، وevolite يعمل الآن على mainnet.",
+  "Platform's servers are lagging behind": "خوادم Platform متأخرة"
 }

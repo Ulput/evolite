@@ -2349,5 +2349,6 @@
   "Switch evolite to testnet in Settings › Network and nodes, then open the link again. Nothing was spent.": "설정 › 네트워크 및 노드에서 evolite를 testnet으로 바꾼 뒤 링크를 다시 여세요. 아무것도 쓰이지 않았습니다.",
   "This link is not for mainnet": "이 링크는 mainnet용이 아닙니다",
   "This request is for mainnet, and evolite is running on testnet now.": "이 요청은 mainnet용이며, evolite는 지금 testnet에서 실행 중입니다.",
-  "This request is for testnet, and evolite is running on mainnet now.": "이 요청은 testnet용이며, evolite는 지금 mainnet에서 실행 중입니다."
+  "This request is for testnet, and evolite is running on mainnet now.": "이 요청은 testnet용이며, evolite는 지금 mainnet에서 실행 중입니다.",
+  "Platform's servers are lagging behind": "Platform 서버가 뒤처져 있습니다"
 }

@@ -265,15 +265,48 @@ mod imp {
         }
     }
 
+    /// BUG-240 r4 (R3): after a pass that failed on something passing (the reporter tells
+    /// `retry`), one pass [`EARLY_PASS`] later instead of the regular minute; one per telling
+    /// (a `Notify` keeps one), none while a pass runs (`sync_now` skips). Ends with the scan.
+    fn early_passes(
+        retry: Arc<tokio::sync::Notify>,
+        sync: std::sync::Weak<platform_wallet::manager::shielded_sync::ShieldedSyncManager>,
+    ) {
+        tokio::spawn(async move {
+            loop {
+                retry.notified().await;
+                tokio::time::sleep(EARLY_PASS).await;
+                let Some(sync) = sync.upgrade() else { return };
+                if !sync.is_running() {
+                    return;
+                }
+                let _ = sync.sync_now(true).await;
+            }
+        });
+    }
+
+    /// BUG-240 r4 (R3): how long after a pass that failed on something passing the early one is.
+    const EARLY_PASS: std::time::Duration = std::time::Duration::from_secs(30);
+
     /// BUG-240 r2 (3): the kind the screens give when the pool's scan failed
     /// [`FAILED_PASSES`] times in a row since its last success; `None` before that. BUG-240 r3
     /// (B): whether a balance is known or not — a known one is then from an earlier pass, and
     /// the screens say so under it.
-    pub fn failing(failed: Option<&(u32, &'static str)>) -> Option<&'static str> {
+    /// BUG-240 r4 (R2): or [`WAITED_PASSES`] in a row that failed on something passing (the
+    /// connection, a node behind, SPV's quorums not ready), counted apart in `waited`.
+    pub fn failing(
+        failed: Option<&(u32, &'static str)>,
+        waited: Option<&(u32, &'static str)>,
+    ) -> Option<&'static str> {
         failed
             .filter(|(n, _)| *n >= FAILED_PASSES)
+            .or(waited.filter(|(n, _)| *n >= WAITED_PASSES))
             .map(|(_, kind)| *kind)
     }
+
+    /// BUG-240 r4 (R2): passes in a row failed on something passing before the pool says it
+    /// could not be read (the architect: 6; a pass runs every minute or so).
+    pub const WAITED_PASSES: u32 = 6;
 
     /// The Core fee rate of a withdrawal from the pool, duffs a byte (the network minimum).
     const CORE_FEE_PER_BYTE: u32 = 1;
@@ -311,7 +344,8 @@ mod imp {
             let sync = manager.shielded_sync_arc();
             if !sync.is_running() {
                 sync.set_interval(std::time::Duration::from_secs(60));
-                sync.start();
+                Arc::clone(&sync).start();
+                early_passes(self.pool_retry.clone(), Arc::downgrade(&sync));
             }
             Ok(())
         }
@@ -342,7 +376,10 @@ mod imp {
                 state.as_ref().ok(),
                 status.pool_passed.get(&wallet.wallet_id()).copied(),
             );
-            let failing = failing(status.pool_failed.get(&wallet.wallet_id()));
+            let failing = failing(
+                status.pool_failed.get(&wallet.wallet_id()),
+                status.pool_waited.get(&wallet.wallet_id()),
+            );
             let id = SubwalletId::new(wallet.wallet_id(), ACCOUNT);
             let mut unspent: Option<(u32, u64)> = None;
             let (notes, operations) = match coordinator.store().try_read() {
@@ -813,14 +850,22 @@ mod pool_record_tests {
         // known or not — the four cases (unknown/known × under/at 3) are the screen's, in
         // shielded.rs `pool_line` / `stale_line`.
         use super::imp::failing;
-        assert_eq!(failing(Some(&(3, "timeout"))), Some("timeout"));
-        assert_eq!(failing(Some(&(2, "timeout"))), None, "not yet");
+        assert_eq!(failing(Some(&(3, "timeout")), None), Some("timeout"));
+        assert_eq!(failing(Some(&(2, "timeout")), None), None, "not yet");
         assert_eq!(
-            failing(Some(&(5, "proof"))),
+            failing(Some(&(5, "proof")), None),
             Some("proof"),
             "after a success too"
         );
-        assert_eq!(failing(None), None);
+        assert_eq!(failing(None, None), None);
+        // r4 (R2): what passes by itself, to 6.
+        assert_eq!(failing(None, Some(&(5, "network"))), None, "not yet");
+        assert_eq!(failing(None, Some(&(6, "stale_node"))), Some("stale_node"));
+        assert_eq!(
+            failing(Some(&(1, "proof")), Some(&(6, "network"))),
+            Some("network"),
+            "either threshold"
+        );
     }
 }
 

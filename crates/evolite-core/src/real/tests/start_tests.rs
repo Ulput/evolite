@@ -467,6 +467,7 @@ async fn a_switch_keeps_each_wallets_pool_count() {
         .carry_pool_counts(evolite_chain::chain::PoolCounts {
             passed: [([1; 32], 1_800)].into(),
             failed: [([1; 32], (2, "proof")), ([2; 32], (1, "network"))].into(),
+            waited: [([2; 32], (4, "stale_node"))].into(),
         });
     let (release, start) = held_start();
     from.starting = Some(start);

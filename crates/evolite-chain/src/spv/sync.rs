@@ -99,6 +99,11 @@ pub struct SyncStatus {
     /// and the kind of the last failure.
     #[serde(skip)]
     pub pool_failed: std::collections::BTreeMap<[u8; 32], (u32, &'static str)>,
+    /// BUG-240 r4 (R2): the passes in a row since its last success that failed on something
+    /// that passes by itself — the connection, a node behind, SPV's quorums not ready — and
+    /// the kind of the last. Counted apart, to a higher threshold.
+    #[serde(skip)]
+    pub pool_waited: std::collections::BTreeMap<[u8; 32], (u32, &'static str)>,
     /// Height of the best ChainLock whose BLS signature was verified (this run or, restored
     /// from storage, an earlier one). The counters below cover this run only.
     pub chainlock_height: Option<u32>,
@@ -304,6 +309,8 @@ pub struct Reporter {
     status: Arc<Mutex<SyncStatus>>,
     publish: Arc<dyn Fn(&SyncStatus) + Send + Sync>,
     instant_locks: VerifiedLocks,
+    /// BUG-240 r4 (R3): told after a pass that failed on something passing: one early pass.
+    pool_retry: Option<Arc<tokio::sync::Notify>>,
 }
 
 impl Reporter {
@@ -315,7 +322,14 @@ impl Reporter {
             status,
             publish,
             instant_locks: VerifiedLocks::default(),
+            pool_retry: None,
         }
+    }
+
+    /// BUG-240 r4 (R3): `retry` is told after each pool pass that failed on something passing.
+    pub fn with_pool_retry(mut self, retry: Arc<tokio::sync::Notify>) -> Self {
+        self.pool_retry = Some(retry);
+        self
     }
 
     /// Verified InstantLocks go to `locks` (shared with the chain, which outlives a client).
@@ -406,12 +420,21 @@ impl PlatformEventHandler for Reporter {
             return;
         }
         let at = summary.sync_unix_seconds;
+        let mut passing = false;
         self.update(|s| {
             for (wallet, failed) in outcomes {
                 match failed {
                     None => {
                         s.pool_passed.insert(wallet, at);
                         s.pool_failed.remove(&wallet);
+                        s.pool_waited.remove(&wallet);
+                    }
+                    // BUG-240 r4 (R2): the connection, a node behind, SPV's quorums not ready
+                    // pass by themselves: counted apart, to a higher threshold.
+                    Some(kind) if passes_by_itself(kind) => {
+                        passing = true;
+                        let row = s.pool_waited.entry(wallet).or_insert((0, kind));
+                        *row = (row.0 + 1, kind);
                     }
                     Some(kind) => {
                         let row = s.pool_failed.entry(wallet).or_insert((0, kind));
@@ -420,6 +443,10 @@ impl PlatformEventHandler for Reporter {
                 }
             }
         });
+        // R3: one early pass after it, not the regular minute.
+        if passing && let Some(retry) = &self.pool_retry {
+            retry.notify_one();
+        }
     }
 }
 
@@ -465,8 +492,28 @@ fn pool_pass(
         scanned,
         error,
         repeated: 0,
+        stale_retries: crate::diag::take_stale_retries(),
     };
     (record, outcomes)
+}
+
+/// BUG-240 r4: a pass that waited on SPV's quorums — the one that signed Platform's answer not
+/// held yet («Quorum not found», «quorum key unavailable») or not verified yet («quorum source
+/// unavailable … not verified by SPV yet»), the masternode list not synced, or the SPV client
+/// not started yet (QA batch 45, at the start). Before, its words («verif») made it `proof`.
+#[cfg(feature = "pool")]
+pub(crate) const QUORUM_WAIT: &str = "quorum_wait";
+
+/// BUG-240 r4 (R2): a node's answer older than the SDK takes («received height is outdated …
+/// try another server»), after its retries elsewhere (QA batch 45).
+#[cfg(feature = "pool")]
+pub(crate) const STALE_NODE: &str = "stale_node";
+
+/// BUG-240 r4 (R2): the kinds of a failed pass that pass by themselves — the connection, a node
+/// behind, SPV's quorums not ready — counted apart from the others, to a higher threshold.
+#[cfg(feature = "pool")]
+pub(crate) fn passes_by_itself(kind: &str) -> bool {
+    kind == "network" || kind == QUORUM_WAIT || kind == STALE_NODE
 }
 
 /// The kind of a failed pass, never its words (they may name an address).
@@ -477,6 +524,19 @@ pub(crate) fn pass_error(text: &str) -> &'static str {
         "timeout"
     } else if text == crate::chain::NOT_READY || lower.contains("not ready") {
         "not_ready"
+    } else if lower.contains("height is outdated")
+        || lower.contains("stalenode")
+        || lower.contains("try another server")
+    {
+        STALE_NODE
+    } else if lower.contains("quorum source unavailable")
+        || lower.contains("not verified by spv")
+        || lower.contains("quorum not found")
+        || lower.contains("quorum key unavailable")
+        || lower.contains("masternode list not yet synced")
+        || lower.contains("spv client not started")
+    {
+        QUORUM_WAIT
     } else if lower.contains("proof") || lower.contains("verif") {
         "proof"
     } else if lower.contains("connect")
@@ -516,6 +576,7 @@ impl PassLog {
             new_notes,
             scanned,
             error,
+            stale_retries,
             ..
         }) = self.last.take()
             && self.repeats > 0
@@ -528,6 +589,7 @@ impl PassLog {
                 scanned,
                 error,
                 repeated: self.repeats,
+                stale_retries,
             });
         }
         self.repeats = 0;
@@ -579,6 +641,7 @@ mod pool_pass_tests {
                 scanned: 0,
                 error: "timeout",
                 repeated: 0,
+                stale_retries: None,
             }
         );
         assert_eq!(pass_error("proof verification failed"), "proof");
@@ -602,7 +665,109 @@ mod pool_pass_tests {
             scanned: 0,
             error,
             repeated: 0,
+            stale_retries: None,
         }
+    }
+
+    /// BUG-240 r4: SPV's quorums not ready are a wait, not a proof failure (the SDK's own
+    /// words, 575d961), and they are not counted towards «Could not read the pool»; a real
+    /// proof failure still is.
+    #[test]
+    fn a_quorum_not_ready_is_a_wait_not_counted() {
+        for text in [
+            "Shielded sync failed: Shielded sync failed: Context provider error: quorum source              unavailable: quorum 6:ab12 at Core chain-locked height 1300000: quorum 6:ab12 is              not verified by SPV yet (Unknown)",
+            "Shielded sync failed: Proof verification error: quorum key unavailable for quorum              6:ab12: Context provider error: Quorum not found: type 6 at or before height 1300000",
+            "Shielded sync failed: Configuration error: masternode list not yet synced              (quorums unavailable)",
+            "Shielded sync failed: Proof verification error: quorum key unavailable for quorum              6:ab12: Generic(\"SPV error: SPV Client not started\")",
+        ] {
+            assert_eq!(pass_error(text), QUORUM_WAIT, "{text}");
+        }
+        assert_eq!(
+            pass_error("Proof verification error: grovedb: invalid proof"),
+            "proof"
+        );
+        assert_eq!(
+            pass_error(
+                "Proof verification error: invalid signature: signature ab could not be verified"
+            ),
+            "proof"
+        );
+        let wait = |wallet: [u8; 32], text: &str| {
+            let mut summary = ShieldedSyncPassSummary::default();
+            summary
+                .wallet_results
+                .insert(wallet, WalletShieldedOutcome::Err(text.into()));
+            summary
+        };
+        let status = Arc::new(Mutex::new(SyncStatus::default()));
+        let reporter = Reporter::new(status.clone(), Arc::new(|_| {}));
+        use platform_wallet::PlatformEventHandler;
+        let proof = wait([1; 32], "Proof verification error: grovedb: invalid proof");
+        reporter.on_shielded_sync_completed(&proof);
+        for _ in 0..5 {
+            reporter.on_shielded_sync_completed(&wait(
+                [1; 32],
+                "quorum 6:ab is not verified by SPV yet (Skipped)",
+            ));
+        }
+        let s = status.lock().unwrap().clone();
+        assert_eq!(
+            s.pool_failed.get(&[1; 32]),
+            Some(&(1, "proof")),
+            "the waits add nothing to the failures and keep their kind"
+        );
+        assert_eq!(s.pool_waited.get(&[1; 32]), Some(&(5, QUORUM_WAIT)));
+        reporter.on_shielded_sync_completed(&proof);
+        let s = status.lock().unwrap().clone();
+        assert_eq!(s.pool_failed.get(&[1; 32]), Some(&(2, "proof")));
+    }
+
+    /// BUG-240 r4 (R2, R3), QA batch 45: a broken connection and a node behind pass by
+    /// themselves — counted apart — and each such pass asks for one early pass; a success
+    /// clears both counts.
+    #[tokio::test]
+    async fn passing_failures_are_counted_apart_and_ask_an_early_pass() {
+        let broken = "Shielded sync failed: Dapi client error: transport error: grpc error: code: \
+             'Unknown error', message: \"h2 protocol error: error reading a body from connection\"";
+        let behind = "Shielded sync failed: received height is outdated: expected 715912, \
+             received 715909, tolerance 1; try another server";
+        assert_eq!(pass_error(broken), "network");
+        assert_eq!(pass_error(behind), STALE_NODE);
+        assert!(passes_by_itself("network") && passes_by_itself(STALE_NODE));
+        assert!(!passes_by_itself("proof") && !passes_by_itself("timeout"));
+        let pass = |text: Option<&str>| {
+            let mut summary = ShieldedSyncPassSummary::default();
+            summary.wallet_results.insert(
+                [1; 32],
+                match text {
+                    Some(text) => WalletShieldedOutcome::Err(text.into()),
+                    None => WalletShieldedOutcome::Ok(Default::default()),
+                },
+            );
+            summary.sync_unix_seconds = 1_900;
+            summary
+        };
+        let status = Arc::new(Mutex::new(SyncStatus::default()));
+        let retry = Arc::new(tokio::sync::Notify::new());
+        let reporter =
+            Reporter::new(status.clone(), Arc::new(|_| {})).with_pool_retry(retry.clone());
+        use platform_wallet::PlatformEventHandler;
+        reporter.on_shielded_sync_completed(&pass(Some(broken)));
+        reporter.on_shielded_sync_completed(&pass(Some(behind)));
+        let s = status.lock().unwrap().clone();
+        assert_eq!(s.pool_waited.get(&[1; 32]), Some(&(2, STALE_NODE)));
+        assert!(s.pool_failed.is_empty(), "not a failure of the pool");
+        tokio::time::timeout(std::time::Duration::from_secs(1), retry.notified())
+            .await
+            .expect("an early pass asked");
+        reporter.on_shielded_sync_completed(&pass(Some("Proof verification error: grovedb: bad")));
+        reporter.on_shielded_sync_completed(&pass(None));
+        let s = status.lock().unwrap().clone();
+        assert!(
+            s.pool_waited.is_empty() && s.pool_failed.is_empty(),
+            "a success clears both"
+        );
+        assert_eq!(s.pool_passed.get(&[1; 32]), Some(&1_900));
     }
 
     /// BUG-240 r3 (QA batch 43): the same outcome again is not a new line, but it is not lost
