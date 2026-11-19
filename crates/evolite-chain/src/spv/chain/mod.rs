@@ -818,6 +818,8 @@ impl Chain {
 
     /// Is this DPNS label free (proved)? `label` is already normalized by [`crate::dpns`].
     pub async fn name_available(&self, label: &str) -> Result<bool, String> {
+        // TECH-read-deadlines (audit Д9): as every proved read, not before the lists (BUG-78).
+        self.ready()?;
         self.sdk()
             .await?
             .is_dpns_name_available(label)

@@ -32,42 +32,48 @@ impl Real {
         let refresh = self.refresher();
         let journal = self.journal.clone();
         self.answer_later("task:add_contact", async move {
-            let result = async {
-                let wallet = loaded(&chain, &id).await?;
-                let to = match chain.resolve_name(&label).await {
-                    Ok(Some(to)) => to,
-                    Ok(None) => return Err(CoreError::NameNotFound),
-                    Err(e) => return Err(read_failure(e)),
-                };
-                let to = Identifier::from_string(&to, Encoding::Base58)
-                    .map_err(|e| CoreError::Failed(e.to_string()))?;
-                // By platform-wallet's state of the identity the request goes from, now: the
-                // snapshot may be of the one shown before "Act as", and a repeat is paid (BUG-13).
-                let (from, standing) = Chain::contact_standing(&wallet, &to)
+            let result =
+                async {
+                    let wallet = loaded(&chain, &id).await?;
+                    let asked = label.clone();
+                    let to = match super::names::within(&chain, |c| async move {
+                        c.resolve_name(&asked).await
+                    })
                     .await
-                    .map_err(CoreError::Failed)?;
-                if let Some(why) = repeat_request(standing, &label) {
-                    return Err(CoreError::NotAvailable(why));
+                    {
+                        Ok(Some(to)) => to,
+                        Ok(None) => return Err(CoreError::NameNotFound),
+                        Err(e) => return Err(read_failure(e)),
+                    };
+                    let to = Identifier::from_string(&to, Encoding::Base58)
+                        .map_err(|e| CoreError::Failed(e.to_string()))?;
+                    // By platform-wallet's state of the identity the request goes from, now: the
+                    // snapshot may be of the one shown before "Act as", and a repeat is paid (BUG-13).
+                    let (from, standing) = Chain::contact_standing(&wallet, &to)
+                        .await
+                        .map_err(CoreError::Failed)?;
+                    if let Some(why) = repeat_request(standing, &label) {
+                        return Err(CoreError::NotAvailable(why));
+                    }
+                    // Checked, signed, paid and keyed as that one identity, whatever "Act as"
+                    // shows meanwhile (BUG-13 r1 should 1).
+                    let before = chain.identity_credits(&wallet, &from, false).await;
+                    chain
+                        .add_contact(&wallet, &keys, &from, to)
+                        .await
+                        .map_err(dashpay_failure)?;
+                    // Keyed as the read of Platform keys it (BUG-58): one line, not two.
+                    journal.add(platform_history::sent_request(
+                        &from,
+                        &to,
+                        &label,
+                        now(),
+                        spent_credits(before, chain.identity_credits(&wallet, &from, true).await)
+                            .unwrap_or(0),
+                    ));
+                    Ok(())
                 }
-                // Checked, signed, paid and keyed as that one identity, whatever "Act as"
-                // shows meanwhile (BUG-13 r1 should 1).
-                let before = chain.identity_credits(&wallet, &from, false).await;
-                chain
-                    .add_contact(&wallet, &keys, &from, to)
-                    .await
-                    .map_err(dashpay_failure)?;
-                // Keyed as the read of Platform keys it (BUG-58): one line, not two.
-                journal.add(platform_history::sent_request(
-                    &from,
-                    &to,
-                    &label,
-                    now(),
-                    spent_credits(before, chain.identity_credits(&wallet, &from, true).await)
-                        .unwrap_or(0),
-                ));
-                Ok(())
-            }
-            .await;
+                .await;
             refresh();
             Event::Done {
                 what: DoneWhat::Contact,

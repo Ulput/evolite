@@ -55,6 +55,11 @@ async fn no_platform_read_goes_out_before_the_lists() {
         chain.resolve_name("dash").await,
         Err(chain::NOT_READY.into())
     );
+    // TECH-read-deadlines (audit Д9): a name's availability too, as every proved read.
+    assert_eq!(
+        chain.name_available("dash").await,
+        Err(chain::NOT_READY.into())
+    );
     assert_eq!(
         chain.profile_of(id).await.err(),
         Some(chain::NOT_READY.into())

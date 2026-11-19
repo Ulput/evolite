@@ -818,7 +818,11 @@ impl Real {
             let result = async {
                 let to = match to {
                     Recipient::Id(id) => id,
-                    Recipient::Name(label) => match chain.resolve_name(&label).await {
+                    Recipient::Name(label) => match super::names::within(&chain, |c| async move {
+                        c.resolve_name(&label).await
+                    })
+                    .await
+                    {
                         Ok(Some(id)) => Identifier::from_string(&id, Encoding::Base58)
                             .map_err(|e| CoreError::Failed(e.to_string()))?,
                         Ok(None) => return Err(CoreError::NameNotFound),

@@ -11,6 +11,11 @@ pub(in crate::real) const NAME_WAIT: Duration = Duration::from_secs(60);
 /// How long the profile of a found name may take; the name is good without it.
 const PROFILE_WAIT: Duration = Duration::from_secs(20);
 
+/// Whether `e` is [`read_within`]'s «cut off at its limit».
+pub(in crate::real) fn timed_out(e: &str) -> bool {
+    e == TIMED_OUT
+}
+
 /// What a read cut off at its limit fails with. These words are what the screen goes by
 /// (`text::failure` in evolite-ui): the person reads that the network did not answer in time.
 const TIMED_OUT: &str = "timed out";
@@ -33,6 +38,20 @@ pub(in crate::real) async fn read_within<T: Send + 'static>(
             Err(TIMED_OUT.to_owned())
         }
     }
+}
+
+/// A Platform read inside a paid task, within [`NAME_WAIT`] as the screens' reads
+/// (TECH-read-deadlines, audit Д9): `read` gets its own handle on the chain, so it runs as a
+/// task of its own ([`read_within`]). Before, these reads had no limit: a proof stuck waiting
+/// for a quorum key held the task — and `identity_busy` with it — until a restart. The caller
+/// says a failure by [`read_failure`].
+pub(in crate::real) async fn within<T, F, R>(chain: &Arc<Chain>, read: F) -> Result<T, String>
+where
+    T: Send + 'static,
+    F: FnOnce(Arc<Chain>) -> R,
+    R: Future<Output = Result<T, String>> + Send + 'static,
+{
+    read_within(NAME_WAIT, read(chain.clone())).await
 }
 
 /// Who holds a name, within [`NAME_WAIT`]. Only Platform's own answer that nobody does is
@@ -459,6 +478,37 @@ mod recipient_tests {
         assert_eq!(recipient("0x!!"), Err(CoreError::BadAddress));
     }
 
+    /// TECH-read-deadlines (audit Д9), guard: a paid task reads a name (who holds it, whether it
+    /// is free, its contest) only within a limit — through [`within`], whose read gets its own
+    /// handle `c` on the chain — never straight from `chain`, which waited without one. Mutant:
+    /// any of these reads put back as `chain.…(…).await`.
+    #[test]
+    fn a_paid_task_reads_a_name_within_a_limit() {
+        let files = [
+            ("identity.rs", include_str!("identity.rs")),
+            ("dashpay.rs", include_str!("dashpay.rs")),
+            ("tokens.rs", include_str!("tokens.rs")),
+            ("token_manage.rs", include_str!("token_manage.rs")),
+            ("names.rs (recipient_id)", {
+                let s = include_str!("names.rs");
+                &s[s.find("async fn recipient_id(").expect("recipient_id")..]
+            }),
+        ];
+        for (file, code) in files {
+            let code = &code[..code.find("#[cfg(test)]").unwrap_or(code.len())];
+            for read in [
+                ".resolve_name(",
+                ".name_available(",
+                ".contest(",
+                ".name_awarded(",
+            ] {
+                for (at, _) in code.match_indices(read) {
+                    assert!(code[..at].ends_with('c'), "{file}: {read} without a limit");
+                }
+            }
+        }
+    }
+
     /// BUG-233, guard: an issuer's action resolves its recipient only through [`recipient_id`]
     /// — no copy of its own that hands Platform the «@». Mutant: the old copies.
     #[test]
@@ -471,11 +521,13 @@ mod recipient_tests {
 
 /// [`recipient`] resolved to an identity id (Base58), for an issuer's action (BUG-233): a name
 /// by its label, never with its «@».
-pub(in crate::real) async fn recipient_id(chain: &Chain, to: &str) -> Result<String, CoreError> {
+pub(in crate::real) async fn recipient_id(
+    chain: &Arc<Chain>,
+    to: &str,
+) -> Result<String, CoreError> {
     match recipient(to)? {
         Recipient::Id(id) => Ok(id.to_string(Encoding::Base58)),
-        Recipient::Name(label) => chain
-            .resolve_name(&label)
+        Recipient::Name(label) => within(chain, |c| async move { c.resolve_name(&label).await })
             .await
             .map_err(read_failure)?
             .ok_or(CoreError::NameNotFound),

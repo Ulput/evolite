@@ -36,10 +36,17 @@ impl Real {
             tokio::spawn(async move {
                 let result = match Identifier::from_string(&owner, Encoding::Base58) {
                     Ok(id) => {
-                        let read = turn::timed("nft_read", chain.jembe_gifts(id, &known));
-                        tokio::time::timeout(nfts::ASK_TIMEOUT, read)
+                        // TECH-read-deadlines (audit Д9): the limit on a task of its own, not
+                        // on a `poll` a stuck proof would block (`names::read_within`).
+                        let read = async move {
+                            turn::timed("nft_read", chain.jembe_gifts(id, &known)).await
+                        };
+                        super::names::read_within(nfts::ASK_TIMEOUT, read)
                             .await
-                            .unwrap_or_else(|_| Err(nfts::no_answer().into()))
+                            .map_err(|e| match super::names::timed_out(&e) {
+                                true => nfts::no_answer().into(),
+                                false => e,
+                            })
                     }
                     Err(e) => Err(e.to_string()),
                 };

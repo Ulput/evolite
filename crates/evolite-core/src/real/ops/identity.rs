@@ -217,12 +217,16 @@ impl Real {
         // and signs as it even if the choice moves while it runs, and refuses if it is gone.
         let pinned = self.shown_now(id);
         self.answer_later("task:add_name", async move {
-            let result = match chain.name_available(&label).await {
+            let free = {
+                let label = label.clone();
+                super::names::within(&chain, |c| async move { c.name_available(&label).await })
+            };
+            let result = match free.await {
                 Ok(false) => Err(CoreError::NotAvailable(format!(
                     tr!("The name @{label} is already taken"),
                     label = label
                 ))),
-                Err(e) => Err(CoreError::Failed(e)),
+                Err(e) => Err(read_failure(e)),
                 Ok(true) => async {
                     let wallet = chain.wallet(&id).await.ok_or(NOT_LOADED)?;
                     let (acting, me) = pinned_acting(&wallet, pinned)
@@ -301,11 +305,18 @@ impl Real {
                             tr!("Make an identity first").into(),
                         ))?;
                 let ids = wallet_identity_ids(&wallet).await;
-                let awarded = chain
-                    .name_awarded(&label)
-                    .await
-                    .map_err(CoreError::Failed)?;
-                let (contest, fund_now) = chain.contest(&label).await.map_err(CoreError::Failed)?;
+                // TECH-read-deadlines: within a limit, said as every read.
+                let contest_now = || {
+                    let label = label.clone();
+                    super::names::within(&chain, |c| async move { c.contest(&label).await })
+                };
+                let awarded = {
+                    let label = label.clone();
+                    super::names::within(&chain, |c| async move { c.name_awarded(&label).await })
+                }
+                .await
+                .map_err(read_failure)?;
+                let (contest, fund_now) = contest_now().await.map_err(read_failure)?;
                 let check = name_requests::classify(
                     &label,
                     awarded,
@@ -329,10 +340,10 @@ impl Real {
                     .add_name(&wallet, &keys, &me, &label, needed, Some(fund_now))
                     .await;
                 let (contest, _) = match sent {
-                    Ok(()) => chain.contest(&label).await.unwrap_or((contest, fund_now)),
+                    Ok(()) => contest_now().await.unwrap_or((contest, fund_now)),
                     Err(e) => {
                         // R-4: in the vote after all? Then it is in; else it failed.
-                        let again = chain.contest(&label).await.ok();
+                        let again = contest_now().await.ok();
                         match again {
                             Some((c, f)) if c.contenders.iter().any(|x| x.identity == shown) => {
                                 (c, f)
@@ -629,7 +640,11 @@ impl Real {
                 let before = chain.identity_credits(&wallet, &me, false).await;
                 let payee = match to {
                     To::Ready(payee) => payee,
-                    To::Name(label) => match chain.resolve_name(&label).await {
+                    To::Name(label) => match super::names::within(&chain, |c| async move {
+                        c.resolve_name(&label).await
+                    })
+                    .await
+                    {
                         Ok(Some(id)) => CreditPayee::Identity(
                             Identifier::from_string(&id, Encoding::Base58)
                                 .map_err(|e| CoreError::Failed(e.to_string()))?,
@@ -891,8 +906,11 @@ impl Real {
         let pending = self.pending_names();
         let (out, wake) = (self.out.clone(), self.wake.clone());
         self.answer_later("task:create_identity", async move {
-            let available = match &label {
-                Some(label) => chain.name_available(label).await,
+            let available = match label.clone() {
+                Some(label) => {
+                    super::names::within(&chain, |c| async move { c.name_available(&label).await })
+                        .await
+                }
                 None => Ok(true),
             };
             let result = match available {
@@ -900,7 +918,7 @@ impl Real {
                     tr!("The name @{label} is already taken, the money is untouched"),
                     label = label.as_deref().unwrap_or_default()
                 ))),
-                Err(e) => Err(CoreError::Failed(e)),
+                Err(e) => Err(read_failure(e)),
                 Ok(true) => async {
                     let index = chain.next_identity_index(&wallet, &keys).await?;
                     watch_creation(chain.clone(), wallet.clone(), index, busy.flag(), out, wake);
