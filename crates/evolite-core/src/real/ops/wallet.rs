@@ -315,6 +315,8 @@ impl Real {
         // A paid write not known to have gone through is forgotten (BUG-184), unless its send
         // still runs: its late line comes after the lock too (BUG-205 S2).
         self.unclear.forget();
+        // FEAT-0020-resend R-7: a batch running stops before its next contact; the rest are owed.
+        self.resend_run.lock();
         // BUG-194: the address pools as the lock leaves them, with what is used.
         if let Some(open) = self.unlocked.as_ref()
             && let Some(wallet) = self.chain.wallet(&open.id).await

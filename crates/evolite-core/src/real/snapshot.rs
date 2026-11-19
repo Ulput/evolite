@@ -581,6 +581,10 @@ impl Real {
             &self.app_reads.lock().unwrap_or_else(|e| e.into_inner()),
         );
         let me = shown.as_ref().map(|(identity, _, _)| identity.id.clone());
+        // FEAT-0020-resend: what the shown identity owes, and its batches (R-5, R-6, R-8, R-9).
+        let resend = me.as_deref().and_then(|me| {
+            super::ops::resend::shown(&self.resend_debt.load(), me, self.resend_run.of(me))
+        });
         self.name_contact_lines(id, me.as_deref(), &mut history, &mut contacts)
             .await;
         convert::settle(&mut history, self.chain.status().chainlock_height);
@@ -659,6 +663,7 @@ impl Real {
             nfts,
             nfts_status,
             contacts,
+            resend,
             unfinished_identity: unfinished,
             unfinished_top_up,
             unfinished_address_top_up,

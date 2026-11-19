@@ -233,6 +233,16 @@ impl Real {
                     ask: None,
                 },
             },
+            Spend::ResendRequests { identity, contact } => {
+                match self.resend_requests(identity, contact) {
+                    Ok(()) => return (None, true),
+                    Err(e) => Event::Done {
+                        what: DoneWhat::Resend,
+                        result: Err(e),
+                        ask: None,
+                    },
+                }
+            }
             Spend::DisconnectApp { id } => match self.disconnect_app(&id) {
                 Ok(()) => return (None, true),
                 Err(e) => Event::Done {

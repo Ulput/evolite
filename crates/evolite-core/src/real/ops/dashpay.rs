@@ -28,6 +28,15 @@ impl Real {
     pub(in crate::real) fn add_contact(&self, name: &str) -> Result<(), CoreError> {
         let label = dpns::label(name)?;
         let (id, keys) = self.dashpay_ready()?;
+        // FEAT-0020-resend, review condition 5: a request sent again by this identity may
+        // still land; another one now would race it for the identity's nonce.
+        if let Some(shown) = self.shown_now(id)
+            && self
+                .unclear
+                .requests_on_their_way(&shown.to_string(Encoding::Base58))
+        {
+            return Err(super::resend::request_on_its_way());
+        }
         let chain = self.chain.clone();
         let refresh = self.refresher();
         let journal = self.journal.clone();

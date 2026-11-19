@@ -885,6 +885,15 @@ impl Mock {
                     ask: None,
                 };
             }
+            // FEAT-0020-resend in the demo: what is owed goes, a line for the batch.
+            Spend::ResendRequests { contact, .. } => {
+                let result = self.resend_requests(contact.as_deref());
+                return Event::Done {
+                    what: DoneWhat::Resend,
+                    result,
+                    ask: None,
+                };
+            }
             Spend::DisconnectApp { id } => {
                 if let Some(wallet) = &mut self.snapshot.wallet {
                     for app in wallet.apps.iter_mut().filter(|a| a.id == id) {
@@ -1427,6 +1436,13 @@ impl Mock {
         for key in id.keys.iter_mut().filter(|k| plan.disable.contains(&k.id)) {
             key.disabled_at = Some(at);
         }
+        // FEAT-0020-resend: the pair replaced — its contacts get a new request each.
+        let replaces = plan.add.iter().any(|k| k.dashpay)
+            && id.keys.iter().any(|k| {
+                plan.disable.contains(&k.id)
+                    && k.purpose == KeyPurpose::Encryption
+                    && k.disabled_at == Some(at)
+            });
         for new in &plan.add {
             id.keys.push(IdentityKey {
                 id: new.id,
@@ -1448,6 +1464,87 @@ impl Mock {
                 owner: KeyOwner::This,
             });
         }
+        if replaces {
+            let n = self.snapshot.wallet.as_ref().map_or(0, |w| {
+                w.contacts
+                    .iter()
+                    .filter(|c| c.state == ContactState::Established)
+                    .count() as u32
+            });
+            if n > 0 {
+                self.resent(n, n, Vec::new());
+            }
+        }
+        Ok(())
+    }
+
+    /// FEAT-0020-resend in the demo: `sent` of `of` requests went, `due` still owed; their fee
+    /// from the credits and a line in History, as the real core writes (one a batch).
+    fn resent(&mut self, sent: u32, of: u32, due: Vec<String>) {
+        let Some(wallet) = self.snapshot.wallet.as_mut() else {
+            return;
+        };
+        let fee = wallet.fees.contact_request.saturating_mul(sent as Duffs);
+        wallet.balances.credits = wallet.balances.credits.saturating_sub(fee);
+        let kind = ActivityKind::ContactsResent {
+            sent,
+            of,
+            left: due.len() as u32,
+        };
+        let line = wallet.activity.iter().map(|a| a.id).max().unwrap_or(0) + 1;
+        let chain = Chain::Platform;
+        let (layers, flow) = evolite_common::layers::of(&kind, chain);
+        wallet.activity.insert(
+            0,
+            Activity {
+                id: line,
+                kind,
+                chain,
+                at: now(),
+                amount: -fee,
+                proof: Proof::Proved,
+                txid: None,
+                fee: Some(fee),
+                block: None,
+                address: None,
+                layers,
+                flow,
+                key: format!("demo:{line}"),
+                note: None,
+                rate: None,
+                detail: None,
+                tax_transfer: false,
+            },
+        );
+        wallet.resend = Some(evolite_api::Resend {
+            due,
+            done: Some((sent, of)),
+            ..Default::default()
+        });
+    }
+
+    /// «Send requests again» in the demo: the owed requests (or `contact`'s) go.
+    fn resend_requests(&mut self, contact: Option<&str>) -> Result<(), CoreError> {
+        if self.snapshot.vault != VaultState::Unlocked {
+            return Err(CoreError::NotAvailable(tr!("The wallet is locked").into()));
+        }
+        let owed = self
+            .snapshot
+            .wallet
+            .as_ref()
+            .and_then(|w| w.resend.as_ref())
+            .map(|r| r.due.clone())
+            .unwrap_or_default();
+        let (go, left): (Vec<String>, Vec<String>) = owed
+            .into_iter()
+            .partition(|c| contact.is_none_or(|one| one == c));
+        if go.is_empty() {
+            return Err(CoreError::NotAvailable(
+                tr!("No contact is waiting for a request from this identity").into(),
+            ));
+        }
+        let n = go.len() as u32;
+        self.resent(n, n, left);
         Ok(())
     }
 

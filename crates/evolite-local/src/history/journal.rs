@@ -319,6 +319,9 @@ pub enum Kind {
     /// A write of `token` Platform refused that still took credits (BUG-205, review r1 S1): not
     /// done, its fee charged. `spent` is the fee.
     NotDone { token: String },
+    /// FEAT-0020-resend: contact requests sent again after the DashPay pair was replaced,
+    /// `sent` of `of`, `left` still owed; `spent` is what they cost this identity.
+    ContactsResent { sent: u32, of: u32, left: u32 },
 }
 
 /// What an issuer action did ([`Kind::TokenIssuer`]).
@@ -350,6 +353,7 @@ impl Kind {
             | Kind::TokenBought { token, .. }
             | Kind::TokenIssuer { token, .. }
             | Kind::NotDone { token } => token.clone(),
+            Kind::ContactsResent { .. } => "contacts".into(),
         }
     }
 }
@@ -837,6 +841,11 @@ pub fn activity(entry: &Entry) -> Activity {
         },
         (Some(Kind::NotDone { token }), _) => ActivityKind::NotDone {
             token: token.clone(),
+        },
+        (Some(Kind::ContactsResent { sent, of, left }), _) => ActivityKind::ContactsResent {
+            sent: *sent,
+            of: *of,
+            left: *left,
         },
         (None, what) => match what {
             What::Credits { to } => ActivityKind::CreditTransfer { to: to.clone() },

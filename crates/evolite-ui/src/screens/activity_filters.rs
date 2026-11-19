@@ -93,7 +93,9 @@ pub fn kind_of(a: &Activity) -> u8 {
         | NameClaimed { .. }
         | NameLinkWritten { .. }
         | NameContestEnded { .. } => kind::NAMES,
-        ContactRequest { .. } | ContactRequestIn { .. } | ProfileSaved => kind::CONTACTS,
+        ContactRequest { .. } | ContactRequestIn { .. } | ProfileSaved | ContactsResent { .. } => {
+            kind::CONTACTS
+        }
         Shielded { .. } | PoolReceived | PoolSent => kind::POOL,
         // BUG-145: what apps did with their keys and budgets; a token sent is the identity's.
         AppSignIn { .. } | AppRenewed { .. } | AppDisconnected { .. } | AppSpent { .. } => {

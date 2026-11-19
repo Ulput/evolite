@@ -234,6 +234,7 @@ impl Real {
             self.unclear.clone(),
             open.keys.clone(),
         );
+        let debt = self.resend_debt.clone();
         self.answer_later("task:read_identity_keys", async move {
             let result = async {
                 let wallet = loaded(&chain, &wallet_id).await?;
@@ -255,6 +256,9 @@ impl Real {
                     if let Some(kind) = done.kind {
                         journal.add(own_line(kind, done.before, after, done.acting));
                     }
+                    // FEAT-0020-resend: the requests waiting for this change are owed now —
+                    // for the button (scheme p. 1).
+                    let _ = debt.after_change(&identity, true);
                 }
                 Ok(())
             }
@@ -304,6 +308,11 @@ impl Real {
                 tr!("The earlier change of keys may still go through: wait two minutes, then look at the keys again").into(),
             ));
         }
+        // FEAT-0020-resend, review condition 5: a contact request of this identity that may
+        // still land would be signed with the key this change may disable.
+        if self.unclear.requests_on_their_way(&identity) {
+            return Err(super::resend::request_on_its_way());
+        }
         // One change of the identity at a time (the review's Should 1): two would number their
         // keys alike and the second be refused by Platform, with a fee.
         let Some(busy) = self.identity_busy.take() else {
@@ -311,7 +320,10 @@ impl Real {
         };
         let (chain, apps, refresh) = (self.chain.clone(), self.apps.clone(), self.refresher());
         let (journal, unclear) = (self.journal.clone(), self.unclear.clone());
+        let (debt, run) = (self.resend_debt.clone(), self.resend_run.clone());
         self.answer_later("task:update_keys", async move {
+            // FEAT-0020-resend: the requests to send again once the pair is replaced.
+            let mut batch: Option<super::resend::Batch<super::resend::OnChain>> = None;
             let result = async {
                 let wallet = loaded(&chain, &wallet_id).await?;
                 // Shared with the send's own task (TECH-after-send-outcome), never copied: it holds
@@ -373,6 +385,21 @@ impl Real {
                     }
                     sent::Outcome::Refused(e) => return Err(super::super::platform_failure(e)),
                     sent::Outcome::Unclear { late } => {
+                        // FEAT-0020-resend: nothing sent again before the change shows; the
+                        // contacts wait for it, then for the button (scheme p. 1).
+                        if super::resend::replaces_the_pair(&fresh, &plan) {
+                            let rows = super::resend::pairs_after_change(&wallet, who.id)
+                                .await
+                                .into_iter()
+                                .map(|(from, to)| evolite_local::resend_debt::Row {
+                                    identity: from.to_string(Encoding::Base58),
+                                    contact: to.to_string(Encoding::Base58),
+                                    key: 0,
+                                    state: evolite_local::resend_debt::Owed::Waiting,
+                                })
+                                .collect();
+                            let _ = debt.replace(&identity, rows);
+                        }
                         // Not known: kept, for the read that shows it, or the send's own late
                         // answer, to write its line (BUG-184 p. 2) — by the one rule (Д4).
                         let pending = sent::Pending::new(
@@ -383,11 +410,15 @@ impl Real {
                             acting,
                         );
                         let (chain, id) = (chain.clone(), who.id);
+                        let (debt, changed) = (debt.clone(), identity.clone());
                         return Err(unclear.not_known(
                             pending,
                             late,
                             journal.clone(),
                             move |_, p| async move {
+                                // FEAT-0020-resend: its late success makes the waiting
+                                // requests owed.
+                                let _ = debt.after_change(&changed, true);
                                 let after = chain.identity_credits(&wallet, &id, true).await;
                                 let kind = p.kind.expect("a key change's kind is known");
                                 own_line(kind, p.before, after, p.acting)
@@ -397,10 +428,43 @@ impl Real {
                 };
                 let after = chain.identity_credits(&wallet, &who.id, true).await;
                 journal.add(own_line(kind, before, after, acting));
+                // FEAT-0020-resend: the pair replaced and proved — the requests go now, in the
+                // background, with the keys of this opening; no second password (decision 1).
+                if super::resend::replaces_the_pair(&fresh, &plan) {
+                    let _ = debt.replace(&identity, Vec::new());
+                    let pairs = super::resend::pairs_after_change(&wallet, who.id).await;
+                    if !pairs.is_empty() {
+                        batch = Some(super::resend::Batch {
+                            side: super::resend::OnChain {
+                                chain: chain.clone(),
+                                wallet: wallet.clone(),
+                                keys: keys.clone(),
+                            },
+                            pairs,
+                            debt: debt.clone(),
+                            unclear: unclear.clone(),
+                            journal: journal.clone(),
+                            run: run.clone(),
+                            shown: identity.clone(),
+                        });
+                    }
+                }
                 sent_answer(evolite_chain::key_update::shows(&after_send, &plan))
             }
             .await;
-            drop(busy);
+            match batch {
+                // The identity stays taken until the batch stops: the sender key must not
+                // change in the middle of it.
+                Some(batch) => {
+                    let refresh = refresh.clone();
+                    tokio::spawn(async move {
+                        let _ = batch.send(refresh.clone()).await;
+                        drop(busy);
+                        refresh();
+                    });
+                }
+                None => drop(busy),
+            }
             refresh();
             Event::Done {
                 what: DoneWhat::Keys,

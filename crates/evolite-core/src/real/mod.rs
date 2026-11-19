@@ -70,7 +70,7 @@ use evolite_chain::{
 use evolite_local::{
     address_book, attempts, connected_apps, contact_addresses, contact_names, core_balance,
     folders, hidden_requests, journal, mempool, name_requests, node, notes, pending, pool_history,
-    rates, security, vault, wallets,
+    rates, resend_debt, security, vault, wallets,
 };
 use sync::{Phase, SyncStatus};
 use vault::{KdfParams, VaultError, VaultMeta};
@@ -253,6 +253,9 @@ pub struct Paths {
     pub contact_addresses: PathBuf,
     /// Senders whose contact requests were hidden ([`hidden_requests::HiddenRequests`]).
     pub hidden_requests: PathBuf,
+    /// Contact requests owed after a DashPay pair was replaced ([`resend_debt::ResendDebt`],
+    /// FEAT-0020-resend).
+    pub contact_resend: PathBuf,
     /// Contacts' names as last read ([`contact_names::ContactNames`], SYNC-4).
     pub contact_names: PathBuf,
     /// The pool's operations as made ([`pool_history::PoolHistory`]).
@@ -310,6 +313,7 @@ impl Paths {
             kept_locks: wallets.join("instant-locks.json"),
             contact_addresses: wallets.join("contact-addresses.json"),
             hidden_requests: wallets.join("hidden-requests.json"),
+            contact_resend: wallets.join("contact-resend.json"),
             contact_names: wallets.join("contact-names.json"),
             pool_history: wallets.join("pool-history.json"),
             resync: wallets.join("resync-on-start"),
@@ -663,6 +667,10 @@ struct Real {
     name_requests: Arc<name_requests::NameRequests>,
     /// Senders whose requests were hidden: still hidden after a resync.
     hidden: Arc<hidden_requests::HiddenRequests>,
+    /// FEAT-0020-resend: the requests owed after a DashPay pair was replaced, and where the
+    /// batches stand.
+    resend_debt: Arc<resend_debt::ResendDebt>,
+    resend_run: Arc<ops::resend::ResendRun>,
     /// The pool's operations with the amounts the scan loses after a restart.
     pool_history: pool_history::PoolHistory,
     /// The open wallet's payment notes, decrypted, with their key (FEAT-0003): opened with the

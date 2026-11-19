@@ -15,6 +15,7 @@ impl Real {
             LocalFile::ConnectedApps => self.apps.store(),
             LocalFile::ContactAddresses => self.contact_paid.store(),
             LocalFile::AddressBook => self.address_book.store(),
+            LocalFile::ContactResend => self.resend_debt.store(),
         }
     }
 
@@ -67,13 +68,14 @@ impl Real {
     }
 }
 
-const ALL: [LocalFile; 6] = [
+const ALL: [LocalFile; 7] = [
     LocalFile::Journal,
     LocalFile::TopUps,
     LocalFile::NameRequests,
     LocalFile::ConnectedApps,
     LocalFile::ContactAddresses,
     LocalFile::AddressBook,
+    LocalFile::ContactResend,
 ];
 
 /// The file's kind for the journal.
@@ -85,5 +87,6 @@ fn name(file: LocalFile) -> &'static str {
         LocalFile::ConnectedApps => "connected-apps.json",
         LocalFile::ContactAddresses => "contact-addresses.json",
         LocalFile::AddressBook => "address-book.json",
+        LocalFile::ContactResend => "contact-resend.json",
     }
 }

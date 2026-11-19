@@ -541,6 +541,129 @@ impl Chain {
     }
 }
 
+/// One of our contact requests to someone, as Platform proved it (FEAT-0020-resend): the
+/// encryption key it was signed with, and its account reference.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SentRequest {
+    pub sender_key: u32,
+    pub account_reference: u32,
+}
+
+impl SentRequest {
+    /// The reference's version: its top 4 bits (platform-wallet's `calculate_account_reference`).
+    pub fn version(&self) -> u32 {
+        self.account_reference >> 28
+    }
+}
+
+/// The last version a request's reference may have (4 bits). platform-wallet stops there instead
+/// of wrapping, so a request past it has the same reference and is refused by the unique index.
+pub const LAST_REQUEST_VERSION: u32 = 15;
+
+/// Whether one of `sent` — in any order: no index orders a pair's requests by date — was signed
+/// with our encryption key `key`: a request of ours with that key is already there.
+pub fn sent_with(sent: &[SentRequest], key: u32) -> bool {
+    sent.iter().any(|r| r.sender_key == key)
+}
+
+/// Whether our requests to someone have used up the reference's versions.
+pub fn versions_used_up(sent: &[SentRequest]) -> bool {
+    sent.iter().any(|r| r.version() >= LAST_REQUEST_VERSION)
+}
+
+impl Chain {
+    /// Every contact request `owner` sent to `to`, proved (FEAT-0020-resend): DashPay's
+    /// `ownerIdUserId` index serves the pair, but not by date, so all of them — a handful, at
+    /// most one per version of the reference.
+    pub async fn sent_requests_to(
+        &self,
+        owner: Identifier,
+        to: Identifier,
+    ) -> Result<Vec<SentRequest>, String> {
+        use dash_sdk::platform::FetchMany;
+        use dpp::document::DocumentV0Getters;
+        self.ready()?;
+        let sdk = self.sdk().await?;
+        let contract = std::sync::Arc::new(
+            dpp::system_data_contracts::load_system_data_contract(
+                dpp::system_data_contracts::SystemDataContract::Dashpay,
+                sdk.version(),
+            )
+            .map_err(|e| e.to_string())?,
+        );
+        let query = sent_to_query(contract, owner, to)?;
+        let found = dpp::document::Document::fetch_many(&sdk, query)
+            .await
+            .map_err(|e| e.to_string())?;
+        Ok(found
+            .into_values()
+            .flatten()
+            .filter_map(|d| {
+                let number = |field: &str| d.properties().get(field)?.to_integer::<u32>().ok();
+                Some(SentRequest {
+                    sender_key: number("senderKeyIndex")?,
+                    account_reference: number("accountReference")?,
+                })
+            })
+            .collect())
+    }
+
+    /// FEAT-0020-resend, from platform-wallet's state now: the key a new request of `me` is
+    /// signed with — its choice (`select_own_encryption_key`): the first enabled ECDSA
+    /// ENCRYPTION key — and each established contact with the sender key of our latest request
+    /// to it (platform-wallet replaces it after a send to an established contact). `None`
+    /// without the identity or such a key.
+    pub async fn resend_state(
+        wallet: &PlatformWallet,
+        me: &Identifier,
+    ) -> Option<(u32, Vec<(Identifier, u32)>)> {
+        use dpp::identity::accessors::IdentityGettersV0;
+        use dpp::identity::identity_public_key::accessors::v0::IdentityPublicKeyGettersV0;
+        use dpp::identity::{KeyType, Purpose};
+        let state = wallet.state().await;
+        let managed = state.identity_manager.managed_identity(me)?;
+        let key = managed
+            .identity
+            .public_keys()
+            .values()
+            .find(|k| {
+                k.purpose() == Purpose::ENCRYPTION
+                    && k.key_type() == KeyType::ECDSA_SECP256K1
+                    && k.disabled_at().is_none()
+            })?
+            .id();
+        let contacts = managed
+            .dashpay()
+            .established_contacts()
+            .iter()
+            .map(|(id, c)| (*id, c.outgoing_request.sender_key_index))
+            .collect();
+        Some((key, contacts))
+    }
+}
+
+/// Our `contactRequest` documents to `to` (FEAT-0020-resend): by DashPay's `ownerIdUserId`
+/// index, both equal, no order (checked offline, `query_index_tests`).
+pub(crate) fn sent_to_query(
+    contract: std::sync::Arc<dpp::data_contract::DataContract>,
+    owner: Identifier,
+    to: Identifier,
+) -> Result<dash_sdk::platform::DocumentQuery, String> {
+    use dash_sdk::drive::query::{WhereClause, WhereOperator};
+    let equal = |field: &str, id: Identifier| WhereClause {
+        field: field.into(),
+        operator: WhereOperator::Equal,
+        value: dpp::platform_value::Value::Identifier(id.to_buffer()),
+    };
+    dash_sdk::platform::DocumentQuery::new(contract, "contactRequest")
+        .map(|q| {
+            q.with_where(equal("$ownerId", owner))
+                .with_where(equal("toUserId", to))
+                .with_limit(100)
+        })
+        .map_err(|e| e.to_string())
+}
+
 /// DashPay `contactRequest` documents with `field` (`$ownerId` or `toUserId`) equal to `id`, by
 /// date: DashPay's indexes (checked offline, `query_index_tests`).
 pub(crate) fn contact_request_query(
@@ -563,4 +686,31 @@ pub(crate) fn contact_request_query(
             .with_limit(100)
         })
         .map_err(|e| e.to_string())
+}
+
+#[cfg(test)]
+mod sent_request_tests {
+    use super::*;
+
+    /// FEAT-0020-resend, review condition 1: our requests to a contact come in any order (no
+    /// index orders them by date); a request with our key now is found wherever it is, and the
+    /// versions are used up when any of them is at the last one.
+    #[test]
+    fn our_requests_are_read_in_any_order() {
+        let at = |key, version: u32| SentRequest {
+            sender_key: key,
+            account_reference: (version << 28) | 0x0123_4567,
+        };
+        for sent in [
+            vec![at(6, 0), at(8, 1), at(10, 2)],
+            vec![at(10, 2), at(6, 0), at(8, 1)],
+            vec![at(8, 1), at(10, 2), at(6, 0)],
+        ] {
+            assert!(sent_with(&sent, 10), "{sent:?}");
+            assert!(!sent_with(&sent, 12), "{sent:?}");
+            assert!(!versions_used_up(&sent));
+        }
+        assert!(versions_used_up(&[at(4, 3), at(6, 15)]));
+        assert_eq!(at(6, 15).version(), LAST_REQUEST_VERSION);
+    }
 }

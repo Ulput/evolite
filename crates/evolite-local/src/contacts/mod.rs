@@ -6,3 +6,4 @@ pub mod connected_apps;
 pub mod contact_addresses;
 pub mod contact_names;
 pub mod hidden_requests;
+pub mod resend_debt;

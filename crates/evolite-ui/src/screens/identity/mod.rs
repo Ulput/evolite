@@ -9,6 +9,7 @@ mod key_change;
 mod key_reveal;
 mod keys;
 mod profile;
+pub(crate) mod resend;
 mod top_up;
 
 pub use add_name::*;

@@ -697,6 +697,14 @@ pub fn activity_title(a: &Activity) -> String {
         ActivityKind::TokenIssuer { token, act } => issuer_title(token, act),
         // BUG-205: refused by Platform, its fee taken.
         ActivityKind::NotDone { token } => format!(tr!("Not done: {}"), token),
+        // FEAT-0020-resend R-10: the batch, no names.
+        ActivityKind::ContactsResent { sent, of, left: 0 } => {
+            format!(tr!("Contact requests sent again: {} of {}"), sent, of)
+        }
+        ActivityKind::ContactsResent { sent, of, left } => format!(
+            tr!("Contact requests sent again: {} of {} · {} left"),
+            sent, of, left
+        ),
         ActivityKind::TokenBought { token, amount } => format!(
             tr!("Bought {amount} {token}"),
             amount = crate::screens::tokens::state::plain_written(amount),
@@ -961,7 +969,9 @@ pub fn activity_icon(a: &Activity) -> &'static str {
         ActivityKind::AddressSent { .. } => "platform-address",
         ActivityKind::AddressWithdrawal { .. } => "withdraw",
         ActivityKind::AddressFunded => "top-up",
-        ActivityKind::ContactRequest { .. } | ActivityKind::ContactRequestIn { .. } => "contacts",
+        ActivityKind::ContactRequest { .. }
+        | ActivityKind::ContactRequestIn { .. }
+        | ActivityKind::ContactsResent { .. } => "contacts",
         ActivityKind::ProfileSaved => "identity",
         ActivityKind::NameRegistered { .. } | ActivityKind::NameLinkWritten { .. } => "identity",
         ActivityKind::NameClaimed { .. } | ActivityKind::NameContestEnded { .. } => "vote",

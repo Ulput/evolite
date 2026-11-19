@@ -456,6 +456,10 @@ pub(super) fn change_dialog(
                         "You will not be able to pay contacts whose requests point to the old key until they send you a new request."
                     ),
                 );
+                // FEAT-0020-resend R-1–R-3: the requests sent again after it, and their fee.
+                if plan.is_ok() {
+                    super::resend::before_password(ui, a, cx.wallet(), fee);
+                }
             }
             ChangeKind::Add => {
                 let next = id.keys.iter().map(|k| k.id + 1).max().unwrap_or(0);

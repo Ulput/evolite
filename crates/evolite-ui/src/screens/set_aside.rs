@@ -19,6 +19,9 @@ fn title(file: LocalFile) -> &'static str {
         LocalFile::ContactAddresses => tr!("Your contacts' payment addresses could not be read"),
         LocalFile::TopUps => tr!("The records of credit top-ups could not be read"),
         LocalFile::AddressBook => tr!("The address book could not be read"),
+        LocalFile::ContactResend => {
+            tr!("The list of contacts waiting for your request could not be read")
+        }
     }
 }
 
@@ -31,6 +34,7 @@ fn part_name(file: LocalFile) -> &'static str {
         LocalFile::ContactAddresses => tr!("the contacts' addresses"),
         LocalFile::TopUps => tr!("the credit top-up records"),
         LocalFile::AddressBook => tr!("the address book"),
+        LocalFile::ContactResend => tr!("the list of contacts waiting for your request"),
     }
 }
 
@@ -56,6 +60,9 @@ fn comes_back(file: LocalFile) -> &'static str {
         LocalFile::AddressBook => {
             tr!("The address book starts empty. Saved addresses stay only in the set-aside file.")
         }
+        LocalFile::ContactResend => tr!(
+            "evolite forgets which contacts still wait for a new request from you: their marks in Contacts and the button on the keys screen go away. They still cannot pay you until they get one; the next time you replace the DashPay pair, evolite sends it to all of them."
+        ),
     }
 }
 

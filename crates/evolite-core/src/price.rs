@@ -310,6 +310,12 @@ pub fn declared(op: &Spend, seen: &Seen, app_cost: Duffs) -> Declared {
             let price = evolite_api::key_plan::fee(add, fees);
             of("update_keys", price, covers(seen.credits, 0, price))
         }
+        // FEAT-0020-resend: a request each, roughly (BUG-108: «≈»); how many the core knows.
+        Spend::ResendRequests { .. } => of(
+            "resend_requests",
+            fees.contact_request,
+            covers(seen.credits, 0, fees.contact_request),
+        ),
         Spend::DisconnectApp { .. } => of(
             "disconnect_app",
             fees.add_key,

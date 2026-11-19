@@ -154,6 +154,10 @@ pub(in crate::real) fn refused_before(text: &str) -> bool {
 pub(in crate::real) enum Watch {
     /// A key change (BUG-184): the identity read again shows the plan.
     Keys(key_plan::KeyPlan),
+    /// A contact request sent again after the DashPay pair was replaced (FEAT-0020-resend):
+    /// known only by its late answer; while it may land, no other request of its identity goes
+    /// ([`Unclear::requests_on_their_way`]).
+    ContactRequest,
     /// A token write (BUG-205): signed as `nonce + 1` (or later) of the identity with the
     /// token's `contract`; a proved read of that nonce says whether any write of it landed, and
     /// `shows` (when the write moves a value) whether it was this one.
@@ -401,6 +405,17 @@ impl Unclear {
     }
 
     /// The first write of `identity` on `token` that waits, as it is (BUG-205).
+    /// Whether a contact request of `identity` sent again may still land (FEAT-0020-resend,
+    /// review condition 5): its send runs, or ended less than [`QUIET`] ago. Another one now
+    /// could be refused for its reference, at a fee.
+    pub(in crate::real) fn requests_on_their_way(&self, identity: &str) -> bool {
+        self.held().1.iter().any(|p| {
+            p.identity == identity
+                && matches!(p.watch, Watch::ContactRequest)
+                && (p.running || p.quiet_for().is_some_and(|q| q < QUIET))
+        })
+    }
+
     pub(in crate::real) fn of_token(&self, identity: &str, token: &str) -> Option<Pending> {
         self.held()
             .1
@@ -494,6 +509,7 @@ impl Watch {
     fn clone_kind(&self) -> &'static str {
         match self {
             Watch::Keys(_) => "keys",
+            Watch::ContactRequest => "request",
             Watch::Token { .. } => "token",
             Watch::Answer => "answer",
         }

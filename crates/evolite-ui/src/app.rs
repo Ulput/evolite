@@ -910,6 +910,17 @@ impl App {
                     result,
                     ..
                 } => self.identity_keys.on_read(result.clone()),
+                // FEAT-0020-resend: whichever window sent it.
+                // FEAT-0020-resend: the window whose request it answers (`ask`), only.
+                Event::Done {
+                    what: DoneWhat::Resend,
+                    result,
+                    ask,
+                } => {
+                    if !self.identity_keys.on_resent(*ask, result) {
+                        self.contacts.on_resent(*ask, result);
+                    }
+                }
                 // "Hide" and "Unshield" share the pool's progress: one move at a time.
                 Event::Progress {
                     what: "shield" | "unshield" | "pool-top-up",

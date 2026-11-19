@@ -68,6 +68,10 @@ pub struct ContactsState {
     ask: bool,
     /// «My QR» is open (FR-8).
     pub my_qr: bool,
+    /// FEAT-0020-resend: what the shown identity owes, this frame (R-9, R-11).
+    owed: Option<evolite_api::Resend>,
+    /// FEAT-0020-resend R-9: «Send the request again» from a contact's card.
+    pub resend: Option<crate::screens::identity::resend::ResendWindow>,
 }
 
 #[derive(Default)]
@@ -89,6 +93,13 @@ pub struct AddContact {
 }
 
 impl ContactsState {
+    /// The core's answer to `Spend::ResendRequests`, if it is this screen's window's (`ask`).
+    pub fn on_resent(&mut self, ask: Option<u64>, result: &Result<(), CoreError>) -> bool {
+        self.resend
+            .as_mut()
+            .is_some_and(|window| window.on_done(ask, result))
+    }
+
     /// BUG-110: "Not enough credits" stays until the identity has more or another identity is
     /// worked as. `credits`: `None` while the balance is not read yet.
     fn forget_not_enough_after_top_up(&mut self, credits: Option<Duffs>, identity: Option<&str>) {
@@ -144,6 +155,8 @@ impl ContactsState {
     /// focus on the next visit.
     pub fn on_lock(&mut self) {
         self.flow.forget();
+        // FEAT-0020-resend: «Send the request again» closes, its password wiped.
+        self.resend = None;
         self.hiding = false;
         self.accepting = None;
         self.privacy = false;
@@ -247,6 +260,8 @@ pub fn contacts(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut ContactsS
     let p = a.p;
     state.ask = crate::components::password_asked(cx.snap);
     let wallet = cx.wallet();
+    state.owed = wallet.resend.clone();
+    let shown_identity = wallet.identity.as_ref().map(|i| i.id.clone());
     let now = cx.now;
     let mut asked: Vec<Command> = Vec::new();
     ui.spacing_mut().item_spacing.y = 22.0;
@@ -287,7 +302,15 @@ pub fn contacts(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut ContactsS
         }
     });
     // BUG-204, BUG-212: the files of this screen that did not read and were set aside.
-    crate::screens::set_aside::banners(ui, a, cx, &[evolite_api::LocalFile::ContactAddresses]);
+    crate::screens::set_aside::banners(
+        ui,
+        a,
+        cx,
+        &[
+            evolite_api::LocalFile::ContactAddresses,
+            evolite_api::LocalFile::ContactResend,
+        ],
+    );
 
     let requests: Vec<&Contact> = wallet
         .contacts
@@ -407,6 +430,9 @@ pub fn contacts(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut ContactsS
     for command in asked {
         cx.send(command);
     }
+    if let Some(identity) = shown_identity {
+        crate::screens::identity::resend::window(ui, a, cx, &mut state.resend, &identity);
+    }
 }
 
 fn list(
@@ -441,6 +467,12 @@ fn needs_request(c: &Contact) -> Option<&'static str> {
     (c.state == ContactState::Established && c.channel_broken).then_some(tr!("Needs a new request"))
 }
 
+/// FEAT-0020-resend R-9: an established contact owed a request from the shown identity.
+fn waits_for_us(owed: Option<&evolite_api::Resend>, c: &Contact) -> bool {
+    c.state == ContactState::Established
+        && crate::screens::identity::resend::waits(owed, &c.identity_id)
+}
+
 fn row(
     ui: &mut Ui,
     a: &mut Assets,
@@ -451,15 +483,16 @@ fn row(
 ) {
     let p = a.p;
     let (rect, response) = ui.allocate_exact_size(vec2(ui.available_width(), 77.0), Sense::click());
-    crate::components::named(
-        &response,
-        egui::WidgetType::Button,
-        true,
-        &match needs_request(c) {
-            Some(tag) => format!("{} · {} · {tag}", c.handle(), shown_name(c)),
-            None => format!("{} · {}", c.handle(), shown_name(c)),
-        },
-    );
+    crate::components::named(&response, egui::WidgetType::Button, true, &{
+        let mut name = format!("{} · {}", c.handle(), shown_name(c));
+        if let Some(tag) = needs_request(c) {
+            name = format!("{name} · {tag}");
+        }
+        if waits_for_us(state.owed.as_ref(), c) {
+            name = format!("{name} · {}", tr!("Waiting for your request"));
+        }
+        name
+    });
     let response = response.on_hover_cursor(egui::CursorIcon::PointingHand);
     if response.hovered() {
         ui.painter().rect_filled(rect.shrink(1.0), 12, p.raised);
@@ -493,13 +526,25 @@ fn row(
         p.muted,
     );
     // BUG-231 R-3: a contact that cannot be paid until it sends a new request.
+    let mut tag_x = id_rect.right() + 8.0;
     if let Some(tag) = needs_request(c) {
-        painter.text(
-            pos2(id_rect.right() + 8.0, handle.center().y),
+        let at = painter.text(
+            pos2(tag_x, handle.center().y),
             Align2::LEFT_CENTER,
             crate::i18n::t(tag),
             sans(12.0, Weight::Medium),
             p.danger,
+        );
+        tag_x = at.right() + 8.0;
+    }
+    // FEAT-0020-resend R-9: it waits for a request from us — both marks when both are true.
+    if waits_for_us(state.owed.as_ref(), c) {
+        painter.text(
+            pos2(tag_x, handle.center().y),
+            Align2::LEFT_CENTER,
+            crate::i18n::t(tr!("Waiting for your request")),
+            sans(12.0, Weight::Medium),
+            p.accent,
         );
     }
 
@@ -603,6 +648,7 @@ fn profile_dialog(
 ) {
     let name = shown_name(c);
     let mut pay = false;
+    let mut resend = false;
     let close = dialog_with_header_and_footer(
         ui,
         a,
@@ -707,6 +753,35 @@ fn profile_dialog(
                     c.handle()
                 ),
             );
+            // FEAT-0020-resend R-9, R-11: it cannot pay us until we send a new request.
+            if crate::screens::identity::resend::blocked(state.owed.as_ref(), &c.identity_id) {
+                notice(
+                    ui,
+                    a,
+                    "warning",
+                    p.danger,
+                    crate::screens::identity::resend::blocked_words(),
+                );
+            } else if waits_for_us(state.owed.as_ref(), c) {
+                notice(
+                    ui,
+                    a,
+                    "warning",
+                    p.accent,
+                    tr!("This contact cannot pay you until you send them a new request."),
+                );
+                if button(
+                    ui,
+                    a,
+                    tr!("Send the request again"),
+                    ButtonKind::Secondary,
+                    None,
+                )
+                .clicked()
+                {
+                    resend = true;
+                }
+            }
             // BUG-231 R-3: over «Send», which stays: the payment is refused before the password.
             if needs_request(c).is_some() {
                 notice(
@@ -724,6 +799,11 @@ fn profile_dialog(
     );
     if pay {
         state.pay = Some(pay_to(c));
+    }
+    if resend {
+        state.resend = Some(crate::screens::identity::resend::ResendWindow::new(Some(
+            c.identity_id.clone(),
+        )));
     }
     if close {
         state.profile = None;
@@ -1489,7 +1569,12 @@ pub fn contact_error(e: &CoreError) -> String {
 impl crate::screen_state::ScreenState for ContactsState {
     #[cfg(all(test, demo_core, feature = "dev-tools"))]
     fn flows(&mut self) -> Vec<&mut dyn crate::components::spend_flow::AnyFlow> {
-        vec![&mut self.flow]
+        let mut flows: Vec<&mut dyn crate::components::spend_flow::AnyFlow> = vec![&mut self.flow];
+        // FEAT-0020-resend: «Send the request again»'s flow too.
+        if let Some(window) = &mut self.resend {
+            flows.push(&mut window.flow);
+        }
+        flows
     }
 
     fn forget(&mut self, why: crate::screen_state::Why) {

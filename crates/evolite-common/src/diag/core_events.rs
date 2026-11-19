@@ -106,6 +106,7 @@ fn spend(op: &Spend) -> &'static str {
         Spend::IssuerAction { .. } => "issuer_action",
         Spend::DisconnectApp { .. } => "disconnect_app",
         Spend::UpdateKeys { .. } => "update_keys",
+        Spend::ResendRequests { .. } => "resend_requests",
     }
 }
 

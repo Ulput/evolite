@@ -307,6 +307,16 @@ pub enum Record {
         cached: u32,
         ms: u64,
     },
+    /// FEAT-0020-resend: a batch of contact requests sent again stopped — numbers only, no ids
+    /// or names (AC-T9).
+    ContactResend {
+        asked: u32,
+        sent: u32,
+        already: u32,
+        failed: u32,
+        version_full: u32,
+        unclear: u32,
+    },
     /// BUG-240: one read of the shielded pool, when it differs from the last one written —
     /// numbers only, no address or note: the ledger's state (`ready`, `restore_incomplete`,
     /// `unbound`, `error`), whether the wallet's account is among its accounts, its spendable
@@ -590,6 +600,17 @@ impl Record {
                 requests,
                 ms,
             } => json!({"k": "token_facts", "tokens": tokens, "requests": requests, "ms": ms}),
+            Record::ContactResend {
+                asked,
+                sent,
+                already,
+                failed,
+                version_full,
+                unclear,
+            } => json!({
+                "k": "contact_resend", "asked": asked, "sent": sent, "already": already,
+                "failed": failed, "version_full": version_full, "unclear": unclear,
+            }),
             Record::TokenPage { ms } => json!({"k": "token_page", "ms": ms}),
             Record::PoolPass {
                 ok,
@@ -1444,6 +1465,26 @@ mod tests {
                 vec!["k", "ms", "requests", "t", "tokens"],
             ),
             (Record::TokenPage { ms: 1_200 }, vec!["k", "ms", "t"]),
+            (
+                Record::ContactResend {
+                    asked: 3,
+                    sent: 1,
+                    already: 1,
+                    failed: 1,
+                    version_full: 0,
+                    unclear: 0,
+                },
+                vec![
+                    "already",
+                    "asked",
+                    "failed",
+                    "k",
+                    "sent",
+                    "t",
+                    "unclear",
+                    "version_full",
+                ],
+            ),
             (
                 Record::PoolPass {
                     ok: 0,

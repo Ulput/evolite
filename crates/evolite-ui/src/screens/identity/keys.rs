@@ -151,6 +151,8 @@ pub struct KeysState {
     /// it is being read («checking…»), else when it was read (`Ok`) or why not.
     read_for: Option<String>,
     read: Option<Result<evolite_api::Timestamp, CoreError>>,
+    /// FEAT-0020-resend R-8: «Send requests again», from the keys screen.
+    pub(crate) resend: Option<super::resend::ResendWindow>,
 }
 
 impl KeysState {
@@ -215,6 +217,14 @@ impl KeysState {
         self.changed = false;
         self.read_for = None;
         self.read = None;
+        self.resend = None;
+    }
+
+    /// The core's answer to `Spend::ResendRequests`, if it is this screen's window's (`ask`).
+    pub fn on_resent(&mut self, ask: Option<u64>, result: &Result<(), CoreError>) -> bool {
+        self.resend
+            .as_mut()
+            .is_some_and(|window| window.on_done(ask, result))
     }
 
     /// Off K1, nothing of a key stays — not until the next time the screen is drawn. A change
@@ -342,6 +352,10 @@ pub fn identity_keys(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut Keys
             tr!("The keys changed: Platform has the new set."),
         );
     }
+    // FEAT-0020-resend R-5, R-6, R-8.
+    if super::resend::on_keys(ui, a, &wallet) {
+        state.resend = Some(super::resend::ResendWindow::new(None));
+    }
     card(&p, Margin::same(20)).show(ui, |ui| {
         ui.set_width(ui.available_width());
         ui.spacing_mut().item_spacing.y = 0.0;
@@ -386,6 +400,7 @@ pub fn identity_keys(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut Keys
     if super::key_change::change_dialog(ui, a, cx, &mut state.change, id, &me) {
         state.changed = true;
     }
+    super::resend::window(ui, a, cx, &mut state.resend, &id.id);
     if id.keys.iter().any(|k| k.owner == KeyOwner::Unknown) {
         ui.label(txt(
             tr!("Whose a key is shows when the wallet is open."),
@@ -738,10 +753,15 @@ fn row_menu(
 impl crate::screen_state::ScreenState for KeysState {
     #[cfg(all(test, demo_core, feature = "dev-tools"))]
     fn flows(&mut self) -> Vec<&mut dyn crate::components::spend_flow::AnyFlow> {
-        match &mut self.change {
-            Some(change) => vec![&mut change.flow],
-            None => Vec::new(),
+        // FEAT-0020-resend: «Send requests again»'s flow too.
+        let mut flows: Vec<&mut dyn crate::components::spend_flow::AnyFlow> = Vec::new();
+        if let Some(change) = &mut self.change {
+            flows.push(&mut change.flow);
         }
+        if let Some(window) = &mut self.resend {
+            flows.push(&mut window.flow);
+        }
+        flows
     }
 
     fn forget(&mut self, _why: crate::screen_state::Why) {

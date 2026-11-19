@@ -207,6 +207,14 @@ pub enum ActivityKind {
     NotDone {
         token: String,
     },
+    /// FEAT-0020-resend: contact requests of this identity sent again after its DashPay pair
+    /// was replaced — `sent` of `of`, `left` still owed. One line a batch for each identity
+    /// that paid (review answer 2); the amount is what it paid. No names, as the journal.
+    ContactsResent {
+        sent: u32,
+        of: u32,
+        left: u32,
+    },
     /// What an app spent from its keys' budgets, as Platform says (BUG-145): one line an app a
     /// day, timed when it was read.
     AppSpent {
@@ -949,6 +957,21 @@ pub enum ContactState {
     Incoming,
 }
 
+/// FEAT-0020-resend: where the shown identity's requests sent again stand.
+#[derive(Clone, PartialEq, Debug, Default)]
+pub struct Resend {
+    /// Contacts (identity ids) still owed a new request: «Send requests again (M)» (R-8) and
+    /// «Waiting for your request» (R-9).
+    pub due: Vec<String>,
+    /// Contacts no new request can go to: the reference's versions are used up (R-11). Not in
+    /// `due`, no button.
+    pub blocked: Vec<String>,
+    /// A batch runs: sent so far, of how many (R-5).
+    pub running: Option<(u32, u32)>,
+    /// The last batch stopped: sent, of how many (R-6), until the keys screen is left.
+    pub done: Option<(u32, u32)>,
+}
+
 #[derive(Clone, PartialEq, Debug)]
 pub struct Contact {
     pub identity_id: String,
@@ -1554,6 +1577,9 @@ pub enum LocalFile {
     TopUps,
     /// `address-book.json`.
     AddressBook,
+    /// `contact-resend.json`: the contact requests still owed after a DashPay pair was replaced
+    /// (FEAT-0020-resend, review r1 S2).
+    ContactResend,
 }
 
 /// A file that did not read (damaged, of a newer build, or held by another program) and was
@@ -1586,6 +1612,9 @@ pub struct Wallet {
     pub nfts_status: NftsStatus,
     /// DashPay contacts of the identity, requests both ways included.
     pub contacts: Vec<Contact>,
+    /// FEAT-0020-resend: the contact requests the shown identity sends again after its DashPay
+    /// pair was replaced; `None` with nothing owed, running or just done.
+    pub resend: Option<Resend>,
     /// An identity whose making was cut short: Core funds locked, or the identity made but
     /// not its name. `ResumeIdentity` finishes it.
     pub unfinished_identity: Option<UnfinishedIdentity>,
@@ -2491,6 +2520,14 @@ pub enum Spend {
         token_id: String,
         op: tokens::IssuerOp,
     },
+    /// FEAT-0020-resend: «Send requests again» — the requests `identity` still owes after its
+    /// DashPay pair was replaced, to every contact owed one or to `contact` alone (R-8, R-9).
+    /// One at a time, as after the key change; the password is always asked. `Done { what:
+    /// DoneWhat::Resend }` when the batch stops.
+    ResendRequests {
+        identity: String,
+        contact: Option<String>,
+    },
 }
 
 impl Spend {
@@ -2499,7 +2536,9 @@ impl Spend {
     pub fn asks_password_always(&self) -> bool {
         matches!(
             self,
-            Spend::ApproveApp { grant: Some(_), .. } | Spend::UpdateKeys { .. }
+            Spend::ApproveApp { grant: Some(_), .. }
+                | Spend::UpdateKeys { .. }
+                | Spend::ResendRequests { .. }
         )
     }
 
@@ -2516,6 +2555,7 @@ impl Spend {
             | Spend::AddName { .. }
             | Spend::SetNameLink { .. }
             | Spend::UpdateKeys { .. }
+            | Spend::ResendRequests { .. }
             | Spend::DisconnectApp { .. }
             | Spend::ApproveApp { grant: Some(_), .. } => true,
             Spend::ApproveApp { grant: None, .. }
@@ -2556,6 +2596,7 @@ impl Spend {
             Spend::IssuerAction { .. } => DoneWhat::IssuerAction,
             Spend::DisconnectApp { .. } => DoneWhat::Disconnect,
             Spend::UpdateKeys { .. } => DoneWhat::Keys,
+            Spend::ResendRequests { .. } => DoneWhat::Resend,
         }
     }
 
@@ -2669,6 +2710,8 @@ pub enum DoneWhat {
     Identity,
     /// `UpdateKeys`: the identity's keys changed (FEAT-0020).
     Keys,
+    /// `ResendRequests`: a batch of contact requests sent again stopped (FEAT-0020-resend).
+    Resend,
     /// `ReadIdentityKeys`: the identity was read from Platform again.
     KeysRead,
     Lock,
@@ -2718,6 +2761,7 @@ impl DoneWhat {
             Self::Identity => "identity",
             Self::Keys => "keys",
             Self::KeysRead => "keys-read",
+            Self::Resend => "resend",
             Self::Lock => "lock",
             Self::Name => "name",
             Self::Note => "note",

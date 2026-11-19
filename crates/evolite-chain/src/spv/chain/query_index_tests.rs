@@ -103,6 +103,14 @@ fn the_dashpay_dpns_and_withdrawal_queries_are_served_by_an_index() {
             super::contacts::contact_request_query(dashpay.clone(), field, ME),
         );
     }
+    // FEAT-0020-resend: our requests to one contact, by the pair.
+    assert_eq!(
+        ok(
+            "contactRequest by the pair",
+            super::contacts::sent_to_query(dashpay.clone(), ME, TOKEN),
+        ),
+        "ownerIdUserId"
+    );
     ok(
         "profile",
         platform_history::query(&dashpay, "profile", "$ownerId", ME, None),

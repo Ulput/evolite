@@ -23,6 +23,7 @@ pub(super) mod notes;
 pub(super) mod outgoing;
 pub(super) mod platform_sending;
 pub(super) mod pool;
+pub(in crate::real) mod resend;
 pub(super) mod token_actions;
 pub(super) mod token_history;
 pub(super) mod token_manage;

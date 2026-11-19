@@ -1070,6 +1070,7 @@ pub fn demo_wallet(t: Timestamp) -> Wallet {
         },
         apps: demo_apps(t, day, min),
         contacts: demo_contacts(t),
+        resend: None,
         unfinished_identity: None,
         unfinished_top_up: None,
         identity_links: true,
