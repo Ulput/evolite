@@ -28,9 +28,9 @@ pub const ASK_TIMEOUT: Duration = Duration::from_secs(60);
 /// An ask still "running" this long after it started is taken as lost (its task ended
 /// without an answer): the next snapshot asks again.
 const ASK_LOST: Duration = Duration::from_secs(90);
-/// A model's picture is at most 3 072 bytes packed (the contract); unpacked, it stays far
-/// under this. A "bomb" stops here.
-const MAX_UNPACKED: usize = 1 << 20;
+// The most a picture unpacks to (a «bomb» stops here): the «Workshop» writes no more, one
+// constant for both.
+use super::nft_series::image::MAX_UNPACKED;
 
 /// Why the list did not come: Platform gave no answer within [`ASK_TIMEOUT`].
 pub fn no_answer() -> &'static str {

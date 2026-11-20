@@ -1089,6 +1089,8 @@ pub fn demo_wallet(t: Timestamp) -> Wallet {
         large_spend: Some(evolite_api::confirm::LARGE_SPEND_DEFAULT),
         notes_error: None,
         set_aside: Vec::new(),
+        // FEAT-0038: no series in the demo's own wallet; presets add their plates.
+        series: Vec::new(),
         tokens: crate::tokens::demo_tokens(t),
         identity_search: IdentitySearch::Done,
         // Two identities, so the Identity screen shows its choice.

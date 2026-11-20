@@ -7,6 +7,7 @@ pub mod dashpay;
 pub mod fund_intents;
 pub mod identity;
 pub mod lock_status;
+pub mod nft_series;
 pub mod nfts;
 pub mod platform_history;
 pub mod pool;

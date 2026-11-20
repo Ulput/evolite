@@ -2479,5 +2479,8 @@
   "Sold “{}” no. {} · {}": "بيع «{}» رقم {} · {}",
   "Sold “{}” · {}": "بيع «{}» · {}",
   "Sold an NFT · {}": "بيع NFT · {}",
-  "First finish the stopped transfer to the pool — its money is already locked": "أكمل أولًا التحويل المتوقف إلى المجمّع — ماله مقفل بالفعل"
+  "First finish the stopped transfer to the pool — its money is already locked": "أكمل أولًا التحويل المتوقف إلى المجمّع — ماله مقفل بالفعل",
+  "Your Workshop series could not be read": "تعذّرت قراءة سلاسل «الورشة»",
+  "the Workshop series": "سلاسل «الورشة»",
+  "The series' plates and “Continue” go away: what each series already wrote stays on the network and in your collection, and a series cut short is started again for what is left. evolite reads each model's highest serial from the network again, but a highest serial that was deleted may be issued again.": "ستختفي لوحات السلاسل وزر «متابعة». ما كتبته كل سلسلة يبقى على الشبكة وفي مجموعتك، والسلسلة التي انقطعت تُبدأ من جديد لما تبقّى منها. يعيد evolite قراءة أعلى رقم لكل نموذج من الشبكة، لكن أعلى رقم حُذف قد يُصدَر مرة أخرى."
 }

@@ -43,6 +43,7 @@ impl Real {
             paths.hidden_requests.clone(),
         ));
         let resend_debt = Arc::new(resend_debt::ResendDebt::new(paths.contact_resend.clone()));
+        let nft_series = Arc::new(nft_series::NftSeries::new(paths.nft_series.clone()));
         let pool_history = pool_history::PoolHistory::new(paths.pool_history.clone());
         let paths_apps = paths.connected_apps.clone();
         let password_each_send = security::load(&paths.root, &wallet);
@@ -91,6 +92,8 @@ impl Real {
             hidden,
             resend_debt,
             resend_run: Default::default(),
+            nft_series,
+            series_run: Default::default(),
             pool_history,
             address_book: address_book::AddressBook::new(paths.address_book.clone()),
             paths,

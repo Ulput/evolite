@@ -2394,5 +2394,8 @@
   "Sold “{}” no. {} · {}": "「{}」No. {} を販売 · {}",
   "Sold “{}” · {}": "「{}」を販売 · {}",
   "Sold an NFT · {}": "NFT を販売 · {}",
-  "First finish the stopped transfer to the pool — its money is already locked": "先に中断したプールへの移動を完了してください — その資金はすでにロックされています"
+  "First finish the stopped transfer to the pool — its money is already locked": "先に中断したプールへの移動を完了してください — その資金はすでにロックされています",
+  "Your Workshop series could not be read": "「工房」のシリーズを読み込めませんでした",
+  "the Workshop series": "「工房」のシリーズ",
+  "The series' plates and “Continue” go away: what each series already wrote stays on the network and in your collection, and a series cut short is started again for what is left. evolite reads each model's highest serial from the network again, but a highest serial that was deleted may be issued again.": "シリーズのバーと「続行」は消えます。各シリーズがすでに書き込んだものはネットワークとコレクションに残り、途中で止まったシリーズは残りの分をもう一度始めます。evolite は各モデルの最大番号をネットワークから読み直しますが、削除された最大番号はもう一度発行されることがあります。"
 }

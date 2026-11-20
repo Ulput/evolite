@@ -401,6 +401,62 @@ impl Mock {
                     draft,
                 }
             }
+            // FEAT-0038: a plan as the real core makes it, on serials from 1 and the probe's
+            // estimates; the demo writes nothing, so it stops and closes nothing either.
+            Command::PlanSeries { target, kind } => {
+                use evolite_api::series::{SeriesKind, SeriesPlan};
+                let (count, per_write) = match &kind {
+                    SeriesKind::Mint { count } => (*count, 87_000),
+                    SeriesKind::Price { count, .. } => (*count, 5_400),
+                    SeriesKind::Reprice { .. } => (3, 5_400),
+                    SeriesKind::Gift { count, .. }
+                    | SeriesKind::Unprice { count, .. }
+                    | SeriesKind::Delete { count } => (*count, 145_000),
+                };
+                let credits = self
+                    .snapshot
+                    .wallet
+                    .as_ref()
+                    .map_or(0, |w| w.balances.credits);
+                Event::SeriesPlanned {
+                    target,
+                    kind,
+                    result: Ok(SeriesPlan {
+                        serials: (1..=count).collect(),
+                        per_write,
+                        total: per_write * count as Duffs,
+                        credits,
+                        refusal: None,
+                        model: None,
+                    }),
+                }
+            }
+            // A new model's plan: its picture as stored (unpacked here) at the probe's rate.
+            Command::PlanModel { model, mint, .. } => {
+                use evolite_api::series::{ModelWrite, SeriesPlan};
+                let stored = model.image.len();
+                let fee = 50_000 + 40 * stored as Duffs;
+                let credits = self
+                    .snapshot
+                    .wallet
+                    .as_ref()
+                    .map_or(0, |w| w.balances.credits);
+                Event::ModelPlanned {
+                    result: Ok(SeriesPlan {
+                        serials: (1..=mint).collect(),
+                        per_write: 87_000,
+                        total: fee + 87_000 * mint as Duffs,
+                        credits,
+                        refusal: None,
+                        model: Some(ModelWrite {
+                            stored,
+                            parts: stored.div_ceil(5_120).max(1) as u8,
+                            fee,
+                        }),
+                    }),
+                }
+            }
+            Command::StopSeries { .. } | Command::CloseSeries { .. } => return changed,
             // The demo has one identity behind both choices: it takes the chosen id.
             Command::ChooseIdentity { id } => {
                 let Some(wallet) = &mut self.snapshot.wallet else {

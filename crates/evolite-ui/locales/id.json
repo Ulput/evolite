@@ -2394,5 +2394,8 @@
   "Sold “{}” no. {} · {}": "Terjual “{}” no. {} · {}",
   "Sold “{}” · {}": "Terjual “{}” · {}",
   "Sold an NFT · {}": "NFT terjual · {}",
-  "First finish the stopped transfer to the pool — its money is already locked": "Selesaikan dulu transfer ke pool yang terhenti — uangnya sudah terkunci"
+  "First finish the stopped transfer to the pool — its money is already locked": "Selesaikan dulu transfer ke pool yang terhenti — uangnya sudah terkunci",
+  "Your Workshop series could not be read": "Seri “Bengkel” Anda tidak dapat dibaca",
+  "the Workshop series": "seri “Bengkel”",
+  "The series' plates and “Continue” go away: what each series already wrote stays on the network and in your collection, and a series cut short is started again for what is left. evolite reads each model's highest serial from the network again, but a highest serial that was deleted may be issued again.": "Bilah seri dan “Lanjutkan” akan hilang. Yang sudah ditulis setiap seri tetap ada di jaringan dan di koleksi Anda; seri yang terputus dimulai lagi untuk sisanya. evolite membaca lagi nomor tertinggi setiap model dari jaringan, tetapi nomor tertinggi yang dihapus bisa diterbitkan lagi."
 }

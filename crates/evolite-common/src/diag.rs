@@ -391,6 +391,15 @@ pub enum Record {
         requests: u32,
         ms: u64,
     },
+    /// A «Workshop» series run ended (FEAT-0038): its writes and how they stand, and its ms.
+    /// Numbers only: no id, no serial.
+    SeriesEnded {
+        total: u32,
+        done: u32,
+        refused: u32,
+        unclear: u32,
+        ms: u64,
+    },
     /// The token search changed the size of its requests with contracts' bodies (architect's
     /// decision on batch 39): the new size and the ms of the request that changed it (a
     /// timeout makes it smaller, answers in a row larger). Counts only: no id.
@@ -691,6 +700,16 @@ impl Record {
                 "k": "address_fund", "proof": proof, "locked": rough(*locked),
                 "credited": (*credited).map(rough),
                 "kept": (*credited).map(|c| locked.saturating_sub(c)),
+            }),
+            Record::SeriesEnded {
+                total,
+                done,
+                refused,
+                unclear,
+                ms,
+            } => json!({
+                "k": "series_ended", "total": total, "done": done, "refused": refused,
+                "unclear": unclear, "ms": ms,
             }),
             Record::TokenSearchStage {
                 stage,

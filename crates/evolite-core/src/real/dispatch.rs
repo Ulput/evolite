@@ -1,5 +1,6 @@
 //! The commands: which operation each one is, and the answer it gets.
 
+use super::ops::series_ops::Start;
 use super::*;
 
 /// What a spend that takes the identity says while another holds it: the words its own start
@@ -118,6 +119,51 @@ impl Real {
                 Ok(()) => return (None, true),
                 Err(e) => Event::Done {
                     what: DoneWhat::Contract,
+                    result: Err(e),
+                    ask: None,
+                },
+            },
+            // FEAT-0038: a «Workshop» series, new or continued.
+            Spend::NftBatch {
+                target,
+                kind,
+                fee_max,
+            } => match self.run_series(Start::New(target, kind), fee_max) {
+                Ok(()) => return (None, true),
+                Err(e) => Event::Done {
+                    what: DoneWhat::Series,
+                    result: Err(e),
+                    ask: None,
+                },
+            },
+            Spend::ContinueSeries { id, fee_max } => {
+                match self.run_series(Start::Continue(id), fee_max) {
+                    Ok(()) => return (None, true),
+                    Err(e) => Event::Done {
+                        what: DoneWhat::Series,
+                        result: Err(e),
+                        ask: None,
+                    },
+                }
+            }
+            Spend::CreateModel {
+                identity,
+                contract,
+                model,
+                mint,
+                fee_max,
+            } => match self.run_series(
+                Start::Model {
+                    identity,
+                    contract,
+                    model,
+                    mint,
+                },
+                fee_max,
+            ) {
+                Ok(()) => return (None, true),
+                Err(e) => Event::Done {
+                    what: DoneWhat::Series,
                     result: Err(e),
                     ask: None,
                 },
@@ -584,6 +630,33 @@ impl Real {
                         result: Err(e),
                     },
                 }
+            }
+            Command::PlanSeries { target, kind } => {
+                match self.plan_series(target.clone(), kind.clone()) {
+                    Ok(()) => return (None, false),
+                    Err(e) => Event::SeriesPlanned {
+                        target,
+                        kind,
+                        result: Err(e),
+                    },
+                }
+            }
+            Command::PlanModel {
+                identity,
+                model,
+                mint,
+                ..
+            } => match self.plan_model(identity, model, mint) {
+                Ok(()) => return (None, false),
+                Err(e) => Event::ModelPlanned { result: Err(e) },
+            },
+            Command::StopSeries { id } => {
+                self.stop_series(id);
+                return (None, true);
+            }
+            Command::CloseSeries { id } => {
+                let _ = self.close_series(id);
+                return (None, true);
             }
             Command::DeleteWallet { password, wallet } => {
                 match wallet.filter(|id| *id != self.wallet) {

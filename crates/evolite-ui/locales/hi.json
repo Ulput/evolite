@@ -2411,5 +2411,8 @@
   "Sold “{}” no. {} · {}": "“{}” नं. {} बेचा गया · {}",
   "Sold “{}” · {}": "“{}” बेचा गया · {}",
   "Sold an NFT · {}": "NFT बेचा गया · {}",
-  "First finish the stopped transfer to the pool — its money is already locked": "पहले पूल में रुका हुआ ट्रांसफ़र पूरा करें — उसका पैसा पहले से लॉक है"
+  "First finish the stopped transfer to the pool — its money is already locked": "पहले पूल में रुका हुआ ट्रांसफ़र पूरा करें — उसका पैसा पहले से लॉक है",
+  "Your Workshop series could not be read": "आपकी “कार्यशाला” की शृंखलाएँ पढ़ी नहीं जा सकीं",
+  "the Workshop series": "“कार्यशाला” की शृंखलाएँ",
+  "The series' plates and “Continue” go away: what each series already wrote stays on the network and in your collection, and a series cut short is started again for what is left. evolite reads each model's highest serial from the network again, but a highest serial that was deleted may be issued again.": "शृंखलाओं की पट्टियाँ और “जारी रखें” हट जाएँगे। हर शृंखला ने जो पहले ही लिख दिया है, वह नेटवर्क पर और आपके संग्रह में रहेगा; बीच में रुकी शृंखला बाकी के लिए फिर से शुरू की जाती है। evolite हर मॉडल का सबसे बड़ा नंबर नेटवर्क से फिर पढ़ता है, लेकिन हटाया गया सबसे बड़ा नंबर दोबारा जारी हो सकता है।"
 }

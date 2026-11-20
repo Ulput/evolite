@@ -2411,5 +2411,8 @@
   "Sold “{}” no. {} · {}": "„{}“ Nr. {} verkauft · {}",
   "Sold “{}” · {}": "„{}“ verkauft · {}",
   "Sold an NFT · {}": "NFT verkauft · {}",
-  "First finish the stopped transfer to the pool — its money is already locked": "Schließen Sie zuerst die unterbrochene Übertragung in den Pool ab — das Geld dafür ist schon gesperrt"
+  "First finish the stopped transfer to the pool — its money is already locked": "Schließen Sie zuerst die unterbrochene Übertragung in den Pool ab — das Geld dafür ist schon gesperrt",
+  "Your Workshop series could not be read": "Deine Serien der „Werkstatt“ konnten nicht gelesen werden",
+  "the Workshop series": "die Serien der „Werkstatt“",
+  "The series' plates and “Continue” go away: what each series already wrote stays on the network and in your collection, and a series cut short is started again for what is left. evolite reads each model's highest serial from the network again, but a highest serial that was deleted may be issued again.": "Die Leisten der Serien und „Fortsetzen“ verschwinden. Was jede Serie schon geschrieben hat, bleibt im Netzwerk und in deiner Sammlung; eine abgebrochene Serie startest du für den Rest neu. evolite liest die höchste Nummer jedes Modells erneut aus dem Netzwerk, aber eine gelöschte höchste Nummer kann noch einmal ausgegeben werden."
 }

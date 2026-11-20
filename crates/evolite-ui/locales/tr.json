@@ -2411,5 +2411,8 @@
   "Sold “{}” no. {} · {}": "“{}” no. {} satıldı · {}",
   "Sold “{}” · {}": "“{}” satıldı · {}",
   "Sold an NFT · {}": "NFT satıldı · {}",
-  "First finish the stopped transfer to the pool — its money is already locked": "Önce havuza durmuş aktarımı bitirin — parası zaten kilitli"
+  "First finish the stopped transfer to the pool — its money is already locked": "Önce havuza durmuş aktarımı bitirin — parası zaten kilitli",
+  "Your Workshop series could not be read": "“Atölye” serileriniz okunamadı",
+  "the Workshop series": "“Atölye” serileri",
+  "The series' plates and “Continue” go away: what each series already wrote stays on the network and in your collection, and a series cut short is started again for what is left. evolite reads each model's highest serial from the network again, but a highest serial that was deleted may be issued again.": "Serilerin şeritleri ve “Devam et” kaybolur. Her serinin zaten yazdıkları ağda ve koleksiyonunuzda kalır; yarıda kalan seri kalanı için yeniden başlatılır. evolite her modelin en yüksek numarasını ağdan yeniden okur, ancak silinmiş en yüksek numara yeniden çıkarılabilir."
 }

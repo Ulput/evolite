@@ -25,6 +25,8 @@ pub(super) mod outgoing;
 pub(super) mod platform_sending;
 pub(super) mod pool;
 pub(in crate::real) mod resend;
+pub(super) mod series;
+pub(super) mod series_ops;
 pub(super) mod token_actions;
 pub(super) mod token_history;
 pub(super) mod token_manage;

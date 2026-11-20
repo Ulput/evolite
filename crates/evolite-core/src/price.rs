@@ -274,6 +274,11 @@ pub fn declared_on(network: Network, op: &Spend, seen: &Seen, app_cost: Duffs) -
         // registration itself, which refuses below its total before signing (`CheckContract`
         // shows it); nothing is promised here.
         Spend::RegisterContract { .. } => of("register_contract", 0, true),
+        // FEAT-0038: a series' fee depends on what it takes and is checked fresh before the
+        // password (`PlanSeries`) and again when it starts; nothing is promised here.
+        Spend::NftBatch { .. } => of("nft_batch", 0, true),
+        Spend::ContinueSeries { .. } => of("continue_series", 0, true),
+        Spend::CreateModel { .. } => of("create_model", 0, true),
         Spend::GiftNft { .. } => of(
             "gift_nft",
             fees.nft_transfer,

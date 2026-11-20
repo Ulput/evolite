@@ -69,8 +69,8 @@ use evolite_chain::{
 };
 use evolite_local::{
     address_book, attempts, connected_apps, contact_addresses, contact_names, core_balance,
-    folders, hidden_requests, journal, mempool, name_requests, node, notes, pending, pool_history,
-    rates, resend_debt, security, vault, wallets,
+    folders, hidden_requests, journal, mempool, name_requests, nft_series, node, notes, pending,
+    pool_history, rates, resend_debt, security, vault, wallets,
 };
 use sync::{Phase, SyncStatus};
 use vault::{KdfParams, VaultError, VaultMeta};
@@ -256,6 +256,8 @@ pub struct Paths {
     /// Contact requests owed after a DashPay pair was replaced ([`resend_debt::ResendDebt`],
     /// FEAT-0020-resend).
     pub contact_resend: PathBuf,
+    /// «Workshop» series of this wallet ([`nft_series::NftSeries`], FEAT-0038 R-13).
+    pub nft_series: PathBuf,
     /// Contacts' names as last read ([`contact_names::ContactNames`], SYNC-4).
     pub contact_names: PathBuf,
     /// The pool's operations as made ([`pool_history::PoolHistory`]).
@@ -314,6 +316,7 @@ impl Paths {
             contact_addresses: wallets.join("contact-addresses.json"),
             hidden_requests: wallets.join("hidden-requests.json"),
             contact_resend: wallets.join("contact-resend.json"),
+            nft_series: wallets.join("nft-series.json"),
             contact_names: wallets.join("contact-names.json"),
             pool_history: wallets.join("pool-history.json"),
             resync: wallets.join("resync-on-start"),
@@ -684,6 +687,9 @@ struct Real {
     /// batches stand.
     resend_debt: Arc<resend_debt::ResendDebt>,
     resend_run: Arc<ops::resend::ResendRun>,
+    /// FEAT-0038: the «Workshop» series kept on disk, and where the running ones stand.
+    nft_series: Arc<nft_series::NftSeries>,
+    series_run: Arc<ops::series::SeriesRun>,
     /// The pool's operations with the amounts the scan loses after a restart.
     pool_history: pool_history::PoolHistory,
     /// The open wallet's payment notes, decrypted, with their key (FEAT-0003): opened with the

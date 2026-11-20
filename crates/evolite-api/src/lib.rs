@@ -23,6 +23,7 @@ pub mod features;
 pub mod fiat;
 pub mod key_plan;
 pub mod lock_coins;
+pub mod series;
 /// Platform tokens (FEAT-0019).
 pub mod tokens;
 /// What the Workshop reads (FEAT-0038 item 2, FEAT-0031 stage 1).
@@ -1593,6 +1594,9 @@ pub enum LocalFile {
     /// `contact-resend.json`: the contact requests still owed after a DashPay pair was replaced
     /// (FEAT-0020-resend, review r1 S2).
     ContactResend,
+    /// `nft-series.json`: the «Workshop» series and the highest serial each model issued
+    /// (FEAT-0038).
+    NftSeries,
 }
 
 /// A file that did not read (damaged, of a newer build, or held by another program) and was
@@ -1647,6 +1651,9 @@ pub struct Wallet {
     pub identity_search: IdentitySearch,
     /// All the wallet's identities by slot; [`Wallet::identity`] is the chosen one.
     pub identities: Vec<IdentityChoice>,
+    /// «Workshop» series of this wallet not closed with «×» (FEAT-0038): running, or stopped
+    /// with writes left — the plates W12b and W13.
+    pub series: Vec<series::SeriesState>,
     /// Core addresses the person named, to pay again (not DashPay contacts), by name.
     pub address_book: Vec<SavedAddress>,
     /// "Password for every send" (Settings → Security), kept by the core for this wallet: on,
@@ -2333,6 +2340,29 @@ pub enum Command {
     ReadIdentityKeys {
         identity: String,
     },
+    /// «Check» of a «Workshop» series (FEAT-0038 R-7, R-10): the serials it takes, its fee and
+    /// why it cannot go, read fresh. `Event::SeriesPlanned`.
+    PlanSeries {
+        target: series::SeriesTarget,
+        kind: series::SeriesKind,
+    },
+    /// «Check» of a new model with `mint` instances issued at once (FEAT-0038 UC-5): its
+    /// picture packed, its texts, its fee. `Event::ModelPlanned`.
+    PlanModel {
+        identity: String,
+        contract: String,
+        model: series::NewModel,
+        mint: u32,
+    },
+    /// «Stop after the current ones» (R-12 of the analyst's UC-12): the writes sent finish,
+    /// no new one goes.
+    StopSeries {
+        id: u64,
+    },
+    /// The plate's «×»: the series leaves the plates, stays in History.
+    CloseSeries {
+        id: u64,
+    },
     /// Act as this identity (base58) from now on: the Identity screen, credits, contacts,
     /// profile, top-ups and names follow it.
     /// The checks of registering `draft` as identity `identity` (base58), before the password:
@@ -2660,6 +2690,34 @@ pub enum Spend {
         /// large-spend tick counts; a fee grown past it is refused before signing.
         fee_max: Duffs,
     },
+    /// A «Workshop» series (FEAT-0038): planned again fresh, then one write per instance, at
+    /// most four at a time; one password for all of it. `Done { what: DoneWhat::Series }` when
+    /// it finishes or stops.
+    NftBatch {
+        target: series::SeriesTarget,
+        kind: series::SeriesKind,
+        /// The total its check showed ([`series::SeriesPlan::total`]): FEAT-0004's tick counts
+        /// it; a series planned again past it is refused before its first write.
+        fee_max: Duffs,
+    },
+    /// A new model: its «image» document, then `mint` instances as a series (UC-5); one
+    /// password. `Done { what: DoneWhat::Series }`.
+    CreateModel {
+        identity: String,
+        contract: String,
+        model: series::NewModel,
+        mint: u32,
+        /// The total its check showed: FEAT-0004's tick counts it.
+        fee_max: Duffs,
+    },
+    /// «Continue» a series stopped with writes left (a new password: BUG-7): what was sent
+    /// without an answer is read first, nothing done is sent again. `Done { what: Series }`.
+    ContinueSeries {
+        id: u64,
+        /// What is left, at one write's estimate ([`series::SeriesState::per_write`] × the
+        /// writes left): FEAT-0004's tick counts it.
+        fee_max: Duffs,
+    },
     /// FEAT-0020-resend: «Send requests again» — the requests `identity` still owes after its
     /// DashPay pair was replaced, to every contact owed one or to `contact` alone (R-8, R-9).
     /// One at a time, as after the key change; the password is always asked. `Done { what:
@@ -2700,6 +2758,9 @@ impl Spend {
             | Spend::ResendRequests { .. }
             | Spend::DisconnectApp { .. }
             | Spend::RegisterContract { .. }
+            | Spend::NftBatch { .. }
+            | Spend::ContinueSeries { .. }
+            | Spend::CreateModel { .. }
             | Spend::ApproveApp { grant: Some(_), .. } => true,
             Spend::ApproveApp { grant: None, .. }
             | Spend::Send { .. }
@@ -2734,6 +2795,9 @@ impl Spend {
             Spend::ApproveApp { .. } => DoneWhat::App,
             Spend::GiftNft { .. } => DoneWhat::Gift,
             Spend::RegisterContract { .. } => DoneWhat::Contract,
+            Spend::NftBatch { .. } | Spend::ContinueSeries { .. } | Spend::CreateModel { .. } => {
+                DoneWhat::Series
+            }
             Spend::SendToken { .. } => DoneWhat::SendToken,
             Spend::ClaimToken { .. } => DoneWhat::ClaimToken,
             Spend::BuyToken { .. } => DoneWhat::BuyToken,
@@ -2850,6 +2914,9 @@ pub enum DoneWhat {
     Contact,
     /// `Spend::RegisterContract`: a contract registered (or not).
     Contract,
+    /// `Spend::NftBatch` or `ContinueSeries`: a series finished or stopped. The reading core
+    /// reads its model again on it (FEAT-0038, the boundary of the two cores).
+    Series,
     CoreNode,
     Create,
     Delete,
@@ -2904,6 +2971,7 @@ impl DoneWhat {
             Self::ForgetApp => "forget-app",
             Self::Contact => "contact",
             Self::Contract => "contract",
+            Self::Series => "series",
             Self::CoreNode => "core-node",
             Self::Create => "create",
             Self::Delete => "delete",
@@ -2965,6 +3033,16 @@ pub enum Event {
         identity: String,
         id: String,
         charged: Option<Duffs>,
+    },
+    /// The answer to `Command::PlanModel`.
+    ModelPlanned {
+        result: Result<series::SeriesPlan, CoreError>,
+    },
+    /// The answer to `Command::PlanSeries`, for that series.
+    SeriesPlanned {
+        target: series::SeriesTarget,
+        kind: series::SeriesKind,
+        result: Result<series::SeriesPlan, CoreError>,
     },
     NewPhrase(Phrase),
     /// `scan` is filled for a DashPay import.

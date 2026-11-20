@@ -54,6 +54,9 @@ serde_json = { version = "1", features = ["preserve_order"] }
 tokio = { version = "1", features = ["sync", "macros", "rt-multi-thread", "time", "net"] }
 sha2 = { version = "0.10", default-features = false }
 miniz_oxide = "0.8"
+# A model's SVG read as XML before it is written (FEAT-0038 series r1): already in the tree
+# through usvg (evolite-render), nothing new.
+roxmltree = "0.20"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["test-util"] }

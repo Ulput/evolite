@@ -2394,5 +2394,8 @@
   "Sold “{}” no. {} · {}": "已售出“{}”第 {} 号 · {}",
   "Sold “{}” · {}": "已售出“{}” · {}",
   "Sold an NFT · {}": "已售出 NFT · {}",
-  "First finish the stopped transfer to the pool — its money is already locked": "请先完成中断的转入资金池——其资金已锁定"
+  "First finish the stopped transfer to the pool — its money is already locked": "请先完成中断的转入资金池——其资金已锁定",
+  "Your Workshop series could not be read": "无法读取你的“工坊”系列",
+  "the Workshop series": "“工坊”系列",
+  "The series' plates and “Continue” go away: what each series already wrote stays on the network and in your collection, and a series cut short is started again for what is left. evolite reads each model's highest serial from the network again, but a highest serial that was deleted may be issued again.": "系列的提示条和“继续”会消失。每个系列已经写入的内容仍在网络上和你的收藏中；中断的系列需要为剩余部分重新开始。evolite 会从网络重新读取每个模型的最大编号，但已删除的最大编号可能会再次发行。"
 }

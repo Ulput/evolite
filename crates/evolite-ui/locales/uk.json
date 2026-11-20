@@ -2445,5 +2445,8 @@
   "Sold “{}” no. {} · {}": "Продано «{}» № {} · {}",
   "Sold “{}” · {}": "Продано «{}» · {}",
   "Sold an NFT · {}": "Продано NFT · {}",
-  "First finish the stopped transfer to the pool — its money is already locked": "Спершу завершіть перерване переведення в пул — гроші на нього вже заблоковано"
+  "First finish the stopped transfer to the pool — its money is already locked": "Спершу завершіть перерване переведення в пул — гроші на нього вже заблоковано",
+  "Your Workshop series could not be read": "Не вдалося прочитати серії «Майстерні»",
+  "the Workshop series": "серії «Майстерні»",
+  "The series' plates and “Continue” go away: what each series already wrote stays on the network and in your collection, and a series cut short is started again for what is left. evolite reads each model's highest serial from the network again, but a highest serial that was deleted may be issued again.": "Плашки серій і «Продовжити» зникнуть. Те, що серії вже записали, лишається в мережі й у вашій колекції, а перервану серію доведеться почати знову на решту. Найбільший номер кожної моделі evolite знову прочитає з мережі, але видалений найбільший номер може бути випущено ще раз."
 }

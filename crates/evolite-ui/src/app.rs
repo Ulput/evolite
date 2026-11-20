@@ -1007,6 +1007,13 @@ impl App {
                     what: DoneWhat::Contract,
                     ..
                 } => {}
+                // FEAT-0038: the series' screens (W5–W9, W12, W13) take these when they come.
+                Event::SeriesPlanned { .. }
+                | Event::ModelPlanned { .. }
+                | Event::Done {
+                    what: DoneWhat::Series,
+                    ..
+                } => {}
                 Event::Done {
                     what: DoneWhat::FundAddress,
                     result,

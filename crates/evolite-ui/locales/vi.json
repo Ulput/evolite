@@ -2394,5 +2394,8 @@
   "Sold “{}” no. {} · {}": "Đã bán “{}” số {} · {}",
   "Sold “{}” · {}": "Đã bán “{}” · {}",
   "Sold an NFT · {}": "Đã bán NFT · {}",
-  "First finish the stopped transfer to the pool — its money is already locked": "Hãy hoàn tất lần chuyển vào pool bị dừng trước — tiền của nó đã bị khóa"
+  "First finish the stopped transfer to the pool — its money is already locked": "Hãy hoàn tất lần chuyển vào pool bị dừng trước — tiền của nó đã bị khóa",
+  "Your Workshop series could not be read": "Không đọc được các loạt trong “Xưởng” của bạn",
+  "the Workshop series": "các loạt trong “Xưởng”",
+  "The series' plates and “Continue” go away: what each series already wrote stays on the network and in your collection, and a series cut short is started again for what is left. evolite reads each model's highest serial from the network again, but a highest serial that was deleted may be issued again.": "Các thanh của loạt và “Tiếp tục” sẽ biến mất. Những gì mỗi loạt đã ghi vẫn còn trên mạng và trong bộ sưu tập của bạn; loạt bị ngắt sẽ được bắt đầu lại cho phần còn lại. evolite đọc lại từ mạng số cao nhất của mỗi mẫu, nhưng một số cao nhất đã bị xóa có thể được phát hành lại."
 }

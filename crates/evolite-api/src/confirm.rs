@@ -41,6 +41,11 @@ pub fn outgoing(op: &Spend, fees: &Fees) -> Option<Duffs> {
         // FEAT-0038 module V1: the most the registration takes, as its check showed it (with
         // keywords at 0.1 DASH each it may pass the threshold).
         Spend::RegisterContract { fee_max, .. } => Some(*fee_max),
+        // FEAT-0038: a series' credits, as its check showed them (architect: the series'
+        // estimate; for «Continue», what is left).
+        Spend::NftBatch { fee_max, .. }
+        | Spend::ContinueSeries { fee_max, .. }
+        | Spend::CreateModel { fee_max, .. } => Some(*fee_max),
         Spend::ResumeTopUp
         | Spend::ResumeFundAddress
         | Spend::ResumeIdentity
@@ -276,6 +281,40 @@ mod tests {
                     fee_max: 29_414_290,
                 },
                 Some(29_414_290),
+            ),
+            (
+                Spend::NftBatch {
+                    target: crate::series::SeriesTarget {
+                        identity: "a".into(),
+                        contract: "c".into(),
+                        model: "m".into(),
+                    },
+                    kind: crate::series::SeriesKind::Price { count: 3, price: 1 },
+                    fee_max: 16_200,
+                },
+                Some(16_200),
+            ),
+            (
+                Spend::ContinueSeries {
+                    id: 1,
+                    fee_max: 5_400,
+                },
+                Some(5_400),
+            ),
+            (
+                Spend::CreateModel {
+                    identity: "a".into(),
+                    contract: "c".into(),
+                    model: crate::series::NewModel {
+                        name: "m".into(),
+                        description: String::new(),
+                        supply: 1,
+                        image: Vec::new(),
+                    },
+                    mint: 1,
+                    fee_max: 141_000,
+                },
+                Some(141_000),
             ),
         ];
         for (op, expected) in cases {

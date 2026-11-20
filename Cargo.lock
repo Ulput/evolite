@@ -2791,6 +2791,7 @@ dependencies = [
  "platform-encryption",
  "platform-wallet",
  "platform-wallet-storage",
+ "roxmltree",
  "rusqlite",
  "serde",
  "serde_json",

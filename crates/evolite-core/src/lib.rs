@@ -368,6 +368,155 @@ mod tests {
         Ok(())
     }
 
+    /// FEAT-0038 series, live through the core: a new model with two instances, then one put
+    /// on sale, taken off sale (a transfer to oneself) and deleted — each a series of its own.
+    /// The wallet: `EVOLITE_SERIES_LIVE_DIR` (its data folder) and
+    /// `EVOLITE_SERIES_LIVE_PASSWORD_FILE`; the collection: `EVOLITE_SERIES_LIVE_CONTRACT`, of the
+    /// identity in slot 0. Never a QA wallet nor werner555. Spends ≈ 0.004 tDASH of credits.
+    /// `cargo test -p evolite-core live_nft_series -- --ignored --nocapture`
+    #[test]
+    #[ignore = "testnet; spends ≈ 0.004 tDASH of the wallet given"]
+    fn live_nft_series() {
+        use evolite_api::series::{NewModel, SeriesKind, SeriesTarget};
+        let var = |k: &str| std::env::var(k).unwrap_or_else(|_| panic!("{k}"));
+        let dir = std::path::PathBuf::from(var("EVOLITE_SERIES_LIVE_DIR"));
+        let password = std::fs::read_to_string(var("EVOLITE_SERIES_LIVE_PASSWORD_FILE"))
+            .unwrap()
+            .trim()
+            .to_owned();
+        let contract = var("EVOLITE_SERIES_LIVE_CONTRACT");
+        let core = Core::real(dir, ArtOptions::default(), || {});
+        core.send(Command::Unlock {
+            password: Password::new(password.clone()),
+        });
+        let wallet = wait_for(&core, 60, |e| match e {
+            Event::Snapshot(s) => {
+                let w = s.wallet.as_ref()?;
+                (s.sync.stage == SyncStage::Done
+                    && w.identity_search == evolite_api::IdentitySearch::Done
+                    && !w.identities.is_empty())
+                .then(|| w.clone())
+            }
+            _ => None,
+        });
+        let identity = wallet
+            .identities
+            .iter()
+            .find(|i| i.slot == 0)
+            .unwrap()
+            .id
+            .clone();
+        let spend = |op: Spend| Command::Spend {
+            op,
+            password: Some(Password::new(password.clone())),
+            ask: 0,
+            // Testnet has no large-spend threshold (FEAT-0004).
+            large_confirmed: false,
+        };
+        let done = |core: &Core, what: &str| {
+            let started = Instant::now();
+            let r = wait_for(core, 15, |e| match e {
+                Event::Done {
+                    what: DoneWhat::Series,
+                    result,
+                    ..
+                } => Some(result.clone()),
+                _ => None,
+            });
+            println!("{what}: {r:?} in {}s", started.elapsed().as_secs());
+            r.expect(what);
+        };
+        let model = NewModel {
+            name: "Live model".into(),
+            description: "evolite series test".into(),
+            supply: 5,
+            image: br##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 8 8"><rect width="8" height="8" fill="#1c75bc"/></svg>"##.to_vec(),
+        };
+        core.send(Command::PlanModel {
+            identity: identity.clone(),
+            contract: contract.clone(),
+            model: model.clone(),
+            mint: 2,
+        });
+        let plan = wait_for(&core, 5, |e| match e {
+            Event::ModelPlanned { result } => Some(result.clone()),
+            _ => None,
+        })
+        .expect("a plan");
+        println!("model plan: {plan:?}");
+        assert!(plan.refusal.is_none());
+        core.send(spend(Spend::CreateModel {
+            identity: identity.clone(),
+            contract: contract.clone(),
+            model,
+            mint: 2,
+            fee_max: plan.total,
+        }));
+        done(&core, "model and 2 instances");
+        let target = wait_for(&core, 2, |e| match e {
+            Event::Snapshot(s) => s
+                .wallet
+                .as_ref()?
+                .series
+                .iter()
+                .rev()
+                .find(|x| x.target.contract == contract)
+                .map(|x| x.target.clone()),
+            _ => None,
+        });
+        let target = SeriesTarget { ..target };
+        for (what, kind) in [
+            (
+                "price on 1",
+                SeriesKind::Price {
+                    count: 1,
+                    price: 1_000_000,
+                },
+            ),
+            (
+                "off sale 1",
+                SeriesKind::Unprice {
+                    count: 1,
+                    price: None,
+                },
+            ),
+            ("delete 1", SeriesKind::Delete { count: 1 }),
+        ] {
+            core.send(Command::PlanSeries {
+                target: target.clone(),
+                kind: kind.clone(),
+            });
+            let plan = wait_for(&core, 5, |e| match e {
+                Event::SeriesPlanned { result, .. } => Some(result.clone()),
+                _ => None,
+            })
+            .expect("a plan");
+            println!(
+                "{what} plan: serials {:?}, total {} duffs, refusal {:?}",
+                plan.serials, plan.total, plan.refusal
+            );
+            assert!(plan.refusal.is_none(), "{what}");
+            core.send(spend(Spend::NftBatch {
+                target: target.clone(),
+                kind,
+                fee_max: plan.total,
+            }));
+            done(&core, what);
+        }
+        let after = wait_for(&core, 2, |e| match e {
+            Event::Snapshot(s) => s.wallet.as_ref().map(|w| w.series.clone()),
+            _ => None,
+        });
+        for s in after.iter().filter(|s| s.target.contract == contract) {
+            println!(
+                "series {}: {:?} · {} of {} done, {} refused, {} unclear",
+                s.id, s.kind, s.done, s.total, s.refused, s.unclear
+            );
+        }
+        drop(core);
+        std::thread::sleep(Duration::from_secs(10));
+    }
+
     /// BUG-8 on testnet: "Add a wallet", then back to the wallet open before ("Cancel"), and
     /// its password opens it again — the chain of the wallet comes back. Spends nothing.
     /// `cargo test -p evolite-core live_cancel_adding -- --ignored --nocapture`

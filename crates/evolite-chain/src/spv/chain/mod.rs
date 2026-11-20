@@ -14,6 +14,7 @@ mod contests;
 mod contract_write;
 mod contracts;
 mod identities;
+mod nft_series;
 mod store_read;
 mod token_actions;
 mod token_manage;

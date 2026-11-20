@@ -22,6 +22,7 @@ fn title(file: LocalFile) -> &'static str {
         LocalFile::ContactResend => {
             tr!("The list of contacts waiting for your request could not be read")
         }
+        LocalFile::NftSeries => tr!("Your Workshop series could not be read"),
     }
 }
 
@@ -35,6 +36,7 @@ fn part_name(file: LocalFile) -> &'static str {
         LocalFile::TopUps => tr!("the credit top-up records"),
         LocalFile::AddressBook => tr!("the address book"),
         LocalFile::ContactResend => tr!("the list of contacts waiting for your request"),
+        LocalFile::NftSeries => tr!("the Workshop series"),
     }
 }
 
@@ -62,6 +64,9 @@ fn comes_back(file: LocalFile) -> &'static str {
         }
         LocalFile::ContactResend => tr!(
             "evolite forgets which contacts still wait for a new request from you: their marks in Contacts and the button on the keys screen go away. They still cannot pay you until they get one; the next time you replace the DashPay pair, evolite sends it to all of them."
+        ),
+        LocalFile::NftSeries => tr!(
+            "The series' plates and “Continue” go away: what each series already wrote stays on the network and in your collection, and a series cut short is started again for what is left. evolite reads each model's highest serial from the network again, but a highest serial that was deleted may be issued again."
         ),
     }
 }
