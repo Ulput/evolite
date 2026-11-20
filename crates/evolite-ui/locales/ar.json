@@ -1221,7 +1221,7 @@
   "Sign-in and signing by link or QR — once apps arrive in the real wallet": "تسجيل الدخول والتوقيع عبر رابط أو QR — حين تصل التطبيقات إلى المحفظة الحقيقية",
   "Signature checks cannot be turned off": "لا يمكن إيقاف التحقق من التواقيع",
   "Signed in to {} · keys added": "تم تسجيل الدخول إلى {} · أُضيفت المفاتيح",
-  "Some DASH are locked for an unfinished identity creation or top-up — it can be finished after restoring from the phrase.": "بعض DASH مقفلة لإنشاء هوية أو شحن غير مكتمل — يمكن إكماله بعد الاستعادة من العبارة.",
+  "Some DASH are locked for an unfinished operation: an identity creation or top-up, a top-up of the Platform address or a transfer to the pool. Finish it before deleting the wallet: after restoring from the phrase it may not be possible.": "بعض DASH مقفلة لعملية غير مكتملة: إنشاء identity أو شحنها، أو شحن عنوان Platform، أو تحويل إلى المجمّع. أكملها قبل حذف المحفظة: قد لا يكون ذلك ممكنًا بعد الاستعادة من العبارة.",
   "Some payments are unconfirmed · updated {}": "بعض المدفوعات غير مؤكدة · حُدّث {}",
   "Sometimes": "أحيانًا",
   "Source": "المصدر",
@@ -2478,5 +2478,6 @@
   "On macOS, evolite keeps this window out of screenshots, but a screen recording or screen sharing may still see the phrase. evolite cannot block it.": "على macOS، يُبقي evolite هذه النافذة خارج لقطات الشاشة، لكن تسجيل الشاشة أو مشاركتها قد يرى العبارة رغم ذلك. لا يستطيع evolite منع ذلك.",
   "Sold “{}” no. {} · {}": "بيع «{}» رقم {} · {}",
   "Sold “{}” · {}": "بيع «{}» · {}",
-  "Sold an NFT · {}": "بيع NFT · {}"
+  "Sold an NFT · {}": "بيع NFT · {}",
+  "First finish the stopped transfer to the pool — its money is already locked": "أكمل أولًا التحويل المتوقف إلى المجمّع — ماله مقفل بالفعل"
 }

@@ -180,9 +180,12 @@ impl Real {
                             .shield_from_platform_address(&wallet, &keys, credits)
                             .await
                     }
-                    // Duffs locked on Core; an unfinished lock is finished instead.
+                    // Duffs locked on Core; an unfinished lock is finished instead — only when
+                    // that is what was asked (BUG-248 r1).
                     (ShieldSource::Core, _) => {
-                        chain.shield_from_core(&wallet, &keys, credits / 1000).await
+                        let duffs = credits / 1000;
+                        stopped_shield_first(chain.unfinished_pool_shield(&wallet).await, duffs)?;
+                        chain.shield_from_core(&wallet, &keys, duffs).await
                     }
                 }
                 .map_err(pool_error)?;
@@ -389,6 +392,23 @@ impl Real {
 }
 
 /// A pool move that failed, for the screens; one that may have gone says so and is not retried.
+/// BUG-248 r1 Must: a shield from Core with a stopped one's lock still there (`locked`, duffs)
+/// finishes that lock — so only when the amount asked is that lock's, as «Continue» asks.
+/// Another amount is refused: the person would see one amount and the other lock would go,
+/// past the threshold's tick for its size.
+pub(in crate::real) fn stopped_shield_first(
+    locked: Option<u64>,
+    duffs: u64,
+) -> Result<(), CoreError> {
+    match locked {
+        Some(locked) if locked != duffs => Err(CoreError::NotAvailable(
+            tr!("First finish the stopped transfer to the pool — its money is already locked")
+                .into(),
+        )),
+        _ => Ok(()),
+    }
+}
+
 fn pool_error(error: pool::PoolError) -> CoreError {
     match error {
         pool::PoolError::Unconfirmed => CoreError::Failed(
@@ -404,4 +424,41 @@ pub(in crate::real) fn positive_credits(amount: Duffs) -> Result<u64, CoreError>
     positive_duffs(amount)?
         .checked_mul(1000)
         .ok_or(CoreError::BadAmount)
+}
+
+#[cfg(test)]
+mod shield_tests {
+    use super::*;
+
+    /// BUG-248 r1 Must 1: a shield from Core waits for the sync to know the coins — before the
+    /// wallet, the keys or the pool are even looked at.
+    #[tokio::test]
+    async fn a_shield_from_core_waits_for_the_sync() {
+        let dir = std::env::temp_dir().join(format!("evolite-test-shield-{}", std::process::id()));
+        let (out, _answers) = std::sync::mpsc::channel();
+        let core = Real::new(dir.clone(), "0000beef".into(), out, Arc::new(|| {}));
+        assert_eq!(
+            core.shield(ShieldSource::Core, 100_000),
+            Err(CoreError::NotSynced)
+        );
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// BUG-248 r1 Must 2: with a stopped shield's lock there, only its own amount goes on (that
+    /// lock, as «Continue» asks); another amount is refused with what to do first, and with no
+    /// stopped one any amount goes.
+    #[test]
+    fn a_stopped_shield_is_finished_only_for_its_own_amount() {
+        assert_eq!(stopped_shield_first(Some(100_000_000), 100_000_000), Ok(()));
+        match stopped_shield_first(Some(100_000_000), 10_000_000) {
+            Err(CoreError::NotAvailable(why)) => {
+                assert!(
+                    why.contains("First finish the stopped transfer to the pool"),
+                    "{why}"
+                )
+            }
+            other => panic!("{other:?}"),
+        }
+        assert_eq!(stopped_shield_first(None, 10_000_000), Ok(()));
+    }
 }

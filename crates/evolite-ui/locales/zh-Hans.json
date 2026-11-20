@@ -1196,7 +1196,7 @@
   "Sign-in and signing by link or QR — once apps arrive in the real wallet": "通过链接或二维码登录和签名——等应用在真实钱包中可用时",
   "Signature checks cannot be turned off": "签名验证无法关闭",
   "Signed in to {} · keys added": "已登录 {} · 已添加密钥",
-  "Some DASH are locked for an unfinished identity creation or top-up — it can be finished after restoring from the phrase.": "部分 DASH 已为未完成的身份创建或充值锁定——从助记词恢复后可以完成。",
+  "Some DASH are locked for an unfinished operation: an identity creation or top-up, a top-up of the Platform address or a transfer to the pool. Finish it before deleting the wallet: after restoring from the phrase it may not be possible.": "有 DASH 因未完成的操作而被锁定：创建或充值 identity、充值 Platform 地址或转入资金池。请在删除钱包前完成：从助记词恢复后可能无法完成。",
   "Some payments are unconfirmed · updated {}": "部分付款未确认 · 更新于 {}",
   "Sometimes": "有时",
   "Source": "来源",
@@ -2393,5 +2393,6 @@
   "On macOS, evolite keeps this window out of screenshots, but a screen recording or screen sharing may still see the phrase. evolite cannot block it.": "在 macOS 上，evolite 会让此窗口不出现在截图中，但屏幕录制或屏幕共享仍可能看到助记词。evolite 无法阻止。",
   "Sold “{}” no. {} · {}": "已售出“{}”第 {} 号 · {}",
   "Sold “{}” · {}": "已售出“{}” · {}",
-  "Sold an NFT · {}": "已售出 NFT · {}"
+  "Sold an NFT · {}": "已售出 NFT · {}",
+  "First finish the stopped transfer to the pool — its money is already locked": "请先完成中断的转入资金池——其资金已锁定"
 }

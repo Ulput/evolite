@@ -1116,3 +1116,32 @@ fn a_write_whose_fee_is_not_known_says_so() {
     kit.run_steps(3);
     assert!(has_words(&kit, "Fee: no record"));
 }
+
+/// BUG-248 (the coordinator): the deletion still warns of DASH locked for an unfinished
+/// identity or top-up while the sync has not read it — deleting cannot be undone, and its text
+/// says to finish it first — though the other screens hold such plates back.
+#[test]
+fn deleting_warns_of_locked_dash_during_the_sync() {
+    const WARNING: &str = "Some DASH are locked for an unfinished operation";
+    let (_turn, mut kit) = demo_app("delete", "en");
+    kit.run_steps(3);
+    assert!(!has_words(&kit, WARNING), "nothing locked: no warning");
+    show_edited(
+        &mut kit,
+        3,
+        "the warning while syncing",
+        |app| {
+            if let Some(s) = app.snapshot.as_mut() {
+                s.sync.stage = evolite_api::SyncStage::Filters;
+                if let Some(w) = s.wallet.as_mut() {
+                    w.unfinished_identity = Some(evolite_api::UnfinishedIdentity {
+                        locked: Some(5_000),
+                        name: None,
+                        identity: None,
+                    });
+                }
+            }
+        },
+        |kit| has_words(kit, WARNING),
+    );
+}

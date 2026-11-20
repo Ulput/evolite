@@ -1196,7 +1196,7 @@
   "Sign-in and signing by link or QR — once apps arrive in the real wallet": "링크나 QR로 로그인과 서명 — 앱이 실제 지갑에 들어오면",
   "Signature checks cannot be turned off": "서명 검증은 끌 수 없습니다",
   "Signed in to {} · keys added": "{}에 로그인 · 키 추가됨",
-  "Some DASH are locked for an unfinished identity creation or top-up — it can be finished after restoring from the phrase.": "일부 DASH가 완료되지 않은 신원 생성 또는 충전을 위해 잠겨 있습니다 — 문구로 복원한 뒤 마칠 수 있습니다.",
+  "Some DASH are locked for an unfinished operation: an identity creation or top-up, a top-up of the Platform address or a transfer to the pool. Finish it before deleting the wallet: after restoring from the phrase it may not be possible.": "완료되지 않은 작업을 위해 잠긴 DASH가 있습니다: identity 생성 또는 충전, Platform 주소 충전, 또는 풀로 이동. 지갑을 삭제하기 전에 마치세요: 문구로 복원한 후에는 안 될 수도 있습니다.",
   "Some payments are unconfirmed · updated {}": "일부 결제가 확인되지 않음 · {} 업데이트",
   "Sometimes": "가끔",
   "Source": "출처",
@@ -2393,5 +2393,6 @@
   "On macOS, evolite keeps this window out of screenshots, but a screen recording or screen sharing may still see the phrase. evolite cannot block it.": "macOS에서 evolite는 이 창이 스크린샷에 찍히지 않게 하지만, 화면 녹화나 화면 공유에는 구문이 보일 수 있습니다. evolite는 이를 막을 수 없습니다.",
   "Sold “{}” no. {} · {}": "“{}” {}번 판매됨 · {}",
   "Sold “{}” · {}": "“{}” 판매됨 · {}",
-  "Sold an NFT · {}": "NFT 판매됨 · {}"
+  "Sold an NFT · {}": "NFT 판매됨 · {}",
+  "First finish the stopped transfer to the pool — its money is already locked": "먼저 중단된 풀 이동을 마치세요 — 그 돈은 이미 잠겨 있습니다"
 }

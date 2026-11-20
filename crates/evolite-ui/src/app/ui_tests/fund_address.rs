@@ -276,3 +276,110 @@ fn credited_says_what_came() {
     assert!(state.result().is_none());
     assert_eq!(state.running(), Some(100_000));
 }
+
+/// BUG-248: a stopped funding's plate on the Overview waits for the sync to read Core and
+/// Platform: during it no plate (it may have landed meanwhile); after it, the plate while it is
+/// still stopped, and none once it is finished.
+#[test]
+fn a_stopped_lock_is_said_only_after_the_sync() {
+    const PLATE: &str = "are already locked in Core";
+    let (_turn, mut kit) = demo_app("fund-address-unfinished", "en");
+    settle(&mut kit);
+    assert!(has_words(&kit, PLATE), "synced and stopped: said");
+    for stage in [
+        evolite_api::SyncStage::Headers,
+        evolite_api::SyncStage::Filters,
+        evolite_api::SyncStage::Platform,
+    ] {
+        show_edited(
+            &mut kit,
+            3,
+            "syncing: no plate",
+            |app| {
+                if let Some(s) = app.snapshot.as_mut() {
+                    s.sync.stage = stage;
+                }
+            },
+            |kit| !has_words(kit, PLATE),
+        );
+    }
+    // The sync done: said again.
+    show_edited(
+        &mut kit,
+        3,
+        "the plate after the sync",
+        |app| {
+            if let Some(s) = app.snapshot.as_mut() {
+                s.sync.stage = evolite_api::SyncStage::Done;
+            }
+        },
+        |kit| has_words(kit, PLATE),
+    );
+    // Finished: no plate.
+    kit.state_mut().dev.fund_unfinished_preset = false;
+    show_wallet_edited(
+        &mut kit,
+        3,
+        "finished: no plate",
+        |w| w.unfinished_address_top_up = None,
+        |kit| !has_words(kit, PLATE),
+    );
+}
+
+/// BUG-248: while syncing, every kind of operation with locked DASH is held back from the
+/// screens — making an identity, a top-up, a funding of the Platform address, a shielding —
+/// and an identity made with only its name missing (nothing locked) is not; once synced, all
+/// of them are as the core says.
+#[test]
+fn every_lock_waits_for_the_sync() {
+    let (_turn, mut kit) = demo_app("fund-address-unfinished", "en");
+    settle(&mut kit);
+    let stopped = |w: &mut evolite_api::Wallet, locked: Option<evolite_api::Duffs>| {
+        w.unfinished_identity = Some(evolite_api::UnfinishedIdentity {
+            locked,
+            name: None,
+            identity: None,
+        });
+        w.unfinished_top_up = Some(evolite_api::UnfinishedTopUp {
+            locked: 1_000,
+            awaiting_chain_lock: false,
+        });
+        w.pool.unfinished_shield = Some(2_000);
+    };
+    let edit = |stage, locked| {
+        move |app: &mut App| {
+            if let Some(s) = app.snapshot.as_mut() {
+                s.sync.stage = stage;
+                if let Some(w) = s.wallet.as_mut() {
+                    stopped(w, locked);
+                }
+            }
+        }
+    };
+    let shown = |kit: &Kit| {
+        let s = kit.state().snapshot.clone().unwrap();
+        crate::text::without_unknown_locks(&s)
+            .unwrap_or(s)
+            .wallet
+            .unwrap()
+    };
+    draw_edited(
+        &mut kit,
+        2,
+        edit(evolite_api::SyncStage::Filters, Some(5_000)),
+    );
+    let w = shown(&kit);
+    assert_eq!(w.unfinished_identity, None);
+    assert_eq!(w.unfinished_top_up, None);
+    assert_eq!(w.unfinished_address_top_up, None);
+    assert_eq!(w.pool.unfinished_shield, None);
+    draw_edited(&mut kit, 2, edit(evolite_api::SyncStage::Filters, None));
+    assert!(
+        shown(&kit).unfinished_identity.is_some(),
+        "only its name missing: nothing locked, said"
+    );
+    draw_edited(&mut kit, 2, edit(evolite_api::SyncStage::Done, Some(5_000)));
+    let w = shown(&kit);
+    assert!(w.unfinished_identity.is_some() && w.unfinished_top_up.is_some());
+    assert!(w.unfinished_address_top_up.is_some() && w.pool.unfinished_shield.is_some());
+}

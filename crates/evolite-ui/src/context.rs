@@ -43,6 +43,11 @@ pub struct Ctx<'a> {
     go_back: bool,
     /// «Features for advanced users» on (FEAT-0040…0046): set by `App` each frame.
     advanced: bool,
+    /// BUG-248: the open wallet has DASH locked on Core for an unfinished operation (an
+    /// identity, its top-up, a funding of the Platform address, a shielding), as the core says — also while the sync has not read it yet, when [`Self::snap`] holds it
+    /// back ([`crate::text::without_unknown_locks`]). Only the deletion's warning reads it: a
+    /// needless warning there costs little, a missing one money. Set by `App` each frame.
+    pub unfinished_lock: bool,
 }
 
 /// what a screen asks of the wallets that takes more than one command.
@@ -94,6 +99,7 @@ impl<'a> Ctx<'a> {
             back: Screen::Overview,
             go_back: false,
             advanced: false,
+            unfinished_lock: false,
         }
     }
 

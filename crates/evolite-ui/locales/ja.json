@@ -1196,7 +1196,7 @@
   "Sign-in and signing by link or QR — once apps arrive in the real wallet": "リンクや QR でのログインと署名 — アプリが実際のウォレットに対応したら",
   "Signature checks cannot be turned off": "署名の検証はオフにできません",
   "Signed in to {} · keys added": "{} にログイン · 鍵を追加",
-  "Some DASH are locked for an unfinished identity creation or top-up — it can be finished after restoring from the phrase.": "一部の DASH は未完了のアイデンティティ作成またはチャージのためにロックされています — フレーズから復元した後に完了できます。",
+  "Some DASH are locked for an unfinished operation: an identity creation or top-up, a top-up of the Platform address or a transfer to the pool. Finish it before deleting the wallet: after restoring from the phrase it may not be possible.": "未完了の操作のために DASH がロックされています: identity の作成またはチャージ、Platform アドレスへのチャージ、またはプールへの移動です。ウォレットを削除する前に完了してください: フレーズから復元した後ではできない場合があります。",
   "Some payments are unconfirmed · updated {}": "一部の支払いが未確認です · {} に更新",
   "Sometimes": "ときどき",
   "Source": "ソース",
@@ -2393,5 +2393,6 @@
   "On macOS, evolite keeps this window out of screenshots, but a screen recording or screen sharing may still see the phrase. evolite cannot block it.": "macOS では、evolite はこのウィンドウをスクリーンショットに写らないようにしますが、画面収録や画面共有ではフレーズが見えることがあります。evolite はこれを防げません。",
   "Sold “{}” no. {} · {}": "「{}」No. {} を販売 · {}",
   "Sold “{}” · {}": "「{}」を販売 · {}",
-  "Sold an NFT · {}": "NFT を販売 · {}"
+  "Sold an NFT · {}": "NFT を販売 · {}",
+  "First finish the stopped transfer to the pool — its money is already locked": "先に中断したプールへの移動を完了してください — その資金はすでにロックされています"
 }

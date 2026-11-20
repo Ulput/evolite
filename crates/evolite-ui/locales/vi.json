@@ -1196,7 +1196,7 @@
   "Sign-in and signing by link or QR — once apps arrive in the real wallet": "Đăng nhập và ký qua liên kết hoặc QR — khi ứng dụng có trong ví thật",
   "Signature checks cannot be turned off": "Không thể tắt kiểm tra chữ ký",
   "Signed in to {} · keys added": "Đã đăng nhập {} · đã thêm khóa",
-  "Some DASH are locked for an unfinished identity creation or top-up — it can be finished after restoring from the phrase.": "Một phần DASH đang bị khóa cho việc tạo hoặc nạp danh tính chưa xong — có thể hoàn tất sau khi khôi phục từ cụm từ.",
+  "Some DASH are locked for an unfinished operation: an identity creation or top-up, a top-up of the Platform address or a transfer to the pool. Finish it before deleting the wallet: after restoring from the phrase it may not be possible.": "Có DASH đang bị khóa cho một thao tác chưa xong: tạo hoặc nạp identity, nạp địa chỉ Platform hoặc chuyển vào pool. Hãy hoàn tất trước khi xóa ví: sau khi khôi phục từ cụm từ, có thể không làm được nữa.",
   "Some payments are unconfirmed · updated {}": "Một số khoản thanh toán chưa xác nhận · cập nhật {}",
   "Sometimes": "Đôi khi",
   "Source": "Nguồn",
@@ -2393,5 +2393,6 @@
   "On macOS, evolite keeps this window out of screenshots, but a screen recording or screen sharing may still see the phrase. evolite cannot block it.": "Trên macOS, evolite giữ cửa sổ này ngoài ảnh chụp màn hình, nhưng việc ghi màn hình hoặc chia sẻ màn hình vẫn có thể thấy cụm từ. evolite không thể chặn điều đó.",
   "Sold “{}” no. {} · {}": "Đã bán “{}” số {} · {}",
   "Sold “{}” · {}": "Đã bán “{}” · {}",
-  "Sold an NFT · {}": "Đã bán NFT · {}"
+  "Sold an NFT · {}": "Đã bán NFT · {}",
+  "First finish the stopped transfer to the pool — its money is already locked": "Hãy hoàn tất lần chuyển vào pool bị dừng trước — tiền của nó đã bị khóa"
 }

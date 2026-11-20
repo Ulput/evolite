@@ -1201,7 +1201,7 @@
   "Sign-in and signing by link or QR — once apps arrive in the real wallet": "Anmelden und Signieren per Link oder QR — sobald Apps in der echten Wallet ankommen",
   "Signature checks cannot be turned off": "Die Signaturprüfung lässt sich nicht abschalten",
   "Signed in to {} · keys added": "Bei {} angemeldet · Schlüssel hinzugefügt",
-  "Some DASH are locked for an unfinished identity creation or top-up — it can be finished after restoring from the phrase.": "Ein Teil der DASH ist für eine unfertige Identitäts-Erstellung oder -Aufladung gesperrt — sie lässt sich nach der Wiederherstellung aus der Phrase abschließen.",
+  "Some DASH are locked for an unfinished operation: an identity creation or top-up, a top-up of the Platform address or a transfer to the pool. Finish it before deleting the wallet: after restoring from the phrase it may not be possible.": "Einige DASH sind für einen unvollendeten Vorgang gesperrt: das Erstellen oder Aufladen einer Identity, das Aufladen der Platform-Adresse oder eine Übertragung in den Pool. Schließen Sie ihn ab, bevor Sie die Wallet löschen: Nach der Wiederherstellung aus der Phrase klappt das möglicherweise nicht.",
   "Some payments are unconfirmed · updated {}": "Einige Zahlungen sind unbestätigt · aktualisiert {}",
   "Sometimes": "Manchmal",
   "Source": "Quelle",
@@ -2410,5 +2410,6 @@
   "On macOS, evolite keeps this window out of screenshots, but a screen recording or screen sharing may still see the phrase. evolite cannot block it.": "Unter macOS hält evolite dieses Fenster aus Bildschirmfotos heraus, aber eine Bildschirmaufnahme oder Bildschirmfreigabe kann die Phrase trotzdem sehen. evolite kann das nicht verhindern.",
   "Sold “{}” no. {} · {}": "„{}“ Nr. {} verkauft · {}",
   "Sold “{}” · {}": "„{}“ verkauft · {}",
-  "Sold an NFT · {}": "NFT verkauft · {}"
+  "Sold an NFT · {}": "NFT verkauft · {}",
+  "First finish the stopped transfer to the pool — its money is already locked": "Schließen Sie zuerst die unterbrochene Übertragung in den Pool ab — das Geld dafür ist schon gesperrt"
 }

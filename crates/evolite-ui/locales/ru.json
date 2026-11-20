@@ -1166,7 +1166,7 @@
   "Sign-in and signing by link or QR — once apps arrive in the real wallet": "Вход и подпись по ссылке или QR — когда приложения появятся в настоящем кошельке",
   "Signature checks cannot be turned off": "Проверку подписей нельзя отключить",
   "Signed in to {} · keys added": "Вход в {} · ключи добавлены",
-  "Some DASH are locked for an unfinished identity creation or top-up — it can be finished after restoring from the phrase.": "Есть DASH, заблокированные под незавершённое создание или пополнение identity, — после восстановления по фразе его можно довести.",
+  "Some DASH are locked for an unfinished operation: an identity creation or top-up, a top-up of the Platform address or a transfer to the pool. Finish it before deleting the wallet: after restoring from the phrase it may not be possible.": "Есть DASH, заблокированные под незавершённую операцию: создание или пополнение identity, пополнение адреса Platform или перевод в пул. Завершите её до удаления кошелька: после восстановления по фразе это может не получиться.",
   "Some payments are unconfirmed · updated {}": "Есть неподтверждённые платежи · обновлено {}",
   "Sometimes": "Иногда",
   "Source": "Источник",
@@ -2430,5 +2430,6 @@
   "On macOS, evolite keeps this window out of screenshots, but a screen recording or screen sharing may still see the phrase. evolite cannot block it.": "На macOS evolite скрывает это окно от снимков экрана, но запись или демонстрация экрана всё же могут увидеть фразу. evolite не может это запретить.",
   "Sold “{}” no. {} · {}": "Продан «{}» № {} · {}",
   "Sold “{}” · {}": "Продан «{}» · {}",
-  "Sold an NFT · {}": "Продан NFT · {}"
+  "Sold an NFT · {}": "Продан NFT · {}",
+  "First finish the stopped transfer to the pool — its money is already locked": "Сначала завершите прерванный перевод в пул — деньги на него уже заблокированы"
 }

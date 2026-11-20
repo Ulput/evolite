@@ -1514,7 +1514,20 @@ impl eframe::App for App {
         }
         // BUG-169: where a returning screen goes back to, as its «‹ {place}» names it.
         let here = back::here(snapshot);
+        // BUG-248: no plate of an operation with locked DASH before the sync has read Core and
+        // Platform; every screen draws from this one snapshot.
+        // All four kinds of DASH locked on Core for an operation (review r1 Should).
+        let unfinished_lock = snapshot.wallet.as_ref().is_some_and(|w| {
+            w.unfinished_identity.is_some()
+                || w.unfinished_top_up.is_some()
+                || w.unfinished_address_top_up.is_some()
+                || w.pool.unfinished_shield.is_some()
+        });
+        let known = crate::text::without_unknown_locks(snapshot);
+        let snapshot = known.as_ref().unwrap_or(snapshot);
         let mut cx = Ctx::new(snapshot, &mut commands, &mut go);
+        // The deletion's warning stays during the sync (the coordinator, BUG-248).
+        cx.unfinished_lock = unfinished_lock;
         cx.back = back::back_to(self.back.as_ref(), &here, snapshot.network, self.screen);
         cx.show_advanced(self.settings.is_on("advanced"));
         // By the window's width, once a frame (responsive spec R2).

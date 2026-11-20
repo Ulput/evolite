@@ -660,8 +660,8 @@ pub fn settings(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut SettingsS
     if let Some(form) = &mut state.delete {
         // Another wallet's balance and unfinished work are not known here: its store stays shut.
         let own = form.other.is_none();
-        let unfinished =
-            own && (wallet.unfinished_identity.is_some() || wallet.unfinished_top_up.is_some());
+        // BUG-248: as the core says, also while the sync holds the plates back.
+        let unfinished = own && cx.unfinished_lock;
         let balance = own.then_some(&wallet.balances);
         let notes = own && wallet.activity.iter().any(|a| a.note.is_some());
         if crate::screens::delete_wallet::delete_dialog(ui, a, cx, form, balance, unfinished, notes)

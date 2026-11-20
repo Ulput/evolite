@@ -1206,7 +1206,7 @@
   "Sign-in and signing by link or QR — once apps arrive in the real wallet": "Inicio de sesión y firma por enlace o QR — cuando las apps lleguen a la cartera real",
   "Signature checks cannot be turned off": "La verificación de firmas no se puede desactivar",
   "Signed in to {} · keys added": "Sesión iniciada en {} · claves añadidas",
-  "Some DASH are locked for an unfinished identity creation or top-up — it can be finished after restoring from the phrase.": "Parte de los DASH está bloqueada para una creación o recarga de identidad sin terminar — se puede terminar tras restaurar desde la frase.",
+  "Some DASH are locked for an unfinished operation: an identity creation or top-up, a top-up of the Platform address or a transfer to the pool. Finish it before deleting the wallet: after restoring from the phrase it may not be possible.": "Hay DASH bloqueados para una operación sin terminar: la creación o recarga de una identity, una recarga de la dirección de Platform o una transferencia al pool. Termínala antes de eliminar el monedero: después de restaurar desde la frase puede que no sea posible.",
   "Some payments are unconfirmed · updated {}": "Algunos pagos no están confirmados · actualizado {}",
   "Sometimes": "A veces",
   "Source": "Origen",
@@ -2427,5 +2427,6 @@
   "On macOS, evolite keeps this window out of screenshots, but a screen recording or screen sharing may still see the phrase. evolite cannot block it.": "En macOS, evolite oculta esta ventana de las capturas de pantalla, pero una grabación de pantalla o una pantalla compartida aún pueden ver la frase. evolite no puede impedirlo.",
   "Sold “{}” no. {} · {}": "Vendido «{}» n.º {} · {}",
   "Sold “{}” · {}": "Vendido «{}» · {}",
-  "Sold an NFT · {}": "NFT vendido · {}"
+  "Sold an NFT · {}": "NFT vendido · {}",
+  "First finish the stopped transfer to the pool — its money is already locked": "Primero termina la transferencia detenida al pool — su dinero ya está bloqueado"
 }

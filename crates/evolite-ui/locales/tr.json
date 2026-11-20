@@ -1201,7 +1201,7 @@
   "Sign-in and signing by link or QR — once apps arrive in the real wallet": "Bağlantı veya QR ile giriş ve imza — uygulamalar gerçek cüzdana gelince",
   "Signature checks cannot be turned off": "İmza kontrolleri kapatılamaz",
   "Signed in to {} · keys added": "{} uygulamasına giriş yapıldı · anahtarlar eklendi",
-  "Some DASH are locked for an unfinished identity creation or top-up — it can be finished after restoring from the phrase.": "DASH'in bir kısmı bitmemiş bir kimlik oluşturma veya yüklemesi için kilitli — ifadeden geri yükledikten sonra bitirilebilir.",
+  "Some DASH are locked for an unfinished operation: an identity creation or top-up, a top-up of the Platform address or a transfer to the pool. Finish it before deleting the wallet: after restoring from the phrase it may not be possible.": "Tamamlanmamış bir işlem için kilitli DASH var: identity oluşturma veya yükleme, Platform adresine yükleme ya da havuza aktarım. Cüzdanı silmeden önce bitirin: ifadeden geri yüklemeden sonra bu mümkün olmayabilir.",
   "Some payments are unconfirmed · updated {}": "Bazı ödemeler onaylanmadı · güncellendi {}",
   "Sometimes": "Bazen",
   "Source": "Kaynak",
@@ -2410,5 +2410,6 @@
   "On macOS, evolite keeps this window out of screenshots, but a screen recording or screen sharing may still see the phrase. evolite cannot block it.": "macOS’ta evolite bu pencereyi ekran görüntülerinin dışında tutar, ancak ekran kaydı veya ekran paylaşımı ifadeyi yine de görebilir. evolite bunu engelleyemez.",
   "Sold “{}” no. {} · {}": "“{}” no. {} satıldı · {}",
   "Sold “{}” · {}": "“{}” satıldı · {}",
-  "Sold an NFT · {}": "NFT satıldı · {}"
+  "Sold an NFT · {}": "NFT satıldı · {}",
+  "First finish the stopped transfer to the pool — its money is already locked": "Önce havuza durmuş aktarımı bitirin — parası zaten kilitli"
 }

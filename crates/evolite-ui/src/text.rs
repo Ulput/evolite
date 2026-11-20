@@ -1261,6 +1261,43 @@ pub fn coins_known(stage: SyncStage) -> bool {
     matches!(stage, SyncStage::ChainLock | SyncStage::Done)
 }
 
+/// BUG-248: the snapshot as the screens see it while the sync has not read Core and Platform
+/// yet ([`coins_known`]: past the Platform stage). An operation with DASH locked on Core for it
+/// — making an identity, a top-up, a funding of the Platform address, a shielding — may well
+/// have landed meanwhile; its plate would scare and could be untrue, so the screens get it only
+/// once the wallet knows. `None`: nothing to hide, the snapshot as it is (no copy). The core's
+/// own refusal stays honest: it answers «wait for the sync» before «first finish» anyway.
+pub fn without_unknown_locks(s: &evolite_api::Snapshot) -> Option<evolite_api::Snapshot> {
+    if coins_known(s.sync.stage) {
+        return None;
+    }
+    let locked = |w: &evolite_api::Wallet| {
+        w.unfinished_identity
+            .as_ref()
+            .is_some_and(|u| u.locked.is_some())
+            || w.unfinished_top_up.is_some()
+            || w.unfinished_address_top_up.is_some()
+            || w.pool.unfinished_shield.is_some()
+    };
+    if !s.wallet.as_ref().is_some_and(locked) {
+        return None;
+    }
+    let mut s = s.clone();
+    if let Some(w) = s.wallet.as_mut() {
+        // An identity made with only its name missing locks nothing: it stays.
+        if w.unfinished_identity
+            .as_ref()
+            .is_some_and(|u| u.locked.is_some())
+        {
+            w.unfinished_identity = None;
+        }
+        w.unfinished_top_up = None;
+        w.unfinished_address_top_up = None;
+        w.pool.unfinished_shield = None;
+    }
+    Some(s)
+}
+
 /// Why sending waits: on the disabled «Send» buttons and on the Send screen.
 pub const WAIT_FOR_SYNC: &str =
     tr!("Wait for the sync to finish: the wallet does not know all its coins yet.");

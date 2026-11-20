@@ -1196,7 +1196,7 @@
   "Sign-in and signing by link or QR — once apps arrive in the real wallet": "Masuk dan tanda tangan lewat tautan atau QR — saat aplikasi hadir di dompet sungguhan",
   "Signature checks cannot be turned off": "Pemeriksaan tanda tangan tidak bisa dimatikan",
   "Signed in to {} · keys added": "Masuk ke {} · kunci ditambahkan",
-  "Some DASH are locked for an unfinished identity creation or top-up — it can be finished after restoring from the phrase.": "Sebagian DASH terkunci untuk pembuatan atau isi ulang identitas yang belum selesai — bisa diselesaikan setelah pemulihan dari frasa.",
+  "Some DASH are locked for an unfinished operation: an identity creation or top-up, a top-up of the Platform address or a transfer to the pool. Finish it before deleting the wallet: after restoring from the phrase it may not be possible.": "Ada DASH yang terkunci untuk operasi yang belum selesai: pembuatan atau isi ulang identity, isi ulang alamat Platform, atau transfer ke pool. Selesaikan sebelum menghapus dompet: setelah dipulihkan dari frasa, mungkin tidak bisa lagi.",
   "Some payments are unconfirmed · updated {}": "Beberapa pembayaran belum terkonfirmasi · diperbarui {}",
   "Sometimes": "Kadang-kadang",
   "Source": "Sumber",
@@ -2393,5 +2393,6 @@
   "On macOS, evolite keeps this window out of screenshots, but a screen recording or screen sharing may still see the phrase. evolite cannot block it.": "Di macOS, evolite menyembunyikan jendela ini dari tangkapan layar, tetapi perekaman layar atau berbagi layar mungkin tetap melihat frasa. evolite tidak dapat memblokirnya.",
   "Sold “{}” no. {} · {}": "Terjual “{}” no. {} · {}",
   "Sold “{}” · {}": "Terjual “{}” · {}",
-  "Sold an NFT · {}": "NFT terjual · {}"
+  "Sold an NFT · {}": "NFT terjual · {}",
+  "First finish the stopped transfer to the pool — its money is already locked": "Selesaikan dulu transfer ke pool yang terhenti — uangnya sudah terkunci"
 }

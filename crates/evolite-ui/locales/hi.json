@@ -1201,7 +1201,7 @@
   "Sign-in and signing by link or QR — once apps arrive in the real wallet": "लिंक या QR से साइन इन और हस्ताक्षर — जब ऐप असली वॉलेट में आएँगे",
   "Signature checks cannot be turned off": "हस्ताक्षर जाँच बंद नहीं की जा सकती",
   "Signed in to {} · keys added": "{} में साइन इन · कुंजियाँ जोड़ी गईं",
-  "Some DASH are locked for an unfinished identity creation or top-up — it can be finished after restoring from the phrase.": "कुछ DASH अधूरी पहचान बनाने या टॉप-अप के लिए लॉक हैं — वाक्यांश से पुनर्स्थापना के बाद इसे पूरा किया जा सकता है।",
+  "Some DASH are locked for an unfinished operation: an identity creation or top-up, a top-up of the Platform address or a transfer to the pool. Finish it before deleting the wallet: after restoring from the phrase it may not be possible.": "कुछ DASH एक अधूरे काम के लिए लॉक हैं: identity बनाना या टॉप-अप, Platform पते का टॉप-अप या पूल में ट्रांसफ़र। वॉलेट हटाने से पहले इसे पूरा करें: वाक्यांश से बहाल करने के बाद यह शायद न हो सके।",
   "Some payments are unconfirmed · updated {}": "कुछ भुगतान पुष्ट नहीं हैं · {} को अपडेट",
   "Sometimes": "कभी-कभी",
   "Source": "स्रोत",
@@ -2410,5 +2410,6 @@
   "On macOS, evolite keeps this window out of screenshots, but a screen recording or screen sharing may still see the phrase. evolite cannot block it.": "macOS पर evolite इस विंडो को स्क्रीनशॉट से बाहर रखता है, लेकिन स्क्रीन रिकॉर्डिंग या स्क्रीन शेयरिंग फिर भी वाक्यांश देख सकती है। evolite इसे नहीं रोक सकता।",
   "Sold “{}” no. {} · {}": "“{}” नं. {} बेचा गया · {}",
   "Sold “{}” · {}": "“{}” बेचा गया · {}",
-  "Sold an NFT · {}": "NFT बेचा गया · {}"
+  "Sold an NFT · {}": "NFT बेचा गया · {}",
+  "First finish the stopped transfer to the pool — its money is already locked": "पहले पूल में रुका हुआ ट्रांसफ़र पूरा करें — उसका पैसा पहले से लॉक है"
 }

@@ -146,7 +146,7 @@ pub fn delete_dialog(
                     "warning",
                     p.danger,
                     tr!(
-                        "Some DASH are locked for an unfinished identity creation or top-up — it can be finished after restoring from the phrase."
+                        "Some DASH are locked for an unfinished operation: an identity creation or top-up, a top-up of the Platform address or a transfer to the pool. Finish it before deleting the wallet: after restoring from the phrase it may not be possible."
                     ),
                 );
             }
