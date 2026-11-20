@@ -49,3 +49,43 @@ fn the_core_is_told_again_when_it_has_it_off() {
         .send(evolite_api::Command::AdvancedFeatures { on: false });
     wait_for(&mut kit, "said again", |kit| core_has(kit, true));
 }
+
+/// BUG-252: while the wallet is locked the app says nothing — the core keeps it off; at the unlock
+/// it is said once and the core has it on. (The demo has no lock: the locked snapshot is drawn.)
+#[test]
+fn a_locked_wallet_is_told_nothing_and_the_unlock_tells_it() {
+    let (_turn, mut kit) = demo_app("advanced", "en");
+    kit.state_mut().settings.set("advanced", true);
+    wait_for(&mut kit, "the core told", |kit| core_has(kit, true));
+    // The lock turns it off in the core.
+    kit.state_mut()
+        .core
+        .send(evolite_api::Command::AdvancedFeatures { on: false });
+    let locked = |app: &mut App| {
+        if let Some(s) = app.snapshot.as_mut() {
+            s.vault = evolite_api::VaultState::Locked;
+        }
+    };
+    let started = Instant::now();
+    while started.elapsed() < Duration::from_millis(1500) {
+        draw_edited(&mut kit, 1, locked);
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert!(core_has(&kit, false), "nothing said while locked");
+    assert!(
+        kit.state().settings.is_on("advanced"),
+        "the switch on screen stays on"
+    );
+    // The unlock: the snapshot says so (the demo does not send one by itself).
+    show_edited(
+        &mut kit,
+        2,
+        "said at the unlock",
+        |app| {
+            if let Some(s) = app.snapshot.as_mut() {
+                s.vault = evolite_api::VaultState::Unlocked;
+            }
+        },
+        |kit| core_has(kit, true),
+    );
+}

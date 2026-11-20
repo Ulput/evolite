@@ -183,8 +183,9 @@ impl Mock {
             // The example network's profiles have no pictures: the switch changes nothing here.
             Command::StrangerPictures { .. } => return changed,
             // FEAT-0040…0046: kept as said; the demo never locks.
+            // BUG-252: as the real core, a locked wallet keeps it off.
             Command::AdvancedFeatures { on } => {
-                self.snapshot.advanced_features = on;
+                self.snapshot.advanced_features = on && self.snapshot.vault == VaultState::Unlocked;
                 return true;
             }
             Command::ResolveName { name } => {
@@ -601,7 +602,7 @@ impl Mock {
                         for w in &mut self.snapshot.wallets {
                             w.open = w.id == id;
                         }
-                        self.snapshot.vault = VaultState::Locked;
+                        self.lock_wallet();
                         self.snapshot.wallet = None;
                         return true;
                     }
@@ -636,7 +637,7 @@ impl Mock {
                     w.open = Some(&w.id) == from.as_ref();
                 }
                 self.snapshot.adding_wallet = false;
-                self.snapshot.vault = VaultState::Locked;
+                self.lock_wallet();
                 return true;
             }
             // In memory only (FR-11): the demo writes no file.
@@ -878,6 +879,13 @@ impl Mock {
         };
         let _ = out.send(event);
         changed
+    }
+
+    /// The open wallet locked, as the real core's lock: the advanced features go off with it
+    /// (BUG-252).
+    fn lock_wallet(&mut self) {
+        self.snapshot.vault = VaultState::Locked;
+        self.snapshot.advanced_features = false;
     }
 
     /// FEAT-0004 FR-7: a spend of more than the wallet's threshold on mainnet without the tick.
@@ -1994,6 +2002,19 @@ mod tests {
             b.total(),
             1_284_600_000 + mixed.spendable + mixed.unfinished
         );
+    }
+
+    /// BUG-252: as the real core — on while open, off when the wallet locks, and «on» not taken
+    /// while it stays locked.
+    #[test]
+    fn a_locked_wallet_keeps_the_advanced_features_off() {
+        let (mut m, tx, _rx) = mock();
+        m.handle(Command::AdvancedFeatures { on: true }, &tx);
+        assert!(m.snapshot.advanced_features);
+        m.lock_wallet();
+        assert!(!m.snapshot.advanced_features);
+        m.handle(Command::AdvancedFeatures { on: true }, &tx);
+        assert!(!m.snapshot.advanced_features, "not taken while locked");
     }
 
     #[test]

@@ -412,6 +412,8 @@ impl Real {
                 return (self.suggest_names(prefix, seq), false);
             }
             Command::AdvancedFeatures { on } => {
+                // BUG-252: a locked wallet keeps it off — on is taken only after the unlock.
+                let on = on && self.unlocked.is_some();
                 if on != self.advanced_features {
                     crate::diag::record(crate::diag::Record::AdvancedFeatures { on });
                 }

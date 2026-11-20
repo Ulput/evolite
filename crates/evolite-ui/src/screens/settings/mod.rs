@@ -419,8 +419,9 @@ impl SettingsState {
     }
 
     /// The commands that carry these settings to the core: at the start, and again when a new
-    /// core takes over the folder (after a deletion).
-    pub fn core_commands(&self) -> [Command; 6] {
+    /// core takes over the folder (after a deletion). Not «Features for advanced users»: that
+    /// one is said only to an open wallet's core (BUG-252, `App`'s `advanced_to_tell`).
+    pub fn core_commands(&self) -> [Command; 5] {
         [
             Command::AutoLock {
                 after_secs: self.auto_lock_secs(),
@@ -438,10 +439,6 @@ impl SettingsState {
             // Р1: the app's own switch, the same for every wallet.
             Command::CheckUpdate {
                 on: self.is_on("update-check"),
-            },
-            // FEAT-0040…0046: the app's own switch, off unless turned on.
-            Command::AdvancedFeatures {
-                on: self.is_on("advanced"),
             },
         ]
     }
@@ -749,15 +746,16 @@ mod tests {
     fn the_advanced_switch_is_off_and_the_apps() {
         let mut state = SettingsState::new(true, Section::Advanced, false);
         assert!(!state.is_on("advanced"));
+        // BUG-252: not with the settings told at the start — a locked wallet's core keeps it off.
         let told = |state: &SettingsState| {
-            state.core_commands().into_iter().find_map(|c| match c {
-                Command::AdvancedFeatures { on } => Some(on),
-                _ => None,
-            })
+            state
+                .core_commands()
+                .into_iter()
+                .any(|c| matches!(c, Command::AdvancedFeatures { .. }))
         };
-        assert_eq!(told(&state), Some(false));
+        assert!(!told(&state));
         state.set("advanced", true);
-        assert_eq!(told(&state), Some(true));
+        assert!(!told(&state));
         let (app, wallet) = crate::prefs::split(&state.prefs(&Default::default()));
         assert_eq!(app.toggles.get("advanced"), Some(&true), "the app's");
         assert!(!wallet.toggles.contains_key("advanced"), "not a wallet's");
@@ -866,13 +864,13 @@ mod tests {
     #[test]
     fn the_core_hears_the_receive_address_and_the_rate() {
         let mut state = SettingsState::new(true, Section::Security, false);
-        let [_, fresh, rate, _, _, _] = state.core_commands();
+        let [_, fresh, rate, _, _] = state.core_commands();
         assert!(matches!(fresh, Command::ReceiveAddress { fresh: true }));
         assert!(matches!(rate, Command::FiatRate { currency: None }));
         state.set("new-address", false);
         state.set("fiat-rate", true);
         state.fiat_currency = 2;
-        let [_, fresh, rate, _, _, _] = state.core_commands();
+        let [_, fresh, rate, _, _] = state.core_commands();
         assert!(matches!(fresh, Command::ReceiveAddress { fresh: false }));
         assert!(matches!(rate, Command::FiatRate { currency: Some(c) } if c == "RUB"));
     }

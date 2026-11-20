@@ -110,7 +110,7 @@ pub struct App {
     /// What the core was last told of "New address…" and "Fiat rate".
     core_told: Option<(bool, Option<&'static str>, bool, bool)>,
     /// «Features for advanced users» last said to the core while its snapshot said otherwise:
-    /// said once, again only when what is wanted changes (the lock turns it off in the core).
+    /// said once, again only when what is wanted changes ([`advanced_to_tell`]).
     advanced_asked: Option<bool>,
     /// When the rate was last asked for because Send or «Request an amount» needed it
     /// (FEAT-0008, AC-T4).
@@ -1465,14 +1465,16 @@ impl eframe::App for App {
             self.core.send(Command::CheckUpdate { on: updates });
             self.core_told = Some((fresh, currency, strangers, updates));
         }
-        // FEAT-0040…0046: the core has the app's switch; after the lock (which turns it off
-        // there) or a new core, it is said again.
-        let advanced = self.settings.is_on("advanced");
-        if snapshot.advanced_features == advanced {
-            self.advanced_asked = None;
-        } else if self.advanced_asked != Some(advanced) {
-            self.core.send(Command::AdvancedFeatures { on: advanced });
-            self.advanced_asked = Some(advanced);
+        // FEAT-0040…0046: the core has the app's switch while the wallet is open; the lock turns
+        // it off there and it stays off until the unlock (BUG-252), then it is said again — so
+        // after a new core too.
+        if let Some(on) = advanced_to_tell(
+            snapshot.vault,
+            snapshot.advanced_features,
+            self.settings.is_on("advanced"),
+            &mut self.advanced_asked,
+        ) {
+            self.core.send(Command::AdvancedFeatures { on });
         }
         crate::format::set_display(self.settings.display(snapshot.fiat.as_ref()));
         if let Some((now, ask)) = self.rate_to_ask(snapshot) {
@@ -1981,9 +1983,72 @@ impl eframe::App for App {
     }
 }
 
+/// What to tell the core of «Features for advanced users», if anything (FEAT-0040…0046,
+/// BUG-252): only to an open wallet's core — locked, the core keeps it off and nothing is said;
+/// open, what the app wants when the core has otherwise, once until that changes (`asked`).
+fn advanced_to_tell(
+    vault: VaultState,
+    core_has: bool,
+    wanted: bool,
+    asked: &mut Option<bool>,
+) -> Option<bool> {
+    if vault != VaultState::Unlocked || core_has == wanted {
+        *asked = None;
+        return None;
+    }
+    if *asked == Some(wanted) {
+        return None;
+    }
+    *asked = Some(wanted);
+    Some(wanted)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// BUG-252: locked, nothing is said and the core keeps it off; the unlock says it once; an
+    /// answer that agrees ends it, and a lock after it says nothing again.
+    #[test]
+    fn the_switch_is_said_only_to_an_open_wallet() {
+        let mut asked = None;
+        for _ in 0..3 {
+            assert_eq!(
+                advanced_to_tell(VaultState::Locked, false, true, &mut asked),
+                None
+            );
+            assert_eq!(
+                advanced_to_tell(VaultState::NoWallet, false, true, &mut asked),
+                None
+            );
+        }
+        assert_eq!(
+            advanced_to_tell(VaultState::Unlocked, false, true, &mut asked),
+            Some(true)
+        );
+        assert_eq!(
+            advanced_to_tell(VaultState::Unlocked, false, true, &mut asked),
+            None,
+            "once"
+        );
+        assert_eq!(
+            advanced_to_tell(VaultState::Unlocked, true, true, &mut asked),
+            None
+        );
+        assert_eq!(
+            advanced_to_tell(VaultState::Locked, false, true, &mut asked),
+            None,
+            "the lock"
+        );
+        assert_eq!(
+            advanced_to_tell(VaultState::Unlocked, false, true, &mut asked),
+            Some(true)
+        );
+        assert_eq!(
+            advanced_to_tell(VaultState::Unlocked, true, false, &mut asked),
+            Some(false)
+        );
+    }
 
     #[test]
     fn a_deletion_takes_what_was_typed_as_a_lock_does() {

@@ -1171,6 +1171,9 @@ async fn the_advanced_switch_is_the_apps_and_the_lock_turns_it_off() {
     assert!(core.advanced_features);
     core.handle(Command::Lock).await;
     assert!(!core.advanced_features, "off at the lock");
+    // BUG-252: and off while it stays locked, whatever is said.
+    core.handle(Command::AdvancedFeatures { on: true }).await;
+    assert!(!core.advanced_features, "not taken while locked");
 }
 
 /// FEAT-0004 AC-T5: on mainnet a spend of more than the threshold without the tick is refused,
