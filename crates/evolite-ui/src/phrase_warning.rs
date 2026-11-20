@@ -2,8 +2,9 @@
 //! screen, and on Wayland a screenshot, a recording or a screen share the person allowed sees
 //! it. So before each showing of the recovery phrase (O1, Settings › Show the phrase) a warning
 //! says so, the text for the session ([`crate::capture::Session`]), with what to do first; the
-//! phrase is drawn only after «Show the phrase». Windows keeps the window out of captures
-//! instead ([`crate::capture`]); macOS has its own (SEC-10).
+//! phrase is drawn only after «Show the phrase». On macOS (SEC-10) the same warning, with its
+//! own text: the window is left out of screenshots, but a recording or screen sharing may still
+//! see it. Windows keeps the window out of captures instead ([`crate::capture`]).
 
 use crate::capture::Session;
 use crate::components::{Assets, ButtonKind, Part, button, button_row, dialog_with_footer, para};
@@ -22,6 +23,9 @@ pub fn text_for(session: Session) -> &'static str {
     match session {
         Session::Wayland => tr!(
             "On Linux with Wayland, a screenshot, recording or screen sharing that you allowed will see the phrase. evolite cannot block it."
+        ),
+        Session::MacOs => tr!(
+            "On macOS, evolite keeps this window out of screenshots, but a screen recording or screen sharing may still see the phrase. evolite cannot block it."
         ),
         Session::X11 | Session::Unknown => tr!(
             "On Linux with X11, evolite cannot block screen capture: any program on this computer can capture the screen while the phrase is shown."

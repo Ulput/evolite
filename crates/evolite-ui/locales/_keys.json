@@ -935,6 +935,7 @@
   "On",
   "On Linux with Wayland, a screenshot, recording or screen sharing that you allowed will see the phrase. evolite cannot block it.",
   "On Linux with X11, evolite cannot block screen capture: any program on this computer can capture the screen while the phrase is shown.",
+  "On macOS, evolite keeps this window out of screenshots, but a screen recording or screen sharing may still see the phrase. evolite cannot block it.",
   "On mainnet evolite does not search for tokens or show them: first we finish the wallet's main functions. Your mainnet tokens have not gone anywhere — they are on your identities and will appear here when this section is switched on.",
   "On the address, at least",
   "On the identity after",

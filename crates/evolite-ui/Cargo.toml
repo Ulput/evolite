@@ -19,6 +19,11 @@ path = "src/renderer.rs"
 name = "evolite-setup"
 path = "src/setup/main.rs"
 
+# SEC-10: AppKit wants its windows made on the main thread, which libtest does not give.
+[[test]]
+name = "macos_capture"
+harness = false
+
 [features]
 default = ["real", "pool"]
 # The real core (dash-spv, keys, Platform). Without it the app runs the demo core only, and its
@@ -63,6 +68,9 @@ sha2 = { version = "0.10", default-features = false }
 chrono = "0.4.45"
 zeroize = "1"
 unicode-bidi = "0.3"
+# The window's handle from eframe (already in the tree through winit): the phrase kept out of
+# captures (Windows, macOS), the kind of session it is shown in (Linux), a dialog's parent.
+raw-window-handle = "0.6"
 
 [target.'cfg(windows)'.dependencies]
 # "Show animations in Windows": whether NFT animations play when set to follow the system;
@@ -73,12 +81,15 @@ unicode-bidi = "0.3"
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Globalization", "Win32_Security", "Win32_Security_Authorization", "Win32_Storage_FileSystem", "Win32_System_Console", "Win32_System_Diagnostics_Debug", "Win32_System_ErrorReporting", "Win32_System_Diagnostics_ToolHelp", "Win32_System_LibraryLoader", "Win32_System_Registry", "Win32_System_Threading", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
 # The installer: shortcuts (IShellLinkW), the folder picker and the user's known folders.
 windows = { version = "0.62", features = ["Win32_System_Com", "Win32_UI_Shell", "Win32_UI_Shell_Common"] }
-# The window's handle from eframe (already in the tree through winit).
-raw-window-handle = "0.6"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 # The file dialog through the desktop portal (no GTK, so no system library to install).
 rfd = { version = "0.17", default-features = false, features = ["xdg-portal"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+# SEC-10: the window's sharing type while the phrase or a key is shown (the same objc2-app-kit
+# as rfd's, already in the tree).
+objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "NSResponder", "NSView", "NSWindow"] }
 
 [target.'cfg(unix)'.dependencies]
 # The installer on Linux and macOS: free space of the mounted disks (statvfs, getmntinfo).
@@ -93,6 +104,12 @@ resvg = { version = "0.45", default-features = false }
 egui_kittest = { version = "0.36.2", default-features = false, features = ["eframe"] }
 # SEC-8: egui's memory as eframe writes it to `app.ron` (the same ron as eframe's, already locked).
 ron = "0.12"
+
+[target.'cfg(target_os = "macos")'.dev-dependencies]
+# SEC-10: `tests/macos_capture.rs` makes a window of its own (all already in the tree).
+objc2 = "0.6.5"
+objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSGeometry", "objc2-core-foundation"] }
+objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "NSApplication", "NSGraphics", "NSResponder", "NSView", "NSWindow"] }
 
 [target.'cfg(windows)'.build-dependencies]
 # The executable's icon in Explorer, the taskbar and Alt+Tab (`evolite.rc`).

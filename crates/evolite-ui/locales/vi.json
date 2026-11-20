@@ -2374,5 +2374,6 @@
   "Updates": "Cập nhật",
   "evolite {} fixes a security problem": "evolite {} sửa một lỗi bảo mật",
   "evolite {} is out": "Đã có evolite {}",
-  "minisign public keys and their key IDs: compare them with docs/verify.md": "Khóa công khai minisign và ID của chúng: đối chiếu với docs/verify.md"
+  "minisign public keys and their key IDs: compare them with docs/verify.md": "Khóa công khai minisign và ID của chúng: đối chiếu với docs/verify.md",
+  "On macOS, evolite keeps this window out of screenshots, but a screen recording or screen sharing may still see the phrase. evolite cannot block it.": "Trên macOS, evolite giữ cửa sổ này ngoài ảnh chụp màn hình, nhưng việc ghi màn hình hoặc chia sẻ màn hình vẫn có thể thấy cụm từ. evolite không thể chặn điều đó."
 }

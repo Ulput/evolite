@@ -2374,5 +2374,6 @@
   "Updates": "アップデート",
   "evolite {} fixes a security problem": "evolite {} はセキュリティの問題を修正します",
   "evolite {} is out": "evolite {} が出ました",
-  "minisign public keys and their key IDs: compare them with docs/verify.md": "minisign の公開鍵とその鍵 ID: docs/verify.md と照合してください"
+  "minisign public keys and their key IDs: compare them with docs/verify.md": "minisign の公開鍵とその鍵 ID: docs/verify.md と照合してください",
+  "On macOS, evolite keeps this window out of screenshots, but a screen recording or screen sharing may still see the phrase. evolite cannot block it.": "macOS では、evolite はこのウィンドウをスクリーンショットに写らないようにしますが、画面収録や画面共有ではフレーズが見えることがあります。evolite はこれを防げません。"
 }

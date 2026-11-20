@@ -2391,5 +2391,6 @@
   "Updates": "अपडेट",
   "evolite {} fixes a security problem": "evolite {} एक सुरक्षा समस्या ठीक करता है",
   "evolite {} is out": "evolite {} आ गया है",
-  "minisign public keys and their key IDs: compare them with docs/verify.md": "minisign सार्वजनिक कुंजियाँ और उनकी ID: docs/verify.md से मिलाएँ"
+  "minisign public keys and their key IDs: compare them with docs/verify.md": "minisign सार्वजनिक कुंजियाँ और उनकी ID: docs/verify.md से मिलाएँ",
+  "On macOS, evolite keeps this window out of screenshots, but a screen recording or screen sharing may still see the phrase. evolite cannot block it.": "macOS पर evolite इस विंडो को स्क्रीनशॉट से बाहर रखता है, लेकिन स्क्रीन रिकॉर्डिंग या स्क्रीन शेयरिंग फिर भी वाक्यांश देख सकती है। evolite इसे नहीं रोक सकता।"
 }

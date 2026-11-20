@@ -2391,5 +2391,6 @@
   "Updates": "Updates",
   "evolite {} fixes a security problem": "evolite {} behebt ein Sicherheitsproblem",
   "evolite {} is out": "evolite {} ist da",
-  "minisign public keys and their key IDs: compare them with docs/verify.md": "Öffentliche minisign-Schlüssel und ihre Schlüssel-IDs: mit docs/verify.md vergleichen"
+  "minisign public keys and their key IDs: compare them with docs/verify.md": "Öffentliche minisign-Schlüssel und ihre Schlüssel-IDs: mit docs/verify.md vergleichen",
+  "On macOS, evolite keeps this window out of screenshots, but a screen recording or screen sharing may still see the phrase. evolite cannot block it.": "Unter macOS hält evolite dieses Fenster aus Bildschirmfotos heraus, aber eine Bildschirmaufnahme oder Bildschirmfreigabe kann die Phrase trotzdem sehen. evolite kann das nicht verhindern."
 }

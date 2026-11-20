@@ -516,6 +516,29 @@ fn o1_cancel_in_the_warning_goes_back() {
     crate::capture::set_test_session(None);
 }
 
+/// SEC-10: on macOS O1 warns too, with its own text (screenshots miss the window, a recording
+/// may not); «Show the phrase» shows it.
+#[test]
+fn o1_on_macos_warns_before_the_phrase() {
+    crate::capture::set_test_session(Some(crate::capture::Session::MacOs));
+    let (_turn, mut kit) = demo_app("create", "en");
+    kit.run_steps(5);
+    let words = phrase();
+    new_phrase(&mut kit, &words);
+    assert!(has_text(&kit, CAPTURED), "the warning");
+    assert!(has_words(
+        &kit,
+        "On macOS, evolite keeps this window out of screenshots"
+    ));
+    assert!(!has_words(&kit, "On Linux"), "not the Linux text");
+    none_in_tree(&kit, &words, "O1 behind the warning");
+    button(&kit, "Show the phrase").click();
+    kit.run_steps(3);
+    assert!(!has_text(&kit, CAPTURED));
+    assert!(painted_has(&kit, "zebra"), "shown once chosen");
+    crate::capture::set_test_session(None);
+}
+
 /// SEC-7, AC-A1, AC-A2: Settings › Show the phrase on Linux (Wayland): after the password, the
 /// warning in place of the dialog; «Show the phrase» shows it, «Cancel» closes it all.
 #[test]

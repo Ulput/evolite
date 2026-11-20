@@ -2,9 +2,14 @@
 //! phrase on it is drawn, the window asks Windows to leave it out of captures
 //! (`WDA_EXCLUDEFROMCAPTURE`, Windows 10 2004 and later): screenshot tools, recorders, screen
 //! sharing and remote-desktop viewers get a blank window instead. The app's own `--screenshot`
-//! reads egui's frame, not the screen, and is not affected. Elsewhere there is no such switch.
+//! reads egui's frame, not the screen, and is not affected. On macOS the window's sharing type
+//! is `None` (SEC-10, [`macos`]): screenshots miss it, newer recorders may not, so a warning
+//! comes first as well. Linux has no such switch (SEC-7).
 
 use std::sync::atomic::{AtomicBool, Ordering};
+
+#[cfg(target_os = "macos")]
+mod macos;
 
 /// Set by a screen with the phrase each frame it is drawn, read once per frame by the app.
 #[cfg(not(test))]
@@ -59,23 +64,44 @@ pub fn apply(frame: &eframe::Frame, hidden: bool) -> bool {
         // SAFETY: the window handle of our own top-level window, valid while `frame` is.
         unsafe { SetWindowDisplayAffinity(win.hwnd.get() as _, affinity) != 0 }
     }
-    #[cfg(not(windows))]
+    #[cfg(target_os = "macos")]
+    {
+        use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+        let Ok(handle) = frame.window_handle() else {
+            return false;
+        };
+        let RawWindowHandle::AppKit(view) = handle.as_raw() else {
+            return false;
+        };
+        // SAFETY: the content view of our own window, valid while `frame` is; the app draws
+        // its frames on the main thread.
+        unsafe { macos::set_sharing(view.ns_view, hidden) }
+    }
+    #[cfg(not(any(windows, target_os = "macos")))]
     {
         let _ = (frame, hidden);
         false
     }
 }
 
-/// SEC-7: the desktop session on Linux, where no capture can be refused: the warning before
-/// the phrase says what can see it.
-// Told only on Linux (and in tests): elsewhere no warning is asked for.
-#[cfg_attr(not(any(test, target_os = "linux")), allow(dead_code))]
+/// SEC-7: the desktop session on Linux, where no capture can be refused, or macOS (SEC-10),
+/// where newer recorders may still see the window: the warning before the phrase says what can
+/// see it.
+// Told only on Linux and macOS (and in tests): on Windows no warning is asked for.
+#[cfg_attr(
+    not(any(test, target_os = "linux", target_os = "macos")),
+    allow(dead_code)
+)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Session {
     X11,
     Wayland,
     /// Not told: the X11 text, the stricter.
     Unknown,
+    /// SEC-10: screenshots miss the window; a recording or screen sharing may not.
+    // Made on macOS and Windows by `phrase_warning`; in tests only by the kittests (dev-tools).
+    #[cfg_attr(any(test, target_os = "linux"), allow(dead_code))]
+    MacOs,
 }
 
 impl Session {
@@ -84,6 +110,7 @@ impl Session {
         match self {
             Session::X11 => "x11",
             Session::Wayland => "wayland",
+            Session::MacOs => "macos",
             Session::Unknown => "unknown",
         }
     }
@@ -136,9 +163,10 @@ pub fn note_window(frame: &eframe::Frame) {
     let _ = frame;
 }
 
-/// The session the phrase would be shown in when a warning must come first: on Linux only
-/// (Windows keeps the phrase out of captures; macOS has its own, SEC-10). In every network: a
-/// phrase is not tied to one (analyst-155).
+/// The session the phrase would be shown in when a warning must come first: on Linux and macOS
+/// (SEC-10: the window is left out of screenshots, newer recorders may still see it); Windows
+/// keeps the phrase out of captures. In every network: a phrase is not tied to one
+/// (analyst-155).
 pub fn phrase_warning() -> Option<Session> {
     #[cfg(test)]
     return TEST_SESSION.with(std::cell::Cell::get);
@@ -158,11 +186,11 @@ pub fn phrase_warning() -> Option<Session> {
         ));
     }
     #[cfg(all(not(test), not(target_os = "linux")))]
-    None
+    cfg!(target_os = "macos").then_some(Session::MacOs)
 }
 
 // Tests stand in for the platform on their own thread: `None` is Windows, `Some` a Linux
-// session (AC-A1, AC-A4).
+// session or macOS (AC-A1, AC-A4).
 #[cfg(test)]
 thread_local! {
     static TEST_SESSION: std::cell::Cell<Option<Session>> = const { std::cell::Cell::new(None) };
