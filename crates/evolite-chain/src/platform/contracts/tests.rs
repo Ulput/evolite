@@ -266,3 +266,40 @@ fn a_page_and_its_pass_are_kept_together_or_not_at_all() {
     assert!(next.get(&Identifier::from([10; 32])).is_some());
     let _ = std::fs::remove_dir_all(path.parent().unwrap().parent().unwrap().parent().unwrap());
 }
+
+/// FEAT-0031 stage 1: only the contracts that fit the NFT profile are listed, each checked
+/// once and its verdict kept (the next cache on the same file decodes nothing); a contract put
+/// again with a new body is checked again.
+#[test]
+fn the_nft_contracts_are_those_that_fit_checked_once() {
+    use crate::platform::workshop_read::profile::tests as p;
+    let path = folder("nft-match");
+    let cache = ContractCache::new(path.clone());
+    let fits = Arc::new(p::contract(&p::schema(), true).unwrap());
+    let not_readonly = contract(2, 0);
+    cache.put(fits.clone(), 1).unwrap();
+    cache.put(not_readonly, 1).unwrap();
+    assert_eq!(cache.nft_contracts(), vec![(fits.id(), "nft".to_owned())]);
+    assert_eq!(cache.nft_contracts().len(), 1, "asked again: the same");
+
+    // The verdicts are on the file: a new cache lists the same without the bodies decoded.
+    let again = ContractCache::new(path);
+    assert_eq!(again.nft_contracts(), vec![(fits.id(), "nft".to_owned())]);
+    let unchecked: i64 = {
+        let mut reader = again.reader.lock().unwrap();
+        again
+            .connection(&mut reader)
+            .unwrap()
+            .query_row(
+                "SELECT COUNT(*) FROM contract WHERE id NOT IN (SELECT contract_id FROM nft_match)",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap()
+    };
+    assert_eq!(unchecked, 0, "every contract has its verdict");
+
+    // A new body drops its verdict.
+    again.put(fits.clone(), 2).unwrap();
+    assert_eq!(again.nft_contracts(), vec![(fits.id(), "nft".to_owned())]);
+}

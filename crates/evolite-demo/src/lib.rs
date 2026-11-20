@@ -66,6 +66,7 @@ const DEMO_CHECK: [(usize, [&str; 3], usize); 4] = [
 mod answers;
 mod demo;
 mod tokens;
+mod workshop;
 
 use answers::{PEOPLE, app_request, check_name};
 use demo::{DEMO_PHRASE, demo_art, demo_wallet, demo_wallets, now, staged_sync, synced};
@@ -697,6 +698,11 @@ impl Mock {
                     ask: None,
                 }
             }
+            // The Workshop's example reading (FEAT-0038 item 2); nothing is asked of a network.
+            Command::ReadWorkshop { ask } => Event::Workshop {
+                result: Ok(workshop::read(&ask)),
+                ask,
+            },
             // The example network's tokens (FEAT-0019 AC-T7); nothing is asked of a network.
             Command::FindToken { id } => Event::TokenFound {
                 result: Ok(tokens::find(&id)),

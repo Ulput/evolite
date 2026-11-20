@@ -71,6 +71,8 @@ pub fn command_name(command: &Command) -> &'static str {
         Command::RenameWallet { .. } => "rename_wallet",
         // Which token, and the word looked for, stay off the journal.
         Command::FindToken { .. } => "find_token",
+        // Which collection or model stays off the journal.
+        Command::ReadWorkshop { .. } => "read_workshop",
         Command::SearchTokens { .. } => "search_tokens",
         Command::TrackToken { .. } => "track_token",
         Command::FindMyTokens => "find_my_tokens",
@@ -203,6 +205,7 @@ pub fn answer(event: &Event) -> Option<Record> {
             if wrong.is_some() { "wrong" } else { "ok" },
         ),
         Event::TokenFound { result, .. } => ("token_found", outcome(result)),
+        Event::Workshop { result, .. } => ("workshop", outcome(result)),
         Event::NameSuggestions { result, .. } => ("name_suggestions", outcome(result)),
     };
     Some(Record::Answer { what, outcome })

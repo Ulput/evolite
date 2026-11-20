@@ -272,6 +272,17 @@ pub enum Kind {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         to_id: Option<String>,
     },
+    /// FEAT-0038 R-15, AC-T-W4: an NFT of the identity's own collection sold, from
+    /// DocumentHistory's `purchase` (`key` `nftsold:<purchase id>`). `spent` is minus the price:
+    /// it came in. `model` and `serial` are `None` when the instance was deleted after the sale;
+    /// `buyer`: `@name` when known, else the id.
+    NftSold {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        model: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        serial: Option<u32>,
+        buyer: String,
+    },
     /// A token received (FEAT-0019 T-1, UC-5б): its `transfer` document, read with a proof
     /// (`key` `tokx:<id>`). `from`: the sender. Nothing was spent.
     TokenReceived {
@@ -348,6 +359,7 @@ impl Kind {
             Kind::TokenSent { to, .. } => to.clone(),
             Kind::KeysChanged { .. } => "keys".into(),
             Kind::TokenReceived { from, .. } => from.clone(),
+            Kind::NftSold { buyer, .. } => buyer.clone(),
             Kind::TokenBalance { token, .. }
             | Kind::TokenClaimed { token, .. }
             | Kind::TokenBought { token, .. }
@@ -793,6 +805,18 @@ pub fn activity(entry: &Entry) -> Activity {
             token: token.clone(),
             to: to.clone(),
             amount: amount.clone(),
+        },
+        (
+            Some(Kind::NftSold {
+                model,
+                serial,
+                buyer,
+            }),
+            _,
+        ) => ActivityKind::NftSold {
+            model: model.clone(),
+            serial: *serial,
+            buyer: buyer.clone(),
         },
         (
             Some(Kind::TokenReceived {

@@ -24,6 +24,8 @@ pub mod key_plan;
 pub mod lock_coins;
 /// Platform tokens (FEAT-0019).
 pub mod tokens;
+/// What the Workshop reads (FEAT-0038 item 2, FEAT-0031 stage 1).
+pub mod workshop;
 
 /// 1 DASH = 100 000 000 duffs.
 pub type Duffs = i64;
@@ -170,6 +172,14 @@ pub enum ActivityKind {
         token: String,
         to: String,
         amount: String,
+    },
+    /// FEAT-0038 R-15: an NFT of the identity's collection sold («Продан «{model}» № {n} ·
+    /// @{name}»); the amount is its price, in. `model`/`serial` are `None` when the instance was
+    /// deleted after the sale; `buyer`: `@name` when known, else the id.
+    NftSold {
+        model: Option<String>,
+        serial: Option<u32>,
+        buyer: String,
     },
     /// A token received (FEAT-0019 T-1, UC-5б): its `transfer` document in TokenHistory, read with
     /// a proof. `from`: the sender's id (or `@name` when known); `amount` in words, as in
@@ -2469,6 +2479,11 @@ pub enum Command {
         token_id: String,
         check: Option<String>,
     },
+    /// The Workshop's reading (FEAT-0038 item 2) for the shown identity: proved, spends nothing.
+    /// Answered with [`Event::Workshop`] of the same `ask`.
+    ReadWorkshop {
+        ask: workshop::WorkshopAsk,
+    },
 }
 
 /// Everything that spends: Core DASH, credits or the pool. Only through [`Command::Spend`], so
@@ -2991,6 +3006,11 @@ pub enum Event {
     TokenFound {
         query: String,
         result: Result<Vec<tokens::TokenInfo>, CoreError>,
+    },
+    /// The answer to [`Command::ReadWorkshop`] of `ask`.
+    Workshop {
+        ask: workshop::WorkshopAsk,
+        result: Result<workshop::WorkshopRead, CoreError>,
     },
 }
 

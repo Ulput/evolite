@@ -1,0 +1,82 @@
+{
+  "image": {
+    "type": "object",
+    "documentsMutable": false,
+    "canBeDeleted": false,
+    "transferable": 0,
+    "tradeMode": 0,
+    "creationRestrictionMode": 1,
+    "properties": {
+      "name": { "type": "string", "minLength": 1, "maxLength": 64, "position": 0 },
+      "description": { "type": "string", "maxLength": 280, "position": 1 },
+      "imageType": { "type": "integer", "minimum": 0, "maximum": 6, "position": 2 },
+      "supply": { "type": "integer", "minimum": 1, "maximum": 1000000, "position": 3 },
+      "image": { "type": "array", "byteArray": true, "minItems": 1, "maxItems": 5120, "position": 4 },
+      "part0": { "type": "array", "byteArray": true, "minItems": 1, "maxItems": 5120, "position": 5 },
+      "part1": { "type": "array", "byteArray": true, "minItems": 1, "maxItems": 5120, "position": 6 },
+      "part2": { "type": "array", "byteArray": true, "minItems": 1, "maxItems": 5120, "position": 7 },
+      "part3": { "type": "array", "byteArray": true, "minItems": 1, "maxItems": 5120, "position": 8 }
+    },
+    "propertyConstraints": {
+      "imageOrParts": {
+        "ifThenElse": [
+          { "present": "image" },
+          { "allOf": [ { "absent": "part0" }, { "absent": "part1" }, { "absent": "part2" }, { "absent": "part3" } ] },
+          { "present": "part0" }
+        ]
+      }
+    },
+    "required": ["name", "description", "imageType", "supply"],
+    "additionalProperties": false
+  },
+  "nft": {
+    "type": "object",
+    "documentsMutable": false,
+    "canBeDeleted": true,
+    "transferable": 1,
+    "tradeMode": 1,
+    "creationRestrictionMode": 1,
+    "keepsTransferHistory": true,
+    "keepsPurchaseHistory": true,
+    "indices": [
+      { "name": "byOwner", "properties": [ { "$ownerId": "asc" } ] },
+      { "name": "byImageOwner", "properties": [ { "imageId": "asc" }, { "$ownerId": "asc" } ], "countable": "countable" },
+      { "name": "byImageSerial", "properties": [ { "imageId": "asc" }, { "serial": "asc" } ], "unique": true }
+    ],
+    "properties": {
+      "imageId": {
+        "type": "array", "byteArray": true, "minItems": 32, "maxItems": 32,
+        "contentMediaType": "application/x.dash.dpp.identifier",
+        "refersTo": { "type": "permanentDocument", "documentType": "image" },
+        "position": 0
+      },
+      "serial": { "type": "integer", "minimum": 1, "maximum": 1000000, "position": 1 }
+    },
+    "propertyConstraints": {
+      "serialWithinSupply": { "lessThanOrEqual": [ "serial", { "referenced": ["imageId", "supply"] } ] }
+    },
+    "required": ["imageId", "serial"],
+    "additionalProperties": false
+  },
+  "collectionInfo": {
+    "type": "object",
+    "documentsMutable": true,
+    "canBeDeleted": true,
+    "transferable": 0,
+    "tradeMode": 0,
+    "creationRestrictionMode": 1,
+    "documentsCountable": true,
+    "properties": {
+      "mainContract": {
+        "type": "array", "byteArray": true, "minItems": 32, "maxItems": 32,
+        "contentMediaType": "application/x.dash.dpp.identifier",
+        "refersTo": { "type": "contract" },
+        "position": 0
+      }
+    },
+    "propertyConstraints": {
+      "onlyOne": { "lessThanOrEqual": [ { "countOf": ["collectionInfo"] }, 1 ] }
+    },
+    "additionalProperties": false
+  }
+}

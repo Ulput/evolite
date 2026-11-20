@@ -644,6 +644,7 @@ impl Real {
                 return self.rename_wallet(id, name, color);
             }
             Command::FindToken { id } => return self.find_token(id),
+            Command::ReadWorkshop { ask } => return self.read_workshop(ask),
             Command::SearchTokens { keyword } => return self.search_tokens(keyword),
             Command::TrackToken { token_id, on } => return self.track_token(token_id, on),
             Command::FindMyTokens => return self.find_my_tokens(true),

@@ -33,6 +33,7 @@ dash-sdk = { workspace = true }
 dapi-grpc = { workspace = true }
 dpp = { workspace = true }
 platform-wallet = { workspace = true }
+drive-proof-verifier = { workspace = true }
 platform-wallet-storage = { workspace = true }
 simple-signer = { workspace = true }
 platform-encryption = { workspace = true }

@@ -86,9 +86,12 @@ pub fn kind_of(a: &Activity) -> u8 {
         | Mixing { .. }
         | IntoMixing
         | AddressFunded => kind::SELF_TRANSFER,
-        TopUp { .. } | Withdrawal { .. } | CreditTransfer { .. } | KeysChanged { .. } => {
-            kind::IDENTITY
-        }
+        // FEAT-0038 R-15: an NFT sold, its price in the identity's credits.
+        TopUp { .. }
+        | Withdrawal { .. }
+        | CreditTransfer { .. }
+        | KeysChanged { .. }
+        | NftSold { .. } => kind::IDENTITY,
         NameRegistered { .. }
         | NameClaimed { .. }
         | NameLinkWritten { .. }

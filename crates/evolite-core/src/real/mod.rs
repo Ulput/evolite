@@ -549,6 +549,8 @@ struct Real {
     avatars: avatars::Avatars,
     /// The identity's NFTs from Platform, with their pictures.
     nfts: nfts::Nfts,
+    /// The Workshop's reading (FEAT-0038 item 2): where each identity's sales stand.
+    workshop: ops::workshop::WorkshopState,
     /// The tokens: what the searches found and the wallet's `tokens.json` (FEAT-0019).
     tokens: ops::tokens::TokenState,
     /// The sandboxed renderer; `None` in tests.

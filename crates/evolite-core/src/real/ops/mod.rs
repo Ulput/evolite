@@ -30,3 +30,4 @@ pub(super) mod token_manage;
 pub(super) mod token_search;
 pub(super) mod tokens;
 pub(super) mod wallet;
+pub(super) mod workshop;

@@ -2383,5 +2383,8 @@
   "evolite {} fixes a security problem": "evolite {}에서 보안 문제가 수정되었습니다",
   "evolite {} is out": "evolite {}가 나왔습니다",
   "minisign public keys and their key IDs: compare them with docs/verify.md": "minisign 공개 키와 키 ID: docs/verify.md와 비교하세요",
-  "On macOS, evolite keeps this window out of screenshots, but a screen recording or screen sharing may still see the phrase. evolite cannot block it.": "macOS에서 evolite는 이 창이 스크린샷에 찍히지 않게 하지만, 화면 녹화나 화면 공유에는 구문이 보일 수 있습니다. evolite는 이를 막을 수 없습니다."
+  "On macOS, evolite keeps this window out of screenshots, but a screen recording or screen sharing may still see the phrase. evolite cannot block it.": "macOS에서 evolite는 이 창이 스크린샷에 찍히지 않게 하지만, 화면 녹화나 화면 공유에는 구문이 보일 수 있습니다. evolite는 이를 막을 수 없습니다.",
+  "Sold “{}” no. {} · {}": "“{}” {}번 판매됨 · {}",
+  "Sold “{}” · {}": "“{}” 판매됨 · {}",
+  "Sold an NFT · {}": "NFT 판매됨 · {}"
 }

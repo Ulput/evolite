@@ -39,6 +39,8 @@ dash-sdk = { git = "https://github.com/dashpay/platform", rev = "575d961fe0c54bd
 dapi-grpc = { git = "https://github.com/dashpay/platform", rev = "575d961fe0c54bd7e01a3cf3823494e58c6c4fdb", default-features = false, features = ["client"] }
 dpp = { git = "https://github.com/dashpay/platform", rev = "575d961fe0c54bd7e01a3cf3823494e58c6c4fdb", default-features = false, features = ["ed25519-dalek"] }
 platform-wallet = { git = "https://github.com/dashpay/platform", rev = "575d961fe0c54bd7e01a3cf3823494e58c6c4fdb" }
+# Proved document counts (FEAT-0038 «У вас»): the verifier dash-sdk already uses.
+drive-proof-verifier = { git = "https://github.com/dashpay/platform", rev = "575d961fe0c54bd7e01a3cf3823494e58c6c4fdb", default-features = false }
 platform-wallet-storage = { git = "https://github.com/dashpay/platform", rev = "575d961fe0c54bd7e01a3cf3823494e58c6c4fdb", default-features = false, features = ["sqlite"] }
 # Platform's own signer of state transitions with identity keys (Dash Evo Tool signs with it too).
 simple-signer = { git = "https://github.com/dashpay/platform", rev = "575d961fe0c54bd7e01a3cf3823494e58c6c4fdb", features = ["state-transitions"] }

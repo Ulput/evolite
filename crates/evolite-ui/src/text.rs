@@ -662,6 +662,33 @@ pub fn activity_title(a: &Activity) -> String {
         ActivityKind::TokenSent { to, .. } => {
             format!(tr!("Token transfer to {}"), short_address(to))
         }
+        // FEAT-0038 R-15: «Продан «{model}» № {n} · @{name}»; without the number, or the model,
+        // when the instance was deleted after the sale (the architect's point 4).
+        ActivityKind::NftSold {
+            model,
+            serial,
+            buyer,
+        } => {
+            let buyer = if buyer.starts_with('@') {
+                crate::i18n::own(buyer)
+            } else {
+                short_address(buyer)
+            };
+            match (model, serial) {
+                (Some(model), Some(serial)) => format!(
+                    tr!("Sold “{model}” no. {serial} · {buyer}"),
+                    model = crate::i18n::own(model),
+                    serial = serial,
+                    buyer = buyer
+                ),
+                (Some(model), None) => format!(
+                    tr!("Sold “{model}” · {buyer}"),
+                    model = crate::i18n::own(model),
+                    buyer = buyer
+                ),
+                (None, _) => format!(tr!("Sold an NFT · {buyer}"), buyer = buyer),
+            }
+        }
         // FEAT-0019 T-1 (the analyst's strings).
         ActivityKind::TokenReceived {
             token,
@@ -945,7 +972,8 @@ pub fn activity_icon(a: &Activity) -> &'static str {
     match &a.kind {
         ActivityKind::Received { .. }
         | ActivityKind::PlatformReceived
-        | ActivityKind::PoolReceived => "receive",
+        | ActivityKind::PoolReceived
+        | ActivityKind::NftSold { .. } => "receive",
         ActivityKind::Sent { .. } | ActivityKind::PoolSent => "send",
         ActivityKind::TopUp { .. } => "top-up",
         ActivityKind::KeysChanged { .. } => "key",
@@ -1654,6 +1682,35 @@ mod lock_tests {
         assert_eq!(activity_title(&line), "Transfer between own addresses");
         line.flow = Flow::Out;
         assert_eq!(activity_title(&line), "Sent from the Platform address");
+    }
+
+    /// FEAT-0038 R-15: «Sold “{model}” no. {n} · @{name}»; without the number, or the model,
+    /// when the instance was deleted after the sale; a buyer without a name by a short id.
+    #[test]
+    fn a_sale_is_named_with_what_is_known() {
+        let sold = |model: Option<&str>, serial, buyer: &str| {
+            let line = Activity {
+                kind: ActivityKind::NftSold {
+                    model: model.map(str::to_owned),
+                    serial,
+                    buyer: buyer.into(),
+                },
+                ..lock(Credits::Added)
+            };
+            // Without the marks of the person's own words (FSI, PDI).
+            activity_title(&line).replace(['\u{2068}', '\u{2069}'], "")
+        };
+        assert_eq!(
+            sold(Some("Winter tram"), Some(7), "@alice"),
+            "Sold “Winter tram” no. 7 · @alice"
+        );
+        assert_eq!(
+            sold(Some("Winter tram"), None, "@alice"),
+            "Sold “Winter tram” · @alice"
+        );
+        assert_eq!(sold(None, None, "@alice"), "Sold an NFT · @alice");
+        let id = "7Yowk46VwwHqmD5yZyyygggh937aP6h2UW7aQWBdWpM5";
+        assert!(!sold(None, None, id).contains(id), "a long id is shortened");
     }
 
     /// R-3а, BUG-57: the chip names Core for every lock not known to be added; only a lock not

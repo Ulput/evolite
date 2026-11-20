@@ -2748,6 +2748,7 @@ dependencies = [
  "dash-sdk",
  "dash-spv",
  "dpp",
+ "drive-proof-verifier",
  "evolite-api",
  "evolite-art",
  "evolite-coinjoin",

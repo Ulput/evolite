@@ -129,6 +129,7 @@ impl Real {
             last_touch: tokio::time::Instant::now(),
             avatars: Default::default(),
             nfts: Default::default(),
+            workshop: Default::default(),
             tokens,
             artist: None,
             art_base: None,

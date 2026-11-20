@@ -32,6 +32,9 @@ pub mod fresh;
 
 /// How many decoded contracts are kept in memory (review, condition 4); the rest stay as bytes.
 pub const DECODED: usize = 256;
+/// The version of the NFT profile ([`crate::platform::workshop_read::profile`]) the `nft_match`
+/// rows were checked by: rows of another are checked again.
+pub const PROFILE_VERSION: i64 = 1;
 
 /// How long a read waits for a write before it gives up (review, condition 2): the provider is on
 /// the proof path and never waits; the SDK reads the contract itself then.
@@ -316,6 +319,12 @@ impl ContractCache {
                     params![id.as_slice()],
                 )
                 .map_err(|e| e.to_string())?;
+                // A new body is checked against the profile again ([`Self::nft_contracts`]).
+                tx.execute(
+                    "DELETE FROM nft_match WHERE contract_id = ?1",
+                    params![id.as_slice()],
+                )
+                .map_err(|e| e.to_string())?;
                 for (token_id, position) in tokens {
                     tx.execute(
                         "INSERT OR REPLACE INTO token (token_id, contract_id, position)
@@ -423,6 +432,72 @@ impl ContractCache {
     ) -> Option<dpp::data_contract::TokenConfiguration> {
         let (contract, _) = self.token(token_id)?;
         self.try_get(&contract)?.token_configuration(token_id)
+    }
+
+    /// FEAT-0031 stage 1: the contracts kept that fit the NFT profile, with their instance
+    /// type. Each contract is checked once per [`PROFILE_VERSION`] and its verdict kept in
+    /// `nft_match` (an empty type: it does not fit), so only those not checked yet are decoded.
+    pub fn nft_contracts(&self) -> Vec<(Identifier, String)> {
+        let unchecked: Vec<Vec<u8>> = {
+            let mut reader = self.reader.lock().unwrap_or_else(|e| e.into_inner());
+            let Some(conn) = self.connection(&mut reader) else {
+                return Vec::new();
+            };
+            conn.prepare(
+                "SELECT id FROM contract WHERE id NOT IN
+                 (SELECT contract_id FROM nft_match WHERE profile_version = ?1)",
+            )
+            .and_then(|mut s| {
+                s.query_map(params![PROFILE_VERSION], |r| r.get(0))?
+                    .collect::<Result<_, _>>()
+            })
+            .unwrap_or_default()
+        };
+        let verdicts: Vec<(Vec<u8>, String)> = unchecked
+            .into_iter()
+            .filter_map(|bytes| {
+                let id = Identifier::from_bytes(&bytes).ok()?;
+                let kept = self.get(&id)?;
+                let instance = crate::platform::workshop_read::profile(&kept.contract)
+                    .map(|p| p.instance)
+                    .unwrap_or_default();
+                Some((bytes, instance))
+            })
+            .collect();
+        if !verdicts.is_empty() {
+            let mut writer = self.writer.lock().unwrap_or_else(|e| e.into_inner());
+            if let Some(conn) = self.connection(&mut writer)
+                && let Ok(tx) = conn.transaction()
+            {
+                for (id, instance) in &verdicts {
+                    let _ = tx.execute("DELETE FROM nft_match WHERE contract_id = ?1", params![id]);
+                    let _ = tx.execute(
+                        "INSERT INTO nft_match (contract_id, document_type, profile_version)
+                         VALUES (?1, ?2, ?3)",
+                        params![id, instance, PROFILE_VERSION],
+                    );
+                }
+                let _ = tx.commit();
+            }
+        }
+        let mut reader = self.reader.lock().unwrap_or_else(|e| e.into_inner());
+        let Some(conn) = self.connection(&mut reader) else {
+            return Vec::new();
+        };
+        conn.prepare(
+            "SELECT contract_id, document_type FROM nft_match
+             WHERE profile_version = ?1 AND document_type != ''",
+        )
+        .and_then(|mut s| {
+            s.query_map(params![PROFILE_VERSION], |r| {
+                Ok((r.get::<_, Vec<u8>>(0)?, r.get::<_, String>(1)?))
+            })?
+            .collect::<Result<Vec<_>, _>>()
+        })
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|(id, t)| Some((Identifier::from_bytes(&id).ok()?, t)))
+        .collect()
     }
 
     /// The contracts kept and the bytes of their bodies (the journal, review condition 4).

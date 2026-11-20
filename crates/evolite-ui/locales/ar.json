@@ -2468,5 +2468,8 @@
   "evolite {} fixes a security problem": "يصلح evolite {} مشكلة أمنية",
   "evolite {} is out": "صدر evolite {}",
   "minisign public keys and their key IDs: compare them with docs/verify.md": "مفاتيح minisign العامة ومعرّفاتها: قارنها بـ docs/verify.md",
-  "On macOS, evolite keeps this window out of screenshots, but a screen recording or screen sharing may still see the phrase. evolite cannot block it.": "على macOS، يُبقي evolite هذه النافذة خارج لقطات الشاشة، لكن تسجيل الشاشة أو مشاركتها قد يرى العبارة رغم ذلك. لا يستطيع evolite منع ذلك."
+  "On macOS, evolite keeps this window out of screenshots, but a screen recording or screen sharing may still see the phrase. evolite cannot block it.": "على macOS، يُبقي evolite هذه النافذة خارج لقطات الشاشة، لكن تسجيل الشاشة أو مشاركتها قد يرى العبارة رغم ذلك. لا يستطيع evolite منع ذلك.",
+  "Sold “{}” no. {} · {}": "بيع «{}» رقم {} · {}",
+  "Sold “{}” · {}": "بيع «{}» · {}",
+  "Sold an NFT · {}": "بيع NFT · {}"
 }

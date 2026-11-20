@@ -95,6 +95,8 @@ pub fn of(kind: &ActivityKind, chain: Chain) -> (u8, Flow) {
         // token sent costs the identity its fee.
         TokenSent { .. } => (IDENTITY | TOKENS, Flow::Out),
         TokenReceived { .. } => (IDENTITY | TOKENS, Flow::In),
+        // FEAT-0038 R-15: the buyer's credits came to the identity.
+        NftSold { .. } => (IDENTITY, Flow::In),
         TokenBalance { up, .. } => (IDENTITY | TOKENS, if *up { Flow::In } else { Flow::Out }),
         TokenClaimed { .. } => (IDENTITY | TOKENS, Flow::In),
         TokenBought { .. } => (IDENTITY | TOKENS, Flow::Out),

@@ -1030,6 +1030,8 @@ impl App {
                 } => {}
                 // FEAT-0019: the tokens screen's dialogs.
                 Event::TokenFound { query, result } => self.tokens.on_found(query, result),
+                // FEAT-0038 item 2: the Workshop's screen is not built yet; nothing asks.
+                Event::Workshop { .. } => {}
                 Event::Done {
                     what: DoneWhat::Token,
                     result,
