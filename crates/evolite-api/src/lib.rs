@@ -18,6 +18,7 @@ pub mod address_fund;
 pub mod address_plan;
 pub mod coin_plan;
 pub mod confirm;
+pub mod contracts;
 pub mod features;
 pub mod fiat;
 pub mod key_plan;
@@ -2334,6 +2335,13 @@ pub enum Command {
     },
     /// Act as this identity (base58) from now on: the Identity screen, credits, contacts,
     /// profile, top-ups and names follow it.
+    /// The checks of registering `draft` as identity `identity` (base58), before the password:
+    /// the fee part by part and why it cannot go, if it cannot (FEAT-0038 module V1). Read
+    /// fresh: the identity's credits and the network's rules. `Event::ContractChecked`.
+    CheckContract {
+        identity: String,
+        draft: contracts::ContractDraft,
+    },
     ChooseIdentity {
         id: String,
     },
@@ -2642,6 +2650,16 @@ pub enum Spend {
         token_id: String,
         op: tokens::IssuerOp,
     },
+    /// Register `draft` as identity `identity` (base58), paid from its credits (FEAT-0038
+    /// module V1): the checks of [`Command::CheckContract`] again, then the write.
+    /// `Event::ContractRegistered`, then `Done { what: DoneWhat::Contract }`.
+    RegisterContract {
+        identity: String,
+        draft: contracts::ContractDraft,
+        /// The total the check showed ([`contracts::ContractFee::total`]): what FEAT-0004's
+        /// large-spend tick counts; a fee grown past it is refused before signing.
+        fee_max: Duffs,
+    },
     /// FEAT-0020-resend: «Send requests again» — the requests `identity` still owes after its
     /// DashPay pair was replaced, to every contact owed one or to `contact` alone (R-8, R-9).
     /// One at a time, as after the key change; the password is always asked. `Done { what:
@@ -2660,6 +2678,8 @@ impl Spend {
             self,
             Spend::ApproveApp { grant: Some(_), .. }
                 | Spend::UpdateKeys { .. }
+                // A readonly contract: it cannot be undone or changed, and costs ≥ 0.19 DASH.
+                | Spend::RegisterContract { .. }
                 | Spend::ResendRequests { .. }
         )
     }
@@ -2679,6 +2699,7 @@ impl Spend {
             | Spend::UpdateKeys { .. }
             | Spend::ResendRequests { .. }
             | Spend::DisconnectApp { .. }
+            | Spend::RegisterContract { .. }
             | Spend::ApproveApp { grant: Some(_), .. } => true,
             Spend::ApproveApp { grant: None, .. }
             | Spend::Send { .. }
@@ -2712,6 +2733,7 @@ impl Spend {
             Spend::SaveProfile { .. } => DoneWhat::Profile,
             Spend::ApproveApp { .. } => DoneWhat::App,
             Spend::GiftNft { .. } => DoneWhat::Gift,
+            Spend::RegisterContract { .. } => DoneWhat::Contract,
             Spend::SendToken { .. } => DoneWhat::SendToken,
             Spend::ClaimToken { .. } => DoneWhat::ClaimToken,
             Spend::BuyToken { .. } => DoneWhat::BuyToken,
@@ -2826,6 +2848,8 @@ pub enum DoneWhat {
     /// `ForgetApp`: a disconnected app left the list.
     ForgetApp,
     Contact,
+    /// `Spend::RegisterContract`: a contract registered (or not).
+    Contract,
     CoreNode,
     Create,
     Delete,
@@ -2879,6 +2903,7 @@ impl DoneWhat {
             Self::AppBudgets => "app-budgets",
             Self::ForgetApp => "forget-app",
             Self::Contact => "contact",
+            Self::Contract => "contract",
             Self::CoreNode => "core-node",
             Self::Create => "create",
             Self::Delete => "delete",
@@ -2927,6 +2952,20 @@ impl fmt::Display for DoneWhat {
 #[derive(Debug)]
 pub enum Event {
     Snapshot(Box<Snapshot>),
+    /// The answer to `Command::CheckContract`, for that draft.
+    ContractChecked {
+        identity: String,
+        draft: contracts::ContractDraft,
+        result: Result<contracts::ContractCheck, CoreError>,
+    },
+    /// `Spend::RegisterContract` registered the contract `id` (base58); `charged`: what the
+    /// identity's credits went down by, read after it, when that read answered. Comes just
+    /// before its `Done { what: DoneWhat::Contract }`.
+    ContractRegistered {
+        identity: String,
+        id: String,
+        charged: Option<Duffs>,
+    },
     NewPhrase(Phrase),
     /// `scan` is filled for a DashPay import.
     PhraseAccepted(Result<Option<DashPayScan>, CoreError>),

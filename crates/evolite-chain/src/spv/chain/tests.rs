@@ -2122,3 +2122,191 @@ async fn the_sdk_takes_answers_within_the_height_tolerance() {
         "an answer signed 40 minutes ago is still stale"
     );
 }
+
+/// The SDK's protocol version is a seed (13 on testnet) until a proved answer names the
+/// network's: the V1 module builds at the version read after one (FEAT-0038, 2026-11-20).
+/// Reads only. `cargo test -p evolite-chain live_protocol_after_a_proved_read -- --ignored --nocapture`
+#[test]
+#[ignore = "needs testnet access"]
+fn live_protocol_after_a_proved_read() {
+    std::thread::Builder::new()
+        .stack_size(16 << 20)
+        .spawn(|| {
+            tokio::runtime::Builder::new_multi_thread()
+                .enable_all()
+                .thread_stack_size(8 << 20)
+                .build()
+                .unwrap()
+                .block_on(protocol_after_a_proved_read())
+        })
+        .unwrap()
+        .join()
+        .unwrap();
+}
+
+async fn protocol_after_a_proved_read() {
+    let dir = std::env::temp_dir().join("evolite-live-provider");
+    let paths = ChainPaths {
+        spv: dir.join("spv"),
+        store: dir.join("platform-wallet.db"),
+        core_node: dir.join("core-node.txt"),
+    };
+    let chain = Chain::default();
+    chain
+        .start(&paths, Arc::new(|_: &SyncStatus| {}))
+        .await
+        .expect("chain starts");
+    let started = Instant::now();
+    while !chain.platform_ready() {
+        assert!(
+            started.elapsed() < Duration::from_secs(30 * 60),
+            "not ready"
+        );
+        tokio::time::sleep(Duration::from_secs(2)).await;
+    }
+    let sdk = chain.sdk().await.unwrap();
+    println!("protocol when ready: {}", sdk.protocol_version_number());
+    let dash = chain.resolve_name("dash").await;
+    println!("proved read ok: {}", dash.is_ok());
+    println!("protocol after it: {}", sdk.protocol_version_number());
+    chain.stop().await;
+}
+
+/// FEAT-0038 module V1, live (architect, 2026-11-20): a collection registered through
+/// `Chain::register_contract` by an identity of a wallet whose folder and vault password file
+/// are given (`EVOLITE_V1_LIVE_DIR`, `EVOLITE_V1_LIVE_PASSWORD_FILE`; the slot of the owner in
+/// `EVOLITE_V1_LIVE_SLOT`, 0 by default). Checks: the estimate is not below the charge, the id
+/// is the network's, the cache and the provider took it, and a document goes into it without
+/// registering it by hand. Spends ≈ 0.195 tDASH. Never a QA wallet nor werner555.
+/// `cargo test -p evolite-chain live_register_collection -- --ignored --nocapture`
+#[test]
+#[ignore = "testnet; spends ≈ 0.195 tDASH of the wallet given"]
+fn live_register_collection() {
+    std::thread::Builder::new()
+        .stack_size(16 << 20)
+        .spawn(|| {
+            tokio::runtime::Builder::new_multi_thread()
+                .enable_all()
+                .thread_stack_size(8 << 20)
+                .build()
+                .unwrap()
+                .block_on(register_collection())
+        })
+        .unwrap()
+        .join()
+        .unwrap();
+}
+
+async fn register_collection() {
+    use crate::platform::contract_v1::templates;
+    use dpp::data_contract::accessors::v0::DataContractV0Getters;
+    let dir = std::path::PathBuf::from(
+        std::env::var("EVOLITE_V1_LIVE_DIR").expect("EVOLITE_V1_LIVE_DIR"),
+    );
+    let password = std::fs::read_to_string(
+        std::env::var("EVOLITE_V1_LIVE_PASSWORD_FILE").expect("EVOLITE_V1_LIVE_PASSWORD_FILE"),
+    )
+    .unwrap();
+    let slot: u32 = std::env::var("EVOLITE_V1_LIVE_SLOT")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0);
+    let base = dir.join("wallets").join("testnet");
+    let folder = std::fs::read_dir(&base)
+        .unwrap()
+        .flatten()
+        .map(|e| e.path())
+        .find(|p| p.join("wallet.json").exists())
+        .expect("a wallet");
+    let file = evolite_local::vault::load(&folder.join("wallet.json"))
+        .unwrap()
+        .expect("vault");
+    let phrase = evolite_local::vault::open(&file, password.trim()).expect("the vault opens");
+    let paths = ChainPaths {
+        spv: dir.join("spv").join("testnet"),
+        store: folder.join("platform-wallet.db"),
+        core_node: dir.join("core-node.txt"),
+    };
+    let chain = Chain::default();
+    chain
+        .start(&paths, Arc::new(|_: &SyncStatus| {}))
+        .await
+        .expect("chain starts");
+    let (wallet_id, wallet) = chain
+        .open_wallet(&phrase, file.meta.birth_height)
+        .await
+        .unwrap();
+    let keys = crate::keys_of(&phrase).unwrap();
+    drop(phrase);
+    let started = Instant::now();
+    while !(chain.status().filters.is_some_and(|f| f.done) && chain.platform_ready()) {
+        assert!(
+            started.elapsed() < Duration::from_secs(40 * 60),
+            "not ready"
+        );
+        tokio::time::sleep(Duration::from_secs(2)).await;
+    }
+    let owner = {
+        let state = wallet.state().await;
+        identities::of_wallet(&state.identity_manager, wallet_id)
+            .find(|m| m.identity_index == Some(slot))
+            .map(|m| m.identity.id())
+            .expect("the owner's slot")
+    };
+    let sdk = chain.sdk().await.unwrap();
+    println!(
+        "protocol before any proved read: {}",
+        sdk.protocol_version_number()
+    );
+
+    let draft = templates::nft_collection(Some("evolite V1 module test".into()));
+    let checked = chain.check_contract(&wallet, &keys, &owner, &draft).await;
+    println!("check: {checked:?}");
+    assert!(checked.refusal.is_none(), "{checked:?}");
+    let t = Instant::now();
+    let done = chain
+        .register_contract(&wallet, &keys, &owner, &draft)
+        .await
+        .expect("registered");
+    let id = done.contract.id();
+    println!(
+        "registered {} in {}ms · protocol {} · {} bytes · estimate {} (registration {}, storage {}) · charged {:?} · recovered {}",
+        id.to_string(Encoding::Base58),
+        t.elapsed().as_millis(),
+        done.protocol,
+        done.bytes,
+        done.fee.total(),
+        done.fee.registration(),
+        done.fee.storage,
+        done.charged,
+        done.recovered
+    );
+    let charged = done.charged.expect("the charge read");
+    assert!(done.fee.total() >= charged, "the estimate below the charge");
+    assert_eq!(done.contract.owner_id(), owner);
+    assert_ne!(id, Identifier::default(), "the network's id");
+    let cached = chain.contracts().and_then(|c| c.get(&id));
+    println!("in the cache: {}", cached.is_some());
+    assert!(cached.is_some());
+
+    // A document into it, without registering it by hand: the provider has it.
+    let (_, signer) = Chain::signing(&wallet, &keys, &owner).await.unwrap();
+    let info =
+        serde_json::json!({ "mainContract": "GWRSAVFMjXx8HpQFaNJMqBV7MBgMK4br5UESsB4S31Ec" })
+            .to_string();
+    let t = Instant::now();
+    let doc = wallet
+        .identity()
+        .create_document_with_signer(&owner, &id, "collectionInfo", &info, None, &signer)
+        .await;
+    println!(
+        "collectionInfo in it: {} in {}ms",
+        match &doc {
+            Ok(_) => "ok".to_string(),
+            Err(e) => format!("FAILED {e}"),
+        },
+        t.elapsed().as_millis()
+    );
+    assert!(doc.is_ok());
+    chain.stop().await;
+}

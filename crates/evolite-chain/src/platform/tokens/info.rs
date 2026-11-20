@@ -178,12 +178,16 @@ pub fn contract_bytes(contract: &DataContract) -> Result<Vec<u8>, String> {
 }
 
 /// A contract kept by [`contract_bytes`]; `None` when the bytes are not one. Decoded as untrusted
-/// and validated in full: the file is on the person's disk, not a proof.
+/// but **without** DPP's full schema check, whatever its features (FEAT-0038 V1 r1 Must 2): the
+/// check at the newest version would refuse a contract lawful at the network's (the cache
+/// would read it from the network forever, a token would vanish), and the bytes are not trusted
+/// anyway — a disk is not a proof: what is read from here is never written with (C5 condition
+/// 1), and a proof made with another contract does not meet the signed root.
 pub fn contract_from_bytes(bytes: &[u8]) -> Option<DataContract> {
     use dpp::serialization::PlatformDeserializableWithPotentialValidationFromVersionedStructureUntrusted;
     DataContract::versioned_deserialize_untrusted(
         bytes,
-        true,
+        false,
         dpp::version::PlatformVersion::latest(),
     )
     .ok()

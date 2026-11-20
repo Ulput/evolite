@@ -1000,6 +1000,13 @@ impl App {
                     ask,
                 } => self.identity.on_top_up_done(*ask, result),
                 Event::AddressFunded { credited } => self.fund_address.on_funded(*credited),
+                // FEAT-0038 module V1: the Workshop's screens take these when they come.
+                Event::ContractChecked { .. }
+                | Event::ContractRegistered { .. }
+                | Event::Done {
+                    what: DoneWhat::Contract,
+                    ..
+                } => {}
                 Event::Done {
                     what: DoneWhat::FundAddress,
                     result,

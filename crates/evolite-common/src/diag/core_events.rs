@@ -48,6 +48,7 @@ pub fn command_name(command: &Command) -> &'static str {
         Command::RefreshNfts => "refresh_nfts",
         Command::ReadIdentityKeys { .. } => "read_identity_keys",
         Command::ChooseIdentity { .. } => "choose_identity",
+        Command::CheckContract { .. } => "check_contract",
         Command::DeleteWallet { .. } => "delete_wallet",
         Command::AskPhraseCheck { .. } => "ask_phrase_check",
         Command::CheckPhraseWords { .. } => "check_phrase_words",
@@ -105,6 +106,7 @@ fn spend(op: &Spend) -> &'static str {
         Spend::SaveProfile { .. } => "save_profile",
         Spend::ApproveApp { .. } => "approve_app",
         Spend::GiftNft { .. } => "gift_nft",
+        Spend::RegisterContract { .. } => "register_contract",
         Spend::SendToken { .. } => "send_token",
         Spend::ClaimToken { .. } => "claim_token",
         Spend::BuyToken { .. } => "buy_token",
@@ -170,7 +172,11 @@ fn art_reason(error: &CoreError) -> &'static str {
 pub fn answer(event: &Event) -> Option<Record> {
     let (what, outcome) = match event {
         // A funding's amount is in its own line (`Record::AddressFund`, BUG-171), not here.
-        Event::Snapshot(_) | Event::Progress { .. } | Event::AddressFunded { .. } => return None,
+        // A registration's numbers are in its own line (`Record::ContractRegistered`).
+        Event::Snapshot(_)
+        | Event::Progress { .. }
+        | Event::AddressFunded { .. }
+        | Event::ContractRegistered { .. } => return None,
         Event::Art { result, .. } => {
             return result.as_ref().err().map(|e| Record::Art {
                 reason: art_reason(e),
@@ -179,6 +185,7 @@ pub fn answer(event: &Event) -> Option<Record> {
         Event::NewPhrase(_) => ("new_phrase", "ok"),
         Event::PhraseAccepted(r) => ("phrase_accepted", outcome(r)),
         Event::NameResolved { result, .. } => ("name_resolved", outcome(result)),
+        Event::ContractChecked { result, .. } => ("contract_checked", outcome(result)),
         Event::Done { what, result, .. } => (what.as_str(), outcome(result)),
         Event::PhraseRevealed(r) => ("phrase_revealed", outcome(r)),
         Event::IdentityKeyRevealed(r) => ("identity_key_revealed", outcome(r)),

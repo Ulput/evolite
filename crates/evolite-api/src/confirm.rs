@@ -38,6 +38,9 @@ pub fn outgoing(op: &Spend, fees: &Fees) -> Option<Duffs> {
         }
         // A claim on a contested name: its fund goes into the vote.
         Spend::AddName { contest_fund, .. } => *contest_fund,
+        // FEAT-0038 module V1: the most the registration takes, as its check showed it (with
+        // keywords at 0.1 DASH each it may pass the threshold).
+        Spend::RegisterContract { fee_max, .. } => Some(*fee_max),
         Spend::ResumeTopUp
         | Spend::ResumeFundAddress
         | Spend::ResumeIdentity
@@ -262,6 +265,17 @@ mod tests {
                     contact: None,
                 },
                 None,
+            ),
+            (
+                Spend::RegisterContract {
+                    identity: "a".into(),
+                    draft: crate::contracts::ContractDraft::NftCollection {
+                        description: None,
+                        keywords: vec!["nft".into()],
+                    },
+                    fee_max: 29_414_290,
+                },
+                Some(29_414_290),
             ),
         ];
         for (op, expected) in cases {

@@ -11,6 +11,7 @@ pub mod address_fund;
 pub mod addresses;
 mod contacts;
 mod contests;
+mod contract_write;
 mod contracts;
 mod identities;
 mod store_read;

@@ -80,6 +80,14 @@ jobs:
         run: cargo fmt --all --check
       - name: clippy (dev-tools)
         run: cargo clippy --workspace --all-targets --locked --features evolite-ui/dev-tools -- -D warnings
+      # dpp's `validation` feature and its 13 packages are for tests only (the customer,
+      # 2026-11-20): no release target may carry jsonschema. «did not match» is the only pass.
+      - name: release carries no test-only packages
+        run: |
+          for t in x86_64-pc-windows-msvc aarch64-pc-windows-msvc x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu aarch64-apple-darwin x86_64-apple-darwin; do
+            out=$(cargo tree -p evolite-ui -e normal,build -i jsonschema --target "$t" --locked 2>&1) && { echo "jsonschema is in the release build for $t"; exit 1; }
+            echo "$out" | grep -q "did not match any packages" || { echo "$out"; exit 1; }
+          done
       - name: tests (default features)
         run: cargo test --workspace --locked
       - name: tests (dev-tools)

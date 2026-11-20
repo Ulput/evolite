@@ -57,6 +57,10 @@ miniz_oxide = "0.8"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["test-util"] }
+# Tests only (the customer, 2026-11-20): DPP's full validation of a contract checks offline
+# what the network refuses — the template against the network's version, and `rules` against
+# DPP. The release builds without it and its 13 packages; `rules` is its defence.
+dpp = { workspace = true, features = ["validation"] }
 
 [lints]
 workspace = true

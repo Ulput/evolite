@@ -412,6 +412,21 @@ pub enum Record {
         rows: u64,
         bytes: u64,
     },
+    /// A contract registered by the wallet (FEAT-0038 module V1), for the fee's calibration:
+    /// its document types, indexes and keywords, its size, the estimate and what was charged
+    /// (duffs; `None` when the read after it failed), the protocol, the ms, and whether it was
+    /// found after a lost answer. Numbers only: no contract id, no owner.
+    ContractRegistered {
+        types: u32,
+        indexes: u32,
+        keywords: u32,
+        bytes: u64,
+        estimate: u64,
+        charged: Option<u64>,
+        protocol: u32,
+        ms: u64,
+        recovered: bool,
+    },
     /// A name search for the suggestions ended (FEAT-0039, AC-A8): how many names, and whether
     /// they came from the session's cache without asking the network. Never the text typed,
     /// the names or the pictures' addresses.
@@ -690,6 +705,21 @@ impl Record {
             }),
             Record::ContractsCached { rows, bytes } => json!({
                 "k": "contracts_cached", "rows": rows, "bytes": bytes,
+            }),
+            Record::ContractRegistered {
+                types,
+                indexes,
+                keywords,
+                bytes,
+                estimate,
+                charged,
+                protocol,
+                ms,
+                recovered,
+            } => json!({
+                "k": "contract_registered", "types": types, "indexes": indexes,
+                "keywords": keywords, "bytes": bytes, "estimate": estimate, "charged": charged,
+                "protocol": protocol, "ms": ms, "recovered": recovered,
             }),
             Record::TokenSearchEnd {
                 contracts,
@@ -1209,12 +1239,39 @@ mod tests {
             identities: 8,
             ms: 150_000,
         };
+        let registered = Record::ContractRegistered {
+            types: 3,
+            indexes: 3,
+            keywords: 0,
+            bytes: 2_347,
+            estimate: 19_414_290,
+            charged: Some(19_161_179),
+            protocol: 14,
+            ms: 9_426,
+            recovered: false,
+        };
         let page = Record::CrawlPage {
             size: 10,
             ms: 20_000,
         };
         for (record, kind, names) in [
             (page, "crawl_page", &["k", "ms", "size"][..]),
+            (
+                registered,
+                "contract_registered",
+                &[
+                    "bytes",
+                    "charged",
+                    "estimate",
+                    "indexes",
+                    "k",
+                    "keywords",
+                    "ms",
+                    "protocol",
+                    "recovered",
+                    "types",
+                ][..],
+            ),
             (
                 stage,
                 "token_search_stage",

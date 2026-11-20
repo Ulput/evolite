@@ -109,6 +109,19 @@ impl Real {
                 Event::Progress { .. } => return (None, true),
                 refused => refused,
             },
+            // FEAT-0038 module V1: a contract of the wallet's own.
+            Spend::RegisterContract {
+                identity,
+                draft,
+                fee_max,
+            } => match self.register_contract(identity, draft, fee_max) {
+                Ok(()) => return (None, true),
+                Err(e) => Event::Done {
+                    what: DoneWhat::Contract,
+                    result: Err(e),
+                    ask: None,
+                },
+            },
             Spend::GiftNft { .. } => Event::Done {
                 what: DoneWhat::Gift,
                 result: Err(CoreError::NotAvailable(NO_GIFTS.into())),
@@ -560,6 +573,16 @@ impl Real {
                 ))),
             },
             Command::ChooseIdentity { id } => return self.choose_identity(id).await,
+            Command::CheckContract { identity, draft } => {
+                match self.check_contract(identity.clone(), draft.clone()) {
+                    Ok(()) => return (None, false),
+                    Err(e) => Event::ContractChecked {
+                        identity,
+                        draft,
+                        result: Err(e),
+                    },
+                }
+            }
             Command::DeleteWallet { password, wallet } => {
                 match wallet.filter(|id| *id != self.wallet) {
                     // Another wallet: not "delete", which the app takes for the open one gone.

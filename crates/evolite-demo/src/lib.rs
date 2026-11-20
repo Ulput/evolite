@@ -379,6 +379,27 @@ impl Mock {
                 }
                 return true;
             }
+            // FEAT-0038 module V1: the fee of the collection the probe registered on testnet
+            // (2026-11-20), 0.1 DASH a keyword; nothing refused. The demo registers nothing.
+            Command::CheckContract { identity, draft } => {
+                let evolite_api::contracts::ContractDraft::NftCollection { keywords, .. } = &draft;
+                Event::ContractChecked {
+                    identity,
+                    result: Ok(evolite_api::contracts::ContractCheck {
+                        fee: Some(evolite_api::contracts::ContractFee {
+                            base: 10_000_000,
+                            document_types: 6_000_000,
+                            indexes: 3_000_000,
+                            tokens: 0,
+                            keywords: 10_000_000 * keywords.len() as Duffs,
+                            per_keyword: 10_000_000,
+                            storage: 414_290,
+                        }),
+                        refusal: None,
+                    }),
+                    draft,
+                }
+            }
             // The demo has one identity behind both choices: it takes the chosen id.
             Command::ChooseIdentity { id } => {
                 let Some(wallet) = &mut self.snapshot.wallet else {

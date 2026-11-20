@@ -248,8 +248,9 @@ impl ContractCache {
             .ok()
             .flatten();
         let (version, bytes, checked_at) = row?;
-        // Decoded untrusted and validated in full (`contract_from_bytes`): the file is on the
-        // disk, not a proof. One that does not decode is read from the network again.
+        // Decoded untrusted, without DPP's full schema check (`contract_from_bytes`): the disk is
+        // not a proof, so the row is not `proved`. One that does not decode is read from the
+        // network again.
         let contract = crate::platform::tokens::info::contract_from_bytes(&bytes)?;
         if contract.id() != *id || contract.version() != version {
             return None;

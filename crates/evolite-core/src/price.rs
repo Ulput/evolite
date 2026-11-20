@@ -270,6 +270,10 @@ pub fn declared_on(network: Network, op: &Spend, seen: &Seen, app_cost: Duffs) -
             covers(seen.credits, 0, fees.profile),
         ),
         Spend::ApproveApp { .. } => of("approve_app", app_cost, covers(seen.credits, 0, app_cost)),
+        // FEAT-0038 module V1: its fee depends on the draft and is counted fresh by the
+        // registration itself, which refuses below its total before signing (`CheckContract`
+        // shows it); nothing is promised here.
+        Spend::RegisterContract { .. } => of("register_contract", 0, true),
         Spend::GiftNft { .. } => of(
             "gift_nft",
             fees.nft_transfer,

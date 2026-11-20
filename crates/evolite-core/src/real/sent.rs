@@ -176,6 +176,9 @@ pub(in crate::real) enum Watch {
     Link { label: String },
     /// BUG-243: the identity's DashPay profile.
     Profile,
+    /// FEAT-0038 module V1 (r1 Must 1): a contract registered by identity `owner`, its id
+    /// made from the identity's nonce after `nonce`; a proved read of those ids settles it.
+    Contract { owner: String, nonce: u64 },
 }
 
 /// What a proved read of a token shows of a write of it (BUG-205): its balance on the identity,
@@ -367,6 +370,14 @@ impl Pending {
     pub(in crate::real) fn quiet_for(&self) -> Option<Duration> {
         self.ended.map(|at| at.elapsed())
     }
+    /// Tests: as if its send ended `ago`, and a first «no» `no_ago` (if given) ago.
+    #[cfg(test)]
+    pub(in crate::real) fn aged(&mut self, ago: Duration, no_ago: Option<Duration>) {
+        let now = std::time::Instant::now();
+        self.running = false;
+        self.ended = now.checked_sub(ago);
+        self.no_since = no_ago.and_then(|d| now.checked_sub(d));
+    }
 }
 
 /// The writes whose outcome is not known yet (TECH-after-send-outcome p. 3; BUG-184's slot for
@@ -477,6 +488,18 @@ impl Unclear {
         }
     }
 
+    /// The contract registration of `identity` not known to have gone through, as it is.
+    pub(in crate::real) fn contract_of(&self, identity: &str) -> Option<Pending> {
+        self.held()
+            .1
+            .iter()
+            .find(|p| {
+                p.identity == identity
+                    && matches!(&p.watch, Watch::Contract { owner, .. } if owner == identity)
+            })
+            .cloned()
+    }
+
     /// The write of `ticket`, taken out if it still waits.
     pub(in crate::real) fn take(&self, ticket: u64) -> Option<Pending> {
         let mut held = self.held();
@@ -565,6 +588,7 @@ impl Watch {
             Watch::Name { .. } => "name",
             Watch::Link { .. } => "link",
             Watch::Profile => "profile",
+            Watch::Contract { .. } => "contract",
         }
     }
 }
