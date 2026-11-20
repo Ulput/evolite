@@ -204,6 +204,17 @@ fn remove_data(known: &Known, data: bool) -> Result<(), String> {
     Ok(())
 }
 
+/// The running uninstaller, when the removal left it to go after this process exits.
+static SELF_DELETE: Mutex<Option<PathBuf>> = Mutex::new(None);
+
+/// BUG-246: called as the window closes — the uninstaller's file and its folder go once this
+/// process is gone, however long the last screen stayed open.
+pub fn delete_self_at_exit() {
+    if let Some(exe) = SELF_DELETE.lock().unwrap_or_else(|e| e.into_inner()).take() {
+        system::delete_after_exit(&exe);
+    }
+}
+
 fn run_remove(job: &Remove, p: &Shared) -> Result<(), String> {
     if system::running(&job.known) || system::in_use(&job.dir.join(plan::APP)) {
         return Err(tr!("evolite is running. Close it and try again.").into());
@@ -248,6 +259,8 @@ fn run_remove(job: &Remove, p: &Shared) -> Result<(), String> {
     system::remove_entry()?;
     if cfg!(windows) && me.as_deref() == Some(uninstaller.as_path()) {
         system::delete_after_exit(&uninstaller);
+        // BUG-246: and once more when the window closes ([`delete_self_at_exit`]).
+        *SELF_DELETE.lock().unwrap_or_else(|e| e.into_inner()) = Some(uninstaller);
     } else {
         let _ = std::fs::remove_dir(&job.dir);
     }
@@ -608,5 +621,90 @@ mod tests {
             remove_own(&known, &known.testnet_data()).is_ok(),
             "not there: nothing to do"
         );
+    }
+
+    /// BUG-246: the running uninstaller and then its empty folder go once it has exited, even
+    /// when it ran on for a while after the removal asked (its last screen open). A copy of
+    /// `ping.exe` running for about 4 s stands in for it. Review r1: in a folder whose name
+    /// `cmd` would expand (`%i`, `%TEMP%`, `!x!`, `&`, `^`, brackets), and the folders such an
+    /// expansion would name instead are left alone.
+    #[cfg(windows)]
+    #[test]
+    fn the_running_uninstaller_and_its_folder_go_after_it_exits() {
+        use std::time::{Duration, Instant};
+        let base = std::env::temp_dir().join(format!("evolite-bug246-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let name = "a %i %TEMP% !x! & ^ (b)";
+        let dir = base.join("Programs").join(name);
+        std::fs::create_dir_all(&dir).unwrap();
+        // What `%i`, an empty `!x!`, a cut at `&` or a dropped `^` would make of the name.
+        let decoys: Vec<_> = [
+            "a 1 %TEMP% !x! & ^ (b)",
+            "a %i %TEMP%  & ^ (b)",
+            // A cut at `&` (Windows drops the trailing space of a folder's name).
+            "a %i %TEMP% !x!",
+            "a",
+        ]
+        .iter()
+        .map(|d| {
+            let d = base.join("Programs").join(d);
+            std::fs::create_dir_all(&d).unwrap();
+            std::fs::write(d.join(plan::UNINSTALLER), b"decoy").unwrap();
+            d
+        })
+        .collect();
+        let exe = dir.join(plan::UNINSTALLER);
+        let system32 = std::env::var("SystemRoot").unwrap_or_else(|_| r"C:\Windows".into());
+        std::fs::copy(
+            std::path::Path::new(&system32).join(r"System32\PING.EXE"),
+            &exe,
+        )
+        .unwrap();
+        let mut running = std::process::Command::new(&exe)
+            .args(["-n", "5", "127.0.0.1"])
+            .stdout(std::process::Stdio::null())
+            .spawn()
+            .unwrap();
+        system::delete_after_exit(&exe);
+        std::thread::sleep(Duration::from_secs(2));
+        assert!(exe.exists(), "still running: still there");
+        running.wait().unwrap();
+        let start = Instant::now();
+        while dir.exists() && start.elapsed() < Duration::from_secs(20) {
+            std::thread::sleep(Duration::from_millis(200));
+        }
+        assert!(!exe.exists(), "the uninstaller is gone");
+        assert!(!dir.exists(), "and its empty folder");
+        assert!(
+            base.join("Programs").exists(),
+            "the folder above is not ours"
+        );
+        for d in &decoys {
+            assert!(
+                d.join(plan::UNINSTALLER).exists(),
+                "{} left alone",
+                d.display()
+            );
+        }
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    /// Review r1: no path goes into `cmd`'s line: it is fixed, the paths only by the names of
+    /// variables of its own environment, read by delayed expansion, AutoRun skipped.
+    #[cfg(windows)]
+    #[test]
+    fn no_path_is_in_the_command_line() {
+        let line = system::AFTER_EXIT;
+        assert!(line.starts_with("/D /V:ON /C "), "{line}");
+        assert!(
+            !line.replace("%i", "").contains('%'),
+            "no %…% but the loop's own %i: {line}"
+        );
+        assert!(
+            // No folder separator, no drive (`/V:ON` is cmd's own switch).
+            !line.contains('\\') && !line.replace("/V:ON", "").contains(':'),
+            "no path: {line}"
+        );
+        assert!(line.contains("!EVOLITE_SELF!") && line.contains("!EVOLITE_DIR!"));
     }
 }

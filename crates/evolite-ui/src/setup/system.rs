@@ -291,24 +291,35 @@ mod imp {
     }
 
     /// Deletes the uninstaller `exe` once this process has exited, then its folder if nothing
-    /// else is left in it: a hidden `cmd` waits two seconds — a running executable cannot delete
-    /// itself on Windows. `rmdir` without `/S` never removes a folder with anything in it.
+    /// else is left in it — a running executable cannot delete itself on Windows. A hidden `cmd`
+    /// tries about once a second for up to ten minutes (BUG-246: the last screen stays open as
+    /// long as the person reads it, and one try two seconds later found the file still running);
+    /// the uninstaller starts it again when its window closes. `rmdir` without `/S` never removes
+    /// a folder with anything in it.
+    ///
+    /// The paths never go into the command line (review r1, Must): the folder is the person's
+    /// choice, and inside quotes `cmd` still expands `%VAR%`, the loop's `%i` and, with delayed
+    /// expansion on, `!…!`. They go through the child's environment and are read only by
+    /// delayed expansion, whose result is not parsed again; `/D` skips the registry's AutoRun.
+    /// A file with no folder above it starts nothing.
     pub fn delete_after_exit(exe: &Path) {
         use std::os::windows::process::CommandExt;
         const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-        let dir = exe
-            .parent()
-            .map(|d| d.display().to_string())
-            .unwrap_or_default();
+        let Some(dir) = exe.parent().filter(|d| !d.as_os_str().is_empty()) else {
+            return;
+        };
         let _ = std::process::Command::new("cmd.exe")
-            .arg("/C")
-            .raw_arg(format!(
-                "ping -n 3 127.0.0.1 >NUL & del /F /Q \"{}\" & rmdir \"{dir}\"",
-                exe.display()
-            ))
+            .raw_arg(AFTER_EXIT)
+            .env("EVOLITE_SELF", exe)
+            .env("EVOLITE_DIR", dir)
             .creation_flags(CREATE_NO_WINDOW)
             .spawn();
     }
+
+    /// The whole command line of [`delete_after_exit`]'s `cmd`: fixed, the paths only by name.
+    pub const AFTER_EXIT: &str = "/D /V:ON /C for /L %i in (1,1,600) do @(if exist \
+        \"!EVOLITE_SELF!\" (del /F /Q \"!EVOLITE_SELF!\" >NUL 2>&1 & if exist \"!EVOLITE_SELF!\" \
+        ping -n 2 127.0.0.1 >NUL)) & rmdir \"!EVOLITE_DIR!\" >NUL 2>&1";
 
     /// A string value of the «Installed apps» entry; `None` when there is no entry or no value.
     fn entry_value(name: &str) -> Option<String> {
@@ -996,7 +1007,7 @@ pub fn installed_language(_dir: &Path) -> Option<String> {
 #[cfg(unix)]
 pub use imp::installed_language;
 #[cfg(all(windows, test))]
-pub use imp::start_menu;
+pub use imp::{AFTER_EXIT, start_menu};
 pub use imp::{
     delete_after_exit, disks, end_process, in_use, installed, known, message_box, pick_folder,
     processes_of, remove_entry, write_entry,

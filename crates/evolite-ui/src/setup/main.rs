@@ -304,7 +304,10 @@ fn main() -> eframe::Result {
                 }))
             }),
         ) {
-            Ok(()) => return Ok(()),
+            Ok(()) => {
+                work::delete_self_at_exit();
+                return Ok(());
+            }
             Err(e) => {
                 log(&format!(
                     "the {renderer:?} renderer{} did not start: {e}",
