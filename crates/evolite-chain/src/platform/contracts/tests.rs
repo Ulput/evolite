@@ -119,7 +119,10 @@ fn a_file_that_does_not_open_is_set_aside() {
 }
 
 /// Review condition 2: a write under way (its transaction open) does not hold the provider's
-/// read: it answers at once.
+/// read: the read answers while the transaction is still open, with the last committed row.
+/// Not timed by the wall clock (batch 50: 500 ms ran out under two full checks at once): a
+/// read that waited for the writer's lock would give up after [`BUSY`] with nothing, and one
+/// on the writer's connection would see the uncommitted row.
 #[test]
 fn a_write_under_way_does_not_hold_the_provider() {
     let path = folder("busy");
@@ -136,10 +139,14 @@ fn a_write_under_way_does_not_hold_the_provider() {
         params![id.as_slice()],
     )
     .unwrap();
-    let started = std::time::Instant::now();
-    let read = cache.try_get(&id);
-    assert!(started.elapsed() < Duration::from_millis(500));
-    assert!(read.is_some(), "the last committed row");
+    // The transaction is open on this thread until `drop(tx)` below.
+    let read = cache
+        .try_get(&id)
+        .expect("answered while the write is under way");
+    assert_eq!(
+        read.checked_at, 1_000,
+        "the last committed row, not the write's"
+    );
     drop(tx);
     drop(writer);
     let _ = std::fs::remove_dir_all(path.parent().unwrap().parent().unwrap().parent().unwrap());
