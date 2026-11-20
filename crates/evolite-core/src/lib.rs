@@ -284,6 +284,7 @@ mod tests {
             op,
             password: Some(Password::new(WARM_PASSWORD.into())),
             ask: 0,
+            large_confirmed: false,
         }
     }
 

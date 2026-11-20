@@ -616,6 +616,40 @@ impl Real {
         }
     }
 
+    /// FEAT-0004 FR-7: whether `op` sends more than the wallet's threshold on mainnet (the tick
+    /// is then asked). Testnet has no threshold.
+    pub(in crate::real) async fn large_unconfirmed(&self, op: &Spend) -> bool {
+        if crate::network::current() != evolite_api::Network::Mainnet {
+            return false;
+        }
+        let fees = self.fees_now(0).await;
+        large_refused_on(crate::network::current(), op, &fees, self.large_spend)
+    }
+
+    /// FEAT-0004 FR-7 (AC-T6): Settings → Security → the threshold of a large spend. Lower or on
+    /// at once; higher or off only with the wallet's password, counted as every password.
+    pub(in crate::real) async fn set_large_spend(
+        &mut self,
+        duffs: Option<Duffs>,
+        password: Option<&Password>,
+    ) -> Result<(), CoreError> {
+        if self.unlocked.is_none() {
+            return Err(CoreError::NotAvailable(tr!("The wallet is locked").into()));
+        }
+        if duffs.is_some_and(|d| d <= 0) {
+            return Err(CoreError::BadAmount);
+        }
+        if evolite_api::confirm::weakens(self.large_spend, duffs) {
+            let password = password.ok_or(CoreError::WrongPassword)?;
+            self.open_vault_counted(password).await?;
+        }
+        security::save_large(&self.paths.root, &self.wallet, duffs).map_err(|e| {
+            CoreError::NotAvailable(format!(tr!("The setting was not saved: {e}"), e = e))
+        })?;
+        self.large_spend = duffs;
+        Ok(())
+    }
+
     /// Settings → Security → "Password for every send": on at once; off only with the
     /// wallet's password, which [`Real::spend_gate`] would ask anyway.
     pub(in crate::real) async fn set_password_each_send(
@@ -837,4 +871,15 @@ fn vault_error(e: VaultError) -> CoreError {
         VaultError::WrongPassword => CoreError::WrongPassword,
         other => CoreError::NotAvailable(format!(tr!("Vault: {other}"), other = other)),
     }
+}
+
+/// FEAT-0004 FR-7 (AC-T5): whether a spend without the tick is refused — on mainnet only, when
+/// it sends more than `threshold` (exactly it goes).
+pub(in crate::real) fn large_refused_on(
+    network: evolite_api::Network,
+    op: &Spend,
+    fees: &evolite_api::Fees,
+    threshold: Option<Duffs>,
+) -> bool {
+    network == evolite_api::Network::Mainnet && evolite_api::confirm::asks_tick(op, fees, threshold)
 }

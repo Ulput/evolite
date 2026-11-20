@@ -46,6 +46,7 @@ impl Real {
         let pool_history = pool_history::PoolHistory::new(paths.pool_history.clone());
         let paths_apps = paths.connected_apps.clone();
         let password_each_send = security::load(&paths.root, &wallet);
+        let large_spend = security::load_large(&paths.root, &wallet);
         let attempts =
             attempts::Attempts::read(&paths.root, index.wallets.iter().map(|r| r.id.as_str()));
         let tokens = ops::tokens::TokenState::new(&paths.tokens, &paths.root);
@@ -61,6 +62,7 @@ impl Real {
             adding_from: None,
             parked: None,
             password_each_send,
+            large_spend,
             starting: None,
             stopped: None,
             start_tried: false,

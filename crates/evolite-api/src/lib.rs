@@ -17,6 +17,7 @@ pub mod address;
 pub mod address_fund;
 pub mod address_plan;
 pub mod coin_plan;
+pub mod confirm;
 pub mod features;
 pub mod fiat;
 pub mod key_plan;
@@ -1641,6 +1642,9 @@ pub struct Wallet {
     /// every [`Command::Spend`] needs the password; off only by [`Command::SetPasswordEachSend`]
     /// with the password.
     pub password_each_send: bool,
+    /// FEAT-0004 FR-7: the threshold of a large spend kept for this wallet (1 DASH unless set;
+    /// `None`: off). It asks the tick on mainnet only.
+    pub large_spend: Option<Duffs>,
     /// What was wrong with the notes file when the wallet opened, if anything: the history
     /// shows no notes from it (FEAT-0003, E2).
     pub notes_error: Option<NotesError>,
@@ -2195,6 +2199,17 @@ pub enum Command {
         /// TECH-spend-flow: the window's request number, handed back in the answer's
         /// [`Event::Done::ask`] (the core carries it without looking); 0 when nobody waits.
         ask: u64,
+        /// FEAT-0004 FR-7: the person ticked «I checked the amount and the recipient». On
+        /// mainnet a spend of more than [`Wallet::large_spend`] ([`confirm::outgoing`]) without
+        /// it is refused before anything else ([`CoreError::LargeSpendNotConfirmed`]).
+        large_confirmed: bool,
+    },
+    /// FEAT-0004 FR-7: the wallet's threshold of a large spend (`None`: off). Lowering it or
+    /// turning it on takes no password; raising it or turning it off takes the wallet's password,
+    /// counted as every password. Answered with `Done { what: DoneWhat::LargeSpend }`.
+    SetLargeSpend {
+        duffs: Option<Duffs>,
+        password: Option<Password>,
     },
     /// Settings → Security → "Password for every send". Turning it off needs the password
     /// (else anyone at the unlocked computer could switch it off and spend); turning it on does
@@ -2739,6 +2754,9 @@ pub enum CoreError {
     TooManyTries {
         until: Timestamp,
     },
+    /// FEAT-0004 FR-7: a spend of more than the wallet's threshold, on mainnet, without the tick
+    /// «I checked the amount and the recipient»: refused before the password, nothing done.
+    LargeSpendNotConfirmed,
     /// This system cannot close the picture renderer in, so no picture from outside is drawn.
     PicturesOff(PicturesOff),
     /// An app's link is refused before anything is shown or spent (FEAT-0023).
@@ -2801,6 +2819,8 @@ pub enum DoneWhat {
     Note,
     Password,
     PasswordEachSend,
+    /// FEAT-0004 FR-7: [`Command::SetLargeSpend`].
+    LargeSpend,
     PoolTopUp,
     Profile,
     Rescan,
@@ -2849,6 +2869,7 @@ impl DoneWhat {
             Self::Note => "note",
             Self::Password => "password",
             Self::PasswordEachSend => "password-each-send",
+            Self::LargeSpend => "large-spend",
             Self::PoolTopUp => "pool-top-up",
             Self::Profile => "profile",
             Self::Rescan => "rescan",

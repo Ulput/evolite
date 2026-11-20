@@ -131,16 +131,36 @@ impl<S> SpendFlow<S> {
 
     /// The command for `op`, with the password when `asked`; `signed` is kept to be shown with
     /// the answer. `None` unless Idle: a second press sends nothing.
+    ///
+    /// FEAT-0004 FR-7: every spend comes through here, so the tick cannot be forgotten by a
+    /// window: one of more than the threshold on mainnet ([`super::large_rule`], set by the app
+    /// each frame) that is not ticked — or ticked for another amount — is not sent; the tick
+    /// shows above the password, and the button waits for it.
     pub fn command(&mut self, op: Spend, asked: bool, signed: S) -> Option<Command> {
         if !self.can_act() {
             return None;
         }
+        self.password.watch(Some(&op));
+        if self.password.waits_for_tick() {
+            return None;
+        }
         let ask = NEXT_ASK.fetch_add(1, Ordering::Relaxed);
-        let Command::Spend { op, password, .. } = self.password.command(op, asked) else {
+        let Command::Spend {
+            op,
+            password,
+            large_confirmed,
+            ..
+        } = self.password.command(op, asked)
+        else {
             unreachable!("a spend's command");
         };
         self.stage = Stage::Waiting { ask, signed };
-        Some(Command::Spend { op, password, ask })
+        Some(Command::Spend {
+            op,
+            password,
+            ask,
+            large_confirmed,
+        })
     }
 
     /// The core's answer to a spend: taken only when this flow waits for that very `ask`
@@ -158,6 +178,10 @@ impl<S> SpendFlow<S> {
         };
         if matches!(result, Err(CoreError::WrongPassword)) {
             self.password.on_wrong();
+        } else if matches!(result, Err(CoreError::LargeSpendNotConfirmed)) {
+            // FEAT-0004 review r1 Should 2: nothing was checked or done; the form stays as it
+            // is, Idle, with the tick asked for this spend.
+            self.password.on_answer(result);
         } else {
             self.password.forget();
             self.stage = Stage::Answered {
@@ -225,6 +249,102 @@ impl<S> SpendFlow<S> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// FEAT-0004 AC-T7 (the flow every spend goes through): a spend of more than the threshold
+    /// is not sent until ticked, and then goes with `large_confirmed`; another amount takes the
+    /// tick off; one under it asks none. Mutant: the flow not watching the spend — sent at once.
+    #[test]
+    fn a_large_spend_waits_for_the_tick() {
+        let fees = crate::screens::shielded::tests::fees;
+        super::super::set_rule_for_test(Some(super::super::LargeRule {
+            threshold: Some(100_000_000),
+            fees: fees(),
+        }));
+        let top = |amount| Spend::TopUpIdentity { amount };
+        let mut flow = SpendFlow::<()>::default();
+        assert!(
+            flow.command(top(150_000_000), false, ()).is_none(),
+            "not ticked"
+        );
+        assert!(flow.password.asks_tick() && !flow.password.ready(false));
+        flow.password.tick();
+        assert!(flow.password.ready(false));
+        // Another amount: the tick is off again.
+        assert!(flow.command(top(160_000_000), false, ()).is_none());
+        flow.password.tick();
+        let Some(Command::Spend {
+            large_confirmed, ..
+        }) = flow.command(top(160_000_000), false, ())
+        else {
+            panic!("sent once ticked")
+        };
+        assert!(large_confirmed);
+        // Should 1: the same amount to another recipient takes the tick off.
+        let pay = |to: &str| Spend::Send {
+            id: 1,
+            from: evolite_api::Source::Core,
+            to: to.into(),
+            amount: 150_000_000,
+            note: None,
+            rate: None,
+            coins: None,
+        };
+        let mut other = SpendFlow::<()>::default();
+        assert!(other.command(pay("yAlice"), false, ()).is_none());
+        other.password.tick();
+        assert!(
+            other.command(pay("yBob"), false, ()).is_none(),
+            "another recipient"
+        );
+        assert!(!other.password.ready(false), "unticked");
+        // Under the threshold: no tick, sent at once.
+        let mut small = SpendFlow::<()>::default();
+        let Some(Command::Spend {
+            large_confirmed, ..
+        }) = small.command(top(100_000_000), false, ())
+        else {
+            panic!("no tick under the threshold")
+        };
+        assert!(!large_confirmed && !small.password.asks_tick());
+        super::super::set_rule_for_test(None);
+    }
+
+    /// FEAT-0004 review r1 Should 2: the core, counting with its own fees, refuses a spend the
+    /// form put under the threshold; the tick then shows for that very spend, and ticked it goes
+    /// with `large_confirmed`. Another spend does not keep it.
+    #[test]
+    fn the_cores_refusal_for_want_of_the_tick_shows_the_tick() {
+        super::super::set_rule_for_test(Some(super::super::LargeRule {
+            threshold: Some(100_000_000),
+            fees: crate::screens::shielded::tests::fees(),
+        }));
+        let near = Spend::TopUpIdentity { amount: 99_000_000 };
+        let mut flow = SpendFlow::<()>::default();
+        let first = flow
+            .command(near.clone(), false, ())
+            .expect("under the threshold: sent");
+        let ask = ask_of(&first);
+        assert!(flow.on_done(Some(ask), &Err(CoreError::LargeSpendNotConfirmed)));
+        flow.password.watch(Some(&near));
+        assert!(flow.password.asks_tick(), "the tick for the refused spend");
+        let _ = flow.take_result();
+        assert!(
+            flow.command(near.clone(), false, ()).is_none(),
+            "not without it"
+        );
+        flow.password.tick();
+        let Some(Command::Spend {
+            large_confirmed, ..
+        }) = flow.command(near, false, ())
+        else {
+            panic!("sent ticked")
+        };
+        assert!(large_confirmed);
+        flow.password
+            .watch(Some(&Spend::TopUpIdentity { amount: 1 }));
+        assert!(!flow.password.asks_tick(), "another spend: no tick");
+        super::super::set_rule_for_test(None);
+    }
 
     fn op() -> Spend {
         Spend::FundAddress { amount: 1 }

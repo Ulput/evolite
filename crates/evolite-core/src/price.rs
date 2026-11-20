@@ -358,6 +358,7 @@ pub fn reason(error: &CoreError) -> &'static str {
         | CoreError::AppLink(_)
         | CoreError::BadPhrase => "bad_input",
         CoreError::TooManyTries { .. }
+        | CoreError::LargeSpendNotConfirmed
         | CoreError::PicturesOff(_)
         | CoreError::MixedExcess { .. }
         | CoreError::ContestFundChanged { .. }

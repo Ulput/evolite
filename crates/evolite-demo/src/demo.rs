@@ -1086,6 +1086,7 @@ pub fn demo_wallet(t: Timestamp) -> Wallet {
         // Off in the demo, as the setting was before the core kept it: its screens stay one
         // click (Settings → Security turns it on).
         password_each_send: false,
+        large_spend: Some(evolite_api::confirm::LARGE_SPEND_DEFAULT),
         notes_error: None,
         set_aside: Vec::new(),
         tokens: crate::tokens::demo_tokens(t),

@@ -1112,6 +1112,9 @@ pub fn error_text(e: &CoreError) -> String {
         CoreError::NotSynced => tr!("wait for the sync to finish").into(),
         CoreError::BadLink => tr!("this is not an app link evolite knows").into(),
         CoreError::TooManyTries { .. } => tr!("too many wrong passwords").into(),
+        CoreError::LargeSpendNotConfirmed => {
+            tr!("tick that you checked the amount and where it goes").into()
+        }
         CoreError::PicturesOff(_) => tr!("not drawn on this system").into(),
         CoreError::AppLink(why) => crate::screens::connect2::refusal_words(why, "app")
             .1
@@ -1463,6 +1466,7 @@ mod tests {
             CoreError::Failed("status: Unavailable, message: \"tcp connect error\"".into()),
             CoreError::BadLink,
             CoreError::TooManyTries { until: 0 },
+            CoreError::LargeSpendNotConfirmed,
         ];
         for e in &every {
             let line = error_text(e);

@@ -117,6 +117,9 @@ pub struct SettingsState {
     pub resync: Option<resync::ResyncForm>,
     /// "Password for every payment" being turned off: the password it needs (BUG-42).
     pub each_off: Option<crate::components::SpendPassword>,
+    /// FEAT-0004 FR-7: the threshold of a large spend being raised or turned off — the new one,
+    /// and the password it needs.
+    pub large_weaker: Option<(Option<evolite_api::Duffs>, crate::components::SpendPassword)>,
     /// The interface language the person chose; `None`: the system's.
     pub lang: Option<crate::i18n::Lang>,
     /// The list of languages is open.
@@ -270,6 +273,7 @@ impl SettingsState {
             check_reading: Default::default(),
             resync: None,
             each_off: None,
+            large_weaker: None,
             lang: None,
             lang_picker: false,
             phrase_checked: None,
@@ -459,6 +463,16 @@ impl SettingsState {
 
     /// The core's answer to `SetPasswordEachSend`: done closes the password step, a wrong
     /// password stays in it to be corrected.
+    /// FEAT-0004 FR-7: the core's answer to the threshold; a wrong password keeps the dialog.
+    pub fn on_large_spend(&mut self, result: &Result<(), CoreError>) {
+        if let Some((_, form)) = &mut self.large_weaker {
+            form.on_answer(result);
+            if !form.is_wrong() {
+                self.large_weaker = None;
+            }
+        }
+    }
+
     pub fn on_password_each_send(&mut self, result: &Result<(), CoreError>) {
         if let Some(form) = &mut self.each_off {
             form.on_answer(result);

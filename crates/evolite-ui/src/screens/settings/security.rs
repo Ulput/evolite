@@ -31,6 +31,10 @@ pub(super) fn security(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut Se
     // its answer, and turning it off asks for the password first.
     let was_each = crate::components::password_asked(cx.snap);
     let mut each = was_each;
+    // FEAT-0004 FR-7: the wallet's threshold as the core keeps it.
+    let current_large = cx.snap.wallet.as_ref().and_then(|w| w.large_spend);
+    let was_large = large_choice(current_large);
+    let mut large = was_large;
     let mut lock_after = state.lock_after;
     let lock_note = [
         tr!("After 5 minutes without activity"),
@@ -61,6 +65,15 @@ pub(super) fn security(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut Se
                 tr!("Even when the wallet is unlocked"),
                 Control::Toggle(&mut each),
             ),
+            // FEAT-0004 FR-7: on mainnet, a tick before a spend of more than this.
+            (
+                tr!("Confirm spends over"),
+                tr!("On mainnet, a spend over this amount asks you to tick that you checked it"),
+                Control::Segmented(
+                    &[tr!("0.1 DASH"), tr!("1 DASH"), tr!("10 DASH"), tr!("Off")],
+                    &mut large,
+                ),
+            ),
         ],
     );
     if clicked == Some(0) {
@@ -88,6 +101,19 @@ pub(super) fn security(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut Se
         }
     }
     each_off_dialog(ui, a, cx, state);
+    // FEAT-0004 FR-7 (AC-T6): lower or on at once; higher or off with the password.
+    if large != was_large {
+        let now = LARGE_CHOICES[large];
+        if evolite_api::confirm::weakens(current_large, now) {
+            state.large_weaker = Some((now, Default::default()));
+        } else {
+            cx.send(Command::SetLargeSpend {
+                duffs: now,
+                password: None,
+            });
+        }
+    }
+    large_weaker_dialog(ui, a, cx, state);
     // FEAT-0020 (AC-D10): where people look when something happened — the shown identity's keys.
     let me = cx
         .wallet()
@@ -333,6 +359,77 @@ pub(super) fn password_dialog(
         change.old.zeroize();
         change.new.zeroize();
         change.repeat.zeroize();
+    }
+}
+
+/// FEAT-0004 FR-7: the thresholds Settings offers, in the order of its segments (the last: off).
+const LARGE_CHOICES: [Option<evolite_api::Duffs>; 4] = [
+    Some(10_000_000),
+    Some(100_000_000),
+    Some(1_000_000_000),
+    None,
+];
+
+/// The segment of `threshold`: its own, else the one nearest above it (1 DASH when none is).
+fn large_choice(threshold: Option<evolite_api::Duffs>) -> usize {
+    match threshold {
+        None => 3,
+        Some(t) => LARGE_CHOICES
+            .iter()
+            .position(|c| c.is_some_and(|c| c >= t))
+            .unwrap_or(1),
+    }
+}
+
+/// FEAT-0004 FR-7 (AC-T6): raising the threshold or turning it off takes the wallet's password,
+/// counted as every password; anyone at the unlocked computer could weaken it otherwise.
+fn large_weaker_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut SettingsState) {
+    let Some((duffs, form)) = &mut state.large_weaker else {
+        return;
+    };
+    let p = a.p;
+    let mut send = false;
+    let closed = dialog_with_footer(
+        ui,
+        a,
+        "large-spend-weaker",
+        "lock",
+        tr!("Confirm spends over"),
+        440.0,
+        |ui, a, part| {
+            if part == Part::Footer {
+                let entered = form.field(ui, &p, "large-spend-password", true);
+                let ready = form.ready(true);
+                let mut close = false;
+                button_row(ui, |ui| {
+                    if button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked() {
+                        close = true;
+                    }
+                    if button_enabled(ui, a, tr!("Change"), ButtonKind::Primary, None, ready)
+                        .clicked()
+                        || (entered && ready)
+                    {
+                        send = true;
+                    }
+                });
+                return close;
+            }
+            ui.spacing_mut().item_spacing.y = 14.0;
+            ui.label(text(
+                tr!("Then more spends will go without the tick. Enter the wallet password to change it."),
+                BODY,
+                p.text,
+            ));
+            false
+        },
+    );
+    if send {
+        cx.send(Command::SetLargeSpend {
+            duffs: *duffs,
+            password: form.password(true),
+        });
+    } else if closed {
+        state.large_weaker = None;
     }
 }
 

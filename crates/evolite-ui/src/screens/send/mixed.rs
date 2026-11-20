@@ -452,7 +452,10 @@ pub(super) fn sign_and_send_mixed(
         },
         password: ask_password.then(|| Password::new(form.password.to_string())),
         ask: 0,
+        // FEAT-0004 FR-7: the tick of the last look ([`super::confirm`]).
+        large_confirmed: form.large.is_some() && form.large_ticked,
     });
+    form.large_ticked = false;
     form.waiting += 1;
     form.let_go_of_payment();
     form.signing = (ask_password && form.waiting == 1).then(std::time::Instant::now);

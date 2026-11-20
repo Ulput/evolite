@@ -275,7 +275,13 @@ impl Real {
         &mut self,
         op: Spend,
         password: Option<Password>,
+        large_confirmed: bool,
     ) -> (Option<Event>, bool) {
+        // FEAT-0004 FR-7 (AC-T5): on mainnet, more than the threshold without the tick is
+        // refused first — no password looked at, nothing counted, nothing locked.
+        if !large_confirmed && self.large_unconfirmed(&op).await {
+            return (Some(op.refused(CoreError::LargeSpendNotConfirmed)), true);
+        }
         // One change of the identity at a time (the review's Should 1): every spend that
         // takes it is refused before the password while another holds it
         // (TECH-busy-guard), in the words its own start would have said.
@@ -457,14 +463,24 @@ impl Real {
             },
             // Every spend passes the one gate first (R-27): refused, it is answered as the
             // operation's own failure, and nothing of it was checked, locked or signed.
-            Command::Spend { op, password, ask } => {
+            Command::Spend {
+                op,
+                password,
+                ask,
+                large_confirmed,
+            } => {
                 // TECH-spend-flow: the answer carries the window's number back, whether it comes
                 // now or from a job started for it ([`Self::answer_later`]).
                 self.spend_ask = Some(ask);
-                let (event, changed) = self.handle_spend(op, password).await;
+                let (event, changed) = self.handle_spend(op, password, large_confirmed).await;
                 self.spend_ask = None;
                 return (event.map(|e| e.answering(ask)), changed);
             }
+            Command::SetLargeSpend { duffs, password } => Event::Done {
+                what: DoneWhat::LargeSpend,
+                result: self.set_large_spend(duffs, password.as_ref()).await,
+                ask: None,
+            },
             Command::SetPasswordEachSend { on, password } => Event::Done {
                 what: DoneWhat::PasswordEachSend,
                 result: self.set_password_each_send(on, password.as_ref()).await,

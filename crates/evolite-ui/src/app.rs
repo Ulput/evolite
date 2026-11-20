@@ -864,6 +864,11 @@ impl App {
                     ..
                 } => self.settings.on_password_each_send(result),
                 Event::Done {
+                    what: DoneWhat::LargeSpend,
+                    result,
+                    ..
+                } => self.settings.on_large_spend(result),
+                Event::Done {
                     what: DoneWhat::Wallet,
                     result,
                     ..
@@ -1307,6 +1312,8 @@ impl eframe::App for App {
                 });
             return;
         };
+        // FEAT-0004 FR-7: the threshold and the fees every spend's flow judges by this frame.
+        crate::components::set_large_rule(snapshot);
         // FEAT-0004 B: the open wallet's pause for every spend's password field this frame.
         crate::components::set_pause(
             ui.ctx(),

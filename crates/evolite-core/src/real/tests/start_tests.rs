@@ -204,6 +204,7 @@ async fn going_back_from_adding_keeps_the_identity_taken() {
             op: Spend::TopUpIdentity { amount: 10_000_000 },
             password: Some(pw("wrong")),
             ask: 0,
+            large_confirmed: false,
         })
         .await;
     assert!(

@@ -444,9 +444,20 @@ impl Mock {
             // The same gate as the real core's, in memory: the demo wallets take any password
             // but an empty one and [`WRONG_PASSWORD`].
             // TECH-spend-flow: the answer carries the window's number back.
-            Command::Spend { op, password, ask } => {
+            Command::Spend {
+                op,
+                password,
+                ask,
+                large_confirmed,
+            } => {
                 self.spend_ask = ask;
-                let event = match self.spend_gate(password.as_ref(), op.asks_password_always()) {
+                // FEAT-0004 FR-7 (AC-T8): the real core's threshold, before the password.
+                let gate = if self.large_refused(&op, large_confirmed) {
+                    Err(CoreError::LargeSpendNotConfirmed)
+                } else {
+                    self.spend_gate(password.as_ref(), op.asks_password_always())
+                };
+                let event = match gate {
                     Err(why) => op.refused(why),
                     Ok(()) => {
                         let event = self.spend(op);
@@ -469,6 +480,29 @@ impl Mock {
                     }
                 };
                 event.answering(ask)
+            }
+            // FEAT-0004 FR-7 (AC-T8): as the real core — lower or on without the password,
+            // higher or off with it.
+            Command::SetLargeSpend { duffs, password } => {
+                let result = match &mut self.snapshot.wallet {
+                    None => Err(CoreError::NotAvailable(NO_WALLET.into())),
+                    Some(wallet)
+                        if evolite_api::confirm::weakens(wallet.large_spend, duffs)
+                            && password.as_ref().is_none_or(refused) =>
+                    {
+                        Err(CoreError::WrongPassword)
+                    }
+                    Some(wallet) => {
+                        changed = wallet.large_spend != duffs;
+                        wallet.large_spend = duffs;
+                        Ok(())
+                    }
+                };
+                Event::Done {
+                    what: DoneWhat::LargeSpend,
+                    result,
+                    ask: None,
+                }
             }
             Command::SetPasswordEachSend { on, password } => {
                 let result = match &mut self.snapshot.wallet {
@@ -812,6 +846,16 @@ impl Mock {
         };
         let _ = out.send(event);
         changed
+    }
+
+    /// FEAT-0004 FR-7: a spend of more than the wallet's threshold on mainnet without the tick.
+    fn large_refused(&self, op: &evolite_api::Spend, large_confirmed: bool) -> bool {
+        let Some(wallet) = &self.snapshot.wallet else {
+            return false;
+        };
+        self.snapshot.network == evolite_api::Network::Mainnet
+            && !large_confirmed
+            && evolite_api::confirm::asks_tick(op, &wallet.fees, wallet.large_spend)
     }
 
     /// Before anything of a spend: with "password for every send" on, a password (any but an
@@ -2015,6 +2059,7 @@ mod tests {
                 },
                 password: None,
                 ask: 0,
+                large_confirmed: false,
             },
             tx,
         );
@@ -2267,6 +2312,7 @@ mod tests {
                 },
                 password: None,
                 ask: 0,
+                large_confirmed: false,
             },
             &tx,
         );
@@ -2305,6 +2351,7 @@ mod tests {
                 },
                 password: None,
                 ask: 0,
+                large_confirmed: false,
             },
             &tx,
         );
@@ -2337,6 +2384,7 @@ mod tests {
                     },
                     password: None,
                     ask: 0,
+                    large_confirmed: false,
                 },
                 &tx,
             );
@@ -2495,6 +2543,7 @@ mod tests {
                     op: op.clone(),
                     password: None,
                     ask: 0,
+                    large_confirmed: false,
                 },
                 &tx,
             );
@@ -2508,6 +2557,7 @@ mod tests {
                     op: op.clone(),
                     password: Some(Password::new(String::new())),
                     ask: 0,
+                    large_confirmed: false,
                 },
                 &tx,
             );
@@ -2529,6 +2579,7 @@ mod tests {
                 },
                 password: Some(Password::new("any".into())),
                 ask: 0,
+                large_confirmed: false,
             },
             &tx,
         );
@@ -2545,6 +2596,7 @@ mod tests {
                     op,
                     password: None,
                     ask: 0,
+                    large_confirmed: false,
                 },
                 &tx,
             );
@@ -2857,6 +2909,7 @@ mod tests {
             },
             password: Some(Password::new("any".into())),
             ask: 0,
+            large_confirmed: false,
         };
         let link = |text: &str| Command::OpenAppLink { text: text.into() };
         m.handle(link("dashpay://connect?v=2&n=t&r=AQ"), &tx);

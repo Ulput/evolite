@@ -54,6 +54,33 @@ pub(super) fn confirm(
     let from_mixed = source.source == Source::Mixed;
     let mixed = usable(mixed_quote.as_ref()).filter(|_| from_mixed).cloned();
     let mixed_refused = refused(mixed_quote.as_ref()).filter(|_| from_mixed);
+    // FEAT-0004 FR-7 (AC-T7): the payment as it would be signed, for the tick — by the very
+    // function the core refuses by; another amount takes the tick off.
+    let preview = match &mixed {
+        Some(q) => Spend::SendMixed {
+            id: 0,
+            to: to.clone(),
+            amount,
+            note: None,
+            rate: None,
+            accept_excess: q.excess,
+        },
+        None => Spend::Send {
+            coins: None,
+            id: 0,
+            from: source.source,
+            to: to.clone(),
+            amount,
+            note: None,
+            rate: None,
+        },
+    };
+    let large = crate::components::large_spend(cx.snap, &preview);
+    if large != form.large || to != form.large_to {
+        form.large_ticked = false;
+    }
+    form.large = large;
+    form.large_to = to.clone();
     // The excess block stands in the last look: the person goes back to the amount from it.
     let change_amount = mixed_refused.is_some() || mixed.as_ref().and_then(shown_excess).is_some();
     let from_core = source.source == Source::Core;
@@ -113,6 +140,15 @@ pub(super) fn confirm(
             if part == Part::Footer {
                 // Enter in the password field signs, as the button does: the row presses its
                 // primary (`components::button_row`).
+                // FEAT-0004 FR-7: above the password, whether one is asked or not.
+                if form.large.is_some() && mixed_refused.is_none() {
+                    crate::components::checkbox(
+                        ui,
+                        a,
+                        &mut form.large_ticked,
+                        crate::components::tick_text(),
+                    );
+                }
                 // From «Mixed» refused (P4): no password, nothing to sign.
                 if ask_password && mixed_refused.is_none() {
                     password_field(ui, &p, form);
@@ -139,6 +175,7 @@ pub(super) fn confirm(
                     let paused = ask_password && crate::components::spend_pause(ui.ctx()).paused();
                     let ready = !signing
                         && !paused
+                        && (form.large.is_none() || form.large_ticked)
                         && (!ask_password || !form.password.is_empty())
                         && (!from_core || address.is_some())
                         && coins_gone.is_none()
@@ -714,7 +751,9 @@ fn sign_and_send(
         },
         password: ask_password.then(|| Password::new(form.password.to_string())),
         ask: 0,
+        large_confirmed: form.large.is_some() && form.large_ticked,
     });
+    form.large_ticked = false;
     form.waiting += 1;
     form.let_go_of_payment();
     // A wrong password is said here, at its field (BUG-92): the dialog waits for the answer.

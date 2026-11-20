@@ -728,6 +728,7 @@ async fn with_the_setting_on_no_spend_goes_without_the_right_password() {
             op: op.clone(),
             password: None,
             ask: 0,
+            large_confirmed: false,
         };
         let (event, _) = core.handle(none).await;
         assert_eq!(
@@ -743,6 +744,7 @@ async fn with_the_setting_on_no_spend_goes_without_the_right_password() {
             op: op.clone(),
             password: Some(pw("wrong")),
             ask: 0,
+            large_confirmed: false,
         };
         let (event, _) = core.handle(wrong).await;
         assert_eq!(
@@ -757,6 +759,7 @@ async fn with_the_setting_on_no_spend_goes_without_the_right_password() {
         op: every_spend().remove(0),
         password: Some(pw("right")),
         ask: 0,
+        large_confirmed: false,
     };
     assert_eq!(
         debug(&core.handle(right).await.0),
@@ -802,6 +805,7 @@ async fn the_setting_goes_off_only_with_the_password() {
         op: every_spend().remove(0),
         password: None,
         ask: 0,
+        large_confirmed: false,
     };
     assert_eq!(
         debug(&core.handle(send).await.0),
@@ -833,6 +837,7 @@ async fn a_v2_sign_in_asks_for_the_password_whatever_the_setting() {
         },
         password: password.map(pw),
         ask: 0,
+        large_confirmed: false,
     };
     let refused = |why| {
         debug(&Some(Event::Done {
@@ -922,6 +927,7 @@ async fn a_v2_request_kept_open_too_long_is_refused_at_approve() {
             },
             password: Some(pw("right")),
             ask: 0,
+            large_confirmed: false,
         })
         .await;
     assert_eq!(
@@ -1017,6 +1023,7 @@ async fn every_spend_that_takes_the_identity_waits_before_the_password() {
                 op: op.clone(),
                 password: Some(pw("wrong")),
                 ask: 0,
+                large_confirmed: false,
             })
             .await;
         let refused_busy = matches!(
@@ -1054,6 +1061,7 @@ async fn a_second_key_change_waits_for_the_first() {
             },
             password: None,
             ask: 0,
+            large_confirmed: false,
         })
         .await;
     assert!(busy(event, DoneWhat::Keys), "refused before the password");
@@ -1062,6 +1070,7 @@ async fn a_second_key_change_waits_for_the_first() {
             op: Spend::DisconnectApp { id: "app".into() },
             password: None,
             ask: 0,
+            large_confirmed: false,
         })
         .await;
     assert!(busy(event, DoneWhat::Disconnect));
@@ -1074,6 +1083,7 @@ async fn a_second_key_change_waits_for_the_first() {
             },
             password: None,
             ask: 0,
+            large_confirmed: false,
         })
         .await;
     assert!(busy(event, DoneWhat::Name));
@@ -1088,6 +1098,7 @@ async fn a_second_key_change_waits_for_the_first() {
             },
             password: None,
             ask: 0,
+            large_confirmed: false,
         })
         .await;
     assert!(!busy(event, DoneWhat::Keys));
@@ -1149,4 +1160,91 @@ fn a_locked_phrase_reads_back_and_one_too_long_is_refused() {
     let seed = seed_of("abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about").unwrap();
     assert_eq!(seed_bytes(&seed).len(), 64);
     assert!(seed_bytes(&seed).iter().any(|b| *b != 0));
+}
+
+/// FEAT-0004 AC-T5: on mainnet a spend of more than the threshold without the tick is refused,
+/// exactly the threshold goes, the tick lets it go; testnet has no threshold. And the refusal
+/// comes first in `handle_spend` — before the coins are looked at and before the password —
+/// so nothing is counted or locked. Mutants: the check after `spend_gate(`, or `>=`.
+#[tokio::test]
+async fn a_large_spend_without_the_tick_is_refused_before_the_password() {
+    use crate::real::ops::wallet::large_refused_on;
+    use evolite_api::Network::{Mainnet, Testnet};
+    let core = opened("large-rule", "right");
+    let fees = core.fees_now(0).await;
+    let one = evolite_api::confirm::LARGE_SPEND_DEFAULT;
+    let top = |amount| Spend::TopUpIdentity { amount };
+    assert!(large_refused_on(Mainnet, &top(one + 1), &fees, Some(one)));
+    assert!(
+        !large_refused_on(Mainnet, &top(one), &fees, Some(one)),
+        "exactly it"
+    );
+    assert!(
+        !large_refused_on(Mainnet, &top(one + 1), &fees, None),
+        "off"
+    );
+    assert!(
+        !large_refused_on(Testnet, &top(one + 1), &fees, Some(one)),
+        "testnet"
+    );
+    let source = include_str!("../dispatch.rs");
+    let f = &source[source.find("async fn handle_spend(").expect("handle_spend")..];
+    let check = f.find("self.large_unconfirmed(&op)").expect("the check");
+    assert!(check < f.find("lock_coins_before_password").expect("the coins"));
+    assert!(check < f.find(".spend_gate(").expect("the password"));
+    assert!(
+        f[..check].contains("!large_confirmed"),
+        "the tick lets it go"
+    );
+}
+
+/// FEAT-0004 AC-T6: lowering the threshold or turning it on takes no password; raising it or
+/// turning it off with none or a wrong one is refused and counted; with the right one it is
+/// kept in `security.json` and in the snapshot.
+#[tokio::test]
+async fn a_weaker_threshold_takes_the_password() {
+    let mut core = opened("large-set", "right");
+    let set = |duffs: Option<i64>, password: Option<&str>| Command::SetLargeSpend {
+        duffs,
+        password: password.map(pw),
+    };
+    let one = evolite_api::confirm::LARGE_SPEND_DEFAULT;
+    assert_eq!(core.large_spend, Some(one), "1 DASH unless set");
+    let done = |e: &Option<Event>| match e {
+        Some(Event::Done {
+            what: DoneWhat::LargeSpend,
+            result,
+            ..
+        }) => result.clone(),
+        other => panic!("{other:?}"),
+    };
+    // Lower: no password.
+    assert_eq!(
+        done(&core.handle(set(Some(one / 10), None)).await.0),
+        Ok(())
+    );
+    assert_eq!(core.large_spend, Some(one / 10));
+    let id = core.wallet.clone();
+    let before = entry(&mut core, &id).wrong_tries;
+    // Higher, or off: none or a wrong one refused, and counted.
+    assert_eq!(
+        done(&core.handle(set(Some(one), None)).await.0),
+        Err(CoreError::WrongPassword)
+    );
+    assert_eq!(
+        done(&core.handle(set(None, Some("wrong"))).await.0),
+        Err(CoreError::WrongPassword)
+    );
+    assert_eq!(core.large_spend, Some(one / 10), "unchanged");
+    assert!(entry(&mut core, &id).wrong_tries > before, "counted");
+    // The right one: kept.
+    assert_eq!(done(&core.handle(set(None, Some("right"))).await.0), Ok(()));
+    assert_eq!(core.large_spend, None);
+    assert_eq!(security::load_large(&core.paths.root, &core.wallet), None);
+    // On again: no password.
+    assert_eq!(done(&core.handle(set(Some(one), None)).await.0), Ok(()));
+    assert_eq!(
+        security::load_large(&core.paths.root, &core.wallet),
+        Some(one)
+    );
 }

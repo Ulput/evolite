@@ -211,6 +211,10 @@ fn add_contact_offers_no_own_identity_and_opens_a_contact() {
 #[test]
 fn the_strangers_pictures_switch_is_under_hide_amounts_and_reaches_the_core() {
     let (_turn, mut kit) = demo_app("security", "en");
+    // FEAT-0004 FR-7 added a row above: the page is taller than the default window, and a click
+    // lands only on a switch in it.
+    kit.set_size(egui::vec2(1024.0, 1400.0));
+    kit.run_steps(3);
     let switch = |kit: &Kit, name: &str| {
         kit.query_all_by_label(name)
             .find(|n| n.accesskit_node().role() != Role::Label)

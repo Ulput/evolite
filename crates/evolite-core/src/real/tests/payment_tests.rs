@@ -111,6 +111,7 @@ async fn a_disconnect_is_not_taken_for_an_answer_to_a_request() {
             op: Spend::DisconnectApp { id: "app".into() },
             password: Some(pw("pw")),
             ask: 0,
+            large_confirmed: false,
         })
         .await;
     assert!(matches!(
@@ -165,6 +166,7 @@ async fn app_links_are_checked_before_anything_is_signed() {
             op: Spend::ApproveApp { id, grant: None },
             password: Some(pw("pw")),
             ask: 0,
+            large_confirmed: false,
         },
         false => Command::DeclineApp { id },
     };
@@ -441,6 +443,7 @@ async fn a_refused_payment_says_its_number_back() {
         },
         password,
         ask: 0,
+        large_confirmed: false,
     };
     let mut core = core_with_vault("sent-id", "pw");
     assert_eq!(core.unlock(&pw("pw")).await, Ok(()));

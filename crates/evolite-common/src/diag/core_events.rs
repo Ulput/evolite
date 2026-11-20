@@ -28,6 +28,7 @@ pub fn command_name(command: &Command) -> &'static str {
         Command::StrangerPictures { .. } => "stranger_pictures",
         Command::Spend { op, .. } => spend(op),
         Command::SetPasswordEachSend { .. } => "set_password_each_send",
+        Command::SetLargeSpend { .. } => "set_large_spend",
         Command::ReadAppBudgets { .. } => "read_app_budgets",
         Command::ForgetApp { .. } => "forget_app",
         Command::CheckName { .. } => "check_name",
@@ -129,6 +130,7 @@ pub fn error_kind(error: &CoreError) -> &'static str {
         CoreError::Unclear | CoreError::UnclearWhich => "unclear",
         CoreError::BadLink => "bad_link",
         CoreError::TooManyTries { .. } => "too_many_tries",
+        CoreError::LargeSpendNotConfirmed => "large_spend_not_confirmed",
         CoreError::PicturesOff(_) => "pictures_off",
         CoreError::AppLink(_) => "app_link",
         // The excess itself stays out (FEAT-0030 AC-T11).
@@ -283,6 +285,7 @@ mod tests {
             },
             password: Some(Password::new("hunter2".into())),
             ask: 0,
+            large_confirmed: false,
         });
         assert_eq!(record, Record::Command { name: "send" });
         let line = record.line(std::time::UNIX_EPOCH);
@@ -330,6 +333,7 @@ mod tests {
             },
             password: Some(Password::new("hunter2".into())),
             ask: 0,
+            large_confirmed: false,
         });
         assert_eq!(send, Record::Command { name: "send_token" });
         let search = command(&Command::SearchTokens {
@@ -358,6 +362,7 @@ mod tests {
             },
             password: Some(Password::new("hunter2".into())),
             ask: 0,
+            large_confirmed: false,
         });
         let budgets = command(&Command::ReadAppBudgets {
             id: "YapprQZ5contract".into(),
@@ -456,6 +461,7 @@ mod tests {
             },
             password: Some(Password::new("hunter2".into())),
             ask: 0,
+            large_confirmed: false,
         });
         assert_eq!(send, Record::Command { name: "send_mixed" });
         let preview = command(&Command::PreviewMixed {

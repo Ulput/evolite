@@ -77,6 +77,12 @@ pub struct SendForm {
     /// "Password for every payment": typed in the confirmation, wiped once answered or closed
     /// (BUG-92: kept for a correction when the core says it is wrong).
     pub password: Zeroizing<String>,
+    /// FEAT-0004 FR-7: what the payment in the last look sends, when that asks the tick (more
+    /// than the threshold, on mainnet); the tick, for that amount as it is.
+    pub large: Option<Duffs>,
+    pub large_ticked: bool,
+    /// The recipient `large` was for: another one takes the tick off (review r1 Should 1).
+    pub large_to: String,
     /// The last look stays open on the core's answer for this password (BUG-92): when it was
     /// sent, so a slow answer stops holding the dialog after [`SIGNING_HOLD`].
     pub signing: Option<std::time::Instant>,
@@ -523,6 +529,9 @@ impl Default for SendForm {
             book_error: None,
             result: None,
             password: Zeroizing::default(),
+            large: None,
+            large_ticked: false,
+            large_to: String::new(),
             signing: None,
             password_wrong: false,
             refocus_password: false,

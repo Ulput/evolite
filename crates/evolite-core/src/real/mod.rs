@@ -454,6 +454,8 @@ struct Real {
     /// "Password for every send" of this core's wallet ([`security`]): every [`Spend`] passes
     /// [`Real::spend_gate`] first.
     password_each_send: bool,
+    /// FEAT-0004 FR-7: this wallet's threshold of a large spend ([`security::load_large`]).
+    large_spend: Option<Duffs>,
     chain: Arc<Chain>,
     /// The chain's start off the loop ([`Real::start_chain`]); it answers whether the wallet's
     /// folder was clear of a deleted wallet's files (else [`Real::leftovers`]).

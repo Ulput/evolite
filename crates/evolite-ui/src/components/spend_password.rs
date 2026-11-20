@@ -51,6 +51,80 @@ pub struct SpendPassword {
     refused: Option<Timestamp>,
     /// The wallet's password is paused (set by [`Self::field`] each frame it is asked).
     paused: bool,
+    /// FEAT-0004 FR-7: what the watched spend sends, when it is more than the wallet's
+    /// threshold on mainnet ([`Self::watch`]); the tick is asked then.
+    large: Option<evolite_api::Duffs>,
+    /// «I checked the amount and where it goes», for the spend watched as it is.
+    ticked: bool,
+    /// The spend watched last (its whole form: another amount or recipient takes the tick off,
+    /// review r1 Should 1).
+    watched: Option<String>,
+    /// The last command's spend and what it sends, for a refusal by the core's own fees.
+    last: Option<(String, evolite_api::Duffs)>,
+    /// Review r1 Should 2: that spend, refused by the core for want of the tick though the
+    /// form's fees put it under the threshold — the tick shown for it all the same.
+    forced: Option<(String, evolite_api::Duffs)>,
+}
+
+/// FEAT-0004 FR-7: the words of the tick before a large spend.
+pub fn tick_text() -> &'static str {
+    tr!("I checked the amount and where it goes")
+}
+
+/// FEAT-0004 FR-7: what `op` sends when it asks the tick in `snap` — more than the wallet's
+/// threshold, on mainnet — by the very function the core refuses by
+/// ([`evolite_api::confirm::asks_tick`]).
+pub fn large_spend(snap: &Snapshot, op: &Spend) -> Option<evolite_api::Duffs> {
+    let wallet = snap.wallet.as_ref()?;
+    let threshold = (snap.network == evolite_api::Network::Mainnet)
+        .then_some(wallet.large_spend)
+        .flatten();
+    large_by(op, &wallet.fees, threshold)
+}
+
+fn large_by(
+    op: &Spend,
+    fees: &evolite_api::Fees,
+    threshold: Option<evolite_api::Duffs>,
+) -> Option<evolite_api::Duffs> {
+    evolite_api::confirm::asks_tick(op, fees, threshold)
+        .then(|| evolite_api::confirm::outgoing(op, fees))
+        .flatten()
+}
+
+/// FEAT-0004 FR-7: the threshold that applies now (`None` off testnet or turned off) and the
+/// wallet's fees, set by the app once a frame for every spend's flow; one per thread, as the
+/// interface's language (a test's app is its own).
+#[derive(Clone)]
+pub struct LargeRule {
+    pub threshold: Option<evolite_api::Duffs>,
+    pub fees: evolite_api::Fees,
+}
+
+thread_local! {
+    static RULE: std::cell::RefCell<Option<LargeRule>> = const { std::cell::RefCell::new(None) };
+}
+
+/// The rule of `snap`'s wallet, for this frame.
+pub fn set_large_rule(snap: &Snapshot) {
+    let rule = snap.wallet.as_ref().map(|w| LargeRule {
+        threshold: (snap.network == evolite_api::Network::Mainnet)
+            .then_some(w.large_spend)
+            .flatten(),
+        fees: w.fees.clone(),
+    });
+    RULE.with(|r| *r.borrow_mut() = rule);
+}
+
+/// Sets the rule directly (tests: a test's process is on testnet, where there is no threshold).
+#[cfg(test)]
+pub fn set_rule_for_test(rule: Option<LargeRule>) {
+    RULE.with(|r| *r.borrow_mut() = rule);
+}
+
+/// The rule set this frame (`None` before a wallet, and in unit tests: no tick).
+pub fn large_rule() -> Option<LargeRule> {
+    RULE.with(|r| r.borrow().clone())
 }
 
 impl SpendPassword {
@@ -59,6 +133,15 @@ impl SpendPassword {
     /// row of buttons presses its primary itself ([`super::button_row`]). `id`: unique on the
     /// screen.
     pub fn field(&mut self, ui: &mut Ui, p: &Palette, id: &str, asked: bool) -> bool {
+        // FEAT-0004 FR-7 (AC-T7): above the password, whether one is asked or not.
+        if self.large.is_some() {
+            ui.checkbox(
+                &mut self.ticked,
+                egui::RichText::new(crate::i18n::t(tick_text()))
+                    .font(sans(13.0, Weight::Regular))
+                    .color(p.text),
+            );
+        }
         if !asked {
             // AC-T2: a spend without its password is not held by a pause.
             self.paused = false;
@@ -105,19 +188,65 @@ impl SpendPassword {
     }
 
     /// The step's main button may go: nothing is asked, or something is typed and the wallet's
-    /// password is not paused (FEAT-0004 B).
+    /// password is not paused (FEAT-0004 B); a large spend ticked (FR-7).
     pub fn ready(&self, asked: bool) -> bool {
-        !asked || (!self.typed.is_empty() && !self.paused)
+        (!asked || (!self.typed.is_empty() && !self.paused))
+            && (self.large.is_none() || self.ticked)
+    }
+
+    /// FEAT-0004 FR-7 (AC-T7): the spend the step would send now, each frame before
+    /// [`Self::field`] — the tick shows for one of more than the threshold. Another amount takes
+    /// the tick off; one under the threshold hides it.
+    pub fn watch(&mut self, op: Option<&Spend>) {
+        let key = op.map(|op| format!("{op:?}"));
+        let mut large = op
+            .zip(large_rule())
+            .and_then(|(op, rule)| large_by(op, &rule.fees, rule.threshold));
+        // Should 2: the spend the core refused for want of the tick asks it, whatever the
+        // form's fees say.
+        if let Some((forced, out)) = &self.forced
+            && key.as_ref() == Some(forced)
+        {
+            large = large.or(Some(*out));
+        }
+        // Should 1: another spend — amount or recipient — takes the tick off.
+        if large != self.large || key != self.watched {
+            self.ticked = false;
+        }
+        self.watched = key;
+        self.large = large;
+    }
+
+    /// FEAT-0004 FR-7: a large spend watched and not ticked: it is not sent.
+    pub fn waits_for_tick(&self) -> bool {
+        self.large.is_some() && !self.ticked
+    }
+
+    /// Ticks the tick (tests).
+    #[cfg(test)]
+    pub fn tick(&mut self) {
+        self.ticked = true;
+    }
+
+    /// Whether the tick is shown (tests).
+    #[cfg(test)]
+    pub fn asks_tick(&self) -> bool {
+        self.large.is_some()
     }
 
     /// The command for `op`, with a copy of the password when asked (the copy is wiped by the
     /// core with the command).
     pub fn command(&mut self, op: Spend, asked: bool) -> Command {
         self.what = Some(op.what());
+        let out = large_rule()
+            .and_then(|rule| evolite_api::confirm::outgoing(&op, &rule.fees))
+            .unwrap_or_default();
+        self.last = Some((format!("{op:?}"), out));
         Command::Spend {
             op,
             password: self.password(asked),
             ask: 0,
+            large_confirmed: self.large.is_some() && self.ticked,
         }
     }
 
@@ -138,6 +267,14 @@ impl SpendPassword {
                 self.forget();
                 self.refused = Some(*until);
             }
+            // Review r1 Should 2: the core counts with its own fees; refused for want of the
+            // tick, the last spend asks it now (the password kept, nothing was checked).
+            Err(CoreError::LargeSpendNotConfirmed) => {
+                self.forced = self.last.clone();
+                self.large = self.last.as_ref().map(|(_, out)| *out);
+                self.watched = self.last.as_ref().map(|(key, _)| key.clone());
+                self.ticked = false;
+            }
             _ => self.forget(),
         }
     }
@@ -148,10 +285,11 @@ impl SpendPassword {
         self.wrong = true;
     }
 
-    /// Wipes what was typed (cancel, lock, the step closed).
+    /// Wipes what was typed (cancel, lock, the step closed), and the tick.
     pub fn forget(&mut self) {
         self.typed.zeroize();
         self.wrong = false;
+        self.ticked = false;
     }
 
     /// The last answer was a wrong password (shown under the field; a screen leaves out its
