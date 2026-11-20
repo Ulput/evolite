@@ -398,6 +398,13 @@ impl Real {
             Command::SuggestNames { prefix, seq } => {
                 return (self.suggest_names(prefix, seq), false);
             }
+            Command::AdvancedFeatures { on } => {
+                if on != self.advanced_features {
+                    crate::diag::record(crate::diag::Record::AdvancedFeatures { on });
+                }
+                self.advanced_features = on;
+                return (None, true);
+            }
             Command::StrangerPictures { on } => {
                 self.stranger_pictures(on);
                 return (None, false);

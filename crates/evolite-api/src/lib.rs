@@ -1702,6 +1702,8 @@ pub struct Snapshot {
     /// Р1: the newest release, from a `latest.json` signed by an evolite release key, once
     /// checked; `None`: not checked, off, or nothing believed yet.
     pub update: Option<UpdateInfo>,
+    /// «Features for advanced users» as the core has it now ([`Command::AdvancedFeatures`]).
+    pub advanced_features: bool,
     /// The wallets on this computer for this network, the open one marked; empty while
     /// there is none yet.
     pub wallets: Vec<WalletEntry>,
@@ -2387,6 +2389,14 @@ pub enum Command {
     /// `latest.json` once a day, from after the first wallet is open; off, nothing is asked and what
     /// was learnt is forgotten.
     CheckUpdate {
+        on: bool,
+    },
+    /// Settings › Advanced › «Features for advanced users» (FEAT-0040…0046), the app's own
+    /// switch, off by default. Off, the core refuses what only that switch shows (xpub, message
+    /// signing, resending a payment) and applies no saved fee choice: hidden is not quietly on.
+    /// The lock turns it off in the core; the app says it again after the unlock (it compares
+    /// [`Snapshot::advanced_features`]). No answer.
+    AdvancedFeatures {
         on: bool,
     },
     /// Settings → "A new address after each payment": `true` shows the next unused

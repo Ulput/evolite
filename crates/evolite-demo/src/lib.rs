@@ -182,6 +182,11 @@ impl Mock {
             },
             // The example network's profiles have no pictures: the switch changes nothing here.
             Command::StrangerPictures { .. } => return changed,
+            // FEAT-0040…0046: kept as said; the demo never locks.
+            Command::AdvancedFeatures { on } => {
+                self.snapshot.advanced_features = on;
+                return true;
+            }
             Command::ResolveName { name } => {
                 let contacts = self
                     .snapshot
@@ -1772,6 +1777,7 @@ pub fn run(
             elsewhere: false,
             fiat: None,
             update: None,
+            advanced_features: false,
             wallets: demo_wallets(now()),
             adding_wallet: false,
         },
@@ -1831,6 +1837,7 @@ mod tests {
                 elsewhere: false,
                 fiat: None,
                 update: None,
+                advanced_features: false,
                 wallets: demo_wallets(0),
                 adding_wallet: false,
             },

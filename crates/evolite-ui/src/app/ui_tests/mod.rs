@@ -10,6 +10,7 @@
 mod add_name;
 mod address_solid;
 mod addresses;
+mod advanced;
 mod alignment;
 mod amount_marks;
 mod amounts;

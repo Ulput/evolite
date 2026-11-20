@@ -1,4 +1,10 @@
 {
+  "Advanced": "Nâng cao",
+  "Features not for every day. Turn them on if you know why.": "Tính năng không dành cho hằng ngày. Hãy bật nếu bạn biết để làm gì.",
+  "For advanced users": "Cho người dùng nâng cao",
+  "Features for advanced users": "Tính năng cho người dùng nâng cao",
+  "Fee choice, a BIP-39 passphrase, the xpub, message signing, a backup file, resending a payment, several recipients. Most people do not need them.": "Chọn phí, mật khẩu BIP-39, xpub, ký tin nhắn, tệp sao lưu, gửi lại thanh toán, nhiều người nhận. Hầu hết mọi người không cần chúng.",
+  "Turning it off only hides these features: money and wallets already made are not touched.": "Tắt chỉ ẩn các tính năng này: tiền và các ví đã tạo không bị ảnh hưởng.",
   "0.1 DASH": "0,1 DASH",
   "1 DASH": "1 DASH",
   "10 DASH": "10 DASH",

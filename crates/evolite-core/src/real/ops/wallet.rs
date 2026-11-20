@@ -289,6 +289,8 @@ impl Real {
     /// Forgets the keys. platform-wallet keeps following the wallet watch-only, so opening it
     /// again shows the history at once.
     pub(in crate::real) async fn lock(&mut self) -> Result<(), CoreError> {
+        // FEAT-0040…0046: off until the app says it again after the unlock.
+        self.advanced_features = false;
         // An identity lookup still retrying stops and lets go of the keys; the balance
         // reading that follows a lookup stops too.
         self.discovery_run.fetch_add(1, Ordering::Relaxed);

@@ -1,4 +1,10 @@
 {
+  "Advanced": "고급",
+  "Features not for every day. Turn them on if you know why.": "매일 쓰는 기능은 아닙니다. 용도를 알 때 켜세요.",
+  "For advanced users": "고급 사용자용",
+  "Features for advanced users": "고급 사용자용 기능",
+  "Fee choice, a BIP-39 passphrase, the xpub, message signing, a backup file, resending a payment, several recipients. Most people do not need them.": "수수료 선택, BIP-39 암호문, xpub, 메시지 서명, 백업 파일, 결제 재전송, 여러 수신자. 대부분의 사람에게는 필요 없습니다.",
+  "Turning it off only hides these features: money and wallets already made are not touched.": "끄면 이 기능들이 숨겨질 뿐입니다. 돈과 이미 만든 지갑은 그대로입니다.",
   "0.1 DASH": "0.1 DASH",
   "1 DASH": "1 DASH",
   "10 DASH": "10 DASH",

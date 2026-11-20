@@ -1465,6 +1465,8 @@ impl App {
             Section::About
         } else if preset("notifications") {
             Section::Notifications
+        } else if preset("advanced") {
+            Section::Advanced
         } else if preset("wallets") || preset("wallet-rename") || preset("wallet-more") {
             Section::Wallets
         } else {

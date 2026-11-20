@@ -1,4 +1,10 @@
 {
+  "Advanced": "उन्नत",
+  "Features not for every day. Turn them on if you know why.": "रोज़ के काम की सुविधाएँ नहीं। तभी चालू करें जब आप जानते हों कि क्यों।",
+  "For advanced users": "उन्नत उपयोगकर्ताओं के लिए",
+  "Features for advanced users": "उन्नत उपयोगकर्ताओं के लिए सुविधाएँ",
+  "Fee choice, a BIP-39 passphrase, the xpub, message signing, a backup file, resending a payment, several recipients. Most people do not need them.": "शुल्क का चुनाव, BIP-39 पासफ़्रेज़, xpub, संदेश पर हस्ताक्षर, बैकअप फ़ाइल, भुगतान फिर से भेजना, कई प्राप्तकर्ता। ज़्यादातर लोगों को इनकी ज़रूरत नहीं होती।",
+  "Turning it off only hides these features: money and wallets already made are not touched.": "बंद करने से ये सुविधाएँ केवल छिपती हैं: पैसा और पहले से बने वॉलेट नहीं छुए जाते।",
   "0.1 DASH": "0.1 DASH",
   "1 DASH": "1 DASH",
   "10 DASH": "10 DASH",

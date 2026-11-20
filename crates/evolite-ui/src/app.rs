@@ -109,6 +109,9 @@ pub struct App {
     vault: Option<VaultState>,
     /// What the core was last told of "New address…" and "Fiat rate".
     core_told: Option<(bool, Option<&'static str>, bool, bool)>,
+    /// «Features for advanced users» last said to the core while its snapshot said otherwise:
+    /// said once, again only when what is wanted changes (the lock turns it off in the core).
+    advanced_asked: Option<bool>,
     /// When the rate was last asked for because Send or «Request an amount» needed it
     /// (FEAT-0008, AC-T4).
     rate_asked: Option<evolite_api::Timestamp>,
@@ -348,6 +351,7 @@ impl App {
             adding_back: None,
             named: Default::default(),
             core_told: None,
+            advanced_asked: None,
             rate_asked: None,
             notifier: Default::default(),
             seen: None,
@@ -1454,6 +1458,15 @@ impl eframe::App for App {
             self.core.send(Command::CheckUpdate { on: updates });
             self.core_told = Some((fresh, currency, strangers, updates));
         }
+        // FEAT-0040…0046: the core has the app's switch; after the lock (which turns it off
+        // there) or a new core, it is said again.
+        let advanced = self.settings.is_on("advanced");
+        if snapshot.advanced_features == advanced {
+            self.advanced_asked = None;
+        } else if self.advanced_asked != Some(advanced) {
+            self.core.send(Command::AdvancedFeatures { on: advanced });
+            self.advanced_asked = Some(advanced);
+        }
         crate::format::set_display(self.settings.display(snapshot.fiat.as_ref()));
         if let Some((now, ask)) = self.rate_to_ask(snapshot) {
             self.rate_asked = Some(now);
@@ -1496,6 +1509,7 @@ impl eframe::App for App {
         let here = back::here(snapshot);
         let mut cx = Ctx::new(snapshot, &mut commands, &mut go);
         cx.back = back::back_to(self.back.as_ref(), &here, snapshot.network, self.screen);
+        cx.show_advanced(self.settings.is_on("advanced"));
         // By the window's width, once a frame (responsive spec R2).
         cx.bp = crate::theme::Breakpoint::of(ui.ctx().content_rect().width());
         // A countdown preset (FEAT-0002) shows the time it names.

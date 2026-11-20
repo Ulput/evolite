@@ -41,6 +41,8 @@ pub struct Ctx<'a> {
     pub back: Screen,
     /// [`Self::go_back`] was asked this frame.
     go_back: bool,
+    /// «Features for advanced users» on (FEAT-0040…0046): set by `App` each frame.
+    advanced: bool,
 }
 
 /// what a screen asks of the wallets that takes more than one command.
@@ -91,7 +93,23 @@ impl<'a> Ctx<'a> {
             wallets: None,
             back: Screen::Overview,
             go_back: false,
+            advanced: false,
         }
+    }
+
+    /// Whether «Features for advanced users» is on (FEAT-0040…0046): the one question a screen
+    /// asks before it shows what only that switch shows. Off by default.
+    #[allow(
+        dead_code,
+        reason = "the screens of FEAT-0040…0046 ask it; the first one takes this away"
+    )]
+    pub fn advanced(&self) -> bool {
+        self.advanced
+    }
+
+    /// `App` says it once a frame, from the app's settings.
+    pub fn show_advanced(&mut self, on: bool) {
+        self.advanced = on;
     }
 
     /// Back to [`Self::back`] (BUG-169); `App` checks the place is still there, else Overview.

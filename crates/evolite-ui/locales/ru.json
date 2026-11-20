@@ -1,4 +1,10 @@
 {
+  "Advanced": "Дополнительно",
+  "Features not for every day. Turn them on if you know why.": "Возможности не для каждого дня. Включайте, если знаете, зачем.",
+  "For advanced users": "Для опытных пользователей",
+  "Features for advanced users": "Функции для опытных пользователей",
+  "Fee choice, a BIP-39 passphrase, the xpub, message signing, a backup file, resending a payment, several recipients. Most people do not need them.": "Выбор комиссии, пароль BIP-39, xpub, подпись сообщений, файл копии, повторная отправка платежа, несколько получателей. Большинству людей они не нужны.",
+  "Turning it off only hides these features: money and wallets already made are not touched.": "Выключение только прячет эти функции: деньги и уже созданные кошельки не трогаются.",
   "0.1 DASH": "0,1 DASH",
   "1 DASH": "1 DASH",
   "10 DASH": "10 DASH",

@@ -1,4 +1,10 @@
 {
+  "Advanced": "高级",
+  "Features not for every day. Turn them on if you know why.": "并非日常所需的功能。知道用途时再开启。",
+  "For advanced users": "面向高级用户",
+  "Features for advanced users": "面向高级用户的功能",
+  "Fee choice, a BIP-39 passphrase, the xpub, message signing, a backup file, resending a payment, several recipients. Most people do not need them.": "选择手续费、BIP-39 密码短语、xpub、消息签名、备份文件、重新发送付款、多个收款人。大多数人用不到。",
+  "Turning it off only hides these features: money and wallets already made are not touched.": "关闭只会隐藏这些功能：资金和已创建的钱包不受影响。",
   "0.1 DASH": "0.1 DASH",
   "1 DASH": "1 DASH",
   "10 DASH": "10 DASH",

@@ -116,6 +116,7 @@ impl Real {
             receive_address: None,
             mempool,
             fresh_receive: true,
+            advanced_features: false,
             fiat: Default::default(),
             fiat_task: None,
             update: Default::default(),

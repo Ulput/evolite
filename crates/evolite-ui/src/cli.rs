@@ -264,7 +264,7 @@ pub const PRESETS: &[&str] = &[
     "probe",
     "settings", "phrase", "check-phrase", "appearance", "appearance-rate", "change-password",
     "change-password-wait",
-    "security", "backup", "notifications", "own-node", "nodes", "nodes-dapi", "about",
+    "security", "backup", "notifications", "advanced", "own-node", "nodes", "nodes-dapi", "about",
     "about-end", "report", "report-letter", "delete", "resync", "language", "wallets",
     "wallet-rename", "wallet-more", "network-switch",
     "welcome", "welcome-other", "elsewhere", "forgot", "wallet-unlock", "wallet-add",
@@ -583,6 +583,7 @@ fn dev_args<'a>(
                 | "security"
                 | "backup"
                 | "notifications"
+                | "advanced"
                 | "own-node"
                 | "appearance-rate"
                 | "nodes"

@@ -280,6 +280,10 @@ pub enum Record {
     KeptIslocks {
         count: u32,
     },
+    /// «Features for advanced users» turned on or off (FEAT-0040…0046): only that, as 1 or 0.
+    AdvancedFeatures {
+        on: bool,
+    },
     /// Whether the open wallet's phrase and seed are locked to RAM, out of the page file
     /// (SEC-5, `evolite-memlock`): once a run; when not, why (`quota` or `other`).
     Memlock {
@@ -581,6 +585,9 @@ impl Record {
                 json!({"k": "own_islock_verified", "since_unlock_s": since_unlock_s})
             }
             Record::KeptIslocks { count } => json!({"k": "kept_islocks", "count": count}),
+            Record::AdvancedFeatures { on } => {
+                json!({"k": "advanced_features", "on": u8::from(*on)})
+            }
             Record::Memlock { ok, error } => {
                 if *ok {
                     json!({"k": "memlock", "ok": true})
@@ -1359,6 +1366,11 @@ mod tests {
                 Record::KeptIslocks { count: 3 },
                 vec!["count", "k", "t"],
                 "kept_islocks",
+            ),
+            (
+                Record::AdvancedFeatures { on: true },
+                vec!["k", "on", "t"],
+                "advanced_features",
             ),
         ];
         for (record, keys, kind) in lines {

@@ -3,6 +3,7 @@
 //! Only the theme really changes something in the prototype.
 
 mod about;
+mod advanced;
 mod appearance;
 mod backup;
 mod network;
@@ -49,10 +50,12 @@ pub enum Section {
     Backup,
     Appearance,
     Notifications,
+    /// «Advanced» (FEAT-0038 W0, FEAT-0040): what most people do not need.
+    Advanced,
     About,
 }
 
-const SECTIONS: [(Section, &str, &str); 7] = [
+const SECTIONS: [(Section, &str, &str); 8] = [
     (Section::Wallets, "wallets", tr!("Wallets")),
     (Section::Network, "peers", tr!("Network and nodes")),
     (Section::Security, "lock", tr!("Security")),
@@ -63,6 +66,7 @@ const SECTIONS: [(Section, &str, &str); 7] = [
         tr!("Appearance and language"),
     ),
     (Section::Notifications, "bell", tr!("Notifications")),
+    (Section::Advanced, "settings", tr!("Advanced")),
     (Section::About, "info", tr!("About")),
 ];
 
@@ -206,7 +210,7 @@ pub struct PasswordChange {
 const LOCK_AFTER_SECS: [Option<u64>; 4] = [Some(5 * 60), Some(15 * 60), Some(60 * 60), None];
 
 /// Every switch in Settings, by key: the saved file is read against this list only.
-const TOGGLES: [&str; 13] = [
+const TOGGLES: [&str; 14] = [
     "clipboard",
     "fiat-rate",
     "hide-amounts",
@@ -220,6 +224,7 @@ const TOGGLES: [&str; 13] = [
     "remind-check",
     "stranger-pictures",
     "update-check",
+    "advanced",
 ];
 
 impl SettingsState {
@@ -415,7 +420,7 @@ impl SettingsState {
 
     /// The commands that carry these settings to the core: at the start, and again when a new
     /// core takes over the folder (after a deletion).
-    pub fn core_commands(&self) -> [Command; 5] {
+    pub fn core_commands(&self) -> [Command; 6] {
         [
             Command::AutoLock {
                 after_secs: self.auto_lock_secs(),
@@ -433,6 +438,10 @@ impl SettingsState {
             // Р1: the app's own switch, the same for every wallet.
             Command::CheckUpdate {
                 on: self.is_on("update-check"),
+            },
+            // FEAT-0040…0046: the app's own switch, off unless turned on.
+            Command::AdvancedFeatures {
+                on: self.is_on("advanced"),
             },
         ]
     }
@@ -630,6 +639,7 @@ pub fn settings(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut SettingsS
                     }
                     Section::Appearance => appearance(ui, a, state, cx.snap.fiat.as_ref()),
                     Section::Notifications => notifications(ui, a, state),
+                    Section::Advanced => advanced::advanced(ui, a, state),
                     Section::About => about(ui, a, state, cx.snap.update.as_ref()),
                 }
                 // The last row stays clear of the window's edge when scrolled to the end.
@@ -731,6 +741,27 @@ fn section_item(ui: &mut Ui, a: &mut Assets, icon: &str, label: &str, on: bool) 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// FEAT-0040…0046 (AC-A-X1, X7): «Features for advanced users» is off for a new user, told to
+    /// the core with the other settings, and the app's own — kept in the app's settings, not a
+    /// wallet's.
+    #[test]
+    fn the_advanced_switch_is_off_and_the_apps() {
+        let mut state = SettingsState::new(true, Section::Advanced, false);
+        assert!(!state.is_on("advanced"));
+        let told = |state: &SettingsState| {
+            state.core_commands().into_iter().find_map(|c| match c {
+                Command::AdvancedFeatures { on } => Some(on),
+                _ => None,
+            })
+        };
+        assert_eq!(told(&state), Some(false));
+        state.set("advanced", true);
+        assert_eq!(told(&state), Some(true));
+        let (app, wallet) = crate::prefs::split(&state.prefs(&Default::default()));
+        assert_eq!(app.toggles.get("advanced"), Some(&true), "the app's");
+        assert!(!wallet.toggles.contains_key("advanced"), "not a wallet's");
+    }
 
     fn shown(state: &mut SettingsState) {
         state.phrase_dialog = true;
@@ -835,13 +866,13 @@ mod tests {
     #[test]
     fn the_core_hears_the_receive_address_and_the_rate() {
         let mut state = SettingsState::new(true, Section::Security, false);
-        let [_, fresh, rate, _, _] = state.core_commands();
+        let [_, fresh, rate, _, _, _] = state.core_commands();
         assert!(matches!(fresh, Command::ReceiveAddress { fresh: true }));
         assert!(matches!(rate, Command::FiatRate { currency: None }));
         state.set("new-address", false);
         state.set("fiat-rate", true);
         state.fiat_currency = 2;
-        let [_, fresh, rate, _, _] = state.core_commands();
+        let [_, fresh, rate, _, _, _] = state.core_commands();
         assert!(matches!(fresh, Command::ReceiveAddress { fresh: false }));
         assert!(matches!(rate, Command::FiatRate { currency: Some(c) } if c == "RUB"));
     }

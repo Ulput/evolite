@@ -1,4 +1,10 @@
 {
+  "Advanced": "Avançado",
+  "Features not for every day. Turn them on if you know why.": "Recursos que não são para todo dia. Ative-os se souber para quê.",
+  "For advanced users": "Para usuários avançados",
+  "Features for advanced users": "Recursos para usuários avançados",
+  "Fee choice, a BIP-39 passphrase, the xpub, message signing, a backup file, resending a payment, several recipients. Most people do not need them.": "Escolha da taxa, senha BIP-39, xpub, assinatura de mensagens, arquivo de cópia, reenvio de um pagamento, vários destinatários. A maioria das pessoas não precisa deles.",
+  "Turning it off only hides these features: money and wallets already made are not touched.": "Desativar apenas oculta esses recursos: o dinheiro e as carteiras já criadas não são afetados.",
   "0.1 DASH": "0,1 DASH",
   "1 DASH": "1 DASH",
   "10 DASH": "10 DASH",

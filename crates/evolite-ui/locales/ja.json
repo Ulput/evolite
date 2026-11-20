@@ -1,4 +1,10 @@
 {
+  "Advanced": "詳細",
+  "Features not for every day. Turn them on if you know why.": "毎日使うものではない機能です。目的がわかっている場合にオンにしてください。",
+  "For advanced users": "上級者向け",
+  "Features for advanced users": "上級者向けの機能",
+  "Fee choice, a BIP-39 passphrase, the xpub, message signing, a backup file, resending a payment, several recipients. Most people do not need them.": "手数料の選択、BIP-39 パスフレーズ、xpub、メッセージ署名、バックアップファイル、支払いの再送信、複数の受取人。ほとんどの人には不要です。",
+  "Turning it off only hides these features: money and wallets already made are not touched.": "オフにしてもこれらの機能が隠れるだけです。資金や作成済みのウォレットには影響しません。",
   "0.1 DASH": "0.1 DASH",
   "1 DASH": "1 DASH",
   "10 DASH": "10 DASH",

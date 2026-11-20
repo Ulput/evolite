@@ -1,4 +1,10 @@
 {
+  "Advanced": "Lanjutan",
+  "Features not for every day. Turn them on if you know why.": "Fitur yang bukan untuk sehari-hari. Aktifkan jika Anda tahu kegunaannya.",
+  "For advanced users": "Untuk pengguna mahir",
+  "Features for advanced users": "Fitur untuk pengguna mahir",
+  "Fee choice, a BIP-39 passphrase, the xpub, message signing, a backup file, resending a payment, several recipients. Most people do not need them.": "Pilihan biaya, frasa sandi BIP-39, xpub, penandatanganan pesan, berkas cadangan, pengiriman ulang pembayaran, beberapa penerima. Kebanyakan orang tidak memerlukannya.",
+  "Turning it off only hides these features: money and wallets already made are not touched.": "Menonaktifkan hanya menyembunyikan fitur ini: uang dan dompet yang sudah dibuat tidak tersentuh.",
   "0.1 DASH": "0,1 DASH",
   "1 DASH": "1 DASH",
   "10 DASH": "10 DASH",

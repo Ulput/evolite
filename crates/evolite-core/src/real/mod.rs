@@ -507,6 +507,9 @@ struct Real {
     receive_address: Option<(String, usize)>,
     /// "A new address after each payment": off shows the wallet's first address always.
     fresh_receive: bool,
+    /// «Features for advanced users» (FEAT-0040…0046): off until the app says on, and off
+    /// again at the lock.
+    pub(in crate::real) advanced_features: bool,
     /// "Fiat rate": the price fetched last, and the task fetching it.
     fiat: Arc<std::sync::Mutex<Option<FiatRate>>>,
     fiat_task: Option<tokio::task::JoinHandle<()>>,

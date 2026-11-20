@@ -1162,6 +1162,18 @@ fn a_locked_phrase_reads_back_and_one_too_long_is_refused() {
     assert!(seed_bytes(&seed).iter().any(|b| *b != 0));
 }
 
+/// FEAT-0040…0046, the shared switch: off until the app says on; the snapshot says what the core
+/// has; the lock turns it off (the app says it again after the unlock).
+#[tokio::test]
+async fn the_advanced_switch_is_the_apps_and_the_lock_turns_it_off() {
+    let mut core = opened("advanced", "right");
+    assert!(!core.advanced_features, "off by default");
+    core.handle(Command::AdvancedFeatures { on: true }).await;
+    assert!(core.advanced_features);
+    core.handle(Command::Lock).await;
+    assert!(!core.advanced_features, "off at the lock");
+}
+
 /// FEAT-0004 AC-T5: on mainnet a spend of more than the threshold without the tick is refused,
 /// exactly the threshold goes, the tick lets it go; testnet has no threshold. And the refusal
 /// comes first in `handle_spend` — before the coins are looked at and before the password —

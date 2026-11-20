@@ -1,4 +1,10 @@
 {
+  "Advanced": "Gelişmiş",
+  "Features not for every day. Turn them on if you know why.": "Her gün kullanılmayan özellikler. Neden açtığınızı biliyorsanız açın.",
+  "For advanced users": "Deneyimli kullanıcılar için",
+  "Features for advanced users": "Deneyimli kullanıcılar için özellikler",
+  "Fee choice, a BIP-39 passphrase, the xpub, message signing, a backup file, resending a payment, several recipients. Most people do not need them.": "Ücret seçimi, BIP-39 parolası, xpub, mesaj imzalama, yedek dosyası, ödemeyi yeniden gönderme, birden çok alıcı. Çoğu kişinin bunlara ihtiyacı yoktur.",
+  "Turning it off only hides these features: money and wallets already made are not touched.": "Kapatmak yalnızca bu özellikleri gizler: paraya ve oluşturulmuş cüzdanlara dokunulmaz.",
   "0.1 DASH": "0,1 DASH",
   "1 DASH": "1 DASH",
   "10 DASH": "10 DASH",
