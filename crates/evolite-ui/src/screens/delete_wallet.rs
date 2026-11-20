@@ -4,8 +4,9 @@
 //! "delete". The balance is shown only when the wallet is open.
 
 use super::txt;
+use crate::components::secret_password;
 use crate::components::{
-    Assets, ButtonKind, CardAmount, FieldKind, Part, button, button_enabled, button_row, checkbox,
+    Assets, ButtonKind, CardAmount, FieldKind, Part, button, button_row, checkbox,
     dialog_with_footer, field_label, notice, text_field,
 };
 use crate::context::Ctx;
@@ -39,6 +40,8 @@ pub struct DeleteForm {
     word: String,
     waiting: bool,
     result: Option<Result<(), CoreError>>,
+    /// FEAT-0004 B: the wallet's pause, cut as the core cuts it when the clock is set back.
+    cut: crate::screens::pause::Cut,
 }
 
 impl DeleteForm {
@@ -217,13 +220,28 @@ fn delete_footer(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut DeleteFor
             |_| {},
         );
     });
+    // FEAT-0004 B: the pause of the wallet deleted — the open one, or the other one by its own
+    // password; «Forgot the password?» asks none, so nothing holds it.
+    let gate = if form.forgot {
+        secret_password::Gate::default()
+    } else {
+        let wallet = match &form.other {
+            Some((id, _)) => cx.snap.wallets.iter().find(|w| &w.id == id),
+            None => cx.snap.wallets.iter().find(|w| w.open),
+        };
+        let refused = secret_password::refused(form.result.as_ref().and_then(|r| r.as_ref().err()));
+        secret_password::Gate::of(wallet, refused, &mut form.cut, cx.now.timestamp())
+    };
     let error = match &form.result {
+        _ if gate.paused() => None,
         Some(Err(CoreError::WrongPassword)) => Some(tr!("Wrong password").to_owned()),
         Some(Err(CoreError::NotAvailable(why) | CoreError::Failed(why))) => Some(format!("{why}.")),
         Some(Err(_)) => Some(tr!("Could not delete the wallet").to_owned()),
         _ => None,
     };
-    if let Some(error) = error {
+    if gate.paused() {
+        secret_password::lines(ui, a, &gate, None, cx.now);
+    } else if let Some(error) = error {
         ui.add(crate::components::para(
             &error,
             12.0,
@@ -240,7 +258,9 @@ fn delete_footer(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut DeleteFor
         } else {
             tr!("Delete from the computer")
         };
-        if button_enabled(ui, a, label, ButtonKind::Danger, None, form.ready()).clicked() {
+        if secret_password::send_button(ui, a, label, ButtonKind::Danger, None, form.ready(), &gate)
+            .clicked()
+        {
             // The password goes to the core and is wiped here at once.
             let password = (!form.forgot).then(|| Password::new(form.password.to_string()));
             form.password.zeroize();

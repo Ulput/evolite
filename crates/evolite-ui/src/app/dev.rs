@@ -145,6 +145,8 @@ struct PausePreset {
     wallet: Option<&'static str>,
     /// Wrong passwords in a row, and the seconds of the pause left; `None`: the demo core's own.
     tries: Option<(u32, Option<i64>)>,
+    /// FEAT-0004 B: «password for every send» on, so the spend asks it (the demo's is off).
+    asks_password: bool,
 }
 
 impl PausePreset {
@@ -154,6 +156,7 @@ impl PausePreset {
                 one_wallet: true,
                 wallet: None,
                 tries,
+                asks_password: false,
             })
         };
         let savings = Some(Self {
@@ -161,6 +164,7 @@ impl PausePreset {
             wallet: Some(DEMO_OTHER),
             // The 8th wrong password: a pause of 5 min, 4:12 of it left (mockups 3 and 4).
             tries: Some((8, Some(252))),
+            asks_password: false,
         });
         if dev.preset("unlock") {
             one(None)
@@ -172,6 +176,15 @@ impl PausePreset {
             one(Some((5, None)))
         } else if dev.preset("wallet-unlock-wait") || dev.preset("wallet-switch-wait") {
             savings
+        } else if dev.preset("send-confirm-wait") || dev.preset("change-password-wait") {
+            // FEAT-0004 B (AC-T3): the open wallet paused, the spend's or the change's form
+            // over it — the 6th wrong password, 45 s left.
+            Some(Self {
+                one_wallet: false,
+                wallet: None,
+                tries: Some((6, Some(45))),
+                asks_password: true,
+            })
         } else {
             None
         }
@@ -410,6 +423,21 @@ impl App {
 
     /// A new snapshot: `--screen identity-unfinished` gives it a stopped creation, and `--open`
     /// opens what it asked for once the real wallet has it.
+    /// FEAT-0004 B (tests): the pause of a `*-wait` preset over — no wrong passwords, no end —
+    /// in the snapshot shown and in the ones to come; the rest of the preset stays.
+    #[cfg(test)]
+    pub(super) fn end_pause_preset(&mut self) {
+        if let Some(pp) = self.dev.pause_preset.as_mut() {
+            pp.tries = Some((0, None));
+        }
+        if let Some(s) = self.snapshot.as_mut() {
+            for w in &mut s.wallets {
+                w.wrong_tries = 0;
+                w.wait_until = None;
+            }
+        }
+    }
+
     pub(super) fn dev_snapshot(&mut self, ctx: &egui::Context) {
         if self.dev.names_preset
             && let Some(w) = self.snapshot.as_mut().and_then(|s| s.wallet.as_mut())
@@ -697,6 +725,11 @@ impl App {
                 w.wrong_tries = wrong;
                 w.wait_until = left.map(|left| now + left);
             }
+            if pp.asks_password
+                && let Some(w) = s.wallet.as_mut()
+            {
+                w.password_each_send = true;
+            }
         }
         self.open_real_preset(ctx);
     }
@@ -861,7 +894,11 @@ impl App {
             }
         }
         // `--screen send-confirm`: the last look asks where the payment goes, as a click does.
-        if preset("send-confirm") || preset("send-confirm-note") || preset("send-confirm-link") {
+        if preset("send-confirm")
+            || preset("send-confirm-note")
+            || preset("send-confirm-link")
+            || preset("send-confirm-wait")
+        {
             self.core.send(Command::PreviewPayment {
                 to: "@alice".into(),
             });
@@ -870,7 +907,8 @@ impl App {
             // `--screen send-confirm` opens the last look before signing.
             self.send.confirming = preset("send-confirm")
                 || preset("send-confirm-note")
-                || preset("send-confirm-link");
+                || preset("send-confirm-link")
+                || preset("send-confirm-wait");
             // `--screen send-done` (BUG-169 S4): just after a payment — the form cleared, the
             // network's answer on it, «Done» in place of «Check and send».
             if preset("send-done") {
@@ -1417,6 +1455,7 @@ impl App {
         } else if preset("appearance") || preset("appearance-rate") || preset("language") {
             Section::Appearance
         } else if preset("change-password")
+            || preset("change-password-wait")
             || preset("delete")
             || preset("delete-notes")
             || preset("security")
@@ -1464,7 +1503,7 @@ impl App {
             });
         }
         // `--screen change-password` opens that dialog over Security.
-        if preset("change-password") {
+        if preset("change-password") || preset("change-password-wait") {
             self.settings.change = Some(Default::default());
         }
         // `--screen delete` and `--screen forgot`: the deletion dialogs, for screenshots.
@@ -1497,7 +1536,11 @@ impl App {
         // name and colour, the onboarding of another wallet, a wallet's "…".
         let demo_other = DEMO_OTHER;
         // FEAT-0002: the unlock screen of one wallet or three; the typing kept in a pause.
-        if self.dev.pause_preset.is_some() && !preset("wallet-switch-wait") {
+        if self.dev.pause_preset.is_some()
+            && !preset("wallet-switch-wait")
+            && !preset("send-confirm-wait")
+            && !preset("change-password-wait")
+        {
             self.dev.preset_forgot = true;
         }
         if preset("unlock-wait") || preset("unlock-wait-end") {

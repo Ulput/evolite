@@ -4,8 +4,32 @@
 //! before anything else ([`Command::Spend`]); a screen only asks for it and hands it over.
 
 use super::prelude::*;
-use evolite_api::{Command, CoreError, DoneWhat, Password, Snapshot, Spend};
+use super::secret_password::Gate;
+use crate::screens::pause;
+use evolite_api::{Command, CoreError, DoneWhat, Password, Snapshot, Spend, Timestamp};
 use zeroize::{Zeroize, Zeroizing};
+
+/// FEAT-0004 B: the open wallet's pause, set by the app once a frame for every spend's field.
+pub fn set_pause(ctx: &egui::Context, gate: Gate) {
+    ctx.data_mut(|d| d.insert_temp(pause_id(), gate));
+}
+
+/// The open wallet's pause as the app set it this frame — for a spend's own password field
+/// too (the Core payment's last look builds its `Spend` itself).
+pub fn spend_pause(ctx: &egui::Context) -> Gate {
+    ctx.data(|d| d.get_temp(pause_id())).unwrap_or_default()
+}
+
+fn pause_id() -> egui::Id {
+    egui::Id::new("spend-password-pause")
+}
+
+/// FEAT-0004 B: the open wallet's pause for the spends' fields — its snapshot's end, cut as the
+/// core cuts it when the clock is set back (`cut`, kept by the app).
+pub fn open_wallet_pause(snap: &Snapshot, cut: &mut pause::Cut, now: Timestamp) -> Gate {
+    let open = snap.wallets.iter().find(|w| w.open);
+    Gate::of(open, None, cut, now)
+}
 
 /// Whether the shown wallet wants its password for every spend.
 pub fn password_asked(snap: &Snapshot) -> bool {
@@ -22,6 +46,11 @@ pub struct SpendPassword {
     /// The operation of the last [`Self::command`] ([`Spend::what`]), named in the "wrong
     /// password" line; none for the setting itself.
     what: Option<DoneWhat>,
+    /// FEAT-0004 B: the end of the pause the core's last answer gave (its snapshot may come a
+    /// frame later).
+    refused: Option<Timestamp>,
+    /// The wallet's password is paused (set by [`Self::field`] each frame it is asked).
+    paused: bool,
 }
 
 impl SpendPassword {
@@ -31,8 +60,17 @@ impl SpendPassword {
     /// screen.
     pub fn field(&mut self, ui: &mut Ui, p: &Palette, id: &str, asked: bool) -> bool {
         if !asked {
+            // AC-T2: a spend without its password is not held by a pause.
+            self.paused = false;
             return false;
         }
+        // FEAT-0004 B (AC-T3): the wallet's pause, as on the unlock screen: the plate with its
+        // countdown under the field, the step's button not ready until it is over.
+        let now = chrono::Local::now();
+        let gate = spend_pause(ui.ctx());
+        let own = pause::left(self.refused, now.timestamp());
+        let left = gate.left.max(own);
+        self.paused = left.is_some();
         let mut entered = false;
         ui.vertical(|ui| {
             ui.spacing_mut().item_spacing.y = 6.0;
@@ -43,8 +81,13 @@ impl SpendPassword {
             }
             entered = !crate::a11y::in_dialog(ui.ctx())
                 && field.lost_focus()
-                && ui.input(|i| i.key_pressed(egui::Key::Enter));
-            if self.wrong {
+                && ui.input(|i| i.key_pressed(egui::Key::Enter))
+                && left.is_none();
+            if let Some(secs) = left {
+                let end = gate.end.max(self.refused).unwrap_or_default();
+                pause::plate_plain(ui, *p, secs, end);
+                pause::tick(ui, now);
+            } else if self.wrong {
                 ui.label(
                     egui::RichText::new(crate::i18n::t(wrong_text(self.what)))
                         .font(sans(12.0, Weight::Regular))
@@ -61,9 +104,10 @@ impl SpendPassword {
         self.typed.push_str(text);
     }
 
-    /// The step's main button may go: nothing is asked, or something is typed.
+    /// The step's main button may go: nothing is asked, or something is typed and the wallet's
+    /// password is not paused (FEAT-0004 B).
     pub fn ready(&self, asked: bool) -> bool {
-        !asked || !self.typed.is_empty()
+        !asked || (!self.typed.is_empty() && !self.paused)
     }
 
     /// The command for `op`, with a copy of the password when asked (the copy is wiped by the
@@ -87,10 +131,14 @@ impl SpendPassword {
     /// (TECH-spend-flow review U3: typed again, never sent twice as it was); anything else
     /// forgets it.
     pub fn on_answer<T>(&mut self, result: &Result<T, CoreError>) {
-        if matches!(result, Err(CoreError::WrongPassword)) {
-            self.on_wrong();
-        } else {
-            self.forget();
+        match result {
+            Err(CoreError::WrongPassword) => self.on_wrong(),
+            // FEAT-0004 B: the pause, at once — its snapshot may come a frame later.
+            Err(CoreError::TooManyTries { until }) => {
+                self.forget();
+                self.refused = Some(*until);
+            }
+            _ => self.forget(),
         }
     }
 
@@ -188,6 +236,26 @@ mod tests {
         form.typed.push_str("hunter2");
         form.on_answer(&Ok(()));
         assert!(!form.ready(true));
+    }
+
+    /// FEAT-0004 B: «too many wrong passwords» keeps its end for the plate (its snapshot may
+    /// come a frame later) and empties the field; in a pause the step's button is not ready even
+    /// with a password typed (AC-T3); a spend that asks none is never held (AC-T2).
+    #[test]
+    fn a_pause_holds_only_a_spend_that_asks_the_password() {
+        let mut form = SpendPassword::default();
+        form.typed.push_str("hunter2");
+        form.on_answer::<()>(&Err(CoreError::TooManyTries {
+            until: 1_800_000_030,
+        }));
+        assert_eq!(form.refused, Some(1_800_000_030));
+        assert!(!form.ready(true), "the field emptied");
+        form.typed.push_str("hunter2");
+        form.paused = true;
+        assert!(!form.ready(true), "paused");
+        assert!(form.ready(false), "no password asked: not held");
+        form.paused = false;
+        assert!(form.ready(true));
     }
 
     /// The analyst: «Неверный пароль — <операция> не выполнена.» — every spend is named, none

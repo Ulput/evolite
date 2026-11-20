@@ -71,6 +71,9 @@ pub struct App {
     pub core: Core,
     /// The last snapshot from the core; `None` until the first one arrives.
     snapshot: Option<Snapshot>,
+    /// FEAT-0004 B: the open wallet's pause as the spends' password fields count it down, cut
+    /// as the core cuts it when the clock is set back.
+    spend_pause: crate::screens::pause::Cut,
     screen: Screen,
     /// The screen of the wallet drawn last: when it differs from `screen`, the person left it.
     drawn: Screen,
@@ -294,6 +297,7 @@ impl App {
             core,
             unlock: Default::default(),
             snapshot: None,
+            spend_pause: Default::default(),
             screen: launch.screen,
             drawn: launch.screen,
             back: None,
@@ -1303,6 +1307,15 @@ impl eframe::App for App {
                 });
             return;
         };
+        // FEAT-0004 B: the open wallet's pause for every spend's password field this frame.
+        crate::components::set_pause(
+            ui.ctx(),
+            crate::components::open_wallet_pause(
+                snapshot,
+                &mut self.spend_pause,
+                chrono::Local::now().timestamp(),
+            ),
+        );
         // Mainnet: a band over every screen, so real money is never taken for test coins (N3).
         if snapshot.network == evolite_api::Network::Mainnet {
             network::mainnet_band(ui, &mut self.a);

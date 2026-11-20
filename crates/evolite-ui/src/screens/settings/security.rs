@@ -4,10 +4,11 @@
 
 use super::parts::{Control, group, heading};
 use super::{PasswordChange, SettingsState};
+use crate::components::secret_password;
 use crate::components::text;
 use crate::components::{
-    Assets, ButtonKind, FieldKind, Part, button, button_enabled, button_row, dialog,
-    dialog_with_footer, field_label, notice, text_field,
+    Assets, ButtonKind, FieldKind, Part, button, button_enabled, button_row, dialog_with_footer,
+    field_label, notice, text_field,
 };
 use crate::context::Ctx;
 use crate::screens::onboarding::{missing, missing_line, strength};
@@ -194,25 +195,34 @@ pub(super) fn password_dialog(
     let Some(change) = &mut state.change else {
         return;
     };
-    let closed = dialog(
+    // FEAT-0004 B (batch 52): the fields, the pause's plate and the buttons in the footer, which
+    // stays in the window however low it is — the plate made the dialog too tall for 800×440,
+    // and without a footer its passwords and buttons scrolled away with it.
+    let closed = dialog_with_footer(
         ui,
         a,
         "password-dialog",
         "lock",
         tr!("Change password"),
         442.0,
-        |ui, a| {
+        |ui, a, part| {
             let mut close = false;
-            if change.result == Some(Ok(())) {
-                notice(
-                    ui,
-                    a,
-                    "confirmed",
-                    p.accent,
-                    tr!(
-                        "Password changed. The phrase is the same — your paper copy is still right."
-                    ),
-                );
+            let done = change.result == Some(Ok(()));
+            if part != Part::Footer {
+                if done {
+                    notice(
+                        ui,
+                        a,
+                        "confirmed",
+                        p.accent,
+                        tr!(
+                            "Password changed. The phrase is the same — your paper copy is still right."
+                        ),
+                    );
+                }
+                return false;
+            }
+            if done {
                 button_row(ui, |ui| {
                     if button(ui, a, tr!("Done"), ButtonKind::Primary, None).clicked() {
                         close = true;
@@ -220,38 +230,52 @@ pub(super) fn password_dialog(
                 });
                 return close;
             }
-            let field = |ui: &mut Ui, id: &str, label: &str, value: &mut String| {
-                ui.vertical(|ui| {
-                    ui.spacing_mut().item_spacing.y = 6.0;
-                    field_label(ui, &p, label);
-                    text_field(ui, &p, id, value, "", FieldKind::Password, |_| {}).changed()
-                })
-                .inner
-            };
-            let mut edited = field(ui, "password-old", tr!("Current password"), &mut change.old);
-            edited |= field(ui, "password-new", tr!("New password"), &mut change.new);
-            let level = strength(&change.new);
-            if level > 0 {
-                let label = [
-                    "",
-                    tr!("Too short"),
-                    tr!("Weak"),
-                    tr!("Good"),
-                    tr!("Strong"),
-                ][level];
-                ui.label(text(label, SMALL, p.muted));
-            }
-            if let Some(line) = missing_line(&change.new) {
-                ui.label(text(&line, SMALL, p.muted));
-            }
-            edited |= field(
-                ui,
-                "password-repeat",
-                tr!("Repeat the new one"),
-                &mut change.repeat,
-            );
-            if edited {
-                change.result = None;
+            // FEAT-0004 B (AC-T3): the wallet's pause, as on the unlock screen — its plate and
+            // countdown, the button disabled until it is over. Nothing can be changed meanwhile,
+            // so the fields give way to the plate (what is typed stays): the footer fits the
+            // smallest window (batch 52).
+            let refused =
+                secret_password::refused(change.result.as_ref().and_then(|r| r.as_ref().err()));
+            let open = cx.snap.wallets.iter().find(|w| w.open);
+            let gate =
+                secret_password::Gate::of(open, refused, &mut change.cut, cx.now.timestamp());
+            if gate.paused() {
+                secret_password::lines(ui, a, &gate, None, cx.now);
+            } else {
+                let field = |ui: &mut Ui, id: &str, label: &str, value: &mut String| {
+                    ui.vertical(|ui| {
+                        ui.spacing_mut().item_spacing.y = 6.0;
+                        field_label(ui, &p, label);
+                        text_field(ui, &p, id, value, "", FieldKind::Password, |_| {}).changed()
+                    })
+                    .inner
+                };
+                let mut edited =
+                    field(ui, "password-old", tr!("Current password"), &mut change.old);
+                edited |= field(ui, "password-new", tr!("New password"), &mut change.new);
+                let level = strength(&change.new);
+                if level > 0 {
+                    let label = [
+                        "",
+                        tr!("Too short"),
+                        tr!("Weak"),
+                        tr!("Good"),
+                        tr!("Strong"),
+                    ][level];
+                    ui.label(text(label, SMALL, p.muted));
+                }
+                if let Some(line) = missing_line(&change.new) {
+                    ui.label(text(&line, SMALL, p.muted));
+                }
+                edited |= field(
+                    ui,
+                    "password-repeat",
+                    tr!("Repeat the new one"),
+                    &mut change.repeat,
+                );
+                if edited {
+                    change.result = None;
+                }
             }
             let mismatch = !change.repeat.is_empty() && change.repeat != change.new;
             let answer = match &change.result {
@@ -263,7 +287,7 @@ pub(super) fn password_dialog(
                 Some(Err(e)) => Some(crate::text::failed(tr!("Not changed"), e)),
                 _ => None,
             };
-            if let Some(line) = answer {
+            if let Some(line) = answer.filter(|_| !gate.paused()) {
                 ui.label(text(&line, SMALL, p.danger));
             }
             button_row(ui, |ui| {
@@ -280,7 +304,17 @@ pub(super) fn password_dialog(
                 } else {
                     tr!("Change password")
                 };
-                if button_enabled(ui, a, label, ButtonKind::Primary, None, ready).clicked() {
+                if secret_password::send_button(
+                    ui,
+                    a,
+                    label,
+                    ButtonKind::Primary,
+                    None,
+                    ready,
+                    &gate,
+                )
+                .clicked()
+                {
                     // The passwords go to the core and are wiped here at once.
                     cx.send(Command::ChangePassword {
                         old: Password::new(change.old.to_string()),

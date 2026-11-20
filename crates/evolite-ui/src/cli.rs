@@ -220,7 +220,7 @@ pub const PRESETS: &[&str] = &[
     "history-set-aside", "top-ups-set-aside", "overview-set-aside", "names-set-aside",
     "apps-set-aside", "contacts-set-aside", "address-book-set-aside",
     "send-note", "send-note-limit", "send-confirm-note", "delete-notes",
-    "send", "send-confirm", "send-done", "send-contact", "send-book", "names-offline", "send-syncing", "send-qr-menu",
+    "send", "send-confirm", "send-confirm-wait", "send-done", "send-contact", "send-book", "names-offline", "send-syncing", "send-qr-menu",
     "send-qr-filled", "send-qr-error", "send-confirm-link",
     "send-from-address", "address-withdraw-warning", "address-withdraw-foreign", "address-top-up",
     "address-confirm",
@@ -263,6 +263,7 @@ pub const PRESETS: &[&str] = &[
     "tokens-setting",
     "probe",
     "settings", "phrase", "check-phrase", "appearance", "appearance-rate", "change-password",
+    "change-password-wait",
     "security", "backup", "notifications", "own-node", "nodes", "nodes-dapi", "about",
     "about-end", "report", "report-letter", "delete", "resync", "language", "wallets",
     "wallet-rename", "wallet-more", "network-switch",
@@ -381,6 +382,7 @@ fn dev_args<'a>(
             Some(
                 "send"
                 | "send-confirm"
+                | "send-confirm-wait"
                 | "send-done"
                 | "send-contact"
                 | "send-book"
@@ -572,11 +574,31 @@ fn dev_args<'a>(
         (
             None,
             Some(
-                "settings" | "phrase" | "check-phrase" | "appearance" | "change-password"
-                | "security" | "backup" | "notifications" | "own-node" | "appearance-rate"
-                | "nodes" | "nodes-dapi" | "about" | "about-end" | "report" | "report-letter"
-                | "delete" | "resync" | "language" | "wallets" | "wallet-rename" | "wallet-more"
-                | "delete-notes" | "network-switch",
+                "settings"
+                | "phrase"
+                | "check-phrase"
+                | "appearance"
+                | "change-password"
+                | "change-password-wait"
+                | "security"
+                | "backup"
+                | "notifications"
+                | "own-node"
+                | "appearance-rate"
+                | "nodes"
+                | "nodes-dapi"
+                | "about"
+                | "about-end"
+                | "report"
+                | "report-letter"
+                | "delete"
+                | "resync"
+                | "language"
+                | "wallets"
+                | "wallet-rename"
+                | "wallet-more"
+                | "delete-notes"
+                | "network-switch",
             ),
         ) => Screen::Settings,
         _ => Screen::Welcome,

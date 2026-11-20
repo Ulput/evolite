@@ -237,3 +237,57 @@ fn check_the_phrase_says_the_pause() {
     assert!(has_words(&kit, "You can try again in 0:"));
     assert!(!has_text(&kit, "The vault did not open"));
 }
+
+/// Whether the last button named `english` (a dialog's, over its screen's) is enabled.
+fn last_enabled(kit: &Kit, english: &str) -> Option<bool> {
+    let name = crate::i18n::spoken(english);
+    kit.query_all_by_role(Role::Button)
+        .rfind(|n| n.accesskit_node().label().as_deref() == Some(name.as_str()))
+        .map(|n| !n.accesskit_node().is_disabled())
+}
+
+/// FEAT-0004 B (AC-T3): the payment's last look in the wallet's pause — the plate with its
+/// countdown under the password, «Sign and send» disabled even with a password typed; the pause
+/// over, the plate goes and the button may sign.
+#[test]
+fn the_payments_password_waits_out_the_pause() {
+    let (_turn, mut kit) = demo_app("send-confirm-wait", "en");
+    wait_for(&mut kit, "the pause's plate", |kit| {
+        has_text(kit, "Too many wrong passwords")
+    });
+    assert!(has_words(&kit, "You can try again in 0:"));
+    kit.state_mut().send.password = zeroize::Zeroizing::new("main-wallet-26".into());
+    kit.run_steps(2);
+    assert_eq!(last_enabled(&kit, "Sign and send"), Some(false), "paused");
+    kit.state_mut().end_pause_preset();
+    wait_for(&mut kit, "the pause over", |kit| {
+        !has_text(kit, "Too many wrong passwords")
+    });
+    wait_for(&mut kit, "the button back", |kit| {
+        last_enabled(kit, "Sign and send") == Some(true)
+    });
+}
+
+/// FEAT-0004 B (AC-T3): «Change password» in the wallet's pause — the plate in place of the
+/// error, the button disabled with everything typed; the pause over, it may go.
+#[test]
+fn changing_the_password_waits_out_the_pause() {
+    let (_turn, mut kit) = demo_app("change-password-wait", "en");
+    if let Some(change) = kit.state_mut().settings.change.as_mut() {
+        change.old = zeroize::Zeroizing::new("main-wallet-26".into());
+        change.new = zeroize::Zeroizing::new("Another-wallet-27!".into());
+        change.repeat = zeroize::Zeroizing::new("Another-wallet-27!".into());
+    }
+    wait_for(&mut kit, "the pause's plate", |kit| {
+        has_text(kit, "Too many wrong passwords")
+    });
+    assert!(has_words(&kit, "You can try again in 0:"));
+    assert_eq!(last_enabled(&kit, "Change password"), Some(false), "paused");
+    kit.state_mut().end_pause_preset();
+    wait_for(&mut kit, "the pause over", |kit| {
+        !has_text(kit, "Too many wrong passwords")
+    });
+    wait_for(&mut kit, "the button back", |kit| {
+        last_enabled(kit, "Change password") == Some(true)
+    });
+}

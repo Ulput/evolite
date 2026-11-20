@@ -123,6 +123,28 @@ pub fn row_text(secs: u64) -> String {
 /// the pause starts — not every second (AC-D8).
 pub fn plate(ui: &mut Ui, a: &mut Assets, secs: u64, until: Timestamp) {
     let p = a.p;
+    plate_with(
+        ui,
+        p,
+        Some(a.icons.icon("pending", p.muted, &p, 18.0)),
+        secs,
+        until,
+    );
+}
+
+/// [`plate`] for a field drawn without the app's assets (FEAT-0004 B: the spend's password,
+/// [`crate::components::SpendPassword`]): the same words and countdown, without the icon.
+pub fn plate_plain(ui: &mut Ui, p: crate::theme::Palette, secs: u64, until: Timestamp) {
+    plate_with(ui, p, None::<egui::Image<'static>>, secs, until);
+}
+
+fn plate_with(
+    ui: &mut Ui,
+    p: crate::theme::Palette,
+    icon: Option<impl egui::Widget>,
+    secs: u64,
+    until: Timestamp,
+) {
     Frame::new()
         .fill(p.raised)
         .corner_radius(CornerRadius::same(10))
@@ -131,7 +153,9 @@ pub fn plate(ui: &mut Ui, a: &mut Assets, secs: u64, until: Timestamp) {
             ui.set_width(ui.available_width());
             ui.horizontal_top(|ui| {
                 ui.spacing_mut().item_spacing.x = 10.0;
-                ui.add(a.icons.icon("pending", p.muted, &p, 18.0));
+                if let Some(icon) = icon {
+                    ui.add(icon);
+                }
                 ui.vertical(|ui| {
                     ui.spacing_mut().item_spacing.y = 2.0;
                     ui.add(

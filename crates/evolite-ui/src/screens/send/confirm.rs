@@ -135,7 +135,10 @@ pub(super) fn confirm(
                     if !signing && button(ui, a, back, ButtonKind::Ghost, None).clicked() {
                         close = true;
                     }
+                    // FEAT-0004 B: not while the wallet's password is paused.
+                    let paused = ask_password && crate::components::spend_pause(ui.ctx()).paused();
                     let ready = !signing
+                        && !paused
                         && (!ask_password || !form.password.is_empty())
                         && (!from_core || address.is_some())
                         && coins_gone.is_none()
@@ -647,7 +650,12 @@ fn password_field(ui: &mut Ui, p: &crate::theme::Palette, form: &mut SendForm) {
         if std::mem::take(&mut form.refocus_password) {
             field.request_focus();
         }
-        if form.password_wrong {
+        // FEAT-0004 B (AC-T3): the wallet's pause, as on the unlock screen.
+        let gate = crate::components::spend_pause(ui.ctx());
+        if let Some(secs) = gate.left {
+            crate::screens::pause::plate_plain(ui, *p, secs, gate.end.unwrap_or_default());
+            crate::screens::pause::tick(ui, chrono::Local::now());
+        } else if form.password_wrong {
             ui.add(crate::components::para(
                 &send_error(&CoreError::WrongPassword),
                 12.0,

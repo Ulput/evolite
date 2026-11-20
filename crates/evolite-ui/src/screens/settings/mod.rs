@@ -194,6 +194,8 @@ pub struct PasswordChange {
     pub repeat: Zeroizing<String>,
     pub waiting: bool,
     pub result: Option<Result<(), CoreError>>,
+    /// FEAT-0004 B: the wallet's pause, cut as the core cuts it when the clock is set back.
+    pub cut: crate::screens::pause::Cut,
 }
 
 /// How long the auto-lock waits, by the segmented control's position; the last one is
