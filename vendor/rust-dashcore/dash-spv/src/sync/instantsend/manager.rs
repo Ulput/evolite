@@ -774,6 +774,32 @@ mod tests {
         }
     }
 
+    /// evolite BUG-111b, the InstantSend half of «a lock that never verifies»: one whose cycle is
+    /// unknown is sent unverified and kept; its signature still failing once the engine moves,
+    /// nothing is sent; expired, it is dropped. Never once `validated: true` (the mempool applies
+    /// only that).
+    #[tokio::test]
+    async fn a_lock_that_never_verifies_is_never_sent_as_verified() {
+        let mut manager = create_test_manager();
+        let requests = no_op_requests();
+        let txid = Txid::from_byte_array([11u8; 32]);
+        let mut sent = manager.process_instantlock(&create_test_instantlock(txid)).await.unwrap();
+        assert_eq!(manager.pending_count(), 1);
+        advance_engine_height(&manager, 400).await;
+        sent.extend(manager.tick(&requests).await.unwrap());
+        assert_eq!(manager.pending_count(), 1, "still failing: kept");
+        advance_engine_height(&manager, 401).await;
+        sent.extend(manager.tick_at(past_ttl(), &requests).await.unwrap());
+        assert_eq!(manager.pending_count(), 0, "expired: dropped");
+        assert!(!sent.is_empty(), "sent once, unverified");
+        for event in sent {
+            assert!(
+                matches!(event, SyncEvent::InstantLockReceived { validated: false, .. }),
+                "{event:?}"
+            );
+        }
+    }
+
     /// `on_disconnect` clears queued locks and resets the re-validation marker so
     /// a lock re-received after reconnect is validated fresh.
     #[tokio::test]

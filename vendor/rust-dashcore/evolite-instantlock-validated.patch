@@ -1,0 +1,205 @@
+diff --git a/dash-spv/src/sync/instantsend/manager.rs b/dash-spv/src/sync/instantsend/manager.rs
+index 768289e3..a77d865f 100644
+--- a/dash-spv/src/sync/instantsend/manager.rs
++++ b/dash-spv/src/sync/instantsend/manager.rs
+@@ -774,6 +774,32 @@ mod tests {
+         }
+     }
+ 
++    /// evolite BUG-111b, the InstantSend half of «a lock that never verifies»: one whose cycle is
++    /// unknown is sent unverified and kept; its signature still failing once the engine moves,
++    /// nothing is sent; expired, it is dropped. Never once `validated: true` (the mempool applies
++    /// only that).
++    #[tokio::test]
++    async fn a_lock_that_never_verifies_is_never_sent_as_verified() {
++        let mut manager = create_test_manager();
++        let requests = no_op_requests();
++        let txid = Txid::from_byte_array([11u8; 32]);
++        let mut sent = manager.process_instantlock(&create_test_instantlock(txid)).await.unwrap();
++        assert_eq!(manager.pending_count(), 1);
++        advance_engine_height(&manager, 400).await;
++        sent.extend(manager.tick(&requests).await.unwrap());
++        assert_eq!(manager.pending_count(), 1, "still failing: kept");
++        advance_engine_height(&manager, 401).await;
++        sent.extend(manager.tick_at(past_ttl(), &requests).await.unwrap());
++        assert_eq!(manager.pending_count(), 0, "expired: dropped");
++        assert!(!sent.is_empty(), "sent once, unverified");
++        for event in sent {
++            assert!(
++                matches!(event, SyncEvent::InstantLockReceived { validated: false, .. }),
++                "{event:?}"
++            );
++        }
++    }
++
+     /// `on_disconnect` clears queued locks and resets the re-validation marker so
+     /// a lock re-received after reconnect is validated fresh.
+     #[tokio::test]
+diff --git a/dash-spv/src/sync/mempool/sync_manager.rs b/dash-spv/src/sync/mempool/sync_manager.rs
+index 7ef206aa..5b6b8924 100644
+--- a/dash-spv/src/sync/mempool/sync_manager.rs
++++ b/dash-spv/src/sync/mempool/sync_manager.rs
+@@ -94,10 +94,19 @@ impl<W: WalletInterface + 'static> SyncManager for MempoolManager<W> {
+                 }
+                 Ok(vec![])
+             }
++            // evolite BUG-111b: only a lock whose signature was verified is applied. One the
++            // InstantSend manager could not verify yet (its quorum not known, or its signature
++            // failing) stays pending there and comes again `validated: true` once it verifies;
++            // applied now, the wallet would mark the transaction InstantSend, and an asset lock
++            // built on it would carry a lock nobody checked.
+             SyncEvent::InstantLockReceived {
+                 instant_lock,
+-                ..
++                validated: true,
+             } => Ok(self.process_instant_send(instant_lock.clone()).await),
++            SyncEvent::InstantLockReceived {
++                validated: false,
++                ..
++            } => Ok(vec![]),
+             _ => Ok(vec![]),
+         }
+     }
+@@ -1072,4 +1081,142 @@ mod tests {
+         });
+         assert!(found_filter_load, "tick should rebuild after revision change");
+     }
++
++    /// evolite BUG-111b: a mempool manager over a real wallet holding `funding`'s output, active,
++    /// with one peer. The wallet's events, and the funding transaction.
++    async fn wallet_manager() -> (
++        MempoolManager<key_wallet_manager::WalletManager<key_wallet::wallet::ManagedWalletInfo>>,
++        RequestSender,
++        tokio::sync::broadcast::Receiver<key_wallet_manager::WalletEvent>,
++        Arc<RwLock<key_wallet_manager::WalletManager<key_wallet::wallet::ManagedWalletInfo>>>,
++        [u8; 32],
++        dashcore::Transaction,
++    ) {
++        use key_wallet::test_utils::TestWalletContext;
++        let ctx = TestWalletContext::new_random();
++        let funding = dashcore::Transaction::dummy(&ctx.receive_address, 0..1, &[100_000]);
++        let mut wallet = key_wallet_manager::WalletManager::new(dashcore::Network::Testnet);
++        let wallet_id = wallet.insert_wallet(ctx.wallet, ctx.managed_wallet).unwrap();
++        let wallet = Arc::new(RwLock::new(wallet));
++        let (tx, _rx) = mpsc::unbounded_channel::<NetworkRequest>();
++        let requests = RequestSender::new(tx);
++        let mut manager = MempoolManager::new(
++            wallet.clone(),
++            MempoolStrategy::FetchAll,
++            1000,
++            0,
++            BroadcastConfig::default(),
++        );
++        manager.handle_peer_connected(test_socket_address(1));
++        let sync = SyncEvent::FiltersSyncComplete {
++            tip_height: 1000,
++        };
++        manager.handle_sync_event(&sync, &requests).await.unwrap();
++        let events = wallet.read().await.subscribe_events();
++        (manager, requests, events, wallet, wallet_id, funding)
++    }
++
++    async fn receive<W: key_wallet_manager::WalletInterface>(
++        manager: &mut MempoolManager<W>,
++        requests: &RequestSender,
++        tx: &dashcore::Transaction,
++    ) {
++        manager
++            .handle_message(
++                Message::new(
++                    test_socket_address(1),
++                    dashcore::network::message::NetworkMessage::Tx(tx.clone().into()),
++                ),
++                requests,
++            )
++            .await
++            .unwrap();
++    }
++
++    fn lock_of(txid: dashcore::Txid, validated: bool) -> SyncEvent {
++        SyncEvent::InstantLockReceived {
++            instant_lock: dashcore::InstantLock {
++                txid,
++                ..dashcore::InstantLock::default()
++            },
++            validated,
++        }
++    }
++
++    /// Whether the wallet holds `txid`'s record as InstantSend-locked, and any wallet event
++    /// came since the last read.
++    async fn wallet_locked(
++        wallet: &RwLock<key_wallet_manager::WalletManager<key_wallet::wallet::ManagedWalletInfo>>,
++        wallet_id: &[u8; 32],
++        txid: dashcore::Txid,
++    ) -> bool {
++        use key_wallet::managed_account::managed_account_trait::ManagedAccountTrait;
++        let wallet = wallet.read().await;
++        let account =
++            wallet.get_wallet_info(wallet_id).unwrap().first_bip44_managed_account().unwrap();
++        matches!(
++            account.transactions()[&txid].context,
++            key_wallet::transaction_checking::TransactionContext::InstantSend(_)
++        )
++    }
++
++    /// evolite BUG-111b: an InstantLock not verified yet changes nothing — neither the mempool
++    /// entry nor the wallet's record, and no wallet event. The same lock, verified, then applies.
++    #[tokio::test]
++    async fn an_unverified_lock_is_applied_only_once_verified() {
++        let (mut manager, requests, mut events, wallet, wallet_id, funding) =
++            wallet_manager().await;
++        let txid = funding.txid();
++        receive(&mut manager, &requests, &funding).await;
++        while events.try_recv().is_ok() {}
++
++        let out = manager.handle_sync_event(&lock_of(txid, false), &requests).await.unwrap();
++        assert!(out.is_empty());
++        assert!(!manager.transactions[&txid].is_instant_send, "not marked");
++        assert!(events.try_recv().is_err(), "no wallet event");
++        assert!(!wallet_locked(&wallet, &wallet_id, txid).await, "the record as it was");
++
++        manager.handle_sync_event(&lock_of(txid, true), &requests).await.unwrap();
++        assert!(manager.transactions[&txid].is_instant_send);
++        assert!(matches!(
++            events.try_recv().unwrap(),
++            key_wallet_manager::WalletEvent::TransactionInstantLocked { txid: locked, .. } if locked == txid
++        ));
++        assert!(wallet_locked(&wallet, &wallet_id, txid).await);
++    }
++
++    /// evolite BUG-111b: an unverified lock that comes before its transaction is not kept for
++    /// it; the transaction arrives unlocked, and its lock applies once verified.
++    #[tokio::test]
++    async fn an_unverified_lock_before_its_transaction_is_not_kept() {
++        let (mut manager, requests, _events, wallet, wallet_id, funding) =
++            wallet_manager().await;
++        let txid = funding.txid();
++        manager.handle_sync_event(&lock_of(txid, false), &requests).await.unwrap();
++        receive(&mut manager, &requests, &funding).await;
++        assert!(!manager.transactions[&txid].is_instant_send);
++        assert!(!wallet_locked(&wallet, &wallet_id, txid).await);
++
++        manager.handle_sync_event(&lock_of(txid, true), &requests).await.unwrap();
++        assert!(manager.transactions[&txid].is_instant_send);
++        assert!(wallet_locked(&wallet, &wallet_id, txid).await);
++    }
++
++    /// evolite BUG-111b, the mempool's half of «a lock that never verifies»: the InstantSend
++    /// manager sends such a lock only as unverified (its own test: expired or still failing, it
++    /// is never sent `validated: true`), and however often it comes, nothing is applied.
++    #[tokio::test]
++    async fn a_lock_that_never_verifies_never_locks_the_transaction() {
++        let (mut manager, requests, mut events, wallet, wallet_id, funding) =
++            wallet_manager().await;
++        let txid = funding.txid();
++        receive(&mut manager, &requests, &funding).await;
++        while events.try_recv().is_ok() {}
++        for _ in 0..3 {
++            manager.handle_sync_event(&lock_of(txid, false), &requests).await.unwrap();
++        }
++        assert!(!manager.transactions[&txid].is_instant_send);
++        assert!(events.try_recv().is_err());
++        assert!(!wallet_locked(&wallet, &wallet_id, txid).await);
++    }
+ }
