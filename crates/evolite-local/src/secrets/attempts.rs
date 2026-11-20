@@ -4,9 +4,10 @@
 //! count; a damaged one too (one line in the journal) — whoever can edit it can take the vault
 //! itself, so failing open costs nothing (Q-T2).
 //!
-//! Only `Unlock` and `SwitchWallet` count here (R-31): the vault functions do not, or a wrong
-//! payment password (BUG-42's `spend_gate`) or a deletion's would delay unlocking. FEAT-0004
-//! may call [`Attempts::check`] / [`Attempts::begin`] / [`Attempts::record`] from more places.
+//! Every password of the wallet counts here as one (FEAT-0004, R-31): the unlock, «Open …»,
+//! the phrase and a key shown, the password changed, a deletion, a setting weakened and every
+//! spend that asks it (`spend_gate`) — through [`Attempts::begin`] / [`Attempts::record`]. Only a
+//! spend that asks no password (the setting off) touches no count.
 
 use crate::{json_file, wallets};
 use evolite_common::attempts::{Ledger, Outcome, Tries};

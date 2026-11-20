@@ -1,6 +1,7 @@
 //! Wrong passwords in a row and the pause after them (FEAT-0002): the scale, and the count of
 //! each wallet in memory. Both cores keep it — the real one also in the wallet's folder
-//! (`real/attempts.rs`), so a restart does not end a pause.
+//! (`evolite-local`'s `secrets/attempts.rs`), so a restart does not end a pause. Every password
+//! of a wallet counts, a spend's too (FEAT-0004, R-31); only a spend that asks none does not.
 //!
 //! The clocks are parameters: `now` is the wall clock in Unix seconds, `at` the process's
 //! monotonic one. On the disk only the wall clock means anything (it outlives the process); a

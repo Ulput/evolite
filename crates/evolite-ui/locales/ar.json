@@ -12,6 +12,7 @@
   "I checked the amount and where it goes": "تحققت من المبلغ ووجهته",
   "On mainnet, a spend over this amount asks you to tick that you checked it": "على mainnet، يطلب منك الإنفاق الذي يزيد على هذا المبلغ وضع علامة تؤكد أنك تحققت منه",
   "Then more spends will go without the tick. Enter the wallet password to change it.": "عندها ستمرّ نفقات أكثر دون علامة التأكيد. أدخل كلمة مرور المحفظة لتغيير الحد.",
+  "Then no spend will ask for the tick. Enter the wallet password to turn it off.": "عندها لن يطلب أي إنفاق علامة التأكيد. أدخل كلمة مرور المحفظة لإيقاف التحقق.",
   "This is a {} address — it doesn't work on {}.": "هذا عنوان {} — لا يعمل على {}.",
   "A new request cannot be sent to this contact: the limit of repeated requests is used up. They will not be able to pay you by DashPay — give them a Dash address.": "لا يمكن إرسال طلب جديد إلى جهة الاتصال هذه: نفد حد الطلبات المتكررة. لن تتمكن من الدفع لك عبر DashPay — أعطها عنوان Dash.",
   "After the change, evolite will send new contact requests to your contacts, so they can pay you again.": "بعد التغيير سيرسل evolite طلبات اتصال جديدة إلى جهات اتصالك، كي تتمكن من الدفع لك مجددًا.",

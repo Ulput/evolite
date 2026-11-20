@@ -12,6 +12,7 @@
   "I checked the amount and where it goes": "金額と送り先を確認しました",
   "On mainnet, a spend over this amount asks you to tick that you checked it": "mainnet では、この金額を超える支出の前に確認済みのチェックが必要です",
   "Then more spends will go without the tick. Enter the wallet password to change it.": "そうすると、より多くの支出がチェックなしで実行されます。しきい値を変更するにはウォレットのパスワードを入力してください。",
+  "Then no spend will ask for the tick. Enter the wallet password to turn it off.": "そうすると、どの支出でもチェックが求められなくなります。確認をオフにするにはウォレットのパスワードを入力してください。",
   "This is a {} address — it doesn't work on {}.": "これは {} のアドレスです — {} では使えません。",
   "A new request cannot be sent to this contact: the limit of repeated requests is used up. They will not be able to pay you by DashPay — give them a Dash address.": "この連絡先には新しいリクエストを送れません。再送リクエストの上限に達しました。DashPay で支払ってもらうことはできません。Dash アドレスを伝えてください。",
   "After the change, evolite will send new contact requests to your contacts, so they can pay you again.": "変更後、evolite は連絡先に新しい連絡先リクエストを送ります。これで連絡先は再びあなたに支払えるようになります。",

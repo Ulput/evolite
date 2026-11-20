@@ -12,6 +12,7 @@
   "I checked the amount and where it goes": "Я перевірив(ла) суму й куди вона йде",
   "On mainnet, a spend over this amount asks you to tick that you checked it": "У mainnet витрата понад цю суму попросить позначити, що ви її перевірили",
   "Then more spends will go without the tick. Enter the wallet password to change it.": "Тоді більше витрат пройде без позначки. Щоб змінити поріг, введіть пароль гаманця.",
+  "Then no spend will ask for the tick. Enter the wallet password to turn it off.": "Тоді жодна витрата не попросить позначку. Щоб вимкнути перевірку, введіть пароль гаманця.",
   "This is a {} address — it doesn't work on {}.": "Це адреса {} — у {} вона не працює.",
   "A new request cannot be sent to this contact: the limit of repeated requests is used up. They will not be able to pay you by DashPay — give them a Dash address.": "Новий запит цьому контакту надіслати не можна: вичерпано ліміт повторних запитів. Платити вам через DashPay він не зможе — дайте йому адресу Dash.",
   "After the change, evolite will send new contact requests to your contacts, so they can pay you again.": "Після зміни evolite знову надішле запити контактам — так контакти знову зможуть вам платити.",

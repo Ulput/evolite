@@ -548,12 +548,8 @@ fn the_password_is_checked_only_counted() {
         ("ops/identity.rs", include_str!("../ops/identity.rs")),
         ("ops/misc.rs", include_str!("../ops/misc.rs")),
     ];
-    let allowed = [
-        "open_vault_counted",
-        "open_other_counted",
-        "unlock",
-        "spend_gate",
-    ];
+    // FEAT-0004 A (R-31): `spend_gate` no longer here — a spend's password counts too.
+    let allowed = ["open_vault_counted", "open_other_counted", "unlock"];
     for (file, source) in sources {
         // Each function's lines, from the line of its `fn` (in an `impl`, 4 spaces in).
         let mut name = String::new();
@@ -753,6 +749,9 @@ async fn with_the_setting_on_no_spend_goes_without_the_right_password() {
             "{} with a wrong password",
             op.what()
         );
+        // FEAT-0004 A: each wrong one counts; the next kind starts clear, not paused.
+        let id = core.wallet.clone();
+        core.attempts.forget(&id);
     }
     // The right one gets past the gate, to the payment's own checks: not synced.
     let right = Command::Spend {
@@ -1259,4 +1258,80 @@ async fn a_weaker_threshold_takes_the_password() {
         security::load_large(&core.paths.root, &core.wallet),
         Some(one)
     );
+}
+
+/// FEAT-0004 AC-T1 (R-31): a spend's password counts as every password of the wallet — five
+/// wrong ones pause it; the sixth, even the right one, is refused before the vault is read; the
+/// unlock of the wallet waits too; and the right one on a spend clears the count. Mutant:
+/// `spend_gate` through the bare `open_vault` — no pause.
+#[tokio::test]
+async fn a_spends_password_counts_with_the_unlocks() {
+    let mut core = opened("spend-count", "right");
+    let spend = |p: &str| Command::Spend {
+        op: every_spend().remove(0),
+        password: Some(pw(p)),
+        ask: 0,
+        large_confirmed: false,
+    };
+    let id = core.wallet.clone();
+    // The right one clears what came before.
+    core.handle(spend("wrong")).await;
+    assert_eq!(entry(&mut core, &id).wrong_tries, 1);
+    core.handle(spend("right")).await;
+    assert_eq!(
+        entry(&mut core, &id).wrong_tries,
+        0,
+        "the right one clears it"
+    );
+    for n in 1..=5 {
+        let (event, _) = core.handle(spend("wrong")).await;
+        assert_eq!(
+            debug(&event),
+            debug(&Some(Event::Sent {
+                id: 0,
+                result: Err(CoreError::WrongPassword),
+            })),
+            "try {n}"
+        );
+    }
+    let until = entry(&mut core, &id).wait_until.expect("paused after five");
+    // The sixth, the right one: refused, not read, not counted.
+    let (event, _) = core.handle(spend("right")).await;
+    assert_eq!(
+        debug(&event),
+        debug(&Some(Event::Sent {
+            id: 0,
+            result: Err(CoreError::TooManyTries { until }),
+        }))
+    );
+    assert_eq!(entry(&mut core, &id).wrong_tries, 5, "a refusal is no try");
+    // The unlock of this wallet waits as well.
+    core.handle(Command::Lock).await;
+    let (event, _) = core
+        .handle(Command::Unlock {
+            password: pw("right"),
+        })
+        .await;
+    assert_eq!(
+        answer_of(event),
+        (DoneWhat::Unlock, Err(CoreError::TooManyTries { until }))
+    );
+}
+
+/// FEAT-0004 AC-T2: with «password for every send» off, a spend asks no password and touches
+/// no count — not even in a pause.
+#[tokio::test]
+async fn a_spend_without_its_password_touches_no_count() {
+    let mut core = opened("spend-no-count", "right");
+    core.password_each_send = false;
+    let id = core.wallet.clone();
+    let spend = Command::Spend {
+        op: every_spend().remove(0),
+        password: None,
+        ask: 0,
+        large_confirmed: false,
+    };
+    core.handle(spend).await;
+    assert_eq!(entry(&mut core, &id).wrong_tries, 0);
+    assert!(entry(&mut core, &id).wait_until.is_none());
 }

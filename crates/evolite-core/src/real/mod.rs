@@ -432,7 +432,8 @@ struct Real {
     wallet: String,
     /// The wallets of this computer (the index, checked against the folders when read).
     index: wallets::Index,
-    /// Their wrong passwords in a row, for `Unlock` and `SwitchWallet` only (FEAT-0002).
+    /// Their wrong passwords in a row (FEAT-0002), for every password of a wallet — a spend's
+    /// too since FEAT-0004 A (R-31); only a spend that asks no password does not count.
     ///
     /// Read from the files with each new `Real`, so a switch of wallets starts it afresh: the
     /// monotonic clock of the last wrong passwords (R-31, a recommendation, not an AC) is lost

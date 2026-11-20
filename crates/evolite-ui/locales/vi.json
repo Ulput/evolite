@@ -12,6 +12,7 @@
   "I checked the amount and where it goes": "Tôi đã kiểm tra số tiền và nơi nó được gửi đến",
   "On mainnet, a spend over this amount asks you to tick that you checked it": "Trên mainnet, khoản chi vượt quá số tiền này sẽ yêu cầu bạn đánh dấu rằng đã kiểm tra",
   "Then more spends will go without the tick. Enter the wallet password to change it.": "Khi đó sẽ có nhiều khoản chi được thực hiện mà không cần đánh dấu. Nhập mật khẩu ví để thay đổi ngưỡng.",
+  "Then no spend will ask for the tick. Enter the wallet password to turn it off.": "Khi đó sẽ không khoản chi nào yêu cầu đánh dấu. Nhập mật khẩu ví để tắt kiểm tra.",
   "This is a {} address — it doesn't work on {}.": "Đây là địa chỉ {} — không dùng được trên {}.",
   "A new request cannot be sent to this contact: the limit of repeated requests is used up. They will not be able to pay you by DashPay — give them a Dash address.": "Không thể gửi yêu cầu mới cho liên hệ này: đã hết giới hạn yêu cầu lặp lại. Họ sẽ không thể thanh toán cho bạn qua DashPay — hãy đưa họ một địa chỉ Dash.",
   "After the change, evolite will send new contact requests to your contacts, so they can pay you again.": "Sau khi thay đổi, evolite sẽ gửi yêu cầu liên hệ mới tới các liên hệ của bạn để họ có thể thanh toán cho bạn trở lại.",

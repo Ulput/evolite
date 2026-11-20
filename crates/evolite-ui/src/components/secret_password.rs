@@ -123,7 +123,7 @@ pub fn notes(ui: &mut Ui, a: &mut Assets, gate: &Gate, now: chrono::DateTime<chr
 }
 
 /// The warning after the 3rd and 4th wrong password, and after a pause what the next one costs.
-fn tries_lines(ui: &mut Ui, a: &mut Assets, wrong_tries: u32) {
+pub fn tries_lines(ui: &mut Ui, a: &mut Assets, wrong_tries: u32) {
     if let Some(warning) = pause::warning(wrong_tries) {
         pause::warning_line(ui, a, &warning);
     }

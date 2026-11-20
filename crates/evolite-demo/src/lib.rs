@@ -893,7 +893,7 @@ impl Mock {
     /// Before anything of a spend: with "password for every send" on, a password (any but an
     /// empty one, as the demo's unlock); without one the spend is refused.
     /// `always`: as the real core, a spend that asks whatever the setting (FEAT-0023).
-    fn spend_gate(&self, password: Option<&Password>, always: bool) -> Result<(), CoreError> {
+    fn spend_gate(&mut self, password: Option<&Password>, always: bool) -> Result<(), CoreError> {
         let Some(wallet) = &self.snapshot.wallet else {
             return Err(CoreError::NotAvailable(NO_WALLET.into()));
         };
@@ -902,8 +902,17 @@ impl Mock {
         }
         match password {
             None => Err(CoreError::NotAvailable(PASSWORD_NEEDED.into())),
-            Some(p) if refused(p) => Err(CoreError::WrongPassword),
-            Some(_) => Ok(()),
+            // FEAT-0004 A (AC-T8): counted as the real core counts it, for the open wallet.
+            Some(p) => {
+                let id = self
+                    .snapshot
+                    .wallets
+                    .iter()
+                    .find(|w| w.open)
+                    .map(|w| w.id.clone())
+                    .unwrap_or_default();
+                self.check_password(&id, p)
+            }
         }
     }
 
@@ -2600,6 +2609,12 @@ mod tests {
                 (what, CoreError::WrongPassword),
                 "{op:?}"
             );
+            // FEAT-0004 A: each wrong one counts; the next kind starts clear.
+            m.tries = Default::default();
+            for w in &mut m.snapshot.wallets {
+                w.wrong_tries = 0;
+                w.wait_until = None;
+            }
         }
         // Nothing started: no proof under way, the wallet as it was.
         assert!(m.shield_started.is_none());

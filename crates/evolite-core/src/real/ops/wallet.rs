@@ -396,8 +396,8 @@ impl Real {
 
     /// [`Self::open_wallet_vault`] for "Open "…"" (`SwitchWallet` with the password) and
     /// "Show the phrase" of another wallet (BUG-203), counted as [`Self::unlock_counted`] for
-    /// wallet `id`. The other callers of the vault (deleting another wallet, a payment's
-    /// password) do not count: FEAT-0004 (R-31).
+    /// wallet `id`. A payment's password counts too since FEAT-0004 A (R-31), through
+    /// [`Self::open_vault_counted`].
     pub(in crate::real) async fn open_other_counted(
         &mut self,
         id: &str,
@@ -603,18 +603,20 @@ impl Real {
     /// `always`: this spend asks for the password whatever the setting (an App Connect v2
     /// sign-in, which cannot be undone for the identity: FEAT-0023 round 4).
     pub(in crate::real) async fn spend_gate(
-        &self,
+        &mut self,
         password: Option<&Password>,
         always: bool,
     ) -> Result<(), CoreError> {
+        // AC-T2: a spend that asks no password touches no count.
         if !self.password_each_send && !always {
             return Ok(());
         }
         match password {
             None => Err(CoreError::NotAvailable(crate::PASSWORD_NEEDED.into())),
-            // Not counted: FEAT-0004 R-31, the customer's rule (BUG-203 r1 asks it again). The
-            // only password check of a wallet outside the count (`the_password_is_checked_only_counted`).
-            Some(password) => self.open_vault(password).await.map(|_| ()),
+            // FEAT-0004 A (R-31, the customer agreed 2026-11-20): counted as every password of
+            // the wallet — guessed in a spend's window, the right one would sign at once. Five
+            // wrong ones pause the spends and the unlock alike; the right one clears the count.
+            Some(password) => self.open_vault_counted(password).await.map(|_| ()),
         }
     }
 

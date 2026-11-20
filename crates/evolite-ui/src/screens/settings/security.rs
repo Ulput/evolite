@@ -313,8 +313,13 @@ pub(super) fn password_dialog(
                 Some(Err(e)) => Some(crate::text::failed(tr!("Not changed"), e)),
                 _ => None,
             };
-            if let Some(line) = answer.filter(|_| !gate.paused()) {
-                ui.label(text(&line, SMALL, p.danger));
+            if !gate.paused() {
+                if let Some(line) = answer {
+                    ui.label(text(&line, SMALL, p.danger));
+                }
+                // FEAT-0004 B QA (b): the warning after the 3rd and 4th wrong password, and after
+                // a pause what the next one costs — as on the unlock screen.
+                secret_password::tries_lines(ui, a, gate.wrong_tries);
             }
             button_row(ui, |ui| {
                 if button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked() {
@@ -415,11 +420,17 @@ fn large_weaker_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut Se
                 return close;
             }
             ui.spacing_mut().item_spacing.y = 14.0;
-            ui.label(text(
-                tr!("Then more spends will go without the tick. Enter the wallet password to change it."),
-                BODY,
-                p.text,
-            ));
+            // The analyst: «Off» says what it does; a higher threshold, the general words.
+            let words = if duffs.is_none() {
+                tr!(
+                    "Then no spend will ask for the tick. Enter the wallet password to turn it off."
+                )
+            } else {
+                tr!(
+                    "Then more spends will go without the tick. Enter the wallet password to change it."
+                )
+            };
+            ui.label(text(words, BODY, p.text));
             false
         },
     );

@@ -12,6 +12,7 @@
   "I checked the amount and where it goes": "Saya sudah memeriksa jumlah dan tujuannya",
   "On mainnet, a spend over this amount asks you to tick that you checked it": "Di mainnet, pengeluaran di atas jumlah ini meminta Anda mencentang bahwa Anda sudah memeriksanya",
   "Then more spends will go without the tick. Enter the wallet password to change it.": "Maka lebih banyak pengeluaran akan berjalan tanpa centang. Masukkan kata sandi dompet untuk mengubah batasnya.",
+  "Then no spend will ask for the tick. Enter the wallet password to turn it off.": "Maka tidak ada pengeluaran yang akan meminta centang. Masukkan kata sandi dompet untuk menonaktifkan pemeriksaan.",
   "This is a {} address — it doesn't work on {}.": "Ini alamat {} — tidak berlaku di {}.",
   "A new request cannot be sent to this contact: the limit of repeated requests is used up. They will not be able to pay you by DashPay — give them a Dash address.": "Permintaan baru tidak dapat dikirim ke kontak ini: batas permintaan berulang sudah habis. Mereka tidak akan bisa membayar Anda lewat DashPay — berikan alamat Dash.",
   "After the change, evolite will send new contact requests to your contacts, so they can pay you again.": "Setelah perubahan, evolite akan mengirim permintaan kontak baru ke kontak Anda agar mereka dapat membayar Anda lagi.",

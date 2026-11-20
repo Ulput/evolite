@@ -12,6 +12,7 @@
   "I checked the amount and where it goes": "Tutarı ve nereye gittiğini kontrol ettim",
   "On mainnet, a spend over this amount asks you to tick that you checked it": "mainnet’te bu tutarın üzerindeki bir harcama, kontrol ettiğinizi işaretlemenizi ister",
   "Then more spends will go without the tick. Enter the wallet password to change it.": "O zaman daha fazla harcama onay işareti olmadan gider. Eşiği değiştirmek için cüzdan parolasını girin.",
+  "Then no spend will ask for the tick. Enter the wallet password to turn it off.": "O zaman hiçbir harcama onay işareti istemez. Denetimi kapatmak için cüzdan parolasını girin.",
   "This is a {} address — it doesn't work on {}.": "Bu bir {} adresi — {} üzerinde çalışmaz.",
   "A new request cannot be sent to this contact: the limit of repeated requests is used up. They will not be able to pay you by DashPay — give them a Dash address.": "Bu kişiye yeni istek gönderilemez: tekrarlanan istek sınırı doldu. Size DashPay ile ödeme yapamayacak — ona bir Dash adresi verin.",
   "After the change, evolite will send new contact requests to your contacts, so they can pay you again.": "Değişiklikten sonra evolite kişilerinize yeni kişi istekleri gönderecek, böylece size yeniden ödeme yapabilecekler.",

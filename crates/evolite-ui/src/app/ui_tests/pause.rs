@@ -291,3 +291,42 @@ fn changing_the_password_waits_out_the_pause() {
         last_enabled(kit, "Change password") == Some(true)
     });
 }
+
+/// FEAT-0004 B QA (b): «Change password» warns after the 3rd and 4th wrong password, as the
+/// unlock screen does.
+#[test]
+fn changing_the_password_warns_before_the_pause() {
+    let (_turn, mut kit) = demo_app("change-password", "en");
+    let warning = crate::screens::pause::warning(3).expect("a warning after the 3rd");
+    // The open wallet at its 3rd wrong password, as the core would send it.
+    show_edited(
+        &mut kit,
+        3,
+        "the warning after the 3rd wrong password",
+        |app| {
+            if let Some(s) = app.snapshot.as_mut()
+                && let Some(w) = s.wallets.iter_mut().find(|w| w.open)
+            {
+                w.wrong_tries = 3;
+            }
+        },
+        |kit| has_words(kit, &warning),
+    );
+}
+
+/// FEAT-0004 V (the analyst): turning the large-spend threshold off says so in its dialog —
+/// not the words of a higher threshold.
+#[test]
+fn turning_the_threshold_off_says_no_spend_asks_the_tick() {
+    let (_turn, mut kit) = demo_app("security", "en");
+    kit.state_mut().settings.large_weaker = Some((None, Default::default()));
+    kit.run_steps(3);
+    assert!(has_words(&kit, "Then no spend will ask for the tick"));
+    assert!(!has_words(
+        &kit,
+        "Then more spends will go without the tick"
+    ));
+    kit.state_mut().settings.large_weaker = Some((Some(1_000_000_000), Default::default()));
+    kit.run_steps(3);
+    assert!(has_words(&kit, "Then more spends will go without the tick"));
+}

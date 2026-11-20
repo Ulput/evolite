@@ -12,6 +12,7 @@
   "I checked the amount and where it goes": "我已核对金额和去向",
   "On mainnet, a spend over this amount asks you to tick that you checked it": "在 mainnet 上，超过此金额的支出会要求你勾选已核对",
   "Then more spends will go without the tick. Enter the wallet password to change it.": "这样会有更多支出无需勾选即可进行。输入钱包密码以更改阈值。",
+  "Then no spend will ask for the tick. Enter the wallet password to turn it off.": "这样任何支出都不会再要求勾选。输入钱包密码以关闭此检查。",
   "This is a {} address — it doesn't work on {}.": "这是 {} 地址 — 在 {} 上无法使用。",
   "A new request cannot be sent to this contact: the limit of repeated requests is used up. They will not be able to pay you by DashPay — give them a Dash address.": "无法向此联系人发送新请求：重复请求次数已用完。对方将无法通过 DashPay 付款给您——请给对方一个 Dash 地址。",
   "After the change, evolite will send new contact requests to your contacts, so they can pay you again.": "更改后，evolite 会向您的联系人重新发送联系人请求，让他们能够再次向您付款。",
