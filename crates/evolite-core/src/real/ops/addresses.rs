@@ -21,7 +21,7 @@ pub(in crate::real) enum AddressTo {
 /// or of another kind (bech32 `td1…`), a name that is not a name.
 pub(in crate::real) fn address_to(to: &str) -> Result<AddressTo, CoreError> {
     let to = to.trim();
-    match move_for(to) {
+    match move_for(to, crate::network::current()) {
         AddressMove::TopUp => Ok(AddressTo::Name(dpns::label(to)?)),
         AddressMove::Transfer => {
             if PlatformAddress::from_bech32m_string(to).is_err() || !platform_address_here(to) {

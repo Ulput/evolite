@@ -1236,12 +1236,12 @@ pub(crate) fn is_private_address(to: &str) -> bool {
     to.trim().len() > 64
 }
 
-pub(crate) fn pool_fee(fees: &Fees, to: &str) -> Duffs {
+pub(crate) fn pool_fee(fees: &Fees, to: &str, network: evolite_api::Network) -> Duffs {
     let to = to.trim();
     if to.is_empty() || to.starts_with('@') {
         return fees.pool_transfer;
     }
-    if to.to_ascii_lowercase().starts_with("tdash1") {
+    if evolite_api::address::is_platform(to, network) {
         return if is_private_address(to) {
             fees.pool_transfer
         } else {
@@ -1302,16 +1302,30 @@ pub(crate) mod tests {
         let f = fees();
         let private =
             "tdash1zpavu07x8e3puq0lwy2s8mhpd37hfnz5ymdc2wzr3jcyxrrz3cnm3a8qydrzckf3ksua4xs5jh6t0";
-        assert_eq!(pool_fee(&f, private), f.pool_transfer);
         assert_eq!(
-            pool_fee(&f, "tdash1qq7x4m9n2r8v5k3j6h0w4p2s8d5f7g9l3c0zq"),
+            pool_fee(&f, private, evolite_api::Network::Testnet),
+            f.pool_transfer
+        );
+        assert_eq!(
+            pool_fee(
+                &f,
+                "tdash1qq7x4m9n2r8v5k3j6h0w4p2s8d5f7g9l3c0zq",
+                evolite_api::Network::Testnet
+            ),
             f.unshield
         );
         assert_eq!(
-            pool_fee(&f, " yStwA1xNxEE2kv5ZVDNGSsPach8pBApWHZ "),
+            pool_fee(
+                &f,
+                " yStwA1xNxEE2kv5ZVDNGSsPach8pBApWHZ ",
+                evolite_api::Network::Testnet
+            ),
             f.pool_withdrawal
         );
-        assert_eq!(pool_fee(&f, ""), f.pool_transfer);
+        assert_eq!(
+            pool_fee(&f, "", evolite_api::Network::Testnet),
+            f.pool_transfer
+        );
     }
 
     #[test]

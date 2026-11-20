@@ -158,10 +158,7 @@ impl<'a> FormView<'a> {
         // An address for Core is checked as it is typed, so a typo shows before the password.
         // A Platform address is no Core payee (FEAT-0015, frame 15): not asked of the core.
         // Mainnet's start with «dash1» (FEAT-0037).
-        let platform_typed = {
-            let lower = typed.to_ascii_lowercase();
-            lower.starts_with("tdash1") || lower.starts_with("dash1")
-        };
+        let platform_typed = evolite_api::address::looks_platform(&typed);
         let typed_address = source.source == Source::Core
             && !typed.is_empty()
             && !typed.starts_with('@')
@@ -224,7 +221,15 @@ impl<'a> FormView<'a> {
         };
         // A source that cannot pay at all says why, not "more than there is".
         let mixed_refusal = (source.source == Source::Mixed)
-            .then(|| super::mixed::refusal(&typed, mixed_quote.as_ref(), source.duffs, amount))
+            .then(|| {
+                super::mixed::refusal(
+                    cx.network(),
+                    &typed,
+                    mixed_quote.as_ref(),
+                    source.duffs,
+                    amount,
+                )
+            })
             .flatten();
         // FEAT-0015 stage 2 (frame 14): from Core to the wallet's own Platform address is a
         // funding of the address — its plate and «Check and top up» — not «you can't» (BUG-143).
@@ -296,8 +301,8 @@ impl<'a> FormView<'a> {
                 None
             }
         });
-        let pool_to_name =
-            source.source == Source::Pool && pool_route(&typed) == Some(PoolRoute::Name);
+        let pool_to_name = source.source == Source::Pool
+            && pool_route(&typed, cx.network()) == Some(PoolRoute::Name);
         let to = recipient(form);
         let resolved_name = match &to {
             Recipient::Name(n) => Some((*n).clone()),
@@ -506,7 +511,7 @@ pub(super) fn form_card(
         recipient_state(ui, a, form, v, asked);
         if v.source.source == Source::Core
             && !v.fund_own
-            && v.recipient_label.to_ascii_lowercase().starts_with("tdash1")
+            && evolite_api::address::is_platform(&v.recipient_label, crate::context::network())
         {
             platform_from_core(ui, a, form, v);
         }
@@ -634,6 +639,16 @@ fn recipient_state(
     asked: &mut Asked,
 ) {
     recipient_lines(ui, a, form, v, asked);
+    // The other network's Platform address: said under the field, before the core refuses it.
+    if let Some(why) = wrong_network_line(&form.recipient, crate::context::network()) {
+        let p = a.p;
+        ui.add(crate::components::para(
+            &why,
+            12.0,
+            Weight::Regular,
+            p.danger,
+        ));
+    }
     // From «Mixed» to a name or to Platform: the reason is about the recipient (S2).
     if v.mixed_to_recipient
         && let Some(why) = v.unavailable.as_deref()
@@ -651,6 +666,24 @@ fn recipient_state(
         && let Some(why) = v.unavailable.as_deref()
     {
         crate::components::attention_notice(ui, a, why);
+    }
+}
+
+/// The line under the recipient for the other network's Platform address (BUG-211, the
+/// architect's Should): it would not reach anyone here. The networks' names are the same in every
+/// language.
+pub(super) fn wrong_network_line(typed: &str, here: evolite_api::Network) -> Option<String> {
+    let name = |network| match network {
+        evolite_api::Network::Testnet => "Testnet",
+        evolite_api::Network::Mainnet => "Mainnet",
+    };
+    match evolite_api::address::kind(typed, here) {
+        evolite_api::address::AddressKind::WrongNetwork { found } => Some(format!(
+            tr!("This is a {found} address — it doesn't work on {here}."),
+            found = name(found),
+            here = name(here)
+        )),
+        _ => None,
     }
 }
 
@@ -992,7 +1025,8 @@ fn route_notice(ui: &mut Ui, a: &mut Assets, v: &FormView) {
     }
     // Credits or the pool to a Core address are a withdrawal: they arrive later, not in seconds;
     // from the pool, the line says what the network sees, which depends on the recipient (BUG-112).
-    if let Some((icon, text)) = route_line(v.source, &v.recipient_label) {
+    if let Some((icon, text)) = route_line(v.source, &v.recipient_label, crate::context::network())
+    {
         notice(ui, a, icon, p.accent, text);
     }
 }
@@ -1000,7 +1034,10 @@ fn route_notice(ui: &mut Ui, a: &mut Assets, v: &FormView) {
 /// The fee's label: from the Platform addresses, Platform's or a withdrawal's (FEAT-0015).
 fn fee_label(v: &FormView) -> &'static str {
     use evolite_api::address_plan::{AddressMove, move_for};
-    match (v.source.source, move_for(&v.recipient_label)) {
+    match (
+        v.source.source,
+        move_for(&v.recipient_label, crate::context::network()),
+    ) {
         (Source::PlatformAddress, AddressMove::Withdraw) => tr!("Withdrawal fee"),
         (Source::PlatformAddress, _) => tr!("Platform fee"),
         _ => tr!("Network fee"),
@@ -1033,7 +1070,7 @@ pub(super) fn address_refusal(
     fee: Duffs,
 ) -> Option<String> {
     use evolite_api::address_plan::{AddressMove, MIN_INPUT, move_for};
-    let kind = move_for(typed);
+    let kind = move_for(typed, crate::context::network());
     if w.platform_inputs
         .iter()
         .all(|credits| *credits < MIN_INPUT + kind.fee(1))
@@ -1096,7 +1133,7 @@ fn address_notice(ui: &mut Ui, a: &mut Assets, v: &FormView) {
     if to.is_empty() || v.unavailable.is_some() {
         return;
     }
-    match move_for(to) {
+    match move_for(to, crate::context::network()) {
         AddressMove::Transfer => {
             // The wallet's own address is not someone else's (QA pass 21). bech32m may be typed
             // in capitals too, and is never valid in mixed case (QA21 r1 P3 1).
@@ -1350,7 +1387,7 @@ fn payment_answer(ui: &mut Ui, a: &mut Assets, form: &SendForm, v: &FormView) {
                 ),
                 // Credits: Platform proves the transition, there is no Core transaction.
                 Some(Ok(sent)) if sent.txid.is_empty() && source.source == Source::Pool => {
-                    let withdrawal = !sent_to.starts_with("tdash1");
+                    let withdrawal = !evolite_api::address::is_platform(sent_to, crate::context::network());
                     notice(
                         ui,
                         a,
@@ -1365,7 +1402,7 @@ fn payment_answer(ui: &mut Ui, a: &mut Assets, form: &SendForm, v: &FormView) {
                 }
                 Some(Ok(sent)) if sent.txid.is_empty() => {
                     let withdrawal = !sent_to.starts_with('@')
-                        && !sent_to.starts_with("tdash1");
+                        && !evolite_api::address::is_platform(sent_to, crate::context::network());
                     notice(
                         ui,
                         a,

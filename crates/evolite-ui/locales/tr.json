@@ -1,4 +1,5 @@
 {
+  "This is a {} address — it doesn't work on {}.": "Bu bir {} adresi — {} üzerinde çalışmaz.",
   "A new request cannot be sent to this contact: the limit of repeated requests is used up. They will not be able to pay you by DashPay — give them a Dash address.": "Bu kişiye yeni istek gönderilemez: tekrarlanan istek sınırı doldu. Size DashPay ile ödeme yapamayacak — ona bir Dash adresi verin.",
   "After the change, evolite will send new contact requests to your contacts, so they can pay you again.": "Değişiklikten sonra evolite kişilerinize yeni kişi istekleri gönderecek, böylece size yeniden ödeme yapabilecekler.",
   "An earlier operation with this token went through after all — it is in History now": "Bu tokenla yapılan önceki işlem sonunda gerçekleşti — artık Geçmiş'te",

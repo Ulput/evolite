@@ -150,22 +150,26 @@ pub(super) fn max_amount(balance: Duffs, fee: Duffs, withdrawal: Option<Withdraw
 
 /// Credits to `to` go to a Core address — a withdrawal, which Platform pays out later — and not
 /// to a name or a Platform address (a transfer).
-pub(super) fn credits_to_core(to: &str) -> bool {
+pub(super) fn credits_to_core(to: &str, network: evolite_api::Network) -> bool {
     let to = to.trim();
-    !(to.is_empty() || to.starts_with('@') || credits_to_platform_address(to))
+    !(to.is_empty() || to.starts_with('@') || credits_to_platform_address(to, network))
 }
 
 /// Credits to `to` go to a Platform address, whose transfer costs more than one to a name (BUG-108).
-fn credits_to_platform_address(to: &str) -> bool {
-    to.trim().to_ascii_lowercase().starts_with("tdash1")
+fn credits_to_platform_address(to: &str, network: evolite_api::Network) -> bool {
+    evolite_api::address::is_platform(to, network)
 }
 
 /// What credits to `to` cost: a withdrawal to a Core address, else a transfer to a Platform address
 /// or a name.
-pub(super) fn credits_fee(fees: &evolite_api::Fees, to: &str) -> Duffs {
-    if credits_to_core(to) {
+pub(super) fn credits_fee(
+    fees: &evolite_api::Fees,
+    to: &str,
+    network: evolite_api::Network,
+) -> Duffs {
+    if credits_to_core(to, network) {
         fees.credit_withdrawal
-    } else if credits_to_platform_address(to) {
+    } else if credits_to_platform_address(to, network) {
         fees.credit_transfer_to_address
     } else {
         fees.credit_transfer
@@ -175,7 +179,7 @@ pub(super) fn credits_fee(fees: &evolite_api::Fees, to: &str) -> Duffs {
 /// `to`: the recipient typed, which decides what a payment from credits or the pool costs;
 /// `amount`: the amount typed (0: none yet), which decides what a payment from Core costs.
 pub(super) fn sources(w: &Wallet, to: &str, amount: Duffs) -> Vec<SourceView> {
-    sources_on(evolite_core::network::current(), w, to, amount)
+    sources_on(crate::context::network(), w, to, amount)
 }
 
 /// [`sources`] on `network`: on mainnet without «Platform address» until its payments are proven
@@ -186,9 +190,9 @@ pub(super) fn sources_on(
     to: &str,
     amount: Duffs,
 ) -> Vec<SourceView> {
-    let credits = credits_fee(&w.fees, to);
-    let pool = super::super::shielded::pool_fee(&w.fees, to);
-    let (address, address_max) = address_fees(w, to, amount);
+    let credits = credits_fee(&w.fees, to, network);
+    let pool = super::super::shielded::pool_fee(&w.fees, to, network);
+    let (address, address_max) = address_fees(w, to, amount, network);
     let mut all = vec![
         SourceView {
             source: Source::Core,
@@ -210,7 +214,7 @@ pub(super) fn sources_on(
             duffs: w.balances.credits,
             fee: credits,
             max_fee: credits,
-            withdrawal: credits_to_core(to).then(|| Withdrawal::of(&w.fees)),
+            withdrawal: credits_to_core(to, network).then(|| Withdrawal::of(&w.fees)),
             read: w.balances.credits_checked,
             note_icon: "confirmed",
             note: tr!("A credit transfer is confirmed by a Platform proof in a couple of seconds."),
@@ -268,9 +272,14 @@ pub(super) fn shown_on(network: evolite_api::Network, source: Source) -> bool {
 /// What a payment of `amount` duffs from the Platform addresses to `to` costs, by the plan the
 /// core signs (FEAT-0015 R-7), and the fee «Max» leaves room for: the balance less what «Max»
 /// gets. With no plan possible (nothing typed, too little): the fee of one address paying.
-pub(super) fn address_fees(w: &Wallet, to: &str, amount: Duffs) -> (Duffs, Duffs) {
+pub(super) fn address_fees(
+    w: &Wallet,
+    to: &str,
+    amount: Duffs,
+    network: evolite_api::Network,
+) -> (Duffs, Duffs) {
     use evolite_api::address_plan::{CREDITS_PER_DUFF, duffs_up, move_for, plan_to};
-    let kind = move_for(to);
+    let kind = move_for(to, network);
     let credits = (amount.max(0) as u64).saturating_mul(CREDITS_PER_DUFF);
     // A transfer never pays from the address it pays to (BUG-141, QA pass 23).
     let (inputs, names) = (&w.platform_inputs, &w.platform_input_addresses);
@@ -417,13 +426,13 @@ pub(super) enum PoolRoute {
 }
 
 /// [`PoolRoute`] of the recipient typed; none while nothing is typed.
-pub(super) fn pool_route(to: &str) -> Option<PoolRoute> {
+pub(super) fn pool_route(to: &str, network: evolite_api::Network) -> Option<PoolRoute> {
     let to = to.trim();
     if to.is_empty() {
         None
     } else if to.starts_with('@') {
         Some(PoolRoute::Name)
-    } else if to.to_ascii_lowercase().starts_with("tdash1") {
+    } else if evolite_api::address::is_platform(to, network) {
         Some(if super::super::shielded::is_private_address(to) {
             PoolRoute::Private
         } else {
@@ -436,11 +445,15 @@ pub(super) fn pool_route(to: &str) -> Option<PoolRoute> {
 
 /// The line under the form about where the money goes and what the network sees: its icon and
 /// its words, or none.
-pub(super) fn route_line(s: &SourceView, to: &str) -> Option<(&'static str, &'static str)> {
+pub(super) fn route_line(
+    s: &SourceView,
+    to: &str,
+    network: evolite_api::Network,
+) -> Option<(&'static str, &'static str)> {
     let to = to.trim();
     // From the pool only a private address keeps the amount and the recipient hidden (BUG-112).
     if s.source == Source::Pool {
-        return match pool_route(to)? {
+        return match pool_route(to, network)? {
             PoolRoute::Name => None,
             PoolRoute::Private => Some((
                 "shielded",
@@ -465,7 +478,7 @@ pub(super) fn route_line(s: &SourceView, to: &str) -> Option<(&'static str, &'st
     let withdrawal = s.source == Source::Credits
         && !to.is_empty()
         && !to.starts_with('@')
-        && !to.starts_with("tdash1");
+        && !evolite_api::address::is_platform(to, network);
     Some(if withdrawal {
         (
             "pending",

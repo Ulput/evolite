@@ -20,10 +20,7 @@ pub fn platform_hrp() -> &'static str {
 }
 
 pub fn hrp_of(network: Network) -> &'static str {
-    match network {
-        Network::Testnet => "tdash1",
-        Network::Mainnet => "dash1",
-    }
+    evolite_api::address::hrp(network)
 }
 
 /// Whether `to` is a Platform address of this run's network: the same key's address on the

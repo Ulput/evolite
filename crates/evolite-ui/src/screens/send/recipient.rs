@@ -44,7 +44,7 @@ pub(super) fn recipient<'a>(form: &'a SendForm) -> Recipient<'a> {
 pub(super) fn looks_like_address(to: &str) -> bool {
     let to = to.trim();
     let lower = to.to_ascii_lowercase();
-    if lower.starts_with("tdash1") || lower.starts_with("dash1") {
+    if evolite_api::address::looks_platform(&lower) {
         return to.len() >= 40 && to.chars().all(|c| c.is_ascii_alphanumeric());
     }
     (25..=36).contains(&to.chars().count())

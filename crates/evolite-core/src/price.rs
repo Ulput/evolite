@@ -2,7 +2,9 @@
 //! `Fees` the forms read, from the snapshot the person saw. Pure, so a test can hold each kind
 //! against what its form shows. Only the price is here: no address, name or amount leaves.
 
-use evolite_api::{AppRequestKind, CoreError, Duffs, Fees, ShieldSource, Source, Spend, Wallet};
+use evolite_api::{
+    AppRequestKind, CoreError, Duffs, Fees, Network, ShieldSource, Source, Spend, Wallet,
+};
 
 /// What the person saw, from the last snapshot: the prices, and the balances they are paid from.
 #[derive(Clone, Debug, PartialEq)]
@@ -51,18 +53,18 @@ pub struct Declared {
 }
 
 /// Credits to `to` go to a Core address: a withdrawal (as the Send form tells them apart).
-fn to_core_address(to: &str) -> bool {
+fn to_core_address(to: &str, network: Network) -> bool {
     let to = to.trim();
-    !(to.is_empty() || to.starts_with('@') || to.to_ascii_lowercase().starts_with("tdash1"))
+    !(to.is_empty() || to.starts_with('@') || evolite_api::address::is_platform(to, network))
 }
 
 /// What a payment from the pool to `to` costs, as the Send form says it.
-fn pool_price(fees: &Fees, to: &str) -> Duffs {
+fn pool_price(fees: &Fees, to: &str, network: Network) -> Duffs {
     let to = to.trim();
     if to.is_empty() || to.starts_with('@') {
         return fees.pool_transfer;
     }
-    if to.to_ascii_lowercase().starts_with("tdash1") {
+    if evolite_api::address::is_platform(to, network) {
         // A private address is much longer than a Platform address.
         return if to.len() > 64 {
             fees.pool_transfer
@@ -76,6 +78,11 @@ fn pool_price(fees: &Fees, to: &str) -> Duffs {
 /// What `op` was said to cost. `app_cost`: the cost its request showed, for [`Spend::ApproveApp`].
 /// Without a catch-all: a new kind of spend must say its price.
 pub fn declared(op: &Spend, seen: &Seen, app_cost: Duffs) -> Declared {
+    declared_on(crate::network::current(), op, seen, app_cost)
+}
+
+/// [`declared`] on `network`: a Platform address is told by that network's prefix (BUG-211).
+pub fn declared_on(network: Network, op: &Spend, seen: &Seen, app_cost: Duffs) -> Declared {
     let fees = &seen.fees;
     let covers = |have: Duffs, moved: Duffs, price: Duffs| moved.saturating_add(price) <= have;
     let of = |what, declared, enough| Declared {
@@ -119,9 +126,9 @@ pub fn declared(op: &Spend, seen: &Seen, app_cost: Duffs) -> Declared {
             amount,
             ..
         } => {
-            let (what, price) = if to_core_address(to) {
+            let (what, price) = if to_core_address(to, network) {
                 ("withdraw_credits", fees.credit_withdrawal)
-            } else if to.trim().to_ascii_lowercase().starts_with("tdash1") {
+            } else if evolite_api::address::is_platform(to, network) {
                 ("send_credits", fees.credit_transfer_to_address)
             } else {
                 ("send_credits", fees.credit_transfer)
@@ -134,7 +141,7 @@ pub fn declared(op: &Spend, seen: &Seen, app_cost: Duffs) -> Declared {
             amount,
             ..
         } => {
-            let price = pool_price(fees, to);
+            let price = pool_price(fees, to, network);
             of("send_pool", price, covers(seen.pool, *amount, price))
         }
         // The plan the form shows (FEAT-0015 R-7): its fee, and whether the addresses carry it.
@@ -145,7 +152,7 @@ pub fn declared(op: &Spend, seen: &Seen, app_cost: Duffs) -> Declared {
             ..
         } => {
             use evolite_api::address_plan::{AddressMove, duffs_up, move_for, plan_to};
-            let kind = move_for(to);
+            let kind = move_for(to, network);
             let credits = ((*amount).max(0) as u64)
                 .saturating_mul(evolite_api::address_plan::CREDITS_PER_DUFF);
             let (price, enough) = match plan_to(

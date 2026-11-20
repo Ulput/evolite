@@ -1,4 +1,5 @@
 {
+  "This is a {} address — it doesn't work on {}.": "Das ist eine {}-Adresse — auf {} funktioniert sie nicht.",
   "A new request cannot be sent to this contact: the limit of repeated requests is used up. They will not be able to pay you by DashPay — give them a Dash address.": "Diesem Kontakt kann keine neue Anfrage gesendet werden: Das Limit für wiederholte Anfragen ist erreicht. Er kann Ihnen nicht per DashPay zahlen — geben Sie ihm eine Dash-Adresse.",
   "After the change, evolite will send new contact requests to your contacts, so they can pay you again.": "Nach der Änderung sendet evolite Ihren Kontakten neue Kontaktanfragen, damit sie Ihnen wieder zahlen können.",
   "An earlier operation with this token went through after all — it is in History now": "Ein früherer Vorgang mit diesem Token ist doch durchgegangen — er steht jetzt im Verlauf",

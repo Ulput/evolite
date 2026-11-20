@@ -1220,3 +1220,62 @@ mod tests {
         assert_eq!(fees.shield_reserve, 2 * fees.shield_from_address);
     }
 }
+
+/// BUG-211 (the coordinator's check): on each network a private (Orchard) address and a Platform
+/// address share the prefix (`tdash1` / `dash1`). [`evolite_api::address::kind`] says only «this
+/// network's»; which of the two it is, the core asks dpp ([`is_private_address`]) and the screens
+/// tell by length (`evolite-ui` `shielded::is_private_address`: longer than 64). Real addresses of
+/// both kinds, on both networks, agree with both.
+#[cfg(all(test, feature = "pool"))]
+mod address_kind_tests {
+    use dpp::address_funds::{OrchardAddress, PlatformAddress};
+    use evolite_api::address::{AddressKind, kind};
+
+    /// A real Orchard address: the first raw bytes dpp takes as one.
+    fn orchard() -> OrchardAddress {
+        (0u8..=255)
+            .find_map(|seed| {
+                let raw = std::array::from_fn(|i| seed.wrapping_add(i as u8).wrapping_mul(31));
+                OrchardAddress::from_raw_bytes(&raw).ok()
+            })
+            .expect("an Orchard address")
+    }
+
+    #[test]
+    fn a_private_and_a_platform_address_are_told_apart_on_both_networks() {
+        let private = orchard();
+        for (dash, ours, other) in [
+            (
+                key_wallet::Network::Testnet,
+                evolite_api::Network::Testnet,
+                evolite_api::Network::Mainnet,
+            ),
+            (
+                key_wallet::Network::Mainnet,
+                evolite_api::Network::Mainnet,
+                evolite_api::Network::Testnet,
+            ),
+        ] {
+            let private = private.to_bech32m_string(dash);
+            for platform in [
+                PlatformAddress::P2pkh([7; 20]),
+                PlatformAddress::P2sh([9; 20]),
+            ] {
+                let platform = platform.to_bech32m_string(dash);
+                assert!(super::is_private_address(&private), "{private}");
+                assert!(!super::is_private_address(&platform), "{platform}");
+                // The screens' rule.
+                assert!(private.len() > 64, "{private}");
+                assert!(platform.len() <= 64, "{platform}");
+                for address in [&private, &platform] {
+                    assert_eq!(kind(address, ours), AddressKind::Platform, "{address}");
+                    assert_eq!(
+                        kind(address, other),
+                        AddressKind::WrongNetwork { found: ours },
+                        "{address}"
+                    );
+                }
+            }
+        }
+    }
+}

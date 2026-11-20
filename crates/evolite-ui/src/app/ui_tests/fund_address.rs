@@ -241,7 +241,7 @@ fn continuing_a_recovered_lock_says_where_and_how_much() {
     kit.run_steps(2);
     assert!(has_text(&kit, "To · this wallet's Platform address"));
     assert!(
-        has_words(&kit, crate::app::dev::RECOVERED_TO),
+        has_words(&kit, &crate::app::dev::recovered_to()),
         "the address it goes to"
     );
     let at_least =

@@ -60,7 +60,18 @@ pub enum WalletRequest {
     Open(String),
 }
 
+/// The network this app runs on: the one it was launched on (FEAT-0037), known before any
+/// wallet is open. The screens' one way to it (BUG-211): every check of a typed address takes it.
+pub fn network() -> evolite_api::Network {
+    evolite_core::network::current()
+}
+
 impl<'a> Ctx<'a> {
+    /// [`network`], for a screen that has the context at hand.
+    pub fn network(&self) -> evolite_api::Network {
+        network()
+    }
+
     pub fn new(
         snap: &'a Snapshot,
         commands: &'a mut Vec<Command>,

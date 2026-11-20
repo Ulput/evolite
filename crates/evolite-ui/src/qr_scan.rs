@@ -95,7 +95,7 @@ pub fn classify(text: &str) -> Kind {
 /// the field's own check says whether it is one of this network.
 fn looks_like_address(text: &str) -> bool {
     let lower = text.to_ascii_lowercase();
-    if lower.starts_with("tdash1") || lower.starts_with("dash1") {
+    if evolite_api::address::looks_platform(&lower) {
         return text.len() >= 40 && text.chars().all(|c| c.is_ascii_alphanumeric());
     }
     (25..=36).contains(&text.len())

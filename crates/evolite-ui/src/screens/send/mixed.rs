@@ -139,6 +139,7 @@ pub(super) fn card_hint(w: &Wallet) -> Option<String> {
 /// not enough coins, or what the core said. The refusal of a large excess (AC-A12) is apart:
 /// [`refused`].
 pub(super) fn refusal(
+    network: evolite_api::Network,
     typed: &str,
     quote: Option<&Result<MixedQuote, CoreError>>,
     spendable: Duffs,
@@ -148,7 +149,7 @@ pub(super) fn refusal(
     if typed.starts_with('@') {
         return Some(tr!("From mixed coins you can pay only to a Core address for now.").into());
     }
-    if typed.to_ascii_lowercase().starts_with("tdash1") {
+    if evolite_api::address::is_platform(typed, network) {
         return Some(
             tr!("Mixed coins do not go to Platform: a top-up would put them into one transaction and show they are yours.")
                 .into(),

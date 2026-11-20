@@ -283,19 +283,33 @@ fn credits_to_core_cost_a_withdrawal() {
         credit_withdrawal: 400_000,
         ..zero_fees()
     };
-    assert_eq!(credits_fee(&fees, "@alice"), 777);
     assert_eq!(
-        credits_fee(&fees, "tdash1qq7x4m9n2r8v5k3j6h0w4p2s8d5f7g9l3c0zq"),
+        credits_fee(&fees, "@alice", evolite_api::Network::Testnet),
+        777
+    );
+    assert_eq!(
+        credits_fee(
+            &fees,
+            "tdash1qq7x4m9n2r8v5k3j6h0w4p2s8d5f7g9l3c0zq",
+            evolite_api::Network::Testnet
+        ),
         888
     );
     assert_eq!(
-        credits_fee(&fees, " yStwA1xNxEE2kv5ZVDNGSsPach8pBApWHZ"),
+        credits_fee(
+            &fees,
+            " yStwA1xNxEE2kv5ZVDNGSsPach8pBApWHZ",
+            evolite_api::Network::Testnet
+        ),
         400_000
     );
-    assert!(credits_to_core(" yStwA1xNxEE2kv5ZVDNGSsPach8pBApWHZ"));
+    assert!(credits_to_core(
+        " yStwA1xNxEE2kv5ZVDNGSsPach8pBApWHZ",
+        evolite_api::Network::Testnet
+    ));
     for to in ["", "@alice", "TDASH1qq7x4m9n2r8v5k3j6h0w4p2s8d5f7g9l3c0zq"] {
         assert!(
-            !credits_to_core(to),
+            !credits_to_core(to, evolite_api::Network::Testnet),
             "{to}: a transfer, no withdrawal reserve"
         );
     }
@@ -890,7 +904,7 @@ fn a_lock_clears_the_form() {
 /// shows, for each way of paying and each kind of recipient.
 #[test]
 fn the_price_on_record_is_the_one_the_send_form_shows() {
-    use evolite_core::price::{Seen, declared};
+    use evolite_core::price::{Seen, declared, declared_on};
     let fees = evolite_api::Fees {
         core_payment: 11,
         credit_transfer: 12,
@@ -924,26 +938,44 @@ fn the_price_on_record_is_the_one_the_send_form_shows() {
         note: None,
         rate: None,
     };
-    let price = |op: &Spend| declared(op, &seen, 0).declared;
-    let private = format!("tdash1{}", "z".repeat(70));
-    for to in [
-        "@bob",
-        "yMrDQWqicXKL8xdJg23oYVVqKNtm5AwvXQ",
-        "tdash1qq7x4m9n2r8v5k3j6h0w4p2s8d5f7g9l3c0zq",
-        private.as_str(),
-        "",
-    ] {
+    // On both networks, each with its own addresses (BUG-211: mainnet's `dash1…` was a Core
+    // address to the form and the journal alike).
+    for network in [evolite_api::Network::Testnet, evolite_api::Network::Mainnet] {
+        let hrp = evolite_api::address::hrp(network);
+        let price = |op: &Spend| declared_on(network, op, &seen, 0).declared;
+        let private = format!("{hrp}{}", "z".repeat(70));
+        let platform = format!("{hrp}qq7x4m9n2r8v5k3j6h0w4p2s8d5f7g9l3c0zq");
+        for to in [
+            "@bob",
+            "yMrDQWqicXKL8xdJg23oYVVqKNtm5AwvXQ",
+            platform.as_str(),
+            private.as_str(),
+            "",
+        ] {
+            assert_eq!(
+                price(&send(Source::Credits, to, 5)),
+                credits_fee(&fees, to, network),
+                "{network:?} {to}"
+            );
+            assert_eq!(
+                price(&send(Source::Pool, to, 5)),
+                crate::screens::shielded::pool_fee(&fees, to, network),
+                "{network:?} {to}"
+            );
+        }
+        assert_eq!(credits_fee(&fees, &platform, network), 33, "to an address");
         assert_eq!(
-            price(&send(Source::Credits, to, 5)),
-            credits_fee(&fees, to),
-            "{to}"
+            crate::screens::shielded::pool_fee(&fees, &platform, network),
+            27,
+            "unshield"
         );
         assert_eq!(
-            price(&send(Source::Pool, to, 5)),
-            crate::screens::shielded::pool_fee(&fees, to),
-            "{to}"
+            crate::screens::shielded::pool_fee(&fees, &private, network),
+            13,
+            "private"
         );
     }
+    let price = |op: &Spend| declared(op, &seen, 0).declared;
     assert_eq!(
         price(&send(Source::Core, "@bob", 5)),
         fees.core_payment_for(5)
@@ -1389,20 +1421,42 @@ fn from_the_pool_the_line_says_only_what_the_recipient_keeps_hidden() {
         "Private address: the amount and the recipient will not be visible on the network.";
     const UNSHIELD: &str = "The unshielded amount becomes visible on the network, like any transfer to a Platform address.";
     let pool = pool_source(1_000_000, true);
-    assert_eq!(route_line(&pool, ""), None);
-    assert_eq!(route_line(&pool, "@alice"), None);
+    assert_eq!(route_line(&pool, "", evolite_api::Network::Testnet), None);
+    assert_eq!(
+        route_line(&pool, "@alice", evolite_api::Network::Testnet),
+        None
+    );
     let private = format!("tdash1z{}", "q".repeat(76));
-    assert_eq!(pool_route(&private), Some(PoolRoute::Private));
-    assert_eq!(route_line(&pool, &private), Some(("shielded", PRIVATE)));
+    assert_eq!(
+        pool_route(&private, evolite_api::Network::Testnet),
+        Some(PoolRoute::Private)
+    );
+    assert_eq!(
+        route_line(&pool, &private, evolite_api::Network::Testnet),
+        Some(("shielded", PRIVATE))
+    );
     let platform = "tdash1qq7x4m9n2r8v5k3j6h0w4p2s8d5f7g9l3c0zq";
-    assert_eq!(pool_route(platform), Some(PoolRoute::Platform));
-    assert_eq!(route_line(&pool, platform), Some(("eye", UNSHIELD)));
-    let core = route_line(&pool, "yXk3Tq9mD8vJw2RfL6pN4sB7cH1eZ5aG9f");
+    assert_eq!(
+        pool_route(platform, evolite_api::Network::Testnet),
+        Some(PoolRoute::Platform)
+    );
+    assert_eq!(
+        route_line(&pool, platform, evolite_api::Network::Testnet),
+        Some(("eye", UNSHIELD))
+    );
+    let core = route_line(
+        &pool,
+        "yXk3Tq9mD8vJw2RfL6pN4sB7cH1eZ5aG9f",
+        evolite_api::Network::Testnet,
+    );
     assert!(
         core.is_some_and(|(_, t)| t.starts_with("Withdrawal from the pool to Core")),
         "{core:?}"
     );
-    assert_eq!(pool_route("@alice"), Some(PoolRoute::Name));
+    assert_eq!(
+        pool_route("@alice", evolite_api::Network::Testnet),
+        Some(PoolRoute::Name)
+    );
 }
 
 /// QA pass 21 (6): a payment made with «Max» leaves no amount behind — not filled again from
@@ -1427,4 +1481,59 @@ fn a_payment_with_max_leaves_no_amount_behind() {
     form.on_sent(form.last_payment, &Err(CoreError::NotEnough));
     assert_eq!(form.amount, "0.1");
     assert!(form.max);
+}
+
+/// BUG-211: on mainnet a `dash1…` address is a Platform address everywhere the form tells
+/// recipients apart — credits to it are a transfer, not a withdrawal; from the pool it is
+/// unshielded or, when private, paid privately; «Mixed» refuses it as it refuses `tdash1…` on
+/// testnet. The other network's address is no Platform address here: the core refuses it.
+#[test]
+fn a_mainnet_platform_address_is_one_in_the_send_form() {
+    use evolite_api::Network::{Mainnet, Testnet};
+    use evolite_api::address::hrp;
+    for (network, other) in [(Mainnet, Testnet), (Testnet, Mainnet)] {
+        let platform = format!("{}qq7x4m9n2r8v5k3j6h0w4p2s8d5f7g9l3c0zq", hrp(network));
+        // A private address is one character shorter on mainnet, still past the 64 of the test.
+        let private = format!(
+            "{}zpavu07x8e3puq0lwy2s8mhpd37hfnz5ymdc2wzr3jcyxrrz3cnm3a8qydrzckf3ksua4xs5jh6t0",
+            hrp(network)
+        );
+        let theirs = format!("{}qq7x4m9n2r8v5k3j6h0w4p2s8d5f7g9l3c0zq", hrp(other));
+        assert!(!credits_to_core(&platform, network), "{network:?}");
+        assert!(
+            !credits_to_core(&platform.to_uppercase(), network),
+            "any case"
+        );
+        assert!(credits_to_core(&theirs, network), "{network:?}: not ours");
+        assert_eq!(pool_route(&platform, network), Some(PoolRoute::Platform));
+        assert_eq!(pool_route(&private, network), Some(PoolRoute::Private));
+        assert_eq!(pool_route(&theirs, network), Some(PoolRoute::Core));
+        let pool = pool_source(1_000_000, true);
+        assert_eq!(
+            route_line(&pool, &private, network).map(|(icon, _)| icon),
+            Some("shielded")
+        );
+        assert_eq!(
+            route_line(&pool, &platform, network).map(|(icon, _)| icon),
+            Some("eye")
+        );
+        let credits = credits_source(1_000_000, true);
+        assert!(
+            route_line(&credits, &platform, network).is_none_or(|(icon, _)| icon != "pending"),
+            "{network:?}: credits to a Platform address are no withdrawal"
+        );
+        assert_eq!(super::form::wrong_network_line(&platform, network), None);
+        assert_eq!(
+            super::form::wrong_network_line(&theirs, network).as_deref(),
+            Some(match network {
+                Mainnet => "This is a Testnet address — it doesn't work on Mainnet.",
+                Testnet => "This is a Mainnet address — it doesn't work on Testnet.",
+            })
+        );
+        assert!(
+            super::mixed::refusal(network, &platform, None, 1_000_000, Some(1_000))
+                .is_some_and(|why| why.starts_with("Mixed coins do not go to Platform")),
+            "{network:?}"
+        );
+    }
 }

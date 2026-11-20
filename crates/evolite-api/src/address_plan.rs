@@ -66,18 +66,16 @@ impl AddressMove {
     }
 }
 
-/// What a payment from the addresses to `to` is (UC-1): `@name` tops up an identity of the
-/// wallet, a Platform address (`tdash1…`, `dash1…`) is a transfer, anything else a withdrawal to
-/// Core. Whether the recipient may get it at all is the core's check.
-pub fn move_for(to: &str) -> AddressMove {
-    let to = to.trim();
-    let lower = to.to_ascii_lowercase();
-    if to.starts_with('@') {
-        AddressMove::TopUp
-    } else if lower.starts_with("tdash1") || lower.starts_with("dash1") {
-        AddressMove::Transfer
-    } else {
-        AddressMove::Withdraw
+/// What a payment from the addresses to `to` is on `network` (UC-1): `@name` tops up an identity
+/// of the wallet, a Platform address is a transfer, anything else a withdrawal to Core. Whether
+/// the recipient may get it at all is the core's check: the other network's Platform address is
+/// a transfer it refuses as one (BUG-211).
+pub fn move_for(to: &str, network: crate::Network) -> AddressMove {
+    use crate::address::AddressKind;
+    match crate::address::kind(to, network) {
+        AddressKind::Name => AddressMove::TopUp,
+        AddressKind::Platform | AddressKind::WrongNetwork { .. } => AddressMove::Transfer,
+        AddressKind::Other => AddressMove::Withdraw,
     }
 }
 
@@ -347,21 +345,25 @@ mod tests {
 
     #[test]
     fn the_recipient_says_what_the_payment_is() {
-        assert_eq!(move_for("@bob"), AddressMove::TopUp);
-        assert_eq!(
-            move_for(" tdash1qq7x4m9n2r8v5k3j6h0w4p2s8d5f7g9l3c0zq"),
-            AddressMove::Transfer
-        );
-        assert_eq!(move_for("DASH1qq7x"), AddressMove::Transfer);
-        assert_eq!(
-            move_for("yXk3Tq9mD8vJw2RfL6pN4sB7cH1eZ5aG9f"),
-            AddressMove::Withdraw
-        );
-        assert_eq!(
-            move_for("td1qxyz"),
-            AddressMove::Withdraw,
-            "bech32 Core: refused by the core"
-        );
+        use crate::Network::{Mainnet, Testnet};
+        for network in [Testnet, Mainnet] {
+            assert_eq!(move_for("@bob", network), AddressMove::TopUp);
+            assert_eq!(
+                move_for(" tdash1qq7x4m9n2r8v5k3j6h0w4p2s8d5f7g9l3c0zq", network),
+                AddressMove::Transfer,
+                "on mainnet: a transfer the core refuses"
+            );
+            assert_eq!(move_for("DASH1qq7x", network), AddressMove::Transfer);
+            assert_eq!(
+                move_for("yXk3Tq9mD8vJw2RfL6pN4sB7cH1eZ5aG9f", network),
+                AddressMove::Withdraw
+            );
+            assert_eq!(
+                move_for("td1qxyz", network),
+                AddressMove::Withdraw,
+                "bech32 Core: refused by the core"
+            );
+        }
         assert_eq!(duffs_up(1), 1);
         assert_eq!(duffs_up(6_500_000), 6_500);
     }

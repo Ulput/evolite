@@ -188,7 +188,7 @@ impl egui::Widget for Para<'_> {
 /// digits, or one shortened around «…» with a digit in it.
 pub fn address_like(run: &str) -> bool {
     let lower = run.to_ascii_lowercase();
-    if lower.starts_with("tdash1") || lower.starts_with("dash1") {
+    if evolite_api::address::looks_platform(&lower) {
         return true;
     }
     let has_digit = run.chars().any(|c| c.is_ascii_digit());

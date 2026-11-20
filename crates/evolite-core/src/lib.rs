@@ -1442,7 +1442,10 @@ mod tests {
                 let w = s.wallet.as_ref()?;
                 (s.sync.stage == SyncStage::Done
                     && w.identity.is_some()
-                    && w.platform_address.starts_with("tdash1"))
+                    && evolite_api::address::is_platform(
+                        &w.platform_address,
+                        crate::network::current(),
+                    ))
                 .then(|| w.clone())
             }
             _ => None,
@@ -2235,7 +2238,10 @@ mod tests {
                 let w = s.wallet.as_ref()?;
                 (s.sync.stage == SyncStage::Done
                     && w.identity.is_some()
-                    && w.platform_address.starts_with("tdash1"))
+                    && evolite_api::address::is_platform(
+                        &w.platform_address,
+                        crate::network::current(),
+                    ))
                 .then(|| w.clone())
             }
             _ => None,

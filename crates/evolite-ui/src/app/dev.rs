@@ -10,7 +10,17 @@ use evolite_api::{Command, VaultState};
 
 /// `--screen fund-address-recovered`: where «Continue» of a lock found after a restore goes —
 /// another of the wallet's Platform addresses than the one signed for (QA's C2, BUG-171).
-pub(super) const RECOVERED_TO: &str = "tdash1kpmx2t8gs39wnd5v7n4k3l2qx9y8w6e5r4t3d2wd62z";
+pub(super) fn recovered_to() -> String {
+    on_this_network("kpmx2t8gs39wnd5v7n4k3l2qx9y8w6e5r4t3d2wd62z")
+}
+
+/// A preset's Platform address on the network the app runs on: `rest` after its prefix (BUG-211).
+fn on_this_network(rest: &str) -> String {
+    format!(
+        "{}{rest}",
+        evolite_api::address::hrp(crate::context::network())
+    )
+}
 
 /// What the screenshot tools keep between frames.
 pub(super) struct DevState {
@@ -60,7 +70,7 @@ pub(super) struct DevState {
     contest_preset: Option<&'static str>,
     /// `--screen fund-address-recovered`: the stopped one is a lock found on chain after a
     /// restore — no record of where it was signed to go, so it goes to the address shown now
-    /// ([`RECOVERED_TO`]), and no InstantLock (BUG-171) — with «Continue» open.
+    /// ([`recovered_to`]), and no InstantLock (BUG-171) — with «Continue» open.
     fund_recovered_preset: bool,
     /// `--screen tokens-*` (FEAT-0019): the search or the network as that frame of the design shows it.
     tokens_preset: Option<&'static str>,
@@ -493,7 +503,7 @@ impl App {
                 locked: 10_012_000,
                 // After a restore: the address shown now, not the one signed for (BUG-171).
                 address: if recovered {
-                    RECOVERED_TO.into()
+                    recovered_to()
                 } else {
                     w.platform_address.clone()
                 },
@@ -913,17 +923,10 @@ impl App {
             }
             // FEAT-0015: paying from the Platform addresses: a transfer, a withdrawal costing much of
             // its amount, one to a foreign Core address, a top-up of the identity, the last look.
+            let theirs = on_this_network("qqmz8fh2wl5c9u4hyrq3m4n0t7k2vx6s4u6aznp");
             let from_address = [
-                (
-                    "send-from-address",
-                    "tdash1qqmz8fh2wl5c9u4hyrq3m4n0t7k2vx6s4u6aznp",
-                    5_000_000,
-                ),
-                (
-                    "address-confirm",
-                    "tdash1qqmz8fh2wl5c9u4hyrq3m4n0t7k2vx6s4u6aznp",
-                    5_000_000,
-                ),
+                ("send-from-address", theirs.as_str(), 5_000_000),
+                ("address-confirm", theirs.as_str(), 5_000_000),
                 (
                     "address-withdraw-warning",
                     "yXk3Tq9mD8vJw2RfL6pN4sB7cH1eZ5aG9f2c",
@@ -948,11 +951,11 @@ impl App {
             }
             // Core to someone else's Platform address (frame 15): the way there from elsewhere.
             if preset("core-to-platform-address") {
-                self.send.recipient = "tdash1qqmz8fh2wl5c9u4hyrq3m4n0t7k2vx6s4u6aznp".into();
+                self.send.recipient = on_this_network("qqmz8fh2wl5c9u4hyrq3m4n0t7k2vx6s4u6aznp");
             }
             // FEAT-0015 stage 2 (frame 14): Core to the wallet's own Platform address — a top-up of it.
             if preset("send-fund-own") {
-                self.send.recipient = "tdash1qq7x4m9n2r8v5k3j6h0w4p2s8d5f7g9l3c0zq".into();
+                self.send.recipient = on_this_network("qq7x4m9n2r8v5k3j6h0w4p2s8d5f7g9l3c0zq");
                 self.send.amount = crate::format::input_text(10_000_000);
             }
             // `--screen send-pool-unread` / `send-pool-unknown`: from the pool, to an address: the card,

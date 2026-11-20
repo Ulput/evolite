@@ -1,4 +1,5 @@
 {
+  "This is a {} address — it doesn't work on {}.": "Đây là địa chỉ {} — không dùng được trên {}.",
   "A new request cannot be sent to this contact: the limit of repeated requests is used up. They will not be able to pay you by DashPay — give them a Dash address.": "Không thể gửi yêu cầu mới cho liên hệ này: đã hết giới hạn yêu cầu lặp lại. Họ sẽ không thể thanh toán cho bạn qua DashPay — hãy đưa họ một địa chỉ Dash.",
   "After the change, evolite will send new contact requests to your contacts, so they can pay you again.": "Sau khi thay đổi, evolite sẽ gửi yêu cầu liên hệ mới tới các liên hệ của bạn để họ có thể thanh toán cho bạn trở lại.",
   "An earlier operation with this token went through after all — it is in History now": "Thao tác trước với token này cuối cùng đã thực hiện — giờ đã có trong Lịch sử",

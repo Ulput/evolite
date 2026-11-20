@@ -1576,6 +1576,7 @@
   "This identity, made in another wallet, lacks encryption keys: without them a contact request cannot be sent or read. evolite adds a pair of keys from this wallet's phrase — a Platform write paid in the identity's credits.",
   "This is a link to an Imgur page, not to the picture. Open the picture and copy its address: it starts with i.imgur.com",
   "This is a renewal",
+  "This is a {} address — it doesn't work on {}.",
   "This is an address of this wallet: the money stays yours, only the fee goes.",
   "This is an app link: open it on the “Apps” screen",
   "This is not a Dash address or an app link",

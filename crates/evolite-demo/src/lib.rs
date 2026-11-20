@@ -1238,9 +1238,10 @@ impl Mock {
             return Err(CoreError::BadAmount);
         }
         let to = to.trim();
-        let kind = move_for(to);
+        let network = evolite_common::network::current();
+        let kind = move_for(to, network);
         let line_kind = match kind {
-            AddressMove::Transfer if to.starts_with("tdash1") => {
+            AddressMove::Transfer if evolite_api::address::is_platform(to, network) => {
                 ActivityKind::AddressSent { to: to.to_owned() }
             }
             AddressMove::Transfer => return Err(CoreError::BadAddress),

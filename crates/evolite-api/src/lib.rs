@@ -13,6 +13,7 @@ use std::sync::Arc;
 /// The type of [`RevealedKey`]'s values, for the cores and the interface.
 pub use zeroize::Zeroizing;
 
+pub mod address;
 pub mod address_fund;
 pub mod address_plan;
 pub mod coin_plan;

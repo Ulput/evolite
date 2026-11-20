@@ -17,6 +17,15 @@ pub const DEMO_PHRASE: [&str; 24] = [
 
 pub const TIP: u32 = 1_284_112;
 
+/// The demo's Platform or private address on the network the app runs on (BUG-211): `rest` after
+/// that network's prefix, so that a mainnet demo has `dash1…` addresses of its own.
+pub fn platform(rest: &str) -> String {
+    format!(
+        "{}{rest}",
+        evolite_api::address::hrp(evolite_common::network::current())
+    )
+}
+
 pub fn now() -> Timestamp {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -895,14 +904,14 @@ pub fn demo_wallet(t: Timestamp) -> Wallet {
             },
         ],
         core_address: "yXk3Tq9mD8vJw2RfL6pN4sB7cH1eZ5aG9f2c".into(),
-        platform_address: "tdash1qq7x4m9n2r8v5k3j6h0w4p2s8d5f7g9l3c0zq".into(),
+        platform_address: platform("qq7x4m9n2r8v5k3j6h0w4p2s8d5f7g9l3c0zq"),
         // The 0,734 DASH on two addresses (credits, in the addresses' own order): «Max» and a
         // payment from both show how the fee grows with the inputs.
         platform_inputs: vec![13_400_000_000, 60_000_000_000],
         // The first is the address Receive shows (as in QA pass 23, BUG-141).
         platform_input_addresses: vec![
-            "tdash1qq7x4m9n2r8v5k3j6h0w4p2s8d5f7g9l3c0zq".into(),
-            "tdash1qz8fexample".into(),
+            platform("qq7x4m9n2r8v5k3j6h0w4p2s8d5f7g9l3c0zq"),
+            platform("qz8fexample"),
         ],
         identity: Some(Identity {
             id: PEOPLE[0].id.into(),
@@ -1032,10 +1041,9 @@ pub fn demo_wallet(t: Timestamp) -> Wallet {
         pool: Pool {
             notes: 3,
             checked_at: Some(now() - 4 * 60),
-            address: Some(
-                "tdash1zq8f5v6tnhx0ldqpw9c3ujmtk2yg7s4ea5r9lnvx3wd8kzp0q6myh2jhc7tq9ejw5aqr0"
-                    .into(),
-            ),
+            address: Some(platform(
+                "zq8f5v6tnhx0ldqpw9c3ujmtk2yg7s4ea5r9lnvx3wd8kzp0q6myh2jhc7tq9ejw5aqr0",
+            )),
             unfinished_shield: None,
             connecting: false,
             failing: None,

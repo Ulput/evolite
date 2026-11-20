@@ -1,4 +1,5 @@
 {
+  "This is a {} address — it doesn't work on {}.": "هذا عنوان {} — لا يعمل على {}.",
   "A new request cannot be sent to this contact: the limit of repeated requests is used up. They will not be able to pay you by DashPay — give them a Dash address.": "لا يمكن إرسال طلب جديد إلى جهة الاتصال هذه: نفد حد الطلبات المتكررة. لن تتمكن من الدفع لك عبر DashPay — أعطها عنوان Dash.",
   "After the change, evolite will send new contact requests to your contacts, so they can pay you again.": "بعد التغيير سيرسل evolite طلبات اتصال جديدة إلى جهات اتصالك، كي تتمكن من الدفع لك مجددًا.",
   "An earlier operation with this token went through after all — it is in History now": "عملية سابقة بهذا الرمز تمّت في النهاية — وهي الآن في السجل",
