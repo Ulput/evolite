@@ -40,6 +40,7 @@ impl Real {
         let chain = self.chain.clone();
         let refresh = self.refresher();
         let journal = self.journal.clone();
+        let unclear = self.unclear.clone();
         self.answer_later("task:add_contact", async move {
             let result =
                 async {
@@ -64,13 +65,20 @@ impl Real {
                     if let Some(why) = repeat_request(standing, &label) {
                         return Err(CoreError::NotAvailable(why));
                     }
+                    // BUG-243 (6): «not asked yet» is the store, filled from reads: a request not
+                    // known to have gone through may still land, and a repeat is a paid key
+                    // rotation.
+                    // As the resend's guard (FEAT-0020): any request of this identity.
+                    let me = b58(&from);
+                    if unclear.requests_on_their_way(&me) {
+                        return Err(super::resend::request_on_its_way());
+                    }
                     // Checked, signed, paid and keyed as that one identity, whatever "Act as"
                     // shows meanwhile (BUG-13 r1 should 1).
                     let before = chain.identity_credits(&wallet, &from, false).await;
-                    chain
-                        .add_contact(&wallet, &keys, &from, to)
-                        .await
-                        .map_err(dashpay_failure)?;
+                    if let Err(e) = chain.add_contact(&wallet, &keys, &from, to).await {
+                        return Err(contact_not_seen(&unclear, e, me, before));
+                    }
                     // Keyed as the read of Platform keys it (BUG-58): one line, not two.
                     journal.add(platform_history::sent_request(
                         &from,
@@ -106,6 +114,7 @@ impl Real {
         let refresh = self.refresher();
         let journal = self.journal.clone();
         let hidden = self.hidden.clone();
+        let unclear = self.unclear.clone();
         let sender = identity_id.to_owned();
         // Accepting writes our request back: the history names whom.
         let who = self
@@ -126,11 +135,15 @@ impl Real {
                             let (_, me) = pinned_acting(&wallet, pinned).await.ok_or(
                                 CoreError::NotAvailable(tr!("The wallet has no identity").into()),
                             )?;
+                            // BUG-243 (6): accepting writes our request back — as a request.
+                            let mine = b58(&me);
+                            if unclear.requests_on_their_way(&mine) {
+                                return Err(super::resend::request_on_its_way());
+                            }
                             let before = chain.identity_credits(&wallet, &me, false).await;
-                            chain
-                                .accept_contact(&wallet, &keys, &me, from)
-                                .await
-                                .map_err(dashpay_failure)?;
+                            if let Err(e) = chain.accept_contact(&wallet, &keys, &me, from).await {
+                                return Err(contact_not_seen(&unclear, e, mine, before));
+                            }
                             let after = chain.identity_credits(&wallet, &me, true).await;
                             let spent = spent_credits(before, after).unwrap_or(0);
                             // BUG-198: keyed as the read of Platform keys our request back, so the
@@ -192,6 +205,7 @@ impl Real {
         let chain = self.chain.clone();
         let refresh = self.refresher();
         let journal = self.journal.clone();
+        let unclear = self.unclear.clone();
         // BUG-206: the identity the screen shows when the command comes: the task checks, pays
         // and signs as it even if the choice moves while it runs, and refuses if it is gone.
         let pinned = self.shown_now(id);
@@ -220,11 +234,28 @@ impl Real {
                         .ok_or(CoreError::NotAvailable(
                             tr!("The wallet has no identity").into(),
                         ))?;
+                // BUG-243 (6): an earlier profile not known to have gone through may still land:
+                // created again on a read that does not show it yet, the unique index refuses
+                // it with a fee.
+                if unclear.on_their_way(&acting, |p| matches!(p.watch, sent::Watch::Profile)) {
+                    return Err(profile_on_its_way());
+                }
                 let before = chain.identity_credits(&wallet, &me, false).await;
-                chain
+                if let Err(e) = chain
                     .save_profile(&wallet, &keys, &me, display, about, avatar)
                     .await
-                    .map_err(dashpay_failure)?;
+                {
+                    if sent::refused_before(&e) {
+                        return Err(dashpay_failure(e));
+                    }
+                    return Err(unclear.not_seen(sent::Pending::new(
+                        acting.clone(),
+                        sent::Watch::Profile,
+                        None,
+                        before,
+                        Some(acting),
+                    )));
+                }
                 let after = chain.identity_credits(&wallet, &me, true).await;
                 journal.add(journal::Entry {
                     at: now(),
@@ -450,6 +481,39 @@ impl NameBatch {
 /// Why a contact request to `@label` would only repeat one already made, by where its owner
 /// stands among our contacts; `None`: send it. A request from them is answered with ours, so it
 /// is no reason to hold back.
+/// An identity in base58, as `Unclear` keys its writes.
+fn b58(id: &Identifier) -> String {
+    id.to_string(Encoding::Base58)
+}
+
+/// BUG-243 (6): said while an earlier save of the profile may still land.
+pub(in crate::real) fn profile_on_its_way() -> CoreError {
+    CoreError::NotAvailable(
+        tr!("The earlier save of the profile may still go through: wait two minutes, then look at the profile again").into(),
+    )
+}
+
+/// BUG-243 (6): a contact request from `me` ended with `error`: refused before it went out,
+/// said so; else not known — kept as the resend keeps its own (`Watch::ContactRequest`), and
+/// any request of `me` waits its quiet.
+fn contact_not_seen(
+    unclear: &sent::Unclear,
+    error: String,
+    me: String,
+    before: Option<u64>,
+) -> CoreError {
+    if sent::refused_before(&error) {
+        return dashpay_failure(error);
+    }
+    unclear.not_seen(sent::Pending::new(
+        me.clone(),
+        sent::Watch::ContactRequest,
+        None,
+        before,
+        Some(me),
+    ))
+}
+
 pub(in crate::real) fn repeat_request(state: Option<ContactState>, label: &str) -> Option<String> {
     match state? {
         ContactState::Established => Some(format!(

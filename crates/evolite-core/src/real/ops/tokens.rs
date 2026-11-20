@@ -1036,8 +1036,12 @@ pub(in crate::real) async fn earlier_settled(
     } else {
         sent::token_state(chain, &me_id, me, contract, &info.token_id, shows).await
     };
-    let read = match earlier_is(earlier.quiet_for(), n0, state, shows) {
+    let read = match earlier_is(earlier.quiet_for(), earlier.no_for(), n0, state, shows) {
         Earlier::OnItsWay => return Err(CoreError::Unclear),
+        Earlier::FirstNo => {
+            unclear.saw_no(earlier.ticket());
+            return Err(CoreError::Unclear);
+        }
         Earlier::NotKnown => return Err(CoreError::Unclear),
         Earlier::SomethingLanded => {
             crate::diag::platform_failed("token_earlier", "SomethingLanded");
@@ -1086,7 +1090,11 @@ enum Earlier {
     /// The nonce moved, the value does not show it: a write of this identity with this token
     /// went through — which one is not proved.
     SomethingLanded,
-    /// Nothing landed, and the quiet has passed: it did not.
+    /// BUG-243 (7): nothing landed past the quiet, by one read (or by reads closer together
+    /// than [`sent::NO_GAP`]): one more, later, decides.
+    FirstNo,
+    /// Nothing landed, the quiet has passed, and two reads [`sent::NO_GAP`] apart say so: it
+    /// did not.
     NotLanded,
 }
 
@@ -1094,6 +1102,7 @@ enum Earlier {
 /// what was read again (`None`: not read or failed) and what shows it.
 fn earlier_is(
     quiet_for: Option<Duration>,
+    no_for: Option<Duration>,
     n0: u64,
     state: Option<sent::TokenState>,
     shows: Option<sent::TokenShows>,
@@ -1111,7 +1120,12 @@ fn earlier_is(
             Earlier::SomethingLanded
         }
     } else if quiet_for >= sent::QUIET {
-        Earlier::NotLanded
+        // BUG-243 (7): one «no» may be a node behind: two, far enough apart.
+        if no_for.is_some_and(|gap| gap >= sent::NO_GAP) {
+            Earlier::NotLanded
+        } else {
+            Earlier::FirstNo
+        }
     } else {
         Earlier::OnItsWay
     }
@@ -1666,24 +1680,52 @@ mod earlier_tests {
         };
         let quiet = Some(sent::QUIET);
         let soon = Some(Duration::from_secs(30));
-        assert_eq!(earlier_is(None, 7, at(8, 110), bought), Earlier::OnItsWay);
-        assert_eq!(earlier_is(quiet, 7, at(7, 110), bought), Earlier::NotLanded);
-        assert_eq!(earlier_is(soon, 7, at(7, 110), bought), Earlier::OnItsWay);
         assert_eq!(
-            earlier_is(quiet, 7, at(8, 110), bought),
+            earlier_is(None, None, 7, at(8, 110), bought),
+            Earlier::OnItsWay
+        );
+        // BUG-243 (7): past the quiet, one «no» is not enough — a node behind; two, 30 s apart.
+        assert_eq!(
+            earlier_is(quiet, None, 7, at(7, 110), bought),
+            Earlier::FirstNo
+        );
+        let close = Some(Duration::from_secs(10));
+        assert_eq!(
+            earlier_is(quiet, close, 7, at(7, 110), bought),
+            Earlier::FirstNo
+        );
+        let apart = Some(sent::NO_GAP);
+        assert_eq!(
+            earlier_is(quiet, apart, 7, at(7, 110), bought),
+            Earlier::NotLanded
+        );
+        assert_eq!(
+            earlier_is(quiet, apart, 7, at(8, 110), bought),
+            Earlier::Landed(110),
+            "the second read shows it: landed, not repeated"
+        );
+        assert_eq!(
+            earlier_is(soon, None, 7, at(7, 110), bought),
+            Earlier::OnItsWay
+        );
+        assert_eq!(
+            earlier_is(quiet, None, 7, at(8, 110), bought),
             Earlier::Landed(110)
         );
         assert_eq!(
-            earlier_is(quiet, 7, at(8, 100), bought),
+            earlier_is(quiet, None, 7, at(8, 100), bought),
             Earlier::SomethingLanded
         );
-        assert_eq!(earlier_is(quiet, 7, None, bought), Earlier::NotKnown);
+        assert_eq!(earlier_is(quiet, None, 7, None, bought), Earlier::NotKnown);
         // An issuer's pause: no value, only the nonce.
         let paused = Some(sent::TokenState {
             nonce: 8,
             value: None,
         });
-        assert_eq!(earlier_is(quiet, 7, paused, None), Earlier::SomethingLanded);
+        assert_eq!(
+            earlier_is(quiet, None, 7, paused, None),
+            Earlier::SomethingLanded
+        );
     }
 
     /// BUG-205, guard: every token write checks an earlier unclear one of its token before it

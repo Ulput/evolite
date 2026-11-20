@@ -9,6 +9,7 @@ mod dashpay_tests;
 #[cfg(unix)]
 mod folder_tests;
 mod identity_tests;
+mod not_seen_tests;
 mod notes_tests;
 mod payment_tests;
 mod snapshot_tests;

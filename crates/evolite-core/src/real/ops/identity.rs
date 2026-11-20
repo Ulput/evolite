@@ -28,6 +28,16 @@ impl Real {
         }
         let slot = nameless_slot(&self.chain, wallet, &names).await?;
         let made = self.chain.nameless(wallet, slot).await;
+        // BUG-243 (4): its name not seen yet may still land: not «unfinished» meanwhile.
+        if let (Some(made), Some(name)) = (&made, names.get(&slot))
+            && self
+                .unclear
+                .on_their_way(&made.to_string(Encoding::Base58), |p| {
+                    claims(&p.watch, name)
+                })
+        {
+            return None;
+        }
         Some(UnfinishedIdentity {
             locked: None,
             name: names.get(&slot).cloned(),
@@ -49,6 +59,7 @@ impl Real {
         let pending = self.pending_names();
         let refresh = self.refresher();
         let (out, wake) = (self.out.clone(), self.wake.clone());
+        let unclear = self.unclear.clone();
         self.answer_later("task:resume_identity", async move {
             let result = async {
                 let wallet = chain.wallet(&id).await.ok_or(NOT_LOADED)?;
@@ -58,16 +69,20 @@ impl Real {
                     None => nameless_slot(&chain, &wallet, &names).await,
                 };
                 let index = index.ok_or(tr!("There is no unfinished identity"))?;
+                let label = names.get(&index).map(String::as_str);
+                // BUG-243 (4): a name not seen yet may still land: a new preorder only after
+                // its quiet.
+                if name_may_land(&chain, &wallet, index, label, &unclear).await {
+                    return Err(name_may_land_text().to_string());
+                }
                 watch_creation(chain.clone(), wallet.clone(), index, busy.flag(), out, wake);
-                chain
-                    .resume_identity(
-                        &wallet,
-                        &keys,
-                        index,
-                        names.get(&index).map(String::as_str),
-                        needed,
-                    )
-                    .await?;
+                if let Err(e) = chain
+                    .resume_identity(&wallet, &keys, index, label, needed)
+                    .await
+                {
+                    name_not_seen(&chain, &wallet, index, label, &e, &unclear).await;
+                    return Err(e);
+                }
                 identity::finish_resumed(&pending, id, index)
             }
             .await
@@ -215,6 +230,7 @@ impl Real {
         let chain = self.chain.clone();
         let refresh = self.refresher();
         let journal = self.journal.clone();
+        let unclear = self.unclear.clone();
         // BUG-206: the identity the screen shows when the command comes: the task checks, pays
         // and signs as it even if the choice moves while it runs, and refuses if it is gone.
         let pinned = self.shown_now(id);
@@ -234,10 +250,29 @@ impl Real {
                     let (acting, me) = pinned_acting(&wallet, pinned)
                         .await
                         .ok_or_else(|| tr!("The wallet has no identity").to_string())?;
+                    // BUG-243 (1): an earlier request of this name not known to have gone
+                    // through may still land, and «free» read meanwhile may be a node behind.
+                    if unclear.on_their_way(&acting, |p| claims(&p.watch, &label)) {
+                        return Err(name_may_land_text().to_string());
+                    }
                     let before = chain.identity_credits(&wallet, &me, false).await;
-                    chain
+                    if let Err(e) = chain
                         .add_name(&wallet, &keys, &me, &label, needed, None)
-                        .await?;
+                        .await
+                    {
+                        if !sent::refused_before(&e) {
+                            let _ = unclear.not_seen(sent::Pending::new(
+                                acting.clone(),
+                                sent::Watch::Name {
+                                    label: label.clone(),
+                                },
+                                None,
+                                before,
+                                Some(acting.clone()),
+                            ));
+                        }
+                        return Err(e);
+                    }
                     // In the history, with what it cost: the next name is estimated from it.
                     let after = chain.identity_credits(&wallet, &me, true).await;
                     journal.add(journal::Entry {
@@ -292,6 +327,7 @@ impl Real {
         let journal = self.journal.clone();
         let requests = self.name_requests.clone();
         let names_stale = self.names_stale.clone();
+        let unclear = self.unclear.clone();
         // BUG-206: the identity the screen shows when the command comes: the task checks, pays
         // and signs as it even if the choice moves while it runs, and refuses if it is gone.
         let pinned = self.shown_now(id);
@@ -307,6 +343,12 @@ impl Real {
                         .ok_or(CoreError::NotAvailable(
                             tr!("Make an identity first").into(),
                         ))?;
+                // BUG-243 (1): an earlier claim of this name not known to have gone through may
+                // still land; a read of the contest meanwhile may not show it yet. Paid again now,
+                // preorder, domain and fund would go twice.
+                if unclear.on_their_way(&shown, |p| claims(&p.watch, &label)) {
+                    return Err(name_on_its_way());
+                }
                 let ids = wallet_identity_ids(&wallet).await;
                 // TECH-read-deadlines: within a limit, said as every read.
                 let contest_now = || {
@@ -344,14 +386,29 @@ impl Real {
                     .await;
                 let (contest, _) = match sent {
                     Ok(()) => contest_now().await.unwrap_or((contest, fund_now)),
+                    // Refused before it went out: it did not happen.
+                    Err(e) if sent::refused_before(&e) => return Err(identity_failure(e)),
                     Err(e) => {
-                        // R-4: in the vote after all? Then it is in; else it failed.
+                        // R-4: in the vote after all? Then it is in. BUG-243 (1): not seen by one
+                        // read is not «not in» — a node a few blocks behind does not show it yet.
+                        // Not known: kept, and a claim of the name waits its quiet.
                         let again = contest_now().await.ok();
                         match again {
                             Some((c, f)) if c.contenders.iter().any(|x| x.identity == shown) => {
                                 (c, f)
                             }
-                            _ => return Err(identity_failure(e)),
+                            _ => {
+                                crate::diag::platform_failed("claim_name", &format!("{e:?}"));
+                                return Err(unclear.not_seen(sent::Pending::new(
+                                    shown.clone(),
+                                    sent::Watch::Name {
+                                        label: label.clone(),
+                                    },
+                                    None,
+                                    before,
+                                    Some(shown.clone()),
+                                )));
+                            }
                         }
                     }
                 };
@@ -371,10 +428,27 @@ impl Real {
                 if let Some(url) = &link {
                     // r2 Should 3: as the identity whose claim this is.
                     let written = match Identifier::from_string(&shown, Encoding::Base58) {
-                        Ok(as_identity) => chain
+                        Ok(as_identity) => match chain
                             .write_identity_link(&wallet, &keys, &as_identity, &label, Some(url))
                             .await
-                            .is_ok(),
+                        {
+                            Ok(()) => true,
+                            // BUG-243 (2): an error after it went out — the link may be written;
+                            // a retry meanwhile would find nothing yet and create a second one.
+                            Err(e) if !sent::refused_before(&e) => {
+                                let _ = unclear.not_seen(sent::Pending::new(
+                                    shown.clone(),
+                                    sent::Watch::Link {
+                                        label: label.clone(),
+                                    },
+                                    None,
+                                    None,
+                                    Some(shown.clone()),
+                                ));
+                                false
+                            }
+                            Err(_) => false,
+                        },
                         Err(_) => false,
                     };
                     let _ = requests.update(&shown, &label, |r| {
@@ -441,6 +515,7 @@ impl Real {
         let requests = self.name_requests.clone();
         let chain = self.chain.clone();
         let refresh = self.refresher();
+        let unclear = self.unclear.clone();
         // BUG-206: the identity the screen shows when the command comes: the task checks, pays
         // and signs as it even if the choice moves while it runs, and refuses if it is gone.
         let pinned = self.shown_now(id);
@@ -463,13 +538,33 @@ impl Real {
                 if !ours {
                     return Err(CoreError::NameNotFound);
                 }
+                // BUG-243 (2): the network's identityVerify indices are not unique: an earlier
+                // link not known to have gone through, not found yet by a node behind, would be
+                // created again and paid twice. It waits its quiet first.
+                if unclear.on_their_way(&shown, |p| links(&p.watch, &label)) {
+                    return Err(link_on_its_way());
+                }
                 // r2 Should 3: signed as the identity checked above, not whichever is shown by
                 // the time of the write.
                 let before = chain.identity_credits(&wallet, &as_identity, false).await;
-                chain
+                match chain
                     .write_identity_link(&wallet, &keys, &as_identity, &label, url.as_deref())
                     .await
-                    .map_err(identity_failure)?;
+                {
+                    Ok(()) => {}
+                    Err(e) if sent::refused_before(&e) => return Err(identity_failure(e)),
+                    Err(_) => {
+                        return Err(unclear.not_seen(sent::Pending::new(
+                            shown.clone(),
+                            sent::Watch::Link {
+                                label: label.clone(),
+                            },
+                            None,
+                            before,
+                            Some(shown.clone()),
+                        )));
+                    }
+                }
                 let _ = requests.update(&shown, &label, |r| {
                     r.link_written = url.is_some();
                     r.link = url.clone();
@@ -911,6 +1006,7 @@ impl Real {
         let dirty = self.dirty.clone();
         let pending = self.pending_names();
         let (out, wake) = (self.out.clone(), self.wake.clone());
+        let unclear = self.unclear.clone();
         self.answer_later("task:create_identity", async move {
             let available = match label.clone() {
                 Some(label) => {
@@ -932,9 +1028,15 @@ impl Real {
                     // with it (ResumeIdentity). Without a name nothing is kept, or the
                     // nameless identity would look cut short for ever (R-7, `nameless_slot`).
                     identity::remember_name(&pending, index, label.as_deref())?;
-                    chain
+                    if let Err(e) = chain
                         .create_identity(&wallet, &keys, index, label.as_deref(), amount, needed)
-                        .await?;
+                        .await
+                    {
+                        // BUG-243 (4): the identity made, its name's error may have come after
+                        // it went out: not «unfinished» until its quiet ends.
+                        name_not_seen(&chain, &wallet, index, label.as_deref(), &e, &unclear).await;
+                        return Err(e);
+                    }
                     pending.remove(index)?;
                     Ok(index)
                 }
@@ -1077,6 +1179,79 @@ pub(in crate::real) fn link_refused(problem: dpns::LinkProblem) -> CoreError {
 
 /// A failed top-up or name, in the interface's terms. A top-up that fails after its lock loses
 /// nothing: the snapshot shows it as unfinished and `ResumeTopUp` finishes it.
+/// BUG-243 (2): whether `watch` is the link of `label`.
+pub(in crate::real) fn links(watch: &sent::Watch, label: &str) -> bool {
+    matches!(watch, sent::Watch::Link { label: l } if l.eq_ignore_ascii_case(label))
+}
+
+/// BUG-243 (2): said while an earlier write of the name's link may still land.
+pub(in crate::real) fn link_on_its_way() -> CoreError {
+    CoreError::NotAvailable(
+        tr!("The earlier change of this link may still go through: wait two minutes, then look at the name again").into(),
+    )
+}
+
+/// BUG-243 (1, 4): whether `watch` is a claim or registration of `label`.
+pub(in crate::real) fn claims(watch: &sent::Watch, label: &str) -> bool {
+    matches!(watch, sent::Watch::Name { label: l } if l.eq_ignore_ascii_case(label))
+}
+
+/// BUG-243 (4): whether the name of the identity made in slot `index` may still land.
+async fn name_may_land(
+    chain: &Chain,
+    wallet: &platform_wallet::PlatformWallet,
+    index: u32,
+    label: Option<&str>,
+    unclear: &sent::Unclear,
+) -> bool {
+    let (Some(label), Some(made)) = (label, chain.nameless(wallet, index).await) else {
+        return false;
+    };
+    unclear.on_their_way(&made.to_string(Encoding::Base58), |p| {
+        claims(&p.watch, label)
+    })
+}
+
+/// BUG-243 (4): a making or finishing of the identity in slot `index` ended with `error`. When
+/// the identity is made and the error may have come after its name went out, the name is not
+/// known: kept, and the slot not «unfinished» until its quiet ends.
+async fn name_not_seen(
+    chain: &Chain,
+    wallet: &platform_wallet::PlatformWallet,
+    index: u32,
+    label: Option<&str>,
+    error: &str,
+    unclear: &sent::Unclear,
+) {
+    if sent::refused_before(error) {
+        return;
+    }
+    if let (Some(label), Some(made)) = (label, chain.nameless(wallet, index).await) {
+        let made = made.to_string(Encoding::Base58);
+        let _ = unclear.not_seen(sent::Pending::new(
+            made.clone(),
+            sent::Watch::Name {
+                label: label.to_owned(),
+            },
+            None,
+            None,
+            Some(made),
+        ));
+    }
+}
+
+/// BUG-243 (1, 4): what a request of a name that may still land says.
+fn name_may_land_text() -> &'static str {
+    tr!(
+        "The earlier request for this name may still go through: wait two minutes, then look at the name again"
+    )
+}
+
+/// BUG-243 (1, 4): said while a claim or registration of the name may still land.
+pub(in crate::real) fn name_on_its_way() -> CoreError {
+    CoreError::NotAvailable(name_may_land_text().into())
+}
+
 pub(in crate::real) fn identity_failure(text: String) -> CoreError {
     if text == chain::awaiting_chain_lock_text()
         || text == chain::top_up_identity_unknown_text()

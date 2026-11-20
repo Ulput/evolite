@@ -449,7 +449,15 @@ impl Real {
                         });
                     }
                 }
-                sent_answer(evolite_chain::key_update::shows(&after_send, &plan))
+                let shown = evolite_chain::key_update::shows(&after_send, &plan);
+                // BUG-243 (5): done, but the read right after is a node behind: the store keeps
+                // the old keys, and a plan made on them now would number on the old ones (the
+                // «−9, +10»). Kept as on its way (its line written): the next change waits its
+                // quiet, and the read that shows it takes it out.
+                if !shown {
+                    let _ = unclear.not_seen(stale_keys(identity.clone(), plan.clone()));
+                }
+                sent_answer(shown)
             }
             .await;
             match batch {
@@ -486,6 +494,12 @@ pub(in crate::real) fn sent_answer(read_shows_it: bool) -> Result<(), CoreError>
         crate::diag::platform_failed("update_keys_stale_read", "Stale");
     }
     Ok(())
+}
+
+/// BUG-243 (5): a key change done whose read right after did not show it: kept for
+/// [`sent::Unclear::keys_on_their_way`], with no line (written already).
+pub(in crate::real) fn stale_keys(identity: String, plan: key_plan::KeyPlan) -> sent::Pending {
+    sent::Pending::new(identity, sent::Watch::Keys(plan), None, None, None)
 }
 
 /// BUG-184 p. 1: after an error of the send, whether `again` (the identity read again, if it

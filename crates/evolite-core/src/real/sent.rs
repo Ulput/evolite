@@ -169,6 +169,13 @@ pub(in crate::real) enum Watch {
     },
     /// Only the send's own late answer settles it.
     Answer,
+    /// BUG-243: a name claimed (or registered) by the identity: a read of the name or its
+    /// contest showing the identity settles it.
+    Name { label: String },
+    /// BUG-243: the identity's «where my identity is confirmed» link of a name.
+    Link { label: String },
+    /// BUG-243: the identity's DashPay profile.
+    Profile,
 }
 
 /// What a proved read of a token shows of a write of it (BUG-205): its balance on the identity,
@@ -206,6 +213,10 @@ impl TokenShows {
 /// again, so at most one of the two lands (r2 C1). Hence what waits is not kept on disk «for
 /// safety»: kept, it would block a write that cannot land twice.
 pub(in crate::real) const QUIET: Duration = Duration::from_secs(120);
+
+/// BUG-243 (7): past the quiet, «nothing landed» needs two reads this far apart: a node behind
+/// answers one, and with Platform's blocks empty a few of them may take longer than the quiet.
+pub(in crate::real) const NO_GAP: Duration = Duration::from_secs(30);
 
 /// A token write's state read again, proved (BUG-205 r1 M1): the identity's nonce with the
 /// token's contract — moved by its own writes of that contract only, from this device or
@@ -314,6 +325,8 @@ pub(in crate::real) struct Pending {
     running: bool,
     /// When its send ended, for [`QUIET`].
     ended: Option<std::time::Instant>,
+    /// BUG-243 (7): when a read past its quiet first showed nothing landed.
+    no_since: Option<std::time::Instant>,
 }
 
 impl Pending {
@@ -333,7 +346,13 @@ impl Pending {
             ticket: 0,
             running: false,
             ended: None,
+            no_since: None,
         }
+    }
+
+    /// BUG-243 (7): how long since a read past its quiet first showed nothing landed.
+    pub(in crate::real) fn no_for(&self) -> Option<Duration> {
+        self.no_since.map(|at| at.elapsed())
     }
 
     pub(in crate::real) fn ticket(&self) -> u64 {
@@ -396,12 +415,35 @@ impl Unclear {
     /// the keys screen's — may still land (BUG-208 review r1 S1): its send runs, or ended less
     /// than [`QUIET`] ago. A new one meanwhile would pay again for keys that may be on their way.
     pub(in crate::real) fn keys_on_their_way(&self, identity: &str) -> bool {
+        self.on_their_way(identity, |p| {
+            matches!(p.watch, Watch::Keys(_))
+                || matches!(p.kind, Some(journal::Kind::AppConnect { .. }))
+        })
+    }
+
+    /// BUG-243: whether a write of `identity` that `of` picks, not known to have gone through,
+    /// may still land — its send runs, or ended less than [`QUIET`] ago. «Not seen» by a read
+    /// meanwhile is not «not done»: a paid repeat waits ([`Self::keys_on_their_way`] is one).
+    pub(in crate::real) fn on_their_way(
+        &self,
+        identity: &str,
+        of: impl Fn(&Pending) -> bool,
+    ) -> bool {
         self.held().1.iter().any(|p| {
             p.identity == identity
-                && (matches!(p.watch, Watch::Keys(_))
-                    || matches!(p.kind, Some(journal::Kind::AppConnect { .. })))
+                && of(p)
                 && (p.running || p.quiet_for().is_some_and(|q| q < QUIET))
         })
+    }
+
+    /// BUG-243: a write sent and ended with an error that may have come after it went out, and a
+    /// read since that does not show it: kept as not known, its quiet from now. No send runs.
+    pub(in crate::real) fn not_seen(&self, pending: Pending) -> CoreError {
+        let mut pending = pending;
+        pending.running = false;
+        pending.ended = Some(std::time::Instant::now());
+        self.keep(pending);
+        CoreError::Unclear
     }
 
     /// The first write of `identity` on `token` that waits, as it is (BUG-205).
@@ -425,6 +467,14 @@ impl Unclear {
                     && matches!(&p.watch, Watch::Token { token: t, .. } if t == token)
             })
             .cloned()
+    }
+
+    /// BUG-243 (7): a read past the quiet of `ticket` showed nothing landed; the first such
+    /// read's time is kept (a second, [`NO_GAP`] later, may decide).
+    pub(in crate::real) fn saw_no(&self, ticket: u64) {
+        if let Some(p) = self.held().1.iter_mut().find(|p| p.ticket == ticket) {
+            p.no_since.get_or_insert_with(std::time::Instant::now);
+        }
     }
 
     /// The write of `ticket`, taken out if it still waits.
@@ -512,6 +562,9 @@ impl Watch {
             Watch::ContactRequest => "request",
             Watch::Token { .. } => "token",
             Watch::Answer => "answer",
+            Watch::Name { .. } => "name",
+            Watch::Link { .. } => "link",
+            Watch::Profile => "profile",
         }
     }
 }

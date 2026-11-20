@@ -301,13 +301,22 @@ impl Chain {
         avatar: Option<(String, Vec<u8>)>,
     ) -> Result<(), String> {
         let (me, signer) = Self::signing(wallet, keys, me).await?;
-        let has_profile = {
+        let has = || async {
             let state = wallet.state().await;
             state
                 .identity_manager
                 .managed_identity(&me.id())
                 .is_some_and(|m| m.dashpay().profile.is_some())
         };
+        let view = wallet.identity();
+        let view = view.dashpay();
+        // BUG-243 (6): «no profile» from the store alone is not enough for a create — the
+        // profile's unique index refuses a second one, with a fee. Read from Platform first.
+        let mut has_profile = has().await;
+        if !has_profile {
+            let _ = view.sync_profiles().await;
+            has_profile = has().await;
+        }
         let (avatar_url, avatar_bytes) = match avatar {
             Some((url, bytes)) => (Some(url), Some(bytes)),
             None => (None, None),
@@ -318,14 +327,27 @@ impl Chain {
             avatar_url,
             avatar_bytes,
         };
-        let view = wallet.identity();
-        let view = view.dashpay();
         let written = if has_profile {
             view.update_profile_with_external_signer(&me.id(), input, &signer)
                 .await
         } else {
-            view.create_profile_with_external_signer(&me.id(), input, &signer)
+            match view
+                .create_profile_with_external_signer(&me.id(), input.clone(), &signer)
                 .await
+            {
+                // BUG-243 (6): refused as a second profile — ours landed after all (a read
+                // before was a node behind): read again and replace it, never create again.
+                Err(e) if profile_exists(&e.to_string()) => {
+                    let _ = view.sync_profiles().await;
+                    if has().await {
+                        view.update_profile_with_external_signer(&me.id(), input, &signer)
+                            .await
+                    } else {
+                        Err(e)
+                    }
+                }
+                other => other,
+            }
         };
         written.map(|_| ()).map_err(|e| e.to_string())
     }
@@ -686,6 +708,13 @@ pub(crate) fn contact_request_query(
             .with_limit(100)
         })
         .map_err(|e| e.to_string())
+}
+
+/// BUG-243 (6): whether a profile create was refused because the identity has one already —
+/// the document's unique index (`$ownerId`), in Platform's words.
+fn profile_exists(error: &str) -> bool {
+    let lower = error.to_lowercase();
+    lower.contains("duplicate") || lower.contains("unique") || lower.contains("already exists")
 }
 
 #[cfg(test)]

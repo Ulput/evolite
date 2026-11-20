@@ -727,11 +727,13 @@ impl Real {
                 {
                     // Paid all the same (BUG-208): its line now.
                     let after = chain.identity_credits(&wallet, &who.id, true).await;
-                    journal.add(own_line(kind, before, after, acting));
-                    return Err(CoreError::NotAvailable(
-                        tr!("The keys were handed to the network, but they are not on the identity yet")
-                            .into(),
-                    ));
+                    journal.add(own_line(kind.clone(), before, after, acting.clone()));
+                    // BUG-243 (3): the update's own answer came, but the read after it does not
+                    // show the keys yet — a node a few blocks behind. Not «not on the identity»:
+                    // not known, kept, and the record kept, so the link opened again within the
+                    // quiet waits (`keys_on_their_way`) and later only publishes the response.
+                    let _ = apps.put(record(None));
+                    return Err(unclear.not_seen(keys_not_seen(base58(&me), kind, acting)));
                 }
                 let fresh: &evolite_chain::app_chain::SignInIdentity = fresh.as_ref().unwrap_or(&who);
                 // The earlier response: deleted by its values, best effort.
@@ -1034,6 +1036,12 @@ fn stored_response(stored: &Stored) -> Option<([u8; 32], grant::Response)> {
 }
 
 /// The host of the app's return link, to name it on the screen.
+/// BUG-243 (3): App Connect's keys paid and not yet seen on the identity: kept for
+/// [`sent::Unclear::keys_on_their_way`] (its line is written already).
+fn keys_not_seen(identity: String, kind: journal::Kind, acting: Option<String>) -> sent::Pending {
+    sent::Pending::new(identity, sent::Watch::Answer, Some(kind), None, acting)
+}
+
 /// Whether every key of `added` is on the identity (`keys`), active.
 fn all_on(added: &[IdentityPublicKey], keys: &[IdentityPublicKey]) -> bool {
     added.iter().all(|new| {

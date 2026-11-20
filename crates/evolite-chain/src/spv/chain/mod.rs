@@ -135,12 +135,13 @@ pub struct Chain {
 const PLATFORM_RETRIES: usize = 8;
 
 /// BUG-240 r4 (R1b): how many blocks a node's answer may be behind the highest height seen
-/// before the SDK calls the node stale and asks another — the SDK's own 1, set here in one
-/// place. On testnet nearly every node is 2–3 behind and the pool's scan asks again and again;
-/// a wider tolerance (6, measured on its own QA branch) waits for BUG-243: a read right after a
-/// write of ours that decides on «absent» must first count «not seen» as not known. Never
+/// before the SDK calls the node stale and asks another. The SDK's own is 1; on testnet nearly
+/// every node is 2–3 behind and the pool's scan asked again and again until a chunk failed the
+/// pass. With 6, QA's three first scans of a fresh copy all finished (batch 48). The answer is
+/// still proved against the quorum that signed it, only up to six blocks (under a minute)
+/// older; a read right after a write of ours counts «not seen» as not known (BUG-243). Never
 /// `with_time_tolerance(None)`: the signed time within 31 minutes is the absolute guard.
-pub(crate) const PLATFORM_HEIGHT_TOLERANCE: u64 = 1;
+pub(crate) const PLATFORM_HEIGHT_TOLERANCE: u64 = 6;
 
 /// The SDK for `network`, with this app's request rules (BUG-240 r4).
 fn sdk_builder(network: evolite_api::Network) -> SdkBuilder {
