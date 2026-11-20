@@ -2375,5 +2375,21 @@
   "{} is now at the bottom of the page, under “Hidden tokens”: you can return it to the list from there. The search does not show it.": "{} artık sayfanın altında, “Gizli tokenler” bölümünde: oradan listeye geri alabilirsiniz. Arama onu göstermez.",
   "Undo": "Geri al",
   "Hidden tokens ({})": "Gizli tokenler ({})",
-  "Hidden tokens are not shown in the list and the search does not bring them back. Their balance stays where it is.": "Gizli tokenler listede gösterilmez ve arama onları geri getirmez. Bakiyeleri yerinde kalır."
+  "Hidden tokens are not shown in the list and the search does not bring them back. Their balance stays where it is.": "Gizli tokenler listede gösterilmez ve arama onları geri getirmez. Bakiyeleri yerinde kalır.",
+  "A new version of evolite is out": "evolite’in yeni sürümü çıktı",
+  "Check for a new version": "Yeni sürümü kontrol et",
+  "Checked {}: a signed answer": "{} tarihinde kontrol edildi: imzalı yanıt",
+  "How to check the installer": "Yükleyici nasıl kontrol edilir",
+  "Install it soon. Check the installer before you install it.": "Yakında yükleyin. Yüklemeden önce yükleyiciyi kontrol edin.",
+  "Last check": "Son kontrol",
+  "Not checked yet, or the check is off": "Henüz kontrol edilmedi veya kontrol kapalı",
+  "Once a day evolite asks GitHub whether a newer version is out; GitHub sees your IP. It only believes a signed answer and never downloads anything by itself.": "evolite günde bir kez GitHub’a daha yeni bir sürüm olup olmadığını sorar; GitHub IP adresinizi görür. Yalnızca imzalı bir yanıta güvenir ve kendi başına hiçbir şey indirmez.",
+  "Published with the first signed release": "İlk imzalı sürümle yayımlanacak",
+  "Release keys": "Sürüm anahtarları",
+  "Release page": "Sürüm sayfası",
+  "Released {}. Check the installer before you install it.": "{} tarihinde yayımlandı. Yüklemeden önce yükleyiciyi kontrol edin.",
+  "Updates": "Güncellemeler",
+  "evolite {} fixes a security problem": "evolite {} bir güvenlik sorununu düzeltir",
+  "evolite {} is out": "evolite {} çıktı",
+  "minisign public keys and their key IDs: compare them with docs/verify.md": "minisign açık anahtarları ve anahtar kimlikleri: docs/verify.md ile karşılaştırın"
 }

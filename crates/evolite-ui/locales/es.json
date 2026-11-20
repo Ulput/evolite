@@ -2392,5 +2392,21 @@
   "{} is now at the bottom of the page, under “Hidden tokens”: you can return it to the list from there. The search does not show it.": "{} ahora está al final de la página, en «Tokens ocultos»: desde ahí puedes devolverlo a la lista. La búsqueda no lo muestra.",
   "Undo": "Deshacer",
   "Hidden tokens ({})": "Tokens ocultos ({})",
-  "Hidden tokens are not shown in the list and the search does not bring them back. Their balance stays where it is.": "Los tokens ocultos no se muestran en la lista y la búsqueda no los devuelve. Su saldo sigue donde está."
+  "Hidden tokens are not shown in the list and the search does not bring them back. Their balance stays where it is.": "Los tokens ocultos no se muestran en la lista y la búsqueda no los devuelve. Su saldo sigue donde está.",
+  "A new version of evolite is out": "Hay una versión nueva de evolite",
+  "Check for a new version": "Buscar una versión nueva",
+  "Checked {}: a signed answer": "Comprobado {}: respuesta firmada",
+  "How to check the installer": "Cómo comprobar el instalador",
+  "Install it soon. Check the installer before you install it.": "Instálala pronto. Comprueba el instalador antes de instalarla.",
+  "Last check": "Última comprobación",
+  "Not checked yet, or the check is off": "Aún no se ha comprobado, o la comprobación está desactivada",
+  "Once a day evolite asks GitHub whether a newer version is out; GitHub sees your IP. It only believes a signed answer and never downloads anything by itself.": "Una vez al día evolite pregunta a GitHub si hay una versión más nueva; GitHub ve tu IP. Solo cree una respuesta firmada y nunca descarga nada por su cuenta.",
+  "Published with the first signed release": "Se publicarán con la primera versión firmada",
+  "Release keys": "Claves de publicación",
+  "Release page": "Página de la versión",
+  "Released {}. Check the installer before you install it.": "Publicada el {}. Comprueba el instalador antes de instalarla.",
+  "Updates": "Actualizaciones",
+  "evolite {} fixes a security problem": "evolite {} corrige un problema de seguridad",
+  "evolite {} is out": "Ya salió evolite {}",
+  "minisign public keys and their key IDs: compare them with docs/verify.md": "Claves públicas de minisign y sus ID: compáralas con docs/verify.md"
 }

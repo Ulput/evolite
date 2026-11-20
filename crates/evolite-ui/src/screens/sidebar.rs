@@ -196,7 +196,14 @@ pub fn sidebar(
                 // 40 px square; raised while Settings is open, as in Figma.
                 let on = active == Screen::Settings;
                 let (rect, resp) = ui.allocate_exact_size(vec2(40.0, 40.0), egui::Sense::click());
+                // Р1: a newer release, signed — a dot on Settings, and said to a screen reader.
+                let newer = cx.snap.update.as_ref().is_some_and(|u| u.newer);
                 crate::components::named(&resp, egui::WidgetType::Button, true, tr!("Settings"));
+                if newer {
+                    let said = crate::i18n::spoken(tr!("A new version of evolite is out"));
+                    ui.ctx()
+                        .accesskit_node_builder(resp.id, |node| node.set_description(said));
+                }
                 if on || resp.hovered() {
                     ui.painter().rect_filled(rect, 10, p.raised);
                 }
@@ -205,6 +212,13 @@ pub fn sidebar(
                     ui,
                     egui::Rect::from_center_size(rect.center(), vec2(24.0, 24.0)),
                 );
+                if newer {
+                    ui.painter().circle_filled(
+                        egui::pos2(rect.right() - 9.0, rect.top() + 9.0),
+                        4.0,
+                        p.accent,
+                    );
+                }
                 if resp
                     .on_hover_cursor(egui::CursorIcon::PointingHand)
                     .on_hover_text(crate::i18n::t(tr!("Settings")).into_owned())

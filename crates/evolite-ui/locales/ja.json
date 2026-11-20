@@ -2358,5 +2358,21 @@
   "{} is now at the bottom of the page, under “Hidden tokens”: you can return it to the list from there. The search does not show it.": "{} はページ下部の「非表示のトークン」に移りました。そこから一覧に戻せます。検索には表示されません。",
   "Undo": "元に戻す",
   "Hidden tokens ({})": "非表示のトークン ({})",
-  "Hidden tokens are not shown in the list and the search does not bring them back. Their balance stays where it is.": "非表示のトークンは一覧に表示されず、検索でも戻りません。残高はそのままです。"
+  "Hidden tokens are not shown in the list and the search does not bring them back. Their balance stays where it is.": "非表示のトークンは一覧に表示されず、検索でも戻りません。残高はそのままです。",
+  "A new version of evolite is out": "evolite の新しいバージョンが出ました",
+  "Check for a new version": "新しいバージョンを確認",
+  "Checked {}: a signed answer": "{} に確認: 署名付きの応答",
+  "How to check the installer": "インストーラーの確認方法",
+  "Install it soon. Check the installer before you install it.": "早めにインストールしてください。インストール前にインストーラーを確認してください。",
+  "Last check": "最終確認",
+  "Not checked yet, or the check is off": "まだ確認していないか、確認がオフです",
+  "Once a day evolite asks GitHub whether a newer version is out; GitHub sees your IP. It only believes a signed answer and never downloads anything by itself.": "evolite は 1 日 1 回、新しいバージョンがあるか GitHub に問い合わせます。GitHub にはあなたの IP が見えます。署名付きの応答だけを信頼し、自分で何かをダウンロードすることはありません。",
+  "Published with the first signed release": "最初の署名付きリリースで公開します",
+  "Release keys": "リリース鍵",
+  "Release page": "リリースページ",
+  "Released {}. Check the installer before you install it.": "{} にリリース。インストール前にインストーラーを確認してください。",
+  "Updates": "アップデート",
+  "evolite {} fixes a security problem": "evolite {} はセキュリティの問題を修正します",
+  "evolite {} is out": "evolite {} が出ました",
+  "minisign public keys and their key IDs: compare them with docs/verify.md": "minisign の公開鍵とその鍵 ID: docs/verify.md と照合してください"
 }

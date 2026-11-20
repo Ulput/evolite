@@ -435,6 +435,9 @@ impl Real {
         self.last_touch = tokio::time::Instant::now();
         let keys = keys_of(&phrase)?;
         // The id platform-wallet gives the wallet: from the same root key.
+        // Р1 (review r1): the update check may ask from now on, not at a bare start.
+        self.wallet_opened
+            .store(true, std::sync::atomic::Ordering::Relaxed);
         let id = keys.compute_wallet_id();
         let seed = seed_of(&phrase)?;
         self.open_notes(seed_bytes(&seed), &meta.wallet_id).await;

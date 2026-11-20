@@ -113,6 +113,7 @@ pub(super) fn security(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut Se
     }
     let mut hide = *state.toggle("hide-amounts");
     let mut strangers = *state.toggle("stranger-pictures");
+    let mut updates = state.is_on("update-check");
     let mut fresh = *state.toggle("new-address");
     let mut clip = *state.toggle("clipboard");
     group(
@@ -136,6 +137,15 @@ pub(super) fn security(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut Se
                 ),
                 Control::Toggle(&mut strangers),
             ),
+            // Р1 (design REL-verify, review r1): what it asks and who sees it, said where it is
+            // turned off.
+            (
+                tr!("Check for a new version"),
+                tr!(
+                    "Once a day evolite asks GitHub whether a newer version is out; GitHub sees your IP. It only believes a signed answer and never downloads anything by itself."
+                ),
+                Control::Toggle(&mut updates),
+            ),
             (
                 tr!("A new address after each payment"),
                 tr!(
@@ -154,6 +164,7 @@ pub(super) fn security(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut Se
     );
     *state.toggle("hide-amounts") = hide;
     *state.toggle("stranger-pictures") = strangers;
+    *state.toggle("update-check") = updates;
     *state.toggle("new-address") = fresh;
     *state.toggle("clipboard") = clip;
     let asked = group(

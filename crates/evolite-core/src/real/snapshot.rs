@@ -344,6 +344,7 @@ impl Real {
             demo: false,
             elsewhere: false,
             fiat: self.fiat.lock().map(|f| f.clone()).unwrap_or_default(),
+            update: self.update.lock().map(|u| u.clone()).unwrap_or_default(),
             wallets: self.wallet_entries(),
             adding_wallet: self.adding_from.is_some(),
         }

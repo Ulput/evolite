@@ -71,6 +71,7 @@ mod token_manage;
 mod token_windows;
 mod tokens;
 mod top_up_twice;
+mod update_check;
 mod wallets;
 
 use super::App;

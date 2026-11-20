@@ -1685,6 +1685,9 @@ pub struct Snapshot {
     pub elsewhere: bool,
     /// The price of one DASH in the currency asked with [`Command::FiatRate`], once fetched.
     pub fiat: Option<FiatRate>,
+    /// Р1: the newest release, from a `latest.json` signed by an evolite release key, once
+    /// checked; `None`: not checked, off, or nothing believed yet.
+    pub update: Option<UpdateInfo>,
     /// The wallets on this computer for this network, the open one marked; empty while
     /// there is none yet.
     pub wallets: Vec<WalletEntry>,
@@ -1749,6 +1752,78 @@ impl fmt::Debug for FiatRate {
             .field("currency", &self.currency)
             .finish_non_exhaustive()
     }
+}
+
+/// Р1: the evolite release keys (review REL-verify r1, answer 2): the main one and the backup held
+/// by the second holder, minisign public keys in base64; a signature by either is believed. Empty
+/// until the first signed release publishes them (README.md and docs/verify.md say the same, a
+/// test holds it; a tag build fails while it is empty): until then nothing is believed.
+pub const RELEASE_KEYS: &[&str] = &[];
+
+/// A minisign public key's id, as minisign prints it (`minisign -V` says «key ID …»): its 8
+/// id bytes in reverse, as upper-case hex. `None` for text that is no minisign key.
+pub fn release_key_id(key: &str) -> Option<String> {
+    let bytes = base64_decode(key.trim())?;
+    if bytes.len() != 42 || &bytes[..2] != b"Ed" {
+        return None;
+    }
+    Some(
+        bytes[2..10]
+            .iter()
+            .rev()
+            .map(|b| format!("{b:02X}"))
+            .collect(),
+    )
+}
+
+/// Standard base64 with padding, enough for a key.
+fn base64_decode(text: &str) -> Option<Vec<u8>> {
+    let value = |c: u8| -> Option<u32> {
+        Some(match c {
+            b'A'..=b'Z' => c - b'A',
+            b'a'..=b'z' => c - b'a' + 26,
+            b'0'..=b'9' => c - b'0' + 52,
+            b'+' => 62,
+            b'/' => 63,
+            _ => return None,
+        } as u32)
+    };
+    let text = text.as_bytes();
+    if !text.len().is_multiple_of(4) {
+        return None;
+    }
+    let mut out = Vec::new();
+    for chunk in text.chunks(4) {
+        let pad = chunk.iter().rev().take_while(|c| **c == b'=').count();
+        let mut n = 0u32;
+        for (i, c) in chunk.iter().enumerate() {
+            let v = if i >= 4 - pad { 0 } else { value(*c)? };
+            n |= v << (18 - 6 * i);
+        }
+        out.extend_from_slice(&n.to_be_bytes()[1..4 - pad]);
+    }
+    Some(out)
+}
+
+/// Р1: «Check for a new version» is on until the person turns it off (review REL-verify r1,
+/// answer 3; the customer may decide otherwise — this one constant).
+pub const UPDATE_CHECK_ON_BY_DEFAULT: bool = true;
+
+/// Р1: what the last good update check learnt (a signed `latest.json`).
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct UpdateInfo {
+    /// The newest release's version, semver.
+    pub version: String,
+    /// It is newer than the version running.
+    pub newer: bool,
+    /// A security fix: said on the Overview too, until installed.
+    pub critical: bool,
+    /// The release's date (`YYYY-MM-DD`) and when the check passed (About: «checked …»).
+    pub date: String,
+    pub checked_at: Timestamp,
+    /// The release page and «How to check the installer».
+    pub notes_url: String,
+    pub verify_url: String,
 }
 
 /// A coin of the wallet's Core balance (FEAT-0013): one unspent output it may pay with.
@@ -2282,6 +2357,12 @@ pub enum Command {
     /// 30 minutes from the rate service, which sees our IP; `None`: stop and forget the price.
     FiatRate {
         currency: Option<String>,
+    },
+    /// Р1, Settings › Privacy › «Check for a new version»: `on` asks for the release's signed
+    /// `latest.json` once a day, from after the first wallet is open; off, nothing is asked and what
+    /// was learnt is forgotten.
+    CheckUpdate {
+        on: bool,
     },
     /// Settings → "A new address after each payment": `true` shows the next unused
     /// receive address, `false` always the wallet's first one.

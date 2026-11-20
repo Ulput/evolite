@@ -54,7 +54,78 @@ pub(super) fn notifications(ui: &mut Ui, a: &mut Assets, state: &mut SettingsSta
 /// Where «Source code · GitHub» leads (customer, 2026-11-05).
 pub(super) const SOURCE_CODE: &str = "https://github.com/Ulput/evolite";
 
-pub(super) fn about(ui: &mut Ui, a: &mut Assets, state: &mut SettingsState) {
+/// Р1 (design REL-verify, review r1): a newer release with its links, when the last check was
+/// believed, and the release keys with their ids, so the person can compare them with
+/// docs/verify.md and README.md.
+fn updates(ui: &mut Ui, a: &mut Assets, update: Option<&evolite_api::UpdateInfo>) {
+    let mut asked = None;
+    let mut rows = Vec::new();
+    let newer = update.filter(|u| u.newer);
+    let new_line = newer.map(|u| format!(tr!("evolite {} is out"), u.version));
+    let released = newer.map(|u| {
+        format!(
+            tr!("Released {}. Check the installer before you install it."),
+            u.date
+        )
+    });
+    if let (Some(line), Some(released)) = (&new_line, &released) {
+        rows.push((
+            line.as_str(),
+            released.as_str(),
+            Control::Buttons(
+                &[
+                    (tr!("Release page"), ButtonKind::Primary),
+                    (tr!("How to check the installer"), ButtonKind::Secondary),
+                ],
+                &mut asked,
+            ),
+        ));
+    }
+    let checked = match update {
+        Some(u) => format!(
+            tr!("Checked {}: a signed answer"),
+            crate::text::date_long(u.checked_at)
+        ),
+        None => tr!("Not checked yet, or the check is off").to_owned(),
+    };
+    rows.push((
+        tr!("Last check"),
+        checked.as_str(),
+        Control::Text("", false),
+    ));
+    let keys: Vec<String> = evolite_api::RELEASE_KEYS
+        .iter()
+        .map(|key| {
+            let id = evolite_api::release_key_id(key).unwrap_or_default();
+            format!("{key} · {id}")
+        })
+        .collect();
+    let keys = if keys.is_empty() {
+        tr!("Published with the first signed release").to_owned()
+    } else {
+        keys.join("\n")
+    };
+    rows.push((
+        tr!("Release keys"),
+        tr!("minisign public keys and their key IDs: compare them with docs/verify.md"),
+        Control::Text(&keys, true),
+    ));
+    group(ui, a, tr!("Updates"), rows);
+    if let (Some(which), Some(u)) = (asked, newer) {
+        crate::links::open(if which == 0 {
+            &u.notes_url
+        } else {
+            &u.verify_url
+        });
+    }
+}
+
+pub(super) fn about(
+    ui: &mut Ui,
+    a: &mut Assets,
+    state: &mut SettingsState,
+    update: Option<&evolite_api::UpdateInfo>,
+) {
     let p = a.p;
     heading(
         ui,
@@ -109,6 +180,7 @@ pub(super) fn about(ui: &mut Ui, a: &mut Assets, state: &mut SettingsState) {
             ),
         ],
     );
+    updates(ui, a, update);
     group(
         ui,
         a,

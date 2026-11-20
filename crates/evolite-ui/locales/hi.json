@@ -2375,5 +2375,21 @@
   "{} is now at the bottom of the page, under “Hidden tokens”: you can return it to the list from there. The search does not show it.": "{} अब पेज के नीचे, “छिपे टोकन” में है: वहाँ से आप इसे सूची में वापस ला सकते हैं। खोज इसे नहीं दिखाती।",
   "Undo": "पूर्ववत करें",
   "Hidden tokens ({})": "छिपे टोकन ({})",
-  "Hidden tokens are not shown in the list and the search does not bring them back. Their balance stays where it is.": "छिपे टोकन सूची में नहीं दिखते और खोज उन्हें वापस नहीं लाती। उनका बैलेंस अपनी जगह रहता है।"
+  "Hidden tokens are not shown in the list and the search does not bring them back. Their balance stays where it is.": "छिपे टोकन सूची में नहीं दिखते और खोज उन्हें वापस नहीं लाती। उनका बैलेंस अपनी जगह रहता है।",
+  "A new version of evolite is out": "evolite का नया संस्करण आ गया है",
+  "Check for a new version": "नया संस्करण जाँचें",
+  "Checked {}: a signed answer": "{} को जाँचा गया: हस्ताक्षरित उत्तर",
+  "How to check the installer": "इंस्टॉलर कैसे जाँचें",
+  "Install it soon. Check the installer before you install it.": "इसे जल्द इंस्टॉल करें। इंस्टॉल करने से पहले इंस्टॉलर जाँचें।",
+  "Last check": "पिछली जाँच",
+  "Not checked yet, or the check is off": "अभी जाँचा नहीं गया, या जाँच बंद है",
+  "Once a day evolite asks GitHub whether a newer version is out; GitHub sees your IP. It only believes a signed answer and never downloads anything by itself.": "दिन में एक बार evolite GitHub से पूछता है कि कोई नया संस्करण है या नहीं; GitHub आपका IP देखता है। यह केवल हस्ताक्षरित उत्तर पर भरोसा करता है और खुद कुछ भी डाउनलोड नहीं करता।",
+  "Published with the first signed release": "पहली हस्ताक्षरित रिलीज़ के साथ प्रकाशित होंगी",
+  "Release keys": "रिलीज़ कुंजियाँ",
+  "Release page": "रिलीज़ पेज",
+  "Released {}. Check the installer before you install it.": "{} को जारी हुआ। इंस्टॉल करने से पहले इंस्टॉलर जाँचें।",
+  "Updates": "अपडेट",
+  "evolite {} fixes a security problem": "evolite {} एक सुरक्षा समस्या ठीक करता है",
+  "evolite {} is out": "evolite {} आ गया है",
+  "minisign public keys and their key IDs: compare them with docs/verify.md": "minisign सार्वजनिक कुंजियाँ और उनकी ID: docs/verify.md से मिलाएँ"
 }

@@ -115,6 +115,7 @@ pub fn run(
                     demo: false,
                     elsewhere: true,
                     fiat: None,
+                    update: None,
                     wallets: Vec::new(),
                     adding_wallet: false,
                 })));

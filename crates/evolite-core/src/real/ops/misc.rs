@@ -101,6 +101,65 @@ impl Real {
         }));
     }
 
+    /// Р1, Settings › Privacy › «Check for a new version»: on, the release's signed `latest.json`
+    /// is read once a day — the first time only once a wallet was open in this run (review r1),
+    /// never at a bare start — and what a signed, not older file says goes into the snapshot. Off,
+    /// the task stops and what was learnt is forgotten. Each check goes to the journal by its
+    /// result and the file's date.
+    pub(in crate::real) fn check_update(&mut self, on: bool) {
+        use evolite_local::update;
+        if let Some(task) = self.update_task.take() {
+            task.abort();
+        }
+        let slot = self.update.clone();
+        if !on {
+            *slot.lock().unwrap_or_else(|e| e.into_inner()) = None;
+            return;
+        }
+        let (dirty, wake) = (self.dirty.clone(), self.wake.clone());
+        let opened = self.wallet_opened.clone();
+        self.update_task = Some(tokio::spawn(async move {
+            while !opened.load(Ordering::Relaxed) {
+                tokio::time::sleep(Duration::from_secs(5)).await;
+            }
+            // The newest date believed in this run: an older signed file is a replay.
+            let mut seen: Option<String> = None;
+            loop {
+                let last = seen.clone();
+                let checked =
+                    tokio::task::spawn_blocking(move || update::check(last.as_deref())).await;
+                match checked {
+                    Ok(Ok(latest)) => {
+                        let newer = update::is_newer(&latest.version, env!("CARGO_PKG_VERSION"));
+                        crate::diag::record(crate::diag::Record::UpdateCheck {
+                            result: if newer { "newer" } else { "same" },
+                            date: Some(latest.date.clone()),
+                        });
+                        seen = Some(latest.date.clone());
+                        *slot.lock().unwrap_or_else(|e| e.into_inner()) =
+                            Some(evolite_api::UpdateInfo {
+                                version: latest.version,
+                                newer,
+                                critical: latest.critical,
+                                date: latest.date,
+                                checked_at: now(),
+                                notes_url: latest.notes_url,
+                                verify_url: latest.verify_url,
+                            });
+                        dirty.store(true, Ordering::Relaxed);
+                        wake();
+                    }
+                    Ok(Err(refused)) => crate::diag::record(crate::diag::Record::UpdateCheck {
+                        result: refused.kind(),
+                        date: None,
+                    }),
+                    Err(_) => {}
+                }
+                tokio::time::sleep(update::EVERY).await;
+            }
+        }));
+    }
+
     /// "Disk space": the data folder's bytes, counted again once a minute at most.
     pub(in crate::real) fn disk_bytes(&mut self) -> Option<u64> {
         let fresh = self

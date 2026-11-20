@@ -2358,5 +2358,21 @@
   "{} is now at the bottom of the page, under “Hidden tokens”: you can return it to the list from there. The search does not show it.": "{} 现在位于页面底部的“已隐藏的代币”中：可以从那里将它放回列表。搜索不会显示它。",
   "Undo": "撤销",
   "Hidden tokens ({})": "已隐藏的代币 ({})",
-  "Hidden tokens are not shown in the list and the search does not bring them back. Their balance stays where it is.": "已隐藏的代币不会显示在列表中，搜索也不会让它们重新出现。它们的余额保持不变。"
+  "Hidden tokens are not shown in the list and the search does not bring them back. Their balance stays where it is.": "已隐藏的代币不会显示在列表中，搜索也不会让它们重新出现。它们的余额保持不变。",
+  "A new version of evolite is out": "evolite 有新版本了",
+  "Check for a new version": "检查新版本",
+  "Checked {}: a signed answer": "已于 {} 检查：签名的回复",
+  "How to check the installer": "如何检查安装程序",
+  "Install it soon. Check the installer before you install it.": "请尽快安装。安装前请检查安装程序。",
+  "Last check": "上次检查",
+  "Not checked yet, or the check is off": "尚未检查，或检查已关闭",
+  "Once a day evolite asks GitHub whether a newer version is out; GitHub sees your IP. It only believes a signed answer and never downloads anything by itself.": "evolite 每天一次向 GitHub 询问是否有更新的版本；GitHub 会看到你的 IP。只相信签名的回复，绝不会自行下载任何东西。",
+  "Published with the first signed release": "将随第一个签名版本发布",
+  "Release keys": "发布密钥",
+  "Release page": "发布页面",
+  "Released {}. Check the installer before you install it.": "发布于 {}。安装前请检查安装程序。",
+  "Updates": "更新",
+  "evolite {} fixes a security problem": "evolite {} 修复了一个安全问题",
+  "evolite {} is out": "evolite {} 已发布",
+  "minisign public keys and their key IDs: compare them with docs/verify.md": "minisign 公钥及其密钥 ID：请与 docs/verify.md 核对"
 }

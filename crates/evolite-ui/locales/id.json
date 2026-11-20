@@ -2358,5 +2358,21 @@
   "{} is now at the bottom of the page, under “Hidden tokens”: you can return it to the list from there. The search does not show it.": "{} sekarang ada di bagian bawah halaman, di “Token tersembunyi”: dari sana Anda bisa mengembalikannya ke daftar. Pencarian tidak menampilkannya.",
   "Undo": "Urungkan",
   "Hidden tokens ({})": "Token tersembunyi ({})",
-  "Hidden tokens are not shown in the list and the search does not bring them back. Their balance stays where it is.": "Token tersembunyi tidak ditampilkan di daftar dan pencarian tidak mengembalikannya. Saldonya tetap di tempatnya."
+  "Hidden tokens are not shown in the list and the search does not bring them back. Their balance stays where it is.": "Token tersembunyi tidak ditampilkan di daftar dan pencarian tidak mengembalikannya. Saldonya tetap di tempatnya.",
+  "A new version of evolite is out": "Versi baru evolite sudah tersedia",
+  "Check for a new version": "Periksa versi baru",
+  "Checked {}: a signed answer": "Diperiksa {}: jawaban bertanda tangan",
+  "How to check the installer": "Cara memeriksa penginstal",
+  "Install it soon. Check the installer before you install it.": "Segera instal. Periksa penginstal sebelum menginstalnya.",
+  "Last check": "Pemeriksaan terakhir",
+  "Not checked yet, or the check is off": "Belum diperiksa, atau pemeriksaan dimatikan",
+  "Once a day evolite asks GitHub whether a newer version is out; GitHub sees your IP. It only believes a signed answer and never downloads anything by itself.": "Sekali sehari evolite bertanya ke GitHub apakah ada versi lebih baru; GitHub melihat IP Anda. Hanya jawaban bertanda tangan yang dipercaya, dan tidak ada yang diunduh sendiri.",
+  "Published with the first signed release": "Dipublikasikan bersama rilis bertanda tangan pertama",
+  "Release keys": "Kunci rilis",
+  "Release page": "Halaman rilis",
+  "Released {}. Check the installer before you install it.": "Dirilis {}. Periksa penginstal sebelum menginstalnya.",
+  "Updates": "Pembaruan",
+  "evolite {} fixes a security problem": "evolite {} memperbaiki masalah keamanan",
+  "evolite {} is out": "evolite {} sudah tersedia",
+  "minisign public keys and their key IDs: compare them with docs/verify.md": "Kunci publik minisign dan ID-nya: bandingkan dengan docs/verify.md"
 }

@@ -171,6 +171,13 @@ pub enum Record {
     /// BUG-231 R-6: a payment to a contact was refused before the password because its channel
     /// is broken (its request points to a disabled key). No name, no id.
     ContactChannelBroken,
+    /// Р1: an update check, by what came of it (`newer`, `same`, or why nothing was believed:
+    /// `no_keys`, `unreachable`, `bad_signature`, `bad_file`, `replay`) and the date of the
+    /// file believed. No URL, no text from the network.
+    UpdateCheck {
+        result: &'static str,
+        date: Option<String>,
+    },
     /// SEC-7: the warning before the phrase was shown on Linux, for this kind of session:
     /// `x11`, `wayland` or `unknown`. Never a word of the phrase.
     PhraseWarning {
@@ -484,6 +491,9 @@ impl Record {
             }
             Record::WindowReset => json!({"k": "window_reset"}),
             Record::ContactChannelBroken => json!({"k": "contact_channel_broken"}),
+            Record::UpdateCheck { result, date } => {
+                json!({"k": "update_check", "result": result, "date": date})
+            }
             Record::PhraseWarning { session } => {
                 json!({"k": "phrase_warning", "session": session})
             }

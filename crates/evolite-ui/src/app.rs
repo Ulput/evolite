@@ -105,7 +105,7 @@ pub struct App {
     /// The vault as the last snapshot had it: a lock is seen once, when it happens.
     vault: Option<VaultState>,
     /// What the core was last told of "New address…" and "Fiat rate".
-    core_told: Option<(bool, Option<&'static str>, bool)>,
+    core_told: Option<(bool, Option<&'static str>, bool, bool)>,
     /// When the rate was last asked for because Send or «Request an amount» needed it
     /// (FEAT-0008, AC-T4).
     rate_asked: Option<evolite_api::Timestamp>,
@@ -479,11 +479,13 @@ impl App {
         })
     }
 
-    fn core_settings(&self) -> (bool, Option<&'static str>, bool) {
+    fn core_settings(&self) -> (bool, Option<&'static str>, bool, bool) {
         (
             self.settings.is_on("new-address"),
             self.settings.fiat_currency(),
             self.settings.is_on("stranger-pictures"),
+            // Р1: turned on or off, the core is told at once.
+            self.settings.is_on("update-check"),
         )
     }
 
@@ -1419,14 +1421,16 @@ impl eframe::App for App {
             }
             self.core_told = Some(self.core_settings());
         } else if self.core_told != Some(self.core_settings()) {
-            let (fresh, currency, strangers) = self.core_settings();
+            let (fresh, currency, strangers, updates) = self.core_settings();
             self.core.send(Command::ReceiveAddress { fresh });
             self.core.send(Command::FiatRate {
                 currency: currency.map(str::to_owned),
             });
             // Off acts at once: nothing more is downloaded (AC-A10).
             self.core.send(Command::StrangerPictures { on: strangers });
-            self.core_told = Some((fresh, currency, strangers));
+            // Р1: off, the check stops and what it learnt is forgotten at once.
+            self.core.send(Command::CheckUpdate { on: updates });
+            self.core_told = Some((fresh, currency, strangers, updates));
         }
         crate::format::set_display(self.settings.display(snapshot.fiat.as_ref()));
         if let Some((now, ask)) = self.rate_to_ask(snapshot) {

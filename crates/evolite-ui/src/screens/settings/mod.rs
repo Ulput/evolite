@@ -201,7 +201,7 @@ pub struct PasswordChange {
 const LOCK_AFTER_SECS: [Option<u64>; 4] = [Some(5 * 60), Some(15 * 60), Some(60 * 60), None];
 
 /// Every switch in Settings, by key: the saved file is read against this list only.
-const TOGGLES: [&str; 12] = [
+const TOGGLES: [&str; 13] = [
     "clipboard",
     "fiat-rate",
     "hide-amounts",
@@ -214,6 +214,7 @@ const TOGGLES: [&str; 12] = [
     "proxy",
     "remind-check",
     "stranger-pictures",
+    "update-check",
 ];
 
 impl SettingsState {
@@ -237,7 +238,12 @@ impl SettingsState {
             lock_after: 1,
             unit: 0,
             nft_motion: 0,
-            toggles: on.into_iter().map(|k| (k, true)).collect(),
+            // Р1: «Check for a new version» on or off by the one constant (review r1, answer 3).
+            toggles: on
+                .into_iter()
+                .chain(evolite_api::UPDATE_CHECK_ON_BY_DEFAULT.then_some("update-check"))
+                .map(|k| (k, true))
+                .collect(),
             number_style: 0,
             fiat_currency: 0,
             node: None,
@@ -403,7 +409,7 @@ impl SettingsState {
 
     /// The commands that carry these settings to the core: at the start, and again when a new
     /// core takes over the folder (after a deletion).
-    pub fn core_commands(&self) -> [Command; 4] {
+    pub fn core_commands(&self) -> [Command; 5] {
         [
             Command::AutoLock {
                 after_secs: self.auto_lock_secs(),
@@ -417,6 +423,10 @@ impl SettingsState {
             // FEAT-0039 AC-A10: the wallet's own switch, off unless turned on.
             Command::StrangerPictures {
                 on: self.is_on("stranger-pictures"),
+            },
+            // Р1: the app's own switch, the same for every wallet.
+            Command::CheckUpdate {
+                on: self.is_on("update-check"),
             },
         ]
     }
@@ -604,7 +614,7 @@ pub fn settings(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut SettingsS
                     }
                     Section::Appearance => appearance(ui, a, state, cx.snap.fiat.as_ref()),
                     Section::Notifications => notifications(ui, a, state),
-                    Section::About => about(ui, a, state),
+                    Section::About => about(ui, a, state, cx.snap.update.as_ref()),
                 }
                 // The last row stays clear of the window's edge when scrolled to the end.
                 ui.add_space(24.0);
@@ -809,13 +819,13 @@ mod tests {
     #[test]
     fn the_core_hears_the_receive_address_and_the_rate() {
         let mut state = SettingsState::new(true, Section::Security, false);
-        let [_, fresh, rate, _] = state.core_commands();
+        let [_, fresh, rate, _, _] = state.core_commands();
         assert!(matches!(fresh, Command::ReceiveAddress { fresh: true }));
         assert!(matches!(rate, Command::FiatRate { currency: None }));
         state.set("new-address", false);
         state.set("fiat-rate", true);
         state.fiat_currency = 2;
-        let [_, fresh, rate, _] = state.core_commands();
+        let [_, fresh, rate, _, _] = state.core_commands();
         assert!(matches!(fresh, Command::ReceiveAddress { fresh: false }));
         assert!(matches!(rate, Command::FiatRate { currency: Some(c) } if c == "RUB"));
     }

@@ -2358,5 +2358,21 @@
   "{} is now at the bottom of the page, under “Hidden tokens”: you can return it to the list from there. The search does not show it.": "{}은(는) 이제 페이지 아래 “숨긴 토큰”에 있습니다. 거기에서 목록으로 되돌릴 수 있습니다. 검색에는 표시되지 않습니다.",
   "Undo": "실행 취소",
   "Hidden tokens ({})": "숨긴 토큰 ({})",
-  "Hidden tokens are not shown in the list and the search does not bring them back. Their balance stays where it is.": "숨긴 토큰은 목록에 표시되지 않으며 검색으로도 다시 나타나지 않습니다. 잔액은 그대로 남아 있습니다."
+  "Hidden tokens are not shown in the list and the search does not bring them back. Their balance stays where it is.": "숨긴 토큰은 목록에 표시되지 않으며 검색으로도 다시 나타나지 않습니다. 잔액은 그대로 남아 있습니다.",
+  "A new version of evolite is out": "evolite 새 버전이 나왔습니다",
+  "Check for a new version": "새 버전 확인",
+  "Checked {}: a signed answer": "{}에 확인됨: 서명된 응답",
+  "How to check the installer": "설치 파일 확인 방법",
+  "Install it soon. Check the installer before you install it.": "곧 설치하세요. 설치하기 전에 설치 파일을 확인하세요.",
+  "Last check": "마지막 확인",
+  "Not checked yet, or the check is off": "아직 확인하지 않았거나 확인이 꺼져 있습니다",
+  "Once a day evolite asks GitHub whether a newer version is out; GitHub sees your IP. It only believes a signed answer and never downloads anything by itself.": "evolite는 하루에 한 번 GitHub에 새 버전이 있는지 묻습니다. GitHub는 사용자의 IP를 봅니다. 서명된 응답만 믿으며 스스로 아무것도 내려받지 않습니다.",
+  "Published with the first signed release": "첫 서명 릴리스와 함께 공개됩니다",
+  "Release keys": "릴리스 키",
+  "Release page": "릴리스 페이지",
+  "Released {}. Check the installer before you install it.": "{}에 출시됨. 설치하기 전에 설치 파일을 확인하세요.",
+  "Updates": "업데이트",
+  "evolite {} fixes a security problem": "evolite {}에서 보안 문제가 수정되었습니다",
+  "evolite {} is out": "evolite {}가 나왔습니다",
+  "minisign public keys and their key IDs: compare them with docs/verify.md": "minisign 공개 키와 키 ID: docs/verify.md와 비교하세요"
 }

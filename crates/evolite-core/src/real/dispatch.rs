@@ -352,6 +352,10 @@ impl Real {
                 self.fiat_rate(currency);
                 return (None, true);
             }
+            Command::CheckUpdate { on } => {
+                self.check_update(on);
+                return (None, true);
+            }
             Command::ReceiveAddress { fresh } => {
                 self.fresh_receive = fresh;
                 // The next snapshot takes the address again.

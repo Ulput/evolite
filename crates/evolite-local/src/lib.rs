@@ -12,6 +12,7 @@ pub mod node;
 pub mod rates;
 mod secrets;
 mod tokens;
+pub mod update;
 mod wallet;
 
 pub use contacts::{

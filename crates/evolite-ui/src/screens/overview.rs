@@ -56,6 +56,30 @@ pub fn overview(
     });
     // FEAT-0015 stage 2: a funding of the Platform address under way, stopped or done (23–25).
     super::fund_address::on_overview(ui, a, cx, fund);
+    // Р1 (review r1): a security fix is out, from a signed answer — said here too. Closed, it
+    // stays closed for this run only (egui's temporary memory is not saved), so it is back at the
+    // next start until that version is installed.
+    if let Some(u) = cx.snap.update.as_ref().filter(|u| u.newer && u.critical) {
+        let id = egui::Id::new("update-critical-closed");
+        let closed = ui.ctx().data(|d| d.get_temp::<String>(id)).as_ref() == Some(&u.version);
+        if !closed {
+            let answer = crate::components::notice_closable(
+                ui,
+                a,
+                "warning",
+                &format!(tr!("evolite {} fixes a security problem"), u.version),
+                tr!("Install it soon. Check the installer before you install it."),
+                Some(("info", tr!("How to check the installer"))),
+            );
+            if answer.action {
+                crate::links::open(&u.verify_url);
+            }
+            if answer.closed {
+                let version = u.version.clone();
+                ui.ctx().data_mut(|d| d.insert_temp(id, version));
+            }
+        }
+    }
     // FEAT-0021 V2, entry 2: a name of the identity in its masternode vote.
     super::identity::contest::overview_notice(ui, a, cx);
     let wallet = cx.wallet();

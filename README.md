@@ -45,6 +45,14 @@ Installers for Windows, Linux and macOS (x86_64 and ARM64) are on the
 code-signed: Windows SmartScreen warns about an unknown publisher, and on macOS open the
 installer with right-click → Open.
 
+Check the installer before you install it: [docs/verify.md](docs/verify.md) says how. The list of
+sums, `SHA256SUMS`, is signed with minisign by one of the evolite release keys (either is valid):
+
+```
+main:   <published with the first signed release>
+backup: <published with the first signed release>
+```
+
 ## Building
 
 Rust through rustup: `rust-toolchain.toml` pins the release, and rustup installs it (MSVC on

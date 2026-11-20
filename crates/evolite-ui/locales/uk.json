@@ -2409,5 +2409,21 @@
   "{} is now at the bottom of the page, under “Hidden tokens”: you can return it to the list from there. The search does not show it.": "{} тепер унизу сторінки, у «Прихованих токенах»: звідти його можна повернути до списку. Пошук його не показує.",
   "Undo": "Скасувати",
   "Hidden tokens ({})": "Приховані токени ({})",
-  "Hidden tokens are not shown in the list and the search does not bring them back. Their balance stays where it is.": "Приховані токени не показуються в списку, і пошук їх не повертає. Баланс токенів лишається на місці."
+  "Hidden tokens are not shown in the list and the search does not bring them back. Their balance stays where it is.": "Приховані токени не показуються в списку, і пошук їх не повертає. Баланс токенів лишається на місці.",
+  "A new version of evolite is out": "Вийшла нова версія evolite",
+  "Check for a new version": "Перевіряти нову версію",
+  "Checked {}: a signed answer": "Перевірено {}: відповідь підписана",
+  "How to check the installer": "Як перевірити інсталятор",
+  "Install it soon. Check the installer before you install it.": "Встановіть її якнайшвидше. Перед встановленням перевірте інсталятор.",
+  "Last check": "Остання перевірка",
+  "Not checked yet, or the check is off": "Ще не перевірялося, або перевірку вимкнено",
+  "Once a day evolite asks GitHub whether a newer version is out; GitHub sees your IP. It only believes a signed answer and never downloads anything by itself.": "Раз на день evolite питає GitHub, чи немає нової версії; GitHub бачить вашу IP-адресу. Вірить лише підписаній відповіді й нічого не завантажує сама.",
+  "Published with the first signed release": "Буде опубліковано з першим підписаним випуском",
+  "Release keys": "Ключі випуску",
+  "Release page": "Сторінка випуску",
+  "Released {}. Check the installer before you install it.": "Випущено {}. Перед встановленням перевірте інсталятор.",
+  "Updates": "Оновлення",
+  "evolite {} fixes a security problem": "evolite {} виправляє вразливість",
+  "evolite {} is out": "Вийшла evolite {}",
+  "minisign public keys and their key IDs: compare them with docs/verify.md": "Відкриті ключі minisign та їхні ID: звірте з docs/verify.md"
 }

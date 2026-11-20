@@ -18,6 +18,9 @@ use std::sync::Arc;
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender};
 use std::time::{Duration, Instant};
 
+/// Р1: the version the demo's update check says is out (newer than any build of this branch).
+pub const DEMO_UPDATE: &str = "1.0.1";
+
 const NO_WALLET: &str = tr!("Prototype: there is no wallet behind the screens");
 const OFFLINE: &str = tr!("This is the mockup's example: it does not connect to the network");
 use evolite_common::PASSWORD_NEEDED;
@@ -731,6 +734,19 @@ impl Mock {
                     currency,
                     price: 4_796_150_000,
                     at: now(),
+                });
+                return true;
+            }
+            // Р1 (review r1): a fixed newer release, never the network; off, nothing.
+            Command::CheckUpdate { on } => {
+                self.snapshot.update = on.then(|| evolite_api::UpdateInfo {
+                    version: DEMO_UPDATE.into(),
+                    newer: true,
+                    critical: false,
+                    date: "2026-12-03".into(),
+                    checked_at: now(),
+                    notes_url: "https://github.com/Ulput/evolite/releases/tag/v1.0.1".into(),
+                    verify_url: "https://github.com/Ulput/evolite/blob/main/docs/verify.md".into(),
                 });
                 return true;
             }
@@ -1705,6 +1721,7 @@ pub fn run(
             demo: true,
             elsewhere: false,
             fiat: None,
+            update: None,
             wallets: demo_wallets(now()),
             adding_wallet: false,
         },
@@ -1763,6 +1780,7 @@ mod tests {
                 demo: true,
                 elsewhere: false,
                 fiat: None,
+                update: None,
                 wallets: demo_wallets(0),
                 adding_wallet: false,
             },

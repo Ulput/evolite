@@ -55,6 +55,7 @@ pub fn command_name(command: &Command) -> &'static str {
         Command::ForgetAddress { .. } => "forget_address",
         Command::CoreNode { .. } => "core_node",
         Command::FiatRate { .. } => "fiat_rate",
+        Command::CheckUpdate { .. } => "check_update",
         Command::ReceiveAddress { .. } => "receive_address",
         // Which wallet, and its name, stay off the journal.
         Command::SwitchWallet { .. } => "switch_wallet",

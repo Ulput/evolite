@@ -2375,5 +2375,21 @@
   "{} is now at the bottom of the page, under “Hidden tokens”: you can return it to the list from there. The search does not show it.": "{} steht jetzt unten auf der Seite unter „Ausgeblendete Token“: Von dort können Sie ihn in die Liste zurückholen. Die Suche zeigt ihn nicht an.",
   "Undo": "Rückgängig",
   "Hidden tokens ({})": "Ausgeblendete Token ({})",
-  "Hidden tokens are not shown in the list and the search does not bring them back. Their balance stays where it is.": "Ausgeblendete Token werden in der Liste nicht angezeigt, und die Suche bringt sie nicht zurück. Ihr Guthaben bleibt, wo es ist."
+  "Hidden tokens are not shown in the list and the search does not bring them back. Their balance stays where it is.": "Ausgeblendete Token werden in der Liste nicht angezeigt, und die Suche bringt sie nicht zurück. Ihr Guthaben bleibt, wo es ist.",
+  "A new version of evolite is out": "Eine neue Version von evolite ist da",
+  "Check for a new version": "Nach neuer Version suchen",
+  "Checked {}: a signed answer": "Geprüft {}: eine signierte Antwort",
+  "How to check the installer": "So prüfen Sie das Installationsprogramm",
+  "Install it soon. Check the installer before you install it.": "Installieren Sie sie bald. Prüfen Sie vorher das Installationsprogramm.",
+  "Last check": "Letzte Prüfung",
+  "Not checked yet, or the check is off": "Noch nicht geprüft, oder die Prüfung ist aus",
+  "Once a day evolite asks GitHub whether a newer version is out; GitHub sees your IP. It only believes a signed answer and never downloads anything by itself.": "Einmal am Tag fragt evolite bei GitHub, ob eine neuere Version da ist; GitHub sieht Ihre IP. Nur eine signierte Antwort zählt, und evolite lädt nie selbst etwas herunter.",
+  "Published with the first signed release": "Werden mit der ersten signierten Version veröffentlicht",
+  "Release keys": "Release-Schlüssel",
+  "Release page": "Release-Seite",
+  "Released {}. Check the installer before you install it.": "Veröffentlicht am {}. Prüfen Sie vor der Installation das Installationsprogramm.",
+  "Updates": "Updates",
+  "evolite {} fixes a security problem": "evolite {} behebt ein Sicherheitsproblem",
+  "evolite {} is out": "evolite {} ist da",
+  "minisign public keys and their key IDs: compare them with docs/verify.md": "Öffentliche minisign-Schlüssel und ihre Schlüssel-IDs: mit docs/verify.md vergleichen"
 }

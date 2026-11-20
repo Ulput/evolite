@@ -2358,5 +2358,21 @@
   "{} is now at the bottom of the page, under “Hidden tokens”: you can return it to the list from there. The search does not show it.": "{} giờ nằm ở cuối trang, trong “Token đã ẩn”: bạn có thể đưa nó trở lại danh sách từ đó. Tìm kiếm không hiển thị nó.",
   "Undo": "Hoàn tác",
   "Hidden tokens ({})": "Token đã ẩn ({})",
-  "Hidden tokens are not shown in the list and the search does not bring them back. Their balance stays where it is.": "Token đã ẩn không hiện trong danh sách và tìm kiếm không đưa chúng trở lại. Số dư của chúng vẫn giữ nguyên."
+  "Hidden tokens are not shown in the list and the search does not bring them back. Their balance stays where it is.": "Token đã ẩn không hiện trong danh sách và tìm kiếm không đưa chúng trở lại. Số dư của chúng vẫn giữ nguyên.",
+  "A new version of evolite is out": "Đã có phiên bản evolite mới",
+  "Check for a new version": "Kiểm tra phiên bản mới",
+  "Checked {}: a signed answer": "Đã kiểm tra {}: câu trả lời có chữ ký",
+  "How to check the installer": "Cách kiểm tra trình cài đặt",
+  "Install it soon. Check the installer before you install it.": "Hãy cài sớm. Kiểm tra trình cài đặt trước khi cài.",
+  "Last check": "Lần kiểm tra gần nhất",
+  "Not checked yet, or the check is off": "Chưa kiểm tra, hoặc tính năng kiểm tra đang tắt",
+  "Once a day evolite asks GitHub whether a newer version is out; GitHub sees your IP. It only believes a signed answer and never downloads anything by itself.": "Mỗi ngày một lần evolite hỏi GitHub xem có phiên bản mới hơn không; GitHub thấy IP của bạn. Chỉ tin câu trả lời có chữ ký và không bao giờ tự tải gì xuống.",
+  "Published with the first signed release": "Sẽ công bố cùng bản phát hành có chữ ký đầu tiên",
+  "Release keys": "Khóa phát hành",
+  "Release page": "Trang phát hành",
+  "Released {}. Check the installer before you install it.": "Phát hành {}. Kiểm tra trình cài đặt trước khi cài.",
+  "Updates": "Cập nhật",
+  "evolite {} fixes a security problem": "evolite {} sửa một lỗi bảo mật",
+  "evolite {} is out": "Đã có evolite {}",
+  "minisign public keys and their key IDs: compare them with docs/verify.md": "Khóa công khai minisign và ID của chúng: đối chiếu với docs/verify.md"
 }

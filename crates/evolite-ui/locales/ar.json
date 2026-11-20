@@ -2443,5 +2443,21 @@
   "{} is now at the bottom of the page, under “Hidden tokens”: you can return it to the list from there. The search does not show it.": "{} الآن أسفل الصفحة، في «الرموز المخفية»: يمكنك إعادته إلى القائمة من هناك. لا يُظهره البحث.",
   "Undo": "تراجع",
   "Hidden tokens ({})": "الرموز المخفية ({})",
-  "Hidden tokens are not shown in the list and the search does not bring them back. Their balance stays where it is.": "الرموز المخفية لا تظهر في القائمة ولا يعيدها البحث. يبقى رصيدها كما هو."
+  "Hidden tokens are not shown in the list and the search does not bring them back. Their balance stays where it is.": "الرموز المخفية لا تظهر في القائمة ولا يعيدها البحث. يبقى رصيدها كما هو.",
+  "A new version of evolite is out": "صدر إصدار جديد من evolite",
+  "Check for a new version": "التحقق من وجود إصدار جديد",
+  "Checked {}: a signed answer": "تم التحقق في {}: إجابة موقّعة",
+  "How to check the installer": "كيفية التحقق من المثبّت",
+  "Install it soon. Check the installer before you install it.": "ثبّته قريبًا. تحقّق من المثبّت قبل تثبيته.",
+  "Last check": "آخر تحقق",
+  "Not checked yet, or the check is off": "لم يتم التحقق بعد، أو التحقق متوقف",
+  "Once a day evolite asks GitHub whether a newer version is out; GitHub sees your IP. It only believes a signed answer and never downloads anything by itself.": "مرة في اليوم يسأل evolite موقع GitHub عن وجود إصدار أحدث؛ يرى GitHub عنوان IP الخاص بك. لا يصدّق إلا إجابة موقّعة ولا ينزّل أي شيء بنفسه.",
+  "Published with the first signed release": "ستُنشر مع أول إصدار موقّع",
+  "Release keys": "مفاتيح الإصدار",
+  "Release page": "صفحة الإصدار",
+  "Released {}. Check the installer before you install it.": "صدر في {}. تحقّق من المثبّت قبل تثبيته.",
+  "Updates": "التحديثات",
+  "evolite {} fixes a security problem": "يصلح evolite {} مشكلة أمنية",
+  "evolite {} is out": "صدر evolite {}",
+  "minisign public keys and their key IDs: compare them with docs/verify.md": "مفاتيح minisign العامة ومعرّفاتها: قارنها بـ docs/verify.md"
 }

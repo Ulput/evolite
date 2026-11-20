@@ -508,6 +508,11 @@ struct Real {
     /// "Fiat rate": the price fetched last, and the task fetching it.
     fiat: Arc<std::sync::Mutex<Option<FiatRate>>>,
     fiat_task: Option<tokio::task::JoinHandle<()>>,
+    /// Р1: what the last good update check learnt, the task checking, and whether a wallet was
+    /// open in this run (the first request waits for it, review r1).
+    update: Arc<std::sync::Mutex<Option<evolite_api::UpdateInfo>>>,
+    update_task: Option<tokio::task::JoinHandle<()>>,
+    wallet_opened: Arc<std::sync::atomic::AtomicBool>,
     /// «Fiat rate»'s currency while it is on: a payment's rate must be in it (FEAT-0008).
     fiat_currency: Option<String>,
     /// "Disk space": bytes of the data folder, and when they were counted.
