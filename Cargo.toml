@@ -19,6 +19,7 @@ exclude = ["vendor/rust-dashcore"]
 version = "1.0.0"
 edition = "2024"
 publish = false
+license = "MIT"
 
 # The Platform stack Dash Evo Tool runs (dashpay/platform 575d961, v5.1-dev of 2026-10-26) and
 # the rust-dashcore it pins (aca0202). Testnet only. This replaced the earlier pin 0dcdd82 (with

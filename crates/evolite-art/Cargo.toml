@@ -2,6 +2,7 @@
 name = "evolite-art"
 description = "NFT pictures and avatars for the core: asks the sandboxed renderer, keeps what it drew."
 version.workspace = true
+license.workspace = true
 edition.workspace = true
 publish.workspace = true
 

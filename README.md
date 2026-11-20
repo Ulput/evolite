@@ -109,3 +109,6 @@ Flags of the app: `--data-dir <folder>`, `--network testnet|mainnet`, `--theme d
 - `docs/installer.md` — the installer and uninstaller on Windows, Linux and macOS, and which
   architectures are built where (`.github/workflows/build.yml`).
 
+## License
+
+evolite is released under the MIT License: see [`LICENSE`](LICENSE).

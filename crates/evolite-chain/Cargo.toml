@@ -2,6 +2,7 @@
 name = "evolite-chain"
 description = "evolite's wrappers of dash-spv, platform-wallet and the Platform SDK: the chain, the store and what is read from Platform."
 version.workspace = true
+license.workspace = true
 edition.workspace = true
 publish.workspace = true
 

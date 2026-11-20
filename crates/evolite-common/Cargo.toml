@@ -2,6 +2,7 @@
 name = "evolite-common"
 description = "What every part of the evolite core shares: the network, the journal, the rules of names, notes and phrases. No Platform stack."
 version.workspace = true
+license.workspace = true
 edition.workspace = true
 publish.workspace = true
 

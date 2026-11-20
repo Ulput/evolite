@@ -2,6 +2,7 @@
 name = "evolite-core"
 description = "The evolite wallet core behind the UI. For now a mock with the Figma example data; later dash-spv, keys and Platform."
 version.workspace = true
+license.workspace = true
 edition.workspace = true
 publish.workspace = true
 

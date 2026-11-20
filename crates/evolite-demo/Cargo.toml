@@ -2,6 +2,7 @@
 name = "evolite-demo"
 description = "The demo core: the example wallet from Figma behind the same commands as the real one."
 version.workspace = true
+license.workspace = true
 edition.workspace = true
 publish.workspace = true
 

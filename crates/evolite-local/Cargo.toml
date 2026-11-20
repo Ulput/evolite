@@ -2,6 +2,7 @@
 name = "evolite-local"
 description = "The files of a wallet's folder: the vault, the list of wallets, the journal, notes and the small JSON files. No Platform stack."
 version.workspace = true
+license.workspace = true
 edition.workspace = true
 publish.workspace = true
 
