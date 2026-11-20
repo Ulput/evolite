@@ -109,5 +109,8 @@
   "evolite could not be closed. Restart the computer and start the installer again.": "无法关闭 evolite。请重启电脑并重新运行安装程序。",
   "evolite is open from another folder or by another program. Close it yourself and press Try again.": "evolite 是从其他文件夹或由其他程序打开的。请自行关闭它并点击“重试”。",
   "Wallets are kept on disk as they change: closing evolite does not remove them.": "钱包在每次更改时都会保存到磁盘：关闭 evolite 不会删除它们。",
-  "{} (common to both networks)": "{}（两个网络共用）"
+  "{} (common to both networks)": "{}（两个网络共用）",
+  "The picture folder is left: {} — you can delete it by hand.": "图片文件夹仍然保留：{} — 你可以手动删除它。",
+  "Removed: the program, shortcuts, the registry entry and the wallet data.": "已删除：程序、快捷方式、注册表项和钱包数据。",
+  "Removed: the program, shortcuts and the registry entry. Wallet data is kept in {}.": "已删除：程序、快捷方式和注册表项。钱包数据保留在 {} 中。"
 }

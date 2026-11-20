@@ -109,5 +109,8 @@
   "evolite could not be closed. Restart the computer and start the installer again.": "Không thể đóng evolite. Hãy khởi động lại máy tính và chạy lại trình cài đặt.",
   "evolite is open from another folder or by another program. Close it yourself and press Try again.": "evolite đang mở từ thư mục khác hoặc bởi chương trình khác. Hãy tự đóng nó và nhấn \"Thử lại\".",
   "Wallets are kept on disk as they change: closing evolite does not remove them.": "Ví được lưu xuống đĩa mỗi khi thay đổi: đóng evolite không xóa chúng.",
-  "{} (common to both networks)": "{} (dùng chung cho cả hai mạng)"
+  "{} (common to both networks)": "{} (dùng chung cho cả hai mạng)",
+  "The picture folder is left: {} — you can delete it by hand.": "Thư mục ảnh vẫn còn: {} — bạn có thể tự xóa nó.",
+  "Removed: the program, shortcuts, the registry entry and the wallet data.": "Đã gỡ: chương trình, lối tắt, mục trong registry và dữ liệu ví.",
+  "Removed: the program, shortcuts and the registry entry. Wallet data is kept in {}.": "Đã gỡ: chương trình, lối tắt và mục trong registry. Dữ liệu ví vẫn ở {}."
 }

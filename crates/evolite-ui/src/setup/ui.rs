@@ -68,6 +68,8 @@ pub struct Setup {
     not_ended: bool,
     // Removal.
     delete_data: bool,
+    /// The picture cache the removal left (installer review r1, Should).
+    cache_left: Option<std::path::PathBuf>,
     sure: bool,
     wallets: Vec<(PathBuf, Vec<FoundWallet>)>,
     data_bytes: u64,
@@ -135,6 +137,7 @@ impl Setup {
             running_dirs: Vec::new(),
             not_ended: false,
             delete_data: false,
+            cache_left: None,
             sure: false,
             wallets: Vec::new(),
             data_bytes: 0,
@@ -587,6 +590,7 @@ impl eframe::App for Setup {
             ui.ctx().request_repaint_after(Duration::from_millis(100));
             let result = progress.lock().ok().and_then(|p| p.result.clone());
             if let Some(result) = result {
+                self.cache_left = progress.lock().ok().and_then(|p| p.cache_left.clone());
                 crate::log(&format!("finished: {result:?}"));
                 self.step = match result {
                     Ok(()) => Step::Done,
@@ -1589,13 +1593,22 @@ impl Setup {
                 ui.add(crate::para::para(tr!("The shortcut is in the Start menu. You can remove evolite in Settings › Apps."), 13.0, Weight::Regular, p.muted));
             } else {
                 ui.label(txt(tr!("evolite is removed"), 22.0, Weight::SemiBold, p.text));
-                let text = if self.delete_data && self.sure {
-                    i18n::t_in(i18n::current(), tr!("Removed: the program, shortcuts, the registry entry, the picture cache and the wallet data. evolite keeps nothing more on this computer.")).into_owned()
-                } else {
-                    let data = self.known.as_ref().map(|k| k.testnet_data().display().to_string()).unwrap_or_default();
-                    fill(tr!("Removed: the program, shortcuts, the registry entry and the picture cache. Wallet data is kept in {}."), &[&data])
-                };
+                let data = self.known.as_ref().map(|k| k.testnet_data().display().to_string()).unwrap_or_default();
+                let text = removed_summary(self.delete_data && self.sure, self.cache_left.is_some(), &data);
                 ui.add(crate::para::para(&text, 13.0, Weight::Regular, p.muted));
+                // Installer review r1, Should: the person chose to delete everything, and the
+                // cache holds contacts' avatars and NFT pictures — said, with where it is. Without
+                // the tick, nothing more is said.
+                if self.delete_data
+                    && self.sure
+                    && let Some(left) = &self.cache_left
+                {
+                    let said = fill(
+                        tr!("The picture folder is left: {} — you can delete it by hand."),
+                        &[&left.display().to_string()],
+                    );
+                    ui.add(crate::para::para(&said, 13.0, Weight::Regular, p.danger));
+                }
             }
         });
         if installing {
@@ -1841,4 +1854,30 @@ pub(super) fn removal_folders(known: &plan::Known) -> String {
         ));
     }
     folders.join(", ")
+}
+
+/// What the last screen says was removed (installer review r1): the wallet data only when it went
+/// (`data_gone`); the picture cache only when it went too — a cache left (`cache_left`, named on
+/// the line under this one) is never called removed, and then nothing is «all» either.
+pub(super) fn removed_summary(data_gone: bool, cache_left: bool, data: &str) -> String {
+    match (data_gone, cache_left) {
+        (true, false) => i18n::t_in(
+            i18n::current(),
+            tr!("Removed: the program, shortcuts, the registry entry, the picture cache and the wallet data. evolite keeps nothing more on this computer."),
+        )
+        .into_owned(),
+        (true, true) => i18n::t_in(
+            i18n::current(),
+            tr!("Removed: the program, shortcuts, the registry entry and the wallet data."),
+        )
+        .into_owned(),
+        (false, false) => fill(
+            tr!("Removed: the program, shortcuts, the registry entry and the picture cache. Wallet data is kept in {}."),
+            &[data],
+        ),
+        (false, true) => fill(
+            tr!("Removed: the program, shortcuts and the registry entry. Wallet data is kept in {}."),
+            &[data],
+        ),
+    }
 }

@@ -109,5 +109,8 @@
   "evolite could not be closed. Restart the computer and start the installer again.": "evolite를 닫지 못했습니다. 컴퓨터를 다시 시작하고 설치 프로그램을 다시 실행하세요.",
   "evolite is open from another folder or by another program. Close it yourself and press Try again.": "evolite가 다른 폴더에서 또는 다른 프로그램에 의해 열려 있습니다. 직접 닫고 \"다시 시도\"를 누르세요.",
   "Wallets are kept on disk as they change: closing evolite does not remove them.": "지갑은 변경될 때마다 디스크에 저장됩니다: evolite를 닫아도 삭제되지 않습니다.",
-  "{} (common to both networks)": "{} (두 네트워크 공용)"
+  "{} (common to both networks)": "{} (두 네트워크 공용)",
+  "The picture folder is left: {} — you can delete it by hand.": "그림 폴더가 남아 있습니다: {} — 직접 삭제할 수 있습니다.",
+  "Removed: the program, shortcuts, the registry entry and the wallet data.": "삭제됨: 프로그램, 바로 가기, 레지스트리 항목, 지갑 데이터.",
+  "Removed: the program, shortcuts and the registry entry. Wallet data is kept in {}.": "삭제됨: 프로그램, 바로 가기, 레지스트리 항목. 지갑 데이터는 {}에 남아 있습니다."
 }

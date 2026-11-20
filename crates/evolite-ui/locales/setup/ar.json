@@ -109,5 +109,8 @@
   "evolite could not be closed. Restart the computer and start the installer again.": "تعذّر إغلاق evolite. أعد تشغيل الحاسوب وشغّل المثبّت مرة أخرى.",
   "evolite is open from another folder or by another program. Close it yourself and press Try again.": "evolite مفتوح من مجلد آخر أو بواسطة برنامج آخر. أغلقه بنفسك واضغط «حاول مرة أخرى».",
   "Wallets are kept on disk as they change: closing evolite does not remove them.": "تُحفظ المحافظ على القرص عند كل تغيير: إغلاق evolite لا يحذفها.",
-  "{} (common to both networks)": "{} (مشترك بين الشبكتين)"
+  "{} (common to both networks)": "{} (مشترك بين الشبكتين)",
+  "The picture folder is left: {} — you can delete it by hand.": "بقي مجلد الصور: {} — يمكنك حذفه يدويًا.",
+  "Removed: the program, shortcuts, the registry entry and the wallet data.": "تمت إزالة: البرنامج والاختصارات وإدخال السجل وبيانات المحافظ.",
+  "Removed: the program, shortcuts and the registry entry. Wallet data is kept in {}.": "تمت إزالة: البرنامج والاختصارات وإدخال السجل. بيانات المحافظ باقية في {}."
 }

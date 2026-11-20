@@ -109,5 +109,8 @@
   "evolite could not be closed. Restart the computer and start the installer again.": "Não foi possível fechar o evolite. Reinicie o computador e inicie o instalador novamente.",
   "evolite is open from another folder or by another program. Close it yourself and press Try again.": "O evolite está aberto a partir de outra pasta ou por outro programa. Feche-o você mesmo e clique em “Tentar novamente”.",
   "Wallets are kept on disk as they change: closing evolite does not remove them.": "As carteiras são gravadas no disco a cada alteração: fechar o evolite não as remove.",
-  "{} (common to both networks)": "{} (comum às duas redes)"
+  "{} (common to both networks)": "{} (comum às duas redes)",
+  "The picture folder is left: {} — you can delete it by hand.": "A pasta de imagens ficou: {} — você pode apagá-la manualmente.",
+  "Removed: the program, shortcuts, the registry entry and the wallet data.": "Removidos: o programa, os atalhos, a entrada do registro e os dados das carteiras.",
+  "Removed: the program, shortcuts and the registry entry. Wallet data is kept in {}.": "Removidos: o programa, os atalhos e a entrada do registro. Os dados das carteiras continuam em {}."
 }

@@ -109,5 +109,8 @@
   "evolite could not be closed. Restart the computer and start the installer again.": "evolite tidak dapat ditutup. Mulai ulang komputer lalu jalankan penginstal lagi.",
   "evolite is open from another folder or by another program. Close it yourself and press Try again.": "evolite dibuka dari folder lain atau oleh program lain. Tutup sendiri lalu tekan \"Coba lagi\".",
   "Wallets are kept on disk as they change: closing evolite does not remove them.": "Dompet disimpan ke disk setiap kali berubah: menutup evolite tidak menghapusnya.",
-  "{} (common to both networks)": "{} (bersama untuk kedua jaringan)"
+  "{} (common to both networks)": "{} (bersama untuk kedua jaringan)",
+  "The picture folder is left: {} — you can delete it by hand.": "Folder gambar masih ada: {} — Anda bisa menghapusnya secara manual.",
+  "Removed: the program, shortcuts, the registry entry and the wallet data.": "Dihapus: program, pintasan, entri registri, dan data dompet.",
+  "Removed: the program, shortcuts and the registry entry. Wallet data is kept in {}.": "Dihapus: program, pintasan, dan entri registri. Data dompet tetap di {}."
 }

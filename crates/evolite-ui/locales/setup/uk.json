@@ -109,5 +109,8 @@
   "evolite could not be closed. Restart the computer and start the installer again.": "Не вдалося закрити evolite. Перезавантажте комп’ютер і запустіть інсталятор знову.",
   "evolite is open from another folder or by another program. Close it yourself and press Try again.": "evolite відкрито з іншої папки або іншою програмою. Закрийте його самі й натисніть «Спробувати знову».",
   "Wallets are kept on disk as they change: closing evolite does not remove them.": "Гаманці зберігаються на диск після кожної зміни: закриття evolite їх не видаляє.",
-  "{} (common to both networks)": "{} (спільна для обох мереж)"
+  "{} (common to both networks)": "{} (спільна для обох мереж)",
+  "The picture folder is left: {} — you can delete it by hand.": "Тека з картинками залишилася: {} — її можна видалити вручну.",
+  "Removed: the program, shortcuts, the registry entry and the wallet data.": "Видалено програму, ярлики, запис у реєстрі та дані гаманців.",
+  "Removed: the program, shortcuts and the registry entry. Wallet data is kept in {}.": "Видалено програму, ярлики та запис у реєстрі. Дані гаманців залишилися в {}."
 }

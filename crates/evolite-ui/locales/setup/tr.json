@@ -109,5 +109,8 @@
   "evolite could not be closed. Restart the computer and start the installer again.": "evolite kapatılamadı. Bilgisayarı yeniden başlatın ve kurulumu yeniden çalıştırın.",
   "evolite is open from another folder or by another program. Close it yourself and press Try again.": "evolite başka bir klasörden veya başka bir program tarafından açık. Kendiniz kapatın ve «Yeniden dene»ye basın.",
   "Wallets are kept on disk as they change: closing evolite does not remove them.": "Cüzdanlar her değişiklikte diske kaydedilir: evolite'i kapatmak onları silmez.",
-  "{} (common to both networks)": "{} (iki ağ için ortak)"
+  "{} (common to both networks)": "{} (iki ağ için ortak)",
+  "The picture folder is left: {} — you can delete it by hand.": "Resim klasörü kaldı: {} — elle silebilirsiniz.",
+  "Removed: the program, shortcuts, the registry entry and the wallet data.": "Kaldırıldı: program, kısayollar, kayıt defteri girdisi ve cüzdan verileri.",
+  "Removed: the program, shortcuts and the registry entry. Wallet data is kept in {}.": "Kaldırıldı: program, kısayollar ve kayıt defteri girdisi. Cüzdan verileri {} içinde duruyor."
 }

@@ -132,3 +132,18 @@ fn the_removal_names_both_network_folders() {
         "{said}"
     );
 }
+
+/// Installer review r1: with the picture cache left, the last screen never calls it removed, and
+/// with the data gone it does not say evolite keeps nothing more; without, as before.
+#[test]
+fn the_summary_never_calls_a_left_cache_removed() {
+    use super::ui::removed_summary;
+    for data_gone in [true, false] {
+        let said = removed_summary(data_gone, true, "/data/evolite");
+        assert!(!said.contains("picture cache"), "{said}");
+        assert!(!said.contains("keeps nothing more"), "{said}");
+    }
+    assert!(removed_summary(true, false, "").contains("keeps nothing more"));
+    assert!(removed_summary(false, false, "/data/evolite").contains("picture cache"));
+    assert!(removed_summary(false, true, "/data/evolite").contains("/data/evolite"));
+}

@@ -17,6 +17,9 @@ pub struct Progress {
     pub total: u64,
     /// Set once: `Ok` when all went through, the reason when not.
     pub result: Option<Result<(), String>>,
+    /// The picture cache that could not go (the removal went on without it): the last screen
+    /// names it when the wallet data was to go too.
+    pub cache_left: Option<PathBuf>,
 }
 
 pub type Shared = Arc<Mutex<Progress>>;
@@ -233,7 +236,15 @@ fn run_remove(job: &Remove, p: &Shared) -> Result<(), String> {
     set(p, |p| p.step = 1);
     remove_data(&job.known, job.data)?;
     set(p, |p| p.step = 2);
-    remove_own(&job.known, &job.known.cache())?;
+    // QA 2026-11-20 (os error 4395, a reparse point under the cache in a sandboxed run): the
+    // picture cache is not worth a failed removal. What cannot go stays and is said in the log;
+    // the entry and the uninstaller still go. The wallet data above still fails loudly: that is
+    // the person's choice to see through.
+    if let Err(e) = remove_own(&job.known, &job.known.cache()) {
+        crate::log(&format!("the picture cache is left: {e}"));
+        let left = job.known.cache();
+        set(p, |p| p.cache_left = Some(left));
+    }
     system::remove_entry()?;
     if cfg!(windows) && me.as_deref() == Some(uninstaller.as_path()) {
         system::delete_after_exit(&uninstaller);

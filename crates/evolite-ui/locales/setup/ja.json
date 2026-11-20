@@ -109,5 +109,8 @@
   "evolite could not be closed. Restart the computer and start the installer again.": "evolite を閉じられませんでした。コンピューターを再起動して、もう一度インストーラーを起動してください。",
   "evolite is open from another folder or by another program. Close it yourself and press Try again.": "evolite は別のフォルダーまたは別のプログラムから開かれています。ご自身で閉じてから「再試行」を押してください。",
   "Wallets are kept on disk as they change: closing evolite does not remove them.": "ウォレットは変更のたびにディスクに保存されます。evolite を閉じても削除されません。",
-  "{} (common to both networks)": "{}（両方のネットワーク共通）"
+  "{} (common to both networks)": "{}（両方のネットワーク共通）",
+  "The picture folder is left: {} — you can delete it by hand.": "画像のフォルダーが残っています: {} — 手動で削除できます。",
+  "Removed: the program, shortcuts, the registry entry and the wallet data.": "削除しました: プログラム、ショートカット、レジストリの項目、ウォレットのデータ。",
+  "Removed: the program, shortcuts and the registry entry. Wallet data is kept in {}.": "削除しました: プログラム、ショートカット、レジストリの項目。ウォレットのデータは {} に残っています。"
 }
