@@ -63,7 +63,10 @@ fn the_banner_names_the_file_not_the_folder() {
     wait_for(&mut kit, "the banner", |kit| {
         has_words(kit, "Journal.json.unreadable-1763302200")
     });
-    assert!(!has_words(&kit, "C:\\evolite"));
+    // BUG-256: the demo's folder, as this system writes it.
+    let folder = crate::app::dev::demo_set_aside_dir();
+    assert!(!has_words(&kit, &folder.to_string_lossy()));
+    assert!(!has_words(&kit, "evolite-demo"));
     button(&kit, "Show in folder").click();
     kit.run_steps(2);
     assert!(

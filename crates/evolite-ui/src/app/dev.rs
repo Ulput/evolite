@@ -704,7 +704,12 @@ impl App {
                 .iter()
                 .map(|&file| evolite_api::SetAside {
                     file,
-                    path: format!(r"C:\evolite\{file:?}.json.unreadable-1763302200"),
+                    // BUG-256: a path of this system — a Windows one on macOS or Linux is one
+                    // name, folder and all, and the banner would show the folder.
+                    path: demo_set_aside_dir()
+                        .join(format!("{file:?}.json.unreadable-1763302200"))
+                        .to_string_lossy()
+                        .into_owned(),
                 })
                 .collect();
         }
@@ -1952,4 +1957,9 @@ fn tokens_state(s: &mut evolite_api::Snapshot, name: &str) {
         }
         _ => {}
     }
+}
+
+/// The demo's folder of files set aside (BUG-256): a path of this system, never written to.
+pub(crate) fn demo_set_aside_dir() -> std::path::PathBuf {
+    std::env::temp_dir().join("evolite-demo")
 }

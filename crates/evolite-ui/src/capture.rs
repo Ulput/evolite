@@ -178,12 +178,13 @@ pub fn phrase_warning() -> Option<Session> {
             2 => Some(false),
             _ => None,
         };
-        return Some(session_of(
+        // BUG-256: the block is the function's tail on Linux — no `return` (clippy).
+        Some(session_of(
             std::env::var("XDG_SESSION_TYPE").ok().as_deref(),
             var("WAYLAND_DISPLAY"),
             var("DISPLAY"),
             x11,
-        ));
+        ))
     }
     #[cfg(all(not(test), not(target_os = "linux")))]
     cfg!(target_os = "macos").then_some(Session::MacOs)
