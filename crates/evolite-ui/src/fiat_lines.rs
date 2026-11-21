@@ -73,9 +73,11 @@ pub fn card(act: &Activity, now: DateTime<Local>) -> Option<CardLines> {
                 crate::text::date_time(then.at, now)
             );
             lines.push(format!("{at} · {}", per_dash(then)));
+            // The word translated where the line is put together: «Now ≈ 11.99 USD» as a whole
+            // is no text of the catalogs, and stayed English (BUG-250, B2).
             lines.push(format!(
                 "{} {} · {}",
-                tr!("Now"),
+                crate::i18n::t(tr!("Now")),
                 about(&current, amount),
                 per_dash(&current)
             ));
@@ -101,7 +103,11 @@ pub fn card(act: &Activity, now: DateTime<Local>) -> Option<CardLines> {
         )
     }) {
         let rate = act.rate.as_ref().unwrap_or(&current);
-        lines.push(format!("{} {}", tr!("Fee"), about(rate, fee)));
+        lines.push(format!(
+            "{} {}",
+            crate::i18n::t(tr!("Fee")),
+            about(rate, fee)
+        ));
     }
     Some(CardLines { value, lines })
 }

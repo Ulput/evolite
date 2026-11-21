@@ -237,8 +237,14 @@ fn fill(parts: &[String], text: &str) -> Option<Vec<String>> {
         } else if part.is_empty() {
             return None; // two gaps side by side cannot be told apart
         } else {
-            // The first place the next text follows after a non-empty gap.
-            let skip = at.chars().next()?.len_utf8();
+            // The first place the next text follows after a non-empty gap. A gap that opens
+            // with words kept whole (`own`, FSI … PDI) takes them whole: a date «29. November»
+            // never ends at its own «. » (BUG-250, B1). Marks are not nested: `own` of a text
+            // already marked ends at the first PDI, which is still past the inner text.
+            let skip = match at.strip_prefix('\u{2068}').and_then(|r| r.find('\u{2069}')) {
+                Some(close) => '\u{2068}'.len_utf8() + close + '\u{2069}'.len_utf8(),
+                None => at.chars().next()?.len_utf8(),
+            };
             skip + at[skip..].find(part.as_str())?
         };
         let captured = &at[..end];

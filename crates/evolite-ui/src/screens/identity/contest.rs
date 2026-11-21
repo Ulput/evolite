@@ -296,7 +296,8 @@ pub fn overview_notice(
                 ),
                 format!(
                     tr!("Result about {date}. {ours} of {all} are for you."),
-                    date = text::date_time_in_line(ends_about, now),
+                    // Kept whole: «29. November» in German has a «. » of its own (B1).
+                    date = crate::i18n::own(&text::date_time_in_line(ends_about, now)),
                     ours = text::plural(ours, tr!("vote"), tr!("votes")),
                     all = all
                 ),

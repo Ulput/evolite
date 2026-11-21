@@ -403,7 +403,7 @@ fn the_reviews_link_is_checked_and_has_a_line_of_its_own() {
     });
     assert!(has_words(
         &kit,
-        "Link where your identity is confirmed · optional"
+        "A site or social page where masternodes can see who you are · optional"
     ));
     let set = |kit: &mut Kit, link: &str| {
         kit.state_mut()
@@ -419,13 +419,13 @@ fn the_reviews_link_is_checked_and_has_a_line_of_its_own() {
         &kit,
         "A link https:// of at most 128 characters is needed"
     ));
-    assert!(!has_words(&kit, "Identity confirmation"));
+    assert!(!has_words(&kit, "Link for voters"));
     set(&mut kit, "https://example.com/me");
     assert!(has_words(
         &kit,
         "Everyone sees the link; voters in DashPay see it on the request's card."
     ));
-    assert!(has_words(&kit, "Identity confirmation: ≈ "), "its own line");
+    assert!(has_words(&kit, "Link for voters: ≈ "), "its own line");
 }
 
 /// АРХ-6, AC-T12: a link the claim kept but Platform did not take is said on the contest card, and
@@ -436,10 +436,7 @@ fn a_link_not_written_is_offered_again_alone() {
     wait_for(&mut kit, "the card", |k| {
         has_text(k, "@nakamoto-dev — vote")
     });
-    assert!(has_words(
-        &kit,
-        "Identity confirmation: https://example.com/sam"
-    ));
+    assert!(has_words(&kit, "Link for voters: https://example.com/sam"));
     assert!(has_words(
         &kit,
         "The request is in; the link was not written."

@@ -297,7 +297,10 @@ fn balance_cards(
                 // Four decimals, «≈» when there are more (the designer, R4): denominations give
                 // long fractions; the tile's tip has the whole.
                 let (number, exact) = crate::format::rounded_number(m.unfinished, 4);
-                let number = if exact {
+                let number = if crate::format::display().hide {
+                    // «Hide amounts» hides this one too (BUG-250, C2).
+                    crate::format::mask(&number)
+                } else if exact {
                     number
                 } else {
                     format!("≈ {number}")
@@ -399,7 +402,7 @@ fn mixed_tip(ui: &mut Ui, unfinished: Option<evolite_api::Duffs>) {
 {}",
             crate::i18n::t(&format!(
                 tr!("not mixed yet {amount}"),
-                amount = crate::format::amount(u)
+                amount = crate::format::balance(u)
             ))
         ),
         None => words,

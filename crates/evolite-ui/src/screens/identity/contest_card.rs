@@ -57,7 +57,7 @@ pub(super) fn contest_card(
             kv_row(
                 ui,
                 p,
-                tr!("Identity confirmation"),
+                tr!("Link for voters"),
                 link,
                 style(UI.weight(Weight::Medium)),
             );

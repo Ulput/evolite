@@ -556,7 +556,7 @@ fn an_identity_creation_is_not_called_a_top_up() {
     with_the_demos_first_lines(&mut kit);
     kit.state_mut().history.filters.layer = 5;
     with_op(&mut kit, &lock(true, Credits::Added));
-    assert!(says(&kit, "Создание identity @werner555 · "), "the row");
+    assert!(says(&kit, "Создание личности @werner555 · "), "the row");
     assert!(!says(&kit, "Пополнение @werner555"));
     with_op(&mut kit, &lock(true, Credits::NotAdded));
     assert!(says(&kit, " · кредиты не зачислены"));
@@ -565,10 +565,10 @@ fn an_identity_creation_is_not_called_a_top_up() {
     assert!(says(&kit, "Кредиты: не зачислены"));
     assert!(has_text(
         &kit,
-        "Создание identity прервалось. Его можно продолжить на экране Identity — DASH не потеряны"
+        "Создание личности прервалось. Его можно продолжить на экране «Личность» — DASH не потеряны"
     ));
     assert!(
-        kit.query_by_label("Продолжить на экране Identity")
+        kit.query_by_label("Продолжить на экране «Личность»")
             .is_some()
     );
 }

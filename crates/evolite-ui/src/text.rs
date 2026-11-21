@@ -576,9 +576,14 @@ pub fn activity_title(a: &Activity) -> String {
         {
             format!(tr!("Received from {from}"), from = from)
         }
-        ActivityKind::Received { from: Some(from) } => {
-            format!(tr!("Received · {from}"), from = from)
-        }
+        // A source the core names in its own words (only those: a person's name or an address
+        // comes as `@name` or with «…», above) («withdrawal from Platform»): translated on its own and
+        // kept whole, or the title's translation takes «Received {} {} from {}» for it and leaves
+        // «withdrawal» in English (BUG-250, B4).
+        ActivityKind::Received { from: Some(from) } => format!(
+            tr!("Received · {from}"),
+            from = crate::i18n::own(&crate::i18n::t(from))
+        ),
         ActivityKind::Received { from: None } => tr!("Received").into(),
         ActivityKind::Sent { to } if to.is_empty() => tr!("Sent").into(),
         ActivityKind::Sent { to } => format!(tr!("Sent {}"), short_address(to)),
@@ -781,9 +786,9 @@ pub fn activity_title(a: &Activity) -> String {
         ActivityKind::NameLinkWritten { label, removed } => {
             let name = crate::i18n::own(label);
             if *removed {
-                format!(tr!("Confirmation link for @{name} removed"), name = name)
+                format!(tr!("Link for voters on @{name} removed"), name = name)
             } else {
-                format!(tr!("Confirmation link for @{name} written"), name = name)
+                format!(tr!("Link for voters on @{name} written"), name = name)
             }
         }
         ActivityKind::NameContestEnded { label, outcome } => {

@@ -106,14 +106,14 @@ fn identity_says_what_core_has_only_when_checked_now() {
         &mut kit,
         no_identity(Some(CoreAsOf::NotYet)),
         "Core not known: no line",
-        |k| shows(k, "Identity ещё нет") && !shows(k, now_line),
+        |k| shows(k, "Личности ещё нет") && !shows(k, now_line),
     );
     let at = chrono::Local::now().timestamp() - 120;
     shown_with(
         &mut kit,
         no_identity(Some(CoreAsOf::Checked(at))),
         "Core checked earlier: no line",
-        |k| shows(k, "Identity ещё нет") && !shows(k, now_line),
+        |k| shows(k, "Личности ещё нет") && !shows(k, now_line),
     );
 }
 

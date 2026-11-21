@@ -933,3 +933,178 @@ fn no_phrase_word_is_translated_in_any_language() {
         );
     }
 }
+
+/// BUG-250 (the designer's text review, B and C): what was left English or read wrong, now in
+/// the language whole.
+mod text_review {
+    use super::*;
+
+    fn strip(s: &str) -> String {
+        s.replace(['\u{2068}', '\u{2069}'], "")
+    }
+
+    /// B1: a sentence with a date that has «. » in it (German «29. November») is translated
+    /// whole: the date, kept whole, never ends at its own point.
+    #[test]
+    fn a_german_date_does_not_break_the_vote_sentence() {
+        let line = format!(
+            tr!("Result about {date}. {ours} of {all} are for you."),
+            date = own("29. November 2026, 14:00"),
+            ours = "14 Stimmen",
+            all = 23
+        );
+        let shown = strip(&t_in(Lang::De, &line));
+        for english in ["Result", "about", "are for you"] {
+            assert!(!shown.contains(english), "{shown}");
+        }
+        assert!(shown.contains("29. November 2026, 14:00"), "{shown}");
+    }
+
+    /// B3: «Spent … · until …» with a Spanish date kept whole is Spanish whole.
+    #[test]
+    fn spent_until_is_translated_with_its_date() {
+        let line = format!(
+            tr!("Spent {} of {} · until {}"),
+            "0,02",
+            own("0,5 DASH"),
+            own("18 de feb de 2027")
+        );
+        for lang in [Lang::Es, Lang::PtBr] {
+            let shown = strip(&t_in(lang, &line));
+            assert!(
+                !shown.contains("Spent") && !shown.contains("until"),
+                "{}: {shown}",
+                lang.code()
+            );
+        }
+    }
+
+    /// B4: a received line's source in words, translated on its own and kept whole, is not cut
+    /// by «Received {} {} from {}».
+    #[test]
+    fn a_withdrawal_source_is_translated() {
+        let from = own(&t_in(Lang::Ru, "withdrawal from Platform"));
+        let line = format!(tr!("Received · {from}"), from = from);
+        let shown = strip(&t_in(Lang::Ru, &line));
+        assert!(!shown.contains("withdrawal"), "{shown}");
+        assert!(shown.contains("вывод с Platform"), "{shown}");
+    }
+
+    /// C3: in Hindi «X of Y» is «Y में से X» in every text that counts so.
+    #[test]
+    fn hindi_counts_x_of_y_in_its_own_order() {
+        let json = Lang::Hi.catalog_json().expect("hi");
+        assert!(!json.contains("{} में से {}"), "a «{{}} में से {{}}» is left");
+        assert_eq!(
+            t_in(Lang::Hi, "Inputs: 2 of 3"),
+            "इनपुट: 3 में से 2",
+            "the second number first"
+        );
+    }
+
+    /// B5, B7 (review r1 Must), the customer's glossary of 2026-11-21: «identity» is translated
+    /// in every catalog (ru «личность», PD-22; uk «ідентичність», PD-23; ko «아이덴티티», never
+    /// «신원»). «Asset lock» is a plain description with «(asset lock)» in Latin after it, in all
+    /// 14: no transliteration, and each of its 9 texts carries the bracket. A new text that breaks
+    /// it fails here.
+    #[test]
+    fn the_glossary_holds() {
+        let latin_ident = |s: &str| {
+            let l = s.to_lowercase();
+            ["identity", "identities"].iter().any(|w| {
+                l.match_indices(w).any(|(i, m)| {
+                    let before = l[..i].chars().next_back();
+                    let after = l[i + m.len()..].chars().next();
+                    !before.is_some_and(char::is_alphanumeric)
+                        && !after.is_some_and(char::is_alphanumeric)
+                })
+            })
+        };
+        let catalog = |lang: Lang| -> serde_json::Map<String, serde_json::Value> {
+            serde_json::from_str::<serde_json::Value>(lang.catalog_json().expect("a catalog"))
+                .expect("json")
+                .as_object()
+                .expect("an object")
+                .clone()
+        };
+        let texts = |v: &serde_json::Value| -> Vec<String> {
+            match v {
+                serde_json::Value::String(s) => vec![s.clone()],
+                serde_json::Value::Object(forms) => forms
+                    .values()
+                    .filter_map(|f| f.as_str().map(str::to_owned))
+                    .collect(),
+                _ => Vec::new(),
+            }
+        };
+        // What «asset lock» was once spelt as, in the scripts that are not Latin.
+        const TRANSLITERATED: [&str; 6] = [
+            "アセットロック",
+            "자산 잠금",
+            "资产锁定",
+            "एसेट लॉक",
+            "قفل الأصول",
+            "قفل أصول",
+        ];
+        const ASSET_LOCK_KEYS: [&str; 9] = [
+            "Asset lock in Core",
+            "Asset lock on Core",
+            "Asset lock: DASH are locked on Core and credited to the address · InstantSend in seconds, otherwise ChainLock up to ~2.5 min",
+            "At least {} — Dash Platform takes no smaller asset lock",
+            "Creating: asset lock, confirmation, identity and name — about a minute. Do not close evolite.",
+            "The asset lock is confirmed by InstantSend in seconds; if not, we wait for a ChainLock.",
+            "Topping up the identity by {}: asset lock, InstantSend, Platform — usually under a minute.",
+            "We do not send from Core to a Platform address yet (an asset lock is needed). Send from “Credits”",
+            "asset lock",
+        ];
+        let mut wrong = Vec::new();
+        for lang in Lang::ALL {
+            if matches!(lang, Lang::En) {
+                continue;
+            }
+            let bracket = match lang {
+                Lang::De => "(Asset Lock)",
+                Lang::Ja | Lang::ZhHans => "（asset lock）",
+                _ => "(asset lock)",
+            };
+            let json = catalog(lang);
+            for v in json.values().flat_map(texts) {
+                if latin_ident(&v) {
+                    wrong.push(format!("{}: identity in «{v}»", lang.code()));
+                }
+                if lang == Lang::Ko && v.contains("신원") {
+                    wrong.push(format!("ko: 신원, not 아이덴티티, in «{v}»"));
+                }
+                if let Some(t) = TRANSLITERATED.iter().find(|t| v.contains(*t)) {
+                    wrong.push(format!("{}: «{t}» in «{v}»", lang.code()));
+                }
+            }
+            for key in ASSET_LOCK_KEYS {
+                match json.get(key).map(texts) {
+                    None => wrong.push(format!("{}: no «{key}»", lang.code())),
+                    Some(vs) => {
+                        for v in vs.iter().filter(|v| !v.contains(bracket)) {
+                            wrong.push(format!("{}: no «{bracket}» in «{v}»", lang.code()));
+                        }
+                    }
+                }
+            }
+        }
+        assert!(wrong.is_empty(), "{}", wrong.join("\n"));
+    }
+
+    /// B6: no catalog holds mojibake (a UTF-8 «’», «“», «”» read as Latin-1).
+    #[test]
+    fn no_catalog_holds_mojibake() {
+        for lang in Lang::ALL {
+            let Some(json) = lang.catalog_json() else {
+                continue;
+            };
+            assert!(
+                !json.contains('\u{0080}') && !json.contains("â\u{80}"),
+                "{}",
+                lang.code()
+            );
+        }
+    }
+}

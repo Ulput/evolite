@@ -176,7 +176,7 @@ fn the_first_identity_needs_a_name() {
         w.identities.clear();
     });
     assert!(
-        has_text(&kit, "Create an identity"),
+        has_text(&kit, "Create an identity on the network"),
         "the first one's title"
     );
     assert!(!has_text(

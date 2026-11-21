@@ -1318,7 +1318,7 @@ mod progress_tests {
         crate::i18n::set(crate::i18n::Lang::Ru);
         assert_eq!(
             progress_text(&balances),
-            "Проверяем балансы: identity 3 из 8"
+            "Проверяем балансы: личность 3 из 8"
         );
         crate::i18n::set(crate::i18n::Lang::En);
     }

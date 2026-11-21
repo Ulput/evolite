@@ -216,9 +216,21 @@ pub fn create_identity(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut Cre
     let title = if more {
         tr!("New identity")
     } else {
-        tr!("Create an identity")
+        tr!("Create an identity on the network")
     };
     page_header(ui, a, title, None, |_, _| {});
+    // BUG-250 (PD-22): what an identity is, said once, on the first one's screen.
+    if !more {
+        ui.add(
+            crate::components::para(
+                tr!("An identity is your record on the Dash network: a name, keys and credits. You can have several."),
+                13.0,
+                Weight::Regular,
+                a.p.muted,
+            )
+            .line_height(20.0),
+        );
+    }
 
     // A run cut short is finished first: its money is already locked.
     if let Some(unfinished) = &wallet.unfinished_identity {

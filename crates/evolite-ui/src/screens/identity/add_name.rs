@@ -292,7 +292,7 @@ fn review_body(
             field_label(
                 ui,
                 &p,
-                tr!("Link where your identity is confirmed · optional"),
+                tr!("A site or social page where masternodes can see who you are · optional"),
             );
             text_field(
                 ui,
@@ -389,7 +389,7 @@ fn review_summary(
         kv_row(
             ui,
             &p,
-            tr!("Identity confirmation"),
+            tr!("Link for voters"),
             &format!("≈ {}", dash(link_cost)),
             value.clone(),
         );

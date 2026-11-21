@@ -445,6 +445,16 @@ fn letter_step(
         crate::components::para(
             tr!("The whole email, as the recipient will see it. If everything is right, open it in your mail app or save it together with the journal."), UI.size, UI.weight, p.muted).line_height(UI.line),
     );
+    // BUG-250 (B8): the letter is English on purpose — the developers read it.
+    ui.add(
+        crate::components::para(
+            tr!("The email is in English: it goes to evolite's developers."),
+            UI.size,
+            UI.weight,
+            p.muted,
+        )
+        .line_height(UI.line),
+    );
     let preview = shown_letter(&subject, &body);
     egui::Frame::new()
         .fill(p.raised)

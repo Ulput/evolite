@@ -60,7 +60,10 @@ fn spent_line(key: &SessionKey, now: chrono::DateTime<chrono::Local>) -> String 
         crate::format::short_number(key.budget),
         crate::format::unit_name()
     );
-    let until = text::date_short(key.expires_at, now);
+    // Already in the language: kept whole (`own`), or a date with words of its own («18 de feb
+    // de 2027») takes the line apart and leaves it half English (BUG-250, B3).
+    let limit = crate::i18n::own(&limit);
+    let until = crate::i18n::own(&text::date_short(key.expires_at, now));
     match key.remaining {
         Some(left) => format!(
             tr!("Spent {} of {} · until {}"),
@@ -612,10 +615,12 @@ mod budgets_due_tests {
             state: SessionKeyState::Live,
             remaining: None,
         };
-        let unread = spent_line(&key, now);
+        // The limit and the date are kept whole (`own`, BUG-250): read without their marks.
+        let bare = |s: String| s.replace(['\u{2068}', '\u{2069}'], "");
+        let unread = bare(spent_line(&key, now));
         assert!(unread.starts_with("Spent: checking… of 0.09"), "{unread}");
         key.remaining = Some(8_000_000);
-        let read = spent_line(&key, now);
+        let read = bare(spent_line(&key, now));
         assert!(read.starts_with("Spent 0.01 of 0.09"), "{read}");
     }
 

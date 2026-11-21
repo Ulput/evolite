@@ -45,7 +45,7 @@ fn add_name_short_of_credits_offers_the_top_up() {
     let no_credits = |s: &mut Snapshot| wallet(s).balances.credits = 0;
     shown_with(&mut kit, no_credits, "what the name needs", |k| {
         shows(k, "Кредитов на имя не хватает: нужно ≈")
-            && !shows(k, "Кредитов не хватает: пополните identity.")
+            && !shows(k, "Кредитов не хватает: пополните баланс личности.")
     });
     kit.get_by_role_and_label(Role::Button, "Пополнить ›")
         .click();
@@ -53,7 +53,7 @@ fn add_name_short_of_credits_offers_the_top_up() {
         !shows(k, "Кредитов на имя не хватает")
     });
     shown_with(&mut kit, no_credits, "the top-up", |k| {
-        has_text(k, "Пополнить identity")
+        has_text(k, "Пополнить баланс личности")
     });
 }
 
