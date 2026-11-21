@@ -348,6 +348,8 @@ pub fn explainer(ui: &mut Ui, a: &mut Assets) {
         |ui, a, part| {
             let p = a.p;
             match part {
+                // Not a dialog with a summary (BUG-249): never asked.
+                Part::Summary => false,
                 Part::Middle => {
                     ui.spacing_mut().item_spacing.y = 12.0;
                     ui.add(para(

@@ -290,7 +290,7 @@ pub fn disconnect_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut 
         return;
     };
     let cost = cx.wallet().fees.add_key;
-    let closed = dialog_with_footer(
+    let closed = crate::components::dialog_with_summary(
         ui,
         a,
         "app-disconnect",
@@ -299,6 +299,31 @@ pub fn disconnect_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut 
         462.0,
         |ui, a, part| {
             let p = a.p;
+            // BUG-249: what is agreed to, pinned over the password: the identity update and
+            // who pays it. What it does stays in the middle above.
+            if part == Part::Summary {
+                kv_row(
+                    ui,
+                    &p,
+                    tr!("Identity update"),
+                    &format!("≈ {}", dash(cost)),
+                    mono(13.0, Weight::Medium),
+                );
+                let pays = cx
+                    .wallet()
+                    .identity
+                    .as_ref()
+                    .and_then(|i| i.name())
+                    .map_or_else(|| "identity".to_owned(), |n| format!("@{n}"));
+                kv_row(
+                    ui,
+                    &p,
+                    tr!("Pays"),
+                    &format!(tr!("{} · credits"), pays),
+                    mono(13.0, Weight::Medium),
+                );
+                return false;
+            }
             if part == Part::Footer {
                 // The footer (BUG-122): always in the window.
                 let mut close = false;
@@ -374,26 +399,6 @@ pub fn disconnect_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut 
                     ),
                     app_label(&name)
                 ),
-            );
-            kv_row(
-                ui,
-                &p,
-                tr!("Identity update"),
-                &format!("≈ {}", dash(cost)),
-                mono(13.0, Weight::Medium),
-            );
-            let pays = cx
-                .wallet()
-                .identity
-                .as_ref()
-                .and_then(|i| i.name())
-                .map_or_else(|| "identity".to_owned(), |n| format!("@{n}"));
-            kv_row(
-                ui,
-                &p,
-                tr!("Pays"),
-                &format!(tr!("{} · credits"), pays),
-                mono(13.0, Weight::Medium),
             );
             false
         },

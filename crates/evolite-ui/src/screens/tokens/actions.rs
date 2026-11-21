@@ -5,8 +5,7 @@
 use super::{TokensState, issuer, sender, shown_name, state};
 use crate::components::{
     Assets, ButtonKind, FieldKind, Part, button, button_enabled, button_row, button_row_spend,
-    card, dialog_with_footer, divider, field_label, kv_row, notice, password_asked, text_field,
-    txt,
+    card, divider, field_label, kv_row, notice, password_asked, text_field, txt,
 };
 use crate::context::Ctx;
 use crate::theme::{Weight, mono, sans};
@@ -363,7 +362,27 @@ pub(super) fn claim_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, tokens: &m
         tr!("Claim the distribution · {}"),
         state::name_in_text(&row.info)
     );
-    let closed = dialog_with_footer(
+    let (kind, accrued) = match (scheduled, claims.scheduled, claims.perpetual) {
+        (true, Some(s), _) => {
+            let next = match s.next_at {
+                Some(at) => format!(
+                    tr!("on a schedule · next {}"),
+                    crate::text::date_short(at, now)
+                ),
+                None => tr!("on a schedule").into(),
+            };
+            let amount = s.due.map(|(_, amount)| amount).unwrap_or(0);
+            (next, Some(state::written(amount, row.info.decimals)))
+        }
+        (_, _, Some(perpetual)) => (
+            format!(tr!("perpetual · every {}"), every_text(perpetual.every)),
+            perpetual
+                .at_least
+                .map(|n| format!(tr!("at least {}"), state::written(n, row.info.decimals))),
+        ),
+        _ => (String::new(), None),
+    };
+    let closed = crate::components::dialog_with_summary(
         ui,
         a,
         "token-claim",
@@ -371,6 +390,38 @@ pub(super) fn claim_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, tokens: &m
         &title,
         width(ui),
         |ui, a, part| {
+            // BUG-249: what is agreed to, pinned over the password: what accrued and the fee
+            // (or that the credits are short of it).
+            if part == Part::Summary {
+                ui.spacing_mut().item_spacing.y = 10.0;
+                match &accrued {
+                    // K1: the figure in mono, 15 SemiBold.
+                    Some(amount) => {
+                        kv_row(ui, &p, tr!("Accrued"), amount, mono(15.0, Weight::SemiBold))
+                    }
+                    // K1u.
+                    None => kv_row(
+                        ui,
+                        &p,
+                        tr!("Accrued"),
+                        tr!("becomes known after the claim"),
+                        sans(13.0, Weight::Regular),
+                    ),
+                }
+                divider(ui, &p);
+                if no_credits {
+                    top_up = top_up_line(ui, a, &from);
+                } else {
+                    kv_row(
+                        ui,
+                        &p,
+                        &format!(tr!("Fee, in credits of {}"), crate::i18n::own(&from)),
+                        &format!("≈ {}", crate::format::amount(fee as i64)),
+                        mono(13.0, Weight::Medium),
+                    );
+                }
+                return false;
+            }
             if part == Part::Footer {
                 let mut close = false;
                 form.flow
@@ -434,26 +485,6 @@ pub(super) fn claim_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, tokens: &m
             }
             ui.spacing_mut().item_spacing.y = 10.0;
             let value = sans(13.0, Weight::Medium);
-            let (kind, accrued) = match (scheduled, claims.scheduled, claims.perpetual) {
-                (true, Some(s), _) => {
-                    let next = match s.next_at {
-                        Some(at) => format!(
-                            tr!("on a schedule · next {}"),
-                            crate::text::date_short(at, now)
-                        ),
-                        None => tr!("on a schedule").into(),
-                    };
-                    let amount = s.due.map(|(_, amount)| amount).unwrap_or(0);
-                    (next, Some(state::written(amount, row.info.decimals)))
-                }
-                (_, _, Some(perpetual)) => (
-                    format!(tr!("perpetual · every {}"), every_text(perpetual.every)),
-                    perpetual
-                        .at_least
-                        .map(|n| format!(tr!("at least {}"), state::written(n, row.info.decimals))),
-                ),
-                _ => (String::new(), None),
-            };
             kv_row(ui, &p, tr!("Distribution"), &kind, value.clone());
             kv_row(
                 ui,
@@ -464,20 +495,6 @@ pub(super) fn claim_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, tokens: &m
             );
             if let Some(warning) = claim_warning(&row) {
                 crate::components::attention_notice(ui, a, warning);
-            }
-            match &accrued {
-                // K1: the figure in mono, 15 SemiBold.
-                Some(amount) => {
-                    kv_row(ui, &p, tr!("Accrued"), amount, mono(15.0, Weight::SemiBold))
-                }
-                // K1u.
-                None => kv_row(
-                    ui,
-                    &p,
-                    tr!("Accrued"),
-                    tr!("becomes known after the claim"),
-                    sans(13.0, Weight::Regular),
-                ),
             }
             if !scheduled && let Some(cycles) = claims.perpetual.and_then(|p| p.capped) {
                 ui.label(txt(
@@ -497,18 +514,6 @@ pub(super) fn claim_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, tokens: &m
                     Weight::Regular,
                     p.muted,
                 ));
-            }
-            divider(ui, &p);
-            if no_credits {
-                top_up = top_up_line(ui, a, &from);
-            } else {
-                kv_row(
-                    ui,
-                    &p,
-                    &format!(tr!("Fee, in credits of {}"), crate::i18n::own(&from)),
-                    &format!("≈ {}", crate::format::amount(fee as i64)),
-                    mono(13.0, Weight::Medium),
-                );
             }
             quiet(
                 ui,
@@ -673,7 +678,7 @@ pub(super) fn buy_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, tokens: &mut
     }
     let mut top_up = false;
     let title = format!(tr!("Buy {}"), state::name_in_text(&row.info));
-    let closed = dialog_with_footer(
+    let closed = crate::components::dialog_with_summary(
         ui,
         a,
         "token-buy",
@@ -681,6 +686,20 @@ pub(super) fn buy_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, tokens: &mut
         &title,
         width(ui),
         |ui, a, part| {
+            // BUG-249: what is agreed to, pinned over the password: the total, the fee (or that
+            // the credits are short of it), the credits after, and that it cannot be undone.
+            if part == Part::Summary {
+                ui.spacing_mut().item_spacing.y = 10.0;
+                buy_summary(
+                    ui,
+                    a,
+                    (total, fee, who.credits),
+                    &from,
+                    &mut top_up,
+                    problem,
+                );
+                return false;
+            }
             if part == Part::Footer {
                 let mut close = false;
                 form.flow.password.field(ui, &p, "token-buy-password", ask);
@@ -787,8 +806,6 @@ pub(super) fn buy_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, tokens: &mut
                 return close;
             }
             ui.spacing_mut().item_spacing.y = 10.0;
-            let value = sans(13.0, Weight::Medium);
-            let number = mono(13.0, Weight::Medium);
             // BUG-181: the price read again came dearer: nothing was sent.
             if let Some((now, was)) = form.dearer {
                 notice(
@@ -910,53 +927,6 @@ pub(super) fn buy_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, tokens: &mut
                     ));
                 }
             });
-            divider(ui, &p);
-            if let Some(total) = total {
-                let duffs = purchase_total_duffs(total) as i64;
-                kv_row(
-                    ui,
-                    &p,
-                    tr!("Total"),
-                    &format!(tr!("{} in credits"), crate::format::amount(duffs)),
-                    mono(15.0, Weight::SemiBold),
-                );
-            }
-            if matches!(problem, Some(BuyProblem::NoCredits { .. })) {
-                top_up = top_up_line(ui, a, &from);
-            } else {
-                kv_row(
-                    ui,
-                    &p,
-                    &format!(tr!("Fee, in credits of {}"), crate::i18n::own(&from)),
-                    &format!("≈ {}", crate::format::amount(fee as i64)),
-                    number.clone(),
-                );
-            }
-            if let (Some(have), Some(total)) = (who.credits, total) {
-                let after = have.saturating_sub(purchase_total_duffs(total).saturating_add(fee));
-                // BUG-180: a long @name and both sums do not share one line: the value goes under.
-                crate::components::kv_row_fit(
-                    ui,
-                    &p,
-                    &format!(tr!("Credits of {}"), crate::i18n::own(&from)),
-                    &format!(
-                        "{} · {}",
-                        crate::format::amount(have as i64),
-                        crate::i18n::t(&format!(
-                            tr!("after ≈ {}"),
-                            crate::format::amount(after as i64)
-                        ))
-                    ),
-                    value.clone(),
-                );
-            }
-            quiet(
-                ui,
-                &p,
-                tr!(
-                    "A purchase cannot be undone. If the issuer changes the price before it is written, the network refuses and evolite shows the new price — nothing is taken."
-                ),
-            );
             false
         },
     );
@@ -979,6 +949,66 @@ pub(super) fn buy_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, tokens: &mut
         form.flow.password.forget();
         tokens.buying = None;
     }
+}
+
+/// BUG-249: P1's summary, pinned over the password: the total, the fee or «top up», the credits
+/// before and after, and that a purchase cannot be undone.
+fn buy_summary(
+    ui: &mut Ui,
+    a: &mut Assets,
+    (total, fee, credits): (Option<u64>, u64, Option<u64>),
+    from: &str,
+    top_up: &mut bool,
+    problem: Option<BuyProblem>,
+) {
+    let p = a.p;
+    divider(ui, &p);
+    if let Some(total) = total {
+        let duffs = purchase_total_duffs(total) as i64;
+        kv_row(
+            ui,
+            &p,
+            tr!("Total"),
+            &format!(tr!("{} in credits"), crate::format::amount(duffs)),
+            mono(15.0, Weight::SemiBold),
+        );
+    }
+    if matches!(problem, Some(BuyProblem::NoCredits { .. })) {
+        *top_up = top_up_line(ui, a, from);
+    } else {
+        kv_row(
+            ui,
+            &p,
+            &format!(tr!("Fee, in credits of {}"), crate::i18n::own(from)),
+            &format!("≈ {}", crate::format::amount(fee as i64)),
+            mono(13.0, Weight::Medium),
+        );
+    }
+    if let (Some(have), Some(total)) = (credits, total) {
+        let after = have.saturating_sub(purchase_total_duffs(total).saturating_add(fee));
+        // BUG-180: a long @name and both sums do not share one line: the value goes under.
+        crate::components::kv_row_fit(
+            ui,
+            &p,
+            &format!(tr!("Credits of {}"), crate::i18n::own(from)),
+            &format!(
+                "{} · {}",
+                crate::format::amount(have as i64),
+                crate::i18n::t(&format!(
+                    tr!("after ≈ {}"),
+                    crate::format::amount(after as i64)
+                ))
+            ),
+            sans(13.0, Weight::Medium),
+        );
+    }
+    quiet(
+        ui,
+        &p,
+        tr!(
+            "A purchase cannot be undone. If the issuer changes the price before it is written, the network refuses and evolite shows the new price — nothing is taken."
+        ),
+    );
 }
 
 #[cfg(test)]

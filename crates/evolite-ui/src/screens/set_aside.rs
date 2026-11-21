@@ -144,7 +144,13 @@ fn banner(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, aside: &evolite_api::SetAsi
                     a.icons
                         .icon("warning", crate::components::attention_color(&p), &p, 18.0),
                 );
-                ui.label(crate::screens::txt(title(file), 14.0, Weight::SemiBold, p.text));
+                // Wrapped in what the icon and the cross leave: a long title (ru, fr, de) never
+                // widens the page (BUG-249, A7).
+                let room = (ui.available_width() - 16.0 - 8.0).max(80.0);
+                ui.allocate_ui(egui::vec2(room, 0.0), |ui| {
+                    ui.set_max_width(room);
+                    ui.add(para(title(file), 14.0, Weight::SemiBold, p.text));
+                });
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                     // Collapsed until the next start: it comes back while the file is aside.
                     let cross = close_cross(ui, a, 16.0);
@@ -245,6 +251,8 @@ fn confirm(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx) {
         |ui, a, part| {
             let p = a.p;
             match part {
+                // Not a dialog with a summary (BUG-249): never asked.
+                Part::Summary => false,
                 Part::Middle => {
                     ui.spacing_mut().item_spacing.y = 10.0;
                     ui.add(para(comes_back(file), 13.0, Weight::Regular, p.text));

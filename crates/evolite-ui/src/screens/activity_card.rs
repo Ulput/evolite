@@ -1527,6 +1527,8 @@ fn card(ui: &mut Ui, a: &mut Assets, act: &Activity, around: &Around) -> CardAns
                 }
             };
             match part {
+                // Not a dialog with a summary (BUG-249): never asked.
+                Part::Summary => {}
                 Part::Middle => content(ui, a),
                 Part::Footer => return card_footer(ui, a, &footer, &mut answer),
             }

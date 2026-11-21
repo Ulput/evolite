@@ -60,10 +60,21 @@ fn the_review_says_the_fund_is_not_returned_above_the_password() {
             warning.bottom() <= password.top(),
             "{size:?}: above the password: {warning:?} / {password:?}"
         );
+        // BUG-249: the warning is in the review's summary. Where the window leaves the pinned
+        // part room it stays in the window; in a window too low for it (the one scroll) it
+        // scrolls with the summary, and the button acts only once that summary was in sight.
+        let dialog = crate::components::dialog_seen(&kit.ctx).expect("the review");
+        let (summary, _) = dialog.summary.expect("a summary");
         assert!(
-            warning.bottom() <= size.y && warning.top() >= 0.0,
-            "{size:?}: in the window: {warning:?}"
+            summary.expand(0.5).contains_rect(warning),
+            "{size:?}: in the summary: {warning:?} / {summary:?}"
         );
+        if !dialog.one_scroll {
+            assert!(
+                warning.bottom() <= size.y && warning.top() >= 0.0,
+                "{size:?}: in the window: {warning:?}"
+            );
+        }
         assert_eq!(
             on(&kit, "Sign and send the request"),
             Some(false),

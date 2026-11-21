@@ -1,6 +1,8 @@
 //! BUG-122: however low the window, a dialog stays in it. The header stays at the top, the
 //! footer (the password, its line of error, the buttons) at the bottom, and the middle between
-//! them scrolls, with a fade at its bottom while there is more below.
+//! them scrolls, with a fade at its bottom while there is more below. BUG-249: the middle keeps
+//! at least [`crate::components::MIN_MIDDLE`]; in a window too low for that and the footer, the
+//! footer scrolls with the middle under the header.
 
 use super::*;
 use crate::cli::PRESETS;
@@ -58,6 +60,26 @@ fn kept(kit: &Kit) -> Vec<String> {
     let window = window(kit);
     let dialog = seen(kit);
     let mut wrong = Vec::new();
+    // A middle that scrolls keeps a few lines of the window, never a strip (BUG-249).
+    if let Some(view) = dialog.scrolled
+        && view.height() < crate::components::MIN_MIDDLE - 1.0
+    {
+        wrong.push(format!("its scrolled part is {:.0} px high", view.height()));
+    }
+    // BUG-249: too low a window for a footer that stays: it scrolls with the middle under the
+    // header. The dialog stays in the window and its buttons are in the scroll.
+    if dialog.one_scroll {
+        if !window.contains_rect(dialog.rect.shrink(1.0)) {
+            wrong.push(format!("the dialog {:?} is out of {window:?}", dialog.rect));
+        }
+        if !dialog
+            .footer
+            .is_some_and(|f| !footer_buttons(kit, f).is_empty())
+        {
+            wrong.push("no button in the footer".into());
+        }
+        return wrong;
+    }
     match dialog.footer {
         Some(footer) => {
             if !window.contains_rect(footer) {

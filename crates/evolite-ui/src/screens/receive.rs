@@ -537,8 +537,20 @@ pub(crate) fn qr_waiting(ui: &mut Ui, p: &crate::theme::Palette) {
 
 /// QR card: always dark modules on white with a quiet zone, in both themes, so any camera
 /// reads it. 261 px of code inside 20 px of white padding, radius 16.
+/// BUG-249 (A9): the smallest side of a QR code, in points: what a low window leaves it, and
+/// still read by our own scanner (`qr_least_side_still_reads`).
+pub(crate) const QR_LEAST: f32 = 120.0;
+/// Its side in a window tall enough.
+const QR_MOST: f32 = 261.0;
+
+/// The side of the code in a window `height` points high: the window less what stands around it
+/// on its page or in its dialog, between [`QR_LEAST`] and [`QR_MOST`].
+pub(crate) fn qr_side(height: f32) -> f32 {
+    (height - 300.0).clamp(QR_LEAST, QR_MOST)
+}
+
 pub(crate) fn qr_card(ui: &mut Ui, p: &crate::theme::Palette, payload: &str) {
-    let side = 261.0;
+    let side = qr_side(ui.ctx().content_rect().height());
     let (rect, _) = ui.allocate_exact_size(vec2(side + 40.0, side + 40.0), Sense::hover());
     note_qr_rect(ui, rect);
     // Right to left the card moves, the code is not mirrored: a mirrored QR may not scan.
@@ -580,6 +592,57 @@ pub(crate) fn qr_card(ui: &mut Ui, p: &crate::theme::Palette, payload: &str) {
 
 #[cfg(test)]
 mod tests {
+
+    /// BUG-249 (A9, the architect's condition 6): the code at its smallest side, laid out as
+    /// `qr_card` lays it out on a plain screen (whole pixels per module, a quiet zone of two),
+    /// still reads with our own scanner — a long «My QR» link included.
+    #[test]
+    fn qr_least_side_still_reads() {
+        let link = crate::payment_uri::my_link(
+            "yMrDQWqicXKL8xdJg23oYVVqKNtm5AwvXQ",
+            "alice-in-the-long-name",
+        );
+        for payload in [link.as_str(), "yMrDQWqicXKL8xdJg23oYVVqKNtm5AwvXQ"] {
+            let code =
+                qrcode::QrCode::with_error_correction_level(payload, qrcode::EcLevel::M).unwrap();
+            let n = code.width();
+            let quiet = 2;
+            let module = (super::QR_LEAST / (n + 2 * quiet) as f32).floor().max(1.0) as u32;
+            let card = super::QR_LEAST as u32 + 40;
+            let mut grey = image::GrayImage::from_pixel(card, card, image::Luma([255]));
+            let drawn = module * (n + 2 * quiet) as u32;
+            let origin = (card - drawn) / 2 + module * quiet as u32;
+            for (i, c) in code.to_colors().iter().enumerate() {
+                if *c == qrcode::Color::Dark {
+                    let (x, y) = ((i % n) as u32, (i / n) as u32);
+                    for dx in 0..module {
+                        for dy in 0..module {
+                            grey.put_pixel(
+                                origin + x * module + dx,
+                                origin + y * module + dy,
+                                image::Luma([0]),
+                            );
+                        }
+                    }
+                }
+            }
+            match crate::qr_scan::scan_grey(&grey) {
+                crate::qr_scan::Scanned::Found { text, .. } => assert_eq!(text, payload),
+                other => panic!("{payload} at {module} px a module: {other:?}"),
+            }
+        }
+        assert_eq!(
+            super::qr_side(300.0),
+            super::QR_LEAST,
+            "a window lower than any"
+        );
+        assert!(
+            super::qr_side(440.0) >= super::QR_LEAST,
+            "the smallest window"
+        );
+        assert_eq!(super::qr_side(768.0), super::QR_MOST, "an ordinary one");
+    }
+
     use super::{PastAddress, past_addresses, payment_uri};
     use evolite_api::{Activity, ActivityKind, Chain, Proof};
 

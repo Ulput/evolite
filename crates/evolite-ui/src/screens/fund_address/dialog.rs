@@ -5,8 +5,8 @@
 
 use super::{FundAddressState, FundForm};
 use crate::components::{
-    Assets, ButtonKind, CardAmount, Part, amount_field, button, button_enabled, dialog_with_footer,
-    divider, field_label, kv_row, notice,
+    Assets, ButtonKind, CardAmount, Part, amount_field, button, button_enabled, divider,
+    field_label, kv_row, notice,
 };
 use crate::screens::txt;
 use crate::theme::{Weight, mono};
@@ -74,7 +74,51 @@ pub fn fund_dialog(
     } else {
         tr!("Top up the Platform address")
     };
-    let close = dialog_with_footer(
+    // BUG-249: what it costs and what arrives — the review's summary, pinned over the
+    // password; the form's middle.
+    let costs = |ui: &mut Ui, p: &crate::theme::Palette| {
+        let value = mono(13.0, Weight::Medium);
+        let plan_now = plan.and_then(Result::ok);
+        if review && let Some(plan) = plan_now {
+            kv_row(
+                ui,
+                p,
+                tr!("Arrives at the address, at least"),
+                &dash(plan.arrives_at_least),
+                value.clone(),
+            );
+        }
+        kv_row(
+            ui,
+            p,
+            tr!("Processing on Platform"),
+            &format!("≈ {}", dash(wallet.fees.address_fund_on_top())),
+            value.clone(),
+        );
+        ui.label(txt(
+            tr!("Whatever is not needed stays on the address."),
+            12.0,
+            Weight::Regular,
+            p.muted,
+        ));
+        let core_fee = plan_now.map_or(wallet.fees.core_payment, |plan| plan.core_fee);
+        kv_row(
+            ui,
+            p,
+            tr!("Core fee"),
+            &format!("≈ {}", dash(core_fee)),
+            value.clone(),
+        );
+        divider(ui, p);
+        kv_row(
+            ui,
+            p,
+            tr!("Total from Core"),
+            &plan_now.map_or_else(|| "—".to_owned(), |plan| format!("≈ {}", dash(plan.total))),
+            value,
+        );
+    };
+    let close = crate::components::dialog_with_summary(
         ui,
         a,
         "fund-address",
@@ -84,6 +128,18 @@ pub fn fund_dialog(
         |ui, a, part| {
             let p = a.p;
             let value = mono(13.0, Weight::Medium);
+            if part == Part::Summary {
+                if review {
+                    costs(ui, &p);
+                    ui.label(txt(
+                    tr!("The DASH are locked in Core for Platform. Once signed, this cannot be undone; if the connection drops, evolite continues from the same place."),
+                    12.0,
+                    Weight::Regular,
+                    p.muted,
+                ));
+                }
+                return false;
+            }
             if part == Part::Footer {
                 let mut close = false;
                 if review {
@@ -206,52 +262,10 @@ pub fn fund_dialog(
                     core_amount.color(&p),
                 );
             }
-            let plan_now = plan.and_then(Result::ok);
-            if review && let Some(plan) = plan_now {
-                kv_row(
-                    ui,
-                    &p,
-                    tr!("Arrives at the address, at least"),
-                    &dash(plan.arrives_at_least),
-                    value.clone(),
-                );
+            if !review {
+                costs(ui, &p);
             }
-            kv_row(
-                ui,
-                &p,
-                tr!("Processing on Platform"),
-                &format!("≈ {}", dash(wallet.fees.address_fund_on_top())),
-                value.clone(),
-            );
-            ui.label(txt(
-                tr!("Whatever is not needed stays on the address."),
-                12.0,
-                Weight::Regular,
-                p.muted,
-            ));
-            let core_fee = plan_now.map_or(wallet.fees.core_payment, |plan| plan.core_fee);
-            kv_row(
-                ui,
-                &p,
-                tr!("Core fee"),
-                &format!("≈ {}", dash(core_fee)),
-                value.clone(),
-            );
-            divider(ui, &p);
-            kv_row(
-                ui,
-                &p,
-                tr!("Total from Core"),
-                &plan_now.map_or_else(|| "—".to_owned(), |plan| format!("≈ {}", dash(plan.total))),
-                value,
-            );
             if review {
-                ui.label(txt(
-                    tr!("The DASH are locked in Core for Platform. Once signed, this cannot be undone; if the connection drops, evolite continues from the same place."),
-                    12.0,
-                    Weight::Regular,
-                    p.muted,
-                ));
                 notice(
                     ui,
                     a,

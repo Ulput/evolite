@@ -463,9 +463,19 @@ fn filter_row(
     // In a narrow window the pills take a row of their own over the search and «Filters», not
     // running under them (FEAT-0034 item 9).
     if pills_w + gap + right_w > ui.available_width() {
-        filter_band(ui, Layout::left_to_right(Align::Center), |ui| {
-            layer_pills(ui, &p, h);
-        });
+        if pills_w > ui.available_width() {
+            // BUG-249 (A6): the pills alone wider than the page (Japanese at 800 wide) wrap,
+            // or they would widen the page and take the search out of the window with them.
+            ui.horizontal_wrapped(|ui| {
+                ui.set_max_width(ui.available_width());
+                ui.spacing_mut().item_spacing = egui::vec2(gap, gap);
+                layer_pills(ui, &p, h);
+            });
+        } else {
+            filter_band(ui, Layout::left_to_right(Align::Center), |ui| {
+                layer_pills(ui, &p, h);
+            });
+        }
         filter_band(ui, Layout::right_to_left(Align::Center), |ui| {
             search_and_filters(ui, a, cx, h, shown, total, search_width);
         });
@@ -837,9 +847,19 @@ fn filter_panel(
         screen.left() + 8.0,
         (screen.right() - WIDTH - 8.0).max(screen.left() + 8.0),
     );
+    // BUG-249 (A5): never taller than the window. The sections scroll in what is left under
+    // the button; «Reset» and «Done» stay under them. Too little left: the panel goes up.
+    const MARGINS: f32 = 40.0; // the frame's 20 above and below
+    const BOTTOM_ROW: f32 = 54.0; // «Reset», the count, «Done», and the space over them
+    const LEAST: f32 = 160.0;
+    let under = button.bottom() + 8.0;
+    let room = (screen.bottom() - 8.0 - under - MARGINS - BOTTOM_ROW).max(LEAST);
+    let top = under
+        .min(screen.bottom() - 8.0 - MARGINS - BOTTOM_ROW - room)
+        .max(screen.top() + 8.0);
     egui::Area::new(egui::Id::new("history-filter-panel"))
         .order(egui::Order::Foreground)
-        .fixed_pos(egui::pos2(x, button.bottom() + 8.0))
+        .fixed_pos(egui::pos2(x, top))
         .show(ui.ctx(), |ui| {
             egui::Frame::new()
                 .fill(p.surface)
@@ -855,7 +875,15 @@ fn filter_panel(
                 .show(ui, |ui| {
                     ui.set_width(WIDTH - 40.0);
                     ui.spacing_mut().item_spacing.y = 10.0;
-                    panel_body(ui, a, h, counts, now);
+                    egui::ScrollArea::vertical()
+                        .id_salt("history-filter-sections")
+                        .max_height(room)
+                        .auto_shrink([false, true])
+                        .show(ui, |ui| {
+                            ui.spacing_mut().item_spacing.y = 10.0;
+                            panel_body(ui, a, h, now);
+                        });
+                    panel_bottom(ui, a, h, counts);
                 });
         });
     if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
@@ -863,13 +891,7 @@ fn filter_panel(
     }
 }
 
-fn panel_body(
-    ui: &mut Ui,
-    a: &mut Assets,
-    h: &mut History,
-    (shown, total): (usize, usize),
-    now: DateTime<Local>,
-) {
+fn panel_body(ui: &mut Ui, a: &mut Assets, h: &mut History, now: DateTime<Local>) {
     let p = a.p;
     let f = &mut h.filters;
     section_label(ui, &p, tr!("Direction"));
@@ -944,6 +966,12 @@ fn panel_body(
     if let Period::Custom(..) = h.filters.period {
         date_fields(ui, a, h);
     }
+}
+
+/// The panel's last row, under its sections however they scroll: «Reset», how many are shown,
+/// «Done».
+fn panel_bottom(ui: &mut Ui, a: &mut Assets, h: &mut History, (shown, total): (usize, usize)) {
+    let p = a.p;
     ui.add_space(4.0);
     ui.horizontal(|ui| {
         if button(ui, a, tr!("Reset"), ButtonKind::Ghost, None).clicked() {

@@ -1,7 +1,7 @@
 //! The last look before signing.
 
 use super::*;
-use crate::components::{Part, dialog_with_footer};
+use crate::components::Part;
 
 /// How long the last look waits for the core's answer to its password before closing all the same
 /// (BUG-92). The check is quick; a right password is answered only once the network has the
@@ -128,7 +128,9 @@ pub(super) fn confirm(
         address: &address,
     };
     let mut send_now = false;
-    let closed = dialog_with_footer(
+    // FEAT-0030 P2: the tick that agrees to the excess, drawn in the summary, read by the button.
+    let mut agreed = true;
+    let closed = crate::components::dialog_with_summary(
         ui,
         a,
         "send-confirm",
@@ -137,10 +139,18 @@ pub(super) fn confirm(
         420.0,
         |ui, a, part| {
             ui.spacing_mut().item_spacing.y = 14.0;
-            if part == Part::Footer {
-                // Enter in the password field signs, as the button does: the row presses its
-                // primary (`components::button_row`).
-                // FEAT-0004 FR-7: above the password, whether one is asked or not.
+            // BUG-249: what is agreed to, pinned over the password: the amount, the fee and the
+            // total, that it cannot be undone, and the ticks the button waits for (FEAT-0004
+            // FR-7, FEAT-0030 P2) — read before the button.
+            if part == Part::Summary {
+                summary(
+                    ui,
+                    a,
+                    form,
+                    (&coin_plan, &mixed, mixed_refused),
+                    (amount, rate, from_mixed),
+                    source,
+                );
                 if form.large.is_some() && mixed_refused.is_none() {
                     crate::components::checkbox(
                         ui,
@@ -149,15 +159,19 @@ pub(super) fn confirm(
                         crate::components::tick_text(),
                     );
                 }
+                agreed = match &mixed {
+                    Some(q) => super::mixed::agreement(ui, a, form, q),
+                    None => true,
+                };
+                return false;
+            }
+            if part == Part::Footer {
+                // Enter in the password field signs, as the button does: the row presses its
+                // primary (`components::button_row`).
                 // From «Mixed» refused (P4): no password, nothing to sign.
                 if ask_password && mixed_refused.is_none() {
                     password_field(ui, &p, form);
                 }
-                // FEAT-0030 P2: the tick that agrees to the excess, by the button it unlocks.
-                let agreed = match &mixed {
-                    Some(q) => super::mixed::agreement(ui, a, form, q),
-                    None => true,
-                };
                 let mixed_ready = !from_mixed || (mixed.is_some() && agreed);
                 let mut close = false;
                 crate::components::button_row_spend(ui, |ui| {
@@ -225,40 +239,6 @@ pub(super) fn confirm(
             };
             kv_row(ui, &p, tr!("From"), &from, sans(13.0, Weight::Medium));
             recipient_lines(ui, &p, form, &look);
-            match &coin_plan {
-                Some(plan) => coin_amount_lines(ui, a, form, (amount, plan), rate),
-                // FEAT-0030: the network's fee alone, the excess in its own block, «In total»
-                // everything the coins give (P1, P2); the core's refusal instead (P4).
-                None if from_mixed => match (&mixed, mixed_refused) {
-                    (_, Some(refused)) => {
-                        let block = super::mixed::refused_block(ui, a, refused);
-                        super::mixed::reveal(form, (refused.0, true), &block);
-                    }
-                    (Some(q), None) => {
-                        mixed_amount_lines(ui, &p, q, rate);
-                        if let Some(block) = super::mixed::excess_block(ui, a, q)
-                            && q.rule == evolite_api::MixedExcess::Confirm
-                        {
-                            super::mixed::reveal(form, (q.excess, false), &block);
-                        }
-                    }
-                    (None, None) => {
-                        ui.label(txt(
-                            tr!("Counting the mixed coins…"),
-                            12.0,
-                            Weight::Regular,
-                            p.muted,
-                        ));
-                    }
-                },
-                None => amount_lines(
-                    ui,
-                    &p,
-                    (amount, source.fee),
-                    matches!(source.source, Source::Credits | Source::PlatformAddress),
-                    rate,
-                ),
-            }
             if let Some(plan) = &coin_plan {
                 if plan.dust_to_fee {
                     ui.label(txt(
@@ -294,12 +274,6 @@ pub(super) fn confirm(
                     tr!("The amount and both addresses will be visible to everyone on Platform."),
                 );
             }
-            ui.label(txt(
-                tr!("A payment cannot be undone."),
-                12.0,
-                Weight::Regular,
-                p.muted,
-            ));
             if let Some(when) = &repeat {
                 crate::components::attention_notice(
                     ui,
@@ -759,4 +733,63 @@ fn sign_and_send(
     // A wrong password is said here, at its field (BUG-92): the dialog waits for the answer.
     form.signing = (ask_password && form.waiting == 1).then(std::time::Instant::now);
     form.password_wrong = false;
+}
+
+/// BUG-249: the review's summary, pinned over the password: the amount, the fee and the total as
+/// the source counts them (coins, «Mixed» with its excess or its refusal, credits), and that it
+/// cannot be undone.
+#[allow(clippy::type_complexity)]
+fn summary(
+    ui: &mut Ui,
+    a: &mut Assets,
+    form: &mut SendForm,
+    (coin_plan, mixed, mixed_refused): (
+        &Option<evolite_api::coin_plan::CoinPlan>,
+        &Option<evolite_api::MixedQuote>,
+        Option<(Duffs, Duffs)>,
+    ),
+    (amount, rate, from_mixed): (Duffs, Option<&super::currency::Rate>, bool),
+    source: &super::source::SourceView,
+) {
+    let p = a.p;
+    match coin_plan {
+        Some(plan) => coin_amount_lines(ui, a, form, (amount, plan), rate),
+        // FEAT-0030: the network's fee alone, the excess in its own block, «In total»
+        // everything the coins give (P1, P2); the core's refusal instead (P4).
+        None if from_mixed => match (mixed, mixed_refused) {
+            (_, Some(refused)) => {
+                let block = super::mixed::refused_block(ui, a, refused);
+                super::mixed::reveal(form, (refused.0, true), &block);
+            }
+            (Some(q), None) => {
+                mixed_amount_lines(ui, &p, q, rate);
+                if let Some(block) = super::mixed::excess_block(ui, a, q)
+                    && q.rule == evolite_api::MixedExcess::Confirm
+                {
+                    super::mixed::reveal(form, (q.excess, false), &block);
+                }
+            }
+            (None, None) => {
+                ui.label(txt(
+                    tr!("Counting the mixed coins…"),
+                    12.0,
+                    Weight::Regular,
+                    p.muted,
+                ));
+            }
+        },
+        None => amount_lines(
+            ui,
+            &p,
+            (amount, source.fee),
+            matches!(source.source, Source::Credits | Source::PlatformAddress),
+            rate,
+        ),
+    }
+    ui.label(txt(
+        tr!("A payment cannot be undone."),
+        12.0,
+        Weight::Regular,
+        p.muted,
+    ));
 }

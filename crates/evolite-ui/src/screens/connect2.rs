@@ -380,7 +380,7 @@ pub fn request(
     if state.body_to_end {
         crate::components::dialog_middle_at_end(ui.ctx(), "app-connect-v2");
     }
-    let closed = dialog_with_footer(
+    let closed = crate::components::dialog_with_summary(
         ui,
         a,
         "app-connect-v2",
@@ -390,6 +390,32 @@ pub fn request(
         |ui, a, part| {
             let p = a.p;
             ui.spacing_mut().item_spacing.y = 12.0;
+            // BUG-249: what is agreed to, pinned over the password, a line each: the rights as
+            // chosen above (the primary key's and the optional ones kept), the limit and the
+            // period's end, and what adding the keys costs. The choices themselves, who the app
+            // is and the explanations stay in the middle.
+            if part == Part::Summary {
+                summary(ui, a, state, (sessions, limits, app), now.timestamp());
+                kv_row(
+                    ui,
+                    &p,
+                    if renews.is_some() {
+                        tr!("New keys and disabling the old ones")
+                    } else {
+                        tr!("Adding keys")
+                    },
+                    &format!("≈ {}", dash(*cost)),
+                    mono(13.0, Weight::Medium),
+                );
+                kv_row(
+                    ui,
+                    &p,
+                    tr!("Pays"),
+                    &format!(tr!("{} · credits"), identity),
+                    mono(13.0, Weight::Medium),
+                );
+                return false;
+            }
             if part == Part::Footer {
                 // Pinned: the password and the buttons (asked always: this cannot be undone). The
                 // app asks, not the person: Enter in the field never connects (rule b′, BUG-30).
@@ -650,24 +676,6 @@ pub fn request(
                 None if *breaks_old_clients => permanent(ui, a, identity),
                 None => {}
             }
-            kv_row(
-                ui,
-                &p,
-                if renews.is_some() {
-                    tr!("New keys and disabling the old ones")
-                } else {
-                    tr!("Adding keys")
-                },
-                &format!("≈ {}", dash(*cost)),
-                mono(13.0, Weight::Medium),
-            );
-            kv_row(
-                ui,
-                &p,
-                tr!("Pays"),
-                &format!(tr!("{} · credits"), identity),
-                mono(13.0, Weight::Medium),
-            );
             false
         },
     );
@@ -675,6 +683,54 @@ pub fn request(
         pick = Some(Pick::Close);
     }
     pick
+}
+
+/// BUG-249: the request's summary: what the app will be able to do as chosen, its limit and its
+/// period's end ("—" while the choice is not one the wallet takes).
+fn summary(
+    ui: &mut Ui,
+    a: &mut Assets,
+    state: &AppRequests,
+    (sessions, limits, app): (&[SessionOffer], &SessionLimits, &str),
+    now: Timestamp,
+) {
+    let p = a.p;
+    ui.vertical(|ui| {
+        ui.spacing_mut().item_spacing.y = 6.0;
+        for (i, offer) in sessions.iter().enumerate() {
+            if offer.primary || state.choice.kept.get(i).copied().unwrap_or(false) {
+                can_line(
+                    ui,
+                    a,
+                    "check",
+                    &binding_words(&offer.binding, app),
+                    None,
+                    false,
+                );
+            }
+        }
+    });
+    let value = mono(13.0, Weight::Medium);
+    kv_row(
+        ui,
+        &p,
+        tr!("Limit"),
+        &state
+            .choice
+            .limit(limits)
+            .map_or_else(|| "—".to_owned(), dash),
+        value.clone(),
+    );
+    kv_row(
+        ui,
+        &p,
+        tr!("Period"),
+        &state
+            .choice
+            .end(limits, now)
+            .map_or_else(|| "—".to_owned(), text::date_long),
+        value,
+    );
 }
 
 /// The grant the dialog's choices make, if they are ones the wallet takes.

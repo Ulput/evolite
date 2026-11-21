@@ -117,7 +117,27 @@ fn row_button(ui: &Ui, id: egui::Id, kind: ButtonKind, enabled: bool) {
         return;
     };
     match kind {
+        // BUG-249 r1: a Danger that signs while the summary is out of sight: its keys bring
+        // the summary in instead of pressing it.
+        ButtonKind::Danger if enabled && super::summary_unseen(ctx) => {
+            row.danger = true;
+            if ctx.memory(|m| m.has_focus(id)) && crate::a11y::confirm_key_pressed(ctx) {
+                crate::a11y::swallow_confirm_keys(ctx);
+                super::show_summary(ctx);
+            }
+        }
         ButtonKind::Danger => row.danger = true,
+        // BUG-249: the summary out of sight: Enter, or the primary's own keys, bring it in
+        // instead of pressing.
+        ButtonKind::Primary if enabled && super::summary_unseen(ctx) => {
+            row.primary = Some(id);
+            let enter = crate::a11y::dialog_submit(ctx);
+            let keys = ctx.memory(|m| m.has_focus(id)) && crate::a11y::confirm_key_pressed(ctx);
+            if enter || keys {
+                crate::a11y::swallow_confirm_keys(ctx);
+                super::show_summary(ctx);
+            }
+        }
         ButtonKind::Primary if enabled => {
             row.primary = Some(id);
             if !row.destructive && crate::a11y::dialog_submit(ctx) {
@@ -237,7 +257,14 @@ pub fn button_enabled(
     let p = a.p;
     let font = sans(14.0, Weight::SemiBold);
     let w = width.unwrap_or_else(|| button_width(ui, label));
-    let sense = if enabled {
+    // BUG-249 (never sign unseen): a dialog's primary while its summary is out of sight takes
+    // no click: a press over it brings the summary into sight instead.
+    // A Danger button signs too («Disconnect», disabling keys): held alike (review r1 Must).
+    let held = enabled
+        && matches!(kind, ButtonKind::Primary | ButtonKind::Danger)
+        && super::summary_unseen(ui.ctx())
+        && crate::a11y::in_dialog(ui.ctx());
+    let sense = if enabled && !held {
         Sense::click()
     } else {
         Sense::hover()
@@ -245,6 +272,9 @@ pub fn button_enabled(
     // The id the button gets, for its row's keyboard before egui reads the keys for it.
     row_button(ui, ui.next_auto_id(), kind, enabled);
     let (rect, resp) = ui.allocate_exact_size(vec2(w, BUTTON_HEIGHT), sense);
+    if held && resp.hovered() && ui.input(|i| i.pointer.primary_clicked()) {
+        super::show_summary(ui.ctx());
+    }
     named(&resp, egui::WidgetType::Button, enabled, label);
     let hovered = enabled && resp.hovered();
     let (fill, stroke, color) = match kind {
@@ -349,8 +379,14 @@ pub fn mini_button(ui: &mut Ui, p: &Palette, label: &str) -> Response {
 /// A text action with a 16 px icon: "Hide", "Copy for 60 s", "About the nodes".
 pub fn text_action(ui: &mut Ui, a: &mut Assets, icon: &str, label: &str) -> Response {
     let p = a.p;
+    // Its own size first, so a row that wraps puts it on the next line instead of letting it go
+    // past the row's end (BUG-249, A7: «Report a problem» in Russian out of the window).
+    let size = vec2(
+        16.0 + 6.0 + text_width(ui, label, sans(13.0, Weight::Medium)),
+        20.0,
+    );
     let row = ui
-        .horizontal(|ui| {
+        .allocate_ui_with_layout(size, Layout::left_to_right(Align::Center), |ui| {
             ui.spacing_mut().item_spacing.x = 6.0;
             // The words are part of the action: a selectable label would take their clicks.
             ui.style_mut().interaction.selectable_labels = false;

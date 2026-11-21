@@ -1,7 +1,7 @@
 //! Registering another name: the dialog and its errors.
 
 use super::*;
-use crate::components::{Part, dialog_with_footer};
+use crate::components::Part;
 
 /// "Add a name": one more DPNS name for this identity, checked live like on "Create an
 /// identity" and paid from its credits. A regular name is registered at once; a contested one
@@ -66,7 +66,35 @@ pub(super) fn add_name_dialog(
     let mut back = false;
     let mut open = false;
     let mut top_up = false;
-    let close = dialog_with_footer(
+    // BUG-225: a contested name's writes are its claim's, the figure N2t shows.
+    let shown = if contested {
+        wallet.fees.name_claim_writes()
+    } else {
+        fee
+    };
+    // BUG-249: what the name costs and who pays: the summary when «Register» pays at once, the
+    // form's middle when the review (N2) still comes.
+    let costs = |ui: &mut Ui, p: &crate::theme::Palette| {
+        let value = style(UI.weight(Weight::Medium).mono());
+        kv_row(
+            ui,
+            p,
+            tr!("Name registration"),
+            &format!("≈ {}", dash(shown)),
+            value.clone(),
+        );
+        if contested {
+            kv_row(ui, p, tr!("Fund for the vote"), &dash(fund), value.clone());
+        }
+        crate::components::kv_row_fit(
+            ui,
+            p,
+            tr!("Paid by"),
+            &format!(tr!("{me} · credits"), me = me),
+            value,
+        );
+    };
+    let close = crate::components::dialog_with_summary(
         ui,
         a,
         "add-name",
@@ -79,6 +107,17 @@ pub(super) fn add_name_dialog(
         464.0,
         |ui, a, part| {
             let p = a.p;
+            // BUG-249: what is agreed to, pinned over the password: N2's costs, the total and
+            // the fund «not returned»; the form's costs when «Register» pays at once.
+            if part == Part::Summary {
+                match form.review {
+                    _ if sent => {}
+                    Some(r) => review_summary(ui, a, wallet, &me, form, r),
+                    None if !contested => costs(ui, &p),
+                    None => {}
+                }
+                return false;
+            }
             if part == Part::Footer {
                 // The footer (BUG-122): always in the window.
                 if sent {
@@ -95,7 +134,7 @@ pub(super) fn add_name_dialog(
                     return close;
                 }
                 if form.review.is_some() {
-                    return review_footer(ui, a, form, fund, (&mut register, &mut back));
+                    return review_footer(ui, a, form, (&mut register, &mut back));
                 }
                 let ask = wallet.password_each_send && form.result.is_none() && !contested;
                 let entered = form.flow.password.field(ui, &p, "add-name-password", ask);
@@ -148,30 +187,9 @@ pub(super) fn add_name_dialog(
             if name_field(ui, &p, form, &label, &check, (wallet, id)) {
                 open = true;
             }
-            let value = style(UI.weight(Weight::Medium).mono());
-            // BUG-225: a contested name's writes are its claim's, the figure N2t shows.
-            let shown = if contested {
-                wallet.fees.name_claim_writes()
-            } else {
-                fee
-            };
-            kv_row(
-                ui,
-                &p,
-                tr!("Name registration"),
-                &format!("≈ {}", dash(shown)),
-                value.clone(),
-            );
             if contested {
-                kv_row(ui, &p, tr!("Fund for the vote"), &dash(fund), value.clone());
+                costs(ui, &p);
             }
-            crate::components::kv_row_fit(
-                ui,
-                &p,
-                tr!("Paid by"),
-                &format!(tr!("{me} · credits"), me = me),
-                value,
-            );
             // Not an error before anything was tried (calm states CS-1): what is missing, muted,
             // and the way to it.
             credits_state(ui, &p, read, short, needed, credits, &mut top_up);
@@ -233,8 +251,8 @@ pub(super) fn add_name_dialog(
     }
 }
 
-/// N2's body: the name and identity, the write and the fund on lines of their own, the total and
-/// the credits before and after, and the vote's times (R-5).
+/// N2's body: the name and identity, the optional link (R-5, АРХ-6), and the vote's times; its
+/// costs are in [`review_summary`] (BUG-249).
 fn review_body(
     ui: &mut Ui,
     a: &mut Assets,
@@ -245,7 +263,6 @@ fn review_body(
 ) {
     let p = a.p;
     let now = chrono::Local::now();
-    let value = style(UI.weight(Weight::Medium).mono());
     kv_row(
         ui,
         &p,
@@ -260,6 +277,71 @@ fn review_body(
         me,
         style(UI.weight(Weight::Medium)),
     );
+    // FEAT-0021 АРХ-6 (AC-T11, AC-T14): the link «where my identity is confirmed», optional, a
+    // document of its own; its cost on a line of its own in the summary.
+    if wallet.identity_links {
+        ui.vertical(|ui| {
+            ui.spacing_mut().item_spacing.y = 6.0;
+            field_label(
+                ui,
+                &p,
+                tr!("Link where your identity is confirmed · optional"),
+            );
+            text_field(
+                ui,
+                &p,
+                "add-name-link",
+                &mut form.link,
+                "https://",
+                FieldKind::Text,
+                |_| {},
+            );
+            let (line, color) = match link_of(form) {
+                Err(_) => (
+                    tr!("A link https:// of at most 128 characters is needed"),
+                    p.danger,
+                ),
+                Ok(_) => (
+                    tr!("Everyone sees the link; voters in DashPay see it on the request's card."),
+                    p.muted,
+                ),
+            };
+            ui.add(
+                crate::components::para(line, SMALL.size, SMALL.weight, color)
+                    .line_height(SMALL.line),
+            );
+        });
+    }
+    notice(
+        ui,
+        a,
+        "info",
+        p.muted,
+        &format!(
+            tr!(
+                "The masternode vote lasts {span}, result about {end}. Others may join the contest until {until}. The name becomes yours only if the vote is won."
+            ),
+            span = super::contest::span(wallet.fees.name_vote_secs),
+            end = crate::text::date_time_in_line(r.ends_about, now),
+            until = crate::text::date_day_in_line(r.join_until, now)
+        ),
+    );
+    name_answer(ui, a, form);
+}
+
+/// BUG-249: N2's summary, pinned over the password: the write and the fund on lines of their
+/// own (the fund that rose, was and now, R-2), the link's write, the total and the credits
+/// before and after, and the fund «not returned» above the password in any window (AC-T6).
+fn review_summary(
+    ui: &mut Ui,
+    a: &mut Assets,
+    wallet: &Wallet,
+    me: &str,
+    form: &NameForm,
+    r: Review,
+) {
+    let p = a.p;
+    let value = style(UI.weight(Weight::Medium).mono());
     // BUG-190: a contested domain costs more than a regular name: the bound the credits are
     // checked by (preorder + domain at its peak), never below what is charged. BUG-225: and
     // above the claims' writes as metered, the same figure as N2.
@@ -293,51 +375,17 @@ fn review_body(
             .line_height(SMALL.line),
         );
     }
-    // FEAT-0021 АРХ-6 (AC-T11, AC-T14): the link «where my identity is confirmed», optional, a
-    // document of its own, on a line of its own, «≈» (a document's write has no proved bound).
+    // АРХ-6: the link's document, «≈» (a document's write has no proved bound).
     let mut link_cost = 0;
-    if wallet.identity_links {
-        ui.vertical(|ui| {
-            ui.spacing_mut().item_spacing.y = 6.0;
-            field_label(
-                ui,
-                &p,
-                tr!("Link where your identity is confirmed · optional"),
-            );
-            text_field(
-                ui,
-                &p,
-                "add-name-link",
-                &mut form.link,
-                "https://",
-                FieldKind::Text,
-                |_| {},
-            );
-            let (line, color) = match link_of(form) {
-                Err(_) => (
-                    tr!("A link https:// of at most 128 characters is needed"),
-                    p.danger,
-                ),
-                Ok(_) => (
-                    tr!("Everyone sees the link; voters in DashPay see it on the request's card."),
-                    p.muted,
-                ),
-            };
-            ui.add(
-                crate::components::para(line, SMALL.size, SMALL.weight, color)
-                    .line_height(SMALL.line),
-            );
-        });
-        if matches!(link_of(form), Ok(Some(_))) {
-            link_cost = wallet.fees.document_write;
-            kv_row(
-                ui,
-                &p,
-                tr!("Identity confirmation"),
-                &format!("≈ {}", dash(link_cost)),
-                value.clone(),
-            );
-        }
+    if wallet.identity_links && matches!(link_of(form), Ok(Some(_))) {
+        link_cost = wallet.fees.document_write;
+        kv_row(
+            ui,
+            &p,
+            tr!("Identity confirmation"),
+            &format!("≈ {}", dash(link_cost)),
+            value.clone(),
+        );
     }
     divider(ui, &p);
     let total = wallet.fees.name_claim_total(r.fund, link_cost);
@@ -364,18 +412,15 @@ fn review_body(
     notice(
         ui,
         a,
-        "info",
-        p.muted,
+        "warning",
+        p.accent,
         &format!(
             tr!(
-                "The masternode vote lasts {span}, result about {end}. Others may join the contest until {until}. The name becomes yours only if the vote is won."
+                "The fund {fund} is not returned — not if the name goes to someone else, nor if the masternodes block it."
             ),
-            span = super::contest::span(wallet.fees.name_vote_secs),
-            end = crate::text::date_time_in_line(r.ends_about, now),
-            until = crate::text::date_day_in_line(r.join_until, now)
+            fund = dash(r.fund)
         ),
     );
-    name_answer(ui, a, form);
 }
 
 /// The link typed in the review: none when empty, else checked (FEAT-0021 AC-T11).
@@ -386,28 +431,15 @@ fn link_of(form: &NameForm) -> Result<Option<String>, evolite_core::dpns::LinkPr
     evolite_core::dpns::identity_link(&form.link).map(Some)
 }
 
-/// N2's footer: the fund «not returned» above the password, in any window (AC-T6), then the
-/// password and «Back» / «Sign and send the request».
+/// N2's footer: the password and «Back» / «Sign and send the request»; the fund «not returned»
+/// is in the summary over it (BUG-249).
 fn review_footer(
     ui: &mut Ui,
     a: &mut Assets,
     form: &mut NameForm,
-    fund: evolite_api::Duffs,
     (register, back): (&mut bool, &mut bool),
 ) -> bool {
     let p = a.p;
-    notice(
-        ui,
-        a,
-        "warning",
-        p.accent,
-        &format!(
-            tr!(
-                "The fund {fund} is not returned — not if the name goes to someone else, nor if the masternodes block it."
-            ),
-            fund = dash(fund)
-        ),
-    );
     let entered = form.flow.password.field(ui, &p, "add-name-password", true);
     button_row(ui, |ui| {
         if button(ui, a, tr!("Back"), ButtonKind::Ghost, None).clicked() {

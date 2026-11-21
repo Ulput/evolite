@@ -6,8 +6,8 @@
 use super::txt;
 use crate::components::secret_password;
 use crate::components::{
-    Assets, ButtonKind, CardAmount, FieldKind, Part, button, button_row, checkbox,
-    dialog_with_footer, field_label, notice, text_field,
+    Assets, ButtonKind, CardAmount, FieldKind, Part, button, button_row, checkbox, field_label,
+    notice, text_field,
 };
 use crate::context::Ctx;
 use crate::theme::Weight;
@@ -77,6 +77,11 @@ impl DeleteForm {
 }
 
 /// Shows the dialog; returns `true` when it should close (cancelled).
+/// BUG-248: DASH locked on Core for an unfinished operation (the analyst's words, r2).
+const UNFINISHED: &str = tr!(
+    "Some DASH are locked for an unfinished operation: an identity creation or top-up, a top-up of the Platform address or a transfer to the pool. Finish it before deleting the wallet: after restoring from the phrase it may not be possible."
+);
+
 pub fn delete_dialog(
     ui: &mut Ui,
     a: &mut Assets,
@@ -93,7 +98,7 @@ pub fn delete_dialog(
     } else {
         tr!("Delete the wallet from the computer")
     };
-    let closed = dialog_with_footer(
+    let closed = crate::components::dialog_with_summary(
         ui,
         a,
         "delete-wallet",
@@ -103,6 +108,20 @@ pub fn delete_dialog(
         |ui, a, part| {
             if part == Part::Footer {
                 return delete_footer(ui, a, cx, form);
+            }
+            // BUG-249: what is agreed to, pinned over the fields: DASH still locked for an
+            // operation, and the tick the button waits for (the architect's condition 2).
+            if part == Part::Summary {
+                if unfinished {
+                    notice(ui, a, "warning", p.danger, UNFINISHED);
+                }
+                let has = if form.forgot {
+                    tr!("I have this wallet's recovery phrase")
+                } else {
+                    tr!("The phrase is written down and checked")
+                };
+                checkbox(ui, a, &mut form.has_phrase, has);
+                return false;
             }
             // What the phrase brings back, read before deleting rather than after (BUG-58): the
             // first line, or the second after the password's in «Forgot the password?» (designer,
@@ -139,17 +158,6 @@ pub fn delete_dialog(
             if notes {
                 notice(ui, a, "document", p.danger, DELETES_NOTES);
             }
-            if unfinished {
-                notice(
-                    ui,
-                    a,
-                    "warning",
-                    p.danger,
-                    tr!(
-                        "Some DASH are locked for an unfinished operation: an identity creation or top-up, a top-up of the Platform address or a transfer to the pool. Finish it before deleting the wallet: after restoring from the phrase it may not be possible."
-                    ),
-                );
-            }
             // And what it does not (BUG-58).
             crate::components::notice_parts(
                 ui,
@@ -161,12 +169,6 @@ pub fn delete_dialog(
                     crate::screens::settings::KEPT_HERE_TEXT,
                 )],
             );
-            let has = if form.forgot {
-                tr!("I have this wallet's recovery phrase")
-            } else {
-                tr!("The phrase is written down and checked")
-            };
-            checkbox(ui, a, &mut form.has_phrase, has);
             false
         },
     );

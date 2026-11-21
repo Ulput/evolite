@@ -204,7 +204,7 @@ pub(super) fn send_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, tokens: &mu
     } else {
         tr!("Send a token")
     };
-    let closed = dialog_with_footer(
+    let closed = crate::components::dialog_with_summary(
         ui,
         a,
         "token-send",
@@ -212,6 +212,49 @@ pub(super) fn send_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, tokens: &mu
         title,
         dialog_width(ui),
         |ui, a, part| {
+            // BUG-249: the review's summary, pinned over the password: the amount, the fee, what
+            // is left after, and that it cannot be undone. The form (before «Check») has none.
+            if part == Part::Summary {
+                if form.review {
+                    ui.spacing_mut().item_spacing.y = 10.0;
+                    let amount = amount.unwrap_or(0);
+                    let value = sans(13.0, Weight::Medium);
+                    kv_row(
+                        ui,
+                        &p,
+                        tr!("Amount"),
+                        &crate::i18n::own(&with_name(amount, &row.info)),
+                        value.clone(),
+                    );
+                    kv_row(
+                        ui,
+                        &p,
+                        &format!(tr!("Fee, in credits of {}"), crate::i18n::own(&from)),
+                        &format!("≈ {}", crate::format::amount(fee)),
+                        mono(13.0, Weight::Medium),
+                    );
+                    kv_row(
+                        ui,
+                        &p,
+                        tr!("Left after"),
+                        &crate::i18n::own(&held_with_name(
+                            balance.saturating_sub(amount),
+                            &row.info,
+                        )),
+                        value,
+                    );
+                    notice(
+                        ui,
+                        a,
+                        "info",
+                        p.muted,
+                        tr!(
+                            "The transfer cannot be undone. It and token balances are visible to everyone on the network."
+                        ),
+                    );
+                }
+                return false;
+            }
             if part == Part::Footer {
                 // The footer (BUG-122): each step's buttons, and the password of the review,
                 // always in the window.
@@ -441,7 +484,6 @@ pub(super) fn send_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, tokens: &mu
                     tr!("The transfer and token balances are visible to everyone on the network."),
                 );
             } else {
-                let amount = amount.unwrap_or(0);
                 let (to_name, to_id) = form.recipient.clone().unwrap_or_default();
                 let to_line = if to_name == state::short(&to_id) {
                     to_name.clone()
@@ -473,43 +515,7 @@ pub(super) fn send_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, tokens: &mu
                     &crate::i18n::own(&from),
                     value.clone(),
                 );
-                kv_row(
-                    ui,
-                    &p,
-                    tr!("Send to"),
-                    &crate::i18n::own(&to_line),
-                    value.clone(),
-                );
-                kv_row(
-                    ui,
-                    &p,
-                    tr!("Amount"),
-                    &crate::i18n::own(&with_name(amount, &row.info)),
-                    value.clone(),
-                );
-                kv_row(
-                    ui,
-                    &p,
-                    &format!(tr!("Fee, in credits of {}"), crate::i18n::own(&from)),
-                    &format!("≈ {}", crate::format::amount(fee)),
-                    number,
-                );
-                kv_row(
-                    ui,
-                    &p,
-                    tr!("Left after"),
-                    &crate::i18n::own(&held_with_name(balance.saturating_sub(amount), &row.info)),
-                    value,
-                );
-                notice(
-                    ui,
-                    a,
-                    "info",
-                    p.muted,
-                    tr!(
-                        "The transfer cannot be undone. It and token balances are visible to everyone on the network."
-                    ),
-                );
+                kv_row(ui, &p, tr!("Send to"), &crate::i18n::own(&to_line), value);
             }
             false
         },

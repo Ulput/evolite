@@ -95,8 +95,12 @@ fn row(ui: &mut Ui, a: &mut Assets, title: &str, sub: &str, control: Control) ->
             // Several buttons, or a choice of several, in a narrow window go under the text, not
             // squeeze it (FEAT-0034 item 10: a column a few words wide broke the number format's
             // line before its colon).
-            if matches!(control, Control::Buttons(..) | Control::Segmented(..))
-                && ui.available_width() - control_width(ui, &control) - 20.0 < 300.0
+            // BUG-249 (A8): so does a text to read that is too long for the right («Release
+            // keys» in German), wrapped there instead of going out of the window.
+            if matches!(
+                control,
+                Control::Buttons(..) | Control::Segmented(..) | Control::Text(..)
+            ) && ui.available_width() - control_width(ui, &control) - 20.0 < 300.0
             {
                 ui.spacing_mut().item_spacing.y = 12.0;
                 ui.vertical(|ui| {
@@ -107,9 +111,19 @@ fn row(ui: &mut Ui, a: &mut Assets, title: &str, sub: &str, control: Control) ->
                             .line_height(17.4),
                     );
                 });
-                ui.horizontal(|ui| {
+                // Wrapped: two buttons wider than the row go on two lines (A8).
+                ui.horizontal_wrapped(|ui| {
                     // Left to right here: the first button first.
-                    if let Control::Buttons(buttons, which) = control {
+                    if let Control::Text(text, mono) = control {
+                        let font = if mono {
+                            crate::theme::mono(13.0, Weight::Medium)
+                        } else {
+                            sans(13.0, Weight::Medium)
+                        };
+                        ui.add(
+                            crate::components::para(text, 13.0, Weight::Medium, p.text).font(font),
+                        );
+                    } else if let Control::Buttons(buttons, which) = control {
                         ui.spacing_mut().item_spacing.x = 8.0;
                         for (i, (label, kind)) in buttons.iter().enumerate() {
                             if button(ui, a, label, *kind, None).clicked() {
