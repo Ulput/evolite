@@ -5,6 +5,7 @@ pub(super) mod address_fund;
 pub(super) mod addresses;
 pub(super) mod app_connect2;
 pub(super) mod app_jobs;
+pub(super) mod auto_backup;
 pub(super) mod avatars;
 mod backup;
 pub(super) mod contracts;

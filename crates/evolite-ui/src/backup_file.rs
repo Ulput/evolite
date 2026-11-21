@@ -10,6 +10,8 @@ use std::sync::mpsc::{Receiver, channel};
 pub enum Pick {
     Save,
     Open,
+    /// The folder of the automatic copies (FEAT-0045 step 2).
+    Folder,
 }
 
 /// The default name of a backup (R-3): `evolite-{wallet}-{network}-{YYYY-MM-DD}.evbackup`,
@@ -49,6 +51,7 @@ pub fn ask(pick: Pick, name: &str) -> Receiver<Option<PathBuf>> {
         let title = crate::i18n::t(match pick {
             Pick::Save => tr!("Save a backup file…"),
             Pick::Open => tr!("Restore from a file…"),
+            Pick::Folder => tr!("Save a copy once a week"),
         })
         .trim_end_matches('…')
         .to_owned();
@@ -71,6 +74,7 @@ pub fn ask(pick: Pick, name: &str) -> Receiver<Option<PathBuf>> {
                     dialog.save_file()
                 }
                 Pick::Open => dialog.pick_file(),
+                Pick::Folder => rfd::FileDialog::new().set_title(&title).pick_folder(),
             };
             let _ = tx.send(chosen);
         });
@@ -132,10 +136,20 @@ fn what_came(done: &evolite_api::backup::Restored) -> String {
             parts.push(crate::i18n::t(&text).into_owned());
         }
     };
-    let notes = done.notes + done.notes_newer;
+    let notes = done.notes;
     add(
         notes,
         plural_in(notes as u32, tr!("{} note"), tr!("{} notes")),
+    );
+    // Review r1, Could 1: notes the file had changed later than here.
+    let newer = done.notes_newer;
+    add(
+        newer,
+        plural_in(
+            newer as u32,
+            tr!("{} note newer in the file"),
+            tr!("{} notes newer in the file"),
+        ),
     );
     let n = done.addresses;
     add(

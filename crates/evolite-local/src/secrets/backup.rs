@@ -192,6 +192,11 @@ pub const FOLDER_FILES: &[(&str, bool, &str)] = &[
     ),
     ("resync-on-start", false, "a flag for the next start"),
     (
+        "auto-backup.json",
+        false,
+        "the automatic copies' folder and times: a new computer chooses its own",
+    ),
+    (
         "nft-series.json",
         false,
         "a Workshop series' sends and their state: an operation that goes on from the network",
@@ -392,6 +397,8 @@ pub fn merge_apps(here: &mut Vec<App>, from: &[App]) -> usize {
     }
     changed
 }
+
+pub mod auto;
 
 #[cfg(test)]
 mod tests;

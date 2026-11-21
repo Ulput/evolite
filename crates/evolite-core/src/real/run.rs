@@ -288,6 +288,8 @@ pub fn run(
                 });
                 core.dirty.store(true, Ordering::Relaxed);
             }
+            // FEAT-0045 step 2: an automatic copy when one is due (off this thread).
+            core.auto_backup_tick();
             if core.dirty.swap(false, Ordering::Relaxed) {
                 let snapshot = turn::timed("snapshot", core.snapshot()).await;
                 core.prices.saw(snapshot.wallet.as_ref());

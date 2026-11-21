@@ -629,6 +629,7 @@ impl Real {
             now(),
         );
         let mut shown_wallet = Wallet {
+            auto_backup: self.auto_backup_view(),
             bip39_passphrase: self.unlocked.as_ref().is_some_and(|u| u.passphrase),
             password_each_send: self.password_each_send,
             large_spend: self.large_spend,

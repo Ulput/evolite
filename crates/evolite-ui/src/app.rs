@@ -506,6 +506,13 @@ impl App {
     fn backup_step(&mut self) {
         use crate::backup_file::Pick;
         let state = &mut self.settings.backup_file;
+        if std::mem::take(&mut state.off) {
+            self.core.send(Command::SetAutoBackup {
+                folder: None,
+                settings: None,
+            });
+            return;
+        }
         if let Some(pick) = state.want.take() {
             let name = self
                 .snapshot
@@ -530,6 +537,17 @@ impl App {
         let Some(path) = chosen else {
             return;
         };
+        // The folder of the automatic copies: no answer to wait for on the screen.
+        if pick == Pick::Folder {
+            let mut now = self.settings.prefs(&self.collection.trusted);
+            now.identity = self.chosen_identity.clone();
+            let (_, wallet) = crate::prefs::split(&now);
+            self.core.send(Command::SetAutoBackup {
+                folder: Some(path),
+                settings: serde_json::to_string(&wallet).ok(),
+            });
+            return;
+        }
         state.waiting = Some(pick);
         let command = match pick {
             Pick::Save => {
@@ -542,6 +560,7 @@ impl App {
                 }
             }
             Pick::Open => Command::RestoreBackup { path },
+            Pick::Folder => return,
         };
         self.core.send(command);
     }
@@ -922,6 +941,11 @@ impl App {
                     }
                 }
                 Event::PhraseRevealed(result) => self.settings.on_revealed(result.clone()),
+                // FEAT-0045 step 2: an automatic copy's outcome is in the snapshot.
+                Event::Done {
+                    what: DoneWhat::AutoBackup,
+                    ..
+                } => {}
                 Event::BackupSaved(result) => {
                     self.settings.backup_file.waiting = None;
                     self.settings.backup_file.said = Some(crate::backup_file::said_saved(result));
@@ -1817,6 +1841,22 @@ impl eframe::App for App {
                                             &mut self.settings,
                                             remind,
                                         );
+                                        // FEAT-0045 UC-5: the automatic copy not written.
+                                        if let Some(failed) = cx
+                                            .wallet()
+                                            .auto_backup
+                                            .as_ref()
+                                            .and_then(|auto| auto.failed)
+                                        {
+                                            crate::components::notice(
+                                                ui,
+                                                a,
+                                                "warning",
+                                                a.p.danger,
+                                                &screens::settings::auto_failed_text(failed),
+                                            );
+                                            ui.add_space(6.0);
+                                        }
                                         screens::overview(
                                             ui,
                                             a,

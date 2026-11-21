@@ -80,6 +80,8 @@ pub fn command_name(command: &Command) -> &'static str {
         // FEAT-0045 R-14: never the path, nor the settings it carries.
         Command::SaveBackup { .. } => "save_backup",
         Command::RestoreBackup { .. } => "restore_backup",
+        // R-14: never the folder.
+        Command::SetAutoBackup { .. } => "set_auto_backup",
         Command::RenameWallet { .. } => "rename_wallet",
         // Which token, and the word looked for, stay off the journal.
         Command::FindToken { .. } => "find_token",

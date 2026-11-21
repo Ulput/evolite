@@ -362,3 +362,86 @@ fn a_restored_unwritten_link_is_checked_before_it_is_offered() {
     assert_eq!(requests.merge_backup(&[claim("sam")]).unwrap(), 0);
     std::fs::remove_dir_all(&dir).unwrap();
 }
+
+/// AC-A11 (R-12): the sixth automatic copy lets the oldest of this wallet's go; a copy of
+/// another wallet with an automatic copy's name, a manual copy and a file that is no backup stay;
+/// two copies of one day get names of their own; a copy is due weekly.
+#[test]
+fn automatic_copies_keep_five_of_their_own_and_touch_nothing_else() {
+    use super::auto;
+    let dir = std::env::temp_dir().join(format!("evolite-auto-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let mine = BackupKey::of(&seed(1));
+    let theirs = BackupKey::of(&seed(2));
+    // Not ours, by the fingerprint, with an automatic copy's name of this wallet's.
+    let foreign = auto::name("Main", "testnet", "2026-01-01", 1);
+    std::fs::write(
+        dir.join(&foreign),
+        seal(&theirs, "testnet", &full()).unwrap(),
+    )
+    .unwrap();
+    // A manual copy and a stranger.
+    let manual = "evolite-Main-testnet-2026-01-02.evbackup";
+    std::fs::write(dir.join(manual), seal(&mine, "testnet", &full()).unwrap()).unwrap();
+    std::fs::write(
+        dir.join("evolite-x-testnet-2026-01-03-auto.evbackup"),
+        b"not a backup",
+    )
+    .unwrap();
+    let mut written = Vec::new();
+    for day in 1..=6 {
+        let day = format!("2026-02-0{day}");
+        written.push(
+            auto::write(&dir, &mine, "testnet", ("Main", &day), &full())
+                .unwrap()
+                .name,
+        );
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    let own = auto::own_copies(&dir, &mine, "testnet");
+    assert_eq!(own.len(), auto::KEEP, "five of its own");
+    assert!(!dir.join(&written[0]).exists(), "the oldest went");
+    assert!(dir.join(&written[5]).exists());
+    assert!(dir.join(&foreign).exists(), "another wallet's stays");
+    assert!(dir.join(manual).exists(), "a manual copy stays");
+    assert!(
+        dir.join("evolite-x-testnet-2026-01-03-auto.evbackup")
+            .exists()
+    );
+    // The same day again: a name of its own, nothing written over.
+    let again = auto::write(&dir, &mine, "testnet", ("Main", "2026-02-06"), &full())
+        .unwrap()
+        .name;
+    assert_eq!(again, auto::name("Main", "testnet", "2026-02-06", 2));
+    // Due: none yet, or a week since the last.
+    assert!(auto::due(None, 100));
+    assert!(!auto::due(Some(100), 100 + auto::EVERY - 1));
+    assert!(auto::due(Some(100), 100 + auto::EVERY));
+    // A folder that is not there: not found, nothing written.
+    let gone = dir.join("removed");
+    let err = auto::write(&gone, &mine, "testnet", ("Main", "2026-02-07"), &full()).unwrap_err();
+    assert_eq!(err.kind(), std::io::ErrorKind::NotFound);
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+/// Review r1, step 2 Should: copies are ordered by the day and number in their name, not by the
+/// file's time (a copy moved or synced by a cloud has a new one).
+#[test]
+fn copies_are_ordered_by_their_name() {
+    use super::auto::{name, order_of};
+    assert_eq!(
+        order_of(&name("My-Main", "testnet", "2026-02-06", 1)),
+        Some(("2026-02-06".into(), 1))
+    );
+    assert_eq!(
+        order_of(&name("My-Main", "testnet", "2026-02-06", 12)),
+        Some(("2026-02-06".into(), 12))
+    );
+    assert_eq!(
+        order_of("evolite-Main-testnet-2026-02-06.evbackup"),
+        None,
+        "manual"
+    );
+    assert_eq!(order_of("evolite-Main-testnet-x-auto.evbackup"), None);
+}

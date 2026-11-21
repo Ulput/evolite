@@ -93,6 +93,19 @@ pub fn delete_dialog(
 ) -> bool {
     let p = a.p;
     let now = cx.now;
+    // FEAT-0045 R-15: the automatic copies are the person's files — they stay.
+    let auto_copies = form
+        .other
+        .is_none()
+        .then(|| cx.wallet().auto_backup.as_ref())
+        .flatten()
+        .map(|auto| {
+            crate::i18n::t(tr!("Automatic copies in {} are not deleted")).replacen(
+                "{}",
+                &crate::i18n::own(&auto.folder),
+                1,
+            )
+        });
     let title = if form.forgot {
         tr!("Forgot the password?")
     } else {
@@ -169,6 +182,9 @@ pub fn delete_dialog(
                     crate::screens::settings::KEPT_HERE_TEXT,
                 )],
             );
+            if let Some(line) = &auto_copies {
+                crate::components::notice(ui, a, "info", p.muted, line);
+            }
             false
         },
     );

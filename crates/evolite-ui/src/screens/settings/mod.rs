@@ -16,7 +16,7 @@ mod wallets;
 use about::{about, notifications};
 use appearance::appearance;
 pub(crate) use appearance::language_and_theme;
-pub use backup::{KEPT_HERE, KEPT_HERE_TEXT, STAYS_ON_NETWORK, check_reminder};
+pub use backup::{KEPT_HERE, KEPT_HERE_TEXT, STAYS_ON_NETWORK, auto_failed_text, check_reminder};
 use backup::{backup, check_dialog, phrase_dialog};
 use network::network;
 pub use network::nodes_dialog;
@@ -86,6 +86,8 @@ pub struct BackupFileState {
     pub waiting: Option<crate::backup_file::Pick>,
     /// The last answer, as shown: `true` when it went well.
     pub said: Option<(bool, String)>,
+    /// FEAT-0045 step 2: «Save a copy once a week» turned off this frame.
+    pub off: bool,
 }
 
 pub struct SettingsState {

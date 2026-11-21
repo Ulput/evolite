@@ -928,6 +928,29 @@ impl Mock {
                 self.backups.insert(path, notes);
                 Event::BackupSaved(Ok(name))
             }
+            // FEAT-0045 step 2: in memory — the first copy «written» at once; a folder whose
+            // name says «missing» is one that is not there (UC-5, for the kittests).
+            Command::SetAutoBackup { folder, .. } => {
+                let now = evolite_common::now();
+                if let Some(w) = self.snapshot.wallet.as_mut() {
+                    w.auto_backup = folder.map(|f| {
+                        let folder = f.to_string_lossy().into_owned();
+                        let missing = folder.contains("missing");
+                        evolite_api::backup::AutoBackup {
+                            folder,
+                            last_at: (!missing).then_some(now),
+                            failed: missing
+                                .then_some(evolite_api::backup::AutoFailed::FolderNotFound),
+                        }
+                    });
+                    changed = true;
+                }
+                Event::Done {
+                    what: DoneWhat::AutoBackup,
+                    result: Ok(()),
+                    ask: None,
+                }
+            }
             Command::RestoreBackup { path } => {
                 let result = match (self.backups.get(&path), self.snapshot.wallet.as_mut()) {
                     (Some(notes), Some(w)) => {

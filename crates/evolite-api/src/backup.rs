@@ -41,6 +41,30 @@ pub struct Restored {
     pub settings: Option<String>,
 }
 
+/// FEAT-0045 step 2 (R-12): the wallet's automatic copies, while they are on.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AutoBackup {
+    /// The folder they go to, as the system writes it.
+    pub folder: String,
+    /// When the last one was written (unix seconds).
+    pub last_at: Option<crate::Timestamp>,
+    /// Why the last try did not write one (UC-5); `None` once one is written.
+    pub failed: Option<AutoFailed>,
+}
+
+/// Why an automatic copy was not written (UC-5).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AutoFailed {
+    /// «the folder is not found» (a removed drive, say).
+    FolderNotFound,
+    /// «not enough space».
+    NoSpace,
+    /// «no access to the folder».
+    NoAccess,
+    /// Anything else: said as the file not written.
+    Other,
+}
+
 /// Why a backup was not saved or not restored.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum BackupError {

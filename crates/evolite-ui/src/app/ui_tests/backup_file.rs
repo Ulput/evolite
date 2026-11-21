@@ -39,18 +39,70 @@ fn note(kit: &mut Kit, key: &str, text: &str) {
     });
 }
 
-/// AC-A13 (the group's half): behind «Features for advanced users» — none while it is off.
+/// FEAT-0045 step 2 (the customer, plain-language Q7): the backup file is for every user —
+/// with «Features for advanced users» off too.
 #[test]
-fn the_backup_file_is_behind_the_advanced_switch() {
+fn the_backup_file_is_for_every_user() {
     let (_turn, mut kit) = demo_app("backup", "en");
-    assert!(!has_text(&kit, "Save a backup file…"), "off: no group");
-    kit.state_mut().settings.set("advanced", true);
-    // The group is below the fold of 1024 × 768: a click there does not land.
     kit.set_size(egui::vec2(1024.0, 1600.0));
     kit.run_steps(3);
+    assert!(!kit.state().settings.is_on("advanced"));
     assert!(has_text(&kit, "Save a backup file…"));
     assert!(has_text(&kit, "Restore from a file…"));
     assert!(has_words(&kit, "only this wallet can open it"));
+    assert!(has_words(&kit, "Save a copy once a week"));
+}
+
+fn toggle_weekly(kit: &mut Kit) {
+    kit.get_by_role_and_label(Role::CheckBox, "Save a copy once a week")
+        .click();
+    kit.run_steps(3);
+}
+
+fn auto(kit: &Kit) -> Option<evolite_api::backup::AutoBackup> {
+    kit.state()
+        .snapshot
+        .as_ref()?
+        .wallet
+        .as_ref()?
+        .auto_backup
+        .clone()
+}
+
+/// UC-4 (AC-A11's interface half): on — the folder is asked, the copies go there, its path and
+/// «the last 5» under the switch, «Change folder»; off — none.
+#[test]
+fn a_weekly_copy_goes_to_the_folder_chosen() {
+    let (_turn, mut kit) = demo_app("backup", "en");
+    kit.set_size(egui::vec2(1024.0, 1600.0));
+    kit.run_steps(3);
+    let folder = std::env::temp_dir().join("evolite-kit-copies");
+    crate::backup_file::test_pick(Some(folder.clone()));
+    toggle_weekly(&mut kit);
+    wait_for(&mut kit, "on", |kit| auto(kit).is_some());
+    assert_eq!(auto(&kit).unwrap().folder, folder.to_string_lossy());
+    wait_for(&mut kit, "its line", |kit| {
+        has_words(kit, "The last 5 are kept")
+    });
+    assert!(has_text(&kit, "Change folder"));
+    toggle_weekly(&mut kit);
+    wait_for(&mut kit, "off", |kit| auto(kit).is_none());
+    assert!(!has_text(&kit, "Change folder"));
+}
+
+/// AC-A12 (UC-5): a copy not written says why on Backup and on the Overview.
+#[test]
+fn a_copy_not_written_is_said_on_backup_and_overview() {
+    let (_turn, mut kit) = demo_app("backup", "en");
+    kit.set_size(egui::vec2(1024.0, 1600.0));
+    kit.run_steps(3);
+    crate::backup_file::test_pick(Some(std::env::temp_dir().join("missing-drive")));
+    toggle_weekly(&mut kit);
+    let said = "The automatic copy was not saved: the folder is not found.";
+    wait_for(&mut kit, "on Backup", |kit| has_words(kit, said));
+    kit.state_mut().screen = crate::screens::Screen::Overview;
+    kit.run_steps(3);
+    wait_for(&mut kit, "on the Overview", |kit| has_words(kit, said));
 }
 
 /// UC-1, UC-2 (AC-A1's interface half): saved — «Saved: {name}»; a note deleted since comes

@@ -131,38 +131,79 @@ pub(super) fn backup(
         Some(1) => state.check = Some(PhraseCheckForm::default()),
         _ => {}
     }
-    // FEAT-0045: behind «Features for advanced users».
-    if state.is_on("advanced") {
-        ui.add_space(8.0);
-        backup_file(ui, a, state);
-    }
+    // FEAT-0045: for every user, Simple too (the customer, plain-language Q7).
+    ui.add_space(8.0);
+    backup_file(ui, a, state, wallet);
 }
 
 /// FEAT-0045 (B1): «BACKUP FILE» — save, restore, and the last answer under the group.
-fn backup_file(ui: &mut Ui, a: &mut Assets, state: &mut SettingsState) {
+fn backup_file(ui: &mut Ui, a: &mut Assets, state: &mut SettingsState, wallet: &Wallet) {
     use crate::backup_file::Pick;
     let busy = state.backup_file.waiting.is_some() || state.backup_file.asked.is_some();
-    let clicked = group(
-        ui,
-        a,
-        tr!("Backup file"),
-        vec![
-            (
-                tr!("Backup file"),
-                FILE_TEXT,
-                Control::Button(tr!("Save a backup file…"), ButtonKind::Secondary),
-            ),
-            (
-                tr!("Restore from a file"),
-                tr!("Notes and the address book are merged; matches are not duplicated."),
-                Control::Button(tr!("Restore from a file…"), ButtonKind::Secondary),
-            ),
-        ],
-    );
+    // FEAT-0045 step 2 (UC-4, B1): the weekly copy — its folder whole, «the last 5 are kept»,
+    // the last one's date.
+    let auto = wallet.auto_backup.as_ref();
+    let was_on = auto.is_some();
+    let mut on = was_on;
+    let auto_line = match auto {
+        Some(auto) => {
+            let mut line = format!(
+                "{} · {}",
+                crate::i18n::own(&auto.folder),
+                crate::i18n::t(tr!("The last 5 are kept"))
+            );
+            if let Some(at) = auto.last_at {
+                line.push_str(" · ");
+                line.push_str(&crate::i18n::t(tr!("Last copy: {}")).replacen(
+                    "{}",
+                    &text::date_long(at),
+                    1,
+                ));
+            }
+            line
+        }
+        None => crate::i18n::t(tr!("Into a folder you choose; the last 5 are kept")).into_owned(),
+    };
+    let mut rows = vec![
+        (
+            tr!("Backup file"),
+            FILE_TEXT,
+            Control::Button(tr!("Save a backup file…"), ButtonKind::Secondary),
+        ),
+        (
+            tr!("Restore from a file"),
+            tr!("Notes and the address book are merged; matches are not duplicated."),
+            Control::Button(tr!("Restore from a file…"), ButtonKind::Secondary),
+        ),
+        (
+            tr!("Save a copy once a week"),
+            auto_line.as_str(),
+            Control::Toggle(&mut on),
+        ),
+    ];
+    if was_on {
+        rows.push((
+            tr!("Folder for the copies"),
+            "",
+            Control::Button(tr!("Change folder"), ButtonKind::Ghost),
+        ));
+    }
+    let clicked = group(ui, a, tr!("Backup file"), rows);
     match clicked {
         Some(0) if !busy => state.backup_file.want = Some(Pick::Save),
         Some(1) if !busy => state.backup_file.want = Some(Pick::Open),
+        Some(3) if !busy => state.backup_file.want = Some(Pick::Folder),
         _ => {}
+    }
+    // On: the folder first (UC-4); off: at once — the copies stay where they are.
+    if on && !was_on && !busy {
+        state.backup_file.want = Some(Pick::Folder);
+    } else if !on && was_on {
+        state.backup_file.off = true;
+    }
+    if let Some(failed) = auto.and_then(|a| a.failed) {
+        ui.add_space(8.0);
+        notice(ui, a, "warning", a.p.danger, &auto_failed_text(failed));
     }
     if state.backup_file.waiting == Some(Pick::Open) {
         ui.add_space(8.0);
@@ -176,6 +217,21 @@ fn backup_file(ui: &mut Ui, a: &mut Assets, state: &mut SettingsState) {
         };
         notice(ui, a, icon, color, said);
     }
+}
+
+/// UC-5: why the automatic copy was not written, on Backup and on the Overview.
+pub fn auto_failed_text(failed: evolite_api::backup::AutoFailed) -> String {
+    use evolite_api::backup::AutoFailed as F;
+    let why = match failed {
+        F::FolderNotFound => tr!("the folder is not found"),
+        F::NoSpace => tr!("not enough space"),
+        F::NoAccess => tr!("no access to the folder"),
+        F::Other => tr!("the file could not be written"),
+    };
+    crate::i18n::t(tr!(
+        "The automatic copy was not saved: {}. The next try is at the next sign-in"
+    ))
+    .replacen("{}", &crate::i18n::t(why), 1)
 }
 
 /// FEAT-0045 R-1: what the file holds, under «Backup file».

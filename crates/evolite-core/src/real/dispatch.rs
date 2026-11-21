@@ -825,6 +825,18 @@ impl Real {
                 let result = self.save_backup(path, settings).await;
                 return (Some(Event::BackupSaved(result)), false);
             }
+            Command::SetAutoBackup { folder, settings } => {
+                let result = self.set_auto_backup(folder, settings);
+                let changed = result.is_ok();
+                return (
+                    Some(Event::Done {
+                        what: DoneWhat::AutoBackup,
+                        result,
+                        ask: None,
+                    }),
+                    changed,
+                );
+            }
             Command::RestoreBackup { path } => {
                 let result = self.restore_backup(path).await;
                 return (Some(Event::BackupRestored(result)), true);

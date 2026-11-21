@@ -1634,6 +1634,8 @@ pub struct SetAside {
 
 #[derive(Clone, PartialEq, Debug)]
 pub struct Wallet {
+    /// FEAT-0045 step 2: its automatic copies, while they are on.
+    pub auto_backup: Option<backup::AutoBackup>,
     pub balances: Balances,
     /// Newest first.
     pub activity: Vec<Activity>,
@@ -2561,6 +2563,14 @@ pub enum Command {
     RestoreBackup {
         path: std::path::PathBuf,
     },
+    /// FEAT-0045 step 2 (R-12, UC-4): the open wallet's automatic copies — into `folder` once a
+    /// week while it is open, the first at once; `None` turns them off (the copies stay).
+    /// `settings`: as in `SaveBackup`. Answered with `Done { what: DoneWhat::AutoBackup }`; each
+    /// automatic copy written or not is told the same way.
+    SetAutoBackup {
+        folder: Option<std::path::PathBuf>,
+        settings: Option<String>,
+    },
     /// Name a wallet of this computer (1–24 characters) and give it one of the six colours
     /// (Figma 30); local, never sent anywhere. Answered with `Done { what: DoneWhat::Wallet }`.
     RenameWallet {
@@ -3025,6 +3035,8 @@ pub enum DoneWhat {
     Note,
     /// `Rebroadcast` (FEAT-0046).
     Rebroadcast,
+    /// `SetAutoBackup`, and each automatic copy written or not (FEAT-0045).
+    AutoBackup,
     Password,
     PasswordEachSend,
     /// FEAT-0004 FR-7: [`Command::SetLargeSpend`].
@@ -3078,6 +3090,7 @@ impl DoneWhat {
             Self::Name => "name",
             Self::Note => "note",
             Self::Rebroadcast => "rebroadcast",
+            Self::AutoBackup => "auto-backup",
             Self::Password => "password",
             Self::PasswordEachSend => "password-each-send",
             Self::LargeSpend => "large-spend",

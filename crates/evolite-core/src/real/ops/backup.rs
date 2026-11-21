@@ -24,7 +24,10 @@ impl Real {
     /// What the file holds now (AC-T-B2): the notes with their deletions' marks, the address
     /// book, contacts' names, hidden requests, signed-in apps, and the interface's settings as
     /// given. Nothing of the vault, of operations not finished, or of what the network keeps.
-    fn backup_contents(&self, settings: Option<String>) -> Result<file::Contents, BackupError> {
+    pub(in crate::real) fn backup_contents(
+        &self,
+        settings: Option<String>,
+    ) -> Result<file::Contents, BackupError> {
         let notes = self
             .notes
             .lock()
@@ -65,6 +68,7 @@ impl Real {
         settings: Option<String>,
     ) -> Result<String, BackupError> {
         let key = self.backup_key()?;
+        self.auto_backup_settings(&settings);
         let contents = self.backup_contents(settings)?;
         let name = path
             .file_name()

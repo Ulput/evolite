@@ -266,3 +266,124 @@ async fn a_copy_opens_only_with_its_own_passphrase() {
     assert_eq!(restored.notes, 1);
     let _ = std::fs::remove_file(&file);
 }
+
+/// FEAT-0045 step 2 (AC-T-B4′, AC-A11, AC-A13): turned on, a copy is written at once into the
+/// folder, off the loop, and the time kept; checked again within the hour, nothing more; once the
+/// wallet locks, nothing is written. With «advanced» off it works all the same.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_weekly_copy_is_written_at_once_and_not_again_soon() {
+    let folder = std::env::temp_dir().join(format!("evolite-test-auto-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&folder);
+    std::fs::create_dir_all(&folder).unwrap();
+    let mut core = unlocked("backup-auto").await;
+    core.advanced_features = false;
+    let (event, _) = core
+        .handle(Command::SetAutoBackup {
+            folder: Some(folder.clone()),
+            settings: None,
+        })
+        .await;
+    assert_eq!(answer_of(event), (DoneWhat::AutoBackup, Ok(())));
+    let copies = |dir: &std::path::Path| {
+        std::fs::read_dir(dir)
+            .unwrap()
+            .flatten()
+            .filter(|e| e.file_name().to_string_lossy().ends_with("-auto.evbackup"))
+            .count()
+    };
+    core.auto_backup_tick();
+    let deadline = std::time::Instant::now() + PATIENCE;
+    while copies(&folder) == 0 && std::time::Instant::now() < deadline {
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert_eq!(copies(&folder), 1, "written at once");
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    assert!(core.auto_backup_view().is_some_and(|a| a.last_at.is_some()));
+    core.auto_backup_tick();
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert_eq!(copies(&folder), 1, "not again within the hour");
+    // Locked: no key, nothing written even when one is due.
+    core.handle(Command::SetAutoBackup {
+        folder: Some(folder.clone()),
+        settings: None,
+    })
+    .await;
+    core.handle(Command::Lock).await;
+    core.auto_backup_tick();
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert_eq!(copies(&folder), 1, "nothing after the lock");
+    let _ = std::fs::remove_dir_all(&folder);
+}
+
+/// Review r1, step 2 Must: an old copy that cannot be deleted (held open by another program, as
+/// a cloud client holds it) does not make the new one a failure — it is written, its time kept,
+/// and a check an hour later writes nothing more. Windows: there a read-only file is still
+/// deleted, and a file held without sharing is not.
+#[cfg(windows)]
+#[tokio::test(flavor = "multi_thread")]
+async fn an_old_copy_that_stays_does_not_make_a_copy_every_hour() {
+    use evolite_local::backup::auto;
+    let folder = std::env::temp_dir().join(format!("evolite-test-auto-ro-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&folder);
+    std::fs::create_dir_all(&folder).unwrap();
+    let mut core = unlocked("backup-auto-ro").await;
+    let key = core.backup_key.lock().unwrap().clone().expect("unlocked");
+    let contents = core.backup_contents(None).unwrap();
+    let mut old = Vec::new();
+    for day in 1..=6 {
+        let day = format!("2026-01-0{day}");
+        old.push(
+            auto::write(&folder, &key, network(), ("Main", &day), &contents)
+                .unwrap()
+                .name,
+        );
+    }
+    // Six written, five kept: the oldest kept is held open, shared with no one.
+    let stuck = folder.join(&old[1]);
+    let held = {
+        use std::os::windows::fs::OpenOptionsExt;
+        std::fs::OpenOptions::new()
+            .read(true)
+            .share_mode(0)
+            .open(&stuck)
+            .unwrap()
+    };
+    let copies = || {
+        std::fs::read_dir(&folder)
+            .unwrap()
+            .flatten()
+            .filter(|e| e.file_name().to_string_lossy().ends_with("-auto.evbackup"))
+            .count()
+    };
+    let before = copies();
+    core.handle(Command::SetAutoBackup {
+        folder: Some(folder.clone()),
+        settings: None,
+    })
+    .await;
+    core.auto_backup_tick();
+    let deadline = std::time::Instant::now() + PATIENCE;
+    while core.auto_backup_view().and_then(|a| a.last_at).is_none()
+        && std::time::Instant::now() < deadline
+    {
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    let view = core.auto_backup_view().unwrap();
+    assert!(
+        view.last_at.is_some() && view.failed.is_none(),
+        "written: {view:?}"
+    );
+    assert_eq!(
+        copies(),
+        before + 1,
+        "the new one is there, the read-only one stays"
+    );
+    assert!(stuck.exists());
+    // An hour later (the check comes again): not due — nothing.
+    core.auto_backup_locked();
+    core.auto_backup_tick();
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert_eq!(copies(), before + 1, "no copy every hour");
+    drop(held);
+    let _ = std::fs::remove_dir_all(&folder);
+}

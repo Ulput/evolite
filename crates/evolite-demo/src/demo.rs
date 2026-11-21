@@ -279,6 +279,7 @@ pub fn demo_wallet(t: Timestamp) -> Wallet {
     };
     use ActivityKind::*;
     Wallet {
+        auto_backup: None,
         balances: Balances {
             core: 841_200_000,
             core_as_of: None,
