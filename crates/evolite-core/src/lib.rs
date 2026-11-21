@@ -1025,6 +1025,8 @@ mod tests {
 
         core.send(spend(Spend::Send {
             coins: None,
+            fee_rate: None,
+            fee_shown: None,
             id: 0,
             from: evolite_api::Source::Core,
             to: wallet.core_address.clone(),
@@ -1062,6 +1064,8 @@ mod tests {
         let started = Instant::now();
         core.send(spend(Spend::Send {
             coins: None,
+            fee_rate: None,
+            fee_shown: None,
             id: 0,
             from,
             to,
@@ -1937,6 +1941,8 @@ mod tests {
         println!("preview: {to} -> {address}");
         core.send(spend(Spend::Send {
             coins: None,
+            fee_rate: None,
+            fee_shown: None,
             id: 0,
             from: evolite_api::Source::Core,
             to,
@@ -2064,6 +2070,8 @@ mod tests {
             println!("{to}: paying {first}");
             core.send(spend(Spend::Send {
                 coins: None,
+                fee_rate: None,
+                fee_shown: None,
                 id: 0,
                 from: evolite_api::Source::Core,
                 to: to.clone(),
@@ -2411,6 +2419,8 @@ mod tests {
         for to in [ready.platform_address.clone(), second] {
             core.send(spend(Spend::Send {
                 coins: None,
+                fee_rate: None,
+                fee_shown: None,
                 id: 0,
                 from: evolite_api::Source::Credits,
                 to: to.clone(),
@@ -3349,6 +3359,8 @@ mod tests {
         let started = Instant::now();
         core.send(spend(Spend::Send {
             coins: None,
+            fee_rate: None,
+            fee_shown: None,
             id: 0,
             from: evolite_api::Source::Pool,
             to: ready.core_address.clone(),

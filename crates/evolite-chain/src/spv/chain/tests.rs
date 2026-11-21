@@ -25,7 +25,7 @@ fn a_payment_spends_only_final_coins() {
         coin.is_confirmed = confirmed;
         coin.is_instantlocked = instant;
         coin.is_trusted = trusted;
-        payment_builder(&address, 1_000_000)
+        payment_builder(&address, 1_000_000, None)
             .set_current_height(200)
             .set_change_address(address.clone())
             .add_inputs([coin])
@@ -37,6 +37,65 @@ fn a_payment_spends_only_final_coins() {
     assert!(!build(false, false, false), "someone's, unconfirmed");
     assert!(!build(false, false, true), "own change, not locked yet");
 }
+/// FEAT-0040 AC-T-F1: the rate a payment carries is the rate it is built at — at 2 000 duffs per
+/// kB the fee is twice the normal one, the same coins and outputs; none, the normal rate.
+#[test]
+fn a_payment_is_built_at_its_fee_rate() {
+    use key_wallet::dashcore::address::Payload;
+    use key_wallet::dashcore::hashes::Hash;
+    use key_wallet::dashcore::{Network, OutPoint, PubkeyHash, TxOut, Txid};
+    let address = Address::new(
+        Network::Testnet,
+        Payload::PubkeyHash(PubkeyHash::from_byte_array([2; 20])),
+    );
+    let fee = |rate: Option<u64>| {
+        let mut coin = key_wallet::Utxo::new(
+            OutPoint::new(Txid::from_byte_array([1; 32]), 0),
+            TxOut {
+                value: 5_000_000,
+                script_pubkey: address.script_pubkey(),
+            },
+            address.clone(),
+            100,
+            false,
+        );
+        coin.is_confirmed = true;
+        payment_builder(&address, 1_000_000, rate)
+            .set_current_height(200)
+            .set_change_address(address.clone())
+            .add_inputs([coin])
+            .build_unsigned_reserved()
+            .expect("builds")
+            .1
+    };
+    let normal = fee(None);
+    assert_eq!(fee(Some(evolite_api::fee_choice::NORMAL)), normal);
+    let higher = fee(Some(evolite_api::fee_choice::HIGHER));
+    assert!(higher.abs_diff(2 * normal) <= 1, "{higher} vs 2 × {normal}");
+}
+/// FEAT-0040 AC-T-F4: a payment signed with a fee over the one shown is abandoned before it is
+/// sent; at or under it, or with none shown, it goes. Mutant: the check gone, or after the
+/// broadcast.
+#[test]
+fn a_payment_whose_fee_grew_is_not_sent() {
+    let dust = evolite_api::coin_plan::DUST as u64;
+    // Change under the dust limit goes to the fee: not a fee that grew.
+    assert!(!fee_grew(452 + dust, Some(452)), "dust change passes");
+    assert!(fee_grew(452 + dust + 1, Some(452)), "grown past «at most»");
+    assert!(!fee_grew(452, Some(452)) && !fee_grew(400, Some(452)) && !fee_grew(9_999, None));
+    let source = include_str!("mod.rs");
+    let pay = &source[source.find("pub async fn pay(").expect("pay")..];
+    let check = pay
+        .find("if fee_grew(signed.fee(), fee_shown)")
+        .expect("the check");
+    let abandon = pay.find("abandon_transaction(&signed)").expect("abandoned");
+    let send = pay.find("broadcast").expect("the broadcast");
+    assert!(
+        check < abandon && abandon < send,
+        "checked and abandoned before it is sent"
+    );
+}
+
 use std::time::{Duration, Instant};
 
 /// BUG-57 r1: a lock is «added» after a restart only by a consumed row of this wallet in
@@ -1269,7 +1328,7 @@ async fn instant_lock_verified() {
         .await
         .expect("an address");
     let paid = chain
-        .pay(&wallet, &keys, &to, 10_000, None)
+        .pay(&wallet, &keys, &to, 10_000, None, (None, None))
         .await
         .expect("paid");
     println!("paid {} relayed {}", paid.txid, paid.relayed);
@@ -1709,13 +1768,13 @@ async fn a_payment_takes_no_coin_with_an_unverified_instant_lock() {
     let to = address.clone();
     assert!(
         chain
-            .funded_payment(&wallet, &keys, &to, 5_000_000, None)
+            .funded_payment(&wallet, &keys, &to, 5_000_000, None, None)
             .await
             .is_err(),
         "only the coin with the unverified lock could pay this"
     );
     let signed = chain
-        .funded_payment(&wallet, &keys, &to, 500_000, None)
+        .funded_payment(&wallet, &keys, &to, 500_000, None, None)
         .await
         .expect("the mined coin pays this");
     let spent: Vec<_> = signed
@@ -1729,7 +1788,7 @@ async fn a_payment_takes_no_coin_with_an_unverified_instant_lock() {
     chain.instant_locks.insert(unverified.outpoint.txid);
     assert!(
         chain
-            .funded_payment(&wallet, &keys, &to, 5_000_000, None)
+            .funded_payment(&wallet, &keys, &to, 5_000_000, None, None)
             .await
             .is_ok(),
         "verified, it counts"

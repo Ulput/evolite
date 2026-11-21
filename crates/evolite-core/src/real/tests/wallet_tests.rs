@@ -1263,6 +1263,52 @@ async fn a_weaker_threshold_takes_the_password() {
     );
 }
 
+/// FEAT-0040 AC-T-F3: a fee rate out of bounds is refused before the password — none typed, it
+/// is the rate that is said; one in bounds goes on to the password. AC-T-F5: the rate reaches
+/// the payment only with the advanced features on (the text: filtered in `spend`).
+#[tokio::test]
+async fn a_fee_rate_out_of_bounds_is_refused_before_the_password() {
+    let mut core = opened("fee-bounds", "right");
+    let send = |fee_rate: Option<u64>| Command::Spend {
+        op: Spend::Send {
+            id: 4,
+            from: evolite_api::Source::Core,
+            to: "yAddress".into(),
+            amount: 100_000,
+            note: None,
+            rate: None,
+            coins: None,
+            fee_rate,
+            fee_shown: None,
+        },
+        password: None,
+        ask: 0,
+        large_confirmed: false,
+    };
+    let refused_by = |e: &Option<Event>| match e {
+        Some(Event::Sent { result: Err(e), .. }) => e.clone(),
+        other => panic!("{other:?}"),
+    };
+    for rate in [999, 1_000_001] {
+        let (event, _) = core.handle(send(Some(rate))).await;
+        assert_eq!(
+            refused_by(&event),
+            CoreError::NotAvailable("The fee must be from 1,000 to 1,000,000 duffs per kB".into()),
+            "{rate}"
+        );
+    }
+    for rate in [None, Some(1_000), Some(1_000_000)] {
+        let (event, _) = core.handle(send(rate)).await;
+        assert_eq!(
+            refused_by(&event),
+            CoreError::NotAvailable(crate::PASSWORD_NEEDED.into()),
+            "{rate:?} goes on to the password"
+        );
+    }
+    let source = include_str!("../dispatch.rs");
+    assert!(source.contains("let fee_rate = fee_rate.filter(|_| self.advanced_features);"));
+}
+
 /// FEAT-0004 AC-T1 (R-31): a spend's password counts as every password of the wallet — five
 /// wrong ones pause it; the sixth, even the right one, is refused before the vault is read; the
 /// unlock of the wallet waits too; and the right one on a spend clears the count. Mutant:

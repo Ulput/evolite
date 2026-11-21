@@ -6,6 +6,7 @@
 mod coins;
 mod confirm;
 mod currency;
+mod fee;
 mod form;
 mod mixed;
 mod note;
@@ -83,6 +84,8 @@ pub struct SendForm {
     pub large_ticked: bool,
     /// The recipient `large` was for: another one takes the tick off (review r1 Should 1).
     pub large_to: String,
+    /// FEAT-0040: «Custom» as typed (R-9).
+    pub fee_custom: String,
     /// The last look stays open on the core's answer for this password (BUG-92): when it was
     /// sent, so a slow answer stops holding the dialog after [`SIGNING_HOLD`].
     pub signing: Option<std::time::Instant>,
@@ -532,6 +535,7 @@ impl Default for SendForm {
             large: None,
             large_ticked: false,
             large_to: String::new(),
+            fee_custom: String::new(),
             signing: None,
             password_wrong: false,
             refocus_password: false,
@@ -645,6 +649,8 @@ pub fn send(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut SendForm) {
         crate::format::parse_amount(&form.amount).unwrap_or(0)
     };
     let mut all = sources(cx.wallet(), &typed, for_fee);
+    // FEAT-0040 (R-7): the Core fee at the wallet's rate, everywhere it shows.
+    fee::rate_core(&mut all, fee::rate(cx, form, &typed));
     // «Mixed»: the fee of the core's plan for this very amount (FEAT-0030).
     let typed_amount = crate::format::parse_amount(&form.amount).unwrap_or(0);
     apply_quote(
@@ -687,6 +693,9 @@ pub fn send(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut SendForm) {
         });
     for command in asked.commands {
         cx.send(command);
+    }
+    if let Some(fee) = asked.fee {
+        cx.choose_fee(fee);
     }
     if let Some(amount) = asked.fund {
         cx.fund_address(amount);

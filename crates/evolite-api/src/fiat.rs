@@ -202,6 +202,8 @@ mod tests {
         let rate = usd(3_078_123_456, 1_700_000_123);
         let send = crate::Spend::Send {
             coins: None,
+            fee_rate: None,
+            fee_shown: None,
             id: 1,
             from: crate::Source::Core,
             to: "yX".into(),

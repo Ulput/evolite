@@ -931,6 +931,8 @@ fn the_price_on_record_is_the_one_the_send_form_shows() {
     };
     let send = |from, to: &str, amount| Spend::Send {
         coins: None,
+        fee_rate: None,
+        fee_shown: None,
         id: 1,
         from,
         to: to.into(),

@@ -91,6 +91,8 @@ pub struct SettingsState {
     pub switch_to: Option<evolite_api::Network>,
     /// "Remind me later" on the phrase-check reminder: not before this.
     pub remind_snoozed: Option<Timestamp>,
+    /// FEAT-0040: the wallet's fee choice for a Core payment (R-12).
+    pub fee: evolite_api::fee_choice::FeeChoice,
     /// "Restart evolite" was pressed: the app starts again (a new Core node).
     pub restart: bool,
     pub phrase_dialog: bool,
@@ -260,6 +262,7 @@ impl SettingsState {
             nodes: None,
             switch_to: None,
             remind_snoozed: None,
+            fee: Default::default(),
             restart: false,
             phrase_dialog: phrase,
             password: Zeroizing::default(),
@@ -332,6 +335,7 @@ impl SettingsState {
         let fresh = Self::new(true, self.section, false);
         self.lock_after = fresh.lock_after;
         self.remind_snoozed = None;
+        self.fee = Default::default();
         self.toggles
             .retain(|k, _| crate::prefs::APP_TOGGLES.contains(k));
         for (k, v) in fresh.toggles {
@@ -533,6 +537,7 @@ impl SettingsState {
             fiat_currency: Some(self.fiat_currency),
             remind_snoozed: self.remind_snoozed,
             lang: self.lang.map(|l| l.code().to_owned()),
+            fee_rate: self.fee.carried(),
         }
     }
 
@@ -561,6 +566,17 @@ impl SettingsState {
         }
         if prefs.remind_snoozed.is_some() {
             self.remind_snoozed = prefs.remind_snoozed;
+        }
+        // FEAT-0040: a rate out of the bounds kept by hand is no choice: «Normal».
+        if let Some(rate) = prefs
+            .fee_rate
+            .filter(|r| !evolite_api::fee_choice::refused(*r))
+        {
+            self.fee = match rate {
+                evolite_api::fee_choice::NORMAL => evolite_api::fee_choice::FeeChoice::Normal,
+                evolite_api::fee_choice::HIGHER => evolite_api::fee_choice::FeeChoice::Higher,
+                rate => evolite_api::fee_choice::FeeChoice::Custom(rate),
+            };
         }
         for (key, on) in &prefs.toggles {
             if let Some(known) = TOGGLES.iter().find(|k| **k == key.as_str()) {

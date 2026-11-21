@@ -2423,6 +2423,8 @@ mod tests {
             Command::Spend {
                 op: Spend::Send {
                     coins: None,
+                    fee_rate: None,
+                    fee_shown: None,
                     id: 0,
                     from: Source::Core,
                     to: "@alice".into(),
@@ -2462,6 +2464,8 @@ mod tests {
             Command::Spend {
                 op: Spend::Send {
                     coins: None,
+                    fee_rate: None,
+                    fee_shown: None,
                     id: 9,
                     from: Source::PlatformAddress,
                     to: own,
@@ -2495,6 +2499,8 @@ mod tests {
                 Command::Spend {
                     op: Spend::Send {
                         coins: None,
+                        fee_rate: None,
+                        fee_shown: None,
                         id: 7,
                         from: Source::PlatformAddress,
                         to: to.into(),
@@ -2561,6 +2567,8 @@ mod tests {
         vec![
             Spend::Send {
                 coins: None,
+                fee_rate: None,
+                fee_shown: None,
                 id: 0,
                 from: Source::Core,
                 to: "@alice".into(),

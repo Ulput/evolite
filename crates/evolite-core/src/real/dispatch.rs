@@ -33,11 +33,28 @@ impl Real {
                 note,
                 rate,
                 coins,
-            } => match self.send(id, from, &to, amount, (note, rate, coins)).await {
-                // The answer comes from the broadcast task.
-                Ok(()) => return (None, true),
-                Err(e) => Event::Sent { id, result: Err(e) },
-            },
+                fee_rate,
+                fee_shown,
+            } => {
+                // FEAT-0040 (AC-T-F5): with the advanced features off, the normal rate, whatever
+                // the form sent.
+                let fee_rate = fee_rate.filter(|_| self.advanced_features);
+                match self
+                    .send(
+                        id,
+                        from,
+                        &to,
+                        amount,
+                        (note, rate, coins),
+                        (fee_rate, fee_shown),
+                    )
+                    .await
+                {
+                    // The answer comes from the broadcast task.
+                    Ok(()) => return (None, true),
+                    Err(e) => Event::Sent { id, result: Err(e) },
+                }
+            }
             Spend::SendMixed {
                 id,
                 to,
@@ -362,6 +379,15 @@ impl Real {
             && let Some(why) = self.key_update_refused(identity, add, disable).await
         {
             return (Some(op.refused(why)), true);
+        }
+        // FEAT-0040 (AC-T-F3): a rate out of bounds is refused before the password.
+        if let Spend::Send {
+            fee_rate: Some(rate),
+            ..
+        } = &op
+            && evolite_api::fee_choice::refused(*rate)
+        {
+            return (Some(op.refused(fee_rate_refusal())), true);
         }
         if let Err(why) = self
             .spend_gate(password.as_ref(), op.asks_password_always())
@@ -769,4 +795,9 @@ impl Real {
         };
         (Some(event), true)
     }
+}
+
+/// FEAT-0040 (AC-T-F3): what a fee rate out of bounds is refused with.
+fn fee_rate_refusal() -> CoreError {
+    CoreError::NotAvailable(tr!("The fee must be from 1,000 to 1,000,000 duffs per kB").into())
 }

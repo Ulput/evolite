@@ -16,7 +16,15 @@ pub const LARGE_SPEND_DEFAULT: Duffs = 100_000_000;
 /// Exhaustive, no `_`: a new kind of spend does not build until it is placed here.
 pub fn outgoing(op: &Spend, fees: &Fees) -> Option<Duffs> {
     match op {
-        Spend::Send { amount, .. } => Some(*amount),
+        // With what the fee takes at its rate (FEAT-0040: «Custom» up to 1 000 000 duffs per kB
+        // makes a big payment's fee count; the architect's 11-14 AC: «amount and fee»).
+        Spend::Send {
+            amount, fee_rate, ..
+        } => {
+            let fee = fees.core_payment_for(*amount);
+            let fee = fee_rate.map_or(fee, |rate| crate::fee_choice::at_rate(fee, rate));
+            Some(amount.saturating_add(fee))
+        }
         // What the coins hold over the amount goes with the fee: it leaves the wallet too.
         Spend::SendMixed {
             amount,
@@ -141,9 +149,41 @@ mod tests {
             note: None,
             rate: None,
             coins: None,
+            fee_rate: None,
+            fee_shown: None,
         };
         let cases: Vec<(Spend, Option<Duffs>)> = vec![
-            (send, Some(150_000_000)),
+            (
+                send.clone(),
+                Some(150_000_000 + f.core_payment_for(150_000_000)),
+            ),
+            // FEAT-0040: at a chosen rate, its fee at that rate.
+            (
+                match send {
+                    Spend::Send {
+                        id,
+                        from,
+                        to,
+                        amount,
+                        note,
+                        rate,
+                        coins,
+                        ..
+                    } => Spend::Send {
+                        id,
+                        from,
+                        to,
+                        amount,
+                        note,
+                        rate,
+                        coins,
+                        fee_rate: Some(crate::fee_choice::HIGHER),
+                        fee_shown: None,
+                    },
+                    other => other,
+                },
+                Some(150_000_000 + 2 * f.core_payment_for(150_000_000)),
+            ),
             (
                 Spend::SendMixed {
                     id: 1,

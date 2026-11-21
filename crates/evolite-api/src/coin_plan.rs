@@ -142,6 +142,8 @@ mod tests {
                 coins: vec![outpoint.clone()],
                 all: true,
             }),
+            fee_rate: None,
+            fee_shown: None,
         };
         let text = format!("{send:?}");
         assert!(text.contains("Within(1 coins, all: true)"), "{text}");

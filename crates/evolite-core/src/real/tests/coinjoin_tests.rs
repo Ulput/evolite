@@ -204,6 +204,7 @@ async fn an_ordinary_payment_from_mixed_is_refused() {
             "yMrDQWqicXKL8xdJg23oYVVqKNtm5AwvXQ",
             10_000,
             (None, None, None),
+            (None, None),
         )
         .await;
     assert!(

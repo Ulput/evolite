@@ -456,6 +456,8 @@ pub(crate) mod tests {
     pub(crate) fn every_spend() -> Vec<Spend> {
         let send = |from, to: &str| Spend::Send {
             coins: None,
+            fee_rate: None,
+            fee_shown: None,
             id: 1,
             from,
             to: to.into(),

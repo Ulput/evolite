@@ -227,6 +227,7 @@ async fn a_payment_keeps_the_shown_rate_only_when_it_may() {
             "@a_b",
             1_000,
             (None, Some(usd(1, now)), None),
+            (None, None),
         )
         .await;
     assert_eq!(refused, Err(CoreError::BadName));

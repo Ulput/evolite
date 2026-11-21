@@ -34,6 +34,8 @@ pub(super) struct FormView<'a> {
     pub(super) recipient_label: String,
     pub(super) book: Vec<SavedAddress>,
     pub(super) address_ok: bool,
+    /// FEAT-0040: the «Fee» row — the wallet's choice and whether the payee is a contact.
+    pub(super) fee_row: Option<(evolite_api::fee_choice::FeeChoice, bool)>,
     pub(super) own: bool,
     pub(super) summary_to: String,
     pub(super) summary_note: Option<String>,
@@ -119,6 +121,8 @@ pub(super) struct Asked {
     pub(super) fund: Option<Duffs>,
     /// «Cancel» (BUG-169): back to where Send was entered from; the form is cleared.
     pub(super) back: bool,
+    /// FEAT-0040: another fee chosen in its row.
+    pub(super) fee: Option<evolite_api::fee_choice::FeeChoice>,
 }
 
 impl<'a> FormView<'a> {
@@ -145,7 +149,18 @@ impl<'a> FormView<'a> {
             form.source = 0;
         }
         let source = &all[form.source];
-        let fees = cx.wallet().fees.clone();
+        // FEAT-0040 (R-7): the coins chosen and «Max» count at the wallet's rate.
+        let fees = super::fee::rated(&cx.wallet().fees, super::fee::rate(cx, form, &typed));
+        // FEAT-0040: the «Fee» row, from Core with the advanced features on; to a contact, shown
+        // and not active (R-8).
+        let fee_row = (cx.advanced() && source.source == Source::Core)
+            .then(|| (cx.fee(), typed.trim().starts_with('@')));
+        // R-9: «Custom» typed wrong holds «Check» with its reason.
+        let fee_problem = fee_row
+            .filter(|(choice, contact)| {
+                !contact && matches!(choice, evolite_api::fee_choice::FeeChoice::Custom(_))
+            })
+            .and_then(|_| super::fee::custom_problem(&form.fee_custom));
         // Chosen coins are this form's for a payment from Core to an address (R-9).
         if source.source != Source::Core || form.recipient.trim().starts_with('@') {
             form.coins.reset();
@@ -417,7 +432,7 @@ impl<'a> FormView<'a> {
             left,
             synced,
             problem,
-            unavailable,
+            unavailable: unavailable.or(fee_problem.map(str::to_owned)),
             pool_to_name,
             fund_own,
             resolved_name,
@@ -431,6 +446,7 @@ impl<'a> FormView<'a> {
             recipient_label,
             book,
             address_ok,
+            fee_row,
             own,
             summary_to,
             summary_note,
@@ -462,6 +478,9 @@ pub(super) fn form_card(
         });
         source_cards(ui, a, form, v);
         super::coins::coins_row(ui, a, form, v, asked);
+        if let Some((choice, to_contact)) = v.fee_row {
+            super::fee::fee_row(ui, a, form, choice, to_contact, asked);
+        }
         ui.vertical(|ui| {
             ui.spacing_mut().item_spacing.y = 6.0;
             field_label(ui, &p, tr!("To"));

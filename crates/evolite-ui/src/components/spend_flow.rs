@@ -288,6 +288,8 @@ mod tests {
             note: None,
             rate: None,
             coins: None,
+            fee_rate: None,
+            fee_shown: None,
         };
         let mut other = SpendFlow::<()>::default();
         assert!(other.command(pay("yAlice"), false, ()).is_none());

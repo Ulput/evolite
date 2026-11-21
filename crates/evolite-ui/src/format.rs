@@ -1058,6 +1058,11 @@ mod tests {
             ("evolite-ui/src/network_choice.rs", 1, "a node's port"),
             ("evolite-ui/src/payment_uri.rs", 1, "a link's %XX escapes"),
             (
+                "evolite-ui/src/screens/send/fee.rs",
+                1,
+                "a «Custom» fee rate: whole duffs per kB, digits and spaces only — a comma or a dot refused (FEAT-0040 R-9, r1), not an amount",
+            ),
+            (
                 "evolite-ui/src/screens/tokens/state.rs",
                 1,
                 "writes an amount, does not read one",

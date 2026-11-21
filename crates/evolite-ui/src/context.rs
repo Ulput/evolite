@@ -43,6 +43,10 @@ pub struct Ctx<'a> {
     go_back: bool,
     /// «Features for advanced users» on (FEAT-0040…0046): set by `App` each frame.
     advanced: bool,
+    /// FEAT-0040: the wallet's fee choice for a Core payment, set by `App` each frame.
+    fee: evolite_api::fee_choice::FeeChoice,
+    /// FEAT-0040: a new fee choice made this frame, for `App` to keep with the wallet.
+    fee_chosen: Option<evolite_api::fee_choice::FeeChoice>,
     /// BUG-248: the open wallet has DASH locked on Core for an unfinished operation (an
     /// identity, its top-up, a funding of the Platform address, a shielding), as the core says — also while the sync has not read it yet, when [`Self::snap`] holds it
     /// back ([`crate::text::without_unknown_locks`]). Only the deletion's warning reads it: a
@@ -99,16 +103,35 @@ impl<'a> Ctx<'a> {
             back: Screen::Overview,
             go_back: false,
             advanced: false,
+            fee: Default::default(),
+            fee_chosen: None,
             unfinished_lock: false,
         }
     }
 
+    /// FEAT-0040: the wallet's fee choice (R-12).
+    pub fn fee(&self) -> evolite_api::fee_choice::FeeChoice {
+        self.fee
+    }
+
+    /// `App` says it once a frame, from the wallet's settings.
+    pub fn set_fee(&mut self, fee: evolite_api::fee_choice::FeeChoice) {
+        self.fee = fee;
+    }
+
+    /// FEAT-0040: the Send form chose another fee; `App` keeps it with the wallet.
+    pub fn choose_fee(&mut self, fee: evolite_api::fee_choice::FeeChoice) {
+        self.fee = fee;
+        self.fee_chosen = Some(fee);
+    }
+
+    /// What [`Self::choose_fee`] asked for this frame.
+    pub fn take_fee_chosen(&mut self) -> Option<evolite_api::fee_choice::FeeChoice> {
+        self.fee_chosen.take()
+    }
+
     /// Whether «Features for advanced users» is on (FEAT-0040…0046): the one question a screen
     /// asks before it shows what only that switch shows. Off by default.
-    #[allow(
-        dead_code,
-        reason = "the screens of FEAT-0040…0046 ask it; the first one takes this away"
-    )]
     pub fn advanced(&self) -> bool {
         self.advanced
     }

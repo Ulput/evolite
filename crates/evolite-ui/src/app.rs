@@ -1539,6 +1539,7 @@ impl eframe::App for App {
         cx.unfinished_lock = unfinished_lock;
         cx.back = back::back_to(self.back.as_ref(), &here, snapshot.network, self.screen);
         cx.show_advanced(self.settings.is_on("advanced"));
+        cx.set_fee(self.settings.fee);
         // By the window's width, once a frame (responsive spec R2).
         cx.bp = crate::theme::Breakpoint::of(ui.ctx().content_rect().width());
         // A countdown preset (FEAT-0002) shows the time it names.
@@ -1767,6 +1768,10 @@ impl eframe::App for App {
         // dialog is the Overview's own.
         // Drawn from the next frame: in this one the click that asked for it would close it as a
         // click outside.
+        // FEAT-0040: a fee chosen on Send is the wallet's from now on (R-12; saved with it).
+        if let Some(fee) = cx.take_fee_chosen() {
+            self.settings.fee = fee;
+        }
         let asked_now = cx.take_fund().map(|amount| {
             self.fund_address.form = Some(screens::fund_address::FundForm {
                 amount: crate::format::input_text(amount),

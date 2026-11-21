@@ -318,10 +318,31 @@ pub struct Paid {
 
 /// A payment of `amount` to `to`, not yet funded: of final coins only (in a block or
 /// InstantSend-locked), as an InstantSend lock of this payment needs them too (R-5).
-pub fn payment_builder(to: &Address, amount: u64) -> TransactionBuilder {
-    TransactionBuilder::new()
+///
+/// FEAT-0040: at `fee_rate` duffs per kB when given (a Core payment to an address, the advanced
+/// features on); else the normal rate, the builder's own.
+pub fn payment_builder(to: &Address, amount: u64, fee_rate: Option<u64>) -> TransactionBuilder {
+    let builder = TransactionBuilder::new()
         .require_final_inputs()
-        .add_output(to, amount)
+        .add_output(to, amount);
+    match fee_rate {
+        Some(rate) => builder.set_fee_rate(
+            key_wallet::wallet::managed_wallet_info::fee::FeeRate::new(rate),
+        ),
+        None => builder,
+    }
+}
+
+/// FEAT-0040 R-7: whether a payment signed with `fee` pays more than the `shown` «at most» —
+/// with change up to the dust limit that goes to the fee allowed (the architect: else a payment
+/// whose change is dust would be refused each time though nothing changed).
+pub fn fee_grew(fee: u64, shown: Option<u64>) -> bool {
+    shown.is_some_and(|shown| fee > shown.saturating_add(evolite_api::coin_plan::DUST as u64))
+}
+
+/// FEAT-0040 R-7: what a payment whose fee grew past the one shown is refused with.
+pub fn fee_changed_text() -> &'static str {
+    tr!("The fee changed — check the payment again")
 }
 
 /// The coins [`Chain::with_final_coins`] froze, with how many builds hold each.
@@ -1115,6 +1136,7 @@ impl Chain {
         to: &Address,
         amount: u64,
         chosen: Option<&evolite_api::CoinChoice>,
+        fee_rate: Option<u64>,
     ) -> Result<platform_wallet::SignedCoreTransaction, String> {
         use key_wallet::wallet::managed_wallet_info::coin_selection::SelectionStrategy;
         // The candidates are ours to give, and the accounts only keep the books (`true`): left to
@@ -1126,7 +1148,7 @@ impl Chain {
         // AC-A6); then that account signs them too, and the change goes to the first source.
         let mut sources = SEND_FUNDING_SOURCES.to_vec();
         let builder = match chosen {
-            None => payment_builder(to, amount).add_inputs(coins),
+            None => payment_builder(to, amount, fee_rate).add_inputs(coins),
             Some(choice) => {
                 let unfinished: Vec<_> = {
                     let state = wallet.state().await;
@@ -1154,7 +1176,7 @@ impl Chain {
                         key_wallet::wallet::managed_wallet_info::transaction_building::AccountTypePreference::CoinJoin,
                     );
                 }
-                payment_builder(to, amount)
+                payment_builder(to, amount, fee_rate)
                     .add_inputs(coins)
                     .set_selection_strategy(if choice.all() {
                         SelectionStrategy::All
@@ -1194,10 +1216,17 @@ impl Chain {
         to: &Address,
         amount: u64,
         chosen: Option<&evolite_api::CoinChoice>,
+        (fee_rate, fee_shown): (Option<u64>, Option<u64>),
     ) -> Result<Paid, String> {
         let signed = self
-            .funded_payment(wallet, keys, to, amount, chosen)
+            .funded_payment(wallet, keys, to, amount, chosen, fee_rate)
             .await?;
+        // FEAT-0040 R-7 (AC-T-F4): the coins moved since the last look and the fee grew past
+        // what it showed — not sent, the coins it reserved back at once.
+        if fee_grew(signed.fee(), fee_shown) {
+            wallet.core().abandon_transaction(&signed).await;
+            return Err(fee_changed_text().to_owned());
+        }
         let fee = signed.fee();
         let txid = signed.transaction().txid().to_string();
         let sent = paid_to(signed.transaction(), to);

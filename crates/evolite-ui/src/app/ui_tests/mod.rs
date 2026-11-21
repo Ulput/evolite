@@ -29,6 +29,7 @@ mod core_known;
 mod dialog_keys;
 mod dialog_scroll;
 mod dialogs;
+mod fee_choice;
 mod fiat;
 mod focus;
 mod fund_address;

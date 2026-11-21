@@ -245,6 +245,8 @@ fn every_spend() -> Vec<Spend> {
     vec![
         Spend::Send {
             coins: None,
+            fee_rate: None,
+            fee_shown: None,
             id: 0,
             from: Source::Core,
             to: "yMrDQWqicXKL8xdJg23oYVVqKNtm5AwvXQ".into(),
@@ -287,6 +289,8 @@ fn every_spend() -> Vec<Spend> {
         // `SendMixed`) — but only past the password.
         Spend::Send {
             coins: None,
+            fee_rate: None,
+            fee_shown: None,
             id: 0,
             from: Source::Mixed,
             to: "yMrDQWqicXKL8xdJg23oYVVqKNtm5AwvXQ".into(),

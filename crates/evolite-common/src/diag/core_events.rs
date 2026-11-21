@@ -296,6 +296,8 @@ mod tests {
         let record = command(&Command::Spend {
             op: Spend::Send {
                 coins: None,
+                fee_rate: None,
+                fee_shown: None,
                 id: 0,
                 from: Source::Core,
                 to: "yMrDQWqicXKL8xdJg23oYVVqKNtm5AwvXQ".into(),

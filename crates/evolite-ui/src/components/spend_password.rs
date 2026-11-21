@@ -339,6 +339,8 @@ mod tests {
     fn send() -> Spend {
         Spend::Send {
             coins: None,
+            fee_rate: None,
+            fee_shown: None,
             id: 0,
             from: Source::Core,
             to: "@alice".into(),

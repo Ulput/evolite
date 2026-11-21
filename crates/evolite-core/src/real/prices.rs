@@ -279,6 +279,8 @@ mod tests {
         seen_by(&watch, 10_000);
         let op = Spend::Send {
             coins: None,
+            fee_rate: None,
+            fee_shown: None,
             id: 11,
             from: Source::PlatformAddress,
             to: "tdash1qq7x4m9n2r8v5k3j6h0w4p2s8d5f7g9l3c0zq".into(),
@@ -329,6 +331,8 @@ mod tests {
         assert_eq!(actual, Some(6_600));
         let send = Spend::Send {
             coins: None,
+            fee_rate: None,
+            fee_shown: None,
             id: 9,
             from: Source::Credits,
             to: "@bob".into(),
@@ -359,6 +363,8 @@ mod tests {
         seen_by(&watch, 10_000);
         let op = Spend::Send {
             coins: None,
+            fee_rate: None,
+            fee_shown: None,
             id: 9,
             from: Source::Credits,
             to: "@bob".into(),
@@ -434,6 +440,8 @@ mod tests {
         seen_by(&watch, 10_000);
         let op = Spend::Send {
             coins: None,
+            fee_rate: None,
+            fee_shown: None,
             id: 3,
             from: Source::Core,
             to: "yAddress".into(),
@@ -536,6 +544,8 @@ mod tests {
         let unshield = Spend::Unshield { amount: 1 };
         let send = |id| Spend::Send {
             coins: None,
+            fee_rate: None,
+            fee_shown: None,
             id,
             from: Source::Core,
             to: "yAddress".into(),

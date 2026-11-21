@@ -37,6 +37,8 @@ pub struct Prefs {
     pub remind_snoozed: Option<i64>,
     /// The interface language (`ru`, `en`, `zh-Hans`…); none: the system's.
     pub lang: Option<String>,
+    /// FEAT-0040: the wallet's fee rate for a Core payment, duffs per kB; none: «Normal» (R-12).
+    pub fee_rate: Option<u64>,
 }
 
 /// Where the app's settings in `data_dir` live.
@@ -90,6 +92,8 @@ pub fn split(prefs: &Prefs) -> (Prefs, Prefs) {
         identity: prefs.identity.clone(),
         phrase_checked: prefs.phrase_checked,
         remind_snoozed: prefs.remind_snoozed,
+        // FEAT-0040 (R-12): the wallet's, never the app's.
+        fee_rate: prefs.fee_rate,
         ..Prefs::default()
     };
     (app, wallet)
@@ -186,9 +190,13 @@ mod tests {
             number_style: Some(2),
             fiat_currency: Some(1),
             remind_snoozed: Some(1_794_009_600),
+            fee_rate: Some(2_000),
         };
         save(&path, &prefs).unwrap();
         assert_eq!(load(&path), prefs);
+        // FEAT-0040 (R-12): the fee rate is the wallet's, never the app's.
+        let (app, wallet) = split(&prefs);
+        assert_eq!((app.fee_rate, wallet.fee_rate), (None, Some(2_000)));
     }
 
     #[test]

@@ -49,6 +49,9 @@ pub(super) fn confirm(
     // the person must agree to it — or its refusal (P4).
     let mixed_quote = form.mixed.quote_for(&to, amount).cloned();
     let mut all = sources(cx.wallet(), &to, amount);
+    // FEAT-0040 (R-7): the same rate as the form, shown and signed.
+    let fee_rate = super::fee::rate(cx, form, &to);
+    super::fee::rate_core(&mut all, fee_rate);
     apply_quote(&mut all, usable(mixed_quote.as_ref()));
     let source = &all[form.source.min(all.len() - 1)];
     let from_mixed = source.source == Source::Mixed;
@@ -67,6 +70,8 @@ pub(super) fn confirm(
         },
         None => Spend::Send {
             coins: None,
+            fee_rate: None,
+            fee_shown: None,
             id: 0,
             from: source.source,
             to: to.clone(),
@@ -149,7 +154,7 @@ pub(super) fn confirm(
                     form,
                     (&coin_plan, &mixed, mixed_refused),
                     (amount, rate, from_mixed),
-                    source,
+                    (source, fee_rate),
                 );
                 if form.large.is_some() && mixed_refused.is_none() {
                     crate::components::checkbox(
@@ -714,6 +719,24 @@ fn sign_and_send(
     (amount, rate): (Duffs, Option<&super::currency::Rate>),
     ask_password: bool,
 ) {
+    // FEAT-0040: the rate the last look showed (none: the normal one).
+    let fee_rate = super::fee::rate(cx, form, &to);
+    // R-7 (AC-T-F4): the fee «at most» the last look showed, at its rate — the coins' plan
+    // when coins are chosen, else Core's (the architect: always, from Core).
+    let fee_shown = (from == Source::Core).then(|| {
+        let fees = super::fee::rated(&cx.wallet().fees, fee_rate);
+        let chosen = form.coins.chosen_coins();
+        if chosen.is_empty() {
+            let mut all = sources(cx.wallet(), &to, amount);
+            super::fee::rate_core(&mut all, fee_rate);
+            all.iter()
+                .find(|s| s.source == Source::Core)
+                .map_or(fees.core_payment, |s| s.fee)
+        } else {
+            super::coins::plan(&chosen, amount, form.max, &fees)
+                .map_or(fees.core_payment, |plan| plan.fee)
+        }
+    });
     form.sent_to = to.clone();
     // The password goes to the core and is wiped here at once.
     form.last_payment += 1;
@@ -721,6 +744,8 @@ fn sign_and_send(
         op: Spend::Send {
             // The coins chosen, «Max» spending them all (FEAT-0013); none: the wallet chooses.
             coins: form.coins.choice(form.max),
+            fee_rate,
+            fee_shown,
             id: form.last_payment,
             from,
             to,
@@ -755,7 +780,7 @@ fn summary(
         Option<(Duffs, Duffs)>,
     ),
     (amount, rate, from_mixed): (Duffs, Option<&super::currency::Rate>, bool),
-    source: &super::source::SourceView,
+    (source, fee_rate): (&super::source::SourceView, Option<u64>),
 ) {
     let p = a.p;
     match coin_plan {
@@ -791,6 +816,24 @@ fn summary(
             matches!(source.source, Source::Credits | Source::PlatformAddress),
             rate,
         ),
+    }
+    // FEAT-0040 (R-7): the rate it is signed at, in words and digits; R-3a: a fee over the
+    // payment is said (one zero too many), not refused.
+    if let Some(fee_rate) = fee_rate.filter(|_| source.source == Source::Core) {
+        ui.label(txt(
+            &super::fee::shown(fee_rate),
+            12.0,
+            Weight::Regular,
+            p.muted,
+        ));
+        if source.fee > amount {
+            ui.label(txt(
+                tr!("The fee is more than the payment"),
+                12.0,
+                Weight::Regular,
+                p.danger,
+            ));
+        }
     }
     ui.label(txt(
         tr!("A payment cannot be undone."),

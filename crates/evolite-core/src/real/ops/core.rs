@@ -162,6 +162,7 @@ impl Real {
         to: &str,
         amount: Duffs,
         (note, rate, coins): (Option<NoteText>, Option<FiatRate>, Option<CoinChoice>),
+        (fee_rate, fee_shown): (Option<u64>, Option<Duffs>),
     ) -> Result<(), CoreError> {
         let open = self
             .unlocked
@@ -240,7 +241,12 @@ impl Real {
             .iter()
             .map(|u| u.value())
             .collect();
+        // FEAT-0040: at the chosen rate, for a payment to an address (a contact's is normal).
+        let fee_rate = fee_rate.filter(|_| matches!(payee, CorePayee::Address(_)));
+        // R-7 (AC-T-F4): never more than the fee the last look showed (with dust change).
+        let fee_shown = fee_shown.map(|d| d.max(0) as u64);
         let fee = payment_fee(values, amount as Duffs);
+        let fee = fee_rate.map_or(fee, |rate| evolite_api::fee_choice::at_rate(fee, rate));
         let key = self
             .outgoing
             .lock()
@@ -263,7 +269,14 @@ impl Real {
             let paid = match (&payee, shown) {
                 (CorePayee::Address(address), _) => {
                     chain
-                        .pay(&wallet, &keys, address, amount, coins.as_ref())
+                        .pay(
+                            &wallet,
+                            &keys,
+                            address,
+                            amount,
+                            coins.as_ref(),
+                            (fee_rate, fee_shown),
+                        )
                         .await
                 }
                 (CorePayee::Contact(to), shown) => {

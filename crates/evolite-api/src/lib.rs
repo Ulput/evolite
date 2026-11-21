@@ -20,6 +20,7 @@ pub mod coin_plan;
 pub mod confirm;
 pub mod contracts;
 pub mod features;
+pub mod fee_choice;
 pub mod fiat;
 pub mod key_plan;
 pub mod lock_coins;
@@ -2555,6 +2556,16 @@ pub enum Spend {
         /// From Core only: the coins the payment may take, chosen by the person (FEAT-0013);
         /// `None`, the wallet chooses as before (R-2).
         coins: Option<CoinChoice>,
+        /// FEAT-0040: from Core to an address only, with «Features for advanced users» on — the
+        /// fee rate in duffs per kB ([`fee_choice`]); `None`, the normal one. Refused before the
+        /// password outside [`fee_choice::MIN`]..=[`fee_choice::MAX`]; a contact's payment, a
+        /// lock and mixed coins never take it.
+        fee_rate: Option<u64>,
+        /// FEAT-0040 (R-7, AC-T-F4): the fee «at most» Core's last look showed; a payment to
+        /// an address signed with a higher one (beyond change of dust) is not sent («The fee
+        /// changed»). A payment to a contact is built at the normal rate and not checked
+        /// against it yet (review r1, Could 1). `None` only where no fee is shown.
+        fee_shown: Option<Duffs>,
     },
     /// Pay exactly `amount` to the Dash address `to` from «Mixed» (FEAT-0030 phase A): fully
     /// mixed coins of the CoinJoin account only, never with other coins, no change. What the
