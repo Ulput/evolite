@@ -64,6 +64,8 @@ pub struct ModelForm {
     asked: Option<(NewModel, u32)>,
     changed_at: f64,
     plan: Option<((NewModel, u32), Result<SeriesPlan, CoreError>)>,
+    /// BUG-266: when a «not synced» plan was first seen; it is asked again.
+    not_synced_at: Option<f64>,
     review: bool,
     pub(crate) flow: SpendFlow<Signed>,
 }
@@ -372,6 +374,12 @@ pub(super) fn page(
         }
     }
     let now = ui.input(|i| i.time);
+    // BUG-266: «wait for the sync» is not the last word: asked again a moment later.
+    let said = matches!(form.planned(), Some(Err(CoreError::NotSynced)));
+    if super::retry_not_synced(ui, now, said, &mut form.not_synced_at) {
+        form.asked = None;
+        form.plan = None;
+    }
     // The core checks the model once the form rests on something it has not checked.
     if let Some(draft) = form.draft().filter(|_| form.mismatch.is_none())
         && form.asked.as_ref() != Some(&draft)

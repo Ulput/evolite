@@ -22,6 +22,37 @@ use egui::{Align, Layout, Sense, Ui, vec2};
 use evolite_api::workshop::{Collection, ModelCounts, WorkshopAsk, WorkshopRead};
 use evolite_api::{Command, CoreError};
 
+/// BUG-266: how long a «wait for the sync» answer stands before the core is asked again.
+const RETRY_NOT_SYNCED: f64 = 3.0;
+
+/// BUG-266: a form's check answered «not synced» is asked again — the sync or Platform may be
+/// ready a moment later, and the form asked only when it changed, so the error stayed after
+/// the sync. `said`: the answer to what the form shows now is `CoreError::NotSynced`;
+/// `seen_at`: when it was first seen. Whether to drop the answer and ask anew.
+pub(super) fn retry_not_synced(ui: &Ui, now: f64, said: bool, seen_at: &mut Option<f64>) -> bool {
+    let due = not_synced_retry_due(now, said, seen_at);
+    if seen_at.is_some() {
+        ui.ctx()
+            .request_repaint_after(std::time::Duration::from_secs_f64(RETRY_NOT_SYNCED));
+    }
+    due
+}
+
+/// [`retry_not_synced`] without the frame it asks for (a screen that is drawn again anyway):
+/// whether the «not synced» answer has stood its time (`now`, seconds) and is to be asked again.
+pub(crate) fn not_synced_retry_due(now: f64, said: bool, seen_at: &mut Option<f64>) -> bool {
+    if !said {
+        *seen_at = None;
+        return false;
+    }
+    let at = *seen_at.get_or_insert(now);
+    if now - at >= RETRY_NOT_SYNCED {
+        *seen_at = None;
+        return true;
+    }
+    false
+}
+
 #[cfg(feature = "dev-tools")]
 pub use model_page::Action as SeriesAction;
 pub use model_page::SeriesForm;
@@ -466,4 +497,23 @@ fn tag_chip(ui: &mut Ui, p: &crate::theme::Palette, label: &str) {
         font,
         p.muted,
     );
+}
+
+#[cfg(test)]
+mod retry_tests {
+    use super::*;
+
+    /// BUG-266: «not synced» is asked again after its time, from when it was first seen; another
+    /// answer forgets it.
+    #[test]
+    fn a_not_synced_answer_is_asked_again_after_its_time() {
+        let mut seen = None;
+        assert!(!not_synced_retry_due(10.0, true, &mut seen), "first seen");
+        assert!(!not_synced_retry_due(12.9, true, &mut seen));
+        assert!(not_synced_retry_due(13.0, true, &mut seen), "its time");
+        assert_eq!(seen, None, "counted again from the next answer");
+        assert!(!not_synced_retry_due(14.0, true, &mut seen));
+        assert!(!not_synced_retry_due(20.0, false, &mut seen), "answered");
+        assert_eq!(seen, None);
+    }
 }

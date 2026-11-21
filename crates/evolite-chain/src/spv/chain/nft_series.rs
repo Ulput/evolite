@@ -253,9 +253,9 @@ impl Chain {
         kind: crate::platform::nft_series::image::ImageType,
     ) -> Result<usize, String> {
         let sdk = self.sdk().await?;
-        let protocol = sdk
-            .protocol_version_info()
-            .verified_version
+        let protocol = self
+            .known_protocol(&sdk)
+            .await
             .ok_or("the network's version is not known yet")?;
         let pv = crate::contract_v1::version_for(protocol).map_err(|r| format!("{r:?}"))?;
         crate::platform::nft_series::room::picture_room(name, description, supply, kind, pv).await

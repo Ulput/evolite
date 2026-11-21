@@ -31,6 +31,8 @@ pub struct NewCollection {
     changed_at: f64,
     /// The core's check of the draft it names.
     check: Option<(ContractDraft, Result<ContractCheck, CoreError>)>,
+    /// BUG-266: when a «not synced» check was first seen; it is asked again.
+    not_synced_at: Option<f64>,
     /// W3 open.
     review: bool,
     /// What was signed: the name, the identity, the fee; then the answer.
@@ -216,6 +218,12 @@ pub(super) fn page(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut Worksh
     // Ask the core again once the form rests on a draft it has not checked.
     let draft = form.draft();
     let fits = name_problem(&form.name).is_none();
+    // BUG-266: «wait for the sync» is not the last word: asked again a moment later.
+    let said = matches!(form.checked(), Some(Err(CoreError::NotSynced)));
+    if super::retry_not_synced(ui, now, said, &mut form.not_synced_at) {
+        form.asked = None;
+        form.check = None;
+    }
     if fits && form.asked.as_ref() != Some(&draft) {
         if now - form.changed_at >= SETTLE_SECS {
             form.asked = Some(draft.clone());

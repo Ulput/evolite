@@ -39,6 +39,8 @@ pub struct SeriesForm {
     asked: Option<SeriesKind>,
     changed_at: f64,
     plan: Option<(SeriesKind, Result<SeriesPlan, CoreError>)>,
+    /// BUG-266: when a «not synced» plan was first seen; it is asked again.
+    not_synced_at: Option<f64>,
     pub(crate) flow: SpendFlow<()>,
 }
 
@@ -54,6 +56,7 @@ impl SeriesForm {
             asked: None,
             changed_at: 0.0,
             plan: None,
+            not_synced_at: None,
             flow: SpendFlow::default(),
         }
     }
@@ -464,6 +467,12 @@ fn series_window(
         return;
     }
     let now = ui.input(|i| i.time);
+    // BUG-266: «wait for the sync» is not the last word: asked again a moment later.
+    let said = matches!(form.planned(), Some(Err(CoreError::NotSynced)));
+    if super::retry_not_synced(ui, now, said, &mut form.not_synced_at) {
+        form.asked = None;
+        form.plan = None;
+    }
     if let Some(kind) = form.kind()
         && form.asked.as_ref() != Some(&kind)
     {

@@ -408,3 +408,32 @@ fn a_copy_that_took_too_long_can_be_tried_again() {
         has_words(kit, "Reduced: 512×341")
     });
 }
+
+/// BUG-266: the core's first check says «wait for the sync to finish» (the sync ends after the
+/// form opened); the form asks again by itself — the price comes and the red words go, with no
+/// change to the form.
+#[test]
+fn a_check_said_not_synced_is_asked_again() {
+    let (_turn, mut kit) = demo_app("workshop", "en");
+    wait_for(&mut kit, "W1", |kit| has_text(kit, "Seasons of the city"));
+    button(&kit, "Create NFT").click();
+    wait_for(&mut kit, "W2", |kit| has_text(kit, "Collection rules"));
+    // The demo answers this name «not synced» once.
+    type_into(&mut kit, "Collection name", "Sync pending");
+    wait_for(&mut kit, "the «not synced» answer", |kit| {
+        has_words(kit, "wait for the sync to finish")
+    });
+    assert!(button(&kit, "Check").accesskit_node().is_disabled());
+    wait_for(&mut kit, "the check asked again", |kit| {
+        !button(kit, "Check").accesskit_node().is_disabled()
+    });
+    assert!(
+        has_words(&kit, "≈ 0.19"),
+        "the price: {:?}",
+        painted_texts(&kit)
+    );
+    assert!(
+        !has_words(&kit, "wait for the sync to finish"),
+        "the stale words are gone"
+    );
+}

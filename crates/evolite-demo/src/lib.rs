@@ -111,6 +111,9 @@ struct Mock {
     /// Collections «registered» in this run (FEAT-0038 W2): their ids and names, listed by the
     /// Workshop's reading after the example's.
     collections_made: Vec<(String, String)>,
+    /// BUG-266: the check of a collection named [`workshop::SYNC_PENDING`] said «not synced»
+    /// once — as a sync that ends after the form was opened.
+    not_synced_said: bool,
     /// FEAT-0041 r1: the wallet being added was asked for from an open one.
     adding_open: bool,
     /// FEAT-0041: the BIP-39 passphrase of each wallet that has one (NFKD), by its id.
@@ -449,27 +452,39 @@ impl Mock {
                 let evolite_api::contracts::ContractDraft::NftCollection {
                     keywords,
                     main_contract,
-                    ..
+                    description,
                 } = &draft;
+                // BUG-266: the first check of this name is «not synced»; the next one answers.
+                let pending =
+                    description.as_deref() == Some(workshop::SYNC_PENDING) && !self.not_synced_said;
                 // «Belongs to a contract» (W2): any id of base58 letters is the example game's.
                 let main = main_contract.as_deref().map(workshop::main_contract);
-                Event::ContractChecked {
-                    identity,
-                    result: Ok(evolite_api::contracts::ContractCheck {
-                        fee: Some(evolite_api::contracts::ContractFee {
-                            base: 10_000_000,
-                            document_types: 6_000_000,
-                            indexes: 3_000_000,
-                            tokens: 0,
-                            keywords: 10_000_000 * keywords.len() as Duffs,
-                            per_keyword: 10_000_000,
-                            storage: 414_290,
-                            about: if main.is_some() { 87_000 } else { 0 },
+                if pending {
+                    self.not_synced_said = true;
+                    Event::ContractChecked {
+                        identity,
+                        result: Err(CoreError::NotSynced),
+                        draft,
+                    }
+                } else {
+                    Event::ContractChecked {
+                        identity,
+                        result: Ok(evolite_api::contracts::ContractCheck {
+                            fee: Some(evolite_api::contracts::ContractFee {
+                                base: 10_000_000,
+                                document_types: 6_000_000,
+                                indexes: 3_000_000,
+                                tokens: 0,
+                                keywords: 10_000_000 * keywords.len() as Duffs,
+                                per_keyword: 10_000_000,
+                                storage: 414_290,
+                                about: if main.is_some() { 87_000 } else { 0 },
+                            }),
+                            refusal: main.clone().and_then(Result::err),
+                            main_description: main.and_then(Result::ok),
                         }),
-                        refusal: main.clone().and_then(Result::err),
-                        main_description: main.and_then(Result::ok),
-                    }),
-                    draft,
+                        draft,
+                    }
                 }
             }
             // FEAT-0038: a plan as the real core makes it, on serials from 1 and the probe's
@@ -2187,6 +2202,7 @@ pub fn run(
         passphrases: HashMap::new(),
         made: Vec::new(),
         collections_made: Vec::new(),
+        not_synced_said: false,
     };
     let send_snapshot = |mock: &Mock| {
         let _ = out.send(Event::Snapshot(Box::new(mock.shown())));
@@ -2254,6 +2270,7 @@ mod tests {
             passphrases: HashMap::new(),
             made: Vec::new(),
             collections_made: Vec::new(),
+            not_synced_said: false,
         };
         (m, tx, rx)
     }

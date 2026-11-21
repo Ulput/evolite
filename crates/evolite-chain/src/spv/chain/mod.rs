@@ -931,6 +931,23 @@ impl Chain {
         Ok(self.manager().await?.sdk_arc())
     }
 
+    /// BUG-266: the network's protocol as a proved, signed answer showed it — learned now with
+    /// one proved read (the current epoch) when this run has none yet. The SDK learns it from any
+    /// proved answer, but a check that read nothing proved before (credits from the store) found
+    /// it unknown and said «wait for the sync» long after the sync. `None` only when the read
+    /// failed.
+    pub async fn known_protocol(&self, sdk: &dash_sdk::Sdk) -> Option<u32> {
+        if let Some(known) = sdk.protocol_version_info().verified_version {
+            return Some(known);
+        }
+        if self.ready().is_ok() {
+            use dash_sdk::platform::fetch_current_no_parameters::FetchCurrent;
+            // Failed: still unknown, and the caller says so.
+            let _ = dpp::block::extended_epoch_info::ExtendedEpochInfo::fetch_current(sdk).await;
+        }
+        sdk.protocol_version_info().verified_version
+    }
+
     /// Proofs of Platform data can be checked: our masternode lists, and so the quorum keys,
     /// are in. Asking before that fails, and the SDK would hold it against the node it asked.
     pub fn platform_ready(&self) -> bool {

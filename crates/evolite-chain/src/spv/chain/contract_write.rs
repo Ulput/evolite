@@ -52,10 +52,15 @@ impl<'c> Writer<'c> {
 
 impl Network for Writer<'_> {
     async fn credits(&self, owner: &Identifier) -> Result<u64, String> {
-        self.chain
+        let credits = self
+            .chain
             .identity_credits(self.wallet, owner, true)
             .await
-            .ok_or_else(|| "the identity's credits were not read".to_owned())
+            .ok_or_else(|| "the identity's credits were not read".to_owned())?;
+        // BUG-266: the protocol is taken right after; learned with a proved read if this run
+        // has none yet, not «wait for the sync» while synced.
+        self.chain.known_protocol(&self.sdk).await;
+        Ok(credits)
     }
 
     fn protocol(&self) -> Seen {

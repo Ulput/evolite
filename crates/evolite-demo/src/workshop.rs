@@ -7,6 +7,9 @@ use evolite_api::workshop::{
 
 pub const CONTRACT: &str = "FzKL9288ZzoQcXKWvXc6kRwbNciboLpJnX4egZo9iz9P";
 pub const MODEL: &str = "7Yowk46VwwHqmD5yZyyygggh937aP6h2UW7aQWBdWpM5";
+/// BUG-266: a collection of this name is checked «not synced» the first time, as when the sync
+/// ends after the form was opened; the next check answers.
+pub const SYNC_PENDING: &str = "Sync pending";
 const AT: i64 = 1_763_600_000;
 
 /// The example's instances: numbers 1–12, every third for sale at 0.001 DASH in credits.

@@ -24,6 +24,8 @@ pub struct MixedPay {
     /// whether refused; and the frames still to bring it.
     pub revealed: Option<(Duffs, bool)>,
     pub reveal: u8,
+    /// BUG-266: when a «not synced» plan was first seen; it is asked again.
+    pub not_synced_at: Option<f64>,
     /// The refusal under «Amount» last brought into view (S3): its excess and suggested amount.
     pub refusal_revealed: Option<(Duffs, Duffs)>,
 }

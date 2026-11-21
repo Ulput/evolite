@@ -203,6 +203,21 @@ impl<'a> FormView<'a> {
         // From «Mixed» (FEAT-0030): the core plans each amount and recipient; a name or Platform
         // is refused before it is asked.
         let to_core = !typed.is_empty() && !typed.starts_with('@') && !platform_typed;
+        // BUG-266: a plan answered «wait for the sync» is asked again a moment later.
+        if source.source == Source::Mixed {
+            let said = matches!(
+                form.mixed.quote_for(&typed, amount.unwrap_or(0)),
+                Some(Err(CoreError::NotSynced))
+            );
+            let now = cx.now.timestamp_millis() as f64 / 1000.0;
+            if crate::screens::workshop::not_synced_retry_due(
+                now,
+                said,
+                &mut form.mixed.not_synced_at,
+            ) {
+                form.mixed.ask_again();
+            }
+        }
         if source.source == Source::Mixed
             && to_core
             && let Some(amount) = amount
