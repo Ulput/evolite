@@ -27,6 +27,14 @@ struct Seen {
     /// never again. One cut short (the app closed mid-way) is asked for at the next start.
     #[serde(default)]
     rescanned: bool,
+    /// FEAT-0046 R-8, R-10 (AC-T-T6): broadcast again from here — at this block (the count of
+    /// [`STALE_AFTER`] starts there again) and this time (shown in the card, after a restart
+    /// too). A file without them reads as never; an older build drops them, and the count only
+    /// starts from the sighting again.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    resent_height: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    resent_at: Option<Timestamp>,
 }
 
 pub struct MempoolSeen {
@@ -46,11 +54,35 @@ impl MempoolSeen {
         }
     }
 
+    /// A file that does not read is set aside, not written over (FEAT-0046, as BUG-235): its
+    /// sightings are lost, the payments' are seen again.
     fn load(&self) -> HashMap<String, Seen> {
-        crate::json_file::read(&self.path)
-            .ok()
-            .and_then(|b| serde_json::from_slice(&b).ok())
+        crate::json_file::read_cache(&self.path, |b| serde_json::from_slice(b).ok())
             .unwrap_or_default()
+    }
+
+    /// FEAT-0046: `txid` was broadcast again at block `tip`, at `now`. The «not confirmed» count
+    /// starts again from `tip` (R-8). A payment not sighted yet is kept from now.
+    pub fn resent(&self, txid: &str, tip: u32, now: Timestamp) {
+        let mut guard = self.seen.lock().unwrap_or_else(|e| e.into_inner());
+        let seen = guard.get_or_insert_with(|| self.load());
+        let entry = seen.entry(txid.to_owned()).or_insert(Seen {
+            at: now,
+            height: tip,
+            rescanned: false,
+            resent_height: None,
+            resent_at: None,
+        });
+        entry.resent_height = Some(tip);
+        entry.resent_at = Some(now);
+        let _ = crate::json_file::save(&self.path, seen);
+    }
+
+    /// FEAT-0046: when `txid` was last broadcast again from here.
+    pub fn resent_at(&self, txid: &str) -> Option<Timestamp> {
+        let mut guard = self.seen.lock().unwrap_or_else(|e| e.into_inner());
+        let seen = guard.get_or_insert_with(|| self.load());
+        seen.get(txid).and_then(|s| s.resent_at)
     }
 
     /// When `txid` was first seen: kept from an earlier run, or `now` (at block `tip`) now.
@@ -71,6 +103,8 @@ impl MempoolSeen {
                 at: now,
                 height: tip,
                 rescanned: false,
+                resent_height: None,
+                resent_at: None,
             },
         );
         let _ = crate::json_file::save(&self.path, seen);
@@ -117,10 +151,15 @@ impl MempoolSeen {
                 .as_deref()
                 .and_then(|t| seen.get(t))
                 .is_some_and(|s| {
-                    if tip == 0 || s.height == 0 {
-                        now.saturating_sub(s.at) >= STALE_SECS
+                    // R-8: after a broadcast again the count starts from it.
+                    let (at, height) = match (s.resent_at, s.resent_height) {
+                        (Some(at), Some(height)) => (at, height),
+                        _ => (s.at, s.height),
+                    };
+                    if tip == 0 || height == 0 {
+                        now.saturating_sub(at) >= STALE_SECS
                     } else {
-                        tip >= s.height + STALE_AFTER
+                        tip >= height + STALE_AFTER
                     }
                 });
             if old {
@@ -214,6 +253,42 @@ mod tests {
             rate: None,
             tax_transfer: false,
         }
+    }
+
+    /// FEAT-0046 AC-T-T6 (R-8, R-10): a file from before (no resend fields) reads; after a
+    /// broadcast again the «not confirmed» count starts from its block, and its time is kept
+    /// after a restart; a file that does not read is set aside, not written over.
+    #[test]
+    fn a_broadcast_again_starts_the_count_anew() {
+        let dir = std::env::temp_dir().join(format!("evolite-mempool-46-{}", std::process::id()));
+        let path = dir.join("mempool-seen.json");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(&path, br#"{"aa":{"at":1000,"height":500}}"#).unwrap();
+        let seen = MempoolSeen::new(path.clone());
+        let mut h = vec![waiting("aa", Proof::Mempool)];
+        seen.mark_stale(&mut h, 500 + STALE_AFTER, 1_000);
+        assert_eq!(h[0].proof, Proof::Unconfirmed, "the old file reads");
+        seen.resent("aa", 520, 4_000);
+        let mut h = vec![waiting("aa", Proof::Mempool)];
+        seen.mark_stale(&mut h, 520 + STALE_AFTER - 1, 4_000);
+        assert_eq!(
+            h[0].proof,
+            Proof::Mempool,
+            "counted from the broadcast again"
+        );
+        seen.mark_stale(&mut h, 520 + STALE_AFTER, 4_000);
+        assert_eq!(h[0].proof, Proof::Unconfirmed, "12 blocks after it");
+        assert_eq!(MempoolSeen::new(path.clone()).resent_at("aa"), Some(4_000));
+        // Damaged: set aside, its bytes kept.
+        std::fs::write(&path, b"{not json").unwrap();
+        assert_eq!(MempoolSeen::new(path.clone()).resent_at("aa"), None);
+        let aside = std::fs::read_dir(&dir)
+            .unwrap()
+            .flatten()
+            .any(|e| e.file_name().to_string_lossy().contains("unreadable"));
+        assert!(aside, "set aside");
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]

@@ -595,6 +595,12 @@ impl Real {
         convert::settle(&mut history, self.chain.status().chainlock_height);
         // BUG-173: own InstantLocks kept across a restart; «Confirmed · checking» from them.
         self.keep_instant_locks(&mut history);
+        // FEAT-0046 R-10: when each payment was broadcast again from here, for its card.
+        for a in history.iter_mut() {
+            if let (Some(txid), Some(detail)) = (a.txid.as_deref(), a.detail.as_mut()) {
+                detail.resent_at = self.mempool.resent_at(txid);
+            }
+        }
         self.mempool.mark_stale(
             &mut history,
             self.chain.status().headers.map_or(0, |h| h.height),

@@ -102,6 +102,8 @@ struct Mock {
     adding_from: Option<String>,
     /// Wrong passwords of the demo wallets, in memory (FEAT-0002).
     tries: evolite_common::attempts::Ledger,
+    /// FEAT-0046 AC-A1: how many payments were broadcast again (the demo's nodes).
+    pub(crate) rebroadcasts: u32,
     /// FEAT-0045: the backups «saved», in memory by path — the notes they hold, by line.
     backups: std::collections::BTreeMap<std::path::PathBuf, Vec<(String, String)>>,
     /// Collections «registered» in this run (FEAT-0038 W2): their ids and names, listed by the
@@ -858,6 +860,55 @@ impl Mock {
                 };
                 Event::Done {
                     what: DoneWhat::Note,
+                    result,
+                    ask: None,
+                }
+            }
+            // FEAT-0046: as the real core — behind the switch, once a minute, only a payment of
+            // ours that may go again; the line waits anew.
+            Command::Rebroadcast { txid } => {
+                let now = evolite_common::now();
+                let advanced = self.snapshot.advanced_features;
+                let line = self.snapshot.wallet.as_mut().and_then(|w| {
+                    w.activity
+                        .iter_mut()
+                        .find(|a| a.txid.as_deref() == Some(txid.as_str()))
+                });
+                let result = match line {
+                    _ if !advanced => {
+                        Err(CoreError::NotAvailable(evolite_common::ADVANCED_OFF.into()))
+                    }
+                    // R-5 as the real core's by its record: out, or between own addresses.
+                    Some(a)
+                        if a.chain == evolite_api::Chain::Core
+                            && matches!(
+                                a.kind,
+                                evolite_api::ActivityKind::Sent { .. }
+                                    | evolite_api::ActivityKind::SelfTransfer { .. }
+                            )
+                            && a.detail.is_some() =>
+                    {
+                        let detail = a.detail.as_mut().expect("checked");
+                        match detail.resent_at {
+                            Some(at) if now - at < 60 => Err(CoreError::NotAvailable(format!(
+                                tr!("You can again in {} s"),
+                                60 - (now - at)
+                            ))),
+                            _ => {
+                                detail.resent_at = Some(now);
+                                a.proof = evolite_api::Proof::Mempool;
+                                self.rebroadcasts += 1;
+                                changed = true;
+                                Ok(())
+                            }
+                        }
+                    }
+                    _ => Err(CoreError::NotAvailable(
+                        tr!("This payment cannot be broadcast again").into(),
+                    )),
+                };
+                Event::Done {
+                    what: DoneWhat::Rebroadcast,
                     result,
                     ask: None,
                 }
@@ -2093,6 +2144,7 @@ pub fn run(
         artist: Some(Artist::start(out.clone(), wake.clone(), art)),
         adding_from: None,
         tries: Default::default(),
+        rebroadcasts: 0,
         backups: Default::default(),
         adding_open: false,
         passphrases: HashMap::new(),
@@ -2159,6 +2211,7 @@ mod tests {
             artist: None,
             adding_from: None,
             tries: Default::default(),
+            rebroadcasts: 0,
             backups: Default::default(),
             adding_open: false,
             passphrases: HashMap::new(),

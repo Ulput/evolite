@@ -1048,9 +1048,8 @@ pub fn proof_hint(p: Proof) -> &'static str {
             tr!("In the mempool: the network has the payment, but it is not confirmed yet.")
         }
         Proof::Sending => tr!("The payment was handed to the network; its answer is awaited."),
-        Proof::Unconfirmed => {
-            tr!("The network has not confirmed this payment. Do not send it again yet.")
-        }
+        // FEAT-0046 R-3: not «do not send it again» — the card offers to broadcast it again.
+        Proof::Unconfirmed => crate::screens::activity_resend::LONG_UNCONFIRMED,
     }
 }
 

@@ -209,7 +209,7 @@ pub const PRESETS: &[&str] = &[
     "activity-card-self", "activity-card-received",
     "activity-card-name", "activity-card-withdrawal-waiting", "activity-card-withdrawal-paid",
     "activity-card-payout", "activity-card-lock-not-added", "activity-card-shield",
-    "activity-card-old", "activity-card-pool-sent", "activity-card-pool-received",
+    "activity-card-old", "activity-card-stuck", "activity-card-pool-sent", "activity-card-pool-received",
     "activity-card-top-up", "activity-card-lock-used", "activity-card-lock-partly",
     "activity-card-lock-not-received", "activity-card-lock-unknown",
     "activity-card-long-title", "activity-fee-unknown",
@@ -353,6 +353,7 @@ fn dev_args<'a>(
                 | "activity-card-lock-not-added"
                 | "activity-card-shield"
                 | "activity-card-old"
+                | "activity-card-stuck"
                 | "activity-card-pool-sent"
                 | "activity-card-pool-received"
                 | "activity-card-top-up"

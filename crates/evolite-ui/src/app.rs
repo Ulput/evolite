@@ -806,6 +806,11 @@ impl App {
                     result,
                     ..
                 } => screens::activity_tax::on_tax_done(ctx, result),
+                Event::Done {
+                    what: DoneWhat::Rebroadcast,
+                    result,
+                    ..
+                } => screens::activity_resend::on_resend_done(ctx, result),
                 // BUG-204: «Try again» / «Start over» on a file set aside.
                 Event::Done {
                     what: DoneWhat::LocalFile,

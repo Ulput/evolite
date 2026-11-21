@@ -409,6 +409,13 @@ pub struct Activity {
 pub struct Detail {
     /// What proved it, said in words: a verified InstantLock or a ChainLock (BUG-26).
     pub confirm: Option<Confirm>,
+    /// FEAT-0046 R-5: a payment of this wallet that «Broadcast again» may send once more — a
+    /// standard one going out or between own addresses (not an asset lock, a withdrawal or a
+    /// mixing round), while it is not confirmed.
+    pub resendable: bool,
+    /// FEAT-0046 R-10: when it was last broadcast again from here (unix seconds), kept with the
+    /// time it was seen in the mempool, after a restart too.
+    pub resent_at: Option<Timestamp>,
     /// The wallet's own addresses its coins came from, one per input (a payment out counts them).
     pub own_from: Vec<String>,
     /// The wallet's own addresses that got coins and how much each, change not included (the
@@ -2518,6 +2525,12 @@ pub enum Command {
         key: String,
         text: NoteText,
     },
+    /// FEAT-0046: send the stuck payment `txid` of this wallet to the nodes again — the same
+    /// signed bytes, no password, nothing new spent. Behind the advanced switch; once a minute
+    /// per payment. Answered with `Done { what: DoneWhat::Rebroadcast }`.
+    Rebroadcast {
+        txid: String,
+    },
     /// Mark the operation `key` ([`Activity::key`]) a move of the person's own money, or not:
     /// its tax category in the CSV (FEAT-0012). Kept beside its note, only on this computer,
     /// encrypted; never sent anywhere. Answered with `Done { what: DoneWhat::TaxCategory }`.
@@ -3010,6 +3023,8 @@ pub enum DoneWhat {
     Lock,
     Name,
     Note,
+    /// `Rebroadcast` (FEAT-0046).
+    Rebroadcast,
     Password,
     PasswordEachSend,
     /// FEAT-0004 FR-7: [`Command::SetLargeSpend`].
@@ -3062,6 +3077,7 @@ impl DoneWhat {
             Self::Lock => "lock",
             Self::Name => "name",
             Self::Note => "note",
+            Self::Rebroadcast => "rebroadcast",
             Self::Password => "password",
             Self::PasswordEachSend => "password-each-send",
             Self::LargeSpend => "large-spend",

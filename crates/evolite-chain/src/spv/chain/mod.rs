@@ -15,6 +15,7 @@ mod contract_write;
 mod contracts;
 mod identities;
 mod nft_series;
+pub mod rebroadcast;
 mod store_read;
 mod token_actions;
 mod token_manage;

@@ -41,12 +41,17 @@ pub fn card_window(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx) {
             linked,
             identities: &wallet.identities,
             tax,
+            advanced: cx.advanced(),
         };
         let answer = card(ui, a, act, &around);
         if let Some(command) = answer.note {
             cx.send(command);
         }
         if let Some(command) = answer.tax {
+            cx.send(command);
+        }
+        // FEAT-0046: «Broadcast again».
+        if let Some(command) = answer.resend {
             cx.send(command);
         }
         if answer.closed {
@@ -1132,6 +1137,9 @@ fn detail_body(
 ) {
     let (now, book) = (around.now, around.book);
     let p = a.p;
+    // FEAT-0046: a payment not confirmed — in words, and «Broadcast again» (T1).
+    answer.resend =
+        super::activity_resend::plate(ui, a, act, detail, around.advanced, now.timestamp());
     let words = sans(13.0, Weight::Medium);
     let value = mono(13.0, Weight::Medium);
     let moved = match act.kind {
@@ -1381,6 +1389,8 @@ struct CardAnswer {
     note: Option<Command>,
     /// The tax category to write (FEAT-0012).
     tax: Option<Command>,
+    /// FEAT-0046: the payment to broadcast again.
+    resend: Option<Command>,
     /// The related operation whose card to open instead (FEAT-0005).
     open: Option<u64>,
     /// The identity to work as (FEAT-0005 FR-7).
@@ -1399,6 +1409,8 @@ struct Around<'a> {
     identities: &'a [IdentityChoice],
     /// The operation's tax category by its direction and mark (FEAT-0012); `None`: no row.
     tax: Option<crate::csv_export::TaxCategory>,
+    /// «Features for advanced users» on: «Broadcast again» (FEAT-0046).
+    advanced: bool,
 }
 
 /// The identity «Open in Identity» goes to: one of this wallet's, and not on a card that already

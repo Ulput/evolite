@@ -70,6 +70,8 @@ pub fn command_name(command: &Command) -> &'static str {
         Command::AddWallet => "add_wallet",
         Command::CancelAddWallet => "cancel_add_wallet",
         Command::SetNote { .. } => "set_note",
+        // FEAT-0046 R-4: which payment stays off the journal.
+        Command::Rebroadcast { .. } => "rebroadcast",
         // Which operation, and its category, stay off the journal (FEAT-0012, AC-A5).
         Command::SetTaxTransfer { .. } => "set_tax_transfer",
         // Which file only, never where it is (BUG-204, R-4).

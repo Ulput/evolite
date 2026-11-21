@@ -687,6 +687,27 @@ pub fn confirm(proof: Proof, block: Option<u32>) -> Option<Confirm> {
     }
 }
 
+/// R-5 (the architect, answer 3): a payment of this wallet that can be broadcast again — a
+/// standard transaction going out or between own addresses, not in a block yet. Not an asset
+/// lock or unlock, not a mixing round, not one coming in, not one confirmed (batch 63: the card
+/// would offer it).
+pub fn resendable(record: &TransactionRecord) -> bool {
+    record.transaction_type == TransactionType::Standard
+        && matches!(
+            record.direction,
+            TransactionDirection::Outgoing | TransactionDirection::Internal
+        )
+        && !confirmed(record)
+}
+
+/// In a block, ChainLocked or not.
+pub fn confirmed(record: &TransactionRecord) -> bool {
+    matches!(
+        record.context,
+        TransactionContext::InBlock(_) | TransactionContext::InChainLockedBlock(_)
+    )
+}
+
 /// The card's own addresses of a Core transaction (FEAT-0005 АРХ-3): ours it spent, one per
 /// input, and ours that got coins — `Received` only, change is not shown (designer-16). From the
 /// record's details, which [`one_per_transaction`] and [`attribute_late_inputs`] made whole over
@@ -721,6 +742,7 @@ fn detail_of(
         own_from,
         own_to,
         incomplete,
+        resendable: resendable(record),
         ..Detail::default()
     }
 }
@@ -4370,6 +4392,59 @@ mod detail_tests {
             outputs,
             net,
         )
+    }
+
+    /// FEAT-0046 R-5 (AC-T-T3): a standard payment going out or between own addresses may be
+    /// broadcast again; one coming in, an asset lock and a mixing round may not. AC-T-T4: one
+    /// whose coin another transaction of the wallet spends was replaced.
+    #[test]
+    fn what_may_be_broadcast_again() {
+        use crate::spv::chain::rebroadcast::replaced;
+        let at = |dir| {
+            record(
+                tx(&[(1, 0)], &[(7, 1_000)]),
+                TransactionContext::Mempool,
+                dir,
+                vec![],
+                vec![],
+                -1_000,
+            )
+        };
+        assert!(resendable(&at(TransactionDirection::Outgoing)));
+        // Confirmed: not again (batch 63).
+        let mut mined = at(TransactionDirection::Outgoing);
+        mined.context =
+            TransactionContext::InBlock(BlockInfo::new(100, BlockHash::all_zeros(), 1_700_000_000));
+        assert!(!resendable(&mined));
+        assert!(resendable(&at(TransactionDirection::Internal)));
+        assert!(!resendable(&at(TransactionDirection::Incoming)));
+        assert!(!resendable(&at(TransactionDirection::CoinJoin)));
+        let mut lock = at(TransactionDirection::Outgoing);
+        lock.transaction_type = TransactionType::AssetLock;
+        assert!(!resendable(&lock));
+        let mut mixing = at(TransactionDirection::Outgoing);
+        mixing.transaction_type = TransactionType::CoinJoin;
+        assert!(!resendable(&mixing));
+        // Replaced: another spends its coin (1, 0); one spending another coin does not.
+        let stuck = at(TransactionDirection::Outgoing);
+        let other = record(
+            tx(&[(1, 0), (2, 0)], &[(8, 900)]),
+            TransactionContext::Mempool,
+            TransactionDirection::Outgoing,
+            vec![],
+            vec![],
+            -900,
+        );
+        let apart = record(
+            tx(&[(3, 0)], &[(8, 900)]),
+            TransactionContext::Mempool,
+            TransactionDirection::Outgoing,
+            vec![],
+            vec![],
+            -900,
+        );
+        assert!(!replaced(&stuck, &[&stuck, &apart]));
+        assert!(replaced(&stuck, &[&stuck, &other, &apart]));
     }
 
     /// FEAT-0005 АРХ-2: an asset unlock gives the index Platform wrote into its withdrawal; any

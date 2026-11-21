@@ -761,6 +761,18 @@ impl Real {
                 }
                 _ => return (None, false),
             },
+            Command::Rebroadcast { txid } => {
+                let result = self.rebroadcast(txid).await;
+                let changed = result.is_ok();
+                return (
+                    Some(Event::Done {
+                        what: DoneWhat::Rebroadcast,
+                        result,
+                        ask: None,
+                    }),
+                    changed,
+                );
+            }
             Command::SetNote { key, text } => {
                 let result = self.set_note(key, &text.0).await;
                 let changed = result.is_ok();

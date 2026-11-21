@@ -54,6 +54,9 @@ pub(super) struct DevState {
     /// `--screen create-identity-short` / `create-identity-unchecked`: Core has too little for
     /// the identity, or was last checked a while ago (FEAT-0014, frames 9 and 10).
     core_preset: Option<CorePreset>,
+    /// `--screen activity-card-stuck` (FEAT-0046): the payment of line 3 not confirmed by the
+    /// network, until it is broadcast again.
+    stuck_preset: bool,
     /// `--screen identity-created`: the identity shown is not the phrase's first (R-9).
     second_identity_preset: bool,
     /// `--screen top-up-stopped` / `top-up-awaiting`: Identity with a cut-short top-up, to
@@ -247,6 +250,7 @@ impl DevState {
             preset_forgot: dev.preset("forgot"),
             remind_preset: dev.preset("remind"),
             unfinished_preset: dev.preset("identity-unfinished"),
+            stuck_preset: dev.preset("activity-card-stuck"),
             core_preset: if dev.preset("create-identity-short") {
                 Some(CorePreset::Short)
             } else if dev.preset("create-identity-unchecked") {
@@ -523,6 +527,17 @@ impl App {
                 locked: Some(31_000_000),
                 name: None,
             });
+        }
+        if self.dev.stuck_preset
+            && let Some(w) = self.snapshot.as_mut().and_then(|s| s.wallet.as_mut())
+            && let Some(line) = w.activity.iter_mut().find(|a| a.id == 3)
+            && let Some(detail) = line.detail.as_mut()
+        {
+            detail.resendable = true;
+            if detail.resent_at.is_none() {
+                line.proof = evolite_api::Proof::Unconfirmed;
+                line.block = None;
+            }
         }
         if let Some(core) = self.dev.core_preset
             && let Some(w) = self.snapshot.as_mut().and_then(|s| s.wallet.as_mut())
@@ -865,6 +880,7 @@ impl App {
             ("activity-card-lock-not-added", 20),
             ("activity-card-shield", 6),
             ("activity-card-old", 14),
+            ("activity-card-stuck", 3),
             ("activity-card-pool-sent", 21),
             ("activity-card-pool-received", 22),
             ("activity-card-top-up", 4),

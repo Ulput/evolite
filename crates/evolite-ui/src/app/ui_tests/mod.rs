@@ -59,6 +59,7 @@ mod phrase_tree;
 mod phrase_words;
 mod pool_moves;
 mod qr;
+mod resend;
 mod scrolling;
 mod secret_input;
 mod send;

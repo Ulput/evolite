@@ -1403,3 +1403,29 @@ async fn a_spend_without_its_password_touches_no_count() {
     assert_eq!(entry(&mut core, &id).wrong_tries, 0);
     assert!(entry(&mut core, &id).wait_until.is_none());
 }
+
+/// FEAT-0046 AC-A9, AC-T-T7: «Broadcast again» is refused with the advanced switch off, and a
+/// second one within the minute — both before anything goes to the network.
+#[tokio::test]
+async fn a_broadcast_again_waits_for_the_switch_and_the_minute() {
+    let mut core = opened("rebroadcast", "right");
+    let ask = || Command::Rebroadcast {
+        txid: "aa".repeat(32),
+    };
+    core.advanced_features = false;
+    assert_eq!(
+        answer_of(core.handle(ask()).await.0),
+        (
+            DoneWhat::Rebroadcast,
+            Err(CoreError::NotAvailable(evolite_common::ADVANCED_OFF.into()))
+        )
+    );
+    core.advanced_features = true;
+    core.mempool.resent(&"aa".repeat(32), 100, now() - 10);
+    match answer_of(core.handle(ask()).await.0) {
+        (DoneWhat::Rebroadcast, Err(CoreError::NotAvailable(why))) => {
+            assert!(why.starts_with("You can again in"), "{why}")
+        }
+        other => panic!("{other:?}"),
+    }
+}

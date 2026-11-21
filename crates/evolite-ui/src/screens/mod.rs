@@ -23,6 +23,7 @@ pub mod workshop;
 pub mod activity;
 pub mod activity_card;
 pub mod activity_filters;
+pub mod activity_resend;
 pub mod activity_tax;
 mod elsewhere;
 mod overview;

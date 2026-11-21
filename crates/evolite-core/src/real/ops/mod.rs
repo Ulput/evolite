@@ -25,6 +25,7 @@ pub(super) mod notes;
 pub(super) mod outgoing;
 pub(super) mod platform_sending;
 pub(super) mod pool;
+mod rebroadcast;
 pub(in crate::real) mod resend;
 pub(super) mod series;
 pub(super) mod series_ops;
