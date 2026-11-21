@@ -170,12 +170,17 @@ impl SpendPassword {
                 let end = gate.end.max(self.refused).unwrap_or_default();
                 pause::plate_plain(ui, *p, secs, end);
                 pause::tick(ui, now);
-            } else if self.wrong {
-                ui.label(
-                    egui::RichText::new(crate::i18n::t(wrong_text(self.what)))
-                        .font(sans(12.0, Weight::Regular))
-                        .color(p.danger),
-                );
+            } else {
+                if self.wrong {
+                    ui.label(
+                        egui::RichText::new(crate::i18n::t(wrong_text(self.what)))
+                            .font(sans(12.0, Weight::Regular))
+                            .color(p.danger),
+                    );
+                }
+                // FEAT-0004: the warning before a pause and the line after one, as on the
+                // unlock screen — the count is the wallet's, whichever form it was made in.
+                super::secret_password::tries_lines_plain(ui, p, gate.wrong_tries);
             }
         });
         entered

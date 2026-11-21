@@ -395,3 +395,55 @@ fn a_refusal_with_another_payment_out_does_not_offer_to_send_again() {
         drop(turn);
     }
 }
+
+/// The open wallet at `wrong` wrong passwords in a row, as the core would send it, until the
+/// line `said` shows.
+fn at_wrong_tries(kit: &mut Kit, wrong: u32, said: &str) {
+    show_edited(
+        kit,
+        3,
+        &format!("«{said}» after the wrong password {wrong}"),
+        move |app| {
+            if let Some(s) = app.snapshot.as_mut()
+                && let Some(w) = s.wallets.iter_mut().find(|w| w.open)
+            {
+                w.wrong_tries = wrong;
+            }
+        },
+        |kit| has_words(kit, said),
+    );
+}
+
+/// FEAT-0004: the payment's last look warns after the 3rd and 4th wrong password, as the unlock
+/// screen does — the count is the wallet's. Mutant: no `tries_lines` under its field.
+#[test]
+fn the_payments_password_warns_before_the_pause() {
+    let (_turn, mut kit) = demo_app("send-confirm", "en");
+    ask_every_time(&mut kit);
+    assert!(!has_words(&kit, "before a pause"), "nothing before the 3rd");
+    at_wrong_tries(&mut kit, 3, "2 attempts left before a pause.");
+    at_wrong_tries(&mut kit, 4, "1 attempt left before a pause.");
+}
+
+/// FEAT-0004: a spend's own password window (an identity's top-up) warns the same way; none
+/// when no password is asked. Mutant: no `tries_lines_plain` in `SpendPassword::field`.
+#[test]
+fn a_spends_password_window_warns_before_the_pause() {
+    let (_turn, mut kit) = last_step("top-up", None, true);
+    assert!(asks(&kit));
+    at_wrong_tries(&mut kit, 3, "2 attempts left before a pause.");
+    at_wrong_tries(&mut kit, 4, "1 attempt left before a pause.");
+    drop(kit);
+    drop(_turn);
+    // Without the password: no field, no warning.
+    let (_turn, mut kit) = last_step("top-up", None, false);
+    assert!(!asks(&kit));
+    draw_edited(&mut kit, 5, |app| {
+        if let Some(s) = app.snapshot.as_mut()
+            && let Some(w) = s.wallets.iter_mut().find(|w| w.open)
+        {
+            w.wrong_tries = 3;
+        }
+    });
+    assert!(!has_words(&kit, "before a pause"), "not asked, not warned");
+}

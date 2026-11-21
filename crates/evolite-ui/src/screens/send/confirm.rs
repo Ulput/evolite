@@ -170,7 +170,7 @@ pub(super) fn confirm(
                 // primary (`components::button_row`).
                 // From «Mixed» refused (P4): no password, nothing to sign.
                 if ask_password && mixed_refused.is_none() {
-                    password_field(ui, &p, form);
+                    password_field(ui, a, form);
                 }
                 let mixed_ready = !from_mixed || (mixed.is_some() && agreed);
                 let mut close = false;
@@ -642,7 +642,8 @@ fn lookalike_warning(ui: &mut Ui, p: &crate::theme::Palette, to: &str, similar: 
 }
 
 /// The wallet's password, asked in the last look.
-fn password_field(ui: &mut Ui, p: &crate::theme::Palette, form: &mut SendForm) {
+fn password_field(ui: &mut Ui, a: &mut Assets, form: &mut SendForm) {
+    let p = &a.p.clone();
     ui.vertical(|ui| {
         ui.spacing_mut().item_spacing.y = 6.0;
         field_label(ui, p, tr!("Wallet password"));
@@ -666,13 +667,18 @@ fn password_field(ui: &mut Ui, p: &crate::theme::Palette, form: &mut SendForm) {
         if let Some(secs) = gate.left {
             crate::screens::pause::plate_plain(ui, *p, secs, gate.end.unwrap_or_default());
             crate::screens::pause::tick(ui, chrono::Local::now());
-        } else if form.password_wrong {
-            ui.add(crate::components::para(
-                &send_error(&CoreError::WrongPassword),
-                12.0,
-                Weight::Regular,
-                p.danger,
-            ));
+        } else {
+            if form.password_wrong {
+                ui.add(crate::components::para(
+                    &send_error(&CoreError::WrongPassword),
+                    12.0,
+                    Weight::Regular,
+                    p.danger,
+                ));
+            }
+            // FEAT-0004: the warning before a pause and the line after one, as on the unlock
+            // screen.
+            crate::components::secret_password::tries_lines(ui, a, gate.wrong_tries);
         }
     });
 }

@@ -132,6 +132,23 @@ pub fn tries_lines(ui: &mut Ui, a: &mut Assets, wrong_tries: u32) {
     }
 }
 
+/// [`tries_lines`] for a field drawn with the palette alone (a spend's password, FEAT-0004): the
+/// same two lines, the one after a pause without its icon — as [`pause::plate_plain`] is the
+/// plate without its picture.
+pub fn tries_lines_plain(ui: &mut Ui, p: &crate::theme::Palette, wrong_tries: u32) {
+    for line in [pause::warning(wrong_tries), pause::after(wrong_tries)]
+        .into_iter()
+        .flatten()
+    {
+        ui.add(crate::components::para(
+            &line,
+            12.0,
+            Weight::Regular,
+            p.muted,
+        ));
+    }
+}
+
 /// The button that sends the password: disabled while `ready` is not, and in a pause, saying
 /// why on hover and to a screen reader (AC-D2).
 pub fn send_button(
