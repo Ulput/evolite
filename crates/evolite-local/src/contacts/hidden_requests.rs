@@ -38,6 +38,25 @@ impl HiddenRequests {
         Ok(())
     }
 
+    /// FEAT-0045: every sender hidden, for the backup file.
+    pub fn all(&self) -> BTreeSet<String> {
+        let mut hidden = self.hidden.lock().unwrap_or_else(|e| e.into_inner());
+        hidden.get_or_insert_with(|| self.load()).clone()
+    }
+
+    /// FEAT-0045 R-9: the senders a backup hid, added; written once, only when one was not
+    /// hidden here. How many were added.
+    pub fn merge(&self, from: &BTreeSet<String>) -> std::io::Result<usize> {
+        let mut hidden = self.hidden.lock().unwrap_or_else(|e| e.into_inner());
+        let mut all = hidden.get_or_insert_with(|| self.load()).clone();
+        let added = crate::backup::merge_hidden(&mut all, from);
+        if added > 0 {
+            crate::json_file::save(&self.path, &all).map_err(std::io::Error::other)?;
+            *hidden = Some(all);
+        }
+        Ok(added)
+    }
+
     fn load(&self) -> BTreeSet<String> {
         crate::json_file::read(&self.path)
             .ok()

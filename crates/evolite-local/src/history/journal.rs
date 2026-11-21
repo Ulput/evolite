@@ -29,6 +29,17 @@ pub enum Source {
     Network,
 }
 
+/// FEAT-0045 (the architect, 2026-11-21): whether a line is done — not a withdrawal still on
+/// its way, not a contact request still waiting for its answer. A backup takes only these: the
+/// network gives the truth of the others, and an old «on its way» would hang without its
+/// operation.
+pub fn finished(line: &Entry) -> bool {
+    !matches!(
+        line.status,
+        Some(WithdrawalStatus::Queued | WithdrawalStatus::Pooled | WithdrawalStatus::Broadcasted)
+    ) && line.reply != Some(Reply::Waiting)
+}
+
 /// A withdrawal document's `status` (the Withdrawals system contract).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum WithdrawalStatus {
@@ -661,6 +672,48 @@ impl Journal {
     /// The journal's file and the top-ups', for «Try again» and «Start over».
     pub fn stores(&self) -> (&Store<Entries<Entry>>, &Store<HashMap<String, Duffs>>) {
         (&self.store, &self.top_ups)
+    }
+
+    /// FEAT-0045: the lines a backup takes — finished ones only ([`finished`]).
+    pub fn finished_entries(&self) -> Vec<Entry> {
+        self.store
+            .read(|e| e.known.iter().filter(|l| finished(l)).cloned().collect())
+    }
+
+    /// FEAT-0045 R-9: a backup's finished lines added — one this file has (by its line id, or
+    /// by its document key) stays as it is here. Written once, only when one was added. How
+    /// many were added.
+    pub fn merge_backup(&self, from: &[Entry]) -> Result<usize, String> {
+        self.store
+            .update(|e| {
+                let mut added = 0;
+                for line in from.iter().filter(|l| finished(l)) {
+                    let here = e.known.iter().any(|l| {
+                        (line.line.is_some() && l.line == line.line)
+                            || (line.key.is_some() && l.key == line.key)
+                    });
+                    if !here {
+                        e.known.push(line.clone());
+                        added += 1;
+                    }
+                }
+                (added, added > 0)
+            })
+            .map_err(|e| e.to_string())
+    }
+
+    /// FEAT-0045 R-9: a backup's top-ups added, one known here kept. How many were added.
+    pub fn merge_top_ups(&self, from: &HashMap<String, Duffs>) -> Result<usize, String> {
+        self.top_ups
+            .update(|all| {
+                let before = all.len();
+                for (txid, added) in from {
+                    all.entry(txid.clone()).or_insert(*added);
+                }
+                let n = all.len() - before;
+                (n, n > 0)
+            })
+            .map_err(|e| e.to_string())
     }
 
     /// Keeps `entry`; written beside and renamed over, so a crash leaves the old file or the

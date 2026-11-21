@@ -80,6 +80,26 @@ impl ContactAddresses {
     }
 
     /// The file, for «Try again» and «Start over».
+    /// FEAT-0045 R-9: a backup's paid addresses added (a union: an address paid stays paid).
+    /// How many were added.
+    pub fn merge_backup(&self, from: &Paid) -> Result<usize, String> {
+        self.store()
+            .update(|all| {
+                let mut added = 0;
+                for (contact, addresses) in from {
+                    let here = all.entry(contact.clone()).or_default();
+                    for a in addresses {
+                        if !here.contains(a) {
+                            here.push(a.clone());
+                            added += 1;
+                        }
+                    }
+                }
+                (added, added > 0)
+            })
+            .map_err(|e| e.to_string())
+    }
+
     pub fn store(&self) -> &Store<Paid> {
         &self.store
     }

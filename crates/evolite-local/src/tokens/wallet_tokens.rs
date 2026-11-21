@@ -154,6 +154,42 @@ impl WalletTokens {
 
     /// Applies `edit` to a copy; when it changed something, the file is written and only then the
     /// copy kept, so a change that did not save did not happen.
+    /// FEAT-0045: what the person chose — the tokens added by hand, and the token × identity
+    /// pairs hidden — for the backup file. The ones the search finds come back by themselves.
+    pub fn chosen(&self) -> (Vec<Tracked>, BTreeSet<(String, String)>) {
+        let mut file = self.file.lock().unwrap_or_else(|e| e.into_inner());
+        let file = file.get_or_insert_with(|| self.load());
+        let by_hand = file
+            .tokens
+            .iter()
+            .filter(|t| t.origin == Origin::ByHand)
+            .cloned()
+            .collect();
+        (by_hand, file.hidden.clone())
+    }
+
+    /// FEAT-0045 R-9: a backup's tokens added by hand and hidden pairs merged in by token id —
+    /// one followed here stays as it is. How many tokens were added.
+    pub fn merge_backup(
+        &self,
+        tokens: &[Tracked],
+        hidden: &BTreeSet<(String, String)>,
+    ) -> std::io::Result<usize> {
+        let mut added = 0;
+        self.change(|f| {
+            for token in tokens {
+                if !f.tokens.iter().any(|t| t.token_id == token.token_id) {
+                    f.tokens.push(token.clone());
+                    added += 1;
+                }
+            }
+            let before = f.hidden.len();
+            f.hidden.extend(hidden.iter().cloned());
+            added > 0 || f.hidden.len() > before
+        })?;
+        Ok(added)
+    }
+
     fn change(&self, edit: impl FnOnce(&mut File) -> bool) -> std::io::Result<()> {
         let mut file = self.file.lock().unwrap_or_else(|e| e.into_inner());
         let mut next = file.get_or_insert_with(|| self.load()).clone();

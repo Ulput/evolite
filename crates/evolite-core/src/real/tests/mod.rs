@@ -3,6 +3,7 @@
 use super::*;
 use crate::network::{hrp_of, platform_address_on};
 
+mod backup_tests;
 mod balance_tests;
 mod coinjoin_tests;
 mod dashpay_tests;

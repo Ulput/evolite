@@ -54,6 +54,14 @@ pub(in crate::real) fn result_entry(
     }
 }
 
+/// FEAT-0045: the claims whose link came from a backup «not written», to read from the network.
+fn links_to_check(all: &[name_requests::NameRequest]) -> Vec<(String, String)> {
+    all.iter()
+        .filter(|r| r.link_unchecked)
+        .map(|r| (r.identity.clone(), r.label.clone()))
+        .collect()
+}
+
 /// Reads the open requests of `wallet` while `live` holds; `poll.wake` reads them at once.
 pub(in crate::real) async fn keep_name_requests_fresh(
     chain: Arc<Chain>,
@@ -65,6 +73,22 @@ pub(in crate::real) async fn keep_name_requests_fresh(
     let file = poll.requests.clone();
     while live() {
         let _ = file.prune(now());
+        // FEAT-0045: a link restored from a backup as «not written» is read first — there, it
+        // is written; not there, its retry is offered. Never written from here (the architect).
+        for (identity, label) in links_to_check(&file.load()) {
+            if !live() {
+                return;
+            }
+            let Ok(owner) = Identifier::from_string(&identity, Encoding::Base58) else {
+                continue;
+            };
+            // A failed read keeps it to check: no retry offered on a guess.
+            let Ok(found) = chain.read_identity_link(&owner, &label).await else {
+                continue;
+            };
+            let _ = file.update(&identity, &label, |r| r.link_seen(found.as_deref()));
+            refresh();
+        }
         for (identity, label) in to_read(&file.load()) {
             if !live() {
                 return;
@@ -127,6 +151,7 @@ mod tests {
             link: None,
             link_written: false,
             restored: false,
+            link_unchecked: false,
         };
         assert!(to_read(&[]).is_empty());
         assert!(to_read(&[request("won", Some((Outcome::Won, 1)))]).is_empty());

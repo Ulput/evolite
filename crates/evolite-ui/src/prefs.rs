@@ -102,6 +102,24 @@ pub fn split(prefs: &Prefs) -> (Prefs, Prefs) {
     (app, wallet)
 }
 
+/// FEAT-0045 (review r1, Must 1): the wallet's half of `from` (a backup's) fills what `now` does
+/// not have — a setting made here stays, so an old copy never turns a weaker one back on
+/// (`lock_after`, a switch such as the clipboard's). The trusted issuers are both sides', the
+/// phrase's last check the later one; the app's half of `now` is not touched.
+pub fn take_wallet_half(now: &mut Prefs, from: &Prefs) {
+    let (_, from) = split(from);
+    for (key, on) in from.toggles {
+        now.toggles.entry(key).or_insert(on);
+    }
+    now.trusted_issuers.extend(from.trusted_issuers);
+    now.lock_after = now.lock_after.or(from.lock_after);
+    now.identity = now.identity.take().or(from.identity);
+    now.remind_snoozed = now.remind_snoozed.or(from.remind_snoozed);
+    now.fee_rate = now.fee_rate.or(from.fee_rate);
+    now.empty_hint_closed = now.empty_hint_closed.or(from.empty_hint_closed);
+    now.phrase_checked = now.phrase_checked.max(from.phrase_checked);
+}
+
 /// A wallet's settings: its own file; without one, the wallet part of a file from before
 /// (`app`), if that is what `app` is; else none.
 pub fn load_wallet(data_dir: &Path, id: &str, app: &Prefs) -> Option<Prefs> {
@@ -361,5 +379,55 @@ mod tests {
         );
         assert!(path(&common).exists(), "kept in the common folder");
         let _ = std::fs::remove_dir_all(&root);
+    }
+    /// FEAT-0045 review r1, Must 1: a backup's settings fill only what is not set here — one
+    /// made here stays (a switch, the lock's time, the fee); in a wallet with none, the file's
+    /// come; the trusted issuers are both sides', the phrase's check the later one; the app's
+    /// own settings are not taken from a backup.
+    #[test]
+    fn a_backups_settings_never_win_over_the_ones_here() {
+        let file = Prefs {
+            lock_after: Some(4),
+            fee_rate: Some(2_000),
+            identity: Some("IdFile".into()),
+            remind_snoozed: Some(50),
+            phrase_checked: Some(10),
+            toggles: [
+                ("clipboard-wipe".to_owned(), false),
+                ("only-file".to_owned(), true),
+            ]
+            .into(),
+            trusted_issuers: ["Ifile".to_owned()].into(),
+            theme: Some("light".into()),
+            ..Prefs::default()
+        };
+        let mut here = Prefs {
+            lock_after: Some(1),
+            fee_rate: Some(1_000),
+            identity: Some("IdHere".into()),
+            phrase_checked: Some(20),
+            toggles: [("clipboard-wipe".to_owned(), true)].into(),
+            trusted_issuers: ["Ihere".to_owned()].into(),
+            ..Prefs::default()
+        };
+        take_wallet_half(&mut here, &file);
+        assert_eq!(here.lock_after, Some(1));
+        assert_eq!(here.fee_rate, Some(1_000));
+        assert_eq!(here.identity.as_deref(), Some("IdHere"));
+        assert!(
+            here.toggles["clipboard-wipe"],
+            "the stronger one here stays"
+        );
+        assert!(here.toggles["only-file"], "one not set here comes");
+        assert_eq!(here.remind_snoozed, Some(50));
+        assert_eq!(here.phrase_checked, Some(20));
+        assert_eq!(here.trusted_issuers.len(), 2);
+        assert_eq!(here.theme, None, "the app's half is not the backup's");
+        // An empty wallet takes the file's wallet half.
+        let mut empty = Prefs::default();
+        take_wallet_half(&mut empty, &file);
+        assert_eq!(empty.lock_after, Some(4));
+        assert_eq!(empty.fee_rate, Some(2_000));
+        assert!(!empty.toggles["clipboard-wipe"]);
     }
 }

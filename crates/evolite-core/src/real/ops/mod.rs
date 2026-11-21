@@ -6,6 +6,7 @@ pub(super) mod addresses;
 pub(super) mod app_connect2;
 pub(super) mod app_jobs;
 pub(super) mod avatars;
+mod backup;
 pub(super) mod contracts;
 pub(super) mod core;
 pub(super) mod dashpay;

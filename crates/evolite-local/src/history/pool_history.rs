@@ -11,9 +11,10 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::Mutex;
 
-/// One operation as kept: what the history line needs.
+/// One operation as kept: what the history line needs. Opaque outside: the backup file
+/// (FEAT-0045) carries it as it is.
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
-struct Saved {
+pub struct Saved {
     id: u64,
     kind: Kind,
     amount: Duffs,
@@ -103,6 +104,34 @@ impl PoolHistory {
             .values()
             .map(Saved::to_activity)
             .collect()
+    }
+
+    /// FEAT-0045: every operation kept (only proved ones are), for the backup file.
+    pub fn records(&self) -> Vec<Saved> {
+        let mut saved = self.saved.lock().unwrap_or_else(|e| e.into_inner());
+        saved
+            .get_or_insert_with(|| self.load())
+            .values()
+            .cloned()
+            .collect()
+    }
+
+    /// FEAT-0045 R-9: a backup's operations added — one kept here stays. Written once, only
+    /// when one was added. How many were added.
+    pub fn merge_backup(&self, from: &[Saved]) -> std::io::Result<usize> {
+        let mut saved = self.saved.lock().unwrap_or_else(|e| e.into_inner());
+        let mut all = saved.get_or_insert_with(|| self.load()).clone();
+        let before = all.len();
+        for s in from {
+            all.entry(s.id).or_insert_with(|| s.clone());
+        }
+        let added = all.len() - before;
+        if added > 0 {
+            crate::json_file::save(&self.path, &all.values().collect::<Vec<_>>())
+                .map_err(std::io::Error::other)?;
+            *saved = Some(all);
+        }
+        Ok(added)
     }
 
     fn load(&self) -> BTreeMap<u64, Saved> {

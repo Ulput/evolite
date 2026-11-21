@@ -352,6 +352,7 @@ impl Real {
         self.receive_address = None;
         // The notes' key and every decrypted note go with the keys (AC-T6).
         *self.notes.lock().unwrap_or_else(|e| e.into_inner()) = None;
+        *self.backup_key.lock().unwrap_or_else(|e| e.into_inner()) = None;
         Ok(())
     }
 

@@ -102,6 +102,8 @@ struct Mock {
     adding_from: Option<String>,
     /// Wrong passwords of the demo wallets, in memory (FEAT-0002).
     tries: evolite_common::attempts::Ledger,
+    /// FEAT-0045: the backups «saved», in memory by path — the notes they hold, by line.
+    backups: std::collections::BTreeMap<std::path::PathBuf, Vec<(String, String)>>,
     /// FEAT-0041 r1: the wallet being added was asked for from an open one.
     adding_open: bool,
     /// FEAT-0041: the BIP-39 passphrase of each wallet that has one (NFKD), by its id.
@@ -776,6 +778,43 @@ impl Mock {
                     result,
                     ask: None,
                 }
+            }
+            // FEAT-0045: in memory only — nothing is written; a path never saved is «damaged».
+            Command::SaveBackup { path, .. } => {
+                let notes = self.snapshot.wallet.as_ref().map_or_else(Vec::new, |w| {
+                    w.activity
+                        .iter()
+                        .filter_map(|a| Some((a.key.clone(), a.note.clone()?)))
+                        .collect()
+                });
+                let name = path
+                    .file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_default();
+                self.backups.insert(path, notes);
+                Event::BackupSaved(Ok(name))
+            }
+            Command::RestoreBackup { path } => {
+                let result = match (self.backups.get(&path), self.snapshot.wallet.as_mut()) {
+                    (Some(notes), Some(w)) => {
+                        let mut done = evolite_api::backup::Restored::default();
+                        for (key, text) in notes {
+                            if let Some(line) = w.activity.iter_mut().find(|a| &a.key == key) {
+                                if line.note.is_none() {
+                                    line.note = Some(text.clone());
+                                    done.notes += 1;
+                                } else {
+                                    done.notes_kept += 1;
+                                }
+                            }
+                        }
+                        changed = done.notes > 0;
+                        Ok(done)
+                    }
+                    (_, None) => Err(evolite_api::backup::BackupError::Locked),
+                    (None, _) => Err(evolite_api::backup::BackupError::Damaged),
+                };
+                Event::BackupRestored(result)
             }
             // FEAT-0012: in memory only, as the notes (FR-11).
             Command::SetTaxTransfer { key, transfer } => {
@@ -1971,6 +2010,7 @@ pub fn run(
         artist: Some(Artist::start(out.clone(), wake.clone(), art)),
         adding_from: None,
         tries: Default::default(),
+        backups: Default::default(),
         adding_open: false,
         passphrases: HashMap::new(),
         made: Vec::new(),
@@ -2035,6 +2075,7 @@ mod tests {
             artist: None,
             adding_from: None,
             tries: Default::default(),
+            backups: Default::default(),
             adding_open: false,
             passphrases: HashMap::new(),
             made: Vec::new(),

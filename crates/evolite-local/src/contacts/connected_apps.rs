@@ -116,6 +116,18 @@ impl ConnectedApps {
         })
     }
 
+    /// FEAT-0045 R-9: a backup's apps merged in by app and identity, the later sign-in
+    /// winning; written once, only when something changed. How many changed.
+    pub fn merge(&self, from: &[App]) -> Result<usize, String> {
+        self.store
+            .update(|e| {
+                let n = crate::backup::merge_apps(&mut e.known, from);
+                e.known.sort_by_key(|a| std::cmp::Reverse(a.last_used));
+                (n, n > 0)
+            })
+            .map_err(|e| e.to_string())
+    }
+
     pub fn remove(&self, contract: &str, identity: &str) -> Result<(), String> {
         self.change(|all| all.retain(|a| !(a.contract == contract && a.identity == identity)))
     }

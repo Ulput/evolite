@@ -497,6 +497,65 @@ impl App {
         )
     }
 
+    /// FEAT-0045: a backup button pressed opens its dialog; the path chosen goes to the core,
+    /// a save with the wallet's half of the settings (the architect, answer 5).
+    fn backup_step(&mut self) {
+        use crate::backup_file::Pick;
+        let state = &mut self.settings.backup_file;
+        if let Some(pick) = state.want.take() {
+            let name = self
+                .snapshot
+                .as_ref()
+                .and_then(|s| s.wallets.iter().find(|w| w.open))
+                .map_or_else(String::new, |w| w.name.clone());
+            let day = chrono::Local::now().format("%Y-%m-%d").to_string();
+            let name = crate::backup_file::default_name(&name, evolite_core::network::name(), &day);
+            state.said = None;
+            state.asked = Some((pick, crate::backup_file::ask(pick, &name)));
+        }
+        let Some((pick, rx)) = &state.asked else {
+            return;
+        };
+        let pick = *pick;
+        let chosen = match rx.try_recv() {
+            Ok(chosen) => chosen,
+            Err(std::sync::mpsc::TryRecvError::Empty) => return,
+            Err(std::sync::mpsc::TryRecvError::Disconnected) => None,
+        };
+        state.asked = None;
+        let Some(path) = chosen else {
+            return;
+        };
+        state.waiting = Some(pick);
+        let command = match pick {
+            Pick::Save => {
+                let mut now = self.settings.prefs(&self.collection.trusted);
+                now.identity = self.chosen_identity.clone();
+                let (_, wallet) = crate::prefs::split(&now);
+                Command::SaveBackup {
+                    path,
+                    settings: serde_json::to_string(&wallet).ok(),
+                }
+            }
+            Pick::Open => Command::RestoreBackup { path },
+        };
+        self.core.send(command);
+    }
+
+    /// FEAT-0045: the wallet's settings a restored file holds, filling only what is not set
+    /// here (review r1, Must 1); the app's own stay.
+    fn take_backup_settings(&mut self, from: &str) {
+        let Ok(from) = serde_json::from_str::<crate::prefs::Prefs>(from) else {
+            return;
+        };
+        let mut now = self.settings.prefs(&self.collection.trusted);
+        now.identity = self.chosen_identity.clone();
+        crate::prefs::take_wallet_half(&mut now, &from);
+        self.settings.apply(&now, &mut self.collection.trusted);
+        self.chosen_identity = now.identity.clone();
+        self.tell_core_settings();
+    }
+
     /// Writes the settings when they changed since the last write (a click, not every frame).
     fn save_prefs(&mut self) {
         // `--open` looks and changes nothing, not even the settings its presets show.
@@ -854,6 +913,20 @@ impl App {
                     }
                 }
                 Event::PhraseRevealed(result) => self.settings.on_revealed(result.clone()),
+                Event::BackupSaved(result) => {
+                    self.settings.backup_file.waiting = None;
+                    self.settings.backup_file.said = Some(crate::backup_file::said_saved(result));
+                }
+                Event::BackupRestored(result) => {
+                    self.settings.backup_file.waiting = None;
+                    if let Ok(restored) = result
+                        && let Some(from) = restored.settings.as_deref()
+                    {
+                        self.take_backup_settings(from);
+                    }
+                    self.settings.backup_file.said =
+                        Some(crate::backup_file::said_restored(result));
+                }
                 Event::IdentityKeyRevealed(result) => {
                     self.identity_keys.on_revealed(result.clone())
                 }
@@ -1257,6 +1330,7 @@ impl eframe::App for App {
             self.settings.flip_hide_amounts();
         }
         self.save_prefs();
+        self.backup_step();
         self.take_events(ui.ctx());
         // BUG-204: «Report a problem» from a banner of a file set aside, its subject filled in.
         if let Some(subject) = ui

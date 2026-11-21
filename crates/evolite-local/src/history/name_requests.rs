@@ -74,6 +74,11 @@ pub struct NameRequest {
     pub link: Option<String>,
     #[serde(default)]
     pub link_written: bool,
+    /// FEAT-0045 (the architect, 2026-11-21): taken from a backup with its link «not written» —
+    /// a copy may be older than the link. Not offered to write again until the network has been
+    /// read ([`NameRequest::link_seen`]); never written by itself.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub link_unchecked: bool,
     /// Rebuilt from the contest by a check of the name (BUG-204), not written when it was sent:
     /// `sent_at` is the claim's time as the contest has it, or the check's.
     #[serde(default)]
@@ -93,7 +98,8 @@ impl NameRequest {
             notice_closed: self.notice_closed,
             result_notice_closed: self.result_notice_closed,
             link: self.link.clone(),
-            link_written: self.link_written,
+            // A link to check is not offered to write again until it is checked.
+            link_written: self.link_written || self.link_unchecked,
         }
     }
 
@@ -174,6 +180,17 @@ impl NameRequest {
 
     fn is(&self, identity: &str, label: &str) -> bool {
         self.identity == identity && same_name(&self.label, label)
+    }
+
+    /// FEAT-0045: what the network says of a link to check: `found` — the link's URL there, if
+    /// any. There: written, nothing offered. Not there: «not written», the retry offered (on a
+    /// press only).
+    pub fn link_seen(&mut self, found: Option<&str>) {
+        self.link_unchecked = false;
+        if let Some(url) = found {
+            self.link = Some(url.to_owned());
+            self.link_written = true;
+        }
     }
 }
 
@@ -346,6 +363,7 @@ impl NameRequest {
             link: None,
             link_written: false,
             restored: false,
+            link_unchecked: false,
         };
         request.take_claims(contest, now);
         if !request.contenders.iter().any(|(id, _)| id == identity) {
@@ -453,6 +471,25 @@ impl NameRequests {
         &self.store
     }
 
+    /// FEAT-0045 R-9: a backup's requests added — one of the same identity and name here stays
+    /// as it is. A link «not written» comes as one to check ([`NameRequest::link_unchecked`]).
+    /// How many were added.
+    pub fn merge_backup(&self, from: &[NameRequest]) -> Result<usize, String> {
+        self.change(|all| {
+            let mut added = 0;
+            for request in from {
+                if all.iter().any(|r| r.is(&request.identity, &request.label)) {
+                    continue;
+                }
+                let mut request = request.clone();
+                request.link_unchecked = request.link.is_some() && !request.link_written;
+                all.push(request);
+                added += 1;
+            }
+            (added, added > 0)
+        })
+    }
+
     /// Adds `request`, or replaces the one of its identity and label.
     pub fn put(&self, request: NameRequest) -> Result<(), String> {
         self.change(|all| {
@@ -546,6 +583,7 @@ mod tests {
             link: None,
             link_written: false,
             restored: false,
+            link_unchecked: false,
         }
     }
 

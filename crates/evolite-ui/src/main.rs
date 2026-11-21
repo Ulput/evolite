@@ -31,6 +31,7 @@ fn is_demo(snap: &evolite_api::Snapshot) -> bool {
 mod a11y;
 mod app;
 mod art;
+mod backup_file;
 mod capture;
 mod cli;
 mod clipboard;

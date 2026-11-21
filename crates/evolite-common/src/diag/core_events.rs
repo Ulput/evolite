@@ -74,6 +74,9 @@ pub fn command_name(command: &Command) -> &'static str {
         // Which file only, never where it is (BUG-204, R-4).
         Command::TryFileAgain { .. } => "try_file_again",
         Command::StartFileOver { .. } => "start_file_over",
+        // FEAT-0045 R-14: never the path, nor the settings it carries.
+        Command::SaveBackup { .. } => "save_backup",
+        Command::RestoreBackup { .. } => "restore_backup",
         Command::RenameWallet { .. } => "rename_wallet",
         // Which token, and the word looked for, stay off the journal.
         Command::FindToken { .. } => "find_token",
@@ -156,6 +159,21 @@ fn outcome<T>(result: &Result<T, CoreError>) -> &'static str {
     result.as_ref().map_or_else(error_kind, |_| "ok")
 }
 
+/// FEAT-0045 R-14: a backup's end as a code.
+fn backup_outcome<T>(result: &Result<T, evolite_api::backup::BackupError>) -> &'static str {
+    use evolite_api::backup::BackupError as E;
+    match result {
+        Ok(_) => "ok",
+        Err(E::Locked) => "locked",
+        Err(E::OtherWallet) => "other_wallet",
+        Err(E::OtherNetwork(_)) => "other_network",
+        Err(E::Newer) => "newer",
+        Err(E::Damaged) => "damaged",
+        Err(E::Io(_)) => "io",
+        Err(E::Partial { .. }) => "partial",
+    }
+}
+
 /// Why the renderer did not draw a picture, from its fixed reasons (`art.rs`): words those
 /// English texts contain, matched in the core's own text (never shown, so not `tr!`).
 fn art_reason(error: &CoreError) -> &'static str {
@@ -197,6 +215,9 @@ pub fn answer(event: &Event) -> Option<Record> {
         Event::ModelPlanned { result } => ("model_planned", outcome(result)),
         Event::Done { what, result, .. } => (what.as_str(), outcome(result)),
         Event::PhraseRevealed(r) => ("phrase_revealed", outcome(r)),
+        // FEAT-0045 R-14: how it ended only — no file, no folder, no counts.
+        Event::BackupSaved(r) => ("backup_saved", backup_outcome(r)),
+        Event::BackupRestored(r) => ("backup_restored", backup_outcome(r)),
         Event::IdentityKeyRevealed(r) => ("identity_key_revealed", outcome(r)),
         Event::Sent { result: r, .. } => ("sent", outcome(r)),
         Event::NameChecked { result, .. } => ("name_checked", outcome(result)),

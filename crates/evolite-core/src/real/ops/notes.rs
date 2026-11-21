@@ -7,6 +7,8 @@ impl Real {
     /// read once here, off the loop's thread (up to 6 MB to decrypt, AC-T9), and kept in memory
     /// until the lock.
     pub(in crate::real) async fn open_notes(&self, seed: &[u8], wallet_id: &str) {
+        // FEAT-0045: the backup's key comes from the seed with the notes' and goes with them.
+        self.open_backup_key(seed);
         let path = self.paths.notes.clone();
         let seed = Zeroizing::new(seed.to_vec());
         let wallet_id = wallet_id.to_owned();

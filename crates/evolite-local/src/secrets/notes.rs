@@ -58,19 +58,79 @@ struct Envelope {
     ciphertext: String,
 }
 
-/// One note. Its text is zeroed when dropped: a lock leaves none in memory.
+/// One note — `notes/v1`, the record the backup file (FEAT-0045) and the copy in Platform
+/// (FEAT-0024) share, so that both merge by one rule ([`merge`]). Its text is zeroed when
+/// dropped: a lock leaves none in memory.
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
-struct Note {
+pub struct Note {
     /// Empty where the entry only keeps a rate.
     #[serde(default)]
-    text: String,
+    pub text: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    rate: Option<Rate>,
+    pub rate: Option<Rate>,
     /// FEAT-0012 (АРХ-1): the operation moved the person's own money — «Transfer in» or
     /// «Transfer out» in place of «Income» or «Expense». An older evolite skips the field.
     #[serde(default, skip_serializing_if = "is_false")]
-    transfer: bool,
-    updated: Timestamp,
+    pub transfer: bool,
+    pub updated: Timestamp,
+    /// FEAT-0045 (AC-T-B3): the note was deleted at `updated` — a mark with no text, no rate
+    /// and no flag, so that an older copy does not bring it back. An older evolite reads it as
+    /// an entry with nothing in it.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub deleted: bool,
+}
+
+impl Note {
+    /// The mark of a note deleted now.
+    fn deleted_now() -> Self {
+        Self {
+            text: String::new(),
+            rate: None,
+            transfer: false,
+            updated: now(),
+            deleted: true,
+        }
+    }
+}
+
+/// How a merge of notes from elsewhere went ([`Notes::merge`]): counts only.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Merged {
+    /// Notes that were not here.
+    pub added: usize,
+    /// Notes here that the other side changed later.
+    pub newer: usize,
+    /// Notes the other side has too, kept as they are here (as new or newer here).
+    pub kept: usize,
+}
+
+/// FEAT-0045 R-9 (AC-T-B3): `from` merged into `here`, record by record — the later one wins, a
+/// tie keeps this side's, and a deletion is a record like any other, so an older note does not
+/// come back over a later deletion. Merging the same records again changes nothing.
+pub fn merge(here: &mut BTreeMap<String, Note>, from: &BTreeMap<String, Note>) -> Merged {
+    let mut merged = Merged::default();
+    for (key, theirs) in from {
+        match here.get(key) {
+            None => {
+                if !theirs.deleted {
+                    merged.added += 1;
+                }
+                here.insert(key.clone(), theirs.clone());
+            }
+            Some(ours) if theirs.updated > ours.updated => {
+                if !(ours.deleted && theirs.deleted) {
+                    merged.newer += 1;
+                }
+                here.insert(key.clone(), theirs.clone());
+            }
+            Some(ours) => {
+                if !(ours.deleted && theirs.deleted) {
+                    merged.kept += 1;
+                }
+            }
+        }
+    }
+    merged
 }
 
 fn is_false(b: &bool) -> bool {
@@ -79,10 +139,10 @@ fn is_false(b: &bool) -> bool {
 
 /// The rate at the time of an operation, as the file keeps it (FEAT-0008).
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
-struct Rate {
-    currency: String,
-    price: i64,
-    at: Timestamp,
+pub struct Rate {
+    pub currency: String,
+    pub price: i64,
+    pub at: Timestamp,
 }
 
 impl From<&FiatRate> for Rate {
@@ -335,9 +395,14 @@ impl Notes {
                 rate: None,
                 transfer: false,
                 updated: now(),
+                deleted: false,
             });
             if replace || note.rate.is_none() {
                 note.rate = Some(rate.into());
+                if note.deleted {
+                    note.deleted = false;
+                    note.updated = now();
+                }
                 changed = true;
             }
         }
@@ -347,7 +412,31 @@ impl Notes {
     /// Whether any operation has a note (a send's note waiting for its line too).
     #[doc(hidden)]
     pub fn any(&self) -> bool {
-        !self.all.is_empty()
+        self.all.values().any(|n| !n.deleted)
+    }
+
+    /// FEAT-0045: every record, the deletions' marks too, for the backup file.
+    pub fn records(&self) -> BTreeMap<String, Note> {
+        self.all.clone()
+    }
+
+    /// FEAT-0045 R-9: `from` merged in ([`merge`]), written before it is kept in memory — a
+    /// failed write changes nothing. Nothing is written when nothing changed (a repeat).
+    pub fn merge(&mut self, from: &BTreeMap<String, Note>) -> Result<Merged, NoteError> {
+        let mut all = self.all.clone();
+        let merged = merge(&mut all, from);
+        let changed = all.len() != self.all.len()
+            || all
+                .iter()
+                .any(|(k, n)| self.all.get(k).is_none_or(|o| o.updated != n.updated));
+        if !changed {
+            return Ok(merged);
+        }
+        if all.values().filter(|n| !n.deleted).count() > MAX_NOTES {
+            return Err(NoteError::TooMany);
+        }
+        self.write(all)?;
+        Ok(merged)
     }
 
     /// Keeps `text` as the note of `key` (`None`: no note), written to the file before it is
@@ -372,6 +461,7 @@ impl Notes {
                         rate,
                         transfer,
                         updated: now(),
+                        deleted: false,
                     },
                 );
             }
@@ -387,8 +477,14 @@ impl Notes {
                     note.text = String::new();
                     note.updated = now();
                 }
-                Some(_) => {
+                Some(note) if note.deleted => return Ok(()),
+                // A send's note waiting for its line is no record of its own yet.
+                Some(_) if key.starts_with("pending:") => {
                     all.remove(key);
+                }
+                // FEAT-0045 (AC-T-B3): the deletion's mark, not nothing.
+                Some(_) => {
+                    all.insert(key.to_owned(), Note::deleted_now());
                 }
             },
         }
@@ -411,10 +507,11 @@ impl Notes {
         match all.get_mut(key) {
             Some(note) if note.transfer == transfer => return Ok(()),
             Some(note) if !transfer && note.text.is_empty() && note.rate.is_none() => {
-                all.remove(key);
+                *note = Note::deleted_now();
             }
             Some(note) => {
                 note.transfer = transfer;
+                note.deleted = false;
                 note.updated = now();
             }
             None if !transfer => return Ok(()),
@@ -429,6 +526,7 @@ impl Notes {
                         rate: None,
                         transfer: true,
                         updated: now(),
+                        deleted: false,
                     },
                 );
             }
@@ -785,6 +883,7 @@ mod tests {
                     updated: 0,
                     rate: None,
                     transfer: false,
+                    deleted: false,
                 },
             );
         }
@@ -921,6 +1020,7 @@ mod tests {
                 updated: 1_700_000_000,
                 rate: None,
                 transfer: false,
+                deleted: false,
             },
         )]);
         let file = String::from_utf8(notes.encrypt_with(&all, [7; 12])).unwrap();
@@ -1143,7 +1243,7 @@ mod tests {
     }
 
     /// AC-T3: deleting the note keeps the flag; taking the flag off an entry with nothing
-    /// else deletes it; with a note or a rate the entry stays.
+    /// else deletes it (leaving its mark, FEAT-0045); with a note or a rate the entry stays.
     #[test]
     fn a_note_and_the_transfer_go_apart() {
         let dir = dir("transfer-note");
@@ -1160,7 +1260,9 @@ mod tests {
         assert!(Notes::open(path.clone(), &seed(1), WALLET).transfer("core:aa"));
         notes.set_transfer("core:aa", false).unwrap();
         assert!(!notes.any(), "nothing left: the entry goes");
-        assert!(inner(&path).get("core:aa").is_none());
+        // FEAT-0045: what is left is the deletion's mark, with nothing in it.
+        assert_eq!(inner(&path)["core:aa"]["deleted"], true);
+        assert_eq!(inner(&path)["core:aa"]["text"], "");
         // With a note or a rate the entry stays without the flag, and the file has no field.
         notes.set("core:bb", Some("rent".into())).unwrap();
         notes.set_transfer("core:bb", true).unwrap();
@@ -1211,6 +1313,41 @@ mod tests {
         notes.bind(std::slice::from_ref(&line));
         assert_eq!(notes.get("pool:7"), Some("rent"));
         assert!(notes.transfer("pool:7"));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// FEAT-0045 (AC-T-B3): a deleted note leaves its mark — not shown, not counted, in the
+    /// records for the backup — so an older copy merged in does not bring it back; a new note
+    /// over the mark is a note again, and a copy deleted later takes it away. A send's note
+    /// waiting for its line leaves none. Mutant: `set(None)` removing the entry.
+    #[test]
+    fn a_deleted_note_leaves_its_mark_and_does_not_come_back() {
+        let dir = dir("deleted-mark");
+        let mut notes = Notes::open(dir.join("notes.enc"), &seed(1), WALLET);
+        notes.set("core:aa", Some("rent".into())).unwrap();
+        let old_copy = notes.records();
+        std::thread::sleep(std::time::Duration::from_millis(1100));
+        notes.set("core:aa", None).unwrap();
+        assert_eq!(notes.get("core:aa"), None);
+        assert!(!notes.any(), "a mark is no note");
+        assert!(
+            notes.records()["core:aa"].deleted,
+            "the mark is in the records"
+        );
+        // The older copy changes nothing.
+        let merged = notes.merge(&old_copy).unwrap();
+        assert_eq!((merged.added, merged.newer), (0, 0));
+        assert_eq!(notes.get("core:aa"), None, "no resurrection");
+        // After a reopen the mark is still there.
+        let mut notes = Notes::open(dir.join("notes.enc"), &seed(1), WALLET);
+        assert!(notes.records()["core:aa"].deleted);
+        notes.set("core:aa", Some("rent again".into())).unwrap();
+        assert_eq!(notes.get("core:aa"), Some("rent again"));
+        assert!(!notes.records()["core:aa"].deleted);
+        // A send's waiting note goes without a mark.
+        notes.set("pending:pool:5:9", Some("x".into())).unwrap();
+        notes.set("pending:pool:5:9", None).unwrap();
+        assert!(!notes.records().contains_key("pending:pool:5:9"));
         std::fs::remove_dir_all(dir).unwrap();
     }
 }

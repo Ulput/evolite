@@ -131,7 +131,57 @@ pub(super) fn backup(
         Some(1) => state.check = Some(PhraseCheckForm::default()),
         _ => {}
     }
+    // FEAT-0045: behind «Features for advanced users».
+    if state.is_on("advanced") {
+        ui.add_space(8.0);
+        backup_file(ui, a, state);
+    }
 }
+
+/// FEAT-0045 (B1): «BACKUP FILE» — save, restore, and the last answer under the group.
+fn backup_file(ui: &mut Ui, a: &mut Assets, state: &mut SettingsState) {
+    use crate::backup_file::Pick;
+    let busy = state.backup_file.waiting.is_some() || state.backup_file.asked.is_some();
+    let clicked = group(
+        ui,
+        a,
+        tr!("Backup file"),
+        vec![
+            (
+                tr!("Backup file"),
+                FILE_TEXT,
+                Control::Button(tr!("Save a backup file…"), ButtonKind::Secondary),
+            ),
+            (
+                tr!("Restore from a file"),
+                tr!("Notes and the address book are merged; matches are not duplicated."),
+                Control::Button(tr!("Restore from a file…"), ButtonKind::Secondary),
+            ),
+        ],
+    );
+    match clicked {
+        Some(0) if !busy => state.backup_file.want = Some(Pick::Save),
+        Some(1) if !busy => state.backup_file.want = Some(Pick::Open),
+        _ => {}
+    }
+    if state.backup_file.waiting == Some(Pick::Open) {
+        ui.add_space(8.0);
+        notice(ui, a, "info", a.p.muted, tr!("Restoring…"));
+    } else if let Some((ok, said)) = &state.backup_file.said {
+        ui.add_space(8.0);
+        let (icon, color) = if *ok {
+            ("confirmed", a.p.accent)
+        } else {
+            ("warning", a.p.danger)
+        };
+        notice(ui, a, icon, color, said);
+    }
+}
+
+/// FEAT-0045 R-1: what the file holds, under «Backup file».
+pub const FILE_TEXT: &str = tr!(
+    "The file keeps what the phrase does not bring back: notes, the address book, settings, app sign-ins and more. It has no phrase or keys, and only this wallet can open it."
+);
 
 /// · "Remind me to check": on Overview, three months after the last right check (or the
 /// wallet's creation), a line with "Check" and "Remind me later" (a week). `show`: the

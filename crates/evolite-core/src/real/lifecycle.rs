@@ -55,6 +55,7 @@ impl Real {
             wallet,
             index,
             notes: Arc::default(),
+            backup_key: Default::default(),
             first_seen: Default::default(),
             attempts,
             pending_origin: wallets::Origin::Created,

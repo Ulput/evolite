@@ -21,6 +21,6 @@ pub use contacts::{
 pub use history::{
     core_balance, journal, mempool, name_requests, nft_series, pending, pool_history,
 };
-pub use secrets::{attempts, notes, security, vault};
+pub use secrets::{attempts, backup, notes, security, vault};
 pub use tokens::wallet_tokens;
 pub use wallet::{folders, json_file, wallets};

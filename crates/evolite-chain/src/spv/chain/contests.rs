@@ -153,6 +153,57 @@ pub fn identity_verify_json(label: &str, url: &str) -> String {
 }
 
 impl Chain {
+    /// FEAT-0045: the link «where my identity is confirmed» `owner` has on `label`, as Platform
+    /// keeps it — its URL, or `None` when there is no such document. Reads only: a link restored
+    /// from a backup as «not written» is checked with it before a retry is offered.
+    pub async fn read_identity_link(
+        &self,
+        owner: &dpp::prelude::Identifier,
+        label: &str,
+    ) -> Result<Option<String>, String> {
+        use dash_sdk::drive::query::{WhereClause, WhereOperator};
+        use dash_sdk::platform::{DocumentQuery, FetchMany};
+        use dpp::document::{Document, DocumentV0Getters};
+        use dpp::platform_value::Value;
+
+        let Some(contract) = self.identity_verify_contract().await? else {
+            return Ok(None);
+        };
+        let sdk = self.sdk().await?;
+        let normalized = evolite_common::dpns::normalized(&label.to_lowercase());
+        let query = DocumentQuery::new(contract, "identityVerify")
+            .map_err(|e| e.to_string())?
+            .with_where(WhereClause {
+                field: "$ownerId".into(),
+                operator: WhereOperator::Equal,
+                value: Value::Identifier(owner.to_buffer()),
+            })
+            .with_where(WhereClause {
+                field: "normalizedParentDomainName".into(),
+                operator: WhereOperator::Equal,
+                value: Value::Text("dash".into()),
+            })
+            .with_where(WhereClause {
+                field: "normalizedLabel".into(),
+                operator: WhereOperator::Equal,
+                value: Value::Text(normalized),
+            })
+            .with_limit(1);
+        Ok(Document::fetch_many(&sdk, query)
+            .await
+            .map_err(|e| e.to_string())?
+            .into_values()
+            .flatten()
+            .next()
+            .map(|d| {
+                d.properties()
+                    .get("url")
+                    .and_then(|v| v.as_text())
+                    .unwrap_or_default()
+                    .to_owned()
+            }))
+    }
+
     /// Writes, replaces or (`url: None`) deletes the link «where my identity is confirmed» of the
     /// wallet's first identity's claim on `label` (АРХ-6, AC-T12): one document per identity and
     /// label, found by its index first, so a second write replaces it and never makes a second.

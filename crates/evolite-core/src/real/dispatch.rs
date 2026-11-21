@@ -797,6 +797,16 @@ impl Real {
                     true,
                 );
             }
+            // FEAT-0045: nothing in the snapshot changes on a save; a restore changes the notes,
+            // the address book and the contacts' rows.
+            Command::SaveBackup { path, settings } => {
+                let result = self.save_backup(path, settings).await;
+                return (Some(Event::BackupSaved(result)), false);
+            }
+            Command::RestoreBackup { path } => {
+                let result = self.restore_backup(path).await;
+                return (Some(Event::BackupRestored(result)), true);
+            }
             Command::RenameWallet { id, name, color } => {
                 return self.rename_wallet(id, name, color);
             }

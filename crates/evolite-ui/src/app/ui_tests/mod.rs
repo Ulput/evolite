@@ -16,6 +16,7 @@ mod amount_marks;
 mod amounts;
 mod app_connect;
 mod as_known;
+mod backup_file;
 mod broken_channel;
 mod bugs;
 mod calm_states;

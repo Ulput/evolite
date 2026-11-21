@@ -70,6 +70,24 @@ const SECTIONS: [(Section, &str, &str); 8] = [
     (Section::About, "info", tr!("About")),
 ];
 
+/// FEAT-0045: «Save a backup file…» and «Restore from a file…» — asked on the Backup screen,
+/// the dialog opened and the command sent by the app (it has the settings to carry), the answer
+/// shown under the group.
+#[derive(Default)]
+pub struct BackupFileState {
+    /// A button was pressed this frame.
+    pub want: Option<crate::backup_file::Pick>,
+    /// The dialog open, answering once.
+    pub asked: Option<(
+        crate::backup_file::Pick,
+        std::sync::mpsc::Receiver<Option<std::path::PathBuf>>,
+    )>,
+    /// Sent to the core, not answered yet.
+    pub waiting: Option<crate::backup_file::Pick>,
+    /// The last answer, as shown: `true` when it went well.
+    pub said: Option<(bool, String)>,
+}
+
 pub struct SettingsState {
     pub section: Section,
     pub theme: ThemeChoice,
@@ -93,6 +111,8 @@ pub struct SettingsState {
     pub remind_snoozed: Option<Timestamp>,
     /// FEAT-0040: the wallet's fee choice for a Core payment (R-12).
     pub fee: evolite_api::fee_choice::FeeChoice,
+    /// FEAT-0045: the backup file's dialog and its answer.
+    pub backup_file: BackupFileState,
     /// FEAT-0041 R-13: the empty restored wallet's banner is not shown again (this wallet's).
     pub empty_hint_closed: bool,
     /// "Restart evolite" was pressed: the app starts again (a new Core node).
@@ -270,6 +290,7 @@ impl SettingsState {
             switch_to: None,
             remind_snoozed: None,
             fee: Default::default(),
+            backup_file: Default::default(),
             empty_hint_closed: false,
             restart: false,
             phrase_dialog: phrase,

@@ -16,6 +16,7 @@ pub use zeroize::Zeroizing;
 pub mod address;
 pub mod address_fund;
 pub mod address_plan;
+pub mod backup;
 pub mod coin_plan;
 pub mod confirm;
 pub mod contracts;
@@ -2523,6 +2524,18 @@ pub enum Command {
     StartFileOver {
         file: LocalFile,
     },
+    /// FEAT-0045: write the open wallet's backup file to `path` (written beside it, then put
+    /// in its place). `settings`: the wallet's half of the interface's settings, JSON, carried
+    /// as it is. Needs the wallet unlocked, no password. Answered with `BackupSaved`.
+    SaveBackup {
+        path: std::path::PathBuf,
+        settings: Option<String>,
+    },
+    /// FEAT-0045: merge the backup file at `path` into the open wallet — read and checked whole
+    /// before anything is written (R-10). Answered with `BackupRestored`.
+    RestoreBackup {
+        path: std::path::PathBuf,
+    },
     /// Name a wallet of this computer (1–24 characters) and give it one of the six colours
     /// (Figma 30); local, never sent anywhere. Answered with `Done { what: DoneWhat::Wallet }`.
     RenameWallet {
@@ -3120,6 +3133,10 @@ pub enum Event {
         ask: Option<u64>,
     },
     PhraseRevealed(Result<Phrase, CoreError>),
+    /// The answer to `Command::SaveBackup`: the file's name (not its folder).
+    BackupSaved(Result<String, backup::BackupError>),
+    /// The answer to `Command::RestoreBackup`.
+    BackupRestored(Result<backup::Restored, backup::BackupError>),
     IdentityKeyRevealed(Result<RevealedKey, CoreError>),
     /// A funding of the Platform address went through (BUG-171): what the address gained, by
     /// its proved balance before and after, in duffs. Comes just before its

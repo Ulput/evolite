@@ -66,6 +66,18 @@ impl AddressBook {
         })
     }
 
+    /// FEAT-0045 R-9: a backup's entries merged in by address, a name here kept; written
+    /// once, only when one was added. How many were added.
+    pub fn merge(&self, from: &[Entry]) -> Result<usize, String> {
+        self.store
+            .update(|e| {
+                let n = crate::backup::merge_book(&mut e.known, from);
+                e.known.sort_by_key(|e| e.label.to_lowercase());
+                (n, n > 0)
+            })
+            .map_err(|e| e.to_string())
+    }
+
     pub fn forget(&self, address: &str) -> Result<(), String> {
         self.change(|all| all.retain(|e| e.address != address))
     }

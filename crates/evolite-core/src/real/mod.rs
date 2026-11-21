@@ -682,6 +682,9 @@ struct Real {
     /// wallet, `None` once it locks (a lock, a switch, "Add a wallet"). Shared with the sends
     /// in flight, which keep their note once the network takes them.
     notes: Arc<std::sync::Mutex<Option<notes::Notes>>>,
+    /// FEAT-0045: the open wallet's backup key and fingerprint, from its seed with the notes;
+    /// `None` once it locks.
+    backup_key: std::sync::Mutex<Option<Arc<evolite_local::backup::BackupKey>>>,
     /// Which history lines this unlock has seen, for the rate of operations first seen
     /// (FEAT-0008, R-4); reset when the notes open.
     first_seen: std::sync::Mutex<FirstSeen>,

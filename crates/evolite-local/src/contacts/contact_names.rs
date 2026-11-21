@@ -35,6 +35,22 @@ impl ContactNames {
         })
     }
 
+    /// FEAT-0045: every name with the time it was read, for the backup file.
+    pub fn records(&self) -> BTreeMap<String, Kept> {
+        self.store.read(BTreeMap::clone)
+    }
+
+    /// FEAT-0045 R-9: the names of a backup merged in, the later read winning; written once,
+    /// only when something changed. How many changed.
+    pub fn merge(&self, from: &BTreeMap<String, Kept>) -> Result<usize, String> {
+        self.store
+            .update(|all| {
+                let n = crate::backup::merge_names(all, from);
+                (n, n > 0)
+            })
+            .map_err(|e| e.to_string())
+    }
+
     /// Keeps what the network said of `id`'s name at `now`; written only when the name changed or
     /// was not kept.
     pub fn keep(&self, id: &str, name: Option<String>, now: i64) {
