@@ -1,7 +1,7 @@
 //! Topping up credits: the dialog, what it says of a top-up under way, its errors.
 
 use super::*;
-use crate::components::{Part, dialog_with_footer};
+use crate::components::{Part, dialog_with_summary};
 
 /// "Top up the identity": DASH from Core into the identity's credits, what it costs and what
 /// it gives. Closing the window does not stop a top-up that is running.
@@ -44,7 +44,10 @@ pub(super) fn top_up_dialog(
     let mut send = None;
     // What the middle reckoned of the amount, for the footer's button.
     let mut checked = (None, false, false);
-    let close = dialog_with_footer(
+    // BUG-249: what the middle reckoned for the summary: the amount, the Core fee, Platform's fee
+    // on top, the identity's credits after and whether they are known.
+    let mut sums: (Option<i64>, i64, i64, i64, bool) = (None, fee, fees.top_up_on_top(), 0, false);
+    let close = dialog_with_summary(
         ui,
         a,
         "top-up",
@@ -53,6 +56,57 @@ pub(super) fn top_up_dialog(
         464.0,
         |ui, a, part| {
             let p = a.p;
+            // BUG-249: what is agreed to, pinned over the password: the Core fee, Platform's fee,
+            // the total from Core and the identity's credits after.
+            if part == Part::Summary {
+                let (amount, fee, on_top, after, known) = sums;
+                let value = style(UI.weight(Weight::Medium).mono());
+                kv_row(
+                    ui,
+                    &p,
+                    tr!("Core fee"),
+                    &format!("≈ {}", dash(fee)),
+                    value.clone(),
+                );
+                // BUG-93: the fee of Platform goes on top, the amount reaches the identity whole.
+                kv_row(
+                    ui,
+                    &p,
+                    tr!("Platform fee"),
+                    &format!("≈ {}", dash(on_top)),
+                    value.clone(),
+                );
+                if let Some(d) = amount {
+                    kv_row(
+                        ui,
+                        &p,
+                        tr!("Total from Core"),
+                        &format!("≈ {}", dash(d + on_top + fee)),
+                        value.clone(),
+                    );
+                }
+                kv_row(
+                    ui,
+                    &p,
+                    tr!("On the identity after"),
+                    // Reckoned from the credits: «—» until they are checked in this run (BUG-116).
+                    &if known {
+                        format!(
+                            tr!("{} · ≈ {} operations"),
+                            crate::format::balance(after),
+                            operations(after, fees)
+                        )
+                    } else {
+                        "—".to_string()
+                    },
+                    value,
+                );
+                // FEAT-0004 FR-7: the large-spend tick with what it agrees to.
+                if signed.is_none() {
+                    state.top_up_flow.password.summary_tick(ui, &p);
+                }
+                return false;
+            }
             if part == Part::Footer {
                 // The footer (BUG-122): the password and the buttons, always in the window.
                 let (amount, too_much, too_little) = checked;
@@ -191,47 +245,13 @@ pub(super) fn top_up_dialog(
                     core_amount.color(&p),
                 ),
             }
-            kv_row(
-                ui,
-                &p,
-                tr!("Core fee"),
-                &format!("≈ {}", dash(fee)),
-                value.clone(),
-            );
-            // BUG-93: the fee of Platform goes on top, the amount reaches the identity whole.
-            kv_row(
-                ui,
-                &p,
-                tr!("Platform fee"),
-                &format!("≈ {}", dash(on_top)),
-                value.clone(),
-            );
-            if let Some(d) = amount {
-                kv_row(
-                    ui,
-                    &p,
-                    tr!("Total from Core"),
-                    &format!("≈ {}", dash(d + on_top + fee)),
-                    value.clone(),
-                );
-            }
-            kv_row(
-                ui,
-                &p,
-                tr!("On the identity after"),
-                // Reckoned from the credits: «—» until they are checked in this run (BUG-116).
-                &if signed.is_some_and(|s| s.credits_checked)
-                    || (signed.is_none() && wallet.balances.credits_checked)
-                {
-                    format!(
-                        tr!("{} · ≈ {} operations"),
-                        crate::format::balance(after),
-                        operations(after, fees)
-                    )
-                } else {
-                    "—".to_string()
-                },
-                value,
+            sums = (
+                amount,
+                fee,
+                on_top,
+                after,
+                signed.is_some_and(|s| s.credits_checked)
+                    || (signed.is_none() && wallet.balances.credits_checked),
             );
             notice(
                 ui,

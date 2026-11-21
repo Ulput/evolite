@@ -161,6 +161,10 @@ fn row_button(ui: &Ui, id: egui::Id, kind: ButtonKind, enabled: bool) {
 
 fn row_of_buttons<R>(ui: &mut Ui, kind: Row, add: impl FnOnce(&mut Ui) -> R) -> R {
     let ctx = ui.ctx().clone();
+    if kind == Row::Spend {
+        // BUG-249: a dialog whose row spends must have its summary (the test of them all).
+        super::note_spend(&ctx);
+    }
     let marked = kind == Row::Destructive;
     let destructive = marked || crate::a11y::dialog_is_destructive(&ctx);
     let outer = ctx.data_mut(|d| {

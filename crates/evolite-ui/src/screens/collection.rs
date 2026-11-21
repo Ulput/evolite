@@ -11,7 +11,7 @@ use crate::components::{
 };
 #[cfg(demo_core)]
 use crate::components::{
-    FieldKind, Part, button_enabled, dialog_with_footer, field_label, password_asked, text_field,
+    FieldKind, Part, button_enabled, dialog_with_summary, field_label, password_asked, text_field,
 };
 use crate::context::Ctx;
 use crate::text;
@@ -1092,7 +1092,7 @@ fn gift_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut Collection
     };
     let fee = wallet.fees.nft_transfer;
     let title = format!(tr!("Give “{}”"), crate::i18n::own(&nft.name));
-    let closed = dialog_with_footer(ui, a, "gift-dialog", "nft", &title, 464.0, |ui, a, part| {
+    let closed = dialog_with_summary(ui, a, "gift-dialog", "nft", &title, 464.0, |ui, a, part| {
         let mut close = false;
         let name = state
             .recipient
@@ -1110,6 +1110,27 @@ fn gift_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut Collection
         } else {
             None
         };
+        // BUG-249: what is agreed to, pinned over the password: that the NFT cannot be taken
+        // back, and the fee.
+        if part == Part::Summary {
+            crate::components::notice(
+                ui,
+                a,
+                "info",
+                p.muted,
+                tr!("The NFT goes to the recipient's identity. It cannot be taken back."),
+            );
+            kv_row(
+                ui,
+                &p,
+                tr!("Platform fee"),
+                &format!("≈ {}", crate::format::amount(fee)),
+                mono(13.0, Weight::Medium),
+            );
+            // FEAT-0004 FR-7: the large-spend tick with what it agrees to.
+            state.flow.password.summary_tick(ui, &p);
+            return false;
+        }
         if part == Part::Footer {
             // The footer (BUG-122): always in the window.
             let ask = password_asked(cx.snap);
@@ -1178,20 +1199,6 @@ fn gift_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut Collection
                 )),
             };
         });
-        crate::components::notice(
-            ui,
-            a,
-            "info",
-            p.muted,
-            tr!("The NFT goes to the recipient's identity. It cannot be taken back."),
-        );
-        kv_row(
-            ui,
-            &p,
-            tr!("Platform fee"),
-            &format!("≈ {}", crate::format::amount(fee)),
-            mono(13.0, Weight::Medium),
-        );
         false
     });
     if closed {

@@ -68,6 +68,10 @@ pub(super) struct DevState {
     hidden_preset: bool,
     /// The contest card to open once the snapshot has the identity (`contest-card`, `contest-lost`).
     contest_preset: Option<&'static str>,
+    /// `--screen contact-accept` / `contact-resend` (BUG-249 r3): «Accept the request» over the
+    /// demo's incoming request, «Send the requests again» over its first contact, once the
+    /// snapshot has them.
+    contact_preset: Option<&'static str>,
     /// `--screen fund-address-recovered`: the stopped one is a lock found on chain after a
     /// restore — no record of where it was signed to go, so it goes to the address shown now
     /// ([`recovered_to`]), and no InstantLock (BUG-171) — with «Continue» open.
@@ -265,6 +269,9 @@ impl DevState {
             } else {
                 None
             },
+            contact_preset: ["contact-accept", "contact-resend"]
+                .into_iter()
+                .find(|name| dev.preset(name)),
             hidden_preset: dev.preset("contest-lost-hidden"),
             names_preset: [
                 "names-contested",
@@ -475,6 +482,28 @@ impl App {
         {
             self.dev.contest_preset = None;
             self.identity.open_contest(&id.id.clone(), label);
+        }
+        if let Some(which) = self.dev.contact_preset
+            && let Some(w) = self.snapshot.as_ref().and_then(|s| s.wallet.as_ref())
+        {
+            use evolite_api::ContactState;
+            let first = |state: ContactState| {
+                w.contacts
+                    .iter()
+                    .find(|c| c.state == state)
+                    .map(|c| c.identity_id.clone())
+            };
+            let opened = if which == "contact-accept" {
+                first(ContactState::Incoming).map(|id| self.contacts.accepting = Some(id))
+            } else {
+                first(ContactState::Established).map(|id| {
+                    self.contacts.resend =
+                        Some(screens::identity::resend::ResendWindow::new(Some(id)));
+                })
+            };
+            if opened.is_some() {
+                self.dev.contact_preset = None;
+            }
         }
         if self.dev.empty_here_preset
             && let Some(s) = self.snapshot.as_mut()

@@ -8,8 +8,7 @@ use super::{TokensState, sender, shown_name, state};
 use crate::components::para;
 use crate::components::{
     Assets, ButtonKind, FieldKind, Part, button, button_enabled, button_row, button_row_spend,
-    checkbox, dialog_with_footer, divider, field_label, kv_row, notice, password_asked, segmented,
-    text_field, txt,
+    checkbox, divider, field_label, kv_row, notice, password_asked, segmented, text_field, txt,
 };
 use crate::context::Ctx;
 use crate::theme::{Weight, mono, sans};
@@ -1232,7 +1231,7 @@ pub(super) fn issuer_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, tokens: &
     let mut send = None;
     let title = window_title(&form.window, state::name(&row.info));
     let danger = matches!(form.window, IssuerWindow::Destroy(_));
-    let closed = dialog_with_footer(
+    let closed = crate::components::dialog_with_summary(
         ui,
         a,
         "token-issuer",
@@ -1240,8 +1239,38 @@ pub(super) fn issuer_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, tokens: &
         &title,
         460.0,
         |ui, a, part| {
-            if part == Part::Footer {
-                let mut close = false;
+            // BUG-249: what is agreed to, pinned over the password: the change as it was and as
+            // it becomes, the fee, and the tick the button waits for.
+            if part == Part::Summary {
+                ui.spacing_mut().item_spacing.y = 10.0;
+                // M7: what it is now and what it becomes.
+                if let (IssuerWindow::Setting(field, edit), Some(IssuerOp::Setting(change))) =
+                    (&form.window, &op)
+                    && let Some(s) = page.settings.iter().find(|s| s.field == *field)
+                {
+                    let now = match edit {
+                        SettingEdit::Makers => taker_text(&s.makers, &page),
+                        SettingEdit::Admins => taker_text(&s.admins, &page),
+                        SettingEdit::Value => {
+                            setting_value(s, &page, state::name(&row.info), decimals)
+                        }
+                    };
+                    let then = change_text(change, &page, decimals);
+                    ui.add(para(
+                        &format!(tr!("was {}, becomes {}"), now, then),
+                        12.0,
+                        Weight::Regular,
+                        p.muted,
+                    ));
+                }
+                divider(ui, &p);
+                kv_row(
+                    ui,
+                    &p,
+                    &format!(tr!("Fee, in credits of {}"), crate::i18n::own(&from)),
+                    &format!("≈ {}", crate::format::amount(fee as i64)),
+                    mono(13.0, Weight::Medium),
+                );
                 if tick {
                     let words = match &form.window {
                         IssuerWindow::Burn => {
@@ -1259,6 +1288,12 @@ pub(super) fn issuer_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, tokens: &
                     };
                     checkbox(ui, a, &mut form.understood, &words);
                 }
+                // FEAT-0004 FR-7: the large-spend tick with what it agrees to.
+                form.flow.password.summary_tick(ui, &p);
+                return false;
+            }
+            if part == Part::Footer {
+                let mut close = false;
                 form.flow
                     .password
                     .field(ui, &p, "token-issuer-password", ask);
@@ -1653,24 +1688,6 @@ pub(super) fn issuer_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, tokens: &
                     }
                 }
             }
-            // M7: what it is now and what it becomes.
-            if let (IssuerWindow::Setting(field, edit), Some(IssuerOp::Setting(change))) =
-                (&form.window, &op)
-                && let Some(s) = page.settings.iter().find(|s| s.field == *field)
-            {
-                let now = match edit {
-                    SettingEdit::Makers => taker_text(&s.makers, &page),
-                    SettingEdit::Admins => taker_text(&s.admins, &page),
-                    SettingEdit::Value => setting_value(s, &page, state::name(&row.info), decimals),
-                };
-                let then = change_text(change, &page, decimals);
-                ui.add(para(
-                    &format!(tr!("was {}, becomes {}"), now, then),
-                    12.0,
-                    Weight::Regular,
-                    p.muted,
-                ));
-            }
             if same {
                 ui.label(txt(
                     tr!("It is set this way already."),
@@ -1679,14 +1696,6 @@ pub(super) fn issuer_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, tokens: &
                     p.danger,
                 ));
             }
-            divider(ui, &p);
-            kv_row(
-                ui,
-                &p,
-                &format!(tr!("Fee, in credits of {}"), crate::i18n::own(&from)),
-                &format!("≈ {}", crate::format::amount(fee as i64)),
-                value,
-            );
             false
         },
     );

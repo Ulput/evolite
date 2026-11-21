@@ -5,7 +5,7 @@
 //! in any of it but the contact's own card (AC-A6).
 
 use super::*;
-use crate::components::{Part, dialog_with_footer, error_notice};
+use crate::components::{Part, dialog_with_summary, error_notice};
 use crate::screens::txt;
 use evolite_api::{ContactState, Duffs, Resend, Spend, Wallet};
 
@@ -229,8 +229,27 @@ pub(crate) fn window(
         Some(_) => tr!("Send the request again"),
         None => tr!("Send requests again"),
     };
-    let closed = dialog_with_footer(ui, a, "resend", "contacts", title, 440.0, |ui, a, part| {
+    let closed = dialog_with_summary(ui, a, "resend", "contacts", title, 440.0, |ui, a, part| {
         let p = a.p;
+        // BUG-249: what is agreed to, pinned over the password: how many requests and their fee.
+        if part == Part::Summary {
+            ui.spacing_mut().item_spacing.y = 10.0;
+            ui.label(txt(
+                &format!(tr!("Contacts: {}"), m),
+                13.0,
+                Weight::Regular,
+                p.text,
+            ));
+            ui.label(txt(
+                &format!(tr!("Fee for the requests ≈ {}"), crate::format::amount(fee)),
+                13.0,
+                Weight::Regular,
+                p.text,
+            ));
+            // FEAT-0004 FR-7: the large-spend tick with what it agrees to.
+            win.flow.password.summary_tick(ui, &p);
+            return false;
+        }
         if part == Part::Footer {
             let mut close = false;
             win.flow.password.field(ui, &p, "resend-password", true);
@@ -271,18 +290,6 @@ pub(crate) fn window(
             return close;
         }
         ui.spacing_mut().item_spacing.y = 10.0;
-        ui.label(txt(
-            &format!(tr!("Contacts: {}"), m),
-            13.0,
-            Weight::Regular,
-            p.text,
-        ));
-        ui.label(txt(
-            &format!(tr!("Fee for the requests ≈ {}"), crate::format::amount(fee)),
-            13.0,
-            Weight::Regular,
-            p.text,
-        ));
         if let Some(k) = covered(&w, 0, each, m) {
             notice(
                 ui,

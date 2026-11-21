@@ -137,6 +137,8 @@ pub fn fund_dialog(
                     Weight::Regular,
                     p.muted,
                 ));
+                    // FEAT-0004 FR-7: the large-spend tick with what it agrees to.
+                    state.flow.password.summary_tick(ui, &p);
                 }
                 return false;
             }

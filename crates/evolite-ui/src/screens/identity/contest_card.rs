@@ -5,7 +5,7 @@
 //! through [`IdentityState::open_contest`] (AC-T21).
 
 use super::*;
-use crate::components::{Part, dialog_with_footer};
+use crate::components::{Part, dialog_with_summary};
 use evolite_api::NameState;
 
 /// The card, when one is open. Closes itself when its name is no longer the shown identity's.
@@ -51,8 +51,41 @@ pub(super) fn contest_card(
     // One write at a time, and none again once answered, until the card is closed (BUG-207).
     let can_write = state.link_flow.can_act();
     let password = &mut state.link_flow.password;
-    let close = dialog_with_footer(ui, a, "contest", "vote", &title, 520.0, |ui, a, part| {
+    // АРХ-6: the claim's link, and whether Platform has it (AC-T12).
+    let link_lines = |ui: &mut Ui, p: &crate::theme::Palette| {
+        if let Some(link) = &contest.link {
+            kv_row(
+                ui,
+                p,
+                tr!("Identity confirmation"),
+                link,
+                style(UI.weight(Weight::Medium)),
+            );
+            if !contest.link_written {
+                ui.add(
+                    crate::components::para(
+                        tr!("The request is in; the link was not written. Writing it again pays only the link, never the fund again."),
+                        SMALL.size,
+                        SMALL.weight,
+                        p.danger,
+                    )
+                    .line_height(SMALL.line),
+                );
+            }
+        }
+    };
+    let close = dialog_with_summary(ui, a, "contest", "vote", &title, 520.0, |ui, a, part| {
         let p = a.p;
+        // BUG-249: what is agreed to when the link is written again, pinned over the password:
+        // the link, and that only it is paid.
+        if part == Part::Summary {
+            if retry.is_some() {
+                link_lines(ui, &p);
+                // FEAT-0004 FR-7: the large-spend tick with what it agrees to.
+                password.summary_tick(ui, &p);
+            }
+            return false;
+        }
         if part == Part::Footer {
             let mut close = false;
             if retry.is_some() && password.field(ui, &p, "contest-link-password", true) {
@@ -153,20 +186,10 @@ pub(super) fn contest_card(
             ),
             value.clone(),
         );
-        // АРХ-6: the claim's link, and whether Platform has it (AC-T12).
-        if let Some(link) = &contest.link {
-            kv_row(ui, &p, tr!("Identity confirmation"), link, value.clone());
-            if !contest.link_written {
-                ui.add(
-                    crate::components::para(
-                        tr!("The request is in; the link was not written. Writing it again pays only the link, never the fund again."),
-                        SMALL.size,
-                        SMALL.weight,
-                        p.danger,
-                    )
-                    .line_height(SMALL.line),
-                );
-            }
+        // АРХ-6: the claim's link, and whether Platform has it (AC-T12); one to write again
+        // is in the summary.
+        if retry.is_none() {
+            link_lines(ui, &p);
         }
         divider(ui, &p);
         ui.label(text(tr!("Contenders"), SMALL, p.muted));

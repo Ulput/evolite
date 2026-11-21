@@ -420,6 +420,8 @@ pub(super) fn claim_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, tokens: &m
                         mono(13.0, Weight::Medium),
                     );
                 }
+                // FEAT-0004 FR-7: the large-spend tick with what it agrees to.
+                form.flow.password.summary_tick(ui, &p);
                 return false;
             }
             if part == Part::Footer {
@@ -698,6 +700,8 @@ pub(super) fn buy_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, tokens: &mut
                     &mut top_up,
                     problem,
                 );
+                // FEAT-0004 FR-7: the large-spend tick with what it agrees to.
+                form.flow.password.summary_tick(ui, &p);
                 return false;
             }
             if part == Part::Footer {

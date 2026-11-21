@@ -1,7 +1,7 @@
 //! Editing the profile: the form and its dialog.
 
 use super::*;
-use crate::components::{Part, dialog_with_footer};
+use crate::components::{Part, dialog_with_summary};
 
 /// 23 · Edit profile: the picture's link, the name and "Bio", what writing it costs.
 pub(super) fn edit_profile(
@@ -20,7 +20,7 @@ pub(super) fn edit_profile(
         .name()
         .map_or_else(|| "identity".to_string(), |n| format!("@{n}"));
     let mut save = false;
-    let close = dialog_with_footer(
+    let close = dialog_with_summary(
         ui,
         a,
         "edit-profile",
@@ -29,6 +29,20 @@ pub(super) fn edit_profile(
         464.0,
         |ui, a, part| {
             let p = a.p;
+            // BUG-249: what is agreed to, pinned over the password: the write's fee.
+            if part == Part::Summary {
+                // One line, as the token transfer's (FEAT-0018 AV1: the dialog fits in 768).
+                kv_row(
+                    ui,
+                    &p,
+                    &format!(tr!("A write to Platform, with {me}'s credits"), me = me),
+                    &format!("≈ {}", crate::format::amount(fee)),
+                    style(UI.weight(Weight::Medium).mono()),
+                );
+                // FEAT-0004 FR-7: the large-spend tick with what it agrees to.
+                form.flow.password.summary_tick(ui, &p);
+                return false;
+            }
             if part == Part::Footer {
                 // The footer (BUG-122): what went wrong, the password and the buttons, always
                 // in the window.
@@ -145,14 +159,6 @@ pub(super) fn edit_profile(
                     p.muted,
                 ));
             });
-            // One line, as the token transfer's (FEAT-0018 AV1: the dialog fits in 768).
-            kv_row(
-                ui,
-                &p,
-                &format!(tr!("A write to Platform, with {me}'s credits"), me = me),
-                &format!("≈ {}", crate::format::amount(fee)),
-                style(UI.weight(Weight::Medium).mono()),
-            );
             notice(
                 ui,
                 a,

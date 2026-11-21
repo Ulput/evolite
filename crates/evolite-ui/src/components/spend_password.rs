@@ -56,6 +56,9 @@ pub struct SpendPassword {
     large: Option<evolite_api::Duffs>,
     /// «I checked the amount and where it goes», for the spend watched as it is.
     ticked: bool,
+    /// BUG-249: the pass the tick was drawn in a dialog's summary ([`Self::summary_tick`]): the
+    /// field under it then leaves it out.
+    tick_pass: Option<u64>,
     /// The spend watched last (its whole form: another amount or recipient takes the tick off,
     /// review r1 Should 1).
     watched: Option<String>,
@@ -132,9 +135,28 @@ impl SpendPassword {
     /// main button, as in "Check the payment"). In a dialog it is never `true`: the dialog's
     /// row of buttons presses its primary itself ([`super::button_row`]). `id`: unique on the
     /// screen.
-    pub fn field(&mut self, ui: &mut Ui, p: &Palette, id: &str, asked: bool) -> bool {
-        // FEAT-0004 FR-7 (AC-T7): above the password, whether one is asked or not.
+    /// BUG-249 (the architect's condition 2): the FEAT-0004 tick in a dialog's summary, with
+    /// what it agrees to, instead of over the password in the footer. [`Self::field`] then
+    /// draws none.
+    pub fn summary_tick(&mut self, ui: &mut Ui, p: &Palette) {
+        self.tick_pass = Some(ui.ctx().cumulative_pass_nr());
         if self.large.is_some() {
+            ui.checkbox(
+                &mut self.ticked,
+                egui::RichText::new(crate::i18n::t(tick_text()))
+                    .font(sans(13.0, Weight::Regular))
+                    .color(p.text),
+            );
+        }
+    }
+
+    pub fn field(&mut self, ui: &mut Ui, p: &Palette, id: &str, asked: bool) -> bool {
+        // A spend in a dialog: the dialog has seen it (BUG-249's test of every spend dialog).
+        super::note_spend(ui.ctx());
+        // FEAT-0004 FR-7 (AC-T7): above the password, whether one is asked or not — unless the
+        // summary over it has drawn the tick this pass.
+        let in_summary = self.tick_pass == Some(ui.ctx().cumulative_pass_nr());
+        if self.large.is_some() && !in_summary {
             ui.checkbox(
                 &mut self.ticked,
                 egui::RichText::new(crate::i18n::t(tick_text()))

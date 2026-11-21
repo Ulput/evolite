@@ -8,6 +8,68 @@ use crate::cli::PRESETS;
 use crate::components::{MIN_MIDDLE, dialog_seen};
 
 const SMALLEST: [f32; 2] = [800.0, 440.0];
+
+/// Every dialog made with `dialog_with_summary`, by the id written in its code, and whether it
+/// spends (a spend's row of buttons or password field). Each must be seen by the presets with its
+/// summary, spending where it spends; and the code holds no other
+/// (`the_summary_dialogs_are_all_listed`). BUG-249 r3, the architect.
+const SUMMARY_DIALOGS: [(&str, bool); 22] = [
+    ("accept-contact", true),
+    ("add-contact", true),
+    ("add-name", true),
+    ("app-connect-v2", true),
+    ("app-disconnect", true),
+    ("contest", true),
+    ("create-identity-confirm", true),
+    // Its password is the wallet's own, not a spend's: it deletes, it pays nothing.
+    ("delete-wallet", false),
+    ("edit-profile", true),
+    ("fund-address", true),
+    ("fund-address-resume", true),
+    ("gift-dialog", true),
+    ("key-change", true),
+    ("resend", true),
+    ("send-confirm", true),
+    ("shield-dialog", true),
+    ("token-buy", true),
+    ("token-claim", true),
+    ("token-issuer", true),
+    ("token-send", true),
+    ("top-up", true),
+    ("unshield-dialog", true),
+];
+
+/// What a dialog shown is, for [`quiet`]: its id, whether it spends, its summary, its scroll.
+type Shown = Option<(String, bool, bool, bool)>;
+
+fn shown(kit: &Kit) -> Shown {
+    dialog_seen(&kit.ctx).map(|s| (s.name, s.spends, s.summary.is_some(), s.one_scroll))
+}
+
+/// Frames, with `edit` before each, until the dialog shown (its id, whether it spends, its
+/// summary) and the demo core's snapshot have not changed for a while: what comes after the
+/// first frames — a dialog opened, or a spend's row drawn, on the core's answer (≈0.6 s in the
+/// demo) — is in by then (the architect, BUG-249 r3: the top-up got past 6 frames).
+fn quiet(kit: &mut Kit, edit: impl Fn(&mut App)) {
+    const QUIET: std::time::Duration = std::time::Duration::from_millis(300);
+    const MOST: std::time::Duration = std::time::Duration::from_secs(5);
+    let started = std::time::Instant::now();
+    let mut since = std::time::Instant::now();
+    let mut last = (shown(kit), kit.state().snapshot.clone());
+    while since.elapsed() < QUIET && started.elapsed() < MOST {
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        let ctx = kit.ctx.clone();
+        kit.state_mut().take_events(&ctx);
+        edit(kit.state_mut());
+        kit.step();
+        let now = (shown(kit), kit.state().snapshot.clone());
+        if now != last {
+            since = std::time::Instant::now();
+            last = now;
+        }
+    }
+}
+
 const LANGUAGES: [&str; 5] = ["en", "ru", "ja", "de", "ar"];
 
 /// The accessible nodes that stand out of the window to the left or the right — a page wider
@@ -72,7 +134,7 @@ fn sweep(lang: &str) {
             });
         }
         kit.set_size(egui::vec2(SMALLEST[0], SMALLEST[1]));
-        kit.run_steps(8);
+        quiet(&mut kit, |_| {});
         for w in too_wide(&kit) {
             wrong.push(format!("{preset}: wider than the window: {w}"));
         }
@@ -106,4 +168,108 @@ fn every_preset_fits_the_smallest_window_de() {
 #[test]
 fn every_preset_fits_the_smallest_window_ar() {
     sweep(LANGUAGES[4]);
+}
+
+/// BUG-249 r3 (QA: the identity top-up signed on a first press with its total out of sight):
+/// every dialog that spends — a spend's row of buttons or its password field drawn in it — has
+/// its summary, so its primary never acts on a total not seen. «Password for every send» is on,
+/// so that every spend's password field is drawn.
+#[test]
+fn every_dialog_that_spends_has_its_summary() {
+    let mut wrong = Vec::new();
+    let mut spending = 0;
+    let mut met = std::collections::BTreeMap::<String, bool>::new();
+    for preset in PRESETS {
+        if matches!(*preset, "sync" | "sync-nodes") {
+            continue;
+        }
+        let (_turn, mut kit) = demo_app(preset, "en");
+        if preset.starts_with("connect") {
+            wait_for(&mut kit, "the app's request", |kit| {
+                dialog_seen(&kit.ctx).is_some()
+            });
+        }
+        kit.set_size(egui::vec2(SMALLEST[0], SMALLEST[1]));
+        quiet(&mut kit, |app| {
+            if let Some(w) = app.snapshot.as_mut().and_then(|s| s.wallet.as_mut()) {
+                w.password_each_send = true;
+            }
+        });
+        let Some(seen) = dialog_seen(&kit.ctx) else {
+            continue;
+        };
+        if seen.spends {
+            spending += 1;
+            if seen.summary.is_none() {
+                wrong.push(format!("{preset} ({}): spends with no summary", seen.name));
+            }
+        }
+        if seen.summary.is_some() {
+            // Spending in any preset: a form's first step may not spend yet.
+            *met.entry(seen.name.clone()).or_default() |= seen.spends;
+        }
+    }
+    // Every dialog with a summary is seen by a preset, spending where it spends.
+    for (name, spends) in SUMMARY_DIALOGS {
+        match met.get(name) {
+            None => wrong.push(format!("{name}: no preset shows it with its summary")),
+            Some(seen) if *seen != spends => wrong.push(format!(
+                "{name}: seen {} a spend, listed {}",
+                if *seen { "with" } else { "without" },
+                if spends { "spending" } else { "not spending" }
+            )),
+            Some(_) => {}
+        }
+    }
+    assert!(
+        spending > 10,
+        "only {spending} presets open a dialog that spends"
+    );
+    assert!(wrong.is_empty(), "{}", wrong.join("\n"));
+}
+
+/// The list above is the code's: every `dialog_with_summary` written in the screens has its id
+/// there, and the list holds no id the code has not (BUG-249 r3).
+#[test]
+fn the_summary_dialogs_are_all_listed() {
+    let src = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let mut found = std::collections::BTreeSet::new();
+    let mut stack = vec![src];
+    while let Some(dir) = stack.pop() {
+        for entry in std::fs::read_dir(&dir).unwrap().flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                stack.push(path);
+                continue;
+            }
+            if path.extension().is_none_or(|e| e != "rs") {
+                continue;
+            }
+            let text = std::fs::read_to_string(&path).unwrap();
+            let needle = ["dialog_with_", "summary("].concat();
+            for (at, _) in text.match_indices(&needle) {
+                if text[..at].ends_with("fn ") {
+                    continue;
+                }
+                // `(ui, a, "id", …`: the third argument.
+                let args: Vec<&str> = text[at + needle.len()..].splitn(4, ',').collect();
+                let id = args.get(2).map(|a| a.trim()).unwrap_or_default();
+                let literal = id.strip_prefix('"').and_then(|i| i.strip_suffix('"'));
+                assert!(
+                    literal.is_some(),
+                    "{}: an id that is no literal: {id}",
+                    path.display()
+                );
+                found.insert(literal.unwrap().to_owned());
+            }
+        }
+    }
+    let listed: std::collections::BTreeSet<String> = SUMMARY_DIALOGS
+        .iter()
+        .map(|(n, _)| (*n).to_owned())
+        .collect();
+    assert_eq!(
+        found, listed,
+        "the code's dialogs with a summary, and the list"
+    );
 }

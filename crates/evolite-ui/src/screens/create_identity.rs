@@ -925,7 +925,7 @@ fn check_new_identity(
         chosen,
     } = can;
     let mut create = false;
-    let closed = dialog_with_footer(
+    let closed = crate::components::dialog_with_summary(
         ui,
         a,
         "create-identity-confirm",
@@ -933,6 +933,61 @@ fn check_new_identity(
         tr!("Check the new identity"),
         440.0,
         |ui, a, part| {
+            // BUG-249: what is agreed to, pinned over the password: what goes into credits, the
+            // name's and the identity's fees, the Core fee, the total and that it cannot be undone.
+            if part == Part::Summary {
+                ui.spacing_mut().item_spacing.y = 14.0;
+                let value = mono(13.0, Weight::Medium);
+                kv_row(
+                    ui,
+                    &p,
+                    tr!("Into credits"),
+                    &dash(plan.top_up),
+                    value.clone(),
+                );
+                if let Some(label) = &plan.label {
+                    kv_row(
+                        ui,
+                        &p,
+                        &format!(tr!("Name {}"), crate::i18n::own(&format!("@{label}"))),
+                        &format!("≈ {}", dash(plan.name_fee)),
+                        value.clone(),
+                    );
+                }
+                kv_row(
+                    ui,
+                    &p,
+                    tr!("Making an identity"),
+                    &format!("≈ {}", dash(plan.create_fee)),
+                    value.clone(),
+                );
+                kv_row(
+                    ui,
+                    &p,
+                    tr!("Core fee"),
+                    &format!("≈ {}", dash(plan.core_fee)),
+                    value.clone(),
+                );
+                kv_row(
+                    ui,
+                    &p,
+                    tr!("Total from Core"),
+                    &format!("≈ {}", dash(plan.total())),
+                    value,
+                );
+                ui.add(
+                crate::components::para(
+                        tr!("The DASH are locked in Core for Platform. Once signed, this cannot be undone; if the connection drops, evolite continues from the same place."),
+                        12.0,
+                        Weight::Regular,
+                        p.muted,
+                    )
+                    .line_height(18.0),
+            );
+                // FEAT-0004 FR-7: the large-spend tick with what it agrees to.
+                form.flow.password.summary_tick(ui, &p);
+                return false;
+            }
             if part == Part::Footer {
                 // The footer (BUG-122): always in the window.
                 // In a dialog Enter in the field presses the row's primary (`button_row_spend`).
@@ -965,7 +1020,6 @@ fn check_new_identity(
             // SPV item 2a: Core coins over an hour with no new block.
             crate::screens::stale_core_line(ui, &p, &cx.snap.sync);
             ui.spacing_mut().item_spacing.y = 14.0;
-            let value = mono(13.0, Weight::Medium);
             kv_row(
                 ui,
                 &p,
@@ -992,58 +1046,12 @@ fn check_new_identity(
                     }
                 }
             });
-            kv_row(
-                ui,
-                &p,
-                tr!("Into credits"),
-                &dash(plan.top_up),
-                value.clone(),
-            );
-            if let Some(label) = &plan.label {
-                kv_row(
-                    ui,
-                    &p,
-                    &format!(tr!("Name {}"), crate::i18n::own(&format!("@{label}"))),
-                    &format!("≈ {}", dash(plan.name_fee)),
-                    value.clone(),
-                );
-            }
-            kv_row(
-                ui,
-                &p,
-                tr!("Making an identity"),
-                &format!("≈ {}", dash(plan.create_fee)),
-                value.clone(),
-            );
-            kv_row(
-                ui,
-                &p,
-                tr!("Core fee"),
-                &format!("≈ {}", dash(plan.core_fee)),
-                value.clone(),
-            );
-            kv_row(
-                ui,
-                &p,
-                tr!("Total from Core"),
-                &format!("≈ {}", dash(plan.total())),
-                value,
-            );
             ui.add(crate::components::para(
                 fees_note(),
                 12.0,
                 Weight::Regular,
                 p.muted,
             ));
-            ui.add(
-                crate::components::para(
-                        tr!("The DASH are locked in Core for Platform. Once signed, this cannot be undone; if the connection drops, evolite continues from the same place."),
-                        12.0,
-                        Weight::Regular,
-                        p.muted,
-                    )
-                    .line_height(18.0),
-            );
             let public = match &plan.label {
                 Some(label) => format!(
                     tr!("The name {} will be visible to everyone: people find you by it and can add you to contacts."),

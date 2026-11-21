@@ -564,7 +564,10 @@ fn shield_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut PoolStat
     // What the middle planned, for the footer's button: whether it continues a stopped shield,
     // whether there is something to shield, how much and from where.
     let mut planned = None;
-    let closed = dialog_with_footer(
+    // BUG-249: the middle's reckoning for the summary: the costs, the source, a lock continued,
+    // what is left and arrives, and whether the credits are checked.
+    let mut costs = None;
+    let closed = crate::components::dialog_with_summary(
         ui,
         a,
         "shield-dialog",
@@ -574,6 +577,16 @@ fn shield_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut PoolStat
         |ui, a, part| {
             let p = a.p;
             let busy = state.progress.is_some();
+            // BUG-249: what is agreed to, pinned over the password: the fees, what is left and
+            // what arrives.
+            if part == Part::Summary {
+                if let Some((cost, source, resume, preview, checked)) = costs {
+                    shield_cost_lines(ui, &p, &cost, &source, resume, preview, checked);
+                }
+                // FEAT-0004 FR-7: the large-spend tick with what it agrees to.
+                state.flow.password.summary_tick(ui, &p);
+                return false;
+            }
             if part == Part::Footer {
                 // The footer (BUG-122): the password and the buttons, always in the window.
                 let Some((resume, can, amount, source)) = planned else {
@@ -669,7 +682,7 @@ fn shield_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut PoolStat
             let preview = preview.filter(|_| !lock_refused);
             // From credits not checked in this run, what is left is not said (BUG-116).
             let checked = wallet.balances.credits_checked;
-            shield_cost_lines(ui, &p, &cost, source, resume, preview, checked);
+            costs = Some((cost, *source, resume, preview, checked));
             if let Some(fraction) = state.progress {
                 proof_progress(ui, a, fraction);
             }
@@ -898,7 +911,9 @@ fn unshield_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut PoolSt
     let fee = unshield_fee(&wallet.fees, to_identity);
     // What the middle reckoned, for the footer's button: whether the amount fits, and which.
     let mut planned = None;
-    let closed = dialog_with_footer(
+    // BUG-249: what is left in the pool after, as the middle reckoned it, for the summary.
+    let mut left_text = "—".to_string();
+    let closed = crate::components::dialog_with_summary(
         ui,
         a,
         "unshield-dialog",
@@ -908,6 +923,28 @@ fn unshield_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut PoolSt
         |ui, a, part| {
             let p = a.p;
             let busy = state.progress.is_some();
+            // BUG-249: what is agreed to, pinned over the password: the fee and what is left in
+            // the pool.
+            if part == Part::Summary {
+                kv_row(
+                    ui,
+                    &p,
+                    tr!("Platform fee"),
+                    &format!("≈ {}", crate::format::amount(fee)),
+                    mono(13.0, Weight::Medium),
+                );
+                // The app's one «Hide amounts», at the one balance shown (BUG-73).
+                crate::components::kv_row_eye(
+                    ui,
+                    a,
+                    tr!("Left in the pool"),
+                    &left_text,
+                    mono(13.0, Weight::Medium),
+                );
+                // FEAT-0004 FR-7: the large-spend tick with what it agrees to.
+                state.flow.password.summary_tick(ui, &p);
+                return false;
+            }
             if part == Part::Footer {
                 // The footer (BUG-122): the password and the buttons, always in the window.
                 let Some((fits, amount)) = planned else {
@@ -999,24 +1036,9 @@ fn unshield_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut PoolSt
                     ));
                 }
             });
-            kv_row(
-                ui,
-                &p,
-                tr!("Platform fee"),
-                &format!("≈ {}", crate::format::amount(fee)),
-                mono(13.0, Weight::Medium),
-            );
-            let left_text = left
+            left_text = left
                 .filter(|l| *l >= 0)
                 .map_or("—".to_string(), crate::format::balance);
-            // The app's one «Hide amounts», at the one balance shown (BUG-73).
-            crate::components::kv_row_eye(
-                ui,
-                a,
-                tr!("Left in the pool"),
-                &left_text,
-                mono(13.0, Weight::Medium),
-            );
             notice(
                 ui,
                 a,
@@ -1169,7 +1191,7 @@ fn notes(n: u32) -> String {
 }
 
 /// What a shield from one source costs and how much it can move.
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 struct ShieldCost {
     /// Platform's fee: the line "Platform fee".
     fee: Duffs,

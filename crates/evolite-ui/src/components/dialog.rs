@@ -183,9 +183,12 @@ pub fn dialog_middle_at_end(ctx: &egui::Context, id: &str) {
 
 /// The dialog drawn last (for tests).
 #[cfg(all(test, demo_core, feature = "dev-tools"))]
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub(crate) struct DialogSeen {
     pub id: egui::Id,
+    /// The id it was made with, as written in its code (BUG-249 r3: the list of every dialog
+    /// with a summary is checked against what the presets show).
+    pub name: String,
     /// The pass it was drawn in.
     pub pass: u64,
     /// The whole dialog.
@@ -194,6 +197,8 @@ pub(crate) struct DialogSeen {
     pub footer: Option<Rect>,
     /// BUG-249: the footer scrolls with the middle (the window too low for both).
     pub one_scroll: bool,
+    /// BUG-249: a spend's row of buttons or password field is in it ([`note_spend`]).
+    pub spends: bool,
     /// BUG-249: where its summary was drawn, when it has one, and whether it has been in sight
     /// since the dialog opened.
     pub summary: Option<(Rect, bool)>,
@@ -234,6 +239,8 @@ fn header_dialog(
     mut body: impl FnMut(&mut Ui, &mut Assets, Part) -> bool,
 ) -> bool {
     let p = a.p;
+    #[cfg(all(test, demo_core, feature = "dev-tools"))]
+    let name = id;
     let id = egui::Id::new(id);
     let ctx = ui.ctx().clone();
     let place = Place::of(&ctx, id);
@@ -300,7 +307,10 @@ fn header_dialog(
             && !ui
                 .data(|d| d.get_temp::<bool>(id.with("summary-seen")))
                 .unwrap_or(false);
-        ui.data_mut(|d| d.insert_temp(guard_id(), unseen));
+        ui.data_mut(|d| {
+            d.insert_temp(guard_id(), unseen);
+            d.remove_temp::<bool>(spends_id());
+        });
         let (closed, inner_footer) = middle(
             ui,
             a,
@@ -346,6 +356,7 @@ fn header_dialog(
             let drawn = ui.min_rect();
             let seen = DialogSeen {
                 id,
+                name: name.to_owned(),
                 pass: ui.ctx().cumulative_pass_nr(),
                 rect: drawn,
                 footer: match inner_footer {
@@ -356,6 +367,9 @@ fn header_dialog(
                         .then(|| Rect::from_min_max(pos2(drawn.left(), footer_top), drawn.max)),
                 },
                 one_scroll: one,
+                spends: ui
+                    .data(|d| d.get_temp::<bool>(spends_id()))
+                    .unwrap_or(false),
                 summary: summary
                     .then(|| {
                         ui.data(|d| {
@@ -518,6 +532,18 @@ fn middle(
         d.insert_temp(id.with("content"), alone);
     });
     (close, footer)
+}
+
+fn spends_id() -> egui::Id {
+    egui::Id::new("evolite-dialog-spends")
+}
+
+/// A spend's row of buttons or password field was drawn in the dialog being drawn (BUG-249):
+/// the test of every dialog checks that such a dialog has its summary.
+pub fn note_spend(ctx: &egui::Context) {
+    if crate::a11y::in_dialog(ctx) {
+        ctx.data_mut(|d| d.insert_temp(spends_id(), true));
+    }
 }
 
 fn guard_id() -> egui::Id {

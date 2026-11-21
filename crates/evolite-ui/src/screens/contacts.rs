@@ -907,7 +907,7 @@ fn add_contact(
     let password = &mut state.flow.password;
     let mut send = false;
     let mut found_ready = false;
-    let close = dialog_with_footer(
+    let close = crate::components::dialog_with_summary(
         ui,
         a,
         "add-contact",
@@ -916,6 +916,28 @@ fn add_contact(
         464.0,
         |ui, a, part| {
             let p = a.p;
+            // BUG-249: what is agreed to, pinned over the password: the write's fee and who
+            // pays it.
+            if part == Part::Summary {
+                let value = mono(13.0, Weight::Medium);
+                kv_row(
+                    ui,
+                    &p,
+                    tr!("A write to Platform"),
+                    &format!("≈ {}", crate::format::amount(fee)),
+                    value.clone(),
+                );
+                kv_row(
+                    ui,
+                    &p,
+                    tr!("Paid by"),
+                    &format!(tr!("{me} · credits"), me = me),
+                    value,
+                );
+                // FEAT-0004 FR-7: the large-spend tick with what it agrees to.
+                password.summary_tick(ui, &p);
+                return false;
+            }
             if part == Part::Footer {
                 // The footer (BUG-122): always in the window.
                 if let Some(Err(e)) = &result
@@ -1070,21 +1092,6 @@ fn add_contact(
                 }
                 _ => {}
             }
-            let value = mono(13.0, Weight::Medium);
-            kv_row(
-                ui,
-                &p,
-                tr!("A write to Platform"),
-                &format!("≈ {}", crate::format::amount(fee)),
-                value.clone(),
-            );
-            kv_row(
-                ui,
-                &p,
-                tr!("Paid by"),
-                &format!(tr!("{me} · credits"), me = me),
-                value,
-            );
             let who = found
                 .as_ref()
                 .and_then(|f| f.display.clone())
@@ -1242,7 +1249,7 @@ fn accept_dialog(
     let waiting = state.flow.waiting() || state.hiding;
     let ask = state.ask;
     let mut accept = false;
-    let closed = dialog_with_footer(
+    let closed = crate::components::dialog_with_summary(
         ui,
         a,
         "accept-contact",
@@ -1250,6 +1257,19 @@ fn accept_dialog(
         tr!("Accept the request"),
         440.0,
         |ui, a, part| {
+            // BUG-249: what is agreed to, pinned over the password: the answer's fee.
+            if part == Part::Summary {
+                kv_row(
+                    ui,
+                    &p,
+                    tr!("A write to Platform"),
+                    &format!("≈ {}", crate::format::amount(wallet.fees.contact_request)),
+                    mono(13.0, Weight::Medium),
+                );
+                // FEAT-0004 FR-7: the large-spend tick with what it agrees to.
+                state.flow.password.summary_tick(ui, &p);
+                return false;
+            }
             if part == Part::Footer {
                 // The footer (BUG-122): always in the window.
                 if let Some(Err(e)) = &state.result

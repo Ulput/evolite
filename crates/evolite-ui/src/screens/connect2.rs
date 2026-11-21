@@ -414,6 +414,10 @@ pub fn request(
                     &format!(tr!("{} · credits"), identity),
                     mono(13.0, Weight::Medium),
                 );
+                // FEAT-0004 FR-7: the large-spend tick with what it agrees to.
+                if state.consent == Consent::Asking {
+                    state.flow.password.summary_tick(ui, &p);
+                }
                 return false;
             }
             if part == Part::Footer {

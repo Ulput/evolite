@@ -3,8 +3,8 @@
 
 use super::{FundAddressState, FundForm};
 use crate::components::{
-    Assets, ButtonKind, Part, StepState, button, button_enabled, dialog, dialog_with_footer,
-    divider, field_label, kv_row, notice, notice_closable, numbered_step_at, numbered_step_then,
+    Assets, ButtonKind, Part, StepState, button, button_enabled, dialog, divider, field_label,
+    kv_row, notice, notice_closable, numbered_step_at, numbered_step_then,
 };
 use crate::context::Ctx;
 use crate::screens::{Screen, txt};
@@ -199,7 +199,7 @@ fn resume_dialog(
     };
     let ask = wallet.password_each_send;
     let mut go = false;
-    let close = dialog_with_footer(
+    let close = crate::components::dialog_with_summary(
         ui,
         a,
         "fund-address-resume",
@@ -208,6 +208,31 @@ fn resume_dialog(
         464.0,
         |ui, a, part| {
             let p = a.p;
+            // BUG-249: what is agreed to, pinned over the password: what arrives at the address
+            // and what Platform keeps of the lock.
+            if part == Part::Summary {
+                // What the lock brings, as the review says it (the designer): the lock less what
+                // Platform keeps of it — more without an InstantLock (BUG-171).
+                let on_top = unfinished.on_top;
+                let value = mono(13.0, Weight::Medium);
+                kv_row(
+                    ui,
+                    &p,
+                    tr!("Arrives at the address, at least"),
+                    &dash((unfinished.locked - on_top).max(0)),
+                    value.clone(),
+                );
+                kv_row(
+                    ui,
+                    &p,
+                    tr!("Processing on Platform"),
+                    &format!("≈ {}", dash(on_top)),
+                    value,
+                );
+                // FEAT-0004 FR-7: the large-spend tick with what it agrees to.
+                state.resume.password.summary_tick(ui, &p);
+                return false;
+            }
             if part == Part::Footer {
                 let entered =
                     state
@@ -255,24 +280,6 @@ fn resume_dialog(
                 egui::RichText::new(&unfinished.address)
                     .font(mono(13.0, Weight::Medium))
                     .color(p.text),
-            );
-            // What the lock brings, as the review says it (the designer): the lock less what
-            // Platform keeps of it — more without an InstantLock (BUG-171).
-            let on_top = unfinished.on_top;
-            let value = mono(13.0, Weight::Medium);
-            kv_row(
-                ui,
-                &p,
-                tr!("Arrives at the address, at least"),
-                &dash((unfinished.locked - on_top).max(0)),
-                value.clone(),
-            );
-            kv_row(
-                ui,
-                &p,
-                tr!("Processing on Platform"),
-                &format!("≈ {}", dash(on_top)),
-                value,
             );
             ui.label(txt(
                 tr!("Whatever is not needed stays on the address."),

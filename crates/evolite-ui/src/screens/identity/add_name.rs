@@ -112,8 +112,15 @@ pub(super) fn add_name_dialog(
             if part == Part::Summary {
                 match form.review {
                     _ if sent => {}
-                    Some(r) => review_summary(ui, a, wallet, &me, form, r),
-                    None if !contested => costs(ui, &p),
+                    Some(r) => {
+                        review_summary(ui, a, wallet, &me, form, r);
+                        // FEAT-0004 FR-7: the large-spend tick with what it agrees to.
+                        form.flow.password.summary_tick(ui, &p);
+                    }
+                    None if !contested => {
+                        costs(ui, &p);
+                        form.flow.password.summary_tick(ui, &p);
+                    }
                     None => {}
                 }
                 return false;

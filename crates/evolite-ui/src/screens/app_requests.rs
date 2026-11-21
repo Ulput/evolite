@@ -322,6 +322,10 @@ pub fn disconnect_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut 
                     &format!(tr!("{} · credits"), pays),
                     mono(13.0, Weight::Medium),
                 );
+                // FEAT-0004 FR-7: the large-spend tick with what it agrees to.
+                if !state.disconnect_flow.waiting() {
+                    state.disconnect_flow.password.summary_tick(ui, &p);
+                }
                 return false;
             }
             if part == Part::Footer {

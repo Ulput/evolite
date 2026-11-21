@@ -252,6 +252,8 @@ pub(super) fn send_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, tokens: &mu
                             "The transfer cannot be undone. It and token balances are visible to everyone on the network."
                         ),
                     );
+                    // FEAT-0004 FR-7: the large-spend tick with what it agrees to.
+                    form.flow.password.summary_tick(ui, &p);
                 }
                 return false;
             }

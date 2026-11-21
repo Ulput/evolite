@@ -235,6 +235,10 @@ pub(super) fn change_dialog(
                 if !change.answered() && refusal.is_none() {
                     ui.spacing_mut().item_spacing.y = 10.0;
                     summary(ui, a, change, &plan, (&foreign, fee, credits_short), me);
+                    // FEAT-0004 FR-7: the large-spend tick with what it agrees to.
+                    if !change.flow.waiting() {
+                        change.flow.password.summary_tick(ui, &p);
+                    }
                 }
                 return false;
             }

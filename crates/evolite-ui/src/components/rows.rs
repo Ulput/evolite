@@ -206,9 +206,11 @@ fn tx_row_sensed(ui: &mut Ui, a: &mut Assets, row: &TxRow, sense: Sense) -> egui
             .size()
             .x
     });
+    // One line: the row is 54 high, and a second one went over the line under it (BUG-254: an
+    // identity's id in Russian at 800 wide). Cut with «…»; the row's name keeps it whole.
     let title = ui
         .painter()
-        .layout_job(title_job(&title_text, p.text, title_w));
+        .layout_job(row_title_job(&title_text, p.text, title_w));
     ui.painter().galley(pos2(tx, cy - 17.0), title, p.text);
     let line = paint_text(
         ui,
@@ -305,6 +307,15 @@ fn note_job(shown: String, width: f32, color: Color32) -> egui::text::LayoutJob 
 
 /// An operation's title as drawn: Inter, with the Dash addresses, short ids and txids in it
 /// in mono ("amounts, addresses, txid and hashes — monospaced", design review summary №10).
+/// A row's title as drawn: [`title_job`] on one line, cut with «…» (BUG-254).
+fn row_title_job(title: &str, color: Color32, width: f32) -> egui::text::LayoutJob {
+    let mut job = title_job(title, color, width);
+    job.wrap.max_rows = 1;
+    job.wrap.break_anywhere = true;
+    job.wrap.overflow_character = Some('…');
+    job
+}
+
 fn title_job(title: &str, color: Color32, width: f32) -> egui::text::LayoutJob {
     let mut job = egui::text::LayoutJob::default();
     job.wrap.max_width = width;
@@ -895,5 +906,38 @@ mod tests {
         );
         assert_eq!(code_spans("yXk3…Mw2a"), vec![("yXk3…Mw2a", true)]);
         assert_eq!(code_spans(""), Vec::<(&str, bool)>::new());
+    }
+}
+
+#[cfg(test)]
+mod row_title_tests {
+    use super::*;
+
+    /// BUG-254: a title longer than the row (an identity's id in Russian at 800 wide) stays on
+    /// one line, cut with «…», never a second line over the one under it.
+    #[test]
+    fn a_long_title_stays_on_one_line() {
+        let ctx = egui::Context::default();
+        // The app's fonts (the title's weight is one of them); they take effect from the next
+        // frame.
+        crate::theme::install_fonts(&ctx, crate::i18n::Lang::En, false);
+        // A frame's font atlas changes are taken here as a renderer takes them: epaint asserts
+        // (debug) that none is dropped unapplied.
+        let frame = || {
+            ctx.run_ui(egui::RawInput::default(), |_| {})
+                .textures_delta
+                .clear()
+        };
+        frame();
+        let title = "Создание identity G1wZbsQ7mA2kP9xR4vT8nB3cY6hJ5dL0eF7sU1wBFaK1Wfo";
+        let galley = ctx.fonts_mut(|f| f.layout_job(row_title_job(title, Color32::WHITE, 220.0)));
+        assert_eq!(galley.rows.len(), 1, "one line");
+        // The «…» is a glyph of the row; the galley's text stays the whole title.
+        let last = galley.rows[0].glyphs.last().map(|g| g.chr);
+        assert!(galley.elided && last == Some('…'), "cut with «…»: {last:?}");
+        let short = ctx.fonts_mut(|f| f.layout_job(row_title_job("Sent", Color32::WHITE, 220.0)));
+        assert!(!short.elided, "a short one as it is");
+        // The glyphs laid out above go into the atlas on the next frame.
+        frame();
     }
 }
