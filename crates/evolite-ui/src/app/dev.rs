@@ -1518,6 +1518,9 @@ impl App {
             "workshop-collection",
             "workshop-model",
             "workshop-model-copy",
+            "workshop-model-page",
+            "workshop-give",
+            "workshop-issue",
             "workshop-model-review",
         ];
         if workshop.into_iter().any(preset) {
@@ -1551,6 +1554,37 @@ impl App {
             if let Some(command) = fit {
                 self.core.send(command);
             }
+        }
+        // W7: the demo's example model; W8 «Give» or «Issue more» open over it.
+        if preset("workshop-model-page") || preset("workshop-give") || preset("workshop-issue") {
+            self.workshop.page = screens::workshop::Page::Model {
+                contract: "FzKL9288ZzoQcXKWvXc6kRwbNciboLpJnX4egZo9iz9P".into(),
+                model: "7Yowk46VwwHqmD5yZyyygggh937aP6h2UW7aQWBdWpM5".into(),
+            };
+            let action = if preset("workshop-give") {
+                Some(screens::workshop::SeriesAction::Give)
+            } else if preset("workshop-issue") {
+                Some(screens::workshop::SeriesAction::Issue)
+            } else {
+                None
+            };
+            let identity = self
+                .snapshot
+                .as_ref()
+                .and_then(|s| s.wallet.as_ref())
+                .and_then(|w| w.identity.as_ref())
+                .map(|i| i.id.clone())
+                .unwrap_or_default();
+            self.workshop.series = action.map(|action| {
+                screens::workshop::SeriesForm::preset(
+                    action,
+                    evolite_api::series::SeriesTarget {
+                        identity,
+                        contract: "FzKL9288ZzoQcXKWvXc6kRwbNciboLpJnX4egZo9iz9P".into(),
+                        model: "7Yowk46VwwHqmD5yZyyygggh937aP6h2UW7aQWBdWpM5".into(),
+                    },
+                )
+            });
         }
         // W5's «Check the model» open (BUG-249: its summary in the sweeps).
         if preset("workshop-model-review") {

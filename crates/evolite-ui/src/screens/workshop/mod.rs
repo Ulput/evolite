@@ -7,6 +7,7 @@
 //! [`evolite_api::Spend::RegisterContract`]).
 
 mod collection_page;
+mod model_page;
 mod new_collection;
 pub mod new_model;
 
@@ -21,6 +22,9 @@ use egui::{Align, Layout, Sense, Ui, vec2};
 use evolite_api::workshop::{Collection, ModelCounts, WorkshopAsk, WorkshopRead};
 use evolite_api::{Command, CoreError};
 
+#[cfg(feature = "dev-tools")]
+pub use model_page::Action as SeriesAction;
+pub use model_page::SeriesForm;
 pub use new_collection::NewCollection;
 pub use new_model::ModelForm;
 
@@ -36,6 +40,8 @@ pub enum Page {
     Collection(String),
     /// W5 (its review, then W6): a new model in the collection of this contract.
     NewModel(String),
+    /// W7: a model (its id) of the collection of this contract, its numbers and series.
+    Model { contract: String, model: String },
 }
 
 /// The Workshop's screen state: the page, and what the core read for the identity shown.
@@ -53,6 +59,8 @@ pub struct WorkshopState {
     pub new: NewCollection,
     /// W5: the new model's form.
     pub model: ModelForm,
+    /// W8 «Give», «Issue more», W12b «Continue»: the series window, when open.
+    pub series: Option<SeriesForm>,
     /// W4: «About the collection» open.
     about: bool,
 }
@@ -105,7 +113,14 @@ impl WorkshopState {
         if !self.model.signed() {
             self.model.forget();
         }
-        if matches!(self.page, Page::Collection(_) | Page::NewModel(_)) {
+        if let Some(form) = &mut self.series {
+            form.forget();
+        }
+        self.series = None;
+        if matches!(
+            self.page,
+            Page::Collection(_) | Page::NewModel(_) | Page::Model { .. }
+        ) {
             self.page = Page::Home;
         }
     }
@@ -114,6 +129,9 @@ impl WorkshopState {
     pub fn forget_wallet(&mut self) {
         self.new.forget();
         self.model.forget();
+        if let Some(form) = &mut self.series {
+            form.forget();
+        }
         *self = Self::default();
     }
 }
@@ -121,7 +139,12 @@ impl WorkshopState {
 impl crate::screen_state::ScreenState for WorkshopState {
     #[cfg(all(test, demo_core, feature = "dev-tools"))]
     fn flows(&mut self) -> Vec<&mut dyn crate::components::spend_flow::AnyFlow> {
-        vec![&mut self.new.flow, &mut self.model.flow]
+        let mut flows: Vec<&mut dyn crate::components::spend_flow::AnyFlow> =
+            vec![&mut self.new.flow, &mut self.model.flow];
+        if let Some(form) = &mut self.series {
+            flows.push(&mut form.flow);
+        }
+        flows
     }
 
     /// Lock, a wallet or an identity switch: the form, its password and what was read go (the
@@ -153,6 +176,9 @@ pub fn workshop(
         Page::New => new_collection::page(ui, a, cx, state),
         Page::Collection(contract) => collection_page::page(ui, a, cx, state, art, &contract),
         Page::NewModel(_) => new_model::page(ui, a, cx, state, art),
+        Page::Model { contract, model } => {
+            model_page::page(ui, a, cx, state, art, &contract, &model)
+        }
     }
 }
 

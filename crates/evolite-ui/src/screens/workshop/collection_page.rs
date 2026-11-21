@@ -112,14 +112,24 @@ pub(super) fn page(
         }
         let width = ui.available_width();
         let cols = (((width + GAP) / (TILE + GAP)).floor() as usize).max(1);
+        let mut opened = None;
         for row in c.models.chunks(cols) {
             ui.horizontal_top(|ui| {
                 ui.spacing_mut().item_spacing.x = GAP;
                 for m in row {
                     let counts = state.counts.get(&(c.contract.clone(), m.id.clone()));
-                    model_tile(ui, a, cx, art, m, counts);
+                    if model_tile(ui, a, cx, art, m, counts) {
+                        opened = Some(m.id.clone());
+                    }
                 }
             });
+        }
+        if let Some(model) = opened {
+            state.page = Page::Model {
+                contract: c.contract.clone(),
+                model,
+            };
+            return;
         }
     }
     if state.about && about_window(ui, a, &c, &name) {
@@ -152,9 +162,10 @@ fn model_tile(
     art: &mut crate::art::ArtCache,
     m: &Model,
     counts: Option<&ModelCounts>,
-) {
+) -> bool {
     let p = a.p;
-    let (rect, resp) = ui.allocate_exact_size(vec2(TILE, PICTURE + 74.0), Sense::hover());
+    // W7: the tile opens the model's page.
+    let (rect, resp) = ui.allocate_exact_size(vec2(TILE, PICTURE + 74.0), Sense::click());
     ui.painter()
         .rect_filled(rect, egui::CornerRadius::same(12), p.surface);
     ui.painter().rect_stroke(
@@ -216,7 +227,9 @@ fn model_tile(
         );
         y += size + 6.0;
     }
-    crate::components::named(&resp, egui::WidgetType::Label, true, &m.name);
+    crate::components::named(&resp, egui::WidgetType::Button, true, &m.name);
+    resp.on_hover_cursor(egui::CursorIcon::PointingHand)
+        .clicked()
 }
 
 /// «About the collection»: what it is, its id, its rules. Whether it closed.

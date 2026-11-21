@@ -289,3 +289,97 @@ fn no_workshop_string_promises_a_refund() {
     // The one string that says it, as a fact, is among them.
     assert!(keys.iter().any(|k| k.contains("is not refunded")));
 }
+
+const DEMO_CONTRACT: &str = "FzKL9288ZzoQcXKWvXc6kRwbNciboLpJnX4egZo9iz9P";
+const DEMO_MODEL: &str = "7Yowk46VwwHqmD5yZyyygggh937aP6h2UW7aQWBdWpM5";
+
+/// UC-6, AC-D12: a tile of W4 opens the model's page — numbers, not a row per copy: «You
+/// have», «For sale» with its prices, «Sold», the supply and how many were issued.
+#[test]
+fn a_model_page_shows_its_numbers() {
+    let (_turn, mut kit) = demo_app("workshop-collection", "en");
+    wait_for(&mut kit, "W4", |kit| painted_has(kit, "Winter tram"));
+    button(&kit, "Winter tram").click();
+    wait_for(&mut kit, "W7", |kit| {
+        has_text(kit, "You have") && has_text(kit, "12")
+    });
+    assert!(has_words(&kit, "supply 100 · issued 13"));
+    assert!(has_text(&kit, "For sale") && has_text(&kit, "Sold"));
+    assert!(has_words(&kit, "— 4"), "the price group");
+    assert!(!button(&kit, "Give…").accesskit_node().is_disabled());
+    assert!(!button(&kit, "Issue more").accesskit_node().is_disabled());
+}
+
+/// UC-8, W8: «Give…» — how many of the free copies, to whom; the core's plan; the summary
+/// pinned over the password with the records and their fee; «Sign and give 2» waits for it.
+#[test]
+fn giving_copies_is_one_series_with_one_check() {
+    let (_turn, mut kit) = demo_app("workshop-model-page", "en");
+    wait_for(&mut kit, "W7", |kit| has_text(kit, "You have"));
+    wait_for(&mut kit, "the numbers", |kit| {
+        !button(kit, "Give…").accesskit_node().is_disabled()
+    });
+    button(&kit, "Give…").click();
+    wait_for(&mut kit, "W8", |kit| has_text(kit, "Give “Winter tram”"));
+    // Free: 12 held less 4 for sale.
+    wait_for(&mut kit, "how many are free", |kit| has_words(kit, "of 8"));
+    kit.get_by_role_and_label(Role::TextInput, "How many")
+        .click();
+    kit.run_steps(2);
+    kit.key_press(egui::Key::Backspace);
+    kit.get_by_role_and_label(Role::TextInput, "How many")
+        .type_text("2");
+    type_into(&mut kit, "Recipient", "@alice");
+    wait_for(&mut kit, "the plan", |kit| has_words(kit, "2 records"));
+    assert!(
+        has_words(&kit, "you cannot take a gift back")
+            || has_words(&kit, "You cannot take a gift back")
+    );
+    assert!(
+        button(&kit, "Sign and give 2")
+            .accesskit_node()
+            .is_disabled(),
+        "not without the password"
+    );
+}
+
+/// W12, W12b: a series of this model on its page — its progress; stopped with copies left,
+/// «Continue» opens its window with what is left, and «Close» takes the plate away.
+#[test]
+fn a_stopped_series_can_be_continued_from_the_model_page() {
+    let (_turn, mut kit) = demo_app("workshop-model-page", "en");
+    show_wallet_edited(
+        &mut kit,
+        4,
+        "the plate",
+        |w| {
+            w.series.push(evolite_api::series::SeriesState {
+                id: 7,
+                target: evolite_api::series::SeriesTarget {
+                    identity: w.identity.as_ref().unwrap().id.clone(),
+                    contract: DEMO_CONTRACT.into(),
+                    model: DEMO_MODEL.into(),
+                },
+                kind: evolite_api::series::SeriesKind::Mint { count: 10 },
+                total: 10,
+                done: 3,
+                refused: 0,
+                unclear: 0,
+                running: false,
+                stopping: false,
+                per_write: 87_000,
+            })
+        },
+        |kit| has_text(kit, "Issued 3 of 10"),
+    );
+    // The plate's own «Continue» (the page has the only series plate; the first is it).
+    kit.query_all_by_role_and_label(Role::Button, "Continue")
+        .next()
+        .expect("«Continue»")
+        .click();
+    wait_for(&mut kit, "its window", |kit| {
+        has_text(kit, "Continue “Winter tram”")
+    });
+    assert!(has_words(&kit, "Left to write: 7"));
+    assert!(has_words(&kit, "7 records"));
+}

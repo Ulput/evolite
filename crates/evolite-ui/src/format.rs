@@ -1033,6 +1033,11 @@ mod tests {
         const NOT_AMOUNTS: &[(&str, usize, &str)] = &[
             ("evolite-ui/src/format.rs", 2, "the one rule itself"),
             (
+                "evolite-ui/src/screens/workshop/model_page.rs",
+                1,
+                "how many copies a series takes (W8), digits only, not an amount",
+            ),
+            (
                 "evolite-ui/src/screens/workshop/new_model.rs",
                 3,
                 "a model's supply and «Issue now» (counts of copies, digits only) and a file name's                  extension (W5), not amounts",

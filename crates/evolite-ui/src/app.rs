@@ -1106,10 +1106,22 @@ impl App {
                     result,
                     ask,
                 } => {
-                    self.workshop.model.on_done(*ask, result);
+                    if !self.workshop.model.on_done(*ask, result)
+                        && let Some(form) = &mut self.workshop.series
+                    {
+                        form.on_done(*ask, result);
+                    }
                 }
-                // FEAT-0038: the series' screens (W7–W9, W12, W13) take these when they come.
-                Event::SeriesPlanned { .. } => {}
+                // FEAT-0038 W8: a series' plan, for its window.
+                Event::SeriesPlanned {
+                    target,
+                    kind,
+                    result,
+                } => {
+                    if let Some(form) = &mut self.workshop.series {
+                        form.on_planned(target, kind, result);
+                    }
+                }
                 Event::Done {
                     what: DoneWhat::FundAddress,
                     result,
