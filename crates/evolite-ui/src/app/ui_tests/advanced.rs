@@ -64,6 +64,7 @@ fn a_locked_wallet_is_told_nothing_and_the_unlock_tells_it() {
     let locked = |app: &mut App| {
         if let Some(s) = app.snapshot.as_mut() {
             s.vault = evolite_api::VaultState::Locked;
+            s.advanced_allowed = false;
         }
     };
     let started = Instant::now();
@@ -84,6 +85,7 @@ fn a_locked_wallet_is_told_nothing_and_the_unlock_tells_it() {
         |app| {
             if let Some(s) = app.snapshot.as_mut() {
                 s.vault = evolite_api::VaultState::Unlocked;
+                s.advanced_allowed = true;
             }
         },
         |kit| core_has(kit, true),

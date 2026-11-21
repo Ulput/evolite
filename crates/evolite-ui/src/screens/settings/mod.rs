@@ -30,7 +30,7 @@ use crate::context::Ctx;
 use crate::prefs::Prefs;
 use crate::theme::{Weight, sans};
 use egui::{CornerRadius, CursorIcon, Rect, Response, Sense, Ui, pos2, vec2};
-use evolite_api::{Command, CoreError, FiatRate, Phrase, PhraseQuestion, Timestamp};
+use evolite_api::{Command, CoreError, FiatRate, Phrase, PhraseQuestion, PhraseQuiz, Timestamp};
 use std::time::Instant;
 use zeroize::{Zeroize, Zeroizing};
 
@@ -93,6 +93,8 @@ pub struct SettingsState {
     pub remind_snoozed: Option<Timestamp>,
     /// FEAT-0040: the wallet's fee choice for a Core payment (R-12).
     pub fee: evolite_api::fee_choice::FeeChoice,
+    /// FEAT-0041 R-13: the empty restored wallet's banner is not shown again (this wallet's).
+    pub empty_hint_closed: bool,
     /// "Restart evolite" was pressed: the app starts again (a new Core node).
     pub restart: bool,
     pub phrase_dialog: bool,
@@ -188,6 +190,11 @@ pub struct PhraseCheckForm {
     pub picks: Vec<Option<usize>>,
     /// The core's verdict: all right, or the number of the first word that did not match.
     pub verdict: Option<Option<usize>>,
+    /// FEAT-0041 R-6: the wallet has a BIP-39 passphrase, asked with the words; what is typed
+    /// (wiped when it goes to the core), and whether the core said it is not the saved one.
+    pub passphrase_asked: bool,
+    pub passphrase: Zeroizing<String>,
+    pub passphrase_wrong: bool,
     /// Why the words could not be asked (a wrong password).
     pub error: Option<CoreError>,
     /// SEC-11: the wallet's pause after wrong passwords, counted down as the unlock does.
@@ -263,6 +270,7 @@ impl SettingsState {
             switch_to: None,
             remind_snoozed: None,
             fee: Default::default(),
+            empty_hint_closed: false,
             restart: false,
             phrase_dialog: phrase,
             password: Zeroizing::default(),
@@ -294,13 +302,14 @@ impl SettingsState {
     }
 
     /// The core's answer to `AskPhraseCheck`.
-    pub fn on_phrase_questions(&mut self, result: &Result<Vec<PhraseQuestion>, CoreError>) {
+    pub fn on_phrase_questions(&mut self, result: &Result<PhraseQuiz, CoreError>) {
         if let Some(form) = &mut self.check {
             form.waiting = false;
             match result {
-                Ok(questions) => {
-                    form.picks = vec![None; questions.len()];
-                    form.questions = Some(questions.clone());
+                Ok(quiz) => {
+                    form.picks = vec![None; quiz.questions.len()];
+                    form.questions = Some(quiz.questions.clone());
+                    form.passphrase_asked = quiz.passphrase;
                     form.error = None;
                 }
                 Err(e) => form.error = Some(e.clone()),
@@ -308,15 +317,23 @@ impl SettingsState {
         }
     }
 
-    /// The core's answer to `CheckPhraseWords`; `now` becomes "Checked …" when all is right.
-    pub fn on_phrase_checked(&mut self, wrong: Option<usize>, now: Timestamp) {
+    /// The core's answer to `CheckPhraseWords`; `now` becomes "Checked …" when all is right —
+    /// the words and, asked, the BIP-39 passphrase (FEAT-0041 R-6).
+    pub fn on_phrase_checked(
+        &mut self,
+        wrong: Option<usize>,
+        passphrase_wrong: bool,
+        now: Timestamp,
+    ) {
         if let Some(form) = &mut self.check {
             form.waiting = false;
             form.questions = None;
             form.picks.clear();
             form.verdict = Some(wrong);
+            form.passphrase_wrong = passphrase_wrong;
+            zeroize::Zeroize::zeroize(&mut form.passphrase);
         }
-        if wrong.is_none() {
+        if wrong.is_none() && !passphrase_wrong {
             self.phrase_checked = Some(now);
         }
     }
@@ -336,6 +353,7 @@ impl SettingsState {
         self.lock_after = fresh.lock_after;
         self.remind_snoozed = None;
         self.fee = Default::default();
+        self.empty_hint_closed = false;
         self.toggles
             .retain(|k, _| crate::prefs::APP_TOGGLES.contains(k));
         for (k, v) in fresh.toggles {
@@ -536,6 +554,7 @@ impl SettingsState {
             number_style: Some(self.number_style),
             fiat_currency: Some(self.fiat_currency),
             remind_snoozed: self.remind_snoozed,
+            empty_hint_closed: self.empty_hint_closed.then_some(true),
             lang: self.lang.map(|l| l.code().to_owned()),
             fee_rate: self.fee.carried(),
         }
@@ -577,6 +596,9 @@ impl SettingsState {
                 evolite_api::fee_choice::HIGHER => evolite_api::fee_choice::FeeChoice::Higher,
                 rate => evolite_api::fee_choice::FeeChoice::Custom(rate),
             };
+        }
+        if prefs.empty_hint_closed == Some(true) {
+            self.empty_hint_closed = true;
         }
         for (key, on) in &prefs.toggles {
             if let Some(known) = TOGGLES.iter().find(|k| **k == key.as_str()) {
@@ -975,11 +997,14 @@ mod phrase_check_tests {
             waiting: true,
             ..Default::default()
         });
-        state.on_phrase_questions(&Ok(asked()));
+        state.on_phrase_questions(&Ok(evolite_api::PhraseQuiz {
+            questions: asked(),
+            passphrase: false,
+        }));
         let form = state.check.as_ref().unwrap();
         assert_eq!(form.picks, vec![None]);
         assert!(!form.waiting);
-        state.on_phrase_checked(None, 1_793_404_800);
+        state.on_phrase_checked(None, false, 1_793_404_800);
         assert_eq!(state.check.as_ref().unwrap().verdict, Some(None));
         assert!(state.check.as_ref().unwrap().questions.is_none());
         let saved = state.prefs(&Default::default());
@@ -992,8 +1017,11 @@ mod phrase_check_tests {
     fn a_wrong_word_is_named_and_not_dated() {
         let mut state = SettingsState::new(true, Section::Backup, false);
         state.check = Some(PhraseCheckForm::default());
-        state.on_phrase_questions(&Ok(asked()));
-        state.on_phrase_checked(Some(7), 1_793_404_800);
+        state.on_phrase_questions(&Ok(evolite_api::PhraseQuiz {
+            questions: asked(),
+            passphrase: false,
+        }));
+        state.on_phrase_checked(Some(7), false, 1_793_404_800);
         assert_eq!(state.check.as_ref().unwrap().verdict, Some(Some(7)));
         assert_eq!(state.phrase_checked, None);
         // A lock or another screen closes the dialog and wipes what was typed.

@@ -330,6 +330,7 @@ mod tests {
         });
         core.send(Command::CreateWallet {
             password: Password::new(WARM_PASSWORD.into()),
+            passphrase: None,
         });
         wait_for(&core, 60, |e| match e {
             Event::Snapshot(s) => {
@@ -647,6 +648,7 @@ mod tests {
             wait_for(core, 1, |e| matches!(e, Event::NewPhrase(_)).then_some(()));
             core.send(Command::CreateWallet {
                 password: password(),
+                passphrase: None,
             });
             wait_for(core, 5, |e| match e {
                 Event::Done {
@@ -765,6 +767,7 @@ mod tests {
         wait_for(&core, 1, |e| matches!(e, Event::NewPhrase(_)).then_some(()));
         core.send(Command::CreateWallet {
             password: b_password(),
+            passphrase: None,
         });
         let b = synced(&core, 10);
         assert_eq!(b.wallets.len(), 2);
@@ -877,6 +880,7 @@ mod tests {
         wait_for(&core, 1, |e| matches!(e, Event::NewPhrase(_)).then_some(()));
         core.send(Command::CreateWallet {
             password: password(),
+            passphrase: None,
         });
         wait_for(&core, 5, |e| match e {
             Event::Done {
@@ -983,6 +987,7 @@ mod tests {
         });
         core.send(Command::CreateWallet {
             password: password(),
+            passphrase: None,
         });
         let first = watch(&core, "restored", 240);
         core.send(Command::Lock);
@@ -1818,6 +1823,7 @@ mod tests {
         });
         core.send(Command::CreateWallet {
             password: Password::new(WARM_PASSWORD.into()),
+            passphrase: None,
         });
         let again = wait_for(&core, 60, |e| match e {
             Event::Snapshot(s) if searched(s) => s.wallet.clone(),
@@ -2759,6 +2765,7 @@ mod tests {
         drop(text);
         core.send(Command::CreateWallet {
             password: Password::new(var("EVOLITE_SHOT_PASSWORD")),
+            passphrase: None,
         });
         let s = wait_for(&core, 60, |e| match e {
             Event::Snapshot(s) => {
@@ -3109,6 +3116,7 @@ mod tests {
             });
             core.send(Command::CreateWallet {
                 password: password(),
+                passphrase: None,
             });
             let s = wait_for(&core, 60, |e| match e {
                 Event::Snapshot(s) if synced(s) => Some((**s).clone()),

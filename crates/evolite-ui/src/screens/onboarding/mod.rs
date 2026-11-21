@@ -4,6 +4,7 @@
 //! and runs the first sync; this screen only shows and asks. What was typed is wiped as soon
 //! as it goes to the core.
 
+mod bip39;
 mod password;
 mod phrase;
 mod restore;
@@ -93,6 +94,12 @@ pub struct Onboarding {
     error: Option<String>,
     /// Press the step's main button on the first frame (screenshots of later steps).
     submit_on_open: bool,
+    /// FEAT-0041: «Have a BIP-39 passphrase?» / «Advanced» is open.
+    bip39_open: bool,
+    /// The BIP-39 passphrase typed and its repeat (on «Create»): wiped once the wallet is
+    /// asked for — kept until then for the password step's warning.
+    bip39: Zeroizing<String>,
+    bip39_repeat: Zeroizing<String>,
 }
 
 impl Onboarding {
@@ -136,6 +143,9 @@ impl Onboarding {
             waiting: false,
             error: None,
             submit_on_open: false,
+            bip39_open: false,
+            bip39: Zeroizing::default(),
+            bip39_repeat: Zeroizing::default(),
         }
     }
 
@@ -193,6 +203,14 @@ impl Onboarding {
     pub(crate) fn type_restore_word(&mut self, i: usize, word: &str) {
         self.restore_words[i] = word.into();
         self.focused = Some(i);
+    }
+
+    /// A test types the BIP-39 passphrase and its repeat (FEAT-0041): the repeat field is below a
+    /// test window's fold.
+    #[cfg(all(test, demo_core, feature = "dev-tools"))]
+    pub(crate) fn type_bip39(&mut self, passphrase: &str, repeat: &str) {
+        self.bip39 = Zeroizing::new(passphrase.into());
+        self.bip39_repeat = Zeroizing::new(repeat.into());
     }
 
     /// Takes the core's answers that belong to the onboarding.
@@ -344,7 +362,11 @@ pub fn onboarding(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, o: &mut Onboarding)
                     }
                     match o.step {
                         Step::Phrase => {
-                            if let Some(next) = phrase(ui, a, o, crate::is_demo(cx.snap)) {
+                            // FEAT-0041 r1: only when the core has it on — it takes the
+                            // passphrase then (not while adding from a locked wallet's choice).
+                            let advanced = cx.advanced() && cx.snap.advanced_features;
+                            if let Some(next) = phrase(ui, a, o, crate::is_demo(cx.snap), advanced)
+                            {
                                 outcome = next;
                             }
                         }

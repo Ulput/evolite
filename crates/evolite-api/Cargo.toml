@@ -8,6 +8,8 @@ publish.workspace = true
 
 [dependencies]
 lz4_flex = { version = "0.11", default-features = false, features = ["safe-encode", "safe-decode", "std"] }
+# FEAT-0041: the BIP-39 passphrase counted as BIP-39 salts it (NFKD); bip39 already builds it.
+unicode-normalization = "0.1"
 zeroize = "1"
 
 [lints]

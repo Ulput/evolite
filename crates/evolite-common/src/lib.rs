@@ -31,6 +31,16 @@ use std::time::{SystemTime, UNIX_EPOCH};
 pub const PASSWORD_NEEDED: &str =
     tr!("This wallet asks for the password for every send — enter it and try again");
 
+/// What only the advanced features would ask, asked while they are off (FEAT-0040 «hidden is
+/// off»): the same refusal from the demo and the real core.
+pub const ADVANCED_OFF: &str = tr!("The features for advanced users are off");
+
+/// FEAT-0041 R-10: a BIP-39 passphrase over 256 bytes after NFKD — refused, never cut.
+pub const PASSPHRASE_TOO_LONG: &str = tr!("The BIP-39 passphrase is too long");
+
+/// FEAT-0041 R-12: this phrase with this BIP-39 passphrase is a wallet of this computer already.
+pub const SAME_WALLET: &str = tr!("This wallet is already on this computer");
+
 /// The wall clock in Unix seconds, as the interface shows it.
 pub fn now() -> evolite_api::Timestamp {
     SystemTime::now()

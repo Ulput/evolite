@@ -414,9 +414,12 @@ impl Real {
                 result: Err(CoreError::NotAvailable(LEFTOVERS.into())),
                 ask: None,
             },
-            Command::CreateWallet { password } => Event::Done {
+            Command::CreateWallet {
+                password,
+                passphrase,
+            } => Event::Done {
                 what: DoneWhat::Create,
-                result: self.create(&password).await,
+                result: self.create(&password, passphrase.as_ref()).await,
                 ask: None,
             },
             Command::Unlock { password } => Event::Done {
@@ -467,8 +470,16 @@ impl Real {
                     Some(id) => self.open_other_counted(&id, &password).await,
                     None => self.open_vault_counted(&password).await,
                 };
-                let result = opened.map(|(_, phrase)| {
-                    Phrase::new(phrase.split_whitespace().map(str::to_owned).collect())
+                // FEAT-0041 R-3: with its BIP-39 passphrase (empty: none, and no line for it).
+                let result = opened.map(|(_, secret)| {
+                    Phrase::with_passphrase(
+                        secret
+                            .phrase
+                            .split_whitespace()
+                            .map(str::to_owned)
+                            .collect(),
+                        passphrase::Passphrase::new(secret.passphrase.to_string()),
+                    )
                 });
                 Event::PhraseRevealed(result)
             }
@@ -484,8 +495,9 @@ impl Real {
                 return (self.suggest_names(prefix, seq), false);
             }
             Command::AdvancedFeatures { on } => {
-                // BUG-252: a locked wallet keeps it off — on is taken only after the unlock.
-                let on = on && self.unlocked.is_some();
+                // BUG-252, FEAT-0041 r1: a locked wallet keeps it off; with none on this
+                // computer, or one added from an open wallet, there is nothing locked.
+                let on = on && self.advanced_allowed();
                 if on != self.advanced_features {
                     crate::diag::record(crate::diag::Record::AdvancedFeatures { on });
                 }
@@ -629,17 +641,30 @@ impl Real {
                 None => Err(locked()),
                 Some(_) => self.open_vault_counted(&password).await,
             } {
-                Ok((_, phrase)) => {
-                    let words: Vec<&str> = phrase.split_whitespace().collect();
+                Ok((_, secret)) => {
+                    let words: Vec<&str> = secret.phrase.split_whitespace().collect();
                     let (questions, answers) = crate::phrase_check::questions(&words, &mut os_dice);
-                    self.phrase_check = Some((questions.clone(), answers));
-                    Event::PhraseCheck(Ok(questions))
+                    // FEAT-0041 R-6: the passphrase is asked only of a wallet that has one.
+                    let saved = Some(secret.passphrase.clone()).filter(|p| !p.is_empty());
+                    let quiz = PhraseQuiz {
+                        questions: questions.clone(),
+                        passphrase: saved.is_some(),
+                    };
+                    self.phrase_check = Some((questions, answers, saved));
+                    Event::PhraseCheck(Ok(quiz))
                 }
                 Err(e) => Event::PhraseCheck(Err(e)),
             },
-            Command::CheckPhraseWords { picks } => match self.phrase_check.take() {
-                Some((questions, answers)) => Event::PhraseChecked {
+            Command::CheckPhraseWords { picks, passphrase } => match self.phrase_check.take() {
+                Some((questions, answers, saved)) => Event::PhraseChecked {
                     wrong: crate::phrase_check::first_wrong(&questions, &answers, &picks),
+                    // Compared as BIP-39 salts it (NFKD); none asked of a wallet without one.
+                    passphrase_wrong: saved.is_some_and(|saved| {
+                        passphrase.is_none_or(|typed| {
+                            *passphrase::normalized(typed.expose())
+                                != *passphrase::normalized(&saved)
+                        })
+                    }),
                 },
                 // Answered already, or the wallet locked meanwhile: ask again.
                 None => Event::PhraseCheck(Err(CoreError::NotAvailable(
@@ -716,6 +741,7 @@ impl Real {
                 // The current one stays the one opened next until then.
                 self.switch_to = Some(wallets::new_id(&self.paths.root));
                 self.adding_from = Some(self.wallet.clone());
+                self.adding_open = self.unlocked.is_some();
                 return (None, true);
             }
             Command::CancelAddWallet => match self.adding_from.clone() {

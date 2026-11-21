@@ -346,6 +346,7 @@ impl Real {
             fiat: self.fiat.lock().map(|f| f.clone()).unwrap_or_default(),
             update: self.update.lock().map(|u| u.clone()).unwrap_or_default(),
             advanced_features: self.advanced_features,
+            advanced_allowed: self.advanced_allowed(),
             wallets: self.wallet_entries(),
             adding_wallet: self.adding_from.is_some(),
         }
@@ -454,9 +455,11 @@ impl Real {
     }
 
     /// The other wallet of this computer the phrase already is (same `WalletId`), if any: a
-    /// phrase is one wallet here, not two folders syncing the same keys.
-    pub(super) fn same_wallet(&self, phrase: &str) -> Option<String> {
-        let id = chain::wallet_id_of(phrase).ok()?;
+    /// phrase is one wallet here, not two folders syncing the same keys. FEAT-0041 R-12: by the
+    /// seed — the same phrase with another BIP-39 passphrase is another wallet, and is made.
+    pub(super) fn same_wallet(&self, secret: &vault::Secret) -> Option<String> {
+        let seed = evolite_chain::seed_from(&secret.phrase, &secret.passphrase).ok()?;
+        let id = chain::wallet_id_of(&seed).ok()?;
         let id = hex(&id);
         self.index
             .wallets
@@ -620,6 +623,7 @@ impl Real {
             now(),
         );
         let mut shown_wallet = Wallet {
+            bip39_passphrase: self.unlocked.as_ref().is_some_and(|u| u.passphrase),
             password_each_send: self.password_each_send,
             large_spend: self.large_spend,
             series: self.series_states(),

@@ -854,9 +854,14 @@ impl App {
                     self.identity_keys.on_revealed(result.clone())
                 }
                 Event::PhraseCheck(result) => self.settings.on_phrase_questions(result),
-                Event::PhraseChecked { wrong } => self
-                    .settings
-                    .on_phrase_checked(*wrong, chrono::Utc::now().timestamp()),
+                Event::PhraseChecked {
+                    wrong,
+                    passphrase_wrong,
+                } => self.settings.on_phrase_checked(
+                    *wrong,
+                    *passphrase_wrong,
+                    chrono::Utc::now().timestamp(),
+                ),
                 Event::Done {
                     what: DoneWhat::Password,
                     result,
@@ -1476,7 +1481,7 @@ impl eframe::App for App {
         // it off there and it stays off until the unlock (BUG-252), then it is said again — so
         // after a new core too.
         if let Some(on) = advanced_to_tell(
-            snapshot.vault,
+            snapshot.advanced_allowed,
             snapshot.advanced_features,
             self.settings.is_on("advanced"),
             &mut self.advanced_asked,
@@ -1696,7 +1701,13 @@ impl eframe::App for App {
                                             &mut self.settings,
                                             remind,
                                         );
-                                        screens::overview(ui, a, &mut cx, &mut self.fund_address)
+                                        screens::overview(
+                                            ui,
+                                            a,
+                                            &mut cx,
+                                            &mut self.fund_address,
+                                            &mut self.settings.empty_hint_closed,
+                                        )
                                     },
                                 );
                                 crate::diagnostics::screen_offset(out.state.offset.y);
@@ -1999,12 +2010,12 @@ impl eframe::App for App {
 /// BUG-252): only to an open wallet's core — locked, the core keeps it off and nothing is said;
 /// open, what the app wants when the core has otherwise, once until that changes (`asked`).
 fn advanced_to_tell(
-    vault: VaultState,
+    allowed: bool,
     core_has: bool,
     wanted: bool,
     asked: &mut Option<bool>,
 ) -> Option<bool> {
-    if vault != VaultState::Unlocked || core_has == wanted {
+    if !allowed || core_has == wanted {
         *asked = None;
         return None;
     }
@@ -2025,41 +2036,23 @@ mod tests {
     fn the_switch_is_said_only_to_an_open_wallet() {
         let mut asked = None;
         for _ in 0..3 {
-            assert_eq!(
-                advanced_to_tell(VaultState::Locked, false, true, &mut asked),
-                None
-            );
-            assert_eq!(
-                advanced_to_tell(VaultState::NoWallet, false, true, &mut asked),
-                None
-            );
+            assert_eq!(advanced_to_tell(false, false, true, &mut asked), None);
+            assert_eq!(advanced_to_tell(false, false, true, &mut asked), None);
         }
+        assert_eq!(advanced_to_tell(true, false, true, &mut asked), Some(true));
         assert_eq!(
-            advanced_to_tell(VaultState::Unlocked, false, true, &mut asked),
-            Some(true)
-        );
-        assert_eq!(
-            advanced_to_tell(VaultState::Unlocked, false, true, &mut asked),
+            advanced_to_tell(true, false, true, &mut asked),
             None,
             "once"
         );
+        assert_eq!(advanced_to_tell(true, true, true, &mut asked), None);
         assert_eq!(
-            advanced_to_tell(VaultState::Unlocked, true, true, &mut asked),
-            None
-        );
-        assert_eq!(
-            advanced_to_tell(VaultState::Locked, false, true, &mut asked),
+            advanced_to_tell(false, false, true, &mut asked),
             None,
             "the lock"
         );
-        assert_eq!(
-            advanced_to_tell(VaultState::Unlocked, false, true, &mut asked),
-            Some(true)
-        );
-        assert_eq!(
-            advanced_to_tell(VaultState::Unlocked, true, false, &mut asked),
-            Some(false)
-        );
+        assert_eq!(advanced_to_tell(true, false, true, &mut asked), Some(true));
+        assert_eq!(advanced_to_tell(true, true, false, &mut asked), Some(false));
     }
 
     #[test]

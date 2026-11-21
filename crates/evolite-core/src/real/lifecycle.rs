@@ -61,6 +61,7 @@ impl Real {
             switch_to: None,
             switch_opened: None,
             adding_from: None,
+            adding_open: false,
             parked: None,
             password_each_send,
             large_spend,
@@ -458,7 +459,7 @@ impl Real {
         {
             return Ok(());
         }
-        let (Some(phrase), Some(open)) = (self.attach.as_ref(), self.unlocked.as_ref()) else {
+        let (Some(seed), Some(open)) = (self.attach.as_ref(), self.unlocked.as_ref()) else {
             return Ok(());
         };
         // Read before the wallet is opened: once it runs, the client syncs this manager's.
@@ -469,7 +470,7 @@ impl Real {
         }
         match self
             .chain
-            .open_wallet(phrase.as_str(), open.meta.birth_height)
+            .open_wallet(seed_bytes(seed), open.meta.birth_height)
             .await
         {
             Ok(_) => {

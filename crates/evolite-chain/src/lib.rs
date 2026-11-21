@@ -33,16 +33,38 @@ use evolite_common::{diag, dpns, layers};
 use evolite_local::{folders, journal, json_file, node, pending};
 use key_wallet::mnemonic::Mnemonic;
 
-/// Signing keys from the phrase; key-wallet's `Wallet` signs Core transactions itself.
-pub fn keys_of(phrase: &str) -> Result<key_wallet::Wallet, CoreError> {
+/// FEAT-0041 R-4: **the one way** from a phrase to its BIP-39 seed, with its passphrase (empty:
+/// none, the same seed as before FEAT-0041). Everything else — the signing keys, the wallet's id,
+/// platform-wallet's wallet, identities, DashPay, the pool, App Connect, the notes' key — is
+/// built from this seed, never from the phrase (`no_seed_but_from_the_passphrase`). bip39 NFKDs
+/// the passphrase itself (its `unicode-normalization`).
+pub fn seed_from(
+    phrase: &str,
+    passphrase: &str,
+) -> Result<zeroize::Zeroizing<[u8; 64]>, CoreError> {
     let mnemonic = Mnemonic::from_phrase(phrase).map_err(|_| CoreError::BadPhrase)?;
-    key_wallet::Wallet::from_mnemonic(
-        mnemonic,
+    Ok(zeroize::Zeroizing::new(mnemonic.to_seed(passphrase)))
+}
+
+/// Signing keys from the seed; key-wallet's `Wallet` signs Core transactions itself.
+pub fn keys_from(seed: &[u8; 64]) -> Result<key_wallet::Wallet, CoreError> {
+    key_wallet::Wallet::from_seed_bytes(
+        *seed,
         crate::network::dash(),
         key_wallet::wallet::initialization::WalletAccountCreationOptions::Default,
     )
     .map_err(|_| CoreError::BadPhrase)
 }
+
+/// The keys of a phrase with no passphrase: for tests, which know their phrases.
+#[cfg(any(test, feature = "test-support"))]
+pub fn keys_of(phrase: &str) -> Result<key_wallet::Wallet, CoreError> {
+    let seed = seed_from(phrase, "")?;
+    keys_from(&seed)
+}
+
+#[cfg(test)]
+mod seed_tests;
 
 #[cfg(test)]
 use evolite_common::hex;

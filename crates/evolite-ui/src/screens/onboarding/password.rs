@@ -164,6 +164,17 @@ pub(super) fn password(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, o: &mut Onboar
             }
         });
     });
+    // FEAT-0041, an edge case: allowed, but better two.
+    if !o.bip39.is_empty() && *o.bip39 == *o.password {
+        ui.add(crate::components::para(
+            tr!(
+                "The BIP-39 passphrase is the same as the wallet password. Better make them different: the BIP-39 passphrase is part of the key, and the wallet password can be changed"
+            ),
+            12.0,
+            Weight::Regular,
+            p.muted,
+        ));
+    }
     notice(
         ui,
         a,
@@ -187,11 +198,15 @@ pub(super) fn password(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, o: &mut Onboar
     let pressed = actions(ui, a, None, label, ready).1 || ((o.submit_on_open || entered) && ready);
     if pressed {
         // The password goes to the core and is wiped here at once.
+        // A restored phrase took its passphrase to the core with the words.
         cx.send(Command::CreateWallet {
             password: Password::new(o.password.to_string()),
+            passphrase: super::bip39::typed(o).filter(|_| o.flow == Flow::Create),
         });
         o.password.zeroize();
         o.repeat.zeroize();
+        o.bip39.zeroize();
+        o.bip39_repeat.zeroize();
         // "Lock the wallet" becomes the auto-lock in Settings.
         o.lock_choice = Some(o.lock_after);
         o.waiting = true;

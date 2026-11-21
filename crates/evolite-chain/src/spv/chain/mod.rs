@@ -802,23 +802,22 @@ impl Chain {
             .ok_or_else(|| "the chain is not started".to_owned())
     }
 
-    /// The wallet of `phrase`: the one saved in the store if it is there (no rescan), otherwise
-    /// a new watch-only entry scanned from `birth_height`. The phrase only derives public keys
-    /// here; platform-wallet keeps no private ones.
+    /// The wallet of `seed` (FEAT-0041: the phrase's with its passphrase): the one saved in the
+    /// store if it is there (no rescan), otherwise a new entry scanned from `birth_height`.
     pub async fn open_wallet(
         &self,
-        phrase: &str,
+        seed: &[u8; 64],
         birth_height: u32,
     ) -> Result<(WalletId, Arc<PlatformWallet>), String> {
         let manager = self.manager().await?;
-        let id = wallet_id_of(phrase)?;
+        let id = wallet_id_of(seed)?;
         if let Some(wallet) = manager.get_wallet(&id).await {
             return Ok((id, wallet));
         }
         let wallet = manager
-            .create_wallet_from_mnemonic(
-                phrase,
+            .create_wallet_from_seed_bytes(
                 crate::network::dash(),
+                seed,
                 WalletAccountCreationOptions::Default,
                 Some(birth_height),
             )
@@ -1354,17 +1353,12 @@ fn paid_to(tx: &key_wallet::dashcore::Transaction, to: &Address) -> u64 {
         .sum()
 }
 
-/// key-wallet's id of the wallet a phrase makes (from its root public key; not secret).
-pub fn wallet_id_of(phrase: &str) -> Result<WalletId, String> {
-    let mnemonic = key_wallet::mnemonic::Mnemonic::from_phrase(phrase)
-        .map_err(|_| "the phrase does not make a wallet".to_owned())?;
-    let wallet = key_wallet::Wallet::from_mnemonic(
-        mnemonic,
-        crate::network::dash(),
-        WalletAccountCreationOptions::Default,
-    )
-    .map_err(|e| e.to_string())?;
-    Ok(wallet.compute_wallet_id())
+/// key-wallet's id of the wallet a seed makes (from its root public key; not secret). FEAT-0041
+/// R-12: by the seed, so one phrase with two passphrases is two wallets.
+pub fn wallet_id_of(seed: &[u8; 64]) -> Result<WalletId, String> {
+    crate::keys_from(seed)
+        .map(|wallet| wallet.compute_wallet_id())
+        .map_err(|_| "the phrase does not make a wallet".to_owned())
 }
 
 /// The SPV client's configuration: `network`, its store at `storage`, and either `own_node`

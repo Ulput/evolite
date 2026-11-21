@@ -6,10 +6,10 @@ use super::*;
 async fn a_wallet_is_made_while_the_chain_starts() {
     let dir = fresh_dir("create-starting");
     let mut core = core_at(&dir, "cccc0003");
-    core.pending = Some((Zeroizing::new(PHRASE.into()), false));
+    core.pending = Some((vault::Secret::new(PHRASE, ""), false));
     core.birth_hint = Some(777);
     core.starting = Some(tokio::spawn(std::future::pending::<bool>()));
-    let made = tokio::time::timeout(PATIENCE, core.create(&pw("Second-wallet-7"))).await;
+    let made = tokio::time::timeout(PATIENCE, core.create(&pw("Second-wallet-7"), None)).await;
     assert_eq!(
         made.ok(),
         Some(Ok(())),
@@ -277,9 +277,9 @@ async fn a_wallet_made_while_adding_stops_the_parked_chain_first() {
     let (chain, mut adding) = adding_from_open_store(&dir).await;
     let (release, start) = held_start();
     adding.parked.as_mut().unwrap().starting = Some(start);
-    adding.pending = Some((Zeroizing::new(PHRASE.into()), false));
+    adding.pending = Some((vault::Secret::new(PHRASE, ""), false));
     adding.birth_hint = Some(777);
-    assert_eq!(adding.create(&pw("Second-wallet-7")).await, Ok(()));
+    assert_eq!(adding.create(&pw("Second-wallet-7"), None).await, Ok(()));
     // No SPV client in a test: the new chain is retired before its turn comes.
     adding.chain.retire();
     assert!(adding.parked.is_none());
@@ -401,9 +401,9 @@ async fn a_wallet_made_while_adding_is_born_at_the_parked_chains_tip() {
     });
     let (release, start) = held_start();
     adding.parked.as_mut().unwrap().starting = Some(start);
-    adding.pending = Some((Zeroizing::new(PHRASE.into()), false));
+    adding.pending = Some((vault::Secret::new(PHRASE, ""), false));
     adding.birth_hint = Some(777);
-    assert_eq!(adding.create(&pw("Second-wallet-7")).await, Ok(()));
+    assert_eq!(adding.create(&pw("Second-wallet-7"), None).await, Ok(()));
     // No SPV client in a test: the new chain is retired before its turn comes.
     adding.chain.retire();
     assert_eq!(adding.saved.as_ref().map(|m| m.birth_height), Some(900));

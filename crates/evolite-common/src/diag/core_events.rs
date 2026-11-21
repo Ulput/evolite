@@ -217,9 +217,18 @@ pub fn answer(event: &Event) -> Option<Record> {
         // Neither the fee nor the excess nor the coins: only how it ended (FEAT-0030 AC-T11).
         Event::MixedPreview { result, .. } => ("mixed_preview", outcome(result)),
         Event::PhraseCheck(r) => ("phrase_check", outcome(r)),
-        Event::PhraseChecked { wrong } => (
+        // FEAT-0041 R-14: a wrong passphrase is «wrong» as a wrong word is, so the journal does
+        // not tell that the wallet has one.
+        Event::PhraseChecked {
+            wrong,
+            passphrase_wrong,
+        } => (
             "phrase_checked",
-            if wrong.is_some() { "wrong" } else { "ok" },
+            if wrong.is_some() || *passphrase_wrong {
+                "wrong"
+            } else {
+                "ok"
+            },
         ),
         Event::TokenFound { result, .. } => ("token_found", outcome(result)),
         Event::Workshop { result, .. } => ("workshop", outcome(result)),

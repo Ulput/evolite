@@ -13,11 +13,14 @@ use egui::{Align, Layout, Ui, vec2};
 use evolite_api::{Duffs, Proof, Source, Timestamp};
 
 /// 02 · Overview: header, total, four balance cards, quick actions, recent activity.
+/// `empty_hint_closed`: the empty restored wallet's banner is not shown again (FEAT-0041 R-13;
+/// this wallet's setting).
 pub fn overview(
     ui: &mut Ui,
     a: &mut Assets,
     cx: &mut Ctx,
     fund: &mut super::fund_address::FundAddressState,
+    empty_hint_closed: &mut bool,
 ) {
     let p = a.p;
     let wallet = cx.wallet();
@@ -82,6 +85,7 @@ pub fn overview(
     }
     // FEAT-0021 V2, entry 2: a name of the identity in its masternode vote.
     super::identity::contest::overview_notice(ui, a, cx);
+    empty_hint(ui, a, cx, empty_hint_closed);
     let wallet = cx.wallet();
     total_block(ui, a, cx, wallet, &total_line, total_color, synced);
     let network = cx.snap.network;
@@ -602,6 +606,69 @@ fn total_line(
             core
         ),
     })
+}
+
+/// FEAT-0041 R-13, AC-A6: a restored wallet that the whole sync found empty — no Core history,
+/// no identity, no credits — says what to check: the BIP-39 passphrase if it has one, else the
+/// phrase and a passphrase it may have had (analyst-160). Closed by «×»; once money comes it is
+/// not shown again. A new wallet, not restored, has none.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum EmptyHint {
+    WithPassphrase,
+    WithoutPassphrase,
+}
+
+/// Which line the banner says now, if any.
+pub(crate) fn empty_hint_line(snap: &evolite_api::Snapshot, closed: bool) -> Option<EmptyHint> {
+    let wallet = snap.wallet.as_ref()?;
+    let restored = snap
+        .wallets
+        .iter()
+        .find(|w| w.open)
+        .is_some_and(|w| w.origin != evolite_api::WalletOrigin::Created);
+    let b = &wallet.balances;
+    let empty = wallet.activity.is_empty()
+        && wallet.identity.is_none()
+        && wallet.identities.is_empty()
+        && b.core == 0
+        && b.credits == 0
+        && b.all_credits == 0
+        && b.platform_address == 0
+        && b.shielded == 0;
+    (restored && !closed && empty && snap.sync.stage == evolite_api::SyncStage::Done).then_some(
+        if wallet.bip39_passphrase {
+            EmptyHint::WithPassphrase
+        } else {
+            EmptyHint::WithoutPassphrase
+        },
+    )
+}
+
+fn empty_hint(ui: &mut Ui, a: &mut Assets, cx: &Ctx, closed: &mut bool) {
+    // After the first money, never again.
+    if !*closed
+        && cx
+            .snap
+            .wallet
+            .as_ref()
+            .is_some_and(|w| !w.activity.is_empty())
+    {
+        *closed = true;
+    }
+    let Some(hint) = empty_hint_line(cx.snap, *closed) else {
+        return;
+    };
+    let line = match hint {
+        EmptyHint::WithPassphrase => {
+            tr!("The wallet is empty. If you expected money here, check the BIP-39 passphrase.")
+        }
+        EmptyHint::WithoutPassphrase => tr!(
+            "The wallet is empty. Check the phrase. If the wallet had a BIP-39 passphrase, it is needed here too."
+        ),
+    };
+    if crate::components::notice_closable(ui, a, "info", line, "", None).closed {
+        *closed = true;
+    }
 }
 
 #[cfg(test)]

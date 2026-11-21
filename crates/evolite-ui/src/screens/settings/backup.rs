@@ -196,6 +196,23 @@ pub(super) fn check_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mu
         |ui, a| {
             let mut close = false;
             match (&form.verdict, &form.questions) {
+                // FEAT-0041 R-6, UC-5: the words right, the passphrase not.
+                (Some(None), _) if form.passphrase_wrong => {
+                    notice(
+                        ui,
+                        a,
+                        "warning",
+                        p.danger,
+                        tr!("The BIP-39 passphrase does not match the saved one"),
+                    );
+                    button_row(ui, |ui| {
+                        close = button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked();
+                        if button(ui, a, tr!("Try again"), ButtonKind::Primary, None).clicked() {
+                            form.verdict = None;
+                            form.passphrase_wrong = false;
+                        }
+                    });
+                }
                 (Some(None), _) => {
                     notice(
                         ui,
@@ -276,6 +293,22 @@ pub(super) fn check_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mu
                     }
                     if !reader {
                         crate::secret_words::toggle(ui, a, &mut state.check_reading);
+                    }
+                    // FEAT-0041 R-6: only a wallet with a passphrase asks it.
+                    if form.passphrase_asked {
+                        ui.vertical(|ui| {
+                            ui.spacing_mut().item_spacing.y = 6.0;
+                            field_label(ui, &p, tr!("BIP-39 passphrase"));
+                            text_field(
+                                ui,
+                                &p,
+                                "check-bip39",
+                                &mut form.passphrase,
+                                "",
+                                FieldKind::Password,
+                                |_| {},
+                            );
+                        });
                     }
                     button_row(ui, |ui| {
                         close = button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked();
@@ -386,11 +419,16 @@ pub(super) fn check_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mu
         form.error = None;
     }
     if let Some(picks) = check {
-        cx.send(Command::CheckPhraseWords { picks });
+        let passphrase = form
+            .passphrase_asked
+            .then(|| evolite_api::passphrase::Passphrase::new(form.passphrase.to_string()));
+        cx.send(Command::CheckPhraseWords { picks, passphrase });
+        form.passphrase.zeroize();
         form.waiting = true;
     }
     if closed && !form.waiting {
         form.password.zeroize();
+        form.passphrase.zeroize();
         state.check = None;
     }
 }
@@ -538,6 +576,34 @@ pub(super) fn phrase_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &m
                             }
                             if !reader {
                                 crate::secret_words::toggle(ui, a, &mut state.phrase_reading);
+                            }
+                            // FEAT-0041 R-3, P5: its BIP-39 passphrase under the words, kept as
+                            // they are (60 s, out of captures, read only with reading on); none,
+                            // no line (R-11).
+                            let passphrase = phrase.passphrase().expose();
+                            if !passphrase.is_empty() {
+                                ui.add_space(4.0);
+                                ui.label(text(tr!("BIP-39 PASSPHRASE"), SMALL, p.muted));
+                                let font = crate::theme::mono(SMALL.size, SMALL.weight);
+                                if read {
+                                    crate::secret_words::word_by_word(ui, passphrase, font, p.text);
+                                } else {
+                                    crate::secret_words::painted(
+                                        ui,
+                                        passphrase,
+                                        font,
+                                        p.text,
+                                        tr!("BIP-39 passphrase, shown on the screen"),
+                                    );
+                                }
+                                ui.add(crate::components::para(
+                                    tr!(
+                                        "Without the BIP-39 passphrase this phrase opens another, empty wallet. Write it down apart from the phrase."
+                                    ),
+                                    SMALL.size,
+                                    SMALL.weight,
+                                    p.muted,
+                                ));
                             }
                         }
                         // BUG-203 r3, SEC-11: the pause as the unlock says it, with the warning

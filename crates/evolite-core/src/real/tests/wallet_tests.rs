@@ -87,7 +87,10 @@ async fn unlocking_does_not_wait_for_the_chain() {
     assert!(!core.chain.running());
     assert_eq!(core.unlock(&pw("pw")).await, Ok(()));
     let id = core.unlocked.as_ref().map(|o| o.id).unwrap();
-    assert_eq!(id, chain::wallet_id_of(PHRASE).unwrap());
+    assert_eq!(
+        id,
+        chain::wallet_id_of(&evolite_chain::seed_from(PHRASE, "").unwrap()).unwrap()
+    );
     assert!(core.attach.is_some(), "opened in platform-wallet later");
     assert_eq!(core.snapshot().await.vault, VaultState::Unlocked);
     assert_eq!(
@@ -640,7 +643,7 @@ async fn checks_the_phrase_without_giving_it_out() {
         Some(Event::PhraseCheck(Err(CoreError::WrongPassword)))
     ));
     let questions = |event: Option<Event>| match event {
-        Some(Event::PhraseCheck(Ok(q))) => q,
+        Some(Event::PhraseCheck(Ok(q))) => q.questions,
         other => panic!("{other:?}"),
     };
     let asked = questions(core.handle(ask("pw")).await.0);
@@ -652,12 +655,19 @@ async fn checks_the_phrase_without_giving_it_out() {
     let (event, _) = core
         .handle(Command::CheckPhraseWords {
             picks: right.clone(),
+            passphrase: None,
         })
         .await;
-    assert!(matches!(event, Some(Event::PhraseChecked { wrong: None })));
+    assert!(matches!(
+        event,
+        Some(Event::PhraseChecked { wrong: None, .. })
+    ));
     // Answered once: the same picks again need a new check.
     let (event, _) = core
-        .handle(Command::CheckPhraseWords { picks: right })
+        .handle(Command::CheckPhraseWords {
+            picks: right,
+            passphrase: None,
+        })
         .await;
     assert!(matches!(event, Some(Event::PhraseCheck(Err(_)))));
 
@@ -672,8 +682,15 @@ async fn checks_the_phrase_without_giving_it_out() {
         .find(|c| **c != picks[1])
         .unwrap()
         .clone();
-    let (event, _) = core.handle(Command::CheckPhraseWords { picks }).await;
-    assert!(matches!(event, Some(Event::PhraseChecked { wrong: Some(n) }) if n == asked[1].number));
+    let (event, _) = core
+        .handle(Command::CheckPhraseWords {
+            picks,
+            passphrase: None,
+        })
+        .await;
+    assert!(
+        matches!(event, Some(Event::PhraseChecked { wrong: Some(n), .. }) if n == asked[1].number)
+    );
 
     questions(core.handle(ask("pw")).await.0);
     core.lock().await.unwrap();
@@ -706,7 +723,7 @@ async fn changes_the_password_and_keeps_the_phrase() {
         Some(CoreError::WrongPassword)
     );
     let (file, phrase) = core.open_vault(&pw("new one!")).await.unwrap();
-    assert_eq!(phrase.as_str(), PHRASE);
+    assert_eq!(phrase.phrase.as_str(), PHRASE);
     assert_eq!(file.meta.birth_height, 1_000);
     // Sealed with the full cost again, not the cheap one it had.
     assert_eq!(file.kdf, KdfParams::default());
@@ -870,6 +887,7 @@ async fn locks_after_the_idle_time_only_when_open() {
         meta,
         keys: None,
         seed: None,
+        passphrase: false,
     });
     assert!(core.idle_too_long());
     core.last_touch = tokio::time::Instant::now();
@@ -1142,23 +1160,24 @@ async fn a_lock_drops_every_phrase_the_core_holds() {
     assert!(core.attach.is_some() || core.unlocked.is_some());
     let opened = core.open_vault(&pw("pw")).await.unwrap();
     core.switch_opened = Some(opened);
-    core.pending = Some((Zeroizing::new("abandon ability able".into()), false));
+    core.pending = Some((vault::Secret::new("abandon ability able", "TREZOR"), false));
     core.lock().await.unwrap();
     assert!(core.pending.is_none(), "the onboarding's phrase");
     assert!(core.switch_opened.is_none(), "another wallet's phrase");
     assert!(core.attach.is_none() && core.unlocked.is_none());
 }
 
-/// SEC-5 (П6): the open wallet's phrase, locked to RAM, reads back whole in any word list; one
-/// that does not fit is refused, never cut.
+/// SEC-5 (П6): the open wallet's seed, locked to RAM, is the phrase's with its passphrase
+/// (FEAT-0041: no phrase is kept for platform-wallet any more, only the seed).
 #[test]
-fn a_locked_phrase_reads_back_and_one_too_long_is_refused() {
-    let phrase = "あいこくしん あいさつ あいだ あおぞら あかちゃん あきる";
-    assert_eq!(LockedPhrase::new(phrase).unwrap().as_str(), phrase);
-    assert!(LockedPhrase::new(&"x".repeat(PHRASE_BYTES)).is_none());
-    let seed = seed_of("abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about").unwrap();
-    assert_eq!(seed_bytes(&seed).len(), 64);
-    assert!(seed_bytes(&seed).iter().any(|b| *b != 0));
+fn the_locked_seed_is_the_phrase_with_its_passphrase() {
+    let seed = seed_of(&vault::Secret::new(PHRASE, "")).unwrap();
+    assert_eq!(
+        seed_bytes(&seed),
+        &*evolite_chain::seed_from(PHRASE, "").unwrap()
+    );
+    let other = seed_of(&vault::Secret::new(PHRASE, "TREZOR")).unwrap();
+    assert_ne!(seed_bytes(&seed), seed_bytes(&other));
 }
 
 /// FEAT-0040…0046, the shared switch: off until the app says on; the snapshot says what the core

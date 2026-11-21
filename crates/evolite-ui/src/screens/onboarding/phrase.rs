@@ -92,11 +92,14 @@ fn random_checks(words: &[String], dice: &mut Dice) -> Checks {
 }
 
 /// O1 · Recovery phrase. `Some` when the step is left from here: «Cancel» in the warning.
+/// `advanced`: the advanced features are on — «Advanced» offers a BIP-39 passphrase (FEAT-0041
+/// R-2); off, none is kept.
 pub(super) fn phrase(
     ui: &mut Ui,
     a: &mut Assets,
     o: &mut Onboarding,
     demo: bool,
+    advanced: bool,
 ) -> Option<super::Outcome> {
     let p = a.p;
     steps(ui, &p, 1);
@@ -152,11 +155,14 @@ pub(super) fn phrase(
             });
         },
     );
-    let words: Vec<&str> = o
-        .phrase
-        .as_ref()
-        .map(|ph| ph.words().iter().map(String::as_str).collect())
-        .unwrap_or_default();
+    // A copy wiped on drop: the passphrase's block below takes `o` too.
+    let owned = zeroize::Zeroizing::new(
+        o.phrase
+            .as_ref()
+            .map(|ph| ph.words().to_vec())
+            .unwrap_or_default(),
+    );
+    let words: Vec<&str> = owned.iter().map(String::as_str).collect();
     if words.is_empty() {
         ui.label(txt(
             tr!("Preparing the phrase…"),
@@ -201,6 +207,13 @@ pub(super) fn phrase(
         }
         // No «Copy»: the phrase belongs on paper (the customer, SEC-2).
     });
+    // P2: above the warning and «I wrote it down», so both are seen.
+    if advanced {
+        super::bip39::block(ui, a, o, true);
+    } else if !o.bip39.is_empty() || !o.bip39_repeat.is_empty() {
+        zeroize::Zeroize::zeroize(&mut o.bip39);
+        zeroize::Zeroize::zeroize(&mut o.bip39_repeat);
+    }
     warning(
         ui,
         a,
@@ -214,7 +227,8 @@ pub(super) fn phrase(
         &mut o.written,
         tr!("I wrote the phrase down and keep it in a safe place"),
     );
-    if actions(ui, a, None, tr!("Continue"), o.written && !words.is_empty()).1 {
+    let ready = o.written && !words.is_empty() && super::bip39::ready(o, true);
+    if actions(ui, a, None, tr!("Continue"), ready).1 {
         o.next();
     }
     None

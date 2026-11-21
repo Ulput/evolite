@@ -35,6 +35,8 @@ pub struct Prefs {
     pub fiat_currency: Option<usize>,
     /// "Remind me later" on the phrase-check reminder: not before this (unix seconds).
     pub remind_snoozed: Option<i64>,
+    /// FEAT-0041 R-13: the empty restored wallet's banner was closed, or money came: not again.
+    pub empty_hint_closed: Option<bool>,
     /// The interface language (`ru`, `en`, `zh-Hans`…); none: the system's.
     pub lang: Option<String>,
     /// FEAT-0040: the wallet's fee rate for a Core payment, duffs per kB; none: «Normal» (R-12).
@@ -94,6 +96,7 @@ pub fn split(prefs: &Prefs) -> (Prefs, Prefs) {
         remind_snoozed: prefs.remind_snoozed,
         // FEAT-0040 (R-12): the wallet's, never the app's.
         fee_rate: prefs.fee_rate,
+        empty_hint_closed: prefs.empty_hint_closed,
         ..Prefs::default()
     };
     (app, wallet)
@@ -191,6 +194,7 @@ mod tests {
             fiat_currency: Some(1),
             remind_snoozed: Some(1_794_009_600),
             fee_rate: Some(2_000),
+            empty_hint_closed: Some(true),
         };
         save(&path, &prefs).unwrap();
         assert_eq!(load(&path), prefs);
@@ -239,6 +243,15 @@ mod tests {
         assert_eq!(wallet.toggles, [("new-address".to_owned(), true)].into());
         assert!(wallet.theme.is_none() && wallet.lang.is_none() && wallet.unit.is_none());
         assert_eq!(wallet.phrase_checked, Some(1_793_404_800));
+        // FEAT-0041 R-13: the empty wallet's banner closed is the wallet's.
+        let (app, wallet) = split(&Prefs {
+            empty_hint_closed: Some(true),
+            ..Prefs::default()
+        });
+        assert_eq!(
+            (app.empty_hint_closed, wallet.empty_hint_closed),
+            (None, Some(true))
+        );
     }
 
     /// A file from before is the first wallet's until it has its own; then each wallet

@@ -1131,7 +1131,10 @@ async fn open_wallet_of(
         .start(&paths, Arc::new(|_: &SyncStatus| {}))
         .await
         .expect("chain starts");
-    let (_, wallet) = chain.open_wallet(phrase, 0).await.expect("wallet opens");
+    let (_, wallet) = chain
+        .open_wallet(&crate::seed_from(phrase, "").unwrap(), 0)
+        .await
+        .expect("wallet opens");
     let keys = crate::keys_of(phrase).expect("keys");
     let started = Instant::now();
     loop {
@@ -1670,7 +1673,7 @@ fn a_stopped_chain_lets_go_of_the_store() {
             .await
             .expect("chain starts");
         let phrase = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
-        drop(chain.open_wallet(phrase, 0).await.expect("wallet opens"));
+        drop(chain.open_wallet(&crate::seed_from(phrase, "").unwrap(), 0).await.expect("wallet opens"));
         chain.stop().await;
         assert!(
             std::fs::remove_dir_all(dir.join("wallets")).is_ok(),
@@ -1678,6 +1681,46 @@ fn a_stopped_chain_lets_go_of_the_store() {
         );
         let _ = std::fs::remove_dir_all(&dir);
     });
+}
+
+/// FEAT-0041 AC-T-P3: platform-wallet's wallet opened from the seed with its BIP-39 passphrase
+/// (`create_wallet_from_seed_bytes`) is the keys' own — its first receiving address is theirs,
+/// so a restore with the passphrase finds what was paid to it; with none, another wallet.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_wallet_opened_with_a_passphrase_has_its_keys_addresses() {
+    let dir = std::env::temp_dir().join(format!("evolite-bip39-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let paths = ChainPaths {
+        spv: dir.join("spv").join("testnet"),
+        store: dir
+            .join("wallets")
+            .join("testnet")
+            .join("platform-wallet.db"),
+        core_node: dir.join("core-node.txt"),
+    };
+    let chain = Chain::default();
+    chain
+        .open_store_only(&paths)
+        .await
+        .expect("the store opens");
+    let phrase = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
+    let seed = crate::seed_from(phrase, "TREZOR").unwrap();
+    let (id, wallet) = chain.open_wallet(&seed, 0).await.expect("wallet opens");
+    let keys = crate::keys_from(&seed).unwrap();
+    assert_eq!(id, keys.compute_wallet_id());
+    let address = wallet
+        .core()
+        .next_receive_address_for_account(0)
+        .await
+        .expect("an address");
+    let path: key_wallet::bip32::DerivationPath = "m/44'/1'/0'/0/0".parse().unwrap();
+    let public = key_wallet::dashcore::PublicKey::new(keys.derive_public_key(&path).unwrap());
+    let first = key_wallet::dashcore::Address::p2pkh(&public, crate::network::dash());
+    assert_eq!(address, first);
+    let plain = crate::keys_of(phrase).unwrap();
+    assert_ne!(id, plain.compute_wallet_id());
+    chain.stop().await;
+    let _ = std::fs::remove_dir_all(&dir);
 }
 
 /// BUG-111: a coin whose InstantLock was not verified in this run is not taken by a payment, even
@@ -1703,7 +1746,10 @@ async fn a_payment_takes_no_coin_with_an_unverified_instant_lock() {
         .await
         .expect("the store opens");
     let phrase = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
-    let (_, wallet) = chain.open_wallet(phrase, 0).await.expect("wallet opens");
+    let (_, wallet) = chain
+        .open_wallet(&crate::seed_from(phrase, "").unwrap(), 0)
+        .await
+        .expect("wallet opens");
     let keys = crate::keys_of(phrase).expect("keys");
     let address = wallet
         .core()
@@ -2051,7 +2097,10 @@ async fn a_build_that_panics_or_times_out_leaves_no_coin_frozen() {
         .await
         .expect("the store opens");
     let phrase = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
-    let (_, wallet) = chain.open_wallet(phrase, 0).await.expect("wallet opens");
+    let (_, wallet) = chain
+        .open_wallet(&crate::seed_from(phrase, "").unwrap(), 0)
+        .await
+        .expect("wallet opens");
     let address = wallet
         .core()
         .next_receive_address_for_account(0)
@@ -2280,7 +2329,9 @@ async fn register_collection() {
     let file = evolite_local::vault::load(&folder.join("wallet.json"))
         .unwrap()
         .expect("vault");
-    let phrase = evolite_local::vault::open(&file, password.trim()).expect("the vault opens");
+    let secret = evolite_local::vault::open(&file, password.trim()).expect("the vault opens");
+    // FEAT-0041: the wallet's seed, with its BIP-39 passphrase if it has one.
+    let seed = crate::seed_from(&secret.phrase, &secret.passphrase).unwrap();
     let paths = ChainPaths {
         spv: dir.join("spv").join("testnet"),
         store: folder.join("platform-wallet.db"),
@@ -2292,11 +2343,11 @@ async fn register_collection() {
         .await
         .expect("chain starts");
     let (wallet_id, wallet) = chain
-        .open_wallet(&phrase, file.meta.birth_height)
+        .open_wallet(&seed, file.meta.birth_height)
         .await
         .unwrap();
-    let keys = crate::keys_of(&phrase).unwrap();
-    drop(phrase);
+    let keys = crate::keys_from(&seed).unwrap();
+    drop(secret);
     let started = Instant::now();
     while !(chain.status().filters.is_some_and(|f| f.done) && chain.platform_ready()) {
         assert!(

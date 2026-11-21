@@ -38,6 +38,7 @@ async fn a_top_up_below_platforms_least_lock_is_refused_at_once() {
         meta,
         keys: None,
         seed: None,
+        passphrase: false,
     });
     assert_eq!(
         core.top_up_identity(40_499).await,
@@ -58,6 +59,7 @@ async fn credits_refuse_bad_payees_before_asking_the_network() {
         meta,
         keys: None,
         seed: None,
+        passphrase: false,
     });
     let address = |network| PlatformAddress::P2pkh([7; 20]).to_bech32m_string(network);
     let mainnet = address(key_wallet::Network::Mainnet);

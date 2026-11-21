@@ -11,6 +11,7 @@ mod folder_tests;
 mod identity_tests;
 mod not_seen_tests;
 mod notes_tests;
+mod passphrase_tests;
 mod payment_tests;
 mod snapshot_tests;
 mod start_tests;
@@ -58,7 +59,7 @@ fn core_with_vault(name: &str, password: &str) -> Real {
         iterations: 1,
         parallelism: 1,
     };
-    let file = vault::seal(PHRASE, password, meta, cheap).unwrap();
+    let file = vault::seal(&vault::Secret::new(PHRASE, ""), password, meta, cheap).unwrap();
     vault::save(&paths.vault, &file).unwrap();
     let (out, _) = std::sync::mpsc::channel();
     Real::new(dir, TEST_WALLET.into(), out, Arc::new(|| {}))
@@ -72,7 +73,9 @@ fn pw(text: &str) -> Password {
 fn seal_wallet(dir: &std::path::Path, id: &str) {
     let meta = VaultMeta {
         network: network().into(),
-        wallet_id: hex(&chain::wallet_id_of(PHRASE).unwrap()),
+        wallet_id: hex(
+            &chain::wallet_id_of(&evolite_chain::seed_from(PHRASE, "").unwrap()).unwrap(),
+        ),
         birth_height: 1_000,
         word_count: 12,
         created_at: 1_793_000_000,
@@ -82,7 +85,7 @@ fn seal_wallet(dir: &std::path::Path, id: &str) {
         iterations: 1,
         parallelism: 1,
     };
-    let file = vault::seal(PHRASE, "pw", meta, cheap).unwrap();
+    let file = vault::seal(&vault::Secret::new(PHRASE, ""), "pw", meta, cheap).unwrap();
     vault::save(&wallets::wallet_dir(dir, id).join("wallet.json"), &file).unwrap();
 }
 
@@ -231,6 +234,7 @@ fn opened(name: &str, password: &str) -> Real {
         meta,
         keys: None,
         seed: None,
+        passphrase: false,
     });
     core
 }

@@ -117,6 +117,7 @@ pub fn run(
                     fiat: None,
                     update: None,
                     advanced_features: false,
+                    advanced_allowed: false,
                     wallets: Vec::new(),
                     adding_wallet: false,
                 })));
@@ -228,6 +229,7 @@ pub fn run(
                             let opened = core.switch_opened.take();
                             // "Cancel" while adding goes back to this one.
                             let adding_from = core.adding_from.take();
+                            let adding_open = std::mem::take(&mut core.adding_open);
                             // "Add a wallet" asked here: this chain is parked (BUG-76).
                             let adding =
                                 !core.restart && adding_from.as_deref() == Some(&*core.wallet);
@@ -243,6 +245,7 @@ pub fn run(
                             core.art_base = art_base.clone();
                             // Back at the wallet the adding started from: adding is over.
                             core.adding_from = adding_from.filter(|from| *from != core.wallet);
+                            core.adding_open = adding_open && core.adding_from.is_some();
                             core.artist = Some(crate::art::Artist::start(
                                 out.clone(),
                                 wake.clone(),

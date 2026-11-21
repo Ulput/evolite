@@ -24,6 +24,7 @@ pub mod fee_choice;
 pub mod fiat;
 pub mod key_plan;
 pub mod lock_coins;
+pub mod passphrase;
 pub mod series;
 /// Platform tokens (FEAT-0019).
 pub mod tokens;
@@ -937,6 +938,14 @@ pub struct PhraseQuestion {
     pub choices: Vec<String>,
 }
 
+/// "Check the phrase": the words to pick and whether the BIP-39 passphrase is asked too
+/// (FEAT-0041 R-6: only a wallet with one).
+#[derive(Clone, PartialEq, Debug)]
+pub struct PhraseQuiz {
+    pub questions: Vec<PhraseQuestion>,
+    pub passphrase: bool,
+}
+
 /// One of the wallet's identities, to choose which one the wallet acts as.
 #[derive(Clone, PartialEq, Debug)]
 pub struct IdentityChoice {
@@ -1657,6 +1666,9 @@ pub struct Wallet {
     pub series: Vec<series::SeriesState>,
     /// Core addresses the person named, to pay again (not DashPay contacts), by name.
     pub address_book: Vec<SavedAddress>,
+    /// FEAT-0041 R-13: the open wallet has a BIP-39 passphrase — which line the empty wallet's
+    /// banner says. Only of the open wallet, in memory: no list, file or name tells it (R-15).
+    pub bip39_passphrase: bool,
     /// "Password for every send" (Settings → Security), kept by the core for this wallet: on,
     /// every [`Command::Spend`] needs the password; off only by [`Command::SetPasswordEachSend`]
     /// with the password.
@@ -1713,6 +1725,10 @@ pub struct Snapshot {
     pub update: Option<UpdateInfo>,
     /// «Features for advanced users» as the core has it now ([`Command::AdvancedFeatures`]).
     pub advanced_features: bool,
+    /// Whether the core takes «on» now (BUG-252, FEAT-0041 r1): with the wallet unlocked, with no
+    /// wallet on this computer yet (the first onboarding), or while a wallet is added from an
+    /// open one. Locked wallets keep it off, and so does adding one from the locked choice.
+    pub advanced_allowed: bool,
     /// The wallets on this computer for this network, the open one marked; empty while
     /// there is none yet.
     pub wallets: Vec<WalletEntry>,
@@ -2083,24 +2099,44 @@ pub struct NameSuggestion {
     pub picture: Option<String>,
 }
 
-/// A recovery phrase on its way to the screen or back. Wiped on drop (each word, then the
-/// list), never printed.
+/// A recovery phrase on its way to the screen or back, with its BIP-39 passphrase (FEAT-0041;
+/// empty: none). Wiped on drop (each word, then the list), never printed; `Debug` does not say
+/// whether there is a passphrase (R-15).
 #[derive(Clone, PartialEq)]
-pub struct Phrase(Zeroizing<Vec<String>>);
+pub struct Phrase {
+    words: Zeroizing<Vec<String>>,
+    passphrase: passphrase::Passphrase,
+}
 
 impl Phrase {
     pub fn new(words: Vec<String>) -> Self {
-        Self(Zeroizing::new(words))
+        Self {
+            words: Zeroizing::new(words),
+            passphrase: passphrase::Passphrase::default(),
+        }
+    }
+
+    /// FEAT-0041: the phrase and its BIP-39 passphrase.
+    pub fn with_passphrase(words: Vec<String>, passphrase: passphrase::Passphrase) -> Self {
+        Self {
+            words: Zeroizing::new(words),
+            passphrase,
+        }
     }
 
     pub fn words(&self) -> &[String] {
-        &self.0
+        &self.words
+    }
+
+    /// Empty: none.
+    pub fn passphrase(&self) -> &passphrase::Passphrase {
+        &self.passphrase
     }
 }
 
 impl fmt::Debug for Phrase {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Phrase({} words, hidden)", self.0.len())
+        write!(f, "Phrase({} words, hidden)", self.words.len())
     }
 }
 
@@ -2166,9 +2202,12 @@ pub enum Command {
         phrase: Phrase,
         dashpay: bool,
     },
-    /// Encrypt the phrase from the last step and start the first sync.
+    /// Encrypt the phrase from the last step and start the first sync. `passphrase`: a new
+    /// phrase's BIP-39 passphrase (FEAT-0041 R-2), only with the advanced features on; a
+    /// restored one brings its own in [`Command::UsePhrase`].
     CreateWallet {
         password: Password,
+        passphrase: Option<passphrase::Passphrase>,
     },
     /// Open the saved wallet with its password. Answered with `Done { what: DoneWhat::Unlock }`;
     /// after too many wrong passwords in a row, for a while with [`CoreError::TooManyTries`],
@@ -2396,6 +2435,8 @@ pub enum Command {
     /// [`Event::PhraseChecked`]; a check is answered once.
     CheckPhraseWords {
         picks: Vec<String>,
+        /// FEAT-0041 R-6: the BIP-39 passphrase typed, when [`PhraseQuiz::passphrase`] asked it.
+        passphrase: Option<passphrase::Passphrase>,
     },
     /// "Sync again": at the next start, before anything opens, the headers,
     /// filters and masternode lists and the wallet's store go, and the wallet is scanned again
@@ -3133,11 +3174,13 @@ pub enum Event {
         result: Result<MixedQuote, CoreError>,
     },
     /// The answer to `AskPhraseCheck`: the words to pick, or why not (a wrong password).
-    PhraseCheck(Result<Vec<PhraseQuestion>, CoreError>),
+    PhraseCheck(Result<PhraseQuiz, CoreError>),
     /// The answer to `CheckPhraseWords`: `None` all right, else the number of the first word
     /// that did not match (the right word is not told).
     PhraseChecked {
         wrong: Option<usize>,
+        /// FEAT-0041 R-6: the BIP-39 passphrase typed is not the saved one.
+        passphrase_wrong: bool,
     },
     /// The answer to [`Command::FindToken`] or [`Command::SearchTokens`]: the tokens found for
     /// `query` (the id or the keyword asked), each read with a proof; empty: none.

@@ -2752,6 +2752,7 @@ name = "evolite-api"
 version = "1.0.0"
 dependencies = [
  "lz4_flex",
+ "unicode-normalization",
  "zeroize",
 ]
 

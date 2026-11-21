@@ -102,6 +102,13 @@ struct Mock {
     adding_from: Option<String>,
     /// Wrong passwords of the demo wallets, in memory (FEAT-0002).
     tries: evolite_common::attempts::Ledger,
+    /// FEAT-0041 r1: the wallet being added was asked for from an open one.
+    adding_open: bool,
+    /// FEAT-0041: the BIP-39 passphrase of each wallet that has one (NFKD), by its id.
+    passphrases: HashMap<String, String>,
+    /// FEAT-0041 R-12: the phrases (with their passphrases) made into wallets in this run — the
+    /// pair again is refused, the phrase with another passphrase is another wallet.
+    made: Vec<(Vec<String>, String)>,
 }
 
 impl Mock {
@@ -116,8 +123,19 @@ impl Mock {
             }
             Command::UsePhrase { phrase, dashpay } => {
                 let words: Vec<&str> = phrase.words().iter().map(String::as_str).collect();
+                let passphrase = passphrase::normalized(phrase.passphrase().expose());
                 let result = match bip39::check(&words) {
                     Err(_) => Err(CoreError::BadPhrase),
+                    Ok(()) if !passphrase::fits(phrase.passphrase().expose()) => Err(
+                        CoreError::NotAvailable(evolite_common::PASSPHRASE_TOO_LONG.into()),
+                    ),
+                    Ok(())
+                        if self
+                            .made
+                            .contains(&(phrase.words().to_vec(), passphrase.to_string())) =>
+                    {
+                        Err(CoreError::NotAvailable(evolite_common::SAME_WALLET.into()))
+                    }
                     Ok(()) => {
                         self.pending = Some(phrase.clone());
                         Ok(dashpay.then(|| DashPayScan {
@@ -135,12 +153,38 @@ impl Mock {
                 };
                 Event::PhraseAccepted(result)
             }
-            Command::CreateWallet { password } => {
+            Command::CreateWallet {
+                password,
+                passphrase: new_passphrase,
+            } => {
+                let new_passphrase = new_passphrase.filter(|p| !p.is_empty());
                 let result = if password.expose().is_empty() {
                     Err(CoreError::WrongPassword)
+                } else if new_passphrase.is_some() && !self.snapshot.advanced_features {
+                    // FEAT-0040: hidden is off — as the real core.
+                    Err(CoreError::NotAvailable(evolite_common::ADVANCED_OFF.into()))
+                } else if new_passphrase
+                    .as_ref()
+                    .is_some_and(|p| !passphrase::fits(p.expose()))
+                {
+                    Err(CoreError::NotAvailable(
+                        evolite_common::PASSPHRASE_TOO_LONG.into(),
+                    ))
                 } else {
-                    // The mock does not store the phrase; it forgets it with the password.
-                    self.pending = None;
+                    // The mock does not store the phrase; it forgets it with the password, and
+                    // keeps only which wallet has a passphrase (FEAT-0041).
+                    let phrase = self.pending.take();
+                    let passphrase = match &new_passphrase {
+                        Some(p) => passphrase::normalized(p.expose()).to_string(),
+                        None => phrase
+                            .as_ref()
+                            .map(|p| passphrase::normalized(p.passphrase().expose()).to_string())
+                            .unwrap_or_default(),
+                    };
+                    if let Some(phrase) = &phrase {
+                        self.made
+                            .push((phrase.words().to_vec(), passphrase.clone()));
+                    }
                     if self.snapshot.adding_wallet {
                         // The added wallet joins the list, open; the same example is behind it.
                         let n = self.snapshot.wallets.len();
@@ -164,6 +208,16 @@ impl Mock {
                         self.snapshot.vault = VaultState::Unlocked;
                         self.snapshot.wallet = Some(demo_wallet(now()));
                     }
+                    if let Some(wallet) = &mut self.snapshot.wallet {
+                        wallet.bip39_passphrase = !passphrase.is_empty();
+                    }
+                    if let Some(open) = self.snapshot.wallets.iter().find(|w| w.open) {
+                        if passphrase.is_empty() {
+                            self.passphrases.remove(&open.id);
+                        } else {
+                            self.passphrases.insert(open.id.clone(), passphrase);
+                        }
+                    }
                     self.sync_started = Some(Instant::now());
                     self.snapshot.sync = staged_sync(0.0);
                     changed = true;
@@ -185,7 +239,7 @@ impl Mock {
             // FEAT-0040…0046: kept as said; the demo never locks.
             // BUG-252: as the real core, a locked wallet keeps it off.
             Command::AdvancedFeatures { on } => {
-                self.snapshot.advanced_features = on && self.snapshot.vault == VaultState::Unlocked;
+                self.snapshot.advanced_features = on && self.advanced_allowed();
                 return true;
             }
             Command::ResolveName { name } => {
@@ -675,6 +729,7 @@ impl Mock {
                     .iter()
                     .find(|w| w.open)
                     .map(|w| w.id.clone());
+                self.adding_open = self.snapshot.vault == VaultState::Unlocked;
                 for w in &mut self.snapshot.wallets {
                     w.open = false;
                 }
@@ -823,7 +878,7 @@ impl Mock {
                         offer.read_ms = now_ms;
                     }
                 }
-                Event::Snapshot(Box::new(self.snapshot.clone()))
+                Event::Snapshot(Box::new(self.shown()))
             }
             // FEAT-0019 T-3: the demo's token page.
             Command::ReadTokenPage { token_id, check } => {
@@ -834,7 +889,7 @@ impl Mock {
                     page.checked = check.map(|c| tokens::demo_check(&page, &c));
                     w.tokens.page = Some(page);
                 }
-                Event::Snapshot(Box::new(self.snapshot.clone()))
+                Event::Snapshot(Box::new(self.shown()))
             }
             Command::Lock => Event::Done {
                 what: DoneWhat::Lock,
@@ -914,16 +969,23 @@ impl Mock {
                 Event::PhraseCheck(if password.expose().is_empty() {
                     Err(CoreError::WrongPassword)
                 } else {
-                    Ok(DEMO_CHECK
-                        .iter()
-                        .map(|(number, choices, _)| PhraseQuestion {
-                            number: *number,
-                            choices: choices.iter().map(|c| (*c).to_owned()).collect(),
-                        })
-                        .collect())
+                    Ok(PhraseQuiz {
+                        questions: DEMO_CHECK
+                            .iter()
+                            .map(|(number, choices, _)| PhraseQuestion {
+                                number: *number,
+                                choices: choices.iter().map(|c| (*c).to_owned()).collect(),
+                            })
+                            .collect(),
+                        // FEAT-0041 R-6: asked only of a wallet with one.
+                        passphrase: self.open_passphrase().is_some(),
+                    })
                 })
             }
-            Command::CheckPhraseWords { picks } => Event::PhraseChecked {
+            Command::CheckPhraseWords { picks, passphrase } => Event::PhraseChecked {
+                passphrase_wrong: self.open_passphrase().is_some_and(|saved| {
+                    passphrase.is_none_or(|typed| *passphrase::normalized(typed.expose()) != *saved)
+                }),
                 wrong: DEMO_CHECK
                     .iter()
                     .enumerate()
@@ -935,6 +997,27 @@ impl Mock {
         };
         let _ = out.send(event);
         changed
+    }
+
+    /// FEAT-0041: the open wallet's BIP-39 passphrase, when it has one.
+    fn open_passphrase(&self) -> Option<&String> {
+        let open = self.snapshot.wallets.iter().find(|w| w.open)?;
+        self.passphrases.get(&open.id)
+    }
+
+    /// As the real core (BUG-252, FEAT-0041 r1): «on» is taken with the wallet unlocked, with no
+    /// wallet yet, or while one is added from an open wallet.
+    fn advanced_allowed(&self) -> bool {
+        self.snapshot.vault == VaultState::Unlocked
+            || self.snapshot.wallets.is_empty()
+            || (self.snapshot.adding_wallet && self.adding_open)
+    }
+
+    /// The snapshot as sent: with whether «on» is taken now.
+    fn shown(&self) -> Snapshot {
+        let mut s = self.snapshot.clone();
+        s.advanced_allowed = self.advanced_allowed();
+        s
     }
 
     /// The open wallet locked, as the real core's lock: the advanced features go off with it
@@ -1872,6 +1955,7 @@ pub fn run(
             fiat: None,
             update: None,
             advanced_features: false,
+            advanced_allowed: false,
             wallets: demo_wallets(now()),
             adding_wallet: false,
         },
@@ -1887,9 +1971,12 @@ pub fn run(
         artist: Some(Artist::start(out.clone(), wake.clone(), art)),
         adding_from: None,
         tries: Default::default(),
+        adding_open: false,
+        passphrases: HashMap::new(),
+        made: Vec::new(),
     };
     let send_snapshot = |mock: &Mock| {
-        let _ = out.send(Event::Snapshot(Box::new(mock.snapshot.clone())));
+        let _ = out.send(Event::Snapshot(Box::new(mock.shown())));
     };
     send_snapshot(&mock);
     wake();
@@ -1932,6 +2019,7 @@ mod tests {
                 fiat: None,
                 update: None,
                 advanced_features: false,
+                advanced_allowed: false,
                 wallets: demo_wallets(0),
                 adding_wallet: false,
             },
@@ -1947,6 +2035,9 @@ mod tests {
             artist: None,
             adding_from: None,
             tries: Default::default(),
+            adding_open: false,
+            passphrases: HashMap::new(),
+            made: Vec::new(),
         };
         (m, tx, rx)
     }
@@ -2104,6 +2195,80 @@ mod tests {
         );
         match rx.recv().unwrap() {
             Event::PhraseAccepted(Ok(Some(scan))) => assert_eq!(scan.contacts, 7),
+            other => panic!("{other:?}"),
+        }
+    }
+
+    /// FEAT-0041 R-12, AC-A11: as the real core, one phrase with two passphrases is two
+    /// wallets; the same pair again is refused; a new wallet's passphrase needs the switch, and
+    /// the check asks it of the wallet that has one.
+    #[test]
+    fn one_phrase_with_two_passphrases_is_two_wallets() {
+        let (mut m, tx, rx) = mock();
+        let mut words = vec!["abandon".to_string(); 11];
+        words.push("about".into());
+        let use_phrase = |m: &mut Mock, passphrase: &str| {
+            m.handle(
+                Command::UsePhrase {
+                    phrase: Phrase::with_passphrase(
+                        words.clone(),
+                        passphrase::Passphrase::new(passphrase.into()),
+                    ),
+                    dashpay: false,
+                },
+                &tx,
+            );
+            rx.recv().unwrap()
+        };
+        let create = |m: &mut Mock, passphrase: Option<&str>| {
+            m.handle(
+                Command::CreateWallet {
+                    password: Password::new("pw".into()),
+                    passphrase: passphrase.map(|p| passphrase::Passphrase::new(p.into())),
+                },
+                &tx,
+            );
+            match rx.recv().unwrap() {
+                Event::Done { result, .. } => result,
+                other => panic!("{other:?}"),
+            }
+        };
+        assert!(matches!(
+            use_phrase(&mut m, ""),
+            Event::PhraseAccepted(Ok(None))
+        ));
+        assert_eq!(create(&mut m, None), Ok(()));
+        assert!(matches!(
+            use_phrase(&mut m, ""),
+            Event::PhraseAccepted(Err(CoreError::NotAvailable(_)))
+        ));
+        assert!(matches!(
+            use_phrase(&mut m, "TREZOR"),
+            Event::PhraseAccepted(Ok(None))
+        ));
+        assert_eq!(create(&mut m, None), Ok(()));
+        assert!(
+            m.snapshot
+                .wallet
+                .as_ref()
+                .is_some_and(|w| w.bip39_passphrase)
+        );
+        assert!(matches!(
+            use_phrase(&mut m, &"a".repeat(257)),
+            Event::PhraseAccepted(Err(CoreError::NotAvailable(_)))
+        ));
+        // A new phrase's passphrase: refused with the switch off.
+        assert!(create(&mut m, Some("TREZOR")).is_err());
+        m.snapshot.advanced_features = true;
+        assert_eq!(create(&mut m, Some("TREZOR")), Ok(()));
+        m.handle(
+            Command::AskPhraseCheck {
+                password: Password::new("pw".into()),
+            },
+            &tx,
+        );
+        match rx.recv().unwrap() {
+            Event::PhraseCheck(Ok(quiz)) => assert!(quiz.passphrase),
             other => panic!("{other:?}"),
         }
     }

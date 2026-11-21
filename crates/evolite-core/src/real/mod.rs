@@ -45,6 +45,8 @@ use std::sync::mpsc::{Receiver, Sender};
 use std::time::Duration;
 
 use evolite_api::*;
+pub(crate) use evolite_chain::keys_from;
+#[cfg(test)]
 pub(crate) use evolite_chain::keys_of;
 use evolite_common::{hex, now, wall_secs};
 use key_wallet::mnemonic::{Language, Mnemonic};
@@ -343,52 +345,27 @@ struct Unlocked {
     /// The phrase's BIP-39 seed: the pool derives its spending keys from it for each move.
     #[cfg_attr(not(feature = "pool"), allow(dead_code))]
     seed: Option<Arc<Seed>>,
+    /// FEAT-0041: the seed has a BIP-39 passphrase (`Wallet::bip39_passphrase`).
+    passphrase: bool,
 }
 
 /// The phrase's BIP-39 seed in memory locked to RAM (SEC-5, `evolite-memlock`): shared, not
 /// copied, by the pool's moves.
 type Seed = evolite_memlock::Locked<64>;
 
-/// The seed's 64 bytes, for what takes a slice.
-fn seed_bytes(seed: &Seed) -> &[u8] {
+/// The seed's 64 bytes.
+fn seed_bytes(seed: &Seed) -> &[u8; 64] {
     seed.as_ref()
 }
 
-/// The phrase's BIP-39 seed (no passphrase), locked to RAM and zeroed when dropped (SEC-5).
-/// `to_seed`'s own array is zeroed at once.
-fn seed_of(phrase: &str) -> Result<Arc<Seed>, CoreError> {
-    let mnemonic = Mnemonic::from_phrase(phrase).map_err(|_| CoreError::BadPhrase)?;
-    let mut seed = Zeroizing::new(mnemonic.to_seed(""));
+/// The BIP-39 seed of the phrase with its passphrase (FEAT-0041 R-4: [`evolite_chain::seed_from`],
+/// the one way), locked to RAM and zeroed when dropped (SEC-5). `seed_from`'s own array is zeroed
+/// when it drops.
+fn seed_of(secret: &vault::Secret) -> Result<Arc<Seed>, CoreError> {
+    let seed = evolite_chain::seed_from(&secret.phrase, &secret.passphrase)?;
     let mut locked = Seed::new();
     locked.as_mut().copy_from_slice(&*seed);
-    zeroize::Zeroize::zeroize(&mut *seed);
     Ok(Arc::new(locked))
-}
-
-/// The most bytes a phrase takes: 24 words of the longest word lists (Japanese, 3 bytes a
-/// character) with their separators.
-const PHRASE_BYTES: usize = 1024;
-
-/// The open wallet's phrase until platform-wallet has it, locked to RAM (SEC-5): its bytes, then
-/// zeros.
-pub(in crate::real) struct LockedPhrase(evolite_memlock::Locked<PHRASE_BYTES>);
-
-impl LockedPhrase {
-    /// `None` when the phrase does not fit (no phrase is that long).
-    fn new(phrase: &str) -> Option<Self> {
-        if phrase.len() >= PHRASE_BYTES {
-            return None;
-        }
-        let mut locked = evolite_memlock::Locked::new();
-        locked.as_mut()[..phrase.len()].copy_from_slice(phrase.as_bytes());
-        Some(Self(locked))
-    }
-
-    fn as_str(&self) -> &str {
-        let bytes = self.0.as_ref();
-        let len = bytes.iter().position(|b| *b == 0).unwrap_or(PHRASE_BYTES);
-        std::str::from_utf8(&bytes[..len]).unwrap_or_default()
-    }
 }
 
 /// Said when the open wallet is not (or no longer) in platform-wallet.
@@ -450,9 +427,12 @@ struct Real {
     switch_to: Option<String>,
     /// The vault of `switch_to` as `SwitchWallet` opened it with its password: the new core
     /// takes it as it is, without a second Argon2 (F2, BUG-24). Gone with this core.
-    switch_opened: Option<(vault::VaultFile, Zeroizing<String>)>,
+    switch_opened: Option<(vault::VaultFile, vault::Secret)>,
     /// While a wallet is being added: the one to go back to on "Cancel".
     adding_from: Option<String>,
+    /// FEAT-0041 r1: the wallet being added was asked for from an open wallet (not from the
+    /// locked choice): the advanced features stay takeable while it is made.
+    adding_open: bool,
     /// While a wallet is being added: that one's chain, still running (BUG-76).
     parked: Option<Parked>,
     /// "Password for every send" of this core's wallet ([`security`]): every [`Spend`] passes
@@ -471,10 +451,10 @@ struct Real {
     start_tried: bool,
     /// When the last start was asked.
     last_start: tokio::time::Instant,
-    /// The phrase of the open wallet until platform-wallet has it: unlocking does not wait for
+    /// The seed of the open wallet until platform-wallet has it: unlocking does not wait for
     /// the chain (F3, BUG-24); [`Real::attach_wallet`] opens it there once the chain runs.
-    /// Locked to RAM, out of the page file (SEC-5).
-    attach: Option<LockedPhrase>,
+    /// Locked to RAM, out of the page file (SEC-5); the phrase itself is not kept (FEAT-0041).
+    attach: Option<Arc<Seed>>,
     /// When opening it there failed last: tried again after [`RETRY_START`].
     attach_failed: Option<tokio::time::Instant>,
     /// The headers' tip the core before this one saw: a wallet made here before this chain has
@@ -496,7 +476,8 @@ struct Real {
     stale_noted: AtomicBool,
     /// A phrase between "new / typed" and "create wallet". Never leaves the core but to the
     /// onboarding screen that must show it.
-    pending: Option<(Zeroizing<String>, bool)>,
+    /// With its BIP-39 passphrase (FEAT-0041; a new phrase's comes with `CreateWallet`).
+    pending: Option<(vault::Secret, bool)>,
     /// What the vault on disk says about its wallet; read once, set on create.
     saved: Option<VaultMeta>,
     unlocked: Option<Unlocked>,
@@ -619,7 +600,12 @@ struct Real {
     /// kept from before is checked.
     credits_checked: Arc<AtomicBool>,
     /// "Check the phrase" asked and not answered yet: the questions and their right words.
-    phrase_check: Option<(Vec<PhraseQuestion>, crate::phrase_check::Answers)>,
+    /// FEAT-0041 R-6: with the saved BIP-39 passphrase when there is one, to compare.
+    phrase_check: Option<(
+        Vec<PhraseQuestion>,
+        crate::phrase_check::Answers,
+        Option<Zeroizing<String>>,
+    )>,
     /// The wallet's history as the store keeps it (one record per transaction), and when it
     /// was read: how many records the wallet in memory had then.
     stored_history: Vec<key_wallet::managed_account::transaction_record::TransactionRecord>,

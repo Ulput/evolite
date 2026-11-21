@@ -1082,6 +1082,7 @@ pub fn demo_wallet(t: Timestamp) -> Wallet {
         unfinished_identity: None,
         unfinished_top_up: None,
         identity_links: true,
+        bip39_passphrase: false,
         unfinished_address_top_up: None,
         // Off in the demo, as the setting was before the core kept it: its screens stay one
         // click (Settings → Security turns it on).

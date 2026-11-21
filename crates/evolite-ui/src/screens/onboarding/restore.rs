@@ -103,7 +103,12 @@ pub(super) fn restore(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, o: &mut Onboard
     if let Some(error) = &o.error {
         ui.label(txt(error, 12.0, Weight::Regular, p.danger));
     }
-    let ready = result.is_ok() && !o.waiting;
+    // FEAT-0041 R-1: always there, the switch on or off (analyst-158); not in the import from
+    // DashPay, whose Android app has none.
+    if o.flow != Flow::DashPay {
+        super::bip39::block(ui, a, o, false);
+    }
+    let ready = result.is_ok() && !o.waiting && super::bip39::ready(o, false);
     // An import from DashPay reads Platform first: up to a few minutes on a first sync.
     let label = if o.waiting && o.flow == Flow::DashPay {
         tr!("Looking for your DashPay wallet…")
@@ -115,8 +120,9 @@ pub(super) fn restore(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, o: &mut Onboard
     let pressed = actions(ui, a, None, label, ready).1 || (o.submit_on_open && ready);
     if pressed {
         // The phrase goes to the core and is wiped here at once.
+        let passphrase = super::bip39::typed(o).filter(|_| o.flow != Flow::DashPay);
         cx.send(Command::UsePhrase {
-            phrase: Phrase::new(words),
+            phrase: Phrase::with_passphrase(words, passphrase.unwrap_or_default()),
             dashpay: o.flow == Flow::DashPay,
         });
         for w in o.restore_words.iter_mut() {

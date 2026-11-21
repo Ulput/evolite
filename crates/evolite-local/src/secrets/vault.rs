@@ -5,6 +5,12 @@
 //! binds the ciphertext to the network, wallet ID and birth height, so a file edited by hand
 //! fails to open instead of syncing the wrong wallet. Changing any of this needs a new version.
 //!
+//! Format `evolite/vault/v2` (FEAT-0041 R-15): the same, but what is encrypted is the phrase
+//! **and its BIP-39 passphrase** (empty: none), with their lengths, padded with zeros to
+//! [`CONTENT`] bytes — every v2 file is as long as any other, so neither the format nor the
+//! length tells that a wallet has a passphrase. Every wallet this build writes is v2; a v1 file
+//! is still read (its passphrase is empty). The format is in the associated data.
+//!
 //! Secrets live in `Zeroizing` buffers and never reach errors or logs. Moved from spv-wallet
 //! (src-tauri/src/vault.rs) unchanged, so both apps read the same files.
 
@@ -18,7 +24,43 @@ use argon2::{Algorithm, Argon2, Params, Version};
 use serde::{Deserialize, Serialize};
 use zeroize::Zeroizing;
 
-const FORMAT: &str = "evolite/vault/v1";
+/// The format of the files written before FEAT-0041: read, never written.
+const FORMAT_V1: &str = "evolite/vault/v1";
+const FORMAT: &str = "evolite/vault/v2";
+
+/// The most bytes a phrase takes: 24 words of the longest word lists (Japanese, 3 bytes a
+/// character) with their separators.
+pub const PHRASE_BYTES: usize = 1024;
+/// The most bytes a BIP-39 passphrase takes after NFKD (FEAT-0041 R-10).
+pub const PASSPHRASE_BYTES: usize = 256;
+/// What v2 encrypts, always this long: a version byte, the two lengths (2 bytes each, little
+/// endian), the phrase, the passphrase, zeros. 1 024 + 256 + 5 = 1 285 fit, the rest is room.
+const CONTENT: usize = 1536;
+const CONTENT_VERSION: u8 = 1;
+
+/// What the vault keeps secret: the phrase and its BIP-39 passphrase (empty: none, and every
+/// v1 file). Wiped on drop; `Debug` shows nothing, not whether there is a passphrase.
+#[derive(Clone, PartialEq, Eq)]
+pub struct Secret {
+    pub phrase: Zeroizing<String>,
+    /// NFKD, as BIP-39 salts it.
+    pub passphrase: Zeroizing<String>,
+}
+
+impl Secret {
+    pub fn new(phrase: &str, passphrase: &str) -> Self {
+        Self {
+            phrase: Zeroizing::new(phrase.to_owned()),
+            passphrase: Zeroizing::new(passphrase.to_owned()),
+        }
+    }
+}
+
+impl std::fmt::Debug for Secret {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Secret(hidden)")
+    }
+}
 
 /// What the vault says about the wallet without the password. Nothing here is secret.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -78,6 +120,9 @@ pub enum VaultError {
     WrongPassword,
     Unsupported,
     Corrupt,
+    /// The phrase or the passphrase is longer than v2 holds: refused before anything is
+    /// written, never cut (FEAT-0041 R-10).
+    TooLong,
     Io(String),
 }
 
@@ -87,6 +132,7 @@ impl std::fmt::Display for VaultError {
             Self::WrongPassword => write!(f, "wrong password"),
             Self::Unsupported => write!(f, "unsupported vault format"),
             Self::Corrupt => write!(f, "the vault file is damaged"),
+            Self::TooLong => write!(f, "the phrase or the passphrase is too long"),
             Self::Io(e) => write!(f, "vault file: {e}"),
         }
     }
@@ -132,22 +178,69 @@ fn derive_key(
     Ok(key)
 }
 
-/// Associated data: ties the ciphertext to what the file says about the wallet.
-fn associated_data(meta: &VaultMeta) -> Vec<u8> {
+/// Associated data: ties the ciphertext to its format and what the file says about the wallet.
+fn associated_data(format: &str, meta: &VaultMeta) -> Vec<u8> {
     format!(
-        "{FORMAT}|{}|{}|{}|{}",
+        "{format}|{}|{}|{}|{}",
         meta.network, meta.wallet_id, meta.birth_height, meta.word_count
     )
     .into_bytes()
 }
 
-/// Encrypts the phrase with the password.
+/// v2's content: always [`CONTENT`] bytes.
+fn content(secret: &Secret) -> Result<Zeroizing<Vec<u8>>, VaultError> {
+    let phrase = secret.phrase.as_bytes();
+    let passphrase = secret.passphrase.as_bytes();
+    if phrase.len() > PHRASE_BYTES || passphrase.len() > PASSPHRASE_BYTES {
+        return Err(VaultError::TooLong);
+    }
+    let mut out = Zeroizing::new(Vec::with_capacity(CONTENT));
+    out.push(CONTENT_VERSION);
+    out.extend_from_slice(&(phrase.len() as u16).to_le_bytes());
+    out.extend_from_slice(&(passphrase.len() as u16).to_le_bytes());
+    out.extend_from_slice(phrase);
+    out.extend_from_slice(passphrase);
+    out.resize(CONTENT, 0);
+    Ok(out)
+}
+
+/// The phrase and passphrase back from v2's content; anything else in it is `Corrupt`.
+fn parse(plain: &[u8]) -> Result<Secret, VaultError> {
+    if plain.len() != CONTENT || plain[0] != CONTENT_VERSION {
+        return Err(VaultError::Corrupt);
+    }
+    let phrase_len = u16::from_le_bytes([plain[1], plain[2]]) as usize;
+    let passphrase_len = u16::from_le_bytes([plain[3], plain[4]]) as usize;
+    if phrase_len > PHRASE_BYTES || passphrase_len > PASSPHRASE_BYTES {
+        return Err(VaultError::Corrupt);
+    }
+    let phrase = &plain[5..5 + phrase_len];
+    let passphrase = &plain[5 + phrase_len..5 + phrase_len + passphrase_len];
+    if plain[5 + phrase_len + passphrase_len..]
+        .iter()
+        .any(|b| *b != 0)
+    {
+        return Err(VaultError::Corrupt);
+    }
+    let text = |bytes: &[u8]| {
+        std::str::from_utf8(bytes)
+            .map(|t| Zeroizing::new(t.to_owned()))
+            .map_err(|_| VaultError::Corrupt)
+    };
+    Ok(Secret {
+        phrase: text(phrase)?,
+        passphrase: text(passphrase)?,
+    })
+}
+
+/// Encrypts the phrase and its BIP-39 passphrase with the password, as v2.
 pub fn seal(
-    phrase: &str,
+    secret: &Secret,
     password: &str,
     meta: VaultMeta,
     kdf: KdfParams,
 ) -> Result<VaultFile, VaultError> {
+    let plain = content(secret)?;
     let salt: [u8; 16] = random();
     let nonce: [u8; 12] = random();
     let key = derive_key(password, &salt, kdf)?;
@@ -156,8 +249,8 @@ pub fn seal(
         .encrypt(
             Nonce::from_slice(&nonce),
             Payload {
-                msg: phrase.as_bytes(),
-                aad: &associated_data(&meta),
+                msg: &plain,
+                aad: &associated_data(FORMAT, &meta),
             },
         )
         .map_err(|_| VaultError::Corrupt)?;
@@ -171,9 +264,10 @@ pub fn seal(
     })
 }
 
-/// Decrypts the phrase. A wrong password and a tampered file both give `WrongPassword`.
-pub fn open(file: &VaultFile, password: &str) -> Result<Zeroizing<String>, VaultError> {
-    if file.format != FORMAT {
+/// Decrypts the phrase and its passphrase (v1: none). A wrong password and a tampered file both
+/// give `WrongPassword`.
+pub fn open(file: &VaultFile, password: &str) -> Result<Secret, VaultError> {
+    if file.format != FORMAT && file.format != FORMAT_V1 {
         return Err(VaultError::Unsupported);
     }
     let salt = unhex(&file.salt)?;
@@ -190,13 +284,16 @@ pub fn open(file: &VaultFile, password: &str) -> Result<Zeroizing<String>, Vault
                 Nonce::from_slice(&nonce),
                 Payload {
                     msg: &ciphertext,
-                    aad: &associated_data(&file.meta),
+                    aad: &associated_data(&file.format, &file.meta),
                 },
             )
             .map_err(|_| VaultError::WrongPassword)?,
     );
+    if file.format == FORMAT {
+        return parse(&plain);
+    }
     let phrase = std::str::from_utf8(&plain).map_err(|_| VaultError::Corrupt)?;
-    Ok(Zeroizing::new(phrase.to_owned()))
+    Ok(Secret::new(phrase, ""))
 }
 
 pub fn load(path: &Path) -> Result<Option<VaultFile>, VaultError> {
@@ -248,6 +345,10 @@ mod tests {
     };
     const PHRASE: &str = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
 
+    fn secret() -> Secret {
+        Secret::new(PHRASE, "")
+    }
+
     fn meta() -> VaultMeta {
         VaultMeta {
             network: "testnet".into(),
@@ -260,14 +361,17 @@ mod tests {
 
     #[test]
     fn round_trip() {
-        let file = seal(PHRASE, "correct horse", meta(), FAST).unwrap();
-        assert_eq!(open(&file, "correct horse").unwrap().as_str(), PHRASE);
+        let file = seal(&secret(), "correct horse", meta(), FAST).unwrap();
+        assert_eq!(
+            open(&file, "correct horse").unwrap().phrase.as_str(),
+            PHRASE
+        );
         assert!(!file.ciphertext.contains("abandon"));
     }
 
     #[test]
     fn wrong_password_fails() {
-        let file = seal(PHRASE, "correct horse", meta(), FAST).unwrap();
+        let file = seal(&secret(), "correct horse", meta(), FAST).unwrap();
         assert_eq!(
             open(&file, "battery staple"),
             Err(VaultError::WrongPassword)
@@ -276,17 +380,17 @@ mod tests {
 
     #[test]
     fn edited_metadata_fails() {
-        let mut file = seal(PHRASE, "pw", meta(), FAST).unwrap();
+        let mut file = seal(&secret(), "pw", meta(), FAST).unwrap();
         file.meta.birth_height = 0;
         assert_eq!(open(&file, "pw"), Err(VaultError::WrongPassword));
-        let mut file = seal(PHRASE, "pw", meta(), FAST).unwrap();
+        let mut file = seal(&secret(), "pw", meta(), FAST).unwrap();
         file.meta.network = "mainnet".into();
         assert_eq!(open(&file, "pw"), Err(VaultError::WrongPassword));
     }
 
     #[test]
     fn tampered_ciphertext_fails() {
-        let mut file = seal(PHRASE, "pw", meta(), FAST).unwrap();
+        let mut file = seal(&secret(), "pw", meta(), FAST).unwrap();
         let flipped = if file.ciphertext.starts_with('0') {
             "1"
         } else {
@@ -298,8 +402,8 @@ mod tests {
 
     #[test]
     fn fresh_salt_and_nonce_every_time() {
-        let a = seal(PHRASE, "pw", meta(), FAST).unwrap();
-        let b = seal(PHRASE, "pw", meta(), FAST).unwrap();
+        let a = seal(&secret(), "pw", meta(), FAST).unwrap();
+        let b = seal(&secret(), "pw", meta(), FAST).unwrap();
         assert_ne!(a.salt, b.salt);
         assert_ne!(a.nonce, b.nonce);
         assert_ne!(a.ciphertext, b.ciphertext);
@@ -307,10 +411,10 @@ mod tests {
 
     #[test]
     fn a_changed_file_is_refused_not_obeyed() {
-        let mut file = seal(PHRASE, "pw", meta(), FAST).unwrap();
+        let mut file = seal(&secret(), "pw", meta(), FAST).unwrap();
         file.kdf.memory_kib = u32::MAX;
         assert_eq!(open(&file, "pw"), Err(VaultError::Corrupt));
-        let mut file = seal(PHRASE, "pw", meta(), FAST).unwrap();
+        let mut file = seal(&secret(), "pw", meta(), FAST).unwrap();
         file.salt = "ω".repeat(16);
         assert_eq!(open(&file, "pw"), Err(VaultError::Corrupt));
         assert!(KdfParams::default().within_limits());
@@ -318,8 +422,8 @@ mod tests {
 
     #[test]
     fn unknown_format_is_refused() {
-        let mut file = seal(PHRASE, "pw", meta(), FAST).unwrap();
-        file.format = "evolite/vault/v2".into();
+        let mut file = seal(&secret(), "pw", meta(), FAST).unwrap();
+        file.format = "evolite/vault/v3".into();
         assert_eq!(open(&file, "pw"), Err(VaultError::Unsupported));
     }
 
@@ -328,7 +432,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("evolite-vault-test-{}", std::process::id()));
         let path = dir.join("wallet.json");
         assert_eq!(load(&path).unwrap(), None);
-        let file = seal(PHRASE, "pw", meta(), FAST).unwrap();
+        let file = seal(&secret(), "pw", meta(), FAST).unwrap();
         save(&path, &file).unwrap();
         assert_eq!(load(&path).unwrap(), Some(file.clone()));
         let text = fs::read_to_string(&path).unwrap();
@@ -340,13 +444,149 @@ mod tests {
         fs::remove_dir_all(dir).unwrap();
     }
 
+    /// A file as the builds before FEAT-0041 wrote it: the phrase alone, format v1.
+    fn seal_v1(phrase: &str, password: &str) -> VaultFile {
+        let salt: [u8; 16] = random();
+        let nonce: [u8; 12] = random();
+        let key = derive_key(password, &salt, FAST).unwrap();
+        let cipher = Aes256Gcm::new_from_slice(key.as_ref()).unwrap();
+        let ciphertext = cipher
+            .encrypt(
+                Nonce::from_slice(&nonce),
+                Payload {
+                    msg: phrase.as_bytes(),
+                    aad: &associated_data(FORMAT_V1, &meta()),
+                },
+            )
+            .unwrap();
+        VaultFile {
+            format: FORMAT_V1.to_owned(),
+            meta: meta(),
+            kdf: FAST,
+            salt: hex(&salt),
+            nonce: hex(&nonce),
+            ciphertext: hex(&ciphertext),
+        }
+    }
+
+    /// AC-A4, AC-T-P1: a v1 file opens as it is, with no passphrase; resealed, it is v2.
+    #[test]
+    fn a_v1_file_opens_and_is_resealed_as_v2() {
+        let old = seal_v1(PHRASE, "pw");
+        let opened = open(&old, "pw").unwrap();
+        assert_eq!(opened, Secret::new(PHRASE, ""));
+        assert_eq!(open(&old, "other"), Err(VaultError::WrongPassword));
+        let new = seal(&opened, "pw", old.meta.clone(), FAST).unwrap();
+        assert_eq!(new.format, "evolite/vault/v2");
+        assert_eq!(open(&new, "pw").unwrap(), opened);
+        // The format is in the associated data: a v2 file relabelled v1 does not open.
+        let mut relabelled = new.clone();
+        relabelled.format = FORMAT_V1.into();
+        assert_eq!(open(&relabelled, "pw"), Err(VaultError::WrongPassword));
+    }
+
+    /// AC-T-P1: a build before FEAT-0041 knew only v1 and answered any other format
+    /// «unsupported» (`format != "evolite/vault/v1"`), leaving the file as it was.
+    #[test]
+    fn an_older_build_refuses_v2_and_leaves_the_file() {
+        let dir = std::env::temp_dir().join(format!("evolite-vault-v2-{}", std::process::id()));
+        let path = dir.join("wallet.json");
+        save(
+            &path,
+            &seal(&Secret::new(PHRASE, "TREZOR"), "pw", meta(), FAST).unwrap(),
+        )
+        .unwrap();
+        let before = fs::read(&path).unwrap();
+        let file = load(&path).unwrap().unwrap();
+        let old_reader = |f: &VaultFile| f.format != "evolite/vault/v1";
+        assert!(
+            old_reader(&file),
+            "an old build says «unsupported vault format»"
+        );
+        assert_eq!(fs::read(&path).unwrap(), before);
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// FEAT-0041: the passphrase is sealed with the phrase and comes back as it was.
+    #[test]
+    fn the_passphrase_comes_back() {
+        for passphrase in ["", "TREZOR", " abc", "пароль", "㍿😀"] {
+            let secret = Secret::new(PHRASE, passphrase);
+            let file = seal(&secret, "pw", meta(), FAST).unwrap();
+            assert_eq!(open(&file, "pw").unwrap(), secret);
+        }
+    }
+
+    /// R-15, AC-A13, AC-A15: files with no passphrase, a short one and the longest one, the
+    /// longest phrase among them, are one length and one look outside: nothing tells a
+    /// passphrase.
+    #[test]
+    fn every_v2_file_is_one_length() {
+        let longest_phrase = "あ".repeat(PHRASE_BYTES / 3);
+        assert_eq!(longest_phrase.len(), 1023);
+        let files: Vec<VaultFile> = [
+            Secret::new(PHRASE, ""),
+            Secret::new(PHRASE, "TREZOR"),
+            Secret::new(PHRASE, &"a".repeat(PASSPHRASE_BYTES)),
+            Secret::new(&longest_phrase, &"a".repeat(PASSPHRASE_BYTES)),
+            Secret::new(&longest_phrase, ""),
+        ]
+        .iter()
+        .map(|s| seal(s, "pw", meta(), FAST).unwrap())
+        .collect();
+        for file in &files {
+            assert_eq!(file.ciphertext.len(), (CONTENT + 16) * 2);
+            assert_eq!(file.format, files[0].format);
+            assert_eq!(file.meta, files[0].meta);
+        }
+        let text = serde_json::to_string(&files[1]).unwrap();
+        assert!(!text.to_lowercase().contains("passphrase"));
+    }
+
+    /// R-10: a passphrase over 256 bytes is refused before anything is written, not cut; so is
+    /// a phrase over its room.
+    #[test]
+    fn too_long_is_refused_not_cut() {
+        let over = Secret::new(PHRASE, &"a".repeat(PASSPHRASE_BYTES + 1));
+        assert_eq!(seal(&over, "pw", meta(), FAST), Err(VaultError::TooLong));
+        let over = Secret::new(&"a".repeat(PHRASE_BYTES + 1), "");
+        assert_eq!(seal(&over, "pw", meta(), FAST), Err(VaultError::TooLong));
+        // Counted in bytes: 64 four-byte characters fit, 65 do not.
+        assert!(seal(&Secret::new(PHRASE, &"😀".repeat(64)), "pw", meta(), FAST).is_ok());
+        let over = Secret::new(PHRASE, &"😀".repeat(65));
+        assert_eq!(seal(&over, "pw", meta(), FAST), Err(VaultError::TooLong));
+    }
+
+    /// Content that is not what v2 writes (lengths past the room, bytes after the padding's
+    /// start) is damaged, not read.
+    #[test]
+    fn odd_content_is_corrupt() {
+        let mut plain = content(&secret()).unwrap();
+        assert_eq!(parse(&plain).unwrap(), secret());
+        plain[CONTENT - 1] = 1;
+        assert_eq!(parse(&plain), Err(VaultError::Corrupt));
+        let mut plain = content(&secret()).unwrap();
+        plain[3] = 0xff;
+        plain[4] = 0xff;
+        assert_eq!(parse(&plain), Err(VaultError::Corrupt));
+        assert_eq!(parse(&plain[..CONTENT - 1]), Err(VaultError::Corrupt));
+    }
+
+    #[test]
+    fn debug_shows_nothing() {
+        assert_eq!(
+            format!("{:?}", Secret::new(PHRASE, "TREZOR")),
+            "Secret(hidden)"
+        );
+    }
+
     #[cfg(unix)]
     #[test]
     fn only_the_owner_reads_the_vault() {
         use std::os::unix::fs::PermissionsExt;
         let dir = std::env::temp_dir().join(format!("evolite-vault-mode-{}", std::process::id()));
         let path = dir.join("wallet.json");
-        save(&path, &seal(PHRASE, "pw", meta(), FAST).unwrap()).unwrap();
+        save(&path, &seal(&secret(), "pw", meta(), FAST).unwrap()).unwrap();
         let mode = |p: &Path| fs::metadata(p).unwrap().permissions().mode() & 0o777;
         assert_eq!(mode(&path), 0o600);
         assert_eq!(mode(&dir), 0o700);

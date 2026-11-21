@@ -191,6 +191,7 @@ async fn a_contact_is_paid_only_to_the_address_shown() {
         meta,
         keys: None,
         seed: None,
+        passphrase: false,
     });
     // An address is its own preview.
     let address = "yMrDQWqicXKL8xdJg23oYVVqKNtm5AwvXQ";

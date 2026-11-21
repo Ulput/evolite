@@ -132,7 +132,7 @@ impl Real {
     pub(in crate::real) async fn open_vault(
         &self,
         password: &Password,
-    ) -> Result<(vault::VaultFile, Zeroizing<String>), CoreError> {
+    ) -> Result<(vault::VaultFile, vault::Secret), CoreError> {
         open_vault_at(&self.paths.vault, password).await
     }
 
@@ -142,7 +142,7 @@ impl Real {
         &self,
         id: &str,
         password: &Password,
-    ) -> Result<(vault::VaultFile, Zeroizing<String>), CoreError> {
+    ) -> Result<(vault::VaultFile, vault::Secret), CoreError> {
         if self.index.get(id).is_none() {
             return Err(CoreError::NotAvailable(
                 tr!("There is no such wallet").into(),
@@ -168,10 +168,11 @@ impl Real {
         }
         too_short(new)?;
         // The old password is counted as the unlock's (BUG-203 r1 Must 1).
-        let (file, phrase) = self.open_vault_counted(old).await?;
+        let (file, secret) = self.open_vault_counted(old).await?;
         let new = Zeroizing::new(new.expose().to_owned());
+        // FEAT-0041 R-15: written as v2, a v1 file too.
         let sealed = tokio::task::spawn_blocking(move || {
-            vault::seal(&phrase, &new, file.meta, KdfParams::default())
+            vault::seal(&secret, &new, file.meta, KdfParams::default())
         })
         .await
         .map_err(|_| CoreError::NotAvailable(tr!("The vault was not written").into()))?
@@ -388,7 +389,7 @@ impl Real {
     pub(in crate::real) async fn open_vault_counted(
         &mut self,
         password: &Password,
-    ) -> Result<(vault::VaultFile, Zeroizing<String>), CoreError> {
+    ) -> Result<(vault::VaultFile, vault::Secret), CoreError> {
         let id = self.wallet.clone();
         let before = self.attempts.begin(&id, wall_secs()).map_err(too_many)?;
         let result = self.open_vault(password).await;
@@ -404,7 +405,7 @@ impl Real {
         &mut self,
         id: &str,
         password: &Password,
-    ) -> Result<(vault::VaultFile, Zeroizing<String>), CoreError> {
+    ) -> Result<(vault::VaultFile, vault::Secret), CoreError> {
         let before = self.attempts.begin(id, wall_secs()).map_err(too_many)?;
         let result = self.open_wallet_vault(id, password).await;
         self.attempts.record(id, before, counted(&result));
@@ -413,8 +414,8 @@ impl Real {
 
     /// Opens the vault and restarts sync with the wallet's keys.
     pub(in crate::real) async fn unlock(&mut self, password: &Password) -> Result<(), CoreError> {
-        let (file, phrase) = self.open_vault(password).await?;
-        self.unlock_opened(file, phrase).await
+        let (file, secret) = self.open_vault(password).await?;
+        self.unlock_opened(file, secret).await
     }
 
     /// Unlocks with a vault already opened by its password (one Argon2 per switch, F2). The
@@ -423,7 +424,7 @@ impl Real {
     pub(in crate::real) async fn unlock_opened(
         &mut self,
         file: vault::VaultFile,
-        phrase: Zeroizing<String>,
+        secret: vault::Secret,
     ) -> Result<(), CoreError> {
         let meta = file.meta;
         if meta.network != network() {
@@ -437,13 +438,16 @@ impl Real {
             return Err(CoreError::NotAvailable(LEFTOVERS.into()));
         }
         self.last_touch = tokio::time::Instant::now();
-        let keys = keys_of(&phrase)?;
+        // FEAT-0041 R-4: the keys, the id and the notes' key from the one seed.
+        let seed = seed_of(&secret)?;
+        let passphrase = !secret.passphrase.is_empty();
+        drop(secret);
+        let keys = keys_from(seed_bytes(&seed))?;
         // The id platform-wallet gives the wallet: from the same root key.
         // Р1 (review r1): the update check may ask from now on, not at a bare start.
         self.wallet_opened
             .store(true, std::sync::atomic::Ordering::Relaxed);
         let id = keys.compute_wallet_id();
-        let seed = seed_of(&phrase)?;
         self.open_notes(seed_bytes(&seed), &meta.wallet_id).await;
         // SYNC-0: the sync-speed lines count from here.
         crate::diag::unlocked();
@@ -453,9 +457,10 @@ impl Real {
             id,
             meta,
             keys: Some(keys),
-            seed: Some(seed),
+            seed: Some(seed.clone()),
+            passphrase,
         });
-        self.attach = Some(LockedPhrase::new(&phrase).ok_or(CoreError::BadPhrase)?);
+        self.attach = Some(seed);
         self.attach_failed = None;
         if let Err(e) = self.attach_wallet().await {
             // The chain runs and refused the wallet: as before, it stays locked.
@@ -477,8 +482,24 @@ impl Real {
 
     /// Seals the pending phrase with the password, saves the vault, starts the wallet's sync.
     /// A restored wallet is scanned from the start (its age is unknown); a new one from the tip.
+    /// BUG-252, FEAT-0041 r1: whether «Features for advanced users» may be on now — the wallet
+    /// unlocked, no wallet on this computer yet (the first onboarding: nothing is locked), or a
+    /// wallet being added from an open one. Locked wallets, or adding from their choice, keep it
+    /// off.
+    pub(in crate::real) fn advanced_allowed(&self) -> bool {
+        self.unlocked.is_some()
+            || self.index.wallets.is_empty()
+            || (self.adding_from.is_some() && self.adding_open)
+    }
+
     /// The phrase stays pending until the vault is written, so a failure can be retried.
-    pub(in crate::real) async fn create(&mut self, password: &Password) -> Result<(), CoreError> {
+    /// `passphrase`: a new phrase's BIP-39 passphrase (FEAT-0041 R-2), only with the advanced
+    /// features on — hidden is off, not only out of sight.
+    pub(in crate::real) async fn create(
+        &mut self,
+        password: &Password,
+        passphrase: Option<&passphrase::Passphrase>,
+    ) -> Result<(), CoreError> {
         if password.expose().is_empty() {
             return Err(CoreError::WrongPassword);
         }
@@ -488,7 +509,20 @@ impl Real {
                 tr!("There is already a wallet on this computer").into(),
             ));
         }
-        let (phrase, restored) = self.pending.clone().ok_or(CoreError::BadPhrase)?;
+        let (mut secret, restored) = self.pending.clone().ok_or(CoreError::BadPhrase)?;
+        if let Some(passphrase) = passphrase.filter(|p| !p.is_empty()) {
+            if restored {
+                // A restored phrase brought its own with `UsePhrase`, checked there (r1 Could 2:
+                // said as what it is, not «a bad phrase»).
+                return Err(CoreError::NotAvailable(
+                    tr!("A restored phrase brings its BIP-39 passphrase with its words").into(),
+                ));
+            }
+            if !self.advanced_features {
+                return Err(CoreError::NotAvailable(evolite_common::ADVANCED_OFF.into()));
+            }
+            secret.passphrase = checked_passphrase(passphrase)?;
+        }
         // A new wallet is born at the tip of the headers: this chain's, or the one the wallet
         // before saw ("Add a wallet"). The chain may still be starting (the onboarding no
         // longer waits for it, F3); with neither known, its start is waited for — without
@@ -529,20 +563,21 @@ impl Real {
         if self.leftovers {
             return Err(CoreError::NotAvailable(LEFTOVERS.into()));
         }
-        let keys = keys_of(&phrase)?;
+        let seed = seed_of(&secret)?;
+        let passphrase = !secret.passphrase.is_empty();
+        let keys = keys_from(seed_bytes(&seed))?;
         let meta = VaultMeta {
             network: network().into(),
             wallet_id: hex(&keys.compute_wallet_id()),
             birth_height,
-            word_count: phrase.split_whitespace().count() as u8,
+            word_count: secret.phrase.split_whitespace().count() as u8,
             created_at: now() as u64,
         };
         let password = Zeroizing::new(password.expose().to_owned());
         let file = {
-            let phrase = phrase.clone();
             let meta = meta.clone();
             tokio::task::spawn_blocking(move || {
-                vault::seal(&phrase, &password, meta, KdfParams::default())
+                vault::seal(&secret, &password, meta, KdfParams::default())
             })
             .await
             .map_err(|_| CoreError::NotAvailable(tr!("The vault was not written").into()))?
@@ -570,7 +605,6 @@ impl Real {
             self.start_after(parked, false);
         }
         let id = keys.compute_wallet_id();
-        let seed = seed_of(&phrase)?;
         self.open_notes(seed_bytes(&seed), &meta.wallet_id).await;
         // SYNC-0: the sync-speed lines count from here.
         crate::diag::unlocked();
@@ -580,9 +614,10 @@ impl Real {
             id,
             meta,
             keys: Some(keys),
-            seed: Some(seed),
+            seed: Some(seed.clone()),
+            passphrase,
         });
-        self.attach = Some(LockedPhrase::new(&phrase).ok_or(CoreError::BadPhrase)?);
+        self.attach = Some(seed);
         self.attach_failed = None;
         if let Err(e) = self.attach_wallet().await {
             // The vault is "Locked" now: the interface goes to the unlock screen.
@@ -685,7 +720,7 @@ impl Real {
                 Ok(mnemonic) => {
                     let phrase = Zeroizing::new(mnemonic.phrase());
                     let words = phrase.split_whitespace().map(str::to_owned).collect();
-                    self.pending = Some((phrase, false));
+                    self.pending = Some((vault::Secret::new(&phrase, ""), false));
                     self.pending_origin = wallets::Origin::Created;
                     Event::NewPhrase(Phrase::new(words))
                 }
@@ -699,7 +734,8 @@ impl Real {
         (Some(event), true)
     }
 
-    /// Takes a phrase to restore from; with `dashpay`, reads what it has on Platform first.
+    /// Takes a phrase to restore from, with its BIP-39 passphrase (FEAT-0041 R-1: always offered,
+    /// the switch or not); with `dashpay`, reads what it has on Platform first.
     pub(in crate::real) async fn use_phrase(
         &mut self,
         phrase: Phrase,
@@ -707,12 +743,18 @@ impl Real {
     ) -> (Option<Event>, bool) {
         let event = {
             let text = Zeroizing::new(phrase.words().join(" "));
+            let passphrase = checked_passphrase(phrase.passphrase());
             if !Mnemonic::validate(&text) {
                 Event::PhraseAccepted(Err(CoreError::BadPhrase))
-            } else if let Some(name) = self.same_wallet(&text) {
+            } else if let Err(e) = passphrase {
+                Event::PhraseAccepted(Err(e))
+            } else if let Some(name) = self.same_wallet(&vault::Secret {
+                phrase: text.clone(),
+                passphrase: passphrase.clone().unwrap_or_default(),
+            }) {
                 // One phrase, one wallet on this computer.
                 Event::PhraseAccepted(Err(CoreError::NotAvailable(if name.is_empty() {
-                    tr!("This wallet is already on this computer").into()
+                    evolite_common::SAME_WALLET.into()
                 } else {
                     format!(
                         tr!("This wallet is already on this computer — “{name}”"),
@@ -720,15 +762,23 @@ impl Real {
                     )
                 })))
             } else if !dashpay {
-                self.pending = Some((text, true));
+                let secret = vault::Secret {
+                    phrase: text,
+                    passphrase: passphrase.unwrap_or_default(),
+                };
+                self.pending = Some((secret, true));
                 self.pending_origin = wallets::Origin::Restored;
                 Event::PhraseAccepted(Ok(None))
             } else {
                 self.pending_origin = wallets::Origin::DashPay;
                 // Import from DashPay: what the phrase has on Platform is read now,
                 // before the wallet is made, for O5. Its keys are dropped after the scan.
-                let keys = keys_of(&text);
-                self.pending = Some((text, true));
+                let secret = vault::Secret {
+                    phrase: text,
+                    passphrase: passphrase.unwrap_or_default(),
+                };
+                let keys = seed_of(&secret).and_then(|seed| keys_from(seed_bytes(&seed)));
+                self.pending = Some((secret, true));
                 let chain = self.network_chain().clone();
                 self.answer_later("task:use_phrase", async move {
                     let found = match keys {
@@ -837,17 +887,30 @@ pub(in crate::real) fn os_dice(n: usize) -> usize {
 async fn open_vault_at(
     path: &std::path::Path,
     password: &Password,
-) -> Result<(vault::VaultFile, Zeroizing<String>), CoreError> {
+) -> Result<(vault::VaultFile, vault::Secret), CoreError> {
     let file = vault::load(path)
         .map_err(vault_error)?
         .ok_or(CoreError::NotAvailable(NO_VAULT.into()))?;
     let opened = file.clone();
     let password = Zeroizing::new(password.expose().to_owned());
-    let phrase = tokio::task::spawn_blocking(move || vault::open(&opened, &password))
+    let secret = tokio::task::spawn_blocking(move || vault::open(&opened, &password))
         .await
         .map_err(|_| CoreError::NotAvailable(tr!("The vault did not open").into()))?
         .map_err(vault_error)?;
-    Ok((file, phrase))
+    Ok((file, secret))
+}
+
+/// FEAT-0041 R-8, R-10: a BIP-39 passphrase as BIP-39 salts it (NFKD), or refused when it is
+/// longer than 256 bytes so — never cut: a cut one is another, empty wallet.
+pub(in crate::real) fn checked_passphrase(
+    passphrase: &passphrase::Passphrase,
+) -> Result<Zeroizing<String>, CoreError> {
+    if !passphrase::fits(passphrase.expose()) {
+        return Err(CoreError::NotAvailable(
+            evolite_common::PASSPHRASE_TOO_LONG.into(),
+        ));
+    }
+    Ok(passphrase::normalized(passphrase.expose()))
 }
 
 /// The answer to what needs an open wallet when it is locked.
