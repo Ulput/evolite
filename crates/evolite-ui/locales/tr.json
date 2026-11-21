@@ -2165,7 +2165,6 @@
   "as read at {}": "{} okumasına göre",
   "fee {}": "ücret {}",
   "Spent: checking… of {} · until {}": "Harcanan: kontrol ediliyor… / {} · {} tarihine kadar",
-  "Mainnet · beta": "Mainnet · beta",
   "evolite did not start on {}. You are still on {}. Try switching again; if it fails again, close evolite and open it again.": "evolite {} üzerinde başlamadı. Hâlâ {} üzerindesiniz. Yeniden geçmeyi deneyin; yine olmazsa evolite'i kapatıp yeniden açın.",
   "Could not switch to {}": "{} ağına geçilemedi",
   "Network nodes": "Ağ düğümleri",

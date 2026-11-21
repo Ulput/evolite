@@ -2139,7 +2139,6 @@
   "as read at {}": "{} 時点の読み取り",
   "fee {}": "手数料 {}",
   "Spent: checking… of {} · until {}": "使用：確認中… {} のうち · {} まで",
-  "Mainnet · beta": "Mainnet · ベータ",
   "evolite did not start on {}. You are still on {}. Try switching again; if it fails again, close evolite and open it again.": "evolite は {} で起動できませんでした。{} のままです。もう一度切り替えてください。それでもだめなら evolite を閉じて開き直してください。",
   "Could not switch to {}": "{} に切り替えられませんでした",
   "Network nodes": "ネットワークノード",

@@ -2217,7 +2217,6 @@
   "as read at {}": "за даними на {}",
   "fee {}": "комісія {}",
   "Spent: checking… of {} · until {}": "Витрачено: перевіряємо… з {} · до {}",
-  "Mainnet · beta": "Mainnet · бета",
   "evolite did not start on {}. You are still on {}. Try switching again; if it fails again, close evolite and open it again.": "evolite не запустився в {}. Ви залишилися в {}. Спробуйте змінити мережу ще раз; якщо не вийде — закрийте evolite і відкрийте знову.",
   "Could not switch to {}": "Не вдалося перейти в {}",
   "Network nodes": "Вузли мережі",

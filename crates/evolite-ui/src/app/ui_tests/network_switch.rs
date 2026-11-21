@@ -277,44 +277,62 @@ fn no_test_build_is_said() {
     }
 }
 
-/// FEAT-0037 N3 (the designer's review): the rail on mainnet shows the network too — a globe
-/// named «Mainnet · beta» over Settings, under the sync card, not over it. Testnet's rail has none.
+/// BUG-263 (the customer): the rail on mainnet has no network mark — the band at the top says
+/// it; a red globe said nothing more and looked like an alarm. The sync card sits right above
+/// Settings, as on testnet.
 #[test]
-fn the_rail_on_mainnet_shows_the_network() {
+fn the_rail_on_mainnet_has_no_network_mark() {
     let (_turn, mut kit) = demo_app("overview", "en");
     kit.set_size(egui::vec2(1024.0, 768.0));
-    let beta = |k: &Kit| {
-        k.query_all_by(|n| {
+    kit.run_steps(2);
+    on_network(&mut kit, evolite_api::Network::Mainnet, |k| {
+        k.state()
+            .snapshot
+            .as_ref()
+            .is_some_and(|s| s.network == evolite_api::Network::Mainnet)
+    });
+    kit.run_steps(3);
+    assert!(
+        kit.query_all_by(|n| {
             n.label().as_deref() == Some("Mainnet · beta")
                 || n.value().as_deref() == Some("Mainnet · beta")
         })
         .next()
-        .map(|n| n.rect())
-    };
-    kit.run_steps(2);
-    assert!(beta(&kit).is_none(), "testnet: no mark");
-    on_network(&mut kit, evolite_api::Network::Mainnet, |k| {
-        beta(k).is_some()
-    });
-    let mark = beta(&kit).expect("the mark");
+        .is_none(),
+        "no mark on the rail"
+    );
     let settings = kit
         .query_all_by(|n| n.label().as_deref() == Some("Settings"))
         .next()
         .expect("Settings")
         .rect();
-    assert!(
-        mark.bottom() <= settings.top(),
-        "{mark:?} over Settings {settings:?}"
-    );
     let card = kit
         .query_all_by_role(egui::accesskit::Role::Status)
         .next()
         .expect("the sync card")
         .rect();
     assert!(
-        card.bottom() <= mark.top(),
-        "the card {card:?} above the mark {mark:?}"
+        card.bottom() <= settings.top(),
+        "the card {card:?} above Settings {settings:?}"
     );
+}
+
+/// BUG-264 (the customer): the medium screen's menu (the rail, narrower than 1280) has no logo
+/// at the top — the sync card's mark is its only one, the switcher high up; the large screen's
+/// wide menu keeps its horizontal logo.
+#[test]
+fn only_the_wide_menu_has_a_logo_at_the_top() {
+    let top_logo = |k: &Kit| {
+        k.ctx
+            .data(|d| d.get_temp::<bool>(egui::Id::new("evolite-menu-top-logo")))
+    };
+    let (_turn, mut kit) = demo_app("overview", "en");
+    kit.set_size(egui::vec2(1024.0, 768.0));
+    kit.run_steps(3);
+    assert_eq!(top_logo(&kit), Some(false), "the rail: none at the top");
+    kit.set_size(egui::vec2(1440.0, 900.0));
+    kit.run_steps(3);
+    assert_eq!(top_logo(&kit), Some(true), "the wide menu keeps it");
 }
 
 /// Review r1, Should 1 and P3 2: the run a switch starts ends at its start (a driver, the other

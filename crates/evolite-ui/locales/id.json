@@ -2139,7 +2139,6 @@
   "as read at {}": "menurut pembacaan {}",
   "fee {}": "biaya {}",
   "Spent: checking… of {} · until {}": "Terpakai: memeriksa… dari {} · sampai {}",
-  "Mainnet · beta": "Mainnet · beta",
   "evolite did not start on {}. You are still on {}. Try switching again; if it fails again, close evolite and open it again.": "evolite tidak berjalan di {}. Anda tetap di {}. Coba beralih lagi; jika gagal lagi, tutup evolite lalu buka kembali.",
   "Could not switch to {}": "Tidak bisa beralih ke {}",
   "Network nodes": "Node jaringan",

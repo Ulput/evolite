@@ -121,7 +121,6 @@ impl Icons {
                     r#"<g transform="translate(22.5 -16.875) scale(1.125)">{mark}</g><g transform="translate(0 44.37) scale(0.75)">{word}</g>"#
                 ),
             ),
-            Logo::Mark => (64.0, 64.0, mark.clone()),
         };
         let (uri, bytes) = self.bytes(format!("logo-{kind:?}-{ink}-{accent}"), || {
             format!(
@@ -186,5 +185,4 @@ impl Icons {
 pub enum Logo {
     Horizontal,
     Stacked,
-    Mark,
 }

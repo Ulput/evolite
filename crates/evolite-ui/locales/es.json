@@ -2191,7 +2191,6 @@
   "as read at {}": "según la consulta de las {}",
   "fee {}": "comisión {}",
   "Spent: checking… of {} · until {}": "Gastado: comprobando… de {} · hasta {}",
-  "Mainnet · beta": "Mainnet · beta",
   "evolite did not start on {}. You are still on {}. Try switching again; if it fails again, close evolite and open it again.": "evolite no se inició en {}. Sigue en {}. Intente cambiar de nuevo; si vuelve a fallar, cierre evolite y ábralo otra vez.",
   "Could not switch to {}": "No se pudo cambiar a {}",
   "Network nodes": "Nodos de la red",

@@ -2191,7 +2191,6 @@
   "as read at {}": "selon la lecture de {}",
   "fee {}": "frais {}",
   "Spent: checking… of {} · until {}": "Dépensé : vérification… sur {} · jusqu’au {}",
-  "Mainnet · beta": "Mainnet · bêta",
   "evolite did not start on {}. You are still on {}. Try switching again; if it fails again, close evolite and open it again.": "evolite n’a pas démarré sur {}. Vous êtes toujours sur {}. Réessayez de changer ; si cela échoue encore, fermez evolite et rouvrez-le.",
   "Could not switch to {}": "Impossible de passer sur {}",
   "Network nodes": "Nœuds du réseau",

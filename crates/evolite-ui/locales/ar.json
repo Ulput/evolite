@@ -2269,7 +2269,6 @@
   "as read at {}": "وفق القراءة في {}",
   "fee {}": "الرسوم {}",
   "Spent: checking… of {} · until {}": "أُنفق: جارٍ التحقق… من {} · حتى {}",
-  "Mainnet · beta": "Mainnet · بيتا",
   "evolite did not start on {}. You are still on {}. Try switching again; if it fails again, close evolite and open it again.": "لم يبدأ evolite على {}. ما زلت على {}. حاول التبديل مرة أخرى؛ وإن لم ينجح، أغلق evolite وافتحه من جديد.",
   "Could not switch to {}": "تعذّر الانتقال إلى {}",
   "Network nodes": "عُقد الشبكة",

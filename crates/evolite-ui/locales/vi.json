@@ -2139,7 +2139,6 @@
   "as read at {}": "theo lần đọc lúc {}",
   "fee {}": "phí {}",
   "Spent: checking… of {} · until {}": "Đã chi: đang kiểm tra… trên {} · đến {}",
-  "Mainnet · beta": "Mainnet · beta",
   "evolite did not start on {}. You are still on {}. Try switching again; if it fails again, close evolite and open it again.": "evolite không khởi động được trên {}. Bạn vẫn ở {}. Hãy thử chuyển lại; nếu vẫn không được, hãy đóng evolite rồi mở lại.",
   "Could not switch to {}": "Không chuyển được sang {}",
   "Network nodes": "Nút mạng",

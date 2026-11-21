@@ -2139,7 +2139,6 @@
   "as read at {}": "截至读取时间 {}",
   "fee {}": "手续费 {}",
   "Spent: checking… of {} · until {}": "已花费：正在检查… / {} · 至 {}",
-  "Mainnet · beta": "Mainnet · 测试版",
   "evolite did not start on {}. You are still on {}. Try switching again; if it fails again, close evolite and open it again.": "evolite 未能在 {} 上启动。您仍在 {} 上。请再试一次切换；如果仍然失败，请关闭 evolite 后重新打开。",
   "Could not switch to {}": "无法切换到 {}",
   "Network nodes": "网络节点",

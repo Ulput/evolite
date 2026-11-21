@@ -91,29 +91,28 @@ pub fn sidebar(
     // The panel's 1 px border, above and below, is not in `area` (`app.rs`, the sidebar's
     // frame): with it, the menu in a window 640 px high is 640.
     let compact = low(area.height() + 2.0 * PANEL_BORDER);
-    if compact {
-        // FEAT-0036: no logo at the top (the mark stays in the sync card, BUG-75); the switcher
-        // 20 px from the top.
+    // FEAT-0036: no logo at the top in a low window; BUG-264 (the customer): none on the rail
+    // either — the mark stays in the sync card (BUG-75). The switcher 20 px from the top.
+    let bare = compact || rail;
+    #[cfg(test)]
+    ui.ctx()
+        .data_mut(|d| d.insert_temp(egui::Id::new("evolite-menu-top-logo"), !bare));
+    if bare {
         ui.add_space(20.0);
     } else {
         ui.add_space(24.0);
         ui.horizontal(|ui| {
-            if rail {
-                ui.add_space((ui.available_width() - 36.0) / 2.0);
-                ui.add(a.icons.logo(Logo::Mark, &p, 36.0));
-            } else {
-                ui.add_space(8.0);
-                ui.add(a.icons.logo(Logo::Horizontal, &p, 35.0));
-            }
+            ui.add_space(8.0);
+            ui.add(a.icons.logo(Logo::Horizontal, &p, 35.0));
         });
     }
     if snap.wallets.iter().any(|w| w.open) {
         // Figma 26: the switcher 87 px from the top, the items 4 px under it.
-        if !compact {
-            ui.add_space(if rail { 20.0 } else { 24.0 });
+        if !bare {
+            ui.add_space(24.0);
         }
         super::wallets::switcher(ui, a, cx, rail, menu);
-    } else if !compact {
+    } else if !bare {
         ui.add_space(24.0);
     }
     // Footer pinned to the bottom: the sync card (64 px, the rail's 52; 44 in a low window,
@@ -130,19 +129,12 @@ pub fn sidebar(
         egui::pos2(area.left(), area.bottom() - 60.0),
         egui::pos2(area.right(), area.bottom() - 20.0),
     );
-    // FEAT-0037 N3: the rail on mainnet has the network too, over Settings: a globe in a
-    // `danger` frame, 40 px and 8 above it (the wide menu has the chip beside Settings).
-    let rail_mainnet = rail && network == evolite_api::Network::Mainnet;
-    let net = rail_mainnet.then(|| {
-        egui::Rect::from_center_size(
-            egui::pos2(footer.right() - 20.0, footer.top() - 8.0 - 20.0),
-            vec2(40.0, 40.0),
-        )
-    });
-    let above = net.map_or(footer.top(), |r| r.top());
+    // BUG-263 (the customer): the rail has no network mark on mainnet any more — it said
+    // nothing the band at the top does not, and looked like an alarm. The sync card sits above
+    // the footer again.
     let sync = egui::Rect::from_min_max(
-        egui::pos2(area.left(), above - 12.0 - sync_h),
-        egui::pos2(area.right(), above - 12.0),
+        egui::pos2(area.left(), footer.top() - 12.0 - sync_h),
+        egui::pos2(area.right(), footer.top() - 12.0),
     );
     let room = (sync.top() - 12.0 - ui.cursor().top()).max(40.0);
     // What this network has (the network matrix, FEAT-0037).
@@ -248,9 +240,6 @@ pub fn sidebar(
             });
         },
     );
-    if let Some(rect) = net {
-        rail_network(ui, a, rect);
-    }
     let radius = egui::CornerRadius::same(12);
     ui.painter().rect(
         sync,
@@ -810,39 +799,6 @@ pub(crate) fn sync_bar(
     if again {
         ui.ctx()
             .request_repaint_after(std::time::Duration::from_secs_f64(1.0 / 30.0));
-    }
-}
-
-/// The rail's network on mainnet (FEAT-0037 N3): a globe in a `danger` frame, «Mainnet · beta»
-/// on hover and on keyboard focus, and for the screen reader.
-fn rail_network(ui: &mut Ui, a: &mut Assets, rect: egui::Rect) {
-    let p = a.p;
-    let words = crate::i18n::t(tr!("Mainnet · beta")).into_owned();
-    let resp = ui.interact(
-        rect,
-        ui.id().with("rail-network"),
-        egui::Sense::hover() | egui::Sense::FOCUSABLE,
-    );
-    // Its name, not only its value: a Tab stop says what it is (the Tab sweep).
-    crate::components::named(&resp, egui::WidgetType::Label, true, tr!("Mainnet · beta"));
-    let spoken = crate::i18n::spoken(tr!("Mainnet · beta"));
-    ui.ctx()
-        .accesskit_node_builder(resp.id, |node| node.set_label(spoken));
-    ui.painter().rect(
-        rect,
-        10,
-        egui::Color32::TRANSPARENT,
-        Stroke::new(1.0, p.danger),
-        egui::StrokeKind::Inside,
-    );
-    a.icons.icon("mainnet", p.danger, &p, 20.0).paint_at(
-        ui,
-        egui::Rect::from_center_size(rect.center(), vec2(20.0, 20.0)),
-    );
-    if resp.has_focus() {
-        resp.show_tooltip_text(words);
-    } else {
-        resp.on_hover_text(words);
     }
 }
 

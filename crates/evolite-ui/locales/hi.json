@@ -2165,7 +2165,6 @@
   "as read at {}": "{} की जानकारी के अनुसार",
   "fee {}": "शुल्क {}",
   "Spent: checking… of {} · until {}": "ख़र्च: जाँच हो रही है… {} में से · {} तक",
-  "Mainnet · beta": "Mainnet · बीटा",
   "evolite did not start on {}. You are still on {}. Try switching again; if it fails again, close evolite and open it again.": "evolite {} पर शुरू नहीं हुआ। आप अभी भी {} पर हैं। फिर से बदलकर देखें; फिर भी न हो तो evolite बंद करके दोबारा खोलें।",
   "Could not switch to {}": "{} पर नहीं जा सके",
   "Network nodes": "नेटवर्क नोड",

@@ -2194,7 +2194,6 @@
   "fee {}": "комиссия {}",
   "Spent: checking… of {} · until {}": "Потрачено: проверяем… из {} · до {}",
   "Token transfer to {}": "Перевод токена {}",
-  "Mainnet · beta": "Mainnet · бета",
   "evolite did not start on {}. You are still on {}. Try switching again; if it fails again, close evolite and open it again.": "evolite не запустился в {}. Вы остались в {}. Попробуйте сменить сеть ещё раз; если не выйдет — закройте evolite и откройте снова.",
   "Could not switch to {}": "Не удалось перейти в {}",
   "Network nodes": "Узлы сети",
