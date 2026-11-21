@@ -1,0 +1,736 @@
+diff --git a/dash-spv/src/sync/block_headers/manager.rs b/dash-spv/src/sync/block_headers/manager.rs
+index 2426544d..82f26690 100644
+--- a/dash-spv/src/sync/block_headers/manager.rs
++++ b/dash-spv/src/sync/block_headers/manager.rs
+@@ -15,6 +15,7 @@ use crate::chain::{ChainWork, CheckpointManager};
+ use crate::error::{SyncError, SyncResult};
+ use crate::network::RequestSender;
+ use crate::storage::{BlockHeaderStorage, BlockHeaderTip, MetadataStorage};
++use crate::sync::block_headers::pipeline::SegmentTail;
+ use crate::sync::block_headers::HeadersPipeline;
+ use crate::sync::{
+     BlockHeadersProgress, ProgressPercentage, SyncEvent, SyncManager, SyncState,
+@@ -29,6 +30,16 @@ use dashcore::pow::DGW_PAST_BLOCKS;
+ use dashcore::{BlockHash, Network};
+ use tokio::sync::RwLock;
+ 
++/// evolite (BUG-257): what received headers extend.
++enum Attach {
++    /// A stored block or a segment's tip at this height, with the headers before it.
++    At(u32, Vec<Header>),
++    /// Nothing we hold.
++    Nowhere,
++    /// A segment's tip with nothing to check them on: they are neither checked nor routed.
++    Unchecked,
++}
++
+ /// evolite (SPV item 1): the most headers a branch is held in memory for while it has
+ /// no more work than ours. Past that it is dropped and its peer disconnected.
+ pub(super) const MAX_FORK_HEADERS: usize = 2016;
+@@ -161,21 +172,83 @@ impl<H: BlockHeaderStorage, M: MetadataStorage> BlockHeadersManager<H, M> {
+         Ok(headers.iter().map(|header| *header.header()).collect())
+     }
+ 
+-    /// Height and ancestors of the block `headers` extend, a stored block or a
+-    /// segment's tip. `None` if it's neither, as then nothing follows from them.
+-    async fn attach_point(
+-        &self,
+-        headers: &[HashedBlockHeader],
+-    ) -> SyncResult<Option<(u32, Vec<Header>)>> {
++    /// What `headers` extend, with the headers their difficulty is computed from: a stored
++    /// block, a segment's tip, or nothing we hold.
++    async fn attach_point(&self, headers: &[HashedBlockHeader]) -> SyncResult<Attach> {
+         let Some(first) = headers.first() else {
+-            return Ok(None);
++            return Ok(Attach::Nowhere);
+         };
+         let parent = first.header().prev_blockhash;
+         let height = self.header_storage.read().await.get_header_height_by_hash(&parent).await?;
+-        match height {
+-            Some(height) => Ok(Some((height, self.ancestors(height).await?))),
+-            None => Ok(self.pipeline.segment_ancestors(&parent)),
++        if let Some(height) = height {
++            return Ok(Attach::At(height, self.ancestors(height).await?));
+         }
++        let Some(tail) = self.pipeline.segment_tail(&parent) else {
++            return Ok(Attach::Nowhere);
++        };
++        let height = tail.height;
++        Ok(match self.segment_window(tail, &parent).await? {
++            Some(window) => Attach::At(height, window),
++            None => Attach::Unchecked,
++        })
++    }
++
++    /// evolite (BUG-257): the window a segment's next headers are checked on (its buffered
++    /// headers, and below them the store after a drain, or the checkpoint it starts at),
++    /// only when it really ends at `parent`, each part joined to the next. `None`: the
++    /// headers between are neither buffered nor stored.
++    async fn segment_window(
++        &self,
++        tail: SegmentTail,
++        parent: &BlockHash,
++    ) -> SyncResult<Option<Vec<Header>>> {
++        let SegmentTail {
++            below,
++            recent,
++            checkpoint,
++            ..
++        } = tail;
++        // What the oldest buffered header follows; with none buffered, the batch itself.
++        let joins = recent.first().map_or(*parent, |header| header.prev_blockhash);
++        let mut window = if recent.len() >= DGW_PAST_BLOCKS {
++            Vec::new()
++        } else if let Some(last) = checkpoint.last() {
++            if last.block_hash() != joins {
++                return Ok(None);
++            }
++            checkpoint
++        } else {
++            let stored = self.header_storage.read().await.get_header(below).await?;
++            if stored.is_none_or(|header| *header.hash() != joins) {
++                return Ok(None);
++            }
++            self.ancestors(below).await?
++        };
++        window.extend(recent);
++        let ends_at_parent = window.last().map(Header::block_hash) == Some(*parent);
++        Ok(ends_at_parent.then_some(window))
++    }
++
++    /// evolite (BUG-257): headers follow a segment tip with nothing to check them on, a
++    /// drain whose headers never reached the store. Every honest peer's answer would look
++    /// invalid there, so nobody is banned: the pipeline starts again from the stored tip,
++    /// and what was lost is downloaded again.
++    async fn restart_from_store(
++        &mut self,
++        peer: SocketAddr,
++        requests: &RequestSender,
++    ) -> SyncResult<Vec<SyncEvent>> {
++        let tip = self.tip().await?;
++        tracing::warn!(
++            "Headers from {} follow a segment tip with nothing stored or buffered below it: \
++             restarting the header pipeline from the stored tip {}",
++            peer,
++            tip.height()
++        );
++        let target = self.progress.target_height().max(tip.height());
++        self.pipeline.init(tip.height(), *tip.hash(), target);
++        self.pipeline.send_pending(requests)?;
++        Ok(Vec::new())
+     }
+ 
+     /// Store an already validated headers batch.
+@@ -213,9 +286,12 @@ impl<H: BlockHeaderStorage, M: MetadataStorage> BlockHeadersManager<H, M> {
+         // evolite (SPV P0): validated against the stored block or the segment tip they extend
+         // before routing (#1304), so a fork is never detected on headers nobody checked.
+         let attached = self.attach_point(headers).await?;
+-        if let Some((height, ancestors)) = &attached {
+-            if let Err(e) =
+-                BlockHeaderValidator::new(self.network, ancestors.clone(), *height).validate(headers)
++        if matches!(attached, Attach::Unchecked) {
++            return self.restart_from_store(peer, requests).await;
++        }
++        if let Attach::At(height, ancestors) = &attached {
++            if let Err(e) = BlockHeaderValidator::new(self.network, ancestors.clone(), *height)
++                .validate(headers)
+             {
+                 // The peer that sent them is banned, as #1304 does — here an evolite
+                 // adaptation through `RequestSender` (#1304 bans through the #902 network).
+@@ -253,7 +329,7 @@ impl<H: BlockHeaderStorage, M: MetadataStorage> BlockHeadersManager<H, M> {
+             // evolite (SPV item 1б): synced, and they extend nothing we have — after a block
+             // race we may sit on a block the network left. The peer is asked with a locator,
+             // so it answers from our common ancestor, a branch `weigh_fork` can weigh.
+-            if attached.is_none() && self.state() == SyncState::Synced {
++            if matches!(attached, Attach::Nowhere) && self.state() == SyncState::Synced {
+                 self.ask_with_locator(Some(peer), requests).await?;
+             }
+             tracing::debug!(
+@@ -873,7 +949,14 @@ mod tests {
+                 banned.push(address);
+             }
+         }
+-        assert_eq!(banned, if valid { vec![] } else { vec![peer()] });
++        assert_eq!(
++            banned,
++            if valid {
++                vec![]
++            } else {
++                vec![peer()]
++            }
++        );
+         let forked = result.is_ok_and(|events| {
+             events.iter().any(|event| matches!(event, SyncEvent::ForkDetected { .. }))
+         });
+@@ -939,6 +1022,300 @@ mod tests {
+         assert_eq!(manager.tip().await.unwrap().height(), tip, "the tip stays");
+     }
+ 
++    /// BUG-257: the real testnet headers 1265950..=1266010, read from a synced store, each
++    /// one's parent the one before.
++    fn testnet_1266000() -> Vec<HashedBlockHeader> {
++        include_str!("testnet_headers_1265950.txt")
++            .lines()
++            .map(|line| {
++                let [_, hash, header] = line.split(' ').collect::<Vec<_>>()[..] else {
++                    panic!("height, hash and header");
++                };
++                let header: Header = dashcore::consensus::deserialize(
++                    &hex_conservative::decode_to_vec(header).unwrap(),
++                )
++                .unwrap();
++                let hashed = HashedBlockHeader::from(header);
++                assert_eq!(hashed.hash().to_string(), hash);
++                hashed
++            })
++            .collect()
++    }
++
++    const TESTNET_FIRST: u32 = 1_265_950;
++    const TESTNET_CHECKPOINT: u32 = 1_250_000;
++
++    /// The real testnet headers from `from` to `to`, both included.
++    fn testnet_range(chain: &[HashedBlockHeader], from: u32, to: u32) -> Vec<HashedBlockHeader> {
++        chain[(from - TESTNET_FIRST) as usize..=(to - TESTNET_FIRST) as usize].to_vec()
++    }
++
++    /// What the network was asked: bans, and the first hash of each getheaders.
++    fn bans_and_asks(
++        rx: &mut tokio::sync::mpsc::UnboundedReceiver<NetworkRequest>,
++    ) -> (Vec<SocketAddr>, Vec<BlockHash>) {
++        let (mut banned, mut asked) = (Vec::new(), Vec::new());
++        while let Ok(request) = rx.try_recv() {
++            match request {
++                NetworkRequest::BanPeer(address, _) => banned.push(address),
++                NetworkRequest::SendMessage(NetworkMessage::GetHeaders(m))
++                | NetworkRequest::SendMessageToPeer(NetworkMessage::GetHeaders(m), _) => {
++                    asked.push(m.locator_hashes[0])
++                }
++                _ => {}
++            }
++        }
++        (banned, asked)
++    }
++
++    /// BUG-257: a testnet manager syncing one segment from the checkpoint at 1250000 that has
++    /// reached 1266000 and asked for what follows. The store holds the real headers up to
++    /// `stored`; the segment still buffers those from `buffered_from` to 1266000 (none when
++    /// above it). A drain moves a segment's buffer into the store: `buffered_from` =
++    /// `stored` + 1 is a partial drain, anything higher a drain whose headers the store
++    /// never got.
++    async fn drained_testnet(
++        chain: &[HashedBlockHeader],
++        stored: u32,
++        buffered_from: u32,
++    ) -> (
++        TestBlockHeadersManager,
++        RequestSender,
++        tokio::sync::mpsc::UnboundedReceiver<NetworkRequest>,
++    ) {
++        let mut storage = DiskStorageManager::with_temp_dir().await.unwrap();
++        storage
++            .store_headers_at_height(&testnet_range(chain, TESTNET_FIRST, stored), TESTNET_FIRST)
++            .await
++            .unwrap();
++        let mut manager = BlockHeadersManager::new(
++            storage.block_headers(),
++            storage.metadata(),
++            create_test_checkpoint_manager(),
++            Network::Testnet,
++        )
++        .await
++        .unwrap();
++        let checkpoint = create_test_checkpoint_manager()
++            .last_checkpoint_before_height(TESTNET_CHECKPOINT)
++            .unwrap();
++        assert_eq!(checkpoint.height(), TESTNET_CHECKPOINT);
++        manager.pipeline.init(TESTNET_CHECKPOINT, *checkpoint.hash(), 1_266_010);
++        manager.progress.set_state(SyncState::Syncing);
++        manager.progress.update_target_height(1_266_010);
++        let (requests, rx) = create_test_request_sender();
++        let segment = manager.pipeline.segment_mut(0);
++        segment.current_height = 1_266_000;
++        segment.current_tip_hash = *testnet_range(chain, 1_266_000, 1_266_000)[0].hash();
++        segment.buffered_headers = if buffered_from <= 1_266_000 {
++            testnet_range(chain, buffered_from, 1_266_000)
++        } else {
++            Vec::new()
++        };
++        segment.send_request(&requests).unwrap();
++        (manager, requests, rx)
++    }
++
++    /// BUG-257 (the QA run, testnet from zero): Dark Gravity Wave on the real chain takes
++    /// 1266001.. from the 24 headers before; checked against the checkpoint's headers
++    /// instead (26 days older), testnet's «more than two hours since the last block» rule
++    /// asks the proof-of-work limit — exactly the refusal that banned every peer.
++    #[test]
++    fn the_real_testnet_headers_pass_dgw_only_on_their_own_window() {
++        let chain = testnet_1266000();
++        let batch = testnet_range(&chain, 1_266_001, 1_266_010);
++        let own: Vec<Header> =
++            testnet_range(&chain, 1_265_977, 1_266_000).iter().map(|h| *h.header()).collect();
++        assert_eq!(own.len(), DGW_PAST_BLOCKS);
++        BlockHeaderValidator::new(Network::Testnet, own, 1_266_000)
++            .validate(&batch)
++            .expect("the real chain passes on its own window");
++
++        let checkpoint: Vec<Header> = create_test_checkpoint_manager()
++            .last_checkpoint_before_height(TESTNET_CHECKPOINT)
++            .unwrap()
++            .headers()
++            .iter()
++            .map(|h| *h.header())
++            .collect();
++        let stale = BlockHeaderValidator::new(Network::Testnet, checkpoint, 1_266_000)
++            .validate(&batch)
++            .unwrap_err();
++        assert!(
++            format!("{stale}").contains("height 1266001")
++                && format!("{stale}").contains("required 0x1e0fffff"),
++            "the QA refusal: {stale}"
++        );
++    }
++
++    /// BUG-257: a segment drained into the store part of the way keeps fewer than 24 headers;
++    /// the window is completed from the store, the real chain passes and nobody is banned.
++    #[tokio::test]
++    async fn a_partly_drained_segment_is_checked_on_its_stored_headers() {
++        let chain = testnet_1266000();
++        let (mut manager, requests, mut rx) = drained_testnet(&chain, 1_265_990, 1_265_991).await;
++        let _ = bans_and_asks(&mut rx);
++        let batch = testnet_range(&chain, 1_266_001, 1_266_010);
++
++        let result = manager.handle_headers_pipeline(peer(), &batch, &requests).await;
++
++        assert!(result.is_ok(), "{result:?}");
++        assert_eq!(bans_and_asks(&mut rx).0, Vec::<SocketAddr>::new(), "nobody banned");
++        assert_eq!(manager.pipeline.segment_mut(0).current_height, 1_266_010, "routed");
++    }
++
++    /// BUG-257, the QA signature: a segment drained whose headers never reached the store
++    /// has nothing to check the next headers on. The peer is not banned; the pipeline starts
++    /// again from the stored tip and asks from there.
++    #[tokio::test]
++    async fn headers_on_a_segment_whose_drain_was_lost_ban_nobody_and_restart_from_the_store() {
++        let chain = testnet_1266000();
++        let (mut manager, requests, mut rx) = drained_testnet(&chain, 1_265_990, 1_266_001).await;
++        let _ = bans_and_asks(&mut rx);
++        let batch = testnet_range(&chain, 1_266_001, 1_266_010);
++
++        let result = manager.handle_headers_pipeline(peer(), &batch, &requests).await;
++
++        assert!(result.is_ok(), "{result:?}");
++        let (banned, asked) = bans_and_asks(&mut rx);
++        assert_eq!(banned, Vec::<SocketAddr>::new(), "nobody banned");
++        let stored_tip = *testnet_range(&chain, 1_265_990, 1_265_990)[0].hash();
++        assert!(asked.contains(&stored_tip), "asked again from the stored tip: {asked:?}");
++        assert_eq!(manager.pipeline.segment_mut(0).current_height, 1_265_990);
++        assert_eq!(manager.tip().await.unwrap().height(), 1_265_990, "the store unchanged");
++    }
++
++    /// BUG-257: the window completed from the store still refuses a bad header: a sibling of
++    /// the real 1266001 with easy bits and its own proof of work, on a partly drained
++    /// segment, is refused for its difficulty and its peer banned.
++    #[tokio::test]
++    async fn a_forged_header_on_a_drained_segment_is_still_refused_and_banned() {
++        let chain = testnet_1266000();
++        let (mut manager, requests, mut rx) = drained_testnet(&chain, 1_265_990, 1_265_991).await;
++        let _ = bans_and_asks(&mut rx);
++        let mut forged = *testnet_range(&chain, 1_266_001, 1_266_001)[0].header();
++        forged.bits = dashcore::CompactTarget::from_consensus(0x207f_ffff);
++        while !forged.target().is_met_by(forged.block_hash()) {
++            forged.nonce = forged.nonce.wrapping_add(1);
++        }
++
++        let result = manager.handle_headers_pipeline(peer(), &[forged.into()], &requests).await;
++
++        assert!(format!("{result:?}").contains("ifficulty"), "{result:?}");
++        assert_eq!(bans_and_asks(&mut rx).0, vec![peer()], "its peer banned");
++    }
++
++    /// BUG-257: the real testnet headers 1250001..=1250010, right after the checkpoint at
++    /// 1250000, read from a synced store.
++    fn testnet_1250001() -> Vec<HashedBlockHeader> {
++        include_str!("testnet_headers_1250001.txt")
++            .lines()
++            .map(|line| {
++                let [_, hash, header] = line.split(' ').collect::<Vec<_>>()[..] else {
++                    panic!("height, hash and header");
++                };
++                let header: Header = dashcore::consensus::deserialize(
++                    &hex_conservative::decode_to_vec(header).unwrap(),
++                )
++                .unwrap();
++                let hashed = HashedBlockHeader::from(header);
++                assert_eq!(hashed.hash().to_string(), hash);
++                hashed
++            })
++            .collect()
++    }
++
++    /// A testnet manager whose store holds a few unrelated real headers (above the ones the
++    /// test sends), so nothing the batch extends is stored.
++    async fn testnet_manager() -> TestBlockHeadersManager {
++        let chain = testnet_1266000();
++        let mut storage = DiskStorageManager::with_temp_dir().await.unwrap();
++        storage.store_headers_at_height(&chain[..5], TESTNET_FIRST).await.unwrap();
++        BlockHeadersManager::new(
++            storage.block_headers(),
++            storage.metadata(),
++            create_test_checkpoint_manager(),
++            Network::Testnet,
++        )
++        .await
++        .unwrap()
++    }
++
++    fn testnet_checkpoint(height: u32) -> BlockHash {
++        let checkpoint =
++            create_test_checkpoint_manager().last_checkpoint_before_height(height).unwrap();
++        assert_eq!(checkpoint.height(), height);
++        *checkpoint.hash()
++    }
++
++    /// BUG-257 (the architect's case 1): a segment's first headers, from the checkpoint it
++    /// starts at with nothing buffered yet (the segment before it still downloading), are
++    /// checked on the checkpoint's own headers and taken.
++    #[tokio::test]
++    async fn a_segments_first_headers_are_checked_on_its_checkpoint() {
++        let mut manager = testnet_manager().await;
++        manager.pipeline.init(1_200_000, testnet_checkpoint(1_200_000), 1_250_010);
++        manager.progress.set_state(SyncState::Syncing);
++        let (requests, mut rx) = create_test_request_sender();
++        manager.pipeline.segment_mut(1).send_request(&requests).unwrap();
++        let _ = bans_and_asks(&mut rx);
++
++        let result = manager.handle_headers_pipeline(peer(), &testnet_1250001(), &requests).await;
++
++        assert!(result.is_ok(), "{result:?}");
++        assert_eq!(bans_and_asks(&mut rx).0, Vec::<SocketAddr>::new(), "nobody banned");
++        assert_eq!(manager.pipeline.segment_mut(1).current_height, 1_250_010, "taken");
++    }
++
++    /// BUG-257 (the architect's case 2): across a segment boundary two segments end at the
++    /// checkpoint's hash, the finished one (drained) and the next one at its start. The
++    /// headers that follow are the next one's, checked on the checkpoint's headers; the old
++    /// answer took the finished one and checked them 50000 blocks back.
++    #[tokio::test]
++    async fn headers_across_a_segment_boundary_are_checked_on_the_next_segment() {
++        let mut manager = testnet_manager().await;
++        manager.pipeline.init(1_200_000, testnet_checkpoint(1_200_000), 1_250_010);
++        manager.progress.set_state(SyncState::Syncing);
++        let (requests, mut rx) = create_test_request_sender();
++        let finished = manager.pipeline.segment_mut(0);
++        finished.current_height = TESTNET_CHECKPOINT;
++        finished.current_tip_hash = testnet_checkpoint(TESTNET_CHECKPOINT);
++        finished.complete = true;
++        manager.pipeline.segment_mut(1).send_request(&requests).unwrap();
++        let _ = bans_and_asks(&mut rx);
++
++        let result = manager.handle_headers_pipeline(peer(), &testnet_1250001(), &requests).await;
++
++        assert!(result.is_ok(), "{result:?}");
++        assert_eq!(bans_and_asks(&mut rx).0, Vec::<SocketAddr>::new(), "nobody banned");
++        assert_eq!(manager.pipeline.segment_mut(1).current_height, 1_250_010);
++    }
++
++    /// BUG-257 (the architect's case 3): after the restart from the stored tip the lost
++    /// headers come again, are checked on the store and stored, and so are the next ones:
++    /// one restart, no loop, nobody banned.
++    #[tokio::test]
++    async fn the_restart_from_the_stored_tip_does_not_loop() {
++        let chain = testnet_1266000();
++        let (mut manager, requests, mut rx) = drained_testnet(&chain, 1_265_990, 1_266_001).await;
++        let _ = bans_and_asks(&mut rx);
++        let lost = testnet_range(&chain, 1_266_001, 1_266_010);
++        manager.handle_headers_pipeline(peer(), &lost, &requests).await.unwrap();
++        let (_, asked) = bans_and_asks(&mut rx);
++        let stored_tip = *testnet_range(&chain, 1_265_990, 1_265_990)[0].hash();
++        assert_eq!(asked, vec![stored_tip], "one restart");
++
++        for (from, to) in [(1_265_991, 1_266_000), (1_266_001, 1_266_010)] {
++            let batch = testnet_range(&chain, from, to);
++            let result = manager.handle_headers_pipeline(peer(), &batch, &requests).await;
++            assert!(result.is_ok(), "{from}: {result:?}");
++            let (banned, asked) = bans_and_asks(&mut rx);
++            assert_eq!(banned, Vec::<SocketAddr>::new(), "{from}: nobody banned");
++            assert!(!asked.contains(&stored_tip), "{from}: no second restart: {asked:?}");
++        }
++        assert_eq!(manager.tip().await.unwrap().height(), 1_266_010, "all stored");
++    }
++
+     /// evolite (SPV item 1): heights where regtest checks a header's bits against its
+     /// limit (past Dark Gravity Wave's height, 34140), with the newest testnet
+     /// checkpoint below them at 50000. Fork points in the tests are above it.
+@@ -1595,7 +1972,8 @@ mod tests {
+         manager.progress.set_state(SyncState::Syncing);
+ 
+         let (requests, mut rx) = create_test_request_sender();
+-        let events = manager.handle_headers_pipeline(peer(), &[chain[0].into()], &requests).await.unwrap();
++        let events =
++            manager.handle_headers_pipeline(peer(), &[chain[0].into()], &requests).await.unwrap();
+ 
+         assert_eq!(events.len(), ACTIVE_SEGMENT_WINDOW);
+         match rx.try_recv().expect("response cycle did not refill active window") {
+diff --git a/dash-spv/src/sync/block_headers/pipeline.rs b/dash-spv/src/sync/block_headers/pipeline.rs
+index 5fc26072..da89f849 100644
+--- a/dash-spv/src/sync/block_headers/pipeline.rs
++++ b/dash-spv/src/sync/block_headers/pipeline.rs
+@@ -18,6 +18,21 @@ use crate::types::HashedBlockHeader;
+ /// Keep enough checkpoint segments active to saturate decompression while bounding buffered data.
+ pub(super) const ACTIVE_SEGMENT_WINDOW: usize = 8;
+ 
++/// evolite (BUG-257): what a segment holds to check the headers that follow its tip.
++/// `recent`: its last buffered headers (at most a Dark Gravity Wave window), oldest first;
++/// `below`: the height just under them. A drain moves a segment's older headers into the
++/// store, so below `recent` the window comes from the store, or from `checkpoint` (the
++/// headers of the checkpoint the segment starts at) while the buffer still reaches down to
++/// it. The old answer put the checkpoint's headers right under the last 24 buffered ones,
++/// whatever lay between: after a drain the window ended 26 days back and every honest peer
++/// was banned (testnet from zero stopped at 1266001).
++pub(super) struct SegmentTail {
++    pub(super) height: u32,
++    pub(super) below: u32,
++    pub(super) recent: Vec<Header>,
++    pub(super) checkpoint: Vec<Header>,
++}
++
+ /// Pipeline for parallel header downloads across checkpoint-defined segments.
+ ///
+ /// Divides the blockchain into segments based on checkpoints and downloads
+@@ -209,23 +224,43 @@ impl HeadersPipeline {
+         Ok(None)
+     }
+ 
+-    /// Height and ancestors of the segment whose tip is `hash`, if any: the
+-    /// checkpoint it starts at and the headers it has buffered since.
+-    pub(super) fn segment_ancestors(&self, hash: &BlockHash) -> Option<(u32, Vec<Header>)> {
+-        let segment = self.segments.iter().find(|segment| segment.matches(hash))?;
+-        let checkpoint = self
+-            .checkpoint_manager
+-            .last_checkpoint_before_height(segment.start_height)
+-            .filter(|checkpoint| checkpoint.height() == segment.start_height);
++    /// What the segment whose tip is `hash` holds to check the headers that follow it
++    /// (BUG-257): see [`SegmentTail`]. Of two segments ending at one hash (a completed one
++    /// whose tip is the checkpoint the next starts at), the one still downloading.
++    pub(super) fn segment_tail(&self, hash: &BlockHash) -> Option<SegmentTail> {
++        let segment = self
++            .segments
++            .iter()
++            .filter(|segment| segment.matches(hash))
++            .min_by_key(|segment| segment.complete)?;
+         let buffered = &segment.buffered_headers;
+-        let recent = &buffered[buffered.len().saturating_sub(DGW_PAST_BLOCKS)..];
+-        let ancestors = checkpoint
+-            .into_iter()
+-            .flat_map(|checkpoint| checkpoint.headers())
+-            .chain(recent)
++        let recent: Vec<Header> = buffered[buffered.len().saturating_sub(DGW_PAST_BLOCKS)..]
++            .iter()
+             .map(|header| *header.header())
+             .collect();
+-        Some((segment.current_height, ancestors))
++        let below = segment.current_height - recent.len() as u32;
++        // The checkpoint's headers end at the segment's start: they serve only while nothing
++        // between the start and the buffer is missing.
++        let checkpoint = self
++            .checkpoint_manager
++            .last_checkpoint_before_height(segment.start_height)
++            .filter(|checkpoint| {
++                checkpoint.height() == segment.start_height && below == segment.start_height
++            })
++            .map(|checkpoint| checkpoint.headers().iter().map(|h| *h.header()).collect())
++            .unwrap_or_default();
++        Some(SegmentTail {
++            height: segment.current_height,
++            below,
++            recent,
++            checkpoint,
++        })
++    }
++
++    /// A segment, for tests that put it in a state a sync reaches.
++    #[cfg(test)]
++    pub(super) fn segment_mut(&mut self, index: usize) -> &mut SegmentState {
++        &mut self.segments[index]
+     }
+ 
+     /// Get segments that are ready to store (complete and in order).
+@@ -666,48 +701,64 @@ mod tests {
+         assert!(pipeline.segments[0].buffered_headers.is_empty());
+     }
+ 
+-    /// A segment's ancestors are the checkpoint it starts at, if it starts at
+-    /// one, followed by the last headers it buffered.
++    /// evolite (BUG-257): a segment's tail is its last buffered headers (at most 24) and the
++    /// height under them; the checkpoint's headers only while the buffer reaches down to the
++    /// checkpoint the segment starts at — never glued under a buffer with headers missing
++    /// between, as the old answer did after a drain.
+     #[test]
+-    fn test_segment_ancestors() {
++    fn test_segment_tail() {
+         let cm = create_test_checkpoint_manager(true);
+         let checkpoint = cm.checkpoints().next().unwrap();
+-        let segment = |id, start_height, start_hash| {
+-            let buffered: Vec<HashedBlockHeader> =
+-                Header::dummy_chain(30, start_hash).iter().map(HashedBlockHeader::from).collect();
++        let segment = |id, start_height, start_hash, count: usize, drained: usize| {
++            let chain: Vec<HashedBlockHeader> = Header::dummy_chain(count, start_hash)
++                .iter()
++                .map(HashedBlockHeader::from)
++                .collect();
+             let mut segment = SegmentState::new(id, start_height, start_hash, None, None);
+-            segment.current_height = start_height + 30;
+-            segment.current_tip_hash = *buffered[29].hash();
+-            segment.buffered_headers = buffered;
++            segment.current_height = start_height + count as u32;
++            segment.current_tip_hash = *chain[count - 1].hash();
++            segment.buffered_headers = chain[drained..].to_vec();
+             segment
+         };
++        let headers = |hashed: &[HashedBlockHeader]| -> Vec<Header> {
++            hashed.iter().map(|header| *header.header()).collect()
++        };
+         let mut pipeline = HeadersPipeline::new(cm);
+         pipeline.initialized = true;
++        let at = checkpoint.height();
+         pipeline.segments = vec![
+-            segment(0, checkpoint.height(), *checkpoint.hash()),
+-            // Above the checkpoint, so it must not take its headers.
+-            segment(1, checkpoint.height() + 100, BlockHash::dummy(10)),
++            // At the checkpoint, 10 buffered: the checkpoint's headers under them.
++            segment(0, at, *checkpoint.hash(), 10, 0),
++            // At the checkpoint, 30 buffered: the last 24, nothing under them yet.
++            segment(1, at, BlockHash::dummy(21), 30, 0),
++            // At the checkpoint, 30 received, 25 drained: 5 buffered, the store under them.
++            segment(2, at, BlockHash::dummy(22), 30, 25),
++            // Above any checkpoint, 10 buffered: no checkpoint headers.
++            segment(3, at + 100, BlockHash::dummy(10), 10, 0),
+         ];
+-        let recent = |segment: &SegmentState| -> Vec<Header> {
+-            segment.buffered_headers[6..].iter().map(|header| *header.header()).collect()
+-        };
++        let tail =
++            |i: usize| pipeline.segment_tail(&pipeline.segments[i].current_tip_hash).unwrap();
+ 
+-        let at_checkpoint = &pipeline.segments[0];
+-        let mut expected: Vec<Header> =
+-            checkpoint.headers().iter().map(|header| *header.header()).collect();
+-        expected.extend(recent(at_checkpoint));
+-        assert_eq!(
+-            pipeline.segment_ancestors(&at_checkpoint.current_tip_hash),
+-            Some((checkpoint.height() + 30, expected))
+-        );
++        let t = tail(0);
++        assert_eq!((t.height, t.below), (at + 10, at));
++        assert_eq!(t.recent, headers(&pipeline.segments[0].buffered_headers));
++        assert_eq!(t.checkpoint, headers(checkpoint.headers()));
+ 
+-        let off_checkpoint = &pipeline.segments[1];
+-        assert_eq!(
+-            pipeline.segment_ancestors(&off_checkpoint.current_tip_hash),
+-            Some((checkpoint.height() + 130, recent(off_checkpoint)))
+-        );
++        let t = tail(1);
++        assert_eq!((t.height, t.below), (at + 30, at + 6));
++        assert_eq!(t.recent, headers(&pipeline.segments[1].buffered_headers[6..]));
++        assert!(t.checkpoint.is_empty(), "the 6 headers between are not the checkpoint's");
++
++        let t = tail(2);
++        assert_eq!((t.height, t.below), (at + 30, at + 25));
++        assert_eq!(t.recent.len(), 5);
++        assert!(t.checkpoint.is_empty(), "the drained 25 are in the store");
++
++        let t = tail(3);
++        assert_eq!((t.height, t.below), (at + 110, at + 100));
++        assert!(t.checkpoint.is_empty());
+ 
+-        assert_eq!(pipeline.segment_ancestors(&BlockHash::dummy(999)), None);
++        assert!(pipeline.segment_tail(&BlockHash::dummy(999)).is_none());
+     }
+ 
+     #[test]
+diff --git a/dash-spv/src/sync/block_headers/testnet_headers_1250001.txt b/dash-spv/src/sync/block_headers/testnet_headers_1250001.txt
+new file mode 100644
+index 00000000..a17da964
+--- /dev/null
++++ b/dash-spv/src/sync/block_headers/testnet_headers_1250001.txt
+@@ -0,0 +1,10 @@
++1250001 000001a5f853dfec4b7c6fa701bbd3c5be8a71c804b847c1d5f3d012555352a2 00000020d841f40b58b56f02359d8b1750833e44e7f2a2561febd4d99db33bb9c1020000aa984254dc0d482f94c51f7e3ca3ada4e8a8d54b4a02f12f44a684d5ad905724d1af22687d41031e230f0900
++1250002 00000313fdb95f9e0e307c86e95b2ccc1265695558338c3691f88b8575649181 00000020a252535512d0f3d5c147b804c8718abec5d3bb01a76f7c4becdf53f8a50100006fd053f7a256588f1bf33a44764bc40dd69707db55e030e883dbcf67a470bad800b022683f70031e40330f00
++1250003 0000024b298e479238a37b1cbd29651cae93f7f6b1d0764e0917e351012ae5b6 0000002081916475858bf891368c335855696512cc2c5be9867c300e9e5fb9fd13030000aa35d0eec159acc8441400535a37d321f079436072fef3e61c81c3b46745c15037b022680c66031ed2a60c00
++1250004 0000002e86cff7ee07606a1dfef27dcca21e0735b78f5f9e4ffdc88d086858b0 00000020b6e52a0151e317094e76d0b1f6f793ae1c6529bd1c7ba33892478e294b0200005937fe0a137f21a595ccefc982e78d2b5bda6f00afe44c41ea3bbabe8ca0c9d692b02268fb60031e80750500
++1250005 0000001252d101b29e49014a51bd0a115a46f7f47ae30fa38dce043b3f819d58 00000020b05868088dc8fd4f9e5f8fb735071ea2cc7df2fe1d6a6007eef7cf862e0000001f5669fd290637c0e24c514014a5113653801b7b6378ebd513fdabac468e62932fb122688879031e3a710c00
++1250006 000002a239368e24edd639d6077051c0f6c8f62de139ff119a1aee00076a69d3 00000020589d813f3b04ce8da30fe37af4f7465a110abd514a01499eb201d152120000001081132d54cf049858c20664640360acaad7366b589f2ee9de3b9bab5b653f7f3eb1226835ab031e168f0800
++1250007 0000031109bf414c326dd8ae680142f0f0cd5e68d8275ca0c98de769be2bbe8e 00000020d3696a0700ee1a9a11ff39e12df6c8f6c0517007d639d6ed248e3639a2020000219743e4d65d13d81730ad9dbab5e45d69708332fe5b791fb3c6a2f96f861ee95ab122687076031e647f0b00
++1250008 0000034146763b32c008008ba2902444a96610e345e7a45ad2f77c687dec0c32 000000208ebe2bbe69e78dc9a05c27d8685ecdf0f0420168aed86d324c41bf0911030000c18edc3af7fbf6d792698d98f83753e7632deac764bc3467a07c045266e41511b1b12268bb7a031e1c220300
++1250009 00000153e2e904545a2c7c562e1d9176bcd7b7e36f3710f0a8847c3e62906c5b 00000020320cec7d687cf7d25aa4e745e31066a9442490a28b0008c0323b7646410300005a284b40854a1f0adb073755330542d5232d52671c8dd497d73a7ab7e45d0911c8b122685145031ea4a80100
++1250010 0000006d3ac555f5fbcdbe44de033cb6dca9d57c170a8c4dc438f4f4af564cb1 000000205b6c90623e7c84a8f010376fe3b7d7bc76911d2e567c2c5a5404e9e2530100004cafc66107e60089ff0d7b4cd97a112e024e3db4e5b653c25737d06e103a2eafcab122682835031eb9a60c00
+diff --git a/dash-spv/src/sync/block_headers/testnet_headers_1265950.txt b/dash-spv/src/sync/block_headers/testnet_headers_1265950.txt
+new file mode 100644
+index 00000000..9a70894a
+--- /dev/null
++++ b/dash-spv/src/sync/block_headers/testnet_headers_1265950.txt
+@@ -0,0 +1,61 @@
++1265950 00000039d559da078ee82fb440678c817e91ef6a5161d71fd11022bf9272e707 000000209ab7516575f11cf7bba084d160f069d97bd613314ff1616b9917fe19910200003821ea937cf27b33b2c80f9874e6c967cc5b79dc459b2793593d9811d53803a87ab444680ff3021e3c870d00
++1265951 0000012d1c44cc0d68d65017a095974b2ae16b02604e907b7a49edbb6cc1144d 0000002007e77292bf2210d11fd761516aef917e818c6740b42fe88e07da59d539000000301c553c33bb3e67fc739779fc08f8a49d3b3254a652191f1a0428fe094aee0be6b444682680021ee2190d00
++1265952 0000007a9bf08f80a21adc8b15d0a0444084dd38df7a717e751bb9d47762a751 000000204d14c16cbbed497a7b904e60026be12a4b9795a01750d6680dcc441c2d010000791238e8d80ebf8953be6b954057a141c9a4f819c3dcc1621fcd3dcd6787cdb89bb54468188d021e12f80200
++1265953 0000002e7a96d9ef937b322affa6fb21e4ae0ea7f2e504aaf5b3eb5590e5b8e5 0000002051a76277d4b91b757e717adf38dd844044a0d0158bdc1aa2808ff09b7a0000006d604aae5ebdca42152c6a1503e329e649f07ef6d60f0097bab6ea81318cf0b4c3b5446872aa021eedeb0300
++1265954 000001b69e2233c05259b7cd7da2028bd836fc135223db9ab78b27e2878254f3 00000020e5b8e59055ebb3f5aa04e5f2a70eaee421fba6ff2a327b93efd9967a2e0000008c4ac7f37a4d29f9947540881816963459de0ed8ccf53308d95acfee592e9d4c11b644689fa9021e2d820700
++1265955 0000000791757ee244fbaf7cedf9a7a1a3ede21bafdac0391e0be701224e4caf 00000020f3548287e2278bb79adb235213fc36d88b02a27dcdb75952c033229eb60100006b752762cad53aa72c607a2a3d99c9a9dae9efa2169b61daed0f9f0aab3cba3a77b6446899ab021ef37b0000
++1265956 000001da8ca62244c667736aa5f75ea02acd30631c1c17581c7b1c2dea220a01 00000020af4c4e2201e70b1e39c0daaf1be2eda3a1a7f9ed7caffb44e27e759107000000074fbe60b00565f0c7be1084362cf30623af73d5abeb10a4d4a8bb8b1de6ef210ab744689690021e73330700
++1265957 00000228520bf98f8bc39572459dcd98d0f4eb57fd3b3c8815314c01da6036d5 00000020010a22ea2d1c7b1c58171c1c6330cd2aa05ef7a56a7367c64422a68cda010000ecb34c5880187486c6a631e3df68e321c1dfd8a94c4176d775ae24901947d27025b744686274021e0b020200
++1265958 000001637001e7316f63d19a1dfd5fc7831ed57ac840ef72b5eca791f0372402 00000020d53660da014c3115883c3bfd57ebf4d098cd9d457295c38b8ff90b5228020000e9bebdeeddc05de1999d49931c4ecd066a0dd27e757829a3cf45950ec286c9014cb74468b155021e525a0b00
++1265959 000000b60263c9024e6821e02ee814b134d7d8eca56dd1ef5ab42e1578fa5154 00000020022437f091a7ecb572ef40c87ad51e83c75ffd1d9ad1636f31e70170630100005962dc088bfaad22817951e1be219a9babc0ee9a3d0d260afdd8ae17295bdd14edb84468fe57021e27520a00
++1265960 0000021ba3dbabb176bac6c329317bd55d9e3789775dd1ce4360459df5f029ec 000000205451fa78152eb45aefd16da5ecd8d734b114e82ee021684e02c96302b6000000736209ed2eab64fafaef762a0d7c53183850d2ab8bdcbc0fa26a10f1637333ad55b944684b8b021ea1330f00
++1265961 0000001ca5adbc38e6ea35caf00c46968cc1fd69d34a617b6b2b244d1be9d2e0 00000020ec29f0f59d456043ced15d7789379e5dd57b3129c3c6ba76b1abdba31b0200005396269ced1abc7a18231e91c124e687f0a192fcdc726548be1e80638b8cc94531ba44684588021ec25f0e00
++1265962 000001103cec4b7b53d1210727355764d5d8f18016276373cadd8ba76cf4009e 00000020e0d2e91b4d242b6b7b614ad369fdc18c96460cf0ca35eae638bcada51c0000009c995c86a693abc9ebf05871c7b62da3c3f447c8f70476133fc2508172c31bc843ba446888b0021ee4020600
++1265963 00000220de7babbea816cadc6e15669869d9d47769eb27b0997685e9826c8c6b 000000209e00f46ca78bddca7363271680f1d8d5645735270721d1537b4bec3c10010000ba52bd57d85c2486d2656719071f55e3c071db96cfce7993eb13924d4837d4894aba4468969a021e5aa30700
++1265964 000000fb4d95d6eac61979ff4724f49a82ab78ebbfc971568354e2dbce5efaa4 000000206b8c6c82e9857699b027eb6977d4d9699866156edcca16a8beab7bde20020000190469dd179a3478e66d4784324ebfd3628452225bb39fe9c50f9323f95bb46b79ba4468845f021e4d710100
++1265965 000000308b107a833f8400f7509cd9e9e560af45b70b9af4bb58d3b652ca7eeb 00000020a4fa5ecedbe254835671c9bfeb78ab829af42447ff7919c6ead6954dfb00000052fd124983e5638dbe3b5db484bce605e4cb66644a5b1714da10e2c70aefd48ab2ba44683e5d021e90810d00
++1265966 000000c563e0f74b2f7638c41e028ae3a08b8fec8ad0b96ee1897f811c8f8a97 00000020eb7eca52b6d358bbf49a0bb745af60e5e9d99c50f700843f837a108b30000000555be8803ba44f58a8a27e87caaeb7efb127747b9799fbb54091f7f81bf9ee4b9ebb4468326b021ec5da0200
++1265967 000001bb738e97ce46684214e299d62d439d45ae5082bfe654a8f671cd993605 00000020978a8f1c817f89e16eb9d08aec8f8ba0e38a021ec438762f4bf7e063c5000000a5a3be1d108797e9a01b4439972599b5a13c52432ba7c3fd8b0ac453efe79afa10bc4468ff7b021e99590000
++1265968 000001ee538fac839c0cb67f354025bc562d119ce5cdcf029cda870aaf848ecc 00000020053699cd71f6a854e6bf8250ae459d432dd699e214426846ce978e73bb01000003d24ac0560a796ac799838e18627ba036d9da2405e288e9fb56f10b8a214b8fdabc4468eb81021e6a6e0500
++1265969 000000f446158d8c8b532e7336b156ca9b20b210a9d2702bed2a7ce100082cdf 00000020cc8e84af0a87da9c02cfcde59c112d56bc2540357fb60c9c83ac8f53ee0100002e05385e6364612e40d96d2a44d2687bdf365b5bc8bb3f74f1ca825f7518f0f5e0bc4468e4a6021ead0e0700
++1265970 000001099310d6d224fa620a8094ab95286af0788d9a8fd499d2ffbeedc5672d 00000020df2c0800e17c2aed2b70d2a910b2209bca56b136732e538b8c8d1546f40000004b057a7ad018f4d204a9658b85ff1abcf84bbb2cfafe9a1b30c7302ee2b0a8fc0dbd4468279f021e01420800
++1265971 0000003fc2bf40d59b1264721bfd8218b381f6f015e3065c8a25e461d18710fb 000000202d67c5edbeffd299d48f9a8d78f06a2895ab94800a62fa24d2d6109309010000262526e4b2ba446469e6b9d3b963d3647d56542ad58d16682abb4a2d19eba79173bd4468306b021e438d0900
++1265972 0000019a41f246647cd7b5d62807a9de56862bf4144fe6dbacbd1d3079d8db4f 00000020fb1087d161e4258a5c06e315f0f681b31882fd1b7264129bd540bfc23f000000f7eca2eb8dd31683306f1c7429793e79b5a4703044bca2b9a21eff3bed908c92ecbd44680e7b021e8cf80100
++1265973 000001d4fe49b84a65f5a19fe9863ce865587ad3b628ea68024d634d141f668c 000000204fdbd879301dbdacdbe64f14f42b8656dea90728d6b5d77c6446f2419a010000ed33dbe2c01b31d8e1e970f9ebe3faf434674e6336d9fea8c54efd623f06cca04abf44684915021e98930400
++1265974 0000008c6b2c1b73255443d551ac7c2ade6c9f243a8b6a4f24cfccabc140fbc3 000000208c661f144d634d0268ea28b6d37a5865e83c86e99fa1f5654ab849fed401000023f276e6e69785b93a9e2cdf180109f7a3387d3959eb3535d64ceb7958360d3e87bf446885ec011eaad80100
++1265975 0000009bd9cdd4abc74955e90bf4dcabbbd71ac492e0e0c944f2c173ad3f0dcf 00000020c3fb40c1abcccf244f6a8b3a249f6cde2a7cac51d5435425731b2c6b8c0000000f9873f37347693916fe81be4999cdee11f7a823b930089963fc11d783f0f0a309c04468fcda011e63130d00
++1265976 0000013752d64af05c976c7b4fdc200261b41931f84dd3fb0e5a76c60231e2d8 00000020cf0d3fad73c1f244c9e0e092c41ad7bbabdcf40be95549c7abd4cdd99b000000bb953b2e8ea74a190a585c5d4bf975f320e7a8e4466367eb6eebdd09d70c40e019c04468aacc011efa9b0000
++1265977 000001027c54ab536ce076c65095795e71d8da6fb7018494bb44bc64cadf9cb9 00000020d8e23102c6765a0efbd34df83119b4610220dc4f7b6c975cf04ad6523701000028b919a2ddd9dcc4875b0ff0b43874113f9914d30940bc0e44c4ba309f87ad8678c0446871c2011e25d60c00
++1265978 0000012d77bd5ed90dad015986210ae99d3adfd83fedde663de94474c625b412 00000020b99cdfca64bc44bb948401b76fdad8715e799550c676e06c53ab547c02010000f18965750377fe543ffd053716a8199f7d70b7774655c4a5d467a8031208ae8841c244682cbe011e06760200
++1265979 0000007dd78a852da60cc4cc82497d2f1fcf2f610f5fe7190dfa53b1b3330208 0000002012b425c67444e93d66deed3fd8df3a9de90a21865901ad0dd95ebd772d0100000a32deb489537928eb67a5c402fe92d8410965a4290e92b96887e2537acfcfcae9c244689cf1011eff500600
++1265980 000001bf3349f1faf279a5cfff61c006a20c66699f144d3980cdcf54e93f6f0b 00000020080233b3b153fa0d19e75f0f612fcf1f2f7d4982ccc40ca62d858ad77d000000138adc758e74f11f710c93201f50aee587be127ce63a8520ec4ac5bd65e2833a4cc3446887f0011e72580600
++1265981 000000457b3c7a4fbde975ef9336aade0af77b0620f66de507b80552e7f7c19b 000000200b6f3fe954cfcd80394d149f69660ca206c061ffcfa579f2faf14933bf010000e5f710101d96346ee974ea44a458e63513bc05ff52ecab3756ad4300fc9e3cb0c2c34468b9f6011e73e00000
++1265982 0000003209fba5f92131c7ca813f60b1b4e04c7ae392707f429640802cc7d57c 000000209bc1f7e75205b807e56df620067bf70adeaa3693ef75e9bd4f7a3c7b45000000c38c4e51e1085f4d32be979fcb84b6792acea0859cb525680c5003a1ca7ec2f490c4446841ff011e78a80200
++1265983 0000013b313fcfffb5483e14eb8c0fd29564c4edd9a5171c4bd0c518afd564ba 000000207cd5c72c804096427f7092e37a4ce0b4b1603f81cac73121f9a5fb0932000000aa81162b7057b62ddbf7f5c80ad61509e3c9bf5c161295b3712568523fb36107ddc44468dcda011e4b3c0400
++1265984 000001540960ab67dec03f6f8bdf1eea9228c71bc21e968a7b8a639b186ded2e 00000020ba64d5af18c5d04b1c17a5d9edc46495d20f8ceb143e48b5ffcf3f313b010000e5d81c9cb7cb8fa4c6ced39318a3944da91c2a1f614e03aa89f4a829c827905de2c4446842d1011e3cef0900
++1265985 000000ed7cdaab5aa8bd80ea733e972b7af6fa177846fcf8fed14958c0786170 000000202eed6d189b638a7b8a961ec21bc72892ea1edf8b6f3fc0de67ab600954010000028ed0da7832496e4f62d30481e130dcceb8cff25b8d1971b3cad8d0f5f0910393c544686ca9011e36a10400
++1265986 0000018b76621ec7b1010c66be2e8064f6a818692ca72a8ffb2b408e9fb8e39f 00000020706178c05849d1fef8fc467817faf67a2b973e73ea80bda85aabda7ced00000069fceef659dafbfb2f305668cee19413c9f4b62de583ecb915790c779c4e07c23ec64468afb9011ec0760d00
++1265987 00000145dae6cdfabdd54f4e04d8deb009971636b49ddc16f6736954827df714 000000209fe3b89f8e402bfb8f2aa72c6918a8f664802ebe660c01b1c71e62768b0100006e2422db31a3d5fd62063cd816a66b222a1a41314c105bcebab26464039683d360c64468dbca011ef4b70b00
++1265988 0000016fe95a84bbba651a68428b2f95a96b47958923b2f7ad564acf71755206 0000002014f77d82546973f616dc9db436169709b0ded8044e4fd5bdfacde6da45010000c37b14cc782aeccc05513c518cbd504e14bb6fb4858cabed928ab11c2f3f61cb38c7446875c2011ea36f0900
++1265989 000001c5e19ac095ace104df5a3b64f05ba2b33efbff8106e6ce87985c513505 0000002006527571cf4a56adf7b2238995476ba9952f8b42681a65babb845ae96f010000de96c9886ef03e2a4d267acb646c70984ef1603110e9a9d11f461400e4478e3045c8446811d4011eb5450900
++1265990 000001c5f5c45f9e2fe5fb3722192f0f6f40a6b3e7af488e38f0850ba372a6e6 000000200535515c9887cee60681fffb3eb3a25bf0643b5adf04e1ac95c09ae1c5010000b2d65b702078b3a98e529716f72742ce18da27dfcb23a573c9c2dc224653bb8d52c9446895d4011e1acc0100
++1265991 000000250ee2d00b9a5210854faa556e792f20dd1de5f2c298108b86fb56cd53 00000020e6a672a30b85f0388e48afe7b3a6406f0f2f192237fbe52f9e5fc4f5c5010000a1ca113308b163376869aabc2847489b493c739e21760a904d387698ab7985c68bc9446858e5011e83bd0b00
++1265992 00000062e7bf1883f8b5748f255acc682fdab5576ecc87a9bdfa8d5f3608fa4f 0000002053cd56fb868b1098c2f2e51ddd202f796e55aa4f8510529a0bd0e20e250000006a60aee15f96b1051a2c364902108e7a81460f85bf315f621ce66d9efd2d4c172cca4468c7cb011e29220c00
++1265993 0000003377666e82262fcc52a2d93c028ab0619f8e8f4942e5c5f0d26953a1ba 000000204ffa08365f8dfabda987cc6e57b5da2f68cc5a258f74b5f88318bfe762000000cfe10cf46979d91132d5c26e2d070a86e4e0bb5afbc8e0e372f735fbbd2bccfb61cb4468dbd9011e5ea40100
++1265994 0000016d2a74a5d632fe74a80c181a99ce1865338d88c559a1fd0dce179f6eb8 00000020baa15369d2f0c5e542498f8e9f61b08a023cd9a252cc2f26826e667733000000444fb391f6c12f2f2bdcea8a1759cf80cf29f0c755e759cea6f325173ef025be76cb4468d3f6011e16780d00
++1265995 00000183bcaeb30a8057b70558ac4ecd2b05c7ae6990fda868b19fa2f8eb3b44 00000020b86e9f17ce0dfda159c5888d336518ce991a180ca874fe32d6a5742a6d010000bf8f2e2f8b71272373ebb38f9e2ea3f5d1b06484e01efb81cc08e4ddfe98f2cee3cc44682ae6011e072b0900
++1265996 00000148964edf5afdbac21e14891a2c735b49b02ec297f347135e894bec47f8 00000020443bebf8a29fb168a8fd9069aec7052bcd4eac5805b757800ab3aebc8301000097e6d60c804007427ed14f5e036736fcb7c44fce463ba3cff200d64dd4547e1b93cd4468dd00021e89e70400
++1265997 0000003f973d7590105d57d72ccffc4a6933e10c7f5f9a4e37ccbeab657f4d70 00000020f847ec4b895e1347f397c22eb0495b732c1a89141ec2bafd5adf4e9648010000199de1d9a9d1f4d5cfaf34bb4e6bfc02e91b4c2e0c7289ae7eb9956984427d23f4cd4468b1e5011e043c0900
++1265998 000000fb409e43e89af09902c622e023e9ca90e16c52bd5ac77d74903ec9af62 00000020704d7f65abbecc374e9a5f7f0ce133694afccf2cd7575d1090753d973f0000007e3ec04d9a22cfbd1149cd4a6c6b2bd206926b49a2c4864185570b20e41a2760c9ce446867e7011e33a50500
++1265999 000000f08ea76770df36e5655416a7e58e0784bb5bd6e3864d984c98f8279f4a 0000002062afc93e90747dc75abd526ce190cae923e022c60299f09ae8439e40fb0000007aee7e6f4008d47a2a7fc25b99fce16a5d9737e9da1ffe9f4d73d091c193bf3319cf446837f2011ea6340200
++1266000 00000038d785dc6a764f152ecc90c755229800ed67f16d04fe5fa43e58cdebaa 000000204a9f27f8984c984d86e3d65bbb84078ee5a7165465e536df7067a78ef00000000301d99caf95b5e69e41959725d8f7eb6378310452441e2967b1bb5db719848c52cf44681dfc011e68070600
++1266001 000000954c5104db784fb3256bac8d4ee897442ca8d577816a7fe25e430ba43f 00000020aaebcd583ea45ffe046df167ed00982255c790cc2e154f766adc85d738000000d1dbf05313d670d7c557adcd245f41ac84af234ad5826d16d4450b1f2f38384da3cf446882f9011eadda0e00
++1266002 00000097aeb54d09b6fd093797fda0c8f55bc79a07d8fdeb624476543430d4ce 000000203fa40b435ee27f6a8177d5a82c4497e84e8dac6b25b34f78db04514c9500000077c153398206713c6b0b53b3635fec51c528b4543814902b6a3761746051a1e291d0446883c9011eb73e0100
++1266003 0000009ec6f330c358b2b861c6f2e06f609bc1f015f90d262af1aa639e3f2c30 00000020ced4303454764462ebfdd8079ac75bf5c8a0fd973709fdb6094db5ae97000000427627136488f6d21212cb8d7db6af85d35b78905f1351af1c87b26d5b10faaa6ed144686fd1011e6ddd0c00
++1266004 00000068b06eb89f4431519267d5cdcd9a49a873b7163eb7ac8ad804f19c9fb5 00000020302c3f9e63aaf12a260df915f0c19b606fe0f2c661b8b258c330f3c69e000000a303bf14dac3dc6c735d2774ec2da180815926046d3091adad4596c9e4e39562b4d14468b4e0011e57a80800
++1266005 000000d54f4b0296cb80b8e16630838032a76502e9b16e26cea6c11251a851be 00000020b59f9cf104d88aacb73e16b773a8499acdcdd567925131449fb86eb068000000de84776fba1d5b71be4ae76afee5a69954798fdee7ade9a7d83ab544b9568c45e3d144684eda011ec61b0e00
++1266006 00000124db3c2ede9245457d427a3af12cdbf16898c42586a06dd9cf3fd5a6ac 00000020be51a85112c1a6ce266eb1e90265a73280833066e1b880cb96024b4fd5000000b31b5a6338233a6cbdf7d5aef9e6c90e7476ed6f843ea1ff103aab22c128763488d34468dcc3011ebf670a00
++1266007 000004d3c669d4bcc90e64b3c3f887cddd3333df458c53dd302926967a7ff9ad 00000020aca6d53fcfd96da08625c49868f1db2cf13a7a427d454592de2e3cdb24010000ef033c450b23700296c70774f81d66726153ab7a1ef4fb08f9e4829142fb1836f2d54468ffff0f1ebc1c0000
++1266008 0000006f1d3fa1305278f6c35168a6d31df9fb9b1dc9bf3ca701a893cd3349a5 00000020adf97f7a96262930dd538c45df3333ddcd87f8c3b3640ec9bcd469c6d304000042596010f2ba18141a356aa32262d4e1eb863d5b7a91970c24471e9cab0d4a6b05d64468459f031eeac00d00
++1266009 000002fc5527cb514d8616c7e506a2a8bdb11c2c4120ec0d71efc992386a2c8e 00000020a54933cd93a801a73cbfc91d9bfbf91dd3a66851c3f6785230a13f1d6f000000fcb72100bced427edb016dcb43fe831b66a053b7698767401728dbcc1497e45bcdd644681dff021e97ba0b00
++1266010 0000015ba30567ce8ceed26e2bd85fa4c1abb6b94be0d0a8344e669d5c462c93 000000208e2c6a3892c9ef710dec20412c1cb1bda8a206e5c716864d51cb2755fc020000e69e1c072f94fa349623c92f6824e753a675d5c35661520840ed250bc776f14800d74468f30c031e2ce00a00

@@ -72,6 +72,9 @@ fn spv_network_subscriber(dir: &Path) -> Option<impl tracing::Subscriber + Send 
     let only_network = custom_spv_filter().unwrap_or_else(|| {
         tracing_subscriber::filter::Targets::new()
             .with_target("dash_spv::network", tracing::Level::INFO)
+            // BUG-257: the header sync's own warnings and errors (a lost drain, a restart of
+            // its pipeline), which the peer lines alone did not show.
+            .with_target("dash_spv::sync::block_headers", tracing::Level::WARN)
     });
     let lines = tracing_subscriber::fmt::layer()
         .with_ansi(false)
@@ -617,6 +620,11 @@ mod tests {
             );
             tracing::debug!(target: "dash_spv::network::manager", "below info");
             tracing::warn!(target: "dash_spv::sync", "another target");
+            tracing::warn!(
+                target: "dash_spv::sync::block_headers::manager",
+                "restarting the header pipeline"
+            );
+            tracing::info!(target: "dash_spv::sync::block_headers::manager", "a header info");
         });
         let written = std::fs::read_to_string(logs.join(super::SPV_NETWORK_LOG)).unwrap();
         assert!(
@@ -626,7 +634,13 @@ mod tests {
         assert!(written.contains("invalid block headers"), "{written}");
         assert!(!written.contains("below info"), "{written}");
         assert!(!written.contains("another target"), "{written}");
-        assert_eq!(written.lines().count(), 1, "one line: {written}");
+        // BUG-257: the header sync's warnings, not its info.
+        assert!(
+            written.contains("restarting the header pipeline"),
+            "{written}"
+        );
+        assert!(!written.contains("a header info"), "{written}");
+        assert_eq!(written.lines().count(), 2, "two lines: {written}");
         let _ = std::fs::remove_dir_all(logs.parent().unwrap());
     }
 }

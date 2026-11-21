@@ -15,6 +15,7 @@ use crate::chain::{ChainWork, CheckpointManager};
 use crate::error::{SyncError, SyncResult};
 use crate::network::RequestSender;
 use crate::storage::{BlockHeaderStorage, BlockHeaderTip, MetadataStorage};
+use crate::sync::block_headers::pipeline::SegmentTail;
 use crate::sync::block_headers::HeadersPipeline;
 use crate::sync::{
     BlockHeadersProgress, ProgressPercentage, SyncEvent, SyncManager, SyncState,
@@ -28,6 +29,16 @@ use dashcore::network::message_blockdata::Inventory;
 use dashcore::pow::DGW_PAST_BLOCKS;
 use dashcore::{BlockHash, Network};
 use tokio::sync::RwLock;
+
+/// evolite (BUG-257): what received headers extend.
+enum Attach {
+    /// A stored block or a segment's tip at this height, with the headers before it.
+    At(u32, Vec<Header>),
+    /// Nothing we hold.
+    Nowhere,
+    /// A segment's tip with nothing to check them on: they are neither checked nor routed.
+    Unchecked,
+}
 
 /// evolite (SPV item 1): the most headers a branch is held in memory for while it has
 /// no more work than ours. Past that it is dropped and its peer disconnected.
@@ -161,21 +172,83 @@ impl<H: BlockHeaderStorage, M: MetadataStorage> BlockHeadersManager<H, M> {
         Ok(headers.iter().map(|header| *header.header()).collect())
     }
 
-    /// Height and ancestors of the block `headers` extend, a stored block or a
-    /// segment's tip. `None` if it's neither, as then nothing follows from them.
-    async fn attach_point(
-        &self,
-        headers: &[HashedBlockHeader],
-    ) -> SyncResult<Option<(u32, Vec<Header>)>> {
+    /// What `headers` extend, with the headers their difficulty is computed from: a stored
+    /// block, a segment's tip, or nothing we hold.
+    async fn attach_point(&self, headers: &[HashedBlockHeader]) -> SyncResult<Attach> {
         let Some(first) = headers.first() else {
-            return Ok(None);
+            return Ok(Attach::Nowhere);
         };
         let parent = first.header().prev_blockhash;
         let height = self.header_storage.read().await.get_header_height_by_hash(&parent).await?;
-        match height {
-            Some(height) => Ok(Some((height, self.ancestors(height).await?))),
-            None => Ok(self.pipeline.segment_ancestors(&parent)),
+        if let Some(height) = height {
+            return Ok(Attach::At(height, self.ancestors(height).await?));
         }
+        let Some(tail) = self.pipeline.segment_tail(&parent) else {
+            return Ok(Attach::Nowhere);
+        };
+        let height = tail.height;
+        Ok(match self.segment_window(tail, &parent).await? {
+            Some(window) => Attach::At(height, window),
+            None => Attach::Unchecked,
+        })
+    }
+
+    /// evolite (BUG-257): the window a segment's next headers are checked on (its buffered
+    /// headers, and below them the store after a drain, or the checkpoint it starts at),
+    /// only when it really ends at `parent`, each part joined to the next. `None`: the
+    /// headers between are neither buffered nor stored.
+    async fn segment_window(
+        &self,
+        tail: SegmentTail,
+        parent: &BlockHash,
+    ) -> SyncResult<Option<Vec<Header>>> {
+        let SegmentTail {
+            below,
+            recent,
+            checkpoint,
+            ..
+        } = tail;
+        // What the oldest buffered header follows; with none buffered, the batch itself.
+        let joins = recent.first().map_or(*parent, |header| header.prev_blockhash);
+        let mut window = if recent.len() >= DGW_PAST_BLOCKS {
+            Vec::new()
+        } else if let Some(last) = checkpoint.last() {
+            if last.block_hash() != joins {
+                return Ok(None);
+            }
+            checkpoint
+        } else {
+            let stored = self.header_storage.read().await.get_header(below).await?;
+            if stored.is_none_or(|header| *header.hash() != joins) {
+                return Ok(None);
+            }
+            self.ancestors(below).await?
+        };
+        window.extend(recent);
+        let ends_at_parent = window.last().map(Header::block_hash) == Some(*parent);
+        Ok(ends_at_parent.then_some(window))
+    }
+
+    /// evolite (BUG-257): headers follow a segment tip with nothing to check them on, a
+    /// drain whose headers never reached the store. Every honest peer's answer would look
+    /// invalid there, so nobody is banned: the pipeline starts again from the stored tip,
+    /// and what was lost is downloaded again.
+    async fn restart_from_store(
+        &mut self,
+        peer: SocketAddr,
+        requests: &RequestSender,
+    ) -> SyncResult<Vec<SyncEvent>> {
+        let tip = self.tip().await?;
+        tracing::warn!(
+            "Headers from {} follow a segment tip with nothing stored or buffered below it: \
+             restarting the header pipeline from the stored tip {}",
+            peer,
+            tip.height()
+        );
+        let target = self.progress.target_height().max(tip.height());
+        self.pipeline.init(tip.height(), *tip.hash(), target);
+        self.pipeline.send_pending(requests)?;
+        Ok(Vec::new())
     }
 
     /// Store an already validated headers batch.
@@ -213,9 +286,12 @@ impl<H: BlockHeaderStorage, M: MetadataStorage> BlockHeadersManager<H, M> {
         // evolite (SPV P0): validated against the stored block or the segment tip they extend
         // before routing (#1304), so a fork is never detected on headers nobody checked.
         let attached = self.attach_point(headers).await?;
-        if let Some((height, ancestors)) = &attached {
-            if let Err(e) =
-                BlockHeaderValidator::new(self.network, ancestors.clone(), *height).validate(headers)
+        if matches!(attached, Attach::Unchecked) {
+            return self.restart_from_store(peer, requests).await;
+        }
+        if let Attach::At(height, ancestors) = &attached {
+            if let Err(e) = BlockHeaderValidator::new(self.network, ancestors.clone(), *height)
+                .validate(headers)
             {
                 // The peer that sent them is banned, as #1304 does — here an evolite
                 // adaptation through `RequestSender` (#1304 bans through the #902 network).
@@ -253,7 +329,7 @@ impl<H: BlockHeaderStorage, M: MetadataStorage> BlockHeadersManager<H, M> {
             // evolite (SPV item 1б): synced, and they extend nothing we have — after a block
             // race we may sit on a block the network left. The peer is asked with a locator,
             // so it answers from our common ancestor, a branch `weigh_fork` can weigh.
-            if attached.is_none() && self.state() == SyncState::Synced {
+            if matches!(attached, Attach::Nowhere) && self.state() == SyncState::Synced {
                 self.ask_with_locator(Some(peer), requests).await?;
             }
             tracing::debug!(
@@ -873,7 +949,14 @@ mod tests {
                 banned.push(address);
             }
         }
-        assert_eq!(banned, if valid { vec![] } else { vec![peer()] });
+        assert_eq!(
+            banned,
+            if valid {
+                vec![]
+            } else {
+                vec![peer()]
+            }
+        );
         let forked = result.is_ok_and(|events| {
             events.iter().any(|event| matches!(event, SyncEvent::ForkDetected { .. }))
         });
@@ -937,6 +1020,300 @@ mod tests {
         }
         assert_eq!(banned, vec![peer()], "its peer banned");
         assert_eq!(manager.tip().await.unwrap().height(), tip, "the tip stays");
+    }
+
+    /// BUG-257: the real testnet headers 1265950..=1266010, read from a synced store, each
+    /// one's parent the one before.
+    fn testnet_1266000() -> Vec<HashedBlockHeader> {
+        include_str!("testnet_headers_1265950.txt")
+            .lines()
+            .map(|line| {
+                let [_, hash, header] = line.split(' ').collect::<Vec<_>>()[..] else {
+                    panic!("height, hash and header");
+                };
+                let header: Header = dashcore::consensus::deserialize(
+                    &hex_conservative::decode_to_vec(header).unwrap(),
+                )
+                .unwrap();
+                let hashed = HashedBlockHeader::from(header);
+                assert_eq!(hashed.hash().to_string(), hash);
+                hashed
+            })
+            .collect()
+    }
+
+    const TESTNET_FIRST: u32 = 1_265_950;
+    const TESTNET_CHECKPOINT: u32 = 1_250_000;
+
+    /// The real testnet headers from `from` to `to`, both included.
+    fn testnet_range(chain: &[HashedBlockHeader], from: u32, to: u32) -> Vec<HashedBlockHeader> {
+        chain[(from - TESTNET_FIRST) as usize..=(to - TESTNET_FIRST) as usize].to_vec()
+    }
+
+    /// What the network was asked: bans, and the first hash of each getheaders.
+    fn bans_and_asks(
+        rx: &mut tokio::sync::mpsc::UnboundedReceiver<NetworkRequest>,
+    ) -> (Vec<SocketAddr>, Vec<BlockHash>) {
+        let (mut banned, mut asked) = (Vec::new(), Vec::new());
+        while let Ok(request) = rx.try_recv() {
+            match request {
+                NetworkRequest::BanPeer(address, _) => banned.push(address),
+                NetworkRequest::SendMessage(NetworkMessage::GetHeaders(m))
+                | NetworkRequest::SendMessageToPeer(NetworkMessage::GetHeaders(m), _) => {
+                    asked.push(m.locator_hashes[0])
+                }
+                _ => {}
+            }
+        }
+        (banned, asked)
+    }
+
+    /// BUG-257: a testnet manager syncing one segment from the checkpoint at 1250000 that has
+    /// reached 1266000 and asked for what follows. The store holds the real headers up to
+    /// `stored`; the segment still buffers those from `buffered_from` to 1266000 (none when
+    /// above it). A drain moves a segment's buffer into the store: `buffered_from` =
+    /// `stored` + 1 is a partial drain, anything higher a drain whose headers the store
+    /// never got.
+    async fn drained_testnet(
+        chain: &[HashedBlockHeader],
+        stored: u32,
+        buffered_from: u32,
+    ) -> (
+        TestBlockHeadersManager,
+        RequestSender,
+        tokio::sync::mpsc::UnboundedReceiver<NetworkRequest>,
+    ) {
+        let mut storage = DiskStorageManager::with_temp_dir().await.unwrap();
+        storage
+            .store_headers_at_height(&testnet_range(chain, TESTNET_FIRST, stored), TESTNET_FIRST)
+            .await
+            .unwrap();
+        let mut manager = BlockHeadersManager::new(
+            storage.block_headers(),
+            storage.metadata(),
+            create_test_checkpoint_manager(),
+            Network::Testnet,
+        )
+        .await
+        .unwrap();
+        let checkpoint = create_test_checkpoint_manager()
+            .last_checkpoint_before_height(TESTNET_CHECKPOINT)
+            .unwrap();
+        assert_eq!(checkpoint.height(), TESTNET_CHECKPOINT);
+        manager.pipeline.init(TESTNET_CHECKPOINT, *checkpoint.hash(), 1_266_010);
+        manager.progress.set_state(SyncState::Syncing);
+        manager.progress.update_target_height(1_266_010);
+        let (requests, rx) = create_test_request_sender();
+        let segment = manager.pipeline.segment_mut(0);
+        segment.current_height = 1_266_000;
+        segment.current_tip_hash = *testnet_range(chain, 1_266_000, 1_266_000)[0].hash();
+        segment.buffered_headers = if buffered_from <= 1_266_000 {
+            testnet_range(chain, buffered_from, 1_266_000)
+        } else {
+            Vec::new()
+        };
+        segment.send_request(&requests).unwrap();
+        (manager, requests, rx)
+    }
+
+    /// BUG-257 (the QA run, testnet from zero): Dark Gravity Wave on the real chain takes
+    /// 1266001.. from the 24 headers before; checked against the checkpoint's headers
+    /// instead (26 days older), testnet's «more than two hours since the last block» rule
+    /// asks the proof-of-work limit — exactly the refusal that banned every peer.
+    #[test]
+    fn the_real_testnet_headers_pass_dgw_only_on_their_own_window() {
+        let chain = testnet_1266000();
+        let batch = testnet_range(&chain, 1_266_001, 1_266_010);
+        let own: Vec<Header> =
+            testnet_range(&chain, 1_265_977, 1_266_000).iter().map(|h| *h.header()).collect();
+        assert_eq!(own.len(), DGW_PAST_BLOCKS);
+        BlockHeaderValidator::new(Network::Testnet, own, 1_266_000)
+            .validate(&batch)
+            .expect("the real chain passes on its own window");
+
+        let checkpoint: Vec<Header> = create_test_checkpoint_manager()
+            .last_checkpoint_before_height(TESTNET_CHECKPOINT)
+            .unwrap()
+            .headers()
+            .iter()
+            .map(|h| *h.header())
+            .collect();
+        let stale = BlockHeaderValidator::new(Network::Testnet, checkpoint, 1_266_000)
+            .validate(&batch)
+            .unwrap_err();
+        assert!(
+            format!("{stale}").contains("height 1266001")
+                && format!("{stale}").contains("required 0x1e0fffff"),
+            "the QA refusal: {stale}"
+        );
+    }
+
+    /// BUG-257: a segment drained into the store part of the way keeps fewer than 24 headers;
+    /// the window is completed from the store, the real chain passes and nobody is banned.
+    #[tokio::test]
+    async fn a_partly_drained_segment_is_checked_on_its_stored_headers() {
+        let chain = testnet_1266000();
+        let (mut manager, requests, mut rx) = drained_testnet(&chain, 1_265_990, 1_265_991).await;
+        let _ = bans_and_asks(&mut rx);
+        let batch = testnet_range(&chain, 1_266_001, 1_266_010);
+
+        let result = manager.handle_headers_pipeline(peer(), &batch, &requests).await;
+
+        assert!(result.is_ok(), "{result:?}");
+        assert_eq!(bans_and_asks(&mut rx).0, Vec::<SocketAddr>::new(), "nobody banned");
+        assert_eq!(manager.pipeline.segment_mut(0).current_height, 1_266_010, "routed");
+    }
+
+    /// BUG-257, the QA signature: a segment drained whose headers never reached the store
+    /// has nothing to check the next headers on. The peer is not banned; the pipeline starts
+    /// again from the stored tip and asks from there.
+    #[tokio::test]
+    async fn headers_on_a_segment_whose_drain_was_lost_ban_nobody_and_restart_from_the_store() {
+        let chain = testnet_1266000();
+        let (mut manager, requests, mut rx) = drained_testnet(&chain, 1_265_990, 1_266_001).await;
+        let _ = bans_and_asks(&mut rx);
+        let batch = testnet_range(&chain, 1_266_001, 1_266_010);
+
+        let result = manager.handle_headers_pipeline(peer(), &batch, &requests).await;
+
+        assert!(result.is_ok(), "{result:?}");
+        let (banned, asked) = bans_and_asks(&mut rx);
+        assert_eq!(banned, Vec::<SocketAddr>::new(), "nobody banned");
+        let stored_tip = *testnet_range(&chain, 1_265_990, 1_265_990)[0].hash();
+        assert!(asked.contains(&stored_tip), "asked again from the stored tip: {asked:?}");
+        assert_eq!(manager.pipeline.segment_mut(0).current_height, 1_265_990);
+        assert_eq!(manager.tip().await.unwrap().height(), 1_265_990, "the store unchanged");
+    }
+
+    /// BUG-257: the window completed from the store still refuses a bad header: a sibling of
+    /// the real 1266001 with easy bits and its own proof of work, on a partly drained
+    /// segment, is refused for its difficulty and its peer banned.
+    #[tokio::test]
+    async fn a_forged_header_on_a_drained_segment_is_still_refused_and_banned() {
+        let chain = testnet_1266000();
+        let (mut manager, requests, mut rx) = drained_testnet(&chain, 1_265_990, 1_265_991).await;
+        let _ = bans_and_asks(&mut rx);
+        let mut forged = *testnet_range(&chain, 1_266_001, 1_266_001)[0].header();
+        forged.bits = dashcore::CompactTarget::from_consensus(0x207f_ffff);
+        while !forged.target().is_met_by(forged.block_hash()) {
+            forged.nonce = forged.nonce.wrapping_add(1);
+        }
+
+        let result = manager.handle_headers_pipeline(peer(), &[forged.into()], &requests).await;
+
+        assert!(format!("{result:?}").contains("ifficulty"), "{result:?}");
+        assert_eq!(bans_and_asks(&mut rx).0, vec![peer()], "its peer banned");
+    }
+
+    /// BUG-257: the real testnet headers 1250001..=1250010, right after the checkpoint at
+    /// 1250000, read from a synced store.
+    fn testnet_1250001() -> Vec<HashedBlockHeader> {
+        include_str!("testnet_headers_1250001.txt")
+            .lines()
+            .map(|line| {
+                let [_, hash, header] = line.split(' ').collect::<Vec<_>>()[..] else {
+                    panic!("height, hash and header");
+                };
+                let header: Header = dashcore::consensus::deserialize(
+                    &hex_conservative::decode_to_vec(header).unwrap(),
+                )
+                .unwrap();
+                let hashed = HashedBlockHeader::from(header);
+                assert_eq!(hashed.hash().to_string(), hash);
+                hashed
+            })
+            .collect()
+    }
+
+    /// A testnet manager whose store holds a few unrelated real headers (above the ones the
+    /// test sends), so nothing the batch extends is stored.
+    async fn testnet_manager() -> TestBlockHeadersManager {
+        let chain = testnet_1266000();
+        let mut storage = DiskStorageManager::with_temp_dir().await.unwrap();
+        storage.store_headers_at_height(&chain[..5], TESTNET_FIRST).await.unwrap();
+        BlockHeadersManager::new(
+            storage.block_headers(),
+            storage.metadata(),
+            create_test_checkpoint_manager(),
+            Network::Testnet,
+        )
+        .await
+        .unwrap()
+    }
+
+    fn testnet_checkpoint(height: u32) -> BlockHash {
+        let checkpoint =
+            create_test_checkpoint_manager().last_checkpoint_before_height(height).unwrap();
+        assert_eq!(checkpoint.height(), height);
+        *checkpoint.hash()
+    }
+
+    /// BUG-257 (the architect's case 1): a segment's first headers, from the checkpoint it
+    /// starts at with nothing buffered yet (the segment before it still downloading), are
+    /// checked on the checkpoint's own headers and taken.
+    #[tokio::test]
+    async fn a_segments_first_headers_are_checked_on_its_checkpoint() {
+        let mut manager = testnet_manager().await;
+        manager.pipeline.init(1_200_000, testnet_checkpoint(1_200_000), 1_250_010);
+        manager.progress.set_state(SyncState::Syncing);
+        let (requests, mut rx) = create_test_request_sender();
+        manager.pipeline.segment_mut(1).send_request(&requests).unwrap();
+        let _ = bans_and_asks(&mut rx);
+
+        let result = manager.handle_headers_pipeline(peer(), &testnet_1250001(), &requests).await;
+
+        assert!(result.is_ok(), "{result:?}");
+        assert_eq!(bans_and_asks(&mut rx).0, Vec::<SocketAddr>::new(), "nobody banned");
+        assert_eq!(manager.pipeline.segment_mut(1).current_height, 1_250_010, "taken");
+    }
+
+    /// BUG-257 (the architect's case 2): across a segment boundary two segments end at the
+    /// checkpoint's hash, the finished one (drained) and the next one at its start. The
+    /// headers that follow are the next one's, checked on the checkpoint's headers; the old
+    /// answer took the finished one and checked them 50000 blocks back.
+    #[tokio::test]
+    async fn headers_across_a_segment_boundary_are_checked_on_the_next_segment() {
+        let mut manager = testnet_manager().await;
+        manager.pipeline.init(1_200_000, testnet_checkpoint(1_200_000), 1_250_010);
+        manager.progress.set_state(SyncState::Syncing);
+        let (requests, mut rx) = create_test_request_sender();
+        let finished = manager.pipeline.segment_mut(0);
+        finished.current_height = TESTNET_CHECKPOINT;
+        finished.current_tip_hash = testnet_checkpoint(TESTNET_CHECKPOINT);
+        finished.complete = true;
+        manager.pipeline.segment_mut(1).send_request(&requests).unwrap();
+        let _ = bans_and_asks(&mut rx);
+
+        let result = manager.handle_headers_pipeline(peer(), &testnet_1250001(), &requests).await;
+
+        assert!(result.is_ok(), "{result:?}");
+        assert_eq!(bans_and_asks(&mut rx).0, Vec::<SocketAddr>::new(), "nobody banned");
+        assert_eq!(manager.pipeline.segment_mut(1).current_height, 1_250_010);
+    }
+
+    /// BUG-257 (the architect's case 3): after the restart from the stored tip the lost
+    /// headers come again, are checked on the store and stored, and so are the next ones:
+    /// one restart, no loop, nobody banned.
+    #[tokio::test]
+    async fn the_restart_from_the_stored_tip_does_not_loop() {
+        let chain = testnet_1266000();
+        let (mut manager, requests, mut rx) = drained_testnet(&chain, 1_265_990, 1_266_001).await;
+        let _ = bans_and_asks(&mut rx);
+        let lost = testnet_range(&chain, 1_266_001, 1_266_010);
+        manager.handle_headers_pipeline(peer(), &lost, &requests).await.unwrap();
+        let (_, asked) = bans_and_asks(&mut rx);
+        let stored_tip = *testnet_range(&chain, 1_265_990, 1_265_990)[0].hash();
+        assert_eq!(asked, vec![stored_tip], "one restart");
+
+        for (from, to) in [(1_265_991, 1_266_000), (1_266_001, 1_266_010)] {
+            let batch = testnet_range(&chain, from, to);
+            let result = manager.handle_headers_pipeline(peer(), &batch, &requests).await;
+            assert!(result.is_ok(), "{from}: {result:?}");
+            let (banned, asked) = bans_and_asks(&mut rx);
+            assert_eq!(banned, Vec::<SocketAddr>::new(), "{from}: nobody banned");
+            assert!(!asked.contains(&stored_tip), "{from}: no second restart: {asked:?}");
+        }
+        assert_eq!(manager.tip().await.unwrap().height(), 1_266_010, "all stored");
     }
 
     /// evolite (SPV item 1): heights where regtest checks a header's bits against its
@@ -1595,7 +1972,8 @@ mod tests {
         manager.progress.set_state(SyncState::Syncing);
 
         let (requests, mut rx) = create_test_request_sender();
-        let events = manager.handle_headers_pipeline(peer(), &[chain[0].into()], &requests).await.unwrap();
+        let events =
+            manager.handle_headers_pipeline(peer(), &[chain[0].into()], &requests).await.unwrap();
 
         assert_eq!(events.len(), ACTIVE_SEGMENT_WINDOW);
         match rx.try_recv().expect("response cycle did not refill active window") {

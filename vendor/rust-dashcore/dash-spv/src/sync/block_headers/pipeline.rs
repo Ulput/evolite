@@ -18,6 +18,21 @@ use crate::types::HashedBlockHeader;
 /// Keep enough checkpoint segments active to saturate decompression while bounding buffered data.
 pub(super) const ACTIVE_SEGMENT_WINDOW: usize = 8;
 
+/// evolite (BUG-257): what a segment holds to check the headers that follow its tip.
+/// `recent`: its last buffered headers (at most a Dark Gravity Wave window), oldest first;
+/// `below`: the height just under them. A drain moves a segment's older headers into the
+/// store, so below `recent` the window comes from the store, or from `checkpoint` (the
+/// headers of the checkpoint the segment starts at) while the buffer still reaches down to
+/// it. The old answer put the checkpoint's headers right under the last 24 buffered ones,
+/// whatever lay between: after a drain the window ended 26 days back and every honest peer
+/// was banned (testnet from zero stopped at 1266001).
+pub(super) struct SegmentTail {
+    pub(super) height: u32,
+    pub(super) below: u32,
+    pub(super) recent: Vec<Header>,
+    pub(super) checkpoint: Vec<Header>,
+}
+
 /// Pipeline for parallel header downloads across checkpoint-defined segments.
 ///
 /// Divides the blockchain into segments based on checkpoints and downloads
@@ -209,23 +224,43 @@ impl HeadersPipeline {
         Ok(None)
     }
 
-    /// Height and ancestors of the segment whose tip is `hash`, if any: the
-    /// checkpoint it starts at and the headers it has buffered since.
-    pub(super) fn segment_ancestors(&self, hash: &BlockHash) -> Option<(u32, Vec<Header>)> {
-        let segment = self.segments.iter().find(|segment| segment.matches(hash))?;
+    /// What the segment whose tip is `hash` holds to check the headers that follow it
+    /// (BUG-257): see [`SegmentTail`]. Of two segments ending at one hash (a completed one
+    /// whose tip is the checkpoint the next starts at), the one still downloading.
+    pub(super) fn segment_tail(&self, hash: &BlockHash) -> Option<SegmentTail> {
+        let segment = self
+            .segments
+            .iter()
+            .filter(|segment| segment.matches(hash))
+            .min_by_key(|segment| segment.complete)?;
+        let buffered = &segment.buffered_headers;
+        let recent: Vec<Header> = buffered[buffered.len().saturating_sub(DGW_PAST_BLOCKS)..]
+            .iter()
+            .map(|header| *header.header())
+            .collect();
+        let below = segment.current_height - recent.len() as u32;
+        // The checkpoint's headers end at the segment's start: they serve only while nothing
+        // between the start and the buffer is missing.
         let checkpoint = self
             .checkpoint_manager
             .last_checkpoint_before_height(segment.start_height)
-            .filter(|checkpoint| checkpoint.height() == segment.start_height);
-        let buffered = &segment.buffered_headers;
-        let recent = &buffered[buffered.len().saturating_sub(DGW_PAST_BLOCKS)..];
-        let ancestors = checkpoint
-            .into_iter()
-            .flat_map(|checkpoint| checkpoint.headers())
-            .chain(recent)
-            .map(|header| *header.header())
-            .collect();
-        Some((segment.current_height, ancestors))
+            .filter(|checkpoint| {
+                checkpoint.height() == segment.start_height && below == segment.start_height
+            })
+            .map(|checkpoint| checkpoint.headers().iter().map(|h| *h.header()).collect())
+            .unwrap_or_default();
+        Some(SegmentTail {
+            height: segment.current_height,
+            below,
+            recent,
+            checkpoint,
+        })
+    }
+
+    /// A segment, for tests that put it in a state a sync reaches.
+    #[cfg(test)]
+    pub(super) fn segment_mut(&mut self, index: usize) -> &mut SegmentState {
+        &mut self.segments[index]
     }
 
     /// Get segments that are ready to store (complete and in order).
@@ -666,48 +701,64 @@ mod tests {
         assert!(pipeline.segments[0].buffered_headers.is_empty());
     }
 
-    /// A segment's ancestors are the checkpoint it starts at, if it starts at
-    /// one, followed by the last headers it buffered.
+    /// evolite (BUG-257): a segment's tail is its last buffered headers (at most 24) and the
+    /// height under them; the checkpoint's headers only while the buffer reaches down to the
+    /// checkpoint the segment starts at — never glued under a buffer with headers missing
+    /// between, as the old answer did after a drain.
     #[test]
-    fn test_segment_ancestors() {
+    fn test_segment_tail() {
         let cm = create_test_checkpoint_manager(true);
         let checkpoint = cm.checkpoints().next().unwrap();
-        let segment = |id, start_height, start_hash| {
-            let buffered: Vec<HashedBlockHeader> =
-                Header::dummy_chain(30, start_hash).iter().map(HashedBlockHeader::from).collect();
+        let segment = |id, start_height, start_hash, count: usize, drained: usize| {
+            let chain: Vec<HashedBlockHeader> = Header::dummy_chain(count, start_hash)
+                .iter()
+                .map(HashedBlockHeader::from)
+                .collect();
             let mut segment = SegmentState::new(id, start_height, start_hash, None, None);
-            segment.current_height = start_height + 30;
-            segment.current_tip_hash = *buffered[29].hash();
-            segment.buffered_headers = buffered;
+            segment.current_height = start_height + count as u32;
+            segment.current_tip_hash = *chain[count - 1].hash();
+            segment.buffered_headers = chain[drained..].to_vec();
             segment
+        };
+        let headers = |hashed: &[HashedBlockHeader]| -> Vec<Header> {
+            hashed.iter().map(|header| *header.header()).collect()
         };
         let mut pipeline = HeadersPipeline::new(cm);
         pipeline.initialized = true;
+        let at = checkpoint.height();
         pipeline.segments = vec![
-            segment(0, checkpoint.height(), *checkpoint.hash()),
-            // Above the checkpoint, so it must not take its headers.
-            segment(1, checkpoint.height() + 100, BlockHash::dummy(10)),
+            // At the checkpoint, 10 buffered: the checkpoint's headers under them.
+            segment(0, at, *checkpoint.hash(), 10, 0),
+            // At the checkpoint, 30 buffered: the last 24, nothing under them yet.
+            segment(1, at, BlockHash::dummy(21), 30, 0),
+            // At the checkpoint, 30 received, 25 drained: 5 buffered, the store under them.
+            segment(2, at, BlockHash::dummy(22), 30, 25),
+            // Above any checkpoint, 10 buffered: no checkpoint headers.
+            segment(3, at + 100, BlockHash::dummy(10), 10, 0),
         ];
-        let recent = |segment: &SegmentState| -> Vec<Header> {
-            segment.buffered_headers[6..].iter().map(|header| *header.header()).collect()
-        };
+        let tail =
+            |i: usize| pipeline.segment_tail(&pipeline.segments[i].current_tip_hash).unwrap();
 
-        let at_checkpoint = &pipeline.segments[0];
-        let mut expected: Vec<Header> =
-            checkpoint.headers().iter().map(|header| *header.header()).collect();
-        expected.extend(recent(at_checkpoint));
-        assert_eq!(
-            pipeline.segment_ancestors(&at_checkpoint.current_tip_hash),
-            Some((checkpoint.height() + 30, expected))
-        );
+        let t = tail(0);
+        assert_eq!((t.height, t.below), (at + 10, at));
+        assert_eq!(t.recent, headers(&pipeline.segments[0].buffered_headers));
+        assert_eq!(t.checkpoint, headers(checkpoint.headers()));
 
-        let off_checkpoint = &pipeline.segments[1];
-        assert_eq!(
-            pipeline.segment_ancestors(&off_checkpoint.current_tip_hash),
-            Some((checkpoint.height() + 130, recent(off_checkpoint)))
-        );
+        let t = tail(1);
+        assert_eq!((t.height, t.below), (at + 30, at + 6));
+        assert_eq!(t.recent, headers(&pipeline.segments[1].buffered_headers[6..]));
+        assert!(t.checkpoint.is_empty(), "the 6 headers between are not the checkpoint's");
 
-        assert_eq!(pipeline.segment_ancestors(&BlockHash::dummy(999)), None);
+        let t = tail(2);
+        assert_eq!((t.height, t.below), (at + 30, at + 25));
+        assert_eq!(t.recent.len(), 5);
+        assert!(t.checkpoint.is_empty(), "the drained 25 are in the store");
+
+        let t = tail(3);
+        assert_eq!((t.height, t.below), (at + 110, at + 100));
+        assert!(t.checkpoint.is_empty());
+
+        assert!(pipeline.segment_tail(&BlockHash::dummy(999)).is_none());
     }
 
     #[test]
