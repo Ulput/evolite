@@ -20,6 +20,17 @@ fn instances() -> Vec<Instance> {
         .collect()
 }
 
+/// A model's picture's room in its write, in the demo (the real core measures it).
+pub const ROOM: usize = 19_000;
+
+/// PNG, JPEG, GIF or WebP by the first bytes: what «Make a smaller copy» takes (R-21).
+pub fn is_raster(bytes: &[u8]) -> bool {
+    bytes.starts_with(b"\x89PNG")
+        || bytes.starts_with(&[0xFF, 0xD8, 0xFF])
+        || bytes.starts_with(b"GIF8")
+        || (bytes.starts_with(b"RIFF") && bytes.get(8..12) == Some(b"WEBP"))
+}
+
 /// The id of the demo's `n`-th collection «registered» in this run (W2): base58, 44 letters.
 pub fn made_id(n: usize) -> String {
     format!("DemoNewCo{n:0>35}").replace('0', "1")

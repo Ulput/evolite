@@ -2481,7 +2481,6 @@
   "NFT collection": "NFT 收藏",
   "New NFT collection": "新建 NFT 收藏",
   "New model": "新模型",
-  "New models come in the next version": "新模型将在下一版本推出",
   "No links or site addresses: people find the collection by its name.": "不要链接或网站地址：人们通过名称找到收藏。",
   "No models yet. A model is a picture with its name and supply; its copies are issued from it.": "还没有模型。模型是带名称和发行量的图片；副本由它发行。",
   "No moderators": "无审核员",
@@ -2526,7 +2525,59 @@
   "{} model|{} models": {
     "other": "{} 个模型"
   },
+  "A series is running — wait for it or stop it": "系列正在运行——请等待或停止它",
+  "Check the model": "检查模型",
+  "Choose a file": "选择文件",
+  "Choose another file": "选择其他文件",
+  "Copies · issued {} of {}": "副本 · 已发行 {}/{}",
+  "Could not check the picture: the file is damaged or built in an unusual way. Save it again in an image editor.": "无法检查图片：文件已损坏或结构特殊。请用图像编辑器重新保存。",
+  "Could not read the picture": "无法读取图片",
+  "Description": "描述",
+  "Details inside a 3D model, such as the program it was made in, are not removed and are written with it": "3D 模型内部的信息（例如制作它所用的程序）不会被删除，会随模型一起写入",
+  "Details stored in the file, such as the location and the camera, were removed": "文件中保存的信息（例如拍摄地点和相机）已被删除",
+  "Each copy is a separate record on the network, about 2 seconds. You can hide the window: issuing goes on. If the connection drops, the model’s page shows “Continue issuing” — from the same number.": "每个副本都是网络上的一条独立记录，约 2 秒。你可以隐藏窗口：发行会继续。如果连接中断，模型页面会显示“继续发行”——从同一编号开始。",
+  "Issue now": "立即发行",
+  "Issue now takes from 0 to the supply.": "立即发行的数量为 0 到总量。",
+  "Issue now · The rest — later.": "立即发行 · 其余稍后。",
+  "Issuing “{}”": "正在发行“{}”",
+  "Make a smaller copy": "制作缩小版",
+  "Making a smaller copy…": "正在制作缩小版…",
+  "Model": "模型",
+  "Model name": "名称",
+  "Model written": "模型已写入",
+  "No links: evolite does not show models whose text has a site address.": "不含链接：evolite 不显示文字中带有网站地址的模型。",
+  "Only the first frame goes into the copy: it will not move.": "缩小版只包含第一帧：它不会动。",
+  "Original file: {}×{}, {}": "原始文件：{}×{}，{}",
+  "PNG, JPEG, GIF, WebP, SVG or GLB. Up to 5 KB as one field, up to about 19 KB in parts. The picture is written to the network whole — it cannot be swapped.": "PNG、JPEG、GIF、WebP、SVG 或 GLB。作为单个字段最大 5 KB，分块写入最大约 19 KB。图片会整体写入网络——之后无法替换。",
+  "Picture": "图片",
+  "Reduced: {}×{}, {}": "缩小后：{}×{}，{}",
+  "Sign and issue": "签名并发行",
+  "Supply": "总量",
+  "Supply · How many copies there can be in all. Cannot be changed.": "总量 · 副本总共最多有多少个。无法更改。",
+  "The description takes up to {} characters.": "描述最多 {} 个字符。",
+  "The name takes 1 to {} characters.": "名称为 1 到 {} 个字符。",
+  "The picture is {}, but the record has room for {}.": "图片为 {}，但记录只能容纳 {}。",
+  "The picture is {}, but the record has room for {}. evolite can make a smaller copy that fits; the file itself stays as it is.": "图片为 {}，但记录只能容纳 {}。evolite 可以制作一个能放得下的缩小版；文件本身保持不变。",
+  "The {} file is {}, but the record has room for {}. evolite does not shrink SVG or GLB: make the file smaller in an editor.": "{} 文件为 {}，但记录只能容纳 {}。evolite 不会缩小 SVG 和 GLB：请在编辑器中减小文件。",
+  "This file is not a picture evolite can write.": "此文件不是 evolite 可以写入的图片。",
+  "This is not {}, though the file is named .{}.": "这不是 {}，尽管文件名为 .{}。",
+  "This model cannot be written.": "无法写入此模型。",
+  "This picture does not fit into the record even at a small size. Choose another one or simplify this one.": "即使缩得很小，这张图片也放不进记录。请选择另一张或简化这张。",
+  "Use": "使用",
+  "{} copy|{} copies": {
+    "other": "{} 个副本"
+  },
+  "{} part|{} parts": {
+    "other": "{} 部分"
+  },
   "The series' plates and “Continue” go away: what each series already wrote stays on the network and in your collection, and a series cut short is started again for what is left. evolite reads each model's highest serial from the network again, but a highest serial that was deleted may be issued again.": "系列的提示条和“继续”会消失。每个系列已经写入的内容仍在网络上和你的收藏中；中断的系列需要为剩余部分重新开始。evolite 会从网络重新读取每个模型的最大编号，但已删除的最大编号可能会再次发行。",
   "Collection “{}” created": "已创建收藏“{}”",
-  "The collection is made. Whether its “About the collection” document was written is not known: the network did not answer. Open the collection to see.": "收藏已创建。其“关于收藏”文档是否已写入尚不清楚：网络没有回应。打开收藏查看。"
+  "The collection is made. Whether its “About the collection” document was written is not known: the network did not answer. Open the collection to see.": "收藏已创建。其“关于收藏”文档是否已写入尚不清楚：网络没有回应。打开收藏查看。",
+  "The picture is written in {} — still one record, at a higher price.": "图片将分 {} 写入——仍是一条记录，但价格更高。",
+  "This SVG could run code or reach a site when shown: it cannot be written.": "此 SVG 在显示时可能运行代码或访问网站：无法写入。",
+  "You sign once: evolite writes the model and {} one by one — {} on the network.": "你只需签名一次：evolite 会依次写入模型和 {}——网络上共 {}。",
+  "{} record|{} records": {
+    "other": "{} 条记录"
+  },
+  "{} · written as {}": "{} · 写入时为 {}"
 }

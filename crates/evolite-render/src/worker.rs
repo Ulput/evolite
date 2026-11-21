@@ -23,6 +23,15 @@ pub fn serve(input: impl Read, output: impl Write, limits: &Limits) -> io::Resul
         bytes,
     }) = wire::read_request(&mut input, limits)?
     {
+        // FEAT-0038 R-21: a copy that fits, of at most `side` bytes.
+        if flags & wire::FIT != 0 {
+            let answer = std::panic::catch_unwind(|| {
+                crate::fit::fit(&bytes, side as usize, limits, crate::fit::DEADLINE)
+            })
+            .unwrap_or(Err(RenderError::Invalid("decoder panic")));
+            wire::write_fitted(&mut output, id, &answer)?;
+            continue;
+        }
         let mut limits = if side > 0 {
             limits.for_side(side)
         } else {

@@ -51,10 +51,9 @@ pub(super) fn page(
     };
     let name = collection_name(&c);
     let mut about = false;
+    let mut new_model = false;
     page_header(ui, a, &crate::i18n::own(&name), None, |ui, a| {
-        // FEAT-0038 W5 is the next part: its button waits for it.
-        let _ = button_enabled(ui, a, tr!("New model"), ButtonKind::Primary, None, false)
-            .on_disabled_hover_text(crate::i18n::t(tr!("New models come in the next version")));
+        new_model = button(ui, a, tr!("New model"), ButtonKind::Primary, None).clicked();
         about = button(
             ui,
             a,
@@ -66,6 +65,11 @@ pub(super) fn page(
     });
     if about {
         state.about = true;
+    }
+    if new_model {
+        state.model = ModelForm::new(&c.contract);
+        state.page = Page::NewModel(c.contract.clone());
+        return;
     }
     let who = super::super::tokens::shown_name(cx.wallet());
     ui.horizontal(|ui| {

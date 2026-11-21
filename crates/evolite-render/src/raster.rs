@@ -16,7 +16,7 @@ use crate::sniff::Format;
 const SHORTEST_FRAME_MS: u32 = 20;
 const DEFAULT_FRAME_MS: u32 = 100;
 
-fn decoder_limits(limits: &Limits) -> image::Limits {
+pub(crate) fn decoder_limits(limits: &Limits) -> image::Limits {
     let mut l = image::Limits::default();
     l.max_image_width = Some(limits.max_source_side);
     l.max_image_height = Some(limits.max_source_side);
@@ -24,7 +24,7 @@ fn decoder_limits(limits: &Limits) -> image::Limits {
     l
 }
 
-fn refusal(e: image::ImageError) -> RenderError {
+pub(crate) fn refusal(e: image::ImageError) -> RenderError {
     match e {
         image::ImageError::Limits(_) => RenderError::Limit("picture size"),
         image::ImageError::Unsupported(_) => RenderError::Unsupported,

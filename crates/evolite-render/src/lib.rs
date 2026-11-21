@@ -14,6 +14,7 @@
 
 mod anim;
 pub mod client;
+pub mod fit;
 mod frames;
 mod glb;
 #[cfg(windows)]
@@ -32,6 +33,7 @@ pub mod worker;
 pub const RENDER_VERSION: u32 = 3;
 
 pub use client::{Packing, Pass, Renderer, Settings};
+pub use fit::{FitFormat, Fitted};
 pub use frames::{
     Art, Frame, Limits, PackedArt, PackedFrame, RenderError, SandboxRefusal, packed_bound,
 };

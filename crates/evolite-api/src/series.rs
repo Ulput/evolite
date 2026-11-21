@@ -74,8 +74,31 @@ pub enum SeriesRefusal {
     /// An SVG that could run something or reach a server: what (script, event handler, link,
     /// foreignObject).
     ImageUnsafe(String),
-    /// Larger than the parts hold, packed: its stored size in bytes.
+    /// Larger than the room in its write ([`PictureCheck::room`]), packed: its stored size in
+    /// bytes. A raster may be made smaller ([`PictureCheck::can_fit`], R-21).
     ImageTooBig(usize),
+    /// The file's structure could not be followed to take its metadata out (R-22): «Could not
+    /// check the picture…». Never written as it is.
+    ImageUnreadable,
+}
+
+/// What «Check» found of a new model's picture (R-21, R-22), with or without a refusal: what is
+/// shown under it in W5.
+#[derive(Clone, PartialEq, Eq, Debug, Default)]
+pub struct PictureCheck {
+    /// The picture as it will be written — its metadata taken out — to draw with
+    /// [`crate::Command::DrawArt`] (the core keeps it while W5 is open).
+    pub art: String,
+    /// Its bytes after the metadata went: what is weighed.
+    pub size: usize,
+    /// The room it has in its write (R-21: measured for this name and description).
+    pub room: usize,
+    /// Something was taken out (R-22: «Details stored in the file … were removed»).
+    pub removed: bool,
+    /// A 3D model: its details stay inside it (R-22, its own line).
+    pub glb: bool,
+    /// Larger than the room and a raster: «Make a smaller copy» (R-21).
+    pub can_fit: bool,
 }
 
 /// «Check» of a series (R-7, R-10): what it will do, before the password.
@@ -92,6 +115,28 @@ pub struct SeriesPlan {
     pub refusal: Option<SeriesRefusal>,
     /// A new model's picture, written before the instances.
     pub model: Option<ModelWrite>,
+    /// A new model's picture as checked, also when it is refused (R-21, R-22).
+    pub picture: Option<PictureCheck>,
+}
+
+/// What `Event::PictureFitted` fails with when no copy fits even at the smallest (R-21-failure),
+/// as against a picture that could not be read.
+pub const DOES_NOT_FIT: &str = "does not fit";
+
+/// «Make a smaller copy» done (R-21): the copy, made by the renderer, never decoded here.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct FittedPicture {
+    /// The copy's bytes: what the model will carry if «Use» is pressed.
+    pub image: Vec<u8>,
+    /// To draw it ([`crate::Command::DrawArt`]).
+    pub art: String,
+    /// A PNG with a palette (it had transparency); else a JPEG.
+    pub png: bool,
+    pub width: u32,
+    pub height: u32,
+    /// The original file's own size.
+    pub source_width: u32,
+    pub source_height: u32,
 }
 
 /// The «image» write of a new model, in its plan (W5: the scale «5 / 19 KB»).

@@ -495,12 +495,15 @@ impl Mock {
                         credits,
                         refusal: None,
                         model: None,
+                        picture: None,
                     }),
                 }
             }
-            // A new model's plan: its picture as stored (unpacked here) at the probe's rate.
+            // A new model's plan: its picture as stored (unpacked here) at the probe's rate, in
+            // a room of 19 000 bytes; the demo takes nothing out of a file (it reads no
+            // structure) and keeps the picture to draw it.
             Command::PlanModel { model, mint, .. } => {
-                use evolite_api::series::{ModelWrite, SeriesPlan};
+                use evolite_api::series::{ModelWrite, PictureCheck, SeriesPlan, SeriesRefusal};
                 let stored = model.image.len();
                 let fee = 50_000 + 40 * stored as Duffs;
                 let credits = self
@@ -508,18 +511,58 @@ impl Mock {
                     .wallet
                     .as_ref()
                     .map_or(0, |w| w.balances.credits);
+                let art = evolite_art::key(&model.image);
+                self.gallery.insert(
+                    art.clone(),
+                    evolite_art::Stored {
+                        bytes: model.image.clone().into(),
+                        packing: evolite_render::Packing::Plain,
+                    },
+                );
+                let room = workshop::ROOM;
+                let raster = workshop::is_raster(&model.image);
+                let picture = PictureCheck {
+                    art,
+                    size: stored,
+                    room,
+                    removed: false,
+                    glb: model.image.starts_with(b"glTF"),
+                    can_fit: raster && stored > room,
+                };
+                let refusal = (stored > room).then_some(SeriesRefusal::ImageTooBig(stored));
                 Event::ModelPlanned {
                     result: Ok(SeriesPlan {
                         serials: (1..=mint).collect(),
                         per_write: 87_000,
                         total: fee + 87_000 * mint as Duffs,
                         credits,
-                        refusal: None,
-                        model: Some(ModelWrite {
+                        model: refusal.is_none().then(|| ModelWrite {
                             stored,
                             parts: stored.div_ceil(5_120).max(1) as u8,
                             fee,
                         }),
+                        refusal,
+                        picture: Some(picture),
+                    }),
+                }
+            }
+            // «Make a smaller copy» (R-21) in the demo: no renderer is asked; the copy is the
+            // first example picture, said to be 512 × 341 of a 1200 × 800 file.
+            Command::FitPicture { .. } => {
+                let (art, stored) = demo_art()
+                    .into_iter()
+                    .find(|(_, s)| s.packing == evolite_render::Packing::Plain)
+                    .expect("an example picture");
+                self.gallery.insert(art.clone(), stored.clone());
+                Event::PictureFitted {
+                    result: Ok(evolite_api::series::FittedPicture {
+                        image: stored.bytes.to_vec(),
+                        art,
+                        png: false,
+                        width: 512,
+                        height: 341,
+                        source_width: 1200,
+                        source_height: 800,
                     }),
                 }
             }

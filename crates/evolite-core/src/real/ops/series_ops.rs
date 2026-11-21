@@ -3,11 +3,12 @@
 //! series' network. The series runs in [`super::series`].
 
 use evolite_api::series::{
-    ItemState, ModelWrite, NewModel, SeriesKind, SeriesPlan, SeriesRefusal, SeriesState,
-    SeriesTarget, has_link,
+    ItemState, ModelWrite, NewModel, PictureCheck, SeriesKind, SeriesPlan, SeriesRefusal,
+    SeriesState, SeriesTarget, has_link,
 };
-use evolite_chain::nft_series::image::{self, ImageRefusal, Packed};
+use evolite_chain::nft_series::image::{self, ImageRefusal, ImageType, Packed};
 use evolite_chain::nft_series::plan::{self, Instance, MAX_PAGES, Pick, per_write};
+use evolite_chain::nft_series::strip::strip_metadata;
 use evolite_local::nft_series::{Item, Kind, Series, State};
 
 use super::names::recipient_id;
@@ -228,6 +229,7 @@ async fn plan_of(
             credits: Duffs::try_from(credits / 1_000).unwrap_or(Duffs::MAX),
             refusal,
             model: None,
+            picture: None,
         },
         items,
         to,
@@ -285,9 +287,70 @@ pub(in crate::real) enum Start {
     },
 }
 
-/// What a new model is refused for without the network (UC-5, R-4, R-5, R-6): its texts, its
-/// supply, its picture; or the picture packed.
-fn check_new_model(model: &NewModel, mint: u32) -> Result<Packed, SeriesRefusal> {
+/// A new model's picture as it will be written (R-21, R-22): its metadata taken out (refused
+/// when the file's structure cannot be followed: never written as it is), packed, held to
+/// `room`. The check is there whenever the picture could be read, refused or not; `stripped`
+/// is what is weighed, drawn and written.
+struct Picture {
+    check: Option<PictureCheck>,
+    stripped: Vec<u8>,
+    packed: Result<Packed, SeriesRefusal>,
+}
+
+fn check_picture(bytes: &[u8], room: usize) -> Picture {
+    let refused = |r| Picture {
+        check: None,
+        stripped: Vec::new(),
+        packed: Err(r),
+    };
+    let Some(kind) = image::image_type(bytes) else {
+        return refused(SeriesRefusal::ImageType);
+    };
+    let Ok(stripped) = strip_metadata(bytes) else {
+        return refused(SeriesRefusal::ImageUnreadable);
+    };
+    let packed = image::pack(&stripped.bytes).map_err(|e| match e {
+        ImageRefusal::Unknown | ImageRefusal::RoundTrip => SeriesRefusal::ImageType,
+        ImageRefusal::Unsafe(why) => SeriesRefusal::ImageUnsafe(why.into()),
+        ImageRefusal::TooBig(bytes) => SeriesRefusal::ImageTooBig(bytes),
+        ImageRefusal::TooLargeUnpacked => SeriesRefusal::ImageTooBig(stripped.bytes.len()),
+    });
+    // The room of this write, after the metadata went (R-22): a file that fits only once
+    // stripped fits.
+    let packed = packed.and_then(|p| {
+        if p.stored() > room {
+            Err(SeriesRefusal::ImageTooBig(p.stored()))
+        } else {
+            Ok(p)
+        }
+    });
+    let size = match &packed {
+        Ok(p) => p.stored(),
+        Err(SeriesRefusal::ImageTooBig(n)) => *n,
+        Err(_) => stripped.bytes.len(),
+    };
+    let raster = matches!(
+        kind,
+        ImageType::Jpeg | ImageType::Png | ImageType::Gif | ImageType::Webp
+    );
+    let check = PictureCheck {
+        art: String::new(),
+        size,
+        room,
+        removed: stripped.removed,
+        glb: kind == ImageType::Glb,
+        can_fit: raster && matches!(packed, Err(SeriesRefusal::ImageTooBig(_))),
+    };
+    Picture {
+        check: Some(check),
+        stripped: stripped.bytes,
+        packed,
+    }
+}
+
+/// What a new model is refused for without the network (UC-5, R-4, R-5, R-6): its texts and its
+/// supply; the picture is [`check_picture`]'s.
+fn check_texts(model: &NewModel, mint: u32) -> Result<(), SeriesRefusal> {
     let name = model.name.chars().count();
     if !(1..=64).contains(&name) {
         return Err(SeriesRefusal::NameLength(name));
@@ -302,20 +365,24 @@ fn check_new_model(model: &NewModel, mint: u32) -> Result<Packed, SeriesRefusal>
     if model.supply == 0 || mint > model.supply {
         return Err(SeriesRefusal::Supply);
     }
-    image::pack(&model.image).map_err(|e| match e {
-        ImageRefusal::Unknown | ImageRefusal::RoundTrip => SeriesRefusal::ImageType,
-        ImageRefusal::Unsafe(why) => SeriesRefusal::ImageUnsafe(why.into()),
-        ImageRefusal::TooBig(bytes) => SeriesRefusal::ImageTooBig(bytes),
-        ImageRefusal::TooLargeUnpacked => SeriesRefusal::ImageTooBig(model.image.len()),
-    })
+    Ok(())
+}
+
+/// The texts, then the picture in the full room: the checks that need no network.
+#[cfg(test)]
+fn check_new_model(model: &NewModel, mint: u32) -> Result<Packed, SeriesRefusal> {
+    check_texts(model, mint)?;
+    check_picture(&model.image, image::PARTS_TOTAL).packed
 }
 
 /// «Check» of a new model (UC-5): the refusals before the password, its picture packed, its
 /// fee with `mint` instances.
+#[allow(clippy::too_many_arguments)]
 async fn plan_model_of(
     chain: &Arc<Chain>,
     wallet: &Arc<platform_wallet::PlatformWallet>,
     keys: &key_wallet::Wallet,
+    artist: Option<&crate::art::Artist>,
     busy: bool,
     identity: &str,
     model: &NewModel,
@@ -323,24 +390,42 @@ async fn plan_model_of(
 ) -> Result<(SeriesPlan, Option<Packed>), CoreError> {
     let owner =
         Identifier::from_string(identity, Encoding::Base58).map_err(|_| CoreError::BadAddress)?;
-    let no = |r| {
+    let no = |r, picture| {
         Ok((
             SeriesPlan {
                 refusal: Some(r),
+                picture,
                 ..SeriesPlan::default()
             },
             None,
         ))
     };
     if busy {
-        return no(SeriesRefusal::SeriesRunning);
+        return no(SeriesRefusal::SeriesRunning, None);
     }
-    let packed = match check_new_model(model, mint) {
+    if let Err(r) = check_texts(model, mint) {
+        return no(r, None);
+    }
+    // R-21: the room of this very write, measured for its name and description.
+    let kind = image::image_type(&model.image).unwrap_or(ImageType::Png);
+    let room = chain
+        .nft_picture_room(&model.name, &model.description, model.supply, kind)
+        .await
+        .map_err(CoreError::Failed)?;
+    let picture = check_picture(&model.image, room);
+    // What W5 shows is what is written: the stripped picture, kept to draw.
+    let check = picture.check.map(|mut check| {
+        if let Some(artist) = artist {
+            check.art = artist.keep(picture.stripped.clone().into());
+        }
+        check
+    });
+    let packed = match picture.packed {
         Ok(p) => p,
-        Err(r) => return no(r),
+        Err(r) => return no(r, check),
     };
     if !Chain::nft_keys_ready(wallet, keys, &owner).await {
-        return no(SeriesRefusal::NoKey);
+        return no(SeriesRefusal::NoKey, check);
     }
     let image_fee = per_write::image(packed.stored());
     let total = image_fee.saturating_add(per_write::MINT.saturating_mul(mint as u64));
@@ -364,6 +449,7 @@ async fn plan_model_of(
                 parts: packed.parts.len() as u8,
                 fee: duffs(image_fee),
             }),
+            picture: check,
         },
         Some(packed),
     ))
@@ -471,15 +557,25 @@ impl Real {
         let (id, keys) = self.dashpay_ready()?;
         let chain = self.chain.clone();
         let busy = self.identity_busy.is_busy();
+        let artist = self.artist.clone();
         self.answer_later("task:plan_model", async move {
             let result = async {
                 let wallet = chain
                     .wallet(&id)
                     .await
                     .ok_or(CoreError::Failed(NOT_LOADED.into()))?;
-                plan_model_of(&chain, &wallet, &keys, busy, &identity, &model, mint)
-                    .await
-                    .map(|(plan, _)| plan)
+                plan_model_of(
+                    &chain,
+                    &wallet,
+                    &keys,
+                    artist.as_ref(),
+                    busy,
+                    &identity,
+                    &model,
+                    mint,
+                )
+                .await
+                .map(|(plan, _)| plan)
             }
             .await;
             Event::ModelPlanned { result }
@@ -523,9 +619,10 @@ impl Real {
                         model,
                         mint,
                     } => {
-                        let (plan, packed) =
-                            plan_model_of(&chain, &wallet, &keys, false, &identity, &model, mint)
-                                .await?;
+                        let (plan, packed) = plan_model_of(
+                            &chain, &wallet, &keys, None, false, &identity, &model, mint,
+                        )
+                        .await?;
                         if let Some(refusal) = plan.refusal {
                             return Err(CoreError::Failed(format!("{refusal:?}")));
                         }
@@ -780,5 +877,76 @@ mod tests {
         }
         // 280 characters of description and «v1.2» in the name are fine.
         assert!(check_new_model(&model("Dragon v1.2", &"я".repeat(280), 3, SVG), 3).is_ok());
+    }
+
+    /// A JPEG shaped as the encoders make one: SOI, JFIF, a table, a frame, a scan, EOI.
+    fn jpeg(extra: &[u8], scan: usize) -> Vec<u8> {
+        let seg = |code: u8, body: &[u8]| {
+            let mut s = vec![0xFF, code];
+            s.extend_from_slice(&((body.len() + 2) as u16).to_be_bytes());
+            s.extend_from_slice(body);
+            s
+        };
+        let mut f = vec![0xFF, 0xD8];
+        f.extend(seg(0xE0, b"JFIF      "));
+        f.extend_from_slice(extra);
+        f.extend(seg(0xDB, &[0; 65]));
+        f.extend(seg(0xC0, &[8, 0, 16, 0, 16, 1, 1, 0x11, 0]));
+        f.extend(seg(0xDA, &[1, 1, 0, 0, 0x3F, 0]));
+        f.extend((0..scan).map(|i| (i % 200) as u8 + 1));
+        f.extend_from_slice(&[0xFF, 0xD9]);
+        f
+    }
+
+    /// R-22, AC-A22: a JPEG with a geotag is weighed and written without it, «removed» said; one
+    /// that fits only once stripped fits, with no «Make a smaller copy» (R-21).
+    #[test]
+    fn a_picture_is_weighed_after_its_metadata_went() {
+        let exif = {
+            let body = b"Exif  MM *GPS 55.7558 37.6173";
+            let mut s = vec![0xFF, 0xE1];
+            s.extend_from_slice(&((body.len() + 2) as u16).to_be_bytes());
+            s.extend_from_slice(body);
+            s
+        };
+        let file = jpeg(&exif, 1_000);
+        let room = file.len() - exif.len() + 1;
+        assert!(file.len() > room, "larger than the room as it is");
+        let p = check_picture(&file, room);
+        let packed = p.packed.unwrap();
+        let check = p.check.unwrap();
+        assert!(check.removed && !check.can_fit && !check.glb);
+        assert_eq!(check.size, packed.stored());
+        assert!(!p.stripped.windows(4).any(|w| w == b"Exif"));
+        assert!(!p.stripped.windows(3).any(|w| w == b"GPS"));
+        // Nothing to take out: nothing said.
+        let clean = jpeg(&[], 1_000);
+        assert!(!check_picture(&clean, 19_000).check.unwrap().removed);
+    }
+
+    /// R-21: a raster over the room may be made smaller; an SVG over it may not; a file whose
+    /// structure cannot be followed is refused (R-22), never written as it is.
+    #[test]
+    fn what_is_over_the_room_and_what_cannot_be_read() {
+        let big = jpeg(&[], 4_000);
+        let p = check_picture(&big, 2_000);
+        assert_eq!(p.packed, Err(SeriesRefusal::ImageTooBig(big.len())));
+        assert!(p.check.unwrap().can_fit);
+        let mut seed = 0x2545_F491u32;
+        let words: String = (0..3_000)
+            .map(|_| {
+                seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+                char::from(b'a' + (seed >> 24) as u8 % 26)
+            })
+            .collect();
+        let svg = format!(r#"<svg xmlns="http://www.w3.org/2000/svg"><text>{words}</text></svg>"#);
+        let p = check_picture(svg.as_bytes(), 200);
+        assert!(matches!(p.packed, Err(SeriesRefusal::ImageTooBig(_))));
+        assert!(!p.check.unwrap().can_fit, "SVG is never made smaller");
+        let mut cut = jpeg(&[], 1_000);
+        cut.truncate(cut.len() - 300);
+        let p = check_picture(&cut, 19_000);
+        assert_eq!(p.packed, Err(SeriesRefusal::ImageUnreadable));
+        assert!(p.check.is_none());
     }
 }

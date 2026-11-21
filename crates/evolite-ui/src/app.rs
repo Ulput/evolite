@@ -1098,13 +1098,18 @@ impl App {
                 } => {
                     self.workshop.new.on_done(*ask, result);
                 }
-                // FEAT-0038: the series' screens (W5–W9, W12, W13) take these when they come.
-                Event::SeriesPlanned { .. }
-                | Event::ModelPlanned { .. }
-                | Event::Done {
+                // FEAT-0038 W5, W6: the new model's check, its copy and its issue.
+                Event::ModelPlanned { result } => self.workshop.model.on_planned(result),
+                Event::PictureFitted { result } => self.workshop.model.on_fitted(result),
+                Event::Done {
                     what: DoneWhat::Series,
-                    ..
-                } => {}
+                    result,
+                    ask,
+                } => {
+                    self.workshop.model.on_done(*ask, result);
+                }
+                // FEAT-0038: the series' screens (W7–W9, W12, W13) take these when they come.
+                Event::SeriesPlanned { .. } => {}
                 Event::Done {
                     what: DoneWhat::FundAddress,
                     result,

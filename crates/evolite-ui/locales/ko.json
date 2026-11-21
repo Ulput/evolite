@@ -2481,7 +2481,6 @@
   "NFT collection": "NFT 컬렉션",
   "New NFT collection": "새 NFT 컬렉션",
   "New model": "새 모델",
-  "New models come in the next version": "새 모델은 다음 버전에서 제공됩니다",
   "No links or site addresses: people find the collection by its name.": "링크나 사이트 주소는 넣지 마세요. 사람들은 이름으로 컬렉션을 찾습니다.",
   "No models yet. A model is a picture with its name and supply; its copies are issued from it.": "아직 모델이 없습니다. 모델은 이름과 발행량이 있는 이미지이며, 사본은 여기서 발행됩니다.",
   "No moderators": "관리자 없음",
@@ -2526,7 +2525,59 @@
   "{} model|{} models": {
     "other": "모델 {}개"
   },
+  "A series is running — wait for it or stop it": "시리즈가 진행 중입니다 — 끝날 때까지 기다리거나 중지하세요",
+  "Check the model": "모델 확인",
+  "Choose a file": "파일 선택",
+  "Choose another file": "다른 파일 선택",
+  "Copies · issued {} of {}": "사본 · {} / {} 발행됨",
+  "Could not check the picture: the file is damaged or built in an unusual way. Save it again in an image editor.": "그림을 확인하지 못했습니다. 파일이 손상되었거나 구조가 특이합니다. 이미지 편집기에서 다시 저장하세요.",
+  "Could not read the picture": "그림을 읽지 못했습니다",
+  "Description": "설명",
+  "Details inside a 3D model, such as the program it was made in, are not removed and are written with it": "3D 모델 내부의 정보(예: 만든 프로그램)는 삭제되지 않고 모델과 함께 기록됩니다",
+  "Details stored in the file, such as the location and the camera, were removed": "파일에 저장된 정보(예: 촬영 위치와 카메라)를 삭제했습니다",
+  "Each copy is a separate record on the network, about 2 seconds. You can hide the window: issuing goes on. If the connection drops, the model’s page shows “Continue issuing” — from the same number.": "각 사본은 네트워크에 기록되는 별도의 레코드이며 약 2초가 걸립니다. 창은 숨겨도 됩니다. 발행은 계속됩니다. 연결이 끊기면 모델 페이지에 “발행 계속”이 표시되며, 같은 번호부터 이어집니다.",
+  "Issue now": "지금 발행",
+  "Issue now takes from 0 to the supply.": "지금 발행은 0부터 발행량까지 가능합니다.",
+  "Issue now · The rest — later.": "지금 발행 · 나머지는 나중에.",
+  "Issuing “{}”": "“{}” 발행 중",
+  "Make a smaller copy": "축소본 만들기",
+  "Making a smaller copy…": "축소본을 만드는 중…",
+  "Model": "모델",
+  "Model name": "이름",
+  "Model written": "모델이 기록되었습니다",
+  "No links: evolite does not show models whose text has a site address.": "링크 없음: evolite는 텍스트에 사이트 주소가 있는 모델을 표시하지 않습니다.",
+  "Only the first frame goes into the copy: it will not move.": "축소본에는 첫 프레임만 들어갑니다. 움직이지 않습니다.",
+  "Original file: {}×{}, {}": "원본 파일: {}×{}, {}",
+  "PNG, JPEG, GIF, WebP, SVG or GLB. Up to 5 KB as one field, up to about 19 KB in parts. The picture is written to the network whole — it cannot be swapped.": "PNG, JPEG, GIF, WebP, SVG 또는 GLB. 한 필드에는 5 KB까지, 나누어 약 19 KB까지. 그림은 통째로 네트워크에 기록되며 바꿀 수 없습니다.",
+  "Picture": "그림",
+  "Reduced: {}×{}, {}": "축소 후: {}×{}, {}",
+  "Sign and issue": "서명하고 발행",
+  "Supply": "발행량",
+  "Supply · How many copies there can be in all. Cannot be changed.": "발행량 · 사본을 전부 몇 개까지 만들 수 있는지. 변경할 수 없습니다.",
+  "The description takes up to {} characters.": "설명은 최대 {}자입니다.",
+  "The name takes 1 to {} characters.": "이름은 1자에서 {}자까지입니다.",
+  "The picture is {}, but the record has room for {}.": "그림은 {}이지만 레코드에는 {}까지 들어갑니다.",
+  "The picture is {}, but the record has room for {}. evolite can make a smaller copy that fits; the file itself stays as it is.": "그림은 {}이지만 레코드에는 {}까지 들어갑니다. evolite가 들어가도록 축소본을 만들 수 있으며, 파일 자체는 그대로 둡니다.",
+  "The {} file is {}, but the record has room for {}. evolite does not shrink SVG or GLB: make the file smaller in an editor.": "{} 파일은 {}이지만 레코드에는 {}까지 들어갑니다. evolite는 SVG와 GLB를 줄이지 않습니다. 편집기에서 파일을 줄이세요.",
+  "This file is not a picture evolite can write.": "이 파일은 evolite가 기록할 수 있는 그림이 아닙니다.",
+  "This is not {}, though the file is named .{}.": "파일 이름은 .{}이지만 {}이(가) 아닙니다.",
+  "This model cannot be written.": "이 모델은 기록할 수 없습니다.",
+  "This picture does not fit into the record even at a small size. Choose another one or simplify this one.": "이 그림은 작은 크기로도 레코드에 들어가지 않습니다. 다른 그림을 고르거나 이 그림을 단순하게 만드세요.",
+  "Use": "사용",
+  "{} copy|{} copies": {
+    "other": "사본 {}개"
+  },
+  "{} part|{} parts": {
+    "other": "{}개 부분"
+  },
   "The series' plates and “Continue” go away: what each series already wrote stays on the network and in your collection, and a series cut short is started again for what is left. evolite reads each model's highest serial from the network again, but a highest serial that was deleted may be issued again.": "시리즈 표시줄과 “계속”이 사라집니다. 각 시리즈가 이미 기록한 것은 네트워크와 컬렉션에 남고, 중단된 시리즈는 남은 분량으로 다시 시작합니다. evolite는 각 모델의 가장 높은 번호를 네트워크에서 다시 읽지만, 삭제된 가장 높은 번호는 다시 발행될 수 있습니다.",
   "Collection “{}” created": "컬렉션 “{}” 생성됨",
-  "The collection is made. Whether its “About the collection” document was written is not known: the network did not answer. Open the collection to see.": "컬렉션이 생성되었습니다. “컬렉션 소개” 문서가 기록되었는지는 알 수 없습니다. 네트워크가 응답하지 않았습니다. 컬렉션을 열어 확인하세요."
+  "The collection is made. Whether its “About the collection” document was written is not known: the network did not answer. Open the collection to see.": "컬렉션이 생성되었습니다. “컬렉션 소개” 문서가 기록되었는지는 알 수 없습니다. 네트워크가 응답하지 않았습니다. 컬렉션을 열어 확인하세요.",
+  "The picture is written in {} — still one record, at a higher price.": "그림은 나뉘어 기록됩니다: {}. 레코드는 여전히 하나이지만 비용이 더 듭니다.",
+  "This SVG could run code or reach a site when shown: it cannot be written.": "이 SVG는 표시될 때 코드를 실행하거나 사이트에 접속할 수 있으므로 기록할 수 없습니다.",
+  "You sign once: evolite writes the model and {} one by one — {} on the network.": "서명은 한 번입니다. evolite가 모델과 {}를 차례로 기록합니다. 네트워크에는 {}가 쌓입니다.",
+  "{} record|{} records": {
+    "other": "레코드 {}개"
+  },
+  "{} · written as {}": "{} · 기록 시 {}"
 }

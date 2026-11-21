@@ -208,12 +208,17 @@ impl Real {
         urgent: bool,
     ) -> (Option<Event>, bool) {
         let event = {
-            let stored = self.nfts.picture(&art).or_else(|| {
-                self.avatars.picture(&art).map(|bytes| crate::art::Stored {
-                    bytes,
-                    packing: evolite_render::Packing::Plain,
+            let stored = self
+                .nfts
+                .picture(&art)
+                .or_else(|| {
+                    self.avatars.picture(&art).map(|bytes| crate::art::Stored {
+                        bytes,
+                        packing: evolite_render::Packing::Plain,
+                    })
                 })
-            });
+                // FEAT-0038 W5: the file chosen for a new model and its copy.
+                .or_else(|| self.artist.as_ref().and_then(|a| a.local(&art)));
             match (stored, &self.artist) {
                 (Some(stored), Some(artist)) => {
                     artist.draw(art, side, urgent, stored);

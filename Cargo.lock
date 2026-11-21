@@ -2786,6 +2786,7 @@ dependencies = [
  "getrandom 0.3.4",
  "grovedb-bincode",
  "hkdf",
+ "image",
  "key-wallet",
  "key-wallet-manager",
  "miniz_oxide 0.8.9",
@@ -2891,12 +2892,14 @@ dependencies = [
 name = "evolite-render"
 version = "1.0.0"
 dependencies = [
+ "color_quant",
  "crc32fast",
  "image",
  "landlock",
  "libc",
  "lz4_flex",
  "miniz_oxide 0.8.9",
+ "png 0.18.1",
  "resvg",
  "roxmltree",
  "seccompiler",

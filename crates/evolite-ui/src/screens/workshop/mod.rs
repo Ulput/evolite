@@ -8,6 +8,7 @@
 
 mod collection_page;
 mod new_collection;
+pub mod new_model;
 
 use std::collections::{HashMap, HashSet};
 
@@ -21,6 +22,7 @@ use evolite_api::workshop::{Collection, ModelCounts, WorkshopAsk, WorkshopRead};
 use evolite_api::{Command, CoreError};
 
 pub use new_collection::NewCollection;
+pub use new_model::ModelForm;
 
 /// Which page of the Workshop is shown.
 #[derive(Clone, Debug, PartialEq, Eq, Default)]
@@ -32,6 +34,8 @@ pub enum Page {
     New,
     /// W4: the collection of this contract (base58).
     Collection(String),
+    /// W5 (its review, then W6): a new model in the collection of this contract.
+    NewModel(String),
 }
 
 /// The Workshop's screen state: the page, and what the core read for the identity shown.
@@ -47,6 +51,8 @@ pub struct WorkshopState {
     counts: HashMap<(String, String), ModelCounts>,
     counts_asked: HashSet<(String, String)>,
     pub new: NewCollection,
+    /// W5: the new model's form.
+    pub model: ModelForm,
     /// W4: «About the collection» open.
     about: bool,
 }
@@ -96,7 +102,10 @@ impl WorkshopState {
         if !self.new.signed() {
             self.new.forget();
         }
-        if matches!(self.page, Page::Collection(_)) {
+        if !self.model.signed() {
+            self.model.forget();
+        }
+        if matches!(self.page, Page::Collection(_) | Page::NewModel(_)) {
             self.page = Page::Home;
         }
     }
@@ -104,6 +113,7 @@ impl WorkshopState {
     /// Lock, a wallet switch: everything read and typed goes.
     pub fn forget_wallet(&mut self) {
         self.new.forget();
+        self.model.forget();
         *self = Self::default();
     }
 }
@@ -111,7 +121,7 @@ impl WorkshopState {
 impl crate::screen_state::ScreenState for WorkshopState {
     #[cfg(all(test, demo_core, feature = "dev-tools"))]
     fn flows(&mut self) -> Vec<&mut dyn crate::components::spend_flow::AnyFlow> {
-        vec![&mut self.new.flow]
+        vec![&mut self.new.flow, &mut self.model.flow]
     }
 
     /// Lock, a wallet or an identity switch: the form, its password and what was read go (the
@@ -142,6 +152,7 @@ pub fn workshop(
         Page::Home => home(ui, a, cx, state),
         Page::New => new_collection::page(ui, a, cx, state),
         Page::Collection(contract) => collection_page::page(ui, a, cx, state, art, &contract),
+        Page::NewModel(_) => new_model::page(ui, a, cx, state, art),
     }
 }
 

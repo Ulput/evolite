@@ -2401,6 +2401,12 @@ pub enum Command {
         model: series::NewModel,
         mint: u32,
     },
+    /// «Make a smaller copy» of a new model's picture (FEAT-0038 R-21): `image` made into a
+    /// copy of at most `room` bytes by the sandboxed renderer. `Event::PictureFitted`.
+    FitPicture {
+        image: Vec<u8>,
+        room: usize,
+    },
     /// «Stop after the current ones» (R-12 of the analyst's UC-12): the writes sent finish,
     /// no new one goes.
     StopSeries {
@@ -3108,6 +3114,11 @@ pub enum Event {
     /// The answer to `Command::PlanModel`.
     ModelPlanned {
         result: Result<series::SeriesPlan, CoreError>,
+    },
+    /// The answer to `Command::FitPicture`: the copy, or why not (`CoreError::Failed` with
+    /// [`series::DOES_NOT_FIT`] when no copy fits; any other: it could not be read).
+    PictureFitted {
+        result: Result<series::FittedPicture, CoreError>,
     },
     /// The answer to `Command::PlanSeries`, for that series.
     SeriesPlanned {

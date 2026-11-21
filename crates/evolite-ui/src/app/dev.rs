@@ -1516,6 +1516,9 @@ impl App {
             "workshop-review",
             "workshop-steps",
             "workshop-collection",
+            "workshop-model",
+            "workshop-model-copy",
+            "workshop-model-review",
         ];
         if workshop.into_iter().any(preset) {
             self.settings.set("workshop", true);
@@ -1527,6 +1530,34 @@ impl App {
                 preset("workshop-review"),
                 preset("workshop-steps"),
             );
+        }
+        // W5 with a photo too large for its record (`-copy`: its smaller copy made).
+        if preset("workshop-model") || preset("workshop-model-copy") {
+            let contract = "FzKL9288ZzoQcXKWvXc6kRwbNciboLpJnX4egZo9iz9P";
+            self.workshop.model = screens::workshop::ModelForm::new(contract);
+            self.workshop.page = screens::workshop::Page::NewModel(contract.into());
+            let photo = image::RgbaImage::from_fn(240, 160, |x, y| {
+                let n = ((x * 7919 + y * 104_729) % 97) as u8;
+                image::Rgba([(x as u8) ^ n, (y as u8).wrapping_mul(3), n, 255])
+            });
+            let mut png = std::io::Cursor::new(Vec::new());
+            let _ = photo.write_to(&mut png, image::ImageFormat::Png);
+            let fit = self.workshop.model.preset(
+                "Orange pin",
+                "orange-pin.png",
+                png.into_inner(),
+                preset("workshop-model-copy"),
+            );
+            if let Some(command) = fit {
+                self.core.send(command);
+            }
+        }
+        // W5's «Check the model» open (BUG-249: its summary in the sweeps).
+        if preset("workshop-model-review") {
+            let contract = "FzKL9288ZzoQcXKWvXc6kRwbNciboLpJnX4egZo9iz9P";
+            self.workshop.model = screens::workshop::ModelForm::new(contract);
+            self.workshop.page = screens::workshop::Page::NewModel(contract.into());
+            self.workshop.model.preset_review("Orange pin");
         }
         if preset("workshop-collection") {
             // The demo core's example collection (`evolite_demo::workshop::CONTRACT`).

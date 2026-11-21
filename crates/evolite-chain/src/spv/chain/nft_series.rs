@@ -242,6 +242,25 @@ impl Chain {
             .map_err(|e| e.to_string())
     }
 
+    /// The room a model's picture has in its write (FEAT-0038 R-21): measured at the network's
+    /// version for this name, description and supply. Before a proved answer the version is
+    /// not known: an error, never a guess.
+    pub async fn nft_picture_room(
+        &self,
+        name: &str,
+        description: &str,
+        supply: u32,
+        kind: crate::platform::nft_series::image::ImageType,
+    ) -> Result<usize, String> {
+        let sdk = self.sdk().await?;
+        let protocol = sdk
+            .protocol_version_info()
+            .verified_version
+            .ok_or("the network's version is not known yet")?;
+        let pv = crate::contract_v1::version_for(protocol).map_err(|r| format!("{r:?}"))?;
+        crate::platform::nft_series::room::picture_room(name, description, supply, kind, pv).await
+    }
+
     /// Writes the collection's «About the collection» document (`collectionInfo`, W2): the
     /// contract `main` it belongs to. Right after the collection's own registration, which kept
     /// the contract in the cache and the provider: it is not read again (a node a block behind

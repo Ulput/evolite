@@ -242,3 +242,27 @@ fn a_model_turns_inside_the_memory_cap() {
     assert_eq!((art.width, art.height), (512, 512));
     assert!(art.frames.len() > 1);
 }
+
+/// FEAT-0038 R-21: «Fit into the record» goes through the sandboxed worker: a large photo comes
+/// back as a JPEG within the limit, with its sizes; a vector picture is refused; the worker
+/// stays for the next picture.
+#[test]
+fn a_copy_that_fits_comes_from_the_worker() {
+    let photo = RgbaImage::from_fn(1200, 800, |x, y| {
+        let n = ((x * 7919 + y * 104_729) % 61) as u8;
+        Rgba([(x / 5) as u8 ^ n, (y / 4) as u8, ((x + y) % 256) as u8, 255])
+    });
+    let mut file = Vec::new();
+    photo
+        .write_to(&mut Cursor::new(&mut file), ImageFormat::Png)
+        .unwrap();
+    let mut r = renderer(None);
+    let copy = r.fit(&file, 18_000).unwrap();
+    assert!(copy.bytes.len() <= 18_000);
+    assert_eq!(copy.format, evolite_render::FitFormat::Jpeg);
+    assert!(copy.bytes.starts_with(&[0xFF, 0xD8, 0xFF]));
+    assert_eq!((copy.source_width, copy.source_height), (1200, 800));
+    let svg = br#"<svg xmlns="http://www.w3.org/2000/svg"><rect width="9" height="9"/></svg>"#;
+    assert_eq!(r.fit(svg, 10), Err(RenderError::Unsupported));
+    assert!(r.render(&png()).is_ok());
+}

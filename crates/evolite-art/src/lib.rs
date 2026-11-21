@@ -18,8 +18,8 @@ use evolite_api::{CoreError, Event, Picture, PictureFrame};
 use evolite_render::{PackedArt, Packing, Pass, RenderError, Renderer, Settings};
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::Arc;
 use std::sync::mpsc::{Receiver, Sender, channel};
+use std::sync::{Arc, Mutex};
 
 /// The largest side the interface may ask for: four times a big card on a HiDPI screen is
 /// already more than any display needs.
@@ -50,9 +50,44 @@ struct Job {
     stored: Stored,
 }
 
+/// What the art thread is asked: a picture drawn, or a copy made that fits (FEAT-0038 R-21).
+enum Work {
+    Draw(Job),
+    Fit { image: Arc<[u8]>, room: usize },
+}
+
+/// Pictures of this computer, not of the network (W5: the file chosen for a new model, its
+/// copy): kept in memory only, the last few, to draw while the window is open.
+#[derive(Default)]
+struct Local {
+    pictures: Vec<(String, Arc<[u8]>)>,
+}
+
+/// How many local pictures are kept: the file and its copy, and one of each before.
+const LOCAL: usize = 4;
+
+impl Local {
+    fn keep(&mut self, key: String, bytes: Arc<[u8]>) {
+        self.pictures.retain(|(k, _)| *k != key);
+        self.pictures.push((key, bytes));
+        if self.pictures.len() > LOCAL {
+            self.pictures.remove(0);
+        }
+    }
+
+    fn get(&self, key: &str) -> Option<Arc<[u8]>> {
+        self.pictures
+            .iter()
+            .find(|(k, _)| k == key)
+            .map(|(_, b)| b.clone())
+    }
+}
+
 /// One thread with one renderer: one picture at a time, its frames on several threads.
+#[derive(Clone)]
 pub struct Artist {
-    jobs: Sender<Job>,
+    jobs: Sender<Work>,
+    local: Arc<Mutex<Local>>,
 }
 
 impl Artist {
@@ -62,7 +97,9 @@ impl Artist {
         wake: Arc<dyn Fn() + Send + Sync>,
         options: crate::ArtOptions,
     ) -> Self {
-        let (jobs, inbox) = channel::<Job>();
+        let (jobs, inbox) = channel::<Work>();
+        let local: Arc<Mutex<Local>> = Arc::default();
+        let kept = local.clone();
         std::thread::Builder::new()
             .name("evolite-art".into())
             .spawn(move || {
@@ -87,35 +124,77 @@ impl Artist {
                     cache: cache.map(DiskCache::new),
                     out,
                     wake,
+                    local: kept,
                 };
-                while let Some(batch) = next_batch(&inbox) {
+                while let Some((fits, batch)) = next_batch(&inbox) {
+                    // A copy is waited for by a person in W5: before the pictures.
+                    for (image, room) in fits {
+                        if studio.fit(&image, room).is_err() {
+                            return;
+                        }
+                    }
                     if studio.draw(batch).is_err() {
                         return;
                     }
                 }
             })
             .expect("start the art thread");
-        Self { jobs }
+        Self { jobs, local }
     }
 
     pub fn draw(&self, art: String, side: u32, urgent: bool, stored: Stored) {
-        let _ = self.jobs.send(Job {
+        let _ = self.jobs.send(Work::Draw(Job {
             art,
             side: side.clamp(1, MAX_SIDE),
             urgent,
             stored,
-        });
+        }));
+    }
+
+    /// «Make a smaller copy» (FEAT-0038 R-21): answered with `Event::PictureFitted`; the copy
+    /// is kept as a local picture to draw.
+    pub fn fit(&self, image: Arc<[u8]>, room: usize) {
+        let _ = self.jobs.send(Work::Fit { image, room });
+    }
+
+    /// Keeps `bytes` as a local picture under its key ([`key`]), to draw while W5 shows it.
+    pub fn keep(&self, bytes: Arc<[u8]>) -> String {
+        let key = key(&bytes);
+        if let Ok(mut local) = self.local.lock() {
+            local.keep(key.clone(), bytes);
+        }
+        key
+    }
+
+    /// A local picture kept by [`Self::keep`] or a copy, by its key.
+    pub fn local(&self, key: &str) -> Option<Stored> {
+        let bytes = self.local.lock().ok()?.get(key)?;
+        Some(Stored {
+            bytes,
+            packing: Packing::Plain,
+        })
     }
 }
 
 /// Everything asked for since the last batch, each picture once, those on screen first: a
 /// picture asked for again once it came on screen keeps its first place in line and becomes
 /// urgent.
-fn next_batch(inbox: &Receiver<Job>) -> Option<Vec<Job>> {
+/// Copies asked for come apart, in order.
+type Fits = Vec<(Arc<[u8]>, usize)>;
+
+fn next_batch(inbox: &Receiver<Work>) -> Option<(Fits, Vec<Job>)> {
     let first = inbox.recv().ok()?;
     let mut place = HashMap::new();
     let mut batch: Vec<Job> = Vec::new();
-    for job in std::iter::once(first).chain(inbox.try_iter()) {
+    let mut fits = Vec::new();
+    for work in std::iter::once(first).chain(inbox.try_iter()) {
+        let job = match work {
+            Work::Draw(job) => job,
+            Work::Fit { image, room } => {
+                fits.push((image, room));
+                continue;
+            }
+        };
         match place.get(&(job.art.clone(), job.side)) {
             Some(&i) => {
                 let earlier: &mut Job = &mut batch[i];
@@ -128,7 +207,7 @@ fn next_batch(inbox: &Receiver<Job>) -> Option<Vec<Job>> {
         }
     }
     batch.sort_by_key(|job| !job.urgent);
-    Some(batch)
+    Some((fits, batch))
 }
 
 /// The UI went away.
@@ -139,9 +218,44 @@ struct Studio {
     cache: Option<DiskCache>,
     out: Sender<Event>,
     wake: Arc<dyn Fn() + Send + Sync>,
+    local: Arc<Mutex<Local>>,
 }
 
 impl Studio {
+    /// A copy of `image` within `room` bytes, made by the renderer; the copy kept to draw.
+    fn fit(&mut self, image: &[u8], room: usize) -> Result<(), Gone> {
+        let result = match &mut self.renderer {
+            None => Err(error(&RenderError::Crashed)),
+            Some(renderer) => renderer.fit(image, room).map_err(|e| match e {
+                RenderError::Limit("does not fit") => {
+                    CoreError::Failed(evolite_api::series::DOES_NOT_FIT.into())
+                }
+                other => error(&other),
+            }),
+        };
+        let result = result.map(|copy| {
+            let bytes: Arc<[u8]> = copy.bytes.clone().into();
+            let art = key(&bytes);
+            if let Ok(mut local) = self.local.lock() {
+                local.keep(art.clone(), bytes);
+            }
+            evolite_api::series::FittedPicture {
+                image: copy.bytes,
+                art,
+                png: copy.format == evolite_render::FitFormat::Png,
+                width: copy.width,
+                height: copy.height,
+                source_width: copy.source_width,
+                source_height: copy.source_height,
+            }
+        });
+        self.out
+            .send(Event::PictureFitted { result })
+            .map_err(|_| Gone)?;
+        (self.wake)();
+        Ok(())
+    }
+
     fn draw(&mut self, batch: Vec<Job>) -> Result<(), Gone> {
         // Drawn before: from the disk, no renderer.
         let mut todo = Vec::new();
@@ -309,12 +423,33 @@ mod tests {
             job("a", 64, true),
             job("a", 128, false),
         ] {
-            send.send(j).unwrap();
+            send.send(Work::Draw(j)).unwrap();
         }
-        let batch = next_batch(&inbox).unwrap();
+        // A copy asked for in between comes apart, before the pictures (R-21).
+        send.send(Work::Fit {
+            image: Arc::from(&b"x"[..]),
+            room: 9,
+        })
+        .unwrap();
+        let (fits, batch) = next_batch(&inbox).unwrap();
+        assert_eq!(fits.len(), 1);
         let order: Vec<_> = batch.iter().map(|j| (j.art.as_str(), j.side)).collect();
         assert_eq!(order, [("a", 64), ("b", 64), ("a", 128)]);
         // "a" at 64 was asked for again from the screen: urgent, in its first place.
         assert!(batch[0].urgent && batch[1].urgent && !batch[2].urgent);
+    }
+
+    /// Local pictures (W5): the last few kept, by key; one kept again moves to the end.
+    #[test]
+    fn local_pictures_keep_the_last_few() {
+        let mut local = Local::default();
+        for n in 0..6u8 {
+            local.keep(format!("k{n}"), Arc::from(&[n][..]));
+        }
+        assert!(local.get("k0").is_none() && local.get("k1").is_none());
+        assert_eq!(local.get("k5").as_deref(), Some(&[5u8][..]));
+        local.keep("k2".into(), Arc::from(&[2u8][..]));
+        local.keep("k6".into(), Arc::from(&[6u8][..]));
+        assert!(local.get("k2").is_some() && local.get("k3").is_none());
     }
 }

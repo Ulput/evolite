@@ -4,3 +4,5 @@
 
 pub mod image;
 pub mod plan;
+pub mod room;
+pub mod strip;

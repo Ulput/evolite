@@ -2481,7 +2481,6 @@
   "NFT collection": "NFT コレクション",
   "New NFT collection": "新しい NFT コレクション",
   "New model": "新しいモデル",
-  "New models come in the next version": "新しいモデルは次のバージョンで対応します",
   "No links or site addresses: people find the collection by its name.": "リンクやサイトのアドレスは入れないでください。コレクションは名前で見つけられます。",
   "No models yet. A model is a picture with its name and supply; its copies are issued from it.": "モデルはまだありません。モデルとは名前と発行数を持つ画像で、そこからコピーが発行されます。",
   "No moderators": "モデレーターなし",
@@ -2526,7 +2525,59 @@
   "{} model|{} models": {
     "other": "{} 個のモデル"
   },
+  "A series is running — wait for it or stop it": "シリーズが実行中です。終わるまで待つか、停止してください",
+  "Check the model": "モデルを確認",
+  "Choose a file": "ファイルを選択",
+  "Choose another file": "別のファイルを選択",
+  "Copies · issued {} of {}": "コピー · {} / {} 発行済み",
+  "Could not check the picture: the file is damaged or built in an unusual way. Save it again in an image editor.": "画像を確認できませんでした。ファイルが壊れているか、特殊な構造です。画像エディタで保存し直してください。",
+  "Could not read the picture": "画像を読み込めませんでした",
+  "Description": "説明",
+  "Details inside a 3D model, such as the program it was made in, are not removed and are written with it": "3D モデル内部の情報（作成に使ったプログラムなど）は削除されず、モデルと一緒に書き込まれます",
+  "Details stored in the file, such as the location and the camera, were removed": "ファイルに保存されていた情報（撮影場所やカメラなど）を削除しました",
+  "Each copy is a separate record on the network, about 2 seconds. You can hide the window: issuing goes on. If the connection drops, the model’s page shows “Continue issuing” — from the same number.": "各コピーはネットワーク上の個別の記録で、約 2 秒かかります。ウィンドウは隠せます。発行は続きます。接続が切れた場合は、モデルのページに「発行を続ける」が表示されます。同じ番号から再開します。",
+  "Issue now": "今すぐ発行",
+  "Issue now takes from 0 to the supply.": "今すぐ発行できるのは 0 から発行数までです。",
+  "Issue now · The rest — later.": "今すぐ発行 · 残りは後で。",
+  "Issuing “{}”": "「{}」を発行中",
+  "Make a smaller copy": "縮小版を作る",
+  "Making a smaller copy…": "縮小版を作成中…",
+  "Model": "モデル",
+  "Model name": "名前",
+  "Model written": "モデルを書き込みました",
+  "No links: evolite does not show models whose text has a site address.": "リンクなし：evolite は、テキストにサイトのアドレスを含むモデルを表示しません。",
+  "Only the first frame goes into the copy: it will not move.": "縮小版には最初のフレームだけが入ります。動きません。",
+  "Original file: {}×{}, {}": "元のファイル：{}×{}、{}",
+  "PNG, JPEG, GIF, WebP, SVG or GLB. Up to 5 KB as one field, up to about 19 KB in parts. The picture is written to the network whole — it cannot be swapped.": "PNG、JPEG、GIF、WebP、SVG、GLB。1 つのフィールドで 5 KB まで、分割で約 19 KB まで。画像はそのままネットワークに書き込まれ、差し替えはできません。",
+  "Picture": "画像",
+  "Reduced: {}×{}, {}": "縮小後：{}×{}、{}",
+  "Sign and issue": "署名して発行",
+  "Supply": "発行数",
+  "Supply · How many copies there can be in all. Cannot be changed.": "発行数 · コピーが全部でいくつまで作れるか。変更できません。",
+  "The description takes up to {} characters.": "説明は {} 文字までです。",
+  "The name takes 1 to {} characters.": "名前は 1〜{} 文字です。",
+  "The picture is {}, but the record has room for {}.": "画像は {} ですが、記録に入るのは {} までです。",
+  "The picture is {}, but the record has room for {}. evolite can make a smaller copy that fits; the file itself stays as it is.": "画像は {} ですが、記録に入るのは {} までです。evolite は収まる縮小版を作れます。ファイル自体は変わりません。",
+  "The {} file is {}, but the record has room for {}. evolite does not shrink SVG or GLB: make the file smaller in an editor.": "{} ファイルは {} ですが、記録に入るのは {} までです。evolite は SVG と GLB を縮小しません。エディタでファイルを小さくしてください。",
+  "This file is not a picture evolite can write.": "このファイルは evolite が書き込める画像ではありません。",
+  "This is not {}, though the file is named .{}.": "これは {} ではありません。ファイル名は .{} ですが。",
+  "This model cannot be written.": "このモデルは書き込めません。",
+  "This picture does not fit into the record even at a small size. Choose another one or simplify this one.": "この画像は小さくしても記録に収まりません。別の画像を選ぶか、この画像を簡単にしてください。",
+  "Use": "使用",
+  "{} copy|{} copies": {
+    "other": "{} 個のコピー"
+  },
+  "{} part|{} parts": {
+    "other": "{} 分割"
+  },
   "The series' plates and “Continue” go away: what each series already wrote stays on the network and in your collection, and a series cut short is started again for what is left. evolite reads each model's highest serial from the network again, but a highest serial that was deleted may be issued again.": "シリーズのバーと「続行」は消えます。各シリーズがすでに書き込んだものはネットワークとコレクションに残り、途中で止まったシリーズは残りの分をもう一度始めます。evolite は各モデルの最大番号をネットワークから読み直しますが、削除された最大番号はもう一度発行されることがあります。",
   "Collection “{}” created": "コレクション「{}」を作成しました",
-  "The collection is made. Whether its “About the collection” document was written is not known: the network did not answer. Open the collection to see.": "コレクションは作成されました。「コレクションについて」の文書が書き込まれたかどうかは不明です。ネットワークが応答しませんでした。コレクションを開いて確認してください。"
+  "The collection is made. Whether its “About the collection” document was written is not known: the network did not answer. Open the collection to see.": "コレクションは作成されました。「コレクションについて」の文書が書き込まれたかどうかは不明です。ネットワークが応答しませんでした。コレクションを開いて確認してください。",
+  "The picture is written in {} — still one record, at a higher price.": "画像は {} で書き込まれます。記録は 1 つのままですが、料金は高くなります。",
+  "This SVG could run code or reach a site when shown: it cannot be written.": "この SVG は表示時にコードを実行したりサイトにアクセスしたりする可能性があるため、書き込めません。",
+  "You sign once: evolite writes the model and {} one by one — {} on the network.": "署名は 1 回です。evolite がモデルと {} を順に書き込みます。ネットワーク上では {} になります。",
+  "{} record|{} records": {
+    "other": "{} 件の記録"
+  },
+  "{} · written as {}": "{} · 書き込みサイズ {}"
 }

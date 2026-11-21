@@ -529,6 +529,16 @@ impl Real {
             // NFT pictures as their documents store them (packed), or profile pictures: a
             // plain image file, never packed.
             Command::DrawArt { art, side, urgent } => return self.draw_art(art, side, urgent),
+            // FEAT-0038 R-21: «Make a smaller copy», in the renderer's sandbox.
+            Command::FitPicture { image, room } => match &self.artist {
+                Some(artist) => {
+                    artist.fit(image.into(), room);
+                    return (None, false);
+                }
+                None => Event::PictureFitted {
+                    result: Err(CoreError::NotAvailable(tr!("No picture").into())),
+                },
+            },
             Command::HideRequest { identity_id } => {
                 match self.contact_job(&identity_id, ContactJob::Hide) {
                     Ok(()) => return (None, false),

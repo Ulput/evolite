@@ -5,7 +5,9 @@
 //! - answer: `EVR1`, job id `u64`, then `0` and the art (`width u32`, `height u32`,
 //!   `frames u32`, per frame `delay_ms u32`, `packed length u32` and the frame's
 //!   `width × height × 4` bytes as an LZ4 block), or `1` and an error as two codes from the
-//!   fixed lists below.
+//!   fixed lists below, or `2` and a copy that fits ([`FIT`]: format `u8`, setting `u16`, its
+//!   `width u32`, `height u32`, the source's `width u32`, `height u32`, `length u32`, the
+//!   encoded bytes).
 //!
 //! Nothing free-form crosses back: the worker has read untrusted bytes, so its answer is held
 //! to the limits before any memory is taken for it. Frames stay packed: the window unpacks
@@ -13,6 +15,7 @@
 
 use std::io::{self, Read, Write};
 
+use crate::fit::{FitFormat, Fitted};
 use crate::frames::{Limits, PackedArt, PackedFrame, RenderError, packed_bound};
 
 const MAGIC: &[u8; 4] = b"EVR1";
@@ -21,15 +24,26 @@ const MAGIC: &[u8; 4] = b"EVR1";
 pub const FIRST_FRAME: u32 = 1;
 /// Request flag: the bytes are raw deflate ([`Limits::raw_deflate`]).
 pub const RAW_DEFLATE: u32 = 2;
+/// Request flag: not drawn but made into a copy of at most `side` bytes (FEAT-0038 R-21,
+/// [`crate::fit`]); the answer is a [`Reply::Fitted`].
+pub const FIT: u32 = 4;
+
+/// What a worker answers with, besides a refusal.
+#[derive(Debug, PartialEq)]
+pub enum Reply {
+    Art(PackedArt),
+    Fitted(Fitted),
+}
 
 /// The reasons a worker may give, by index. Anything else reads as `"unknown"`.
-const LIMITS: [&str; 6] = [
+const LIMITS: [&str; 7] = [
     "picture size",
     "frames",
     "decoded size",
     "SVG nodes",
     "unpacked size",
     "model size",
+    "does not fit",
 ];
 const INVALID: [&str; 12] = [
     "cannot decode",
@@ -178,11 +192,79 @@ pub fn write_answer(
     w.flush()
 }
 
+/// The answer to a [`FIT`] request.
+pub fn write_fitted(
+    w: &mut impl Write,
+    id: u64,
+    answer: &Result<Fitted, RenderError>,
+) -> io::Result<()> {
+    let copy = match answer {
+        Ok(copy) => copy,
+        Err(e) => return write_answer(w, id, &Err(e.clone())),
+    };
+    let len = u32::try_from(copy.bytes.len()).map_err(|_| bad("copy too large"))?;
+    w.write_all(MAGIC)?;
+    w.write_all(&id.to_le_bytes())?;
+    w.write_all(&[2, matches!(copy.format, FitFormat::Png) as u8])?;
+    w.write_all(&copy.setting.to_le_bytes())?;
+    for v in [
+        copy.width,
+        copy.height,
+        copy.source_width,
+        copy.source_height,
+        len,
+    ] {
+        w.write_all(&v.to_le_bytes())?;
+    }
+    w.write_all(&copy.bytes)?;
+    w.flush()
+}
+
+fn u16_from(r: &mut impl Read) -> io::Result<u16> {
+    let mut b = [0; 2];
+    r.read_exact(&mut b)?;
+    Ok(u16::from_le_bytes(b))
+}
+
+/// A copy, held to `limits` (its length within the input limit, its sides within the source
+/// limit) before memory is taken for it.
+fn read_fitted(r: &mut impl Read, limits: &Limits) -> io::Result<Fitted> {
+    let format = match u8_from(r)? {
+        0 => FitFormat::Jpeg,
+        1 => FitFormat::Png,
+        _ => return Err(bad("unknown copy format")),
+    };
+    let setting = u16_from(r)?;
+    let width = u32_from(r)?;
+    let height = u32_from(r)?;
+    let source_width = u32_from(r)?;
+    let source_height = u32_from(r)?;
+    let len = u32_from(r)? as usize;
+    let sides = [width, height, source_width, source_height];
+    if sides.iter().any(|s| *s == 0 || *s > limits.max_source_side) {
+        return Err(bad("copy size over the limit"));
+    }
+    if len == 0 || len > limits.max_input {
+        return Err(bad("copy over the limit"));
+    }
+    let mut bytes = vec![0; len];
+    r.read_exact(&mut bytes)?;
+    Ok(Fitted {
+        bytes,
+        format,
+        width,
+        height,
+        setting,
+        source_width,
+        source_height,
+    })
+}
+
 /// An answer, held to `limits` before the memory for its frames is taken.
 pub fn read_answer(
     r: &mut impl Read,
     limits: &Limits,
-) -> io::Result<(u64, Result<PackedArt, RenderError>)> {
+) -> io::Result<(u64, Result<Reply, RenderError>)> {
     if !magic(r)? {
         return Err(io::ErrorKind::UnexpectedEof.into());
     }
@@ -194,6 +276,7 @@ pub fn read_answer(
             let reason = u8_from(r)?;
             return Ok((id, Err(error_from(kind, reason)?)));
         }
+        2 => return Ok((id, Ok(Reply::Fitted(read_fitted(r, limits)?)))),
         _ => return Err(bad("unknown answer")),
     }
     let width = u32_from(r)?;
@@ -227,11 +310,11 @@ pub fn read_answer(
     }
     Ok((
         id,
-        Ok(PackedArt {
+        Ok(Reply::Art(PackedArt {
             width,
             height,
             frames,
-        }),
+        })),
     ))
 }
 
@@ -305,9 +388,51 @@ mod tests {
             write_answer(&mut wire, 9, &answer).unwrap();
             assert_eq!(
                 read_answer(&mut Cursor::new(wire), &limits).unwrap(),
-                (9, answer)
+                (9, answer.map(Reply::Art))
             );
         }
+    }
+
+    /// FEAT-0038 R-21: a copy and «does not fit» go through as they were sent.
+    #[test]
+    fn a_fitted_copy_goes_through() {
+        let limits = Limits::default();
+        let copy = Fitted {
+            bytes: vec![0xFF, 0xD8, 0xFF, 1, 2, 3],
+            format: FitFormat::Jpeg,
+            width: 512,
+            height: 341,
+            setting: 77,
+            source_width: 1200,
+            source_height: 800,
+        };
+        for answer in [Ok(copy), Err(RenderError::Limit("does not fit"))] {
+            let mut wire = Vec::new();
+            write_fitted(&mut wire, 4, &answer).unwrap();
+            assert_eq!(
+                read_answer(&mut Cursor::new(wire), &limits).unwrap(),
+                (4, answer.map(Reply::Fitted))
+            );
+        }
+    }
+
+    /// A copy that claims more bytes than a request may carry is refused before the memory.
+    #[test]
+    fn a_copy_over_the_limit_is_refused_before_allocating() {
+        let mut wire = Vec::new();
+        wire.extend(MAGIC);
+        wire.extend(1u64.to_le_bytes());
+        wire.extend([2, 0]);
+        wire.extend(80u16.to_le_bytes());
+        for v in [10u32, 10, 10, 10, u32::MAX] {
+            wire.extend(v.to_le_bytes());
+        }
+        assert_eq!(
+            read_answer(&mut Cursor::new(wire), &Limits::default())
+                .unwrap_err()
+                .kind(),
+            io::ErrorKind::InvalidData
+        );
     }
 
     #[test]

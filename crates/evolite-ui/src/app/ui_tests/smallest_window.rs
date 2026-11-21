@@ -13,7 +13,7 @@ const SMALLEST: [f32; 2] = [800.0, 440.0];
 /// spends (a spend's row of buttons or password field). Each must be seen by the presets with its
 /// summary, spending where it spends; and the code holds no other
 /// (`the_summary_dialogs_are_all_listed`). BUG-249 r3, the architect.
-const SUMMARY_DIALOGS: [(&str, bool); 23] = [
+const SUMMARY_DIALOGS: [(&str, bool); 24] = [
     ("accept-contact", true),
     ("add-contact", true),
     ("add-name", true),
@@ -39,6 +39,8 @@ const SUMMARY_DIALOGS: [(&str, bool); 23] = [
     ("unshield-dialog", true),
     // FEAT-0038 W3 «Check the collection».
     ("workshop-check-collection", true),
+    // FEAT-0038 W5 «Check the model».
+    ("workshop-check-model", true),
 ];
 
 /// What a dialog shown is, for [`quiet`]: its id, whether it spends, its summary, its scroll.

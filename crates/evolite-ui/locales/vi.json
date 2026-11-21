@@ -2481,7 +2481,6 @@
   "NFT collection": "Bộ sưu tập NFT",
   "New NFT collection": "Bộ sưu tập NFT mới",
   "New model": "Mô hình mới",
-  "New models come in the next version": "Mô hình mới sẽ có ở phiên bản sau",
   "No links or site addresses: people find the collection by its name.": "Không có liên kết hoặc địa chỉ trang web: mọi người tìm bộ sưu tập theo tên.",
   "No models yet. A model is a picture with its name and supply; its copies are issued from it.": "Chưa có mô hình nào. Mô hình là một hình ảnh kèm tên và số lượng phát hành; các bản sao được phát hành từ nó.",
   "No moderators": "Không có người kiểm duyệt",
@@ -2526,7 +2525,59 @@
   "{} model|{} models": {
     "other": "{} mô hình"
   },
+  "A series is running — wait for it or stop it": "Một loạt đang chạy — hãy chờ hoặc dừng nó",
+  "Check the model": "Kiểm tra mô hình",
+  "Choose a file": "Chọn tệp",
+  "Choose another file": "Chọn tệp khác",
+  "Copies · issued {} of {}": "Các bản · đã phát hành {}/{}",
+  "Could not check the picture: the file is damaged or built in an unusual way. Save it again in an image editor.": "Không thể kiểm tra ảnh: tệp bị hỏng hoặc có cấu trúc khác thường. Hãy lưu lại trong trình chỉnh sửa ảnh.",
+  "Could not read the picture": "Không thể đọc ảnh",
+  "Description": "Mô tả",
+  "Details inside a 3D model, such as the program it was made in, are not removed and are written with it": "Thông tin bên trong mô hình 3D, chẳng hạn chương trình đã tạo ra nó, không bị xóa và sẽ được ghi cùng với nó",
+  "Details stored in the file, such as the location and the camera, were removed": "Thông tin lưu trong tệp, chẳng hạn nơi chụp và máy ảnh, đã bị xóa",
+  "Each copy is a separate record on the network, about 2 seconds. You can hide the window: issuing goes on. If the connection drops, the model’s page shows “Continue issuing” — from the same number.": "Mỗi bản sao là một bản ghi riêng trên mạng, khoảng 2 giây. Bạn có thể ẩn cửa sổ: việc phát hành vẫn tiếp tục. Nếu mất kết nối, trang của mô hình sẽ hiện “Tiếp tục phát hành” — từ cùng số đó.",
+  "Issue now": "Phát hành ngay",
+  "Issue now takes from 0 to the supply.": "Phát hành ngay có thể từ 0 đến số lượng phát hành.",
+  "Issue now · The rest — later.": "Phát hành ngay · Phần còn lại — sau.",
+  "Issuing “{}”": "Đang phát hành “{}”",
+  "Make a smaller copy": "Tạo bản thu nhỏ",
+  "Making a smaller copy…": "Đang tạo bản thu nhỏ…",
+  "Model": "Mô hình",
+  "Model name": "Tên",
+  "Model written": "Đã ghi mô hình",
+  "No links: evolite does not show models whose text has a site address.": "Không có liên kết: evolite không hiển thị các mô hình có địa chỉ trang web trong văn bản.",
+  "Only the first frame goes into the copy: it will not move.": "Chỉ khung hình đầu tiên vào bản thu nhỏ: nó sẽ không chuyển động.",
+  "Original file: {}×{}, {}": "Tệp gốc: {}×{}, {}",
+  "PNG, JPEG, GIF, WebP, SVG or GLB. Up to 5 KB as one field, up to about 19 KB in parts. The picture is written to the network whole — it cannot be swapped.": "PNG, JPEG, GIF, WebP, SVG hoặc GLB. Tối đa 5 KB trong một trường, tối đa khoảng 19 KB theo từng phần. Ảnh được ghi lên mạng nguyên vẹn — không thể thay thế.",
+  "Picture": "Ảnh",
+  "Reduced: {}×{}, {}": "Sau khi thu nhỏ: {}×{}, {}",
+  "Sign and issue": "Ký và phát hành",
+  "Supply": "Số lượng phát hành",
+  "Supply · How many copies there can be in all. Cannot be changed.": "Số lượng phát hành · Tổng cộng có thể có bao nhiêu bản sao. Không thể thay đổi.",
+  "The description takes up to {} characters.": "Mô tả tối đa {} ký tự.",
+  "The name takes 1 to {} characters.": "Tên có từ 1 đến {} ký tự.",
+  "The picture is {}, but the record has room for {}.": "Ảnh nặng {}, nhưng bản ghi chỉ chứa được {}.",
+  "The picture is {}, but the record has room for {}. evolite can make a smaller copy that fits; the file itself stays as it is.": "Ảnh nặng {}, nhưng bản ghi chỉ chứa được {}. evolite có thể tạo bản thu nhỏ vừa với bản ghi; bản thân tệp không thay đổi.",
+  "The {} file is {}, but the record has room for {}. evolite does not shrink SVG or GLB: make the file smaller in an editor.": "Tệp {} nặng {}, nhưng bản ghi chỉ chứa được {}. evolite không thu nhỏ SVG và GLB: hãy làm nhỏ tệp trong trình chỉnh sửa.",
+  "This file is not a picture evolite can write.": "Tệp này không phải ảnh mà evolite có thể ghi.",
+  "This is not {}, though the file is named .{}.": "Đây không phải {}, dù tệp có tên .{}.",
+  "This model cannot be written.": "Không thể ghi mô hình này.",
+  "This picture does not fit into the record even at a small size. Choose another one or simplify this one.": "Ảnh này không vừa với bản ghi, kể cả ở kích thước nhỏ. Hãy chọn ảnh khác hoặc đơn giản hóa ảnh này.",
+  "Use": "Dùng",
+  "{} copy|{} copies": {
+    "other": "{} bản"
+  },
+  "{} part|{} parts": {
+    "other": "{} phần"
+  },
   "The series' plates and “Continue” go away: what each series already wrote stays on the network and in your collection, and a series cut short is started again for what is left. evolite reads each model's highest serial from the network again, but a highest serial that was deleted may be issued again.": "Các thanh của loạt và “Tiếp tục” sẽ biến mất. Những gì mỗi loạt đã ghi vẫn còn trên mạng và trong bộ sưu tập của bạn; loạt bị ngắt sẽ được bắt đầu lại cho phần còn lại. evolite đọc lại từ mạng số cao nhất của mỗi mẫu, nhưng một số cao nhất đã bị xóa có thể được phát hành lại.",
   "Collection “{}” created": "Đã tạo bộ sưu tập “{}”",
-  "The collection is made. Whether its “About the collection” document was written is not known: the network did not answer. Open the collection to see.": "Bộ sưu tập đã được tạo. Chưa rõ tài liệu “Về bộ sưu tập” đã được ghi hay chưa: mạng không trả lời. Mở bộ sưu tập để xem."
+  "The collection is made. Whether its “About the collection” document was written is not known: the network did not answer. Open the collection to see.": "Bộ sưu tập đã được tạo. Chưa rõ tài liệu “Về bộ sưu tập” đã được ghi hay chưa: mạng không trả lời. Mở bộ sưu tập để xem.",
+  "The picture is written in {} — still one record, at a higher price.": "Ảnh sẽ được ghi thành {} — vẫn là một bản ghi, nhưng giá cao hơn.",
+  "This SVG could run code or reach a site when shown: it cannot be written.": "SVG này có thể chạy mã hoặc truy cập một trang web khi hiển thị: không thể ghi.",
+  "You sign once: evolite writes the model and {} one by one — {} on the network.": "Bạn ký một lần: evolite ghi mô hình và {} lần lượt — tức {} trên mạng.",
+  "{} record|{} records": {
+    "other": "{} bản ghi"
+  },
+  "{} · written as {}": "{} · ghi thành {}"
 }

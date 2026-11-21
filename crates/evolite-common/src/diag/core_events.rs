@@ -51,6 +51,7 @@ pub fn command_name(command: &Command) -> &'static str {
         Command::CheckContract { .. } => "check_contract",
         Command::PlanSeries { .. } => "plan_series",
         Command::PlanModel { .. } => "plan_model",
+        Command::FitPicture { .. } => "fit_picture",
         Command::StopSeries { .. } => "stop_series",
         Command::CloseSeries { .. } => "close_series",
         Command::DeleteWallet { .. } => "delete_wallet",
@@ -213,6 +214,7 @@ pub fn answer(event: &Event) -> Option<Record> {
         Event::ContractChecked { result, .. } => ("contract_checked", outcome(result)),
         Event::SeriesPlanned { result, .. } => ("series_planned", outcome(result)),
         Event::ModelPlanned { result } => ("model_planned", outcome(result)),
+        Event::PictureFitted { result } => ("picture_fitted", outcome(result)),
         Event::Done { what, result, .. } => (what.as_str(), outcome(result)),
         Event::PhraseRevealed(r) => ("phrase_revealed", outcome(r)),
         // FEAT-0045 R-14: how it ended only — no file, no folder, no counts.

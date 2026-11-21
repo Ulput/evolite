@@ -8,10 +8,14 @@ description = "Turns untrusted pictures (NFT art) into checked RGBA frames, in a
 
 [dependencies]
 crc32fast = "1.5"
+# «Fit into the record» (FEAT-0038 R-21): a palette for a copy with transparency, and its PNG.
+# Both already under `image`; nothing new is downloaded.
+color_quant = "1"
 # Pure-Rust decoders only: a bug in them is a wrong picture or a refusal, not memory corruption.
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp"] }
 lz4_flex = { version = "0.11", default-features = false, features = ["safe-encode", "safe-decode", "std"] }
 miniz_oxide = "0.8"
+png = "0.18"
 # The same resvg/usvg as egui_extras; system fonts for <text>, embedded rasters for data: URIs.
 resvg = { version = "0.45", default-features = false, features = ["text", "system-fonts", "raster-images"] }
 roxmltree = "0.20"

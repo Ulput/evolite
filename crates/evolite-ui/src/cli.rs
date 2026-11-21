@@ -255,6 +255,7 @@ pub const PRESETS: &[&str] = &[
     "refused-mainnet", "apps-disconnected", "apps-renew", "apps-disconnect", "apps-remove",
     "collection", "gift",
     "workshop", "workshop-new", "workshop-review", "workshop-steps", "workshop-collection",
+    "workshop-model", "workshop-model-copy", "workshop-model-review",
     "tokens", "tokens-first-search", "tokens-first-count", "tokens-balances", "tokens-again", "tokens-no-network-first", "tokens-pause", "tokens-no-network", "tokens-refresh-failed",
     "tokens-empty", "tokens-all-hidden", "tokens-send", "tokens-review", "tokens-add", "tokens-mainnet",
     "tokens-send-address", "tokens-send-more", "tokens-send-credits", "tokens-send-unknown",
@@ -580,7 +581,10 @@ fn dev_args<'a>(
                 | "workshop-new"
                 | "workshop-review"
                 | "workshop-steps"
-                | "workshop-collection",
+                | "workshop-collection"
+                | "workshop-model"
+                | "workshop-model-copy"
+                | "workshop-model-review",
             ),
         ) => Screen::Workshop,
         (None, Some("probe")) => Screen::Probe,

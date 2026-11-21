@@ -8,11 +8,16 @@ use std::path::PathBuf;
 use std::sync::mpsc::{Receiver, RecvTimeoutError, channel};
 use std::time::{Duration, Instant};
 
+use crate::fit::Fitted;
 use crate::frames::{Limits, PackedArt, RenderError, SandboxRefusal};
 use crate::sandbox::{self, Sandboxed};
-use crate::wire;
+use crate::wire::{self, Reply};
 
-type Answer = io::Result<(u64, Result<PackedArt, RenderError>)>;
+type Answer = io::Result<(u64, Result<Reply, RenderError>)>;
+
+/// A fit's deadline on top of the worker's own ([`crate::fit::DEADLINE`]): its last encode and
+/// the answer's bytes.
+const FIT_MORE: Duration = Duration::from_secs(3);
 
 /// How the bytes of a picture are stored. A gzip file (`.svgz`) is known by its first bytes and
 /// needs no word; raw deflate has no signature, so the document has to say.
@@ -240,16 +245,47 @@ impl Renderer {
         if packing == Packing::RawDeflate {
             flags |= wire::RAW_DEFLATE;
         }
-        self.request(bytes, side, flags)
-    }
-
-    fn request(&mut self, bytes: &[u8], side: u32, flags: u32) -> Result<PackedArt, RenderError> {
         let limits = if side > 0 {
             self.settings.limits.for_side(side)
         } else {
             self.settings.limits
         };
-        if bytes.len() > limits.max_input {
+        match self.request(bytes, side, flags, self.settings.timeout)? {
+            // The answer is held to the limits once more: the worker read untrusted bytes.
+            Reply::Art(art) => art.check(&limits).map(|()| art),
+            Reply::Fitted(_) => Err(RenderError::Crashed),
+        }
+    }
+
+    /// FEAT-0038 R-21 «Fit into the record»: a copy of `bytes` of at most `limit` bytes, JPEG or
+    /// PNG with a palette, made in the worker (the wallet decodes nothing). Held again here: its
+    /// length within `limit`, its type by its first bytes the one it claims.
+    pub fn fit(&mut self, bytes: &[u8], limit: usize) -> Result<Fitted, RenderError> {
+        let side = u32::try_from(limit).map_err(|_| RenderError::TooLarge)?;
+        let timeout = crate::fit::DEADLINE + FIT_MORE;
+        match self.request(bytes, side, wire::FIT, timeout)? {
+            Reply::Fitted(copy) => {
+                let claimed = match copy.format {
+                    crate::fit::FitFormat::Jpeg => crate::sniff::Format::Jpeg,
+                    crate::fit::FitFormat::Png => crate::sniff::Format::Png,
+                };
+                if copy.bytes.len() > limit || crate::sniff::sniff(&copy.bytes) != Some(claimed) {
+                    return Err(RenderError::Invalid("cannot decode"));
+                }
+                Ok(copy)
+            }
+            Reply::Art(_) => Err(RenderError::Crashed),
+        }
+    }
+
+    fn request(
+        &mut self,
+        bytes: &[u8],
+        side: u32,
+        flags: u32,
+        timeout: Duration,
+    ) -> Result<Reply, RenderError> {
+        if bytes.len() > self.settings.limits.max_input {
             return Err(RenderError::TooLarge);
         }
         let mut worker = match self.worker.take() {
@@ -260,7 +296,7 @@ impl Renderer {
         let id = self.next_id;
         // One deadline for the picture, from the request's first byte to the answer's last.
         let started = Instant::now();
-        match worker.write_within(self.settings.timeout, id, side, flags, bytes) {
+        match worker.write_within(timeout, id, side, flags, bytes) {
             Some(Ok(())) => {}
             Some(Err(_)) => return Err(worker.stop_broken()),
             None => {
@@ -268,11 +304,9 @@ impl Renderer {
                 return Err(RenderError::Timeout);
             }
         }
-        let left = self.settings.timeout.saturating_sub(started.elapsed());
+        let left = timeout.saturating_sub(started.elapsed());
         match worker.answers.recv_timeout(left) {
             Ok(Ok((answered, result))) if answered == id => {
-                // The answer is held to the limits once more: the worker read untrusted bytes.
-                let result = result.and_then(|art| art.check(&limits).map(|()| art));
                 self.worker = Some(worker);
                 result
             }

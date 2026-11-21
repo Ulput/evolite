@@ -2481,7 +2481,6 @@
   "NFT collection": "Koleksi NFT",
   "New NFT collection": "Koleksi NFT baru",
   "New model": "Model baru",
-  "New models come in the next version": "Model baru hadir di versi berikutnya",
   "No links or site addresses: people find the collection by its name.": "Tanpa tautan atau alamat situs: orang menemukan koleksi lewat namanya.",
   "No models yet. A model is a picture with its name and supply; its copies are issued from it.": "Belum ada model. Model adalah gambar dengan nama dan jumlah terbitan; salinannya diterbitkan darinya.",
   "No moderators": "Tanpa moderator",
@@ -2526,7 +2525,59 @@
   "{} model|{} models": {
     "other": "{} model"
   },
+  "A series is running — wait for it or stop it": "Sebuah seri sedang berjalan — tunggu atau hentikan",
+  "Check the model": "Periksa model",
+  "Choose a file": "Pilih berkas",
+  "Choose another file": "Pilih berkas lain",
+  "Copies · issued {} of {}": "Salinan · diterbitkan {} dari {}",
+  "Could not check the picture: the file is damaged or built in an unusual way. Save it again in an image editor.": "Gambar tidak dapat diperiksa: berkas rusak atau susunannya tidak biasa. Simpan ulang di editor gambar.",
+  "Could not read the picture": "Gambar tidak dapat dibaca",
+  "Description": "Deskripsi",
+  "Details inside a 3D model, such as the program it was made in, are not removed and are written with it": "Keterangan di dalam model 3D, seperti program yang membuatnya, tidak dihapus dan ikut ditulis bersamanya",
+  "Details stored in the file, such as the location and the camera, were removed": "Keterangan yang tersimpan di berkas, seperti lokasi dan kamera, telah dihapus",
+  "Each copy is a separate record on the network, about 2 seconds. You can hide the window: issuing goes on. If the connection drops, the model’s page shows “Continue issuing” — from the same number.": "Setiap salinan adalah catatan terpisah di jaringan, sekitar 2 detik. Jendela boleh disembunyikan: penerbitan terus berjalan. Jika koneksi terputus, halaman model menampilkan “Lanjutkan penerbitan” — dari nomor yang sama.",
+  "Issue now": "Terbitkan sekarang",
+  "Issue now takes from 0 to the supply.": "Terbitkan sekarang bisa dari 0 hingga jumlah cetak.",
+  "Issue now · The rest — later.": "Terbitkan sekarang · Sisanya — nanti.",
+  "Issuing “{}”": "Menerbitkan “{}”",
+  "Make a smaller copy": "Buat versi yang lebih kecil",
+  "Making a smaller copy…": "Membuat versi yang lebih kecil…",
+  "Model": "Model",
+  "Model name": "Nama",
+  "Model written": "Model tertulis",
+  "No links: evolite does not show models whose text has a site address.": "Tanpa tautan: evolite tidak menampilkan model yang teksnya memuat alamat situs.",
+  "Only the first frame goes into the copy: it will not move.": "Hanya bingkai pertama yang masuk ke versi kecil: gambarnya tidak akan bergerak.",
+  "Original file: {}×{}, {}": "Berkas asli: {}×{}, {}",
+  "PNG, JPEG, GIF, WebP, SVG or GLB. Up to 5 KB as one field, up to about 19 KB in parts. The picture is written to the network whole — it cannot be swapped.": "PNG, JPEG, GIF, WebP, SVG, atau GLB. Hingga 5 KB sebagai satu bidang, hingga sekitar 19 KB dalam bagian. Gambar ditulis ke jaringan secara utuh — tidak bisa diganti.",
+  "Picture": "Gambar",
+  "Reduced: {}×{}, {}": "Setelah diperkecil: {}×{}, {}",
+  "Sign and issue": "Tandatangani dan terbitkan",
+  "Supply": "Jumlah cetak",
+  "Supply · How many copies there can be in all. Cannot be changed.": "Jumlah cetak · Berapa banyak salinan yang boleh ada seluruhnya. Tidak dapat diubah.",
+  "The description takes up to {} characters.": "Deskripsi maksimal {} karakter.",
+  "The name takes 1 to {} characters.": "Nama terdiri dari 1 sampai {} karakter.",
+  "The picture is {}, but the record has room for {}.": "Gambar berukuran {}, tetapi catatan hanya muat {}.",
+  "The picture is {}, but the record has room for {}. evolite can make a smaller copy that fits; the file itself stays as it is.": "Gambar berukuran {}, tetapi catatan hanya muat {}. evolite dapat membuat versi lebih kecil yang muat; berkasnya sendiri tidak berubah.",
+  "The {} file is {}, but the record has room for {}. evolite does not shrink SVG or GLB: make the file smaller in an editor.": "Berkas {} berukuran {}, tetapi catatan hanya muat {}. evolite tidak memperkecil SVG dan GLB: perkecil berkas di editor.",
+  "This file is not a picture evolite can write.": "Berkas ini bukan gambar yang dapat ditulis evolite.",
+  "This is not {}, though the file is named .{}.": "Ini bukan {}, meskipun berkasnya bernama .{}.",
+  "This model cannot be written.": "Model ini tidak dapat ditulis.",
+  "This picture does not fit into the record even at a small size. Choose another one or simplify this one.": "Gambar ini tidak muat di catatan bahkan dalam ukuran kecil. Pilih yang lain atau sederhanakan gambar ini.",
+  "Use": "Gunakan",
+  "{} copy|{} copies": {
+    "other": "{} salinan"
+  },
+  "{} part|{} parts": {
+    "other": "{} bagian"
+  },
   "The series' plates and “Continue” go away: what each series already wrote stays on the network and in your collection, and a series cut short is started again for what is left. evolite reads each model's highest serial from the network again, but a highest serial that was deleted may be issued again.": "Bilah seri dan “Lanjutkan” akan hilang. Yang sudah ditulis setiap seri tetap ada di jaringan dan di koleksi Anda; seri yang terputus dimulai lagi untuk sisanya. evolite membaca lagi nomor tertinggi setiap model dari jaringan, tetapi nomor tertinggi yang dihapus bisa diterbitkan lagi.",
   "Collection “{}” created": "Koleksi “{}” dibuat",
-  "The collection is made. Whether its “About the collection” document was written is not known: the network did not answer. Open the collection to see.": "Koleksi sudah dibuat. Belum diketahui apakah dokumen “Tentang koleksi” sudah ditulis: jaringan tidak menjawab. Buka koleksi untuk melihatnya."
+  "The collection is made. Whether its “About the collection” document was written is not known: the network did not answer. Open the collection to see.": "Koleksi sudah dibuat. Belum diketahui apakah dokumen “Tentang koleksi” sudah ditulis: jaringan tidak menjawab. Buka koleksi untuk melihatnya.",
+  "The picture is written in {} — still one record, at a higher price.": "Gambar akan ditulis dalam {} — tetap satu catatan, tetapi biayanya lebih tinggi.",
+  "This SVG could run code or reach a site when shown: it cannot be written.": "SVG ini dapat menjalankan kode atau membuka situs saat ditampilkan: tidak dapat ditulis.",
+  "You sign once: evolite writes the model and {} one by one — {} on the network.": "Anda menandatangani sekali: evolite menulis model dan {} satu per satu — itu {} di jaringan.",
+  "{} record|{} records": {
+    "other": "{} catatan"
+  },
+  "{} · written as {}": "{} · ditulis sebagai {}"
 }

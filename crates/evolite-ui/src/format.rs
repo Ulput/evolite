@@ -1033,6 +1033,11 @@ mod tests {
         const NOT_AMOUNTS: &[(&str, usize, &str)] = &[
             ("evolite-ui/src/format.rs", 2, "the one rule itself"),
             (
+                "evolite-ui/src/screens/workshop/new_model.rs",
+                3,
+                "a model's supply and «Issue now» (counts of copies, digits only) and a file name's                  extension (W5), not amounts",
+            ),
+            (
                 "evolite-ui/src/diagnostics.rs",
                 1,
                 "EVOLITE_SPV_LOG's tracing filter (dev-tools, BUG-221 trace), not a number",

@@ -64,6 +64,9 @@ tokio = { version = "1", features = ["test-util"] }
 # what the network refuses — the template against the network's version, and `rules` against
 # DPP. The release builds without it and its 13 packages; `rules` is its defence.
 dpp = { workspace = true, features = ["validation"] }
+# Tests only: `nft_series::strip` compares pixels before and after (the release reads
+# no pixels in the wallet).
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp"] }
 
 [lints]
 workspace = true
