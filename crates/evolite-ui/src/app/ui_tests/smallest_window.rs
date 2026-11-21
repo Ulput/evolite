@@ -280,3 +280,30 @@ fn the_summary_dialogs_are_all_listed() {
         "the code's dialogs with a summary, and the list"
     );
 }
+
+/// BUG-255 (1): «Send» at 1024 pt with the «Fee» row (FEAT-0040, a custom rate): the form and
+/// «Summary» beside it stay inside the window in every language swept — the rate's field
+/// leaves room for its unit.
+#[test]
+fn send_with_a_custom_fee_fits_at_1024() {
+    for lang in LANGUAGES {
+        let (_turn, mut kit) = demo_app("send", lang);
+        kit.set_size(egui::vec2(1024.0, 768.0));
+        kit.state_mut().settings.set("advanced", true);
+        kit.state_mut().settings.fee = evolite_api::fee_choice::FeeChoice::Custom(1_000);
+        kit.state_mut().send.fee_custom = "1000".into();
+        kit.state_mut().send.recipient = "yXdxCB2vAX6wPHeaQqyB6XJT9eSZGJx3qB".into();
+        kit.state_mut().send.amount = "0.1".into();
+        kit.run_steps(6);
+        let unit = crate::i18n::t_in(crate::i18n::Lang::from_code(lang).unwrap(), "duffs per kB");
+        // Arabic is painted reshaped (`i18n::visual`): its unit is not found as typed.
+        if lang != "ar" {
+            assert!(
+                painted_has(&kit, &unit),
+                "{lang}: the «Fee» row with its unit"
+            );
+        }
+        let wide = too_wide(&kit);
+        assert!(wide.is_empty(), "{lang}: wider than the window: {wide:?}");
+    }
+}

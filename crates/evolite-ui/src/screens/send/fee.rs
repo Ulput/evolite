@@ -144,15 +144,30 @@ pub(super) fn fee_row(
                     form.fee_custom = kept.to_string();
                 }
                 ui.horizontal(|ui| {
-                    let field = text_field(
+                    // BUG-255 (1): the field leaves room for its unit; taking the whole row, it
+                    // pushed the unit — and the form's column, «Total» with it — past the
+                    // window at 1024.
+                    let unit = crate::i18n::t(tr!("duffs per kB")).into_owned();
+                    let unit_w = crate::components::text_width(
                         ui,
-                        &p,
-                        "send-fee-custom",
-                        &mut form.fee_custom,
-                        "",
-                        FieldKind::Text,
-                        |_| {},
+                        &unit,
+                        crate::theme::sans(12.0, Weight::Regular),
                     );
+                    let gap = ui.spacing().item_spacing.x;
+                    let room = (ui.available_width() - unit_w - gap).max(80.0);
+                    let field = ui
+                        .allocate_ui(egui::vec2(room, 0.0), |ui| {
+                            text_field(
+                                ui,
+                                &p,
+                                "send-fee-custom",
+                                &mut form.fee_custom,
+                                "",
+                                FieldKind::Text,
+                                |_| {},
+                            )
+                        })
+                        .inner;
                     if field.changed()
                         && let Some(rate) = parse_custom(&form.fee_custom)
                         && !fee_choice::refused(rate)
