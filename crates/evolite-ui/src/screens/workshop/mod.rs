@@ -400,8 +400,10 @@ fn collection_row(ui: &mut Ui, a: &mut Assets, c: &Collection) -> egui::Response
             ui.set_width(crate::components::inner(width, 20));
             ui.horizontal(|ui| {
                 ui.vertical(|ui| {
+                    // BUG-258: room for the chevron; a long name and its tags wrap.
+                    ui.set_width((ui.available_width() - 30.0).max(120.0));
                     ui.spacing_mut().item_spacing.y = 4.0;
-                    ui.horizontal(|ui| {
+                    ui.horizontal_wrapped(|ui| {
                         ui.spacing_mut().item_spacing.x = 8.0;
                         ui.label(txt(
                             &crate::i18n::own(&name),

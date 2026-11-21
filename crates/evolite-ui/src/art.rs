@@ -4,7 +4,7 @@
 //! frame whose time has come.
 
 use crate::theme::{Palette, Weight, sans};
-use egui::{Align2, ColorImage, CornerRadius, Rect, TextureHandle, TextureOptions, Ui, pos2, vec2};
+use egui::{ColorImage, CornerRadius, Rect, TextureHandle, TextureOptions, Ui, pos2, vec2};
 use evolite_api::{Command, CoreError, Picture, PicturesOff};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -350,24 +350,37 @@ fn current(now_ms: u64, picture: &Picture, total: u64) -> (usize, Duration) {
     (0, Duration::from_millis(TICK_MS - now_ms % TICK_MS))
 }
 
+/// BUG-258: the words wrap to the box and are painted only when they fit in it — a small
+/// thumbnail is the box alone, never words over what is beside it.
 fn placeholder(ui: &Ui, p: &Palette, rect: Rect, title: &str, why: &str) {
-    let painter = ui.painter();
+    let painter = ui.painter_at(rect);
     painter.rect_filled(rect, CornerRadius::same(12), p.raised);
-    painter.text(
-        rect.center() - vec2(0.0, if why.is_empty() { 0.0 } else { 9.0 }),
-        Align2::CENTER_CENTER,
-        crate::i18n::t(title),
-        sans(13.0, Weight::Medium),
-        p.muted,
-    );
-    if !why.is_empty() {
-        painter.text(
-            rect.center() + vec2(0.0, 10.0),
-            Align2::CENTER_CENTER,
-            crate::i18n::t(why),
-            sans(11.0, Weight::Regular),
+    let wrap = (rect.width() - 12.0).max(0.0);
+    let layout = |text: &str, size: f32, weight| {
+        painter.layout(
+            crate::i18n::t(text).into_owned(),
+            sans(size, weight),
+            p.muted,
+            wrap,
+        )
+    };
+    let title = layout(title, 13.0, Weight::Medium);
+    let why = (!why.is_empty()).then(|| layout(why, 11.0, Weight::Regular));
+    let gap = 4.0;
+    let height = title.size().y + why.as_ref().map_or(0.0, |w| gap + w.size().y);
+    let widest = title.size().x.max(why.as_ref().map_or(0.0, |w| w.size().x));
+    if height > rect.height() - 8.0 || widest > wrap {
+        return;
+    }
+    let mut top = rect.center().y - height / 2.0;
+    for galley in std::iter::once(title).chain(why) {
+        let size = galley.size();
+        painter.galley(
+            egui::pos2(rect.center().x - size.x / 2.0, top),
+            galley,
             p.muted,
         );
+        top += size.y + gap;
     }
 }
 

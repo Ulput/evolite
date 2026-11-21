@@ -12,7 +12,7 @@ use std::sync::mpsc::{Receiver, TryRecvError, channel};
 use super::*;
 use crate::components::spend_flow::SpendFlow;
 use crate::components::{
-    FieldKind, Part, dialog_with_summary, error_notice, field_label, kv_row, text_field,
+    FieldKind, Part, dialog_with_summary, error_notice, field_label, kv_row_fit, text_field,
 };
 use evolite_api::series::{
     DOES_NOT_FIT, FittedPicture, NewModel, OUT_OF_TIME, PictureCheck, SeriesPlan, SeriesRefusal,
@@ -931,15 +931,15 @@ fn summary(
         ui.set_width(crate::components::inner(width, 24));
         ui.spacing_mut().item_spacing.y = 10.0;
         ui.label(txt(tr!("Summary"), 18.0, Weight::SemiBold, p.text));
-        kv_row(
+        kv_row_fit(
             ui,
             &p,
             tr!("Identity"),
             &crate::i18n::own(who),
             value.clone(),
         );
-        kv_row(ui, &p, tr!("Model"), &about(model_fee), value.clone());
-        kv_row(
+        kv_row_fit(ui, &p, tr!("Model"), &about(model_fee), value.clone());
+        kv_row_fit(
             ui,
             &p,
             &crate::text::plural(mint, tr!("copy"), tr!("copies")),
@@ -947,12 +947,12 @@ fn summary(
             value.clone(),
         );
         crate::components::divider(ui, &p);
-        kv_row(ui, &p, tr!("Total"), &about(total), value.clone());
+        kv_row_fit(ui, &p, tr!("Total"), &about(total), value.clone());
         let after = match (credits, total) {
             (Some(c), Some(t)) => Some(c - t),
             _ => None,
         };
-        kv_row(ui, &p, tr!("Credits after"), &about(after), value.clone());
+        kv_row_fit(ui, &p, tr!("Credits after"), &about(after), value.clone());
         super::super::tokens::para(
             ui,
             &format!(
@@ -1024,7 +1024,7 @@ fn review(
             let value = crate::theme::mono(13.0, Weight::Medium);
             if part == Part::Summary {
                 ui.spacing_mut().item_spacing.y = 10.0;
-                kv_row(
+                kv_row_fit(
                     ui,
                     &p,
                     tr!("Total"),
@@ -1084,21 +1084,21 @@ fn review(
                 return close;
             }
             ui.spacing_mut().item_spacing.y = 10.0;
-            kv_row(
+            kv_row_fit(
                 ui,
                 &p,
                 tr!("Model name"),
                 &crate::i18n::own(&name),
                 value.clone(),
             );
-            kv_row(
+            kv_row_fit(
                 ui,
                 &p,
                 tr!("Supply"),
                 &crate::format::count(supply as u64),
                 value.clone(),
             );
-            kv_row(
+            kv_row_fit(
                 ui,
                 &p,
                 tr!("Issue now"),
@@ -1157,7 +1157,8 @@ fn issuing(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut WorkshopState,
                     None => ("pending", p.muted),
                 };
                 ui.add(a.icons.icon(icon, color, &p, 16.0));
-                ui.label(txt(words, 14.0, Weight::Regular, p.text));
+                // BUG-258: wraps beside its icon at the medium window.
+                ui.add(crate::components::para(words, 14.0, Weight::Regular, p.text));
             });
         };
         let failed = matches!(result, Some(Err(_)));

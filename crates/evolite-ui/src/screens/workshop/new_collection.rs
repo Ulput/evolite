@@ -8,7 +8,7 @@
 use super::*;
 use crate::components::spend_flow::SpendFlow;
 use crate::components::{
-    FieldKind, Part, dialog_with_summary, error_notice, field_label, kv_row, notice, text_field,
+    FieldKind, Part, dialog_with_summary, error_notice, field_label, kv_row_fit, notice, text_field,
 };
 use evolite_api::contracts::{
     ABOUT_NOT_WRITTEN, ABOUT_UNCLEAR, ContractCheck, ContractDraft, ContractFee, ContractRefusal,
@@ -422,7 +422,7 @@ fn rules(ui: &mut Ui, a: &mut Assets) {
         .show(ui, |ui| {
             ui.set_width(width - 32.0);
             ui.spacing_mut().item_spacing.y = 8.0;
-            ui.horizontal(|ui| {
+            ui.horizontal_wrapped(|ui| {
                 ui.spacing_mut().item_spacing.x = 10.0;
                 ui.label(txt(tr!("Collection rules"), 14.0, Weight::SemiBold, p.text));
                 ui.label(txt("NFT evolite v1", 12.0, Weight::Medium, p.accent));
@@ -438,7 +438,8 @@ fn rules(ui: &mut Ui, a: &mut Assets) {
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = 8.0;
                     ui.add(a.icons.icon("check", p.muted, &p, 14.0));
-                    ui.label(txt(rule, 13.0, Weight::Regular, p.text));
+                    // BUG-258: a long rule wraps, not widens the column.
+                    ui.add(crate::components::para(rule, 13.0, Weight::Regular, p.text));
                 });
             }
         });
@@ -469,16 +470,16 @@ fn summary(
         ui.set_width(crate::components::inner(width, 24));
         ui.spacing_mut().item_spacing.y = 10.0;
         ui.label(txt(tr!("Summary"), 18.0, Weight::SemiBold, p.text));
-        kv_row(ui, &p, tr!("Identity"), &crate::i18n::own(who), value.clone());
-        kv_row(ui, &p, tr!("Credits"), &shown(credits), value.clone());
+        kv_row_fit(ui, &p, tr!("Identity"), &crate::i18n::own(who), value.clone());
+        kv_row_fit(ui, &p, tr!("Credits"), &shown(credits), value.clone());
         crate::components::divider(ui, &p);
         let total = fee.map(|f| f.total());
-        kv_row(ui, &p, tr!("Collection registration"), &about(total), value.clone());
+        kv_row_fit(ui, &p, tr!("Collection registration"), &about(total), value.clone());
         let left = match (credits, total) {
             (Some(c), Some(t)) => Some(c - t),
             _ => None,
         };
-        kv_row(ui, &p, tr!("Credits left"), &about(left), value.clone());
+        kv_row_fit(ui, &p, tr!("Credits left"), &about(left), value.clone());
         super::super::tokens::para(
             ui,
             tr!(
@@ -544,7 +545,7 @@ fn review(
             let value = crate::theme::mono(13.0, Weight::Medium);
             if part == Part::Summary {
                 ui.spacing_mut().item_spacing.y = 10.0;
-                kv_row(
+                kv_row_fit(
                     ui,
                     &p,
                     tr!("Registration"),
@@ -552,7 +553,7 @@ fn review(
                     value.clone(),
                 );
                 if let Some(c) = credits {
-                    kv_row(
+                    kv_row_fit(
                         ui,
                         &p,
                         tr!("Credits after"),
@@ -616,21 +617,21 @@ fn review(
                 return close;
             }
             ui.spacing_mut().item_spacing.y = 10.0;
-            kv_row(
+            kv_row_fit(
                 ui,
                 &p,
                 tr!("Collection name"),
                 &crate::i18n::own(&name),
                 value.clone(),
             );
-            kv_row(
+            kv_row_fit(
                 ui,
                 &p,
                 tr!("On behalf of"),
                 &crate::i18n::own(who),
                 value.clone(),
             );
-            kv_row(
+            kv_row_fit(
                 ui,
                 &p,
                 tr!("What is made"),
@@ -641,7 +642,7 @@ fn review(
                 value.clone(),
             );
             if about {
-                kv_row(
+                kv_row_fit(
                     ui,
                     &p,
                     tr!("Belongs to"),
@@ -715,7 +716,8 @@ fn steps(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut WorkshopState) {
                     None => ("pending", p.muted),
                 };
                 ui.add(a.icons.icon(icon, color, &p, 16.0));
-                ui.label(txt(words, 14.0, Weight::Regular, p.text));
+                // BUG-258: wraps beside its icon at the medium window.
+                ui.add(crate::components::para(words, 14.0, Weight::Regular, p.text));
             });
         };
         let failed_before = matches!(&result, Some(Err(_))) && registered.is_none();

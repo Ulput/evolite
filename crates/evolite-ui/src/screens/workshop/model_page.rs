@@ -6,7 +6,7 @@
 use super::*;
 use crate::components::spend_flow::SpendFlow;
 use crate::components::{
-    FieldKind, Part, dialog_with_summary, error_notice, field_label, kv_row, notice, text_field,
+    FieldKind, Part, dialog_with_summary, error_notice, field_label, kv_row_fit, notice, text_field,
 };
 use evolite_api::series::{SeriesKind, SeriesPlan, SeriesRefusal, SeriesState, SeriesTarget};
 use evolite_api::workshop::{Count, Model};
@@ -401,7 +401,8 @@ fn series_plate(
                 p.danger,
             ));
         }
-        ui.horizontal(|ui| {
+        // BUG-258: the words and the button go on to the next line at the medium window.
+        ui.horizontal_wrapped(|ui| {
             ui.spacing_mut().item_spacing.x = 12.0;
             if s.running {
                 ui.label(txt(
@@ -536,7 +537,7 @@ fn series_window(
         if part == Part::Summary {
             ui.spacing_mut().item_spacing.y = 10.0;
             if let Some(total) = total {
-                kv_row(
+                kv_row_fit(
                     ui,
                     &p,
                     &crate::text::plural(records, tr!("record"), tr!("records")),
@@ -544,7 +545,7 @@ fn series_window(
                     value.clone(),
                 );
                 if let Some(c) = credits {
-                    kv_row(
+                    kv_row_fit(
                         ui,
                         &p,
                         tr!("Credits after"),

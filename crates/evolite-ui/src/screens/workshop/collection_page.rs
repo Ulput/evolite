@@ -4,7 +4,7 @@
 //! The numbers are the core's proved counts ([`WorkshopAsk::Counts`]), «—» until they come.
 
 use super::*;
-use crate::components::{Part, dialog_with_footer, kv_row};
+use crate::components::{Part, dialog_with_footer, kv_row_fit};
 use evolite_api::workshop::{Count, Model};
 
 /// The tile's width and gap, and the picture's side (BUG-188).
@@ -72,7 +72,8 @@ pub(super) fn page(
         return;
     }
     let who = super::super::tokens::shown_name(cx.wallet());
-    ui.horizontal(|ui| {
+    // BUG-258: the tags and «id · by» go on to the next line at the medium window.
+    ui.horizontal_wrapped(|ui| {
         ui.spacing_mut().item_spacing.x = 8.0;
         for tag in kind_tags(&c) {
             tag_chip(ui, &p, tag);
@@ -252,28 +253,28 @@ fn about_window(ui: &mut Ui, a: &mut Assets, c: &Collection, name: &str) -> bool
             }
             let value = crate::theme::mono(13.0, Weight::Medium);
             ui.spacing_mut().item_spacing.y = 10.0;
-            kv_row(
+            kv_row_fit(
                 ui,
                 &p,
                 tr!("Collection name"),
                 &crate::i18n::own(name),
                 value.clone(),
             );
-            kv_row(
+            kv_row_fit(
                 ui,
                 &p,
                 tr!("Contract"),
                 &super::super::tokens::state::short(&c.contract),
                 value.clone(),
             );
-            kv_row(
+            kv_row_fit(
                 ui,
                 &p,
                 tr!("Models"),
                 &crate::format::count(c.models.len() as u64),
                 value.clone(),
             );
-            kv_row(ui, &p, tr!("Standard"), "NFT evolite v1", value.clone());
+            kv_row_fit(ui, &p, tr!("Standard"), "NFT evolite v1", value.clone());
             super::super::tokens::para(
                 ui,
                 tr!(

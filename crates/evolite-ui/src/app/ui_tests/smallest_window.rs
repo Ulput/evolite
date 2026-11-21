@@ -307,3 +307,127 @@ fn send_with_a_custom_fee_fits_at_1024() {
         assert!(wide.is_empty(), "{lang}: wider than the window: {wide:?}");
     }
 }
+
+/// BUG-258: the Workshop's presets, at the medium window (the rail, under 1280 wide).
+const WORKSHOP: [&str; 11] = [
+    "workshop",
+    "workshop-new",
+    "workshop-review",
+    "workshop-steps",
+    "workshop-collection",
+    "workshop-model",
+    "workshop-model-copy",
+    "workshop-model-review",
+    "workshop-model-page",
+    "workshop-give",
+    "workshop-issue",
+];
+
+/// Painted words cut by their clip (a single line wider than its card or column) or drawn over
+/// other words (BUG-258: the identity chips over «Credits @…», a summary's label over its sum).
+/// Horizontal clipping only: a scrolled page clips its words at the top and bottom by design.
+/// Words in a text field are left out: a long entry scrolls inside its field.
+fn text_trouble(kit: &Kit) -> Vec<String> {
+    fn walk(
+        shape: &egui::Shape,
+        clip: egui::Rect,
+        out: &mut Vec<(String, egui::Rect, egui::Rect)>,
+    ) {
+        match shape {
+            // One entry a row of words, its glyphs' own extent: a label in a wrapping row is
+            // laid out from the row's left edge, with leading space that is not ink.
+            egui::Shape::Text(t) if !t.galley.text().trim().is_empty() => {
+                let text = t.galley.text().to_owned();
+                for row in t.galley.rows.iter().filter(|r| !r.row.glyphs.is_empty()) {
+                    let rect = row.rect_without_leading_space().translate(t.pos.to_vec2());
+                    out.push((text.clone(), rect, clip));
+                }
+            }
+            egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, clip, out)),
+            _ => {}
+        }
+    }
+    let mut texts = Vec::new();
+    for c in &kit.output().shapes {
+        walk(&c.shape, c.clip_rect, &mut texts);
+    }
+    let fields: Vec<egui::Rect> = kit
+        .query_all_by(|n| n.role() == Role::TextInput || n.role() == Role::MultilineTextInput)
+        .filter_map(|n| {
+            let b = n.accesskit_node().bounding_box()?;
+            let ppp = kit.ctx.pixels_per_point();
+            Some(egui::Rect::from_min_max(
+                egui::pos2(b.x0 as f32 / ppp, b.y0 as f32 / ppp),
+                egui::pos2(b.x1 as f32 / ppp, b.y1 as f32 / ppp),
+            ))
+        })
+        .collect();
+    let in_field = |r: &egui::Rect| {
+        fields.iter().any(|f| {
+            f.expand(2.0).contains_rect(*r)
+                || f.intersects(*r) && r.height() < f.height() + 2.0 && f.contains(r.center())
+        })
+    };
+    let texts: Vec<_> = texts
+        .into_iter()
+        .filter(|(_, r, clip)| !in_field(r) && clip.intersects(*r))
+        .collect();
+    let mut wrong = Vec::new();
+    for (text, r, clip) in &texts {
+        if r.right() > clip.right() + 1.0 || r.left() < clip.left() - 1.0 {
+            wrong.push(format!("cut: «{text}» at {r:?} in {clip:?}"));
+        }
+    }
+    // Words of one region only (the same clip): a dialog's words over the page under it are not
+    // a collision.
+    for (i, (a, ra, ca)) in texts.iter().enumerate() {
+        for (b, rb, cb) in &texts[i + 1..] {
+            let both = ra.intersect(*rb).intersect(*ca);
+            if ca == cb && both.width() > 2.0 && both.height() > 3.0 && a != b {
+                wrong.push(format!("over: «{a}» and «{b}» at {both:?}"));
+            }
+        }
+    }
+    wrong.truncate(6);
+    wrong
+}
+
+/// The medium window: the rail layout, under 1280 wide — its ends and a middle.
+const WORKSHOP_WIDTHS: [f32; 3] = [1024.0, 1150.0, 1279.0];
+
+fn workshop_at_1024(lang: &str) {
+    let mut wrong = Vec::new();
+    for preset in WORKSHOP {
+        for width in WORKSHOP_WIDTHS {
+            let (_turn, mut kit) = demo_app(preset, lang);
+            kit.set_size(egui::vec2(width, 768.0));
+            quiet(&mut kit, |_| {});
+            for w in text_trouble(&kit).into_iter().chain(too_wide(&kit)) {
+                wrong.push(format!("{preset} @{width}: {w}"));
+            }
+        }
+    }
+    assert!(wrong.is_empty(), "{lang}:\n{}", wrong.join("\n"));
+}
+
+/// BUG-258 and the customer's «on the medium screen the text is cut, not wrapped»: no Workshop
+/// screen at 1024 × 768 cuts its words or draws them over each other.
+#[test]
+fn the_workshop_wraps_at_1024_en() {
+    workshop_at_1024("en");
+}
+
+#[test]
+fn the_workshop_wraps_at_1024_ru() {
+    workshop_at_1024("ru");
+}
+
+#[test]
+fn the_workshop_wraps_at_1024_de() {
+    workshop_at_1024("de");
+}
+
+#[test]
+fn the_workshop_wraps_at_1024_uk() {
+    workshop_at_1024("uk");
+}
