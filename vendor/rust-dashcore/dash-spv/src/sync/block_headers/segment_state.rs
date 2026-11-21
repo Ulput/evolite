@@ -1,12 +1,35 @@
 use crate::error::{SyncError, SyncResult};
 use crate::network::RequestSender;
-use crate::sync::download_coordinator::{DownloadConfig, DownloadCoordinator};
+use crate::sync::download_coordinator::{
+    AdaptiveTimeout, DownloadConfig, DownloadCoordinator, ReplyTimes, SharedReplyTimes,
+};
 use crate::types::HashedBlockHeader;
 use dashcore::BlockHash;
 use std::time::Duration;
 
-/// Timeout for header requests.
-const HEADERS_TIMEOUT: Duration = Duration::from_secs(30);
+/// evolite (TECH-spv-peers): a header request is asked again after 3× the median reply of all
+/// the segments, within 6..=15 s (15 s until five replies are known), not a fixed 30 s; three
+/// timeouts in a row double the 15 s, up to 60 s (r1: a network slower than 15 s everywhere). On
+/// mainnet a reply of 8 000 headers took 5.8 s at the median, and a lost one held the in-order
+/// write for 30 s each time. The floor stays above the network's `REQUEST_OWED_TIMEOUT`, so
+/// the retry goes to another peer than the one that owes it.
+pub(crate) const HEADERS_TIMEOUT: AdaptiveTimeout = AdaptiveTimeout {
+    factor: 3,
+    min: Duration::from_secs(6),
+    max: Duration::from_secs(15),
+    initial: Duration::from_secs(15),
+    min_samples: 5,
+    escalate_after: 3,
+    ceiling: Duration::from_secs(60),
+};
+
+fn headers_coordinator(times: SharedReplyTimes) -> DownloadCoordinator<BlockHash> {
+    DownloadCoordinator::new(
+        DownloadConfig::default()
+            .with_max_concurrent(1) // Only 1 request at a time (sequential getheaders)
+            .with_adaptive_timeout(HEADERS_TIMEOUT, times),
+    )
+}
 
 /// State for a single download segment between two checkpoints.
 #[derive(Debug)]
@@ -50,15 +73,19 @@ impl SegmentState {
             target_hash,
             current_tip_hash: start_hash,
             current_height: start_height,
-            coordinator: DownloadCoordinator::new(
-                DownloadConfig::default()
-                    .with_max_concurrent(1) // Only 1 request at a time (sequential getheaders)
-                    .with_timeout(HEADERS_TIMEOUT),
-            ),
+            coordinator: headers_coordinator(ReplyTimes::shared()),
             buffered_headers: Vec::new(),
             complete: false,
             locator_tail: Vec::new(),
         }
+    }
+
+    /// evolite (TECH-spv-peers): time this segment's requests with `times`, shared with the
+    /// other segments. For a segment that has sent nothing yet.
+    pub(super) fn with_reply_times(mut self, times: SharedReplyTimes) -> Self {
+        debug_assert_eq!(self.coordinator.active_count(), 0);
+        self.coordinator = headers_coordinator(times);
+        self
     }
 
     /// Check if the segment can send more requests.
@@ -219,6 +246,38 @@ impl SegmentState {
 mod tests {
     use crate::error::SyncError;
     use crate::sync::block_headers::segment_state::SegmentState;
+
+    /// evolite (TECH-spv-peers): a header request is asked again sooner than 30 s, and never
+    /// before the network has stopped routing to the peer that owes it — the retry goes to
+    /// another peer.
+    #[test]
+    fn a_header_retry_waits_less_than_before_but_past_the_owing_peer() {
+        use super::HEADERS_TIMEOUT;
+        use crate::network::manager::REQUEST_OWED_TIMEOUT;
+        assert!(HEADERS_TIMEOUT.min > REQUEST_OWED_TIMEOUT);
+        assert!(HEADERS_TIMEOUT.max < std::time::Duration::from_secs(30));
+        assert!(HEADERS_TIMEOUT.initial <= HEADERS_TIMEOUT.max);
+    }
+
+    /// evolite (TECH-spv-peers): the segments of one pipeline time their requests by the
+    /// answers all of them got.
+    #[test]
+    fn segments_share_their_reply_times() {
+        use crate::sync::download_coordinator::ReplyTimes;
+        use dashcore::BlockHash;
+        use std::time::Duration;
+        let times = ReplyTimes::shared();
+        let a = SegmentState::new(0, 0, BlockHash::dummy(1), Some(10), None)
+            .with_reply_times(times.clone());
+        let b = SegmentState::new(1, 10, BlockHash::dummy(2), Some(20), None)
+            .with_reply_times(times.clone());
+        assert_eq!(a.coordinator.timeout(), Duration::from_secs(15), "none known yet");
+        for _ in 0..5 {
+            times.lock().unwrap().record(Duration::from_secs(3));
+        }
+        assert_eq!(a.coordinator.timeout(), Duration::from_secs(9));
+        assert_eq!(b.coordinator.timeout(), Duration::from_secs(9), "the same for both");
+    }
     use crate::types::HashedBlockHeader;
     use dashcore::{BlockHash, Header};
 

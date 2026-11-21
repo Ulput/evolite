@@ -216,9 +216,58 @@ pub struct PeerNetworkManager {
     /// Instant of the last reputation-driven eviction, enforcing a cooldown so a
     /// replacement can prove itself before another peer is dropped.
     last_eviction_at: Arc<Mutex<Option<Instant>>>,
+    /// evolite (TECH-spv-peers): addresses that failed to connect or to handshake
+    /// lately, each skipped until its time is up ([`FailedPeers`]): seed lists hold
+    /// junk (a wrong port, a node long gone), and each try held a connection slot
+    /// for up to `CONNECTION_TIMEOUT`.
+    failed_this_run: Arc<Mutex<FailedPeers>>,
 }
 
 const CAPABILITY_REJECTED_TTL: Duration = Duration::from_secs(30 * 60);
+
+/// evolite (TECH-spv-peers r1): how long a peer that answered but failed the
+/// handshake (a wrong network, a wrong port speaking something else) is not tried.
+pub(super) const HANDSHAKE_FAILED_FOR: Duration = Duration::from_secs(15 * 60);
+
+/// evolite (TECH-spv-peers r1): how long an address that did not connect at all is
+/// not tried. Shorter: it may be our network that was down, not the peer.
+pub(super) const NOT_CONNECTED_FOR: Duration = Duration::from_secs(5 * 60);
+
+/// evolite (TECH-spv-peers): addresses that failed lately, each until its time is up.
+#[derive(Debug, Default)]
+pub(super) struct FailedPeers {
+    until: HashMap<SocketAddr, Instant>,
+}
+
+impl FailedPeers {
+    /// `addr` failed: skip it for `for_`. Whether it was not held already.
+    pub(super) fn fail(&mut self, addr: SocketAddr, for_: Duration) -> bool {
+        let now = Instant::now();
+        let was_held = self.holds(&addr);
+        let until = now + for_;
+        let entry = self.until.entry(addr).or_insert(until);
+        *entry = (*entry).max(until);
+        self.until.retain(|_, t| *t > now);
+        !was_held
+    }
+
+    /// Whether `addr` is still skipped.
+    pub(super) fn holds(&self, addr: &SocketAddr) -> bool {
+        self.until.get(addr).is_some_and(|t| *t > Instant::now())
+    }
+
+    pub(super) fn is_empty(&self) -> bool {
+        self.until.is_empty()
+    }
+
+    pub(super) fn len(&self) -> usize {
+        self.until.len()
+    }
+
+    pub(super) fn clear(&mut self) {
+        self.until.clear();
+    }
+}
 
 /// A connected peer whose oldest sync request stays unanswered this long is
 /// treated as stalling and penalized. Any response resets its timer, so a peer
@@ -239,7 +288,7 @@ pub(super) const REQUEST_STALL_TIMEOUT: Duration = Duration::from_secs(10);
 /// one wrongly is that another peer serves the request instead. It must stay
 /// below the sync layer's own retry timeouts, so that a peer which dropped a
 /// request is already out of the rotation by the time that request is reissued.
-pub(super) const REQUEST_OWED_TIMEOUT: Duration = Duration::from_secs(5);
+pub(crate) const REQUEST_OWED_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// If a maintenance sweep runs at least this long after the previous one, the
 /// process was likely suspended (e.g. an iOS app backgrounded). Every
@@ -332,6 +381,7 @@ impl PeerNetworkManager {
             latency: Arc::new(Mutex::new(PeerLatency::default())),
             last_maintenance_at: Arc::new(Mutex::new(Instant::now())),
             last_eviction_at: Arc::new(Mutex::new(None)),
+            failed_this_run: Arc::new(Mutex::new(FailedPeers::default())),
         })
     }
 
@@ -369,6 +419,13 @@ impl PeerNetworkManager {
             return false;
         }
 
+        // evolite (TECH-spv-peers): not one that failed already in this run (a peer
+        // the user configured is always tried).
+        if !self.exclusive_mode && self.failed_this_run.lock().await.holds(&addr) {
+            tracing::debug!("Not connecting to {}: it failed already in this run", addr);
+            return false;
+        }
+
         // Mark as connecting
         let marked = if self.exclusive_mode {
             self.pool.mark_connecting(addr).await
@@ -376,7 +433,10 @@ impl PeerNetworkManager {
             self.pool.mark_connecting_within_subnets(addr).await
         };
         if !marked {
-            tracing::debug!("Not connecting to {}: connecting already, or its subnet is full", addr);
+            tracing::debug!(
+                "Not connecting to {}: connecting already, or its subnet is full",
+                addr
+            );
             return false;
         }
 
@@ -398,6 +458,7 @@ impl PeerNetworkManager {
         let headers2_decompression_semaphore = self.headers2_decompression_semaphore.clone();
         let message_dispatcher = self.message_dispatcher.clone();
         let network_event_sender = self.network_event_sender.clone();
+        let failed_this_run = self.failed_this_run.clone();
 
         // Spawn connection task — use select to avoid blocking on the lock during shutdown
         let mut tasks = tokio::select! {
@@ -504,6 +565,13 @@ impl PeerNetworkManager {
                         }
                         Err(e) => {
                             tracing::warn!("Handshake failed with {}: {}", addr, e);
+                            if failed_this_run.lock().await.fail(addr, HANDSHAKE_FAILED_FOR) {
+                                tracing::info!(
+                                    "Not trying {} for {:?}: the handshake failed",
+                                    addr,
+                                    HANDSHAKE_FAILED_FOR
+                                );
+                            }
                             // Only clears connecting set. Peer was never added, so no count/event needed.
                             pool.remove_peer(&addr).await;
                             // Update reputation for handshake failure
@@ -517,6 +585,13 @@ impl PeerNetworkManager {
                 }
                 Err(e) => {
                     tracing::debug!("Failed to connect to {}: {}", addr, e);
+                    if failed_this_run.lock().await.fail(addr, NOT_CONNECTED_FOR) {
+                        tracing::info!(
+                            "Not trying {} for {:?}: it did not connect",
+                            addr,
+                            NOT_CONNECTED_FOR
+                        );
+                    }
                     // Only clears connecting set. Peer was never added, so no count/event needed.
                     pool.remove_peer(&addr).await;
                     // Minor reputation penalty for connection failure
@@ -1289,6 +1364,46 @@ impl PeerNetworkManager {
         *self.last_eviction_at.lock().await = Some(Instant::now());
     }
 
+    /// evolite (TECH-spv-peers): replace the connected peer that answers far slower
+    /// than the rest ([`PeerLatency::slowest_outlier`]), under the same guards and the
+    /// same cooldown as [`Self::evict_worst_stuck_peer`]: a full pool, a replacement
+    /// ready, not the sole provider of a required service. Over a sync the set drifts
+    /// toward the fastest peers, a probe that costs no extra connections.
+    async fn evict_slowest_peer(&self) {
+        if let Some(t) = *self.last_eviction_at.lock().await {
+            if Instant::now().saturating_duration_since(t) < EVICTION_COOLDOWN {
+                return;
+            }
+        }
+        let connected = self.pool.get_connected_addresses().await;
+        let floor = self.max_peers.min(MIN_CONNECTED_FLOOR);
+        if connected.len() < self.max_peers || connected.len() <= floor {
+            return;
+        }
+        let Some(slowest) = self.latency.lock().await.slowest_outlier(&connected) else {
+            return;
+        };
+        let mut has_replacement = false;
+        for known in self.addrv2_handler.get_known_addresses().await {
+            let Ok(sa) = known.socket_addr() else {
+                continue;
+            };
+            if !connected.contains(&sa)
+                && !self.is_capability_rejected(&sa).await
+                && !self.failed_this_run.lock().await.holds(&sa)
+            {
+                has_replacement = true;
+                break;
+            }
+        }
+        if !has_replacement || self.is_sole_service_provider(&slowest).await {
+            return;
+        }
+        tracing::info!("Replacing slow peer {} with a fresh one", slowest);
+        let _ = self.disconnect_peer(&slowest, "slow to answer").await;
+        *self.last_eviction_at.lock().await = Some(Instant::now());
+    }
+
     /// Whether `addr` is the only connected peer advertising the required service,
     /// so evicting it would strand a sync phase with no capable peer.
     async fn is_sole_service_provider(&self, addr: &SocketAddr) -> bool {
@@ -1316,6 +1431,19 @@ impl PeerNetworkManager {
 
         let count = self.pool.peer_count().await;
         tracing::debug!("Connected peers: {}", count);
+        // evolite (TECH-spv-peers r1): with no peer at all, the network itself was
+        // likely down (no Wi-Fi yet, a laptop waking, a VPN): every address failed for
+        // that, not for itself. Try them all again rather than stay silent.
+        if count == 0 && !self.exclusive_mode {
+            let mut failed = self.failed_this_run.lock().await;
+            if !failed.is_empty() {
+                tracing::info!(
+                    "No peer connected: trying the {} addresses that failed again",
+                    failed.len()
+                );
+                failed.clear();
+            }
+        }
         // Keep the cached counter in sync with actual pool count
         self.connected_peer_count.store(count, Ordering::Relaxed);
         if self.exclusive_mode {
@@ -1337,6 +1465,7 @@ impl PeerNetworkManager {
             // where scores reflect stale pre-suspend state.
             if !grace_tick {
                 self.evict_worst_stuck_peer().await;
+                self.evict_slowest_peer().await;
             }
             // Re-read count after potential churn so top-up sees the current pool size.
             let count = self.pool.peer_count().await;
@@ -1881,6 +2010,7 @@ impl Clone for PeerNetworkManager {
             latency: self.latency.clone(),
             last_maintenance_at: self.last_maintenance_at.clone(),
             last_eviction_at: self.last_eviction_at.clone(),
+            failed_this_run: self.failed_this_run.clone(),
         }
     }
 }
@@ -2204,6 +2334,7 @@ impl PeerNetworkManager {
             latency: Arc::new(Mutex::new(PeerLatency::default())),
             last_maintenance_at: Arc::new(Mutex::new(Instant::now())),
             last_eviction_at: Arc::new(Mutex::new(None)),
+            failed_this_run: Arc::new(Mutex::new(FailedPeers::default())),
         }
     }
 
@@ -2296,6 +2427,30 @@ impl PeerNetworkManager {
 
     pub(crate) async fn test_evict_worst_stuck_peer(&self) {
         self.evict_worst_stuck_peer().await;
+    }
+
+    pub(crate) async fn test_evict_slowest_peer(&self) {
+        self.evict_slowest_peer().await;
+    }
+
+    pub(crate) async fn test_mark_failed(&self, addr: SocketAddr) {
+        self.failed_this_run.lock().await.fail(addr, HANDSHAKE_FAILED_FOR);
+    }
+
+    pub(crate) async fn test_connect_to_peer(&self, addr: SocketAddr) -> bool {
+        self.connect_to_peer(addr).await
+    }
+
+    pub(crate) async fn test_mark_not_connected(&self, addr: SocketAddr) {
+        self.failed_this_run.lock().await.fail(addr, NOT_CONNECTED_FOR);
+    }
+
+    pub(crate) async fn test_is_failed(&self, addr: &SocketAddr) -> bool {
+        self.failed_this_run.lock().await.holds(addr)
+    }
+
+    pub(crate) async fn test_maintenance_tick(&self) {
+        self.maintenance_tick().await;
     }
 }
 
@@ -2454,10 +2609,11 @@ mod subnet_tests {
         let manager = PeerNetworkManager::new_for_test(ServiceFlags::NONE).await;
         // Three documentation ranges (RFC 5737) and the benchmarking one (RFC 2544): four /16,
         // and nothing answers there, so a connect stays pending until the shutdown.
-        let peers: Vec<SocketAddr> = [[192, 0, 2, 1], [198, 51, 100, 1], [203, 0, 113, 1], [198, 18, 0, 1]]
-            .into_iter()
-            .map(|ip| SocketAddr::from((ip, 9999)))
-            .collect();
+        let peers: Vec<SocketAddr> =
+            [[192, 0, 2, 1], [198, 51, 100, 1], [203, 0, 113, 1], [198, 18, 0, 1]]
+                .into_iter()
+                .map(|ip| SocketAddr::from((ip, 9999)))
+                .collect();
 
         manager.take_sml_peers(peers.clone()).await;
 

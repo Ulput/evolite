@@ -90,6 +90,8 @@ pub(super) struct MasternodeSyncState {
     pub(super) qrinfo_in_flight: Option<QRInfoInFlight>,
     /// Current retry count for QRInfo.
     pub(super) qrinfo_retry_count: u8,
+    /// evolite (TECH-spv-peers): how long QRInfo answers took, for the retry timeout.
+    pub(super) qrinfo_times: crate::sync::download_coordinator::ReplyTimes,
     /// Rotation cycle boundary heights we have successfully freshly-validated. Used
     /// to stop firing QRInfo for a cycle once its rotated quorums are verified.
     /// Subsequent tip updates within the same cycle take the `Incremental` path.

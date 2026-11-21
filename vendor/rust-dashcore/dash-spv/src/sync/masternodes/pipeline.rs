@@ -8,7 +8,9 @@ use std::time::Duration;
 
 use crate::error::SyncResult;
 use crate::network::RequestSender;
-use crate::sync::download_coordinator::{DownloadConfig, DownloadCoordinator};
+use crate::sync::download_coordinator::{
+    AdaptiveTimeout, DownloadConfig, DownloadCoordinator, ReplyTimes,
+};
 use dashcore::network::message_sml::MnListDiff;
 use dashcore::BlockHash;
 
@@ -17,6 +19,19 @@ const MAX_CONCURRENT_MNLISTDIFF: usize = 20;
 
 /// Timeout for MnListDiff requests.
 const MNLISTDIFF_TIMEOUT: Duration = Duration::from_secs(15);
+
+/// evolite (TECH-spv-peers): a diff is asked again after 3× the median diff reply, within
+/// 6..=15 s; 15 s (as before) until five replies are known. The retry goes round-robin to the
+/// next peer.
+const MNLISTDIFF_ADAPTIVE: AdaptiveTimeout = AdaptiveTimeout {
+    factor: 3,
+    min: Duration::from_secs(6),
+    max: MNLISTDIFF_TIMEOUT,
+    initial: MNLISTDIFF_TIMEOUT,
+    min_samples: 5,
+    escalate_after: 3,
+    ceiling: Duration::from_secs(60),
+};
 
 /// Pipeline for downloading MnListDiff messages for quorum validation.
 ///
@@ -43,7 +58,7 @@ impl MnListDiffPipeline {
             coordinator: DownloadCoordinator::new(
                 DownloadConfig::default()
                     .with_max_concurrent(MAX_CONCURRENT_MNLISTDIFF)
-                    .with_timeout(MNLISTDIFF_TIMEOUT),
+                    .with_adaptive_timeout(MNLISTDIFF_ADAPTIVE, ReplyTimes::shared()),
             ),
             base_hashes: HashMap::new(),
         }

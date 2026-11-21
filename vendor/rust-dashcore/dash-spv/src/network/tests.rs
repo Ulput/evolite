@@ -432,6 +432,72 @@ mod selection_tests {
         assert_eq!(manager.test_peer_count().await, 7);
     }
 
+    /// evolite (TECH-spv-peers): the peer that answers far slower than the rest is
+    /// replaced when a replacement is known; without one, or with the peers alike,
+    /// nobody is dropped.
+    #[tokio::test]
+    async fn test_evict_slowest_peer_replaces_the_slow_one() {
+        let cf = ServiceFlags::COMPACT_FILTERS;
+        let manager = PeerNetworkManager::new_for_test(cf).await;
+        for i in 1u8..=8 {
+            manager.insert_test_peer(test_socket_address(i), cf).await;
+            manager.test_record_latency(test_socket_address(i), Duration::from_secs(2)).await;
+        }
+        let slow = test_socket_address(5);
+        manager.test_record_latency(slow, Duration::from_secs(60)).await;
+
+        manager.test_evict_slowest_peer().await;
+        assert!(manager.test_is_connected(&slow).await, "no replacement known: kept");
+
+        manager.test_add_known_address(test_socket_address(99)).await;
+        manager.test_evict_slowest_peer().await;
+        assert!(!manager.test_is_connected(&slow).await, "replaced");
+        assert_eq!(manager.test_peer_count().await, 7);
+    }
+
+    /// evolite (TECH-spv-peers r1, Must 2): a failed address is skipped only for a
+    /// while — 5 minutes when it did not connect (it may be our network), 15 when it
+    /// answered and failed the handshake — and with no peer connected at all every
+    /// failed address is tried again: the network came back.
+    #[tokio::test(start_paused = true)]
+    async fn test_failed_peers_come_back() {
+        use crate::network::manager::{HANDSHAKE_FAILED_FOR, NOT_CONNECTED_FOR};
+        let cf = ServiceFlags::COMPACT_FILTERS;
+        let manager = PeerNetworkManager::new_for_test(cf).await;
+        let (silent, wrong) = (test_socket_address(42), test_socket_address(43));
+        manager.test_mark_not_connected(silent).await;
+        manager.test_mark_failed(wrong).await;
+        assert!(manager.test_is_failed(&silent).await && manager.test_is_failed(&wrong).await);
+
+        tokio::time::advance(NOT_CONNECTED_FOR + Duration::from_secs(1)).await;
+        assert!(!manager.test_is_failed(&silent).await, "did not connect: 5 minutes");
+        assert!(manager.test_is_failed(&wrong).await, "failed the handshake: longer");
+        tokio::time::advance(HANDSHAKE_FAILED_FOR).await;
+        assert!(!manager.test_is_failed(&wrong).await);
+
+        // The network was down: everything failed, no peer is connected.
+        manager.test_mark_not_connected(silent).await;
+        manager.test_mark_failed(wrong).await;
+        assert_eq!(manager.test_peer_count().await, 0);
+        manager.test_maintenance_tick().await;
+        assert!(
+            !manager.test_is_failed(&silent).await && !manager.test_is_failed(&wrong).await,
+            "with no peer, every address is tried again"
+        );
+    }
+
+    /// evolite (TECH-spv-peers): an address that failed to connect or to handshake
+    /// is not tried again while it is held.
+    #[tokio::test]
+    async fn test_a_failed_seed_is_not_tried_again_this_run() {
+        let cf = ServiceFlags::COMPACT_FILTERS;
+        let manager = PeerNetworkManager::new_for_test(cf).await;
+        let junk = test_socket_address(42);
+        manager.test_mark_failed(junk).await;
+        assert!(!manager.test_connect_to_peer(junk).await);
+        assert!(manager.test_connect_to_peer(test_socket_address(43)).await, "another one is");
+    }
+
     #[tokio::test]
     async fn test_evict_worst_stuck_peer_skips_without_replacement() {
         let (manager, _bad) = full_pool_with_bad_peer(3).await;

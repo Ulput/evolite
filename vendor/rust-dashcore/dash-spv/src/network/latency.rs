@@ -25,13 +25,21 @@ const SAMPLE_TTL: Duration = Duration::from_secs(30);
 /// A peer keeps receiving requests while its mean stays within this multiple of
 /// the best measured peer's.
 ///
-/// Deliberately generous. Requests pipeline across peers, so a merely slower peer
-/// still adds throughput and is worth keeping in rotation, and dropping it would
-/// concentrate load on fewer peers for no gain. The job here is to shed peers that
-/// have effectively stopped answering, which stand out by an order of magnitude
-/// (a stall is recorded at ten seconds against sub-second healthy responses), not
-/// to rank healthy peers against each other.
-const SLOW_MULTIPLIER: u32 = 4;
+/// evolite (TECH-spv-peers): 2, not upstream's 4. On mainnet a reply of 8 000
+/// headers took 5.8 s at the median and 20.6 s at p90: the slow tail, not dead
+/// peers, set the pace, and with 4× a peer four times slower than the best still
+/// took every eighth segment. Requests still pipeline across every peer within 2×,
+/// and a peer left out is measured again once its sample expires.
+const SLOW_MULTIPLIER: u32 = 2;
+
+/// evolite (TECH-spv-peers): a connected peer whose mean is this many times the
+/// median of the connected peers' means (and over [`SLOW_PEER_FLOOR`]) is replaced
+/// by another, so the set drifts toward the fastest peers the network offers
+/// rather than the first ones that answered.
+pub(super) const SLOW_PEER_MULTIPLIER: u32 = 4;
+
+/// Below this a peer is never «slow» enough to replace, whatever the others do.
+pub(super) const SLOW_PEER_FLOOR: Duration = Duration::from_secs(3);
 
 /// Absolute slack allowed alongside `SLOW_MULTIPLIER`, so that when peers are all
 /// fast in absolute terms the multiple does not split hairs over normal jitter.
@@ -104,6 +112,33 @@ impl PeerLatency {
             .copied()
             .filter(|addr| fresh(addr).is_none_or(|observation| observation.mean <= threshold))
             .collect()
+    }
+}
+
+impl PeerLatency {
+    /// evolite (TECH-spv-peers): the connected peer to replace for being slow: the one
+    /// with the highest fresh mean, when it is over [`SLOW_PEER_MULTIPLIER`] × the
+    /// median of the fresh means and over [`SLOW_PEER_FLOOR`]. None with fewer than
+    /// three measured peers: a median of one or two says nothing about the network.
+    pub(super) fn slowest_outlier(&self, connected: &[SocketAddr]) -> Option<SocketAddr> {
+        let now = Instant::now();
+        let mut fresh: Vec<(SocketAddr, Duration)> = connected
+            .iter()
+            .filter_map(|addr| {
+                self.observations
+                    .get(addr)
+                    .filter(|o| now.saturating_duration_since(o.at) < SAMPLE_TTL)
+                    .map(|o| (*addr, o.mean))
+            })
+            .collect();
+        if fresh.len() < 3 {
+            return None;
+        }
+        fresh.sort_by_key(|(_, mean)| *mean);
+        let median = fresh[fresh.len() / 2].1;
+        let (slowest, mean) = *fresh.last()?;
+        let bar = median.saturating_mul(SLOW_PEER_MULTIPLIER).max(SLOW_PEER_FLOOR);
+        (mean > bar).then_some(slowest)
     }
 }
 
@@ -194,6 +229,52 @@ mod tests {
         }
 
         assert!(!latency.eligible(&[fast, stalling]).contains(&stalling));
+    }
+
+    /// evolite (TECH-spv-peers): a peer four times slower than the typical one, and
+    /// over 3 s, is the one to replace; peers alike, or all fast, or too few
+    /// measured, give none.
+    #[test]
+    fn the_slowest_outlier_is_the_one_to_replace() {
+        let mut latency = PeerLatency::default();
+        let peers: Vec<SocketAddr> = (1..=5).map(addr).collect();
+        for p in &peers[..4] {
+            latency.record(*p, Duration::from_secs(2));
+        }
+        latency.record(peers[4], Duration::from_secs(9));
+        assert_eq!(latency.slowest_outlier(&peers), Some(peers[4]));
+
+        let mut alike = PeerLatency::default();
+        for (i, p) in peers.iter().enumerate() {
+            alike.record(*p, Duration::from_secs(2 + i as u64));
+        }
+        assert_eq!(alike.slowest_outlier(&peers), None, "a spread, no outlier");
+
+        let mut fast = PeerLatency::default();
+        for p in &peers[..4] {
+            fast.record(*p, Duration::from_millis(100));
+        }
+        fast.record(peers[4], Duration::from_millis(900));
+        assert_eq!(fast.slowest_outlier(&peers), None, "under the floor");
+
+        let mut few = PeerLatency::default();
+        few.record(peers[0], Duration::from_secs(1));
+        few.record(peers[1], Duration::from_secs(30));
+        assert_eq!(few.slowest_outlier(&peers), None, "two measured are too few");
+    }
+
+    /// evolite (TECH-spv-peers): a peer more than twice as slow as the best leaves
+    /// the rotation (upstream kept it up to 4×).
+    #[test]
+    fn a_peer_twice_as_slow_as_the_best_leaves_the_rotation() {
+        let mut latency = PeerLatency::default();
+        let (best, near, slow) = (addr(1), addr(2), addr(3));
+        latency.record(best, Duration::from_secs(2));
+        latency.record(near, Duration::from_millis(3900));
+        latency.record(slow, Duration::from_secs(5));
+        let eligible = latency.eligible(&[best, near, slow]);
+        assert!(eligible.contains(&best) && eligible.contains(&near));
+        assert!(!eligible.contains(&slow));
     }
 
     #[test]

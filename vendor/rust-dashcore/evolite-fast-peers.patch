@@ -1,0 +1,1212 @@
+diff --git a/dash-spv/src/network/latency.rs b/dash-spv/src/network/latency.rs
+index c9431f76..ec6f489b 100644
+--- a/dash-spv/src/network/latency.rs
++++ b/dash-spv/src/network/latency.rs
+@@ -25,13 +25,21 @@ const SAMPLE_TTL: Duration = Duration::from_secs(30);
+ /// A peer keeps receiving requests while its mean stays within this multiple of
+ /// the best measured peer's.
+ ///
+-/// Deliberately generous. Requests pipeline across peers, so a merely slower peer
+-/// still adds throughput and is worth keeping in rotation, and dropping it would
+-/// concentrate load on fewer peers for no gain. The job here is to shed peers that
+-/// have effectively stopped answering, which stand out by an order of magnitude
+-/// (a stall is recorded at ten seconds against sub-second healthy responses), not
+-/// to rank healthy peers against each other.
+-const SLOW_MULTIPLIER: u32 = 4;
++/// evolite (TECH-spv-peers): 2, not upstream's 4. On mainnet a reply of 8 000
++/// headers took 5.8 s at the median and 20.6 s at p90: the slow tail, not dead
++/// peers, set the pace, and with 4× a peer four times slower than the best still
++/// took every eighth segment. Requests still pipeline across every peer within 2×,
++/// and a peer left out is measured again once its sample expires.
++const SLOW_MULTIPLIER: u32 = 2;
++
++/// evolite (TECH-spv-peers): a connected peer whose mean is this many times the
++/// median of the connected peers' means (and over [`SLOW_PEER_FLOOR`]) is replaced
++/// by another, so the set drifts toward the fastest peers the network offers
++/// rather than the first ones that answered.
++pub(super) const SLOW_PEER_MULTIPLIER: u32 = 4;
++
++/// Below this a peer is never «slow» enough to replace, whatever the others do.
++pub(super) const SLOW_PEER_FLOOR: Duration = Duration::from_secs(3);
+ 
+ /// Absolute slack allowed alongside `SLOW_MULTIPLIER`, so that when peers are all
+ /// fast in absolute terms the multiple does not split hairs over normal jitter.
+@@ -107,6 +115,33 @@ impl PeerLatency {
+     }
+ }
+ 
++impl PeerLatency {
++    /// evolite (TECH-spv-peers): the connected peer to replace for being slow: the one
++    /// with the highest fresh mean, when it is over [`SLOW_PEER_MULTIPLIER`] × the
++    /// median of the fresh means and over [`SLOW_PEER_FLOOR`]. None with fewer than
++    /// three measured peers: a median of one or two says nothing about the network.
++    pub(super) fn slowest_outlier(&self, connected: &[SocketAddr]) -> Option<SocketAddr> {
++        let now = Instant::now();
++        let mut fresh: Vec<(SocketAddr, Duration)> = connected
++            .iter()
++            .filter_map(|addr| {
++                self.observations
++                    .get(addr)
++                    .filter(|o| now.saturating_duration_since(o.at) < SAMPLE_TTL)
++                    .map(|o| (*addr, o.mean))
++            })
++            .collect();
++        if fresh.len() < 3 {
++            return None;
++        }
++        fresh.sort_by_key(|(_, mean)| *mean);
++        let median = fresh[fresh.len() / 2].1;
++        let (slowest, mean) = *fresh.last()?;
++        let bar = median.saturating_mul(SLOW_PEER_MULTIPLIER).max(SLOW_PEER_FLOOR);
++        (mean > bar).then_some(slowest)
++    }
++}
++
+ /// Fold `sample` into `mean`, weighting the sample by `NEW_SAMPLE_WEIGHT`.
+ fn blend(mean: Duration, sample: Duration) -> Duration {
+     let old = mean.as_micros().saturating_mul(u128::from(100 - NEW_SAMPLE_WEIGHT));
+@@ -196,6 +231,52 @@ mod tests {
+         assert!(!latency.eligible(&[fast, stalling]).contains(&stalling));
+     }
+ 
++    /// evolite (TECH-spv-peers): a peer four times slower than the typical one, and
++    /// over 3 s, is the one to replace; peers alike, or all fast, or too few
++    /// measured, give none.
++    #[test]
++    fn the_slowest_outlier_is_the_one_to_replace() {
++        let mut latency = PeerLatency::default();
++        let peers: Vec<SocketAddr> = (1..=5).map(addr).collect();
++        for p in &peers[..4] {
++            latency.record(*p, Duration::from_secs(2));
++        }
++        latency.record(peers[4], Duration::from_secs(9));
++        assert_eq!(latency.slowest_outlier(&peers), Some(peers[4]));
++
++        let mut alike = PeerLatency::default();
++        for (i, p) in peers.iter().enumerate() {
++            alike.record(*p, Duration::from_secs(2 + i as u64));
++        }
++        assert_eq!(alike.slowest_outlier(&peers), None, "a spread, no outlier");
++
++        let mut fast = PeerLatency::default();
++        for p in &peers[..4] {
++            fast.record(*p, Duration::from_millis(100));
++        }
++        fast.record(peers[4], Duration::from_millis(900));
++        assert_eq!(fast.slowest_outlier(&peers), None, "under the floor");
++
++        let mut few = PeerLatency::default();
++        few.record(peers[0], Duration::from_secs(1));
++        few.record(peers[1], Duration::from_secs(30));
++        assert_eq!(few.slowest_outlier(&peers), None, "two measured are too few");
++    }
++
++    /// evolite (TECH-spv-peers): a peer more than twice as slow as the best leaves
++    /// the rotation (upstream kept it up to 4×).
++    #[test]
++    fn a_peer_twice_as_slow_as_the_best_leaves_the_rotation() {
++        let mut latency = PeerLatency::default();
++        let (best, near, slow) = (addr(1), addr(2), addr(3));
++        latency.record(best, Duration::from_secs(2));
++        latency.record(near, Duration::from_millis(3900));
++        latency.record(slow, Duration::from_secs(5));
++        let eligible = latency.eligible(&[best, near, slow]);
++        assert!(eligible.contains(&best) && eligible.contains(&near));
++        assert!(!eligible.contains(&slow));
++    }
++
+     #[test]
+     fn disconnected_peers_are_forgotten() {
+         let mut latency = PeerLatency::default();
+diff --git a/dash-spv/src/network/manager.rs b/dash-spv/src/network/manager.rs
+index dffdd6f9..ade450e6 100644
+--- a/dash-spv/src/network/manager.rs
++++ b/dash-spv/src/network/manager.rs
+@@ -216,10 +216,59 @@ pub struct PeerNetworkManager {
+     /// Instant of the last reputation-driven eviction, enforcing a cooldown so a
+     /// replacement can prove itself before another peer is dropped.
+     last_eviction_at: Arc<Mutex<Option<Instant>>>,
++    /// evolite (TECH-spv-peers): addresses that failed to connect or to handshake
++    /// lately, each skipped until its time is up ([`FailedPeers`]): seed lists hold
++    /// junk (a wrong port, a node long gone), and each try held a connection slot
++    /// for up to `CONNECTION_TIMEOUT`.
++    failed_this_run: Arc<Mutex<FailedPeers>>,
+ }
+ 
+ const CAPABILITY_REJECTED_TTL: Duration = Duration::from_secs(30 * 60);
+ 
++/// evolite (TECH-spv-peers r1): how long a peer that answered but failed the
++/// handshake (a wrong network, a wrong port speaking something else) is not tried.
++pub(super) const HANDSHAKE_FAILED_FOR: Duration = Duration::from_secs(15 * 60);
++
++/// evolite (TECH-spv-peers r1): how long an address that did not connect at all is
++/// not tried. Shorter: it may be our network that was down, not the peer.
++pub(super) const NOT_CONNECTED_FOR: Duration = Duration::from_secs(5 * 60);
++
++/// evolite (TECH-spv-peers): addresses that failed lately, each until its time is up.
++#[derive(Debug, Default)]
++pub(super) struct FailedPeers {
++    until: HashMap<SocketAddr, Instant>,
++}
++
++impl FailedPeers {
++    /// `addr` failed: skip it for `for_`. Whether it was not held already.
++    pub(super) fn fail(&mut self, addr: SocketAddr, for_: Duration) -> bool {
++        let now = Instant::now();
++        let was_held = self.holds(&addr);
++        let until = now + for_;
++        let entry = self.until.entry(addr).or_insert(until);
++        *entry = (*entry).max(until);
++        self.until.retain(|_, t| *t > now);
++        !was_held
++    }
++
++    /// Whether `addr` is still skipped.
++    pub(super) fn holds(&self, addr: &SocketAddr) -> bool {
++        self.until.get(addr).is_some_and(|t| *t > Instant::now())
++    }
++
++    pub(super) fn is_empty(&self) -> bool {
++        self.until.is_empty()
++    }
++
++    pub(super) fn len(&self) -> usize {
++        self.until.len()
++    }
++
++    pub(super) fn clear(&mut self) {
++        self.until.clear();
++    }
++}
++
+ /// A connected peer whose oldest sync request stays unanswered this long is
+ /// treated as stalling and penalized. Any response resets its timer, so a peer
+ /// streaming a large block is not punished for the download taking a while.
+@@ -239,7 +288,7 @@ pub(super) const REQUEST_STALL_TIMEOUT: Duration = Duration::from_secs(10);
+ /// one wrongly is that another peer serves the request instead. It must stay
+ /// below the sync layer's own retry timeouts, so that a peer which dropped a
+ /// request is already out of the rotation by the time that request is reissued.
+-pub(super) const REQUEST_OWED_TIMEOUT: Duration = Duration::from_secs(5);
++pub(crate) const REQUEST_OWED_TIMEOUT: Duration = Duration::from_secs(5);
+ 
+ /// If a maintenance sweep runs at least this long after the previous one, the
+ /// process was likely suspended (e.g. an iOS app backgrounded). Every
+@@ -332,6 +381,7 @@ impl PeerNetworkManager {
+             latency: Arc::new(Mutex::new(PeerLatency::default())),
+             last_maintenance_at: Arc::new(Mutex::new(Instant::now())),
+             last_eviction_at: Arc::new(Mutex::new(None)),
++            failed_this_run: Arc::new(Mutex::new(FailedPeers::default())),
+         })
+     }
+ 
+@@ -369,6 +419,13 @@ impl PeerNetworkManager {
+             return false;
+         }
+ 
++        // evolite (TECH-spv-peers): not one that failed already in this run (a peer
++        // the user configured is always tried).
++        if !self.exclusive_mode && self.failed_this_run.lock().await.holds(&addr) {
++            tracing::debug!("Not connecting to {}: it failed already in this run", addr);
++            return false;
++        }
++
+         // Mark as connecting
+         let marked = if self.exclusive_mode {
+             self.pool.mark_connecting(addr).await
+@@ -376,7 +433,10 @@ impl PeerNetworkManager {
+             self.pool.mark_connecting_within_subnets(addr).await
+         };
+         if !marked {
+-            tracing::debug!("Not connecting to {}: connecting already, or its subnet is full", addr);
++            tracing::debug!(
++                "Not connecting to {}: connecting already, or its subnet is full",
++                addr
++            );
+             return false;
+         }
+ 
+@@ -398,6 +458,7 @@ impl PeerNetworkManager {
+         let headers2_decompression_semaphore = self.headers2_decompression_semaphore.clone();
+         let message_dispatcher = self.message_dispatcher.clone();
+         let network_event_sender = self.network_event_sender.clone();
++        let failed_this_run = self.failed_this_run.clone();
+ 
+         // Spawn connection task — use select to avoid blocking on the lock during shutdown
+         let mut tasks = tokio::select! {
+@@ -504,6 +565,13 @@ impl PeerNetworkManager {
+                         }
+                         Err(e) => {
+                             tracing::warn!("Handshake failed with {}: {}", addr, e);
++                            if failed_this_run.lock().await.fail(addr, HANDSHAKE_FAILED_FOR) {
++                                tracing::info!(
++                                    "Not trying {} for {:?}: the handshake failed",
++                                    addr,
++                                    HANDSHAKE_FAILED_FOR
++                                );
++                            }
+                             // Only clears connecting set. Peer was never added, so no count/event needed.
+                             pool.remove_peer(&addr).await;
+                             // Update reputation for handshake failure
+@@ -517,6 +585,13 @@ impl PeerNetworkManager {
+                 }
+                 Err(e) => {
+                     tracing::debug!("Failed to connect to {}: {}", addr, e);
++                    if failed_this_run.lock().await.fail(addr, NOT_CONNECTED_FOR) {
++                        tracing::info!(
++                            "Not trying {} for {:?}: it did not connect",
++                            addr,
++                            NOT_CONNECTED_FOR
++                        );
++                    }
+                     // Only clears connecting set. Peer was never added, so no count/event needed.
+                     pool.remove_peer(&addr).await;
+                     // Minor reputation penalty for connection failure
+@@ -1289,6 +1364,46 @@ impl PeerNetworkManager {
+         *self.last_eviction_at.lock().await = Some(Instant::now());
+     }
+ 
++    /// evolite (TECH-spv-peers): replace the connected peer that answers far slower
++    /// than the rest ([`PeerLatency::slowest_outlier`]), under the same guards and the
++    /// same cooldown as [`Self::evict_worst_stuck_peer`]: a full pool, a replacement
++    /// ready, not the sole provider of a required service. Over a sync the set drifts
++    /// toward the fastest peers, a probe that costs no extra connections.
++    async fn evict_slowest_peer(&self) {
++        if let Some(t) = *self.last_eviction_at.lock().await {
++            if Instant::now().saturating_duration_since(t) < EVICTION_COOLDOWN {
++                return;
++            }
++        }
++        let connected = self.pool.get_connected_addresses().await;
++        let floor = self.max_peers.min(MIN_CONNECTED_FLOOR);
++        if connected.len() < self.max_peers || connected.len() <= floor {
++            return;
++        }
++        let Some(slowest) = self.latency.lock().await.slowest_outlier(&connected) else {
++            return;
++        };
++        let mut has_replacement = false;
++        for known in self.addrv2_handler.get_known_addresses().await {
++            let Ok(sa) = known.socket_addr() else {
++                continue;
++            };
++            if !connected.contains(&sa)
++                && !self.is_capability_rejected(&sa).await
++                && !self.failed_this_run.lock().await.holds(&sa)
++            {
++                has_replacement = true;
++                break;
++            }
++        }
++        if !has_replacement || self.is_sole_service_provider(&slowest).await {
++            return;
++        }
++        tracing::info!("Replacing slow peer {} with a fresh one", slowest);
++        let _ = self.disconnect_peer(&slowest, "slow to answer").await;
++        *self.last_eviction_at.lock().await = Some(Instant::now());
++    }
++
+     /// Whether `addr` is the only connected peer advertising the required service,
+     /// so evicting it would strand a sync phase with no capable peer.
+     async fn is_sole_service_provider(&self, addr: &SocketAddr) -> bool {
+@@ -1316,6 +1431,19 @@ impl PeerNetworkManager {
+ 
+         let count = self.pool.peer_count().await;
+         tracing::debug!("Connected peers: {}", count);
++        // evolite (TECH-spv-peers r1): with no peer at all, the network itself was
++        // likely down (no Wi-Fi yet, a laptop waking, a VPN): every address failed for
++        // that, not for itself. Try them all again rather than stay silent.
++        if count == 0 && !self.exclusive_mode {
++            let mut failed = self.failed_this_run.lock().await;
++            if !failed.is_empty() {
++                tracing::info!(
++                    "No peer connected: trying the {} addresses that failed again",
++                    failed.len()
++                );
++                failed.clear();
++            }
++        }
+         // Keep the cached counter in sync with actual pool count
+         self.connected_peer_count.store(count, Ordering::Relaxed);
+         if self.exclusive_mode {
+@@ -1337,6 +1465,7 @@ impl PeerNetworkManager {
+             // where scores reflect stale pre-suspend state.
+             if !grace_tick {
+                 self.evict_worst_stuck_peer().await;
++                self.evict_slowest_peer().await;
+             }
+             // Re-read count after potential churn so top-up sees the current pool size.
+             let count = self.pool.peer_count().await;
+@@ -1881,6 +2010,7 @@ impl Clone for PeerNetworkManager {
+             latency: self.latency.clone(),
+             last_maintenance_at: self.last_maintenance_at.clone(),
+             last_eviction_at: self.last_eviction_at.clone(),
++            failed_this_run: self.failed_this_run.clone(),
+         }
+     }
+ }
+@@ -2204,6 +2334,7 @@ impl PeerNetworkManager {
+             latency: Arc::new(Mutex::new(PeerLatency::default())),
+             last_maintenance_at: Arc::new(Mutex::new(Instant::now())),
+             last_eviction_at: Arc::new(Mutex::new(None)),
++            failed_this_run: Arc::new(Mutex::new(FailedPeers::default())),
+         }
+     }
+ 
+@@ -2297,6 +2428,30 @@ impl PeerNetworkManager {
+     pub(crate) async fn test_evict_worst_stuck_peer(&self) {
+         self.evict_worst_stuck_peer().await;
+     }
++
++    pub(crate) async fn test_evict_slowest_peer(&self) {
++        self.evict_slowest_peer().await;
++    }
++
++    pub(crate) async fn test_mark_failed(&self, addr: SocketAddr) {
++        self.failed_this_run.lock().await.fail(addr, HANDSHAKE_FAILED_FOR);
++    }
++
++    pub(crate) async fn test_connect_to_peer(&self, addr: SocketAddr) -> bool {
++        self.connect_to_peer(addr).await
++    }
++
++    pub(crate) async fn test_mark_not_connected(&self, addr: SocketAddr) {
++        self.failed_this_run.lock().await.fail(addr, NOT_CONNECTED_FOR);
++    }
++
++    pub(crate) async fn test_is_failed(&self, addr: &SocketAddr) -> bool {
++        self.failed_this_run.lock().await.holds(addr)
++    }
++
++    pub(crate) async fn test_maintenance_tick(&self) {
++        self.maintenance_tick().await;
++    }
+ }
+ 
+ #[cfg(test)]
+@@ -2454,10 +2609,11 @@ mod subnet_tests {
+         let manager = PeerNetworkManager::new_for_test(ServiceFlags::NONE).await;
+         // Three documentation ranges (RFC 5737) and the benchmarking one (RFC 2544): four /16,
+         // and nothing answers there, so a connect stays pending until the shutdown.
+-        let peers: Vec<SocketAddr> = [[192, 0, 2, 1], [198, 51, 100, 1], [203, 0, 113, 1], [198, 18, 0, 1]]
+-            .into_iter()
+-            .map(|ip| SocketAddr::from((ip, 9999)))
+-            .collect();
++        let peers: Vec<SocketAddr> =
++            [[192, 0, 2, 1], [198, 51, 100, 1], [203, 0, 113, 1], [198, 18, 0, 1]]
++                .into_iter()
++                .map(|ip| SocketAddr::from((ip, 9999)))
++                .collect();
+ 
+         manager.take_sml_peers(peers.clone()).await;
+ 
+diff --git a/dash-spv/src/network/tests.rs b/dash-spv/src/network/tests.rs
+index f6153bd7..3d862215 100644
+--- a/dash-spv/src/network/tests.rs
++++ b/dash-spv/src/network/tests.rs
+@@ -432,6 +432,72 @@ mod selection_tests {
+         assert_eq!(manager.test_peer_count().await, 7);
+     }
+ 
++    /// evolite (TECH-spv-peers): the peer that answers far slower than the rest is
++    /// replaced when a replacement is known; without one, or with the peers alike,
++    /// nobody is dropped.
++    #[tokio::test]
++    async fn test_evict_slowest_peer_replaces_the_slow_one() {
++        let cf = ServiceFlags::COMPACT_FILTERS;
++        let manager = PeerNetworkManager::new_for_test(cf).await;
++        for i in 1u8..=8 {
++            manager.insert_test_peer(test_socket_address(i), cf).await;
++            manager.test_record_latency(test_socket_address(i), Duration::from_secs(2)).await;
++        }
++        let slow = test_socket_address(5);
++        manager.test_record_latency(slow, Duration::from_secs(60)).await;
++
++        manager.test_evict_slowest_peer().await;
++        assert!(manager.test_is_connected(&slow).await, "no replacement known: kept");
++
++        manager.test_add_known_address(test_socket_address(99)).await;
++        manager.test_evict_slowest_peer().await;
++        assert!(!manager.test_is_connected(&slow).await, "replaced");
++        assert_eq!(manager.test_peer_count().await, 7);
++    }
++
++    /// evolite (TECH-spv-peers r1, Must 2): a failed address is skipped only for a
++    /// while — 5 minutes when it did not connect (it may be our network), 15 when it
++    /// answered and failed the handshake — and with no peer connected at all every
++    /// failed address is tried again: the network came back.
++    #[tokio::test(start_paused = true)]
++    async fn test_failed_peers_come_back() {
++        use crate::network::manager::{HANDSHAKE_FAILED_FOR, NOT_CONNECTED_FOR};
++        let cf = ServiceFlags::COMPACT_FILTERS;
++        let manager = PeerNetworkManager::new_for_test(cf).await;
++        let (silent, wrong) = (test_socket_address(42), test_socket_address(43));
++        manager.test_mark_not_connected(silent).await;
++        manager.test_mark_failed(wrong).await;
++        assert!(manager.test_is_failed(&silent).await && manager.test_is_failed(&wrong).await);
++
++        tokio::time::advance(NOT_CONNECTED_FOR + Duration::from_secs(1)).await;
++        assert!(!manager.test_is_failed(&silent).await, "did not connect: 5 minutes");
++        assert!(manager.test_is_failed(&wrong).await, "failed the handshake: longer");
++        tokio::time::advance(HANDSHAKE_FAILED_FOR).await;
++        assert!(!manager.test_is_failed(&wrong).await);
++
++        // The network was down: everything failed, no peer is connected.
++        manager.test_mark_not_connected(silent).await;
++        manager.test_mark_failed(wrong).await;
++        assert_eq!(manager.test_peer_count().await, 0);
++        manager.test_maintenance_tick().await;
++        assert!(
++            !manager.test_is_failed(&silent).await && !manager.test_is_failed(&wrong).await,
++            "with no peer, every address is tried again"
++        );
++    }
++
++    /// evolite (TECH-spv-peers): an address that failed to connect or to handshake
++    /// is not tried again while it is held.
++    #[tokio::test]
++    async fn test_a_failed_seed_is_not_tried_again_this_run() {
++        let cf = ServiceFlags::COMPACT_FILTERS;
++        let manager = PeerNetworkManager::new_for_test(cf).await;
++        let junk = test_socket_address(42);
++        manager.test_mark_failed(junk).await;
++        assert!(!manager.test_connect_to_peer(junk).await);
++        assert!(manager.test_connect_to_peer(test_socket_address(43)).await, "another one is");
++    }
++
+     #[tokio::test]
+     async fn test_evict_worst_stuck_peer_skips_without_replacement() {
+         let (manager, _bad) = full_pool_with_bad_peer(3).await;
+diff --git a/dash-spv/src/sync/block_headers/mod.rs b/dash-spv/src/sync/block_headers/mod.rs
+index 2493e9d4..0b4acbe1 100644
+--- a/dash-spv/src/sync/block_headers/mod.rs
++++ b/dash-spv/src/sync/block_headers/mod.rs
+@@ -2,6 +2,10 @@ mod manager;
+ mod pipeline;
+ mod progress;
+ mod segment_state;
++
++#[cfg(test)]
++pub(crate) const HEADERS_TIMEOUT_FOR_TESTS: crate::sync::download_coordinator::AdaptiveTimeout =
++    segment_state::HEADERS_TIMEOUT;
+ mod sync_manager;
+ 
+ pub use manager::BlockHeadersManager;
+diff --git a/dash-spv/src/sync/block_headers/pipeline.rs b/dash-spv/src/sync/block_headers/pipeline.rs
+index bd3aa4ba..5fc26072 100644
+--- a/dash-spv/src/sync/block_headers/pipeline.rs
++++ b/dash-spv/src/sync/block_headers/pipeline.rs
+@@ -12,6 +12,7 @@ use crate::chain::CheckpointManager;
+ use crate::error::SyncResult;
+ use crate::network::RequestSender;
+ use crate::sync::block_headers::segment_state::SegmentState;
++use crate::sync::download_coordinator::{ReplyTimes, SharedReplyTimes};
+ use crate::types::HashedBlockHeader;
+ 
+ /// Keep enough checkpoint segments active to saturate decompression while bounding buffered data.
+@@ -31,6 +32,8 @@ pub struct HeadersPipeline {
+     checkpoint_manager: &'static CheckpointManager,
+     /// Whether the pipeline has been initialized.
+     initialized: bool,
++    /// evolite (TECH-spv-peers): every segment's reply times, for one adaptive timeout.
++    reply_times: SharedReplyTimes,
+ }
+ 
+ impl std::fmt::Debug for HeadersPipeline {
+@@ -51,6 +54,7 @@ impl HeadersPipeline {
+             next_to_store: 0,
+             checkpoint_manager,
+             initialized: false,
++            reply_times: ReplyTimes::shared(),
+         }
+     }
+ 
+@@ -89,7 +93,8 @@ impl HeadersPipeline {
+             };
+ 
+             let segment =
+-                SegmentState::new(i, start_height, start_hash, target_height, target_hash);
++                SegmentState::new(i, start_height, start_hash, target_height, target_hash)
++                    .with_reply_times(self.reply_times.clone());
+ 
+             tracing::info!(
+                 "Created segment {}: {} -> {:?} (start_hash: {})",
+diff --git a/dash-spv/src/sync/block_headers/segment_state.rs b/dash-spv/src/sync/block_headers/segment_state.rs
+index 58f0b16b..541132f2 100644
+--- a/dash-spv/src/sync/block_headers/segment_state.rs
++++ b/dash-spv/src/sync/block_headers/segment_state.rs
+@@ -1,12 +1,35 @@
+ use crate::error::{SyncError, SyncResult};
+ use crate::network::RequestSender;
+-use crate::sync::download_coordinator::{DownloadConfig, DownloadCoordinator};
++use crate::sync::download_coordinator::{
++    AdaptiveTimeout, DownloadConfig, DownloadCoordinator, ReplyTimes, SharedReplyTimes,
++};
+ use crate::types::HashedBlockHeader;
+ use dashcore::BlockHash;
+ use std::time::Duration;
+ 
+-/// Timeout for header requests.
+-const HEADERS_TIMEOUT: Duration = Duration::from_secs(30);
++/// evolite (TECH-spv-peers): a header request is asked again after 3× the median reply of all
++/// the segments, within 6..=15 s (15 s until five replies are known), not a fixed 30 s; three
++/// timeouts in a row double the 15 s, up to 60 s (r1: a network slower than 15 s everywhere). On
++/// mainnet a reply of 8 000 headers took 5.8 s at the median, and a lost one held the in-order
++/// write for 30 s each time. The floor stays above the network's `REQUEST_OWED_TIMEOUT`, so
++/// the retry goes to another peer than the one that owes it.
++pub(crate) const HEADERS_TIMEOUT: AdaptiveTimeout = AdaptiveTimeout {
++    factor: 3,
++    min: Duration::from_secs(6),
++    max: Duration::from_secs(15),
++    initial: Duration::from_secs(15),
++    min_samples: 5,
++    escalate_after: 3,
++    ceiling: Duration::from_secs(60),
++};
++
++fn headers_coordinator(times: SharedReplyTimes) -> DownloadCoordinator<BlockHash> {
++    DownloadCoordinator::new(
++        DownloadConfig::default()
++            .with_max_concurrent(1) // Only 1 request at a time (sequential getheaders)
++            .with_adaptive_timeout(HEADERS_TIMEOUT, times),
++    )
++}
+ 
+ /// State for a single download segment between two checkpoints.
+ #[derive(Debug)]
+@@ -50,17 +73,21 @@ impl SegmentState {
+             target_hash,
+             current_tip_hash: start_hash,
+             current_height: start_height,
+-            coordinator: DownloadCoordinator::new(
+-                DownloadConfig::default()
+-                    .with_max_concurrent(1) // Only 1 request at a time (sequential getheaders)
+-                    .with_timeout(HEADERS_TIMEOUT),
+-            ),
++            coordinator: headers_coordinator(ReplyTimes::shared()),
+             buffered_headers: Vec::new(),
+             complete: false,
+             locator_tail: Vec::new(),
+         }
+     }
+ 
++    /// evolite (TECH-spv-peers): time this segment's requests with `times`, shared with the
++    /// other segments. For a segment that has sent nothing yet.
++    pub(super) fn with_reply_times(mut self, times: SharedReplyTimes) -> Self {
++        debug_assert_eq!(self.coordinator.active_count(), 0);
++        self.coordinator = headers_coordinator(times);
++        self
++    }
++
+     /// Check if the segment can send more requests.
+     /// Only one getheaders request can be in-flight at a time (sequential protocol).
+     pub(super) fn can_send(&self) -> bool {
+@@ -219,6 +246,38 @@ impl SegmentState {
+ mod tests {
+     use crate::error::SyncError;
+     use crate::sync::block_headers::segment_state::SegmentState;
++
++    /// evolite (TECH-spv-peers): a header request is asked again sooner than 30 s, and never
++    /// before the network has stopped routing to the peer that owes it — the retry goes to
++    /// another peer.
++    #[test]
++    fn a_header_retry_waits_less_than_before_but_past_the_owing_peer() {
++        use super::HEADERS_TIMEOUT;
++        use crate::network::manager::REQUEST_OWED_TIMEOUT;
++        assert!(HEADERS_TIMEOUT.min > REQUEST_OWED_TIMEOUT);
++        assert!(HEADERS_TIMEOUT.max < std::time::Duration::from_secs(30));
++        assert!(HEADERS_TIMEOUT.initial <= HEADERS_TIMEOUT.max);
++    }
++
++    /// evolite (TECH-spv-peers): the segments of one pipeline time their requests by the
++    /// answers all of them got.
++    #[test]
++    fn segments_share_their_reply_times() {
++        use crate::sync::download_coordinator::ReplyTimes;
++        use dashcore::BlockHash;
++        use std::time::Duration;
++        let times = ReplyTimes::shared();
++        let a = SegmentState::new(0, 0, BlockHash::dummy(1), Some(10), None)
++            .with_reply_times(times.clone());
++        let b = SegmentState::new(1, 10, BlockHash::dummy(2), Some(20), None)
++            .with_reply_times(times.clone());
++        assert_eq!(a.coordinator.timeout(), Duration::from_secs(15), "none known yet");
++        for _ in 0..5 {
++            times.lock().unwrap().record(Duration::from_secs(3));
++        }
++        assert_eq!(a.coordinator.timeout(), Duration::from_secs(9));
++        assert_eq!(b.coordinator.timeout(), Duration::from_secs(9), "the same for both");
++    }
+     use crate::types::HashedBlockHeader;
+     use dashcore::{BlockHash, Header};
+ 
+diff --git a/dash-spv/src/sync/download_coordinator.rs b/dash-spv/src/sync/download_coordinator.rs
+index 6acb0f3c..00a310c9 100644
+--- a/dash-spv/src/sync/download_coordinator.rs
++++ b/dash-spv/src/sync/download_coordinator.rs
+@@ -8,8 +8,109 @@
+ 
+ use std::collections::{HashMap, VecDeque};
+ use std::hash::Hash;
++use std::sync::{Arc, Mutex};
+ use std::time::{Duration, Instant};
+ 
++/// evolite (TECH-spv-peers): how long a request may go unanswered, from how long answers
++/// actually take: `factor` × the median of the recent reply times, kept within `min..=max`;
++/// `initial` until `min_samples` replies are known. A fixed 30 s held a lost header request
++/// (and everything stored after it) for 30 s; most answers take a few seconds.
++///
++/// r1 (Must 1): `max` is not a wall. After `escalate_after` timeouts in a row with no answer
++/// between them, the ceiling doubles, up to `ceiling` — a network where every peer is slower
++/// than `max` (a slow link, megabytes of QRInfo) still gets its answers, as it did with the
++/// fixed 30 s / 60 s. It comes down a step with each answer that came within `max`; an answer
++/// slower than `max` keeps it where it is, so a network that always takes 20 s does not swing
++/// between «three timeouts, one answer» for ever.
++#[derive(Debug, Clone, Copy, PartialEq, Eq)]
++pub(crate) struct AdaptiveTimeout {
++    pub(crate) factor: u32,
++    pub(crate) min: Duration,
++    pub(crate) max: Duration,
++    pub(crate) initial: Duration,
++    pub(crate) min_samples: usize,
++    pub(crate) escalate_after: u32,
++    pub(crate) ceiling: Duration,
++}
++
++impl AdaptiveTimeout {
++    /// The timeout for `times` now.
++    pub(crate) fn timeout(&self, times: &ReplyTimes) -> Duration {
++        let max = self.current_max(times);
++        match times.median(self.min_samples) {
++            None => self.initial.max(max.min(self.initial.saturating_mul(1 << times.level.min(8)))),
++            Some(median) => median.saturating_mul(self.factor).clamp(self.min, max),
++        }
++    }
++
++    /// `max`, doubled once per escalation level, at most `ceiling`.
++    fn current_max(&self, times: &ReplyTimes) -> Duration {
++        self.max.saturating_mul(1 << times.level.min(8)).min(self.ceiling).max(self.max)
++    }
++
++    /// Fold in an answer that took `elapsed`.
++    pub(crate) fn answered(&self, times: &mut ReplyTimes, elapsed: Duration) {
++        times.record(elapsed);
++        times.streak = 0;
++        if elapsed <= self.max {
++            times.level = times.level.saturating_sub(1);
++        }
++    }
++
++    /// Fold in a request that went unanswered for `waited`.
++    pub(crate) fn timed_out(&self, times: &mut ReplyTimes, waited: Duration) {
++        times.record(waited);
++        times.streak += 1;
++        if times.streak >= self.escalate_after && self.current_max(times) < self.ceiling {
++            times.level += 1;
++            times.streak = 0;
++        }
++    }
++}
++
++/// The recent reply times of one kind of request, shared by everything that sends it (all the
++/// header segments, say), so the timeout learns from every answer.
++#[derive(Debug, Default)]
++pub(crate) struct ReplyTimes {
++    samples: VecDeque<Duration>,
++    /// Timeouts in a row since the last answer or escalation.
++    streak: u32,
++    /// How many times the ceiling is doubled now.
++    level: u32,
++}
++
++/// Reply times of one kind of request, shared.
++pub(crate) type SharedReplyTimes = Arc<Mutex<ReplyTimes>>;
++
++impl ReplyTimes {
++    /// How many replies the median is taken over: the last minutes of a sync, not its whole
++    /// history.
++    const KEEP: usize = 64;
++
++    /// Fold in one reply time. A request that timed out is recorded with the time it waited,
++    /// so a slow network raises the timeout rather than only the answers that came in time.
++    pub(crate) fn record(&mut self, elapsed: Duration) {
++        if self.samples.len() == Self::KEEP {
++            self.samples.pop_front();
++        }
++        self.samples.push_back(elapsed);
++    }
++
++    /// The median reply time, once at least `min_samples` are known.
++    pub(crate) fn median(&self, min_samples: usize) -> Option<Duration> {
++        if self.samples.is_empty() || self.samples.len() < min_samples {
++            return None;
++        }
++        let mut sorted: Vec<Duration> = self.samples.iter().copied().collect();
++        sorted.sort_unstable();
++        Some(sorted[sorted.len() / 2])
++    }
++
++    pub(crate) fn shared() -> SharedReplyTimes {
++        Arc::new(Mutex::new(Self::default()))
++    }
++}
++
+ /// Configuration for download coordination.
+ #[derive(Debug, Clone)]
+ pub struct DownloadConfig {
+@@ -17,6 +118,8 @@ pub struct DownloadConfig {
+     max_concurrent: usize,
+     /// Timeout duration for requests.
+     timeout: Duration,
++    /// evolite (TECH-spv-peers): the timeout from the reply times instead of `timeout`.
++    adaptive: Option<(AdaptiveTimeout, SharedReplyTimes)>,
+ }
+ 
+ impl Default for DownloadConfig {
+@@ -24,6 +127,7 @@ impl Default for DownloadConfig {
+         Self {
+             max_concurrent: 10,
+             timeout: Duration::from_secs(30),
++            adaptive: None,
+         }
+     }
+ }
+@@ -40,6 +144,17 @@ impl DownloadConfig {
+         self.timeout = timeout;
+         self
+     }
++
++    /// evolite (TECH-spv-peers): time requests by `rule` over `times`, shared with the other
++    /// senders of the same kind; every answer and every timeout is recorded there.
++    pub(crate) fn with_adaptive_timeout(
++        mut self,
++        rule: AdaptiveTimeout,
++        times: SharedReplyTimes,
++    ) -> Self {
++        self.adaptive = Some((rule, times));
++        self
++    }
+ }
+ 
+ /// Generic download coordinator.
+@@ -152,10 +267,35 @@ impl<K: Hash + Eq + Clone> DownloadCoordinator<K> {
+         }
+     }
+ 
++    /// The timeout requests have now: the adaptive one when configured.
++    pub(crate) fn timeout(&self) -> Duration {
++        match &self.config.adaptive {
++            Some((rule, times)) => rule.timeout(&times.lock().unwrap_or_else(|e| e.into_inner())),
++            None => self.config.timeout,
++        }
++    }
++
++    /// evolite (TECH-spv-peers): an answer for the adaptive timeout, if there is one.
++    fn record_reply(&self, elapsed: Duration) {
++        if let Some((rule, times)) = &self.config.adaptive {
++            rule.answered(&mut times.lock().unwrap_or_else(|e| e.into_inner()), elapsed);
++        }
++    }
++
++    /// evolite (TECH-spv-peers r1): a timeout for the adaptive timeout, if there is one.
++    fn record_timeout(&self, waited: Duration) {
++        if let Some((rule, times)) = &self.config.adaptive {
++            rule.timed_out(&mut times.lock().unwrap_or_else(|e| e.into_inner()), waited);
++        }
++    }
++
+     /// Handle a received item.
+     ///
+     /// Returns true if the item was being tracked, false if unexpected.
+     pub(crate) fn receive(&mut self, key: &K) -> bool {
++        if let Some(sent) = self.in_flight.get(key) {
++            self.record_reply(sent.elapsed());
++        }
+         if self.in_flight.remove(key).is_some() {
+             self.retry_counts.remove(key);
+             self.last_progress = Instant::now();
+@@ -188,19 +328,22 @@ impl<K: Hash + Eq + Clone> DownloadCoordinator<K> {
+     /// Caller should call `enqueue_retry` for items that should be retried.
+     pub(crate) fn check_timeouts(&mut self) -> Vec<K> {
+         let now = Instant::now();
++        let timeout = self.timeout();
+         let timed_out: Vec<K> = self
+             .in_flight
+             .iter()
+-            .filter(|(_, sent_time)| now.duration_since(**sent_time) > self.config.timeout)
++            .filter(|(_, sent_time)| now.duration_since(**sent_time) > timeout)
+             .map(|(key, _)| key.clone())
+             .collect();
+ 
+         for key in &timed_out {
+-            self.in_flight.remove(key);
++            if let Some(sent) = self.in_flight.remove(key) {
++                self.record_timeout(now.duration_since(sent));
++            }
+         }
+ 
+         if !timed_out.is_empty() {
+-            tracing::debug!("{} items timed out after {:?}", timed_out.len(), self.config.timeout);
++            tracing::debug!("{} items timed out after {:?}", timed_out.len(), timeout);
+         }
+ 
+         timed_out
+@@ -279,6 +422,97 @@ mod tests {
+         assert_eq!(coord.pending_count(), 2);
+     }
+ 
++    /// evolite (TECH-spv-peers): 3× the median reply, within the bounds; the initial timeout
++    /// until enough replies are known; a request that timed out counts with its wait, so a slow
++    /// network raises the timeout.
++    #[test]
++    fn the_adaptive_timeout_follows_the_replies() {
++        let rule = AdaptiveTimeout {
++            factor: 3,
++            min: Duration::from_secs(6),
++            max: Duration::from_secs(15),
++            initial: Duration::from_secs(15),
++            min_samples: 5,
++            escalate_after: 3,
++            ceiling: Duration::from_secs(15),
++        };
++        let mut times = ReplyTimes::default();
++        assert_eq!(rule.timeout(&times), Duration::from_secs(15));
++        for s in [1, 1, 2, 2] {
++            times.record(Duration::from_secs(s));
++        }
++        assert_eq!(rule.timeout(&times), Duration::from_secs(15), "four are too few");
++        times.record(Duration::from_secs(1));
++        assert_eq!(rule.timeout(&times), Duration::from_secs(6), "3 × 1 s, at least 6");
++        for _ in 0..10 {
++            times.record(Duration::from_secs(4));
++        }
++        assert_eq!(rule.timeout(&times), Duration::from_secs(12));
++        for _ in 0..70 {
++            times.record(Duration::from_secs(30));
++        }
++        assert_eq!(rule.timeout(&times), Duration::from_secs(15), "at most 15");
++        assert_eq!(times.samples.len(), ReplyTimes::KEEP, "only the recent ones");
++    }
++
++    /// evolite (TECH-spv-peers r1, Must 1): when every peer answers slower than `max`, three
++    /// timeouts in a row raise the ceiling until the answers come — and it stays raised
++    /// while they keep coming slower than `max`. With peers that all answer in 20 s the
++    /// header timeout settles above 20 s and every request after the first few is answered;
++    /// with fast answers again it comes back down.
++    #[test]
++    fn a_network_slower_than_the_ceiling_still_gets_its_answers() {
++        let rule = crate::sync::block_headers::HEADERS_TIMEOUT_FOR_TESTS;
++        let mut times = ReplyTimes::default();
++        let mut answered = Vec::new();
++        for _ in 0..40 {
++            let timeout = rule.timeout(&times);
++            let reply = Duration::from_secs(20);
++            if reply <= timeout {
++                rule.answered(&mut times, reply);
++                answered.push(true);
++            } else {
++                rule.timed_out(&mut times, timeout);
++                answered.push(false);
++            }
++        }
++        assert!(answered[..6].contains(&true), "answers start within a few requests");
++        assert!(answered[10..].iter().all(|a| *a), "then every request is answered");
++        assert!(rule.timeout(&times) > Duration::from_secs(20));
++        assert!(rule.timeout(&times) <= Duration::from_secs(60), "at most the ceiling");
++
++        // The network is fast again: the ceiling comes back down step by step.
++        for _ in 0..80 {
++            rule.answered(&mut times, Duration::from_secs(1));
++        }
++        assert_eq!(rule.timeout(&times), Duration::from_secs(6));
++    }
++
++    /// evolite (TECH-spv-peers): an answer and a timeout are both recorded where the
++    /// coordinator shares its reply times.
++    #[test]
++    fn answers_and_timeouts_feed_the_shared_times() {
++        let times = ReplyTimes::shared();
++        let rule = AdaptiveTimeout {
++            factor: 3,
++            min: Duration::from_millis(1),
++            max: Duration::from_millis(5),
++            initial: Duration::from_millis(5),
++            min_samples: 1,
++            escalate_after: 3,
++            ceiling: Duration::from_millis(5),
++        };
++        let mut coord: DownloadCoordinator<u32> = DownloadCoordinator::new(
++            DownloadConfig::default().with_adaptive_timeout(rule, times.clone()),
++        );
++        coord.mark_sent(&[1, 2]);
++        assert!(coord.receive(&1));
++        assert_eq!(times.lock().unwrap().samples.len(), 1);
++        std::thread::sleep(Duration::from_millis(20));
++        assert_eq!(coord.check_timeouts(), vec![2]);
++        assert_eq!(times.lock().unwrap().samples.len(), 2, "the timeout counts too");
++    }
++
+     #[test]
+     fn test_mark_sent() {
+         let mut coord: DownloadCoordinator<u32> = DownloadCoordinator::default();
+diff --git a/dash-spv/src/sync/masternodes/manager.rs b/dash-spv/src/sync/masternodes/manager.rs
+index c7e84ef4..bd271c67 100644
+--- a/dash-spv/src/sync/masternodes/manager.rs
++++ b/dash-spv/src/sync/masternodes/manager.rs
+@@ -90,6 +90,8 @@ pub(super) struct MasternodeSyncState {
+     pub(super) qrinfo_in_flight: Option<QRInfoInFlight>,
+     /// Current retry count for QRInfo.
+     pub(super) qrinfo_retry_count: u8,
++    /// evolite (TECH-spv-peers): how long QRInfo answers took, for the retry timeout.
++    pub(super) qrinfo_times: crate::sync::download_coordinator::ReplyTimes,
+     /// Rotation cycle boundary heights we have successfully freshly-validated. Used
+     /// to stop firing QRInfo for a cycle once its rotated quorums are verified.
+     /// Subsequent tip updates within the same cycle take the `Incremental` path.
+diff --git a/dash-spv/src/sync/masternodes/pipeline.rs b/dash-spv/src/sync/masternodes/pipeline.rs
+index 1e723643..6ed7afbf 100644
+--- a/dash-spv/src/sync/masternodes/pipeline.rs
++++ b/dash-spv/src/sync/masternodes/pipeline.rs
+@@ -8,7 +8,9 @@ use std::time::Duration;
+ 
+ use crate::error::SyncResult;
+ use crate::network::RequestSender;
+-use crate::sync::download_coordinator::{DownloadConfig, DownloadCoordinator};
++use crate::sync::download_coordinator::{
++    AdaptiveTimeout, DownloadConfig, DownloadCoordinator, ReplyTimes,
++};
+ use dashcore::network::message_sml::MnListDiff;
+ use dashcore::BlockHash;
+ 
+@@ -18,6 +20,19 @@ const MAX_CONCURRENT_MNLISTDIFF: usize = 20;
+ /// Timeout for MnListDiff requests.
+ const MNLISTDIFF_TIMEOUT: Duration = Duration::from_secs(15);
+ 
++/// evolite (TECH-spv-peers): a diff is asked again after 3× the median diff reply, within
++/// 6..=15 s; 15 s (as before) until five replies are known. The retry goes round-robin to the
++/// next peer.
++const MNLISTDIFF_ADAPTIVE: AdaptiveTimeout = AdaptiveTimeout {
++    factor: 3,
++    min: Duration::from_secs(6),
++    max: MNLISTDIFF_TIMEOUT,
++    initial: MNLISTDIFF_TIMEOUT,
++    min_samples: 5,
++    escalate_after: 3,
++    ceiling: Duration::from_secs(60),
++};
++
+ /// Pipeline for downloading MnListDiff messages for quorum validation.
+ ///
+ /// Uses `DownloadCoordinator<BlockHash>` for request tracking (keyed by target block_hash),
+@@ -43,7 +58,7 @@ impl MnListDiffPipeline {
+             coordinator: DownloadCoordinator::new(
+                 DownloadConfig::default()
+                     .with_max_concurrent(MAX_CONCURRENT_MNLISTDIFF)
+-                    .with_timeout(MNLISTDIFF_TIMEOUT),
++                    .with_adaptive_timeout(MNLISTDIFF_ADAPTIVE, ReplyTimes::shared()),
+             ),
+             base_hashes: HashMap::new(),
+         }
+diff --git a/dash-spv/src/sync/masternodes/sync_manager.rs b/dash-spv/src/sync/masternodes/sync_manager.rs
+index 66154e45..4206b78e 100644
+--- a/dash-spv/src/sync/masternodes/sync_manager.rs
++++ b/dash-spv/src/sync/masternodes/sync_manager.rs
+@@ -2,6 +2,7 @@ use super::manager::PipelineMode;
+ use crate::error::SyncResult;
+ use crate::network::{Message, MessageType, RequestSender};
+ use crate::storage::BlockHeaderStorage;
++use crate::sync::download_coordinator::{AdaptiveTimeout, ReplyTimes};
+ use crate::sync::{
+     ManagerIdentifier, MasternodesManager, SyncEvent, SyncManager, SyncManagerProgress, SyncState,
+ };
+@@ -10,19 +11,30 @@ use async_trait::async_trait;
+ use dashcore::network::message::NetworkMessage;
+ use std::time::{Duration, Instant};
+ 
+-/// Per-attempt timeout schedule for QRInfo, indexed by the in-flight attempt's
+-/// retry count (0 = initial send, N = N-th retry). Round-robin peer selection in
+-/// the network manager rotates peers naturally on every send, so a short first
+-/// timeout fails over fast when one peer drops the request silently while the
+-/// later, longer timeouts give a slow but responsive network room to answer.
+-///
+-/// Total worst-case wall clock if every attempt times out:
+-/// `sum(QRINFO_TIMEOUT_SCHEDULE_SECS) = 100s`.
+-const QRINFO_TIMEOUT_SCHEDULE_SECS: [u64; 3] = [10, 30, 60];
++/// The first QRInfo attempt's timeout. Round-robin peer selection in the network
++/// manager rotates peers on every send, so a short first timeout fails over fast
++/// when one peer drops the request silently.
++const QRINFO_FIRST_TIMEOUT: Duration = Duration::from_secs(10);
++
++/// evolite (TECH-spv-peers): every retry waits 3× the median QRInfo reply, within
++/// 10..=20 s (15 s while no reply is known), instead of the old 30 s then 60 s on
++/// the same ladder: each retry goes to another peer. Two timeouts in a row double
++/// the 20 s, up to 60 s (r1: QRInfo is megabytes, and a network slower than 20 s
++/// everywhere must still get its list): with peers that all take 35 s the third
++/// attempt waits 40 s and gets it.
++const QRINFO_RETRY_TIMEOUT: AdaptiveTimeout = AdaptiveTimeout {
++    factor: 3,
++    min: Duration::from_secs(10),
++    max: Duration::from_secs(20),
++    initial: Duration::from_secs(15),
++    min_samples: 1,
++    escalate_after: 2,
++    ceiling: Duration::from_secs(60),
++};
+ 
+ /// Maximum number of in-flight attempts (initial send plus retries) before
+-/// giving up. Equal to `QRINFO_TIMEOUT_SCHEDULE_SECS.len()`.
+-const MAX_RETRY_ATTEMPTS: u8 = QRINFO_TIMEOUT_SCHEDULE_SECS.len() as u8;
++/// giving up: four peers in turn.
++const MAX_RETRY_ATTEMPTS: u8 = 4;
+ 
+ /// How long the manager may sit in `Syncing` with no QRInfo in flight and an empty
+ /// MnListDiff pipeline before `tick` re-dispatches a QRInfo.
+@@ -32,19 +44,20 @@ const MAX_RETRY_ATTEMPTS: u8 = QRINFO_TIMEOUT_SCHEDULE_SECS.len() as u8;
+ /// again and masternode sync is stranded for the life of the process - which also
+ /// strands InstantSend verification and every other masternode-list consumer.
+ ///
+-/// Chosen shorter than the full retry ladder (`sum(QRINFO_TIMEOUT_SCHEDULE_SECS)
+-/// = 100s`) because the two can never overlap: the ladder only runs while the slot
++/// It and the retry ladder can never overlap: the ladder only runs while the slot
+ /// is occupied, the watchdog only while it is empty.
+ const QRINFO_STALL_WATCHDOG: Duration = Duration::from_secs(60);
+ 
+-/// Returns the timeout for the in-flight QRInfo attempt with the given retry count.
++/// Returns the timeout for the in-flight QRInfo attempt with the given retry count,
++/// given the QRInfo replies seen so far (`times`).
+ ///
+-/// `retry_count == 0` is the initial send; values past the last entry clamp to
+-/// the slowest schedule slot. `MAX_RETRY_ATTEMPTS` already prevents going past
+-/// the array, but the clamp is defensive in case the constants drift.
+-fn qrinfo_timeout_for(retry_count: u8) -> Duration {
+-    let idx = (retry_count as usize).min(QRINFO_TIMEOUT_SCHEDULE_SECS.len() - 1);
+-    Duration::from_secs(QRINFO_TIMEOUT_SCHEDULE_SECS[idx])
++/// `retry_count == 0` is the initial send.
++fn qrinfo_timeout_for(retry_count: u8, times: &ReplyTimes) -> Duration {
++    if retry_count == 0 {
++        QRINFO_FIRST_TIMEOUT
++    } else {
++        QRINFO_RETRY_TIMEOUT.timeout(times)
++    }
+ }
+ 
+ #[async_trait]
+@@ -95,6 +108,13 @@ impl<H: BlockHeaderStorage> SyncManager for MasternodesManager<H> {
+                 if !self.sync_state.should_process_qrinfo(qr_info) {
+                     return Ok(vec![]);
+                 }
++                // evolite (TECH-spv-peers): how long the answer took, for the retry timeout.
++                if let Some(in_flight) = &self.sync_state.qrinfo_in_flight {
++                    QRINFO_RETRY_TIMEOUT.answered(
++                        &mut self.sync_state.qrinfo_times,
++                        in_flight.wait_start.elapsed(),
++                    );
++                }
+                 tracing::info!("Processing QRInfo message");
+ 
+                 let mut engine = self.engine.write().await;
+@@ -470,8 +490,15 @@ impl<H: BlockHeaderStorage> SyncManager for MasternodesManager<H> {
+         // the next peer on the same budget. A rejected response skips the
+         // remaining timeout - that peer has already had its turn.
+         if let Some(in_flight) = self.sync_state.qrinfo_in_flight {
+-            let timeout = qrinfo_timeout_for(self.sync_state.qrinfo_retry_count);
++            let timeout = qrinfo_timeout_for(
++                self.sync_state.qrinfo_retry_count,
++                &self.sync_state.qrinfo_times,
++            );
+             let timed_out = in_flight.wait_start.elapsed() > timeout;
++            // evolite (TECH-spv-peers r1): a timeout counts, so a slow network raises it.
++            if timed_out && !in_flight.rejected {
++                QRINFO_RETRY_TIMEOUT.timed_out(&mut self.sync_state.qrinfo_times, timeout);
++            }
+             if timed_out || in_flight.rejected {
+                 if self.sync_state.qrinfo_retry_count < MAX_RETRY_ATTEMPTS - 1 {
+                     if in_flight.rejected {
+@@ -567,7 +594,7 @@ impl<H: BlockHeaderStorage> SyncManager for MasternodesManager<H> {
+ mod tests {
+     use super::super::manager::{MasternodeSyncState, QRInfoInFlight};
+     use super::{
+-        qrinfo_timeout_for, MAX_RETRY_ATTEMPTS, QRINFO_STALL_WATCHDOG, QRINFO_TIMEOUT_SCHEDULE_SECS,
++        qrinfo_timeout_for, MAX_RETRY_ATTEMPTS, QRINFO_RETRY_TIMEOUT, QRINFO_STALL_WATCHDOG,
+     };
+     use crate::network::{Message, NetworkRequest, RequestSender};
+     use crate::sml_engine::test_support::quorum_entry;
+@@ -575,6 +602,7 @@ mod tests {
+     use crate::storage::{
+         BlockHeaderStorage, DiskStorageManager, PersistentBlockHeaderStorage, StorageManager,
+     };
++    use crate::sync::download_coordinator::ReplyTimes;
+     use crate::sync::{MasternodesManager, SyncEvent, SyncManager, SyncState};
+     use crate::types::HashedBlockHeader;
+     use crate::{ClientConfig, SyncError};
+@@ -598,32 +626,49 @@ mod tests {
+     use test_case::test_case;
+     use tokio::sync::{mpsc, RwLock};
+ 
+-    /// The QRInfo retry budget escalates: a tight first timeout fails over
+-    /// fast when one peer drops the request silently, while later attempts
+-    /// get progressively more headroom so a genuinely slow but responsive
+-    /// network still gets to answer.
++    /// evolite (TECH-spv-peers): the first attempt fails over fast; every retry, on the next
++    /// peer, waits 3× the median QRInfo reply within 10..=20 s, 15 s while none is known; the
++    /// whole budget stays well under the old 100 s.
+     #[test]
+     fn test_qrinfo_timeout_schedule() {
+-        assert_eq!(QRINFO_TIMEOUT_SCHEDULE_SECS.len(), MAX_RETRY_ATTEMPTS as usize);
+-
+-        // First attempt fails over fast so a single bad peer does not block sync.
+-        assert_eq!(qrinfo_timeout_for(0).as_secs(), 10);
+-
+-        // Schedule escalates monotonically so a slow but responsive network
+-        // still gets enough time to answer.
+-        let schedule: Vec<u64> =
+-            (0..MAX_RETRY_ATTEMPTS).map(|n| qrinfo_timeout_for(n).as_secs()).collect();
+-        assert!(
+-            schedule.windows(2).all(|w| w[0] <= w[1]),
+-            "timeout schedule must be non-decreasing, got {:?}",
+-            schedule
+-        );
++        let mut times = ReplyTimes::default();
++        assert_eq!(qrinfo_timeout_for(0, &times).as_secs(), 10);
++        assert_eq!(qrinfo_timeout_for(1, &times).as_secs(), 15, "none known yet");
++        times.record(Duration::from_secs(2));
++        assert_eq!(qrinfo_timeout_for(1, &times).as_secs(), 10, "3 × 2 s, at least 10");
++        times.record(Duration::from_secs(5));
++        times.record(Duration::from_secs(6));
++        assert_eq!(qrinfo_timeout_for(2, &times).as_secs(), 15, "3 × the median 5 s");
++        for _ in 0..10 {
++            times.record(Duration::from_secs(40));
++        }
++        assert_eq!(qrinfo_timeout_for(3, &times).as_secs(), 20, "at most 20");
++        assert_eq!(qrinfo_timeout_for(0, &times).as_secs(), 10, "the first stays fast");
++        let worst: u64 =
++            (0..MAX_RETRY_ATTEMPTS).map(|n| qrinfo_timeout_for(n, &times).as_secs()).sum();
++        assert!(worst <= 70 && worst < 100, "the budget: {worst} s");
++    }
+ 
+-        // Out-of-range retry counts must clamp to the slowest slot rather than
+-        // panic, in case the constants drift relative to MAX_RETRY_ATTEMPTS.
+-        let last = *QRINFO_TIMEOUT_SCHEDULE_SECS.last().unwrap();
+-        assert_eq!(qrinfo_timeout_for(MAX_RETRY_ATTEMPTS).as_secs(), last);
+-        assert_eq!(qrinfo_timeout_for(u8::MAX).as_secs(), last);
++    /// evolite (TECH-spv-peers r1, Must 1): when every peer takes 35 s to answer a QRInfo
++    /// (megabytes on a slow link), the timeouts raise the retry's ceiling and an attempt
++    /// within the budget waits long enough to get it.
++    #[test]
++    fn a_qrinfo_slower_than_twenty_seconds_still_comes() {
++        let mut times = ReplyTimes::default();
++        let reply = Duration::from_secs(35);
++        let mut got = None;
++        for attempt in 0..MAX_RETRY_ATTEMPTS {
++            let timeout = qrinfo_timeout_for(attempt, &times);
++            if reply <= timeout {
++                QRINFO_RETRY_TIMEOUT.answered(&mut times, reply);
++                got = Some(attempt);
++                break;
++            }
++            QRINFO_RETRY_TIMEOUT.timed_out(&mut times, timeout);
++        }
++        assert!(got.is_some(), "the list comes within the four attempts");
++        // And the next round starts high enough for it at the first retry.
++        assert!(qrinfo_timeout_for(1, &times) >= reply);
+     }
+ 
+     /// `should_process_qrinfo` is the dedup gate at the QRInfo handler entry. It

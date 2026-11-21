@@ -12,6 +12,7 @@ use crate::chain::CheckpointManager;
 use crate::error::SyncResult;
 use crate::network::RequestSender;
 use crate::sync::block_headers::segment_state::SegmentState;
+use crate::sync::download_coordinator::{ReplyTimes, SharedReplyTimes};
 use crate::types::HashedBlockHeader;
 
 /// Keep enough checkpoint segments active to saturate decompression while bounding buffered data.
@@ -31,6 +32,8 @@ pub struct HeadersPipeline {
     checkpoint_manager: &'static CheckpointManager,
     /// Whether the pipeline has been initialized.
     initialized: bool,
+    /// evolite (TECH-spv-peers): every segment's reply times, for one adaptive timeout.
+    reply_times: SharedReplyTimes,
 }
 
 impl std::fmt::Debug for HeadersPipeline {
@@ -51,6 +54,7 @@ impl HeadersPipeline {
             next_to_store: 0,
             checkpoint_manager,
             initialized: false,
+            reply_times: ReplyTimes::shared(),
         }
     }
 
@@ -89,7 +93,8 @@ impl HeadersPipeline {
             };
 
             let segment =
-                SegmentState::new(i, start_height, start_hash, target_height, target_hash);
+                SegmentState::new(i, start_height, start_hash, target_height, target_hash)
+                    .with_reply_times(self.reply_times.clone());
 
             tracing::info!(
                 "Created segment {}: {} -> {:?} (start_hash: {})",

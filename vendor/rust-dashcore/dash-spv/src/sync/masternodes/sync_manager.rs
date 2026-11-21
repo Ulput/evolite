@@ -2,6 +2,7 @@ use super::manager::PipelineMode;
 use crate::error::SyncResult;
 use crate::network::{Message, MessageType, RequestSender};
 use crate::storage::BlockHeaderStorage;
+use crate::sync::download_coordinator::{AdaptiveTimeout, ReplyTimes};
 use crate::sync::{
     ManagerIdentifier, MasternodesManager, SyncEvent, SyncManager, SyncManagerProgress, SyncState,
 };
@@ -10,19 +11,30 @@ use async_trait::async_trait;
 use dashcore::network::message::NetworkMessage;
 use std::time::{Duration, Instant};
 
-/// Per-attempt timeout schedule for QRInfo, indexed by the in-flight attempt's
-/// retry count (0 = initial send, N = N-th retry). Round-robin peer selection in
-/// the network manager rotates peers naturally on every send, so a short first
-/// timeout fails over fast when one peer drops the request silently while the
-/// later, longer timeouts give a slow but responsive network room to answer.
-///
-/// Total worst-case wall clock if every attempt times out:
-/// `sum(QRINFO_TIMEOUT_SCHEDULE_SECS) = 100s`.
-const QRINFO_TIMEOUT_SCHEDULE_SECS: [u64; 3] = [10, 30, 60];
+/// The first QRInfo attempt's timeout. Round-robin peer selection in the network
+/// manager rotates peers on every send, so a short first timeout fails over fast
+/// when one peer drops the request silently.
+const QRINFO_FIRST_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// evolite (TECH-spv-peers): every retry waits 3× the median QRInfo reply, within
+/// 10..=20 s (15 s while no reply is known), instead of the old 30 s then 60 s on
+/// the same ladder: each retry goes to another peer. Two timeouts in a row double
+/// the 20 s, up to 60 s (r1: QRInfo is megabytes, and a network slower than 20 s
+/// everywhere must still get its list): with peers that all take 35 s the third
+/// attempt waits 40 s and gets it.
+const QRINFO_RETRY_TIMEOUT: AdaptiveTimeout = AdaptiveTimeout {
+    factor: 3,
+    min: Duration::from_secs(10),
+    max: Duration::from_secs(20),
+    initial: Duration::from_secs(15),
+    min_samples: 1,
+    escalate_after: 2,
+    ceiling: Duration::from_secs(60),
+};
 
 /// Maximum number of in-flight attempts (initial send plus retries) before
-/// giving up. Equal to `QRINFO_TIMEOUT_SCHEDULE_SECS.len()`.
-const MAX_RETRY_ATTEMPTS: u8 = QRINFO_TIMEOUT_SCHEDULE_SECS.len() as u8;
+/// giving up: four peers in turn.
+const MAX_RETRY_ATTEMPTS: u8 = 4;
 
 /// How long the manager may sit in `Syncing` with no QRInfo in flight and an empty
 /// MnListDiff pipeline before `tick` re-dispatches a QRInfo.
@@ -32,19 +44,20 @@ const MAX_RETRY_ATTEMPTS: u8 = QRINFO_TIMEOUT_SCHEDULE_SECS.len() as u8;
 /// again and masternode sync is stranded for the life of the process - which also
 /// strands InstantSend verification and every other masternode-list consumer.
 ///
-/// Chosen shorter than the full retry ladder (`sum(QRINFO_TIMEOUT_SCHEDULE_SECS)
-/// = 100s`) because the two can never overlap: the ladder only runs while the slot
+/// It and the retry ladder can never overlap: the ladder only runs while the slot
 /// is occupied, the watchdog only while it is empty.
 const QRINFO_STALL_WATCHDOG: Duration = Duration::from_secs(60);
 
-/// Returns the timeout for the in-flight QRInfo attempt with the given retry count.
+/// Returns the timeout for the in-flight QRInfo attempt with the given retry count,
+/// given the QRInfo replies seen so far (`times`).
 ///
-/// `retry_count == 0` is the initial send; values past the last entry clamp to
-/// the slowest schedule slot. `MAX_RETRY_ATTEMPTS` already prevents going past
-/// the array, but the clamp is defensive in case the constants drift.
-fn qrinfo_timeout_for(retry_count: u8) -> Duration {
-    let idx = (retry_count as usize).min(QRINFO_TIMEOUT_SCHEDULE_SECS.len() - 1);
-    Duration::from_secs(QRINFO_TIMEOUT_SCHEDULE_SECS[idx])
+/// `retry_count == 0` is the initial send.
+fn qrinfo_timeout_for(retry_count: u8, times: &ReplyTimes) -> Duration {
+    if retry_count == 0 {
+        QRINFO_FIRST_TIMEOUT
+    } else {
+        QRINFO_RETRY_TIMEOUT.timeout(times)
+    }
 }
 
 #[async_trait]
@@ -94,6 +107,13 @@ impl<H: BlockHeaderStorage> SyncManager for MasternodesManager<H> {
             NetworkMessage::QRInfo(qr_info) => {
                 if !self.sync_state.should_process_qrinfo(qr_info) {
                     return Ok(vec![]);
+                }
+                // evolite (TECH-spv-peers): how long the answer took, for the retry timeout.
+                if let Some(in_flight) = &self.sync_state.qrinfo_in_flight {
+                    QRINFO_RETRY_TIMEOUT.answered(
+                        &mut self.sync_state.qrinfo_times,
+                        in_flight.wait_start.elapsed(),
+                    );
                 }
                 tracing::info!("Processing QRInfo message");
 
@@ -470,8 +490,15 @@ impl<H: BlockHeaderStorage> SyncManager for MasternodesManager<H> {
         // the next peer on the same budget. A rejected response skips the
         // remaining timeout - that peer has already had its turn.
         if let Some(in_flight) = self.sync_state.qrinfo_in_flight {
-            let timeout = qrinfo_timeout_for(self.sync_state.qrinfo_retry_count);
+            let timeout = qrinfo_timeout_for(
+                self.sync_state.qrinfo_retry_count,
+                &self.sync_state.qrinfo_times,
+            );
             let timed_out = in_flight.wait_start.elapsed() > timeout;
+            // evolite (TECH-spv-peers r1): a timeout counts, so a slow network raises it.
+            if timed_out && !in_flight.rejected {
+                QRINFO_RETRY_TIMEOUT.timed_out(&mut self.sync_state.qrinfo_times, timeout);
+            }
             if timed_out || in_flight.rejected {
                 if self.sync_state.qrinfo_retry_count < MAX_RETRY_ATTEMPTS - 1 {
                     if in_flight.rejected {
@@ -567,7 +594,7 @@ impl<H: BlockHeaderStorage> SyncManager for MasternodesManager<H> {
 mod tests {
     use super::super::manager::{MasternodeSyncState, QRInfoInFlight};
     use super::{
-        qrinfo_timeout_for, MAX_RETRY_ATTEMPTS, QRINFO_STALL_WATCHDOG, QRINFO_TIMEOUT_SCHEDULE_SECS,
+        qrinfo_timeout_for, MAX_RETRY_ATTEMPTS, QRINFO_RETRY_TIMEOUT, QRINFO_STALL_WATCHDOG,
     };
     use crate::network::{Message, NetworkRequest, RequestSender};
     use crate::sml_engine::test_support::quorum_entry;
@@ -575,6 +602,7 @@ mod tests {
     use crate::storage::{
         BlockHeaderStorage, DiskStorageManager, PersistentBlockHeaderStorage, StorageManager,
     };
+    use crate::sync::download_coordinator::ReplyTimes;
     use crate::sync::{MasternodesManager, SyncEvent, SyncManager, SyncState};
     use crate::types::HashedBlockHeader;
     use crate::{ClientConfig, SyncError};
@@ -598,32 +626,49 @@ mod tests {
     use test_case::test_case;
     use tokio::sync::{mpsc, RwLock};
 
-    /// The QRInfo retry budget escalates: a tight first timeout fails over
-    /// fast when one peer drops the request silently, while later attempts
-    /// get progressively more headroom so a genuinely slow but responsive
-    /// network still gets to answer.
+    /// evolite (TECH-spv-peers): the first attempt fails over fast; every retry, on the next
+    /// peer, waits 3× the median QRInfo reply within 10..=20 s, 15 s while none is known; the
+    /// whole budget stays well under the old 100 s.
     #[test]
     fn test_qrinfo_timeout_schedule() {
-        assert_eq!(QRINFO_TIMEOUT_SCHEDULE_SECS.len(), MAX_RETRY_ATTEMPTS as usize);
+        let mut times = ReplyTimes::default();
+        assert_eq!(qrinfo_timeout_for(0, &times).as_secs(), 10);
+        assert_eq!(qrinfo_timeout_for(1, &times).as_secs(), 15, "none known yet");
+        times.record(Duration::from_secs(2));
+        assert_eq!(qrinfo_timeout_for(1, &times).as_secs(), 10, "3 × 2 s, at least 10");
+        times.record(Duration::from_secs(5));
+        times.record(Duration::from_secs(6));
+        assert_eq!(qrinfo_timeout_for(2, &times).as_secs(), 15, "3 × the median 5 s");
+        for _ in 0..10 {
+            times.record(Duration::from_secs(40));
+        }
+        assert_eq!(qrinfo_timeout_for(3, &times).as_secs(), 20, "at most 20");
+        assert_eq!(qrinfo_timeout_for(0, &times).as_secs(), 10, "the first stays fast");
+        let worst: u64 =
+            (0..MAX_RETRY_ATTEMPTS).map(|n| qrinfo_timeout_for(n, &times).as_secs()).sum();
+        assert!(worst <= 70 && worst < 100, "the budget: {worst} s");
+    }
 
-        // First attempt fails over fast so a single bad peer does not block sync.
-        assert_eq!(qrinfo_timeout_for(0).as_secs(), 10);
-
-        // Schedule escalates monotonically so a slow but responsive network
-        // still gets enough time to answer.
-        let schedule: Vec<u64> =
-            (0..MAX_RETRY_ATTEMPTS).map(|n| qrinfo_timeout_for(n).as_secs()).collect();
-        assert!(
-            schedule.windows(2).all(|w| w[0] <= w[1]),
-            "timeout schedule must be non-decreasing, got {:?}",
-            schedule
-        );
-
-        // Out-of-range retry counts must clamp to the slowest slot rather than
-        // panic, in case the constants drift relative to MAX_RETRY_ATTEMPTS.
-        let last = *QRINFO_TIMEOUT_SCHEDULE_SECS.last().unwrap();
-        assert_eq!(qrinfo_timeout_for(MAX_RETRY_ATTEMPTS).as_secs(), last);
-        assert_eq!(qrinfo_timeout_for(u8::MAX).as_secs(), last);
+    /// evolite (TECH-spv-peers r1, Must 1): when every peer takes 35 s to answer a QRInfo
+    /// (megabytes on a slow link), the timeouts raise the retry's ceiling and an attempt
+    /// within the budget waits long enough to get it.
+    #[test]
+    fn a_qrinfo_slower_than_twenty_seconds_still_comes() {
+        let mut times = ReplyTimes::default();
+        let reply = Duration::from_secs(35);
+        let mut got = None;
+        for attempt in 0..MAX_RETRY_ATTEMPTS {
+            let timeout = qrinfo_timeout_for(attempt, &times);
+            if reply <= timeout {
+                QRINFO_RETRY_TIMEOUT.answered(&mut times, reply);
+                got = Some(attempt);
+                break;
+            }
+            QRINFO_RETRY_TIMEOUT.timed_out(&mut times, timeout);
+        }
+        assert!(got.is_some(), "the list comes within the four attempts");
+        // And the next round starts high enough for it at the first retry.
+        assert!(qrinfo_timeout_for(1, &times) >= reply);
     }
 
     /// `should_process_qrinfo` is the dedup gate at the QRInfo handler entry. It
