@@ -11,7 +11,9 @@ use crate::format::DUFFS_PER_DASH;
 use crate::text::short_address;
 use crate::theme::{Weight, mono};
 use egui::{Color32, CornerRadius, Rect, Sense, Stroke, StrokeKind, Ui, pos2, vec2};
-use evolite_api::{Activity, ActivityKind, Chain, Duffs, Network, Wallet};
+use evolite_api::{
+    Activity, ActivityKind, Chain, Coin, Command, CoreError, Duffs, Network, Wallet,
+};
 
 struct Target {
     icon: &'static str,
@@ -90,7 +92,31 @@ pub struct ReceiveForm {
     /// kept for the session; the text typed in it.
     pub in_currency: bool,
     pub fiat: String,
+    /// «Earlier addresses» show what is left on each, from the wallet's coins (BUG-201): the
+    /// answer to Receive's last `ListCoins`, none until it comes.
+    pub coins: Option<Vec<Coin>>,
+    coins_ask: u64,
+    /// What the coins were last asked for: the history's length, the Core balance, whether it
+    /// is checked in this sync, the address shown.
+    coins_for: Option<CoinsFor>,
 }
+
+/// What Receive's coins were asked for: the history's length, the Core balance, whether it is
+/// checked in this sync, the address shown.
+type CoinsFor = (usize, Duffs, bool, String);
+
+fn coins_for(w: &Wallet) -> CoinsFor {
+    (
+        w.activity.len(),
+        w.balances.core,
+        w.balances.core_as_of.is_none(),
+        w.core_address.clone(),
+    )
+}
+
+/// Receive's `ListCoins` asks are in a range of their own: Send's coins never take its answer,
+/// nor it theirs.
+const COINS_ASKS: u64 = 1 << 48;
 
 impl ReceiveForm {
     /// The person left the screen (App calls it): coming back, "Request an amount" starts
@@ -98,6 +124,27 @@ impl ReceiveForm {
     pub fn leave(&mut self) {
         self.amount.clear();
         self.fiat.clear();
+    }
+
+    /// Asks the core for the wallet's coins again when a payment in or out may have moved them:
+    /// the history, the Core balance or its check changed since the last ask.
+    fn ask_coins(&mut self, key: CoinsFor) -> Option<Command> {
+        if self.coins_for.as_ref() == Some(&key) {
+            return None;
+        }
+        self.coins_for = Some(key);
+        self.coins_ask = COINS_ASKS + self.coins_ask.saturating_sub(COINS_ASKS) + 1;
+        Some(Command::ListCoins {
+            ask: self.coins_ask,
+        })
+    }
+
+    /// The core's answer to `ListCoins`: only that of Receive's last ask. A refusal leaves the
+    /// amounts unknown («—»), never a guess.
+    pub fn on_coins(&mut self, ask: u64, result: &Result<Vec<Coin>, CoreError>) {
+        if ask != 0 && ask == self.coins_ask {
+            self.coins = result.as_ref().ok().cloned();
+        }
     }
 
     /// Whether «Request an amount» is on screen: a target with a `dash:` link (Core).
@@ -218,6 +265,9 @@ pub fn receive(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut ReceiveForm
     let p = a.p;
     let all = targets(cx.wallet(), cx.snap.network);
     form.target = form.target.min(all.len() - 1);
+    if let Some(ask) = form.ask_coins(coins_for(cx.wallet())) {
+        cx.send(ask);
+    }
     ui.spacing_mut().item_spacing.y = 24.0;
     page_header(ui, a, tr!("Receive"), None, |_, _| {});
     // Its own scroll, as the other screens have (BUG-48): «Earlier addresses» goes on under
@@ -367,7 +417,7 @@ pub fn receive(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut ReceiveForm
                 });
             });
 
-            // "Old addresses keep working": here they are, with what each received.
+            // "Old addresses keep working": here they are, with what is left on each.
             let past = if t.uri {
                 past_addresses(&cx.wallet().activity, &t.value)
             } else {
@@ -375,6 +425,9 @@ pub fn receive(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut ReceiveForm
             };
             if !past.is_empty() {
                 let now = cx.now;
+                // Not checked in this sync: the coins may have moved since (BUG-77).
+                let checked = cx.wallet().balances.core_as_of.is_none();
+                let coins = form.coins.as_deref();
                 let width = ui.available_width();
                 crate::components::list_card_with(
                     ui,
@@ -390,7 +443,11 @@ pub fn receive(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut ReceiveForm
                         // hover (designer's r1).
                         ui.add_space(-1.0);
                         for old in past.iter().take(PAST_SHOWN) {
-                            let shown = crate::format::balance(old.received);
+                            let left = left_on(&old.address, coins);
+                            let shown = left.map_or_else(
+                                || "—".to_string(),
+                                crate::format::balance,
+                            );
                             // A click copies it: "Copied" stands in the line under it for a moment.
                             let detail =
                                 if crate::clipboard::just_copied(ui.ctx(), copy_id(&old.address)) {
@@ -421,6 +478,7 @@ pub fn receive(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut ReceiveForm
  neutral: None,
                                     note: None,
                                     fiat: None,
+                                    dim_amount: left.is_none() || !checked,
                                 },
                             );
                             if row
@@ -452,6 +510,19 @@ pub(crate) struct PastAddress {
     pub received: i64,
     pub payments: u32,
     pub last: evolite_api::Timestamp,
+}
+
+/// What is left on an earlier address (BUG-201): its unspent coins, not all it ever received.
+/// `None` while the wallet's coins are not listed yet; 0 for an address with none left, which
+/// still receives.
+pub(crate) fn left_on(address: &str, coins: Option<&[Coin]>) -> Option<Duffs> {
+    coins.map(|coins| {
+        coins
+            .iter()
+            .filter(|c| c.address == address)
+            .map(|c| c.value)
+            .sum()
+    })
 }
 
 /// Our Core addresses that received payments, newest first, without `current` (shown above).
@@ -643,7 +714,7 @@ mod tests {
         assert_eq!(super::qr_side(768.0), super::QR_MOST, "an ordinary one");
     }
 
-    use super::{PastAddress, past_addresses, payment_uri};
+    use super::{PastAddress, left_on, past_addresses, payment_uri};
     use evolite_api::{Activity, ActivityKind, Chain, Proof};
 
     /// FEAT-0008 AC-T10: 25 USD at 30.78 ask for 0.81221572 DASH; the link carries DASH only.
@@ -785,5 +856,49 @@ mod tests {
             ..history[0].clone()
         };
         assert!(past_addresses(&[pool], "yNow").is_empty());
+    }
+
+    /// BUG-201: an earlier address shows what is left on it, not all it received. Two payments
+    /// came to yA (0.001 and 0.0005), the first was spent: 0.0005 is left. yB has nothing left
+    /// and still says 0: it still receives. Before the coins are listed nothing is said.
+    #[test]
+    fn an_earlier_address_shows_what_is_left_on_it() {
+        let coin = |outpoint: &str, value, address: &str| evolite_api::Coin {
+            outpoint: outpoint.into(),
+            value,
+            address: address.into(),
+            from_contact: None,
+            state: evolite_api::CoinState::Final,
+            at: None,
+            mixing: None,
+        };
+        // The coin of the first payment to yA is spent: only the second one is listed.
+        let coins = [coin("t2:0", 50_000, "yA"), coin("t9:1", 7, "yNow")];
+        assert_eq!(left_on("yA", Some(&coins)), Some(50_000), "the remainder");
+        assert_eq!(left_on("yB", Some(&coins)), Some(0), "nothing left: 0");
+        assert_eq!(left_on("yA", None), None, "the coins not listed yet");
+    }
+
+    /// The coins are asked for again when a payment may have moved them, with an ask of
+    /// Receive's own: Send's answer is not taken, nor an older one of Receive's.
+    #[test]
+    fn the_coins_are_asked_again_when_the_wallet_moves() {
+        let mut w = (0, 0, true, "yNow".to_string());
+        let mut form = super::ReceiveForm::default();
+        let Some(evolite_api::Command::ListCoins { ask: first }) = form.ask_coins(w.clone()) else {
+            panic!("the first ask")
+        };
+        assert!(first >= super::COINS_ASKS, "Receive's own range");
+        assert!(form.ask_coins(w.clone()).is_none(), "nothing moved");
+        form.on_coins(1, &Ok(Vec::new()));
+        assert!(form.coins.is_none(), "Send's answer");
+        w.1 = 50_000;
+        let Some(evolite_api::Command::ListCoins { ask: second }) = form.ask_coins(w) else {
+            panic!("asked again")
+        };
+        form.on_coins(first, &Ok(Vec::new()));
+        assert!(form.coins.is_none(), "an older answer");
+        form.on_coins(second, &Ok(Vec::new()));
+        assert_eq!(form.coins, Some(Vec::new()));
     }
 }

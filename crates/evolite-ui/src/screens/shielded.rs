@@ -337,6 +337,7 @@ pub fn shielded(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut PoolState
  neutral: None,
                                 note: op.note.as_deref(),
                                 fiat: None,
+                                dim_amount: false,
                             },
                         );
                     }

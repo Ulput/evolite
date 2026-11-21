@@ -706,6 +706,7 @@ fn operation_row(ui: &mut Ui, a: &mut Assets, cx: &Ctx, act: &Activity, day: &mu
                 .then_some(tr!("from network data")),
             note: act.note.as_deref(),
             fiat: crate::fiat_lines::row(act).as_deref(),
+            dim_amount: false,
         },
     );
     if row.clicked() {

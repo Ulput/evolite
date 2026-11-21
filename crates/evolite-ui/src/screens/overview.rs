@@ -546,6 +546,7 @@ fn latest_operations(
                         .then_some(tr!("from network data")),
                     note: act.note.as_deref(),
                     fiat: None,
+                    dim_amount: false,
                 },
             );
             if row.clicked() {

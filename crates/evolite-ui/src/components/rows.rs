@@ -81,6 +81,9 @@ pub struct TxRow<'a> {
     pub note: Option<&'a str>,
     /// The amount in the currency of «Fiat rate», grey under it (FEAT-0008, frame 6).
     pub fiat: Option<&'a str>,
+    /// The amount is not checked in this run (or not known yet): dimmed, as a balance kept from
+    /// an earlier run is (BUG-115, BUG-201).
+    pub dim_amount: bool,
 }
 
 /// row/transaction: 54 px; icon box 36, title and line under it, status chip, amount in mono.
@@ -147,7 +150,11 @@ fn tx_row_sensed(ui: &mut Ui, a: &mut Assets, row: &TxRow, sense: Sense) -> egui
         Align2::RIGHT_CENTER,
         amount,
         mono(14.0, Weight::Medium),
-        p.text,
+        if row.dim_amount {
+            p.text.gamma_multiply(0.6)
+        } else {
+            p.text
+        },
     );
     if let Some(fiat) = row.fiat {
         paint_text(
