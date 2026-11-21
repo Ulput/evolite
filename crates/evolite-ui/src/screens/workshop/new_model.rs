@@ -15,7 +15,7 @@ use crate::components::{
     FieldKind, Part, dialog_with_summary, error_notice, field_label, kv_row, text_field,
 };
 use evolite_api::series::{
-    DOES_NOT_FIT, FittedPicture, NewModel, PictureCheck, SeriesPlan, SeriesRefusal,
+    DOES_NOT_FIT, FittedPicture, NewModel, OUT_OF_TIME, PictureCheck, SeriesPlan, SeriesRefusal,
 };
 use evolite_api::{Duffs, Spend};
 
@@ -57,7 +57,7 @@ pub struct ModelForm {
     /// The original file's check (R-22: «removed» is said for a copy of it too).
     original: Option<PictureCheck>,
     /// «Make a smaller copy»: asked, its answer, and whether the copy is in use.
-    fitting: bool,
+    pub(crate) fitting: bool,
     fitted: Option<Result<FittedPicture, CoreError>>,
     using_copy: bool,
     /// The plan asked for and the last answer, with what it was for.
@@ -741,6 +741,19 @@ fn fit_offer(
             );
             return;
         }
+        // Batch 65: the time ran out, not the room — the picture may fit on another try, so
+        // «Make a smaller copy» stays below.
+        Some(Err(CoreError::Failed(why))) if why == OUT_OF_TIME => {
+            super::super::tokens::para(
+                ui,
+                tr!(
+                    "Making a smaller copy took too long this time. Try again; if it keeps happening, choose a smaller picture."
+                ),
+                12.0,
+                p.danger,
+                None,
+            );
+        }
         Some(Err(_)) => {
             super::super::tokens::para(ui, tr!("Could not read the picture"), 12.0, p.danger, None);
             return;
@@ -783,6 +796,8 @@ fn fit_offer(
         && let Some(file) = &form.file
     {
         form.fitting = true;
+        // Another try after «took too long»: its words go until the new answer.
+        form.fitted = None;
         cx.send(Command::FitPicture {
             image: file.bytes.clone(),
             room: check.room,

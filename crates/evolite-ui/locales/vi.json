@@ -2680,5 +2680,6 @@
   "at {} — {}": "với {} — {}",
   "of {}": "trên {}",
   "refused: {}": "bị từ chối: {}",
-  "supply {} · issued {}": "số lượng {} · đã phát hành {}"
+  "supply {} · issued {}": "số lượng {} · đã phát hành {}",
+  "Making a smaller copy took too long this time. Try again; if it keeps happening, choose a smaller picture.": "Lần này tạo bản sao nhỏ hơn mất quá lâu. Hãy thử lại; nếu vẫn vậy, hãy chọn ảnh nhỏ hơn."
 }

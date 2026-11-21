@@ -2754,5 +2754,6 @@
   "at {} — {}": "a {} — {}",
   "of {}": "de {}",
   "refused: {}": "rechazado: {}",
-  "supply {} · issued {}": "tirada {} · emitidas {}"
+  "supply {} · issued {}": "tirada {} · emitidas {}",
+  "Making a smaller copy took too long this time. Try again; if it keeps happening, choose a smaller picture.": "Esta vez la copia más pequeña tardó demasiado. Inténtelo de nuevo; si sigue ocurriendo, elija una imagen más pequeña."
 }

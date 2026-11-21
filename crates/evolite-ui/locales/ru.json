@@ -2765,5 +2765,6 @@
   "at {} — {}": "по {} — {}",
   "of {}": "из {}",
   "refused: {}": "отказ: {}",
-  "supply {} · issued {}": "тираж {} · выпущено {}"
+  "supply {} · issued {}": "тираж {} · выпущено {}",
+  "Making a smaller copy took too long this time. Try again; if it keeps happening, choose a smaller picture.": "Уменьшенная копия на этот раз делалась слишком долго. Попробуйте ещё раз; если повторится — выберите картинку поменьше."
 }

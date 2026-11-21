@@ -2680,5 +2680,6 @@
   "at {} — {}": "{} で — {}",
   "of {}": "/ {}",
   "refused: {}": "拒否：{}",
-  "supply {} · issued {}": "発行数 {} · 発行済み {}"
+  "supply {} · issued {}": "発行数 {} · 発行済み {}",
+  "Making a smaller copy took too long this time. Try again; if it keeps happening, choose a smaller picture.": "今回は縮小コピーの作成に時間がかかりすぎました。もう一度お試しください。繰り返す場合は、より小さい画像を選んでください。"
 }

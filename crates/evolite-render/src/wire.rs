@@ -36,7 +36,7 @@ pub enum Reply {
 }
 
 /// The reasons a worker may give, by index. Anything else reads as `"unknown"`.
-const LIMITS: [&str; 7] = [
+const LIMITS: [&str; 8] = [
     "picture size",
     "frames",
     "decoded size",
@@ -44,6 +44,7 @@ const LIMITS: [&str; 7] = [
     "unpacked size",
     "model size",
     "does not fit",
+    crate::fit::OUT_OF_TIME,
 ];
 const INVALID: [&str; 12] = [
     "cannot decode",
@@ -406,7 +407,11 @@ mod tests {
             source_width: 1200,
             source_height: 800,
         };
-        for answer in [Ok(copy), Err(RenderError::Limit("does not fit"))] {
+        for answer in [
+            Ok(copy),
+            Err(RenderError::Limit("does not fit")),
+            Err(RenderError::Limit(crate::fit::OUT_OF_TIME)),
+        ] {
             let mut wire = Vec::new();
             write_fitted(&mut wire, 4, &answer).unwrap();
             assert_eq!(

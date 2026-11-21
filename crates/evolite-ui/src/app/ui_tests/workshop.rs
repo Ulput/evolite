@@ -383,3 +383,28 @@ fn a_stopped_series_can_be_continued_from_the_model_page() {
     assert!(has_words(&kit, "Left to write: 7"));
     assert!(has_words(&kit, "7 records"));
 }
+
+/// Batch 65: the renderer's time ran out before a copy fitted — W5 says it took too long (not
+/// that the picture cannot fit) and «Make a smaller copy» stays for another try.
+#[test]
+fn a_copy_that_took_too_long_can_be_tried_again() {
+    let (_turn, mut kit) = demo_app("workshop-collection", "en");
+    new_model_with(&mut kit, "pin.png", noisy_png(120));
+    wait_for(&mut kit, "the offer", |kit| {
+        has_words(kit, "evolite can make a smaller copy that fits")
+    });
+    // The renderer's answer to a copy asked for.
+    let model = &mut kit.state_mut().workshop.model;
+    model.fitting = true;
+    model.on_fitted(&Err(evolite_api::CoreError::Failed(
+        evolite_api::series::OUT_OF_TIME.into(),
+    )));
+    wait_for(&mut kit, "the words", |kit| {
+        has_words(kit, "Making a smaller copy took too long this time.")
+    });
+    assert!(!has_words(&kit, "does not fit into the record"));
+    button(&kit, "Make a smaller copy").click();
+    wait_for(&mut kit, "the copy on another try", |kit| {
+        has_words(kit, "Reduced: 512×341")
+    });
+}

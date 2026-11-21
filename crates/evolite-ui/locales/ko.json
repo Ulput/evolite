@@ -2680,5 +2680,6 @@
   "at {} — {}": "{}에 — {}",
   "of {}": "/ {}",
   "refused: {}": "거부됨: {}",
-  "supply {} · issued {}": "발행량 {} · 발행됨 {}"
+  "supply {} · issued {}": "발행량 {} · 발행됨 {}",
+  "Making a smaller copy took too long this time. Try again; if it keeps happening, choose a smaller picture.": "이번에는 작은 사본을 만드는 데 시간이 너무 오래 걸렸습니다. 다시 시도하세요. 계속 그렇다면 더 작은 그림을 고르세요."
 }

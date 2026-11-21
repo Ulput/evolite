@@ -2797,5 +2797,6 @@
   "at {} — {}": "по {} — {}",
   "of {}": "з {}",
   "refused: {}": "відмова: {}",
-  "supply {} · issued {}": "наклад {} · випущено {}"
+  "supply {} · issued {}": "наклад {} · випущено {}",
+  "Making a smaller copy took too long this time. Try again; if it keeps happening, choose a smaller picture.": "Цього разу зменшена копія робилася надто довго. Спробуйте ще раз; якщо повториться — виберіть меншу картинку."
 }

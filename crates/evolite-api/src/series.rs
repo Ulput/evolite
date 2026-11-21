@@ -123,6 +123,10 @@ pub struct SeriesPlan {
 /// as against a picture that could not be read.
 pub const DOES_NOT_FIT: &str = "does not fit";
 
+/// What `Event::PictureFitted` fails with when the renderer's time ran out before any copy
+/// fitted: the picture may fit — another try, on a less busy machine, may find the copy.
+pub const OUT_OF_TIME: &str = "out of time";
+
 /// «Make a smaller copy» done (R-21): the copy, made by the renderer, never decoded here.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct FittedPicture {

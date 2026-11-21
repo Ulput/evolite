@@ -230,6 +230,9 @@ impl Studio {
                 RenderError::Limit("does not fit") => {
                     CoreError::Failed(evolite_api::series::DOES_NOT_FIT.into())
                 }
+                RenderError::Limit(evolite_render::fit::OUT_OF_TIME) => {
+                    CoreError::Failed(evolite_api::series::OUT_OF_TIME.into())
+                }
                 other => error(&other),
             }),
         };

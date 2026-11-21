@@ -9,7 +9,8 @@
 //! - **With transparency**: PNG with a palette (NeuQuant over RGBA, the alpha in `tRNS`),
 //!   [`COLOURS`] in turn, then the long side × 0.8 the same way.
 //! - **A deadline** over the whole search: past it, the best copy that fitted, if any; else
-//!   «does not fit». So is a picture that does not fit even at the smallest.
+//!   «out of time» — not «does not fit»: a slow machine is no reason to tell the person the
+//!   picture cannot fit. «Does not fit» is a picture that does not fit even at the smallest.
 
 use std::io::Cursor;
 use std::time::{Duration, Instant};
@@ -36,6 +37,8 @@ pub const QUALITY: (u8, u8) = (40, 85);
 pub const COLOURS: [u16; 3] = [256, 128, 64];
 /// The whole search, inside the worker.
 pub const DEADLINE: Duration = Duration::from_secs(5);
+/// Past [`DEADLINE`] with no copy that fitted.
+pub const OUT_OF_TIME: &str = "out of time";
 
 /// What the copy was made as.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -207,7 +210,7 @@ pub fn fit(
             let (mut low, mut high) = (QUALITY.0, QUALITY.1);
             while low <= high {
                 if late() {
-                    return best.ok_or(RenderError::Limit("does not fit"));
+                    return best.ok_or(RenderError::Limit(OUT_OF_TIME));
                 }
                 let q = low + (high - low) / 2;
                 let out = jpeg(&image, q)?;
@@ -223,7 +226,7 @@ pub fn fit(
         } else {
             for colours in COLOURS {
                 if late() {
-                    return best.ok_or(RenderError::Limit("does not fit"));
+                    return best.ok_or(RenderError::Limit(OUT_OF_TIME));
                 }
                 let out = palette_png(&image, colours)?;
                 if out.len() <= limit {
@@ -246,6 +249,11 @@ pub fn fit(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The deadline of the tests that check what the search finds: a loaded machine and a debug
+    /// build are slow, and running out of time is not what they check (batch 65 was red on it).
+    /// The cap itself: [`noise_does_not_fit_and_says_so_in_time`], [`out_of_time_says_so`].
+    const ROOMY: Duration = Duration::from_secs(120);
 
     fn encoded(img: RgbaImage, format: ImageFormat) -> Vec<u8> {
         let img = image::DynamicImage::ImageRgba8(img);
@@ -293,7 +301,7 @@ mod tests {
         let file = encoded(photo(1600, 1000), ImageFormat::Png);
         assert!(file.len() > 300_000, "{}", file.len());
         let limit = 18_000;
-        let copy = fit(&file, limit, &Limits::default(), DEADLINE).unwrap();
+        let copy = fit(&file, limit, &Limits::default(), ROOMY).unwrap();
         assert_eq!(copy.format, FitFormat::Jpeg);
         assert!(copy.bytes.len() <= limit);
         assert_eq!(sniff(&copy.bytes), Some(Format::Jpeg));
@@ -320,7 +328,7 @@ mod tests {
         let file = encoded(img, ImageFormat::Png);
         let limit = 18_000;
         assert!(file.len() > limit);
-        let copy = fit(&file, limit, &Limits::default(), DEADLINE).unwrap();
+        let copy = fit(&file, limit, &Limits::default(), ROOMY).unwrap();
         assert_eq!(copy.format, FitFormat::Png);
         assert!(copy.bytes.len() <= limit);
         assert_eq!(sniff(&copy.bytes), Some(Format::Png));
@@ -329,14 +337,21 @@ mod tests {
         assert!(back.pixels().any(|p| p[3] == 255));
     }
 
-    /// The architect's test: noise of 2000 × 2000 does not fit; the answer is an honest
-    /// «does not fit» within the deadline (with a little room for the last encode).
+    /// The architect's test: noise of 2000 × 2000 does not fit; the answer comes within the
+    /// deadline (with a little room for the last encode) — «does not fit», or «out of time» on a
+    /// machine too slow to try every size; never a copy.
     #[test]
     fn noise_does_not_fit_and_says_so_in_time() {
         let file = encoded(noise(2000, 2000), ImageFormat::Png);
         let started = Instant::now();
         let answer = fit(&file, 2_000, &Limits::default(), DEADLINE);
-        assert_eq!(answer, Err(RenderError::Limit("does not fit")));
+        assert!(
+            matches!(
+                answer,
+                Err(RenderError::Limit("does not fit")) | Err(RenderError::Limit(OUT_OF_TIME))
+            ),
+            "{answer:?}"
+        );
         assert!(
             started.elapsed() < DEADLINE + Duration::from_secs(2),
             "{:?}",
@@ -355,7 +370,7 @@ mod tests {
         file.extend_from_slice(exif);
         file.extend_from_slice(&clean[2..]);
         let limit = (file.len() / 2).min(18_000);
-        let copy = fit(&file, limit, &Limits::default(), DEADLINE).unwrap();
+        let copy = fit(&file, limit, &Limits::default(), ROOMY).unwrap();
         assert!(!has(&copy.bytes, b"Exif") && !has(&copy.bytes, b"GPS"));
     }
 
@@ -373,7 +388,7 @@ mod tests {
                 enc.encode_frame(frame).unwrap();
             }
         }
-        let copy = fit(&file, file.len() / 3, &Limits::default(), DEADLINE).unwrap();
+        let copy = fit(&file, file.len() / 3, &Limits::default(), ROOMY).unwrap();
         let back = image::load_from_memory(&copy.bytes).unwrap().to_rgba8();
         let red = back.get_pixel(0, 0)[0];
         assert!(red < 60, "the first frame's shade, not the second's: {red}");
@@ -384,8 +399,19 @@ mod tests {
     fn vector_pictures_and_models_are_not_fitted() {
         let svg = br#"<svg xmlns="http://www.w3.org/2000/svg"><rect width="9" height="9"/></svg>"#;
         assert_eq!(
-            fit(svg, 10, &Limits::default(), DEADLINE),
+            fit(svg, 10, &Limits::default(), ROOMY),
             Err(RenderError::Unsupported)
+        );
+    }
+
+    /// Batch 65: past the deadline with no copy yet, the answer is «out of time», not «does not
+    /// fit» — the picture may well fit on a machine that is less busy.
+    #[test]
+    fn out_of_time_says_so() {
+        let file = encoded(photo(1600, 1000), ImageFormat::Png);
+        assert_eq!(
+            fit(&file, 18_000, &Limits::default(), Duration::ZERO),
+            Err(RenderError::Limit(OUT_OF_TIME))
         );
     }
 }

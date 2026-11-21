@@ -2875,5 +2875,6 @@
   "at {} — {}": "بسعر {} — {}",
   "of {}": "من {}",
   "refused: {}": "مرفوض: {}",
-  "supply {} · issued {}": "العدد المحدد {} · المُصدَر {}"
+  "supply {} · issued {}": "العدد المحدد {} · المُصدَر {}",
+  "Making a smaller copy took too long this time. Try again; if it keeps happening, choose a smaller picture.": "استغرق إنشاء النسخة المصغّرة وقتًا طويلًا هذه المرة. حاول مرة أخرى؛ وإن تكرر ذلك فاختر صورة أصغر."
 }

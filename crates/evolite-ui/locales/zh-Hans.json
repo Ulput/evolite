@@ -2680,5 +2680,6 @@
   "at {} — {}": "按 {} — {}",
   "of {}": "共 {}",
   "refused: {}": "被拒绝：{}",
-  "supply {} · issued {}": "发行量 {} · 已发行 {}"
+  "supply {} · issued {}": "发行量 {} · 已发行 {}",
+  "Making a smaller copy took too long this time. Try again; if it keeps happening, choose a smaller picture.": "这次生成缩小副本耗时过长。请重试；如果仍然如此，请选择更小的图片。"
 }

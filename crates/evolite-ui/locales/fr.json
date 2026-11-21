@@ -2754,5 +2754,6 @@
   "at {} — {}": "à {} — {}",
   "of {}": "sur {}",
   "refused: {}": "refusé : {}",
-  "supply {} · issued {}": "tirage {} · émis {}"
+  "supply {} · issued {}": "tirage {} · émis {}",
+  "Making a smaller copy took too long this time. Try again; if it keeps happening, choose a smaller picture.": "Cette fois, la copie réduite a pris trop de temps. Réessayez ; si cela se reproduit, choisissez une image plus petite."
 }

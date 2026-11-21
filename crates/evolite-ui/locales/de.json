@@ -2719,5 +2719,6 @@
   "at {} — {}": "zu {} – {}",
   "of {}": "von {}",
   "refused: {}": "abgelehnt: {}",
-  "supply {} · issued {}": "Auflage {} · ausgegeben {}"
+  "supply {} · issued {}": "Auflage {} · ausgegeben {}",
+  "Making a smaller copy took too long this time. Try again; if it keeps happening, choose a smaller picture.": "Die kleinere Kopie hat diesmal zu lange gedauert. Versuchen Sie es erneut; passiert es wieder, wählen Sie ein kleineres Bild."
 }

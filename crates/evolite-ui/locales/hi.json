@@ -2719,5 +2719,6 @@
   "at {} — {}": "{} पर — {}",
   "of {}": "{} में से",
   "refused: {}": "अस्वीकृत: {}",
-  "supply {} · issued {}": "कुल संख्या {} · जारी {}"
+  "supply {} · issued {}": "कुल संख्या {} · जारी {}",
+  "Making a smaller copy took too long this time. Try again; if it keeps happening, choose a smaller picture.": "इस बार छोटी प्रति बनाने में बहुत समय लगा। फिर से कोशिश करें; अगर ऐसा होता रहे, तो छोटी तस्वीर चुनें।"
 }
