@@ -1683,6 +1683,46 @@ fn a_stopped_chain_lets_go_of_the_store() {
     });
 }
 
+/// FEAT-0042 review r1, Should 2 (AC-T-X2, AC-A7): the key a loaded wallet gives is its keys'
+/// own BIP44 account 0 public key — with a BIP-39 passphrase and without, two different keys.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_loaded_wallets_account_key_is_its_keys_own() {
+    let dir = std::env::temp_dir().join(format!("evolite-xpub-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let paths = ChainPaths {
+        spv: dir.join("spv").join("testnet"),
+        store: dir
+            .join("wallets")
+            .join("testnet")
+            .join("platform-wallet.db"),
+        core_node: dir.join("core-node.txt"),
+    };
+    let chain = Chain::default();
+    chain
+        .open_store_only(&paths)
+        .await
+        .expect("the store opens");
+    let phrase = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
+    let mut keys = Vec::new();
+    for passphrase in ["", "TREZOR"] {
+        let seed = crate::seed_from(phrase, passphrase).unwrap();
+        let (id, _wallet) = chain.open_wallet(&seed, 0).await.expect("wallet opens");
+        let expected = crate::keys_from(&seed)
+            .unwrap()
+            .accounts
+            .standard_bip44_accounts[&0]
+            .account_xpub
+            .to_string();
+        let given = chain.account_xpub(&id).await.expect("loaded");
+        assert_eq!(given, expected, "{passphrase:?}");
+        assert!(given.starts_with("tpub"));
+        keys.push(given);
+    }
+    assert_ne!(keys[0], keys[1], "another passphrase, another key");
+    drop(chain);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// FEAT-0041 AC-T-P3: platform-wallet's wallet opened from the seed with its BIP-39 passphrase
 /// (`create_wallet_from_seed_bytes`) is the keys' own — its first receiving address is theirs,
 /// so a restore with the passphrase finds what was paid to it; with none, another wallet.

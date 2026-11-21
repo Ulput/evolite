@@ -941,6 +941,7 @@ impl App {
                     }
                 }
                 Event::PhraseRevealed(result) => self.settings.on_revealed(result.clone()),
+                Event::Xpub(result) => self.settings.on_xpub(result.clone()),
                 // FEAT-0045 step 2: an automatic copy's outcome is in the snapshot.
                 Event::Done {
                     what: DoneWhat::AutoBackup,

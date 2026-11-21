@@ -28,6 +28,8 @@ use evolite_common::PASSWORD_NEEDED;
 /// The one password the demo's unlock refuses, so the UI tests can see "Wrong password"
 /// (BUG-16); any other opens the example wallet.
 pub const WRONG_PASSWORD: &str = "wrong";
+/// FEAT-0042: the demo's account public key — BIP32 test vector 1, testnet form.
+pub const DEMO_XPUB: &str = "tpubD6NzVbkrYhZ4XgiXtGrdW5XDAPFCL9h7we1vwNCpn8tGbBcgfVYjXyhWo4E1xkh56hjod1RhGjxbaTLV3X4FyWuejifB9jusQ46QzG87VKY";
 
 /// BUG-205: a token amount the demo answers as «not known to have gone through»
 /// ([`CoreError::Unclear`]), as the real core does when a send's answer does not come.
@@ -1142,6 +1144,18 @@ impl Mock {
                     Err(CoreError::NotAvailable(NO_WALLET.into()))
                 })
             }
+            // FEAT-0042: BIP32's published test vector 1 (testnet form), never a wallet's; the
+            // switch and the password as the real core asks them.
+            Command::ExportXpub { password } => Event::Xpub(if !self.snapshot.advanced_features {
+                Err(CoreError::NotAvailable(evolite_common::ADVANCED_OFF.into()))
+            } else if password.expose().is_empty() || password.expose() == WRONG_PASSWORD {
+                Err(CoreError::WrongPassword)
+            } else {
+                Ok(evolite_api::Xpub::new(
+                    DEMO_XPUB.into(),
+                    "m/44'/1'/0'".into(),
+                ))
+            }),
             // FEAT-0020 AC-T16: a published test key, never a wallet's, and the real core's
             // refusals; the password counted as the unlock's.
             Command::RevealIdentityKey {

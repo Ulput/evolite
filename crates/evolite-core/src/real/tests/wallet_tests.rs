@@ -1404,6 +1404,51 @@ async fn a_spend_without_its_password_touches_no_count() {
     assert!(entry(&mut core, &id).wait_until.is_none());
 }
 
+/// FEAT-0042 AC-T-X1, X2 (AC-A1, AC-A8): with the advanced switch off, refused before the
+/// password (no try counted); a wrong password counts with the unlock's; the right one gives
+/// BIP44 account 0's public key of the phrase — `tpub…` on testnet — with its path.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_account_public_key_comes_after_the_password() {
+    let mut core = core_with_vault("xpub", "right");
+    assert_eq!(core.unlock(&pw("right")).await, Ok(()));
+    let id = core.wallet.clone();
+    let ask = |p: &str| Command::ExportXpub { password: pw(p) };
+    let answer = |e: Option<Event>| match e {
+        Some(Event::Xpub(r)) => r,
+        other => panic!("{other:?}"),
+    };
+    core.advanced_features = false;
+    assert_eq!(
+        answer(core.handle(ask("wrong")).await.0).err(),
+        Some(CoreError::NotAvailable(evolite_common::ADVANCED_OFF.into()))
+    );
+    assert_eq!(
+        entry(&mut core, &id).wrong_tries,
+        0,
+        "refused before the password"
+    );
+    core.advanced_features = true;
+    assert_eq!(
+        answer(core.handle(ask("wrong")).await.0).err(),
+        Some(CoreError::WrongPassword)
+    );
+    assert_eq!(
+        entry(&mut core, &id).wrong_tries,
+        1,
+        "counted with the unlock's"
+    );
+    let xpub = answer(core.handle(ask("right")).await.0).expect("the key");
+    let expected = evolite_chain::keys_of(PHRASE)
+        .unwrap()
+        .accounts
+        .standard_bip44_accounts[&0]
+        .account_xpub
+        .to_string();
+    assert_eq!(xpub.expose(), expected);
+    assert!(xpub.expose().starts_with("tpub"), "testnet");
+    assert_eq!(xpub.path(), "m/44'/1'/0'");
+}
+
 /// FEAT-0046 AC-A9, AC-T-T7: «Broadcast again» is refused with the advanced switch off, and a
 /// second one within the minute — both before anything goes to the network.
 #[tokio::test]

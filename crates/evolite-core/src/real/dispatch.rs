@@ -483,6 +483,7 @@ impl Real {
                 });
                 Event::PhraseRevealed(result)
             }
+            Command::ExportXpub { password } => Event::Xpub(self.export_xpub(&password).await),
             Command::RevealIdentityKey {
                 identity,
                 key_id,

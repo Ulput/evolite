@@ -45,6 +45,22 @@ fn hash(text: &str) -> [u8; 32] {
     Sha256::digest(text.as_bytes()).into()
 }
 
+/// FEAT-0042 R-9: public text that should not stay in the clipboard's history or the cloud (an
+/// account public key) — past them as a secret is, but not forced away after [`KEEP`]: it
+/// spends nothing and is meant to be pasted. Wiped as an ordinary copy is when «Clipboard» is on
+/// (review r1, Should 1). `false`: it could not go past the history, so it was not copied.
+pub fn copy_public_excluded(ctx: &egui::Context, text: &str) -> bool {
+    if !put_secret(ctx, text) {
+        return false;
+    }
+    let copied = Copied {
+        hash: hash(text),
+        at: Instant::now(),
+    };
+    ctx.data_mut(|d| d.insert_temp(copy_id(), Some(copied)));
+    true
+}
+
 /// Copies a secret (the phrase) for [`KEEP`]. On Windows it is kept out of the clipboard
 /// history (Win+V), the cloud clipboard and clipboard managers: a copy there is not wiped
 /// with the clipboard. If it cannot be copied that way, it is not copied at all (false).
@@ -345,6 +361,18 @@ mod tests {
         fn clear(&mut self) {
             self.0 = Some(String::new());
         }
+    }
+
+    /// FEAT-0042 review r1, Should 1 (AC-T-X3): the account public key is copied past the
+    /// history, recorded as an ordinary copy — wiped with «Clipboard» on, kept with it off — and
+    /// never as a secret (no forced wipe, no mark).
+    #[test]
+    fn a_public_key_is_wiped_as_an_ordinary_copy() {
+        let ctx = egui::Context::default();
+        assert!(copy_public_excluded(&ctx, "tpubD6NzVbkr"));
+        let ordinary = ctx.data(|d| d.get_temp::<Option<Copied>>(copy_id()).flatten());
+        assert!(ordinary.is_some(), "recorded as an ordinary copy");
+        assert!(copied_at(&ctx).is_none(), "not a secret");
     }
 
     #[test]

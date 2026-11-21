@@ -2175,6 +2175,39 @@ impl fmt::Debug for RevealedKey {
     }
 }
 
+/// FEAT-0042: the account's public key — BIP44 account 0 of Core, `xpub…` on mainnet, `tpub…`
+/// on testnet — with its path. It spends nothing, but shows every address and payment of the
+/// account: never printed (Debug), never in the journal or a problem report (AC-T-X5).
+#[derive(Clone, PartialEq)]
+pub struct Xpub {
+    key: Zeroizing<String>,
+    path: String,
+}
+
+impl Xpub {
+    pub fn new(key: String, path: String) -> Self {
+        Self {
+            key: Zeroizing::new(key),
+            path,
+        }
+    }
+
+    pub fn expose(&self) -> &str {
+        &self.key
+    }
+
+    /// `m/44'/5'/0'` on mainnet, `m/44'/1'/0'` on testnet.
+    pub fn path(&self) -> &str {
+        &self.path
+    }
+}
+
+impl fmt::Debug for Xpub {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("Xpub(hidden)")
+    }
+}
+
 /// A password typed by the user. Wiped on drop, never printed.
 #[derive(Clone, PartialEq)]
 pub struct Password(Zeroizing<String>);
@@ -2348,6 +2381,11 @@ pub enum Command {
     RevealPhrase {
         password: Password,
         wallet: Option<String>,
+    },
+    /// FEAT-0042: the open wallet's account public key after its password (every time, counted
+    /// with the unlock's wrong tries). Behind the advanced switch. Answered with [`Event::Xpub`].
+    ExportXpub {
+        password: Password,
     },
     /// Show the private key `key_id` of `identity` after the password (FEAT-0020 R-10), always
     /// asked and counted with the unlock's wrong tries. Only this phrase's key of an identity of
@@ -3179,6 +3217,8 @@ pub enum Event {
         ask: Option<u64>,
     },
     PhraseRevealed(Result<Phrase, CoreError>),
+    /// The answer to `Command::ExportXpub`.
+    Xpub(Result<Xpub, CoreError>),
     /// The answer to `Command::SaveBackup`: the file's name (not its folder).
     BackupSaved(Result<String, backup::BackupError>),
     /// The answer to `Command::RestoreBackup`.
@@ -3385,6 +3425,22 @@ mod tests {
         );
         assert!(!printed.contains("abandon"));
         assert!(!printed.contains("hunter2"));
+        // FEAT-0042 AC-T-X5: the account's public key and its command print no value.
+        let xpub = Xpub::new(
+            "tpubDCtKfsNyRhULjZ9XMS4VKKtVcPdVDi8MKUbcSD9MJDyjRu1A".into(),
+            "m/44'/1'/0'".into(),
+        );
+        let printed = format!(
+            "{xpub:?} {:?} {:?}",
+            Event::Xpub(Ok(xpub.clone())),
+            Command::ExportXpub {
+                password: password.clone()
+            }
+        );
+        assert!(
+            !printed.contains("tpub") && !printed.contains("hunter2"),
+            "{printed}"
+        );
         // FEAT-0020 AC-T12: a revealed key and its command print no value.
         let key = RevealedKey {
             identity: "Id".into(),

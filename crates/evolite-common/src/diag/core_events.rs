@@ -38,6 +38,7 @@ pub fn command_name(command: &Command) -> &'static str {
         Command::DeclineApp { .. } => "decline_app",
         Command::DrawArt { .. } => "draw_art",
         Command::RevealPhrase { .. } => "reveal_phrase",
+        Command::ExportXpub { .. } => "export_xpub",
         Command::RevealIdentityKey { .. } => "reveal_identity_key",
         Command::HideRequest { .. } => "hide_request",
         Command::PreviewPayment { .. } => "preview_payment",
@@ -221,6 +222,8 @@ pub fn answer(event: &Event) -> Option<Record> {
         Event::PictureFitted { result } => ("picture_fitted", outcome(result)),
         Event::Done { what, result, .. } => (what.as_str(), outcome(result)),
         Event::PhraseRevealed(r) => ("phrase_revealed", outcome(r)),
+        // FEAT-0042 R-5: «xpub shown», never the key.
+        Event::Xpub(r) => ("xpub", outcome(r)),
         // FEAT-0045 R-14: how it ended only — no file, no folder, no counts.
         Event::BackupSaved(r) => ("backup_saved", backup_outcome(r)),
         Event::BackupRestored(r) => ("backup_restored", backup_outcome(r)),

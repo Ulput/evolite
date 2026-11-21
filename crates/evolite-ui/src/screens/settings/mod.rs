@@ -90,6 +90,8 @@ pub struct BackupFileState {
     pub off: bool,
 }
 
+mod xpub;
+
 pub struct SettingsState {
     pub section: Section,
     pub theme: ThemeChoice,
@@ -113,6 +115,13 @@ pub struct SettingsState {
     pub remind_snoozed: Option<Timestamp>,
     /// FEAT-0040: the wallet's fee choice for a Core payment (R-12).
     pub fee: evolite_api::fee_choice::FeeChoice,
+    /// FEAT-0042: the account public key's dialog, its password, the key once shown, the
+    /// pause's cut and whether «Copy» went (`Some(false)`: it could not go past the history).
+    pub xpub_dialog: bool,
+    pub xpub_password: Zeroizing<String>,
+    pub xpub: Option<Result<evolite_api::Xpub, CoreError>>,
+    xpub_cut: crate::screens::pause::Cut,
+    xpub_copied: Option<bool>,
     /// FEAT-0045: the backup file's dialog and its answer.
     pub backup_file: BackupFileState,
     /// FEAT-0041 R-13: the empty restored wallet's banner is not shown again (this wallet's).
@@ -293,6 +302,11 @@ impl SettingsState {
             switch_to: None,
             remind_snoozed: None,
             fee: Default::default(),
+            xpub_dialog: false,
+            xpub_password: Default::default(),
+            xpub: None,
+            xpub_cut: Default::default(),
+            xpub_copied: None,
             backup_file: Default::default(),
             empty_hint_closed: false,
             restart: false,
@@ -505,6 +519,28 @@ impl SettingsState {
         }
     }
 
+    /// FEAT-0042: the core's answer to `ExportXpub`; the password goes once the key is shown.
+    pub fn on_xpub(&mut self, result: Result<evolite_api::Xpub, CoreError>) {
+        if !self.xpub_dialog {
+            return;
+        }
+        if result.is_ok() {
+            self.xpub_password.zeroize();
+            self.xpub_password = Default::default();
+        }
+        self.xpub_copied = None;
+        self.xpub = Some(result);
+    }
+
+    /// FEAT-0042 R-7, R-8: «Done», leaving the screen or the lock — the key and the password go.
+    pub fn close_xpub(&mut self) {
+        self.xpub_dialog = false;
+        self.xpub = None;
+        self.xpub_copied = None;
+        self.xpub_password.zeroize();
+        self.xpub_password = Default::default();
+    }
+
     pub fn on_revealed(&mut self, result: Result<Phrase, CoreError>) {
         self.phrase_hidden = false;
         self.phrase_warned = false;
@@ -640,6 +676,8 @@ impl SettingsState {
 
     /// The wallet locked: nothing typed or shown that opens it stays on screen or in memory.
     pub fn forget_secrets(&mut self) {
+        // FEAT-0042 R-8 (AC-A6): the lock closes the key's window.
+        self.close_xpub();
         // BUG-228: reading the words ends with them.
         self.phrase_reading.off();
         self.check_reading.off();
@@ -710,6 +748,9 @@ pub fn settings(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut SettingsS
             }
         });
     });
+    if state.xpub_dialog {
+        xpub::xpub_dialog(ui, a, cx, state);
+    }
     if state.phrase_dialog {
         phrase_dialog(ui, a, cx, state);
     }

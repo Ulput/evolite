@@ -131,6 +131,24 @@ pub(super) fn backup(
         Some(1) => state.check = Some(PhraseCheckForm::default()),
         _ => {}
     }
+    // FEAT-0042 (B1): «PUBLIC KEY» under the phrase, behind the advanced switch.
+    if state.is_on("advanced") {
+        ui.add_space(8.0);
+        let shown = group(
+            ui,
+            a,
+            tr!("Public key"),
+            vec![(
+                tr!("Account public key (xpub)"),
+                super::xpub::ONLY_CORE,
+                Control::Button(tr!("Show"), ButtonKind::Secondary),
+            )],
+        );
+        if shown == Some(0) {
+            state.xpub_dialog = true;
+            state.xpub = None;
+        }
+    }
     // FEAT-0045: for every user, Simple too (the customer, plain-language Q7).
     ui.add_space(8.0);
     backup_file(ui, a, state, wallet);

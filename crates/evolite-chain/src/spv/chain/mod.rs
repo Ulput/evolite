@@ -803,6 +803,18 @@ impl Chain {
             .ok_or_else(|| "the chain is not started".to_owned())
     }
 
+    /// FEAT-0042: the public key of BIP44 account 0 of Core of wallet `id`, as platform-wallet
+    /// keeps it (no private key read): `xpub…` on mainnet, `tpub…` on testnet. `None`: not
+    /// loaded yet.
+    pub async fn account_xpub(&self, id: &WalletId) -> Option<String> {
+        let manager = self.manager().await.ok()?;
+        let wallets = manager.wallet_manager_arc();
+        let wallets = wallets.read().await;
+        let wallet = wallets.get_wallet(id)?;
+        let account = wallet.accounts.standard_bip44_accounts.get(&0)?;
+        Some(account.account_xpub.to_string())
+    }
+
     /// The wallet of `seed` (FEAT-0041: the phrase's with its passphrase): the one saved in the
     /// store if it is there (no rescan), otherwise a new entry scanned from `birth_height`.
     pub async fn open_wallet(
