@@ -97,6 +97,8 @@ pub fn of(kind: &ActivityKind, chain: Chain) -> (u8, Flow) {
         TokenReceived { .. } => (IDENTITY | TOKENS, Flow::In),
         // FEAT-0038 R-15: the buyer's credits came to the identity.
         NftSold { .. } => (IDENTITY, Flow::In),
+        // FEAT-0038: a collection registered, paid with the identity's credits.
+        CollectionCreated { .. } => (IDENTITY, Flow::Out),
         TokenBalance { up, .. } => (IDENTITY | TOKENS, if *up { Flow::In } else { Flow::Out }),
         TokenClaimed { .. } => (IDENTITY | TOKENS, Flow::In),
         TokenBought { .. } => (IDENTITY | TOKENS, Flow::Out),

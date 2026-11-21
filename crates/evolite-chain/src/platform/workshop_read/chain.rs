@@ -179,6 +179,12 @@ impl Chain {
             *prices.entry(p as i64).or_default() += 1;
         }
         let for_sale: u64 = prices.values().map(|n| *n as u64).sum();
+        // W4: issued is the highest number the network holds (R-6); a failed read is «—».
+        let issued = self
+            .nft_max_serial(id_of(contract)?, id_of(model)?)
+            .await
+            .ok()
+            .map(|max| max.unwrap_or(0));
         Ok(ModelCounts {
             contract: contract.into(),
             model: model.into(),
@@ -190,6 +196,7 @@ impl Chain {
             }),
             prices: prices.into_iter().collect(),
             sold,
+            issued,
             checked_at: evolite_common::wall_secs() as i64,
         })
     }

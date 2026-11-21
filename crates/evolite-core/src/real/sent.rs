@@ -449,6 +449,19 @@ impl Unclear {
 
     /// BUG-243: a write sent and ended with an error that may have come after it went out, and a
     /// read since that does not show it: kept as not known, its quiet from now. No send runs.
+    /// A write kept on the disk across a restart (FEAT-0038 W0–W4 r2 Must 1: a registration's
+    /// History line «in transit»): its send ended `ago`. Older than this computer has run, it
+    /// counts as past its quiet, never as just sent.
+    pub(in crate::real) fn restore(&self, mut pending: Pending, ago: Duration) {
+        let now = std::time::Instant::now();
+        pending.running = false;
+        pending.ended = now
+            .checked_sub(ago)
+            .or_else(|| now.checked_sub(QUIET + NO_GAP))
+            .or(Some(now));
+        self.keep(pending);
+    }
+
     pub(in crate::real) fn not_seen(&self, pending: Pending) -> CoreError {
         let mut pending = pending;
         pending.running = false;

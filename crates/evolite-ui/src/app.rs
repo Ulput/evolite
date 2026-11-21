@@ -49,6 +49,7 @@ macro_rules! screen_states {
             &mut $app.create_identity,
             &mut $app.requests,
             &mut $app.tokens,
+            &mut $app.workshop,
             &mut $app.identity_keys,
             &mut $app.send,
         ]
@@ -92,6 +93,8 @@ pub struct App {
     collection: screens::collection::CollectionState,
     /// FEAT-0019: the tokens screen, its dialogs and their answers.
     tokens: screens::tokens::TokensState,
+    /// FEAT-0038: the Workshop's pages (W1–W4) and the new collection's form.
+    workshop: screens::workshop::WorkshopState,
     settings: screens::settings::SettingsState,
     create_identity: screens::create_identity::CreateIdentityForm,
     /// FEAT-0020 K1.
@@ -314,6 +317,7 @@ impl App {
             pool: Default::default(),
             collection: Default::default(),
             tokens: Default::default(),
+            workshop: Default::default(),
             settings: screens::settings::SettingsState::new(launch.dark, Section::Network, false),
             create_identity: Default::default(),
             identity_keys: Default::default(),
@@ -1082,13 +1086,18 @@ impl App {
                     ask,
                 } => self.identity.on_top_up_done(*ask, result),
                 Event::AddressFunded { credited } => self.fund_address.on_funded(*credited),
-                // FEAT-0038 module V1: the Workshop's screens take these when they come.
-                Event::ContractChecked { .. }
-                | Event::ContractRegistered { .. }
-                | Event::Done {
+                // FEAT-0038 W2: the new collection's check, its registration and its answer.
+                Event::ContractChecked { draft, result, .. } => {
+                    self.workshop.new.on_checked(draft, result)
+                }
+                Event::ContractRegistered { id, .. } => self.workshop.new.on_registered(id),
+                Event::Done {
                     what: DoneWhat::Contract,
-                    ..
-                } => {}
+                    result,
+                    ask,
+                } => {
+                    self.workshop.new.on_done(*ask, result);
+                }
                 // FEAT-0038: the series' screens (W5–W9, W12, W13) take these when they come.
                 Event::SeriesPlanned { .. }
                 | Event::ModelPlanned { .. }
@@ -1130,8 +1139,8 @@ impl App {
                 } => {}
                 // FEAT-0019: the tokens screen's dialogs.
                 Event::TokenFound { query, result } => self.tokens.on_found(query, result),
-                // FEAT-0038 item 2: the Workshop's screen is not built yet; nothing asks.
-                Event::Workshop { .. } => {}
+                // FEAT-0038 item 2: the Workshop's reading, for its pages.
+                Event::Workshop { ask, result } => self.workshop.on_read(ask, result),
                 Event::Done {
                     what: DoneWhat::Token,
                     result,
@@ -1622,6 +1631,13 @@ impl eframe::App for App {
         cx.unfinished_lock = unfinished_lock;
         cx.back = back::back_to(self.back.as_ref(), &here, snapshot.network, self.screen);
         cx.show_advanced(self.settings.is_on("advanced"));
+        // FEAT-0038 W0, AC-A1: off, the Workshop is nowhere — its open page goes to the Overview
+        // (what it made and a series going on are not touched).
+        let workshop = self.settings.is_on("workshop");
+        cx.show_workshop(workshop);
+        if !workshop && self.screen == Screen::Workshop {
+            cx.go(Screen::Overview);
+        }
         cx.set_fee(self.settings.fee);
         // By the window's width, once a frame (responsive spec R2).
         cx.bp = crate::theme::Breakpoint::of(ui.ctx().content_rect().width());
@@ -1817,6 +1833,13 @@ impl eframe::App for App {
                             Screen::Tokens => {
                                 screens::tokens::tokens(ui, a, &mut cx, &mut self.tokens)
                             }
+                            Screen::Workshop => screens::workshop::workshop(
+                                ui,
+                                a,
+                                &mut cx,
+                                &mut self.workshop,
+                                &mut self.collection.art,
+                            ),
                             Screen::TokenPage => screens::tokens::manage::page_screen(
                                 ui,
                                 a,

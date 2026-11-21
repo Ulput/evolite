@@ -178,6 +178,12 @@ pub enum ActivityKind {
         to: String,
         amount: String,
     },
+    /// FEAT-0038 W2, R-15: an NFT collection registered («Создана коллекция «{name}»»); the
+    /// amount is what it took. Its [`Activity::proof`] is [`Proof::Sending`] while the
+    /// registration was sent without an answer and is not seen yet (BUG-243).
+    CollectionCreated {
+        name: String,
+    },
     /// FEAT-0038 R-15: an NFT of the identity's collection sold («Продан «{model}» № {n} ·
     /// @{name}»); the amount is its price, in. `model`/`serial` are `None` when the instance was
     /// deleted after the sale; `buyer`: `@name` when known, else the id.

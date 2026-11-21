@@ -174,6 +174,25 @@ pub fn sidebar(
                     cx.go(screen);
                 }
             }
+            // FEAT-0038 W0, AC-A1: the Workshop after the rest, past a line — a tool, not money;
+            // only while «Show the Workshop» is on.
+            if cx.workshop() {
+                ui.add_space(4.0);
+                let (line, _) =
+                    ui.allocate_exact_size(vec2(ui.available_width(), 1.0), egui::Sense::hover());
+                ui.painter()
+                    .rect_filled(line.shrink2(vec2(12.0, 0.0)), 0, p.line);
+                ui.add_space(4.0);
+                let lit = active == Screen::Workshop;
+                let resp = nav_item(ui, a, "workshop", tr!("Workshop"), lit, rail, height);
+                if resp.gained_focus() {
+                    crate::diagnostics::ask_scroll(ui.ctx());
+                    resp.scroll_to_me(None);
+                }
+                if resp.clicked() {
+                    cx.go(Screen::Workshop);
+                }
+            }
         });
     // More below the edge: a fade into the menu's colour at the bottom of the list, gone once
     // it is scrolled to its end (FEAT-0036 row 3).

@@ -104,6 +104,9 @@ struct Mock {
     tries: evolite_common::attempts::Ledger,
     /// FEAT-0045: the backups «saved», in memory by path — the notes they hold, by line.
     backups: std::collections::BTreeMap<std::path::PathBuf, Vec<(String, String)>>,
+    /// Collections «registered» in this run (FEAT-0038 W2): their ids and names, listed by the
+    /// Workshop's reading after the example's.
+    collections_made: Vec<(String, String)>,
     /// FEAT-0041 r1: the wallet being added was asked for from an open one.
     adding_open: bool,
     /// FEAT-0041: the BIP-39 passphrase of each wallet that has one (NFKD), by its id.
@@ -439,7 +442,13 @@ impl Mock {
             // FEAT-0038 module V1: the fee of the collection the probe registered on testnet
             // (2026-11-20), 0.1 DASH a keyword; nothing refused. The demo registers nothing.
             Command::CheckContract { identity, draft } => {
-                let evolite_api::contracts::ContractDraft::NftCollection { keywords, .. } = &draft;
+                let evolite_api::contracts::ContractDraft::NftCollection {
+                    keywords,
+                    main_contract,
+                    ..
+                } = &draft;
+                // «Belongs to a contract» (W2): any id of base58 letters is the example game's.
+                let main = main_contract.as_deref().map(workshop::main_contract);
                 Event::ContractChecked {
                     identity,
                     result: Ok(evolite_api::contracts::ContractCheck {
@@ -451,8 +460,10 @@ impl Mock {
                             keywords: 10_000_000 * keywords.len() as Duffs,
                             per_keyword: 10_000_000,
                             storage: 414_290,
+                            about: if main.is_some() { 87_000 } else { 0 },
                         }),
-                        refusal: None,
+                        refusal: main.clone().and_then(Result::err),
+                        main_description: main.and_then(Result::ok),
                     }),
                     draft,
                 }
@@ -599,6 +610,35 @@ impl Mock {
                 };
                 let event = match gate {
                     Err(why) => op.refused(why),
+                    // FEAT-0038 W2: the collection is «registered» at once, under a new id; the
+                    // Workshop lists it from now on.
+                    Ok(()) if matches!(op, Spend::RegisterContract { .. }) => {
+                        let Spend::RegisterContract {
+                            identity,
+                            draft,
+                            fee_max,
+                        } = op
+                        else {
+                            unreachable!()
+                        };
+                        let evolite_api::contracts::ContractDraft::NftCollection {
+                            description,
+                            ..
+                        } = draft;
+                        let id = workshop::made_id(self.collections_made.len());
+                        self.collections_made
+                            .push((id.clone(), description.unwrap_or_default()));
+                        let _ = out.send(Event::ContractRegistered {
+                            identity,
+                            id,
+                            charged: Some(fee_max),
+                        });
+                        Event::Done {
+                            what: DoneWhat::Contract,
+                            result: Ok(()),
+                            ask: None,
+                        }
+                    }
                     Ok(()) => {
                         let event = self.spend(op);
                         // A new identity or a v2 sign-in changes the wallet (FEAT-0014, FEAT-0023).
@@ -877,7 +917,7 @@ impl Mock {
             }
             // The Workshop's example reading (FEAT-0038 item 2); nothing is asked of a network.
             Command::ReadWorkshop { ask } => Event::Workshop {
-                result: Ok(workshop::read(&ask)),
+                result: Ok(workshop::read(&ask, &self.collections_made)),
                 ask,
             },
             // The example network's tokens (FEAT-0019 AC-T7); nothing is asked of a network.
@@ -2014,6 +2054,7 @@ pub fn run(
         adding_open: false,
         passphrases: HashMap::new(),
         made: Vec::new(),
+        collections_made: Vec::new(),
     };
     let send_snapshot = |mock: &Mock| {
         let _ = out.send(Event::Snapshot(Box::new(mock.shown())));
@@ -2079,6 +2120,7 @@ mod tests {
             adding_open: false,
             passphrases: HashMap::new(),
             made: Vec::new(),
+            collections_made: Vec::new(),
         };
         (m, tx, rx)
     }

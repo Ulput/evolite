@@ -254,6 +254,7 @@ pub const PRESETS: &[&str] = &[
     "apps", "connect", "connect-limits", "connect-renew", "refused-v1", "refused-stale",
     "refused-mainnet", "apps-disconnected", "apps-renew", "apps-disconnect", "apps-remove",
     "collection", "gift",
+    "workshop", "workshop-new", "workshop-review", "workshop-steps", "workshop-collection",
     "tokens", "tokens-first-search", "tokens-first-count", "tokens-balances", "tokens-again", "tokens-no-network-first", "tokens-pause", "tokens-no-network", "tokens-refresh-failed",
     "tokens-empty", "tokens-all-hidden", "tokens-send", "tokens-review", "tokens-add", "tokens-mainnet",
     "tokens-send-address", "tokens-send-more", "tokens-send-credits", "tokens-send-unknown",
@@ -264,7 +265,7 @@ pub const PRESETS: &[&str] = &[
     "probe",
     "settings", "phrase", "check-phrase", "appearance", "appearance-rate", "change-password",
     "change-password-wait",
-    "security", "backup", "notifications", "advanced", "own-node", "nodes", "nodes-dapi", "about",
+    "security", "backup", "notifications", "advanced", "advanced-workshop", "own-node", "nodes", "nodes-dapi", "about",
     "about-end", "report", "report-letter", "delete", "resync", "language", "wallets",
     "wallet-rename", "wallet-more", "network-switch",
     "welcome", "welcome-other", "elsewhere", "forgot", "wallet-unlock", "wallet-add",
@@ -572,6 +573,16 @@ fn dev_args<'a>(
                 | "tokens-setting",
             ),
         ) => Screen::TokenPage,
+        (
+            None,
+            Some(
+                "workshop"
+                | "workshop-new"
+                | "workshop-review"
+                | "workshop-steps"
+                | "workshop-collection",
+            ),
+        ) => Screen::Workshop,
         (None, Some("probe")) => Screen::Probe,
         (
             None,
@@ -586,6 +597,7 @@ fn dev_args<'a>(
                 | "backup"
                 | "notifications"
                 | "advanced"
+                | "advanced-workshop"
                 | "own-node"
                 | "appearance-rate"
                 | "nodes"

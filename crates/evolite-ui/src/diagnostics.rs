@@ -250,6 +250,7 @@ pub fn screen_name(screen: crate::screens::Screen) -> &'static str {
         Collection => "collection",
         Tokens => "tokens",
         TokenPage => "token_page",
+        Workshop => "workshop",
         Settings => "settings",
         CreateIdentity => "create_identity",
         IdentityKeys => "identity_keys",

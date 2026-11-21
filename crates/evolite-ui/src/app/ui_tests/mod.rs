@@ -79,6 +79,7 @@ mod tokens;
 mod top_up_twice;
 mod update_check;
 mod wallets;
+mod workshop;
 
 use super::App;
 use crate::cli::Launch;

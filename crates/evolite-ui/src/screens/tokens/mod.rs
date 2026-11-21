@@ -307,7 +307,12 @@ fn flag(ui: &mut Ui, a: &mut Assets, icon: &str, label: &str) {
 
 /// An identity chip (FEAT-0019 review 4f): the chosen one `raised` with a `line` border and the
 /// text colour, the others outlined in `line` with `muted` text; 28 high.
-fn identity_chip(ui: &mut Ui, p: &crate::theme::Palette, label: &str, on: bool) -> egui::Response {
+pub(crate) fn identity_chip(
+    ui: &mut Ui,
+    p: &crate::theme::Palette,
+    label: &str,
+    on: bool,
+) -> egui::Response {
     let font = sans(13.0, Weight::Medium);
     let width = 24.0 + crate::components::text_width(ui, label, font.clone());
     let (rect, resp) = ui.allocate_exact_size(vec2(width, 28.0), Sense::click());

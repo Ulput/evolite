@@ -15,8 +15,21 @@ pub enum ContractDraft {
         description: Option<String>,
         /// Search keywords, at most [`MAX_KEYWORDS`], 0.1 DASH each; made lowercase.
         keywords: Vec<String>,
+        /// «Belongs to a contract» (W2, UC-4): the contract (base58) the collection is part of,
+        /// written after the registration as its «About the collection» document
+        /// (`collectionInfo.mainContract`); `None`: no such document.
+        main_contract: Option<String>,
     },
 }
+
+/// How the `Done` of [`crate::Spend::RegisterContract`] begins (`CoreError::Failed`) when the
+/// collection was registered — its `Event::ContractRegistered` came — and its «About the
+/// collection» document was not written (W2).
+pub const ABOUT_NOT_WRITTEN: &str = "about not written";
+
+/// As [`ABOUT_NOT_WRITTEN`], when the «About the collection» write went out and its answer was
+/// lost (BUG-243): it may have been written — the collection's page reads it from the network.
+pub const ABOUT_UNCLEAR: &str = "about unclear";
 
 /// At most this many keywords: each costs 0.1 DASH (architect, 2026-11-20).
 pub const MAX_KEYWORDS: usize = 5;
@@ -39,6 +52,8 @@ pub struct ContractFee {
     pub per_keyword: Duffs,
     /// Storage and processing, estimated with room to spare.
     pub storage: Duffs,
+    /// The «About the collection» document written after it, estimated; 0: none.
+    pub about: Duffs,
 }
 
 impl ContractFee {
@@ -58,7 +73,9 @@ impl ContractFee {
     /// The most it takes: «≈ registration + storage, not more than this». The amount FEAT-0004's
     /// large-spend check is to count for [`crate::Spend::RegisterContract`].
     pub fn total(&self) -> Duffs {
-        self.registration().saturating_add(self.storage)
+        self.registration()
+            .saturating_add(self.storage)
+            .saturating_add(self.about)
     }
 }
 
@@ -93,6 +110,10 @@ pub enum ContractRefusal {
     },
     /// A description of this many characters, outside 3–100.
     DescriptionLength(usize),
+    /// «Belongs to a contract» is not a contract id.
+    MainContractId,
+    /// No contract with that id on Platform (read with a proof).
+    MainContractMissing,
     /// The network runs a protocol newer than this build of evolite knows: «Update evolite».
     NewerNetwork(u32),
     /// Platform's rules refuse the contract: their words, for «Details».
@@ -105,4 +126,7 @@ pub enum ContractRefusal {
 pub struct ContractCheck {
     pub fee: Option<ContractFee>,
     pub refusal: Option<ContractRefusal>,
+    /// «Belongs to a contract»: that contract's description, read with a proof, shown under the
+    /// field (W2); `None` when none was asked, or it has none.
+    pub main_description: Option<String>,
 }

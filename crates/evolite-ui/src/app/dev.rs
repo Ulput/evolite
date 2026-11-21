@@ -1499,7 +1499,7 @@ impl App {
             Section::About
         } else if preset("notifications") {
             Section::Notifications
-        } else if preset("advanced") {
+        } else if preset("advanced") || preset("advanced-workshop") {
             Section::Advanced
         } else if preset("wallets") || preset("wallet-rename") || preset("wallet-more") {
             Section::Wallets
@@ -1507,6 +1507,33 @@ impl App {
             Section::Network
         };
         self.settings.phrase_dialog = preset("phrase");
+        // FEAT-0038: `--screen advanced-workshop` W0 with «Show the Workshop» on; `workshop*` the
+        // Workshop's pages (W1, W2, W3, the steps, W4) with it on.
+        let workshop = [
+            "advanced-workshop",
+            "workshop",
+            "workshop-new",
+            "workshop-review",
+            "workshop-steps",
+            "workshop-collection",
+        ];
+        if workshop.into_iter().any(preset) {
+            self.settings.set("workshop", true);
+        }
+        if preset("workshop-new") || preset("workshop-review") || preset("workshop-steps") {
+            self.workshop.page = screens::workshop::Page::New;
+            self.workshop.new.preset(
+                "Dash Pins",
+                preset("workshop-review"),
+                preset("workshop-steps"),
+            );
+        }
+        if preset("workshop-collection") {
+            // The demo core's example collection (`evolite_demo::workshop::CONTRACT`).
+            self.workshop.page = screens::workshop::Page::Collection(
+                "FzKL9288ZzoQcXKWvXc6kRwbNciboLpJnX4egZo9iz9P".into(),
+            );
+        }
         // `--screen create-identity` shows a name, as in Figma; `--screen creating` the
         // same while the core is on step 2.
         if preset("create-identity") || preset("creating") || preset("create-identity-confirm") {

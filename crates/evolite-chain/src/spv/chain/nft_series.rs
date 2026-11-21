@@ -242,6 +242,29 @@ impl Chain {
             .map_err(|e| e.to_string())
     }
 
+    /// Writes the collection's «About the collection» document (`collectionInfo`, W2): the
+    /// contract `main` it belongs to. Right after the collection's own registration, which kept
+    /// the contract in the cache and the provider: it is not read again (a node a block behind
+    /// would say «no such contract» — r1 Should 1). Never repeated by the core.
+    pub async fn nft_collection_info(
+        &self,
+        wallet: &PlatformWallet,
+        keys: &key_wallet::Wallet,
+        owner: &Identifier,
+        contract: Identifier,
+        main: Identifier,
+    ) -> Result<Identifier, String> {
+        let (signer, _) = Self::nft_signer(wallet, keys, owner).await?;
+        let json =
+            serde_json::json!({ "mainContract": main.to_string(Encoding::Base58) }).to_string();
+        wallet
+            .identity()
+            .create_document_with_signer(owner, &contract, "collectionInfo", &json, None, &signer)
+            .await
+            .map(|d| d.id())
+            .map_err(|e| e.to_string())
+    }
+
     /// Writes instance `serial` of `model`; its document id.
     pub async fn nft_mint(
         &self,

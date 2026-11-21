@@ -3,6 +3,10 @@
 //! what FEAT-0040…0046 add ([`crate::context::Ctx::advanced`]); off, those are hidden again at
 //! once, and the core refuses what only they would ask. Turning it on or off asks no password and
 //! no restart: it is a view, not a spend.
+//!
+//! «For creators» (FEAT-0038 W0, AC-A1): «Show the Workshop», its own switch, also off by
+//! default. Off, it only hides the menu item and the Workshop's screens: what was made stays on
+//! the network and in the Collection, and a series going on goes on.
 
 use super::SettingsState;
 use super::parts::{Control, group, heading};
@@ -42,4 +46,27 @@ pub(super) fn advanced(ui: &mut Ui, a: &mut Assets, state: &mut SettingsState) {
         p.muted,
     ));
     *state.toggle("advanced") = on;
+    ui.add_space(16.0);
+    let mut workshop = state.is_on("workshop");
+    group(
+        ui,
+        a,
+        tr!("For creators"),
+        vec![(
+            tr!("Show the “Workshop”"),
+            tr!(
+                "Make your own NFTs and tokens. Everything is made on behalf of an identity, costs credits and is visible to everyone on the network."
+            ),
+            Control::Toggle(&mut workshop),
+        )],
+    );
+    ui.add(crate::components::para(
+        tr!(
+            "Turning it off only hides the tab: what you made stays on the network and in your “Collection”."
+        ),
+        12.0,
+        Weight::Regular,
+        p.muted,
+    ));
+    *state.toggle("workshop") = workshop;
 }

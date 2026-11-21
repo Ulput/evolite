@@ -87,6 +87,9 @@ pub struct ModelCounts {
     /// as `for_sale`.
     pub prices: Vec<(Duffs, u32)>,
     pub sold: Option<u32>,
+    /// The highest number issued, by anyone's copy (W4 «выпущено {m} из {n}», FEAT-0038 R-6);
+    /// `Some(0)`: none yet; `None`: not read.
+    pub issued: Option<u32>,
     /// «проверено {время}».
     pub checked_at: Timestamp,
 }

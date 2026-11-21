@@ -344,6 +344,17 @@ pub enum Kind {
     /// FEAT-0020-resend: contact requests sent again after the DashPay pair was replaced,
     /// `sent` of `of`, `left` still owed; `spent` is what they cost this identity.
     ContactsResent { sent: u32, of: u32, left: u32 },
+    /// FEAT-0038 W2, R-15: an NFT collection registered — «Collection “{name}” created». `spent`
+    /// is what the registration took (read after it), else its estimate. `sending`: sent without
+    /// an answer and not seen yet (BUG-243) — «in transit» until it is found or known not to have
+    /// landed; `contract` once known.
+    CollectionCreated {
+        name: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        contract: Option<String>,
+        #[serde(default)]
+        sending: bool,
+    },
 }
 
 /// What an issuer action did ([`Kind::TokenIssuer`]).
@@ -377,6 +388,7 @@ impl Kind {
             | Kind::TokenIssuer { token, .. }
             | Kind::NotDone { token } => token.clone(),
             Kind::ContactsResent { .. } => "contacts".into(),
+            Kind::CollectionCreated { name, .. } => name.clone(),
         }
     }
 }
@@ -739,6 +751,26 @@ impl Journal {
         }
     }
 
+    /// The entry keyed `key` changed by `change` (FEAT-0038: a registration «in transit» found,
+    /// or known not to have landed — `change` returns `false` to take the entry out). Whether
+    /// one was there.
+    pub fn settle(&self, key: &str, change: impl FnOnce(&mut Entry) -> bool) -> bool {
+        let mut change = Some(change);
+        self.store
+            .update_kept(|e| {
+                let Some(at) = e.known.iter().position(|x| x.key.as_deref() == Some(key)) else {
+                    return (false, false);
+                };
+                let keep = (change.take().expect("one change"))(&mut e.known[at]);
+                if !keep {
+                    e.known.remove(at);
+                }
+                (true, true)
+            })
+            .map(|(found, _)| found)
+            .unwrap_or(false)
+    }
+
     /// How many entries there are: a new one since an earlier count says a change of the credits
     /// has its line (BUG-147).
     pub fn count(&self) -> usize {
@@ -859,6 +891,9 @@ pub fn activity(entry: &Entry) -> Activity {
             to: to.clone(),
             amount: amount.clone(),
         },
+        (Some(Kind::CollectionCreated { name, .. }), _) => {
+            ActivityKind::CollectionCreated { name: name.clone() }
+        }
         (
             Some(Kind::NftSold {
                 model,
@@ -992,7 +1027,15 @@ pub fn activity(entry: &Entry) -> Activity {
         chain: Chain::Platform,
         at: entry.at,
         amount: -entry.spent,
-        proof: Proof::Proved,
+        // FEAT-0038: a registration sent without an answer, not seen yet, is «in transit».
+        proof: if matches!(
+            entry.kind,
+            Some(Kind::CollectionCreated { sending: true, .. })
+        ) {
+            Proof::Sending
+        } else {
+            Proof::Proved
+        },
         txid: None,
         fee: fee_of(entry),
         block: None,
@@ -2310,5 +2353,31 @@ mod key_change_tests {
         let text = serde_json::to_string(&entry).unwrap();
         let back: Entry = serde_json::from_str(&text).unwrap();
         assert_eq!(activity(&back).kind, line.kind);
+    }
+
+    /// FEAT-0038 R-15 (W0–W4 r1 Must 2): a collection's registration is a line of its own; one
+    /// sent without an answer reads «Sending» (BUG-243), and once settled «Proved»; an older
+    /// build reads it as a credit spend to the collection's name.
+    #[test]
+    fn a_collection_registration_in_transit_then_settled() {
+        let kind = Kind::CollectionCreated {
+            name: "Pins".into(),
+            contract: None,
+            sending: true,
+        };
+        let mut entry = entry_of(kind, 5, 19, Some("me".into()));
+        let shown = activity(&entry);
+        assert_eq!(
+            shown.kind,
+            ActivityKind::CollectionCreated {
+                name: "Pins".into()
+            }
+        );
+        assert_eq!(shown.proof, Proof::Sending);
+        assert_eq!(entry.what, What::Credits { to: "Pins".into() });
+        if let Some(Kind::CollectionCreated { sending, .. }) = &mut entry.kind {
+            *sending = false;
+        }
+        assert_eq!(activity(&entry).proof, Proof::Proved);
     }
 }

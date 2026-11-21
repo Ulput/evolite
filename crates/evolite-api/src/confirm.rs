@@ -317,6 +317,7 @@ mod tests {
                     draft: crate::contracts::ContractDraft::NftCollection {
                         description: None,
                         keywords: vec!["nft".into()],
+                        main_contract: None,
                     },
                     fee_max: 29_414_290,
                 },

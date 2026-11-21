@@ -20,6 +20,10 @@ use dpp::prelude::Identifier;
 
 use super::{Cached, ContractCache, Next, decide};
 
+/// The answer for a contract Platform proved absent: its one wording, so a caller can tell it
+/// from a failed read (the Workshop's «Belongs to a contract», W2).
+pub const NOT_ON_PLATFORM: &str = "the contract is not on Platform";
+
 /// Where versions and bodies come from: Platform, with proofs (the chain), or a test's stand-in.
 pub trait Source {
     /// The latest versions of `ids`, proved; an id missing from the answer has no contract.
@@ -130,7 +134,7 @@ pub async fn fresh_many<S: Source>(
                 for id in &read {
                     answers
                         .entry(*id)
-                        .or_insert_with(|| Err("the contract is not on Platform".to_owned()));
+                        .or_insert_with(|| Err(NOT_ON_PLATFORM.to_owned()));
                 }
             }
             Err(e) => {

@@ -43,6 +43,8 @@ pub struct Ctx<'a> {
     go_back: bool,
     /// «Features for advanced users» on (FEAT-0040…0046): set by `App` each frame.
     advanced: bool,
+    /// «Show the Workshop» on (FEAT-0038 W0): set by `App` each frame.
+    workshop: bool,
     /// FEAT-0040: the wallet's fee choice for a Core payment, set by `App` each frame.
     fee: evolite_api::fee_choice::FeeChoice,
     /// FEAT-0040: a new fee choice made this frame, for `App` to keep with the wallet.
@@ -103,6 +105,7 @@ impl<'a> Ctx<'a> {
             back: Screen::Overview,
             go_back: false,
             advanced: false,
+            workshop: false,
             fee: Default::default(),
             fee_chosen: None,
             unfinished_lock: false,
@@ -139,6 +142,17 @@ impl<'a> Ctx<'a> {
     /// `App` says it once a frame, from the app's settings.
     pub fn show_advanced(&mut self, on: bool) {
         self.advanced = on;
+    }
+
+    /// Whether «Show the Workshop» is on (FEAT-0038 W0, AC-A1): its menu item and screens.
+    /// Its own switch, not [`Self::advanced`]; off by default.
+    pub fn workshop(&self) -> bool {
+        self.workshop
+    }
+
+    /// `App` says it once a frame, from the app's settings.
+    pub fn show_workshop(&mut self, on: bool) {
+        self.workshop = on;
     }
 
     /// Back to [`Self::back`] (BUG-169); `App` checks the place is still there, else Overview.

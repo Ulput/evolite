@@ -662,6 +662,10 @@ pub fn activity_title(a: &Activity) -> String {
         ActivityKind::TokenSent { to, .. } => {
             format!(tr!("Token transfer to {}"), short_address(to))
         }
+        // FEAT-0038 R-15: «Создана коллекция «{}»».
+        ActivityKind::CollectionCreated { name } => {
+            format!(tr!("Collection “{}” created"), crate::i18n::own(name))
+        }
         // FEAT-0038 R-15: «Продан «{model}» № {n} · @{name}»; without the number, or the model,
         // when the instance was deleted after the sale (the architect's point 4).
         ActivityKind::NftSold {
@@ -974,6 +978,7 @@ pub fn activity_icon(a: &Activity) -> &'static str {
         | ActivityKind::PlatformReceived
         | ActivityKind::PoolReceived
         | ActivityKind::NftSold { .. } => "receive",
+        ActivityKind::CollectionCreated { .. } => "nft",
         ActivityKind::Sent { .. } | ActivityKind::PoolSent => "send",
         ActivityKind::TopUp { .. } => "top-up",
         ActivityKind::KeysChanged { .. } => "key",

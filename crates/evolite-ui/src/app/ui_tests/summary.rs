@@ -191,3 +191,42 @@ fn disconnect_with_the_summary_unseen_shows_it_and_sends_nothing() {
     kit.run_steps(4);
     assert!(gone(&kit), "the second click disconnects");
 }
+
+/// FEAT-0038 W0–W4 r2 Must 2: «Check the collection» signs 10+ DASH, so its summary (the fee,
+/// the credits after, that it cannot be undone, the large spend's tick) is pinned with the
+/// footer. Its middle is a few lines: at the smallest window and below, the summary is in sight
+/// as soon as it opens — the first Enter never meets it unseen — and a screen reader reads it
+/// before «Sign and create».
+#[test]
+fn the_collection_review_pins_its_summary() {
+    for size in [[800.0, 440.0], [800.0, 200.0]] {
+        let (_turn, mut kit) = demo_app("workshop-review", "en");
+        kit.set_size(egui::vec2(size[0], size[1]));
+        wait_for(&mut kit, "the review", |kit| {
+            dialog_seen(&kit.ctx).is_some() && has_text(kit, "Check the collection")
+        });
+        kit.run_steps(4);
+        let (_, seen) = dialog_seen(&kit.ctx)
+            .unwrap()
+            .summary
+            .expect("a pinned summary");
+        assert!(seen, "{size:?}: the summary is in sight when it opens");
+        let order: Vec<String> = kit
+            .query_all_by(|_| true)
+            .filter_map(|n| {
+                let node = n.accesskit_node();
+                node.label().or(node.value())
+            })
+            .collect();
+        let at = |t: &str| order.iter().position(|o| o.starts_with(t));
+        let (fee, after, button) = (
+            at("Registration"),
+            at("Credits after"),
+            at("Sign and create"),
+        );
+        assert!(
+            fee.is_some() && after.is_some() && button.is_some() && fee < button && after < button,
+            "{size:?}: {fee:?} {after:?} before {button:?}"
+        );
+    }
+}

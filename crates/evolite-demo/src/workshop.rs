@@ -20,22 +20,50 @@ fn instances() -> Vec<Instance> {
         .collect()
 }
 
-pub fn read(ask: &WorkshopAsk) -> WorkshopRead {
+/// The id of the demo's `n`-th collection «registered» in this run (W2): base58, 44 letters.
+pub fn made_id(n: usize) -> String {
+    format!("DemoNewCo{n:0>35}").replace('0', "1")
+}
+
+/// «Belongs to a contract» in the demo (W2): an id of base58 letters, 32–44 of them, is the
+/// example game; anything else is not an id.
+pub fn main_contract(id: &str) -> Result<String, evolite_api::contracts::ContractRefusal> {
+    let base58 = |c: char| c.is_ascii_alphanumeric() && !"0OIl".contains(c);
+    let id = id.trim();
+    if (32..=44).contains(&id.len()) && id.chars().all(base58) {
+        Ok("City game: items and rewards".into())
+    } else {
+        Err(evolite_api::contracts::ContractRefusal::MainContractId)
+    }
+}
+
+pub fn read(ask: &WorkshopAsk, made: &[(String, String)]) -> WorkshopRead {
     match ask {
-        WorkshopAsk::Collections => WorkshopRead::Collections(vec![Collection {
-            contract: CONTRACT.into(),
-            description: "Seasons of the city".into(),
-            open: false,
-            limits: Vec::new(),
-            models: vec![Model {
-                id: MODEL.into(),
-                name: "Winter tram".into(),
-                description: "A tram in the snow, night".into(),
-                art: String::new(),
-                supply: 100,
-            }],
-            checked_at: AT,
-        }]),
+        WorkshopAsk::Collections => WorkshopRead::Collections(
+            std::iter::once(Collection {
+                contract: CONTRACT.into(),
+                description: "Seasons of the city".into(),
+                open: false,
+                limits: Vec::new(),
+                models: vec![Model {
+                    id: MODEL.into(),
+                    name: "Winter tram".into(),
+                    description: "A tram in the snow, night".into(),
+                    art: String::new(),
+                    supply: 100,
+                }],
+                checked_at: AT,
+            })
+            .chain(made.iter().map(|(id, name)| Collection {
+                contract: id.clone(),
+                description: name.clone(),
+                open: false,
+                limits: Vec::new(),
+                models: Vec::new(),
+                checked_at: AT,
+            }))
+            .collect(),
+        ),
         WorkshopAsk::Counts { contract, model } => {
             let all = instances();
             WorkshopRead::Counts(ModelCounts {
@@ -49,6 +77,7 @@ pub fn read(ask: &WorkshopAsk) -> WorkshopRead {
                 }),
                 prices: vec![(100_000_000, 4)],
                 sold: Some(1),
+                issued: Some(13),
                 checked_at: AT,
             })
         }

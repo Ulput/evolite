@@ -239,7 +239,7 @@ pub struct PasswordChange {
 const LOCK_AFTER_SECS: [Option<u64>; 4] = [Some(5 * 60), Some(15 * 60), Some(60 * 60), None];
 
 /// Every switch in Settings, by key: the saved file is read against this list only.
-const TOGGLES: [&str; 14] = [
+const TOGGLES: [&str; 15] = [
     "clipboard",
     "fiat-rate",
     "hide-amounts",
@@ -254,6 +254,7 @@ const TOGGLES: [&str; 14] = [
     "stranger-pictures",
     "update-check",
     "advanced",
+    "workshop",
 ];
 
 impl SettingsState {

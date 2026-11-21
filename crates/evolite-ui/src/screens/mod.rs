@@ -18,6 +18,7 @@ pub mod settings;
 pub mod shielded;
 pub mod tokens;
 pub mod unlock;
+pub mod workshop;
 
 pub mod activity;
 pub mod activity_card;
@@ -65,6 +66,9 @@ pub enum Screen {
     Settings,
     /// 07: opened from Identity; the sidebar keeps Identity lit.
     CreateIdentity,
+    /// FEAT-0038: the Workshop (W1) and its pages (W2–W4), behind «Show the Workshop» (W0); in
+    /// the menu after the rest, past a line, only while that switch is on.
+    Workshop,
     /// FEAT-0020 K1: an identity's keys, opened from Identity, Settings or Apps; the sidebar keeps
     /// Identity lit, «‹ {place}» goes back to where it was opened from (AC-T17).
     IdentityKeys,
