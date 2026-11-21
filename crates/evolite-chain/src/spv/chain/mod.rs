@@ -120,6 +120,8 @@ pub struct Chain {
     frozen: Arc<Mutex<Frozen>>,
     /// The network's contracts kept on this computer (FEAT-0031 C5), opened with the store.
     contracts: Mutex<Option<Arc<crate::platform::contracts::ContractCache>>>,
+    /// BUG-269: the Workshop's model pictures read this run, to draw ([`Self::workshop_picture`]).
+    workshop_pictures: Mutex<Vec<WorkshopPicture>>,
     /// Platform reads past [`Self::ready`]: the ones that would go to the network (BUG-78).
     #[cfg(any(test, feature = "test-support"))]
     pub proof_reads: std::sync::atomic::AtomicUsize,
@@ -197,6 +199,7 @@ impl Default for Chain {
             persister: Mutex::new(None),
             frozen: Default::default(),
             contracts: Mutex::new(None),
+            workshop_pictures: Mutex::new(Vec::new()),
             #[cfg(any(test, feature = "test-support"))]
             proof_reads: Default::default(),
             #[cfg(any(test, feature = "test-support"))]
@@ -222,6 +225,16 @@ pub enum CreditPayee {
 /// How many times a top-up's lock is sent again as a new transition when the network answers
 /// "already in the cache" ([`is_cached_duplicate`]).
 const SAME_TRANSITION_RETRIES: u16 = 2;
+
+/// BUG-269: how many model pictures the Workshop keeps to draw — a collection page's worth.
+const WORKSHOP_PICTURES: usize = 64;
+
+/// BUG-269: a model's picture as stored, by its key.
+struct WorkshopPicture {
+    key: String,
+    bytes: Arc<[u8]>,
+    deflated: bool,
+}
 
 /// Why a Platform read was not made ([`Chain::ready`]). Not shown as it is: a caller that
 /// answers the UI says [`evolite_api::CoreError::NotSynced`] for it.
@@ -946,6 +959,39 @@ impl Chain {
             let _ = dpp::block::extended_epoch_info::ExtendedEpochInfo::fetch_current(sdk).await;
         }
         sdk.protocol_version_info().verified_version
+    }
+
+    /// BUG-269: keeps the picture of a model document just read, to draw by its key: the
+    /// renderer otherwise had it only in the run that made the model.
+    pub fn keep_workshop_picture(&self, doc: &dpp::document::Document) {
+        let Some((key, bytes, deflated)) = crate::platform::workshop_read::model_picture(doc)
+        else {
+            return;
+        };
+        let mut kept = self
+            .workshop_pictures
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        kept.retain(|p| p.key != key);
+        kept.push(WorkshopPicture {
+            key,
+            bytes: bytes.into(),
+            deflated,
+        });
+        if kept.len() > WORKSHOP_PICTURES {
+            kept.remove(0);
+        }
+    }
+
+    /// BUG-269: a model's picture read this run, by its key: its stored bytes and whether they
+    /// are raw deflate.
+    pub fn workshop_picture(&self, key: &str) -> Option<(Arc<[u8]>, bool)> {
+        self.workshop_pictures
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .iter()
+            .find(|p| p.key == key)
+            .map(|p| (p.bytes.clone(), p.deflated))
     }
 
     /// Proofs of Platform data can be checked: our masternode lists, and so the quorum keys,

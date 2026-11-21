@@ -44,6 +44,49 @@ fn limit(l: Limit) -> ApiLimit {
     }
 }
 
+/// A model's picture as stored: `image`, or `part0…3` joined in their order.
+fn stored_picture(doc: &Document) -> Vec<u8> {
+    let props = doc.properties();
+    let bytes = |k: &str| props.get(k).and_then(|v| v.as_bytes().cloned());
+    match bytes(profile::IMAGE) {
+        Some(b) => b,
+        None => profile::PARTS
+            .iter()
+            .filter_map(|p| bytes(p))
+            .flatten()
+            .collect(),
+    }
+}
+
+/// The key a model's picture is drawn by: the SHA-256 of its bytes as stored.
+fn picture_key(stored: &[u8]) -> String {
+    Sha256::digest(stored)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
+}
+
+/// BUG-269: a model's picture as the renderer takes it — its key, its stored bytes and whether
+/// they are raw deflate. The «Workshop» deflates an SVG or a GLB when that is smaller (the
+/// document does not say so): one whose bytes are not an SVG's or a GLB's by their first bytes
+/// is packed. `None` without a picture.
+pub fn model_picture(doc: &Document) -> Option<(String, Vec<u8>, bool)> {
+    use crate::platform::nft_series::image::{ImageType, image_type};
+    let stored = stored_picture(doc);
+    if stored.is_empty() {
+        return None;
+    }
+    let kind = doc
+        .properties()
+        .get(profile::IMAGE_TYPE)
+        .and_then(|v| v.to_integer::<u8>().ok());
+    let packable = [ImageType::Svg, ImageType::AnimatedSvg, ImageType::Glb]
+        .iter()
+        .any(|t| kind == Some(*t as u8));
+    let deflated = packable && image_type(&stored).is_none();
+    Some((picture_key(&stored), stored, deflated))
+}
+
 /// A model document as the screen reads it. The picture's key is the SHA-256 of its bytes as
 /// stored (`image`, or `part0…3` joined).
 pub fn model_of(doc: &Document) -> Model {
@@ -55,23 +98,11 @@ pub fn model_of(doc: &Document) -> Model {
             .map(crate::dashpay::shown)
             .unwrap_or_default()
     };
-    let bytes = |k: &str| props.get(k).and_then(|v| v.as_bytes().cloned());
-    let picture: Vec<u8> = match bytes(profile::IMAGE) {
-        Some(b) => b,
-        None => profile::PARTS
-            .iter()
-            .filter_map(|p| bytes(p))
-            .flatten()
-            .collect(),
-    };
     Model {
         id: b58(doc.id()),
         name: text(profile::NAME),
         description: text(profile::DESCRIPTION),
-        art: Sha256::digest(&picture)
-            .iter()
-            .map(|b| format!("{b:02x}"))
-            .collect(),
+        art: picture_key(&stored_picture(doc)),
         supply: props
             .get(profile::SUPPLY)
             .and_then(|v| v.to_integer::<u32>().ok())
@@ -100,6 +131,10 @@ impl Chain {
         let sdk = self.sdk().await?;
         let query = DocumentQuery::new(contract, &profile.model).map_err(|e| format!("{e:?}"))?;
         let page = pages(&sdk, query, None, usize::MAX, MAX_PAGES, |_| true).await?;
+        // BUG-269: their pictures kept to draw, on any copy and after a restart.
+        for doc in &page.docs {
+            self.keep_workshop_picture(doc);
+        }
         Ok(page.docs.iter().map(model_of).collect())
     }
 
@@ -362,7 +397,10 @@ impl Chain {
                 .into_values()
                 .flatten()
                 .next()
-                .map(|d| model_of(&d).name),
+                .map(|d| {
+                    self.keep_workshop_picture(&d);
+                    model_of(&d).name
+                }),
                 None => None,
             };
             Ok((model_id.map(b58), model, serial))

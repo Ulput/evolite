@@ -208,17 +208,7 @@ impl Real {
         urgent: bool,
     ) -> (Option<Event>, bool) {
         let event = {
-            let stored = self
-                .nfts
-                .picture(&art)
-                .or_else(|| {
-                    self.avatars.picture(&art).map(|bytes| crate::art::Stored {
-                        bytes,
-                        packing: evolite_render::Packing::Plain,
-                    })
-                })
-                // FEAT-0038 W5: the file chosen for a new model and its copy.
-                .or_else(|| self.artist.as_ref().and_then(|a| a.local(&art)));
+            let stored = self.stored_art(&art);
             match (stored, &self.artist) {
                 (Some(stored), Some(artist)) => {
                     artist.draw(art, side, urgent, stored);
@@ -233,6 +223,33 @@ impl Real {
             }
         };
         (Some(event), true)
+    }
+
+    /// The bytes of the picture `art` names, wherever this wallet has them.
+    pub(in crate::real) fn stored_art(&self, art: &str) -> Option<crate::art::Stored> {
+        self.nfts
+            .picture(art)
+            .or_else(|| {
+                self.avatars.picture(art).map(|bytes| crate::art::Stored {
+                    bytes,
+                    packing: evolite_render::Packing::Plain,
+                })
+            })
+            // BUG-269: a Workshop model's picture as read from Platform, on any copy.
+            .or_else(|| {
+                self.chain
+                    .workshop_picture(art)
+                    .map(|(bytes, deflated)| crate::art::Stored {
+                        bytes,
+                        packing: if deflated {
+                            evolite_render::Packing::RawDeflate
+                        } else {
+                            evolite_render::Packing::Plain
+                        },
+                    })
+            })
+            // FEAT-0038 W5: the file chosen for a new model and its copy.
+            .or_else(|| self.artist.as_ref().and_then(|a| a.local(art)))
     }
 
     /// Adds an address to the address book.

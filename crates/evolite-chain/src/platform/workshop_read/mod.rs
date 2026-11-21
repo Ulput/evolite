@@ -10,7 +10,7 @@
 mod chain;
 pub mod profile;
 
-pub use chain::model_of;
+pub use chain::{model_of, model_picture};
 
 use std::collections::BTreeSet;
 use std::future::Future;

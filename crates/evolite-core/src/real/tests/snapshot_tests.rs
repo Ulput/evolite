@@ -425,3 +425,32 @@ fn a_rescan_for_coins_settles_only_its_own_wallets_outputs() {
     );
     assert!(pending.is_empty());
 }
+
+/// BUG-269: a Workshop model's picture, read from Platform on a copy that did not make it (no
+/// local picture, no NFT of the wallet), is there to draw by the model's key — the core said
+/// «No picture» before.
+#[tokio::test]
+async fn a_workshop_model_read_back_has_its_picture_to_draw() {
+    use dpp::document::{Document, DocumentV0};
+    use dpp::platform_value::Value;
+    let core = opened("workshop-picture", "pw");
+    let jpeg: Vec<u8> = [0xFF, 0xD8, 0xFF, 0xE0]
+        .into_iter()
+        .chain((0..9_000u32).map(|i| (i % 251) as u8))
+        .collect();
+    let mut properties: std::collections::BTreeMap<String, Value> =
+        [("imageType".to_owned(), Value::U8(3))].into();
+    for (i, part) in jpeg.chunks(5_120).enumerate() {
+        properties.insert(format!("part{i}"), Value::Bytes(part.to_vec()));
+    }
+    let doc = Document::V0(DocumentV0 {
+        properties,
+        ..Default::default()
+    });
+    let art = evolite_chain::workshop_read::model_of(&doc).art;
+    assert!(core.stored_art(&art).is_none(), "not read yet");
+    core.chain.keep_workshop_picture(&doc);
+    let stored = core.stored_art(&art).expect("its picture");
+    assert_eq!(&*stored.bytes, jpeg.as_slice());
+    assert_eq!(stored.packing, evolite_render::Packing::Plain);
+}

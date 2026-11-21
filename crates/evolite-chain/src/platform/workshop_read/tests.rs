@@ -258,3 +258,58 @@ fn a_purchase_document_is_a_sale() {
     assert_eq!(s.instance, id(2).to_string(Encoding::Base58));
     assert_eq!((s.price, s.at_ms), (5_000, 1_700_000_000_000));
 }
+
+/// A model document with its picture in `part0…` (or one `image`) and its `imageType`.
+fn model_doc(n: u32, image_type: u8, parts: &[&[u8]]) -> Document {
+    let mut properties: std::collections::BTreeMap<String, Value> = [
+        ("name".to_owned(), Value::Text("Winter tram".into())),
+        ("imageType".to_owned(), Value::U8(image_type)),
+        ("supply".to_owned(), Value::U32(100)),
+    ]
+    .into();
+    if let [one] = parts {
+        properties.insert("image".into(), Value::Bytes(one.to_vec()));
+    } else {
+        for (i, part) in parts.iter().enumerate() {
+            properties.insert(format!("part{i}"), Value::Bytes(part.to_vec()));
+        }
+    }
+    Document::V0(DocumentV0 {
+        id: id(n),
+        properties,
+        ..Default::default()
+    })
+}
+
+/// BUG-269: a JPEG model stored in three parts reads back as one picture — the parts joined in
+/// their order, plain, under the key the model is shown by — with nothing kept from its making.
+#[test]
+fn a_multi_part_jpeg_model_reads_back_as_its_picture() {
+    let jpeg: Vec<u8> = [0xFF, 0xD8, 0xFF, 0xE0]
+        .into_iter()
+        .chain((0..12_000u32).map(|i| (i % 251) as u8))
+        .collect();
+    let parts: Vec<&[u8]> = jpeg.chunks(5_120).collect();
+    assert_eq!(parts.len(), 3);
+    let doc = model_doc(1, 3, &parts);
+    let (key, bytes, deflated) = model_picture(&doc).expect("a picture");
+    assert_eq!(bytes, jpeg, "the parts joined in order");
+    assert!(!deflated, "a JPEG is stored as it is");
+    assert_eq!(
+        key,
+        model_of(&doc).art,
+        "drawn by the key the model is shown by"
+    );
+}
+
+/// BUG-269: an SVG the Workshop deflated is told by its first bytes; one stored plain is not.
+#[test]
+fn a_deflated_svg_model_is_told_from_a_plain_one() {
+    let svg = br#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 8 8"><rect width="8" height="8"/></svg>"#;
+    let packed = miniz_oxide::deflate::compress_to_vec(svg, 9);
+    let (_, _, deflated) = model_picture(&model_doc(2, 0, &[&packed])).unwrap();
+    assert!(deflated);
+    let (_, _, plain) = model_picture(&model_doc(3, 0, &[svg])).unwrap();
+    assert!(!plain);
+    assert_eq!(model_picture(&model_doc(4, 3, &[])), None, "no picture");
+}
