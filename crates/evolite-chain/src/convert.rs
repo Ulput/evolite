@@ -1022,18 +1022,26 @@ impl evolite_coinjoin::History for OwnHistory<'_> {
     }
 }
 
-fn own_history(
-    info: &key_wallet::wallet::managed_wallet_info::ManagedWalletInfo,
-) -> OwnHistory<'_> {
+/// BUG-260: the wallet's own history for counting rounds — the records in memory **and** those
+/// in the store. After a restart platform-wallet keeps in memory only what the scan has seen
+/// since; a coin whose rounds go back before it lost them (0 rounds, «not mixed yet»).
+fn own_history<'a>(
+    info: &'a key_wallet::wallet::managed_wallet_info::ManagedWalletInfo,
+    stored: &'a [TransactionRecord],
+) -> OwnHistory<'a> {
     use key_wallet::managed_account::managed_account_trait::ManagedAccountTrait;
     use key_wallet::wallet::managed_wallet_info::wallet_info_interface::WalletInfoInterface;
     let accounts = info.accounts().all_funding_accounts();
+    let mut txs: std::collections::HashMap<_, _> = accounts
+        .iter()
+        .flat_map(|a| a.transactions().values())
+        .map(|r| (r.transaction.txid(), &r.transaction))
+        .collect();
+    for r in stored {
+        txs.entry(r.transaction.txid()).or_insert(&r.transaction);
+    }
     OwnHistory {
-        txs: accounts
-            .iter()
-            .flat_map(|a| a.transactions().values())
-            .map(|r| (r.transaction.txid(), &r.transaction))
-            .collect(),
+        txs,
         ours: accounts
             .iter()
             .flat_map(|a| a.keys().managed_account_type().all_addresses())
@@ -1047,6 +1055,7 @@ fn own_history(
 /// (`verified`: the InstantLocks checked in this run, as [`coin_is_final`]).
 pub fn mixed_coins(
     info: &key_wallet::wallet::managed_wallet_info::ManagedWalletInfo,
+    stored: &[TransactionRecord],
     verified: impl Fn(&key_wallet::dashcore::Txid) -> bool,
 ) -> Vec<MixedCoin> {
     use key_wallet::wallet::managed_wallet_info::wallet_info_interface::WalletInfoInterface;
@@ -1061,7 +1070,7 @@ pub fn mixed_coins(
     if coins.is_empty() {
         return Vec::new();
     }
-    let history = own_history(info);
+    let history = own_history(info, stored);
     let mut counter = evolite_coinjoin::RoundCounter::new(&history);
     coins
         .into_iter()
@@ -1082,9 +1091,10 @@ pub fn mixed_coins(
 /// they have (FEAT-0030 AC-A6): «Coins» lists them apart, and a payment takes them only alone.
 pub fn unfinished_coins(
     info: &key_wallet::wallet::managed_wallet_info::ManagedWalletInfo,
+    stored: &[TransactionRecord],
     verified: impl Fn(&key_wallet::dashcore::Txid) -> bool,
 ) -> Vec<(key_wallet::Utxo, u8)> {
-    mixed_coins(info, verified)
+    mixed_coins(info, stored, verified)
         .into_iter()
         .filter(|c| !c.rounds.fully_mixed())
         .map(|c| {
@@ -1097,23 +1107,47 @@ pub fn unfinished_coins(
         .collect()
 }
 
+/// BUG-260: the denominations by their rounds — `[0, 1–3, ≥ 4, unknown]`, counts only — for the
+/// journal.
+pub fn rounds_buckets(coins: &[MixedCoin]) -> [u32; 4] {
+    let mut buckets = [0u32; 4];
+    for c in coins
+        .iter()
+        .filter(|c| evolite_coinjoin::is_denominated(c.utxo.value()))
+    {
+        let i = match c.rounds {
+            evolite_coinjoin::Rounds::Mixed(0) => 0,
+            evolite_coinjoin::Rounds::Mixed(n) if n < evolite_coinjoin::FULLY_MIXED_ROUNDS => 1,
+            evolite_coinjoin::Rounds::Mixed(_) => 2,
+            _ => 3,
+        };
+        buckets[i] += 1;
+    }
+    buckets
+}
+
 /// «Mixed» on the overview (FEAT-0030 AC-T3): `None` when the CoinJoin accounts hold nothing.
 pub fn mixed_balance(coins: &[MixedCoin]) -> Option<Mixed> {
     if coins.is_empty() {
         return None;
     }
     let count = coins.iter().filter(|c| c.spendable).count();
-    let (spendable, unfinished) = coins.iter().fold((0, 0), |(s, u), c| {
+    let (spendable, unfinished, checking) = coins.iter().fold((0, 0, 0), |(s, u, k), c| {
         let value = c.utxo.value() as Duffs;
         if c.spendable {
-            (s + value, u)
+            (s + value, u, k)
+        } else if c.rounds == evolite_coinjoin::Rounds::Unknown
+            && evolite_coinjoin::is_denominated(c.utxo.value())
+        {
+            (s, u, k + value)
         } else {
-            (s, u + value)
+            (s, u + value, k)
         }
     });
     Some(Mixed {
         spendable,
         unfinished,
+        checking,
         rounds_needed: evolite_coinjoin::FULLY_MIXED_ROUNDS,
         max: if count == 0 {
             0
@@ -5274,15 +5308,17 @@ mod coinjoin_tests {
         assert_eq!(coins_once(&info).len(), 1);
         let payable = payable_coins(&info, |_| true);
         assert!(payable.iter().all(|c| c.outpoint != mixed.outpoint));
-        let coins = mixed_coins(&info, |_| true);
+        let coins = mixed_coins(&info, &[], |_| true);
         assert_eq!(coins.len(), 1);
         assert_eq!(coins[0].utxo.outpoint, mixed.outpoint);
-        // Not in the wallet's history: its rounds are not known, so it is not spendable.
+        // Not in the wallet's history: its rounds are not known, so it is not spendable — and
+        // «being checked», not «not mixed yet» (BUG-260).
         assert_eq!(
             mixed_balance(&coins),
             Some(Mixed {
                 spendable: 0,
-                unfinished: D as Duffs,
+                unfinished: 0,
+                checking: D as Duffs,
                 rounds_needed: 4,
                 max: 0,
             })
@@ -5339,7 +5375,7 @@ mod coinjoin_tests {
             locked.is_instantlocked = true;
             account.utxos.insert(unverified, locked);
         }
-        let coins = mixed_coins(&info, |_| false);
+        let coins = mixed_coins(&info, &[], |_| false);
         let of = |o: OutPoint| coins.iter().find(|c| c.utxo.outpoint == o).unwrap();
         assert_eq!(of(four).rounds, evolite_coinjoin::Rounds::Mixed(4));
         assert!(of(four).spendable);
@@ -5352,9 +5388,94 @@ mod coinjoin_tests {
             Some(Mixed {
                 spendable: D as Duffs,
                 unfinished: 2 * D as Duffs,
+                checking: 0,
                 rounds_needed: 4,
                 max: D as Duffs - crate::mixed_pay::usual_fee(1) as Duffs,
             })
+        );
+    }
+
+    /// BUG-260 (the architect's cases on a made-up chain): money in → denominations made beside
+    /// change (0 rounds) → six rounds with strangers; a second coin through three. (1) The whole
+    /// history in memory: six rounds, fully mixed; three: not. (2) Its start only in the store
+    /// (after a restart platform-wallet keeps in memory only what the scan saw since): counted
+    /// over memory and store together — the same. (3) Without the store: not 0 rounds but not
+    /// known — «being checked» on the tile, not «not mixed yet».
+    #[test]
+    fn rounds_are_counted_over_the_stored_history_too() {
+        let mut info = info();
+        let funding_at = address(&info, false, 0);
+        let cj: Vec<Address> = (0..12).map(|n| address(&info, true, n)).collect();
+        let mut txs = Txs::default();
+        let money = txs.tx(vec![foreign(100)], vec![(5_000_000, funding_at.clone())]);
+        let prep = txs.tx(
+            vec![OutPoint::new(money, 0)],
+            vec![
+                (D, cj[0].clone()),
+                (D, cj[1].clone()),
+                (4_700_000, funding_at.clone()),
+            ],
+        );
+        let mut six = OutPoint::new(prep, 0);
+        for (i, n) in [(2, 10), (3, 20), (4, 30), (5, 40), (6, 50), (7, 60)] {
+            six = txs.round(six, &cj[i], n);
+        }
+        let mut three = OutPoint::new(prep, 1);
+        for (i, n) in [(8, 70), (9, 80), (10, 90)] {
+            three = txs.round(three, &cj[i], n);
+        }
+        let record = |t: key_wallet::dashcore::Transaction| {
+            TransactionRecord::new(
+                t,
+                key_wallet::account::AccountType::CoinJoin { index: 0 },
+                TransactionContext::Mempool,
+                TransactionType::Standard,
+                TransactionDirection::Internal,
+                Vec::new(),
+                Vec::new(),
+                0,
+            )
+        };
+        // The first four transactions (money, the preparation, the first coin's two rounds) before
+        // the restart: in the store only.
+        let all: Vec<_> = txs.made.into_iter().map(record).collect();
+        let early: std::collections::HashSet<_> = [money, prep]
+            .into_iter()
+            .chain(all.iter().skip(2).step_by(1).take(2).map(|r| r.txid))
+            .collect();
+        let (stored, live): (Vec<_>, Vec<_>) =
+            all.into_iter().partition(|r| early.contains(&r.txid));
+        {
+            let account = info.accounts_mut().coinjoin_accounts.get_mut(&0).unwrap();
+            for r in &live {
+                account.transactions_mut().insert(r.txid, r.clone());
+            }
+            account.utxos.insert(six, utxo(six, D, &cj[7]));
+            account.utxos.insert(three, utxo(three, D, &cj[10]));
+        }
+        let rounds = |coins: &[MixedCoin], o: OutPoint| {
+            coins.iter().find(|c| c.utxo.outpoint == o).unwrap().rounds
+        };
+        // (2) Memory and store together: as if the whole history were in memory.
+        let coins = mixed_coins(&info, &stored, |_| true);
+        assert_eq!(rounds(&coins, six), evolite_coinjoin::Rounds::Mixed(6));
+        assert!(rounds(&coins, six).fully_mixed());
+        assert_eq!(rounds(&coins, three), evolite_coinjoin::Rounds::Mixed(3));
+        assert!(
+            !rounds(&coins, three).fully_mixed(),
+            "(4) three rounds: not yet"
+        );
+        assert_eq!(mixed_balance(&coins).unwrap().spendable, D as Duffs);
+        // (3) Memory alone: a hole — not known, not 0; «being checked».
+        let coins = mixed_coins(&info, &[], |_| true);
+        assert_eq!(rounds(&coins, six), evolite_coinjoin::Rounds::Unknown);
+        let mixed = mixed_balance(&coins).unwrap();
+        assert_eq!(mixed.spendable, 0);
+        assert_eq!(mixed.checking, 2 * D as Duffs, "both coins: being checked");
+        assert_eq!(
+            rounds_buckets(&coins),
+            [0, 0, 0, 2],
+            "the journal's buckets"
         );
     }
 
@@ -5405,7 +5526,7 @@ mod coinjoin_tests {
             }
         }
         let started = std::time::Instant::now();
-        let coins = mixed_coins(&info, |_| true);
+        let coins = mixed_coins(&info, &[], |_| true);
         let took = started.elapsed();
         assert_eq!(coins.iter().filter(|c| c.spendable).count(), 250);
         let bound = if cfg!(debug_assertions) { 2_000 } else { 50 };

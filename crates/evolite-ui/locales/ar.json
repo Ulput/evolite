@@ -138,6 +138,7 @@
   "You paid someone else.": "دفعت لشخص آخر.",
   "You were paid: for goods, work, a gift.": "دُفع لك: مقابل سلعة أو عمل أو هدية.",
   "an error on Platform": "خطأ من جهة Platform",
+  "being checked {}": "قيد التحقق {}",
   "duffs per kB": "داف لكل كيلوبايت",
   "evolite already passes it on again every 10 minutes while it is open.": "يعيد evolite بثها تلقائيًا كل 10 دقائق ما دام مفتوحًا.",
   "evolite forgets which contacts still wait for a new request from you: their marks in Contacts and the button on the keys screen go away. They still cannot pay you until they get one; the next time you replace the DashPay pair, evolite sends it to all of them.": "ينسى evolite أي جهات الاتصال ما زالت تنتظر منك طلبًا جديدًا: تختفي علاماتها في جهات الاتصال والزر في شاشة المفاتيح. ولن تتمكن من الدفع لك إلى أن تتلقاه؛ وفي المرة القادمة التي تستبدل فيها زوج DashPay يرسله evolite إليها جميعًا.",

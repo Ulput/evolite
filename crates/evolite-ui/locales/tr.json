@@ -138,6 +138,7 @@
   "You paid someone else.": "Başka birine ödeme yaptınız.",
   "You were paid: for goods, work, a gift.": "Size ödeme yapıldı: mal, iş ya da hediye için.",
   "an error on Platform": "Platform tarafında bir hata",
+  "being checked {}": "kontrol ediliyor {}",
   "duffs per kB": "kB başına duff",
   "evolite already passes it on again every 10 minutes while it is open.": "evolite açık olduğu sürece onu zaten 10 dakikada bir yeniden iletir.",
   "evolite forgets which contacts still wait for a new request from you: their marks in Contacts and the button on the keys screen go away. They still cannot pay you until they get one; the next time you replace the DashPay pair, evolite sends it to all of them.": "evolite, sizden hâlâ yeni istek bekleyen kişileri unutur: Kişiler'deki işaretleri ve anahtarlar ekranındaki düğme kaybolur. Bir istek alana kadar size yine ödeme yapamazlar; DashPay çiftini bir sonraki değiştirişinizde evolite isteği hepsine gönderir.",

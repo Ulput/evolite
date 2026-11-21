@@ -940,9 +940,14 @@ impl Real {
             all_credits,
             own_core,
             // Rounds counted in one pass over the history (FEAT-0030 AC-T8).
-            mixed: convert::mixed_balance(&convert::mixed_coins(&state.core_wallet, |txid| {
-                self.chain.instant_lock_verified(txid)
-            })),
+            mixed: {
+                let coins =
+                    convert::mixed_coins(&state.core_wallet, &self.stored_history, |txid| {
+                        self.chain.instant_lock_verified(txid)
+                    });
+                self.say_mixed_rounds(&coins);
+                convert::mixed_balance(&coins)
+            },
         }
     }
 
@@ -1680,6 +1685,8 @@ impl Real {
         .await;
         if let Ok((records, consumed, own)) = read {
             if let Ok(records) = records {
+                // BUG-260: the chain counts rounds over them too.
+                self.chain.set_stored_history(Arc::new(records.clone()));
                 self.stored_history = records;
             }
             if let Ok(own) = own {

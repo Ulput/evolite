@@ -549,6 +549,9 @@ pub struct Mixed {
     pub spendable: Duffs,
     /// The rest of the account: fewer rounds, collateral, not denominations, not final yet.
     pub unfinished: Duffs,
+    /// BUG-260: coins whose rounds are not known yet (a hole in the history being read): «being
+    /// checked», neither mixed nor «not mixed yet».
+    pub checking: Duffs,
     /// The rounds that make a coin fully mixed.
     pub rounds_needed: u8,
     /// What «Max» sends from «Mixed» (AC-A4): `spendable` less the usual fee of spending every one

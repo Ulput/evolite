@@ -16,6 +16,25 @@ const NOT_TO_PLATFORM: &str = tr!(
 );
 
 impl Real {
+    /// BUG-260: the denominations' rounds to the journal, as counts by bucket, when they change.
+    pub(in crate::real) fn say_mixed_rounds(&self, coins: &[convert::MixedCoin]) {
+        let buckets = convert::rounds_buckets(coins);
+        let mut said = self
+            .mixed_rounds_said
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        if *said != Some(buckets) {
+            *said = Some(buckets);
+            let [none, some, full, unknown] = buckets;
+            crate::diag::record(crate::diag::Record::MixedRounds {
+                none,
+                some,
+                full,
+                unknown,
+            });
+        }
+    }
+
     /// The Dash address a payment from «Mixed» goes to: never a contact, a name or Platform.
     fn mixed_payee(&self, to: &str) -> Result<key_wallet::dashcore::Address, CoreError> {
         if PlatformAddress::from_bech32m_string(to.trim()).is_ok() {
@@ -40,13 +59,14 @@ impl Real {
         amount: u64,
     ) -> Result<(MixedPlan, MixedQuote), CoreError> {
         let state = wallet.state().await;
-        let spendable: Vec<key_wallet::Utxo> = convert::mixed_coins(&state.core_wallet, |txid| {
-            self.chain.instant_lock_verified(txid)
-        })
-        .into_iter()
-        .filter(|c| c.spendable)
-        .map(|c| c.utxo)
-        .collect();
+        let spendable: Vec<key_wallet::Utxo> =
+            convert::mixed_coins(&state.core_wallet, &self.stored_history, |txid| {
+                self.chain.instant_lock_verified(txid)
+            })
+            .into_iter()
+            .filter(|c| c.spendable)
+            .map(|c| c.utxo)
+            .collect();
         let plan = mixed_pay::plan(&spendable, amount).map_err(|e| match e {
             MixedShort::NotEnough { .. } => CoreError::NotEnough,
         })?;

@@ -280,6 +280,15 @@ pub enum Record {
     KeptIslocks {
         count: u32,
     },
+    /// BUG-260: the CoinJoin account's denominations by their rounds — counts of coins only, no
+    /// amounts and no outpoints — written when they change: a «Mixed» lower than another wallet's
+    /// is seen without a copy of the store.
+    MixedRounds {
+        none: u32,
+        some: u32,
+        full: u32,
+        unknown: u32,
+    },
     /// «Features for advanced users» turned on or off (FEAT-0040…0046): only that, as 1 or 0.
     AdvancedFeatures {
         on: bool,
@@ -609,6 +618,14 @@ impl Record {
                 json!({"k": "own_islock_verified", "since_unlock_s": since_unlock_s})
             }
             Record::KeptIslocks { count } => json!({"k": "kept_islocks", "count": count}),
+            Record::MixedRounds {
+                none,
+                some,
+                full,
+                unknown,
+            } => json!({
+                "k": "mixed_rounds", "none": none, "some": some, "full": full, "unknown": unknown,
+            }),
             Record::AdvancedFeatures { on } => {
                 json!({"k": "advanced_features", "on": u8::from(*on)})
             }
@@ -1447,6 +1464,16 @@ mod tests {
                 Record::AdvancedFeatures { on: true },
                 vec!["k", "on", "t"],
                 "advanced_features",
+            ),
+            (
+                Record::MixedRounds {
+                    none: 3,
+                    some: 4,
+                    full: 71,
+                    unknown: 0,
+                },
+                vec!["full", "k", "none", "some", "t", "unknown"],
+                "mixed_rounds",
             ),
         ];
         for (record, keys, kind) in lines {

@@ -292,6 +292,17 @@ fn balance_cards(
     let mixed = b.mixed.map(|m| {
         let amount = CardAmount::as_core(b, m.spendable);
         let line = match amount {
+            // BUG-260: rounds not known yet — not «not mixed yet».
+            CardAmount::Now(_) if m.checking > 0 => {
+                let (number, exact) = crate::format::rounded_number(m.checking, 4);
+                let number = if exact {
+                    number
+                } else {
+                    format!("≈ {number}")
+                };
+                let checking = format!(tr!("being checked {amount}"), amount = number);
+                format!("{unit} · {checking}")
+            }
             CardAmount::Now(_) if m.unfinished > 0 => {
                 // Two pieces, each translated on its own.
                 // Four decimals, «≈» when there are more (the designer, R4): denominations give

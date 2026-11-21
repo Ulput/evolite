@@ -138,6 +138,7 @@
   "You paid someone else.": "Ви заплатили комусь іншому.",
   "You were paid: for goods, work, a gift.": "Вам заплатили: за товар, роботу, подарунок.",
   "an error on Platform": "помилка на боці Platform",
+  "being checked {}": "перевіряється {}",
   "duffs per kB": "дафів за кБ",
   "evolite already passes it on again every 10 minutes while it is open.": "evolite і так передає його повторно раз на 10 хвилин, поки відкритий.",
   "evolite forgets which contacts still wait for a new request from you: their marks in Contacts and the button on the keys screen go away. They still cannot pay you until they get one; the next time you replace the DashPay pair, evolite sends it to all of them.": "evolite забуде, які контакти ще чекають від вас нового запиту: позначки в «Контактах» і кнопка на екрані ключів зникнуть. Платити вам вони, як і раніше, не зможуть, доки не отримають запит; під час наступної заміни пари DashPay evolite надішле його всім.",

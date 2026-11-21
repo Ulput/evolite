@@ -138,6 +138,7 @@
   "You paid someone else.": "आपने किसी और को भुगतान किया।",
   "You were paid: for goods, work, a gift.": "आपको भुगतान मिला: सामान, काम या उपहार के लिए।",
   "an error on Platform": "Platform की ओर से त्रुटि",
+  "being checked {}": "जाँच हो रही है {}",
   "duffs per kB": "डफ़ प्रति kB",
   "evolite already passes it on again every 10 minutes while it is open.": "evolite खुला रहने तक इसे हर 10 मिनट में अपने आप फिर से भेजता है।",
   "evolite forgets which contacts still wait for a new request from you: their marks in Contacts and the button on the keys screen go away. They still cannot pay you until they get one; the next time you replace the DashPay pair, evolite sends it to all of them.": "evolite भूल जाता है कि कौन-से संपर्क अभी भी आपके नए अनुरोध की प्रतीक्षा कर रहे हैं: संपर्क में उनके निशान और कुंजियों की स्क्रीन का बटन हट जाते हैं। जब तक उन्हें अनुरोध नहीं मिलता, वे आपको भुगतान नहीं कर सकते; अगली बार जब आप DashPay जोड़ी बदलेंगे, evolite इसे सभी को भेज देगा।",

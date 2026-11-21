@@ -138,6 +138,7 @@
   "You paid someone else.": "あなたが他の人に支払いました。",
   "You were paid: for goods, work, a gift.": "あなたに支払いがありました：商品、仕事、贈り物の対価として。",
   "an error on Platform": "Platform 側のエラー",
+  "being checked {}": "確認中 {}",
   "duffs per kB": "duff / kB",
   "evolite already passes it on again every 10 minutes while it is open.": "evolite は開いている間、10 分ごとに自動で再送信しています。",
   "evolite forgets which contacts still wait for a new request from you: their marks in Contacts and the button on the keys screen go away. They still cannot pay you until they get one; the next time you replace the DashPay pair, evolite sends it to all of them.": "evolite は、まだあなたからの新しいリクエストを待っている連絡先を忘れます。「連絡先」の印とキー画面のボタンは消えます。リクエストを受け取るまで、その連絡先は引き続きあなたに支払えません。次に DashPay のペアを交換すると、evolite が全員に送ります。",

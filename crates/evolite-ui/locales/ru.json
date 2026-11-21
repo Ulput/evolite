@@ -136,6 +136,7 @@
   "The money came from you: from your exchange or another wallet of yours.": "Деньги пришли от вас самих — с вашей биржи или из другого вашего кошелька.",
   "The money went to you: to your exchange or another wallet of yours.": "Деньги ушли к вам же — на вашу биржу или в другой ваш кошелёк.",
   "an error on Platform": "ошибка на стороне Platform",
+  "being checked {}": "проверяется {}",
   "duffs per kB": "даффов за кБ",
   "evolite already passes it on again every 10 minutes while it is open.": "evolite и так передаёт его повторно раз в 10 минут, пока открыт.",
   "evolite forgets which contacts still wait for a new request from you: their marks in Contacts and the button on the keys screen go away. They still cannot pay you until they get one; the next time you replace the DashPay pair, evolite sends it to all of them.": "evolite забудет, какие контакты ещё ждут от вас нового запроса: отметки в «Контактах» и кнопка на экране ключей пропадут. Платить вам они по-прежнему не смогут, пока не получат запрос; при следующей замене пары DashPay evolite отправит его всем.",

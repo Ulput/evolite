@@ -468,11 +468,12 @@ impl Real {
             let state = wallet.state().await;
             let verified =
                 |txid: &key_wallet::dashcore::Txid| self.chain.instant_lock_verified(txid);
-            let unfinished: Vec<_> = convert::unfinished_coins(&state.core_wallet, verified)
-                .into_iter()
-                .map(|(u, _)| u)
-                .filter(|u| !u.is_locked && convert::coin_is_final(u, verified))
-                .collect();
+            let unfinished: Vec<_> =
+                convert::unfinished_coins(&state.core_wallet, &self.stored_history, verified)
+                    .into_iter()
+                    .map(|(u, _)| u)
+                    .filter(|u| !u.is_locked && convert::coin_is_final(u, verified))
+                    .collect();
             (
                 convert::payable_coins(&state.core_wallet, verified),
                 unfinished,
@@ -565,7 +566,8 @@ impl Real {
         }
         // The mixing account's coins that have not been through all the rounds, after the others
         // (FEAT-0030 AC-A6). Fully mixed ones are spent from «Mixed», not here.
-        let unfinished = convert::unfinished_coins(&state.core_wallet, verified);
+        let unfinished =
+            convert::unfinished_coins(&state.core_wallet, &self.stored_history, verified);
         let rounds: HashMap<String, (u8, u8)> = unfinished
             .iter()
             .map(|(u, r)| {

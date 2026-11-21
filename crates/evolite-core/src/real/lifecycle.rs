@@ -166,6 +166,7 @@ impl Real {
             credits_checked: Arc::new(AtomicBool::new(false)),
             phrase_check: None,
             stored_history: Vec::new(),
+            mixed_rounds_said: Default::default(),
             stored_own: Default::default(),
             consumed_locks: std::collections::HashSet::new(),
             top_ups: Default::default(),

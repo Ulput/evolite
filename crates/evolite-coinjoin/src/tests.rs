@@ -336,3 +336,33 @@ fn a_real_mixing_transaction_counts_as_one_round() {
         assert_eq!(w.rounds(&OutPoint::new(id, 0)), Rounds::Mixed(1), "{id}");
     }
 }
+
+/// BUG-260: a coin whose chain of rounds goes into a transaction the history does not have (in
+/// the store, not yet in memory after a restart) — its rounds are not known, never 0; with that
+/// transaction back, they are counted again. A fee with every input known stays 0.
+#[test]
+fn a_hole_in_the_history_is_unknown_not_0_rounds() {
+    let mut w = Wallet::default();
+    let mut coin = w.prepared();
+    for round in 1..=5u8 {
+        coin = w.mixed(coin, 10 + round);
+    }
+    assert_eq!(w.rounds(&coin), Rounds::Mixed(5));
+    // The round before the last one is missing (as after a restart).
+    let last = w.txs[&coin.txid].clone();
+    let ours_in = last
+        .input
+        .iter()
+        .map(|i| i.previous_output)
+        .find(|o| w.txs.contains_key(&o.txid))
+        .expect("our input");
+    let missing = w.txs.remove(&ours_in.txid).expect("the round before");
+    assert_eq!(w.rounds(&coin), Rounds::Unknown, "a hole: not known, not 0");
+    // Rounds after the hole: still not known, not counted on from 0.
+    let after = w.mixed(coin, 30);
+    let later = w.mixed(after, 31);
+    assert_eq!(w.rounds(&later), Rounds::Unknown, "not 0 + 2");
+    assert!(!w.rounds(&coin).fully_mixed());
+    w.txs.insert(ours_in.txid, missing);
+    assert_eq!(w.rounds(&coin), Rounds::Mixed(5), "the whole history again");
+}

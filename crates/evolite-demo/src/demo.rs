@@ -297,6 +297,7 @@ pub fn demo_wallet(t: Timestamp) -> Wallet {
             mixed: Some(evolite_api::Mixed {
                 spendable: MIXED_SPENDABLE.iter().sum::<Duffs>(),
                 unfinished: 3 * 1_000_010,
+                checking: 0,
                 rounds_needed: 4,
                 max: MIXED_SPENDABLE.iter().sum::<Duffs>() - mixed_fee(MIXED_SPENDABLE.len()),
             }),

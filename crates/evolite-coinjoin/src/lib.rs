@@ -170,14 +170,26 @@ impl<'h, H: History> RoundCounter<'h, H> {
         }
         let (debit, credit) = our_flow(tx, history);
         if debit != credit {
-            return 0;
+            // BUG-260: more came out to the wallet than its known inputs put in, and an input's
+            // transaction is not known — a hole in the history, not a fee: the rounds are not
+            // known, never 0. With every input's transaction known it is a fee, as Dash Core says.
+            let hole = debit < credit
+                && tx
+                    .input
+                    .iter()
+                    .any(|i| history.transaction(&i.previous_output.txid).is_none());
+            return if hole { -1 } else { 0 };
         }
         let mut shortest: Option<i32> = None;
+        let mut unknown = false;
         for input in &tx.input {
             if !self.is_our_input(&input.previous_output) {
                 continue;
             }
             let n = self.real(&input.previous_output, depth + 1);
+            if n == -1 {
+                unknown = true;
+            }
             if n >= 0 && shortest.is_none_or(|s| n < s) {
                 shortest = Some(n);
             }
@@ -185,6 +197,9 @@ impl<'h, H: History> RoundCounter<'h, H> {
         match shortest {
             Some(n) if n >= max - 1 => max,
             Some(n) => n + 1,
+            // BUG-260: an own input whose rounds are not known (a hole further back) and none
+            // known: not known here either — never 0, which would grow by one each round after.
+            None if unknown => -1,
             None => 0,
         }
     }

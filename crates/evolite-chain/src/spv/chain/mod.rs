@@ -107,6 +107,11 @@ pub struct Chain {
     top_up_notes: Mutex<HashMap<key_wallet::dashcore::OutPoint, TopUpNote>>,
     /// Transactions whose InstantLock was verified (R-1): the rest are not shown as InstantSend.
     instant_locks: VerifiedLocks,
+    /// BUG-260: the wallet's records as the store keeps them, read by the core after each new
+    /// record (`set_stored_history`): rounds are counted over them and the ones in memory.
+    stored_history: std::sync::Mutex<
+        Arc<Vec<key_wallet::managed_account::transaction_record::TransactionRecord>>,
+    >,
     /// The store the manager writes through, kept to write the address pools platform-wallet
     /// leaves out (BUG-194, [`Self::save_pools`]).
     persister: Mutex<Option<Arc<crate::store::Store<SqlitePersister>>>>,
@@ -188,6 +193,7 @@ impl Default for Chain {
             })),
             top_up_notes: Mutex::new(HashMap::new()),
             instant_locks: VerifiedLocks::default(),
+            stored_history: Default::default(),
             persister: Mutex::new(None),
             frozen: Default::default(),
             contracts: Mutex::new(None),
@@ -463,6 +469,27 @@ impl Chain {
     }
 
     /// Whether the InstantLock of `txid` was verified in this run (R-1, BUG-26).
+    /// BUG-260: the wallet's stored records, as the core last read them.
+    pub fn set_stored_history(
+        &self,
+        records: Arc<Vec<key_wallet::managed_account::transaction_record::TransactionRecord>>,
+    ) {
+        *self
+            .stored_history
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = records;
+    }
+
+    /// BUG-260: the wallet's stored records, as the core last read them.
+    pub fn stored_history(
+        &self,
+    ) -> Arc<Vec<key_wallet::managed_account::transaction_record::TransactionRecord>> {
+        self.stored_history
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
+    }
+
     pub fn instant_lock_verified(&self, txid: &key_wallet::dashcore::Txid) -> bool {
         self.instant_locks.contains(txid)
     }
@@ -1164,7 +1191,8 @@ impl Chain {
             Some(choice) => {
                 let unfinished: Vec<_> = {
                     let state = wallet.state().await;
-                    crate::convert::unfinished_coins(&state.core_wallet, |txid| {
+                    let stored = self.stored_history();
+                    crate::convert::unfinished_coins(&state.core_wallet, &stored, |txid| {
                         self.instant_lock_verified(txid)
                     })
                     .into_iter()

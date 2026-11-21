@@ -138,6 +138,7 @@
   "You paid someone else.": "您付款给了别人。",
   "You were paid: for goods, work, a gift.": "有人付款给您：为商品、工作或礼物。",
   "an error on Platform": "Platform 端出错",
+  "being checked {}": "正在核对 {}",
   "duffs per kB": "duff / kB",
   "evolite already passes it on again every 10 minutes while it is open.": "evolite 打开期间本就会每 10 分钟重新广播一次。",
   "evolite forgets which contacts still wait for a new request from you: their marks in Contacts and the button on the keys screen go away. They still cannot pay you until they get one; the next time you replace the DashPay pair, evolite sends it to all of them.": "evolite 会忘记哪些联系人仍在等待您的新请求：「联系人」中的标记和密钥页面的按钮会消失。在收到请求之前，他们仍无法向您付款；下次您更换 DashPay 密钥对时，evolite 会发送给所有人。",
