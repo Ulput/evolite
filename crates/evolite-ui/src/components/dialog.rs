@@ -311,7 +311,7 @@ fn header_dialog(
             d.insert_temp(guard_id(), unseen);
             d.remove_temp::<bool>(spends_id());
         });
-        let (closed, inner_footer) = middle(
+        let (closed, summary_height) = middle(
             ui,
             a,
             id,
@@ -321,36 +321,50 @@ fn header_dialog(
         );
         close |= closed;
         let footer_top = ui.cursor().top();
-        if !one {
-            if summary {
-                let top = ui.cursor().top();
-                close |= body(ui, a, Part::Summary);
-                // Pinned: in sight as soon as it is drawn (the measuring pass is not shown).
-                let shown = Rect::from_min_max(pos2(ui.min_rect().left(), top), ui.min_rect().max);
-                let sizing = ui.is_sizing_pass();
-                ui.data_mut(|d| {
-                    if !sizing {
-                        d.insert_temp(id.with("summary-seen"), true);
-                    }
-                    d.insert_temp(id.with("summary-rect"), shown);
-                });
-            }
-            close |= body(ui, a, Part::Footer);
-            // The footer's height with the dialog's gap above it, for the next frame's middle.
-            // Not up to where the next thing would go: a body's own spacing (14 in «Check the
-            // payment») is not the gap the dialog leaves between its middle and its footer.
-            let drawn = ui.min_rect().bottom() - footer_top;
-            let footer = if drawn > 0.0 { drawn + GAP } else { 0.0 };
-            ui.data_mut(|d| d.insert_temp(id.with("footer"), footer));
+        if !one && summary {
+            let top = ui.cursor().top();
+            close |= body(ui, a, Part::Summary);
+            // Pinned: in sight as soon as it is drawn (the measuring pass is not shown).
+            let shown = Rect::from_min_max(pos2(ui.min_rect().left(), top), ui.min_rect().max);
+            let sizing = ui.is_sizing_pass();
+            ui.data_mut(|d| {
+                if !sizing {
+                    d.insert_temp(id.with("summary-seen"), true);
+                }
+                d.insert_temp(id.with("summary-rect"), shown);
+            });
         }
+        // BUG-249 r4 (QA in the real app at 800×440): the footer — the password and the row of
+        // buttons — is never in the scroll, in either mode: under the middle, pinned, its buttons
+        // always in the window. Scrolled with the middle they were out of reach, under its end.
+        let own_top = ui.cursor().top();
+        close |= body(ui, a, Part::Footer);
+        let bottom = ui.min_rect().bottom();
+        let own = (bottom - own_top).max(0.0);
+        // The pinned part's height with the dialog's gap above it, for the next frame's choice
+        // and middle: the summary with the footer, wherever the summary was drawn. Not up to
+        // where the next thing would go: a body's own spacing (14 in «Check the payment») is not
+        // the gap the dialog leaves between its middle and its footer.
+        let pinned = if one {
+            summary_height.map_or(0.0, |h| h + GAP) + own
+        } else {
+            (bottom - footer_top).max(0.0)
+        };
+        ui.data_mut(|d| {
+            d.insert_temp(
+                id.with("footer"),
+                if pinned > 0.0 { pinned + GAP } else { 0.0 },
+            );
+            d.insert_temp(
+                id.with("footer-only"),
+                if own > 0.0 { own + GAP } else { 0.0 },
+            );
+        });
         ui.data_mut(|d| {
             d.insert_temp(id.with("one-scroll"), one);
             d.insert_temp(guard_id(), false);
         });
         crate::a11y::dialog_end(ui.ctx(), outer);
-        // Where the footer was drawn in the one scroll: only the tests look.
-        #[cfg(not(all(test, demo_core, feature = "dev-tools")))]
-        let _ = inner_footer;
         #[cfg(all(test, demo_core, feature = "dev-tools"))]
         {
             let drawn = ui.min_rect();
@@ -359,12 +373,11 @@ fn header_dialog(
                 name: name.to_owned(),
                 pass: ui.ctx().cumulative_pass_nr(),
                 rect: drawn,
-                footer: match inner_footer {
-                    // In the one scroll: where it was drawn, in it.
-                    Some(r) => Some(r),
-                    None if one => None,
-                    None => (drawn.bottom() > footer_top)
-                        .then(|| Rect::from_min_max(pos2(drawn.left(), footer_top), drawn.max)),
+                // Under the middle in both modes; with the summary when that is pinned too.
+                footer: {
+                    let top = if one { own_top } else { footer_top };
+                    (drawn.bottom() > top)
+                        .then(|| Rect::from_min_max(pos2(drawn.left(), top), drawn.max))
                 },
                 one_scroll: one,
                 spends: ui
@@ -401,9 +414,9 @@ fn header_dialog(
 
 /// The dialog's middle: in a scroll area as high as the window leaves it between the header
 /// above and the footer as high as it was last frame. With `one` (BUG-249, [`one_scroll`]) the
-/// footer is drawn in the same scroll area under the middle, the area as high as the window
-/// leaves under the header. Whether the body closed the dialog, and with `one` where the footer
-/// was drawn.
+/// summary is drawn in the same scroll area under the middle, the area as high as the window
+/// leaves between the header and the footer alone (r4: the footer never scrolls). Whether the
+/// body closed the dialog, and with `one` how high the summary was drawn.
 fn middle(
     ui: &mut Ui,
     a: &mut Assets,
@@ -411,7 +424,7 @@ fn middle(
     (to_top, settled): (bool, bool),
     body: &mut impl FnMut(&mut Ui, &mut Assets, Part) -> bool,
     (one, summary): (bool, bool),
-) -> (bool, Option<Rect>) {
+) -> (bool, Option<f32>) {
     /// The fade over the bottom of a middle that goes on (the designer, BUG-122 item 4).
     const FADE: f32 = 16.0;
     // The first frame only measures: the whole middle, unscrolled. Still in the same area, so
@@ -424,7 +437,7 @@ fn middle(
     let room = if sizing {
         f32::INFINITY
     } else if one {
-        whole_room(ui)
+        whole_room(ui, id)
     } else {
         middle_room(ui, id)
     };
@@ -460,12 +473,9 @@ fn middle(
         let mut close = body(ui, a, Part::Middle);
         // The middle's own height, the footer left out: what the next frame's choice reads.
         let alone = ui.min_rect().bottom() - top;
-        let mut footer = None;
+        let mut summary_height = None;
         if one {
             ui.add_space(GAP);
-            // The pinned part as the next frame's choice reads it: the summary with the footer,
-            // as measured when it is pinned — or the choice would flip every frame.
-            let pinned_top = ui.cursor().top();
             if summary {
                 let top = ui.cursor().top();
                 close |= body(ui, a, Part::Summary);
@@ -494,30 +504,17 @@ fn middle(
                     d.insert_temp(id.with("summary-seen"), seen);
                     d.insert_temp(id.with("summary-rect"), shown);
                 });
+                // As measured when it is pinned, for the next frame's choice — or the choice
+                // would flip every frame.
+                summary_height = Some(shown.height());
             }
-            let footer_top = ui.cursor().top();
-            close |= body(ui, a, Part::Footer);
-            let bottom = ui.min_rect().bottom();
-            if bottom > footer_top {
-                footer = Some(Rect::from_min_max(
-                    pos2(ui.min_rect().left(), footer_top),
-                    pos2(ui.min_rect().right(), bottom),
-                ));
-            }
-            let drawn = (bottom - pinned_top).max(0.0);
-            ui.data_mut(|d| {
-                d.insert_temp(
-                    id.with("footer"),
-                    if drawn > 0.0 { drawn + GAP } else { 0.0 },
-                )
-            });
         }
         if settled {
             follow_focus(ui, id);
         }
-        (close, footer, alone)
+        (close, summary_height, alone)
     });
-    let (close, footer, alone) = shown.inner;
+    let (close, summary_height, alone) = shown.inner;
     let used = wider.min_rect();
     ui.advance_cursor_after_rect(Rect::from_min_size(used.min, vec2(width, used.height())));
     // More below: a fade into the dialog's colour, gone once it is scrolled to its end.
@@ -531,7 +528,7 @@ fn middle(
         // How high the middle is whole, for the next frame's choice of margin.
         d.insert_temp(id.with("content"), alone);
     });
-    (close, footer)
+    (close, summary_height)
 }
 
 fn spends_id() -> egui::Id {
@@ -603,10 +600,22 @@ fn window_less_header(ui: &Ui, margin: f32) -> f32 {
     ui.ctx().content_rect().height() - 2.0 * margin - PADDING - above
 }
 
-/// The room of the one scroll (BUG-249): all the window leaves under the header.
-fn whole_room(ui: &Ui) -> f32 {
-    window_less_header(ui, MARGIN_SCROLL).max(MIN_MIDDLE)
+/// The room of the one scroll (BUG-249): all the window leaves between the header and the
+/// footer alone as high as it was last frame (r4: the footer is pinned under it). Never less
+/// than [`MIN_SCROLL`]: under [`MIN_MIDDLE`] when the footer has grown (a wrong password and the
+/// lines before a pause), for the buttons come first (the architect, r4).
+fn whole_room(ui: &Ui, id: egui::Id) -> f32 {
+    const FIRST_FRAME_FOOTER: f32 = 56.0;
+    let footer = ui
+        .data(|d| d.get_temp::<f32>(id.with("footer-only")))
+        .unwrap_or(FIRST_FRAME_FOOTER);
+    (window_less_header(ui, MARGIN_SCROLL) - footer).max(MIN_SCROLL)
 }
+
+/// BUG-249 r4: the least the one scroll keeps when the footer under it has grown — two lines.
+/// [`MIN_MIDDLE`] is only the rule that chooses the one scroll; the footer's buttons are never
+/// pushed out of the window to keep it.
+pub const MIN_SCROLL: f32 = 48.0;
 
 /// Between the header, the middle and the footer.
 const GAP: f32 = 16.0;

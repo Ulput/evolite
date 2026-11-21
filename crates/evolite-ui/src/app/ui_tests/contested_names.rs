@@ -34,9 +34,11 @@ fn a_contested_name_is_answered_with_its_vote_and_goes_to_the_review() {
     assert!(has_words(&kit, "The masternode vote lasts "));
 }
 
-/// AC-T6 and AC-D2: the review says the fund is not returned, above the password, in a wide
-/// window and in the smallest (800 × 440, the footer kept in the window, BUG-122); «Sign and send»
-/// waits for the password.
+/// AC-T6 and AC-D2: the review says the fund is not returned, in its summary, in a wide window
+/// and in the smallest (800 × 440, the footer kept in the window, BUG-122); «Sign and send» waits
+/// for the password. Where the summary is pinned the warning stands above the password; in the
+/// one scroll (BUG-249 r4: the footer pinned under it) it scrolls with the summary, which is not
+/// seen yet, so the button is held until a press brings it in.
 #[test]
 fn the_review_says_the_fund_is_not_returned_above_the_password() {
     for size in [egui::vec2(1024.0, 768.0), egui::vec2(800.0, 440.0)] {
@@ -56,10 +58,6 @@ fn the_review_says_the_fund_is_not_returned_above_the_password() {
             .next()
             .unwrap_or_else(|| panic!("{size:?}: the password"))
             .rect();
-        assert!(
-            warning.bottom() <= password.top(),
-            "{size:?}: above the password: {warning:?} / {password:?}"
-        );
         // BUG-249: the warning is in the review's summary. Where the window leaves the pinned
         // part room it stays in the window; in a window too low for it (the one scroll) it
         // scrolls with the summary, and the button acts only once that summary was in sight.
@@ -69,7 +67,20 @@ fn the_review_says_the_fund_is_not_returned_above_the_password() {
             summary.expand(0.5).contains_rect(warning),
             "{size:?}: in the summary: {warning:?} / {summary:?}"
         );
-        if !dialog.one_scroll {
+        if dialog.one_scroll {
+            // The summary scrolls, its warning in it; while it has not been in sight the primary
+            // is held and its first press brings it in (`summary.rs`, which opens its dialog in
+            // the low window — this one was opened in a larger one first, and seen there).
+            let view = dialog.scrolled.expect("the one scroll");
+            assert!(
+                warning.top() >= view.top(),
+                "{size:?}: in the scroll: {warning:?} / {view:?}"
+            );
+        } else {
+            assert!(
+                warning.bottom() <= password.top(),
+                "{size:?}: above the password: {warning:?} / {password:?}"
+            );
             assert!(
                 warning.bottom() <= size.y && warning.top() >= 0.0,
                 "{size:?}: in the window: {warning:?}"

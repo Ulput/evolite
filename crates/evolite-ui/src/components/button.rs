@@ -276,7 +276,10 @@ pub fn button_enabled(
     // The id the button gets, for its row's keyboard before egui reads the keys for it.
     row_button(ui, ui.next_auto_id(), kind, enabled);
     let (rect, resp) = ui.allocate_exact_size(vec2(w, BUTTON_HEIGHT), sense);
-    if held && resp.hovered() && ui.input(|i| i.pointer.primary_clicked()) {
+    // Not `hovered()`: a held button senses no click, so the click goes to the dialog behind it
+    // and egui calls nothing hovered while a click is on — the press was lost whenever the
+    // button was not in a scroll area (BUG-249 r4, its footer pinned).
+    if held && resp.contains_pointer() && ui.input(|i| i.pointer.primary_clicked()) {
         super::show_summary(ui.ctx());
     }
     named(&resp, egui::WidgetType::Button, enabled, label);

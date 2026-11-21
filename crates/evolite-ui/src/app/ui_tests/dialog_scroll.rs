@@ -60,25 +60,23 @@ fn kept(kit: &Kit) -> Vec<String> {
     let window = window(kit);
     let dialog = seen(kit);
     let mut wrong = Vec::new();
-    // A middle that scrolls keeps a few lines of the window, never a strip (BUG-249).
+    // A middle that scrolls keeps a few lines of the window, never a strip (BUG-249); in the
+    // one scroll down to two when the footer under it has grown (r4: the buttons come first).
+    let least = if dialog.one_scroll {
+        crate::components::MIN_SCROLL
+    } else {
+        crate::components::MIN_MIDDLE
+    };
     if let Some(view) = dialog.scrolled
-        && view.height() < crate::components::MIN_MIDDLE - 1.0
+        && view.height() < least - 1.0
     {
         wrong.push(format!("its scrolled part is {:.0} px high", view.height()));
     }
-    // BUG-249: too low a window for a footer that stays: it scrolls with the middle under the
-    // header. The dialog stays in the window and its buttons are in the scroll.
-    if dialog.one_scroll {
-        if !window.contains_rect(dialog.rect.shrink(1.0)) {
-            wrong.push(format!("the dialog {:?} is out of {window:?}", dialog.rect));
-        }
-        if !dialog
-            .footer
-            .is_some_and(|f| !footer_buttons(kit, f).is_empty())
-        {
-            wrong.push("no button in the footer".into());
-        }
-        return wrong;
+    // BUG-249: too low a window for the summary to stay put: it scrolls with the middle under
+    // the header. The dialog stays in the window, and its footer stays pinned in it like any
+    // other (r4: scrolled with the middle, the real app's buttons were out of reach).
+    if dialog.one_scroll && !window.contains_rect(dialog.rect.shrink(1.0)) {
+        wrong.push(format!("the dialog {:?} is out of {window:?}", dialog.rect));
     }
     match dialog.footer {
         Some(footer) => {
@@ -472,4 +470,153 @@ fn a_field_in_a_scrolling_middle_keeps_its_text_left_to_right_in_arabic() {
         (cursor - text.max.x).abs() < 4.0,
         "the cursor at {cursor} after the last letter ({text:?}), not reflected to the first"
     );
+}
+
+/// BUG-249 r4 (QA in the real app at 800×440, dev b2365055): the identity top-up with «0,01»
+/// typed and the payment's last look, the password asked, in Russian and in English. In the one
+/// scroll their buttons were drawn in it, under its end (606–647 here, 663–704 in the real app),
+/// and the real app's wheel never brought them up. Now the footer is pinned: every button is in
+/// the window as the dialog opens, and still after the wheel has gone over it.
+#[test]
+fn the_wheel_brings_every_button_of_a_low_dialog_into_sight() {
+    for lang in ["ru", "en"] {
+        for preset in ["top-up", "send-confirm", "send-confirm-tall"] {
+            let (_turn, mut kit) = demo_app(preset, lang);
+            settle(&mut kit);
+            if preset == "top-up" {
+                kit.state_mut()
+                    .identity
+                    .top_up
+                    .as_mut()
+                    .expect("the top-up form")
+                    .amount = "0,01".into();
+            }
+            at(&mut kit, SMALLEST);
+            // The core's answer to what was typed (the fee) comes and is drawn.
+            for _ in 0..20 {
+                at(&mut kit, SMALLEST);
+            }
+            // As it opens: the footer pinned in the window, nothing to scroll for.
+            let wrong = kept(&kit);
+            assert!(wrong.is_empty(), "{preset} {lang}, unscrolled: {wrong:?}");
+            let centre = seen(&kit).rect.center();
+            for _ in 0..30 {
+                kit.hover_at(centre);
+                kit.event(egui::Event::MouseWheel {
+                    unit: egui::MouseWheelUnit::Point,
+                    delta: egui::vec2(0.0, -120.0),
+                    phase: egui::TouchPhase::Move,
+                    modifiers: Default::default(),
+                });
+                at(&mut kit, SMALLEST);
+            }
+            let window = window(&kit);
+            let dialog = seen(&kit);
+            let footer = dialog.footer.expect("a footer");
+            let buttons = footer_buttons(&kit, footer);
+            // The footer is pinned under the scroll: in the dialog, in the window.
+            let shows = dialog.rect.intersect(window);
+            let out: Vec<_> = buttons
+                .iter()
+                .filter(|b| !shows.contains_rect(b.shrink(0.5)))
+                .collect();
+            assert!(
+                !buttons.is_empty() && out.is_empty(),
+                "{preset} {lang}: one scroll {}, buttons {buttons:?} out of {shows:?}: {out:?}; dialog {:?}",
+                dialog.one_scroll,
+                dialog.rect
+            );
+        }
+    }
+}
+
+/// BUG-249 r4, the architect: a footer that has grown — a wrong password and the lines before a
+/// pause («attempts left», «the next pause is …», 2–3 lines in de and ru), or the pause's plate —
+/// never pushes the buttons out of the window: the one scroll gives way down to
+/// [`crate::components::MIN_SCROLL`]. The top-up with «0,01» and the payment, at 800×440.
+#[test]
+fn a_grown_footer_keeps_its_buttons_and_password_in_the_window() {
+    // (wrong tries, a pause running, «Wrong password» under the field, a send's error)
+    const CASES: [(u32, bool, bool, bool); 4] = [
+        (4, false, true, false),
+        (6, false, true, false),
+        (6, true, false, false),
+        (6, false, true, true),
+    ];
+    for lang in ["ru", "de"] {
+        for preset in ["top-up", "send-confirm-tall"] {
+            for (tries, paused, wrong, failed) in CASES {
+                let (_turn, mut kit) = demo_app(preset, lang);
+                settle(&mut kit);
+                if preset == "top-up" {
+                    kit.state_mut()
+                        .identity
+                        .top_up
+                        .as_mut()
+                        .expect("the top-up form")
+                        .amount = "0,01".into();
+                }
+                kit.set_size(egui::vec2(SMALLEST[0], SMALLEST[1]));
+                let until = chrono::Local::now().timestamp() + 45;
+                show_edited(
+                    &mut kit,
+                    6,
+                    "the grown footer",
+                    |app| {
+                        if let Some(s) = app.snapshot.as_mut() {
+                            for w in s.wallets.iter_mut().filter(|w| w.open) {
+                                w.wrong_tries = tries;
+                                w.wait_until = paused.then_some(until);
+                            }
+                            if let Some(w) = s.wallet.as_mut() {
+                                w.password_each_send = true;
+                            }
+                        }
+                        if wrong {
+                            app.identity.top_up_flow.password.on_wrong();
+                            app.send.password_wrong = true;
+                        }
+                        if failed {
+                            app.send.result = Some(Err(evolite_api::CoreError::Failed(
+                                "the network refused the transaction: a long reason the core                                  gave, as it gave it"
+                                    .into(),
+                            )));
+                        }
+                    },
+                    |kit| dialog_seen(&kit.ctx).is_some(),
+                );
+                let window = window(&kit);
+                let dialog = seen(&kit);
+                let case =
+                    format!("{preset} {lang}, {tries} tries, paused {paused}, failed {failed}");
+                let buttons = dialog
+                    .footer
+                    .map(|f| footer_buttons(&kit, f))
+                    .unwrap_or_default();
+                assert!(!buttons.is_empty(), "{case}: no button in the footer");
+                for b in &buttons {
+                    assert!(
+                        window.contains_rect(b.shrink(0.5)),
+                        "{case}: a button {b:?} out of {window:?}"
+                    );
+                }
+                for field in passwords(&kit) {
+                    assert!(
+                        window.contains_rect(field),
+                        "{case}: the password {field:?} out of {window:?}"
+                    );
+                }
+                // The whole dialog — its 24 of padding under the buttons — keeps its margin from
+                // the window's edge (r4: at a floor of 96 it went 24 past it).
+                let frame_bottom = dialog.rect.bottom() + 24.0;
+                assert!(
+                    frame_bottom <= window.bottom() - crate::components::MARGIN_SCROLL + 1.0,
+                    "{case}: the dialog ends at {frame_bottom}, the window at {}",
+                    window.bottom()
+                );
+                let wrong = kept(&kit);
+                assert!(wrong.is_empty(), "{case}: {wrong:?}");
+            }
+        }
+    }
 }
