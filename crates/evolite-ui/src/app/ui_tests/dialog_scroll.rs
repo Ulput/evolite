@@ -620,3 +620,83 @@ fn a_grown_footer_keeps_its_buttons_and_password_in_the_window() {
         }
     }
 }
+
+/// Whether the dialog is still drawn: its record from this frame (a closed one keeps last
+/// frame's).
+fn still_up(kit: &mut Kit) -> bool {
+    let before = dialog_seen(&kit.ctx).map(|d| d.pass);
+    kit.run_steps(1);
+    let after = dialog_seen(&kit.ctx).map(|d| d.pass);
+    after.is_some() && after != before
+}
+
+/// BUG-267 (the customer, dev 284687bf): in a large window the coin picker's «×» did not answer
+/// clicks. Every dialog a preset opens, at 1440 × 900 and 1920 × 1080: a click on its own
+/// «Close» closes it, and so does Escape.
+#[test]
+fn every_dialogs_cross_and_escape_close_it_in_a_large_window() {
+    let mut wrong = Vec::new();
+    for size in [[1440.0, 900.0], [1920.0, 1080.0]] {
+        for preset in PRESETS {
+            if matches!(*preset, "sync" | "sync-nodes") {
+                continue;
+            }
+            for how in ["cross", "escape"] {
+                let (_turn, mut kit) = demo_app(preset, "en");
+                if preset.starts_with("connect") {
+                    wait_for(&mut kit, "the app's request", |kit| {
+                        dialog_seen(&kit.ctx).is_some()
+                    });
+                }
+                kit.set_size(egui::vec2(size[0], size[1]));
+                settle(&mut kit);
+                if !still_up(&mut kit) {
+                    continue;
+                }
+                let name = seen(&kit).name.clone();
+                match how {
+                    "cross" => {
+                        // The dialog's own «×»: the right-most «Close» on its header's line.
+                        let frame = seen(&kit).rect.expand(32.0);
+                        let Some(cross) = kit
+                            .query_all_by_role_and_label(Role::Button, "Close")
+                            .map(|n| n.rect())
+                            .filter(|r| frame.contains_rect(*r) && r.top() < frame.top() + 72.0)
+                            .max_by(|a, b| a.right().total_cmp(&b.right()))
+                        else {
+                            wrong.push(format!("{size:?} {preset} ({name}): no «×»"));
+                            continue;
+                        };
+                        let at = cross.center();
+                        kit.hover_at(at);
+                        kit.run_steps(1);
+                        for pressed in [true, false] {
+                            kit.event(egui::Event::PointerButton {
+                                pos: at,
+                                button: egui::PointerButton::Primary,
+                                pressed,
+                                modifiers: Default::default(),
+                            });
+                        }
+                    }
+                    _ => {
+                        kit.key_press(egui::Key::Escape);
+                        kit.run_steps(4);
+                        // A focused field takes the first Escape (it leaves the field); the
+                        // second closes the dialog.
+                        if still_up(&mut kit) && seen(&kit).name == name {
+                            kit.key_press(egui::Key::Escape);
+                        }
+                    }
+                }
+                kit.run_steps(4);
+                if still_up(&mut kit) && seen(&kit).name == name {
+                    wrong.push(format!(
+                        "{size:?} {preset} ({name}): {how} did not close it"
+                    ));
+                }
+            }
+        }
+    }
+    assert!(wrong.is_empty(), "{}", wrong.join("\n"));
+}

@@ -303,7 +303,7 @@ pub(super) fn coins_dialog(ui: &mut Ui, a: &mut Assets, form: &mut SendForm, v: 
     let mut apply = false;
     // What the footer says, and whether «Apply» is off, as the middle found.
     let mut foot = Foot::Fine;
-    let open = crate::components::dialog_with_footer(
+    let closed = crate::components::dialog_with_footer(
         ui,
         a,
         "send-coins",
@@ -377,7 +377,9 @@ pub(super) fn coins_dialog(ui: &mut Ui, a: &mut Assets, form: &mut SendForm, v: 
                         });
                     });
                 });
-                return !(apply || cancel);
+                // True closes it, as every dialog's body (BUG-267: inverted here, with the
+                // result read as «open», «×» and Escape — the dialog's own close — did nothing).
+                return apply || cancel;
             }
             let pick = &mut form.coins;
             ui.spacing_mut().item_spacing.y = 12.0;
@@ -420,7 +422,7 @@ pub(super) fn coins_dialog(ui: &mut Ui, a: &mut Assets, form: &mut SendForm, v: 
             BTreeSet::new()
         };
     }
-    if !open || apply {
+    if closed || apply {
         form.coins.dialog = false;
         form.coins.ticked.clear();
     }
