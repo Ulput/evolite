@@ -1,4 +1,5 @@
 {
+  "The wallet's keys could not be checked yet — try again in a minute": "वॉलेट की कुंजियाँ अभी जाँची नहीं जा सकीं — एक मिनट बाद फिर कोशिश करें",
   "Nothing was returned to put back into the pool": "पूल में वापस डालने के लिए कुछ भी वापस नहीं आया",
   "The identity from the pool is still being checked — wait for its outcome": "पूल से बनी पहचान की अभी जाँच हो रही है — नतीजे का इंतज़ार करें",
   "The network does not create an identity from the pool with this amount": "नेटवर्क इस राशि से पूल से पहचान नहीं बनाता",

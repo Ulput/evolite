@@ -1,4 +1,5 @@
 {
+  "The wallet's keys could not be checked yet — try again in a minute": "Les clés du portefeuille n’ont pas encore pu être vérifiées — réessayez dans une minute",
   "Nothing was returned to put back into the pool": "Rien n'a été rendu à remettre dans le pool",
   "The identity from the pool is still being checked — wait for its outcome": "L’identité issue du pool est encore en vérification — attendez le résultat",
   "The network does not create an identity from the pool with this amount": "Le réseau ne crée pas d’identité depuis le pool avec ce montant",

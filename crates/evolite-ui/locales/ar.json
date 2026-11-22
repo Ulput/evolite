@@ -1,4 +1,5 @@
 {
+  "The wallet's keys could not be checked yet — try again in a minute": "تعذّر التحقق من مفاتيح المحفظة بعد — حاول مرة أخرى بعد دقيقة",
   "Nothing was returned to put back into the pool": "لم يُعَد شيء لإعادته إلى المجمع",
   "The identity from the pool is still being checked — wait for its outcome": "ما زال التحقق جاريًا من الهوية المنشأة من المجمّع — انتظر النتيجة",
   "The network does not create an identity from the pool with this amount": "لا تنشئ الشبكة هوية من المجمّع بهذا المبلغ",

@@ -383,6 +383,8 @@ impl Chain {
         amount: u64,
         needed: evolite_api::Duffs,
     ) -> Result<String, String> {
+        // BUG-273 r1: no new asset lock while this wallet's funding keys are unchecked.
+        self.require_funding_keys(wallet).await?;
         // Only final coins (SPV item 3).
         let id = self
             .with_final_coins(
@@ -645,6 +647,8 @@ impl Chain {
         me: &Identifier,
         amount: u64,
     ) -> Result<u64, String> {
+        // BUG-273 r1: no new asset lock while this wallet's funding keys are unchecked.
+        self.require_funding_keys(wallet).await?;
         // Only final coins (SPV item 3).
         self.with_final_coins(
             wallet,

@@ -1,4 +1,5 @@
 {
+  "The wallet's keys could not be checked yet — try again in a minute": "Cüzdanın anahtarları henüz denetlenemedi — bir dakika sonra yeniden deneyin",
   "Nothing was returned to put back into the pool": "Havuza geri koymak için iade edilen bir şey yok",
   "The identity from the pool is still being checked — wait for its outcome": "Havuzdan kimlik hâlâ denetleniyor — sonucu bekleyin",
   "The network does not create an identity from the pool with this amount": "Ağ bu tutarla havuzdan kimlik oluşturmaz",

@@ -13,6 +13,7 @@ mod contacts;
 mod contests;
 mod contract_write;
 mod contracts;
+mod funding_keys;
 mod identities;
 mod nft_series;
 pub mod rebroadcast;
@@ -108,6 +109,9 @@ pub struct Chain {
     top_up_notes: Mutex<HashMap<key_wallet::dashcore::OutPoint, TopUpNote>>,
     /// Transactions whose InstantLock was verified (R-1): the rest are not shown as InstantSend.
     instant_locks: VerifiedLocks,
+    /// BUG-273 r1: the wallets whose asset-lock funding keys could not be checked against the
+    /// store: no new asset lock for them until a read succeeds.
+    funding_keys_unchecked: std::sync::Mutex<std::collections::BTreeSet<WalletId>>,
     /// BUG-260: the wallet's records as the store keeps them, read by the core after each new
     /// record (`set_stored_history`): rounds are counted over them and the ones in memory.
     stored_history: std::sync::Mutex<
@@ -196,6 +200,7 @@ impl Default for Chain {
             })),
             top_up_notes: Mutex::new(HashMap::new()),
             instant_locks: VerifiedLocks::default(),
+            funding_keys_unchecked: Default::default(),
             stored_history: Default::default(),
             persister: Mutex::new(None),
             frozen: Default::default(),
@@ -867,6 +872,8 @@ impl Chain {
         let id = wallet_id_of(seed)?;
         if let Some(wallet) = manager.get_wallet(&id).await {
             self.open_refusal_account(&wallet, seed).await;
+            // BUG-273: a wallet restored from the store, before its first sync.
+            self.mark_funding_keys_used(&wallet).await;
             return Ok((id, wallet));
         }
         let wallet = manager
@@ -885,6 +892,8 @@ impl Chain {
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .wallet_attached();
+        // BUG-273: a wallet made now has nothing used yet; marked all the same, the one rule.
+        self.mark_funding_keys_used(&wallet).await;
         Ok((wallet.wallet_id(), wallet))
     }
 

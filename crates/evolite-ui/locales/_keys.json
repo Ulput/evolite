@@ -1761,6 +1761,7 @@
   "The wallet was locked, so the rest of the requests were not sent. Send them with “Send requests again” on the keys screen.",
   "The wallet was not deleted: {}",
   "The wallet was not made",
+  "The wallet's keys could not be checked yet — try again in a minute",
   "The whole email, as the recipient will see it. If everything is right, open it in your mail app or save it together with the journal.",
   "The whole history · {}",
   "The whole supply is issued",

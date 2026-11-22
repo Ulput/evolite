@@ -1,4 +1,5 @@
 {
+  "The wallet's keys could not be checked yet — try again in a minute": "暂时无法核对钱包的密钥——请一分钟后再试",
   "Nothing was returned to put back into the pool": "没有退回的资金可放回池中",
   "The identity from the pool is still being checked — wait for its outcome": "来自池的身份仍在核对中——请等待结果",
   "The network does not create an identity from the pool with this amount": "网络不会用此金额从池中创建身份",

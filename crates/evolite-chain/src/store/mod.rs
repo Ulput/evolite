@@ -207,6 +207,11 @@ impl<P> Store<P> {
         }
     }
 
+    /// The store's file (BUG-273: what is read straight from it, read only).
+    pub fn db_path(&self) -> &std::path::Path {
+        &self.db
+    }
+
     fn tracked(&self) -> std::sync::MutexGuard<'_, BTreeMap<WalletId, Tracked>> {
         self.wallets.lock().unwrap_or_else(|e| e.into_inner())
     }

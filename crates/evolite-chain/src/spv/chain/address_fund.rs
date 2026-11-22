@@ -129,6 +129,8 @@ impl Chain {
         keys: &key_wallet::Wallet,
         lock: u64,
     ) -> Result<(key_wallet::dashcore::OutPoint, bool), String> {
+        // BUG-273 r1: no new asset lock while this wallet's funding keys are unchecked.
+        self.require_funding_keys(wallet).await?;
         let lock_signer = crate::identity::AssetLockSigner(keys.clone());
         // Only final coins (SPV item 3).
         let made = self

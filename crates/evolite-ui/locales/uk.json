@@ -1,4 +1,5 @@
 {
+  "The wallet's keys could not be checked yet — try again in a minute": "Ключі гаманця ще не вдалося перевірити — спробуйте за хвилину",
   "Nothing was returned to put back into the pool": "Повертати в пул нічого — Platform нічого не повернула",
   "The identity from the pool is still being checked — wait for its outcome": "Ідентичність із пулу ще перевіряється — дочекайтеся результату",
   "The network does not create an identity from the pool with this amount": "Мережа не створює ідентичність із пулу на таку суму",

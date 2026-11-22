@@ -85,6 +85,29 @@ fn own_scripts(
         .collect()
 }
 
+/// BUG-273: the scripts of the asset-lock funding keys the store recorded used
+/// (`core_address_pool.used`): identity registration, identity top-up (bound or not), the
+/// Platform address and the pool funding accounts. platform-wallet writes them after each lock
+/// it builds, but its load restores the used state of funds accounts only, so these come back
+/// free. Read only; a store without the table gives none.
+pub fn used_funding_scripts(
+    store: &std::path::Path,
+    wallet: &WalletId,
+) -> Result<Vec<Vec<u8>>, String> {
+    let conn = open_read_only(store)?;
+    let Ok(mut stmt) = conn.prepare(
+        "SELECT script FROM core_address_pool WHERE wallet_id = ?1 AND used = 1 AND account_type          IN ('identity_registration', 'identity_topup', 'identity_topup_unbound',          'asset_lock_address_topup', 'asset_lock_shielded_topup')",
+    ) else {
+        return Ok(Vec::new());
+    };
+    let rows = stmt
+        .query_map(rusqlite::params![wallet.as_slice()], |row| {
+            row.get::<_, Vec<u8>>(0)
+        })
+        .map_err(|e| e.to_string())?;
+    Ok(rows.filter_map(Result::ok).collect())
+}
+
 /// The store's records as written, one per transaction.
 pub(super) fn stored_records(
     conn: &rusqlite::Connection,

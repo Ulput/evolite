@@ -768,10 +768,14 @@ mod imp {
                     out_point: lock.out_point,
                     consume_invitation_voucher: false,
                 },
-                None => platform_wallet::AssetLockFunding::FromWalletBalance {
-                    amount_duffs: duffs,
-                    account_index: 0,
-                },
+                None => {
+                    // BUG-273 r1: no new asset lock while the funding keys are unchecked.
+                    self.require_funding_keys(wallet).await?;
+                    platform_wallet::AssetLockFunding::FromWalletBalance {
+                        amount_duffs: duffs,
+                        account_index: 0,
+                    }
+                }
             };
             let signer = crate::identity::AssetLockSigner(keys.clone());
             // Only final coins (SPV item 3).

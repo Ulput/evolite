@@ -1,4 +1,5 @@
 {
+  "The wallet's keys could not be checked yet — try again in a minute": "Kunci dompet belum bisa diperiksa — coba lagi dalam semenit",
   "Nothing was returned to put back into the pool": "Tidak ada yang dikembalikan untuk dimasukkan lagi ke pool",
   "The identity from the pool is still being checked — wait for its outcome": "Identitas dari pool masih diperiksa — tunggu hasilnya",
   "The network does not create an identity from the pool with this amount": "Jaringan tidak membuat identitas dari pool dengan jumlah ini",
