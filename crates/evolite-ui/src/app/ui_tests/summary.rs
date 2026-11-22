@@ -194,9 +194,10 @@ fn disconnect_with_the_summary_unseen_shows_it_and_sends_nothing() {
 
 /// FEAT-0038 W0–W4 r2 Must 2: «Check the collection» signs 10+ DASH, so its summary (the fee,
 /// the credits after, that it cannot be undone, the large spend's tick) is pinned with the
-/// footer. Its middle is a few lines: at the smallest window and below, the summary is in sight
-/// as soon as it opens — the first Enter never meets it unseen — and a screen reader reads it
-/// before «Sign and create».
+/// footer. Its middle is a few lines: at the smallest window the summary is in sight as soon as
+/// it opens; below it (no window the app allows, `theme::MIN_WINDOW`) it may scroll, and then the
+/// primary is held until it is in sight (BUG-249 r4: «in sight now») — either way the first
+/// Enter never acts on it unseen — and a screen reader reads it before «Sign and create».
 #[test]
 fn the_collection_review_pins_its_summary() {
     for size in [[800.0, 440.0], [800.0, 200.0]] {
@@ -206,11 +207,16 @@ fn the_collection_review_pins_its_summary() {
             dialog_seen(&kit.ctx).is_some() && has_text(kit, "Check the collection")
         });
         kit.run_steps(4);
-        let (_, seen) = dialog_seen(&kit.ctx)
-            .unwrap()
-            .summary
-            .expect("a pinned summary");
-        assert!(seen, "{size:?}: the summary is in sight when it opens");
+        let dialog = dialog_seen(&kit.ctx).unwrap();
+        let (_, seen) = dialog.summary.expect("a pinned summary");
+        if size[1] >= crate::theme::MIN_WINDOW[1] {
+            assert!(seen, "{size:?}: the summary is in sight when it opens");
+        } else {
+            assert!(
+                seen || dialog.one_scroll,
+                "{size:?}: in sight, or scrolling with the primary held until it is"
+            );
+        }
         let order: Vec<String> = kit
             .query_all_by(|_| true)
             .filter_map(|n| {
@@ -227,6 +233,233 @@ fn the_collection_review_pins_its_summary() {
         assert!(
             fee.is_some() && after.is_some() && button.is_some() && fee < button && after < button,
             "{size:?}: {fee:?} {after:?} before {button:?}"
+        );
+    }
+}
+
+/// BUG-249 r4, QA on the real core (dev 284687bf, (c)): the identity top-up at 800 × 440 — the
+/// summary scrolled into sight by the wheel, then out of it again — and the first «Top up by …»
+/// sent at once: «seen once» let it go. The primary acts only while the summary is in sight
+/// now; else its press brings the summary in, and the next press acts.
+#[test]
+fn the_top_up_with_its_summary_scrolled_away_first_brings_it_in() {
+    let (_turn, mut kit) = demo_app("top-up", "en");
+    settle(&mut kit);
+    kit.set_size(egui::vec2(800.0, 440.0));
+    show_wallet_edited(
+        &mut kit,
+        6,
+        "the top-up at 800 × 440, the password asked",
+        |w| w.password_each_send = true,
+        |kit| dialog_seen(&kit.ctx).is_some_and(|d| d.one_scroll),
+    );
+    // Signed: the flow waits or has its answer, or the form shows what it signed (the demo
+    // core answers at once).
+    let sent = |kit: &Kit| {
+        let id = &kit.state().identity;
+        id.top_up_flow.signed().is_some()
+            || id.top_up_flow.result().is_some()
+            || id.top_up.as_ref().is_some_and(|f| f.signed.is_some())
+            || id.top_up_result.is_some()
+            || has_words(kit, "Wrong password")
+    };
+    let wheel = |kit: &mut Kit, dy: f32| {
+        let centre = dialog_seen(&kit.ctx).unwrap().scrolled.unwrap().center();
+        for _ in 0..12 {
+            kit.hover_at(centre);
+            kit.event(egui::Event::MouseWheel {
+                unit: egui::MouseWheelUnit::Point,
+                delta: egui::vec2(0.0, dy),
+                phase: egui::TouchPhase::Move,
+                modifiers: Default::default(),
+            });
+            kit.run_steps(3);
+        }
+    };
+    let in_sight = |kit: &Kit| {
+        let d = dialog_seen(&kit.ctx).unwrap();
+        let (summary, _) = d.summary.expect("a summary");
+        d.scrolled
+            .is_some_and(|v| v.contains(summary.left_top() + egui::vec2(1.0, 1.0)))
+    };
+    // (b): the wheel brings the summary in, and takes it away again.
+    wheel(&mut kit, -120.0);
+    assert!(in_sight(&kit), "the wheel shows the summary");
+    wheel(&mut kit, 120.0);
+    assert!(!in_sight(&kit), "scrolled away again");
+    // (c): the password typed, the first press.
+    kit.state_mut()
+        .identity
+        .top_up_flow
+        .password
+        .type_in("demo");
+    std::thread::sleep(crate::a11y::SPEND_KEYS_AFTER);
+    kit.run_steps(3);
+    let primary = |kit: &Kit| {
+        kit.query_all_by_role(Role::Button)
+            .find(|b| {
+                b.accesskit_node()
+                    .label()
+                    .is_some_and(|l| l.starts_with("Top up by "))
+            })
+            .expect("«Top up by …»")
+            .rect()
+            .center()
+    };
+    let click = |kit: &mut Kit, at: egui::Pos2| {
+        kit.hover_at(at);
+        kit.run_steps(1);
+        for pressed in [true, false] {
+            kit.event(egui::Event::PointerButton {
+                pos: at,
+                button: egui::PointerButton::Primary,
+                pressed,
+                modifiers: Default::default(),
+            });
+        }
+        kit.run_steps(6);
+    };
+    let at = primary(&kit);
+    click(&mut kit, at);
+    assert!(!sent(&kit), "the first press sends nothing");
+    assert!(in_sight(&kit), "it brings the summary in");
+    let at = primary(&kit);
+    click(&mut kit, at);
+    assert!(sent(&kit), "the second press sends");
+}
+
+/// BUG-249 r4, QA (⚠️): after the wheel, the first click on the password field left the focus in
+/// the amount, and the password went into it («0,001wrong-pass-64»). A click on the pinned field
+/// takes the focus, whatever the scroll did before.
+#[test]
+fn after_the_wheel_a_click_on_the_password_types_into_it() {
+    let (_turn, mut kit) = demo_app("top-up", "en");
+    settle(&mut kit);
+    kit.set_size(egui::vec2(800.0, 440.0));
+    show_wallet_edited(
+        &mut kit,
+        6,
+        "the top-up at 800 × 440, the password asked",
+        |w| w.password_each_send = true,
+        |kit| dialog_seen(&kit.ctx).is_some_and(|d| d.one_scroll),
+    );
+    let amount = |kit: &Kit| kit.state().identity.top_up.as_ref().unwrap().amount.clone();
+    let before = amount(&kit);
+    // The focus in the amount, as after typing it; then the wheel over the middle.
+    kit.query_all_by_role(Role::TextInput)
+        .next()
+        .expect("the amount")
+        .focus();
+    kit.run_steps(2);
+    let centre = dialog_seen(&kit.ctx).unwrap().scrolled.unwrap().center();
+    for dy in [-120.0, -120.0, 120.0] {
+        kit.hover_at(centre);
+        kit.event(egui::Event::MouseWheel {
+            unit: egui::MouseWheelUnit::Point,
+            delta: egui::vec2(0.0, dy),
+            phase: egui::TouchPhase::Move,
+            modifiers: Default::default(),
+        });
+        kit.run_steps(1);
+    }
+    // At once, the scroll still moving: a click on the password field.
+    let at = kit
+        .query_all_by_role(Role::PasswordInput)
+        .next()
+        .expect("the password field")
+        .rect()
+        .center();
+    kit.hover_at(at);
+    for pressed in [true, false] {
+        kit.event(egui::Event::PointerButton {
+            pos: at,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: Default::default(),
+        });
+    }
+    kit.run_steps(2);
+    kit.event(egui::Event::Text("wrong-pass".into()));
+    kit.run_steps(3);
+    assert_eq!(amount(&kit), before, "nothing typed into the amount");
+}
+
+/// BUG-249 r4, QA (⚠️): after a wrong password the form comes back (its amount field again), and
+/// the next click on the password field must take the focus — QA's typed into the amount, and
+/// the Enter after it sent nothing.
+#[test]
+fn after_a_wrong_password_a_click_on_the_password_types_into_it() {
+    let (_turn, mut kit) = demo_app("top-up", "en");
+    settle(&mut kit);
+    show_wallet_edited(
+        &mut kit,
+        4,
+        "the top-up, the password asked",
+        |w| w.password_each_send = true,
+        |kit| dialog_seen(&kit.ctx).is_some(),
+    );
+    let amount = |kit: &Kit| kit.state().identity.top_up.as_ref().unwrap().amount.clone();
+    let before = amount(&kit);
+    // Signed: the form shows what was signed (its amount field gone) while the core answers;
+    // then the core's «wrong password» gives it back (the demo core takes any password, so its
+    // answer is put in as the app puts it).
+    kit.state_mut().identity.top_up.as_mut().unwrap().signed =
+        Some(crate::screens::identity::SignedTopUp {
+            amount: 10_000_000,
+            core_before: 0,
+            credits_before: 0,
+            credits_checked: true,
+            fee: 0,
+            on_top: 0,
+        });
+    kit.run_steps(4);
+    kit.state_mut().identity.top_up.as_mut().unwrap().signed = None;
+    kit.state_mut().identity.top_up_flow.password.on_wrong();
+    kit.run_steps(4);
+    let at = kit
+        .query_all_by_role(Role::PasswordInput)
+        .next()
+        .expect("the password field")
+        .rect()
+        .center();
+    kit.hover_at(at);
+    kit.run_steps(1);
+    for pressed in [true, false] {
+        kit.event(egui::Event::PointerButton {
+            pos: at,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: Default::default(),
+        });
+    }
+    kit.run_steps(2);
+    kit.event(egui::Event::Text("again".into()));
+    kit.run_steps(3);
+    assert_eq!(amount(&kit), before, "nothing typed into the amount");
+}
+
+/// BUG-249 r4, QA on qa-f62: «Top up the identity» opened only on the third click of the
+/// Identity screen's «Top up». One click opens it, and it stays open — the click that opened
+/// it is not a click outside it.
+#[test]
+fn one_click_on_top_up_opens_the_dialog_and_it_stays() {
+    for size in [egui::vec2(1280.0, 800.0), egui::vec2(800.0, 440.0)] {
+        let (_turn, mut kit) = demo_app("identity", "en");
+        kit.set_size(size);
+        settle(&mut kit);
+        assert!(kit.state().identity.top_up.is_none(), "closed at first");
+        kit.query_all_by_role_and_label(Role::Button, "Top up")
+            .next()
+            .expect("«Top up»")
+            .click();
+        kit.run_steps(6);
+        assert!(
+            kit.state().identity.top_up.is_some(),
+            "{size:?}: one click opens it"
+        );
+        assert!(
+            dialog_seen(&kit.ctx).is_some_and(|d| d.name == "top-up"),
+            "{size:?}: and it is drawn"
         );
     }
 }

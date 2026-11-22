@@ -297,8 +297,8 @@ fn header_dialog(
         // The focus is followed once the dialog has been drawn where it stands: what the first
         // (measuring) frame left of a widget is no place to follow.
         let settled = place.frames >= 2;
-        // BUG-249: too low a window for the footer to stay put over a middle of a few lines —
-        // the footer scrolls with the middle, under the header.
+        // BUG-249: too low a window for the summary to stay put over a middle of a few lines —
+        // the summary scrolls with the middle, under the header; the footer stays pinned (r4).
         let one = one_scroll(ui, id);
         // BUG-249: in the one scroll, the summary out of sight last frame holds the primary
         // button back ([`summary_unseen`]).
@@ -488,18 +488,18 @@ fn middle(
                     ui.scroll_to_rect(shown, Some(egui::Align::Min));
                     ui.ctx().request_repaint();
                 }
-                // Seen whole once since the dialog opened: the person has read it (a window
-                // too low for it and the button together must still let them sign).
+                // In sight now, whole: the primary acts on it. Not «once since the dialog
+                // opened» (BUG-249 r4, QA (c)): the top-up's summary, shown by the wheel and
+                // scrolled away again, let the first press send; and one seen before the amount
+                // was typed was not this one. The footer is pinned under the scroll, so the
+                // summary and the button always fit together.
                 // Taller than the view, it is read from its top: in sight from there counts.
                 let clip = ui.clip_rect();
                 let whole = clip.contains_rect(shown.shrink(0.5))
                     || (shown.height() > clip.height()
                         && shown.top() >= clip.top() - 0.5
                         && shown.top() < clip.bottom());
-                let seen = !ui.is_sizing_pass() && whole
-                    || ui
-                        .data(|d| d.get_temp::<bool>(id.with("summary-seen")))
-                        .unwrap_or(false);
+                let seen = !ui.is_sizing_pass() && whole;
                 ui.data_mut(|d| {
                     d.insert_temp(id.with("summary-seen"), seen);
                     d.insert_temp(id.with("summary-rect"), shown);
@@ -552,8 +552,8 @@ fn show_summary_id() -> egui::Id {
 }
 
 /// BUG-249, the architect's condition 1 (never sign unseen): the dialog being drawn scrolls as
-/// one and its summary has not been in sight whole since it opened. Its primary button then
-/// does not act: its press brings the summary in, and the next press acts.
+/// one and its summary is not in sight now (r4: not «once since it opened»). Its primary button
+/// then does not act: its press brings the summary in, and the next press acts.
 pub fn summary_unseen(ctx: &egui::Context) -> bool {
     ctx.data(|d| d.get_temp::<bool>(guard_id()))
         .unwrap_or(false)
