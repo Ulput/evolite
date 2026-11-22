@@ -483,6 +483,11 @@ impl Real {
                 });
                 Event::PhraseRevealed(result)
             }
+            Command::SignMessage {
+                address,
+                message,
+                password,
+            } => Event::MessageSigned(self.sign_message(&address, &message, &password).await),
             Command::ExportXpub { password } => Event::Xpub(self.export_xpub(&password).await),
             Command::RevealIdentityKey {
                 identity,

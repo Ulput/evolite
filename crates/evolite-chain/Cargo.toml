@@ -20,6 +20,8 @@ dev-stops = []
 evolite-api = { path = "../evolite-api" }
 evolite-art = { path = "../evolite-art" }
 evolite-coinjoin = { path = "../evolite-coinjoin" }
+# FEAT-0044: signed messages in base64, our own word rather than platform-wallet's.
+dashcore = { workspace = true, features = ["base64"] }
 evolite-common = { path = "../evolite-common" }
 evolite-local = { path = "../evolite-local" }
 evolite-render = { path = "../evolite-render" }

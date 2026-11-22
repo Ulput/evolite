@@ -941,6 +941,7 @@ impl App {
                     }
                 }
                 Event::PhraseRevealed(result) => self.settings.on_revealed(result.clone()),
+                Event::MessageSigned(result) => screens::message::on_signed(ctx, result),
                 Event::Xpub(result) => self.settings.on_xpub(result.clone()),
                 // FEAT-0045 step 2: an automatic copy's outcome is in the snapshot.
                 Event::Done {
@@ -1573,6 +1574,8 @@ impl eframe::App for App {
         if keys_gone(self.vault, snapshot.vault) {
             // A QR picture still being read is dropped when it ends (FEAT-0006).
             crate::qr_scan::on_lock();
+            // FEAT-0044 R-10: the message window closes, its texts go.
+            screens::message::close(ui.ctx());
             // BUG-169 R-3: after a lock there is no place to go back to; what was left open for
             // it closes (r1 Should 1).
             if let Some(given_up) = self.back.take() {

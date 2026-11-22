@@ -115,6 +115,8 @@ pub struct SettingsState {
     pub remind_snoozed: Option<Timestamp>,
     /// FEAT-0040: the wallet's fee choice for a Core payment (R-12).
     pub fee: evolite_api::fee_choice::FeeChoice,
+    /// FEAT-0044: «Sign / check a message» pressed on Advanced this frame.
+    pub open_message: bool,
     /// FEAT-0042: the account public key's dialog, its password, the key once shown, the
     /// pause's cut and whether «Copy» went (`Some(false)`: it could not go past the history).
     pub xpub_dialog: bool,
@@ -302,6 +304,7 @@ impl SettingsState {
             switch_to: None,
             remind_snoozed: None,
             fee: Default::default(),
+            open_message: false,
             xpub_dialog: false,
             xpub_password: Default::default(),
             xpub: None,
@@ -748,6 +751,15 @@ pub fn settings(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut SettingsS
             }
         });
     });
+    // FEAT-0044: «Tools › Sign / check a message» opens the message window here.
+    if std::mem::take(&mut state.open_message) {
+        crate::screens::message::open(
+            ui.ctx(),
+            crate::screens::message::Tab::Sign,
+            &cx.wallet().core_address,
+        );
+    }
+    crate::screens::message::window(ui, a, cx);
     if state.xpub_dialog {
         xpub::xpub_dialog(ui, a, cx, state);
     }

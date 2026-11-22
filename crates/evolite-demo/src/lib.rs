@@ -1159,6 +1159,26 @@ impl Mock {
                     Err(CoreError::NotAvailable(NO_WALLET.into()))
                 })
             }
+            // FEAT-0044: a fixed test string as the signature (`evolite_core::message`), never a wallet's; the
+            // switch, the address (this wallet's receiving one) and the password as the core.
+            Command::SignMessage {
+                address, password, ..
+            } => Event::MessageSigned(if !self.snapshot.advanced_features {
+                Err(CoreError::NotAvailable(evolite_common::ADVANCED_OFF.into()))
+            } else if self
+                .snapshot
+                .wallet
+                .as_ref()
+                .is_none_or(|w| w.core_address != address.trim())
+            {
+                Err(CoreError::NotAvailable(
+                    tr!("This is not an address of this wallet").into(),
+                ))
+            } else if password.expose().is_empty() || password.expose() == WRONG_PASSWORD {
+                Err(CoreError::WrongPassword)
+            } else {
+                Ok("IAM2qX24tYx/bdBTIgVLhD8QEAjrPlJpmjB4nZHdRYGIBa4DmVulAcwjPnWe6Q5iEwXH6F0pUCJP/ZeHPWS1h1o=".into())
+            }),
             // FEAT-0042: BIP32's published test vector 1 (testnet form), never a wallet's; the
             // switch and the password as the real core asks them.
             Command::ExportXpub { password } => Event::Xpub(if !self.snapshot.advanced_features {

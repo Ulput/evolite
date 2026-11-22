@@ -44,6 +44,7 @@ mod lock_coins;
 mod login;
 mod low_login;
 mod low_menu;
+mod message;
 mod mixed;
 mod mono_addresses;
 mod name_suggest;

@@ -25,6 +25,7 @@ pub mod fee_choice;
 pub mod fiat;
 pub mod key_plan;
 pub mod lock_coins;
+pub mod message;
 pub mod passphrase;
 pub mod series;
 /// Platform tokens (FEAT-0019).
@@ -2385,6 +2386,14 @@ pub enum Command {
         password: Password,
         wallet: Option<String>,
     },
+    /// FEAT-0044: sign `message` (its bytes exactly) with `address` of the open wallet — BIP44
+    /// account 0, receiving or change — in dash-qt's format. The password every time, counted with
+    /// the unlock's. Behind the advanced switch. Answered with [`Event::MessageSigned`].
+    SignMessage {
+        address: String,
+        message: String,
+        password: Password,
+    },
     /// FEAT-0042: the open wallet's account public key after its password (every time, counted
     /// with the unlock's wrong tries). Behind the advanced switch. Answered with [`Event::Xpub`].
     ExportXpub {
@@ -3220,6 +3229,8 @@ pub enum Event {
         ask: Option<u64>,
     },
     PhraseRevealed(Result<Phrase, CoreError>),
+    /// The answer to `Command::SignMessage`: the signature, base64.
+    MessageSigned(Result<String, CoreError>),
     /// The answer to `Command::ExportXpub`.
     Xpub(Result<Xpub, CoreError>),
     /// The answer to `Command::SaveBackup`: the file's name (not its folder).

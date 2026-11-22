@@ -46,6 +46,23 @@ pub(super) fn advanced(ui: &mut Ui, a: &mut Assets, state: &mut SettingsState) {
         p.muted,
     ));
     *state.toggle("advanced") = on;
+    // FEAT-0044 (UC-4): «TOOLS», only with the switch on.
+    if on {
+        ui.add_space(16.0);
+        let pressed = group(
+            ui,
+            a,
+            tr!("Tools"),
+            vec![(
+                tr!("Sign / check a message"),
+                tr!("Prove that a Core address is yours, or check someone's signature"),
+                Control::Button(tr!("Open"), crate::components::ButtonKind::Secondary),
+            )],
+        );
+        if pressed == Some(0) {
+            state.open_message = true;
+        }
+    }
     ui.add_space(16.0);
     let mut workshop = state.is_on("workshop");
     group(

@@ -11,6 +11,7 @@ pub mod coins;
 pub mod convert;
 pub mod kept_locks;
 pub mod key_signer;
+pub mod message;
 pub mod mixed_pay;
 /// Denominations, rounds and the excess rule of mixed coins (FEAT-0030), for the core.
 pub use evolite_coinjoin as coinjoin;

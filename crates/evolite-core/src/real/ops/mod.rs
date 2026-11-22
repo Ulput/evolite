@@ -30,6 +30,7 @@ mod rebroadcast;
 pub(in crate::real) mod resend;
 pub(super) mod series;
 pub(super) mod series_ops;
+mod sign_message;
 pub(super) mod token_actions;
 pub(super) mod token_history;
 pub(super) mod token_manage;

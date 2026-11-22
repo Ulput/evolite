@@ -16,6 +16,7 @@ mod contracts;
 mod identities;
 mod nft_series;
 pub mod rebroadcast;
+pub mod sign_message;
 mod store_read;
 mod token_actions;
 mod token_manage;

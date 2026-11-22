@@ -262,6 +262,8 @@ fn request_field(
 }
 
 pub fn receive(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut ReceiveForm) {
+    // FEAT-0044: the message window, when «Sign a message» opened it.
+    crate::screens::message::window(ui, a, cx);
     let p = a.p;
     let all = targets(cx.wallet(), cx.snap.network);
     form.target = form.target.min(all.len() - 1);
@@ -388,6 +390,25 @@ pub fn receive(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut ReceiveForm
                             .clicked()
                         {
                             crate::clipboard::copy_answered(ui.ctx(), uri.clone(), copy_id(&uri));
+                        }
+                        // FEAT-0044 (UC-1): signing with the address shown, behind the switch.
+                        if t.uri
+                            && cx.advanced()
+                            && button_enabled(
+                                ui,
+                                a,
+                                tr!("Sign a message"),
+                                ButtonKind::Ghost,
+                                None,
+                                ready,
+                            )
+                            .clicked()
+                        {
+                            crate::screens::message::open(
+                                ui.ctx(),
+                                crate::screens::message::Tab::Sign,
+                                &t.value,
+                            );
                         }
                     });
                     if t.uri {

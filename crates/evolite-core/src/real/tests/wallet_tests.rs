@@ -1474,3 +1474,32 @@ async fn a_broadcast_again_waits_for_the_switch_and_the_minute() {
         other => panic!("{other:?}"),
     }
 }
+
+/// FEAT-0044 AC-T-S1, AC-A11: «Sign a message» is refused with the advanced switch off, and a
+/// message over 10,000 characters — both before the password, no try counted.
+#[tokio::test(flavor = "multi_thread")]
+async fn signing_a_message_waits_for_the_switch_and_a_short_message() {
+    let mut core = core_with_vault("sign-message", "right");
+    assert_eq!(core.unlock(&pw("right")).await, Ok(()));
+    let id = core.wallet.clone();
+    let ask = |message: String| Command::SignMessage {
+        address: "yAddress".into(),
+        message,
+        password: pw("wrong"),
+    };
+    let answer = |e: Option<Event>| match e {
+        Some(Event::MessageSigned(r)) => r,
+        other => panic!("{other:?}"),
+    };
+    core.advanced_features = false;
+    assert_eq!(
+        answer(core.handle(ask("hi".into())).await.0).err(),
+        Some(CoreError::NotAvailable(evolite_common::ADVANCED_OFF.into()))
+    );
+    core.advanced_features = true;
+    assert_eq!(
+        answer(core.handle(ask("x".repeat(10_001))).await.0).err(),
+        Some(CoreError::NotAvailable("At most 10,000 characters".into()))
+    );
+    assert_eq!(entry(&mut core, &id).wrong_tries, 0, "before the password");
+}

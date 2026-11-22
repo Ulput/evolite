@@ -55,6 +55,47 @@ pub use mock::WRONG_PASSWORD as DEMO_WRONG_PASSWORD;
 #[cfg(any(feature = "demo", not(feature = "real"), test))]
 pub use mock::{DEMO_KEY_HEX, DEMO_KEY_WIF};
 pub mod price;
+
+/// FEAT-0044: checking a signed message — no wallet, no unlock (the architect, answer 4).
+pub mod message {
+    pub use evolite_api::message::{Verified, VerifyError};
+
+    /// Checks `signature` over `message` (its bytes exactly) against `address` on this network.
+    #[cfg(feature = "real")]
+    pub fn verify(address: &str, message: &str, signature: &str) -> Result<Verified, VerifyError> {
+        evolite_chain::message::verify_message(
+            address,
+            message,
+            signature,
+            evolite_chain::network::dash(),
+        )
+    }
+
+    /// The demo build has no chain: only the demo's own signature ([`DEMO_SIGNATURE`]
+    /// over [`DEMO_MESSAGE`]) is valid; another base64 of a signature's length does not match;
+    /// anything else is no signature.
+    #[cfg(not(feature = "real"))]
+    pub fn verify(address: &str, message: &str, signature: &str) -> Result<Verified, VerifyError> {
+        if address.trim().len() < 26 {
+            return Err(VerifyError::NotAnAddress);
+        }
+        let signature = signature.trim();
+        Ok(if signature == DEMO_SIGNATURE && message == DEMO_MESSAGE {
+            Verified::Valid
+        } else if signature.len() == 88 && signature.ends_with('=') {
+            Verified::NotThisAddress
+        } else {
+            Verified::NotASignature
+        })
+    }
+
+    /// The demo's «signature»: a fixed test string (a rust-bitcoin vector, not valid under Dash's
+    /// prefix) that only this stand-in accepts, never a wallet's.
+    pub const DEMO_SIGNATURE: &str =
+        "IAM2qX24tYx/bdBTIgVLhD8QEAjrPlJpmjB4nZHdRYGIBa4DmVulAcwjPnWe6Q5iEwXH6F0pUCJP/ZeHPWS1h1o=";
+    /// The message the demo's signature is of.
+    pub const DEMO_MESSAGE: &str = "rust-dashcore MessageSignature test";
+}
 #[cfg(feature = "real")]
 mod real;
 

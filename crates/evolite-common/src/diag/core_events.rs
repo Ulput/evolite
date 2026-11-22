@@ -38,6 +38,8 @@ pub fn command_name(command: &Command) -> &'static str {
         Command::DeclineApp { .. } => "decline_app",
         Command::DrawArt { .. } => "draw_art",
         Command::RevealPhrase { .. } => "reveal_phrase",
+        // FEAT-0044 R-7: no address, no text.
+        Command::SignMessage { .. } => "sign_message",
         Command::ExportXpub { .. } => "export_xpub",
         Command::RevealIdentityKey { .. } => "reveal_identity_key",
         Command::HideRequest { .. } => "hide_request",
@@ -222,6 +224,8 @@ pub fn answer(event: &Event) -> Option<Record> {
         Event::PictureFitted { result } => ("picture_fitted", outcome(result)),
         Event::Done { what, result, .. } => (what.as_str(), outcome(result)),
         Event::PhraseRevealed(r) => ("phrase_revealed", outcome(r)),
+        // FEAT-0044 R-7: «message signed», never the signature.
+        Event::MessageSigned(r) => ("message_signed", outcome(r)),
         // FEAT-0042 R-5: «xpub shown», never the key.
         Event::Xpub(r) => ("xpub", outcome(r)),
         // FEAT-0045 R-14: how it ended only — no file, no folder, no counts.

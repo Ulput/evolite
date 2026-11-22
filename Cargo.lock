@@ -2775,6 +2775,7 @@ dependencies = [
  "dapi-grpc",
  "dash-sdk",
  "dash-spv",
+ "dashcore",
  "dpp",
  "drive-proof-verifier",
  "evolite-api",
