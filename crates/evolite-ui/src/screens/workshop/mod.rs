@@ -592,7 +592,14 @@ fn collection_row(ui: &mut Ui, a: &mut Assets, c: &Collection) -> egui::Response
         })
         .response;
     let resp = crate::a11y::row_click(ui, &row, &format!("workshop-collection-{}", c.contract));
-    crate::components::named(&resp, egui::WidgetType::Button, true, &name);
+    // BUG-270: the person's own words, as drawn — never translated («Seasons of the city» was
+    // read «Seasons из the city»).
+    crate::components::named(
+        &resp,
+        egui::WidgetType::Button,
+        true,
+        &crate::i18n::own(&name),
+    );
     resp.on_hover_cursor(egui::CursorIcon::PointingHand)
 }
 

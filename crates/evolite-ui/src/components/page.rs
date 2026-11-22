@@ -41,6 +41,17 @@ pub fn back_link(ui: &mut Ui, a: &mut Assets, place: &str) -> Response {
 
 /// Header: 28 Bold title, an optional mono count next to it, actions on the right (drawn right
 /// to left, so the primary one goes first). 41 px, as tall as a button.
+/// BUG-270: the size `text` (translated) is drawn Bold at, up to `size`, so that it fits in `width`
+/// on one line — never below `least`. A title is never broken inside a word for want of room.
+pub fn fitted_size(ui: &Ui, text: &str, size: f32, least: f32, width: f32) -> f32 {
+    let wide = super::text_width(ui, text, sans(size, Weight::Bold));
+    if wide <= width {
+        size
+    } else {
+        (size * width / wide).floor().max(least)
+    }
+}
+
 pub fn page_header(
     ui: &mut Ui,
     a: &mut Assets,

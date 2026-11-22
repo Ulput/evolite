@@ -109,30 +109,31 @@ fn tx_row_sensed(ui: &mut Ui, a: &mut Assets, row: &TxRow, sense: Sense) -> egui
     } else {
         egui::WidgetType::Label
     };
-    let mut name = match row.fiat {
-        Some(fiat) => format!("{} · {} · {} · {}", row.title, amount, fiat, row.detail),
-        None => format!("{} · {} · {}", row.title, amount, row.detail),
-    };
+    // BUG-270: each part in the interface language on its own, then joined. The whole line
+    // translated at once let a template take a piece of it — «Received{}» heard as «Пришло
+    // privately…», «Signed out из Yappr · keys disabled» — and words stayed in English.
+    let spoken = crate::i18n::spoken;
+    let mut parts = vec![spoken(row.title), amount.to_owned()];
+    if let Some(fiat) = row.fiat {
+        parts.push(spoken(fiat));
+    }
+    parts.push(spoken(row.detail));
     if let Some(alert) = row.alert {
-        name = format!("{name} · {alert}");
+        parts.push(spoken(alert));
     }
     // The neutral chip's words are what the line is (FEAT-0019 T-1): the reader hears them too.
     if let Some(neutral) = row.neutral {
-        name = format!("{name} · {neutral}");
+        parts.push(spoken(neutral));
     }
-    match row.note {
-        // The note in its quotes is read apart: a « · » of the person's own would split it from
-        // its quotes in the line's pieces (FEAT-0003).
-        Some(note) => {
-            let name = format!(
-                "{} · {}",
-                crate::i18n::spoken(&name),
-                crate::i18n::spoken(&quoted_note(note))
-            );
-            resp.widget_info(|| egui::WidgetInfo::labeled(kind, true, &name));
-        }
-        None => named(&resp, kind, true, &name),
+    // The note in its quotes is read apart: a « · » of the person's own would split it from its
+    // quotes in the line's pieces (FEAT-0003).
+    if let Some(note) = row.note {
+        parts.push(spoken(&quoted_note(note)));
     }
+    // Already in the interface language: not put through it a second time (a wallet's own
+    // name, «Main», would be).
+    let name = parts.join(" · ");
+    resp.widget_info(|| egui::WidgetInfo::labeled(kind, true, &name));
     if resp.hovered() {
         ui.painter()
             .rect_filled(rect, CornerRadius::same(12), p.surface);

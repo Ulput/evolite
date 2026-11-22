@@ -159,7 +159,11 @@ impl Catalog {
                 match self.translate(&c) {
                     Some(t) => translated.push(t),
                     None => {
-                        whole &= c.split_whitespace().count() <= MAX_UNTRANSLATED_WORDS;
+                        // BUG-270 r1: a place that runs over a « · » took a piece's words with
+                        // it — «Received{}» and «Received privately · 1.2 DASH» — and the pieces
+                        // know better («Получено приватно · 1.2 DASH»), so it is not whole.
+                        whole &= c.split_whitespace().count() <= MAX_UNTRANSLATED_WORDS
+                            && !c.contains(" · ");
                         translated.push(c);
                     }
                 }
@@ -251,6 +255,21 @@ fn fill(parts: &[String], text: &str) -> Option<Vec<String>> {
         if captured.is_empty() {
             return None;
         }
+        // BUG-270: a place never cuts a word. «Received{}» (a notification's «Received» with its
+        // amount after it) took «Received privately · …» as «Received» + «privately · …», and a
+        // screen reader heard «Пришло privately…». A letter on both sides of a place's edge is one
+        // word, not a template's text and its place.
+        let before = if i == 0 {
+            first.as_str()
+        } else {
+            rest[i - 1].as_str()
+        };
+        let letter = |c: Option<char>| c.is_some_and(char::is_alphabetic);
+        if letter(before.chars().next_back()) && letter(captured.chars().next())
+            || letter(part.chars().next()) && letter(captured.chars().next_back())
+        {
+            return None;
+        }
         captures.push(captured.to_owned());
         at = &at[end + part.len()..];
     }
@@ -308,4 +327,71 @@ fn number(text: &str) -> Option<u64> {
         .filter(|c| !matches!(c, ' ' | '\u{a0}' | '\u{202f}' | ',' | '.' | '\''))
         .collect();
     digits.parse().ok()
+}
+
+#[cfg(test)]
+mod fill_tests {
+    use super::*;
+
+    fn parts(form: &str) -> Vec<String> {
+        form.split("{}").map(str::to_owned).collect()
+    }
+
+    /// BUG-270 r1 (the architect's Should): a template's place never cuts a word — «Received{}»
+    /// (a notification's «Received» and its amount) does not take «Receivedprivately», and
+    /// still takes the amount it was made for; the other edge of a place the same.
+    #[test]
+    fn a_place_never_cuts_a_word() {
+        let received = parts("Received{}");
+        // A space is an edge: `fill` takes «privately · …»; the catalog then prefers the
+        // pieces (the next test).
+        assert_eq!(
+            fill(&received, "Received privately · 1.2 DASH"),
+            Some(vec![" privately · 1.2 DASH".to_owned()])
+        );
+        assert_eq!(fill(&received, "Receivedprivately"), None);
+        assert_eq!(
+            fill(&received, "Received 1.2 DASH"),
+            Some(vec![" 1.2 DASH".to_owned()])
+        );
+        assert_eq!(
+            fill(&received, "Received: 1.2 DASH"),
+            Some(vec![": 1.2 DASH".to_owned()])
+        );
+        // The place's other edge: a digit before a letter is not one word.
+        assert_eq!(fill(&parts("{}s"), "5s"), Some(vec!["5".to_owned()]));
+        assert_eq!(fill(&parts("{}ing"), "Sending"), None);
+        assert_eq!(
+            fill(&parts("@{} · credits"), "@satoshi · credits"),
+            Some(vec!["satoshi".to_owned()])
+        );
+    }
+
+    /// The same through a catalog: the whole key wins, the template keeps its amount.
+    #[test]
+    fn received_privately_is_its_own_key_not_received_and_a_word() {
+        let mut ru = Catalog::parse(
+            crate::i18n::Lang::Ru,
+            r#"{"Received{}": "Пришло{}", "Received privately": "Получено приватно"}"#,
+        )
+        .expect("a catalog");
+        assert_eq!(
+            ru.translate("Received privately").as_deref(),
+            Some("Получено приватно")
+        );
+        assert_eq!(
+            ru.translate("Received 1.2 DASH").as_deref(),
+            Some("Пришло 1.2 DASH")
+        );
+        // QA's line whole: the pieces, not «Пришло privately · 1.2 DASH».
+        assert_eq!(
+            ru.translate("Received privately · 1.2 DASH").as_deref(),
+            Some("Получено приватно · 1.2 DASH")
+        );
+        assert_eq!(
+            ru.translate("Receivedprivately"),
+            None,
+            "no place starts inside a word"
+        );
+    }
 }

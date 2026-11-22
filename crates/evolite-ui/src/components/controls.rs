@@ -231,7 +231,13 @@ pub fn segmented_with_off(
         let resp = ui.interact(item, ui.id().with(("segmented", label)), sense);
         let on = *selected == i;
         resp.widget_info(|| {
-            egui::WidgetInfo::selected(egui::WidgetType::RadioButton, hint.is_none(), on, *label)
+            // BUG-270: in the interface language, as drawn («Automatic» was read in English).
+            egui::WidgetInfo::selected(
+                egui::WidgetType::RadioButton,
+                hint.is_none(),
+                on,
+                crate::i18n::spoken(label),
+            )
         });
         if on {
             ui.painter()
@@ -308,12 +314,16 @@ pub fn select_row(
     let p = a.p;
     let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 46.0), Sense::click());
     match value {
-        Some(value) => named(
-            &resp,
-            egui::WidgetType::ComboBox,
-            true,
-            &format!("{label}: {value}"),
-        ),
+        // BUG-270: each part in the interface language, then joined — the whole «@satoshi ·
+        // credits: 1,2000 DASH» matched no text, and «credits» was read in English.
+        Some(value) => {
+            let name = format!(
+                "{}: {}",
+                crate::i18n::spoken(label),
+                crate::i18n::spoken(value)
+            );
+            resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::ComboBox, true, &name));
+        }
         None => named(&resp, egui::WidgetType::ComboBox, true, label),
     }
     let stroke = if resp.hovered() { p.muted } else { p.line };

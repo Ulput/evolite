@@ -713,7 +713,10 @@ pub fn settings(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut SettingsS
             ui.set_width(208.0);
             ui.spacing_mut().item_spacing.y = 2.0;
             ui.add_space(-4.0);
-            ui.label(txt(tr!("Settings"), 28.0, Weight::Bold, p.text));
+            // BUG-270: whole in its 208, never broken inside the word («Налаштуванн / я» in uk at
+            // 1024): a smaller size when it does not fit.
+            let size = crate::components::fitted_size(ui, tr!("Settings"), 28.0, 18.0, 208.0);
+            ui.label(txt(tr!("Settings"), size, Weight::Bold, p.text));
             ui.add_space(14.0);
             for (section, icon, label) in SECTIONS {
                 if section_item(ui, a, icon, label, state.section == section).clicked() {

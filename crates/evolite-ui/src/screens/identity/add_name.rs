@@ -19,9 +19,9 @@ pub(super) fn add_name_dialog(
     let Some(form) = &mut state.adding_name else {
         return;
     };
-    let me = id
-        .name()
-        .map_or_else(|| "identity".to_string(), |n| format!("@{n}"));
+    // «@name»; empty for an identity without a name, whose sentences are whole of their own
+    // (BUG-270: a Latin «identity» put into «for {}» read «для identity» in ru).
+    let me = id.name().map_or_else(String::new, |n| format!("@{n}"));
     let fee = wallet.fees.name_price(id.names.is_empty());
     // The name goes to the core once per change; the answer comes back as an event.
     let label = form.name.trim().trim_start_matches('@').to_lowercase();
@@ -90,7 +90,11 @@ pub(super) fn add_name_dialog(
             ui,
             p,
             tr!("Paid by"),
-            &format!(tr!("{me} · credits"), me = me),
+            &if me.is_empty() {
+                tr!("Identity · credits").to_string()
+            } else {
+                format!(tr!("{me} · credits"), me = me)
+            },
             value,
         );
     };
@@ -186,9 +190,14 @@ pub(super) fn add_name_dialog(
             }
             ui.add(
                 crate::components::para(
-                        &format!(
-                            tr!("One more DPNS name for {me}: people can find you and pay you by it too.")
-                        , me = me), UI.size, UI.weight, p.muted).line_height(UI.line)
+                        &if me.is_empty() {
+                            tr!("One more DPNS name for your identity: people can find you and pay you by it too.").to_string()
+                        } else {
+                            format!(
+                                tr!("One more DPNS name for {me}: people can find you and pay you by it too."),
+                                me = me
+                            )
+                        }, UI.size, UI.weight, p.muted).line_height(UI.line)
                     .line_height(20.0),
             );
             if name_field(ui, &p, form, &label, &check, (wallet, id)) {
@@ -408,7 +417,11 @@ fn review_summary(
     crate::components::kv_row_fit(
         ui,
         &p,
-        &format!(tr!("Credits {me}"), me = me),
+        &if me.is_empty() {
+            tr!("Identity credits").to_string()
+        } else {
+            format!(tr!("Credits {me}"), me = me)
+        },
         &format!(
             tr!("{now} now, ≈ {after} after"),
             now = crate::format::balance(credits),
@@ -504,12 +517,20 @@ fn sent_body(ui: &mut Ui, a: &mut Assets, wallet: &Wallet, me: &str, form: &Name
     };
     ui.add(
         crate::components::para(
-            &format!(
-                tr!("The fund and the write were paid from the credits of {me}: {total}. Result about {end}. evolite tells you with a notification, even with the window minimized."),
-                me = me,
-                total = total,
-                end = crate::text::date_time_in_line(r.ends_about, chrono::Local::now())
-            ),
+            &if me.is_empty() {
+                format!(
+                    tr!("The fund and the write were paid from the identity's credits: {total}. Result about {end}. evolite tells you with a notification, even with the window minimized."),
+                    total = total,
+                    end = crate::text::date_time_in_line(r.ends_about, chrono::Local::now())
+                )
+            } else {
+                format!(
+                    tr!("The fund and the write were paid from the credits of {me}: {total}. Result about {end}. evolite tells you with a notification, even with the window minimized."),
+                    me = me,
+                    total = total,
+                    end = crate::text::date_time_in_line(r.ends_about, chrono::Local::now())
+                )
+            },
             UI.size,
             UI.weight,
             p.text,

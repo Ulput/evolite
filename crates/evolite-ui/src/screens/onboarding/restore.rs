@@ -527,7 +527,8 @@ pub(super) fn found(ui: &mut Ui, a: &mut Assets, o: &mut Onboarding) {
     if let Some(id) = &scan.identity_id {
         rows.push((
             "identity",
-            format!("Identity {}", crate::text::short_address(id)),
+            // BUG-270: translated, as every row's title («Identity 8rd3…» stayed in Latin).
+            format!(tr!("Identity {}"), crate::text::short_address(id)),
             format!(tr!("DIP-13 keys · {} keys"), scan.identity_keys),
             Some(dash(scan.identity_credits)),
             false,

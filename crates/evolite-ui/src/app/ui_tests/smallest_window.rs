@@ -484,6 +484,103 @@ fn no_text_trouble(lang: &str) {
     assert!(wrong.is_empty(), "{lang}:\n{}", wrong.join("\n"));
 }
 
+/// BUG-270 (uk at 1024: «Налаштуванн / я»): painted words broken across two lines — a row that
+/// ends with a letter and the next that starts with one, where the text has no space or hyphen
+/// between them. Monospace text (addresses, ids) breaks anywhere by design and is left out, as
+/// are words in a text field.
+fn broken_words(kit: &Kit) -> Vec<String> {
+    fn walk(shape: &egui::Shape, out: &mut Vec<String>) {
+        match shape {
+            egui::Shape::Text(t) if t.galley.rows.len() > 1 => {
+                let mono = t.galley.job.sections.iter().any(|s| {
+                    s.format.font_id.family == egui::FontFamily::Monospace
+                        || matches!(&s.format.font_id.family, egui::FontFamily::Name(n) if n.contains("mono"))
+                });
+                if mono {
+                    return;
+                }
+                let chars: Vec<char> = t.galley.text().chars().collect();
+                let mut at = 0usize;
+                for row in &t.galley.rows[..t.galley.rows.len() - 1] {
+                    at += row.char_count_including_newline().0;
+                    if row.ends_with_newline || at == 0 || at >= chars.len() {
+                        continue;
+                    }
+                    let (before, after) = (chars[at - 1], chars[at]);
+                    if before.is_alphabetic() && after.is_alphabetic() {
+                        let start = chars[..at]
+                            .iter()
+                            .rposition(|c| !c.is_alphanumeric())
+                            .map_or(0, |i| i + 1);
+                        let end = chars[at..]
+                            .iter()
+                            .position(|c| !c.is_alphanumeric())
+                            .map_or(chars.len(), |i| at + i);
+                        let word: String = chars[start..end].iter().collect();
+                        // A long run with digits is an id or a hash, not a word.
+                        if !word.chars().any(|c| c.is_ascii_digit()) {
+                            out.push(format!(
+                                "«{}» broken as «{}» / «{}»",
+                                word,
+                                chars[start..at].iter().collect::<String>(),
+                                chars[at..end].iter().collect::<String>()
+                            ));
+                        }
+                    }
+                }
+            }
+            egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, out)),
+            _ => {}
+        }
+    }
+    let mut out = Vec::new();
+    for c in &kit.output().shapes {
+        walk(&c.shape, &mut out);
+    }
+    out.sort();
+    out.dedup();
+    out
+}
+
+/// BUG-270, the whole class (TEAM.md §8d, 2): no screen a preset opens, at 1024 × 768, breaks a
+/// word across two lines — a title too wide for its column is drawn smaller, a sentence wraps
+/// between its words.
+fn no_word_broken_at_1024(lang: &str) {
+    let mut wrong = Vec::new();
+    for preset in PRESETS {
+        if matches!(*preset, "sync" | "sync-nodes") {
+            continue;
+        }
+        let (_turn, mut kit) = demo_app(preset, lang);
+        if preset.starts_with("connect") {
+            wait_for(&mut kit, "the app's request", |kit| {
+                dialog_seen(&kit.ctx).is_some()
+            });
+        }
+        kit.set_size(egui::vec2(1024.0, 768.0));
+        quiet(&mut kit, |_| {});
+        for w in broken_words(&kit) {
+            wrong.push(format!("{preset}: {w}"));
+        }
+    }
+    assert!(wrong.is_empty(), "{lang}:\n{}", wrong.join("\n"));
+}
+
+#[test]
+fn no_word_is_broken_across_lines_at_1024_uk() {
+    no_word_broken_at_1024("uk");
+}
+
+#[test]
+fn no_word_is_broken_across_lines_at_1024_ru() {
+    no_word_broken_at_1024("ru");
+}
+
+#[test]
+fn no_word_is_broken_across_lines_at_1024_de() {
+    no_word_broken_at_1024("de");
+}
+
 /// BUG-265 (TEAM.md §8d, a hard preset): the 10 long-named identities on every screen that shows
 /// them — Identity, Tokens, Collection, the Workshop — at every width: no words cut or drawn over
 /// others (the chips over «Credits @…», QA 14), no page wider than the window.

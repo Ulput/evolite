@@ -74,6 +74,7 @@ mod settings_apps;
 mod smallest_window;
 mod spend;
 mod spend_flows;
+mod spoken_words;
 mod summary;
 mod sync;
 mod tab_sweep;

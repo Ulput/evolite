@@ -1062,10 +1062,25 @@ mod text_review {
             if matches!(lang, Lang::En) {
                 continue;
             }
-            let bracket = match lang {
-                Lang::De => "(Asset Lock)",
-                Lang::Ja | Lang::ZhHans => "（asset lock）",
-                _ => "(asset lock)",
+            // BUG-270: the full form in every one of the nine — «перевод в Platform (asset
+            // lock)», never the short «перевод (asset lock)» (the customer's table, TEAM.md
+            // 2026-11-22). Compared case aside: a sentence may start with it.
+            let full = match lang {
+                Lang::Ru => "в platform (asset lock)",
+                Lang::Uk => "у platform (asset lock)",
+                Lang::De => "zu platform (asset lock)",
+                Lang::Fr => "vers platform (asset lock)",
+                Lang::Es => "a platform (asset lock)",
+                Lang::PtBr => "para a platform (asset lock)",
+                Lang::Id => "ke platform (asset lock)",
+                Lang::Tr => "platform'a aktarım",
+                Lang::Vi => "sang platform (asset lock)",
+                Lang::Ja => "platform への移動（asset lock）",
+                Lang::Ko => "platform으로 송금(asset lock)",
+                Lang::ZhHans => "转入 platform（asset lock）",
+                Lang::Hi => "platform में ट्रांसफ़र (asset lock)",
+                Lang::Ar => "إلى \u{2068}platform\u{2069} \u{2068}(asset lock)\u{2069}",
+                Lang::En => unreachable!(),
             };
             let json = catalog(lang);
             for v in json.values().flat_map(texts) {
@@ -1083,14 +1098,37 @@ mod text_review {
                 match json.get(key).map(texts) {
                     None => wrong.push(format!("{}: no «{key}»", lang.code())),
                     Some(vs) => {
-                        for v in vs.iter().filter(|v| !v.contains(bracket)) {
-                            wrong.push(format!("{}: no «{bracket}» in «{v}»", lang.code()));
+                        for v in vs.iter().filter(|v| !v.to_lowercase().contains(full)) {
+                            wrong.push(format!("{}: no «{full}» in «{v}»", lang.code()));
+                        }
+                        // Never a bracket inside a bracket (BUG-270: «(нужен перевод в
+                        // Platform (asset lock))»).
+                        for v in vs.iter().filter(|v| nested_brackets(v)) {
+                            wrong.push(format!("{}: brackets in brackets in «{v}»", lang.code()));
                         }
                     }
                 }
             }
         }
         assert!(wrong.is_empty(), "{}", wrong.join("\n"));
+    }
+
+    /// Whether `text` opens a bracket inside an open one, full-width ones counted too.
+    fn nested_brackets(text: &str) -> bool {
+        let mut depth = 0i32;
+        for c in text.chars() {
+            match c {
+                '(' | '（' => {
+                    depth += 1;
+                    if depth > 1 {
+                        return true;
+                    }
+                }
+                ')' | '）' => depth -= 1,
+                _ => {}
+            }
+        }
+        false
     }
 
     /// B6: no catalog holds mojibake (a UTF-8 «’», «“», «”» read as Latin-1).

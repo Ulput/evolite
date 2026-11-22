@@ -229,7 +229,13 @@ fn model_tile(
         );
         y += size + 6.0;
     }
-    crate::components::named(&resp, egui::WidgetType::Button, true, &m.name);
+    // BUG-270: the person's own words, never translated.
+    crate::components::named(
+        &resp,
+        egui::WidgetType::Button,
+        true,
+        &crate::i18n::own(&m.name),
+    );
     resp.on_hover_cursor(egui::CursorIcon::PointingHand)
         .clicked()
 }
