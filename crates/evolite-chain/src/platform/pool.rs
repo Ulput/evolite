@@ -26,6 +26,12 @@ pub struct PoolView {
     /// BUG-240 r2 (3): the pool's scan failed [`FAILED_PASSES`] times in a row with no success
     /// in this run — the kind of the last failure; the screens say so instead of «not known».
     pub failing: Option<&'static str>,
+    /// BUG-275: the nullifiers of every spent note of the pool — what proves a withdrawal
+    /// document came out of it (`pool_payout::classify`).
+    pub spent: Vec<[u8; 32]>,
+    /// BUG-275: each operation's spent nullifiers as its entry keeps them (a restored spend's
+    /// are the links of our change), by the operation's id: the row a proved withdrawal is.
+    pub spent_by_operation: std::collections::HashMap<u64, Vec<[u8; 32]>>,
 }
 
 /// How many failed passes in a row say the pool cannot be read, not «not yet» (BUG-240 r2).
@@ -528,22 +534,36 @@ mod imp {
             );
             let id = SubwalletId::new(wallet.wallet_id(), ACCOUNT);
             let mut unspent: Option<(u32, u64)> = None;
+            let mut spent = Vec::new();
+            let mut spent_by_operation = std::collections::HashMap::new();
             let (notes, operations) = match coordinator.store().try_read() {
                 Ok(store) => {
                     let found = store.get_unspent_notes(id).unwrap_or_default();
+                    // BUG-275: every spent note's nullifier, and each operation's own.
+                    if let Ok(all) = store.get_all_notes(id) {
+                        spent = all
+                            .iter()
+                            .filter(|n| n.is_spent)
+                            .map(|n| n.nullifier)
+                            .collect();
+                    }
+                    let entries = store
+                        .get_activity(id, 0, SHOWN_OPERATIONS)
+                        .unwrap_or_default();
+                    for e in &entries {
+                        if !e.spent_nullifiers.is_empty() {
+                            let mut key = [0u8; 8];
+                            key.copy_from_slice(&e.id[..8]);
+                            spent_by_operation
+                                .insert(u64::from_le_bytes(key), e.spent_nullifiers.clone());
+                        }
+                    }
                     // BUG-240: the same read's count and sum, for the journal.
                     unspent = Some((
                         found.len() as u32,
                         found.iter().fold(0u64, |s, n| s.saturating_add(n.value)),
                     ));
-                    (
-                        found.len() as u32,
-                        operations(
-                            store
-                                .get_activity(id, 0, SHOWN_OPERATIONS)
-                                .unwrap_or_default(),
-                        ),
-                    )
+                    (found.len() as u32, operations(entries))
                 }
                 Err(_) => super::last_lines(&self.last_pool, &wallet.wallet_id()),
             };
@@ -555,6 +575,8 @@ mod imp {
                 checked_at,
                 operations,
                 failing,
+                spent,
+                spent_by_operation,
             })
         }
 
@@ -1455,6 +1477,8 @@ mod tests {
             checked_at: None,
             operations,
             failing: None,
+            spent: Vec::new(),
+            spent_by_operation: Default::default(),
         }
     }
 

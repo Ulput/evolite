@@ -2460,3 +2460,135 @@ async fn register_collection() {
     assert!(doc.is_ok());
     chain.stop().await;
 }
+
+/// BUG-275 r1 Must 2: the payout's document read on testnet in the form Drive itself asks
+/// (`status ==`, `transactionIndex in`, ordered) — read-only, no phrase. The newest complete
+/// withdrawal is found first by the same index; then `payout_document` with its index and the
+/// address its script pays must give it back.
+/// `cargo test -p evolite-chain live_payout_document_by_index -- --ignored --nocapture`
+#[test]
+#[ignore = "live: reads testnet"]
+fn live_payout_document_by_index() {
+    std::thread::Builder::new()
+        .stack_size(16 << 20)
+        .spawn(|| {
+            tokio::runtime::Builder::new_multi_thread()
+                .enable_all()
+                .thread_stack_size(8 << 20)
+                .build()
+                .unwrap()
+                .block_on(payout_document_read())
+        })
+        .unwrap()
+        .join()
+        .unwrap();
+}
+
+async fn payout_document_read() {
+    use crate::platform::pool_payout::{by_index, withdrawal_of};
+    use dash_sdk::drive::query::{OrderClause, WhereClause, WhereOperator};
+    use dash_sdk::platform::{DocumentQuery, FetchMany};
+    use dpp::document::Document;
+    use dpp::platform_value::Value;
+    use dpp::system_data_contracts::{SystemDataContract, load_system_data_contract};
+    let dir = std::env::temp_dir().join("evolite-live-provider");
+    let paths = ChainPaths {
+        spv: dir.join("spv"),
+        store: dir.join("platform-wallet.db"),
+        core_node: dir.join("core-node.txt"),
+    };
+    let chain = Chain::default();
+    chain
+        .start(&paths, Arc::new(|_: &SyncStatus| {}))
+        .await
+        .expect("chain starts");
+    let started = Instant::now();
+    while !chain.platform_ready() {
+        assert!(
+            started.elapsed() < Duration::from_secs(30 * 60),
+            "not ready: {:?}",
+            chain.status()
+        );
+        tokio::time::sleep(Duration::from_secs(2)).await;
+    }
+    let sdk = chain.sdk().await.expect("sdk");
+    let withdrawals = Arc::new(
+        load_system_data_contract(SystemDataContract::Withdrawals, sdk.version()).unwrap(),
+    );
+    // The newest complete withdrawal, by the same `transaction` index.
+    let newest = DocumentQuery::new(withdrawals.clone(), "withdrawal")
+        .unwrap()
+        .with_where(WhereClause {
+            field: "status".into(),
+            operator: WhereOperator::Equal,
+            value: Value::U8(3),
+        })
+        .with_order_by(OrderClause {
+            field: "transactionIndex".into(),
+            ascending: false,
+        })
+        .with_limit(1);
+    // A fresh quorum may not be verified by our SPV yet: asked again while it catches up.
+    let asked = Instant::now();
+    let found: Vec<_> = loop {
+        match Document::fetch_many(&sdk, newest.clone()).await {
+            Ok(docs) => {
+                break docs
+                    .into_values()
+                    .flatten()
+                    .filter_map(|d| withdrawal_of(&d))
+                    .collect();
+            }
+            Err(e) => {
+                assert!(
+                    asked.elapsed() < Duration::from_secs(15 * 60),
+                    "no proved answer: {e:?}"
+                );
+                println!("not yet: {e}");
+                tokio::time::sleep(Duration::from_secs(20)).await;
+            }
+        }
+    };
+    let doc = found
+        .first()
+        .expect("testnet has complete withdrawals")
+        .clone();
+    let index = Document::fetch_many(&sdk, by_index(withdrawals, 3, 0).unwrap())
+        .await
+        .map(|_| ())
+        .map_err(|e| format!("{e:?}"));
+    assert!(index.is_ok(), "Drive's form is taken: {index:?}");
+    // Its index from the document, its address from its script.
+    let tx_index = {
+        let q = DocumentQuery::new(
+            Arc::new(
+                load_system_data_contract(SystemDataContract::Withdrawals, sdk.version()).unwrap(),
+            ),
+            "withdrawal",
+        )
+        .unwrap()
+        .with_document_id(&doc.id);
+        let d = Document::fetch_many(&sdk, q)
+            .await
+            .unwrap()
+            .into_values()
+            .flatten()
+            .next()
+            .unwrap();
+        use dpp::document::DocumentV0Getters;
+        d.properties()
+            .get("transactionIndex")
+            .and_then(|v| v.to_integer::<u64>().ok())
+            .expect("a complete withdrawal has its index")
+    };
+    let script = key_wallet::dashcore::ScriptBuf::from_bytes(doc.script.clone());
+    let address = key_wallet::dashcore::Address::from_script(&script, crate::network::dash())
+        .expect("a payout address")
+        .to_string();
+    let again = chain
+        .payout_document(tx_index, &address)
+        .await
+        .expect("read by index");
+    println!("index {tx_index} → {:?}", again.as_ref().map(|d| d.id));
+    assert_eq!(again.map(|d| d.id), Some(doc.id));
+}

@@ -27,6 +27,7 @@ pub(super) mod outgoing;
 pub(super) mod platform_sending;
 pub(super) mod pool;
 pub(super) mod pool_identity;
+pub(super) mod pool_payouts;
 mod rebroadcast;
 pub(in crate::real) mod resend;
 pub(super) mod series;

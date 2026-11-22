@@ -346,6 +346,8 @@ struct WalletRead {
     own_core: Vec<String>,
     /// The CoinJoin account's coins, apart from Core (FEAT-0030 AC-T3).
     mixed: Option<Mixed>,
+    /// BUG-275: each asset unlock's payload index, by txid.
+    unlocks: HashMap<String, u64>,
 }
 
 impl Real {
@@ -568,6 +570,7 @@ impl Real {
             all_credits,
             own_core,
             mixed,
+            unlocks,
         } = self.read_wallet(id).await;
         // The height its coins were read at: the «after» of [`count_checked`] sees it.
         self.chain.note_wallet_synced(Some(synced));
@@ -598,6 +601,24 @@ impl Real {
             history.extend(self.pool_history.kept());
         }
         describe_pool_lines(&mut history);
+        // BUG-275: the payouts' origins as the network proved them, on any copy.
+        {
+            let (spent, by_operation) = pool
+                .as_ref()
+                .map(|p| (p.spent.clone(), p.spent_by_operation.clone()))
+                .unwrap_or_default();
+            let mine: Vec<dpp::prelude::Identifier> = identities
+                .iter()
+                .filter_map(|i| {
+                    dpp::prelude::Identifier::from_string(
+                        &i.id,
+                        dpp::platform_value::string_encoding::Encoding::Base58,
+                    )
+                    .ok()
+                })
+                .collect();
+            self.payouts_seen(&mut history, &unlocks, &spent, &by_operation, &mine);
+        }
         match_pool_arrivals(&mut history);
         self.hold_change(id, &history).await;
         // Sends on Platform shown from "Sign" until their own lines are here (BUG-12).
@@ -1012,6 +1033,7 @@ impl Real {
             lock_fors,
             all_credits,
             own_core,
+            unlocks: unlocks.clone(),
             // Rounds counted in one pass over the history (FEAT-0030 AC-T8).
             mixed: {
                 let coins =

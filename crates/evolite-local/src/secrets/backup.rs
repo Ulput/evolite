@@ -184,6 +184,11 @@ pub const FOLDER_FILES: &[(&str, bool, &str)] = &[
     ),
     ("platform-wallet.db", false, "a cache of the network"),
     ("shielded-pool.db", false, "a cache of the network"),
+    (
+        "pool-payouts.json",
+        false,
+        "BUG-275: what the network proved of each payout, read again on another copy",
+    ),
     ("instant-locks.json", false, "a cache of the network"),
     ("platform-sync.json", false, "a cache of the network"),
     ("lock-status.json", false, "a cache of the network"),

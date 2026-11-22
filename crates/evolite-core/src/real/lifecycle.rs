@@ -57,6 +57,7 @@ impl Real {
             notes: Arc::default(),
             backup_key: Default::default(),
             auto: Default::default(),
+            payouts: Default::default(),
             first_seen: Default::default(),
             attempts,
             pending_origin: wallets::Origin::Created,

@@ -11,6 +11,7 @@ pub mod nft_series;
 pub mod nfts;
 pub mod platform_history;
 pub mod pool;
+pub mod pool_payout;
 pub mod token_history;
 pub mod workshop_read;
 // The real core asks the network with these from FEAT-0019 part 3; this goes then.

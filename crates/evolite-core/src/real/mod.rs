@@ -289,6 +289,8 @@ pub struct Paths {
     pub tokens: PathBuf,
     /// FEAT-0045 step 2: the automatic copies' folder and times.
     pub auto_backup: PathBuf,
+    /// BUG-275: where each payout to the wallet came from, as proved, by the unlock's txid.
+    pub pool_payouts: PathBuf,
     /// The person's payment notes, encrypted ([`notes::Notes`], FEAT-0003): only here; a
     /// resync keeps them, deleting the wallet deletes them with its folder.
     pub notes: PathBuf,
@@ -337,6 +339,7 @@ impl Paths {
             connected_apps: wallets.join("connected-apps.json"),
             tokens: wallets.join("tokens.json"),
             auto_backup: wallets.join("auto-backup.json"),
+            pool_payouts: wallets.join("pool-payouts.json"),
             notes: wallets.join("notes.enc"),
         }
     }
@@ -698,6 +701,8 @@ struct Real {
     backup_key: std::sync::Mutex<Option<Arc<evolite_local::backup::BackupKey>>>,
     /// FEAT-0045 step 2: the automatic copies' state, shared with the write in flight.
     auto: Arc<std::sync::Mutex<ops::auto_backup::AutoState>>,
+    /// BUG-275: the payouts' origins, read in the background.
+    payouts: Arc<std::sync::Mutex<ops::pool_payouts::Payouts>>,
     /// Which history lines this unlock has seen, for the rate of operations first seen
     /// (FEAT-0008, R-4); reset when the notes open.
     first_seen: std::sync::Mutex<FirstSeen>,
