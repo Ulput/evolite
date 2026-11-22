@@ -1508,30 +1508,45 @@ pub(super) fn issuer_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, tokens: &
                     );
                     if form.price_kind > 0 {
                         let tiers = form.price_kind == 2;
+                        // §8d-2 (the class sweep): a field takes all the width it is given, so
+                        // in a row of two each gets its half — the second was squeezed to 26 px
+                        // and its price cut.
+                        let gap = ui.spacing().item_spacing.x;
+                        let each = if tiers {
+                            ((ui.available_width() - gap) / 2.0).max(0.0)
+                        } else {
+                            ui.available_width()
+                        };
                         for (i, (from, price)) in form.tiers.iter_mut().enumerate() {
                             ui.horizontal(|ui| {
                                 if tiers {
-                                    crate::a11y::name_next_field(ui, tr!("from"));
+                                    ui.vertical(|ui| {
+                                        ui.set_width(each);
+                                        crate::a11y::name_next_field(ui, tr!("from"));
+                                        text_field(
+                                            ui,
+                                            &p,
+                                            &format!("tier-from-{i}"),
+                                            from,
+                                            tr!("from"),
+                                            FieldKind::Amount,
+                                            |_| {},
+                                        );
+                                    });
+                                }
+                                ui.vertical(|ui| {
+                                    ui.set_width(each);
+                                    crate::a11y::name_next_field(ui, tr!("DASH each"));
                                     text_field(
                                         ui,
                                         &p,
-                                        &format!("tier-from-{i}"),
-                                        from,
-                                        tr!("from"),
+                                        &format!("tier-price-{i}"),
+                                        price,
+                                        tr!("DASH each"),
                                         FieldKind::Amount,
                                         |_| {},
                                     );
-                                }
-                                crate::a11y::name_next_field(ui, tr!("DASH each"));
-                                text_field(
-                                    ui,
-                                    &p,
-                                    &format!("tier-price-{i}"),
-                                    price,
-                                    tr!("DASH each"),
-                                    FieldKind::Amount,
-                                    |_| {},
-                                );
+                                });
                             });
                             if !tiers {
                                 break;

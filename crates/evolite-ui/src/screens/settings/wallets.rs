@@ -223,8 +223,23 @@ pub(super) fn wallets(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut Set
                         ui.allocate_exact_size(vec2(ui.available_width(), 1.0), Sense::hover());
                     ui.painter().rect_filled(line, 0, p.line);
                 }
-                let (row, resp) =
-                    ui.allocate_exact_size(vec2(ui.available_width(), 69.0), Sense::click());
+                // §8d-2 (the class sweep): the line under the title wraps to two rows and the
+                // row grows for them — in German at 800 it ran past the window's edge.
+                let width = ui.available_width();
+                let max = (width - 66.0 - 56.0).max(40.0);
+                let mut job = egui::text::LayoutJob::single_section(
+                    crate::components::cut_to(ui.ctx(), sub, &style(SMALL), max, 2),
+                    egui::TextFormat::simple(style(SMALL), p.muted),
+                );
+                job.wrap = egui::text::TextWrapping {
+                    max_width: max,
+                    max_rows: 2,
+                    break_anywhere: false,
+                    overflow_character: Some('…'),
+                };
+                let sub_galley = ui.painter().layout_job(job);
+                let height = (38.0 + sub_galley.size().y + 14.0).max(69.0);
+                let (row, resp) = ui.allocate_exact_size(vec2(width, height), Sense::click());
                 crate::components::named(&resp, egui::WidgetType::Button, true, title);
                 if resp.hovered() {
                     ui.painter().rect_filled(
@@ -250,14 +265,8 @@ pub(super) fn wallets(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut Set
                     style(BODY.weight(Weight::SemiBold)),
                     p.text,
                 );
-                paint_text(
-                    ui,
-                    pos2(x, row.top() + 38.0),
-                    Align2::LEFT_TOP,
-                    sub,
-                    style(SMALL),
-                    p.muted,
-                );
+                ui.painter()
+                    .galley(pos2(x, row.top() + 38.0), sub_galley, p.muted);
                 a.icons.icon("chevron-right", p.muted, &p, 18.0).paint_at(
                     ui,
                     Rect::from_center_size(

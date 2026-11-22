@@ -219,14 +219,26 @@ fn tx_row_sensed(ui: &mut Ui, a: &mut Assets, row: &TxRow, sense: Sense) -> egui
         .painter()
         .layout_job(row_title_job(&title_text, p.text, title_w));
     ui.painter().galley(pos2(tx, cy - 17.0), title, p.text);
-    let line = paint_text(
-        ui,
-        pos2(tx, cy + 9.0),
-        Align2::LEFT_CENTER,
-        row.detail,
-        sans(12.0, Weight::Regular),
-        p.muted,
+    // §8d-2 (the class sweep): the line under the title is cut with «…» to its room too, the
+    // alert's words kept whole after it — a long one ran under the status chip (ru at 800).
+    let alert_w = row.alert.map_or(0.0, |alert| {
+        text_width(ui, " · ", sans(12.0, Weight::Regular))
+            + text_width(ui, alert, sans(12.0, Weight::Medium))
+    });
+    let room = (title_w - alert_w).max(40.0);
+    let mut job = egui::text::LayoutJob::single_section(
+        cut_to(ui.ctx(), row.detail, &sans(12.0, Weight::Regular), room, 1),
+        egui::TextFormat::simple(sans(12.0, Weight::Regular), p.muted),
     );
+    job.wrap = egui::text::TextWrapping {
+        max_width: room,
+        max_rows: 1,
+        break_anywhere: true,
+        overflow_character: Some('…'),
+    };
+    let detail = ui.painter().layout_job(job);
+    let line = Rect::from_min_size(pos2(tx, cy + 9.0 - detail.size().y / 2.0), detail.size());
+    ui.painter().galley(line.min, detail, p.muted);
     let mut line_end = line.right();
     if let Some(alert) = row.alert {
         let dot = paint_text(

@@ -1021,7 +1021,11 @@ fn token_row(ui: &mut Ui, a: &mut Assets, row: &TokenRow, who: Sender) -> RowAct
         // Not read yet: never shown as 0 (AC-T5).
         None => "—".to_owned(),
     };
-    let right = 180.0;
+    // §8d-2 (the class sweep): the words' column leaves what the right side took the frame
+    // before (the sum and its buttons), not a fixed 180 — at 800 wide the id line ran under
+    // the sum.
+    let right_id = ui.id().with(("token-row-right", &row.info.token_id));
+    let right = ui.data(|d| d.get_temp::<f32>(right_id)).unwrap_or(180.0) + 16.0;
     ui.add_space(16.0);
     let words = ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 14.0;
@@ -1108,6 +1112,7 @@ fn token_row(ui: &mut Ui, a: &mut Assets, row: &TokenRow, who: Sender) -> RowAct
             Layout::right_to_left(Align::Center),
             |ui| {
                 ui.spacing_mut().item_spacing.x = 16.0;
+                let right_side = ui.cursor().max.x;
                 if button_enabled(
                     ui,
                     a,
@@ -1141,6 +1146,8 @@ fn token_row(ui: &mut Ui, a: &mut Assets, row: &TokenRow, who: Sender) -> RowAct
                         crate::i18n::t(tr!("The balance is not checked yet")).into_owned(),
                     );
                 }
+                let used = right_side - ui.cursor().max.x;
+                ui.data_mut(|d| d.insert_temp(right_id, used));
             },
         );
         (slot, block)

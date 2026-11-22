@@ -1440,19 +1440,26 @@ impl eframe::App for App {
 
         // FEAT-0037: a switch of network under way, the switch on the sign-in screens, the
         // Settings question and the «open in another window» answer.
-        if let Some((vault, network, wallets, open, elsewhere)) = self.snapshot.as_ref().map(|s| {
-            (
-                s.vault,
-                s.network,
-                s.wallets.len(),
-                s.wallets.iter().find(|w| w.open).map(|w| w.name.clone()),
-                s.elsewhere,
-            )
-        }) {
+        if let Some((vault, network, wallets, open, elsewhere, adding_wallet)) =
+            self.snapshot.as_ref().map(|s| {
+                (
+                    s.vault,
+                    s.network,
+                    s.wallets.len(),
+                    s.wallets.iter().find(|w| w.open).map(|w| w.name.clone()),
+                    s.elsewhere,
+                    s.adding_wallet,
+                )
+            })
+        {
             let ctx = ui.ctx().clone();
             self.tick_switch(&ctx, vault);
+            // §8d-2 (the class sweep): not while a wallet is being added — the core says so
+            // after `adding` is taken — where Figma 31's bar has the network's chip in its
+            // place; the two were drawn on each other.
             if matches!(self.screen, Screen::Unlock | Screen::Welcome)
                 && self.adding.is_none()
+                && !adding_wallet
                 && self.net_switch.is_none()
                 && !elsewhere
             {

@@ -328,10 +328,15 @@ const WORKSHOP: [&str; 11] = [
 /// Horizontal clipping only: a scrolled page clips its words at the top and bottom by design.
 /// Words in a text field are left out: a long entry scrolls inside its field.
 fn text_trouble(kit: &Kit) -> Vec<String> {
+    /// A text, its row's ink, its clip and its layer: how many fills over the whole window were
+    /// painted before it (the page's ground, then a dialog's dimming over the page).
+    type Seen = (String, egui::Rect, egui::Rect, usize);
     fn walk(
         shape: &egui::Shape,
         clip: egui::Rect,
-        out: &mut Vec<(String, egui::Rect, egui::Rect)>,
+        screen: egui::Rect,
+        layer: &mut usize,
+        out: &mut Vec<Seen>,
     ) {
         match shape {
             // One entry a row of words, its glyphs' own extent: a label in a wrapping row is
@@ -340,16 +345,23 @@ fn text_trouble(kit: &Kit) -> Vec<String> {
                 let text = t.galley.text().to_owned();
                 for row in t.galley.rows.iter().filter(|r| !r.row.glyphs.is_empty()) {
                     let rect = row.rect_without_leading_space().translate(t.pos.to_vec2());
-                    out.push((text.clone(), rect, clip));
+                    out.push((text.clone(), rect, clip, *layer));
                 }
             }
-            egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, clip, out)),
+            egui::Shape::Rect(r)
+                if r.fill.a() > 0 && r.rect.expand(1.0).contains_rect(screen.shrink(1.0)) =>
+            {
+                *layer += 1;
+            }
+            egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, clip, screen, layer, out)),
             _ => {}
         }
     }
+    let screen = kit.ctx.content_rect();
     let mut texts = Vec::new();
+    let mut layer = 0;
     for c in &kit.output().shapes {
-        walk(&c.shape, c.clip_rect, &mut texts);
+        walk(&c.shape, c.clip_rect, screen, &mut layer, &mut texts);
     }
     let fields: Vec<egui::Rect> = kit
         .query_all_by(|n| n.role() == Role::TextInput || n.role() == Role::MultilineTextInput)
@@ -370,20 +382,20 @@ fn text_trouble(kit: &Kit) -> Vec<String> {
     };
     let texts: Vec<_> = texts
         .into_iter()
-        .filter(|(_, r, clip)| !in_field(r) && clip.intersects(*r))
+        .filter(|(_, r, clip, _)| !in_field(r) && clip.intersects(*r))
         .collect();
     let mut wrong = Vec::new();
-    for (text, r, clip) in &texts {
+    for (text, r, clip, _) in &texts {
         if r.right() > clip.right() + 1.0 || r.left() < clip.left() - 1.0 {
             wrong.push(format!("cut: «{text}» at {r:?} in {clip:?}"));
         }
     }
-    // Words of one region only (the same clip): a dialog's words over the page under it are not
-    // a collision.
-    for (i, (a, ra, ca)) in texts.iter().enumerate() {
-        for (b, rb, cb) in &texts[i + 1..] {
+    // Words of one region and one layer only (the same clip, painted over the same fill): a
+    // dialog's words over the dimmed page under it are not a collision.
+    for (i, (a, ra, ca, la)) in texts.iter().enumerate() {
+        for (b, rb, cb, lb) in &texts[i + 1..] {
             let both = ra.intersect(*rb).intersect(*ca);
-            if ca == cb && both.width() > 2.0 && both.height() > 3.0 && a != b {
+            if ca == cb && la == lb && both.width() > 2.0 && both.height() > 3.0 && a != b {
                 wrong.push(format!("over: «{a}» and «{b}» at {both:?}"));
             }
         }
@@ -432,6 +444,46 @@ fn the_workshop_wraps_at_1024_uk() {
     workshop_at_1024("uk");
 }
 
+/// The window sizes of the class sweep (TEAM.md §8d-2): the narrowest supported, the medium
+/// rail layout, the usual laptop and a full-HD monitor.
+const SWEEP_SIZES: [(f32, f32); 4] = [
+    (800.0, 600.0),
+    (1024.0, 768.0),
+    (1280.0, 800.0),
+    (1920.0, 1080.0),
+];
+
+/// TEAM.md §8d-2 (the class of BUG-258): every preset at every sweep size, words cut by their
+/// region or drawn over others — one line each.
+fn every_preset_text(lang: &str) -> Vec<String> {
+    let mut wrong = Vec::new();
+    for preset in PRESETS {
+        // The sync presets keep moving: their words change between two frames.
+        if matches!(*preset, "sync" | "sync-nodes") {
+            continue;
+        }
+        let (_turn, mut kit) = demo_app(preset, lang);
+        if preset.starts_with("connect") {
+            wait_for(&mut kit, "the app's request", |kit| {
+                dialog_seen(&kit.ctx).is_some()
+            });
+        }
+        for (w, h) in SWEEP_SIZES {
+            kit.set_size(egui::vec2(w, h));
+            quiet(&mut kit, |_| {});
+            for t in text_trouble(&kit) {
+                wrong.push(format!("{preset} @{w}x{h}: {t}"));
+            }
+        }
+    }
+    wrong
+}
+
+fn no_text_trouble(lang: &str) {
+    let wrong = every_preset_text(lang);
+    assert!(wrong.is_empty(), "{lang}:\n{}", wrong.join("\n"));
+}
+
 /// BUG-265 (TEAM.md §8d, a hard preset): the 10 long-named identities on every screen that shows
 /// them — Identity, Tokens, Collection, the Workshop — at every width: no words cut or drawn over
 /// others (the chips over «Credits @…», QA 14), no page wider than the window.
@@ -452,15 +504,41 @@ fn long_identities_at_every_width(lang: &str) {
             }
         }
     }
-    assert!(
-        wrong.is_empty(),
-        "{lang}:
-{}",
-        wrong.join(
-            "
-"
-        )
-    );
+    assert!(wrong.is_empty(), "{lang}:\n{}", wrong.join("\n"));
+}
+
+/// TEAM.md §8d-2: no preset, at 800, 1024, 1280 or 1920 wide, cuts its words or draws them
+/// over each other — the whole class of BUG-255/258, one test a language. ≈ 6.5 min each:
+/// ignored, so the fast step and LIGHT skip them openly, and run in the full check's step t
+/// (`-- --ignored no_preset_cuts_or_overlaps_words`; architect, 2026-11-22).
+#[test]
+#[ignore = "class sweep, ~32 min: full check step t"]
+fn no_preset_cuts_or_overlaps_words_en() {
+    no_text_trouble("en");
+}
+
+#[test]
+#[ignore = "class sweep, ~32 min: full check step t"]
+fn no_preset_cuts_or_overlaps_words_ru() {
+    no_text_trouble("ru");
+}
+
+#[test]
+#[ignore = "class sweep, ~32 min: full check step t"]
+fn no_preset_cuts_or_overlaps_words_de() {
+    no_text_trouble("de");
+}
+
+#[test]
+#[ignore = "class sweep, ~32 min: full check step t"]
+fn no_preset_cuts_or_overlaps_words_uk() {
+    no_text_trouble("uk");
+}
+
+#[test]
+#[ignore = "class sweep, ~32 min: full check step t"]
+fn no_preset_cuts_or_overlaps_words_ar() {
+    no_text_trouble("ar");
 }
 
 #[test]
@@ -514,15 +592,7 @@ fn untrusted_groups_at_medium_widths(lang: &str) {
             wrong.push(format!("@{width}: {w}"));
         }
     }
-    assert!(
-        wrong.is_empty(),
-        "{lang}:
-{}",
-        wrong.join(
-            "
-"
-        )
-    );
+    assert!(wrong.is_empty(), "{lang}:\n{}", wrong.join("\n"));
 }
 
 #[test]

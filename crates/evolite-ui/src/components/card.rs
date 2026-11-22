@@ -51,6 +51,10 @@ pub fn kv_row_fit(ui: &mut Ui, p: &Palette, label: &str, value: &str, value_font
 }
 
 /// [`kv_row`] with the value in `color` (red for credits not added, BUG-57).
+///
+/// TEAM.md §8d-2 (the class of BUG-258, every row of the app): a label and a value that do not
+/// share the row are never drawn over each other — the value goes under its label (BUG-157's
+/// rule), and one longer than the row wraps there.
 pub fn kv_row_in(
     ui: &mut Ui,
     p: &Palette,
@@ -59,13 +63,42 @@ pub fn kv_row_in(
     value_font: FontId,
     color: egui::Color32,
 ) {
-    let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 16.0), Sense::hover());
+    let width = ui.available_width();
     // Painted words say nothing to a screen reader: the row reads «label: value».
     let spoken = format!(
         "{}: {}",
         crate::i18n::spoken(label),
         crate::i18n::spoken(value)
     );
+    let label_w = super::text_width(ui, label, sans(13.0, Weight::Regular));
+    let value_w = super::text_width(ui, value, value_font.clone());
+    if label_w + value_w + 16.0 > width {
+        let (rect, resp) = ui.allocate_exact_size(vec2(width, 16.0), Sense::hover());
+        resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, &spoken));
+        paint_text(
+            ui,
+            rect.left_center(),
+            Align2::LEFT_CENTER,
+            label,
+            sans(13.0, Weight::Regular),
+            p.muted,
+        );
+        if value_w <= width {
+            let (rect, _) = ui.allocate_exact_size(vec2(width, 16.0), Sense::hover());
+            paint_value(
+                ui,
+                rect.right_center(),
+                Align2::RIGHT_CENTER,
+                value,
+                value_font,
+                color,
+            );
+        } else {
+            ui.add(super::para(value, value_font.size, Weight::Medium, color).font(value_font));
+        }
+        return;
+    }
+    let (rect, resp) = ui.allocate_exact_size(vec2(width, 16.0), Sense::hover());
     resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, &spoken));
     paint_text(
         ui,

@@ -668,7 +668,13 @@ fn found_row(
             ui,
             egui::Rect::from_center_size(circle.center(), vec2(18.0, 18.0)),
         );
+        // §8d-2 (the class sweep): the words leave what the right side took the frame before —
+        // «Already in the list» and «Open» ran over the id line.
+        let right_id = ui.id().with(("found-row-right", &info.token_id));
+        let right = ui.data(|d| d.get_temp::<f32>(right_id)).unwrap_or(160.0);
+        let words = (ui.available_width() - right - 12.0).max(120.0);
         ui.vertical(|ui| {
+            ui.set_max_width(words);
             ui.spacing_mut().item_spacing.y = 2.0;
             ui.label(txt(
                 &state::name_in_text(info),
@@ -679,6 +685,7 @@ fn found_row(
             ui.label(txt(&id_line(info, false), 12.0, Weight::Regular, p.muted));
         });
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+            let right_side = ui.cursor().max.x;
             if added {
                 ui.label(txt(tr!("Added"), 13.0, Weight::Medium, p.accent));
             } else {
@@ -711,6 +718,8 @@ fn found_row(
                     }
                 }
             }
+            let used = right_side - ui.cursor().max.x;
+            ui.data_mut(|d| d.insert_temp(right_id, used));
         });
     });
     match (add, open) {
