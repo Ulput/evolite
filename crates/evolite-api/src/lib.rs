@@ -27,6 +27,7 @@ pub mod key_plan;
 pub mod lock_coins;
 pub mod message;
 pub mod passphrase;
+pub mod retry;
 pub mod series;
 /// Platform tokens (FEAT-0019).
 pub mod tokens;

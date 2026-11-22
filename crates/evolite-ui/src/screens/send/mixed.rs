@@ -25,7 +25,9 @@ pub struct MixedPay {
     pub revealed: Option<(Duffs, bool)>,
     pub reveal: u8,
     /// BUG-266: when a «not synced» plan was first seen; it is asked again.
-    pub not_synced_at: Option<f64>,
+    pub not_synced: evolite_api::retry::Retry,
+    /// W7 r2: the sync's stage when the plan was last looked at.
+    pub sync_seen: Option<evolite_api::SyncStage>,
     /// The refusal under «Amount» last brought into view (S3): its excess and suggested amount.
     pub refusal_revealed: Option<(Duffs, Duffs)>,
 }

@@ -40,7 +40,9 @@ pub struct SeriesForm {
     changed_at: f64,
     plan: Option<(SeriesKind, Result<SeriesPlan, CoreError>)>,
     /// BUG-266: when a «not synced» plan was first seen; it is asked again.
-    not_synced_at: Option<f64>,
+    not_synced: evolite_api::retry::Retry,
+    /// W7 r2: the sync's stage when the form last looked.
+    sync_seen: Option<evolite_api::SyncStage>,
     pub(crate) flow: SpendFlow<()>,
 }
 
@@ -56,7 +58,8 @@ impl SeriesForm {
             asked: None,
             changed_at: 0.0,
             plan: None,
-            not_synced_at: None,
+            not_synced: Default::default(),
+            sync_seen: None,
             flow: SpendFlow::default(),
         }
     }
@@ -175,7 +178,16 @@ pub(super) fn page(
 ) {
     let p = a.p;
     ui.spacing_mut().item_spacing.y = 16.0;
-    if crate::components::back_link(ui, a, tr!("Collection")).clicked() {
+    // W7-2: «‹ {collection}» — back to it, by its name.
+    let collection = match &state.collections {
+        Some(Ok(all)) => all.iter().find(|c| c.contract == contract).cloned(),
+        _ => None,
+    };
+    let back = collection
+        .as_ref()
+        .map(|c| crate::i18n::own(&super::collection_name(c)))
+        .unwrap_or_else(|| tr!("Collection").into());
+    if crate::components::back_link(ui, a, &back).clicked() {
         state.page = Page::Collection(contract.to_owned());
         return;
     }
@@ -209,7 +221,11 @@ pub(super) fn page(
         model: model_id.to_owned(),
     };
     let key = (contract.to_owned(), model_id.to_owned());
-    if state.counts_asked.insert(key.clone()) {
+    // W7 r1 Must: a read that failed is said and asked again on «Retry» or after 30 s.
+    let now = ui.input(|i| i.time);
+    state.now = now;
+    let again = std::mem::take(&mut state.retry_reads);
+    if super::ask_now(&mut state.counts_asked, &key, now, again) {
         cx.send(Command::ReadWorkshop {
             ask: WorkshopAsk::Counts {
                 contract: contract.to_owned(),
@@ -233,75 +249,47 @@ pub(super) fn page(
         .iter()
         .any(|s| s.target.identity == identity && s.running);
 
-    page_header(ui, a, &crate::i18n::own(&model.name), None, |_, _| {});
-    let supply_line = format!(
-        tr!("supply {} · issued {}"),
-        crate::format::count(model.supply as u64),
-        issued.map_or("—".to_owned(), |n| crate::format::count(n as u64))
-    );
-    ui.horizontal_top(|ui| {
-        ui.spacing_mut().item_spacing.x = 20.0;
-        let (rect, _) = ui.allocate_exact_size(vec2(160.0, 160.0), Sense::hover());
-        ui.painter()
-            .rect_filled(rect, egui::CornerRadius::same(12), p.raised);
-        if !model.art.is_empty() {
-            let mut send = |c: Command| cx.send(c);
-            art.paint(ui, &p, &model.art, rect, &mut send);
-        }
-        ui.vertical(|ui| {
-            ui.spacing_mut().item_spacing.y = 6.0;
-            ui.label(txt(&supply_line, 13.0, Weight::Medium, p.muted));
-            if !model.description.is_empty() {
-                super::super::tokens::para(
-                    ui,
-                    &crate::i18n::own(&model.description),
-                    13.0,
-                    p.text,
-                    None,
-                );
-            }
+    // W7 (the customer's mockup of 2026-11-22): the picture half the width beside the name, the
+    // rules, the supply and its bar, the actions and the numbers; prices, the recent events and
+    // the note below. Narrower than 900: one column, the picture the whole width.
+    let width = ui.available_width();
+    let wide = width >= WIDE;
+    let (mine_copies, mine_all) = state.instances(cx, contract, model_id, false, now, again);
+    let (sale_copies, sale_all) = state.instances(cx, contract, model_id, true, now, again);
+    let about_here: Vec<evolite_api::Activity> = wallet
+        .activity
+        .iter()
+        .filter(|act| about_model(act, &model.name))
+        .cloned()
+        .collect();
+    let who = super::super::tokens::shown_name(&wallet);
+    if super::ask_now(&mut state.given_asked, &key, now, again) {
+        cx.send(Command::ReadWorkshop {
+            ask: WorkshopAsk::Given {
+                contract: contract.to_owned(),
+                model: model_id.to_owned(),
+            },
         });
-    });
-    // The numbers (AC-D12): «—» until the core counted them.
-    let shown = |n: Option<u64>| n.map_or("—".to_owned(), crate::format::count);
-    ui.horizontal_wrapped(|ui| {
-        ui.spacing_mut().item_spacing.x = 12.0;
-        number_tile(ui, a, tr!("You have"), &shown(mine), None);
-        let prices: Vec<String> = counts
-            .as_ref()
-            .map(|c| {
-                c.prices
-                    .iter()
-                    .map(|(price, n)| {
-                        format!(
-                            tr!("at {} — {}"),
-                            crate::format::amount(*price),
-                            crate::format::count(*n as u64)
-                        )
-                    })
-                    .collect()
-            })
-            .unwrap_or_default();
-        number_tile(
-            ui,
-            a,
-            tr!("For sale"),
-            &shown(counts.as_ref().map(|_| for_sale)),
-            Some(&prices.join("\n")),
-        );
-        number_tile(
-            ui,
-            a,
-            tr!("Sold"),
-            &shown(counts.as_ref().and_then(|c| c.sold).map(u64::from)),
-            None,
-        );
-    });
-    // The series' plate (W12, W12b).
-    for s in &series_here {
-        series_plate(ui, a, cx, state, s);
     }
-    // The actions (W7): one series at a time on the identity (AC-A8).
+    let given = state.given.get(&key).cloned();
+    let numbers = Numbers {
+        mine,
+        for_sale: counts.as_ref().map(|_| for_sale),
+        free,
+        sold: counts.as_ref().and_then(|c| c.sold),
+        sold_for: about_here
+            .iter()
+            .filter(|act| matches!(act.kind, evolite_api::ActivityKind::NftSold { .. }))
+            .map(|act| act.amount.abs())
+            .sum(),
+        who,
+        given,
+        now: cx.now,
+        prices: counts
+            .as_ref()
+            .map(|c| c.prices.clone())
+            .unwrap_or_default(),
+    };
     let left_to_issue = issued.map(|i| model.supply.saturating_sub(i));
     let why_not_give = if running {
         Some(tr!("A series is running — wait for it or stop it"))
@@ -318,29 +306,110 @@ pub(super) fn page(
         None
     };
     let (mut give, mut issue) = (false, false);
-    ui.horizontal(|ui| {
-        ui.spacing_mut().item_spacing.x = 12.0;
-        give = button_enabled(
-            ui,
-            a,
-            tr!("Give…"),
-            ButtonKind::Primary,
-            None,
-            why_not_give.is_none(),
-        )
-        .clicked();
-        issue = button_enabled(
-            ui,
-            a,
-            tr!("Issue more"),
-            ButtonKind::Secondary,
-            None,
-            why_not_issue.is_none(),
-        )
-        .clicked();
-    });
-    for why in [why_not_give, why_not_issue].into_iter().flatten().take(1) {
-        ui.label(txt(why, 12.0, Weight::Regular, p.muted));
+    let mut right = |ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut WorkshopState| {
+        ui.spacing_mut().item_spacing.y = 12.0;
+        ui.add(crate::components::para(
+            &crate::i18n::own(&model.name),
+            28.0,
+            Weight::Bold,
+            p.text,
+        ));
+        if !model.description.is_empty() {
+            ui.add(crate::components::para(
+                &crate::i18n::own(&model.description),
+                14.0,
+                Weight::Regular,
+                p.text,
+            ));
+        }
+        rule_chips(ui, a, collection.as_ref());
+        supply(ui, a, model.supply, issued);
+        ui.horizontal_wrapped(|ui| {
+            ui.spacing_mut().item_spacing = vec2(12.0, 8.0);
+            give |= button_enabled(
+                ui,
+                a,
+                tr!("Give…"),
+                ButtonKind::Primary,
+                None,
+                why_not_give.is_none(),
+            )
+            .clicked();
+            issue |= button_enabled(
+                ui,
+                a,
+                tr!("Issue more"),
+                ButtonKind::Secondary,
+                None,
+                why_not_issue.is_none(),
+            )
+            .clicked();
+        });
+        for why in [why_not_give, why_not_issue].into_iter().flatten().take(1) {
+            ui.add(crate::components::para(why, 12.0, Weight::Regular, p.muted));
+        }
+        // The series' plate (W12, W12b).
+        for s in &series_here {
+            series_plate(ui, a, cx, state, s);
+        }
+        if wide {
+            tiles(ui, a, &numbers);
+            your_numbers(ui, a, &mine_copies, mine_all, mine);
+        }
+    };
+    if wide {
+        let side = ((width - GAP) / 2.0).floor();
+        ui.horizontal_top(|ui| {
+            ui.spacing_mut().item_spacing.x = GAP;
+            let (rect, _) = ui.allocate_exact_size(vec2(side, side), Sense::hover());
+            picture(ui, a, cx, art, &model, rect);
+            ui.vertical(|ui| {
+                ui.set_width(width - side - GAP);
+                right(ui, a, cx, state);
+            });
+        });
+    } else {
+        let (rect, _) = ui.allocate_exact_size(vec2(width, NARROW_PICTURE), Sense::hover());
+        picture(ui, a, cx, art, &model, rect);
+        ui.vertical(|ui| {
+            ui.set_width(width);
+            right(ui, a, cx, state);
+        });
+        tiles(ui, a, &numbers);
+        your_numbers(ui, a, &mine_copies, mine_all, mine);
+    }
+    if state.page_failed(contract, model_id) {
+        // Said, not shown as «—» as while reading; asked again by itself after its pause.
+        ui.ctx()
+            .request_repaint_after(std::time::Duration::from_secs_f64(
+                evolite_api::retry::FIRST,
+            ));
+        ui.horizontal_wrapped(|ui| {
+            ui.spacing_mut().item_spacing.x = 12.0;
+            ui.add(crate::components::para(
+                tr!("Could not read"),
+                13.0,
+                Weight::Medium,
+                p.danger,
+            ));
+            if crate::components::text_action(ui, a, "sync", tr!("Retry")).clicked() {
+                state.retry_reads = true;
+            }
+        });
+    }
+    prices(ui, a, &sale_copies, sale_all);
+    recent(ui, a, cx, &model.name, &about_here);
+    ui.add(crate::components::para(
+        tr!(
+            "evolite picks the copy numbers itself: for a sale or a gift, the free ones with the lowest numbers. No need to pick them one by one."
+        ),
+        12.0,
+        Weight::Regular,
+        p.muted,
+    ));
+    // W7-7: the contract's id whole, at the advanced level only (FEAT-0051 R-4).
+    if cx.advanced() {
+        contract_id(ui, a, contract);
     }
     if give {
         state.series = Some(SeriesForm::new(Action::Give, target.clone()));
@@ -353,20 +422,498 @@ pub(super) fn page(
     }
 }
 
-/// A number with its label and, below, its parts (the prices).
-fn number_tile(ui: &mut Ui, a: &mut Assets, label: &str, value: &str, parts: Option<&str>) {
+/// W7: content at least this wide has two columns, the picture beside the rest.
+const WIDE: f32 = 900.0;
+/// Between the picture and its column.
+const GAP: f32 = 24.0;
+/// The picture's height in one column.
+const NARROW_PICTURE: f32 = 340.0;
+/// A number tile's height: its label, number and two lines of parts (de and uk fit).
+const TILE: f32 = 112.0;
+/// «Your numbers» and a price's line: at most this many ranges before «N more ranges».
+const RANGES_SHOWN: usize = 24;
+/// «Recent»: at most this many events.
+const RECENT: usize = 5;
+
+/// The numbers the tiles show.
+struct Numbers {
+    mine: Option<u64>,
+    for_sale: Option<u64>,
+    free: Option<u64>,
+    sold: Option<u32>,
+    sold_for: Duffs,
+    who: String,
+    /// «Given» as read (the architect, 2026-11-22); `None` before.
+    given: Option<evolite_api::workshop::Given>,
+    now: chrono::DateTime<chrono::Local>,
+    prices: Vec<(Duffs, u32)>,
+}
+
+/// A History line about this model (W7-6): its sales now; its issues and gifts once History
+/// has them (BUG-259).
+fn about_model(act: &evolite_api::Activity, name: &str) -> bool {
+    matches!(&act.kind, evolite_api::ActivityKind::NftSold { model: Some(m), .. } if m == name)
+}
+
+/// W7-1: the picture whole in its square (or the width), on `raised`; while it is drawn, when it
+/// could not be, or when the model has none, said in words — never «No picture».
+fn picture(
+    ui: &mut Ui,
+    a: &mut Assets,
+    cx: &mut Ctx,
+    art: &mut crate::art::ArtCache,
+    model: &Model,
+    rect: egui::Rect,
+) {
     let p = a.p;
-    crate::components::card(&p, egui::Margin::same(16)).show(ui, |ui| {
-        ui.set_width(180.0);
-        // In a row of tiles: the label over the number, not beside it.
-        ui.vertical(|ui| {
-            ui.spacing_mut().item_spacing.y = 4.0;
-            ui.label(txt(label, 12.0, Weight::Medium, p.muted));
-            ui.label(txt(value, 22.0, Weight::SemiBold, p.text));
-            if let Some(parts) = parts.filter(|s| !s.is_empty()) {
-                ui.label(txt(parts, 12.0, Weight::Regular, p.accent));
+    ui.painter()
+        .rect_filled(rect, egui::CornerRadius::same(16), p.raised);
+    let (words, retry) = if model.art.is_empty() {
+        (tr!("Without a picture").to_owned(), false)
+    } else {
+        let mut send = |c: Command| cx.send(c);
+        match art.paint_or_tell(ui, &model.art, rect, &mut send) {
+            crate::art::Drawn::Ready => return,
+            crate::art::Drawn::Waiting => (tr!("The picture is loading…").to_owned(), false),
+            crate::art::Drawn::Failed(why) => (
+                format!(tr!("The picture could not be shown: {}."), failure(&why)),
+                true,
+            ),
+        }
+    };
+    let inner = rect.shrink(24.0);
+    let mut again = false;
+    ui.scope_builder(
+        egui::UiBuilder::new()
+            .max_rect(inner)
+            .layout(egui::Layout::top_down(egui::Align::Center)),
+        |ui| {
+            ui.spacing_mut().item_spacing.y = 8.0;
+            ui.add_space((inner.height() / 2.0 - 48.0).max(0.0));
+            ui.add(a.icons.icon("image", p.muted, &p, 32.0));
+            ui.add(crate::components::para(
+                &words,
+                13.0,
+                Weight::Regular,
+                p.muted,
+            ));
+            if retry {
+                again = crate::components::text_action(ui, a, "sync", tr!("Try again")).clicked();
             }
+        },
+    );
+    if again {
+        art.try_again(&model.art);
+    }
+}
+
+/// Why a picture was not drawn, in a few words (W7-1): the network, a damaged file, the size.
+fn failure(why: &str) -> &'static str {
+    let lower = why.to_lowercase();
+    if lower.is_empty() || lower.contains("no picture") {
+        tr!("the network did not answer")
+    } else if lower.contains("size") || lower.contains("frames") || lower.contains("limit") {
+        tr!("the picture is larger than allowed")
+    } else {
+        tr!("the picture file is damaged")
+    }
+}
+
+/// W7-3: the collection's rules as chips, only those it has; not pressed.
+fn rule_chips(ui: &mut Ui, a: &mut Assets, collection: Option<&Collection>) {
+    let p = a.p;
+    let Some(c) = collection else {
+        return;
+    };
+    let mut rules = vec![tr!("transferable"), tr!("for sale")];
+    if !c.open {
+        rules.push(tr!("only the author issues"));
+    }
+    ui.horizontal_wrapped(|ui| {
+        ui.spacing_mut().item_spacing = vec2(8.0, 8.0);
+        for rule in rules {
+            let font = crate::theme::sans(12.0, Weight::Medium);
+            let w = 24.0 + crate::components::text_width(ui, rule, font.clone());
+            let (rect, _) = ui.allocate_exact_size(vec2(w, 26.0), Sense::hover());
+            ui.painter()
+                .rect_filled(rect, egui::CornerRadius::same(13), p.raised);
+            crate::components::paint_text(
+                ui,
+                rect.center(),
+                egui::Align2::CENTER_CENTER,
+                rule,
+                font,
+                p.text,
+            );
+        }
+    });
+}
+
+/// W7-4: «supply 100 · numbers no. 1–40», the bar of what is issued and «issued 40 of 100».
+fn supply(ui: &mut Ui, a: &mut Assets, supply: u32, issued: Option<u32>) {
+    let p = a.p;
+    let count = |n: u32| crate::format::count(n as u64);
+    let line = match issued {
+        Some(n) if n > 0 => format!(
+            tr!("supply {} · numbers no. {}–{}"),
+            count(supply),
+            count(1),
+            count(n)
+        ),
+        _ => format!(tr!("supply {}"), count(supply)),
+    };
+    ui.add(crate::components::para(
+        &line,
+        13.0,
+        Weight::Medium,
+        p.muted,
+    ));
+    let (bar, _) = ui.allocate_exact_size(vec2(ui.available_width(), 6.0), Sense::hover());
+    ui.painter()
+        .rect_filled(bar, egui::CornerRadius::same(3), p.raised);
+    if let Some(n) = issued {
+        let mut done = bar;
+        done.set_width(bar.width() * (n as f32 / supply.max(1) as f32).clamp(0.0, 1.0));
+        ui.painter()
+            .rect_filled(done, egui::CornerRadius::same(3), p.accent);
+    }
+    let of = issued.map_or("—".to_owned(), count);
+    ui.label(txt(
+        &format!(tr!("issued {} of {}"), of, count(supply)),
+        12.0,
+        Weight::Regular,
+        p.muted,
+    ));
+}
+
+/// The four numbers, 2 × 2 (W7): you have, for sale, given, sold — each with its parts.
+fn tiles(ui: &mut Ui, a: &mut Assets, n: &Numbers) {
+    let p = a.p;
+    let shown = |v: Option<u64>| v.map_or("—".to_owned(), crate::format::count);
+    let width = ui.available_width();
+    let w = ((width - 12.0) / 2.0).floor();
+    let mine_parts = match (n.free, n.for_sale) {
+        (Some(free), Some(sale)) => Some(format!(
+            tr!("not for sale {} · for sale {}"),
+            crate::format::count(free),
+            crate::format::count(sale)
+        )),
+        _ => None,
+    };
+    let sale_parts = (!n.prices.is_empty()).then(|| {
+        n.prices
+            .iter()
+            .map(|(price, k)| {
+                format!(
+                    tr!("at {} — {}"),
+                    crate::format::amount(*price),
+                    crate::format::count(*k as u64)
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(" · ")
+    });
+    let sold_parts = n.sold.filter(|s| *s > 0).map(|_| {
+        format!(
+            tr!("for {} · credits to {}"),
+            crate::format::amount(n.sold_for),
+            crate::i18n::own(&n.who)
+        )
+    });
+    ui.vertical(|ui| {
+        ui.spacing_mut().item_spacing = vec2(12.0, 12.0);
+        ui.horizontal(|ui| {
+            tile(
+                ui,
+                a,
+                w,
+                tr!("You have"),
+                &shown(n.mine),
+                p.text,
+                mine_parts,
+            );
+            tile(
+                ui,
+                a,
+                w,
+                tr!("For sale"),
+                &shown(n.for_sale),
+                p.accent,
+                sale_parts,
+            );
         });
+        ui.horizontal(|ui| {
+            let (given, given_parts) = given_tile(n);
+            tile(ui, a, w, tr!("Given"), &given, p.text, given_parts);
+            tile(
+                ui,
+                a,
+                w,
+                tr!("Sold"),
+                &shown(n.sold.map(u64::from)),
+                p.text,
+                sold_parts,
+            );
+        });
+    });
+}
+
+/// «Given N» (or «at least N» past the pages read) and «last: {when}, @name»; «No gifts yet»;
+/// «only from this computer» for a collection without transfer history; «—» while not read.
+fn given_tile(n: &Numbers) -> (String, Option<String>) {
+    let Some(g) = &n.given else {
+        return ("—".to_owned(), None);
+    };
+    let number = match g.count {
+        Count::Proved(k) => crate::format::count(k),
+        Count::Counted {
+            count, complete, ..
+        } if !complete => format!(tr!("at least {}"), crate::format::count(count)),
+        Count::Counted { count, .. } => crate::format::count(count),
+    };
+    let mut parts = match &g.last {
+        Some((at, to)) => {
+            let to = if to.starts_with('@') {
+                crate::i18n::own(to)
+            } else {
+                super::super::tokens::state::short(to)
+            };
+            format!(tr!("last: {}, {}"), crate::text::when(*at, n.now), to)
+        }
+        None => tr!("No gifts yet").to_owned(),
+    };
+    if g.this_computer_only {
+        parts = format!("{parts} · {}", tr!("only from this computer"));
+    }
+    (number, Some(parts))
+}
+
+/// One number tile: its label, the number and up to two lines of its parts; one height.
+fn tile(
+    ui: &mut Ui,
+    a: &mut Assets,
+    width: f32,
+    label: &str,
+    value: &str,
+    color: egui::Color32,
+    parts: Option<String>,
+) {
+    let p = a.p;
+    egui::Frame::new()
+        .fill(p.surface)
+        .stroke(egui::Stroke::new(1.0, p.line))
+        .corner_radius(14)
+        .inner_margin(egui::Margin::same(16))
+        .show(ui, |ui| {
+            ui.set_width(width - 32.0);
+            ui.set_min_height(TILE - 32.0);
+            ui.vertical(|ui| {
+                ui.spacing_mut().item_spacing.y = 4.0;
+                ui.add(crate::components::para(
+                    label,
+                    12.0,
+                    Weight::Medium,
+                    p.muted,
+                ));
+                ui.label(txt(value, 22.0, Weight::SemiBold, color));
+                if let Some(parts) = parts {
+                    ui.add(crate::components::para(
+                        &parts,
+                        12.0,
+                        Weight::Regular,
+                        p.muted,
+                    ));
+                }
+            });
+        });
+}
+
+/// `serials` as ranges, in order: «5–8», «12».
+fn ranges(serials: &[u32]) -> Vec<String> {
+    let mut sorted = serials.to_vec();
+    sorted.sort_unstable();
+    sorted.dedup();
+    let n = |v: u32| crate::format::count(v as u64);
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < sorted.len() {
+        let first = sorted[i];
+        let mut last = first;
+        while i + 1 < sorted.len() && sorted[i + 1] == last + 1 {
+            i += 1;
+            last = sorted[i];
+        }
+        out.push(if first == last {
+            n(first)
+        } else {
+            format!("{}–{}", n(first), n(last))
+        });
+        i += 1;
+    }
+    out
+}
+
+/// «no. 5–8, 14–40», at most `shown` ranges, then «N more ranges».
+fn numbers_line(serials: &[u32], shown: usize) -> String {
+    let all = ranges(serials);
+    let listed: Vec<String> = all.iter().take(shown).cloned().collect();
+    let mut line = format!(tr!("no. {}"), listed.join(", "));
+    if all.len() > shown {
+        let more = (all.len() - shown) as u32;
+        line = format!(
+            "{line} {}",
+            crate::text::plural(more, tr!("more range"), tr!("more ranges"))
+        );
+    }
+    line
+}
+
+/// W7-5: «Your numbers: no. 5–8, 14–40» — no row for each copy (AC-D12).
+fn your_numbers(
+    ui: &mut Ui,
+    a: &mut Assets,
+    copies: &[evolite_api::workshop::Instance],
+    all: bool,
+    mine: Option<u64>,
+) {
+    let p = a.p;
+    if copies.is_empty() || mine == Some(0) {
+        return;
+    }
+    let serials: Vec<u32> = copies.iter().map(|c| c.serial).collect();
+    let mut line = numbers_line(&serials, RANGES_SHOWN);
+    if !all {
+        line.push_str(" …");
+    }
+    ui.horizontal_wrapped(|ui| {
+        ui.spacing_mut().item_spacing.x = 6.0;
+        ui.label(txt(tr!("Your numbers:"), 13.0, Weight::Regular, p.muted));
+        ui.add(
+            crate::components::para(&line, 13.0, Weight::Regular, p.text)
+                .font(crate::theme::mono(13.0, Weight::Regular)),
+        );
+    });
+}
+
+/// «PRICES»: a line for each price — the price and «4 copies · no. 5–8»; «Nothing is for sale
+/// yet» when nothing is. «Change the price» and «Take off» are W9, not here yet.
+fn prices(ui: &mut Ui, a: &mut Assets, for_sale: &[evolite_api::workshop::Instance], all: bool) {
+    let p = a.p;
+    crate::components::section_label(ui, &p, tr!("Prices"));
+    let mut by_price: std::collections::BTreeMap<Duffs, Vec<u32>> = Default::default();
+    for c in for_sale {
+        if let Some(price) = c.price {
+            by_price.entry(price).or_default().push(c.serial);
+        }
+    }
+    let width = ui.available_width();
+    crate::components::card(&p, egui::Margin::symmetric(16, 14)).show(ui, |ui| {
+        ui.set_width(crate::components::inner(width, 16));
+        ui.spacing_mut().item_spacing.y = 10.0;
+        if by_price.is_empty() {
+            let words = if all {
+                tr!("Nothing is for sale yet")
+            } else {
+                tr!("Reading…")
+            };
+            ui.label(txt(words, 13.0, Weight::Regular, p.muted));
+            return;
+        }
+        for (price, serials) in &by_price {
+            ui.horizontal_wrapped(|ui| {
+                ui.spacing_mut().item_spacing.x = 24.0;
+                ui.label(crate::components::fig_txt(
+                    &crate::format::amount(*price),
+                    crate::theme::mono(13.0, Weight::Medium),
+                    p.accent,
+                ));
+                let copies = crate::text::plural(serials.len() as u32, tr!("copy"), tr!("copies"));
+                ui.add(crate::components::para(
+                    &format!("{copies} · {}", numbers_line(serials, RANGES_SHOWN)),
+                    13.0,
+                    Weight::Regular,
+                    p.text,
+                ));
+            });
+        }
+    });
+}
+
+/// «RECENT» (W7-6): up to five of the model's History lines, newest first, with «All history ›»
+/// to History searching for the model; «No events yet» when there are none.
+fn recent(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, name: &str, lines: &[evolite_api::Activity]) {
+    let p = a.p;
+    let mut all = false;
+    ui.horizontal(|ui| {
+        crate::components::section_label(ui, &p, tr!("Recent"));
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            all = history_link(ui, a, tr!("All history ›")).clicked();
+        });
+    });
+    if all {
+        cx.show_history(name.to_owned());
+    }
+    if lines.is_empty() {
+        ui.label(txt(tr!("No events yet"), 13.0, Weight::Regular, p.muted));
+        return;
+    }
+    let mut sorted: Vec<&evolite_api::Activity> = lines.iter().collect();
+    sorted.sort_by_key(|act| std::cmp::Reverse(act.at));
+    for act in sorted.into_iter().take(RECENT) {
+        let when = crate::text::when(act.at, cx.now);
+        ui.horizontal(|ui| {
+            let when_w =
+                crate::components::text_width(ui, &when, crate::theme::sans(12.0, Weight::Regular));
+            let room = (ui.available_width() - when_w - 16.0).max(80.0);
+            ui.allocate_ui(vec2(room, 0.0), |ui| {
+                ui.add(crate::components::para(
+                    &crate::text::activity_title(act),
+                    13.0,
+                    Weight::Regular,
+                    p.text,
+                ));
+            });
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                ui.label(txt(&when, 12.0, Weight::Regular, p.muted));
+            });
+        });
+    }
+}
+
+/// «All history ›»: 13 SemiBold in `accent`, a link (W7-6).
+fn history_link(ui: &mut Ui, a: &mut Assets, label: &str) -> egui::Response {
+    let p = a.p;
+    let row = ui
+        .scope(|ui| {
+            // The words are the link: a selectable label would take their clicks.
+            ui.style_mut().interaction.selectable_labels = false;
+            ui.label(txt(label, 13.0, Weight::SemiBold, p.accent));
+        })
+        .response;
+    let resp = crate::a11y::row_click(ui, &row, "all-history");
+    crate::components::named(&resp, egui::WidgetType::Link, true, label);
+    resp.on_hover_cursor(egui::CursorIcon::PointingHand)
+}
+
+/// W7-7: «Contract id», the id whole in mono (wrapping when narrow) and «Copy».
+fn contract_id(ui: &mut Ui, a: &mut Assets, contract: &str) {
+    let p = a.p;
+    let width = ui.available_width();
+    crate::components::card(&p, egui::Margin::same(16)).show(ui, |ui| {
+        ui.set_width(crate::components::inner(width, 16));
+        ui.spacing_mut().item_spacing.y = 6.0;
+        ui.horizontal(|ui| {
+            ui.label(txt(tr!("Contract id"), 12.0, Weight::Medium, p.muted));
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if crate::components::text_action(ui, a, "copy", tr!("Copy")).clicked() {
+                    crate::clipboard::copy(ui.ctx(), contract.to_owned());
+                }
+            });
+        });
+        ui.add(
+            crate::components::para(contract, 12.0, Weight::Regular, p.text)
+                .font(crate::theme::mono(12.0, Weight::Regular)),
+        );
     });
 }
 
@@ -464,12 +1011,14 @@ fn series_window(
         state.series = None;
         state.counts.clear();
         state.counts_asked.clear();
+        state.instances.clear();
         return;
     }
     let now = ui.input(|i| i.time);
     // BUG-266: «wait for the sync» is not the last word: asked again a moment later.
-    let said = matches!(form.planned(), Some(Err(CoreError::NotSynced)));
-    if super::retry_not_synced(ui, now, said, &mut form.not_synced_at) {
+    let answer = super::not_synced(form.planned());
+    let moved = super::sync_moved(&mut form.sync_seen, cx.snap.sync.stage);
+    if super::retry_not_synced(ui, now, answer, moved, &mut form.not_synced) {
         form.asked = None;
         form.plan = None;
     }

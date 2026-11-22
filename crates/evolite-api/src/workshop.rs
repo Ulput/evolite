@@ -23,6 +23,9 @@ pub enum WorkshopAsk {
     },
     /// What the identity sold since the last read (AC-T-W4); the core keeps where it stands.
     Sales,
+    /// W7 «Given»: how many copies of a model the identity gave away, and the last gift
+    /// (the architect, 2026-11-22: DocumentHistory's transfers from it, not to itself).
+    Given { contract: String, model: String },
 }
 
 /// The answer to one [`WorkshopAsk`].
@@ -32,6 +35,21 @@ pub enum WorkshopRead {
     Counts(ModelCounts),
     Instances(Instances),
     Sales(Vec<Sale>),
+    Given(Given),
+}
+
+/// W7 «Given N · last: {when}, @name».
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Given {
+    pub contract: String,
+    pub model: String,
+    /// `Proved` when every transfer was read; `Counted { complete: false }` past the pages read
+    /// («at least N»).
+    pub count: Count,
+    /// The last gift: when, and to whom (an @name, else a short id).
+    pub last: Option<(Timestamp, String)>,
+    /// Counted from this computer's series only: the collection keeps no transfer history.
+    pub this_computer_only: bool,
 }
 
 /// One's own collection.

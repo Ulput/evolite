@@ -73,10 +73,11 @@ impl Real {
         };
         let chain = self.chain.clone();
         let (state, journal) = (self.workshop.clone(), self.journal.clone());
+        let series = self.nft_series.clone();
         self.answer_when_platform_ready("task:read_workshop", not_synced, async move {
             let read = {
                 let ask = ask.clone();
-                async move { read(&chain, &state, &journal, &identity, ask).await }
+                async move { read(&chain, &state, &journal, &series, &identity, ask).await }
             };
             let result = read_within(WORKSHOP_WAIT, read)
                 .await
@@ -91,6 +92,7 @@ async fn read(
     chain: &Arc<Chain>,
     state: &WorkshopState,
     journal: &journal::Journal,
+    series: &nft_series::NftSeries,
     identity: &str,
     ask: WorkshopAsk,
 ) -> Result<WorkshopRead, String> {
@@ -124,6 +126,89 @@ async fn read(
             state.add(identity, &new, cursor);
             Ok(WorkshopRead::Sales(new))
         }
+        WorkshopAsk::Given { contract, model } => {
+            let ours = given_here(series, identity, &contract);
+            let read = chain
+                .workshop_given(identity, &contract, &model, &ours.models)
+                .await?;
+            Ok(WorkshopRead::Given(given(&contract, &model, &read, &ours)))
+        }
+    }
+}
+
+/// W7 «Given» from this computer's series: each copy a gift series gave (instance → model),
+/// and how many and the last gift of each model — the fallback for a collection without
+/// transfer history (the architect, 2026-11-22).
+#[derive(Default)]
+struct GivenHere {
+    models: std::collections::BTreeMap<String, String>,
+    count: std::collections::BTreeMap<String, u64>,
+    last: std::collections::BTreeMap<String, (Timestamp, String)>,
+}
+
+fn given_here(series: &nft_series::NftSeries, identity: &str, contract: &str) -> GivenHere {
+    let mut here = GivenHere::default();
+    for s in series.all() {
+        let nft_series::Kind::Gift { to } = &s.kind else {
+            continue;
+        };
+        if s.identity != identity || s.contract != contract {
+            continue;
+        }
+        let done: Vec<_> = s
+            .items
+            .iter()
+            .filter(|i| i.state == nft_series::State::Done)
+            .collect();
+        for item in &done {
+            if let Some(doc) = &item.doc {
+                here.models.insert(doc.clone(), s.model.clone());
+            }
+        }
+        if !done.is_empty() {
+            *here.count.entry(s.model.clone()).or_default() += done.len() as u64;
+            let at = s.created_at as Timestamp;
+            let newer = here.last.get(&s.model).is_none_or(|(t, _)| *t < at);
+            if newer {
+                here.last.insert(s.model.clone(), (at, to.clone()));
+            }
+        }
+    }
+    here
+}
+
+/// The tile's numbers: from DocumentHistory, or this computer's series when the collection
+/// keeps no transfer history.
+fn given(
+    contract: &str,
+    model: &str,
+    read: &evolite_chain::workshop_read::GivenRead,
+    here: &GivenHere,
+) -> evolite_api::workshop::Given {
+    use evolite_api::workshop::Count;
+    if read.no_history {
+        return evolite_api::workshop::Given {
+            contract: contract.to_owned(),
+            model: model.to_owned(),
+            count: Count::Proved(here.count.get(model).copied().unwrap_or(0)),
+            last: here.last.get(model).cloned(),
+            this_computer_only: true,
+        };
+    }
+    evolite_api::workshop::Given {
+        contract: contract.to_owned(),
+        model: model.to_owned(),
+        count: if read.complete {
+            Count::Proved(read.count)
+        } else {
+            Count::Counted {
+                count: read.count,
+                documents: read.read,
+                complete: false,
+            }
+        },
+        last: read.last.clone(),
+        this_computer_only: false,
     }
 }
 
@@ -206,5 +291,88 @@ mod tests {
             journal::activity(&sale_entry(&s, "me")).kind,
             evolite_api::ActivityKind::NftSold { buyer, .. } if buyer == "b"
         ));
+    }
+}
+
+#[cfg(test)]
+mod given_tests {
+    use super::*;
+
+    /// W7 «Given» (the architect, 2026-11-22): this computer's gift series give the fallback —
+    /// the copies given (done only) and the last gift — and each given copy's model, for one
+    /// its recipient deleted; a collection without transfer history says «only from this
+    /// computer».
+    #[test]
+    fn a_collection_without_transfer_history_counts_this_computers_gifts() {
+        let dir = std::env::temp_dir().join(format!("evolite-given-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let series = nft_series::NftSeries::new(dir.join("nft-series.json"));
+        let item = |serial, doc: &str, state| nft_series::Item {
+            serial,
+            doc: Some(doc.into()),
+            state,
+            why: None,
+            sent_at: None,
+            no_since: None,
+        };
+        let gift = |model: &str, to: &str, at, items| nft_series::Series {
+            id: 0,
+            identity: "me".into(),
+            contract: "c".into(),
+            model: model.into(),
+            kind: nft_series::Kind::Gift { to: to.into() },
+            items,
+            created_at: at,
+            spent: 0,
+            closed: false,
+        };
+        use nft_series::State::{Done, Refused};
+        series
+            .start(gift(
+                "m",
+                "@bob",
+                10,
+                vec![item(1, "d1", Done), item(2, "d2", Refused)],
+            ))
+            .unwrap();
+        series
+            .start(gift("m", "@carol", 20, vec![item(3, "d3", Done)]))
+            .unwrap();
+        series
+            .start(gift("other", "@dave", 30, vec![item(4, "d4", Done)]))
+            .unwrap();
+        let here = given_here(&series, "me", "c");
+        assert_eq!(here.models.get("d1").map(String::as_str), Some("m"));
+        assert!(!here.models.contains_key("d2"), "refused: not given");
+        let none = evolite_chain::workshop_read::GivenRead {
+            count: 0,
+            read: 0,
+            complete: true,
+            last: None,
+            no_history: true,
+        };
+        let shown = given("c", "m", &none, &here);
+        assert_eq!(shown.count, evolite_api::workshop::Count::Proved(2));
+        assert_eq!(shown.last, Some((20, "@carol".to_owned())));
+        assert!(shown.this_computer_only);
+        // With the history read, its numbers are the network's.
+        let read = evolite_chain::workshop_read::GivenRead {
+            count: 7,
+            read: 500,
+            complete: false,
+            last: Some((40, "@erin".into())),
+            no_history: false,
+        };
+        let shown = given("c", "m", &read, &here);
+        assert_eq!(
+            shown.count,
+            evolite_api::workshop::Count::Counted {
+                count: 7,
+                documents: 500,
+                complete: false
+            }
+        );
+        assert!(!shown.this_computer_only);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

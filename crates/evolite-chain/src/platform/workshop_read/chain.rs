@@ -18,8 +18,9 @@ use sha2::{Digest, Sha256};
 
 use super::profile::{self, Limit, Profile};
 use super::{
-    DOCUMENT_HISTORY, MAX_PAGES, PAGE, SalesCursor, count_mine, mine_query, new_sales, pages,
-    price_of, sale_of, sales_query, serial_of,
+    DOCUMENT_HISTORY, GiftDoc, GivenRead, MAX_PAGES, PAGE, SalesCursor, count_mine, gift_of,
+    instances_by_id, mine_query, new_sales, pages, price_of, sale_of, sales_query, serial_of,
+    transfers_query,
 };
 use crate::chain::Chain;
 
@@ -281,6 +282,110 @@ impl Chain {
     /// per call, each resolved to its model and number where the instance is still there, and
     /// the buyer's name; with the cursor after them. A contract not kept is read with a proof; one
     /// that cannot be read stops the cursor before its sale.
+    /// W7 «Given» (the architect, 2026-11-22): the copies of `model` that `owner` gave away —
+    /// its `transfer`s in DocumentHistory, of this collection's instances, to someone else —
+    /// with the last one's time and recipient (an @name, else a short id). At most
+    /// [`MAX_PAGES`] pages: past them `complete` is false («at least N»). `known`: instance →
+    /// model from this computer's series, for a copy its recipient deleted (it cannot be read).
+    pub async fn workshop_given(
+        &self,
+        owner: &str,
+        contract: &str,
+        model: &str,
+        known: &BTreeMap<String, String>,
+    ) -> Result<GivenRead, String> {
+        self.ready()?;
+        let sdk = self.sdk().await?;
+        let (collection, profile) = self.collection_contract(contract).await?;
+        if profile.limits.contains(&Limit::NoSender) {
+            return Ok(GivenRead {
+                count: 0,
+                read: 0,
+                complete: true,
+                last: None,
+                no_history: true,
+            });
+        }
+        let history = self
+            .fresh_cached(id_of(DOCUMENT_HISTORY)?, CONTRACT_WITHIN)
+            .await?
+            .contract;
+        let (owner_id, contract_id, model_id) = (id_of(owner)?, id_of(contract)?, id_of(model)?);
+        let query = transfers_query(history, owner_id)?;
+        let page = pages(&sdk, query, None, usize::MAX, MAX_PAGES, |d| {
+            gift_of(d, contract_id, &profile.instance, owner_id).is_some()
+        })
+        .await?;
+        let gifts: Vec<GiftDoc> = page
+            .docs
+            .iter()
+            .filter_map(|d| gift_of(d, contract_id, &profile.instance, owner_id))
+            .collect();
+        // Which model each given copy is of: read once, kept — a copy's model never changes.
+        let unread: Vec<Identifier> = {
+            let kept = self
+                .instance_models
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            gifts
+                .iter()
+                .map(|g| g.instance)
+                .filter(|i| !kept.contains_key(i))
+                .collect::<BTreeSet<_>>()
+                .into_iter()
+                .collect()
+        };
+        for ids in unread.chunks(PAGE as usize) {
+            let query = instances_by_id(collection.clone(), &profile, ids)?;
+            let found = Document::fetch_many(&sdk, query)
+                .await
+                .map_err(|e| format!("{e:?}"))?;
+            let mut kept = self
+                .instance_models
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            for doc in found.into_values().flatten() {
+                if let Some(of) = doc
+                    .properties()
+                    .get(&profile.model_field)
+                    .and_then(|v| v.to_identifier().ok())
+                {
+                    kept.insert(doc.id(), of);
+                }
+            }
+        }
+        let kept = self
+            .instance_models
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
+        // A copy its recipient deleted cannot be read: counted only when this computer's
+        // series say it was of this model; otherwise its model is not known and it is left out.
+        let of_model = |g: &GiftDoc| match kept.get(&g.instance) {
+            Some(m) => *m == model_id,
+            None => known.get(&b58(g.instance)).is_some_and(|m| m == model),
+        };
+        let mine: Vec<&GiftDoc> = gifts.iter().filter(|g| of_model(g)).collect();
+        let last = match mine.iter().max_by_key(|g| g.at_ms) {
+            Some(g) => {
+                let to = match self.name_of(g.to).await.ok().flatten() {
+                    Some(name) => format!("@{name}"),
+                    // The screen shortens an id (FEAT-0051).
+                    None => b58(g.to),
+                };
+                Some(((g.at_ms / 1000) as i64, to))
+            }
+            None => None,
+        };
+        Ok(GivenRead {
+            count: mine.len() as u64,
+            read: page.read as u64,
+            complete: page.next.is_none(),
+            last,
+            no_history: false,
+        })
+    }
+
     pub async fn workshop_sales(
         &self,
         seller: &str,

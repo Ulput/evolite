@@ -205,15 +205,15 @@ impl<'a> FormView<'a> {
         let to_core = !typed.is_empty() && !typed.starts_with('@') && !platform_typed;
         // BUG-266: a plan answered «wait for the sync» is asked again a moment later.
         if source.source == Source::Mixed {
-            let said = matches!(
+            let answer = crate::screens::workshop::not_synced(
                 form.mixed.quote_for(&typed, amount.unwrap_or(0)),
-                Some(Err(CoreError::NotSynced))
             );
             let now = cx.now.timestamp_millis() as f64 / 1000.0;
             if crate::screens::workshop::not_synced_retry_due(
                 now,
-                said,
-                &mut form.mixed.not_synced_at,
+                answer,
+                crate::screens::workshop::sync_moved(&mut form.mixed.sync_seen, cx.snap.sync.stage),
+                &mut form.mixed.not_synced,
             ) {
                 form.mixed.ask_again();
             }

@@ -303,11 +303,115 @@ fn a_model_page_shows_its_numbers() {
     wait_for(&mut kit, "W7", |kit| {
         has_text(kit, "You have") && has_text(kit, "12")
     });
-    assert!(has_words(&kit, "supply 100 · issued 13"));
-    assert!(has_text(&kit, "For sale") && has_text(&kit, "Sold"));
+    // W7-4 (the customer's mockup of 2026-11-22): numbers, not «issued» twice.
+    assert!(has_words(&kit, "supply 100 · numbers no. 1–13"));
+    assert!(has_words(&kit, "issued 13 of 100"));
+    // W7-3: the collection's rules; it is closed.
+    for chip in ["transferable", "for sale", "only the author issues"] {
+        assert!(painted_has(&kit, chip), "{chip}");
+    }
+    assert!(has_text(&kit, "For sale") && has_text(&kit, "Sold") && has_text(&kit, "Given"));
+    assert!(
+        has_words(&kit, "not for sale 8 · for sale 4"),
+        "your copies' parts"
+    );
+    // «Given» from DocumentHistory (the architect, 2026-11-22): the demo's one gift.
+    wait_for(&mut kit, "the gifts", |kit| has_words(kit, ", @alice"));
+    assert!(has_words(&kit, "last: "));
     assert!(has_words(&kit, "— 4"), "the price group");
     assert!(!button(&kit, "Give…").accesskit_node().is_disabled());
     assert!(!button(&kit, "Issue more").accesskit_node().is_disabled());
+    // W7-5: ranges, no row a copy; «Prices» by price with its numbers.
+    wait_for(&mut kit, "your numbers", |kit| has_words(kit, "no. 1–12"));
+    // Those for sale are an ask of their own: it may come after.
+    wait_for(&mut kit, "the prices' numbers", |kit| {
+        has_words(kit, "4 copies · no. 3, 6, 9, 12")
+    });
+    // The demo model has no picture: said so, never «No picture».
+    assert!(has_words(&kit, "Without a picture"));
+    assert!(has_words(&kit, "evolite picks the copy numbers itself"));
+    assert!(has_text(&kit, "No events yet"));
+    // W7-7: the contract's id at the advanced level only.
+    assert!(!has_text(&kit, "Contract id"));
+    // W7-2: back to the collection by its name.
+    assert!(has_words(&kit, "Seasons of the city"));
+}
+
+/// W7-6: the model's sale in «Recent», with «for … · credits to …» on «Sold»; «All history ›»
+/// opens History searching for the model; W7-7 at the advanced level.
+#[test]
+fn the_model_page_shows_its_recent_and_leads_to_history() {
+    let (_turn, mut kit) = demo_app("workshop-model-page", "en");
+    kit.state_mut().settings.set("advanced", true);
+    // The whole page in view: «Recent» is below the fold of a usual window.
+    kit.set_size(egui::vec2(1280.0, 1600.0));
+    wait_for(&mut kit, "W7", |kit| has_text(kit, "You have"));
+    let sale = evolite_api::Activity {
+        id: 0x5a1e,
+        kind: evolite_api::ActivityKind::NftSold {
+            model: Some("Winter tram".into()),
+            serial: Some(13),
+            buyer: "@alice".into(),
+        },
+        chain: evolite_api::Chain::Platform,
+        at: chrono::Utc::now().timestamp() - 600,
+        amount: 100_000_000,
+        proof: evolite_api::Proof::Proved,
+        txid: None,
+        fee: None,
+        block: None,
+        address: None,
+        layers: evolite_api::layer::IDENTITY,
+        flow: evolite_api::Flow::In,
+        key: String::new(),
+        detail: None,
+        note: None,
+        rate: None,
+        tax_transfer: false,
+    };
+    show_wallet_edited(
+        &mut kit,
+        3,
+        "the sale",
+        |w| {
+            if !w.activity.iter().any(|a| a.id == 0x5a1e) {
+                w.activity.insert(0, sale.clone());
+            }
+        },
+        // The sale in «Recent» and the counts read: on a loaded machine the model's counts come
+        // after «Recent» (batch 69's fast run), and «Sold» says «—» until they do.
+        |kit| !has_text(kit, "No events yet") && has_words(kit, "credits to"),
+    );
+    assert!(has_words(&kit, "credits to"), "{:?}", painted_texts(&kit));
+    assert!(has_text(&kit, "Contract id"), "the advanced level");
+    click_words_of(&mut kit, "All history ›");
+    wait_for(&mut kit, "History", |kit| {
+        kit.state().history.query == "Winter tram"
+    });
+}
+
+/// W7 at the medium and the narrow window: two columns from 900 of content, one below; nothing
+/// wider than the window.
+#[test]
+fn the_model_page_fits_at_1024_and_800() {
+    for (w, h) in [(1024.0, 768.0), (800.0, 600.0)] {
+        let (_turn, mut kit) = demo_app("workshop-model-page", "de");
+        kit.set_size(egui::vec2(w, h));
+        wait_for(&mut kit, "W7", |kit| painted_has(kit, "Winter tram"));
+        kit.run_steps(6);
+        let window = kit.ctx.content_rect();
+        let ppp = kit.ctx.pixels_per_point();
+        let wide: Vec<String> = kit
+            .query_all_by(|n| n.bounding_box().is_some())
+            .filter_map(|n| {
+                let b = n.accesskit_node().bounding_box()?;
+                let right = b.x1 as f32 / ppp;
+                (right > window.right() + 1.0).then(|| format!("{:?}", n.accesskit_node().label()))
+            })
+            .take(3)
+            .collect();
+        assert!(wide.is_empty(), "@{w}: {wide:?}");
+    }
 }
 
 /// UC-8, W8: «Give…» — how many of the free copies, to whom; the core's plan; the summary
@@ -436,4 +540,44 @@ fn a_check_said_not_synced_is_asked_again() {
         !has_words(&kit, "wait for the sync to finish"),
         "the stale words are gone"
     );
+}
+
+/// W7 r1 Must (TEAM.md §8d-4): a read of the model's page that failed is said — «Could not read»
+/// with «Retry» — not shown as «—» as while reading, and is not asked again every frame: ten
+/// frames later it was asked once; «Retry» asks it again at once.
+#[test]
+fn a_failed_read_of_the_model_page_says_so_and_waits() {
+    use evolite_api::workshop::WorkshopAsk;
+    let (_turn, mut kit) = demo_app("workshop-model-page", "en");
+    kit.set_size(egui::vec2(1280.0, 1600.0));
+    wait_for(&mut kit, "W7", |kit| has_text(kit, "You have"));
+    // The demo's collection and model.
+    let key = (
+        "FzKL9288ZzoQcXKWvXc6kRwbNciboLpJnX4egZo9iz9P".to_owned(),
+        "7Yowk46VwwHqmD5yZyyygggh937aP6h2UW7aQWBdWpM5".to_owned(),
+    );
+    let asked = |kit: &Kit| kit.state().workshop.given_asked.get(&key).map(|r| r.asked);
+    // Answered, not only asked: the demo's answer coming after the failure below would put the
+    // count back over «Could not read» (batch 69's fast run, a loaded machine).
+    wait_for(&mut kit, "the gifts answered", |kit| {
+        kit.state()
+            .workshop
+            .given_asked
+            .get(&key)
+            .is_some_and(|r| r.asked > 0 && !r.asking)
+    });
+    let ask = WorkshopAsk::Given {
+        contract: key.0.clone(),
+        model: key.1.clone(),
+    };
+    kit.state_mut().workshop.on_read(
+        &ask,
+        &Err(evolite_api::CoreError::Failed("no answer".into())),
+    );
+    kit.run_steps(10);
+    assert!(has_words(&kit, "Could not read"), "said");
+    assert_eq!(asked(&kit), Some(1), "asked once in ten frames");
+    click_words_of(&mut kit, "Retry");
+    kit.run_steps(2);
+    assert_eq!(asked(&kit), Some(2), "«Retry» asks at once");
 }

@@ -32,7 +32,9 @@ pub struct NewCollection {
     /// The core's check of the draft it names.
     check: Option<(ContractDraft, Result<ContractCheck, CoreError>)>,
     /// BUG-266: when a «not synced» check was first seen; it is asked again.
-    not_synced_at: Option<f64>,
+    not_synced: evolite_api::retry::Retry,
+    /// W7 r2: the sync's stage when the form last looked.
+    sync_seen: Option<evolite_api::SyncStage>,
     /// W3 open.
     review: bool,
     /// What was signed: the name, the identity, the fee; then the answer.
@@ -219,8 +221,9 @@ pub(super) fn page(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut Worksh
     let draft = form.draft();
     let fits = name_problem(&form.name).is_none();
     // BUG-266: «wait for the sync» is not the last word: asked again a moment later.
-    let said = matches!(form.checked(), Some(Err(CoreError::NotSynced)));
-    if super::retry_not_synced(ui, now, said, &mut form.not_synced_at) {
+    let answer = super::not_synced(form.checked());
+    let moved = super::sync_moved(&mut form.sync_seen, cx.snap.sync.stage);
+    if super::retry_not_synced(ui, now, answer, moved, &mut form.not_synced) {
         form.asked = None;
         form.check = None;
     }

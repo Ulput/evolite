@@ -65,7 +65,9 @@ pub struct ModelForm {
     changed_at: f64,
     plan: Option<((NewModel, u32), Result<SeriesPlan, CoreError>)>,
     /// BUG-266: when a «not synced» plan was first seen; it is asked again.
-    not_synced_at: Option<f64>,
+    not_synced: evolite_api::retry::Retry,
+    /// W7 r2: the sync's stage when the form last looked.
+    sync_seen: Option<evolite_api::SyncStage>,
     review: bool,
     pub(crate) flow: SpendFlow<Signed>,
 }
@@ -375,8 +377,9 @@ pub(super) fn page(
     }
     let now = ui.input(|i| i.time);
     // BUG-266: «wait for the sync» is not the last word: asked again a moment later.
-    let said = matches!(form.planned(), Some(Err(CoreError::NotSynced)));
-    if super::retry_not_synced(ui, now, said, &mut form.not_synced_at) {
+    let answer = super::not_synced(form.planned());
+    let moved = super::sync_moved(&mut form.sync_seen, cx.snap.sync.stage);
+    if super::retry_not_synced(ui, now, answer, moved, &mut form.not_synced) {
         form.asked = None;
         form.plan = None;
     }

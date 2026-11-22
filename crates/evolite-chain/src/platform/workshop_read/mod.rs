@@ -197,6 +197,93 @@ pub fn sale_of(doc: &Document) -> Option<SaleDoc> {
     })
 }
 
+/// W7 «Given» as read: how many, over how many transfers read, whether all were, and the
+/// last gift's time (unix seconds) and recipient (`@name`, else its id).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct GivenRead {
+    pub count: u64,
+    pub read: u64,
+    pub complete: bool,
+    pub last: Option<(i64, String)>,
+    /// The collection keeps no transfer history (`Limit::NoSender`): nothing was read.
+    pub no_history: bool,
+}
+
+/// W7 «Given»: one gift — a `transfer` of one's own instance of the collection to someone else.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct GiftDoc {
+    pub instance: Identifier,
+    pub to: Identifier,
+    pub at_ms: u64,
+}
+
+/// The `transfer` documents `owner` made, oldest first: DocumentHistory's
+/// `from ($ownerId, $createdAt)` index. Not `byContract`: it has every holder's resales too.
+pub fn transfers_query(
+    history: Arc<DataContract>,
+    owner: Identifier,
+) -> Result<DocumentQuery, String> {
+    Ok(DocumentQuery::new(history, "transfer")
+        .map_err(|e| format!("{e:?}"))?
+        .with_where(equal("$ownerId", owner))
+        .with_order_by(OrderClause {
+            field: "$createdAt".into(),
+            ascending: true,
+        })
+        .with_limit(PAGE))
+}
+
+/// A `transfer` as a gift of `contract`'s instance type `instance_type` by `owner`, or `None`:
+/// another collection, another type, one made by someone else (a holder's resale), or one to
+/// `owner` itself — «Take off sale» is a transfer to oneself (FEAT-0038), never a gift.
+pub fn gift_of(
+    doc: &Document,
+    contract: Identifier,
+    instance_type: &str,
+    owner: Identifier,
+) -> Option<GiftDoc> {
+    if doc.owner_id() != owner {
+        return None;
+    }
+    let props = doc.properties();
+    let id = |k: &str| props.get(k).and_then(|v| v.to_identifier().ok());
+    if id("dataContractId")? != contract {
+        return None;
+    }
+    if props.get("documentTypeName")?.as_text()? != instance_type {
+        return None;
+    }
+    let to = id("toIdentityId")?;
+    if to == owner {
+        return None;
+    }
+    Some(GiftDoc {
+        instance: id("documentId")?,
+        to,
+        at_ms: doc.created_at().unwrap_or(0),
+    })
+}
+
+/// The instances of `ids` (at most [`PAGE`]), by their own ids: which model each is of.
+pub fn instances_by_id(
+    contract: Arc<DataContract>,
+    profile: &Profile,
+    ids: &[Identifier],
+) -> Result<DocumentQuery, String> {
+    Ok(DocumentQuery::new(contract, &profile.instance)
+        .map_err(|e| format!("{e:?}"))?
+        .with_where(WhereClause {
+            field: "$id".into(),
+            operator: WhereOperator::In,
+            value: Value::Array(
+                ids.iter()
+                    .map(|i| Value::Identifier(i.to_buffer()))
+                    .collect(),
+            ),
+        })
+        .with_limit(PAGE))
+}
+
 /// Where the reading of one's sales stands: the newest sale's time and the ids read at it
 /// (several may share a millisecond), so reading again adds only what is new.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]

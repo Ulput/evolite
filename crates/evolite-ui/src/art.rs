@@ -184,6 +184,39 @@ impl ArtCache {
         }
     }
 
+    /// W7 (the Workshop's model page): `art` painted whole into `rect` when it is drawn; else
+    /// nothing is painted and the page says why in its own words.
+    pub fn paint_or_tell(
+        &mut self,
+        ui: &mut Ui,
+        art: &str,
+        rect: Rect,
+        send: &mut impl FnMut(Command),
+    ) -> Drawn {
+        match self.texture(ui, art, rect, send) {
+            Prepared::Failed(why) => Drawn::Failed(why),
+            Prepared::Waiting => Drawn::Waiting,
+            Prepared::Ready(id, size) => {
+                // Contained: an NFT's edges are never cut.
+                let scale = (rect.width() / size.x).min(rect.height() / size.y);
+                let at = Rect::from_center_size(rect.center(), size * scale);
+                ui.painter().image(
+                    id,
+                    at,
+                    Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)),
+                    egui::Color32::WHITE,
+                );
+                Drawn::Ready
+            }
+        }
+    }
+
+    /// «Try again» on a picture that failed: it is asked for again at the next paint.
+    pub fn try_again(&mut self, art: &str) {
+        self.pictures
+            .retain(|(a, _), shown| a != art || !matches!(shown, Shown::Failed(_)));
+    }
+
     /// Paints `art` as a round picture filling `rect` (a profile picture), cut to the square
     /// in its middle. Returns false while it is not drawn, or could not be: the caller paints
     /// its own stand-in.
@@ -317,6 +350,15 @@ enum Prepared {
     Waiting,
     Failed(String),
     Ready(egui::TextureId, egui::Vec2),
+}
+
+/// What [`ArtCache::paint_or_tell`] did: painted the picture, or why not yet.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Drawn {
+    Ready,
+    Waiting,
+    /// The core's or the renderer's reason; empty when there is none.
+    Failed(String),
 }
 
 /// Frame `i` as an image; `None` if it does not unpack to its size.

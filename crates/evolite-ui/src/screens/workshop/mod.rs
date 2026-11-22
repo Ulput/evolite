@@ -11,7 +11,7 @@ mod model_page;
 mod new_collection;
 pub mod new_model;
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use super::*;
 use crate::components::{Assets, ButtonKind, button, button_enabled, page_header, section_label};
@@ -22,35 +22,86 @@ use egui::{Align, Layout, Sense, Ui, vec2};
 use evolite_api::workshop::{Collection, ModelCounts, WorkshopAsk, WorkshopRead};
 use evolite_api::{Command, CoreError};
 
-/// BUG-266: how long a «wait for the sync» answer stands before the core is asked again.
+/// BUG-266: the first pause after a «wait for the sync» answer: not a failure, the sync may end
+/// a moment later; then the shared rule's growing pause (`evolite_api::retry`)…
 const RETRY_NOT_SYNCED: f64 = 3.0;
 
-/// BUG-266: a form's check answered «not synced» is asked again — the sync or Platform may be
-/// ready a moment later, and the form asked only when it changed, so the error stayed after
-/// the sync. `said`: the answer to what the form shows now is `CoreError::NotSynced`;
-/// `seen_at`: when it was first seen. Whether to drop the answer and ask anew.
-pub(super) fn retry_not_synced(ui: &Ui, now: f64, said: bool, seen_at: &mut Option<f64>) -> bool {
-    let due = not_synced_retry_due(now, said, seen_at);
-    if seen_at.is_some() {
+/// …never longer than this (W7 r2): «not synced» is no failure — a longer pause outlived the
+/// sync by minutes, BUG-266 again.
+const RETRY_NOT_SYNCED_MOST: f64 = 30.0;
+
+/// W7 r2: whether the sync moved to another stage since this form last looked (`seen`): a
+/// «not synced» answer is then asked again at once.
+pub(crate) fn sync_moved(
+    seen: &mut Option<evolite_api::SyncStage>,
+    now: evolite_api::SyncStage,
+) -> bool {
+    seen.replace(now).is_some_and(|before| before != now)
+}
+
+/// The rule of «not synced»: 3 s first, growing, at most 30 s.
+fn not_synced_rule() -> evolite_api::retry::Retry {
+    evolite_api::retry::Retry::with_first(RETRY_NOT_SYNCED).capped(RETRY_NOT_SYNCED_MOST)
+}
+
+/// The answer a form has for what it shows now, as BUG-266 takes it: `None` — none yet (asked,
+/// or about to be); `Some(true)` — «not synced»; `Some(false)` — another answer.
+pub(crate) fn not_synced<T>(answer: Option<&Result<T, CoreError>>) -> Option<bool> {
+    answer.map(|a| matches!(a, Err(CoreError::NotSynced)))
+}
+
+/// BUG-266 on the shared rule (TEAM.md §8d-5): a form's check answered «not synced» is asked
+/// again — after 3 s, then 6, 12… at most 30 s, and at once when the sync moves to another
+/// stage (W7 r2) — the sync or Platform may be ready a moment later, and the form asked only
+/// when it changed, so the error stayed after the sync. Whether to drop the answer and ask anew.
+pub(super) fn retry_not_synced(
+    ui: &Ui,
+    now: f64,
+    answer: Option<bool>,
+    sync_moved: bool,
+    retry: &mut evolite_api::retry::Retry,
+) -> bool {
+    let due = not_synced_retry_due(now, answer, sync_moved, retry);
+    if retry.is_failed() {
+        let wait = (retry.next_at - now).max(0.1);
         ui.ctx()
-            .request_repaint_after(std::time::Duration::from_secs_f64(RETRY_NOT_SYNCED));
+            .request_repaint_after(std::time::Duration::from_secs_f64(wait));
     }
     due
 }
 
-/// [`retry_not_synced`] without the frame it asks for (a screen that is drawn again anyway):
-/// whether the «not synced» answer has stood its time (`now`, seconds) and is to be asked again.
-pub(crate) fn not_synced_retry_due(now: f64, said: bool, seen_at: &mut Option<f64>) -> bool {
-    if !said {
-        *seen_at = None;
-        return false;
+/// [`retry_not_synced`] without the frame it asks for (a screen drawn again anyway).
+pub(crate) fn not_synced_retry_due(
+    now: f64,
+    answer: Option<bool>,
+    sync_moved: bool,
+    retry: &mut evolite_api::retry::Retry,
+) -> bool {
+    match answer {
+        // Answered otherwise: the count starts again.
+        Some(false) => {
+            *retry = not_synced_rule();
+            false
+        }
+        // Asked, not answered yet.
+        None => false,
+        Some(true) => {
+            if retry.first == 0.0 {
+                *retry = not_synced_rule();
+            }
+            // This answer is to the ask that went: a failure of it, once.
+            if retry.asked == 0 || retry.asking {
+                retry.asked = retry.asked.max(1);
+                retry.asking = true;
+                retry.failed(now);
+            }
+            // The sync went on: its answer may be another now.
+            if sync_moved {
+                retry.again(now);
+            }
+            retry.ask(now)
+        }
     }
-    let at = *seen_at.get_or_insert(now);
-    if now - at >= RETRY_NOT_SYNCED {
-        *seen_at = None;
-        return true;
-    }
-    false
 }
 
 #[cfg(feature = "dev-tools")]
@@ -86,7 +137,17 @@ pub struct WorkshopState {
     collections_asked: bool,
     /// A model's numbers (W4), by (contract, model).
     counts: HashMap<(String, String), ModelCounts>,
-    counts_asked: HashSet<(String, String)>,
+    counts_asked: HashMap<(String, String), Retry>,
+    /// W7: one's copies of a model, every page («Your numbers») or those for sale («Prices»),
+    /// by (contract, model, for sale).
+    instances: HashMap<(String, String, bool), InstancesRead>,
+    /// W7 «Given», by (contract, model); asked once a visit.
+    given: HashMap<(String, String), evolite_api::workshop::Given>,
+    pub(crate) given_asked: HashMap<(String, String), Retry>,
+    /// The last frame's time: an answer that failed is timed by it (the reads' pauses).
+    now: f64,
+    /// W7 r1: «Retry» pressed: the failed reads go again on the next frame.
+    retry_reads: bool,
     pub new: NewCollection,
     /// W5: the new model's form.
     pub model: ModelForm,
@@ -106,11 +167,60 @@ impl WorkshopState {
             (WorkshopAsk::Collections, Err(e)) => self.collections = Some(Err(e.clone())),
             (WorkshopAsk::Counts { .. }, Ok(WorkshopRead::Counts(counts))) => {
                 let key = (counts.contract.clone(), counts.model.clone());
+                if let Some(r) = self.counts_asked.get_mut(&key) {
+                    r.answered();
+                }
                 self.counts.insert(key, counts.clone());
             }
-            // A failed count stays «—»; asked again on the page's next visit.
+            // W7 r1 Must: a failed count says so; asked again on «Retry» or after
+            // [`RETRY_READ`], never every frame.
             (WorkshopAsk::Counts { contract, model }, Err(_)) => {
-                self.counts_asked.remove(&(contract.clone(), model.clone()));
+                if let Some(r) = self
+                    .counts_asked
+                    .get_mut(&(contract.clone(), model.clone()))
+                {
+                    r.failed(self.now);
+                }
+            }
+            (
+                WorkshopAsk::Instances {
+                    contract,
+                    model,
+                    for_sale,
+                    ..
+                },
+                result,
+            ) => {
+                let read = self
+                    .instances
+                    .entry((contract.clone(), model.clone(), *for_sale))
+                    .or_default();
+                match result {
+                    Ok(WorkshopRead::Instances(page)) => {
+                        read.list.extend(page.instances.iter().cloned());
+                        read.next = page.next.clone();
+                        read.done = page.next.is_none();
+                        // The next page is a new read.
+                        read.retry = Retry::default();
+                    }
+                    _ => {
+                        read.retry.failed(self.now);
+                        read.asks -= 1;
+                    }
+                }
+            }
+            (WorkshopAsk::Given { .. }, Ok(WorkshopRead::Given(given))) => {
+                let key = (given.contract.clone(), given.model.clone());
+                if let Some(r) = self.given_asked.get_mut(&key) {
+                    r.answered();
+                }
+                self.given.insert(key, given.clone());
+            }
+            // W7 r1 Must: as a count.
+            (WorkshopAsk::Given { contract, model }, Err(_)) => {
+                if let Some(r) = self.given_asked.get_mut(&(contract.clone(), model.clone())) {
+                    r.failed(self.now);
+                }
             }
             _ => {}
         }
@@ -137,6 +247,9 @@ impl WorkshopState {
         self.read_again();
         self.counts.clear();
         self.counts_asked.clear();
+        self.instances.clear();
+        self.given.clear();
+        self.given_asked.clear();
         self.about = false;
         if !self.new.signed() {
             self.new.forget();
@@ -436,6 +549,87 @@ fn collection_row(ui: &mut Ui, a: &mut Assets, c: &Collection) -> egui::Response
     resp.on_hover_cursor(egui::CursorIcon::PointingHand)
 }
 
+use evolite_api::retry::Retry;
+
+/// W7 r1 Must (TEAM.md §8d-4, -5): whether the page's read of `key` goes now, by the shared rule
+/// (`evolite_api::retry`): never asked; or failed and its pause over, or `again` («Retry»).
+pub(super) fn ask_now<K: std::hash::Hash + Eq + Clone>(
+    asked: &mut HashMap<K, Retry>,
+    key: &K,
+    now: f64,
+    again: bool,
+) -> bool {
+    let r = asked.entry(key.clone()).or_default();
+    if again {
+        r.again(now);
+    }
+    r.ask(now)
+}
+
+/// W7: one's copies of a model as read so far, page after page.
+#[derive(Default)]
+struct InstancesRead {
+    list: Vec<evolite_api::workshop::Instance>,
+    /// Where the next page starts; `None` with `done`.
+    next: Option<String>,
+    asks: u32,
+    done: bool,
+    /// The read of the next page, by the shared rule.
+    retry: Retry,
+}
+
+/// At most this many asks of a model's copies (5 network pages each): «Your numbers» and
+/// «Prices» of 10 000 copies at 100 a page; past it they say what was read.
+const INSTANCE_ASKS: u32 = 20;
+
+impl WorkshopState {
+    /// W7: one's copies of a model (`for_sale`: those for sale only), asked page by page until
+    /// all are read; what is read so far, and whether it is all.
+    fn instances(
+        &mut self,
+        cx: &mut Ctx,
+        contract: &str,
+        model: &str,
+        for_sale: bool,
+        now: f64,
+        again: bool,
+    ) -> (Vec<evolite_api::workshop::Instance>, bool) {
+        let read = self
+            .instances
+            .entry((contract.to_owned(), model.to_owned(), for_sale))
+            .or_default();
+        if again {
+            read.retry.again(now);
+        }
+        if !read.done && read.asks < INSTANCE_ASKS && read.retry.ask(now) {
+            read.asks += 1;
+            cx.send(Command::ReadWorkshop {
+                ask: WorkshopAsk::Instances {
+                    contract: contract.to_owned(),
+                    model: model.to_owned(),
+                    for_sale,
+                    after: read.next.clone(),
+                },
+            });
+        }
+        (read.list.clone(), read.done)
+    }
+
+    /// W7 r1: some read of the model's page failed and waits for «Retry» or its time.
+    fn page_failed(&self, contract: &str, model: &str) -> bool {
+        let key = (contract.to_owned(), model.to_owned());
+        let failed =
+            |m: &HashMap<(String, String), Retry>| m.get(&key).is_some_and(|r| r.is_failed());
+        failed(&self.counts_asked)
+            || failed(&self.given_asked)
+            || [false, true].iter().any(|s| {
+                self.instances
+                    .get(&(contract.to_owned(), model.to_owned(), *s))
+                    .is_some_and(|r| r.retry.is_failed())
+            })
+    }
+}
+
 /// The collection's name: its contract's description, or its short id when it has none.
 fn collection_name(c: &Collection) -> String {
     if c.description.trim().is_empty() {
@@ -480,17 +674,48 @@ fn tag_chip(ui: &mut Ui, p: &crate::theme::Palette, label: &str) {
 mod retry_tests {
     use super::*;
 
-    /// BUG-266: «not synced» is asked again after its time, from when it was first seen; another
-    /// answer forgets it.
+    /// BUG-266 on the shared rule: «not synced» is asked again 3 s after it came, then 6 s after
+    /// the next one; never while asking; another answer starts the count again.
     #[test]
     fn a_not_synced_answer_is_asked_again_after_its_time() {
-        let mut seen = None;
-        assert!(!not_synced_retry_due(10.0, true, &mut seen), "first seen");
-        assert!(!not_synced_retry_due(12.9, true, &mut seen));
-        assert!(not_synced_retry_due(13.0, true, &mut seen), "its time");
-        assert_eq!(seen, None, "counted again from the next answer");
-        assert!(!not_synced_retry_due(14.0, true, &mut seen));
-        assert!(!not_synced_retry_due(20.0, false, &mut seen), "answered");
-        assert_eq!(seen, None);
+        let mut r = evolite_api::retry::Retry::default();
+        let due = |now, answer, r: &mut _| not_synced_retry_due(now, answer, false, r);
+        assert!(!due(10.0, Some(true), &mut r), "first seen");
+        assert!(!due(12.9, Some(true), &mut r));
+        assert!(due(13.0, Some(true), &mut r), "after 3 s");
+        assert!(!due(13.5, None, &mut r), "asking");
+        assert!(!due(14.0, Some(true), &mut r), "again «not synced»");
+        assert!(!due(19.9, Some(true), &mut r));
+        assert!(due(20.0, Some(true), &mut r), "after 6 s");
+        assert!(!due(21.0, Some(false), &mut r), "answered");
+        assert_eq!(r.failures, 0);
+    }
+
+    /// W7 r2 (the architect's Should, BUG-266's complaint): «not synced» for minutes — the sync
+    /// then ends — the price is asked again within 30 s, and at once when the sync's stage
+    /// moved.
+    #[test]
+    fn after_the_sync_the_price_comes_within_30_s() {
+        let mut r = evolite_api::retry::Retry::default();
+        // Ten minutes of «not synced», asked as often as the rule lets.
+        let mut now = 0.0;
+        let mut last_ask = 0.0;
+        while now < 600.0 {
+            if not_synced_retry_due(now, Some(true), false, &mut r) {
+                assert!(now - last_ask <= 30.0 + 0.5, "a gap of {}", now - last_ask);
+                last_ask = now;
+                // The answer to that ask: «not synced» again.
+                not_synced_retry_due(now, None, false, &mut r);
+            }
+            now += 0.5;
+        }
+        // The sync ends now: the next ask is at most 30 s away…
+        assert!(r.next_at - now <= 30.0);
+        // …and at once with the stage that moved.
+        let mut seen = Some(evolite_api::SyncStage::Platform);
+        let moved = sync_moved(&mut seen, evolite_api::SyncStage::Done);
+        assert!(moved);
+        assert!(not_synced_retry_due(now, Some(true), moved, &mut r));
+        assert!(!sync_moved(&mut seen, evolite_api::SyncStage::Done), "once");
     }
 }

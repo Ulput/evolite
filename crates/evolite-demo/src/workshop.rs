@@ -2,7 +2,8 @@
 //! instances (some for sale) and one sale. Fixed; nothing is asked of a network.
 
 use evolite_api::workshop::{
-    Collection, Count, Instance, Instances, Model, ModelCounts, Sale, WorkshopAsk, WorkshopRead,
+    Collection, Count, Given, Instance, Instances, Model, ModelCounts, Sale, WorkshopAsk,
+    WorkshopRead,
 };
 
 pub const CONTRACT: &str = "FzKL9288ZzoQcXKWvXc6kRwbNciboLpJnX4egZo9iz9P";
@@ -109,6 +110,15 @@ pub fn read(ask: &WorkshopAsk, made: &[(String, String)]) -> WorkshopRead {
                 .filter(|i| !for_sale || i.price.is_some())
                 .collect(),
             next: None,
+        }),
+        // W7 «Given»: one gift to @alice; the example's «take off sale» (a transfer to oneself)
+        // and a holder's resale are not gifts (the real core's filter: `workshop_read::gift_of`).
+        WorkshopAsk::Given { contract, model } => WorkshopRead::Given(Given {
+            contract: contract.clone(),
+            model: model.clone(),
+            count: Count::Proved(1),
+            last: Some((AT, "@alice".into())),
+            this_computer_only: false,
         }),
         WorkshopAsk::Sales => WorkshopRead::Sales(vec![Sale {
             purchase: "demo-purchase-1".into(),

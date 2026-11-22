@@ -313,3 +313,54 @@ fn a_deflated_svg_model_is_told_from_a_plain_one() {
     assert!(!plain);
     assert_eq!(model_picture(&model_doc(4, 3, &[])), None, "no picture");
 }
+
+/// A DocumentHistory `transfer` by `by` of `instance` to `to`, in `contract`'s type `kind`.
+fn transfer(by: u32, contract: u32, kind: &str, instance: u32, to: u32, at: u64) -> Document {
+    Document::V0(DocumentV0 {
+        id: id(1_000 + instance),
+        owner_id: id(by),
+        properties: [
+            (
+                "dataContractId".to_owned(),
+                Value::Identifier(id(contract).to_buffer()),
+            ),
+            ("documentTypeName".to_owned(), Value::Text(kind.into())),
+            (
+                "documentId".to_owned(),
+                Value::Identifier(id(instance).to_buffer()),
+            ),
+            (
+                "toIdentityId".to_owned(),
+                Value::Identifier(id(to).to_buffer()),
+            ),
+        ]
+        .into(),
+        created_at: Some(at),
+        ..Default::default()
+    })
+}
+
+/// W7 «Given» (the architect's test): a gift counts; «take off sale» — a transfer to oneself —
+/// does not, nor a holder's resale, nor another collection's or another type's transfer.
+#[test]
+fn only_a_gift_of_ones_own_copy_counts() {
+    let (owner, collection) = (id(1), id(500));
+    let gifts: Vec<GiftDoc> = [
+        transfer(1, 500, "nft", 7, 2, 10),   // a gift to @bob
+        transfer(1, 500, "nft", 8, 1, 11),   // «take off sale»: to oneself
+        transfer(3, 500, "nft", 7, 4, 12),   // @bob resells it
+        transfer(1, 501, "nft", 9, 2, 13),   // another collection
+        transfer(1, 500, "image", 5, 2, 14), // another type
+    ]
+    .iter()
+    .filter_map(|d| gift_of(d, collection, "nft", owner))
+    .collect();
+    assert_eq!(
+        gifts,
+        vec![GiftDoc {
+            instance: id(7),
+            to: id(2),
+            at_ms: 10
+        }]
+    );
+}

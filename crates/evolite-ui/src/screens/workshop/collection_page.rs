@@ -102,7 +102,8 @@ pub(super) fn page(
         // Each model's numbers, asked once per visit.
         for m in &c.models {
             let key = (c.contract.clone(), m.id.clone());
-            if state.counts_asked.insert(key) {
+            let now = ui.input(|i| i.time);
+            if super::ask_now(&mut state.counts_asked, &key, now, false) {
                 cx.send(Command::ReadWorkshop {
                     ask: WorkshopAsk::Counts {
                         contract: c.contract.clone(),

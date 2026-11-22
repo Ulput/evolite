@@ -2005,6 +2005,9 @@ impl eframe::App for App {
         if cx.take_enable_dashpay() {
             self.identity_keys.open_enable_dashpay();
         }
+        if let Some(query) = cx.take_history_query() {
+            self.history.query = query;
+        }
         let wallet_request = cx.take_wallets();
         // "‹ Back to "…"" while a wallet is being added (Figma 31): back to the one it
         // started from. Only over Welcome: the onboarding has its own top bar, whose "‹ Back"

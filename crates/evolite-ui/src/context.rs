@@ -30,6 +30,8 @@ pub struct Ctx<'a> {
     /// The Identity screen asked for with a claim's contest card open (FEAT-0021 N5): the
     /// identity that claimed and the label.
     contest: Option<(String, String)>,
+    /// W7 «All history ›»: History opened with this in its search.
+    history_query: Option<String>,
     /// FEAT-0015 stage 2 (frame 14): «Check and top up» on Send — the review of a funding of the
     /// Platform address for this amount, over the screen.
     fund: Option<evolite_api::Duffs>,
@@ -100,6 +102,7 @@ impl<'a> Ctx<'a> {
             top_up: false,
             enable_dashpay: false,
             contest: None,
+            history_query: None,
             fund: None,
             wallets: None,
             back: Screen::Overview,
@@ -200,6 +203,17 @@ impl<'a> Ctx<'a> {
             amount: None,
         });
         self.go(Screen::Send);
+    }
+
+    /// W7 «All history ›»: History, searching for `query` (a model's name).
+    pub fn show_history(&mut self, query: String) {
+        self.history_query = Some(query);
+        self.go(Screen::Activity);
+    }
+
+    /// What [`Self::show_history`] asked for this frame.
+    pub fn take_history_query(&mut self) -> Option<String> {
+        self.history_query.take()
     }
 
     /// [`Self::pay`] with the amount too: "Send again" from an operation's card.

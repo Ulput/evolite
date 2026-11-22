@@ -125,6 +125,8 @@ pub struct Chain {
     frozen: Arc<Mutex<Frozen>>,
     /// The network's contracts kept on this computer (FEAT-0031 C5), opened with the store.
     contracts: Mutex<Option<Arc<crate::platform::contracts::ContractCache>>>,
+    /// W7 «Given»: which model a Workshop copy is of — read once, kept (it never changes).
+    pub(crate) instance_models: Mutex<std::collections::HashMap<Identifier, Identifier>>,
     /// BUG-269: the Workshop's model pictures read this run, to draw ([`Self::workshop_picture`]).
     workshop_pictures: Mutex<Vec<WorkshopPicture>>,
     /// Platform reads past [`Self::ready`]: the ones that would go to the network (BUG-78).
@@ -205,6 +207,7 @@ impl Default for Chain {
             persister: Mutex::new(None),
             frozen: Default::default(),
             contracts: Mutex::new(None),
+            instance_models: Mutex::new(std::collections::HashMap::new()),
             workshop_pictures: Mutex::new(Vec::new()),
             #[cfg(any(test, feature = "test-support"))]
             proof_reads: Default::default(),
