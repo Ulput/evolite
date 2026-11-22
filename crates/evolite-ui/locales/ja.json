@@ -2753,5 +2753,8 @@
   "Show your NFTs of an evolite collection the Collection did not find": "「コレクション」が見つけなかった evolite コレクションのあなたの NFT を表示",
   "The Collection shows the NFTs of your identities in this collection too. Only NFT collections of the evolite standard.": "「コレクション」にこのコレクション内のあなたのアイデンティティの NFT も表示されます。evolite 標準の NFT コレクションのみ。",
   "This contract is not an NFT collection of the evolite standard": "このコントラクトは evolite 標準の NFT コレクションではありません",
-  "This is not a contract id: 44 letters and digits": "コントラクト ID ではありません：44 文字の英数字"
+  "This is not a contract id: 44 letters and digits": "コントラクト ID ではありません：44 文字の英数字",
+  "Calculating…": "計算中…",
+  "Looking for your collections…": "あなたのコレクションを探しています…",
+  "Could not find your collections": "あなたのコレクションが見つかりませんでした"
 }

@@ -487,17 +487,25 @@ fn collections(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut WorkshopSt
                 state.read_again();
             }
         }
-        Some(Ok(all)) if all.is_empty() => {}
         Some(Ok(all)) => {
             let all = all.clone();
+            let search = cx.wallet().own_collections;
+            // Nothing found and nothing to say: no section.
+            if all.is_empty() && search == evolite_api::workshop::OwnSearch::Done {
+                return;
+            }
             section_label(
                 ui,
                 &p,
-                &format!(
-                    "{} · {}",
-                    crate::i18n::t(tr!("My collections")),
-                    crate::format::count(all.len() as u64)
-                ),
+                &if all.is_empty() {
+                    crate::i18n::t(tr!("My collections")).into_owned()
+                } else {
+                    format!(
+                        "{} · {}",
+                        crate::i18n::t(tr!("My collections")),
+                        crate::format::count(all.len() as u64)
+                    )
+                },
             );
             for c in &all {
                 if collection_row(ui, a, c).clicked() {
@@ -505,9 +513,48 @@ fn collections(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut WorkshopSt
                     state.about = false;
                 }
             }
+            own_search(ui, a, state, search);
         }
     }
-    let _ = cx;
+}
+
+/// BUG-271 r1 (TEAM.md §8d-2): while the search for one's own collections on the network is not
+/// done, the list says so — more may come; a failed search says so with «Retry» (the core tries
+/// it again by itself after a pause).
+fn own_search(
+    ui: &mut Ui,
+    a: &mut Assets,
+    state: &mut WorkshopState,
+    search: evolite_api::workshop::OwnSearch,
+) {
+    use evolite_api::workshop::OwnSearch;
+    let p = a.p;
+    match search {
+        OwnSearch::Done => {}
+        OwnSearch::Searching => {
+            ui.add(crate::components::para(
+                tr!("Looking for your collections…"),
+                13.0,
+                Weight::Regular,
+                p.muted,
+            ));
+        }
+        OwnSearch::Failed => {
+            ui.horizontal_wrapped(|ui| {
+                ui.spacing_mut().item_spacing.x = 12.0;
+                ui.add(crate::components::para(
+                    tr!("Could not find your collections"),
+                    13.0,
+                    Weight::Medium,
+                    p.danger,
+                ));
+                // The list is asked again: the core starts the failed search with it.
+                if crate::components::text_action(ui, a, "sync", tr!("Retry")).clicked() {
+                    state.read_again();
+                }
+            });
+        }
+    }
 }
 
 /// One collection's name, its kind and its models; the whole row opens it.
@@ -547,6 +594,17 @@ fn collection_row(ui: &mut Ui, a: &mut Assets, c: &Collection) -> egui::Response
     let resp = crate::a11y::row_click(ui, &row, &format!("workshop-collection-{}", c.contract));
     crate::components::named(&resp, egui::WidgetType::Button, true, &name);
     resp.on_hover_cursor(egui::CursorIcon::PointingHand)
+}
+
+/// BUG-272 (TEAM.md §8d, В3): a fee or a sum the core estimates — «≈ 0.1941 DASH»; while its
+/// answer is still coming, «Calculating…» (the check took 20 s after a restart); «—» when
+/// nothing is asked.
+pub(super) fn estimate(sum: Option<evolite_api::Duffs>, counting: bool) -> String {
+    match sum {
+        Some(d) => format!("≈ {}", crate::format::amount(d)),
+        None if counting => tr!("Calculating…").to_owned(),
+        None => "—".to_owned(),
+    }
 }
 
 use evolite_api::retry::Retry;

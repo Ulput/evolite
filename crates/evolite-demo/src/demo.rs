@@ -1099,6 +1099,7 @@ pub fn demo_wallet(t: Timestamp) -> Wallet {
         set_aside: Vec::new(),
         // FEAT-0038: no series in the demo's own wallet; presets add their plates.
         series: Vec::new(),
+        own_collections: Default::default(),
         tokens: crate::tokens::demo_tokens(t),
         identity_search: IdentitySearch::Done,
         // Two identities, so the Identity screen shows its choice.

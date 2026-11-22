@@ -22,6 +22,7 @@ use dash_sdk::Sdk;
 use dash_sdk::drive::query::{OrderClause, SelectProjection, WhereClause, WhereOperator};
 use dash_sdk::platform::{DocumentQuery, Fetch, FetchMany};
 use dpp::data_contract::DataContract;
+use dpp::data_contract::accessors::v0::DataContractV0Getters;
 use dpp::document::{Document, DocumentV0Getters};
 use dpp::platform_value::Value;
 use dpp::platform_value::string_encoding::Encoding;
@@ -196,6 +197,51 @@ pub fn sale_of(doc: &Document) -> Option<SaleDoc> {
         price: props.get("price")?.to_integer::<u64>().ok()?,
         at_ms: doc.created_at().unwrap_or(0),
     })
+}
+
+/// BUG-271: the ids a contract of `owner` may have, for its identity nonces `from..=` the one
+/// now (`nonce`, its value only: the high bits mark missed revisions) — by DPP's own
+/// derivation, `generate_data_contract_id_v0`, never a hash of our own (byte order).
+pub fn own_contract_ids(owner: Identifier, from: u64, nonce: u64) -> Vec<Identifier> {
+    let to = nonce & dpp::identity::identity_nonce::IDENTITY_NONCE_VALUE_FILTER;
+    (from.max(1)..=to)
+        .map(|n| DataContract::generate_data_contract_id_v0(owner, n))
+        .collect()
+}
+
+/// BUG-271: `owner`'s contracts for its nonces `from..=nonce`, `fetch`ed 100 ids at a time
+/// (proved: absent ones are not there), each kept in `cache` — so a fresh data folder lists the
+/// identity's own collections. How many of the NFT standard were new there, and the nonce
+/// (its value) read to.
+pub async fn scan_own<F, Fut>(
+    cache: &crate::platform::contracts::ContractCache,
+    owner: Identifier,
+    from: u64,
+    nonce: u64,
+    mut fetch: F,
+) -> Result<(usize, u64), String>
+where
+    F: FnMut(Vec<Identifier>) -> Fut,
+    Fut: Future<Output = Result<Vec<Arc<DataContract>>, String>>,
+{
+    let ids = own_contract_ids(owner, from, nonce);
+    let mut new = 0;
+    for chunk in ids.chunks(PAGE as usize) {
+        for contract in fetch(chunk.to_vec()).await? {
+            // Only the identity's own: an id from its nonce is, but a node's answer is checked.
+            if contract.owner_id() != owner {
+                continue;
+            }
+            if profile::profile(&contract).is_ok() && cache.get(&contract.id()).is_none() {
+                new += 1;
+            }
+            cache.put(contract, evolite_common::wall_secs() as i64)?;
+        }
+    }
+    Ok((
+        new,
+        nonce & dpp::identity::identity_nonce::IDENTITY_NONCE_VALUE_FILTER,
+    ))
 }
 
 /// W7 «Given» as read: how many, over how many transfers read, whether all were, and the

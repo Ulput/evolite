@@ -25,6 +25,7 @@ pub(super) mod name_search;
 mod names;
 pub(super) mod notes;
 pub(super) mod outgoing;
+pub(super) mod own_contracts;
 pub(super) mod platform_sending;
 pub(super) mod pool;
 pub(super) mod pool_identity;

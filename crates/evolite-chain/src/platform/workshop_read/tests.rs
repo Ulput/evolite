@@ -314,6 +314,75 @@ fn a_deflated_svg_model_is_told_from_a_plain_one() {
     assert_eq!(model_picture(&model_doc(4, 3, &[])), None, "no picture");
 }
 
+/// BUG-271 (TEAM.md §8d, kind В1 — «works only where it was made»): a fresh data folder, with
+/// no `contracts.db` from the copy that registered the collection, finds the identity's own
+/// collection through its identity nonces — and keeps it, so the Workshop's list (which reads
+/// the cache) shows it. A contract of the identity that is not of the NFT standard is kept but
+/// is no collection; the nonce's high bits (missed revisions) are not candidates; a later pass
+/// asks only from where the last one stopped.
+#[test]
+fn a_fresh_data_folder_finds_its_own_collections_by_nonce() {
+    use crate::platform::contracts::ContractCache;
+    use dpp::data_contract::accessors::v0::DataContractV0Setters;
+    let dir = std::env::temp_dir().join(format!("evolite-own-contracts-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let cache = ContractCache::new(dir.join("contracts.db"));
+    let owner = id(77);
+    let at = |nonce| DataContract::generate_data_contract_id_v0(owner, nonce);
+    let mut collection = super::profile::tests::contract(&super::profile::tests::schema(), true)
+        .expect("the standard's schema");
+    collection.set_id(at(3));
+    collection.set_owner_id(owner);
+    // Not read-only: not of the standard (a token contract or another of its own).
+    let mut other = super::profile::tests::contract(&super::profile::tests::schema(), false)
+        .expect("a contract of its own");
+    other.set_id(at(5));
+    other.set_owner_id(owner);
+    let network = [collection.clone(), other.clone()];
+    let asked = RefCell::new(Vec::new());
+    let fetch = |ids: Vec<Identifier>| {
+        asked.borrow_mut().push(ids.clone());
+        let found: Vec<Arc<DataContract>> = network
+            .iter()
+            .filter(|c| ids.contains(&c.id()))
+            .map(|c| Arc::new(c.clone()))
+            .collect();
+        std::future::ready(Ok(found))
+    };
+    // Nonce 6, with a missed-revision bit above the value's 40 bits.
+    let nonce = 6 | (1u64 << 45);
+    let (new, to) = run(scan_own(&cache, owner, 1, nonce, fetch)).unwrap();
+    assert_eq!(
+        (new, to),
+        (1, 6),
+        "one collection; read to the nonce's value"
+    );
+    assert_eq!(asked.borrow()[0], (1..=6).map(at).collect::<Vec<_>>());
+    let listed: Vec<Identifier> = cache.nft_contracts().into_iter().map(|(i, _)| i).collect();
+    assert_eq!(
+        listed,
+        vec![at(3)],
+        "the collection; the other contract is no collection"
+    );
+    assert!(cache.get(&at(5)).is_some(), "kept all the same");
+    // The next opening: from nonce 3 (the last three again), nothing new.
+    asked.borrow_mut().clear();
+    let fetch = |ids: Vec<Identifier>| {
+        asked.borrow_mut().push(ids.clone());
+        let found: Vec<Arc<DataContract>> = network
+            .iter()
+            .filter(|c| ids.contains(&c.id()))
+            .map(|c| Arc::new(c.clone()))
+            .collect();
+        std::future::ready(Ok(found))
+    };
+    let (new, _) = run(scan_own(&cache, owner, 4, 6, fetch)).unwrap();
+    assert_eq!(new, 0, "known already");
+    assert_eq!(asked.borrow()[0], (4..=6).map(at).collect::<Vec<_>>());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// A DocumentHistory `transfer` by `by` of `instance` to `to`, in `contract`'s type `kind`.
 fn transfer(by: u32, contract: u32, kind: &str, instance: u32, to: u32, at: u64) -> Document {
     Document::V0(DocumentV0 {

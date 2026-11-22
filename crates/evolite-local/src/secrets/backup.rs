@@ -157,6 +157,11 @@ pub const FOLDER_FILES: &[(&str, bool, &str)] = &[
     ("address-book.json", true, "address_book"),
     ("collections.json", true, "nft, the collections added by id"),
     (
+        "own-contracts.json",
+        false,
+        "the identity nonce its own contracts were looked for up to (BUG-271): the network gives it again",
+    ),
+    (
         "trusted-issuers.json",
         true,
         "nft, the issuers whose pictures are shown",

@@ -722,6 +722,7 @@ impl Real {
             password_each_send: self.password_each_send,
             large_spend: self.large_spend,
             series: self.series_states(),
+            own_collections: self.own_search(),
             identity_links: self.identity_links.load(Ordering::Relaxed),
             notes_error,
             set_aside: self.set_aside_files(),

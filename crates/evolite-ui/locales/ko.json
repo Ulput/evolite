@@ -2753,5 +2753,8 @@
   "Show your NFTs of an evolite collection the Collection did not find": "「컬렉션」이 찾지 못한 evolite 컬렉션의 내 NFT 표시",
   "The Collection shows the NFTs of your identities in this collection too. Only NFT collections of the evolite standard.": "「컬렉션」에 이 컬렉션의 내 아이덴티티 NFT도 표시됩니다. evolite 표준 NFT 컬렉션만 가능합니다.",
   "This contract is not an NFT collection of the evolite standard": "이 컨트랙트는 evolite 표준 NFT 컬렉션이 아닙니다",
-  "This is not a contract id: 44 letters and digits": "컨트랙트 ID가 아닙니다: 영문자와 숫자 44자"
+  "This is not a contract id: 44 letters and digits": "컨트랙트 ID가 아닙니다: 영문자와 숫자 44자",
+  "Calculating…": "계산 중…",
+  "Looking for your collections…": "내 컬렉션을 찾는 중…",
+  "Could not find your collections": "내 컬렉션을 찾지 못했습니다"
 }

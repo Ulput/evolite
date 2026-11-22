@@ -2953,5 +2953,8 @@
   "Show your NFTs of an evolite collection the Collection did not find": "اعرض رموز NFT الخاصة بك من مجموعة evolite لم تجدها «المجموعة»",
   "The Collection shows the NFTs of your identities in this collection too. Only NFT collections of the evolite standard.": "ستعرض «المجموعة» أيضًا رموز NFT لهوياتك في هذه المجموعة. مجموعات NFT بمعيار evolite فقط.",
   "This contract is not an NFT collection of the evolite standard": "هذا العقد ليس مجموعة NFT بمعيار evolite",
-  "This is not a contract id: 44 letters and digits": "هذا ليس معرّف عقد: 44 حرفًا ورقمًا"
+  "This is not a contract id: 44 letters and digits": "هذا ليس معرّف عقد: 44 حرفًا ورقمًا",
+  "Calculating…": "جارٍ الحساب…",
+  "Looking for your collections…": "جارٍ البحث عن مجموعاتك…",
+  "Could not find your collections": "تعذّر العثور على مجموعاتك"
 }

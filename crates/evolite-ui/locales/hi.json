@@ -2793,5 +2793,8 @@
   "Show your NFTs of an evolite collection the Collection did not find": "किसी evolite संग्रह के अपने NFT दिखाएँ जिसे «संग्रह» ने नहीं ढूँढा",
   "The Collection shows the NFTs of your identities in this collection too. Only NFT collections of the evolite standard.": "«संग्रह» इस संग्रह में आपकी पहचानों के NFT भी दिखाएगा। केवल evolite मानक के NFT संग्रह।",
   "This contract is not an NFT collection of the evolite standard": "यह कॉन्ट्रैक्ट evolite मानक का NFT संग्रह नहीं है",
-  "This is not a contract id: 44 letters and digits": "यह कॉन्ट्रैक्ट id नहीं है: 44 अक्षर और अंक"
+  "This is not a contract id: 44 letters and digits": "यह कॉन्ट्रैक्ट id नहीं है: 44 अक्षर और अंक",
+  "Calculating…": "गणना हो रही है…",
+  "Looking for your collections…": "आपके संग्रह खोजे जा रहे हैं…",
+  "Could not find your collections": "आपके संग्रह नहीं मिल सके"
 }

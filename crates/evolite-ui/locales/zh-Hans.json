@@ -2753,5 +2753,8 @@
   "Show your NFTs of an evolite collection the Collection did not find": "显示「收藏」未找到的某个 evolite 收藏中你的 NFT",
   "The Collection shows the NFTs of your identities in this collection too. Only NFT collections of the evolite standard.": "「收藏」也会显示你的身份在该收藏中的 NFT。仅限 evolite 标准的 NFT 收藏。",
   "This contract is not an NFT collection of the evolite standard": "该合约不是 evolite 标准的 NFT 收藏",
-  "This is not a contract id: 44 letters and digits": "这不是合约 ID：应为 44 个字母和数字"
+  "This is not a contract id: 44 letters and digits": "这不是合约 ID：应为 44 个字母和数字",
+  "Calculating…": "正在计算…",
+  "Looking for your collections…": "正在查找你的收藏…",
+  "Could not find your collections": "未能找到你的收藏"
 }

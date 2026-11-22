@@ -2753,5 +2753,8 @@
   "Show your NFTs of an evolite collection the Collection did not find": "Tampilkan NFT Anda dari koleksi evolite yang tidak ditemukan «Koleksi»",
   "The Collection shows the NFTs of your identities in this collection too. Only NFT collections of the evolite standard.": "«Koleksi» juga menampilkan NFT identitas Anda di koleksi ini. Hanya koleksi NFT berstandar evolite.",
   "This contract is not an NFT collection of the evolite standard": "Kontrak ini bukan koleksi NFT berstandar evolite",
-  "This is not a contract id: 44 letters and digits": "Ini bukan id kontrak: 44 huruf dan angka"
+  "This is not a contract id: 44 letters and digits": "Ini bukan id kontrak: 44 huruf dan angka",
+  "Calculating…": "Menghitung…",
+  "Looking for your collections…": "Mencari koleksi Anda…",
+  "Could not find your collections": "Tidak dapat menemukan koleksi Anda"
 }

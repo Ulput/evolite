@@ -67,6 +67,10 @@ impl Real {
             let refused = Err(CoreError::Failed("no identity".into()));
             return (answer(ask, refused), false);
         };
+        // BUG-271 r1: «Retry» (a new read of the list) goes again for a failed search too.
+        if ask == WorkshopAsk::Collections {
+            self.own_contracts_again(&identity);
+        }
         let not_synced = Event::Workshop {
             ask: ask.clone(),
             result: Err(CoreError::NotSynced),

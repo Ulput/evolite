@@ -290,6 +290,8 @@ pub fn run(
             }
             // FEAT-0045 step 2: an automatic copy when one is due (off this thread).
             core.auto_backup_tick();
+            // BUG-271: the identity's own collections looked for on the network, once a run.
+            core.own_contracts_tick();
             // BUG-275: where the payouts to the wallet came from, read once each.
             core.payouts_tick();
             if core.dirty.swap(false, Ordering::Relaxed) {

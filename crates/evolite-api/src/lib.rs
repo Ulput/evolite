@@ -1774,6 +1774,8 @@ pub struct Wallet {
     /// «Workshop» series of this wallet not closed with «×» (FEAT-0038): running, or stopped
     /// with writes left — the plates W12b and W13.
     pub series: Vec<series::SeriesState>,
+    /// BUG-271 r1: the search for the shown identity's own collections on the network.
+    pub own_collections: workshop::OwnSearch,
     /// Core addresses the person named, to pay again (not DashPay contacts), by name.
     pub address_book: Vec<SavedAddress>,
     /// FEAT-0041 R-13: the open wallet has a BIP-39 passphrase — which line the empty wallet's

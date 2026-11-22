@@ -273,6 +273,8 @@ pub(super) fn page(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut Worksh
     let left = |ui: &mut Ui, a: &mut Assets, form: &mut NewCollection| {
         form_card(ui, a, form, now, checked.as_ref());
     };
+    // BUG-272: asked (or about to be) and not answered yet.
+    let counting = fits && checked.is_none();
     let mut right = |ui: &mut Ui, a: &mut Assets| {
         summary(
             ui,
@@ -280,6 +282,7 @@ pub(super) fn page(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut Worksh
             &who,
             credits,
             fee,
+            counting,
             why.as_deref(),
             &mut check_pressed,
             &mut cancel,
@@ -464,6 +467,7 @@ fn summary(
     who: &str,
     credits: Option<Duffs>,
     fee: Option<ContractFee>,
+    counting: bool,
     why: Option<&str>,
     check: &mut bool,
     cancel: &mut bool,
@@ -472,11 +476,7 @@ fn summary(
     let width = ui.available_width();
     let value = crate::theme::mono(13.0, Weight::Medium);
     let shown = |d: Option<Duffs>| d.map_or("—".to_owned(), crate::format::amount);
-    let about = |d: Option<Duffs>| {
-        d.map_or("—".to_owned(), |d| {
-            format!("≈ {}", crate::format::amount(d))
-        })
-    };
+    let about = |d: Option<Duffs>| super::estimate(d, counting);
     crate::components::card(&p, egui::Margin::same(24)).show(ui, |ui| {
         ui.set_width(crate::components::inner(width, 24));
         ui.spacing_mut().item_spacing.y = 10.0;

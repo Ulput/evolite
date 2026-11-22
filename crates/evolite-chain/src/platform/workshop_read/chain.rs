@@ -139,6 +139,41 @@ impl Chain {
         Ok(page.docs.iter().map(model_of).collect())
     }
 
+    /// BUG-271 (the architect, 2026-11-22): the contracts `owner` (base58) registered, found on
+    /// the network, not only those this computer once read. A contract's id comes from the
+    /// identity nonce its registration took, and only identity-level transitions move that
+    /// nonce (contracts, credits, keys): tens of candidates, not thousands. Every one found is
+    /// kept in `contracts.db`; the Workshop's list then shows those of the NFT standard. How
+    /// many of the standard were new, and the nonce read to ([`super::scan_own`]).
+    pub async fn find_own_contracts(&self, owner: &str, from: u64) -> Result<(usize, u64), String> {
+        use dash_sdk::platform::FetchMany;
+        self.ready()?;
+        let sdk = self.sdk().await?;
+        let owner = id_of(owner)?;
+        let nonce = sdk
+            .get_identity_nonce(owner, false, None)
+            .await
+            .map_err(|e| format!("{e:?}"))?;
+        let cache = self.contracts().ok_or("the contracts cache is not open")?;
+        super::scan_own(&cache, owner, from, nonce, |ids| {
+            let sdk = sdk.clone();
+            async move {
+                let found: dash_sdk::query_types::DataContracts =
+                    DataContract::fetch_many(&sdk, ids)
+                        .await
+                        .map_err(|e| format!("{e:?}"))?;
+                let found: Vec<Arc<DataContract>> =
+                    found.into_values().flatten().map(Arc::new).collect();
+                // Into the provider too: a document of one is checked without another read.
+                for contract in &found {
+                    self.register(contract);
+                }
+                Ok(found)
+            }
+        })
+        .await
+    }
+
     /// The ids of the collections `owner` (base58) made, as kept: no network.
     pub fn workshop_collection_ids(&self, owner: &str) -> BTreeSet<String> {
         let (Ok(owner), Some(cache)) = (id_of(owner), self.contracts()) else {

@@ -2753,5 +2753,8 @@
   "Show your NFTs of an evolite collection the Collection did not find": "Hiện các NFT của bạn trong một bộ sưu tập evolite mà «Bộ sưu tập» chưa tìm thấy",
   "The Collection shows the NFTs of your identities in this collection too. Only NFT collections of the evolite standard.": "«Bộ sưu tập» cũng hiện các NFT của danh tính bạn trong bộ sưu tập này. Chỉ các bộ sưu tập NFT theo chuẩn evolite.",
   "This contract is not an NFT collection of the evolite standard": "Hợp đồng này không phải bộ sưu tập NFT theo chuẩn evolite",
-  "This is not a contract id: 44 letters and digits": "Đây không phải id hợp đồng: 44 chữ cái và chữ số"
+  "This is not a contract id: 44 letters and digits": "Đây không phải id hợp đồng: 44 chữ cái và chữ số",
+  "Calculating…": "Đang tính…",
+  "Looking for your collections…": "Đang tìm bộ sưu tập của bạn…",
+  "Could not find your collections": "Không tìm được bộ sưu tập của bạn"
 }

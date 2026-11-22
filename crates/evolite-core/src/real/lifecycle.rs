@@ -57,6 +57,7 @@ impl Real {
             notes: Arc::default(),
             backup_key: Default::default(),
             auto: Default::default(),
+            own_scan: Default::default(),
             payouts: Default::default(),
             first_seen: Default::default(),
             attempts,

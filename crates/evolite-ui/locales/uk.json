@@ -2873,5 +2873,8 @@
   "Show your NFTs of an evolite collection the Collection did not find": "Показати ваші NFT колекції evolite, яку «Колекція» не знайшла",
   "The Collection shows the NFTs of your identities in this collection too. Only NFT collections of the evolite standard.": "«Колекція» покаже й NFT ваших ідентичностей у цій колекції. Лише колекції NFT стандарту evolite.",
   "This contract is not an NFT collection of the evolite standard": "Цей контракт — не колекція NFT стандарту evolite",
-  "This is not a contract id: 44 letters and digits": "Це не id контракту: 44 літери й цифри"
+  "This is not a contract id: 44 letters and digits": "Це не id контракту: 44 літери й цифри",
+  "Calculating…": "Рахуємо…",
+  "Looking for your collections…": "Шукаємо ваші колекції…",
+  "Could not find your collections": "Не вдалося знайти ваші колекції"
 }

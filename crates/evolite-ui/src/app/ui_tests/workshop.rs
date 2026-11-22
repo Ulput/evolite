@@ -542,6 +542,49 @@ fn a_check_said_not_synced_is_asked_again() {
     );
 }
 
+/// BUG-272 (TEAM.md §8d, В3): while the core works the collection's price out, the summary says
+/// «Calculating…», not «—»; then the price.
+#[test]
+fn the_price_says_it_is_being_calculated() {
+    let (_turn, mut kit) = demo_app("workshop", "en");
+    wait_for(&mut kit, "W1", |kit| has_text(kit, "Seasons of the city"));
+    button(&kit, "Create NFT").click();
+    wait_for(&mut kit, "W2", |kit| has_text(kit, "Collection rules"));
+    type_into(&mut kit, "Collection name", "Dash Pins");
+    // The form rests 0.6 s before it asks: the price is coming, and says so.
+    assert!(has_words(&kit, "Calculating…"), "{:?}", painted_texts(&kit));
+    wait_for(&mut kit, "the price", |kit| has_words(kit, "≈ 0.19"));
+    assert!(!has_words(&kit, "Calculating…"));
+}
+
+/// BUG-271 r1 (TEAM.md §8d-2): while the search for one's own collections on the network is not
+/// done, «My collections» says so; a failed search says so with «Retry», which reads the list
+/// again (the core starts the search with it).
+#[test]
+fn the_search_for_ones_collections_is_said() {
+    use evolite_api::workshop::OwnSearch;
+    let (_turn, mut kit) = demo_app("workshop", "en");
+    wait_for(&mut kit, "W1", |kit| has_text(kit, "Seasons of the city"));
+    show_wallet_edited(
+        &mut kit,
+        3,
+        "searching",
+        |w| w.own_collections = OwnSearch::Searching,
+        |kit| has_words(kit, "Looking for your collections…"),
+    );
+    show_wallet_edited(
+        &mut kit,
+        3,
+        "failed",
+        |w| w.own_collections = OwnSearch::Failed,
+        |kit| has_words(kit, "Could not find your collections"),
+    );
+    click_words_of(&mut kit, "Retry");
+    wait_for(&mut kit, "the list read again", |kit| {
+        has_text(kit, "Seasons of the city")
+    });
+}
+
 /// W7 r1 Must (TEAM.md §8d-4): a read of the model's page that failed is said — «Could not read»
 /// with «Retry» — not shown as «—» as while reading, and is not asked again every frame: ten
 /// frames later it was asked once; «Retry» asks it again at once.

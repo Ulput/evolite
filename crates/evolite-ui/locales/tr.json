@@ -2793,5 +2793,8 @@
   "Show your NFTs of an evolite collection the Collection did not find": "«Koleksiyon»un bulamadığı bir evolite koleksiyonundaki NFT'lerinizi gösterin",
   "The Collection shows the NFTs of your identities in this collection too. Only NFT collections of the evolite standard.": "«Koleksiyon», kimliklerinizin bu koleksiyondaki NFT'lerini de gösterir. Yalnızca evolite standardındaki NFT koleksiyonları.",
   "This contract is not an NFT collection of the evolite standard": "Bu sözleşme evolite standardında bir NFT koleksiyonu değil",
-  "This is not a contract id: 44 letters and digits": "Bu bir sözleşme kimliği değil: 44 harf ve rakam"
+  "This is not a contract id: 44 letters and digits": "Bu bir sözleşme kimliği değil: 44 harf ve rakam",
+  "Calculating…": "Hesaplanıyor…",
+  "Looking for your collections…": "Koleksiyonlarınız aranıyor…",
+  "Could not find your collections": "Koleksiyonlarınız bulunamadı"
 }

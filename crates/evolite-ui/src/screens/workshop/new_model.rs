@@ -444,6 +444,8 @@ pub(super) fn page(
         );
         fields(ui, a, form, now);
     };
+    // BUG-272: a model to plan, not planned yet.
+    let counting = form.draft().is_some() && form.mismatch.is_none() && planned.is_none();
     let mut right = |ui: &mut Ui, a: &mut Assets, form: &ModelForm| {
         summary(
             ui,
@@ -451,6 +453,7 @@ pub(super) fn page(
             &who,
             credits,
             plan.as_ref(),
+            counting,
             form.mint().unwrap_or(0),
             why.as_deref(),
             &mut pressed_check,
@@ -922,6 +925,7 @@ fn summary(
     who: &str,
     credits: Option<Duffs>,
     plan: Option<&SeriesPlan>,
+    counting: bool,
     mint: u32,
     why: Option<&str>,
     check: &mut bool,
@@ -930,11 +934,7 @@ fn summary(
     let p = a.p;
     let width = ui.available_width();
     let value = crate::theme::mono(13.0, Weight::Medium);
-    let about = |d: Option<Duffs>| {
-        d.map_or("—".to_owned(), |d| {
-            format!("≈ {}", crate::format::amount(d))
-        })
-    };
+    let about = |d: Option<Duffs>| super::estimate(d, counting);
     let model_fee = plan.and_then(|p| p.model.as_ref()).map(|m| m.fee);
     let copies = plan.map(|p| p.per_write.saturating_mul(mint as Duffs));
     let total = plan.filter(|p| p.model.is_some()).map(|p| p.total);

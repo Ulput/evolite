@@ -2829,5 +2829,8 @@
   "Show your NFTs of an evolite collection the Collection did not find": "Mostrar seus NFTs de uma coleção evolite que a «Coleção» não encontrou",
   "The Collection shows the NFTs of your identities in this collection too. Only NFT collections of the evolite standard.": "A «Coleção» também mostra os NFTs das suas identidades nesta coleção. Somente coleções de NFT do padrão evolite.",
   "This contract is not an NFT collection of the evolite standard": "Este contrato não é uma coleção de NFT do padrão evolite",
-  "This is not a contract id: 44 letters and digits": "Isto não é um id de contrato: 44 letras e dígitos"
+  "This is not a contract id: 44 letters and digits": "Isto não é um id de contrato: 44 letras e dígitos",
+  "Calculating…": "Calculando…",
+  "Looking for your collections…": "Procurando suas coleções…",
+  "Could not find your collections": "Não foi possível encontrar suas coleções"
 }

@@ -52,6 +52,19 @@ pub struct Given {
     pub this_computer_only: bool,
 }
 
+/// BUG-271 r1 (TEAM.md §8d-2): where the search for the shown identity's own collections on
+/// the network stands — said on the Workshop while it is not done.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum OwnSearch {
+    /// Done for this run (or nothing to search): the list is the whole of them.
+    #[default]
+    Done,
+    /// Not done yet: more may come.
+    Searching,
+    /// The last pass failed; it is tried again after a pause, or on «Retry».
+    Failed,
+}
+
 /// One's own collection.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Collection {
