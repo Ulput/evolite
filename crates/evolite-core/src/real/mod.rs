@@ -237,6 +237,8 @@ pub struct Paths {
     pub vault: PathBuf,
     /// Names asked for identities still being made ([`pending::PendingNames`]).
     pub pending_names: PathBuf,
+    /// FEAT-0048: a creation from the pool whose outcome is awaited (`ops/pool_identity.rs`).
+    pub pool_identity: PathBuf,
     /// The wallet's claims on contested names (FEAT-0021, [`name_requests::NameRequests`]).
     pub name_requests: PathBuf,
     /// What the wallet did on Platform ([`journal::Journal`]).
@@ -310,6 +312,7 @@ impl Paths {
             },
             vault: wallets.join("wallet.json"),
             pending_names: wallets.join("pending-names.json"),
+            pool_identity: wallets.join("pool-identity.json"),
             name_requests: wallets.join("name-requests.json"),
             journal: wallets.join("platform-history.json"),
             platform_sync: wallets.join("platform-sync.json"),

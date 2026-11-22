@@ -110,6 +110,8 @@ fn spend(op: &Spend) -> &'static str {
         Spend::FundAddress { .. } => "fund_address",
         Spend::ResumeFundAddress => "resume_fund_address",
         Spend::CreateIdentity { .. } => "create_identity",
+        Spend::CreateIdentityFromPool { .. } => "create_identity_from_pool",
+        Spend::ShieldRefund => "shield_refund",
         Spend::ResumeIdentity => "resume_identity",
         Spend::AddName { .. } => "add_name",
         Spend::SetNameLink { .. } => "set_name_link",

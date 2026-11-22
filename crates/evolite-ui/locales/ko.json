@@ -1,4 +1,9 @@
 {
+  "Nothing was returned to put back into the pool": "풀에 다시 넣을 반환된 금액이 없습니다",
+  "The identity from the pool is still being checked — wait for its outcome": "풀에서 만든 아이덴티티를 아직 확인하는 중입니다. 결과를 기다리세요",
+  "The network does not create an identity from the pool with this amount": "네트워크는 이 금액으로 풀에서 아이덴티티를 만들지 않습니다",
+  "The pool holds less than this — first put DASH into the pool": "풀에 이 금액보다 적게 있습니다. 먼저 DASH를 풀에 넣으세요",
+  "The wallet is not open": "지갑이 열려 있지 않습니다",
   "A payment to a contact is built with the normal fee": "연락처로의 결제는 일반 수수료로 만들어집니다",
   "A restored phrase brings its BIP-39 passphrase with its words": "복원한 구문은 단어와 함께 자신의 BIP-39 암호문을 가져옵니다",
   "Account public key (xpub)": "계정 공개 키 (xpub)",

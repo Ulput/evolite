@@ -40,6 +40,10 @@ pub fn outgoing(op: &Spend, fees: &Fees) -> Option<Duffs> {
         Spend::Shield { amount, .. } => Some(*amount),
         Spend::Unshield { amount } => Some(*amount),
         Spend::TopUpFromPool { amount } => Some(*amount),
+        // FEAT-0048: the whole exit leaves the pool.
+        Spend::CreateIdentityFromPool { exit, .. } => Some(*exit),
+        // FEAT-0048: the wallet's own money goes back into its pool; nothing leaves it.
+        Spend::ShieldRefund => None,
         // The total agreed, in credits (a thousand to a duff).
         Spend::BuyToken { agreed, .. } => {
             Some(Duffs::try_from(agreed / 1_000).unwrap_or(Duffs::MAX))
@@ -130,6 +134,8 @@ mod tests {
             pool_withdrawal: 0,
             shield_from_core: 0,
             pool_top_up: 0,
+            pool_identity_create: 0,
+            pool_identity_exits: Vec::new(),
             credit_withdrawal: 0,
             credit_withdrawal_reserve: 0,
         };

@@ -41,6 +41,33 @@ pub enum PoolError {
     Failed(String),
 }
 
+/// FEAT-0048 r1: what an identity creation from the pool whose result was not proved left
+/// armed in platform-wallet: the notes it spends (their nullifiers), the anchor its proof was
+/// built on, its activity row and the identity id that row derived. While they stay armed,
+/// platform-wallet's pass after each scan judges them: a landing spends them; an anchor Platform
+/// has pruned proves the transition can never execute, and frees them.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PendingCreate {
+    pub identity_id: [u8; 32],
+    pub activity: [u8; 32],
+    pub anchor: [u8; 32],
+    pub nullifiers: Vec<[u8; 32]>,
+}
+
+/// Where the notes of a [`PendingCreate`] stand in the wallet's pool store.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CreateNotes {
+    /// All spent: the transition landed (its identity follows).
+    Spent,
+    /// Still reserved with the transition's anchor: not decided yet.
+    Armed,
+    /// Unspent and not reserved: freed — by platform-wallet's proof that the anchor is gone
+    /// (in this run), or by a restart (nothing proved).
+    Released,
+    /// A note is not in the store (a rescan from scratch): nothing to say.
+    Unknown,
+}
+
 impl PoolError {
     #[cfg(feature = "pool")]
     fn of(error: platform_wallet::PlatformWalletError) -> Self {
@@ -311,7 +338,126 @@ mod imp {
     /// The Core fee rate of a withdrawal from the pool, duffs a byte (the network minimum).
     const CORE_FEE_PER_BYTE: u32 = 1;
 
+    /// FEAT-0048 r1: where the notes of `pending` stand in `store`.
+    pub fn create_notes<S: ShieldedStore>(
+        store: &S,
+        id: SubwalletId,
+        pending: &PendingCreate,
+    ) -> Result<CreateNotes, S::Error> {
+        let notes = store.get_all_notes(id)?;
+        let mut spent = 0;
+        for nullifier in &pending.nullifiers {
+            match notes.iter().find(|note| note.nullifier == *nullifier) {
+                None => return Ok(CreateNotes::Unknown),
+                Some(note) if note.is_spent => spent += 1,
+                Some(_) => {}
+            }
+        }
+        if spent == pending.nullifiers.len() {
+            return Ok(CreateNotes::Spent);
+        }
+        let armed = store.stale_pending_spends(id)?;
+        let is_armed = pending.nullifiers.iter().any(|nullifier| {
+            armed
+                .iter()
+                .any(|(n, anchor, _)| n == nullifier && *anchor == pending.anchor)
+        });
+        Ok(if is_armed {
+            CreateNotes::Armed
+        } else {
+            CreateNotes::Released
+        })
+    }
+
+    /// FEAT-0048 r1: reserves the unspent notes of `pending` again with its anchor and activity
+    /// (a restart dropped the reservation, not the transition), so platform-wallet's pass after
+    /// the next scan judges them as before. How many were armed again.
+    pub fn rearm_create<S: ShieldedStore>(
+        store: &mut S,
+        id: SubwalletId,
+        pending: &PendingCreate,
+    ) -> Result<usize, S::Error> {
+        let notes = store.get_all_notes(id)?;
+        let armed = store.stale_pending_spends(id)?;
+        let mut count = 0;
+        for nullifier in &pending.nullifiers {
+            let unspent = notes
+                .iter()
+                .any(|note| note.nullifier == *nullifier && !note.is_spent);
+            let is_armed = armed.iter().any(|(n, _, _)| n == nullifier);
+            if unspent && !is_armed {
+                store.mark_pending(id, nullifier)?;
+                store.set_pending_spend(id, nullifier, pending.anchor, pending.activity)?;
+                count += 1;
+            }
+        }
+        Ok(count)
+    }
+
     impl Chain {
+        /// FEAT-0048 r1: right after an unproved creation from the pool, what it left armed
+        /// (see [`PendingCreate`]): the newest pending `IdentityCreate` row and the reservations
+        /// linked to it. `None` when there is none to read.
+        pub async fn pending_identity_create(
+            &self,
+            wallet: &PlatformWallet,
+        ) -> Option<PendingCreate> {
+            let coordinator = self.coordinator().await.ok()?;
+            let id = SubwalletId::new(wallet.wallet_id(), ACCOUNT);
+            let store = coordinator.store().read().await;
+            let row = store
+                .get_activity(id, 0, usize::MAX)
+                .ok()?
+                .into_iter()
+                .filter(|entry| entry.status == ShieldedActivityStatus::Pending)
+                .filter(|entry| matches!(entry.kind, ShieldedActivityKind::IdentityCreate { .. }))
+                .max_by_key(|entry| entry.created_at_ms)?;
+            let ShieldedActivityKind::IdentityCreate { identity_id } = row.kind else {
+                return None;
+            };
+            let mine: Vec<_> = store
+                .stale_pending_spends(id)
+                .ok()?
+                .into_iter()
+                .filter(|(_, _, activity)| *activity == Some(row.id))
+                .collect();
+            let anchor = mine.first()?.1;
+            Some(PendingCreate {
+                identity_id,
+                activity: row.id,
+                anchor,
+                nullifiers: mine
+                    .into_iter()
+                    .map(|(nullifier, _, _)| nullifier)
+                    .collect(),
+            })
+        }
+
+        /// FEAT-0048 r1: [`create_notes`] in the wallet's own pool store; `None` while the pool
+        /// is not connected.
+        pub async fn pending_create_notes(
+            &self,
+            wallet: &PlatformWallet,
+            pending: &PendingCreate,
+        ) -> Option<CreateNotes> {
+            let coordinator = self.coordinator().await.ok()?;
+            let id = SubwalletId::new(wallet.wallet_id(), ACCOUNT);
+            let store = coordinator.store().read().await;
+            create_notes(&*store, id, pending).ok()
+        }
+
+        /// FEAT-0048 r1: [`rearm_create`] in the wallet's own pool store.
+        pub async fn rearm_pending_create(
+            &self,
+            wallet: &PlatformWallet,
+            pending: &PendingCreate,
+        ) -> Result<usize, String> {
+            let coordinator = self.coordinator().await?;
+            let id = SubwalletId::new(wallet.wallet_id(), ACCOUNT);
+            let mut store = coordinator.store().write().await;
+            rearm_create(&mut *store, id, pending).map_err(|e| e.to_string())
+        }
+
         /// Connects the wallet's pool: the network-wide note store at `db` (once per run), the
         /// wallet's viewing keys (from the store, else from `seed`, which then saves them),
         /// and the background scan. Needs the masternode lists (proofs). Idempotent.
@@ -470,6 +616,47 @@ mod imp {
             .await?;
             self.read_pool_now().await;
             Ok(())
+        }
+
+        /// FEAT-0048 UC-4 «Shield again»: what Platform returned to the refusal account
+        /// (DIP-17 account 1) for a refused identity from the pool goes back into the pool —
+        /// all platform-wallet's planner can take, less the fee reserve it keeps on the first
+        /// input. The credits shielded; `Failed` when there is nothing to shield.
+        pub async fn shield_refund(
+            &self,
+            wallet: &PlatformWallet,
+            keys: &key_wallet::Wallet,
+        ) -> Result<u64, PoolError> {
+            let refusal = crate::spv::chain::addresses::REFUSAL_ACCOUNT;
+            let coordinator = self.coordinator().await?;
+            let plan = wallet
+                .shielded_shield_preflight(refusal)
+                .await
+                .map_err(PoolError::of)?;
+            let credits = plan.max_shieldable_credits;
+            if !plan.can_shield || credits == 0 {
+                return Err(PoolError::Failed(plan.reason.unwrap_or_else(|| {
+                    tr!("Nothing was returned to put back into the pool").to_owned()
+                })));
+            }
+            let signer =
+                crate::spv::chain::addresses::address_signer_of(wallet, keys, refusal).await?;
+            prove(async move {
+                wallet
+                    .shielded_shield_from_account(
+                        &coordinator,
+                        ACCOUNT,
+                        refusal,
+                        credits,
+                        &signer,
+                        &CachedOrchardProver::new(),
+                    )
+                    .await
+                    .map_err(PoolError::of)
+            })
+            .await?;
+            self.read_pool_now().await;
+            Ok(credits)
         }
 
         /// Takes `credits` out of the pool to `to` (a Platform address, `tdash1…`).
@@ -643,6 +830,59 @@ mod imp {
             Ok(())
         }
 
+        /// FEAT-0048: an identity created privately from the pool, in DIP-9 slot `index` with
+        /// that slot's keys: the notes pay `exit` (credits, one of the network's exits), the
+        /// identity gets it minus the fee, the change stays in the pool. `refusal`: the fresh
+        /// Platform address the money goes to if Platform refuses the creation. Returns the
+        /// new identity's id (base58) and its credits, proved (`None`: that read failed). [`PoolError::Unconfirmed`]: it went out and its result
+        /// is not proved — never sent again (BUG-243); the identity is looked for by its slot.
+        #[allow(clippy::too_many_arguments)]
+        pub async fn create_identity_from_pool(
+            &self,
+            wallet: &PlatformWallet,
+            seed: &[u8],
+            keys: &key_wallet::Wallet,
+            index: u32,
+            exit: u64,
+            refusal: dpp::address_funds::PlatformAddress,
+        ) -> Result<(String, Option<u64>), PoolError> {
+            use dpp::platform_value::string_encoding::Encoding;
+            use dpp::state_transition::public_key_in_creation::IdentityPublicKeyInCreation;
+            let coordinator = self.coordinator().await?;
+            let new_keys = crate::identity::new_identity_keys(keys, index)?;
+            let mut signer = crate::key_signer::KeySigner::default();
+            signer.add_identity_public_keys(new_keys.iter().cloned());
+            let public: Vec<_> = new_keys
+                .into_iter()
+                .map(|(key, _)| {
+                    let creation = IdentityPublicKeyInCreation::from(&key);
+                    (key, creation)
+                })
+                .collect();
+            let id = prove(async move {
+                wallet
+                    .shielded_identity_create_from_pool(
+                        &coordinator,
+                        seed,
+                        ACCOUNT,
+                        index,
+                        public,
+                        exit,
+                        refusal,
+                        &signer,
+                        &CachedOrchardProver::new(),
+                    )
+                    .await
+                    .map_err(PoolError::of)
+            })
+            .await?;
+            let _ = wallet.identity().refresh_identity(&id).await;
+            // r1 Should 1: its credits, proved: the exit less them is the fee taken.
+            let credits = wallet.identity().refresh_identity_balance(&id).await.ok();
+            self.read_pool_now().await;
+            Ok((id.to_string(Encoding::Base58), credits))
+        }
+
         async fn coordinator(
             &self,
         ) -> Result<Arc<platform_wallet::wallet::shielded::NetworkShieldedCoordinator>, String>
@@ -657,9 +897,9 @@ mod imp {
 
     /// Runs a move that builds an Orchard proof on a blocking thread of this runtime: the proof
     /// takes the CPU for tens of seconds and must not hold a worker the loop needs.
-    async fn prove<F>(work: F) -> Result<(), PoolError>
+    async fn prove<F, T>(work: F) -> Result<T, PoolError>
     where
-        F: std::future::Future<Output = Result<(), PoolError>>,
+        F: std::future::Future<Output = Result<T, PoolError>>,
     {
         let handle = tokio::runtime::Handle::current();
         tokio::task::block_in_place(move || handle.block_on(work))
@@ -997,7 +1237,56 @@ impl Chain {
     ) -> Result<(), PoolError> {
         Err(NO_POOL.into())
     }
+
+    #[allow(clippy::too_many_arguments)]
+    pub async fn create_identity_from_pool(
+        &self,
+        _: &PlatformWallet,
+        _: &[u8],
+        _: &key_wallet::Wallet,
+        _: u32,
+        _: u64,
+        _: dpp::address_funds::PlatformAddress,
+    ) -> Result<(String, Option<u64>), PoolError> {
+        Err(NO_POOL.into())
+    }
+
+    pub async fn shield_refund(
+        &self,
+        _: &PlatformWallet,
+        _: &key_wallet::Wallet,
+    ) -> Result<u64, PoolError> {
+        Err(NO_POOL.into())
+    }
+
+    pub async fn pending_identity_create(&self, _: &PlatformWallet) -> Option<PendingCreate> {
+        None
+    }
+
+    pub async fn pending_create_notes(
+        &self,
+        _: &PlatformWallet,
+        _: &PendingCreate,
+    ) -> Option<CreateNotes> {
+        None
+    }
+
+    pub async fn rearm_pending_create(
+        &self,
+        _: &PlatformWallet,
+        _: &PendingCreate,
+    ) -> Result<usize, String> {
+        Err(NO_POOL.into())
+    }
 }
+
+/// FEAT-0048 r1 Should 1: the fee shown for an identity created from the pool, as tenths of the
+/// formula's floor: Drive charges the new identity's processing and storage on top, which
+/// depends on load and version. Testnet T-1 (2026-11-21): 257,687 duffs taken against a floor of
+/// 155,140, ×1.66; shown ×1.8. Each creation's real fee goes to the journal
+/// (`identity_from_pool_fee`) to tune it.
+#[cfg(feature = "pool")]
+const IDENTITY_CREATE_TENTHS: evolite_api::Duffs = 18;
 
 /// The pool's fees, in duffs, from Platform's own formulas at `version` — the ones its builders
 /// carve from the notes and its consensus checks — for a bundle of two Orchard actions (one or
@@ -1006,8 +1295,8 @@ impl Chain {
 pub fn set_fees(fees: &mut evolite_api::Fees, version: &dpp::version::PlatformVersion) {
     use dpp::shielded::{
         compute_minimum_shielded_fee, compute_shielded_identity_balance_write_fee,
-        compute_shielded_identity_top_up_fee, compute_shielded_unshield_fee,
-        compute_shielded_withdrawal_fee,
+        compute_shielded_identity_create_fee, compute_shielded_identity_top_up_fee,
+        compute_shielded_unshield_fee, compute_shielded_withdrawal_fee,
     };
     // Rounded up: a fee is never shown smaller than it is.
     let duffs = |credits: Result<u64, dpp::ProtocolError>| {
@@ -1034,6 +1323,25 @@ pub fn set_fees(fees: &mut evolite_api::Fees, version: &dpp::version::PlatformVe
     if let Some(fee) = duffs(compute_shielded_identity_top_up_fee(ACTIONS, version)) {
         fees.pool_top_up = fee;
     }
+    // FEAT-0048: creating an identity from the pool — its six keys, two actions — and the exits
+    // the network takes now (a fixed set, so every exit of a size looks alike). Platform's
+    // formula is the floor; Drive charges the new identity's processing and storage on top when
+    // it runs it.
+    if let Some(fee) = duffs(compute_shielded_identity_create_fee(
+        ACTIONS,
+        crate::identity::NEW_IDENTITY_KEY_COUNT,
+        version,
+    )) {
+        fees.pool_identity_create = (fee * IDENTITY_CREATE_TENTHS + 9) / 10;
+    }
+    fees.pool_identity_exits = version
+        .drive_abci
+        .validation_and_processing
+        .event_constants
+        .shielded_identity_create_denominations
+        .iter()
+        .map(|credits| (credits / 1000) as evolite_api::Duffs)
+        .collect();
     // A shield from Core: the base fee plus the asset lock's processing cost, both taken from
     // the lock (platform-wallet's `shield_from_asset_lock_pool_fee`).
     let lock_cost = version
@@ -1065,6 +1373,28 @@ pub fn set_fees(_: &mut evolite_api::Fees, _: &dpp::version::PlatformVersion) {}
 #[cfg(all(test, feature = "pool"))]
 mod tests {
     use super::*;
+
+    /// FEAT-0048 T-1, r1 Should 1: the fee shown for an identity from the pool is 1.8 times the
+    /// formula's floor, and not below what testnet really took (257,687 duffs).
+    #[test]
+    fn the_identity_from_the_pool_fee_covers_what_testnet_took() {
+        let version = dpp::version::PlatformVersion::latest();
+        let mut fees = crate::convert::fees(0);
+        set_fees(&mut fees, version);
+        let floor = dpp::shielded::compute_shielded_identity_create_fee(
+            2,
+            crate::identity::NEW_IDENTITY_KEY_COUNT,
+            version,
+        )
+        .unwrap()
+        .div_ceil(1000) as evolite_api::Duffs;
+        assert_eq!(fees.pool_identity_create, (floor * 18 + 9) / 10);
+        assert!(
+            fees.pool_identity_create >= 257_687,
+            "{}",
+            fees.pool_identity_create
+        );
+    }
     use evolite_api::{ActivityKind, Chain as Layer, Proof};
 
     const WAIT: std::time::Duration = std::time::Duration::from_millis(30);
@@ -1277,5 +1607,126 @@ mod address_kind_tests {
                 }
             }
         }
+    }
+}
+
+/// FEAT-0048 r1: where an unproved creation's notes stand, on platform-wallet's own store.
+#[cfg(all(test, feature = "pool"))]
+mod pending_create_tests {
+    use super::imp::{create_notes, rearm_create};
+    use super::{CreateNotes, PendingCreate};
+    use platform_wallet::wallet::shielded::{
+        InMemoryShieldedStore, ShieldedNote, ShieldedStore, SubwalletId,
+    };
+
+    const ANCHOR: [u8; 32] = [7; 32];
+    const ACTIVITY: [u8; 32] = [9; 32];
+
+    fn id() -> SubwalletId {
+        SubwalletId::new([1; 32], 0)
+    }
+
+    fn note(n: u8) -> ShieldedNote {
+        ShieldedNote {
+            position: u64::from(n),
+            cmx: [n; 32],
+            nullifier: [n; 32],
+            block_height: 10,
+            is_spent: false,
+            value: 1_000_000,
+            note_data: Vec::new(),
+        }
+    }
+
+    fn pending() -> PendingCreate {
+        PendingCreate {
+            identity_id: [3; 32],
+            activity: ACTIVITY,
+            anchor: ANCHOR,
+            nullifiers: vec![[21; 32], [22; 32]],
+        }
+    }
+
+    /// A store with the creation's two notes and another, the two armed as platform-wallet
+    /// arms them after an unproved send.
+    fn armed_store() -> InMemoryShieldedStore {
+        let mut store = InMemoryShieldedStore::new();
+        for n in [21, 22, 23] {
+            store.save_note(id(), &note(n)).unwrap();
+        }
+        for n in [21u8, 22] {
+            store.mark_pending(id(), &[n; 32]).unwrap();
+            store
+                .set_pending_spend(id(), &[n; 32], ANCHOR, ACTIVITY)
+                .unwrap();
+        }
+        store
+    }
+
+    /// Armed: not decided. Freed (the pruned-anchor release): released. Spent: landed.
+    #[test]
+    fn the_notes_say_armed_released_or_spent() {
+        let mut store = armed_store();
+        assert_eq!(
+            create_notes(&store, id(), &pending()).unwrap(),
+            CreateNotes::Armed
+        );
+        for n in [21u8, 22] {
+            store.clear_pending(id(), &[n; 32]).unwrap();
+        }
+        assert_eq!(
+            create_notes(&store, id(), &pending()).unwrap(),
+            CreateNotes::Released
+        );
+        for n in [21u8, 22] {
+            store.mark_spent(id(), &[n; 32]).unwrap();
+        }
+        assert_eq!(
+            create_notes(&store, id(), &pending()).unwrap(),
+            CreateNotes::Spent
+        );
+    }
+
+    /// A note the store no longer has (a rescan from scratch): nothing to say.
+    #[test]
+    fn a_missing_note_is_unknown() {
+        let mut store = InMemoryShieldedStore::new();
+        store.save_note(id(), &note(21)).unwrap();
+        assert_eq!(
+            create_notes(&store, id(), &pending()).unwrap(),
+            CreateNotes::Unknown
+        );
+    }
+
+    /// A restart dropped the reservation: arming it again with the same anchor and activity
+    /// puts it back where platform-wallet's pass judges it; a spent note is not armed again,
+    /// and nor is another note.
+    #[test]
+    fn a_dropped_reservation_is_armed_again() {
+        let mut store = InMemoryShieldedStore::new();
+        for n in [21, 22, 23] {
+            store.save_note(id(), &note(n)).unwrap();
+        }
+        assert_eq!(
+            create_notes(&store, id(), &pending()).unwrap(),
+            CreateNotes::Released
+        );
+        assert_eq!(rearm_create(&mut store, id(), &pending()).unwrap(), 2);
+        assert_eq!(
+            create_notes(&store, id(), &pending()).unwrap(),
+            CreateNotes::Armed
+        );
+        let stale = store.stale_pending_spends(id()).unwrap();
+        assert!(
+            stale
+                .iter()
+                .all(|(_, anchor, activity)| *anchor == ANCHOR && *activity == Some(ACTIVITY))
+        );
+        assert_eq!(stale.len(), 2, "the third note is not touched");
+        assert_eq!(
+            rearm_create(&mut store, id(), &pending()).unwrap(),
+            0,
+            "once"
+        );
     }
 }

@@ -1,4 +1,9 @@
 {
+  "Nothing was returned to put back into the pool": "プールに戻すために返金されたものはありません",
+  "The identity from the pool is still being checked — wait for its outcome": "プールからのアイデンティティはまだ確認中です。結果を待ってください",
+  "The network does not create an identity from the pool with this amount": "ネットワークはこの金額ではプールからアイデンティティを作成しません",
+  "The pool holds less than this — first put DASH into the pool": "プールの残高がこの金額より少ないです。先に DASH をプールに入れてください",
+  "The wallet is not open": "ウォレットが開いていません",
   "A payment to a contact is built with the normal fee": "連絡先への支払いは通常の手数料で作成されます",
   "A restored phrase brings its BIP-39 passphrase with its words": "復元したフレーズは、その BIP-39 パスフレーズを単語と一緒に持ってきます",
   "Account public key (xpub)": "アカウントの公開鍵 (xpub)",

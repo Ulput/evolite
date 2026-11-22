@@ -1,4 +1,9 @@
 {
+  "Nothing was returned to put back into the pool": "Không có gì được hoàn lại để đưa trở lại pool",
+  "The identity from the pool is still being checked — wait for its outcome": "Danh tính từ pool vẫn đang được kiểm tra — hãy chờ kết quả",
+  "The network does not create an identity from the pool with this amount": "Mạng không tạo danh tính từ pool với số tiền này",
+  "The pool holds less than this — first put DASH into the pool": "Pool có ít hơn số này — hãy cho DASH vào pool trước",
+  "The wallet is not open": "Ví chưa được mở",
   "A payment to a contact is built with the normal fee": "Thanh toán cho liên hệ được tạo với phí thông thường",
   "A restored phrase brings its BIP-39 passphrase with its words": "Cụm từ được khôi phục mang theo mật khẩu BIP-39 của nó cùng các từ",
   "Account public key (xpub)": "Khóa công khai của tài khoản (xpub)",

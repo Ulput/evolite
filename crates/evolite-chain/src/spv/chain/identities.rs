@@ -463,6 +463,17 @@ impl Chain {
             .map(|m| m.identity.id())
     }
 
+    /// FEAT-0048: the wallet's identity in DIP-9 slot `index`, named or not, as the store knows
+    /// it (a search of the phrase's identities puts it there).
+    pub async fn identity_in_slot(
+        &self,
+        wallet: &PlatformWallet,
+        index: u32,
+    ) -> Option<Identifier> {
+        let state = wallet.state().await;
+        in_slot(&state.identity_manager, wallet.wallet_id(), index).map(|m| m.identity.id())
+    }
+
     /// Finishes what a cut-short [`Self::create_identity`] left: the identity from the tracked
     /// lock (from whatever stage it reached: built, broadcast, InstantSend or ChainLock), then
     /// `label` when the identity has no name. An identity Platform already made from that lock
@@ -894,6 +905,22 @@ impl Chain {
             .await
             .map_err(|e| e.to_string())?;
         Ok(created.id())
+    }
+
+    /// FEAT-0048: registers `label` for the identity of slot `index` just created from the pool
+    /// (`id` base58), from its own credits, as a new identity's name is.
+    pub async fn register_new_identity_name(
+        &self,
+        wallet: &PlatformWallet,
+        keys: &key_wallet::Wallet,
+        index: u32,
+        id: &str,
+        label: &str,
+        needed: evolite_api::Duffs,
+    ) -> Result<(), String> {
+        let id = Identifier::from_string(id, Encoding::Base58).map_err(|e| e.to_string())?;
+        self.register_name(wallet, keys, index, &id, label, (needed, true))
+            .await
     }
 
     /// Registers `label` in DPNS for the identity `id` of slot `index`.

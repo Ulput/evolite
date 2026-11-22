@@ -1,4 +1,9 @@
 {
+  "Nothing was returned to put back into the pool": "Возвращать в пул нечего — Platform ничего не вернула",
+  "The identity from the pool is still being checked — wait for its outcome": "Личность из пула ещё проверяется — дождитесь результата",
+  "The network does not create an identity from the pool with this amount": "Сеть не создаёт личность из пула на такую сумму",
+  "The pool holds less than this — first put DASH into the pool": "В пуле меньше этой суммы — сначала положите DASH в пул",
+  "The wallet is not open": "Кошелёк не открыт",
   "A payment to a contact is built with the normal fee": "Платёж контакту собирается с обычной комиссией",
   "A restored phrase brings its BIP-39 passphrase with its words": "Восстановленная фраза приносит свой пароль BIP-39 вместе со словами",
   "Account public key (xpub)": "Открытый ключ счёта (xpub)",

@@ -3,7 +3,7 @@
 use crate::real::*;
 
 impl Real {
-    fn pending_names(&self) -> pending::PendingNames {
+    pub(in crate::real) fn pending_names(&self) -> pending::PendingNames {
         pending::PendingNames::new(self.paths.pending_names.clone())
     }
 
@@ -975,6 +975,11 @@ impl Real {
         // Below Platform's least lock it would be refused and its DASH stay locked: not made
         // (review r1 must; the form says how much at least).
         let fees = self.fees_now(0).await;
+        // FEAT-0048 r1 Should 2: from Core only with «Features for advanced users», or as the
+        // fallback while the pool cannot create (FEAT-0040's hidden-is-off).
+        if !self.advanced_features && self.pool_creates_identities(&fees) {
+            return Err(CoreError::NotAvailable(evolite_common::ADVANCED_OFF.into()));
+        }
         let needed = fees.name_credits_needed();
         let amount =
             convert::identity_lock(top_up, &fees, label.is_some()).ok_or(CoreError::BadAmount)?;
@@ -991,6 +996,13 @@ impl Real {
         if self.unfinished_identity(&wallet).await.is_some() {
             return Err(CoreError::NotAvailable(
                 tr!("First finish the stopped identity — its money is already locked").into(),
+            ));
+        }
+        // FEAT-0048: its slot may already hold the identity from the pool.
+        if self.pool_identity_waiting() {
+            return Err(CoreError::NotAvailable(
+                tr!("The identity from the pool is still being checked — wait for its outcome")
+                    .into(),
             ));
         }
         let keys = open
@@ -1215,7 +1227,7 @@ async fn name_may_land(
 /// BUG-243 (4): a making or finishing of the identity in slot `index` ended with `error`. When
 /// the identity is made and the error may have come after its name went out, the name is not
 /// known: kept, and the slot not «unfinished» until its quiet ends.
-async fn name_not_seen(
+pub(in crate::real) async fn name_not_seen(
     chain: &Chain,
     wallet: &platform_wallet::PlatformWallet,
     index: u32,

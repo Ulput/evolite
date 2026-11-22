@@ -559,6 +559,211 @@ mod tests {
         std::thread::sleep(Duration::from_secs(10));
     }
 
+    /// FEAT-0048 T-1 on testnet: on a COPY of qa-data, its wallet «Основной» (never werner555):
+    /// into the pool 0.05 when it holds under 0.04, then one identity from the pool with the
+    /// 0.03 exit, then one plain name from its credits. Prints the transition's real fee (the
+    /// exit less the credits the identity got), the credits after, the name's cost, and the
+    /// times: shield → pool pass → create → proof. The customer approved up to 0.05 tDASH.
+    /// `cargo test -p evolite-core --features pool live_identity_from_the_pool -- --ignored --nocapture`
+    #[test]
+    #[ignore = "testnet; spends up to 0.05 tDASH of qa-data's «Основной», on a copy"]
+    fn live_identity_from_the_pool() {
+        use evolite_api::{Duffs, ShieldSource, Snapshot};
+        const WALLET: &str = "Основной";
+        const EXIT: Duffs = 3_000_000;
+        const SHIELD: Duffs = 5_000_000;
+        const ENOUGH_IN_POOL: Duffs = 4_000_000;
+        let t0 = Instant::now();
+        let at = || format!("{:>5} s", t0.elapsed().as_secs());
+        let password = qa_password();
+        let dir = std::env::temp_dir().join("evolite-live-f48-qa");
+        let _ = std::fs::remove_dir_all(&dir);
+        copy_dir(&qa_data(), &dir).expect("a copy of qa-data");
+        let core = Core::real(dir, ArtOptions::default(), || {});
+        core.send(Command::Unlock {
+            password: Password::new(password.clone()),
+        });
+        let target = wait_for(&core, 5, |e| match e {
+            Event::Snapshot(s) if s.vault == VaultState::Unlocked => s
+                .wallets
+                .iter()
+                .find(|w| w.name == WALLET)
+                .map(|w| (w.id.clone(), w.open)),
+            _ => None,
+        });
+        if !target.1 {
+            core.send(Command::SwitchWallet {
+                id: target.0,
+                password: Some(Password::new(password.clone())),
+            });
+        }
+        let open = |s: &Snapshot| s.wallets.iter().any(|w| w.open && w.name == WALLET);
+        // Synced, identities searched, the pool read once; each change of what it waits for
+        // is printed.
+        let mut seen = String::new();
+        let ready = wait_for(&core, 40, |e| match e {
+            Event::Snapshot(s) => {
+                let w = s.wallet.as_ref();
+                let now = format!(
+                    "open {} stage {:?} filters {}/{} search {:?} pool addr {} connecting {:?} checked {:?} failing {:?} shielded {:?}",
+                    open(s),
+                    s.sync.stage,
+                    s.sync.filters_height,
+                    s.sync.tip_height,
+                    w.map(|w| &w.identity_search),
+                    w.is_some_and(|w| w.pool.address.is_some()),
+                    w.map(|w| w.pool.connecting),
+                    w.map(|w| w.pool.checked_at),
+                    w.map(|w| &w.pool.failing),
+                    w.map(|w| w.balances.shielded),
+                );
+                if now != seen {
+                    println!("{} {now}", at());
+                    seen = now;
+                }
+                if !open(s) {
+                    return None;
+                }
+                let w = s.wallet.as_ref()?;
+                (s.sync.stage == SyncStage::Done
+                    && w.identity_search == evolite_api::IdentitySearch::Done
+                    && w.pool.address.is_some()
+                    && !w.pool.connecting
+                    && w.pool.checked_at.is_some())
+                .then(|| w.clone())
+            }
+            _ => None,
+        });
+        println!(
+            "{} ready: core {} pool {} identities {:?} · fee predicted {} · exits {:?}",
+            at(),
+            ready.balances.core,
+            ready.balances.shielded,
+            ready.identities.iter().map(|i| i.slot).collect::<Vec<_>>(),
+            ready.fees.pool_identity_create,
+            ready.fees.pool_identity_exits,
+        );
+        assert!(
+            ready.fees.pool_identity_exits.contains(&EXIT),
+            "0.03 not offered"
+        );
+        assert!(ready.unfinished_pool_identity.is_none());
+        let spend = |op: Spend| Command::Spend {
+            op,
+            password: Some(Password::new(password.clone())),
+            ask: 0,
+            large_confirmed: false,
+        };
+        let done = |core: &Core, what: DoneWhat, minutes: u64| {
+            let started = Instant::now();
+            let r = wait_for(core, minutes, |e| match e {
+                Event::Done {
+                    what: w, result, ..
+                } if *w == what => Some(result.clone()),
+                Event::Progress { .. } => {
+                    println!("  {} progress {e:?}", started.elapsed().as_secs());
+                    None
+                }
+                _ => None,
+            });
+            println!(
+                "{} {what:?} done in {} s: {r:?}",
+                at(),
+                started.elapsed().as_secs()
+            );
+            r
+        };
+        let mut pool = ready.balances.shielded;
+        if pool < ENOUGH_IN_POOL {
+            // Stop, don't top up: the coordinator's rule.
+            assert!(
+                ready.balances.core > SHIELD,
+                "too little in Core ({}) to put 0.05 into the pool",
+                ready.balances.core
+            );
+            core.send(spend(Spend::Shield {
+                from: ShieldSource::Core,
+                amount: SHIELD,
+            }));
+            done(&core, DoneWhat::Shield, 30).expect("the shield");
+            let passed = Instant::now();
+            pool = wait_for(&core, 30, |e| match e {
+                Event::Snapshot(s) if open(s) => s
+                    .wallet
+                    .as_ref()
+                    .map(|w| w.balances.shielded)
+                    .filter(|p| *p >= ENOUGH_IN_POOL),
+                _ => None,
+            });
+            println!(
+                "{} pool pass after the shield: {} s, pool {pool}",
+                at(),
+                passed.elapsed().as_secs()
+            );
+        }
+        let slots: Vec<u32> = ready.identities.iter().map(|i| i.slot).collect();
+        core.send(spend(Spend::CreateIdentityFromPool {
+            name: None,
+            exit: EXIT,
+        }));
+        done(&core, DoneWhat::Identity, 30).expect("the identity from the pool");
+        let made = wait_for(&core, 10, |e| match e {
+            Event::Snapshot(s) if open(s) => {
+                let w = s.wallet.as_ref()?;
+                let new = w.identities.iter().find(|i| !slots.contains(&i.slot))?;
+                let shown = w.identity.as_ref()?;
+                (shown.id == new.id && w.balances.credits_read)
+                    .then(|| (new.clone(), w.balances.credits, w.balances.shielded))
+            }
+            _ => None,
+        });
+        let fee = EXIT - made.1;
+        println!(
+            "{} identity {} slot {}: credits {} duffs · real fee {fee} duffs (predicted {}) · pool {} → {}",
+            at(),
+            made.0.id,
+            made.0.slot,
+            made.1,
+            ready.fees.pool_identity_create,
+            pool,
+            made.2,
+        );
+        let label = format!(
+            "evolitet{}x7",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs()
+                % 1_000_000
+        );
+        core.send(spend(Spend::AddName {
+            name: label.clone(),
+            contest_fund: None,
+            link: None,
+        }));
+        let named = done(&core, DoneWhat::Name, 15);
+        let after = wait_for(&core, 10, |e| match e {
+            Event::Snapshot(s) if open(s) => {
+                let w = s.wallet.as_ref()?;
+                let shown = w.identity.as_ref()?;
+                (shown.id == made.0.id
+                    && shown.names.iter().any(|n| n.label == label)
+                    && w.balances.credits_read
+                    && w.balances.credits < made.1)
+                    .then_some(w.balances.credits)
+            }
+            _ => None,
+        });
+        println!(
+            "{} @{label}: {named:?} · credits {} → {after} · the name cost {} duffs",
+            at(),
+            made.1,
+            made.1 - after
+        );
+        drop(core);
+        std::thread::sleep(Duration::from_secs(10));
+    }
+
     /// BUG-8 on testnet: "Add a wallet", then back to the wallet open before ("Cancel"), and
     /// its password opens it again — the chain of the wallet comes back. Spends nothing.
     /// `cargo test -p evolite-core live_cancel_adding -- --ignored --nocapture`

@@ -1,4 +1,9 @@
 {
+  "Nothing was returned to put back into the pool": "पूल में वापस डालने के लिए कुछ भी वापस नहीं आया",
+  "The identity from the pool is still being checked — wait for its outcome": "पूल से बनी पहचान की अभी जाँच हो रही है — नतीजे का इंतज़ार करें",
+  "The network does not create an identity from the pool with this amount": "नेटवर्क इस राशि से पूल से पहचान नहीं बनाता",
+  "The pool holds less than this — first put DASH into the pool": "पूल में इससे कम है — पहले DASH पूल में डालें",
+  "The wallet is not open": "वॉलेट खुला नहीं है",
   "A payment to a contact is built with the normal fee": "संपर्क को भुगतान सामान्य शुल्क के साथ बनाया जाता है",
   "A restored phrase brings its BIP-39 passphrase with its words": "पुनर्स्थापित फ़्रेज़ अपने शब्दों के साथ अपना BIP-39 पासफ़्रेज़ लाता है",
   "Account public key (xpub)": "खाते की सार्वजनिक कुंजी (xpub)",

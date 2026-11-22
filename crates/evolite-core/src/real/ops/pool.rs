@@ -58,7 +58,7 @@ impl Real {
 
     /// What every pool move needs: the open wallet with its keys and seed, proofs, a connected
     /// pool, and no other move under way (it is marked under way here).
-    fn pool_move(
+    pub(in crate::real) fn pool_move(
         &self,
     ) -> Result<(WalletId, key_wallet::Wallet, Arc<super::super::Seed>), CoreError> {
         let open = self
@@ -92,7 +92,7 @@ impl Real {
 
     /// Runs a pool move off the loop: `Progress { what }` about every second while the proof
     /// is built (an estimate: the prover says nothing), then what `answer` makes of the result.
-    fn pool_job<T: Send + 'static>(
+    pub(in crate::real) fn pool_job<T: Send + 'static>(
         &self,
         what: &'static str,
         job: impl Future<Output = Result<T, CoreError>> + Send + 'static,
@@ -409,7 +409,7 @@ pub(in crate::real) fn stopped_shield_first(
     }
 }
 
-fn pool_error(error: pool::PoolError) -> CoreError {
+pub(in crate::real) fn pool_error(error: pool::PoolError) -> CoreError {
     match error {
         pool::PoolError::Unconfirmed => CoreError::Failed(
             tr!("Handed to the network, but not confirmed yet — do not repeat it: the next pool check shows the outcome").into(),

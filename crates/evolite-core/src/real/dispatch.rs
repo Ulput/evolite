@@ -7,7 +7,9 @@ use super::*;
 /// says (TECH-busy-guard), now said before the password.
 fn busy_refusal(op: &Spend) -> CoreError {
     match op {
-        Spend::CreateIdentity { .. } | Spend::ResumeIdentity => {
+        Spend::CreateIdentity { .. }
+        | Spend::CreateIdentityFromPool { .. }
+        | Spend::ResumeIdentity => {
             CoreError::NotAvailable(tr!("An identity is already being made").into())
         }
         Spend::TopUpIdentity { .. }
@@ -80,6 +82,32 @@ impl Real {
                     },
                 }
             }
+            // FEAT-0048: privately, from the pool; progress as the pool's moves report it.
+            Spend::CreateIdentityFromPool { name, exit } => {
+                match self.create_identity_from_pool(name.as_deref(), exit).await {
+                    Ok(()) => Event::Progress {
+                        what: "identity-from-pool",
+                        fraction: 0.0,
+                    },
+                    Err(e) => Event::Done {
+                        what: DoneWhat::Identity,
+                        result: Err(e),
+                        ask: None,
+                    },
+                }
+            }
+            // FEAT-0048 UC-4: a refused creation's money back into the pool.
+            Spend::ShieldRefund => match self.shield_refund() {
+                Ok(()) => Event::Progress {
+                    what: "shield-refund",
+                    fraction: 0.0,
+                },
+                Err(e) => Event::Done {
+                    what: DoneWhat::Shield,
+                    result: Err(e),
+                    ask: None,
+                },
+            },
             Spend::ResumeIdentity => match self.resume_identity().await {
                 Ok(()) => return (None, true),
                 Err(e) => Event::Done {

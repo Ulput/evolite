@@ -392,6 +392,13 @@ pub enum Record {
         locked: evolite_api::Duffs,
         credited: Option<evolite_api::Duffs>,
     },
+    /// FEAT-0048 r1 Should 1: an identity created from the pool: the exit (one of the network's
+    /// fixed amounts) and the fee Platform took from it, exact — the shown fee is tuned by
+    /// these. No id, no name.
+    IdentityFromPoolFee {
+        exit: evolite_api::Duffs,
+        fee: evolite_api::Duffs,
+    },
     /// A stage of the token search ended (BUG-136, the architect's measure): its name, fixed in
     /// the code (`pages`, `ids`, `versions`, `contracts`, `balances`), its requests and its ms.
     /// Counts only: no id, no token, no amount.
@@ -717,6 +724,9 @@ impl Record {
                 "k": "address_fund", "proof": proof, "locked": rough(*locked),
                 "credited": (*credited).map(rough),
                 "kept": (*credited).map(|c| locked.saturating_sub(c)),
+            }),
+            Record::IdentityFromPoolFee { exit, fee } => json!({
+                "k": "identity_from_pool_fee", "exit": exit, "fee": fee,
             }),
             Record::SeriesEnded {
                 total,

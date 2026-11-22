@@ -1,4 +1,9 @@
 {
+  "Nothing was returned to put back into the pool": "No se devolvió nada que volver a poner en el pool",
+  "The identity from the pool is still being checked — wait for its outcome": "La identidad del pool aún se está comprobando: espere el resultado",
+  "The network does not create an identity from the pool with this amount": "La red no crea una identidad del pool con este importe",
+  "The pool holds less than this — first put DASH into the pool": "El pool tiene menos que esto: primero ponga DASH en el pool",
+  "The wallet is not open": "La cartera no está abierta",
   "A payment to a contact is built with the normal fee": "Un pago a un contacto se crea con la comisión normal",
   "A restored phrase brings its BIP-39 passphrase with its words": "Una frase restaurada trae su frase de contraseña BIP-39 con sus palabras",
   "Account public key (xpub)": "Clave pública de la cuenta (xpub)",

@@ -1,4 +1,9 @@
 {
+  "Nothing was returned to put back into the pool": "Tidak ada yang dikembalikan untuk dimasukkan lagi ke pool",
+  "The identity from the pool is still being checked — wait for its outcome": "Identitas dari pool masih diperiksa — tunggu hasilnya",
+  "The network does not create an identity from the pool with this amount": "Jaringan tidak membuat identitas dari pool dengan jumlah ini",
+  "The pool holds less than this — first put DASH into the pool": "Isi pool kurang dari ini — masukkan DASH ke pool terlebih dahulu",
+  "The wallet is not open": "Dompet belum dibuka",
   "A payment to a contact is built with the normal fee": "Pembayaran ke kontak dibuat dengan biaya normal",
   "A restored phrase brings its BIP-39 passphrase with its words": "Frasa yang dipulihkan membawa frasa sandi BIP-39-nya bersama kata-katanya",
   "Account public key (xpub)": "Kunci publik akun (xpub)",

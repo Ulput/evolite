@@ -17,6 +17,9 @@ use platform_wallet::{ManagedIdentity, derive_identity_auth_keypair};
 
 /// A new identity's keys: (id, purpose, level). DashPay needs ENCRYPTION to send contact
 /// requests and DECRYPTION to read them; TRANSFER moves credits.
+/// FEAT-0048: how many keys a new identity is made with (the pool fee grows with them).
+pub const NEW_IDENTITY_KEY_COUNT: usize = KEYS.len();
+
 const KEYS: [(u32, Purpose, SecurityLevel); 6] = [
     (0, Purpose::AUTHENTICATION, SecurityLevel::MASTER),
     (1, Purpose::AUTHENTICATION, SecurityLevel::HIGH),
@@ -1099,6 +1102,37 @@ mod secret_tests {
             "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
         )
         .unwrap()
+    }
+
+    /// FEAT-0048 AC-T-2: an identity created from the pool in slot `s` has the keys of slot
+    /// `s`, so a restored phrase finds it as any other: its MASTER key 0 hashes to what the
+    /// search of the phrase's identities asks Platform for at that slot.
+    #[test]
+    fn a_pool_identity_is_found_by_its_slot() {
+        use dpp::identity::identity_public_key::accessors::v0::IdentityPublicKeyGettersV0;
+        use platform_wallet::wallet::identity::network::derive_identity_auth_key_hash_from_master;
+        let keys = test_wallet();
+        let master = keys
+            .derive_extended_private_key(&key_wallet::bip32::DerivationPath::master())
+            .unwrap();
+        for slot in [0u32, 1, 7] {
+            let made = new_identity_keys(&keys, slot).unwrap();
+            let (first, _) = &made[0];
+            assert_eq!(first.id(), 0);
+            assert_eq!(first.security_level(), SecurityLevel::MASTER);
+            let searched =
+                derive_identity_auth_key_hash_from_master(&master, crate::network::dash(), slot, 0)
+                    .unwrap();
+            assert_eq!(
+                dpp::util::hash::ripemd160_sha256(first.data().as_slice()),
+                searched
+            );
+        }
+        let other = new_identity_keys(&keys, 1).unwrap();
+        assert_ne!(
+            other[0].0.data(),
+            new_identity_keys(&keys, 0).unwrap()[0].0.data()
+        );
     }
 
     /// FEAT-0020 AC-T10: WIF and hex of a known key on both networks (Dash Core's prefixes:

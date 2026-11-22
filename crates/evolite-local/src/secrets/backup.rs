@@ -175,6 +175,13 @@ pub const FOLDER_FILES: &[(&str, bool, &str)] = &[
         false,
         "an operation not finished: the network goes on with it",
     ),
+    // FEAT-0048: a creation from the pool whose outcome is awaited; on another computer its
+    // identity is found by its slot, and its reservation is the pool's own.
+    (
+        "pool-identity.json",
+        false,
+        "an operation not finished: the network goes on with it",
+    ),
     ("platform-wallet.db", false, "a cache of the network"),
     ("shielded-pool.db", false, "a cache of the network"),
     ("instant-locks.json", false, "a cache of the network"),

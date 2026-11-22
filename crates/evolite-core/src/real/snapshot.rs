@@ -266,6 +266,7 @@ struct WalletRead {
     shown: Option<ShownIdentity>,
     platform: Option<(String, u64)>,
     unfinished: Option<UnfinishedIdentity>,
+    unfinished_pool: Option<UnfinishedPoolIdentity>,
     unfinished_top_up: Option<UnfinishedTopUp>,
     /// Duffs locked for a funding of the Platform address not taken yet (FEAT-0015 stage 2),
     /// and whether it holds a new one back (BUG-160).
@@ -495,6 +496,7 @@ impl Real {
             shown,
             platform,
             unfinished,
+            unfinished_pool,
             unfinished_top_up,
             unfinished_address_fund,
             lost_block,
@@ -680,6 +682,7 @@ impl Real {
             contacts,
             resend,
             unfinished_identity: unfinished,
+            unfinished_pool_identity: unfinished_pool,
             unfinished_top_up,
             unfinished_address_top_up,
             identities,
@@ -733,6 +736,11 @@ impl Real {
             turn::timed("address_inputs", self.chain.address_inputs(&wallet)).await;
         let unfinished =
             turn::timed("unfinished_identity", self.unfinished_identity(&wallet)).await;
+        let unfinished_pool = turn::timed(
+            "unfinished_pool_identity",
+            self.unfinished_pool_identity(&wallet),
+        )
+        .await;
         // Made here and cut short, or found on chain after a restore, and not proved taken by
         // Platform (FEAT-0015 AC-T6, BUG-160).
         let unfinished_address_fund =
@@ -931,6 +939,7 @@ impl Real {
             shown,
             platform,
             unfinished,
+            unfinished_pool,
             unfinished_top_up,
             unfinished_address_fund,
             lost_block,

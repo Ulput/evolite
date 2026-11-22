@@ -1938,6 +1938,8 @@ pub fn fees(coins: usize) -> Fees {
         pool_withdrawal: 226_480,
         shield_from_core: 164_140,
         pool_top_up: 114_360,
+        pool_identity_create: 157_000,
+        pool_identity_exits: vec![3_000_000, 10_000_000, 25_000_000, 50_000_000, 100_000_000],
         // The protocol's minimum at protocol 15 (`state_transition_min_fees.credit_withdrawal`),
         // until the SDK is up ([`platform_fees`]).
         credit_withdrawal: 400_000,

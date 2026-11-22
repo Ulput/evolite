@@ -254,6 +254,18 @@ pub fn declared_on(network: Network, op: &Spend, seen: &Seen, app_cost: Duffs) -
             fees.pool_top_up,
             covers(seen.pool, *amount, fees.pool_top_up),
         ),
+        // FEAT-0048: the fee is taken out of what was returned.
+        Spend::ShieldRefund => of("shield_refund", fees.shield_from_address, true),
+        // FEAT-0048: the fee is taken out of the exit, so the pool must hold the exit itself.
+        Spend::CreateIdentityFromPool { exit, .. } => of(
+            "identity_from_pool",
+            fees.pool_identity_create,
+            covers(
+                seen.pool,
+                exit.saturating_sub(fees.pool_identity_create),
+                fees.pool_identity_create,
+            ),
+        ),
         Spend::AddContact { .. } => of(
             "add_contact",
             fees.contact_request,
@@ -432,6 +444,8 @@ pub(crate) mod tests {
             pool_withdrawal: 28,
             shield_from_core: 29,
             pool_top_up: 30,
+            pool_identity_create: 0,
+            pool_identity_exits: Vec::new(),
             credit_withdrawal: 31,
             credit_withdrawal_reserve: 32,
         }

@@ -919,6 +919,27 @@ pub struct UnfinishedIdentity {
     pub identity: Option<String>,
 }
 
+/// FEAT-0048: an identity created from the pool whose outcome this computer is still waiting
+/// for, or which Platform refused (the plates UC-3 and UC-4). Nothing is sent again while it
+/// is here (BUG-243); a new creation from the pool is not offered.
+#[derive(Clone, PartialEq, Debug)]
+pub struct UnfinishedPoolIdentity {
+    /// The exit it was sent with.
+    pub exit: Duffs,
+    /// The name it was to get.
+    pub name: Option<String>,
+    pub sent_at: Timestamp,
+    /// The Platform address (bech32m) the money goes to if Platform refuses the creation; never
+    /// one to receive on.
+    pub refusal_address: String,
+    /// Platform refused it: the duffs on the refusal address now. `None`: not known yet.
+    pub refused: Option<Duffs>,
+    /// r1: proved never to reach the network (its anchor gone, its notes free again): the money
+    /// is in the pool, and a new creation from the pool may start (the plate says so until
+    /// then).
+    pub not_delivered: bool,
+}
+
 /// A top-up of the identity that Platform has not finished in the wallet's eyes.
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub struct UnfinishedTopUp {
@@ -1462,6 +1483,13 @@ pub struct Fees {
     pub shield_from_core: Duffs,
     /// Out of the pool to the identity's credits.
     pub pool_top_up: Duffs,
+    /// FEAT-0048: the fee of creating an identity from the pool (its six keys, two actions),
+    /// taken from the exit: Platform's floor at this protocol plus what Drive charged on top on
+    /// testnet (T-1). An estimate: the identity's credits are read after.
+    pub pool_identity_create: Duffs,
+    /// FEAT-0048: the exits an identity may be created from the pool with at this protocol,
+    /// smallest first (v13+: 0.03, 0.1, 0.25, 0.5, 1 DASH). Empty: not offered by the network.
+    pub pool_identity_exits: Vec<Duffs>,
     /// Credits withdrawn to a Core address (the identity's credits; Platform pays out later).
     pub credit_withdrawal: Duffs,
     /// What Platform wants on the identity's balance on top of a withdrawal's amount before it
@@ -1665,6 +1693,8 @@ pub struct Wallet {
     /// An identity whose making was cut short: Core funds locked, or the identity made but
     /// not its name. `ResumeIdentity` finishes it.
     pub unfinished_identity: Option<UnfinishedIdentity>,
+    /// FEAT-0048: an identity from the pool not known made yet, or refused.
+    pub unfinished_pool_identity: Option<UnfinishedPoolIdentity>,
     pub fees: Fees,
     pub phrase_words: usize,
     pub created_at: Timestamp,
@@ -2737,6 +2767,21 @@ pub enum Spend {
     /// `None`: an identity without a name (FEAT-0014 R-7). Once made, the new identity is the
     /// chosen one. `Done { what: DoneWhat::Identity }`.
     CreateIdentity { name: Option<String>, top_up: Duffs },
+    /// FEAT-0048: create an identity privately, from the pool (`IdentityCreateFromShieldedPool`):
+    /// the pool's notes pay a fixed `exit` (one of [`Fees::pool_identity_exits`]; 0.03 DASH, 0.25
+    /// for a contested name), the identity gets `exit` minus the fee and the change stays in the
+    /// pool; nothing moves on Core. `name`, if any, is registered from the new identity's credits
+    /// as with [`Spend::CreateIdentity`]. The keys are the next DIP-9 slot's; the address the
+    /// money goes to if Platform refuses the creation is a fresh Platform address of this wallet,
+    /// never shown for receiving (R-3). Progress as [`Event::Progress`] `"identity-from-pool"`;
+    /// `Done { what: DoneWhat::Identity }`; an outcome not known yet is not «failed» (BUG-243).
+    CreateIdentityFromPool { name: Option<String>, exit: Duffs },
+    /// FEAT-0048 UC-4 «Shield again»: what Platform returned to the refusal address for a
+    /// refused identity from the pool ([`UnfinishedPoolIdentity::refused`]) goes back into the
+    /// pool, all of it less the fee; then [`Wallet::unfinished_pool_identity`] goes. Nothing
+    /// moves on Core. Progress as [`Event::Progress`] `"shield-refund"`;
+    /// `Done { what: DoneWhat::Shield }`.
+    ShieldRefund,
     /// Finish [`Wallet::unfinished_identity`] from where it stopped, without locking more.
     /// `Done { what: DoneWhat::Identity }`.
     ResumeIdentity,
@@ -2897,6 +2942,7 @@ impl Spend {
     pub fn takes_identity(&self) -> bool {
         match self {
             Spend::CreateIdentity { .. }
+            | Spend::CreateIdentityFromPool { .. }
             | Spend::ResumeIdentity
             | Spend::TopUpIdentity { .. }
             | Spend::ResumeTopUp
@@ -2916,6 +2962,7 @@ impl Spend {
             | Spend::Send { .. }
             | Spend::SendMixed { .. }
             | Spend::Shield { .. }
+            | Spend::ShieldRefund
             | Spend::Unshield { .. }
             | Spend::TopUpFromPool { .. }
             | Spend::AddContact { .. }
@@ -2935,9 +2982,11 @@ impl Spend {
             Spend::Send { .. } | Spend::SendMixed { .. } => DoneWhat::Send,
             Spend::TopUpIdentity { .. } | Spend::ResumeTopUp => DoneWhat::TopUp,
             Spend::FundAddress { .. } | Spend::ResumeFundAddress => DoneWhat::FundAddress,
-            Spend::CreateIdentity { .. } | Spend::ResumeIdentity => DoneWhat::Identity,
+            Spend::CreateIdentity { .. }
+            | Spend::CreateIdentityFromPool { .. }
+            | Spend::ResumeIdentity => DoneWhat::Identity,
             Spend::AddName { .. } | Spend::SetNameLink { .. } => DoneWhat::Name,
-            Spend::Shield { .. } => DoneWhat::Shield,
+            Spend::Shield { .. } | Spend::ShieldRefund => DoneWhat::Shield,
             Spend::Unshield { .. } => DoneWhat::Unshield,
             Spend::TopUpFromPool { .. } => DoneWhat::PoolTopUp,
             Spend::AddContact { .. } | Spend::AcceptContact { .. } => DoneWhat::Contact,
@@ -3366,6 +3415,8 @@ mod tests {
             pool_withdrawal: 0,
             shield_from_core: 0,
             pool_top_up: 0,
+            pool_identity_create: 0,
+            pool_identity_exits: Vec::new(),
             credit_withdrawal: 0,
             credit_withdrawal_reserve: 0,
         };

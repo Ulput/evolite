@@ -350,6 +350,8 @@ fn zero_fees() -> evolite_api::Fees {
         pool_withdrawal: 0,
         shield_from_core: 0,
         pool_top_up: 0,
+        pool_identity_create: 0,
+        pool_identity_exits: Vec::new(),
         credit_withdrawal: 0,
         credit_withdrawal_reserve: 0,
     }

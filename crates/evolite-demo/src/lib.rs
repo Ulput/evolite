@@ -1361,6 +1361,7 @@ impl Mock {
             Spend::Unshield { .. } => {
                 tr!("This is the mockup's example: there is nothing to unshield")
             }
+            Spend::ShieldRefund => tr!("Nothing was returned to put back into the pool"),
             Spend::TopUpFromPool { .. } => {
                 tr!("This is the mockup's example: there is nothing to top up with")
             }
@@ -1415,6 +1416,16 @@ impl Mock {
             }
             Spend::CreateIdentity { name, top_up } => {
                 let result = self.create_identity(name.as_deref(), top_up);
+                return Event::Done {
+                    what: DoneWhat::Identity,
+                    result,
+                    ask: None,
+                };
+            }
+            // FEAT-0048: privately, from the pool — as the real core: one of the network's exits,
+            // the pool pays it, nothing moves on Core.
+            Spend::CreateIdentityFromPool { name, exit } => {
+                let result = self.create_identity_from_pool(name.as_deref(), exit);
                 return Event::Done {
                     what: DoneWhat::Identity,
                     result,
@@ -1619,6 +1630,78 @@ impl Mock {
     /// "Create an identity" in the demo (FEAT-0014): the next slot gets an identity with the
     /// name, or none, and becomes the chosen one, as the real core answers once Platform has
     /// it. Refused while a creation is cut short, as the real core refuses it.
+    /// FEAT-0048: an identity from the pool: the exit leaves the pool, the identity holds it
+    /// minus the fee, Core is untouched (A1).
+    fn create_identity_from_pool(
+        &mut self,
+        name: Option<&str>,
+        exit: Duffs,
+    ) -> Result<(), CoreError> {
+        let wallet = self
+            .snapshot
+            .wallet
+            .as_mut()
+            .ok_or(CoreError::NotAvailable(NO_WALLET.into()))?;
+        if !wallet.fees.pool_identity_exits.contains(&exit) {
+            return Err(CoreError::NotAvailable(
+                tr!("The network does not create an identity from the pool with this amount")
+                    .into(),
+            ));
+        }
+        if wallet.balances.shielded < exit {
+            return Err(CoreError::NotAvailable(
+                tr!("The pool holds less than this — first put DASH into the pool").into(),
+            ));
+        }
+        let label = name
+            .map(str::trim)
+            .filter(|n| !n.is_empty())
+            .map(evolite_common::dpns::label)
+            .transpose()?;
+        let slot = wallet
+            .identities
+            .iter()
+            .map(|i| i.slot + 1)
+            .max()
+            .unwrap_or(0);
+        let id = format!("{}Pq7Wm4nHk8rSt3uVw5xYz6aBc9dEf2gHj7kLm1n9QwP", slot + 2);
+        let names = label
+            .iter()
+            .map(|label| DpnsName {
+                label: label.clone(),
+                primary: true,
+                state: NameState::Registered,
+                contest: None,
+            })
+            .collect();
+        let keys = wallet
+            .identity
+            .as_ref()
+            .map(|i| i.keys.clone())
+            .unwrap_or_default();
+        wallet.identity = Some(Identity {
+            id: id.clone(),
+            created_at: now(),
+            created_block: 0,
+            revision: 0,
+            key_source: format!("DIP-13 · identity {slot}"),
+            names,
+            keys,
+            profile: None,
+            slot,
+        });
+        wallet.identities.push(IdentityChoice {
+            id,
+            name: label,
+            slot,
+        });
+        let credits = exit - wallet.fees.pool_identity_create;
+        wallet.balances.shielded -= exit;
+        wallet.balances.credits = credits;
+        wallet.balances.all_credits += credits;
+        Ok(())
+    }
+
     fn create_identity(&mut self, name: Option<&str>, top_up: Duffs) -> Result<(), CoreError> {
         let wallet = self
             .snapshot
@@ -2415,6 +2498,65 @@ mod tests {
         assert!(!m.snapshot.advanced_features);
         m.handle(Command::AdvancedFeatures { on: true }, &tx);
         assert!(!m.snapshot.advanced_features, "not taken while locked");
+    }
+
+    /// FEAT-0048 A1: an identity from the pool — the exit leaves the pool, the identity holds
+    /// it minus the fee, Core is untouched; an exit the network does not take, or more than the
+    /// pool holds, is refused with nothing changed.
+    /// FEAT-0048 UC-4: the demo has no refused creation, so «Shield again» is refused and
+    /// nothing moves.
+    #[test]
+    fn shield_again_has_nothing_to_put_back_in_the_demo() {
+        let (mut m, _tx, _rx) = mock();
+        let before = m.snapshot.wallet.as_ref().unwrap().balances.clone();
+        let answer = m.spend(Spend::ShieldRefund);
+        assert!(
+            matches!(
+                &answer,
+                Event::Done {
+                    what: DoneWhat::Shield,
+                    result: Err(_),
+                    ..
+                }
+            ),
+            "{answer:?}"
+        );
+        assert_eq!(m.snapshot.wallet.as_ref().unwrap().balances, before);
+    }
+
+    #[test]
+    fn an_identity_from_the_pool_leaves_core_untouched() {
+        let (mut m, _tx, _rx) = mock();
+        let wallet = m.snapshot.wallet.as_ref().unwrap();
+        let (core, pool, slots) = (
+            wallet.balances.core,
+            wallet.balances.shielded,
+            wallet.identities.len(),
+        );
+        let fee = wallet.fees.pool_identity_create;
+        assert!(
+            m.create_identity_from_pool(Some("kestrel"), 3_000_001)
+                .is_err()
+        );
+        m.snapshot.wallet.as_mut().unwrap().balances.shielded = 1_000_000;
+        assert!(
+            m.create_identity_from_pool(None, 3_000_000).is_err(),
+            "more than the pool"
+        );
+        m.snapshot.wallet.as_mut().unwrap().balances.shielded = pool;
+        assert_eq!(m.snapshot.wallet.as_ref().unwrap().identities.len(), slots);
+
+        m.create_identity_from_pool(Some("kestrel"), 3_000_000)
+            .unwrap();
+        let wallet = m.snapshot.wallet.as_ref().unwrap();
+        assert_eq!(wallet.balances.core, core, "nothing on Core");
+        assert_eq!(wallet.balances.shielded, pool - 3_000_000);
+        assert_eq!(wallet.balances.credits, 3_000_000 - fee);
+        assert_eq!(wallet.identities.len(), slots + 1);
+        assert_eq!(
+            wallet.identities.last().unwrap().name.as_deref(),
+            Some("kestrel")
+        );
     }
 
     #[test]

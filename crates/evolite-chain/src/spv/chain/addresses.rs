@@ -41,10 +41,20 @@ pub(crate) async fn address_signer(
     wallet: &PlatformWallet,
     keys: &key_wallet::Wallet,
 ) -> Result<crate::key_signer::KeySigner, String> {
+    address_signer_of(wallet, keys, ACCOUNT).await
+}
+
+/// [`address_signer`] of the DIP-17 payment account `account` (key class 0): FEAT-0048's
+/// refusal account is 1.
+pub(crate) async fn address_signer_of(
+    wallet: &PlatformWallet,
+    keys: &key_wallet::Wallet,
+    account: u32,
+) -> Result<crate::key_signer::KeySigner, String> {
     let state = wallet.state().await;
     let account = state
         .core_wallet
-        .platform_payment_managed_account_at_index(ACCOUNT)
+        .platform_payment_managed_account_at_index(account)
         .ok_or(tr!("The wallet has no Platform addresses"))?;
     let mut signer = crate::key_signer::KeySigner::default();
     for info in account.addresses.addresses.values() {
@@ -235,7 +245,235 @@ impl Chain {
             document,
         })
     }
+
+    /// FEAT-0048: gives the open wallet the refusal account (DIP-17 account 1, key class 0)
+    /// when it lacks it. The order is platform-wallet's for a DashPay account (contacts.rs):
+    /// the registration goes to the store first, so a failed write changes nothing, and the
+    /// next load has the account before any of its address or balance rows (the store refuses
+    /// rows it cannot place). Then the account goes into the wallet and its managed info, then
+    /// the address provider is rebuilt so the sync watches it. Nothing changes when the account
+    /// is there already; a wallet born before FEAT-0048 gets it at its next open
+    /// ([`Self::open_wallet`]).
+    pub async fn ensure_refusal_account(
+        &self,
+        wallet: &PlatformWallet,
+        keys: &key_wallet::Wallet,
+    ) -> Result<(), String> {
+        if self.add_refusal_account(wallet, keys).await? {
+            wallet
+                .platform()
+                .add_provider(REFUSAL_ACCOUNT)
+                .await
+                .map_err(|e| e.to_string())?;
+        }
+        Ok(())
+    }
+
+    /// FEAT-0048: where Platform returns the money when it refuses to create the identity at
+    /// DIP-9 slot `slot`: the refusal account's address at index `slot`. It comes from the
+    /// account's own address pool, so it is the address the sync watches; a slot past the
+    /// pool's end extends the pool (and the provider) to it. Account 0, the one «Receive»
+    /// shows, is not touched.
+    pub async fn refusal_address(
+        &self,
+        wallet: &PlatformWallet,
+        keys: &key_wallet::Wallet,
+        slot: u32,
+    ) -> Result<PlatformAddress, String> {
+        let added = self.add_refusal_account(wallet, keys).await?;
+        let (address, extended) = {
+            let mut manager = wallet.wallet_manager().write().await;
+            let (held, info) = manager
+                .get_wallet_mut_and_info_mut(&wallet.wallet_id())
+                .ok_or(tr!("The wallet is not open"))?;
+            let xpub = held
+                .accounts
+                .platform_payment_accounts
+                .get(&REFUSAL_KEY)
+                .map(|a| a.account_xpub)
+                .ok_or("No refusal account")?;
+            let pool = &mut info
+                .core_wallet
+                .platform_payment_managed_account_mut(REFUSAL_ACCOUNT, 0)
+                .ok_or("No refusal account")?
+                .addresses;
+            let extended = pool.address_at_index(slot).is_none();
+            if extended {
+                let source = key_wallet::KeySource::Public(xpub);
+                pool.address_range(0, slot + 1, &source)
+                    .map_err(|e| e.to_string())?;
+            }
+            let address = pool
+                .address_at_index(slot)
+                .ok_or("No refusal address at this slot")?;
+            (address, extended)
+        };
+        if added || extended {
+            wallet
+                .platform()
+                .add_provider(REFUSAL_ACCOUNT)
+                .await
+                .map_err(|e| e.to_string())?;
+        }
+        PlatformAddress::try_from(address).map_err(|e| e.to_string())
+    }
+
+    /// FEAT-0048 r1 Must 2: the credits on `address` now, read with proof (`0` when Platform
+    /// holds none there). An `Err` when it could not be read: what starts from it waits.
+    pub async fn address_credits_proved(&self, address: PlatformAddress) -> Result<u64, String> {
+        use dash_sdk::platform::Fetch;
+        use dash_sdk::query_types::AddressInfo;
+        let sdk = self.sdk().await?;
+        let info = AddressInfo::fetch(sdk.as_ref(), address)
+            .await
+            .map_err(|e| e.to_string())?;
+        Ok(info.map_or(0, |info| info.balance))
+    }
+
+    /// FEAT-0048: the credits on slot `slot`'s refusal address as of the last sync of the
+    /// wallet's Platform addresses (the refusal account is synced as account 0 is). `None`: the
+    /// account or that address is not there.
+    pub async fn refusal_credits(&self, wallet: &PlatformWallet, slot: u32) -> Option<u64> {
+        let manager = wallet.wallet_manager().read().await;
+        let account = manager
+            .get_wallet_info(&wallet.wallet_id())?
+            .core_wallet
+            .platform_payment_managed_account(REFUSAL_ACCOUNT, 0)?;
+        let wanted = PlatformAddress::try_from(account.addresses.address_at_index(slot)?).ok()?;
+        Some(
+            account
+                .address_balances
+                .iter()
+                .filter(|(p2pkh, _)| PlatformAddress::P2pkh(p2pkh.to_bytes()) == wanted)
+                .map(|(_, credits)| *credits)
+                .sum(),
+        )
+    }
+
+    /// FEAT-0048: [`Self::ensure_refusal_account`] at an open, before the client syncs the
+    /// wallet's Platform addresses. The keys are made only when the account is missing (once
+    /// per wallet: the store keeps it after). A failure does not stop the open: the account is
+    /// tried again when a refusal address is asked for.
+    pub(super) async fn open_refusal_account(&self, wallet: &PlatformWallet, seed: &[u8; 64]) {
+        let has = {
+            let state = wallet.state().await;
+            state
+                .core_wallet
+                .has_platform_payment_account(REFUSAL_ACCOUNT, 0)
+        };
+        if has {
+            return;
+        }
+        let ensured = match crate::keys_from(seed) {
+            Ok(keys) => self.ensure_refusal_account(wallet, &keys).await,
+            Err(e) => Err(format!("{e:?}")),
+        };
+        if let Err(e) = ensured {
+            crate::diag::platform_failed("ensure_refusal_account", &e);
+        }
+    }
+
+    /// FEAT-0048: stores the refusal account's registration, then puts the account into both
+    /// halves of the open wallet the way key-wallet builds them at birth: the account (its xpub
+    /// from `keys`) into the wallet's accounts, its address pool into the managed info.
+    /// platform-wallet has no call for a Platform payment account. Whether it added anything.
+    async fn add_refusal_account(
+        &self,
+        wallet: &PlatformWallet,
+        keys: &key_wallet::Wallet,
+    ) -> Result<bool, String> {
+        use key_wallet::managed_account::managed_account_collection::ManagedAccountCollection;
+        use platform_wallet::changeset::{
+            AccountAddressPoolEntry, AccountRegistrationEntry, PlatformWalletChangeSet,
+            PlatformWalletPersistence,
+        };
+        // Held from the check to the inserts: two opens at once add it once.
+        let mut manager = wallet.wallet_manager().write().await;
+        let (held, info) = manager
+            .get_wallet_mut_and_info_mut(&wallet.wallet_id())
+            .ok_or(tr!("The wallet is not open"))?;
+        let has_account = held
+            .accounts
+            .platform_payment_accounts
+            .contains_key(&REFUSAL_KEY);
+        let has_managed = info
+            .core_wallet
+            .has_platform_payment_account(REFUSAL_ACCOUNT, 0);
+        if has_account && has_managed {
+            return Ok(false);
+        }
+        // Keys of another wallet would give addresses nobody here can spend.
+        if keys.wallet_id != held.wallet_id {
+            return Err("The keys are not this wallet's".into());
+        }
+        let kind = key_wallet::AccountType::PlatformPayment {
+            account: REFUSAL_ACCOUNT,
+            key_class: 0,
+        };
+        let account = match held.accounts.platform_payment_accounts.get(&REFUSAL_KEY) {
+            Some(account) => account.clone(),
+            None => {
+                let path = kind
+                    .derivation_path(held.network)
+                    .map_err(|e| e.to_string())?;
+                let xpub = keys
+                    .derive_extended_public_key(&path)
+                    .map_err(|e| e.to_string())?;
+                key_wallet::Account::new(Some(held.wallet_id), kind, xpub, held.network)
+                    .map_err(|e| e.to_string())?
+            }
+        };
+        // key-wallet's own conversion makes the pool (DIP-17 gap, the account's xpub): the one
+        // it makes for account 0 at birth.
+        let mut one = key_wallet::AccountCollection::new();
+        one.insert(account.clone()).map_err(|e| e.to_string())?;
+        let managed = ManagedAccountCollection::from_account_collection(&one)
+            .platform_payment_accounts
+            .remove(&REFUSAL_KEY)
+            .ok_or("The refusal account's addresses were not made")?;
+        // The rows a birth writes for a Platform payment account (wallet_lifecycle.rs): its
+        // registration and its pool.
+        let changeset = PlatformWalletChangeSet {
+            account_registrations: vec![AccountRegistrationEntry {
+                account_type: kind,
+                account_xpub: account.account_xpub,
+            }],
+            account_address_pools: vec![AccountAddressPoolEntry {
+                account_type: kind,
+                pool_type: managed.addresses.pool_type,
+                addresses: managed.addresses.addresses.values().cloned().collect(),
+            }],
+            ..Default::default()
+        };
+        let store = self
+            .persister
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
+            .ok_or("The wallet's store is not open")?;
+        store
+            .store(wallet.wallet_id(), changeset)
+            .map_err(|e| format!("{e:?}"))?;
+        if !has_account {
+            held.add_account(kind, Some(account.account_xpub))
+                .map_err(|e| e.to_string())?;
+        }
+        if !has_managed {
+            info.core_wallet.accounts.insert_platform_account(managed);
+        }
+        Ok(true)
+    }
 }
+
+/// FEAT-0048: the Platform account a refused private identity creation pays back to (the
+/// architect: account 1, key class 0, index = the identity's slot). «Receive» shows account 0
+/// only, so these addresses are never handed out for receiving.
+pub(crate) const REFUSAL_ACCOUNT: u32 = 1;
+const REFUSAL_KEY: key_wallet::account::account_collection::PlatformPaymentAccountKey =
+    key_wallet::account::account_collection::PlatformPaymentAccountKey {
+        account: REFUSAL_ACCOUNT,
+        key_class: 0,
+    };
 
 /// A payment's inputs as the transition keeps them (in the addresses' own order), and where
 /// the fee comes from: the payer's place among them, `None` for «Max» of a transfer.
@@ -370,5 +608,227 @@ mod tests {
         assert_ne!(id, withdrawal_document_id(&a, 6, &[0x76, 0xa9]));
         assert_ne!(id, withdrawal_document_id(&b, 5, &[0x76, 0xa9]));
         assert_ne!(id, withdrawal_document_id(&a, 5, &[0x76]));
+    }
+
+    const PHRASE: &str = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
+
+    /// The store's paths in the folder `name` (emptied first when `fresh`).
+    fn store_paths(name: &str, fresh: bool) -> ChainPaths {
+        let dir = std::env::temp_dir().join(format!("evolite-{name}-{}", std::process::id()));
+        if fresh {
+            let _ = std::fs::remove_dir_all(&dir);
+        }
+        ChainPaths {
+            spv: dir.join("spv").join("testnet"),
+            store: dir
+                .join("wallets")
+                .join("testnet")
+                .join("platform-wallet.db"),
+            core_node: dir.join("core-node.txt"),
+        }
+    }
+
+    /// A chain on the store only (no SPV client, no network, so no sync), with the public test
+    /// phrase's wallet open, and its keys.
+    async fn open_on(paths: &ChainPaths) -> (Chain, Arc<PlatformWallet>, key_wallet::Wallet) {
+        let chain = Chain::default();
+        chain.open_store_only(paths).await.expect("the store opens");
+        let (_, wallet) = chain
+            .open_wallet(&crate::seed_from(PHRASE, "").unwrap(), 0)
+            .await
+            .expect("wallet opens");
+        (chain, wallet, crate::keys_of(PHRASE).expect("keys"))
+    }
+
+    /// What says the refusal account is there: in the wallet's accounts (its xpub) and in the
+    /// managed info (its pool's addresses).
+    async fn refusal_account(
+        wallet: &PlatformWallet,
+    ) -> Option<(key_wallet::bip32::ExtendedPubKey, Vec<Address>)> {
+        let manager = wallet.wallet_manager().read().await;
+        let (held, info) = manager.get_wallet_and_info(&wallet.wallet_id())?;
+        let xpub = held
+            .accounts
+            .platform_payment_accounts
+            .get(&REFUSAL_KEY)?
+            .account_xpub;
+        let pool = info
+            .core_wallet
+            .platform_payment_managed_account(REFUSAL_ACCOUNT, 0)?
+            .addresses
+            .all_addresses();
+        Some((xpub, pool))
+    }
+
+    async fn receive_address(wallet: &PlatformWallet) -> PlatformAddress {
+        wallet
+            .platform()
+            .next_unused_receive_address(PlatformPaymentAccountKey {
+                account: 0,
+                key_class: 0,
+            })
+            .await
+            .expect("account 0's address")
+    }
+
+    /// The DIP-17 address m/9'/1'/17'/1'/0'/`slot`, derived from the keys alone.
+    fn dip17_address(keys: &key_wallet::Wallet, slot: u32) -> Address {
+        let path: DerivationPath = format!("m/9'/1'/17'/1'/0'/{slot}").parse().unwrap();
+        let key = keys.derive_public_key(&path).unwrap();
+        Address::p2pkh(
+            &key_wallet::dashcore::PublicKey::new(key),
+            crate::network::dash(),
+        )
+    }
+
+    /// FEAT-0048: the refusal account is stored with the wallet: after a restart the store
+    /// loads (it refuses rows it cannot place) with the account in it, and a second ensure
+    /// changes nothing.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn the_refusal_account_survives_a_restart() {
+        let paths = store_paths("refusal-restart", true);
+        let (chain, wallet, keys) = open_on(&paths).await;
+        let id = wallet.wallet_id();
+        let first = refusal_account(&wallet).await.expect("the open added it");
+        chain.ensure_refusal_account(&wallet, &keys).await.unwrap();
+        assert_eq!(refusal_account(&wallet).await, Some(first.clone()));
+        drop(wallet);
+        chain.stop().await;
+
+        let again = Chain::default();
+        again
+            .open_store_only(&paths)
+            .await
+            .expect("the store loads");
+        let loaded = again
+            .wallet(&id)
+            .await
+            .expect("the wallet comes from the store");
+        assert_eq!(refusal_account(&loaded).await, Some(first.clone()));
+        again.ensure_refusal_account(&loaded, &keys).await.unwrap();
+        assert_eq!(refusal_account(&loaded).await, Some(first));
+        let (_, opened) = again
+            .open_wallet(&crate::seed_from(PHRASE, "").unwrap(), 0)
+            .await
+            .unwrap();
+        assert!(Arc::ptr_eq(&opened, &loaded), "not made again");
+        again.stop().await;
+    }
+
+    /// FEAT-0048: credits on a refusal address are there after a restart, before any sync. The
+    /// balance goes in as the address sync writes one (a `PlatformAddressChangeSet` row through
+    /// the wallet's store); the load gives it back to account 1.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_refusal_balance_survives_a_restart() {
+        use platform_wallet::changeset::{
+            PlatformAddressBalanceEntry, PlatformAddressChangeSet, PlatformWalletChangeSet,
+            PlatformWalletPersistence,
+        };
+        const SLOT: u32 = 3;
+        const CREDITS: u64 = 1_234_567;
+        let paths = store_paths("refusal-balance", true);
+        let (chain, wallet, keys) = open_on(&paths).await;
+        let id = wallet.wallet_id();
+        let address = chain.refusal_address(&wallet, &keys, SLOT).await.unwrap();
+        let p2pkh =
+            key_wallet::PlatformP2PKHAddress::from_address(&dip17_address(&keys, SLOT)).unwrap();
+        let store = chain.persister.lock().unwrap().clone().expect("the store");
+        store
+            .store(
+                id,
+                PlatformWalletChangeSet {
+                    platform_addresses: Some(PlatformAddressChangeSet {
+                        addresses: vec![PlatformAddressBalanceEntry {
+                            wallet_id: id,
+                            account_index: REFUSAL_ACCOUNT,
+                            address_index: SLOT,
+                            address: p2pkh,
+                            funds: dash_sdk::platform::address_sync::AddressFunds {
+                                nonce: 0,
+                                balance: CREDITS,
+                                as_of_height: 10,
+                            },
+                        }],
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                },
+            )
+            .expect("stored");
+        drop(store);
+        drop(wallet);
+        chain.stop().await;
+
+        let again = Chain::default();
+        again
+            .open_store_only(&paths)
+            .await
+            .expect("the store loads");
+        let loaded = again
+            .wallet(&id)
+            .await
+            .expect("the wallet comes from the store");
+        let credits = loaded
+            .state()
+            .await
+            .core_wallet
+            .platform_payment_managed_account(REFUSAL_ACCOUNT, 0)
+            .expect("the refusal account")
+            .address_credit_balance(&p2pkh);
+        assert_eq!(credits, CREDITS);
+        assert_eq!(
+            again.refusal_address(&loaded, &keys, SLOT).await.unwrap(),
+            address
+        );
+        again.stop().await;
+    }
+
+    /// FEAT-0048: each slot has its own refusal address, none is the one «Receive» shows, and
+    /// asking for them leaves account 0 as it was. The address is the DIP-17 one
+    /// (m/9'/1'/17'/1'/0'/slot), also past the pool's first 20.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_refusal_address_is_per_slot_and_not_account_0s() {
+        let (chain, wallet, keys) = open_on(&store_paths("refusal-slots", true)).await;
+        let receive = receive_address(&wallet).await;
+        let first = chain.refusal_address(&wallet, &keys, 0).await.unwrap();
+        let second = chain.refusal_address(&wallet, &keys, 1).await.unwrap();
+        let far = chain.refusal_address(&wallet, &keys, 25).await.unwrap();
+        assert_ne!(first, second);
+        assert_ne!(first, receive);
+        assert_ne!(second, receive);
+        assert_eq!(receive_address(&wallet).await, receive);
+        assert_eq!(
+            chain.refusal_address(&wallet, &keys, 0).await.unwrap(),
+            first
+        );
+        for (slot, address) in [(0, first), (1, second), (25, far)] {
+            let derived = PlatformAddress::try_from(dip17_address(&keys, slot)).unwrap();
+            assert_eq!(derived, address, "slot {slot}");
+        }
+        chain.stop().await;
+    }
+
+    /// FEAT-0048: a restore in a new folder has the refusal account as soon as the wallet is
+    /// open (no sync runs on the store alone), with the same addresses.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_restored_wallet_has_the_refusal_account_before_any_sync() {
+        let (chain, wallet, keys) = open_on(&store_paths("refusal-a", true)).await;
+        let (again, restored, keys_again) = open_on(&store_paths("refusal-b", true)).await;
+        assert!(refusal_account(&restored).await.is_some());
+        assert_eq!(
+            refusal_account(&restored).await,
+            refusal_account(&wallet).await
+        );
+        for slot in [0, 3] {
+            assert_eq!(
+                chain.refusal_address(&wallet, &keys, slot).await.unwrap(),
+                again
+                    .refusal_address(&restored, &keys_again, slot)
+                    .await
+                    .unwrap()
+            );
+        }
+        chain.stop().await;
+        again.stop().await;
     }
 }

@@ -322,5 +322,11 @@ fn every_spend() -> Vec<Spend> {
         },
         // FEAT-0023: an IdentityUpdate the identity pays for, so behind the password (BUG-42).
         Spend::DisconnectApp { id: "app".into() },
+        // FEAT-0048: from the pool, and a refused one's money back into it.
+        Spend::CreateIdentityFromPool {
+            name: None,
+            exit: 3_000_000,
+        },
+        Spend::ShieldRefund,
     ]
 }

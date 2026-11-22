@@ -206,6 +206,7 @@ fn every_file_of_the_wallet_folder_is_decided_for_the_backup() {
         "wallet.json",
         "pending-names.json",
         "fund-intents.json",
+        "pool-identity.json",
         "platform-wallet.db",
     ] {
         assert!(!taken(never), "{never}");

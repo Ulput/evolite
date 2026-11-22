@@ -1,4 +1,9 @@
 {
+  "Nothing was returned to put back into the pool": "Havuza geri koymak için iade edilen bir şey yok",
+  "The identity from the pool is still being checked — wait for its outcome": "Havuzdan kimlik hâlâ denetleniyor — sonucu bekleyin",
+  "The network does not create an identity from the pool with this amount": "Ağ bu tutarla havuzdan kimlik oluşturmaz",
+  "The pool holds less than this — first put DASH into the pool": "Havuzda bundan az var — önce havuza DASH koyun",
+  "The wallet is not open": "Cüzdan açık değil",
   "A payment to a contact is built with the normal fee": "Bir kişiye yapılan ödeme normal ücretle oluşturulur",
   "A restored phrase brings its BIP-39 passphrase with its words": "Geri yüklenen ifade BIP-39 parolasını kelimeleriyle birlikte getirir",
   "Account public key (xpub)": "Hesabın açık anahtarı (xpub)",

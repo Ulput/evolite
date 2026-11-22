@@ -866,6 +866,7 @@ impl Chain {
         let manager = self.manager().await?;
         let id = wallet_id_of(seed)?;
         if let Some(wallet) = manager.get_wallet(&id).await {
+            self.open_refusal_account(&wallet, seed).await;
             return Ok((id, wallet));
         }
         let wallet = manager
@@ -877,6 +878,7 @@ impl Chain {
             )
             .await
             .map_err(|e| e.to_string())?;
+        self.open_refusal_account(&wallet, seed).await;
         // BUG-162: what the running client did before was for no wallet; this one's own pass
         // decides from now on.
         self.status

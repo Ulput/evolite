@@ -1,4 +1,9 @@
 {
+  "Nothing was returned to put back into the pool": "没有退回的资金可放回池中",
+  "The identity from the pool is still being checked — wait for its outcome": "来自池的身份仍在核对中——请等待结果",
+  "The network does not create an identity from the pool with this amount": "网络不会用此金额从池中创建身份",
+  "The pool holds less than this — first put DASH into the pool": "池中少于此金额——请先把 DASH 放入池中",
+  "The wallet is not open": "钱包未打开",
   "A payment to a contact is built with the normal fee": "向联系人付款时使用普通手续费",
   "A restored phrase brings its BIP-39 passphrase with its words": "恢复的助记词会连同单词带来它的 BIP-39 密码短语",
   "Account public key (xpub)": "账户公钥 (xpub)",
