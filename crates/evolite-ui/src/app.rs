@@ -1347,12 +1347,9 @@ fn wallet_busy_indicator(
 /// evolite starts again with the same arguments and this window closes; the new one waits
 /// for this one to let go of the folder. After a resync, or for a new Core node.
 fn start_again(ctx: &egui::Context) {
-    let started = std::env::current_exe().and_then(|exe| {
-        std::process::Command::new(exe)
-            .args(std::env::args_os().skip(1))
-            .spawn()
-    });
-    match started {
+    // 2026-11-22: through relaunch, so a test (a resync done in the demo) never starts the test
+    // binary again beside the person's windows.
+    match crate::relaunch::start(std::env::args_os().skip(1).collect()) {
         Ok(_) => ctx.send_viewport_cmd(egui::ViewportCommand::Close),
         Err(e) => eprintln!("evolite did not start again: {e}"),
     }

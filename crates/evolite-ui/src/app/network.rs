@@ -197,10 +197,7 @@ impl App {
         }
         #[cfg(not(test))]
         {
-            let mut child = std::process::Command::new(std::env::current_exe()?)
-                .args(args)
-                .spawn()?;
-            Ok(Box::new(move || matches!(child.try_wait(), Ok(Some(_)))))
+            crate::relaunch::start(args)
         }
     }
 

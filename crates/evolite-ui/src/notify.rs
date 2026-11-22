@@ -149,13 +149,24 @@ pub fn name_contest(label: &str, result: evolite_api::NameState) -> Option<Note>
     })
 }
 
+#[cfg(test)]
+thread_local! {
+    static SHOWN: std::cell::RefCell<Vec<Note>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// The notes this thread «showed» (tests only: nothing reaches the system).
+#[cfg(test)]
+pub fn shown() -> Vec<Note> {
+    SHOWN.with(|s| s.borrow().clone())
+}
+
 /// Whether this system can show notifications at all.
 pub const SUPPORTED: bool = cfg!(windows);
 
 /// The system side: one icon in the notification area while evolite runs.
 #[derive(Default)]
 pub struct Notifier {
-    #[cfg(windows)]
+    #[cfg(all(windows, not(test)))]
     tray: Option<windows::Tray>,
     /// The last note's contest, for a click on it (FEAT-0021 AC-T22): the identity and the label.
     contest: Option<(String, String)>,
@@ -165,14 +176,21 @@ impl Notifier {
     /// Shows `note`; false when the system refused or has no notifications.
     pub fn show(&mut self, note: &Note) -> bool {
         self.contest = None;
-        #[cfg(windows)]
+        // 2026-11-22: in tests nothing reaches the notification area of the person's desktop;
+        // the note is kept for [`shown`] instead, as if the system showed it.
+        #[cfg(test)]
+        {
+            SHOWN.with(|s| s.borrow_mut().push(note.clone()));
+            true
+        }
+        #[cfg(all(windows, not(test)))]
         {
             if self.tray.is_none() {
                 self.tray = windows::Tray::new();
             }
             self.tray.as_mut().is_some_and(|t| t.show(note))
         }
-        #[cfg(not(windows))]
+        #[cfg(all(not(windows), not(test)))]
         {
             let _ = note;
             false
@@ -269,6 +287,7 @@ mod windows {
     }
 
     /// A message-only window owning the notification-area icon.
+    #[cfg_attr(test, allow(dead_code))]
     pub struct Tray {
         hwnd: HWND,
     }
@@ -284,6 +303,7 @@ mod windows {
         field[units.len()] = 0;
     }
 
+    #[cfg_attr(test, allow(dead_code))]
     impl Tray {
         fn data(&self) -> NOTIFYICONDATAW {
             // SAFETY: NOTIFYICONDATAW is plain data; all zeros is its empty value.
@@ -372,6 +392,18 @@ mod windows {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 2026-11-22: a test's note never reaches the person's notification area (a tray icon and
+    /// a balloon on QA's desktop): it is only kept, «shown».
+    #[test]
+    fn a_note_in_a_test_is_only_kept() {
+        let before = shown().len();
+        let note = app_request("Yappr");
+        assert!(Notifier::default().show(&note));
+        let all = shown();
+        assert_eq!(all.len(), before + 1);
+        assert_eq!(all.last(), Some(&note));
+    }
     use evolite_api::Chain;
 
     fn act(id: u64, amount: i64, proof: Proof, at: Timestamp) -> Activity {
@@ -496,7 +528,6 @@ mod tests {
         assert!(!windows::take_clicked());
         let mut notifier = Notifier {
             contest: Some(("A".into(), "sam".into())),
-            ..Default::default()
         };
         send(NIN_BALLOONUSERCLICK as isize);
         assert_eq!(notifier.take_click(), Some(("A".into(), "sam".into())));

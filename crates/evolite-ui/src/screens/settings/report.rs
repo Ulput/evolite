@@ -312,6 +312,17 @@ fn open(url: &str) -> Result<(), String> {
 
 /// Opens `folder` in the file manager.
 pub fn show(folder: &Path) {
+    // 2026-11-22: a test opens no file manager over the person's windows.
+    #[cfg(test)]
+    {
+        let _ = folder;
+    }
+    #[cfg(not(test))]
+    show_now(folder);
+}
+
+#[cfg(not(test))]
+fn show_now(folder: &Path) {
     let program = if cfg!(windows) {
         "explorer"
     } else if cfg!(target_os = "macos") {

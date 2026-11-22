@@ -54,6 +54,7 @@ mod phrase_warning;
 mod prefs;
 mod private_dir;
 mod qr_scan;
+mod relaunch;
 mod rtl;
 mod screen_state;
 mod screens;
